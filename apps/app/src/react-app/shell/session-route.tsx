@@ -6,7 +6,8 @@ import {
   useRef,
   useState,
 } from "react";
-import { useNavigate, useParams } from "react-router-dom";
+import { useLocation, useNavigate, useParams } from "react-router-dom";
+import { LearningsPane } from "./learnings-route";
 import { toast } from "@/components/ui/sonner";
 import type {
   AgentPartInput,
@@ -306,6 +307,7 @@ async function draftToParts(draft: ComposerDraft, workspaceRoot: string) {
 
 export function SessionRoute() {
   const navigate = useNavigate();
+  const [showLearnings, setShowLearnings] = useState(false);
   const platform = usePlatform();
   const denAuth = useDenAuth();
   const { config: shellConfig } = useShellConfig();
@@ -1588,6 +1590,11 @@ export function SessionRoute() {
     }
   }, [client, local, refreshRouteState]);
 
+  // Leaving Learnings: any session/workspace navigation drops back to the session view.
+  useEffect(() => {
+    setShowLearnings(false);
+  }, [selectedSessionId, selectedWorkspaceId]);
+
   return (
     <WorkspaceProvider
       client={opencodeClient}
@@ -1672,6 +1679,7 @@ export function SessionRoute() {
         onRefreshProviders: sessionProviderAuthStore.refreshProviders,
         onClose: () => sessionProviderAuthStore.closeProviderAuthModal(),
       } : null}
+      mainView={showLearnings ? <LearningsPane /> : undefined}
       settingsSlot={
         <SettingsSurface
           embedded
@@ -1692,6 +1700,7 @@ export function SessionRoute() {
         sessionTabNavRef.current = { ...sessionTabNavRef.current, options: tabs };
       }}
       sidebar={{
+        onShowLearnings: () => setShowLearnings(true),
         workspaceSessionGroups,
         selectedWorkspaceId,
         selectedSessionId,

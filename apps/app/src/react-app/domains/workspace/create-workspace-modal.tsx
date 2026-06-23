@@ -184,7 +184,8 @@ export function CreateWorkspaceModal(props: CreateWorkspaceModalProps) {
         className="flex max-h-[90vh] min-h-0 w-full max-w-xl flex-col overflow-hidden sm:max-w-xl"
       >
         <DialogHeader className="flex-row">
-          {screen !== "chooser" ? (
+          {/* Local-only: the chooser/remote screens are no longer reachable, so no back button. */}
+          {screen === "remote" ? (
             <Button
               onClick={() => setScreen("chooser")}
               disabled={submitting || remoteSubmitting}

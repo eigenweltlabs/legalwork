@@ -34,7 +34,7 @@ const uiExecuteArgsSchema = z.object({
 });
 
 const browserOpenUrlArgsSchema = z.object({
-  url: z.string().describe("The website URL to open in the OpenWork built-in browser."),
+  url: z.string().describe("The website URL to open in the LegalWork built-in browser."),
   provider: z.enum(["auto", "builtin", "external"]).optional().describe("Browser provider. Use builtin or auto; external is reserved for future support."),
 });
 
@@ -43,28 +43,28 @@ const browserSetProxyArgsSchema = z.object({
 });
 
 const OPENWORK_EXTENSION_DISCOVERY_INSTRUCTION =
-  "If the user asks for something you cannot do with obvious built-in tools, check OpenWork extensions before saying the capability is unavailable. Use openwork_extension_list_actions to inspect available extension actions, then call the matching action with openwork_extension_call.";
+  "If the user asks for something you cannot do with obvious built-in tools, check LegalWork extensions before saying the capability is unavailable. Use openwork_extension_list_actions to inspect available extension actions, then call the matching action with openwork_extension_call.";
 
 const OPENWORK_UI_CONTROL_INSTRUCTION =
-  `IMPORTANT: You are running inside the OpenWork desktop app. When the user asks you to open settings, navigate the app, add providers, or control the OpenWork UI in any way, ALWAYS use the openwork_ui_* tools — NOT the browser_* tools. The browser tools are for external websites only. The openwork_ui_* tools control the app directly and are instant (one tool call).
+  `IMPORTANT: You are running inside the LegalWork desktop app. When the user asks you to open settings, navigate the app, add providers, or control the LegalWork UI in any way, ALWAYS use the openwork_ui_* tools — NOT the browser_* tools. The browser tools are for external websites only. The openwork_ui_* tools control the app directly and are instant (one tool call).
 
 To open settings: openwork_ui_execute_action with actionId "settings.panel.open" and args {panel:"general"} (or "ai", "extensions", "permissions", "skills", "appearance", etc.)
 To add a provider: openwork_ui_execute_action with actionId "settings.provider.add" and optional args {providerId:"anthropic"}
 To see what the user sees: openwork_ui_snapshot
 To list all available actions: openwork_ui_list_actions
-To ask what OpenWork can do: openwork_ui_execute_action with actionId "help.capabilities"
+To ask what LegalWork can do: openwork_ui_execute_action with actionId "help.capabilities"
 
 ## Cross-session memory
-When the user asks what they said, what happened, or what was decided in another OpenWork chat/session, treat it as a session-history lookup through the OpenWork UI, not hidden model memory.
+When the user asks what they said, what happened, or what was decided in another LegalWork chat/session, treat it as a session-history lookup through the LegalWork UI, not hidden model memory.
 Use openwork_ui_execute_action with actionId "session.list_sessions" to find matching sessions by title, workspace, topic, or session ID.
 If there is one clear match, use actionId "session.open" with args {sessionId:"..."}, then use actionId "session.read_transcript" with args {count:30} to read recent messages.
 Answer only from the returned transcript. If multiple sessions match, ask a short clarifying question. If the returned transcript is limited or missing the older context needed, say so instead of guessing.
 
-Do NOT use browser_navigate, browser_click, or browser_snapshot to interact with the OpenWork app itself. Those are for browsing external websites.
+Do NOT use browser_navigate, browser_click, or browser_snapshot to interact with the LegalWork app itself. Those are for browsing external websites.
 
 ## Built-in Browser (external websites)
-For web browsing tasks, ALWAYS start with openwork_browser_open_url. It creates/selects a built-in OpenWork browser tab and returns browser_url plus target_id. Use that exact browser_url and target_id for every later browser_snapshot, browser_click, browser_fill, browser_eval, and browser_screenshot call.
-Do not call browser_navigate without a target_id returned by openwork_browser_open_url. Do not use browser_* tools on the OpenWork app target (avoid targets with title "OpenWork" or URLs containing ":5173/#/").`;
+For web browsing tasks, ALWAYS start with openwork_browser_open_url. It creates/selects a built-in LegalWork browser tab and returns browser_url plus target_id. Use that exact browser_url and target_id for every later browser_snapshot, browser_click, browser_fill, browser_eval, and browser_screenshot call.
+Do not call browser_navigate without a target_id returned by openwork_browser_open_url. Do not use browser_* tools on the LegalWork app target (avoid targets with title "LegalWork" or URLs containing ":5173/#/").`;
 
 // ── UI control bridge discovery ──
 
@@ -108,7 +108,7 @@ async function discoverUiBridge(): Promise<UiBridge | null> {
 
 async function uiBridgeRequest(path: string, options: { method?: string; body?: unknown } = {}): Promise<unknown> {
   const bridge = await discoverUiBridge();
-  if (!bridge) return { ok: false, error: "OpenWork UI bridge not available. The desktop app may not be running." };
+  if (!bridge) return { ok: false, error: "LegalWork UI bridge not available. The desktop app may not be running." };
   try {
     const response = await fetch(`${bridge.baseUrl}${path}`, {
       method: options.method || "GET",
@@ -136,11 +136,11 @@ function serverToken(): string {
   return String(process.env.OPENWORK_SERVER_TOKEN || "");
 }
 
-function requireOpenWorkServer(): { url: string; token: string } {
+function requireLegalWorkServer(): { url: string; token: string } {
   const url = serverUrl();
   const token = serverToken();
   if (!url || !token) {
-    throw new Error("OpenWork extension tools are only available when OpenCode is launched by OpenWork.");
+    throw new Error("LegalWork extension tools are only available when OpenCode is launched by LegalWork.");
   }
   return { url, token };
 }
@@ -174,7 +174,7 @@ function errorMessage(payload: unknown, fallback: string): string {
 }
 
 async function postJson(path: string, body: ExtensionActionPayload): Promise<unknown> {
-  const { url, token } = requireOpenWorkServer();
+  const { url, token } = requireLegalWorkServer();
   const response = await fetch(url + path, {
     method: "POST",
     headers: {
@@ -185,7 +185,7 @@ async function postJson(path: string, body: ExtensionActionPayload): Promise<unk
   });
   const payload = await parseResponse(response);
   if (!response.ok) {
-    throw new Error(errorMessage(payload, "OpenWork extension call failed"));
+    throw new Error(errorMessage(payload, "LegalWork extension call failed"));
   }
   return payload;
 }
@@ -200,29 +200,29 @@ function contextPayload(context: OpenCodeContext) {
   };
 }
 
-export const OpenWorkExtensionsPreview = async () => ({
+export const LegalWorkExtensionsPreview = async () => ({
   "experimental.chat.system.transform": async (_input: unknown, output: { system: string[] }) => {
     output.system.push(OPENWORK_EXTENSION_DISCOVERY_INSTRUCTION);
     output.system.push(OPENWORK_UI_CONTROL_INSTRUCTION);
   },
   tool: {
     openwork_extension_list_actions: {
-      description: `List extension actions currently exposed by OpenWork. ${OPENWORK_EXTENSION_DISCOVERY_INSTRUCTION}`,
+      description: `List extension actions currently exposed by LegalWork. ${OPENWORK_EXTENSION_DISCOVERY_INSTRUCTION}`,
       args: listActionsArgsSchema.shape,
       async execute(rawArgs: unknown, context: OpenCodeContext) {
         const args = listActionsArgsSchema.parse(rawArgs);
         const query = args.extensionId ? `?extensionId=${encodeURIComponent(args.extensionId)}` : "";
-        const { url, token } = requireOpenWorkServer();
+        const { url, token } = requireLegalWorkServer();
         const response = await fetch(`${url}/experimental/extensions/actions${query}`, {
           headers: { Authorization: `Bearer ${token}` },
         });
         const payload = await parseResponse(response);
-        if (!response.ok) throw new Error(errorMessage(payload, "OpenWork extension action listing failed"));
+        if (!response.ok) throw new Error(errorMessage(payload, "LegalWork extension action listing failed"));
         return JSON.stringify(addContext(payload, context), null, 2);
       },
     },
     openwork_extension_call: {
-      description: `Call an OpenWork extension action. Use openwork_extension_list_actions first to inspect available actions and schemas. ${OPENWORK_EXTENSION_DISCOVERY_INSTRUCTION}`,
+      description: `Call an LegalWork extension action. Use openwork_extension_list_actions first to inspect available actions and schemas. ${OPENWORK_EXTENSION_DISCOVERY_INSTRUCTION}`,
       args: callArgsSchema.shape,
       async execute(rawArgs: unknown, context: OpenCodeContext) {
         const args = callArgsSchema.parse(rawArgs);
@@ -236,7 +236,7 @@ export const OpenWorkExtensionsPreview = async () => ({
       },
     },
     openwork_ui_snapshot: {
-      description: "Get a snapshot of the current OpenWork UI state: active route, narration, visible actions, and status. Use this to understand what the user sees before taking action.",
+      description: "Get a snapshot of the current LegalWork UI state: active route, narration, visible actions, and status. Use this to understand what the user sees before taking action.",
       args: {},
       async execute() {
         const result = await uiBridgeRequest("/snapshot");
@@ -244,7 +244,7 @@ export const OpenWorkExtensionsPreview = async () => ({
       },
     },
     openwork_ui_list_actions: {
-      description: `List all UI control actions currently available in OpenWork. Each action has an id you can pass to openwork_ui_execute_action. ${OPENWORK_UI_CONTROL_INSTRUCTION}`,
+      description: `List all UI control actions currently available in LegalWork. Each action has an id you can pass to openwork_ui_execute_action. ${OPENWORK_UI_CONTROL_INSTRUCTION}`,
       args: {},
       async execute() {
         const result = await uiBridgeRequest("/actions");
@@ -252,7 +252,7 @@ export const OpenWorkExtensionsPreview = async () => ({
       },
     },
     openwork_ui_execute_action: {
-      description: `Execute an OpenWork UI action by its id. Use openwork_ui_list_actions first to see available actions. ${OPENWORK_UI_CONTROL_INSTRUCTION}`,
+      description: `Execute an LegalWork UI action by its id. Use openwork_ui_list_actions first to see available actions. ${OPENWORK_UI_CONTROL_INSTRUCTION}`,
       args: uiExecuteArgsSchema.shape,
       async execute(rawArgs: unknown) {
         const { actionId, args } = uiExecuteArgsSchema.parse(rawArgs);
@@ -264,7 +264,7 @@ export const OpenWorkExtensionsPreview = async () => ({
       },
     },
     openwork_browser_open_url: {
-      description: "Open a URL in the OpenWork built-in browser and return the exact CDP browser_url and target_id to use for browser_* automation tools. Always use this before browser_snapshot/click/fill/eval for web browsing tasks.",
+      description: "Open a URL in the LegalWork built-in browser and return the exact CDP browser_url and target_id to use for browser_* automation tools. Always use this before browser_snapshot/click/fill/eval for web browsing tasks.",
       args: browserOpenUrlArgsSchema.shape,
       async execute(rawArgs: unknown) {
         const args = browserOpenUrlArgsSchema.parse(rawArgs);
@@ -279,7 +279,7 @@ export const OpenWorkExtensionsPreview = async () => ({
       },
     },
     openwork_browser_set_proxy: {
-      description: "Route all OpenWork built-in browser traffic through an HTTP/SOCKS proxy — for example to fetch search results or pages as seen from another location. Applies to every built-in browser tab (including browser_* automation) until cleared with openwork_browser_clear_proxy. If the user has named proxies configured as OPENWORK_BROWSER_PROXY_<NAME> environment variables, pass env:NAME instead of a raw URL.",
+      description: "Route all LegalWork built-in browser traffic through an HTTP/SOCKS proxy — for example to fetch search results or pages as seen from another location. Applies to every built-in browser tab (including browser_* automation) until cleared with openwork_browser_clear_proxy. If the user has named proxies configured as OPENWORK_BROWSER_PROXY_<NAME> environment variables, pass env:NAME instead of a raw URL.",
       args: browserSetProxyArgsSchema.shape,
       async execute(rawArgs: unknown) {
         const args = browserSetProxyArgsSchema.parse(rawArgs);
@@ -291,7 +291,7 @@ export const OpenWorkExtensionsPreview = async () => ({
       },
     },
     openwork_browser_clear_proxy: {
-      description: "Clear the OpenWork built-in browser proxy and restore the system network settings.",
+      description: "Clear the LegalWork built-in browser proxy and restore the system network settings.",
       args: {},
       async execute() {
         const result = await uiBridgeRequest("/execute", {

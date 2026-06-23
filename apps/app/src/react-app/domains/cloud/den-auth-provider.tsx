@@ -11,6 +11,7 @@ import {
 } from "react";
 
 import {
+  CLOUD_ENABLED,
   clearDenSession,
   createDenClient,
   DenApiError,
@@ -64,6 +65,13 @@ export function DenAuthProvider({ children }: DenAuthProviderProps) {
 
   const refresh = useCallback(async () => {
     const currentRun = ++refreshTokenRef.current;
+    // Local-only build: no Den backend, so skip all /v1/* auth calls.
+    if (!CLOUD_ENABLED) {
+      setUser(null);
+      setError(null);
+      setStatus("signed_out");
+      return;
+    }
     const settings = readDenSettings();
     const token = settings.authToken?.trim() ?? "";
 

@@ -21,7 +21,8 @@ type CreateWorkspaceLocalAction<K extends keyof CreateWorkspaceLocalState = keyo
 
 export function createInitialWorkspaceLocalState(): CreateWorkspaceLocalState {
   return {
-    screen: "chooser",
+    // Local-only build: open straight to the local folder picker (no local/remote chooser).
+    screen: "local",
     selectedFolder: null,
     pickingFolder: false,
     showProgressDetails: false,

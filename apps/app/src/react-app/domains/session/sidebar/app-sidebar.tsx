@@ -6,7 +6,11 @@ import {
   ArchiveRestore,
   ChevronRight,
   FolderPlus,
+  GraduationCap,
   Loader2,
+  Puzzle,
+  Sparkles,
+  SquarePen,
   MoreHorizontal,
   Pencil,
   Pin,
@@ -21,6 +25,7 @@ import {
   Tag,
 } from "lucide-react";
 import { LazyMotion, Reorder, domMax, m, useDragControls } from "motion/react";
+import { useNavigate } from "react-router-dom";
 
 import { getDisplaySessionTitle } from "../../../../app/lib/session-title";
 import type { WorkspaceInfo } from "../../../../app/lib/desktop";
@@ -581,6 +586,7 @@ export type AppSidebarProps = {
   onEditWorkspaceConnection: (workspaceId: string) => void;
   onForgetWorkspace: (workspaceId: string) => void;
   onOpenCreateWorkspace: () => void;
+  onShowLearnings?: () => void;
   onReorderWorkspaces?: (workspaceIds: string[]) => void;
   onStartResize?: React.PointerEventHandler<HTMLButtonElement>;
 };
@@ -600,6 +606,14 @@ function isSessionActivityStatus(status: string | undefined): status is SessionA
 }
 
 export function AppSidebar(props: AppSidebarProps) {
+  const navigate = useNavigate();
+  const goSettings = React.useCallback(
+    (tab: string) => {
+      const ws = props.selectedWorkspaceId.trim();
+      navigate(ws ? `/workspace/${encodeURIComponent(ws)}/settings/${tab}` : `/settings/${tab}`);
+    },
+    [navigate, props.selectedWorkspaceId],
+  );
   const [expandedWorkspaceIds, setExpandedWorkspaceIds] = React.useState<Set<string>>(
     () => new Set(),
   );
@@ -730,48 +744,79 @@ export function AppSidebar(props: AppSidebarProps) {
         className="mac:**:data-[sidebar=sidebar]:bg-transparent"
       >
         <div className="hidden h-14 mac:block mac:titlebar-drag"/>
-        <div className="flex items-baseline gap-2 px-3.5 pt-2.5 pb-1 mac:titlebar-no-drag">
-          <span className="lw-section-eyebrow">Workspaces</span>
-          <span className="text-[10.5px] font-medium tracking-tight text-muted-foreground/70">local folders</span>
+        {/* Top nav — fixed top 40% */}
+        <div className="flex flex-[2] min-h-0 flex-col">
+        <SidebarMenu className="gap-0.5 px-2 pt-1 mac:titlebar-no-drag">
+          <SidebarMenuItem>
+            <SidebarMenuButton onClick={props.onOpenCreateWorkspace}>
+              <SquarePen className="size-4" />
+              <span>New Task</span>
+            </SidebarMenuButton>
+          </SidebarMenuItem>
+          <SidebarMenuItem>
+            <SidebarMenuButton onClick={() => props.onShowLearnings?.()}>
+              <GraduationCap className="size-4" />
+              <span>Learnings</span>
+            </SidebarMenuButton>
+          </SidebarMenuItem>
+          <SidebarMenuItem>
+            <SidebarMenuButton onClick={() => goSettings("skills")}>
+              <Sparkles className="size-4" />
+              <span>Skills</span>
+            </SidebarMenuButton>
+          </SidebarMenuItem>
+          <SidebarMenuItem>
+            <SidebarMenuButton onClick={() => goSettings("extensions/mcp")}>
+              <Puzzle className="size-4" />
+              <span>Integrations</span>
+            </SidebarMenuButton>
+          </SidebarMenuItem>
+        </SidebarMenu>
         </div>
-        <LazyMotion features={domMax}>
-          <m.div
-            layoutScroll
-            data-slot="sidebar-content"
-            data-sidebar="content"
-            className="no-scrollbar flex min-h-0 flex-1 flex-col gap-px overflow-auto [--radius:var(--radius-xl)] group-data-[collapsible=icon]:overflow-hidden"
-          >
-            <Reorder.Group
-              as="div"
-              axis="y"
-              values={props.workspaceSessionGroups.map((group) => group.workspace.id)}
-              onReorder={(workspaceIds) => props.onReorderWorkspaces?.(workspaceIds)}
-              className="flex flex-col gap-px"
-            >
-              {props.workspaceSessionGroups.map((group, index) => (
-                <WorkspaceReorderItem
-                  key={group.workspace.id}
-                  group={group}
-                  className={cn(index === 0 && "mac:pt-0")}
-                  showInitialLoading={props.showInitialLoading}
-                  previewCount={previewCount(group.workspace.id)}
-                  showMoreSessions={showMoreSessions}
-                />
-              ))}
-            </Reorder.Group>
-          </m.div>
-        </LazyMotion>
 
-        <SidebarFooter>
-          <SidebarMenu>
-            <SidebarMenuItem>
-              <SidebarMenuButton onClick={props.onOpenCreateWorkspace}>
-                <Plus className="size-4" />
-                {t("workspace_list.add_workspace")}
-              </SidebarMenuButton>
-            </SidebarMenuItem>
-          </SidebarMenu>
-        </SidebarFooter>
+        {/* Folders — fixed bottom 60% (top edge at 40% from top). */}
+        <div className="flex flex-[3] min-h-0 flex-col border-t border-[color:var(--glass-border)] pt-1">
+          <div className="flex items-baseline gap-2 px-3.5 pt-2 pb-1 mac:titlebar-no-drag">
+            <span className="lw-section-eyebrow">Folders</span>
+          </div>
+          <LazyMotion features={domMax}>
+            <m.div
+              layoutScroll
+              data-slot="sidebar-content"
+              data-sidebar="content"
+              className="no-scrollbar flex min-h-0 flex-1 flex-col gap-px overflow-auto [--radius:var(--radius-xl)] group-data-[collapsible=icon]:overflow-hidden"
+            >
+              <Reorder.Group
+                as="div"
+                axis="y"
+                values={props.workspaceSessionGroups.map((group) => group.workspace.id)}
+                onReorder={(workspaceIds) => props.onReorderWorkspaces?.(workspaceIds)}
+                className="flex flex-col gap-px"
+              >
+                {props.workspaceSessionGroups.map((group, index) => (
+                  <WorkspaceReorderItem
+                    key={group.workspace.id}
+                    group={group}
+                    className={cn(index === 0 && "mac:pt-0")}
+                    showInitialLoading={props.showInitialLoading}
+                    previewCount={previewCount(group.workspace.id)}
+                    showMoreSessions={showMoreSessions}
+                  />
+                ))}
+              </Reorder.Group>
+            </m.div>
+          </LazyMotion>
+          <SidebarFooter>
+            <SidebarMenu>
+              <SidebarMenuItem>
+                <SidebarMenuButton onClick={props.onOpenCreateWorkspace}>
+                  <FolderPlus className="size-4" />
+                  Add folder
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+            </SidebarMenu>
+          </SidebarFooter>
+        </div>
         <SidebarRail
           aria-label={props.onStartResize ? t("session.resize_workspace_column") : undefined}
           title={props.onStartResize ? t("session.resize_workspace_column") : undefined}

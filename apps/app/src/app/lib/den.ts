@@ -1653,7 +1653,14 @@ async function requestJsonRaw<T>(
   options: DenRequestOptions = {},
 ): Promise<RawJsonResponse<T>> {
   const baseUrls = typeof input === "string" ? resolveDenBaseUrls(input) : input;
-  const url = `${resolveRequestBaseUrl(baseUrls, path)}${path}`;
+  const requestBase = resolveRequestBaseUrl(baseUrls, path);
+  // Cloud is optional. When disabled (no Den base URL configured) a relative
+  // `/v1/...` path would build an invalid URL and throw a raw TypeError in the
+  // main process. Fail with a clean, catchable error instead.
+  if (!CLOUD_ENABLED || !/^https?:\/\//i.test(requestBase)) {
+    throw new DenApiError(0, "cloud_disabled", "LegalWork Cloud is not available in this build.");
+  }
+  const url = `${requestBase}${path}`;
   const headers: Record<string, string> = { Accept: "application/json" };
   const token = options.token?.trim() ?? "";
   if (token) {

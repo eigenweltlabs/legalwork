@@ -1,12 +1,12 @@
 import { describe, expect, test } from "bun:test";
 import { resolve } from "node:path";
-import { OpenWorkCapabilitiesKnowledge } from "./openwork-capabilities-knowledge.js";
+import { LegalWorkCapabilitiesKnowledge } from "./openwork-capabilities-knowledge.js";
 
-describe("OpenWork capabilities knowledge plugin", () => {
+describe("LegalWork capabilities knowledge plugin", () => {
   test("retrieves Slack connection guidance from bundled docs", async () => {
     process.env.OPENWORK_DOCS_DIR = resolve(import.meta.dir, "../../../../packages/docs");
 
-    const plugin = await OpenWorkCapabilitiesKnowledge();
+    const plugin = await LegalWorkCapabilitiesKnowledge();
     const search = await plugin.tool.openwork_docs_search.execute({ query: "how can i connect slack", limit: 3 });
 
     expect(search).toContain("start-here/connect-your-stack/connect-slack-mcp.mdx");
