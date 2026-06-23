@@ -106,7 +106,7 @@ export function DenAuthProvider({ children }: DenAuthProviderProps) {
       setError(
         nextError instanceof Error
           ? nextError.message
-          : "Failed to restore OpenWork Cloud session.",
+          : "Failed to restore LegalWork Cloud session.",
       );
       setStatus("signed_out");
     }
@@ -153,7 +153,7 @@ export function DenAuthProvider({ children }: DenAuthProviderProps) {
           .exchangeDesktopHandoff(parsed.grant)
           .then((result) => {
             if (!result.token) {
-              throw new Error("Failed to sign in to OpenWork Cloud.");
+              throw new Error("Failed to sign in to LegalWork Cloud.");
             }
 
             // Persist the API base URL the exchange actually succeeded
@@ -183,7 +183,7 @@ export function DenAuthProvider({ children }: DenAuthProviderProps) {
               message:
                 error instanceof Error
                   ? error.message
-                  : "Failed to sign in to OpenWork Cloud.",
+                  : "Failed to sign in to LegalWork Cloud.",
             });
           });
       }

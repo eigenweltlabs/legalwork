@@ -417,7 +417,7 @@ const UserMessage = React.memo(
                 {message.parts.some((part) => part.type === "text" && part.text) ? (
                   <MessageContent
                     layoutId={message.id}
-                    className="bg-muted text-foreground max-w-[85%] rounded-3xl px-5 py-2.5 whitespace-pre-wrap sm:max-w-[75%]"
+                    className="border border-[rgba(35,82,222,0.22)] bg-[rgba(35,82,222,0.10)] text-foreground max-w-[85%] rounded-3xl rounded-br-lg px-5 py-2.5 whitespace-pre-wrap shadow-[0_6px_18px_-8px_rgba(35,82,222,0.35),inset_0_1px_0_rgba(255,255,255,0.25)] backdrop-blur-sm sm:max-w-[75%]"
                   >
                     {renderUserTextWithSkillChips(message.parts.map((part) => (part.type === "text" ? part.text : "")).join(""))}
                   </MessageContent>

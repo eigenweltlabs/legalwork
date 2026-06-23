@@ -1,6 +1,6 @@
 # App Architecture (`src/react-app/` + `src/app/`)
 
-`apps/app` is a React 19 + Vite app. It is the UI for every OpenWork
+`apps/app` is a React 19 + Vite app. It is the UI for every LegalWork
 deployment: the Electron desktop shell loads it, plain web serves it, and it
 talks to openwork-server / opencode / Den over HTTP. (The Solid runtime it
 replaced is fully removed; `src/index.react.tsx` is the only entry.)

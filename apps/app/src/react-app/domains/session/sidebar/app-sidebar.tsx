@@ -24,7 +24,7 @@ import { LazyMotion, Reorder, domMax, m, useDragControls } from "motion/react";
 
 import { getDisplaySessionTitle } from "../../../../app/lib/session-title";
 import type { WorkspaceInfo } from "../../../../app/lib/desktop";
-import { OpenWorkDenHelpLink } from "../../workspace/openwork-den-help-link";
+import { LegalWorkDenHelpLink } from "../../workspace/openwork-den-help-link";
 import type {
   WorkspaceConnectionState,
   WorkspaceSessionGroup,
@@ -509,7 +509,7 @@ function RemoteConnectionIssueCard(props: {
             >
               {props.message}
             </div>
-            <OpenWorkDenHelpLink />
+            <LegalWorkDenHelpLink />
             <div className="mt-2 flex flex-wrap gap-1.5">
               {props.canRecover ? (
                 <Button
@@ -730,6 +730,10 @@ export function AppSidebar(props: AppSidebarProps) {
         className="mac:**:data-[sidebar=sidebar]:bg-transparent"
       >
         <div className="hidden h-14 mac:block mac:titlebar-drag"/>
+        <div className="flex items-baseline gap-2 px-3.5 pt-2.5 pb-1 mac:titlebar-no-drag">
+          <span className="lw-section-eyebrow">Workspaces</span>
+          <span className="text-[10.5px] font-medium tracking-tight text-muted-foreground/70">local folders</span>
+        </div>
         <LazyMotion features={domMax}>
           <m.div
             layoutScroll

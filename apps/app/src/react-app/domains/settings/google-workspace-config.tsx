@@ -25,7 +25,7 @@ type OptionalFeature = "gmailRead" | "driveFull" | "calendarWrite" | "chat";
 
 const OPTIONAL_FEATURES: { id: OptionalFeature; label: string; description: string }[] = [
   { id: "gmailRead", label: "Read Gmail", description: "Read your Gmail messages and threads." },
-  { id: "driveFull", label: "Full Google Drive access", description: "Search, read, and edit all files in your Drive, not just files created through OpenWork." },
+  { id: "driveFull", label: "Full Google Drive access", description: "Search, read, and edit all files in your Drive, not just files created through LegalWork." },
   { id: "calendarWrite", label: "Create calendar events", description: "Create events on your Google Calendar." },
   { id: "chat", label: "Google Chat", description: "List spaces, read messages, and send messages in Google Chat." },
 ];
@@ -148,7 +148,7 @@ function GoogleWorkspaceConfig({ openworkServerClient, hostOpenworkServerClient,
       const result = await Promise.race([
         command(),
         new Promise<never>((_, reject) => {
-          window.setTimeout(() => reject(new Error("Google Workspace connection is taking too long. Try again, or restart OpenWork if the browser already said authorization was received.")), DESKTOP_ACTION_TIMEOUT_MS);
+          window.setTimeout(() => reject(new Error("Google Workspace connection is taking too long. Try again, or restart LegalWork if the browser already said authorization was received.")), DESKTOP_ACTION_TIMEOUT_MS);
         }),
       ]);
       const next = normalizeGoogleWorkspaceAuthStatus(result);
@@ -183,9 +183,9 @@ function GoogleWorkspaceConfig({ openworkServerClient, hostOpenworkServerClient,
       onSaved();
       if (restartLocalServer) {
         const restarted = await restartLocalServer();
-        if (!restarted) setError("Saved Google OAuth settings. Restart OpenWork to apply them.");
+        if (!restarted) setError("Saved Google OAuth settings. Restart LegalWork to apply them.");
       } else {
-        setError("Saved Google OAuth settings. Restart OpenWork to apply them.");
+        setError("Saved Google OAuth settings. Restart LegalWork to apply them.");
       }
       await loadStatus({ clearError: false });
     } catch (err) {
@@ -212,7 +212,7 @@ function GoogleWorkspaceConfig({ openworkServerClient, hostOpenworkServerClient,
       return;
     }
     if (id === OPENWORK_BUILTIN_GOOGLE_CLIENT_ID) {
-      setError("That is the built-in OpenWork client ID, which cannot unlock Gmail read access. Create your own OAuth client in Google Cloud Console (APIs & Services > Credentials > Create OAuth client ID > Desktop app) and paste its client ID here.");
+      setError("That is the built-in LegalWork client ID, which cannot unlock Gmail read access. Create your own OAuth client in Google Cloud Console (APIs & Services > Credentials > Create OAuth client ID > Desktop app) and paste its client ID here.");
       return;
     }
     await saveOauthEnv(
@@ -234,8 +234,8 @@ function GoogleWorkspaceConfig({ openworkServerClient, hostOpenworkServerClient,
       {!serverAvailable ? (
         <Alert variant="warning">
           <ShieldCheck />
-          <AlertTitle>OpenWork server required</AlertTitle>
-          <AlertDescription>Start OpenWork server to connect Google Workspace.</AlertDescription>
+          <AlertTitle>LegalWork server required</AlertTitle>
+          <AlertDescription>Start LegalWork server to connect Google Workspace.</AlertDescription>
         </Alert>
       ) : null}
 
@@ -253,7 +253,7 @@ function GoogleWorkspaceConfig({ openworkServerClient, hostOpenworkServerClient,
           <ShieldCheck />
           <AlertTitle>Connect Google Workspace</AlertTitle>
           <AlertDescription>
-            Let OpenWork use your calendar, selected Drive files, and Gmail drafts when you ask it to.
+            Let LegalWork use your calendar, selected Drive files, and Gmail drafts when you ask it to.
           </AlertDescription>
         </Alert>
       )}
@@ -271,7 +271,7 @@ function GoogleWorkspaceConfig({ openworkServerClient, hostOpenworkServerClient,
           <CardHeader>
             <CardTitle>Set up Google OAuth</CardTitle>
             <CardDescription>
-              Use a Google Cloud OAuth desktop client. OpenWork already includes the desktop client ID; paste the matching client secret here.
+              Use a Google Cloud OAuth desktop client. LegalWork already includes the desktop client ID; paste the matching client secret here.
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-3">
@@ -283,7 +283,7 @@ function GoogleWorkspaceConfig({ openworkServerClient, hostOpenworkServerClient,
               autoComplete="off"
             />
             <p className="text-xs leading-relaxed text-muted-foreground">
-              The secret is saved locally in OpenWork environment settings and applied after the local server restarts.
+              The secret is saved locally in LegalWork environment settings and applied after the local server restarts.
             </p>
           </CardContent>
           <CardFooter>
@@ -299,7 +299,7 @@ function GoogleWorkspaceConfig({ openworkServerClient, hostOpenworkServerClient,
         <Alert variant="destructive">
           <XCircle />
           <AlertTitle>Encrypted token vault unavailable</AlertTitle>
-          <AlertDescription>OpenWork cannot securely save your Google connection on this machine right now.</AlertDescription>
+          <AlertDescription>LegalWork cannot securely save your Google connection on this machine right now.</AlertDescription>
         </Alert>
       ) : null}
 
@@ -321,9 +321,9 @@ function GoogleWorkspaceConfig({ openworkServerClient, hostOpenworkServerClient,
 
       <Card variant="outline" size="sm">
         <CardHeader>
-          <CardTitle>What OpenWork can do</CardTitle>
+          <CardTitle>What LegalWork can do</CardTitle>
           <CardDescription>
-            Connect Google Workspace so OpenWork can help with meeting prep, selected files, and draft emails.
+            Connect Google Workspace so LegalWork can help with meeting prep, selected files, and draft emails.
           </CardDescription>
         </CardHeader>
         <CardContent className="grid gap-3 sm:grid-cols-3">
@@ -340,7 +340,7 @@ function GoogleWorkspaceConfig({ openworkServerClient, hostOpenworkServerClient,
           <div className="rounded-2xl border border-border bg-card p-3">
             <FileText className="mb-2 size-4 text-green-11" />
             <div className="text-sm font-medium text-card-foreground">Selected Drive files</div>
-            <div className="mt-1 text-xs leading-relaxed text-muted-foreground">Read files explicitly selected or created through OpenWork.</div>
+            <div className="mt-1 text-xs leading-relaxed text-muted-foreground">Read files explicitly selected or created through LegalWork.</div>
           </div>
         </CardContent>
       </Card>
@@ -426,7 +426,7 @@ function GoogleWorkspaceConfig({ openworkServerClient, hostOpenworkServerClient,
                   autoComplete="off"
                 />
                 <p className="text-xs leading-relaxed text-muted-foreground">
-                  Create a desktop OAuth client in Google Cloud Console, then paste its client ID and secret. They are saved locally in OpenWork environment settings and applied after the local server restarts.
+                  Create a desktop OAuth client in Google Cloud Console, then paste its client ID and secret. They are saved locally in LegalWork environment settings and applied after the local server restarts.
                 </p>
                 <Button disabled={busyAction === "save-secret" || !customClientId.trim() || !customClientSecret.trim() || !hostServerAvailable} onClick={() => void saveCustomOauthClient()}>
                   {busyAction === "save-secret" ? <Loader2 className="size-4 animate-spin" /> : null}

@@ -59,7 +59,7 @@ export type ExtensionRuntimeContext = Pick<
   "openworkServerClient" | "extensionConnections" | "onExtensionConnectionChange"
 >;
 
-export type OpenWorkExtensionRuntime = {
+export type LegalWorkExtensionRuntime = {
   id: string;
   settingsPanel?: ExtensionConfigFactory;
   settingsPanelRefs?: string[];
@@ -67,13 +67,13 @@ export type OpenWorkExtensionRuntime = {
 };
 
 const registry = new Map<string, ExtensionConfigFactory>();
-const runtimeRegistry = new Map<string, OpenWorkExtensionRuntime>();
+const runtimeRegistry = new Map<string, LegalWorkExtensionRuntime>();
 
 export function registerExtensionConfig(id: string, factory: ExtensionConfigFactory) {
   registry.set(id, factory);
 }
 
-export function registerExtensionRuntime(runtime: OpenWorkExtensionRuntime) {
+export function registerExtensionRuntime(runtime: LegalWorkExtensionRuntime) {
   runtimeRegistry.set(runtime.id, runtime);
   if (runtime.settingsPanel) {
     registerExtensionConfig(runtime.id, runtime.settingsPanel);

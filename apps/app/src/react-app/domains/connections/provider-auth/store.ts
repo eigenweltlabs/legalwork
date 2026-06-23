@@ -364,7 +364,7 @@ export function createProviderAuthStore(options: CreateProviderAuthStoreOptions)
     return "";
   };
 
-  const mirrorOpenWorkModelsVoiceEnv = async (provider: DenOrgLlmProviderConnection, apiKey: string) => {
+  const mirrorLegalWorkModelsVoiceEnv = async (provider: DenOrgLlmProviderConnection, apiKey: string) => {
     if (provider.source !== "openwork" || !apiKey.trim()) return;
     const openworkClient = options.openworkServer.getSnapshot().openworkServerClient;
     if (!openworkClient) return;
@@ -463,7 +463,7 @@ export function createProviderAuthStore(options: CreateProviderAuthStoreOptions)
     const persisted = await writeWorkspaceOpenworkConfigRecord(nextConfig);
     if (!persisted) {
       throw new Error(
-        "OpenWork server unavailable. Connect to manage imported cloud providers.",
+        "LegalWork server unavailable. Connect to manage imported cloud providers.",
       );
     }
     setStateField("importedCloudProviders", nextProviders);
@@ -486,7 +486,7 @@ export function createProviderAuthStore(options: CreateProviderAuthStoreOptions)
     }
 
     if (hasOpenworkTarget) {
-      throw new Error("OpenWork server config API is unavailable for this workspace.");
+      throw new Error("LegalWork server config API is unavailable for this workspace.");
     }
 
     if (isLocalWorkspace && isDesktopRuntime() && root) {
@@ -516,7 +516,7 @@ export function createProviderAuthStore(options: CreateProviderAuthStoreOptions)
     }
 
     if (hasOpenworkTarget) {
-      throw new Error("OpenWork server config API is unavailable for this workspace.");
+      throw new Error("LegalWork server config API is unavailable for this workspace.");
     }
 
     if (isLocalWorkspace && isDesktopRuntime() && root) {
@@ -654,14 +654,14 @@ export function createProviderAuthStore(options: CreateProviderAuthStoreOptions)
     value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
   const cloudProviderComment = (provider: Pick<DenOrgLlmProvider, "id" | "name">) =>
-    `// OpenWork Cloud import: ${provider.name
+    `// LegalWork Cloud import: ${provider.name
       .replace(/\s+/g, " ")
       .trim()} (${provider.id}). Manage this entry from Cloud settings.`;
 
   const removeCloudProviderComment = (raw: string, providerId: string) =>
     raw.replace(
       new RegExp(
-        `(^[ \t]*)// OpenWork Cloud import:.*\\n\\1(?="${escapeRegExp(providerId)}":)`,
+        `(^[ \t]*)// LegalWork Cloud import:.*\\n\\1(?="${escapeRegExp(providerId)}":)`,
         "m",
       ),
       "$1",
@@ -1204,7 +1204,7 @@ export function createProviderAuthStore(options: CreateProviderAuthStoreOptions)
     if (!c) return null;
 
     if (optionsArg?.dispose) {
-      // Prefer the OpenWork server engine reload: it disposes the engine AND
+      // Prefer the LegalWork server engine reload: it disposes the engine AND
       // re-registers runtime-DB MCPs, so non-primary workspaces and pending
       // changes are picked up instead of silently dropping (toggles "turn
       // off").
@@ -1390,7 +1390,7 @@ export function createProviderAuthStore(options: CreateProviderAuthStoreOptions)
     const token = settings.authToken?.trim() ?? "";
     const orgId = settings.activeOrgId?.trim() ?? "";
     if (!token || !orgId) {
-      throw new Error("Sign in to OpenWork Cloud and choose an organization first.");
+      throw new Error("Sign in to LegalWork Cloud and choose an organization first.");
     }
 
     try {
@@ -1416,7 +1416,7 @@ export function createProviderAuthStore(options: CreateProviderAuthStoreOptions)
           providerID: localProviderId,
           auth: { type: "api", key: apiKey },
         });
-        await mirrorOpenWorkModelsVoiceEnv(provider, apiKey);
+        await mirrorLegalWorkModelsVoiceEnv(provider, apiKey);
       }
       if (existingImported?.providerId && existingImported.providerId !== localProviderId) {
         try {

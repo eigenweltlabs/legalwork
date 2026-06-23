@@ -21,7 +21,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { registerExtensionConfig, type ExtensionConfigContext } from "./extension-registry";
 
-export type OpenWorkVoiceConfigProps = {
+export type LegalWorkVoiceConfigProps = {
   busy: boolean;
   status: string | null;
   error: string | null;
@@ -31,7 +31,7 @@ export type OpenWorkVoiceConfigProps = {
 };
 
 const openWorkVoiceConfigFactory = (ctx: ExtensionConfigContext) => (
-  <OpenWorkVoiceConfig
+  <LegalWorkVoiceConfig
     busy={ctx.voiceExtension.busy}
     status={ctx.voiceExtension.status}
     error={ctx.voiceExtension.error}
@@ -44,7 +44,7 @@ const openWorkVoiceConfigFactory = (ctx: ExtensionConfigContext) => (
 registerExtensionConfig("openwork.voice.settings", openWorkVoiceConfigFactory);
 registerExtensionConfig("openwork-voice", openWorkVoiceConfigFactory);
 
-export function OpenWorkVoiceConfig(props: OpenWorkVoiceConfigProps) {
+export function LegalWorkVoiceConfig(props: LegalWorkVoiceConfigProps) {
   const [apiKey, setApiKey] = useState("");
   const canSave = Boolean(apiKey.trim());
 
@@ -53,7 +53,7 @@ export function OpenWorkVoiceConfig(props: OpenWorkVoiceConfigProps) {
       <CardHeader>
         <CardTitle>Realtime voice</CardTitle>
         <CardDescription>
-          Voice Mode uses OpenAI Realtime and the same OpenWork UI control surface exposed through OpenWork UI MCP.
+          Voice Mode uses OpenAI Realtime and the same LegalWork UI control surface exposed through LegalWork UI MCP.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
@@ -62,7 +62,7 @@ export function OpenWorkVoiceConfig(props: OpenWorkVoiceConfigProps) {
             <Mic2 />
             <AlertTitle>OpenAI key detected</AlertTitle>
             <AlertDescription>
-              Voice Mode will use OPENAI_REALTIME_API_KEY when present, otherwise OPENAI_API_KEY from OpenWork environment variables.
+              Voice Mode will use OPENAI_REALTIME_API_KEY when present, otherwise OPENAI_API_KEY from LegalWork environment variables.
             </AlertDescription>
           </Alert>
         ) : null}
@@ -78,7 +78,7 @@ export function OpenWorkVoiceConfig(props: OpenWorkVoiceConfigProps) {
               placeholder="sk-..."
             />
             <FieldDescription>
-              Saved as OPENAI_API_KEY in OpenWork's local env store. The renderer only receives short-lived Realtime client secrets.
+              Saved as OPENAI_API_KEY in LegalWork's local env store. The renderer only receives short-lived Realtime client secrets.
             </FieldDescription>
           </Field>
         </FieldGroup>

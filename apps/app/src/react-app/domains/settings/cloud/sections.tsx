@@ -293,10 +293,10 @@ function MarketplacePluginListItem({
 interface CloudWorkerListItemProps {
   openingWorkerId: string | null;
   worker: CloudWorker;
-  onOpenWorker: (workerId: string, workerName: string) => void | Promise<void>;
+  onLegalWorker: (workerId: string, workerName: string) => void | Promise<void>;
 }
 
-function CloudWorkerListItem({ openingWorkerId, worker, onOpenWorker }: CloudWorkerListItemProps) {
+function CloudWorkerListItem({ openingWorkerId, worker, onLegalWorker }: CloudWorkerListItemProps) {
   const status = workerStatusMeta(worker.status);
 
   return (
@@ -319,7 +319,7 @@ function CloudWorkerListItem({ openingWorkerId, worker, onOpenWorker }: CloudWor
       <Button
         variant="outline"
         size="sm"
-        onClick={() => void onOpenWorker(worker.workerId, worker.workerName)}
+        onClick={() => void onLegalWorker(worker.workerId, worker.workerName)}
         disabled={[openingWorkerId !== null, !status.canOpen].some(Boolean)}
         title={!status.canOpen ? t("den.worker_not_ready_title") : undefined}
       >
@@ -679,7 +679,7 @@ export interface CloudWorkersSectionProps {
   workers: CloudWorker[];
   workersBusy: boolean;
   workersError: string | null;
-  onOpenWorker: (workerId: string, workerName: string) => void | Promise<void>;
+  onLegalWorker: (workerId: string, workerName: string) => void | Promise<void>;
   onRefreshWorkers: () => void | Promise<void>;
 }
 
@@ -688,7 +688,7 @@ export function CloudWorkersSection({
   workers,
   workersBusy,
   workersError,
-  onOpenWorker,
+  onLegalWorker,
   onRefreshWorkers,
 }: CloudWorkersSectionProps) {
   const { hasActiveOrg } = useCloudSession();
@@ -767,7 +767,7 @@ export function CloudWorkersSection({
                           key={worker.workerId}
                           openingWorkerId={openingWorkerId}
                           worker={worker}
-                          onOpenWorker={onOpenWorker}
+                          onLegalWorker={onLegalWorker}
                         />
                       ))}
                     </SettingsList>

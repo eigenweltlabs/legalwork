@@ -1,9 +1,9 @@
 /**
  * Single source of truth for "where does a workspace's server live?".
  *
- * Every workspace-scoped API call in the app must route to the OpenWork server
+ * Every workspace-scoped API call in the app must route to the LegalWork server
  * that actually owns that workspace. For local workspaces that's the user's
- * local OpenWork server. For workspaces hosted on a remote OpenWork worker
+ * local LegalWork server. For workspaces hosted on a remote LegalWork worker
  * (`id` starts with `rem_` and `workspaceType === "remote"`), it's the
  * `baseUrl`/`openworkHostUrl` and `openworkToken` saved on the workspace
  * record, with the workspace addressed by its server-side id (the `rem_`
@@ -27,13 +27,13 @@ import {
 } from "./openwork-server";
 
 export type ResolvedWorkspaceEndpoint = {
-  /** Host URL of the OpenWork server that owns this workspace (no `/workspace` mount). */
+  /** Host URL of the LegalWork server that owns this workspace (no `/workspace` mount). */
   baseUrl: string;
   /** Auth token for that server. May be empty for unauthenticated local servers. */
   token: string;
   /** Workspace id as the owning server expects it in URL paths. No `rem_` prefix. */
   workspaceId: string;
-  /** True when the workspace lives on a remote OpenWork worker, not the user's local server. */
+  /** True when the workspace lives on a remote LegalWork worker, not the user's local server. */
   isRemote: boolean;
   /** OpenworkServerClient bound to {@link baseUrl}/{@link token}. */
   client: OpenworkServerClient;

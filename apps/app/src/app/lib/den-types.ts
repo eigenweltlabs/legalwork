@@ -3,8 +3,8 @@
 // needing only the shapes do not import the 2k-line client implementation —
 // den.ts re-exports everything here, so existing imports keep working.
 import type {
-  OpenWorkExtensionManifest,
-  OpenWorkExtensionSourceFormat,
+  LegalWorkExtensionManifest,
+  LegalWorkExtensionSourceFormat,
 } from "../extensions";
 
 export type DenSettings = {
@@ -64,8 +64,8 @@ export type DenOrgExtensionProjection = {
   id: string;
   name: string;
   description: string | null;
-  sourceFormat: OpenWorkExtensionSourceFormat;
-  manifest: OpenWorkExtensionManifest | null;
+  sourceFormat: LegalWorkExtensionSourceFormat;
+  manifest: LegalWorkExtensionManifest | null;
 };
 
 export type DenOrgPlugin = {
@@ -76,7 +76,7 @@ export type DenOrgPlugin = {
   memberCount: number;
   updatedAt: string | null;
   componentCounts: Record<string, number>;
-  /** Preferred Den surface: plugins are normalized into OpenWork extensions. */
+  /** Preferred Den surface: plugins are normalized into LegalWork extensions. */
   extension?: DenOrgExtensionProjection | null;
 };
 

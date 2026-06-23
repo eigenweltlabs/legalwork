@@ -495,3 +495,461 @@ select:disabled {
     @apply font-sans;
   }
 }
+
+/* ============================================================================
+   LegalWork × Eigenwelt — "Deep Current" reskin overlay
+   Warm-ink-on-paper, a single ultramarine signal, Geist type, and the
+   signature liquid-glass chrome. Appended last & unlayered, so it wins the
+   cascade over the base token layer above without touching it.
+   ============================================================================ */
+:root {
+  /* ----- Deep Current palette ----- */
+  --lw-ink:       #0E0A07;   /* warm near-black — text */
+  --lw-paper:     #FEFEFE;   /* surface */
+  --lw-paper-2:   #F3F5F8;   /* sunken canvas */
+  --lw-paper-3:   #EAEEF4;   /* deeper sunken */
+  --lw-blue:      #18498B;   /* ultramarine — primary signal */
+  --lw-blue-2:    #2352DE;   /* electric — accents, links, focus */
+  --lw-navy:      #0B1B3A;   /* dark slab */
+  --lw-violet:    #8669B9;
+  --lw-live:      #4BA884;
+
+  /* ----- Liquid-glass recipe (the brand signature) ----- */
+  --glass-fill:        linear-gradient(180deg, rgba(255,255,255,.62), rgba(255,255,255,.24));
+  --glass-fill-strong: linear-gradient(180deg, rgba(255,255,255,.80), rgba(255,255,255,.46));
+  --glass-fill-dark:   linear-gradient(180deg, rgba(255,255,255,.16), rgba(255,255,255,.06));
+  --glass-border:      rgba(22,34,56,.10);
+  --glass-border-dark: rgba(255,255,255,.22);
+  --blur-glass:        blur(18px) saturate(140%);
+  --blur-glass-lg:     blur(24px) saturate(150%);
+  --shadow-glass:      0 8px 22px rgba(22,34,56,.10), inset 0 1px 0 rgba(255,255,255,.85), inset 0 -1px 0 rgba(22,34,56,.04);
+  --shadow-glass-lg:   0 18px 46px -10px rgba(8,23,79,.20), inset 0 1px 0 rgba(255,255,255,.92), inset 0 -1px 0 rgba(22,34,56,.05);
+  --ease-soft:         cubic-bezier(0.22,0.61,0.36,1);
+
+  /* ----- Remap app semantic tokens → Deep Current (light) ----- */
+  --background:           var(--lw-paper-2);
+  --foreground:           var(--lw-ink);
+  --card:                 var(--lw-paper);
+  --card-foreground:      var(--lw-ink);
+  --popover:              rgba(254,254,254,.82);
+  --popover-foreground:   var(--lw-ink);
+  --popover-border:       rgba(22,34,56,.10);
+  --primary:              var(--lw-blue);
+  --primary-foreground:   #FEFEFE;
+  --secondary:            var(--lw-paper-2);
+  --secondary-foreground: var(--lw-ink);
+  --muted:                var(--lw-paper-2);
+  --muted-foreground:     rgba(14,10,7,.55);
+  --accent:               rgba(35,82,222,.06);
+  --accent-foreground:    var(--lw-blue);
+  --border:               rgba(14,10,7,.09);
+  --input:                rgba(14,10,7,.12);
+  --ring:                 var(--lw-blue-2);
+  --radius:               0.7rem;
+
+  /* sidebar — clearly differentiated, faintly cooler, glassy */
+  --sidebar:                   rgba(243,245,248,.70);
+  --sidebar-foreground:        var(--lw-ink);
+  --sidebar-primary:           var(--lw-blue);
+  --sidebar-primary-foreground:#FEFEFE;
+  --sidebar-accent:            rgba(35,82,222,.07);
+  --sidebar-accent-foreground: var(--lw-blue);
+  --sidebar-border:            rgba(14,10,7,.06);
+  --sidebar-ring:              var(--lw-blue-2);
+
+  /* DLS layer drives .ow-soft-*, .ow-button-primary, dot-ticker, inputs */
+  --dls-surface:        var(--lw-paper);
+  --dls-sidebar:        var(--lw-paper-2);
+  --dls-app-bg:         var(--lw-paper-2);
+  --dls-background:     var(--lw-paper-2);
+  --dls-canvas:         var(--lw-paper-2);
+  --dls-surface-muted:  var(--lw-paper-3);
+  --dls-border:         rgba(14,10,7,.08);
+  --dls-accent:         var(--lw-blue);
+  --dls-accent-hover:   var(--lw-blue-2);
+  --dls-accent-fg:      #FEFEFE;
+  --dls-accent-rgb:     24 73 139;
+  --dls-secondary-rgb:  96 100 108;
+  --dls-text-primary:   var(--lw-ink);
+  --dls-text-secondary: rgba(14,10,7,.55);
+  --dls-hover:          rgba(14,10,7,.04);
+  --dls-active:         rgba(35,82,222,.10);
+  --dls-radius:         16px;
+  --dls-radius-lg:      22px;
+  --dls-shell-shadow:   0 18px 40px -24px rgba(8,23,79,.22);
+  --dls-card-shadow:    0 10px 30px -20px rgba(8,23,79,.16);
+
+  /* Geist everywhere (house rule) */
+  --font-sans:    'Geist Variable', 'Geist', ui-sans-serif, system-ui, sans-serif;
+  --font-heading: 'Geist Variable', 'Geist', ui-sans-serif, system-ui, sans-serif;
+}
+
+[data-theme="dark"],
+.dark {
+  --lw-paper:   #0B0F17;
+  --lw-paper-2: #0B0F17;
+  --background:           #090C12;
+  --foreground:           #F4F6FA;
+  --card:                 #11161F;
+  --card-foreground:      #F4F6FA;
+  --popover:              rgba(17,22,31,.72);
+  --popover-foreground:   #F4F6FA;
+  --popover-border:       rgba(255,255,255,.10);
+  --primary:              var(--lw-blue-2);
+  --primary-foreground:   #FEFEFE;
+  --muted-foreground:     rgba(244,246,250,.55);
+  --accent:               rgba(35,82,222,.18);
+  --accent-foreground:    #C9D6FF;
+  --border:               rgba(255,255,255,.08);
+  --input:                rgba(255,255,255,.12);
+  --ring:                 var(--lw-blue-2);
+  --sidebar:              rgba(13,18,27,.66);
+  --sidebar-foreground:   #F4F6FA;
+  --sidebar-border:       rgba(255,255,255,.06);
+  --glass-fill:           var(--glass-fill-dark);
+  --glass-border:         var(--glass-border-dark);
+  --shadow-glass:         0 18px 44px rgba(2,8,28,.5), inset 0 1px 0 rgba(255,255,255,.14), inset 0 -1px 0 rgba(255,255,255,.05);
+  --dls-surface:          #11161F;
+  --dls-sidebar:          #0D121B;
+  --dls-app-bg:           #090C12;
+  --dls-border:           rgba(255,255,255,.08);
+  --dls-text-primary:     #F4F6FA;
+  --dls-text-secondary:   rgba(244,246,250,.55);
+  --dls-hover:            rgba(255,255,255,.05);
+}
+
+/* Geist as the running face, with the brand's gentle negative tracking.
+   A faint "Deep Current" light field gives the frosted chrome something to
+   refract — kept low-alpha so the palette stays subtle. Opaque surfaces sit
+   on top; translucent panes (sidebar, mac titlebar/surface) catch the wash. */
+body {
+  font-family: var(--font-sans);
+  letter-spacing: -0.012em;
+  background:
+    radial-gradient(115% 80% at -6% -12%, rgba(35, 82, 222, 0.13), transparent 52%),
+    radial-gradient(95% 75% at 106% 112%, rgba(206, 151, 96, 0.07), transparent 54%),
+    radial-gradient(85% 95% at 50% -20%, rgba(24, 73, 139, 0.07), transparent 56%),
+    var(--lw-paper-2) !important;
+  background-attachment: fixed;
+}
+
+[data-theme="dark"] body,
+.dark body {
+  background:
+    radial-gradient(115% 80% at -6% -12%, rgba(35, 82, 222, 0.22), transparent 50%),
+    radial-gradient(95% 75% at 106% 112%, rgba(120, 90, 200, 0.10), transparent 54%),
+    var(--background) !important;
+}
+:where(h1, h2, h3, h4) {
+  letter-spacing: -0.028em;
+}
+
+/* ----- Liquid-glass helpers ----- */
+.glass {
+  background: var(--glass-fill);
+  border: 1px solid var(--glass-border);
+  -webkit-backdrop-filter: var(--blur-glass);
+  backdrop-filter: var(--blur-glass);
+  box-shadow: var(--shadow-glass);
+}
+.glass-strong {
+  background: var(--glass-fill-strong);
+  border: 1px solid rgba(22,34,56,.12);
+  -webkit-backdrop-filter: var(--blur-glass-lg);
+  backdrop-filter: var(--blur-glass-lg);
+  box-shadow: var(--shadow-glass-lg);
+}
+.glass-dark {
+  background: var(--glass-fill-dark);
+  border: 1px solid var(--glass-border-dark);
+  -webkit-backdrop-filter: blur(22px) saturate(125%);
+  backdrop-filter: blur(22px) saturate(125%);
+  box-shadow: 0 18px 44px rgba(5,18,79,.18), inset 0 1px 0 rgba(255,255,255,.20), inset 0 -1px 0 rgba(255,255,255,.10);
+  color: #FEFEFE;
+}
+
+/* Promote the app's primary soft surfaces to liquid glass. */
+.ow-soft-shell {
+  background: var(--glass-fill-strong);
+  border: 1px solid rgba(22,34,56,.10);
+  -webkit-backdrop-filter: var(--blur-glass-lg);
+  backdrop-filter: var(--blur-glass-lg);
+  box-shadow: var(--shadow-glass-lg);
+}
+.ow-soft-card {
+  background: var(--glass-fill);
+  border: 1px solid var(--glass-border);
+  -webkit-backdrop-filter: var(--blur-glass);
+  backdrop-filter: var(--blur-glass);
+  box-shadow: var(--shadow-glass);
+}
+
+/* Ultramarine primary buttons get the house inner-glow + layered blue shadow. */
+.ow-button-primary {
+  background: linear-gradient(180deg, var(--lw-blue-2), var(--lw-blue));
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,.22),
+    0 2px 5px rgba(24,73,139,.22),
+    0 10px 20px -8px rgba(24,73,139,.45);
+  border: 1px solid rgba(255,255,255,.18);
+  transition: transform var(--dur-fast,160ms) var(--ease-soft), box-shadow var(--dur-fast,160ms) var(--ease-soft);
+}
+.ow-button-primary:hover:not(:disabled) {
+  background: linear-gradient(180deg, var(--lw-blue-2), var(--lw-blue-2));
+  transform: translateY(-1px);
+}
+
+/* A tiny ultramarine square cue for UPPERCASE eyebrows (house signature). */
+.lw-eyebrow {
+  display: inline-flex;
+  align-items: center;
+  gap: .5em;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: .12em;
+  text-transform: uppercase;
+  color: var(--lw-blue);
+}
+.lw-eyebrow::before {
+  content: "";
+  width: 7px;
+  height: 7px;
+  border-radius: 1.5px;
+  background: var(--lw-blue-2);
+}
+
+/* Mono numerals for stats/data (Geist Mono if present, else tabular). */
+.lw-num { font-variant-numeric: tabular-nums; letter-spacing: -0.02em; }
+
+/* ============================================================================
+   Deep Current v2 — turn the glass UP. A present luminous field, deeper frost,
+   pronounced bevels, floating panes. Light-only (no dark panels with body text).
+   ============================================================================ */
+:root {
+  --radius: 0.95rem;
+  --blur-glass:    blur(26px) saturate(168%);
+  --blur-glass-lg: blur(34px) saturate(185%);
+  --shadow-glass:    0 12px 32px -10px rgba(8, 23, 79, 0.18), inset 0 1px 0 rgba(255, 255, 255, 0.95), inset 0 -1px 0 rgba(22, 34, 56, 0.05);
+  --shadow-glass-lg: 0 28px 64px -18px rgba(8, 23, 79, 0.30), inset 0 1px 0 rgba(255, 255, 255, 1), inset 0 -1px 0 rgba(22, 34, 56, 0.06);
+  --glass-fill:        linear-gradient(180deg, rgba(255, 255, 255, 0.66), rgba(255, 255, 255, 0.32));
+  --glass-fill-strong: linear-gradient(180deg, rgba(255, 255, 255, 0.88), rgba(255, 255, 255, 0.58));
+}
+
+/* Translucent surfaces so panes frost over the field — light theme only. */
+:root:not([data-theme="dark"]):not(.dark) {
+  --card:        rgba(255, 255, 255, 0.62);
+  --popover:     rgba(255, 255, 255, 0.74);
+  --secondary:   rgba(255, 255, 255, 0.52);
+  --muted:       rgba(255, 255, 255, 0.45);
+  --sidebar:     rgba(248, 250, 253, 0.50);
+  --dls-surface: rgba(255, 255, 255, 0.62);
+  --dls-sidebar: rgba(248, 250, 253, 0.50);
+}
+
+/* The Deep Current environment — luminous, present, still light. */
+:root:not([data-theme="dark"]):not(.dark) body {
+  background:
+    radial-gradient(58% 48% at 6% -2%, rgba(35, 82, 222, 0.22), transparent 60%),
+    radial-gradient(50% 42% at 102% 6%, rgba(51, 114, 217, 0.16), transparent 60%),
+    radial-gradient(70% 62% at 102% 104%, rgba(212, 150, 96, 0.13), transparent 62%),
+    radial-gradient(60% 70% at 26% 106%, rgba(134, 105, 185, 0.12), transparent 62%),
+    linear-gradient(176deg, #E9F0FA 0%, #F1F4F8 46%, #F6F2EB 100%) !important;
+  background-attachment: fixed !important;
+}
+
+/* Frost every card + soft surface into a floating, light-catching pane. */
+[data-slot="card"],
+.ow-soft-card,
+.ow-soft-shell {
+  background: var(--glass-fill-strong) !important;
+  border: 1px solid rgba(22, 34, 56, 0.10) !important;
+  -webkit-backdrop-filter: var(--blur-glass);
+  backdrop-filter: var(--blur-glass);
+  box-shadow: var(--shadow-glass) !important;
+  border-radius: 18px;
+  transition: box-shadow 240ms var(--ease-soft, ease), transform 240ms var(--ease-soft, ease);
+}
+[data-slot="card"]:hover {
+  box-shadow: var(--shadow-glass-lg) !important;
+  transform: translateY(-2px);
+}
+
+/* Sidebar rail: deep frost, crisp top highlight, hairline edge. */
+[data-slot="sidebar-inner"] {
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.52), rgba(244, 247, 251, 0.38)) !important;
+  -webkit-backdrop-filter: var(--blur-glass-lg);
+  backdrop-filter: var(--blur-glass-lg);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.92), 1px 0 0 rgba(22, 34, 56, 0.06);
+}
+
+/* Overlays → unmistakable liquid glass. */
+[data-slot="dialog-content"],
+[data-slot="popover-content"],
+[data-slot="command-dialog-popup"] {
+  -webkit-backdrop-filter: var(--blur-glass-lg) !important;
+  backdrop-filter: var(--blur-glass-lg) !important;
+  box-shadow: var(--shadow-glass-lg) !important;
+  border: 1px solid rgba(255, 255, 255, 0.5) !important;
+}
+
+/* Primary surfaces (titlebar / session surface) frost over the field on mac. */
+.ow-soft-card-quiet {
+  background: rgba(255, 255, 255, 0.40) !important;
+  -webkit-backdrop-filter: var(--blur-glass);
+  backdrop-filter: var(--blur-glass);
+  border: 1px solid rgba(22, 34, 56, 0.08) !important;
+}
+
+/* Section eyebrow with the brand blue-square cue, for headers. */
+.lw-section-eyebrow {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5em;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: rgba(14, 10, 7, 0.5);
+}
+.lw-section-eyebrow::before {
+  content: "";
+  width: 7px;
+  height: 7px;
+  border-radius: 1.5px;
+  background: var(--lw-blue-2, #2352DE);
+  box-shadow: 0 0 0 3px rgba(35, 82, 222, 0.12);
+}
+
+/* ============================================================================
+   v3 — MAKE THE FIELD VISIBLE. The opaque canvas was hiding everything, so the
+   frosted panes had nothing to refract → "no glass". Field now lives on <html>
+   (bottom layer); body is transparent; the surface tokens become a light veil
+   so the field shows through and every frosted pane (sidebar, panels, overlays)
+   actually catches light.
+   ============================================================================ */
+html {
+  background:
+    radial-gradient(52% 44% at 2% -2%, rgba(35, 82, 222, 0.28), transparent 60%),
+    radial-gradient(48% 40% at 100% 2%, rgba(51, 114, 217, 0.22), transparent 60%),
+    radial-gradient(64% 58% at 100% 102%, rgba(214, 150, 96, 0.17), transparent 62%),
+    radial-gradient(58% 66% at 20% 104%, rgba(134, 105, 185, 0.17), transparent 62%),
+    linear-gradient(176deg, #E4ECFA 0%, #EEF3F9 48%, #F6F1E8 100%);
+  background-attachment: fixed;
+}
+[data-theme="dark"] html,
+.dark html {
+  background: #090C12;
+}
+
+:root:not([data-theme="dark"]):not(.dark) body {
+  background: transparent !important;
+}
+
+/* Surface canvas → light veil so the field reads through the shell. */
+:root:not([data-theme="dark"]):not(.dark) {
+  --background:     rgba(247, 249, 253, 0.42);
+  --dls-app-bg:     rgba(247, 249, 253, 0.42);
+  --dls-background: rgba(247, 249, 253, 0.42);
+  --dls-canvas:     rgba(247, 249, 253, 0.28);
+}
+
+/* ============================================================================
+   v4 — legibility + dark mode + more color.
+   Model: GLASS on chrome/panels/overlays; SOLID on content/inputs. Content
+   surfaces were see-through (composer tools illegible) — make them opaque.
+   Full dark parity, and a more saturated Deep Current field so it reads
+   clearly different from OpenWork.
+   ============================================================================ */
+
+/* More colorful field (light). */
+html {
+  background:
+    radial-gradient(46% 40% at -2% -4%, rgba(35, 82, 222, 0.40), transparent 58%),
+    radial-gradient(42% 36% at 100% 0%, rgba(51, 114, 217, 0.32), transparent 58%),
+    radial-gradient(60% 54% at 102% 104%, rgba(214, 150, 96, 0.22), transparent 60%),
+    radial-gradient(54% 60% at 14% 106%, rgba(134, 105, 185, 0.30), transparent 60%),
+    linear-gradient(176deg, #DBE7FB 0%, #E9F0F8 46%, #F5EFE5 100%);
+  background-attachment: fixed;
+}
+
+/* LIGHT: legible content + opaque inputs; glass stays on chrome. */
+:root:not([data-theme="dark"]):not(.dark) {
+  --background:     rgba(248, 250, 254, 0.55);
+  --dls-app-bg:     rgba(248, 250, 254, 0.55);
+  --dls-background: rgba(248, 250, 254, 0.55);
+  --dls-canvas:     rgba(248, 250, 254, 0.42);
+  --dls-surface:    rgba(255, 255, 255, 0.97);   /* composer / content: SOLID */
+  --card:           rgba(255, 255, 255, 0.80);
+  --popover:        rgba(255, 255, 255, 0.82);
+  --sidebar:        rgba(255, 255, 255, 0.40);
+}
+
+/* DARK: real Deep Current night + glass parity. */
+[data-theme="dark"] html,
+.dark html {
+  background:
+    radial-gradient(48% 42% at -2% -4%, rgba(35, 82, 222, 0.36), transparent 60%),
+    radial-gradient(44% 38% at 100% 0%, rgba(96, 70, 190, 0.32), transparent 60%),
+    radial-gradient(60% 56% at 100% 104%, rgba(24, 73, 139, 0.34), transparent 62%),
+    linear-gradient(176deg, #060A12 0%, #0A0F1A 50%, #0B0E16 100%);
+  background-attachment: fixed;
+}
+[data-theme="dark"],
+.dark {
+  --glass-fill:        linear-gradient(180deg, rgba(38, 48, 70, 0.66), rgba(20, 26, 40, 0.48));
+  --glass-fill-strong: linear-gradient(180deg, rgba(32, 41, 60, 0.85), rgba(18, 24, 38, 0.68));
+  --glass-border:      rgba(255, 255, 255, 0.10);
+  --shadow-glass-lg:   0 28px 64px -18px rgba(0, 0, 0, 0.6), inset 0 1px 0 rgba(255, 255, 255, 0.10), inset 0 -1px 0 rgba(0, 0, 0, 0.3);
+  --background:     rgba(11, 15, 23, 0.55);
+  --dls-app-bg:     rgba(11, 15, 23, 0.55);
+  --dls-background: rgba(11, 15, 23, 0.55);
+  --dls-surface:    rgba(21, 27, 40, 0.96);   /* composer / content: SOLID */
+  --card:           rgba(28, 36, 52, 0.72);
+  --popover:        rgba(24, 31, 46, 0.85);
+  --sidebar:        rgba(13, 18, 28, 0.40);
+  --border:         rgba(255, 255, 255, 0.09);
+  --dls-border:     rgba(255, 255, 255, 0.09);
+  --dls-text-primary:   #EEF2F8;
+  --dls-text-secondary: rgba(238, 242, 248, 0.58);
+  --dls-hover:      rgba(255, 255, 255, 0.06);
+}
+
+/* Sidebar rail — dark-aware frosted glass. */
+:root:not([data-theme="dark"]):not(.dark) [data-slot="sidebar-inner"] {
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.44), rgba(244, 247, 251, 0.28)) !important;
+}
+[data-theme="dark"] [data-slot="sidebar-inner"],
+.dark [data-slot="sidebar-inner"] {
+  background: linear-gradient(180deg, rgba(23, 30, 45, 0.52), rgba(12, 16, 26, 0.36)) !important;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06), 1px 0 0 rgba(255, 255, 255, 0.05) !important;
+}
+
+/* Reusable dark-aware glass panel (settings groups, feature panels). */
+.lw-glass-panel {
+  background: var(--glass-fill-strong);
+  border: 1px solid var(--glass-border);
+  -webkit-backdrop-filter: var(--blur-glass-lg);
+  backdrop-filter: var(--blur-glass-lg);
+  box-shadow: var(--shadow-glass-lg);
+}
+
+/* ============================================================================
+   v5 — LIGHT MODE: dial the color WAY back. "Just a bit more color", not a
+   saturated field. A whisper of ultramarine on near-white paper. Dark mode
+   keeps its richer field (unchanged).
+   ============================================================================ */
+html:not([data-theme="dark"]):not(.dark) {
+  background:
+    radial-gradient(55% 48% at -2% -6%, rgba(35, 82, 222, 0.075), transparent 62%),
+    radial-gradient(46% 40% at 100% 0%, rgba(51, 114, 217, 0.05), transparent 62%),
+    radial-gradient(58% 54% at 102% 106%, rgba(214, 150, 96, 0.045), transparent 64%),
+    linear-gradient(176deg, #EFF3F9 0%, #F4F6FA 55%, #F7F4EE 100%) !important;
+  background-attachment: fixed;
+}
+/* Lighten the content veil so the subtle field stays calm/clean. */
+:root:not([data-theme="dark"]):not(.dark) {
+  --background:     rgba(249, 251, 254, 0.72);
+  --dls-app-bg:     rgba(249, 251, 254, 0.72);
+  --dls-background: rgba(249, 251, 254, 0.72);
+  --dls-canvas:     rgba(249, 251, 254, 0.58);
+}

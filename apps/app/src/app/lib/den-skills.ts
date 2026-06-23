@@ -1,13 +1,13 @@
 import { createDenClient, readDenSettings, writeDenSettings } from "./den";
 
-export async function saveInstalledSkillToOpenWorkOrg(input: {
+export async function saveInstalledSkillToLegalWorkOrg(input: {
   skillText: string;
   shared?: "org" | "public" | null;
 }): Promise<{ skillId: string; orgId: string; orgName: string }> {
   const settings = readDenSettings();
   const token = settings.authToken?.trim() ?? "";
   if (!token) {
-    throw new Error("Sign in to OpenWork Cloud in Settings to share with your team.");
+    throw new Error("Sign in to LegalWork Cloud in Settings to share with your team.");
   }
 
   const cloudClient = createDenClient({ baseUrl: settings.baseUrl, apiBaseUrl: settings.apiBaseUrl, token });

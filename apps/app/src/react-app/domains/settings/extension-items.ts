@@ -1,4 +1,4 @@
-import { getMcpServerName, isBuiltInOpenWorkExtension, type McpDirectoryInfo } from "../../../app/constants";
+import { getMcpServerName, isBuiltInLegalWorkExtension, type McpDirectoryInfo } from "../../../app/constants";
 import type { CloudImportedPlugin, CloudImportedPluginFile } from "../../../app/cloud/import-state";
 import type { PendingCloudPluginChange } from "../../../app/cloud/desktop-cloud-sync";
 import { evaluateEnablement, type EnablementContext } from "../../../app/enablement";
@@ -96,7 +96,7 @@ function childKeysForPlugin(plugin: CloudImportedPlugin) {
 }
 
 export function buildExtensionItems(input: ExtensionItemBuildInput) {
-  const builtInItems = input.quickConnect.filter(isBuiltInOpenWorkExtension).map((entry): ExtensionItem => {
+  const builtInItems = input.quickConnect.filter(isBuiltInLegalWorkExtension).map((entry): ExtensionItem => {
     const enablement = entry.extensionManifest?.enablement
       ? evaluateEnablement(entry.extensionManifest.enablement, input.enablementContext)
       : null;
@@ -176,7 +176,7 @@ export function buildExtensionItems(input: ExtensionItemBuildInput) {
   }
 
   const standaloneMcpEntries = input.quickConnect.filter((entry) => {
-    if (isBuiltInOpenWorkExtension(entry)) return false;
+    if (isBuiltInLegalWorkExtension(entry)) return false;
     const serverName = getMcpServerName(entry);
     if (groupedMcpServerNames.has(serverName)) return false;
     return input.mcpServers.some((server) => server.name === serverName);
@@ -220,14 +220,14 @@ export function buildExtensionItems(input: ExtensionItemBuildInput) {
     ],
     // The MCP quick-connect surface ("Available apps · One-click connect")
     // needs unconfigured directory entries too — otherwise Notion, Linear,
-    // OpenWork Cloud Control, etc. are undiscoverable for anyone who is not
+    // LegalWork Cloud Control, etc. are undiscoverable for anyone who is not
     // signed in to cloud (regression from #2008, which narrowed the section
     // to installed entries only).
     quickConnectEntries: [
       ...builtInItems.flatMap((item) => item.active && item.builtInEntry ? [item.builtInEntry] : []),
       ...standaloneMcpEntries,
       ...input.quickConnect.filter((entry) => {
-        if (isBuiltInOpenWorkExtension(entry)) return false;
+        if (isBuiltInLegalWorkExtension(entry)) return false;
         const serverName = getMcpServerName(entry);
         if (groupedMcpServerNames.has(serverName)) return false;
         return !input.mcpServers.some((server) => server.name === serverName);

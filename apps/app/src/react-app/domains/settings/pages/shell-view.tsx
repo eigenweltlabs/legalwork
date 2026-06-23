@@ -268,7 +268,7 @@ export function ShellCustomizationView() {
                   id="shell-app-name"
                   className="h-8 text-xs"
                   value={config.appName}
-                  placeholder="OpenWork"
+                  placeholder="LegalWork"
                   disabled
                   onChange={(event) => update({ appName: event.currentTarget.value || DEFAULT_SHELL_CONFIG.appName })}
                 />
@@ -343,7 +343,7 @@ export function ShellCustomizationView() {
 
         <ToggleRow
           label="Display notifications"
-          description="A bell in the header collecting updates from OpenWork Cloud and your workspaces."
+          description="A bell in the header collecting updates from LegalWork Cloud and your workspaces."
           checked={config.notifications}
           onChange={(v) => update({ notifications: v })}
         />
@@ -398,7 +398,7 @@ export function ShellCustomizationView() {
         <LayoutSectionHeader>
           <LayoutSectionTitle>Organization-wide settings</LayoutSectionTitle>
           <LayoutSectionDescription>
-            These settings are managed by your organization via OpenWork Cloud.
+            These settings are managed by your organization via LegalWork Cloud.
           </LayoutSectionDescription>
         </LayoutSectionHeader>
 

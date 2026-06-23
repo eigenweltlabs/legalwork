@@ -10,7 +10,7 @@ import type { CloudImportedPlugin, CloudImportedPluginFile } from "@/app/cloud/i
 import type { ComposerAttachment, McpServerEntry, McpStatusMap, ModelRef, SkillCard, SlashCommandOption } from "@/app/types";
 import { formatBytes, isMacPlatform } from "@/app/utils";
 import { t } from "@/i18n";
-import { isOpenWorkExtensionEnabled, isOpenWorkExtensionHidden, OPENWORK_EXTENSION_STATE_CHANGED } from "@/react-app/domains/settings/extension-state";
+import { isLegalWorkExtensionEnabled, isLegalWorkExtensionHidden, OPENWORK_EXTENSION_STATE_CHANGED } from "@/react-app/domains/settings/extension-state";
 import { useDesktopRestriction } from "@/react-app/domains/cloud/desktop-config-provider";
 import { ModelBehaviorSelect } from "@/components/model-behavior-select";
 import { ModelSelect } from "@/components/model-select";
@@ -40,8 +40,8 @@ function isComposerExtensionAvailable(entry: McpDirectoryInfo) {
   const hasSessionSurface = entry.extensionManifest?.contributions?.some((contribution) =>
     contribution.type === "session-side-panel" || contribution.type === "session-rail-item"
   ) === true;
-  if (hasSessionSurface) return isOpenWorkExtensionEnabled(entry);
-  return !entry.defaultEnabled || isOpenWorkExtensionEnabled(entry);
+  if (hasSessionSurface) return isLegalWorkExtensionEnabled(entry);
+  return !entry.defaultEnabled || isLegalWorkExtensionEnabled(entry);
 }
 
 type ComposerProps = {
@@ -727,7 +727,7 @@ export function ReactSessionComposer(props: ComposerProps) {
     : null;
   const composerExtensions = OPENWORK_EXTENSION_CATALOG.filter((entry) =>
     !builtInExtensionsDisabled &&
-    !isOpenWorkExtensionHidden(entry) && isComposerExtensionAvailable(entry)
+    !isLegalWorkExtensionHidden(entry) && isComposerExtensionAvailable(entry)
   );
   const canSend = props.draft.trim().length > 0 || props.attachments.length > 0;
 

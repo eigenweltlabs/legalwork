@@ -309,7 +309,7 @@ export function DenSignInSurface(props: DenSignInSurfaceProps) {
             <div className="w-full max-w-md space-y-8">
               <div className="space-y-2">
                 <h1 className="text-2xl font-semibold tracking-tight text-dls-text">
-                  Welcome to OpenWork
+                  Welcome to LegalWork
                 </h1>
                 <p className="text-sm text-dls-secondary">
                   Sign in to get started with your workspace.
@@ -322,7 +322,7 @@ export function DenSignInSurface(props: DenSignInSurfaceProps) {
                 onClick={() => props.onOpenBrowserAuth("sign-in")}
                 disabled={props.authBusy || props.sessionBusy}
               >
-                Sign in with OpenWork Cloud
+                Sign in with LegalWork Cloud
                 <ArrowUpRight size={15} />
               </button>
 

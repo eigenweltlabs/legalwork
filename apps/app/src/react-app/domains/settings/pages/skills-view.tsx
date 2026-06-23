@@ -33,7 +33,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { t } from "@/i18n";
-import { saveInstalledSkillToOpenWorkOrg } from "@/app/lib/den-skills";
+import { saveInstalledSkillToLegalWorkOrg } from "@/app/lib/den-skills";
 import {
   buildDenAuthUrl,
   DEFAULT_DEN_BASE_URL,
@@ -570,7 +570,7 @@ export function SkillsView(props: SkillsViewProps) {
       const skill = await extensions.readSkill(shareTarget.name);
       if (!skill) throw new Error("Failed to load skill");
       const sharing = resolveSharePermission();
-      const { orgName, orgId } = await saveInstalledSkillToOpenWorkOrg({
+      const { orgName, orgId } = await saveInstalledSkillToLegalWorkOrg({
         skillText: skill.content,
         shared: sharing.shared,
       });
@@ -806,7 +806,7 @@ export function SkillsView(props: SkillsViewProps) {
                       <div className="min-w-0 flex-1">
                         <div className="flex flex-wrap items-center gap-2">
                           <h4 className="truncate text-[14px] font-semibold text-dls-text">{skill.name}</h4>
-                          {isOpenworkInjectedSkill(skill) ? <span className={tagClass}>OpenWork</span> : null}
+                          {isOpenworkInjectedSkill(skill) ? <span className={tagClass}>LegalWork</span> : null}
                         </div>
                         <p className="mt-2 line-clamp-2 text-[13px] leading-relaxed text-dls-secondary">
                           {skill.description || t("skills.no_description")}

@@ -35,7 +35,12 @@ type SettingsPanelHeadingProps = {
 };
 
 export function SettingsPanelHeading(props: SettingsPanelHeadingProps) {
-  return <div className={cn("flex flex-col gap-y-1", props.className)}>{props.children}</div>;
+  return (
+    <div className={cn("flex flex-col gap-y-2", props.className)}>
+      <span className="lw-section-eyebrow">Settings</span>
+      {props.children}
+    </div>
+  );
 }
 
 type SettingsPanelTitleProps = {
@@ -44,7 +49,7 @@ type SettingsPanelTitleProps = {
 };
 
 export function SettingsPanelTitle(props: SettingsPanelTitleProps) {
-  return <h2 className={cn("text-xl font-semibold tracking-tight", props.className)}>{props.children}</h2>;
+  return <h2 className={cn("text-[26px] font-medium leading-[1.04] tracking-[-0.03em] text-foreground", props.className)}>{props.children}</h2>;
 }
 
 type SettingsPanelDescriptionProps = {

@@ -248,24 +248,6 @@ export function CommandPalette(props: CommandPaletteProps) {
     // the bottom-right of the session surface (documentation / feedback)
     // plus every settings tab the user is likely to reach for.
     {
-      id: "open-docs",
-      title: t("session.support_docs"),
-      meta: t("session.cmd_settings_meta"),
-      action: () => {
-        props.onClose();
-        openUrl("https://openwork.dev/docs");
-      },
-    },
-    {
-      id: "open-feedback",
-      title: t("session.support_feedback"),
-      meta: t("session.cmd_settings_meta"),
-      action: () => {
-        props.onClose();
-        openUrl("https://openwork.dev/feedback");
-      },
-    },
-    {
       id: "settings-skills",
       title: t("settings.tab_skills"),
       detail: t("settings.tab_description_skills"),

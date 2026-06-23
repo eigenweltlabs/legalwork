@@ -42,7 +42,7 @@ type VoicePanelProps = {
   onClose: () => void;
 };
 
-const DEFAULT_TEXT_COMMAND = "Summarize the current OpenWork session and put the next step in the composer.";
+const DEFAULT_TEXT_COMMAND = "Summarize the current LegalWork session and put the next step in the composer.";
 const VOICE_SUGGESTIONS = [
   "Read the latest message in this session",
   "Put a concise next step in the composer",
@@ -50,7 +50,7 @@ const VOICE_SUGGESTIONS = [
   "Send the current composer prompt",
 ];
 const TOOL_LABELS: Record<string, string> = {
-  openwork_snapshot: "Checking OpenWork",
+  openwork_snapshot: "Checking LegalWork",
   openwork_list_actions: "Listing controls",
   openwork_execute_action: "Running UI action",
 };
@@ -134,7 +134,7 @@ function safeJson(value: unknown) {
 }
 
 function humanToolLabel(toolName?: string) {
-  if (!toolName) return "OpenWork action";
+  if (!toolName) return "LegalWork action";
   return TOOL_LABELS[toolName] ?? toolName.replace(/_/g, " ");
 }
 
@@ -258,9 +258,9 @@ async function requestMacMicrophoneAccess() {
   return result.granted;
 }
 
-async function executeOpenWorkTool(name: string, args: Record<string, unknown>) {
+async function executeLegalWorkTool(name: string, args: Record<string, unknown>) {
   const control = window.__openworkControl;
-  if (!control) return { ok: false, error: "OpenWork control surface is not available." };
+  if (!control) return { ok: false, error: "LegalWork control surface is not available." };
 
   if (name === "openwork_snapshot") return { ok: true, snapshot: control.snapshot() };
   if (name === "openwork_list_actions") return { ok: true, actions: control.listActions() };
@@ -271,7 +271,7 @@ async function executeOpenWorkTool(name: string, args: Record<string, unknown>) 
     return control.execute(actionId, actionArgs);
   }
 
-  return { ok: false, error: `Unknown OpenWork voice tool: ${name}` };
+  return { ok: false, error: `Unknown LegalWork voice tool: ${name}` };
 }
 
 function VoiceOrb(props: { status: VoiceStatus; muted: boolean }) {
@@ -392,8 +392,8 @@ export function VoicePanel(props: VoicePanelProps) {
       status: nextStatus,
       statusText: text ?? (
         nextStatus === "connecting" ? "Connecting to OpenAI Realtime..." :
-          nextStatus === "listening" ? "Listening. Ask OpenWork to act." :
-            nextStatus === "speaking" ? "OpenWork is speaking..." :
+          nextStatus === "listening" ? "Listening. Ask LegalWork to act." :
+            nextStatus === "speaking" ? "LegalWork is speaking..." :
               nextStatus === "muted" ? "Connected, microphone muted." :
                 nextStatus === "error" ? "Voice Mode needs attention." :
                   "Ready for voice control."
@@ -488,7 +488,7 @@ export function VoicePanel(props: VoicePanelProps) {
       const callId = readString(event, "call_id");
       const args = parseJsonRecord(readString(event, "arguments"));
       addEntry("tool", toolName, { toolName });
-      const output = await executeOpenWorkTool(toolName, args);
+      const output = await executeLegalWorkTool(toolName, args);
       if (isRecord(output) && output.ok === false) {
         const error = typeof output.error === "string" ? output.error : "Tool failed.";
         addEntry("tool", error, { toolName, error: true });
@@ -528,7 +528,7 @@ export function VoicePanel(props: VoicePanelProps) {
 
   const connectRealtime = useCallback(async (audioInput = true) => {
     const client = props.client;
-    if (!client) throw new Error("OpenWork host connection is not ready.");
+    if (!client) throw new Error("LegalWork host connection is not ready.");
     if (audioInput && !navigator.mediaDevices?.getUserMedia) throw new Error("Microphone capture is unavailable in this runtime.");
 
     disconnectRealtime(true);
@@ -541,7 +541,7 @@ export function VoicePanel(props: VoicePanelProps) {
     if (audioInput) {
       setRuntimeStatus("connecting", "Requesting microphone...");
       const macPermissionGranted = await requestMacMicrophoneAccess();
-      if (!macPermissionGranted) throw new Error("macOS denied microphone access. Enable OpenWork in System Settings > Privacy & Security > Microphone, then restart OpenWork.");
+      if (!macPermissionGranted) throw new Error("macOS denied microphone access. Enable LegalWork in System Settings > Privacy & Security > Microphone, then restart LegalWork.");
       const stream = await navigator.mediaDevices.getUserMedia({
         audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
       });
@@ -592,7 +592,7 @@ export function VoicePanel(props: VoicePanelProps) {
     await waitForDataChannelOpen(channel);
     setRealtimeDiagnostics("Realtime data channel is open.");
     setRuntimeStatus("listening", audioInput ? undefined : "Connected. Send a typed voice command.");
-    addEntry("system", `Realtime connected with ${realtimeSession.model} and ${realtimeSession.tools.length} OpenWork tools.`);
+    addEntry("system", `Realtime connected with ${realtimeSession.model} and ${realtimeSession.tools.length} LegalWork tools.`);
     recordInspectorEvent("voice.connected", { sessionId: props.sessionId, model: realtimeSession.model });
   }, [addEntry, disconnectRealtime, handleRealtimeMessage, props.client, props.sessionId, props.workspaceId, setRuntimeStatus]);
 
@@ -792,7 +792,7 @@ export function VoicePanel(props: VoicePanelProps) {
             <Radio className="text-primary" />
             Voice Mode
           </div>
-          <div className="truncate text-xs text-muted-foreground">Realtime voice over OpenWork UI MCP controls</div>
+          <div className="truncate text-xs text-muted-foreground">Realtime voice over LegalWork UI MCP controls</div>
         </div>
         <Button variant="ghost" size="icon-sm" onClick={props.onClose} aria-label="Close Voice Mode">
           <X />
@@ -848,7 +848,7 @@ export function VoicePanel(props: VoicePanelProps) {
                 <CardTitle>Host connection required</CardTitle>
               </CardHeader>
               <CardContent className="text-sm text-muted-foreground">
-                Voice Mode needs the local OpenWork server so it can mint short-lived Realtime client secrets without exposing your API key to the renderer.
+                Voice Mode needs the local LegalWork server so it can mint short-lived Realtime client secrets without exposing your API key to the renderer.
               </CardContent>
             </Card>
           ) : null}

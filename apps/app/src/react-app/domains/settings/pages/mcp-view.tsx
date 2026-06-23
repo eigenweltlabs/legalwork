@@ -23,7 +23,7 @@ import {
   Zap,
 } from "lucide-react";
 
-import { isBuiltInOpenWorkExtension, getMcpServerName, type McpDirectoryInfo } from "../../../../app/constants";
+import { isBuiltInLegalWorkExtension, getMcpServerName, type McpDirectoryInfo } from "../../../../app/constants";
 import { evaluateEnablement } from "../../../../app/enablement";
 import type { EnablementResult } from "../../../../app/extensions";
 import type { CloudImportedPlugin } from "../../../../app/cloud/import-state";
@@ -48,11 +48,11 @@ import { AddMcpModal } from "../../connections/modals/add-mcp-modal";
 import { ClaudePluginImportModal } from "../../connections/modals/claude-plugin-import-modal";
 import type { OpenworkClaudePluginPreview } from "../../../../app/lib/openwork-server";
 import {
-  isOpenWorkExtensionEnabled,
-  isOpenWorkExtensionHidden,
+  isLegalWorkExtensionEnabled,
+  isLegalWorkExtensionHidden,
   OPENWORK_EXTENSION_STATE_CHANGED,
-  setOpenWorkExtensionEnabled,
-  setOpenWorkExtensionHidden,
+  setLegalWorkExtensionEnabled,
+  setLegalWorkExtensionHidden,
 } from "../extension-state";
 import {
   initialMcpViewLocalState,
@@ -113,7 +113,7 @@ export type McpViewProps = {
   isExtensionConnected?: (entry: McpDirectoryInfo) => boolean;
   /** Enablement context for evaluating extension active state. */
   enablementContext?: import("../../../../app/enablement").EnablementContext;
-  /** Organization policy restriction for OpenWork-provided built-in extensions. */
+  /** Organization policy restriction for LegalWork-provided built-in extensions. */
   builtInExtensionsDisabled?: boolean;
   /** Preview a Claude Code plugin bundle from a GitHub URL ("Will install" disclosure). */
   previewClaudePlugin?: (url: string) => Promise<OpenworkClaudePluginPreview>;
@@ -426,11 +426,11 @@ export function McpView(props: McpViewProps) {
   const connectedCount = props.mcpServers.filter(
     (entry) => resolveStatus(entry) === "connected",
   ).length;
-  const hiddenCount = quickConnectList.filter((entry) => isOpenWorkExtensionHidden(entry)).length +
-    (props.installedSkills ?? []).filter((skill) => isOpenWorkExtensionHidden(getSkillHiddenId(skill))).length +
-    (props.installedPlugins ?? []).filter((plugin) => isOpenWorkExtensionHidden(`plugin:${plugin.pluginId}`)).length;
+  const hiddenCount = quickConnectList.filter((entry) => isLegalWorkExtensionHidden(entry)).length +
+    (props.installedSkills ?? []).filter((skill) => isLegalWorkExtensionHidden(getSkillHiddenId(skill))).length +
+    (props.installedPlugins ?? []).filter((plugin) => isLegalWorkExtensionHidden(`plugin:${plugin.pluginId}`)).length;
   const policyHiddenBuiltInCount = props.builtInExtensionsDisabled
-    ? quickConnectList.filter((entry) => isBuiltInOpenWorkExtension(entry) && !isOpenWorkExtensionHidden(entry)).length
+    ? quickConnectList.filter((entry) => isBuiltInLegalWorkExtension(entry) && !isLegalWorkExtensionHidden(entry)).length
     : 0;
   const hiddenOrPolicyCount = hiddenCount + policyHiddenBuiltInCount;
 
@@ -502,7 +502,7 @@ export function McpView(props: McpViewProps) {
 
       {props.builtInExtensionsDisabled ? (
         <div className="rounded-xl border border-amber-6 bg-amber-2 px-4 py-3 text-xs text-amber-11">
-          Built-in OpenWork extensions are disabled by your organization. Use Show hidden to review blocked built-ins.
+          Built-in LegalWork extensions are disabled by your organization. Use Show hidden to review blocked built-ins.
         </div>
       ) : null}
 
@@ -550,7 +550,7 @@ export function McpView(props: McpViewProps) {
       <McpQuickConnectSection
         entries={
           quickConnectList.filter((entry) => {
-            if (!showHidden && (isOpenWorkExtensionHidden(entry) || (props.builtInExtensionsDisabled && isBuiltInOpenWorkExtension(entry)))) return false;
+            if (!showHidden && (isLegalWorkExtensionHidden(entry) || (props.builtInExtensionsDisabled && isBuiltInLegalWorkExtension(entry)))) return false;
             if (filter === "skill") return false;
             if (filter === "mcp" && (entry.kind ?? "mcp") !== "mcp" && entry.kind !== "ui-control") return false;
             if (!search.trim()) return true;
@@ -560,7 +560,7 @@ export function McpView(props: McpViewProps) {
         }
         installedSkills={
           (props.installedSkills ?? []).filter((skill) => {
-            if (!showHidden && isOpenWorkExtensionHidden(getSkillHiddenId(skill))) return false;
+            if (!showHidden && isLegalWorkExtensionHidden(getSkillHiddenId(skill))) return false;
             if (filter === "mcp") return false;
             if (!search.trim()) return true;
             const q = search.toLowerCase();
@@ -569,7 +569,7 @@ export function McpView(props: McpViewProps) {
         }
         installedPlugins={
           (props.installedPlugins ?? []).filter((plugin) => {
-            if (!showHidden && isOpenWorkExtensionHidden(`plugin:${plugin.pluginId}`)) return false;
+            if (!showHidden && isLegalWorkExtensionHidden(`plugin:${plugin.pluginId}`)) return false;
             if (filter === "mcp" || filter === "skill") return false;
             if (!search.trim()) return true;
             const q = search.toLowerCase();
@@ -581,20 +581,20 @@ export function McpView(props: McpViewProps) {
         }
         busy={props.busy}
         connectingName={props.mcpConnectingName}
-        isEntryHidden={(entry) => isOpenWorkExtensionHidden(entry)}
-        isSkillHidden={(skill) => isOpenWorkExtensionHidden(getSkillHiddenId(skill))}
-        isPluginHidden={(plugin) => isOpenWorkExtensionHidden(`plugin:${plugin.pluginId}`)}
+        isEntryHidden={(entry) => isLegalWorkExtensionHidden(entry)}
+        isSkillHidden={(skill) => isLegalWorkExtensionHidden(getSkillHiddenId(skill))}
+        isPluginHidden={(plugin) => isLegalWorkExtensionHidden(`plugin:${plugin.pluginId}`)}
         disabledReasonForEntry={(entry) =>
-          props.builtInExtensionsDisabled && isBuiltInOpenWorkExtension(entry)
+          props.builtInExtensionsDisabled && isBuiltInLegalWorkExtension(entry)
             ? builtInExtensionDisabledReason
             : null
         }
         isConfigured={(entry) => {
-          if (props.builtInExtensionsDisabled && isBuiltInOpenWorkExtension(entry)) return false;
+          if (props.builtInExtensionsDisabled && isBuiltInLegalWorkExtension(entry)) return false;
           const result = enablementForEntry(entry);
           if (result) return result.active;
           // Fallback for entries without enablement context.
-          if (isToggleOnlyExtension(entry)) return isOpenWorkExtensionEnabled(entry);
+          if (isToggleOnlyExtension(entry)) return isLegalWorkExtensionEnabled(entry);
           if (entry.kind === "extension" && !isMcpBackedExtension(entry)) return props.isExtensionConnected?.(entry) ?? false;
           return isQuickConnectConfigured(entry);
         }}
@@ -707,14 +707,14 @@ export function McpView(props: McpViewProps) {
       {detailEntry ? (() => {
         const extensionConfigSlot = props.configSlotForEntry?.(detailEntry) ?? null;
         const hasConfigSlot = extensionConfigSlot !== null;
-        const hidden = isOpenWorkExtensionHidden(detailEntry);
-        const disabledReason = props.builtInExtensionsDisabled && isBuiltInOpenWorkExtension(detailEntry)
+        const hidden = isLegalWorkExtensionHidden(detailEntry);
+        const disabledReason = props.builtInExtensionsDisabled && isBuiltInLegalWorkExtension(detailEntry)
           ? builtInExtensionDisabledReason
           : null;
         const isConnected = disabledReason
           ? false
           : isToggleOnlyExtension(detailEntry)
-          ? isOpenWorkExtensionEnabled(detailEntry)
+          ? isLegalWorkExtensionEnabled(detailEntry)
           : detailEntry.kind === "extension" && !isMcpBackedExtension(detailEntry)
           ? props.isExtensionConnected?.(detailEntry) ?? false
           : isQuickConnectConfigured(detailEntry);
@@ -744,27 +744,27 @@ export function McpView(props: McpViewProps) {
             configSlot={disabledReason ? null : extensionConfigSlot}
             showEnablementCard={!isGoogleWorkspace}
             onConnect={disabledReason ? undefined : isToggleOnlyExtension(detailEntry) ? () => {
-              setOpenWorkExtensionEnabled(detailEntry, true);
+              setLegalWorkExtensionEnabled(detailEntry, true);
               setDetailEntry(null);
             } : hasConfigSlot ? undefined : () => {
               props.connectMcp(detailEntry);
               setDetailEntry(null);
             }}
             onUninstall={disabledReason ? undefined : isToggleOnlyExtension(detailEntry) && isConnected ? () => {
-              setOpenWorkExtensionEnabled(detailEntry, false);
+              setLegalWorkExtensionEnabled(detailEntry, false);
             } : isQuickConnectConfigured(detailEntry) ? () => {
               const slug = getMcpIdentityKey(detailEntry);
               props.removeMcp(slug);
               setDetailEntry(null);
             } : undefined}
-            onHide={() => setOpenWorkExtensionHidden(detailEntry, true)}
-            onShow={() => setOpenWorkExtensionHidden(detailEntry, false)}
+            onHide={() => setLegalWorkExtensionHidden(detailEntry, true)}
+            onShow={() => setLegalWorkExtensionHidden(detailEntry, false)}
           />
         );
       })() : null}
 
       {detailSkill ? (() => {
-        const hidden = isOpenWorkExtensionHidden(getSkillHiddenId(detailSkill));
+        const hidden = isLegalWorkExtensionHidden(getSkillHiddenId(detailSkill));
         return (
           <ExtensionDetailModal
             open={!!detailSkill}
@@ -784,14 +784,14 @@ export function McpView(props: McpViewProps) {
               props.uninstallSkill?.(detailSkill.name);
               setDetailSkill(null);
             } : undefined}
-            onHide={() => setOpenWorkExtensionHidden(getSkillHiddenId(detailSkill), true)}
-            onShow={() => setOpenWorkExtensionHidden(getSkillHiddenId(detailSkill), false)}
+            onHide={() => setLegalWorkExtensionHidden(getSkillHiddenId(detailSkill), true)}
+            onShow={() => setLegalWorkExtensionHidden(getSkillHiddenId(detailSkill), false)}
           />
         );
       })() : null}
 
       {detailPlugin ? (() => {
-        const hidden = isOpenWorkExtensionHidden(`plugin:${detailPlugin.pluginId}`);
+        const hidden = isLegalWorkExtensionHidden(`plugin:${detailPlugin.pluginId}`);
         return (
           <ExtensionDetailModal
             open={!!detailPlugin}
@@ -805,8 +805,8 @@ export function McpView(props: McpViewProps) {
               void props.removeCloudPlugin?.(detailPlugin.pluginId);
               setDetailPlugin(null);
             } : undefined}
-            onHide={() => setOpenWorkExtensionHidden(`plugin:${detailPlugin.pluginId}`, true)}
-            onShow={() => setOpenWorkExtensionHidden(`plugin:${detailPlugin.pluginId}`, false)}
+            onHide={() => setLegalWorkExtensionHidden(`plugin:${detailPlugin.pluginId}`, true)}
+            onShow={() => setLegalWorkExtensionHidden(`plugin:${detailPlugin.pluginId}`, false)}
           />
         );
       })() : null}

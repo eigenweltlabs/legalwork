@@ -23,15 +23,15 @@ import {
 import { isDesktopRuntime } from "./runtime-env";
 import type { DenOrgSkillCard, ReloadReason } from "../types";
 import type {
-  OpenWorkExtensionContribution,
-  OpenWorkExtensionContributionType,
-  OpenWorkExtensionLifecycle,
-  OpenWorkExtensionManifest,
-  OpenWorkExtensionResource,
-  OpenWorkExtensionResourceType,
-  OpenWorkExtensionSetup,
-  OpenWorkExtensionSource,
-  OpenWorkExtensionSourceFormat,
+  LegalWorkExtensionContribution,
+  LegalWorkExtensionContributionType,
+  LegalWorkExtensionLifecycle,
+  LegalWorkExtensionManifest,
+  LegalWorkExtensionResource,
+  LegalWorkExtensionResourceType,
+  LegalWorkExtensionSetup,
+  LegalWorkExtensionSource,
+  LegalWorkExtensionSourceFormat,
 } from "../extensions";
 
 const STORAGE_BASE_URL = "openwork.den.baseUrl";
@@ -43,7 +43,7 @@ const STORAGE_ACTIVE_ORG_NAME = "openwork.den.activeOrgName";
 const ORG_PROXY_HEADER = "x-openwork-legacy-org-id";
 const DEFAULT_DEN_TIMEOUT_MS = 12_000;
 
-export const DEFAULT_DEN_AUTH_NAME = "OpenWork User";
+export const DEFAULT_DEN_AUTH_NAME = "LegalWork User";
 const BUILD_DEN_BASE_URL =
   (typeof import.meta !== "undefined" && typeof import.meta.env?.VITE_DEN_BASE_URL === "string"
     ? import.meta.env.VITE_DEN_BASE_URL
@@ -1159,7 +1159,7 @@ function parsePluginConfigObject(value: unknown): DenPluginConfigObject | null {
   };
 }
 
-function parseExtensionSourceFormat(value: unknown): OpenWorkExtensionSourceFormat | null {
+function parseExtensionSourceFormat(value: unknown): LegalWorkExtensionSourceFormat | null {
   switch (value) {
     case "openwork-builtin":
     case "openwork-extension-manifest":
@@ -1173,7 +1173,7 @@ function parseExtensionSourceFormat(value: unknown): OpenWorkExtensionSourceForm
   }
 }
 
-function parseExtensionSourceOrigin(value: unknown): OpenWorkExtensionSource["origin"] | undefined {
+function parseExtensionSourceOrigin(value: unknown): LegalWorkExtensionSource["origin"] | undefined {
   switch (value) {
     case "builtin":
     case "den":
@@ -1185,7 +1185,7 @@ function parseExtensionSourceOrigin(value: unknown): OpenWorkExtensionSource["or
   }
 }
 
-function parseExtensionSource(value: unknown): OpenWorkExtensionSource | null {
+function parseExtensionSource(value: unknown): LegalWorkExtensionSource | null {
   if (!isRecord(value) || typeof value.trusted !== "boolean") return null;
   const format = parseExtensionSourceFormat(value.format);
   if (!format) return null;
@@ -1203,7 +1203,7 @@ function parseStringList(value: unknown): string[] | undefined {
   return value;
 }
 
-function parseExtensionResourceType(value: unknown): OpenWorkExtensionResourceType | null {
+function parseExtensionResourceType(value: unknown): LegalWorkExtensionResourceType | null {
   switch (value) {
     case "skill":
     case "agent":
@@ -1224,7 +1224,7 @@ function parseExtensionResourceType(value: unknown): OpenWorkExtensionResourceTy
   }
 }
 
-function parseExtensionLocalCommandRef(value: unknown): OpenWorkExtensionResource["localCommandRef"] | undefined {
+function parseExtensionLocalCommandRef(value: unknown): LegalWorkExtensionResource["localCommandRef"] | undefined {
   switch (value) {
     case "openwork.computerUseMcp":
     case "openwork.uiMcp":
@@ -1234,7 +1234,7 @@ function parseExtensionLocalCommandRef(value: unknown): OpenWorkExtensionResourc
   }
 }
 
-function parseExtensionResource(value: unknown): OpenWorkExtensionResource | null {
+function parseExtensionResource(value: unknown): LegalWorkExtensionResource | null {
   if (!isRecord(value) || typeof value.id !== "string") return null;
   const type = parseExtensionResourceType(value.type);
   if (!type) return null;
@@ -1256,7 +1256,7 @@ function parseExtensionResource(value: unknown): OpenWorkExtensionResource | nul
   };
 }
 
-function parseExtensionContributionType(value: unknown): OpenWorkExtensionContributionType | null {
+function parseExtensionContributionType(value: unknown): LegalWorkExtensionContributionType | null {
   switch (value) {
     case "settings-panel":
     case "setup-instructions":
@@ -1273,7 +1273,7 @@ function parseExtensionContributionType(value: unknown): OpenWorkExtensionContri
   }
 }
 
-function parseExtensionContributionLocation(value: unknown): OpenWorkExtensionContribution["location"] | undefined {
+function parseExtensionContributionLocation(value: unknown): LegalWorkExtensionContribution["location"] | undefined {
   switch (value) {
     case "settings-detail":
     case "composer":
@@ -1287,7 +1287,7 @@ function parseExtensionContributionLocation(value: unknown): OpenWorkExtensionCo
   }
 }
 
-function parseExtensionContribution(value: unknown): OpenWorkExtensionContribution | null {
+function parseExtensionContribution(value: unknown): LegalWorkExtensionContribution | null {
   if (!isRecord(value)) return null;
   const type = parseExtensionContributionType(value.type);
   if (!type) return null;
@@ -1302,7 +1302,7 @@ function parseExtensionContribution(value: unknown): OpenWorkExtensionContributi
   };
 }
 
-function parseExtensionSetup(value: unknown): OpenWorkExtensionSetup | undefined {
+function parseExtensionSetup(value: unknown): LegalWorkExtensionSetup | undefined {
   if (!isRecord(value)) return undefined;
   const requiredEnv = parseStringList(value.requiredEnv);
   return {
@@ -1337,7 +1337,7 @@ function parseReloadReasons(value: unknown): ReloadReason[] | undefined {
   return reasons.length === value.length ? reasons : undefined;
 }
 
-function parseExtensionLifecycle(value: unknown): OpenWorkExtensionLifecycle | undefined {
+function parseExtensionLifecycle(value: unknown): LegalWorkExtensionLifecycle | undefined {
   if (!isRecord(value)) return undefined;
   const reload = parseReloadReasons(value.reload);
   const detection = parseStringList(value.detection);
@@ -1347,7 +1347,7 @@ function parseExtensionLifecycle(value: unknown): OpenWorkExtensionLifecycle | u
   };
 }
 
-function parseExtensionPlatform(value: unknown): OpenWorkExtensionManifest["platform"] | undefined {
+function parseExtensionPlatform(value: unknown): LegalWorkExtensionManifest["platform"] | undefined {
   if (!Array.isArray(value)) return undefined;
   const platforms = value.flatMap((item) => {
     switch (item) {
@@ -1363,7 +1363,7 @@ function parseExtensionPlatform(value: unknown): OpenWorkExtensionManifest["plat
   return platforms.length === value.length ? platforms : undefined;
 }
 
-function parseOpenWorkExtensionManifest(value: unknown): OpenWorkExtensionManifest | null {
+function parseLegalWorkExtensionManifest(value: unknown): LegalWorkExtensionManifest | null {
   if (
     !isRecord(value) ||
     value.schemaVersion !== 1 ||
@@ -1424,7 +1424,7 @@ function parseDenExtensionProjection(value: unknown): DenOrgExtensionProjection 
     name: value.name,
     description: typeof value.description === "string" ? value.description : null,
     sourceFormat,
-    manifest: parseOpenWorkExtensionManifest(value.manifest),
+    manifest: parseLegalWorkExtensionManifest(value.manifest),
   };
 }
 

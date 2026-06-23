@@ -135,7 +135,7 @@ export function CloudWorkersView({
         workers={workers}
         workersBusy={workersBusy}
         workersError={workersError}
-        onOpenWorker={openWorker}
+        onLegalWorker={openWorker}
         onRefreshWorkers={refreshWorkers}
       />
     </SettingsStack>

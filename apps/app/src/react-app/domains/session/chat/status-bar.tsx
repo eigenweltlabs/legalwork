@@ -14,15 +14,15 @@ import { useControlAction, type OpenworkControlAction } from "../../../shell/con
 import { useShellConfig } from "../../../shell/shell-config";
 import type { OpenworkServerStatus } from "../../../../app/lib/openwork-server";
 import {
-  getOpenWorkModelsActionUrl,
-  hasOpenWorkModelsProvider,
-  hideOpenWorkModelsPromo,
-  isOpenWorkModelsPromoHidden,
-  markOpenWorkModelsPromoShown,
+  getLegalWorkModelsActionUrl,
+  hasLegalWorkModelsProvider,
+  hideLegalWorkModelsPromo,
+  isLegalWorkModelsPromoHidden,
+  markLegalWorkModelsPromoShown,
   OPENWORK_MODELS_PROMO_SHOW_DELAY_MS,
   OPENWORK_MODELS_PROMO_VISIBLE_MS,
   openWorkModelsPromoChangedEvent,
-  shouldShowOpenWorkModelsPromo,
+  shouldShowLegalWorkModelsPromo,
 } from "../../cloud/openwork-models-promo";
 
 const DOCS_URL = "https://openworklabs.com/docs";
@@ -154,9 +154,9 @@ export function StatusBar(props: StatusBarProps) {
   const docsButtonRef = useRef<HTMLButtonElement>(null);
   const feedbackButtonRef = useRef<HTMLButtonElement>(null);
   const settingsButtonRef = useRef<HTMLButtonElement>(null);
-  const [openWorkModelsHintVisible, setOpenWorkModelsHintVisible] = useState(false);
-  const hasOpenWorkModels = useMemo(
-    () => hasOpenWorkModelsProvider(props.providerConnectedIds),
+  const [openWorkModelsHintVisible, setLegalWorkModelsHintVisible] = useState(false);
+  const hasLegalWorkModels = useMemo(
+    () => hasLegalWorkModelsProvider(props.providerConnectedIds),
     [props.providerConnectedIds],
   );
   const [initializing, setInitializing] = useState(
@@ -175,8 +175,8 @@ export function StatusBar(props: StatusBarProps) {
 
   useEffect(() => {
     const handlePromoChanged = () => {
-      if (isOpenWorkModelsPromoHidden()) {
-        setOpenWorkModelsHintVisible(false);
+      if (isLegalWorkModelsPromoHidden()) {
+        setLegalWorkModelsHintVisible(false);
       }
     };
     window.addEventListener(openWorkModelsPromoChangedEvent, handlePromoChanged);
@@ -184,20 +184,20 @@ export function StatusBar(props: StatusBarProps) {
   }, []);
 
   useEffect(() => {
-    if (!shellConfig.cloudSignin || hasOpenWorkModels) {
-      setOpenWorkModelsHintVisible(false);
+    if (!shellConfig.cloudSignin || hasLegalWorkModels) {
+      setLegalWorkModelsHintVisible(false);
       return;
     }
     if (denAuth.status === "checking") return;
 
     let showTimeout: number | null = null;
     const maybeShow = () => {
-      if (showTimeout !== null || !shouldShowOpenWorkModelsPromo()) return;
+      if (showTimeout !== null || !shouldShowLegalWorkModelsPromo()) return;
       showTimeout = window.setTimeout(() => {
         showTimeout = null;
-        if (!shouldShowOpenWorkModelsPromo()) return;
-        markOpenWorkModelsPromoShown();
-        setOpenWorkModelsHintVisible(true);
+        if (!shouldShowLegalWorkModelsPromo()) return;
+        markLegalWorkModelsPromoShown();
+        setLegalWorkModelsHintVisible(true);
       }, OPENWORK_MODELS_PROMO_SHOW_DELAY_MS);
     };
 
@@ -209,44 +209,36 @@ export function StatusBar(props: StatusBarProps) {
       }
       window.clearInterval(interval);
     };
-  }, [denAuth.status, hasOpenWorkModels, shellConfig.cloudSignin]);
+  }, [denAuth.status, hasLegalWorkModels, shellConfig.cloudSignin]);
 
   useEffect(() => {
     if (!openWorkModelsHintVisible) return;
     const timeout = window.setTimeout(
-      () => setOpenWorkModelsHintVisible(false),
+      () => setLegalWorkModelsHintVisible(false),
       OPENWORK_MODELS_PROMO_VISIBLE_MS,
     );
     return () => window.clearTimeout(timeout);
   }, [openWorkModelsHintVisible]);
 
-  const openOpenWorkModels = useCallback(() => {
-    setOpenWorkModelsHintVisible(false);
+  const openLegalWorkModels = useCallback(() => {
+    setLegalWorkModelsHintVisible(false);
     if (!denAuth.isSignedIn) {
       navigate("/settings/cloud-account");
     }
-    platform.openLink(getOpenWorkModelsActionUrl(denAuth.isSignedIn));
+    platform.openLink(getLegalWorkModelsActionUrl(denAuth.isSignedIn));
   }, [denAuth.isSignedIn, navigate, platform]);
 
-  const hideOpenWorkModels = useCallback(() => {
-    setOpenWorkModelsHintVisible(false);
-    hideOpenWorkModelsPromo();
+  const hideLegalWorkModels = useCallback(() => {
+    setLegalWorkModelsHintVisible(false);
+    hideLegalWorkModelsPromo();
   }, []);
 
-  const docsControlAction = useMemo<OpenworkControlAction>(() => ({
-    id: "status.docs.open",
-    label: "Open OpenWork docs",
-    description: "Open the documentation from the status bar.",
-    sideEffect: "external",
-    targetRef: docsButtonRef,
-    execute: () => platform.openLink(DOCS_URL),
-  }), [platform]);
-  useControlAction(docsControlAction);
+  // Docs control action removed — pointed at openworklabs.com.
 
   const feedbackControlAction = useMemo<OpenworkControlAction>(() => ({
     id: "status.feedback.open",
     label: "Send feedback",
-    description: "Open the OpenWork feedback surface from the status bar.",
+    description: "Open the LegalWork feedback surface from the status bar.",
     sideEffect: "external",
     targetRef: feedbackButtonRef,
     execute: props.onSendFeedback,
@@ -282,10 +274,10 @@ export function StatusBar(props: StatusBarProps) {
               <button
                 type="button"
                 className="flex min-w-0 items-center gap-1.5 px-2.5 text-xs font-medium text-blue-12 transition-colors hover:bg-blue-3/70"
-                onClick={openOpenWorkModels}
+                onClick={openLegalWorkModels}
               >
                 <Sparkles className="size-3.5 text-blue-11" />
-                <span className="whitespace-nowrap">OpenWork Models</span>
+                <span className="whitespace-nowrap">LegalWork Models</span>
                 <span className="hidden whitespace-nowrap font-normal text-blue-11/75 lg:inline">
                   hosted frontier models
                 </span>
@@ -294,8 +286,8 @@ export function StatusBar(props: StatusBarProps) {
               <button
                 type="button"
                 className="flex size-6 shrink-0 items-center justify-center border-l border-blue-6/60 text-blue-11 transition-colors hover:bg-blue-3/70"
-                onClick={hideOpenWorkModels}
-                aria-label="Hide OpenWork Models hint"
+                onClick={hideLegalWorkModels}
+                aria-label="Hide LegalWork Models hint"
               >
                 <X className="size-3" />
               </button>
@@ -322,36 +314,8 @@ export function StatusBar(props: StatusBarProps) {
               <TooltipContent>{t("den.signin_title")}</TooltipContent>
             </Tooltip>
           ) : null}
-          {shellConfig.docsButton ? (
-            <Button
-              ref={docsButtonRef}
-              className="text-muted-foreground gap-2"
-              variant="ghost"
-              size="xs"
-              onClick={() => platform.openLink(DOCS_URL)}
-              title={t("status.open_docs")}
-              aria-label={t("status.open_docs")}
-            >
-              <BookOpen className="size-3.5" />
-              <span>{t("status.docs")}</span>
-            </Button>
-          ) : null}
-          {shellConfig.feedbackButton ? (
-            <Button
-              ref={feedbackButtonRef}
-              className="text-muted-foreground gap-2"
-              variant="ghost"
-              size="xs"
-              onClick={props.onSendFeedback}
-              title={t("status.send_feedback")}
-              aria-label={t("status.send_feedback")}
-            >
-              <MessageCircleMore className="size-3.5" />
-              <span>
-                {t("status.feedback")}
-              </span>
-            </Button>
-          ) : null}
+          {/* Docs button removed — pointed at openworklabs.com (no user-facing openwork links). */}
+          {/* Feedback button removed — pointed at openworklabs.com (no LegalWork feedback surface yet). */}
           {props.showSettingsButton !== false ? (
             <Tooltip>
               <TooltipTrigger

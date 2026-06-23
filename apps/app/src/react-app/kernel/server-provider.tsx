@@ -102,7 +102,7 @@ export function ServerProvider({ children, defaultUrl }: ServerProviderProps) {
 
     const fallback = normalizeServerUrl(defaultUrl) ?? "";
 
-    // Hosted web deployments served by OpenWork must reuse the OpenCode proxy
+    // Hosted web deployments served by LegalWork must reuse the OpenCode proxy
     // rather than any persisted localhost target.
     const forceProxy =
       !isDesktopRuntime() &&
@@ -141,7 +141,7 @@ export function ServerProvider({ children, defaultUrl }: ServerProviderProps) {
   useEffect(() => {
     if (!active) return;
     if (isDesktopRuntime() && !active.includes("/opencode")) {
-      // Desktop React routes now talk to OpenWork server workspace-mounted
+      // Desktop React routes now talk to LegalWork server workspace-mounted
       // `/opencode` URLs directly. Ignore old persisted raw OpenCode daemon
       // URLs here; their ephemeral ports go stale across restarts and otherwise
       // produce noisy `/global/health` connection-refused polling forever.

@@ -26,10 +26,10 @@ import { ProviderIcon } from "../../../design-system/provider-icon";
 import { useDenAuth } from "../../cloud/den-auth-provider";
 import { usePlatform } from "../../../kernel/platform";
 import {
-  getOpenWorkModelsActionUrl,
-  hasOpenWorkModelsProvider,
-  hideOpenWorkModelsPromo,
-  isOpenWorkModelsPromoHidden,
+  getLegalWorkModelsActionUrl,
+  hasLegalWorkModelsProvider,
+  hideLegalWorkModelsPromo,
+  isLegalWorkModelsPromoHidden,
   OPENWORK_MODELS_PROVIDER_ID,
   OPENWORK_MODELS_PROVIDER_NAME,
   openWorkModelsPromoChangedEvent,
@@ -64,7 +64,7 @@ type ProviderGroup = {
 export function ModelPickerModal(props: ModelPickerModalProps) {
   const searchInputRef = useRef<HTMLInputElement | null>(null);
   const [expandedProviders, setExpandedProviders] = useState<Set<string>>(new Set());
-  const [promoHidden, setPromoHidden] = useState(isOpenWorkModelsPromoHidden);
+  const [promoHidden, setPromoHidden] = useState(isLegalWorkModelsPromoHidden);
   const denAuth = useDenAuth();
   const navigate = useNavigate();
   const platform = usePlatform();
@@ -82,7 +82,7 @@ export function ModelPickerModal(props: ModelPickerModalProps) {
   }, [props.open]);
 
   useEffect(() => {
-    const handlePromoChanged = () => setPromoHidden(isOpenWorkModelsPromoHidden());
+    const handlePromoChanged = () => setPromoHidden(isLegalWorkModelsPromoHidden());
     window.addEventListener(openWorkModelsPromoChangedEvent, handlePromoChanged);
     return () => window.removeEventListener(openWorkModelsPromoChangedEvent, handlePromoChanged);
   }, []);
@@ -169,23 +169,23 @@ export function ModelPickerModal(props: ModelPickerModalProps) {
     });
   }, []);
 
-  const showOpenWorkModelsPromo = useMemo(
-    () => !promoHidden && !hasOpenWorkModelsProvider(props.options.map((option) => option.providerID)),
+  const showLegalWorkModelsPromo = useMemo(
+    () => !promoHidden && !hasLegalWorkModelsProvider(props.options.map((option) => option.providerID)),
     [promoHidden, props.options],
   );
 
-  const openOpenWorkModels = useCallback(() => {
+  const openLegalWorkModels = useCallback(() => {
     props.onClose();
     if (!denAuth.isSignedIn) {
       navigate("/settings/cloud-account");
     }
     window.setTimeout(() => {
-      platform.openLink(getOpenWorkModelsActionUrl(denAuth.isSignedIn));
+      platform.openLink(getLegalWorkModelsActionUrl(denAuth.isSignedIn));
     }, 0);
   }, [denAuth.isSignedIn, navigate, platform, props.onClose]);
 
-  const hideOpenWorkModels = useCallback(() => {
-    hideOpenWorkModelsPromo();
+  const hideLegalWorkModels = useCallback(() => {
+    hideLegalWorkModelsPromo();
     setPromoHidden(true);
   }, []);
 
@@ -233,12 +233,12 @@ export function ModelPickerModal(props: ModelPickerModalProps) {
             />
           </div>
 
-          {showOpenWorkModelsPromo ? (
+          {showLegalWorkModelsPromo ? (
             <div className="mb-3 flex shrink-0 items-center overflow-hidden rounded-2xl border border-blue-6/60 bg-blue-2/60 shadow-[0_12px_30px_-20px_rgba(var(--dls-accent-rgb),0.45)]">
               <button
                 type="button"
                 className="flex min-w-0 flex-1 items-center gap-3 px-3 py-2.5 text-left transition-colors hover:bg-blue-3/70"
-                onClick={openOpenWorkModels}
+                onClick={openLegalWorkModels}
               >
                 <ProviderIcon providerId={OPENWORK_MODELS_PROVIDER_ID} providerName={OPENWORK_MODELS_PROVIDER_NAME} size={18} className="shrink-0 text-blue-11" />
                 <div className="min-w-0 flex-1">
@@ -258,8 +258,8 @@ export function ModelPickerModal(props: ModelPickerModalProps) {
               <button
                 type="button"
                 className="flex size-9 shrink-0 items-center justify-center border-l border-blue-6/60 text-blue-11 transition-colors hover:bg-blue-3/70"
-                onClick={hideOpenWorkModels}
-                aria-label="Hide OpenWork Models"
+                onClick={hideLegalWorkModels}
+                aria-label="Hide LegalWork Models"
               >
                 <X className="size-3.5" />
               </button>

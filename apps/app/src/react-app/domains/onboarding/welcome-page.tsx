@@ -188,7 +188,7 @@ export function WelcomePage({
                     Choose any folder on your machine to get started.
                   </OnboardingStep>
                   <OnboardingStep number="2" title="Chat">
-                    Describe what you need. OpenWork handles the rest.
+                    Describe what you need. LegalWork handles the rest.
                   </OnboardingStep>
                   <OnboardingStep number="3" title="Interact">
                     Review results, approve actions, and iterate.

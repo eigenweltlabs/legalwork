@@ -83,7 +83,8 @@ function ArtifactPanelView({ client, workspaceId, workspaceRoot, isRemoteWorkspa
   const queryClient = useQueryClient();
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState("");
-  const isDirectTextEdit = isTextContent(target) && target.preview === "markdown";
+  // Markdown renders by default (MarkdownPreview); the "Edit" button toggles to raw source.
+  const isDirectTextEdit = false;
   const externalPath = useMemo(() => target.kind === "file" ? absoluteWorkspacePath(workspaceRoot, target.value) : target.value, [target.kind, target.value, workspaceRoot]);
 
   const { data: fileIcon } = useQuery<string | null>({

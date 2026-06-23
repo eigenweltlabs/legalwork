@@ -318,7 +318,7 @@ export function ResourceSelectionPage() {
               <EmptyHeader>
                 <EmptyTitle>No resources have been configured for this organization yet.</EmptyTitle>
                 <EmptyDescription>
-                  Add AI providers, marketplaces, or workers from the OpenWork Cloud dashboard.
+                  Add AI providers, marketplaces, or workers from the LegalWork Cloud dashboard.
                 </EmptyDescription>
               </EmptyHeader>
               <EmptyContent>
@@ -326,7 +326,7 @@ export function ResourceSelectionPage() {
                   variant="outline"
                   onClick={() => platform.openLink(resolveDenBaseUrls(settings.baseUrl).baseUrl)}
                 >
-                  Open OpenWork Cloud
+                  Open LegalWork Cloud
                   <ArrowUpRightIcon data-icon="inline-end" />
                 </Button>
               </EmptyContent>

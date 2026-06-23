@@ -21,10 +21,10 @@ import { usePlatform } from "@/react-app/kernel/platform";
 import { useCheckDesktopRestriction } from "@/react-app/domains/cloud/desktop-config-provider";
 import { useDenAuth } from "@/react-app/domains/cloud/den-auth-provider";
 import {
-  getOpenWorkModelsActionUrl,
-  hasOpenWorkModelsProvider,
-  hideOpenWorkModelsPromo,
-  isOpenWorkModelsPromoHidden,
+  getLegalWorkModelsActionUrl,
+  hasLegalWorkModelsProvider,
+  hideLegalWorkModelsPromo,
+  isLegalWorkModelsPromoHidden,
   OPENWORK_MODEL_PREVIEWS,
   OPENWORK_MODELS_PROVIDER_ID,
   OPENWORK_MODELS_PROVIDER_NAME,
@@ -130,14 +130,14 @@ type ModelSelectModelItem = {
   option: ModelOption;
 };
 
-type ModelSelectOpenWorkItem = {
+type ModelSelectLegalWorkItem = {
   kind: "openwork";
   id: string;
   title: string;
   subtitle: string;
 };
 
-type ModelSelectItem = ModelSelectModelItem | ModelSelectOpenWorkItem;
+type ModelSelectItem = ModelSelectModelItem | ModelSelectLegalWorkItem;
 
 type ModelSelectGroup = {
   value: string;
@@ -207,7 +207,7 @@ export function ModelSelect({
   disabled = false,
 }: ModelSelectProps) {
   const [search, setSearch] = React.useState("");
-  const [promoHidden, setPromoHidden] = React.useState(isOpenWorkModelsPromoHidden);
+  const [promoHidden, setPromoHidden] = React.useState(isLegalWorkModelsPromoHidden);
   const searchInputRef = React.useRef<HTMLInputElement>(null);
   const modelOptions = useModelOptions(open);
   const denAuth = useDenAuth();
@@ -215,7 +215,7 @@ export function ModelSelect({
   const platform = usePlatform();
 
   React.useEffect(() => {
-    const handlePromoChanged = () => setPromoHidden(isOpenWorkModelsPromoHidden());
+    const handlePromoChanged = () => setPromoHidden(isLegalWorkModelsPromoHidden());
     window.addEventListener(openWorkModelsPromoChangedEvent, handlePromoChanged);
     return () => window.removeEventListener(openWorkModelsPromoChangedEvent, handlePromoChanged);
   }, []);
@@ -248,17 +248,17 @@ export function ModelSelect({
     }),
   );
 
-  const showOpenWorkModelsPromo = React.useMemo(
-    () => !promoHidden && !hasOpenWorkModelsProvider(modelOptions.map((option) => option.providerID)),
+  const showLegalWorkModelsPromo = React.useMemo(
+    () => !promoHidden && !hasLegalWorkModelsProvider(modelOptions.map((option) => option.providerID)),
     [modelOptions, promoHidden],
   );
 
   const groups = React.useMemo(() => {
     const providerGroups = groupByProvider(modelOptions);
-    return showOpenWorkModelsPromo
+    return showLegalWorkModelsPromo
       ? [openWorkModelsGroup(), ...providerGroups]
       : providerGroups;
-  }, [modelOptions, showOpenWorkModelsPromo]);
+  }, [modelOptions, showLegalWorkModelsPromo]);
 
   const handleSelect = (option: ModelOption) => {
     onChange({ providerID: option.providerID, modelID: option.modelID });
@@ -266,19 +266,19 @@ export function ModelSelect({
     onOpenChange(false);
   };
 
-  const handleOpenWorkModels = React.useCallback(() => {
+  const handleLegalWorkModels = React.useCallback(() => {
     onOpenChange(false);
     setSearch("");
     if (!denAuth.isSignedIn) {
       navigate("/settings/cloud-account");
     }
     window.setTimeout(() => {
-      platform.openLink(getOpenWorkModelsActionUrl(denAuth.isSignedIn));
+      platform.openLink(getLegalWorkModelsActionUrl(denAuth.isSignedIn));
     }, 0);
   }, [denAuth.isSignedIn, navigate, onOpenChange, platform]);
 
-  const handleHideOpenWorkModels = React.useCallback(() => {
-    hideOpenWorkModelsPromo();
+  const handleHideLegalWorkModels = React.useCallback(() => {
+    hideLegalWorkModelsPromo();
     setPromoHidden(true);
   }, []);
 
@@ -345,7 +345,7 @@ export function ModelSelect({
                           className="gap-2 border border-blue-6/50 bg-blue-2/40 data-highlighted:bg-blue-3"
                           key={item.id}
                           value={`${OPENWORK_MODELS_PROVIDER_NAME} ${item.title} ${item.id} sign in subscribe`}
-                          onClick={handleOpenWorkModels}
+                          onClick={handleLegalWorkModels}
                         >
                           <ProviderIcon
                             providerId={OPENWORK_MODELS_PROVIDER_ID}
@@ -415,11 +415,11 @@ export function ModelSelect({
                 <Settings2 className="size-3.5" />
                 All models
               </button>
-              {showOpenWorkModelsPromo ? (
+              {showLegalWorkModelsPromo ? (
                 <button
                   type="button"
                   className="shrink-0 rounded-md px-2 py-1.5 text-xs text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
-                  onClick={handleHideOpenWorkModels}
+                  onClick={handleHideLegalWorkModels}
                 >
                   Hide
                 </button>

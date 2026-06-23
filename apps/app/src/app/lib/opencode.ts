@@ -377,7 +377,7 @@ export function createClient(baseUrl: string, directory?: string, auth?: Opencod
       ? createOpenworkServerClient({ baseUrl: openworkMount.baseUrl, token: auth.token })
       : null;
   // TODO(2026-04-12): remove the old-server compatibility path here once all
-  // OpenWork servers expose the workspace-scoped session read APIs.
+  // LegalWork servers expose the workspace-scoped session read APIs.
   const sessionOverrides = session as any as {
     list: (parameters?: SessionListParameters, options?: { throwOnError?: boolean }) => Promise<FieldsResult<Session[]>>;
     get: (parameters: SessionLookupParameters, options?: { throwOnError?: boolean }) => Promise<FieldsResult<Session>>;

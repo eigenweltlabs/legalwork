@@ -76,7 +76,7 @@ export async function ensureDesktopLocalOpenworkConnection(
 
     const info = await openworkServerInfo() as OpenworkServerInfo | null;
     if (!info?.baseUrl) {
-      throw new Error("OpenWork server did not report a base URL after activation.");
+      throw new Error("LegalWork server did not report a base URL after activation.");
     }
 
     writeOpenworkServerSettings({

@@ -8,7 +8,7 @@ import {
 } from "../../../app/lib/den";
 
 export const OPENWORK_MODELS_PROVIDER_ID = "openwork";
-export const OPENWORK_MODELS_PROVIDER_NAME = "OpenWork Models";
+export const OPENWORK_MODELS_PROVIDER_NAME = "LegalWork Models";
 export const OPENWORK_MODELS_PROMO_HIDDEN_KEY = "openwork.openworkModelsPromo.hidden";
 export const OPENWORK_MODELS_PROMO_LAST_SHOWN_KEY = "openwork.openworkModelsPromo.lastShownAt";
 export const OPENWORK_MODELS_STARTUP_PROMO_SHOWN_KEY = "openwork.openworkModelsPromo.startupShown";
@@ -17,43 +17,43 @@ export const OPENWORK_MODELS_PROMO_SHOW_DELAY_MS = 4_000;
 export const OPENWORK_MODELS_PROMO_VISIBLE_MS = 14_000;
 export const OPENWORK_MODELS_PROMO_REPEAT_MS = 6 * 60 * 60 * 1000;
 
-export function areOpenWorkModelsPromosDisabled() {
+export function areLegalWorkModelsPromosDisabled() {
   return /^(1|true|yes|on)$/i.test(String(import.meta.env.VITE_DISABLE_OPENWORK_MODELS ?? "").trim());
 }
 
-export type OpenWorkModelPreview = {
+export type LegalWorkModelPreview = {
   id: string;
   title: string;
   subtitle: string;
 };
 
-export const OPENWORK_MODEL_PREVIEWS: OpenWorkModelPreview[] = Object.entries(
+export const OPENWORK_MODEL_PREVIEWS: LegalWorkModelPreview[] = Object.entries(
   INFERENCE_MODEL_ALIASES,
 )
   .filter(([, model]) => model.enabled)
   .map(([id, model]) => ({
     id,
-    title: model.displayName.replace(/^OpenWork:\s*/, ""),
-    subtitle: "OpenWork hosted",
+    title: model.displayName.replace(/^LegalWork:\s*/, ""),
+    subtitle: "LegalWork hosted",
   }));
 
-export function hasOpenWorkModelsProvider(providerIds: readonly string[]) {
+export function hasLegalWorkModelsProvider(providerIds: readonly string[]) {
   return providerIds.some((id) => id.trim().toLowerCase() === OPENWORK_MODELS_PROVIDER_ID);
 }
 
-export function getOpenWorkModelsActionUrl(
+export function getLegalWorkModelsActionUrl(
   isSignedIn: boolean,
   authMode: "sign-in" | "sign-up" = "sign-in",
 ) {
   const settings = readDenSettings();
   const baseUrl = settings.baseUrl || readDenBootstrapConfig().baseUrl;
-  // Signed-in users go straight to the OpenWork Models page — the value-prop
+  // Signed-in users go straight to the LegalWork Models page — the value-prop
   // + subscribe surface — never to a bare auth or billing page.
   return isSignedIn ? getDenInferenceUrl(baseUrl) : buildDenAuthUrl(baseUrl, authMode);
 }
 
-export function isOpenWorkModelsPromoHidden() {
-  if (areOpenWorkModelsPromosDisabled()) return true;
+export function isLegalWorkModelsPromoHidden() {
+  if (areLegalWorkModelsPromosDisabled()) return true;
   if (typeof window === "undefined") return false;
   try {
     return window.localStorage.getItem(OPENWORK_MODELS_PROMO_HIDDEN_KEY) === "1";
@@ -62,7 +62,7 @@ export function isOpenWorkModelsPromoHidden() {
   }
 }
 
-export function hideOpenWorkModelsPromo() {
+export function hideLegalWorkModelsPromo() {
   if (typeof window === "undefined") return;
   try {
     window.localStorage.setItem(OPENWORK_MODELS_PROMO_HIDDEN_KEY, "1");
@@ -70,8 +70,8 @@ export function hideOpenWorkModelsPromo() {
   } catch {}
 }
 
-export function wasOpenWorkModelsStartupPromoShown() {
-  if (areOpenWorkModelsPromosDisabled()) return true;
+export function wasLegalWorkModelsStartupPromoShown() {
+  if (areLegalWorkModelsPromosDisabled()) return true;
   if (typeof window === "undefined") return true;
   try {
     return window.localStorage.getItem(OPENWORK_MODELS_STARTUP_PROMO_SHOWN_KEY) === "1";
@@ -80,15 +80,15 @@ export function wasOpenWorkModelsStartupPromoShown() {
   }
 }
 
-export function markOpenWorkModelsStartupPromoShown() {
+export function markLegalWorkModelsStartupPromoShown() {
   if (typeof window === "undefined") return;
   try {
     window.localStorage.setItem(OPENWORK_MODELS_STARTUP_PROMO_SHOWN_KEY, "1");
   } catch {}
 }
 
-export function shouldShowOpenWorkModelsPromo(now = Date.now()) {
-  if (areOpenWorkModelsPromosDisabled() || typeof window === "undefined" || isOpenWorkModelsPromoHidden()) return false;
+export function shouldShowLegalWorkModelsPromo(now = Date.now()) {
+  if (areLegalWorkModelsPromosDisabled() || typeof window === "undefined" || isLegalWorkModelsPromoHidden()) return false;
   try {
     const lastShown = Number(window.localStorage.getItem(OPENWORK_MODELS_PROMO_LAST_SHOWN_KEY) ?? "0");
     return !Number.isFinite(lastShown) || now - lastShown >= OPENWORK_MODELS_PROMO_REPEAT_MS;
@@ -97,7 +97,7 @@ export function shouldShowOpenWorkModelsPromo(now = Date.now()) {
   }
 }
 
-export function markOpenWorkModelsPromoShown(now = Date.now()) {
+export function markLegalWorkModelsPromoShown(now = Date.now()) {
   if (typeof window === "undefined") return;
   try {
     window.localStorage.setItem(OPENWORK_MODELS_PROMO_LAST_SHOWN_KEY, String(now));

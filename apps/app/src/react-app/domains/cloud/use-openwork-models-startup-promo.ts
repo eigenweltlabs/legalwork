@@ -1,5 +1,5 @@
-// "OpenWork Models" startup promo: one-shot dialog latch shown shortly after
-// a workspace is ready when the user has no OpenWork Models provider yet.
+// "LegalWork Models" startup promo: one-shot dialog latch shown shortly after
+// a workspace is ready when the user has no LegalWork Models provider yet.
 // Extracted verbatim from session-route.tsx.
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
@@ -9,23 +9,23 @@ import { usePlatform } from "@/react-app/kernel/platform";
 import { useShellConfig } from "@/react-app/shell/shell-config";
 import { workspaceSettingsRoute } from "@/react-app/shell/workspace-routes";
 import {
-  getOpenWorkModelsActionUrl,
-  hasOpenWorkModelsProvider,
-  hideOpenWorkModelsPromo,
-  isOpenWorkModelsPromoHidden,
-  markOpenWorkModelsStartupPromoShown,
+  getLegalWorkModelsActionUrl,
+  hasLegalWorkModelsProvider,
+  hideLegalWorkModelsPromo,
+  isLegalWorkModelsPromoHidden,
+  markLegalWorkModelsStartupPromoShown,
   openWorkModelsPromoChangedEvent,
-  wasOpenWorkModelsStartupPromoShown,
+  wasLegalWorkModelsStartupPromoShown,
 } from "./openwork-models-promo";
 
-export type UseOpenWorkModelsStartupPromoInput = {
+export type UseLegalWorkModelsStartupPromoInput = {
   /** True once the workspace's opencode client exists. */
   clientReady: boolean;
   workspaceId: string;
   providerConnectedIds: string[];
 };
 
-export function useOpenWorkModelsStartupPromo(input: UseOpenWorkModelsStartupPromoInput) {
+export function useLegalWorkModelsStartupPromo(input: UseLegalWorkModelsStartupPromoInput) {
   const { clientReady, workspaceId, providerConnectedIds } = input;
   const navigate = useNavigate();
   const platform = usePlatform();
@@ -33,48 +33,48 @@ export function useOpenWorkModelsStartupPromo(input: UseOpenWorkModelsStartupPro
   const { config: shellConfig } = useShellConfig();
 
   const [open, setOpen] = useState(false);
-  const [promoHidden, setPromoHidden] = useState(isOpenWorkModelsPromoHidden);
+  const [promoHidden, setPromoHidden] = useState(isLegalWorkModelsPromoHidden);
   const scheduledRef = useRef(false);
 
   useEffect(() => {
-    const handlePromoChanged = () => setPromoHidden(isOpenWorkModelsPromoHidden());
+    const handlePromoChanged = () => setPromoHidden(isLegalWorkModelsPromoHidden());
     window.addEventListener(openWorkModelsPromoChangedEvent, handlePromoChanged);
     return () => window.removeEventListener(openWorkModelsPromoChangedEvent, handlePromoChanged);
   }, []);
 
-  const hasOpenWorkModels = useMemo(
-    () => hasOpenWorkModelsProvider(providerConnectedIds),
+  const hasLegalWorkModels = useMemo(
+    () => hasLegalWorkModelsProvider(providerConnectedIds),
     [providerConnectedIds],
   );
 
   useEffect(() => {
-    if (!shellConfig.cloudSignin || promoHidden || hasOpenWorkModels) return;
+    if (!shellConfig.cloudSignin || promoHidden || hasLegalWorkModels) return;
     if (denAuth.status === "checking" || !clientReady || !workspaceId) return;
-    if (wasOpenWorkModelsStartupPromoShown() || scheduledRef.current) return;
+    if (wasLegalWorkModelsStartupPromoShown() || scheduledRef.current) return;
 
     scheduledRef.current = true;
     const timeout = window.setTimeout(() => {
-      markOpenWorkModelsStartupPromoShown();
+      markLegalWorkModelsStartupPromoShown();
       setOpen(true);
     }, 900);
     return () => window.clearTimeout(timeout);
-  }, [clientReady, denAuth.status, hasOpenWorkModels, promoHidden, shellConfig.cloudSignin, workspaceId]);
+  }, [clientReady, denAuth.status, hasLegalWorkModels, promoHidden, shellConfig.cloudSignin, workspaceId]);
 
   const subscribe = useCallback(() => {
     setOpen(false);
-    markOpenWorkModelsStartupPromoShown();
+    markLegalWorkModelsStartupPromoShown();
     if (!denAuth.isSignedIn) {
       navigate(workspaceId ? workspaceSettingsRoute(workspaceId, "cloud-account") : "/settings/cloud-account");
     }
     window.setTimeout(() => {
-      platform.openLink(getOpenWorkModelsActionUrl(denAuth.isSignedIn));
+      platform.openLink(getLegalWorkModelsActionUrl(denAuth.isSignedIn));
     }, 0);
   }, [denAuth.isSignedIn, navigate, platform, workspaceId]);
 
   const continueWithout = useCallback(() => {
     setOpen(false);
-    markOpenWorkModelsStartupPromoShown();
-    hideOpenWorkModelsPromo();
+    markLegalWorkModelsStartupPromoShown();
+    hideLegalWorkModelsPromo();
     setPromoHidden(true);
   }, []);
 

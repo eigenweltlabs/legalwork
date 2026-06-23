@@ -1,7 +1,7 @@
 import { OPENWORK_EXTENSION_CATALOG } from "@/app/constants";
 import { desktopBridge } from "@/app/lib/desktop";
 import { isMacPlatform } from "@/app/utils";
-import { isOpenWorkExtensionEnabled, isOpenWorkExtensionHidden } from "@/react-app/domains/settings/extension-state";
+import { isLegalWorkExtensionEnabled, isLegalWorkExtensionHidden } from "@/react-app/domains/settings/extension-state";
 
 /**
  * "@App" mentions let the user target a running macOS app for Computer Use
@@ -14,7 +14,7 @@ export function isAppMentionAvailable(): boolean {
   if (!isMacPlatform()) return false;
   const entry = OPENWORK_EXTENSION_CATALOG.find((candidate) => candidate.id === "computer-use");
   if (!entry) return false;
-  return isOpenWorkExtensionEnabled(entry) && !isOpenWorkExtensionHidden(entry);
+  return isLegalWorkExtensionEnabled(entry) && !isLegalWorkExtensionHidden(entry);
 }
 
 /**
