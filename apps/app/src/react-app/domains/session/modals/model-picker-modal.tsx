@@ -34,6 +34,7 @@ import {
   OPENWORK_MODELS_PROVIDER_NAME,
   openWorkModelsPromoChangedEvent,
 } from "../../cloud/openwork-models-promo";
+import { CLOUD_ENABLED } from "../../../../app/lib/den";
 
 export type ModelPickerModalProps = {
   open: boolean;
@@ -170,7 +171,10 @@ export function ModelPickerModal(props: ModelPickerModalProps) {
   }, []);
 
   const showLegalWorkModelsPromo = useMemo(
-    () => !promoHidden && !hasLegalWorkModelsProvider(props.options.map((option) => option.providerID)),
+    () =>
+      CLOUD_ENABLED &&
+      !promoHidden &&
+      !hasLegalWorkModelsProvider(props.options.map((option) => option.providerID)),
     [promoHidden, props.options],
   );
 

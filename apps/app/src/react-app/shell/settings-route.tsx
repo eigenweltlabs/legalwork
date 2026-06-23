@@ -148,8 +148,7 @@ import { resolveOpenworkConnection } from "./openwork-connection";
 import { abortSessionSafe } from "@/app/lib/opencode-session";
 import { notifyAlert } from "./notifications";
 import { useReloadCoordinator } from "./reload-coordinator";
-import { buildFeedbackUrl } from "@/app/lib/feedback";
-import { getDenInferenceUrl } from "@/app/lib/den";
+import { CLOUD_ENABLED, getDenInferenceUrl } from "@/app/lib/den";
 import { readActiveWorkspaceId, writeActiveWorkspaceId } from "./session-memory";
 import { workspaceSessionRoute, workspaceSettingsRoute } from "./workspace-routes";
 import { getReactQueryClient } from "@/react-app/infra/query-client";
@@ -250,9 +249,16 @@ function parseSettingsPath(pathname: string): {
     case "cloud-marketplaces":
     case "cloud-workers":
     case "cloud-providers":
-      return { tab: head, redirectPath: null };
+      // Cloud settings pages require the LegalWork Cloud backend. With no
+      // backend configured (CLOUD_ENABLED=false) redirect to general so these
+      // pages are unreachable via URL, command palette, or control actions.
+      return CLOUD_ENABLED
+        ? { tab: head, redirectPath: null }
+        : { tab: "general", redirectPath: "general" };
     case "den":
-      return { tab: "cloud-account", redirectPath: "cloud-account" };
+      return CLOUD_ENABLED
+        ? { tab: "cloud-account", redirectPath: "cloud-account" }
+        : { tab: "general", redirectPath: "general" };
     case "extensions":
       if (tail === "mcp") return { tab: "extensions", redirectPath: null, extensionsSection: "mcp" };
       if (tail === "skills") return { tab: "extensions", redirectPath: null, extensionsSection: "all" };
@@ -708,8 +714,8 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
   const openWorkModelsConnected =
     (cloudSession.isSignedIn && hasLegalWorkCloudProvider) ||
     hasLegalWorkModelsProvider(providerConnectedIds);
-  const showLegalWorkModelsSubscribe = !openWorkModelsConnected && !openWorkModelsPromoHidden;
-  const showLegalWorkModelsConnect = !openWorkModelsConnected && openWorkModelsPromoHidden;
+  const showLegalWorkModelsSubscribe = CLOUD_ENABLED && !openWorkModelsConnected && !openWorkModelsPromoHidden;
+  const showLegalWorkModelsConnect = CLOUD_ENABLED && !openWorkModelsConnected && openWorkModelsPromoHidden;
 
   useEffect(() => {
     const handlePromoChanged = () => setLegalWorkModelsPromoHidden(isLegalWorkModelsPromoHidden());
@@ -1921,9 +1927,6 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
           <GeneralSettingsView
             onNavigateTab={(tab) => navigateSettingsPath(tab)}
             developerMode={developerMode}
-            onSendFeedback={() => platform.openLink(buildFeedbackUrl({ entrypoint: "settings" }))}
-            onJoinDiscord={() => platform.openLink("https://discord.gg/VEhNQXxYMB")}
-            onReportIssue={() => platform.openLink("https://github.com/different-ai/openwork/issues/new?template=bug.yml")}
           />
         );
       case "permissions":
@@ -1970,16 +1973,18 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
             onSubscribeLegalWorkModels={subscribeToLegalWorkModels}
             onDismissLegalWorkModels={dismissLegalWorkModelsPromo}
             cloudProvidersView={
-              <CloudProvidersView
-                embedded
-                cloudOrgProviders={providerAuthSnapshot.cloudOrgProviders}
-                connectCloudProvider={providerAuthStore.connectCloudProvider}
-                importedCloudProviders={providerAuthSnapshot.importedCloudProviders}
-                onOpenAccount={openCloudAccountSettings}
-                refreshCloudOrgProviders={providerAuthStore.refreshCloudOrgProviders}
-                removeCloudProvider={providerAuthStore.removeCloudProvider}
-                session={denSession}
-              />
+              CLOUD_ENABLED ? (
+                <CloudProvidersView
+                  embedded
+                  cloudOrgProviders={providerAuthSnapshot.cloudOrgProviders}
+                  connectCloudProvider={providerAuthStore.connectCloudProvider}
+                  importedCloudProviders={providerAuthSnapshot.importedCloudProviders}
+                  onOpenAccount={openCloudAccountSettings}
+                  refreshCloudOrgProviders={providerAuthStore.refreshCloudOrgProviders}
+                  removeCloudProvider={providerAuthStore.removeCloudProvider}
+                  session={denSession}
+                />
+              ) : null
             }
           />
         );

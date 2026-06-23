@@ -162,12 +162,14 @@ export function SettingsShell(props: SettingsShellProps) {
 }
 
 function SettingsSectionMenu(props: Pick<SettingsPageFrameProps, "activeTab" | "developerMode" | "onSelectTab">) {
-  const sections: Array<{ label: string | null; tabs: SettingsTab[] }> = [
+  const allSections: Array<{ label: string | null; tabs: SettingsTab[] }> = [
     { label: null, tabs: ["general"] },
     { label: t("settings.group_workspace"), tabs: getWorkspaceSettingsTabs() },
     { label: t("settings.group_global"), tabs: getGlobalSettingsTabs(props.developerMode) },
     { label: t("settings.group_cloud"), tabs: CLOUD_SETTINGS_TABS },
   ];
+  // Drop empty groups (the cloud group is empty when CLOUD_ENABLED is false).
+  const sections = allSections.filter((section) => section.tabs.length > 0);
   const ActiveIcon = getSettingsTabIcon(props.activeTab);
 
   return (

@@ -7,6 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Separator } from "@/components/ui/separator";
 import { Switch } from "@/components/ui/switch";
 import { cn } from "@/lib/utils";
+import { CLOUD_ENABLED } from "@/app/lib/den";
 
 import {
   LayoutSection,
@@ -130,16 +131,6 @@ function ShellWireframe({ config }: { config: ShellConfig }) {
               <rect x="280" y="236" width="32" height="12" rx="6" fill="var(--dls-accent)" opacity="0.2" />
               <text x="296" y="244" textAnchor="middle" fontSize="4.5" fontWeight="500" fill="var(--dls-accent)" opacity="0.5">Sign in</text>
             </g>
-          ) : null}
-
-          {/* Docs */}
-          {config.docsButton ? (
-            <text x="326" y="244" fontSize="5" fill="var(--dls-text-secondary)" opacity="0.35">Docs</text>
-          ) : null}
-
-          {/* Feedback */}
-          {config.feedbackButton ? (
-            <text x="350" y="244" fontSize="5" fill="var(--dls-text-secondary)" opacity="0.35">Feedback</text>
           ) : null}
 
           {/* Settings gear */}
@@ -320,24 +311,14 @@ export function ShellCustomizationView() {
 
         {config.statusBar ? (
           <div className="ml-6 flex flex-col gap-3 border border-dls-border px-4 py-4 rounded-2xl -mr-4">
-            <ToggleRow
-              label="Display documentation link"
-              description="Show a link to your documentation."
-              checked={config.docsButton}
-              onChange={(value) => update({ docsButton: value })}
-            />
-            <ToggleRow
-              label="Display feedback button"
-              description="Show a button for submitting feedback."
-              checked={config.feedbackButton}
-              onChange={(value) => update({ feedbackButton: value })}
-            />
-            <ToggleRow
-              label="Display cloud sign-in"
-              description="Show a sign-in prompt for users who aren't logged in."
-              checked={config.cloudSignin}
-              onChange={(value) => update({ cloudSignin: value })}
-            />
+            {CLOUD_ENABLED ? (
+              <ToggleRow
+                label="Display cloud sign-in"
+                description="Show a sign-in prompt for users who aren't logged in."
+                checked={config.cloudSignin}
+                onChange={(value) => update({ cloudSignin: value })}
+              />
+            ) : null}
           </div>
         ) : null}
 

@@ -31,6 +31,7 @@ import {
   openWorkModelsPromoChangedEvent,
 } from "@/react-app/domains/cloud/openwork-models-promo";
 import { getConnectedProviderItems, useProviderListQuery } from "@/react-app/infra/provider-list-query";
+import { CLOUD_ENABLED } from "@/app/lib/den";
 import {
   Command,
   CommandCollection,
@@ -249,7 +250,10 @@ export function ModelSelect({
   );
 
   const showLegalWorkModelsPromo = React.useMemo(
-    () => !promoHidden && !hasLegalWorkModelsProvider(modelOptions.map((option) => option.providerID)),
+    () =>
+      CLOUD_ENABLED &&
+      !promoHidden &&
+      !hasLegalWorkModelsProvider(modelOptions.map((option) => option.providerID)),
     [modelOptions, promoHidden],
   );
 

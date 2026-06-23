@@ -5,8 +5,6 @@ minimumReleaseAgeExclude:
 packages:
   - "apps/*"
   - "packages/*"
-  - "ee/apps/*"
-  - "ee/packages/*"
 
 catalog:
   react: 19.2.4

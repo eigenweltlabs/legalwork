@@ -44,18 +44,33 @@ const ORG_PROXY_HEADER = "x-openwork-legacy-org-id";
 const DEFAULT_DEN_TIMEOUT_MS = 12_000;
 
 export const DEFAULT_DEN_AUTH_NAME = "LegalWork User";
+// The hosted LegalWork Cloud backend has been removed from this build. Cloud
+// features are OFF unless a self-hosted Den base URL is explicitly provided at
+// build time via VITE_DEN_BASE_URL. With no URL configured, `CLOUD_ENABLED` is
+// false and the app never contacts any remote control plane.
 const BUILD_DEN_BASE_URL =
   (typeof import.meta !== "undefined" && typeof import.meta.env?.VITE_DEN_BASE_URL === "string"
     ? import.meta.env.VITE_DEN_BASE_URL
-    : "").trim() || "https://app.openworklabs.com";
+    : "").trim();
 const BUILD_DEN_API_BASE_URL =
   (typeof import.meta !== "undefined" && typeof import.meta.env?.VITE_DEN_API_BASE_URL === "string"
     ? import.meta.env.VITE_DEN_API_BASE_URL
     : "").trim() || undefined;
+// Forced sign-in only makes sense when a control plane exists. Guard it on a
+// configured base URL so a stray flag can never brick a backend-less build.
 const BUILD_DEN_REQUIRE_SIGNIN =
+  BUILD_DEN_BASE_URL.length > 0 &&
   (typeof import.meta !== "undefined" && typeof import.meta.env?.VITE_DEN_REQUIRE_SIGNIN === "string"
     ? /^(1|true|yes|on)$/i.test(import.meta.env.VITE_DEN_REQUIRE_SIGNIN.trim())
     : false);
+
+/**
+ * Whether the hosted/self-hosted LegalWork Cloud control plane is available in
+ * this build. Defaults to false; set VITE_DEN_BASE_URL at build time to opt a
+ * self-hosted Den deployment back in. UI surfaces gate cloud entry points on
+ * this flag so users never see actions that would require a backend.
+ */
+export const CLOUD_ENABLED = BUILD_DEN_BASE_URL.length > 0;
 
 export const DEFAULT_DEN_BASE_URL = BUILD_DEN_BASE_URL;
 export const DEN_INFERENCE_PATH = "/dashboard/inference";

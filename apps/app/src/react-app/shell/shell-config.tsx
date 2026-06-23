@@ -12,10 +12,6 @@ export type ShellConfig = {
   statusBar: boolean;
   /** Show the left sidebar with workspace/session list. */
   sidebar: boolean;
-  /** Show the Docs button in the status bar. */
-  docsButton: boolean;
-  /** Show the Feedback button in the status bar. */
-  feedbackButton: boolean;
   /** Show the Cloud sign-in button when not signed in. */
   cloudSignin: boolean;
   /** Show the welcome/onboarding page for new users. */
@@ -40,8 +36,6 @@ export const DEFAULT_SHELL_CONFIG: ShellConfig = {
   appName: "LegalWork",
   statusBar: true,
   sidebar: true,
-  docsButton: true,
-  feedbackButton: true,
   cloudSignin: true,
   welcomePage: true,
   starterCards: true,

@@ -59,7 +59,6 @@ import type {
   WorkspaceDisplay,
   WorkspaceSessionGroup,
 } from "@/app/types";
-import { buildFeedbackUrl } from "@/app/lib/feedback";
 import {
   getWorkspaceTaskLoadErrorDisplay,
   isDesktopRuntime,
@@ -1636,13 +1635,6 @@ export function SessionRoute() {
       hasUsableModel={hasUsableModel}
       providers={providers}
       mcpConnectedCount={mcpConnectedCount}
-      onSendFeedback={() => {
-        platform.openLink(
-          buildFeedbackUrl({
-            entrypoint: "status-bar",
-          }),
-        );
-      }}
       onOpenSettings={() => handleOpenSettings("/settings/general")}
       onOpenProviderAuth={() => sessionProviderAuthStore.openProviderAuthModal({ returnFocusTarget: "composer" })}
       providerAuthModal={sessionProviderAuthSnapshot.providerAuthModalOpen ? {

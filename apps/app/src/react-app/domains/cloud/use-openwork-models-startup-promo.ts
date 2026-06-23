@@ -4,6 +4,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 
+import { CLOUD_ENABLED } from "@/app/lib/den";
 import { useDenAuth } from "@/react-app/domains/cloud/den-auth-provider";
 import { usePlatform } from "@/react-app/kernel/platform";
 import { useShellConfig } from "@/react-app/shell/shell-config";
@@ -48,7 +49,7 @@ export function useLegalWorkModelsStartupPromo(input: UseLegalWorkModelsStartupP
   );
 
   useEffect(() => {
-    if (!shellConfig.cloudSignin || promoHidden || hasLegalWorkModels) return;
+    if (!CLOUD_ENABLED || !shellConfig.cloudSignin || promoHidden || hasLegalWorkModels) return;
     if (denAuth.status === "checking" || !clientReady || !workspaceId) return;
     if (wasLegalWorkModelsStartupPromoShown() || scheduledRef.current) return;
 

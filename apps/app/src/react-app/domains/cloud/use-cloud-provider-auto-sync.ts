@@ -2,6 +2,7 @@
 import { useEffect, useRef } from "react";
 
 import { CLOUD_SYNC_INTERVAL_MS } from "../../../app/cloud/sync/constants";
+import { CLOUD_ENABLED } from "../../../app/lib/den";
 import { denSettingsChangedEvent } from "../../../app/lib/den-session-events";
 import { useDenAuth } from "./den-auth-provider";
 
@@ -32,7 +33,8 @@ export function useCloudProviderAutoSync(sync: SyncFn) {
   }, [sync]);
 
   useEffect(() => {
-    if (!denAuth.isSignedIn) return;
+    // No backend → never run cloud reconciliation, even defensively.
+    if (!CLOUD_ENABLED || !denAuth.isSignedIn) return;
 
     let cancelled = false;
 

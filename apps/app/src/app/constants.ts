@@ -1,6 +1,6 @@
 import type { ModelRef, SuggestedPlugin } from "./types";
 import { t } from "../i18n";
-import { getDenMcpUrl } from "./lib/den";
+import { CLOUD_ENABLED, getDenMcpUrl } from "./lib/den";
 import {
   BUILT_IN_OPENWORK_EXTENSION_MANIFESTS,
   extensionContribution,
@@ -94,7 +94,7 @@ export function getMcpServerName(entry: McpDirectoryInfo): string {
     .replace(/^-|-$/g, "") || "mcp";
 }
 
-export const MCP_QUICK_CONNECT: McpDirectoryInfo[] = [
+const MCP_QUICK_CONNECT_ALL: McpDirectoryInfo[] = [
   {
     get name() { return t("mcp.quick_connect_notion_title"); },
     serverName: "notion",
@@ -161,7 +161,7 @@ export const MCP_QUICK_CONNECT: McpDirectoryInfo[] = [
       try {
         return getDenMcpUrl();
       } catch {
-        return "https://api.openworklabs.com/mcp";
+        return "";
       }
     },
     type: "remote",
@@ -180,7 +180,7 @@ export const MCP_QUICK_CONNECT: McpDirectoryInfo[] = [
       try {
         return `${getDenMcpUrl()}/admin`;
       } catch {
-        return "https://api.openworklabs.com/mcp/admin";
+        return "";
       }
     },
     type: "remote",
@@ -202,5 +202,13 @@ export const MCP_QUICK_CONNECT: McpDirectoryInfo[] = [
   },
   ...BUILT_IN_OPENWORK_EXTENSION_MANIFESTS.map(extensionManifestToDirectoryInfo),
 ];
+
+// The hosted cloud MCP endpoints (org-scoped + admin) require the LegalWork
+// Cloud backend. Hide them unless a self-hosted Den is configured at build time.
+const CLOUD_MCP_SERVER_NAMES = new Set(["openwork-cloud", "openwork-admin"]);
+
+export const MCP_QUICK_CONNECT: McpDirectoryInfo[] = MCP_QUICK_CONNECT_ALL.filter(
+  (entry) => CLOUD_ENABLED || !CLOUD_MCP_SERVER_NAMES.has(entry.serverName ?? ""),
+);
 
 export const OPENWORK_EXTENSION_CATALOG = MCP_QUICK_CONNECT.filter((entry) => entry.kind === "extension");

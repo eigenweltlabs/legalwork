@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import { t } from "@/i18n";
-import { buildDenAuthUrl, readDenBootstrapConfig } from "@/app/lib/den";
+import { buildDenAuthUrl, CLOUD_ENABLED, readDenBootstrapConfig } from "@/app/lib/den";
 import { usePlatform } from "../../../kernel/platform";
 import { useDenAuth } from "../../cloud/den-auth-provider";
 import { useControlAction, type OpenworkControlAction } from "../../../shell/control/control-provider";
@@ -25,7 +25,6 @@ import {
   shouldShowLegalWorkModelsPromo,
 } from "../../cloud/openwork-models-promo";
 
-const DOCS_URL = "https://openworklabs.com/docs";
 const STATUS_BAR_BOOT_STARTED_AT = Date.now();
 const STATUS_BAR_INITIALIZING_MS = 15_000;
 
@@ -137,7 +136,6 @@ export type StatusBarProps = {
   openworkServerStatus: OpenworkServerStatus;
   developerMode: boolean;
   settingsOpen: boolean;
-  onSendFeedback: () => void;
   onOpenSettings: () => void;
   providerConnectedIds: string[];
   mcpConnectedCount: number;
@@ -151,8 +149,6 @@ export function StatusBar(props: StatusBarProps) {
   const denAuth = useDenAuth();
   const navigate = useNavigate();
   const { config: shellConfig } = useShellConfig();
-  const docsButtonRef = useRef<HTMLButtonElement>(null);
-  const feedbackButtonRef = useRef<HTMLButtonElement>(null);
   const settingsButtonRef = useRef<HTMLButtonElement>(null);
   const [openWorkModelsHintVisible, setLegalWorkModelsHintVisible] = useState(false);
   const hasLegalWorkModels = useMemo(
@@ -233,17 +229,7 @@ export function StatusBar(props: StatusBarProps) {
     hideLegalWorkModelsPromo();
   }, []);
 
-  // Docs control action removed — pointed at openworklabs.com.
-
-  const feedbackControlAction = useMemo<OpenworkControlAction>(() => ({
-    id: "status.feedback.open",
-    label: "Send feedback",
-    description: "Open the LegalWork feedback surface from the status bar.",
-    sideEffect: "external",
-    targetRef: feedbackButtonRef,
-    execute: props.onSendFeedback,
-  }), [props.onSendFeedback]);
-  useControlAction(feedbackControlAction);
+  // Docs and feedback control actions removed — pointed at openworklabs.com.
 
   const settingsControlAction = useMemo<OpenworkControlAction>(() => ({
     id: "status.settings.open",
@@ -269,7 +255,7 @@ export function StatusBar(props: StatusBarProps) {
         />
 
         <div className="flex items-center gap-1">
-          {openWorkModelsHintVisible ? (
+          {CLOUD_ENABLED && openWorkModelsHintVisible ? (
             <div className="mr-1 flex h-6 items-center overflow-hidden rounded-full border border-blue-6/60 bg-blue-2/70 shadow-[0_0_18px_rgba(var(--dls-accent-rgb),0.16)] animate-in fade-in slide-in-from-bottom-1 zoom-in-95 duration-300">
               <button
                 type="button"
@@ -293,7 +279,7 @@ export function StatusBar(props: StatusBarProps) {
               </button>
             </div>
           ) : null}
-          {shellConfig.cloudSignin && !denAuth.isSignedIn && denAuth.status !== "checking" ? (
+          {CLOUD_ENABLED && shellConfig.cloudSignin && !denAuth.isSignedIn && denAuth.status !== "checking" ? (
             <Tooltip>
               <TooltipTrigger
                 render={(
