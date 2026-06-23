@@ -49,10 +49,8 @@ const APP_IDENTIFIER =
   (isDevMode ? DEV_APP_IDENTIFIER : TAURI_APP_IDENTIFIER);
 const RELEASE_DOWNLOAD_BASE_URL = "https://github.com/different-ai/openwork/releases/latest/download";
 const RELEASE_PAGE_URL = "https://github.com/different-ai/openwork/releases/latest";
-const DOCS_PAGE_URL = "https://openworklabs.com/docs";
 const applicationMenu = createApplicationMenu({
   appName: APP_NAME,
-  docsUrl: DOCS_PAGE_URL,
   getWindow: () => createMainWindow(),
 });
 
@@ -331,7 +329,10 @@ if (extraLaunchArgs) {
   }
 }
 configureFakeMediaForTests(app, envFlagEnabled("OPENWORK_ELECTRON_FAKE_MEDIA"));
-const DEFAULT_DEN_BASE_URL = "https://app.openworklabs.com";
+// Hosted cloud removed: the desktop shell seeds an empty Den base URL so the
+// bootstrap config never points at a remote control plane. Set a self-hosted
+// Den URL here (and VITE_DEN_BASE_URL at build time) to opt cloud back in.
+const DEFAULT_DEN_BASE_URL = "";
 const DEFAULT_LOCAL_BASE_URL = "http://127.0.0.1:4096";
 const FORCE_DESKTOP_REQUIRE_SIGNIN = envFlagEnabled("OPENWORK_FORCE_SIGNIN");
 const DEFAULT_DESKTOP_REQUIRE_SIGNIN = FORCE_DESKTOP_REQUIRE_SIGNIN;

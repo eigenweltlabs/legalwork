@@ -36,6 +36,7 @@ import { t } from "@/i18n";
 import { saveInstalledSkillToLegalWorkOrg } from "@/app/lib/den-skills";
 import {
   buildDenAuthUrl,
+  CLOUD_ENABLED,
   DEFAULT_DEN_BASE_URL,
   readDenSettings,
 } from "@/app/lib/den";
@@ -442,7 +443,7 @@ export function SkillsView(props: SkillsViewProps) {
   );
 
   const showInstalledSection = activeFilter === "all" || activeFilter === "installed";
-  const showCloudSection = activeFilter === "all" || activeFilter === "cloud";
+  const showCloudSection = CLOUD_ENABLED && (activeFilter === "all" || activeFilter === "cloud");
   const showHubSection = activeFilter === "all" || activeFilter === "hub";
   const canCreateInChat = !props.busy && (props.canInstallSkillCreator || props.canUseDesktopTools);
 
@@ -732,7 +733,9 @@ export function SkillsView(props: SkillsViewProps) {
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
-            {(["all", "installed", "cloud", "hub"] as SkillsFilter[]).map((filter) => (
+            {(["all", "installed", "cloud", "hub"] as SkillsFilter[])
+              .filter((filter) => CLOUD_ENABLED || filter !== "cloud")
+              .map((filter) => (
               <button
                 key={filter}
                 type="button"

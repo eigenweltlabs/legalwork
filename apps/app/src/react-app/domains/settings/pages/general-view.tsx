@@ -15,13 +15,11 @@ import {
 
 import { t } from "../../../../i18n";
 import type { SettingsTab } from "../../../../app/types";
+import { CLOUD_ENABLED } from "../../../../app/lib/den";
 
 export type GeneralSettingsViewProps = {
   onNavigateTab: (tab: SettingsTab) => void;
   developerMode: boolean;
-  onSendFeedback: () => void;
-  onJoinDiscord: () => void;
-  onReportIssue: () => void;
 };
 
 type SettingsItem = { tab: SettingsTab; icon: typeof Sparkles; title: string; desc: string };
@@ -35,7 +33,10 @@ const workspaceItems: SettingsItem[] = [
 
 const globalItems: SettingsItem[] = [
   { tab: "ai", icon: Sparkles, title: "AI Providers", desc: "Connect services that provide AI models." },
-  { tab: "cloud-account", icon: Cloud, title: "Cloud", desc: "LegalWork Cloud account and organization." },
+  // Cloud account entry requires the LegalWork Cloud backend (see CLOUD_ENABLED).
+  ...(CLOUD_ENABLED
+    ? [{ tab: "cloud-account", icon: Cloud, title: "Cloud", desc: "LegalWork Cloud account and organization." } as SettingsItem]
+    : []),
   { tab: "appearance", icon: Paintbrush, title: "Appearance", desc: "Theme, font size, and display." },
   { tab: "environment", icon: Terminal, title: "Environment", desc: "Environment variables and paths." },
   { tab: "updates", icon: RefreshCcw, title: "Updates", desc: "App version and update channel." },

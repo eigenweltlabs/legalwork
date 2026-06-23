@@ -41,6 +41,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { t } from "../../../../i18n";
 import type { SettingsTab } from "../../../../app/types";
+import { CLOUD_ENABLED } from "../../../../app/lib/den";
 import {
   SettingsContent,
   SettingsPanel,
@@ -186,10 +187,11 @@ export function getGlobalSettingsTabs(developerMode: boolean): SettingsTab[] {
   return tabs;
 }
 
-export const CLOUD_SETTINGS_TABS: SettingsTab[] = [
-  "cloud-account",
-  "cloud-workers",
-];
+// Cloud settings tabs require the LegalWork Cloud backend; hidden unless a
+// self-hosted Den is configured at build time (see CLOUD_ENABLED).
+export const CLOUD_SETTINGS_TABS: SettingsTab[] = CLOUD_ENABLED
+  ? ["cloud-account", "cloud-workers"]
+  : [];
 
 type SettingsPageProps = {
   activeTab: SettingsTab;
@@ -324,28 +326,30 @@ export function SettingsSidebar(props: SettingsSidebarProps) {
           </SidebarGroupContent>
         </SidebarGroup>
 
-        <SidebarGroup>
-          <SidebarGroupLabel>{t("settings.group_cloud")}</SidebarGroupLabel>
-          <SidebarGroupContent>
-            <SidebarMenu>
-              {cloudTabs.map((tab) => {
-                const Icon = getSettingsTabIcon(tab);
-                return (
-                  <SidebarMenuItem key={tab}>
-                    <SidebarMenuButton
-                      type="button"
-                      isActive={props.activeTab === tab}
-                      onClick={() => props.onSelectTab(tab)}
-                    >
-                      <Icon />
-                      <span>{getSettingsTabLabel(tab)}</span>
-                    </SidebarMenuButton>
-                  </SidebarMenuItem>
-                );
-              })}
-            </SidebarMenu>
-          </SidebarGroupContent>
-        </SidebarGroup>
+        {cloudTabs.length > 0 ? (
+          <SidebarGroup>
+            <SidebarGroupLabel>{t("settings.group_cloud")}</SidebarGroupLabel>
+            <SidebarGroupContent>
+              <SidebarMenu>
+                {cloudTabs.map((tab) => {
+                  const Icon = getSettingsTabIcon(tab);
+                  return (
+                    <SidebarMenuItem key={tab}>
+                      <SidebarMenuButton
+                        type="button"
+                        isActive={props.activeTab === tab}
+                        onClick={() => props.onSelectTab(tab)}
+                      >
+                        <Icon />
+                        <span>{getSettingsTabLabel(tab)}</span>
+                      </SidebarMenuButton>
+                    </SidebarMenuItem>
+                  );
+                })}
+              </SidebarMenu>
+            </SidebarGroupContent>
+          </SidebarGroup>
+        ) : null}
       </SidebarContent>
     </Sidebar>
   );

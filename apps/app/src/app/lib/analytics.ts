@@ -15,6 +15,7 @@
  */
 import { denSessionUpdatedEvent, type DenSessionUpdatedDetail } from "./den-session-events";
 import { recordInspectorEvent } from "./app-inspector";
+import { CLOUD_ENABLED } from "./den";
 
 const ENV_POSTHOG_KEY = String(import.meta.env.VITE_OPENWORK_POSTHOG_KEY ?? "").trim();
 const ENV_POSTHOG_HOST = String(import.meta.env.VITE_OPENWORK_POSTHOG_HOST ?? "").trim();
@@ -25,10 +26,12 @@ const ENV_APP_VERSION = String(import.meta.env.VITE_OPENWORK_APP_VERSION ?? "").
 const DEFAULT_POSTHOG_KEY = "phc_4YnPTlDVYPjgwKvLuNxhbHjV5kadgvd7XLzVHWnCXAI";
 const DEFAULT_POSTHOG_HOST = "https://us.i.posthog.com";
 
-// Dev builds send nothing unless a key is explicitly provided, so local
-// runs, CI, and evals never pollute production analytics. The inspector
-// mirror still records events locally either way.
-const POSTHOG_KEY = ENV_POSTHOG_KEY || (import.meta.env.DEV ? "" : DEFAULT_POSTHOG_KEY);
+// Dev builds — and backend-less builds (CLOUD_ENABLED=false) — send nothing
+// unless a key is explicitly provided via VITE_OPENWORK_POSTHOG_KEY, so a
+// "no backend" build never phones home to a third-party analytics service.
+// The inspector mirror still records events locally either way.
+const POSTHOG_KEY =
+  ENV_POSTHOG_KEY || (import.meta.env.DEV || !CLOUD_ENABLED ? "" : DEFAULT_POSTHOG_KEY);
 const POSTHOG_HOST = (ENV_POSTHOG_HOST || DEFAULT_POSTHOG_HOST).replace(/\/+$/, "");
 
 const PREFS_STORAGE_KEY = "openwork.preferences";

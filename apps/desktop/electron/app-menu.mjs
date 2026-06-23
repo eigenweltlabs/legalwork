@@ -3,14 +3,14 @@
 // and Windows/Linux menu-bar visibility. Extracted from main.mjs as a
 // factory (createRuntimeManager pattern); the NATIVE_MENU_* channels are
 // consumed by the preload bridge.
-import { BrowserWindow, Menu, shell } from "electron";
+import { BrowserWindow, Menu } from "electron";
 
 const NATIVE_MENU_OPEN_SETTINGS_EVENT = "openwork:native-menu:open-settings";
 const NATIVE_MENU_TOGGLE_SIDEBAR_EVENT = "openwork:native-menu:toggle-sidebar";
 const NATIVE_MENU_CHECK_UPDATES_EVENT = "openwork:native-menu:check-updates";
 const NATIVE_MENU_ZOOM_EVENT = "openwork:native-menu:zoom";
 
-export function createApplicationMenu({ appName, docsUrl, getWindow }) {
+export function createApplicationMenu({ appName, getWindow }) {
   let applicationMenuVisible = process.platform === "darwin";
 
   async function openSettingsFromNativeMenu() {
@@ -190,28 +190,23 @@ export function createApplicationMenu({ appName, docsUrl, getWindow }) {
               ]),
         ],
       },
-      {
-        role: "help",
-        submenu: [
-          ...(isMac
-            ? []
-            : [
+      // Help menu carries only the (non-mac) updater entry now that the Docs
+      // link is gone; omit it entirely on macOS where it would be empty.
+      ...(isMac
+        ? []
+        : [
+            {
+              role: "help",
+              submenu: [
                 {
                   label: "Check for Updates...",
                   click: () => {
                     void checkForUpdatesFromNativeMenu();
                   },
                 },
-                { type: "separator" },
-              ]),
-          {
-            label: "Docs",
-            click: async () => {
-              await shell.openExternal(docsUrl);
+              ],
             },
-          },
-        ],
-      },
+          ]),
     ]);
 
     Menu.setApplicationMenu(Menu.buildFromTemplate(template));

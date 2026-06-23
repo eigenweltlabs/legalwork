@@ -3,6 +3,7 @@ import { useMemo, useState, type ReactNode } from "react";
 import { Cpu } from "lucide-react";
 
 import { t } from "../../../../i18n";
+import { CLOUD_ENABLED } from "../../../../app/lib/den";
 import { Button } from "@/components/ui/button";
 
 import { PluginsView, type PluginsExtensionsStore } from "./plugins-view";
@@ -71,24 +72,28 @@ export function ExtensionsView(props: ExtensionsViewProps) {
         </Button>
       </div>
 
-      <div className="flex w-fit rounded-xl border border-dls-border bg-dls-surface p-1">
-        <Button
-          variant={view === "my" ? "secondary" : "ghost"}
-          size="sm"
-          onClick={() => setView("my")}
-        >
-          My Extensions
-        </Button>
-        <Button
-          variant={view === "marketplace" ? "secondary" : "ghost"}
-          size="sm"
-          onClick={() => setView("marketplace")}
-        >
-          Marketplace
-        </Button>
-      </div>
+      {/* Marketplace pulls from the LegalWork Cloud backend; only offer the
+          toggle when a control plane is configured (see CLOUD_ENABLED). */}
+      {CLOUD_ENABLED ? (
+        <div className="flex w-fit rounded-xl border border-dls-border bg-dls-surface p-1">
+          <Button
+            variant={view === "my" ? "secondary" : "ghost"}
+            size="sm"
+            onClick={() => setView("my")}
+          >
+            My Extensions
+          </Button>
+          <Button
+            variant={view === "marketplace" ? "secondary" : "ghost"}
+            size="sm"
+            onClick={() => setView("marketplace")}
+          >
+            Marketplace
+          </Button>
+        </div>
+      ) : null}
 
-      {view === "my" ? (
+      {!CLOUD_ENABLED || view === "my" ? (
         <>
           {/* Runtime extensions: MCPs + skills + marketplace imports in one view */}
           {props.mcpView}

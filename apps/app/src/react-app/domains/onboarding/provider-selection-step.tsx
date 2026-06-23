@@ -9,6 +9,7 @@ import {
 } from "@/components/page";
 import { Button } from "@/components/ui/button";
 import { KeyRoundIcon, SkipForwardIcon, SparklesIcon } from "lucide-react";
+import { CLOUD_ENABLED } from "@/app/lib/den";
 
 type ProviderSelectionStepProps = {
   onLegalWorkModels: () => void;
@@ -35,21 +36,26 @@ export function ProviderSelectionStep({
         </PageHeader>
 
         <div className="space-y-3">
-          <button
-            type="button"
-            className="flex w-full items-start gap-4 rounded-xl border border-blue-7/50 bg-blue-2/30 p-4 text-left transition-colors hover:bg-blue-3/40"
-            onClick={onLegalWorkModels}
-          >
-            <SparklesIcon className="mt-0.5 size-5 shrink-0 text-blue-10" />
-            <div>
-              <div className="text-sm font-medium text-foreground">
-                Use LegalWork Models
+          {/* "LegalWork Models" is a hosted-cloud offering; only show it when a
+              backend is configured (CLOUD_ENABLED). Otherwise users go straight
+              to bringing their own API key. */}
+          {CLOUD_ENABLED ? (
+            <button
+              type="button"
+              className="flex w-full items-start gap-4 rounded-xl border border-blue-7/50 bg-blue-2/30 p-4 text-left transition-colors hover:bg-blue-3/40"
+              onClick={onLegalWorkModels}
+            >
+              <SparklesIcon className="mt-0.5 size-5 shrink-0 text-blue-10" />
+              <div>
+                <div className="text-sm font-medium text-foreground">
+                  Use LegalWork Models
+                </div>
+                <div className="mt-0.5 text-xs text-muted-foreground">
+                  Pay through LegalWork Cloud and skip API key setup.
+                </div>
               </div>
-              <div className="mt-0.5 text-xs text-muted-foreground">
-                Pay through LegalWork Cloud and skip API key setup.
-              </div>
-            </div>
-          </button>
+            </button>
+          ) : null}
 
           <button
             type="button"
