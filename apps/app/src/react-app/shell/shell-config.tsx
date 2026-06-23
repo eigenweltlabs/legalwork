@@ -8,6 +8,10 @@ import { createContext, useCallback, use, useMemo, useState, type ReactNode } fr
 export type ShellConfig = {
   /** Display name shown in the title bar, sidebar, and welcome page. */
   appName: string;
+  /** Brand name shown at the top of the left sidebar. */
+  sidebarBrandName: string;
+  /** Optional user-uploaded brand logo (data URL) for the left sidebar. */
+  sidebarBrandLogoDataUrl: string;
   /** Show the bottom status bar (connection status, docs, feedback). */
   statusBar: boolean;
   /** Show the left sidebar with workspace/session list. */
@@ -34,6 +38,8 @@ export type ShellConfig = {
 
 export const DEFAULT_SHELL_CONFIG: ShellConfig = {
   appName: "LegalWork",
+  sidebarBrandName: "LegalWork",
+  sidebarBrandLogoDataUrl: "",
   statusBar: true,
   sidebar: true,
   cloudSignin: true,
@@ -57,7 +63,12 @@ function readShellConfig(): ShellConfig {
     const raw = window.localStorage.getItem(STORAGE_KEY);
     if (!raw) return DEFAULT_SHELL_CONFIG;
     const parsed = JSON.parse(raw);
-    return { ...DEFAULT_SHELL_CONFIG, ...parsed };
+    const next = { ...DEFAULT_SHELL_CONFIG, ...parsed };
+    return {
+      ...next,
+      sidebarBrandName: String(next.sidebarBrandName ?? DEFAULT_SHELL_CONFIG.sidebarBrandName).trim() || DEFAULT_SHELL_CONFIG.sidebarBrandName,
+      sidebarBrandLogoDataUrl: String(next.sidebarBrandLogoDataUrl ?? "").trim(),
+    };
   } catch {
     return DEFAULT_SHELL_CONFIG;
   }

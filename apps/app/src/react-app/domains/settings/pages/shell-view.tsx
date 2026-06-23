@@ -1,4 +1,5 @@
 /** @jsxImportSource react */
+import { useId, useRef, useState, type ChangeEvent } from "react";
 import { AlertTriangle, Info, Lock, RotateCcw } from "lucide-react";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
@@ -23,6 +24,23 @@ import {
 } from "../settings-layout";
 import { useShellConfig, DEFAULT_SHELL_CONFIG, type ShellConfig } from "../../../shell/shell-config";
 import { useUiStateStore } from "../../../shell/ui-state-store";
+
+const SIDEBAR_BRAND_LOGO_MAX_BYTES = 512 * 1024;
+
+function readFileAsDataUrl(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => reject(new Error("Could not read file."));
+    reader.onload = () => {
+      if (typeof reader.result !== "string" || !reader.result.trim()) {
+        reject(new Error("Could not read file."));
+        return;
+      }
+      resolve(reader.result);
+    };
+    reader.readAsDataURL(file);
+  });
+}
 
 /* ------------------------------------------------------------------ */
 /*  Interactive wireframe preview                                      */
@@ -223,6 +241,9 @@ export function ShellCustomizationView() {
   const { config, update, reset } = useShellConfig();
   const applicationMenuVisible = useUiStateStore((state) => state.applicationMenuVisible);
   const setApplicationMenuVisible = useUiStateStore((state) => state.setApplicationMenuVisible);
+  const [brandLogoError, setBrandLogoError] = useState<string | null>(null);
+  const logoInputId = useId();
+  const logoInputRef = useRef<HTMLInputElement | null>(null);
 
   const isDefault = (Object.keys(DEFAULT_SHELL_CONFIG) as (keyof ShellConfig)[]).every(
     (key) => config[key] === DEFAULT_SHELL_CONFIG[key],
@@ -230,8 +251,42 @@ export function ShellCustomizationView() {
 
   const resetAll = () => {
     reset();
+    setBrandLogoError(null);
     setApplicationMenuVisible(false);
   };
+
+  const handleSidebarBrandLogoChange = (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.currentTarget.files?.[0] ?? null;
+    event.currentTarget.value = "";
+    if (!file) return;
+    const mime = file.type.trim().toLowerCase();
+    if (!mime.startsWith("image/")) {
+      setBrandLogoError("Please choose an image file.");
+      return;
+    }
+    if (file.size > SIDEBAR_BRAND_LOGO_MAX_BYTES) {
+      setBrandLogoError("Logo is too large. Please use an image up to 512 KB.");
+      return;
+    }
+    setBrandLogoError(null);
+    void (async () => {
+      try {
+        const dataUrl = await readFileAsDataUrl(file);
+        update({ sidebarBrandLogoDataUrl: dataUrl });
+      } catch (error) {
+        setBrandLogoError(error instanceof Error ? error.message : "Could not load logo.");
+      }
+    })();
+  };
+
+  const customSidebarBrandName = config.sidebarBrandName.trim();
+  const customSidebarBrandLogo = config.sidebarBrandLogoDataUrl.trim();
+  const sidebarBrandLogoSrc = customSidebarBrandLogo || "/eigenweltlabs-logo.svg";
+  const showSidebarBrandName = customSidebarBrandName.length > 0 || !customSidebarBrandLogo;
+  const sidebarBrandName = showSidebarBrandName
+    ? (customSidebarBrandName || DEFAULT_SHELL_CONFIG.sidebarBrandName)
+    : "";
+  const sidebarBrandAlt = sidebarBrandName || DEFAULT_SHELL_CONFIG.sidebarBrandName;
 
   return (
     <LayoutStack>
@@ -246,30 +301,96 @@ export function ShellCustomizationView() {
 
         <LayoutSectionItem>
           <LayoutSectionItemHeader>
-            <LayoutSectionItemTitle>Change application name</LayoutSectionItemTitle>
+            <LayoutSectionItemTitle>Sidebar name</LayoutSectionItemTitle>
             <LayoutSectionItemDescription>
-              Appears in the title bar, sidebar, and welcome screen.
+              Shown above New task in the left sidebar. Leave blank to show logo only.
             </LayoutSectionItemDescription>
             <LayoutSectionItemHeaderActions>
               <Field className="w-64 max-w-full gap-0">
-               <FieldLabel className="sr-only" htmlFor="shell-app-name">
-                  App name
+                <FieldLabel className="sr-only" htmlFor="shell-sidebar-brand-name">
+                  Sidebar brand name
                 </FieldLabel>
                 <Input
-                  id="shell-app-name"
+                  id="shell-sidebar-brand-name"
                   className="h-8 text-xs"
-                  value={config.appName}
-                  placeholder="LegalWork"
-                  disabled
-                  onChange={(event) => update({ appName: event.currentTarget.value || DEFAULT_SHELL_CONFIG.appName })}
+                  value={config.sidebarBrandName}
+                  placeholder={DEFAULT_SHELL_CONFIG.sidebarBrandName}
+                  onChange={(event) => update({ sidebarBrandName: event.currentTarget.value })}
                 />
               </Field>
             </LayoutSectionItemHeaderActions>
           </LayoutSectionItemHeader>
-          <Alert>
-            <Info />
-            <AlertDescription>Changing the application name is not available yet.</AlertDescription>
-          </Alert>
+        </LayoutSectionItem>
+
+        <LayoutSectionItem>
+          <LayoutSectionItemHeader>
+            <LayoutSectionItemTitle>Sidebar logo</LayoutSectionItemTitle>
+            <LayoutSectionItemDescription>
+              Upload an image to show above New task. If no logo is set, the default logo is used.
+            </LayoutSectionItemDescription>
+            <LayoutSectionItemHeaderActions>
+              <div className="flex items-center gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => logoInputRef.current?.click()}
+                >
+                  <span>Upload logo</span>
+                </Button>
+                {config.sidebarBrandLogoDataUrl.trim() ? (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => {
+                      update({ sidebarBrandLogoDataUrl: "" });
+                      setBrandLogoError(null);
+                    }}
+                  >
+                    Use default
+                  </Button>
+                ) : null}
+                <input
+                  ref={logoInputRef}
+                  id={logoInputId}
+                  type="file"
+                  accept="image/*"
+                  className="sr-only"
+                  onChange={handleSidebarBrandLogoChange}
+                />
+              </div>
+            </LayoutSectionItemHeaderActions>
+          </LayoutSectionItemHeader>
+          <div className="flex items-center gap-3 rounded-xl border border-dls-border bg-dls-hover/40 p-3">
+            <img
+              src={sidebarBrandLogoSrc}
+              alt={`${sidebarBrandAlt} logo`}
+              className={cn(
+                "shrink-0 border border-dls-border object-contain p-1",
+                showSidebarBrandName
+                  ? "h-10 w-10 rounded-lg"
+                  : "h-16 w-[13rem] max-w-[13rem] rounded-md object-left object-cover",
+              )}
+            />
+            {showSidebarBrandName ? (
+              <div className="min-w-0">
+                <div className="text-[11px] uppercase tracking-[0.08em] text-muted-foreground">Preview</div>
+                <div className="truncate text-sm font-medium text-foreground">{sidebarBrandName}</div>
+              </div>
+            ) : (
+              <div className="text-[11px] uppercase tracking-[0.08em] text-muted-foreground">Logo only</div>
+            )}
+          </div>
+          {brandLogoError ? (
+            <Alert variant="warning">
+              <AlertTriangle />
+              <AlertDescription>{brandLogoError}</AlertDescription>
+            </Alert>
+          ) : (
+            <Alert>
+              <Info />
+              <AlertDescription>Use a square PNG/SVG for best results. Max size: 512 KB.</AlertDescription>
+            </Alert>
+          )}
         </LayoutSectionItem>
       </LayoutSection>
 

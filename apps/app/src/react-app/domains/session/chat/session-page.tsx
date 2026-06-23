@@ -94,6 +94,7 @@ export type SessionPageHistoryControls = {
 };
 
 export type SessionPageSidebarProps = {
+  onShowLearnings?: () => void;
   workspaceSessionGroups: WorkspaceSessionGroup[];
   selectedWorkspaceId: string;
   selectedSessionId: string | null;

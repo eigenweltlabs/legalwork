@@ -106,6 +106,7 @@ import {
 import { cn } from "@/lib/utils";
 import { WorkspaceIcon } from "../../../design-system/workspace-icon";
 import { getSessionActivityStatusLabel, type SessionActivityStatus } from "../status/session-activity-store";
+import { DEFAULT_SHELL_CONFIG, useShellConfig } from "../../../shell/shell-config";
 
 interface SessionStatusIndicatorProps {
   className?: string;
@@ -606,6 +607,7 @@ function isSessionActivityStatus(status: string | undefined): status is SessionA
 }
 
 export function AppSidebar(props: AppSidebarProps) {
+  const { config: shellConfig } = useShellConfig();
   const navigate = useNavigate();
   const goSettings = React.useCallback(
     (tab: string) => {
@@ -706,6 +708,15 @@ export function AppSidebar(props: AppSidebarProps) {
     props.workspaceSessionGroups,
   ]);
 
+  const customSidebarBrandName = shellConfig.sidebarBrandName.trim();
+  const customSidebarBrandLogo = shellConfig.sidebarBrandLogoDataUrl.trim();
+  const sidebarBrandLogoSrc = customSidebarBrandLogo || "/eigenweltlabs-logo.svg";
+  const showSidebarBrandName = customSidebarBrandName.length > 0 || !customSidebarBrandLogo;
+  const sidebarBrandName = showSidebarBrandName
+    ? (customSidebarBrandName || DEFAULT_SHELL_CONFIG.sidebarBrandName)
+    : "";
+  const sidebarBrandAlt = sidebarBrandName || DEFAULT_SHELL_CONFIG.sidebarBrandName;
+
   const contextValue: SidebarContextValue = {
     selectedWorkspaceId: props.selectedWorkspaceId,
     selectedSessionId: props.selectedSessionId,
@@ -743,10 +754,29 @@ export function AppSidebar(props: AppSidebarProps) {
         collapsible="offcanvas"
         className="mac:**:data-[sidebar=sidebar]:bg-transparent"
       >
-        <div className="hidden h-14 mac:block mac:titlebar-drag"/>
+        <div className="hidden h-12 mac:block mac:titlebar-drag"/>
         {/* Top nav — fixed top 40% */}
         <div className="flex flex-[2] min-h-0 flex-col">
-        <SidebarMenu className="gap-0.5 px-2 pt-1 mac:titlebar-no-drag">
+        <div className="px-2 pb-1 mac:titlebar-no-drag">
+          <div className={cn("flex gap-2 px-3", showSidebarBrandName ? "items-center py-1" : "items-center py-0") }>
+            <img
+              src={sidebarBrandLogoSrc}
+              alt={`${sidebarBrandAlt} logo`}
+              className={cn(
+                "shrink-0 object-contain",
+                showSidebarBrandName
+                  ? "h-8 w-8 rounded-md"
+                  : "h-16 w-[13rem] max-w-[13rem] rounded-sm object-left object-cover",
+              )}
+            />
+            {showSidebarBrandName ? (
+              <div className="min-w-0">
+                <div className="truncate text-sm font-medium leading-tight">{sidebarBrandName}</div>
+              </div>
+            ) : null}
+          </div>
+        </div>
+        <SidebarMenu className={cn("gap-0.5 px-2 mac:titlebar-no-drag", showSidebarBrandName ? "pt-1" : "pt-0")}>
           <SidebarMenuItem>
             <SidebarMenuButton onClick={props.onOpenCreateWorkspace}>
               <SquarePen className="size-4" />
