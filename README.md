@@ -2,6 +2,12 @@
 
 A local computer-use agent for law firms, from Eigenwelt Labs. Point it at a folder of documents and ask in plain English — it reads, drafts, and redlines them on your own machine, using the model you connect. Everything stays owned by the firm.
 
+## Watch it work
+
+<video src="https://github.com/eigenweltlabs/legalwork/raw/dev/media/launch.mp4" poster="https://github.com/eigenweltlabs/legalwork/raw/dev/media/launch-poster.jpg" controls width="100%"></video>
+
+<sub>A 40-second tour: launch the app, point it at a matter folder, pick a model, review a stack of documents, and redline an NDA — all on your own machine. Not playing inline? <a href="https://github.com/eigenweltlabs/legalwork/raw/dev/media/launch.mp4">Watch the film</a>.</sub>
+
 ## What it does
 
 - **Review & redline** contracts as tracked changes, right in Word.
