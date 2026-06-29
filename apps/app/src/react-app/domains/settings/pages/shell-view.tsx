@@ -7,6 +7,7 @@ import { Field, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
 import { cn } from "@/lib/utils";
+import legalworkMarkDark from "@/assets/legalwork-mark-dark.svg";
 
 import {
   LayoutSection,
@@ -78,7 +79,7 @@ export function ShellCustomizationView() {
 
   const customSidebarBrandName = config.sidebarBrandName.trim();
   const customSidebarBrandLogo = config.sidebarBrandLogoDataUrl.trim();
-  const sidebarBrandLogoSrc = customSidebarBrandLogo || `${import.meta.env.BASE_URL}legalwork-mark-dark.svg`;
+  const sidebarBrandLogoSrc = customSidebarBrandLogo || legalworkMarkDark;
   const showSidebarBrandName = customSidebarBrandName.length > 0 || !customSidebarBrandLogo;
   const sidebarBrandName = showSidebarBrandName
     ? (customSidebarBrandName || DEFAULT_SHELL_CONFIG.sidebarBrandName)

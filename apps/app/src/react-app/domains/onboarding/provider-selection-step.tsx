@@ -147,6 +147,36 @@ export function ProviderSelectionStep({ onConnect, onSkip }: ProviderSelectionSt
                       ))}
                     </div>
 
+                    <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-5">
+                      <span className="font-mono text-[10px] uppercase tracking-[0.18em] text-white/45">
+                        Need your own model?
+                      </span>
+                      <p className="mt-2 text-[13px] leading-snug text-white/70">
+                        Eigenwelt Labs trains and hosts custom models for your firm — fine-tuned on your
+                        documents and run on infrastructure you control.
+                      </p>
+                      <div className="mt-3 flex flex-wrap items-center gap-x-5 gap-y-2">
+                        <a
+                          href="https://eigenweltlabs.com"
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="inline-flex items-center gap-1 text-[13px] font-medium text-white transition-colors hover:text-white/80"
+                        >
+                          eigenweltlabs.com
+                          <ArrowRightIcon className="size-3.5" />
+                        </a>
+                        <a
+                          href="https://eigenweltlabs.com"
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="inline-flex items-center gap-1 text-[13px] font-medium text-[#5b8bff] transition-colors hover:text-[#7da4ff]"
+                        >
+                          Talk to the team
+                          <ArrowRightIcon className="size-3.5" />
+                        </a>
+                      </div>
+                    </div>
+
                     <p className="font-mono text-[10px] uppercase tracking-[0.16em] text-white/40">
                       Runs locally · Your model · Your data
                     </p>

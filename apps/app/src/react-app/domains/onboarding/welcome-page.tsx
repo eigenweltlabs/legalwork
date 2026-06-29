@@ -134,7 +134,7 @@ export function WelcomePage({
                   <div>
                     <span className="font-mono text-[10px] uppercase tracking-[0.18em] text-white/45">What it does</span>
                     <h2 className="mt-4 max-w-[16ch] text-[28px] font-medium leading-[1.08] tracking-[-0.035em] text-white">
-                      Built for your documents, not a demo.
+                      Built for your documents.
                     </h2>
                   </div>
 

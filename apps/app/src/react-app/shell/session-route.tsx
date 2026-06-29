@@ -1623,6 +1623,12 @@ export function SessionRoute() {
           return true;
         },
         onOpenSession: (workspaceId, sessionId) => {
+          // Opening a session returns to the chat view — drop any open top-level
+          // pane (Learnings/Workflows/Integrations) so it doesn't stay rendered
+          // over the session.
+          setShowLearnings(false);
+          setShowWorkflows(false);
+          setShowExtensions(false);
           setLegacySelectedWorkspaceId(workspaceId);
           writeActiveWorkspaceId(workspaceId || null);
           writeLastSessionFor(workspaceId, sessionId);

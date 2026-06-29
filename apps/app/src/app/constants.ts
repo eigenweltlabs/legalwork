@@ -172,10 +172,13 @@ export const MCP_QUICK_CONNECT: McpDirectoryInfo[] = [
     name: "Courtroom5",
     serverName: "courtroom5",
     description: "Litigation research and case-prep tools from Courtroom5.",
-    // Open endpoint — initialize returns 200 with no auth required.
+    // Bearer-token protected: connecting without auth fails and the server shows
+    // as offline. Connect with an access token (Authorization: Bearer) rather
+    // than the engine's OAuth.
     url: "https://mcp.courtroom5.com/v1",
     type: "remote",
     oauth: false,
+    requiresToken: true,
     kind: "mcp",
     preview: true,
   },
@@ -335,14 +338,16 @@ export const MCP_QUICK_CONNECT: McpDirectoryInfo[] = [
     kind: "mcp",
     preview: true,
   },
-  // --- Open (no auth) ---
   {
     name: "Descrybe",
     serverName: "descrybe",
     description: "Legal research and case summaries from Descrybe.",
+    // Bearer-token protected: the server returns unauthorized without an access
+    // token. Connect with a token (Authorization: Bearer) rather than OAuth.
     url: "https://mcp.descrybe.com/mcp",
     type: "remote",
     oauth: false,
+    requiresToken: true,
     kind: "mcp",
     preview: true,
   },

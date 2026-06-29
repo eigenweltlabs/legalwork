@@ -229,9 +229,10 @@ function FileMessage({ part }: FileMessageProps) {
     )
   }
 
-  // Resolve the badge to the underlying workspace file (PDF, DOCX, …) so it can
-  // open in the in-app viewer. Falls back to a non-interactive chip when the
-  // attachment carries no recoverable path (e.g. a purely inline upload).
+  // Resolve the badge to the underlying workspace file (PDF, DOCX, …). Clicking
+  // it always opens the file — the handler picks the in-app viewer when the type
+  // is supported and the system default app otherwise. The badge never gates on
+  // "is this clickable".
   const openTarget = onOpenTarget ? resolveFilePartOpenTarget(part, openTargets) : null
 
   const inner = (
@@ -253,7 +254,7 @@ function FileMessage({ part }: FileMessageProps) {
   const baseClassName =
     "flex h-auto w-fit min-w-0 max-w-full shrink items-center justify-start gap-2 rounded-xl border border-border ps-2 pe-4 py-1 text-left text-sm font-medium whitespace-normal"
 
-  if (openTarget && onOpenTarget) {
+  if (onOpenTarget && openTarget) {
     return (
       <button
         type="button"
