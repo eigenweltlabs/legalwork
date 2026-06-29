@@ -607,6 +607,8 @@ select:disabled {
   --sidebar-foreground:   #F4F6FA;
   --sidebar-border:       rgba(255,255,255,.06);
   --glass-fill:           var(--glass-fill-dark);
+  /* Opaque fill for modals/popovers — frosted look without see-through. */
+  --overlay-fill:         linear-gradient(180deg, #161C29, #0F141D);
   --glass-border:         var(--glass-border-dark);
   --shadow-glass:         0 18px 44px rgba(2,8,28,.5), inset 0 1px 0 rgba(255,255,255,.14), inset 0 -1px 0 rgba(255,255,255,.05);
   --dls-surface:          #11161F;
@@ -739,6 +741,8 @@ body {
 :root:not([data-theme="dark"]):not(.dark) {
   --card:        rgba(255, 255, 255, 0.62);
   --popover:     rgba(255, 255, 255, 0.74);
+  /* Opaque fill for modals/popovers — frosted look without see-through. */
+  --overlay-fill: linear-gradient(180deg, #FFFFFF, #F3F5F8);
   --secondary:   rgba(255, 255, 255, 0.52);
   --muted:       rgba(255, 255, 255, 0.45);
   --sidebar:     rgba(248, 250, 253, 0.50);
@@ -782,18 +786,21 @@ body {
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.92), 1px 0 0 rgba(22, 34, 56, 0.06);
 }
 
-/* Overlays → frosted glass via a solid translucent fill instead of
-   backdrop-filter. A live blur on an element that also fade/zoom-animates on
-   open/close forces the compositor to re-rasterize the blurred region every
-   frame (and re-sample the backdrop-filtered cards behind it), which is what
-   made modals flicker and feel sluggish. A static gradient fill is visually
-   close and effectively free. */
+/* Overlays → an opaque frosted surface instead of a live backdrop-filter. A
+   live blur on an element that also fade/zoom-animates on open/close forces the
+   compositor to re-rasterize the blurred region every frame (and re-sample the
+   backdrop-filtered cards behind it), which made modals flicker and feel
+   sluggish. We use a solid, OPAQUE fill (not the translucent glass fill, which
+   without the blur just looked see-through) and keep the brand blue as the
+   primary color for anything inside the modal. */
 [data-slot="dialog-content"],
 [data-slot="popover-content"],
 [data-slot="command-dialog-popup"] {
-  background: var(--glass-fill-strong) !important;
+  background: var(--overlay-fill) !important;
   box-shadow: var(--shadow-glass-lg) !important;
-  border: 1px solid rgba(255, 255, 255, 0.5) !important;
+  border: 1px solid var(--popover-border) !important;
+  --primary: var(--lw-blue);
+  --primary-foreground: #FEFEFE;
 }
 
 /* Primary surfaces (titlebar / session surface) frost over the field on mac. */

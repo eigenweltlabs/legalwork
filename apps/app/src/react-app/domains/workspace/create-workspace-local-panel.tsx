@@ -356,6 +356,7 @@ export function CreateWorkspaceLocalPanel(
             type="button"
             onClick={() => void props.onSubmit()}
             disabled={!props.selectedFolder || props.submitting}
+            className="bg-primary text-primary-foreground hover:bg-primary/90"
             title={
               !props.selectedFolder
                 ? t("dashboard.choose_folder_continue")
