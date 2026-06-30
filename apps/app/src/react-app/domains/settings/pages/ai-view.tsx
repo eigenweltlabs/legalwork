@@ -22,6 +22,8 @@ type ConnectedProvider = {
   id: string;
   name: string;
   source?: "env" | "api" | "config" | "custom";
+  /** True when this is a user-defined OpenAI-spec provider our form can edit. */
+  editableAsCustom?: boolean;
 };
 
 export type AiSettingsViewProps = {
@@ -37,6 +39,8 @@ export type AiSettingsViewProps = {
   providerDisconnectError: string | null;
   onOpenProviderAuth: () => void | Promise<void>;
   onDisconnectProvider: (providerId: string) => void | Promise<void>;
+  /** Edit a user-defined custom provider (only shown for `source === "custom"`). */
+  onEditProvider?: (providerId: string) => void | Promise<void>;
   canDisconnectProvider: (source?: ConnectedProvider["source"]) => boolean;
   /** Set of local provider IDs that were imported from cloud. */
   cloudProviderIds?: Set<string>;
@@ -116,22 +120,37 @@ export function AiSettingsView(props: AiSettingsViewProps) {
                   </div>
                 </div>
                 {!props.cloudProviderIds?.has(provider.id) ? (
-                  <Button
-                    variant="destructive"
-                    onClick={() => void props.onDisconnectProvider(provider.id)}
-                    disabled={
-                      props.busy ||
-                      props.providerAuthBusy ||
-                      props.disconnectingProviderId !== null ||
-                      !props.canDisconnectProvider(provider.source)
-                    }
-                  >
-                    {props.disconnectingProviderId === provider.id
-                      ? t("settings.disconnecting")
-                      : props.canDisconnectProvider(provider.source)
-                        ? t("settings.disconnect")
-                        : t("settings.managed_by_env")}
-                  </Button>
+                  <div className="flex items-center gap-2">
+                    {provider.editableAsCustom && props.onEditProvider ? (
+                      <Button
+                        variant="outline"
+                        onClick={() => void props.onEditProvider?.(provider.id)}
+                        disabled={
+                          props.busy ||
+                          props.providerAuthBusy ||
+                          props.disconnectingProviderId !== null
+                        }
+                      >
+                        {t("settings.edit")}
+                      </Button>
+                    ) : null}
+                    <Button
+                      variant="destructive"
+                      onClick={() => void props.onDisconnectProvider(provider.id)}
+                      disabled={
+                        props.busy ||
+                        props.providerAuthBusy ||
+                        props.disconnectingProviderId !== null ||
+                        !props.canDisconnectProvider(provider.source)
+                      }
+                    >
+                      {props.disconnectingProviderId === provider.id
+                        ? t("settings.disconnecting")
+                        : props.canDisconnectProvider(provider.source)
+                          ? t("settings.disconnect")
+                          : t("settings.managed_by_env")}
+                    </Button>
+                  </div>
                 ) : null}
               </LayoutSectionItem>
             ))}

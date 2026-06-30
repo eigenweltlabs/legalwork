@@ -51,7 +51,7 @@ import {
 } from "@/react-app/shell/route-workspaces";
 import { createConnectionsStore, useConnectionsStoreSnapshot } from "@/react-app/domains/connections/store";
 import { createLegalworkServerStore, useLegalworkServerStoreSnapshot } from "@/react-app/domains/connections/legalwork-server-store";
-import { createProviderAuthStore, useProviderAuthStoreSnapshot } from "@/react-app/domains/connections/provider-auth/store";
+import { createProviderAuthStore, useProviderAuthStoreSnapshot, type CustomProviderEditData } from "@/react-app/domains/connections/provider-auth/store";
 import ProviderAuthModal from "@/react-app/domains/connections/provider-auth/provider-auth-modal";
 import ConnectionsModals from "@/react-app/domains/connections/modals";
 import { AiSettingsView } from "@/react-app/domains/settings/pages/ai-view";
@@ -662,7 +662,25 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
   }, [connectionsStore, legalworkServerStatusForMcp]);
 
   const handleOpenProviderAuth = useCallback(() => {
+    setCustomProviderEdit(null);
     void providerAuthStore.openProviderAuthModal();
+  }, [providerAuthStore]);
+
+  const [customProviderEdit, setCustomProviderEdit] = useState<CustomProviderEditData | null>(null);
+  const [customProviderEditError, setCustomProviderEditError] = useState<string | null>(null);
+  const handleEditCustomProvider = useCallback(async (providerId: string) => {
+    setCustomProviderEditError(null);
+    try {
+      const data = await providerAuthStore.readCustomProviderForEdit(providerId);
+      if (!data) {
+        setCustomProviderEditError(`Couldn't load configuration for ${providerId}.`);
+        return;
+      }
+      setCustomProviderEdit(data);
+      await providerAuthStore.openProviderAuthModal();
+    } catch (error) {
+      setCustomProviderEditError(describeRouteError(error));
+    }
   }, [providerAuthStore]);
 
   const debugViewProps = useDebugViewModel({
@@ -1378,15 +1396,20 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
     ? t("status.providers_connected", { count: providerConnectedIds.length })
     : t("settings.no_providers_connected");
   const providerConnectedIdSet = new Set(providerConnectedIds);
-  const connectedProviders = providers.flatMap((provider) =>
-    providerConnectedIdSet.has(provider.id)
-      ? [{
-          id: provider.id,
-          name: provider.name ?? provider.id,
-          source: provider.source,
-        }]
-      : [],
-  );
+  const connectedProviders = providers.flatMap((provider) => {
+    if (!providerConnectedIdSet.has(provider.id)) return [];
+    const providerOptions =
+      provider.options && typeof provider.options === "object"
+        ? (provider.options as Record<string, unknown>)
+        : null;
+    const hasBaseURL = typeof providerOptions?.baseURL === "string" && providerOptions.baseURL.trim().length > 0;
+    return [{
+      id: provider.id,
+      name: provider.name ?? provider.id,
+      source: provider.source,
+      editableAsCustom: provider.source === "custom" || hasBaseURL,
+    }];
+  });
   const mcpConnectedAppsCount = connectionsSnapshot.mcpServers.length;
 
   // Build enablement context from all available runtime state.
@@ -1735,13 +1758,14 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
             providerSummary={providerSummary}
             connectedProviders={connectedProviders}
             disconnectingProviderId={null}
-            providerConnectError={providerAuthSnapshot.providerAuthError}
+            providerConnectError={customProviderEditError ?? providerAuthSnapshot.providerAuthError}
             providerDisconnectStatus={configActionStatus}
             providerDisconnectError={null}
             onOpenProviderAuth={handleOpenProviderAuth}
             onDisconnectProvider={async (providerId) => {
               await providerAuthStore.disconnectProvider(providerId);
             }}
+            onEditProvider={handleEditCustomProvider}
             canDisconnectProvider={(source) => source !== "env"}
           />
         );
@@ -2012,9 +2036,14 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
         authMethods={providerAuthSnapshot.providerAuthMethods}
         onSelect={providerAuthStore.startProviderAuth}
         onSubmitApiKey={providerAuthStore.submitProviderApiKey}
+        onSubmitCustomProvider={providerAuthStore.submitCustomProvider}
+        customEdit={customProviderEdit}
         onSubmitOAuth={providerAuthStore.completeProviderAuthOAuth}
         onRefreshProviders={providerAuthStore.refreshProviders}
-        onClose={() => providerAuthStore.closeProviderAuthModal()}
+        onClose={() => {
+          setCustomProviderEdit(null);
+          providerAuthStore.closeProviderAuthModal();
+        }}
       />
       <CreateWorkspaceModal
         open={createWorkspaceOpen}

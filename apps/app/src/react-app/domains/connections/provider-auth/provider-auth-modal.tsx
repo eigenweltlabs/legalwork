@@ -1,10 +1,14 @@
 /** @jsxImportSource react */
 import {
+  Check,
   CheckCircle2,
   ChevronRight,
   Loader2,
+  Plus,
   Search,
+  X,
 } from "lucide-react";
+import { Switch } from "@/components/ui/switch";
 import {
   useEffect,
   useMemo,
@@ -39,10 +43,91 @@ const methodPillToneClass = (type: ProviderAuthMethod["type"]) => {
   return "border-dls-border bg-dls-hover text-dls-secondary";
 };
 import type {
+  CustomProviderApiType,
+  CustomProviderEditData,
+  CustomProviderInstallInput,
   ProviderAuthMethod,
   ProviderAuthProvider,
   ProviderOAuthStartResult,
 } from "./store";
+
+/** Base URLs that default to the Responses API (`@ai-sdk/openai`). */
+function inferCustomApiType(baseURL: string): CustomProviderApiType {
+  return /(^|\.)openai\.com|\.openai\.azure\.com|azure/i.test(baseURL) ? "responses" : "chat";
+}
+
+/** Per-model draft edited in the form before install. Each model carries its
+ * own capability flags — reasoning/tool support are model properties, not
+ * provider-wide ones. */
+type CustomModelDraft = {
+  id: string;
+  toolCall: boolean;
+  reasoning: boolean;
+  contextLimit: string;
+};
+
+/**
+ * Heuristic guess of whether a model id is a reasoning model, used only as the
+ * default for a freshly-added model (the user can toggle it). Covers the common
+ * reasoning families: OpenAI o-series + GPT-5, DeepSeek-R, Qwen QwQ, and any id
+ * that literally mentions "reason"/"thinking".
+ */
+function inferReasoningFromId(id: string): boolean {
+  const value = id.toLowerCase();
+  return (
+    /\bo[1-9]\b/.test(value) ||
+    value.includes("gpt-5") ||
+    value.includes("qwq") ||
+    /deepseek-?r\d/.test(value) ||
+    /\br1\b/.test(value) ||
+    value.includes("reason") ||
+    value.includes("thinking")
+  );
+}
+
+function makeCustomModelDraft(id: string): CustomModelDraft {
+  return { id, toolCall: true, reasoning: inferReasoningFromId(id), contextLimit: "" };
+}
+
+const DEFAULT_BASE_URL_PLACEHOLDER = "https://api.example.com/v1";
+
+/**
+ * First-class OpenAI-spec providers that still need a per-deployment Base URL
+ * and key (so they can't ship as a static models.dev entry). They appear as
+ * their own entries in the provider list and open the custom form pre-branded
+ * with a fixed provider id, name, API type, and a Base-URL hint — the user
+ * supplies their endpoint, key, and models.
+ */
+type BrandedCustomProvider = {
+  id: string;
+  name: string;
+  apiType: CustomProviderApiType;
+  baseUrlPlaceholder: string;
+  description: string;
+};
+
+const BRANDED_CUSTOM_PROVIDERS: BrandedCustomProvider[] = [
+  {
+    id: "apertus",
+    name: "Apertus AI",
+    apiType: "chat",
+    baseUrlPlaceholder: "https://<your-gateway>.apertus.ai/v1",
+    description: "Connect your managed Apertus gateway — European open-source models, your own endpoint and key.",
+  },
+];
+
+/** Synthetic list entry id for the user-defined OpenAI-compatible provider. */
+const CUSTOM_PROVIDER_ENTRY_ID = "__custom_openai_compatible__";
+
+/** Turn a free-text provider name into a stable lowercase provider id. */
+function slugifyProviderId(name: string) {
+  const slug = name
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+  return slug || "custom-provider";
+}
 
 type ProviderAuthEntry = {
   id: string;
@@ -64,6 +149,8 @@ const PROVIDER_LABELS: Record<string, string> = {
   anthropic: "Anthropic",
   google: "Google",
   openrouter: "OpenRouter",
+  apertus: "Apertus AI",
+  "apertus-ai": "Apertus AI",
 };
 
 export type ProviderAuthModalProps = {
@@ -78,6 +165,9 @@ export type ProviderAuthModalProps = {
   authMethods: Record<string, ProviderAuthMethod[]>;
   onSelect: (providerId: string, methodIndex?: number) => Promise<ProviderOAuthStartResult>;
   onSubmitApiKey: (providerId: string, apiKey: string) => Promise<string | void>;
+  onSubmitCustomProvider?: (input: CustomProviderInstallInput) => Promise<string | void>;
+  /** When set, the modal opens straight into the custom form to edit this provider. */
+  customEdit?: CustomProviderEditData | null;
   onSubmitOAuth: (
     providerId: string,
     methodIndex: number,
@@ -92,7 +182,7 @@ export default function ProviderAuthModal(props: ProviderAuthModalProps) {
   const isRemoteWorker = workerType === "remote";
 
   const [view, setView] = useState<
-    "list" | "method" | "api" | "oauth-code" | "oauth-auto"
+    "list" | "method" | "api" | "oauth-code" | "oauth-auto" | "custom"
   >("list");
   const [selectedProviderId, setSelectedProviderId] = useState<string | null>(null);
   const [apiKeyInput, setApiKeyInput] = useState("");
@@ -106,11 +196,38 @@ export default function ProviderAuthModal(props: ProviderAuthModalProps) {
   const [oauthCodeCopied, setOauthCodeCopied] = useState(false);
   const [oauthBrowserOpened, setOauthBrowserOpened] = useState(false);
 
+  // Custom (OpenAI-compatible) provider form state.
+  const [customName, setCustomName] = useState("");
+  const [customBaseURL, setCustomBaseURL] = useState("");
+  const [customApiKey, setCustomApiKey] = useState("");
+  const [customApiType, setCustomApiType] = useState<CustomProviderApiType>("chat");
+  const [customApiTypeTouched, setCustomApiTypeTouched] = useState(false);
+  const [customBaseUrlPlaceholder, setCustomBaseUrlPlaceholder] = useState(DEFAULT_BASE_URL_PLACEHOLDER);
+  // A provider id pinned for this form (set when editing an existing provider,
+  // or when adding a branded provider like Apertus). null → derive from name.
+  const [customFixedProviderId, setCustomFixedProviderId] = useState<string | null>(null);
+  // True only when editing an already-connected provider (vs. a fresh add).
+  const [customEditMode, setCustomEditMode] = useState(false);
+  // Display name of a branded provider being added (e.g. "Apertus AI"), else null.
+  const [customBrandName, setCustomBrandName] = useState<string | null>(null);
+  const [customModelInput, setCustomModelInput] = useState("");
+  const [customModels, setCustomModels] = useState<CustomModelDraft[]>([]);
+  const [customFetchedModels, setCustomFetchedModels] = useState<string[]>([]);
+  const [customFetching, setCustomFetching] = useState(false);
+  const [customBusy, setCustomBusy] = useState(false);
+
   const searchInputRef = useRef<HTMLInputElement | null>(null);
   const providerPollRef = useRef<number | null>(null);
   const oauthAutoPollRef = useRef<number | null>(null);
   const oauthCodeCopiedResetRef = useRef<number | null>(null);
   const autoOpenedPreferredProviderIdRef = useRef<string | null>(null);
+  const customEditPrefilledRef = useRef<string | null>(null);
+
+  const isEditingCustomProvider = customEditMode;
+  const activeBrandedProvider =
+    !customEditMode && customBrandName
+      ? BRANDED_CUSTOM_PROVIDERS.find((provider) => provider.id === customFixedProviderId) ?? null
+      : null;
 
   const formatProviderName = (id: string, fallback?: string) => {
     const named = fallback?.trim();
@@ -200,8 +317,39 @@ export default function ProviderAuthModal(props: ProviderAuthModalProps) {
       })
       .sort(compareProviders);
 
+    if (props.onSubmitCustomProvider) {
+      // First-class branded providers (e.g. Apertus) that open the custom form.
+      // Skip any already surfaced via auth methods to avoid duplicate ids.
+      const existingIds = new Set(nextEntries.map((entry) => entry.id));
+      for (const branded of BRANDED_CUSTOM_PROVIDERS) {
+        if (existingIds.has(branded.id)) continue;
+        nextEntries.push({
+          id: branded.id,
+          name: branded.name,
+          methods: [{ type: "api", label: "OpenAI-compatible" }],
+          connected: connected.has(branded.id),
+          env: [],
+        });
+      }
+
+      // Generic user-defined option, pinned at the very bottom.
+      nextEntries.push({
+        id: CUSTOM_PROVIDER_ENTRY_ID,
+        name: "Custom (OpenAI-compatible)",
+        methods: [{ type: "api", label: "OpenAI-compatible" }],
+        connected: false,
+        env: [],
+      });
+    }
+
     return nextEntries;
-  }, [isRemoteWorker, props.authMethods, props.connectedProviderIds, props.providers]);
+  }, [
+    isRemoteWorker,
+    props.authMethods,
+    props.connectedProviderIds,
+    props.providers,
+    props.onSubmitCustomProvider,
+  ]);
 
   const selectedEntry = useMemo(
     () => entries.find((entry) => entry.id === selectedProviderId) ?? null,
@@ -260,6 +408,20 @@ export default function ProviderAuthModal(props: ProviderAuthModalProps) {
     setLocalError(null);
     setOauthCodeCopied(false);
     setOauthBrowserOpened(false);
+    setCustomName("");
+    setCustomBaseURL("");
+    setCustomApiKey("");
+    setCustomApiType("chat");
+    setCustomApiTypeTouched(false);
+    setCustomBaseUrlPlaceholder(DEFAULT_BASE_URL_PLACEHOLDER);
+    setCustomFixedProviderId(null);
+    setCustomEditMode(false);
+    setCustomBrandName(null);
+    setCustomModelInput("");
+    setCustomModels([]);
+    setCustomFetchedModels([]);
+    setCustomFetching(false);
+    setCustomBusy(false);
   };
 
   const stopProviderPolling = () => {
@@ -287,9 +449,42 @@ export default function ProviderAuthModal(props: ProviderAuthModalProps) {
   useEffect(() => {
     if (!props.open) {
       autoOpenedPreferredProviderIdRef.current = null;
+      customEditPrefilledRef.current = null;
       resetState();
     }
   }, [props.open]);
+
+  // Open straight into the custom form, pre-filled, when asked to edit an
+  // existing custom provider. Guarded by a ref so it prefills once per open
+  // (and never clobbers in-progress edits on re-render).
+  useEffect(() => {
+    if (!props.open) return;
+    const edit = props.customEdit;
+    if (!edit || customEditPrefilledRef.current === edit.providerId) return;
+    customEditPrefilledRef.current = edit.providerId;
+    setCustomEditMode(true);
+    setCustomFixedProviderId(edit.providerId);
+    setCustomBrandName(null);
+    setCustomName(edit.name);
+    setCustomBaseURL(edit.baseURL);
+    setCustomBaseUrlPlaceholder(DEFAULT_BASE_URL_PLACEHOLDER);
+    setCustomApiType(edit.apiType);
+    setCustomApiTypeTouched(true);
+    setCustomApiKey("");
+    setCustomModelInput("");
+    setCustomModels(
+      edit.models.map((model) => ({
+        id: model.id,
+        toolCall: model.toolCall,
+        reasoning: model.reasoning,
+        contextLimit: model.contextLimit != null ? String(model.contextLimit) : "",
+      })),
+    );
+    setCustomFetchedModels([]);
+    setLocalError(null);
+    setSelectedProviderId(CUSTOM_PROVIDER_ENTRY_ID);
+    setView("custom");
+  }, [props.open, props.customEdit]);
 
   useEffect(() => {
     if (!props.open || resolvedView !== "list") return;
@@ -510,6 +705,17 @@ export default function ProviderAuthModal(props: ProviderAuthModalProps) {
     setLocalError(null);
     setSelectedProviderId(entry.id);
 
+    if (entry.id === CUSTOM_PROVIDER_ENTRY_ID) {
+      startCustomProvider();
+      return;
+    }
+
+    const branded = BRANDED_CUSTOM_PROVIDERS.find((provider) => provider.id === entry.id);
+    if (branded) {
+      startCustomProvider(branded);
+      return;
+    }
+
     if (entry.methods.length === 1) {
       void handleMethodSelect(entry.methods[0]);
       return;
@@ -540,6 +746,149 @@ export default function ProviderAuthModal(props: ProviderAuthModalProps) {
     } catch (error) {
       const message = error instanceof Error ? error.message : "Failed to save API key";
       setLocalError(message);
+    }
+  };
+
+  const addCustomModelId = (rawId: string) => {
+    const id = rawId.trim();
+    if (!id) return;
+    setCustomModels((current) =>
+      current.some((model) => model.id === id) ? current : [...current, makeCustomModelDraft(id)],
+    );
+    if (localError) setLocalError(null);
+  };
+
+  const removeCustomModelId = (id: string) => {
+    setCustomModels((current) => current.filter((model) => model.id !== id));
+  };
+
+  const updateCustomModel = (id: string, patch: Partial<CustomModelDraft>) => {
+    setCustomModels((current) =>
+      current.map((model) => (model.id === id ? { ...model, ...patch } : model)),
+    );
+  };
+
+  const customModelExists = (id: string) => customModels.some((model) => model.id === id);
+
+  const handleAddCustomModelFromInput = () => {
+    const ids = customModelInput
+      .split(/[\n,]/)
+      .map((value) => value.trim())
+      .filter(Boolean);
+    if (!ids.length) return;
+    for (const id of ids) addCustomModelId(id);
+    setCustomModelInput("");
+  };
+
+  const fetchCustomModels = async () => {
+    const base = customBaseURL.trim().replace(/\/+$/, "");
+    if (!base) {
+      setLocalError("Enter a base URL first.");
+      return;
+    }
+    setCustomFetching(true);
+    setLocalError(null);
+    try {
+      const headers: Record<string, string> = { Accept: "application/json" };
+      const key = customApiKey.trim();
+      if (key) headers.Authorization = `Bearer ${key}`;
+      const response = await fetch(`${base}/models`, { headers });
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}`);
+      }
+      const payload = (await response.json()) as { data?: Array<{ id?: unknown }> };
+      const ids = Array.isArray(payload?.data)
+        ? payload.data
+            .map((entry) => (typeof entry?.id === "string" ? entry.id : null))
+            .filter((id): id is string => Boolean(id))
+        : [];
+      if (!ids.length) {
+        throw new Error("No models returned.");
+      }
+      setCustomFetchedModels(ids);
+    } catch (error) {
+      setCustomFetchedModels([]);
+      const detail = error instanceof Error ? error.message : "request failed";
+      setLocalError(`Couldn't list models — enter IDs manually. (${detail})`);
+    } finally {
+      setCustomFetching(false);
+    }
+  };
+
+  // Open the custom form fresh — blank for the generic entry, pre-branded
+  // (fixed id, name, API type, Base-URL hint) for a branded provider.
+  const startCustomProvider = (branded?: BrandedCustomProvider) => {
+    setCustomEditMode(false);
+    setCustomFixedProviderId(branded?.id ?? null);
+    setCustomBrandName(branded?.name ?? null);
+    setCustomName(branded?.name ?? "");
+    setCustomBaseURL("");
+    setCustomApiKey("");
+    setCustomApiType(branded?.apiType ?? "chat");
+    setCustomApiTypeTouched(Boolean(branded));
+    setCustomBaseUrlPlaceholder(branded?.baseUrlPlaceholder ?? DEFAULT_BASE_URL_PLACEHOLDER);
+    setCustomModelInput("");
+    setCustomModels([]);
+    setCustomFetchedModels([]);
+    setLocalError(null);
+    setSelectedProviderId(branded?.id ?? CUSTOM_PROVIDER_ENTRY_ID);
+    setView("custom");
+  };
+
+  const handleCustomSubmit = async () => {
+    if (!props.onSubmitCustomProvider || actionDisabled || customBusy) return;
+
+    const name = customName.trim();
+    const baseURL = customBaseURL.trim();
+    const apiKey = customApiKey.trim();
+
+    // Fold any not-yet-added text in the input into the model list.
+    const pendingDrafts = customModelInput
+      .split(/[\n,]/)
+      .map((value) => value.trim())
+      .filter(Boolean)
+      .filter((id) => !customModelExists(id))
+      .map(makeCustomModelDraft);
+    const drafts = [...customModels, ...pendingDrafts];
+
+    if (!name) {
+      setLocalError("Name is required.");
+      return;
+    }
+    if (!baseURL) {
+      setLocalError("Base URL is required.");
+      return;
+    }
+    if (!drafts.length) {
+      setLocalError("Add at least one model ID.");
+      return;
+    }
+
+    setLocalError(null);
+    setCustomBusy(true);
+    try {
+      await props.onSubmitCustomProvider({
+        providerId: customFixedProviderId ?? slugifyProviderId(name),
+        name,
+        baseURL,
+        apiKey,
+        apiType: customApiType,
+        models: drafts.map((model) => {
+          const parsed = Number.parseInt(model.contextLimit.trim(), 10);
+          return {
+            id: model.id,
+            toolCall: model.toolCall,
+            reasoning: model.reasoning,
+            contextLimit: Number.isFinite(parsed) && parsed > 0 ? parsed : null,
+          };
+        }),
+      });
+      props.onClose();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Failed to add provider";
+      setLocalError(message);
+    } finally {
+      setCustomBusy(false);
     }
   };
 
@@ -971,6 +1320,299 @@ export default function ProviderAuthModal(props: ProviderAuthModalProps) {
                     <div className="text-right text-[11px] text-dls-secondary">
                       This window will close once the provider is connected.
                     </div>
+                  </div>
+                </div>
+              ) : null}
+
+              {resolvedView === "custom" ? (
+                <div className={`${surfaceCardClass} space-y-4`}>
+                  <div className="flex items-center justify-between gap-4">
+                    <div>
+                      <div className="text-sm font-medium text-dls-text">
+                        {isEditingCustomProvider ? "Edit provider" : customBrandName ?? "Custom provider"}
+                      </div>
+                      <div className="mt-1 text-xs text-dls-secondary">
+                        {isEditingCustomProvider
+                          ? "Update this OpenAI-compatible provider."
+                          : activeBrandedProvider?.description ?? "Connect any endpoint that speaks the OpenAI API spec."}
+                      </div>
+                    </div>
+                    <Button variant="outline" onClick={handleBack} disabled={actionDisabled || customBusy}>
+                      Back
+                    </Button>
+                  </div>
+
+                  <TextInput
+                    label="Name"
+                    type="text"
+                    placeholder="My provider"
+                    value={customName}
+                    onChange={(event) => {
+                      setCustomName(event.currentTarget.value);
+                      if (localError) setLocalError(null);
+                    }}
+                    autoComplete="off"
+                    autoCapitalize="off"
+                    spellCheck={false}
+                    disabled={actionDisabled || customBusy}
+                  />
+                  {customFixedProviderId ? (
+                    <div className="-mt-2 text-[11px] text-dls-secondary">
+                      Provider ID: <span className="font-mono">{customFixedProviderId}</span> (fixed)
+                    </div>
+                  ) : customName.trim() ? (
+                    <div className="-mt-2 text-[11px] text-dls-secondary">
+                      Provider ID: <span className="font-mono">{slugifyProviderId(customName)}</span>
+                    </div>
+                  ) : null}
+
+                  <TextInput
+                    label="Base URL"
+                    type="text"
+                    placeholder={customBaseUrlPlaceholder}
+                    value={customBaseURL}
+                    onChange={(event) => {
+                      const value = event.currentTarget.value;
+                      setCustomBaseURL(value);
+                      // Default OpenAI/Azure URLs to the Responses API; the user
+                      // can still override. Once they pick manually, stop inferring.
+                      if (!customApiTypeTouched) setCustomApiType(inferCustomApiType(value));
+                      if (localError) setLocalError(null);
+                    }}
+                    autoComplete="off"
+                    autoCapitalize="off"
+                    spellCheck={false}
+                    disabled={actionDisabled || customBusy}
+                  />
+
+                  <div className="space-y-1.5">
+                    <div className="text-xs font-medium text-dls-secondary">API type</div>
+                    <div className="grid grid-cols-2 gap-2">
+                      {(
+                        [
+                          {
+                            value: "chat" as const,
+                            label: "Chat Completions",
+                            hint: "/v1/chat/completions · most endpoints",
+                          },
+                          {
+                            value: "responses" as const,
+                            label: "Responses API",
+                            hint: "/v1/responses · OpenAI, Azure OpenAI",
+                          },
+                        ]
+                      ).map((option) => {
+                        const active = customApiType === option.value;
+                        return (
+                          <button
+                            key={option.value}
+                            type="button"
+                            onClick={() => {
+                              setCustomApiType(option.value);
+                              setCustomApiTypeTouched(true);
+                            }}
+                            disabled={actionDisabled || customBusy}
+                            className={`rounded-xl border px-3 py-2 text-left transition-colors disabled:cursor-not-allowed disabled:opacity-60 ${
+                              active
+                                ? "border-[rgba(var(--dls-accent-rgb),0.4)] bg-[rgba(var(--dls-accent-rgb),0.08)]"
+                                : "border-dls-border bg-dls-hover hover:bg-dls-active"
+                            }`}
+                          >
+                            <div className="text-[13px] font-medium text-dls-text">{option.label}</div>
+                            <div className="mt-0.5 font-mono text-[10px] text-dls-secondary">{option.hint}</div>
+                          </button>
+                        );
+                      })}
+                    </div>
+                    <div className="text-[11px] text-dls-secondary">
+                      {customApiType === "responses"
+                        ? "Uses @ai-sdk/openai — full tool set and reasoning effort, no 128-tool cap."
+                        : "Uses @ai-sdk/openai-compatible. OpenAI caps this at 128 tools; pick Responses API for OpenAI/Azure."}
+                    </div>
+                  </div>
+
+                  <TextInput
+                    label={isEditingCustomProvider ? "API key" : "API key (optional)"}
+                    type="password"
+                    placeholder={isEditingCustomProvider ? "Leave blank to keep current key" : "sk-..."}
+                    value={customApiKey}
+                    onChange={(event) => {
+                      setCustomApiKey(event.currentTarget.value);
+                      if (localError) setLocalError(null);
+                    }}
+                    autoComplete="off"
+                    autoCapitalize="off"
+                    spellCheck={false}
+                    disabled={actionDisabled || customBusy}
+                  />
+
+                  <div className="space-y-2.5">
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="text-xs font-medium text-dls-text">Models</div>
+                      <button
+                        type="button"
+                        onClick={() => void fetchCustomModels()}
+                        disabled={actionDisabled || customBusy || customFetching || !customBaseURL.trim()}
+                        className="inline-flex items-center gap-1.5 text-[11px] font-medium text-dls-accent transition-opacity hover:opacity-80 disabled:cursor-not-allowed disabled:opacity-40"
+                      >
+                        {customFetching ? <Loader2 size={12} className="animate-spin" /> : <Search size={12} />}
+                        {customFetching ? "Fetching…" : "Fetch from endpoint"}
+                      </button>
+                    </div>
+
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="text"
+                        placeholder="Add a model ID, e.g. gpt-5.5"
+                        value={customModelInput}
+                        onChange={(event) => {
+                          setCustomModelInput(event.currentTarget.value);
+                          if (localError) setLocalError(null);
+                        }}
+                        onKeyDown={(event) => {
+                          if (event.key !== "Enter") return;
+                          event.preventDefault();
+                          handleAddCustomModelFromInput();
+                        }}
+                        autoComplete="off"
+                        autoCapitalize="off"
+                        spellCheck={false}
+                        disabled={actionDisabled || customBusy}
+                        className="h-9 flex-1 rounded-lg border border-dls-border bg-dls-surface px-3 font-mono text-[13px] text-dls-text transition-colors placeholder:font-sans placeholder:text-dls-secondary focus:border-[rgba(var(--dls-accent-rgb),0.5)] focus:outline-none focus:ring-2 focus:ring-[rgba(var(--dls-accent-rgb),0.16)] disabled:cursor-not-allowed disabled:opacity-60"
+                      />
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="h-9 gap-1"
+                        onClick={handleAddCustomModelFromInput}
+                        disabled={actionDisabled || customBusy || !customModelInput.trim()}
+                      >
+                        <Plus size={14} />
+                        Add
+                      </Button>
+                    </div>
+
+                    {customModels.length ? (
+                      <div className="divide-y divide-dls-border overflow-hidden rounded-xl border border-dls-border">
+                        {customModels.map((model) => (
+                          <div key={model.id} className="group/model px-3 py-2.5">
+                            <div className="flex items-center justify-between gap-3">
+                              <span className="truncate font-mono text-[12.5px] text-dls-text">{model.id}</span>
+                              <button
+                                type="button"
+                                onClick={() => removeCustomModelId(model.id)}
+                                disabled={actionDisabled || customBusy}
+                                aria-label={`Remove ${model.id}`}
+                                className="-mr-1 shrink-0 rounded-md p-1 text-dls-secondary opacity-0 transition-all hover:bg-dls-hover hover:text-dls-text focus-visible:opacity-100 group-hover/model:opacity-100 disabled:opacity-0"
+                              >
+                                <X size={14} />
+                              </button>
+                            </div>
+                            <div className="mt-2 flex items-center gap-5">
+                              <label className="flex cursor-pointer select-none items-center gap-2">
+                                <Switch
+                                  size="sm"
+                                  checked={model.toolCall}
+                                  onCheckedChange={(checked) => updateCustomModel(model.id, { toolCall: checked })}
+                                  disabled={actionDisabled || customBusy}
+                                />
+                                <span className={`text-[11px] ${model.toolCall ? "text-dls-text" : "text-dls-secondary"}`}>
+                                  Tools
+                                </span>
+                              </label>
+                              <label className="flex cursor-pointer select-none items-center gap-2">
+                                <Switch
+                                  size="sm"
+                                  checked={model.reasoning}
+                                  onCheckedChange={(checked) => updateCustomModel(model.id, { reasoning: checked })}
+                                  disabled={actionDisabled || customBusy}
+                                />
+                                <span className={`text-[11px] ${model.reasoning ? "text-dls-text" : "text-dls-secondary"}`}>
+                                  Reasoning
+                                </span>
+                              </label>
+                              <div className="ml-auto flex items-center gap-1.5">
+                                <span className="text-[11px] text-dls-secondary">Context</span>
+                                <input
+                                  type="text"
+                                  inputMode="numeric"
+                                  placeholder="auto"
+                                  value={model.contextLimit}
+                                  onChange={(event) =>
+                                    updateCustomModel(model.id, { contextLimit: event.currentTarget.value })
+                                  }
+                                  disabled={actionDisabled || customBusy}
+                                  className="w-16 rounded-md border border-transparent bg-dls-hover px-2 py-1 text-right font-mono text-[11px] text-dls-text transition-colors placeholder:text-dls-secondary focus:border-dls-border focus:bg-dls-surface focus:outline-none disabled:opacity-60"
+                                />
+                              </div>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <div className="rounded-xl border border-dashed border-dls-border px-3 py-4 text-center text-[11px] leading-relaxed text-dls-secondary">
+                        No models yet — custom endpoints have no catalog.
+                        <br />
+                        Add an ID above, or fetch the list from your endpoint.
+                      </div>
+                    )}
+
+                    {customFetchedModels.length ? (
+                      <div className="space-y-1.5 pt-0.5">
+                        <div className="text-[10px] font-medium uppercase tracking-wide text-dls-secondary">
+                          From endpoint — click to add
+                        </div>
+                        <div className="flex max-h-28 flex-wrap gap-1.5 overflow-y-auto">
+                          {customFetchedModels.map((id) => {
+                            const added = customModelExists(id);
+                            return (
+                              <button
+                                key={id}
+                                type="button"
+                                onClick={() => addCustomModelId(id)}
+                                disabled={actionDisabled || customBusy || added}
+                                className={`inline-flex items-center gap-1 rounded-full border px-2.5 py-1 font-mono text-[11px] transition-colors ${
+                                  added
+                                    ? "cursor-default border-transparent bg-dls-hover text-dls-secondary"
+                                    : "border-dls-border text-dls-text hover:border-[rgba(var(--dls-accent-rgb),0.4)] hover:bg-[rgba(var(--dls-accent-rgb),0.06)]"
+                                }`}
+                              >
+                                {added ? <Check size={11} /> : <Plus size={11} />}
+                                {id}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    ) : null}
+
+                    {customModels.length ? (
+                      <div className="text-[11px] text-dls-secondary">
+                        Reasoning is auto-detected from the model id — toggle per model if needed.
+                      </div>
+                    ) : null}
+                  </div>
+
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="text-[11px] text-dls-secondary">Keys are stored locally by OpenCode.</div>
+                    <Button
+                      onClick={() => void handleCustomSubmit()}
+                      disabled={
+                        actionDisabled ||
+                        customBusy ||
+                        !customName.trim() ||
+                        !customBaseURL.trim() ||
+                        (customModels.length === 0 && !customModelInput.trim())
+                      }
+                    >
+                      {customBusy
+                        ? isEditingCustomProvider
+                          ? "Saving…"
+                          : "Adding…"
+                        : isEditingCustomProvider
+                          ? "Save changes"
+                          : "Add provider"}
+                    </Button>
                   </div>
                 </div>
               ) : null}

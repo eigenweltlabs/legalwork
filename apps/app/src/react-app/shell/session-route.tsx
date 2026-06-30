@@ -1529,6 +1529,7 @@ export function SessionRoute() {
           modelPicker.setOpen(true);
           return result;
         },
+        onSubmitCustomProvider: sessionProviderAuthStore.submitCustomProvider,
         onSubmitOAuth: sessionProviderAuthStore.completeProviderAuthOAuth,
         onRefreshProviders: sessionProviderAuthStore.refreshProviders,
         onClose: () => sessionProviderAuthStore.closeProviderAuthModal(),

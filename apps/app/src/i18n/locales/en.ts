@@ -950,6 +950,7 @@ export default {
   "settings.disable_developer_mode": "Disable Developer Mode",
   "settings.disabled": "Disabled",
   "settings.disconnect": "Disconnect",
+  "settings.edit": "Edit",
   "settings.disconnect_server": "Disconnect server",
   "settings.disconnecting": "Disconnecting...",
   "settings.docker_containers_desc": "Clean up Docker containers left behind after tasks finish.",

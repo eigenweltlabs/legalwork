@@ -61,6 +61,67 @@ export type ProviderOAuthStartResult = {
   authorization: ProviderAuthAuthorization;
 };
 
+/** A single model the user declares for a custom OpenAI-compatible provider. */
+export type CustomProviderModelInput = {
+  /** The exact model id sent on the wire (e.g. `deepseek-chat`). */
+  id: string;
+  /** Optional display name; defaults to the id. */
+  name?: string;
+  /** Whether the model supports tool/function calling (this app is tool-heavy). */
+  toolCall?: boolean;
+  /** Whether the model emits reasoning / accepts reasoning effort. */
+  reasoning?: boolean;
+  /** Optional context-window size used for truncation. */
+  contextLimit?: number | null;
+};
+
+/**
+ * Which OpenAI-spec endpoint the provider speaks. This selects the AI SDK
+ * package opencode loads:
+ *  - "chat"      → `@ai-sdk/openai-compatible` (POST /v1/chat/completions).
+ *                  Broadest compatibility (vLLM, Ollama, Together, Groq,
+ *                  LiteLLM, most proxies). OpenAI caps this at 128 tools.
+ *  - "responses" → `@ai-sdk/openai` (POST /v1/responses). Use for OpenAI and
+ *                  Azure OpenAI: full tool set (no 128-tool cap) and reasoning
+ *                  effort, matching the built-in `openai` provider.
+ * See https://opencode.ai/docs/providers/ ("use @ai-sdk/openai-compatible for
+ * /v1/chat/completions; use @ai-sdk/openai if your provider uses /v1/responses").
+ */
+export type CustomProviderApiType = "chat" | "responses";
+
+export const CUSTOM_PROVIDER_NPM: Record<CustomProviderApiType, string> = {
+  chat: "@ai-sdk/openai-compatible",
+  responses: "@ai-sdk/openai",
+};
+
+/**
+ * Input for adding a user-defined provider that speaks the OpenAI API spec.
+ * The provider is written to config with the npm package selected by
+ * `apiType`, and the API key (when supplied) is stored in the engine auth
+ * store rather than inline in config.
+ */
+export type CustomProviderInstallInput = {
+  providerId: string;
+  name: string;
+  baseURL: string;
+  apiKey: string;
+  apiType: CustomProviderApiType;
+  models: CustomProviderModelInput[];
+};
+
+/** A custom provider's current config, read back so the form can edit it. */
+export type CustomProviderEditData = {
+  providerId: string;
+  name: string;
+  baseURL: string;
+  apiType: CustomProviderApiType;
+  models: Array<{ id: string; toolCall: boolean; reasoning: boolean; contextLimit: number | null }>;
+};
+
+function isPlainRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
 export type ProviderAuthStoreSnapshot = {
   providerAuthModalOpen: boolean;
   providerAuthBusy: boolean;
@@ -817,6 +878,156 @@ export function createProviderAuthStore(options: CreateProviderAuthStoreOptions)
     }
   }
 
+  const writeCustomProviderConfig = async (
+    providerId: string,
+    providerConfig: Record<string, unknown>,
+  ): Promise<boolean> => {
+    const { legalworkClient, legalworkWorkspaceId, hasLegalworkTarget, canUseLegalworkServer } =
+      await resolveLegalworkConfigTarget("write");
+
+    // Preferred: persist into the LegalWork runtime config store, so the
+    // provider is available across the server's workspaces (and survives a
+    // matter folder that doesn't carry its own opencode.jsonc). This mirrors
+    // the local-provider install path used elsewhere in settings.
+    if (canUseLegalworkServer && legalworkClient && legalworkWorkspaceId) {
+      await legalworkClient.patchConfig(legalworkWorkspaceId, {
+        opencode: { provider: { [providerId]: providerConfig } },
+      });
+      return true;
+    }
+
+    if (hasLegalworkTarget) {
+      throw new Error("LegalWork server config API is unavailable for this workspace.");
+    }
+
+    // Desktop-local fallback: merge the provider into the project opencode.jsonc.
+    return await updateProjectConfigFile(
+      (raw) => {
+        const base = raw.trim()
+          ? raw
+          : '{\n  "$schema": "https://opencode.ai/config.json"\n}\n';
+        const edits = modify(base, ["provider", providerId], providerConfig, {
+          formattingOptions: { insertSpaces: true, tabSize: 2 },
+        });
+        const updated = applyEdits(base, edits);
+        return updated.endsWith("\n") ? updated : `${updated}\n`;
+      },
+      (config) => {
+        const existingProviders =
+          config.provider && typeof config.provider === "object"
+            ? (config.provider as Record<string, unknown>)
+            : {};
+        return { ...config, provider: { ...existingProviders, [providerId]: providerConfig } };
+      },
+    );
+  };
+
+  async function readCustomProviderForEdit(
+    providerId: string,
+  ): Promise<CustomProviderEditData | null> {
+    const c = options.client();
+    if (!c) {
+      throw new Error(t("providers.not_connected"));
+    }
+    const resolvedId = providerId.trim();
+    if (!resolvedId) return null;
+
+    const config = unwrap(await c.config.get()) as Record<string, unknown>;
+    const providers = isPlainRecord(config.provider) ? config.provider : {};
+    const entry = isPlainRecord(providers[resolvedId]) ? providers[resolvedId] : null;
+    if (!entry) return null;
+
+    const npm = typeof entry.npm === "string" ? entry.npm : "";
+    const apiType: CustomProviderApiType = npm === CUSTOM_PROVIDER_NPM.responses ? "responses" : "chat";
+    const providerOptions = isPlainRecord(entry.options) ? entry.options : {};
+    const baseURL = typeof providerOptions.baseURL === "string" ? providerOptions.baseURL : "";
+    const modelsRecord = isPlainRecord(entry.models) ? entry.models : {};
+    const models = Object.entries(modelsRecord).map(([id, raw]) => {
+      const model = isPlainRecord(raw) ? raw : {};
+      const limit = isPlainRecord(model.limit) ? model.limit : {};
+      const context = typeof limit.context === "number" ? limit.context : null;
+      return {
+        id,
+        toolCall: typeof model.tool_call === "boolean" ? model.tool_call : true,
+        reasoning: typeof model.reasoning === "boolean" ? model.reasoning : false,
+        contextLimit: context,
+      };
+    });
+
+    return {
+      providerId: resolvedId,
+      name: typeof entry.name === "string" && entry.name.trim() ? entry.name : resolvedId,
+      baseURL,
+      apiType,
+      models,
+    };
+  }
+
+  async function submitCustomProvider(input: CustomProviderInstallInput) {
+    setStateField("providerAuthError", null);
+    const c = options.client();
+    if (!c) {
+      throw new Error(t("providers.not_connected"));
+    }
+
+    const providerId = input.providerId.trim();
+    const baseURL = input.baseURL.trim();
+    const name = input.name.trim() || providerId;
+    const apiKey = input.apiKey.trim();
+    const models = input.models
+      .map((model) => ({ ...model, id: model.id.trim() }))
+      .filter((model) => model.id);
+
+    if (!providerId) {
+      throw new Error(t("providers.provider_id_required"));
+    }
+    if (!baseURL) {
+      throw new Error("Base URL is required.");
+    }
+    if (!models.length) {
+      throw new Error("Add at least one model ID.");
+    }
+
+    const modelsConfig: Record<string, Record<string, unknown>> = {};
+    for (const model of models) {
+      const entry: Record<string, unknown> = { name: model.name?.trim() || model.id };
+      if (model.toolCall !== undefined) entry.tool_call = model.toolCall;
+      if (model.reasoning) entry.reasoning = true;
+      if (typeof model.contextLimit === "number" && model.contextLimit > 0) {
+        entry.limit = { context: model.contextLimit };
+      }
+      modelsConfig[model.id] = entry;
+    }
+
+    const providerConfig: Record<string, unknown> = {
+      npm: CUSTOM_PROVIDER_NPM[input.apiType] ?? CUSTOM_PROVIDER_NPM.chat,
+      name,
+      options: { baseURL },
+      models: modelsConfig,
+    };
+
+    try {
+      const wrote = await writeCustomProviderConfig(providerId, providerConfig);
+      if (!wrote) {
+        throw new Error("Could not save the provider configuration for this workspace.");
+      }
+
+      // Keep the secret out of the config file: store it in the engine auth
+      // store, where opencode injects it as the OpenAI-compatible bearer key.
+      if (apiKey) {
+        await c.auth.set({ providerID: providerId, auth: { type: "api", key: apiKey } });
+      }
+
+      options.markOpencodeConfigReloadRequired();
+      await refreshProviders({ dispose: true });
+      return `${t("status.connected")} ${name}`;
+    } catch (error) {
+      const message = describeProviderError(error, t("providers.save_api_key_failed"));
+      setStateField("providerAuthError", message);
+      throw error instanceof Error ? error : new Error(message);
+    }
+  }
+
   async function disconnectProvider(providerId: string) {
     setStateField("providerAuthError", null);
     const c = options.client();
@@ -940,6 +1151,8 @@ export function createProviderAuthStore(options: CreateProviderAuthStoreOptions)
     refreshProviders,
     completeProviderAuthOAuth,
     submitProviderApiKey,
+    submitCustomProvider,
+    readCustomProviderForEdit,
     disconnectProvider,
     ensureProjectProviderDisabledState,
     openProviderAuthModal,
