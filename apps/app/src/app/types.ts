@@ -289,6 +289,14 @@ export type SkillCard = {
   workflowType?: string;
 };
 
+/** A file in the firm template library (.opencode/templates/). */
+export type TemplateCard = {
+  name: string;
+  path: string;
+  size: number;
+  updatedAt: number;
+};
+
 export type HubSkillRepo = {
   owner: string;
   repo: string;

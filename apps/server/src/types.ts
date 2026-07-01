@@ -108,6 +108,7 @@ export interface Capabilities {
   serverVersion: string;
   opencodeVersion: string;
   skills: { read: boolean; write: boolean; source: "legalwork" | "opencode" };
+  templates: { read: boolean; write: boolean };
   hub: {
     skills: {
       read: boolean;

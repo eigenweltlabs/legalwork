@@ -21,6 +21,10 @@ export function projectSkillsDir(workspaceRoot: string): string {
   return join(workspaceRoot, ".opencode", "skills");
 }
 
+export function projectTemplatesDir(workspaceRoot: string): string {
+  return join(workspaceRoot, ".opencode", "templates");
+}
+
 export function projectCommandsDir(workspaceRoot: string): string {
   return join(workspaceRoot, ".opencode", "commands");
 }

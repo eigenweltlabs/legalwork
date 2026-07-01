@@ -11,6 +11,7 @@ import type {
   ReloadReason,
   ReloadTrigger,
   SkillCard,
+  TemplateCard,
 } from "../../../../app/types";
 import { addOpencodeCacheHint, isDesktopRuntime, normalizeDirectoryPath } from "../../../../app/utils";
 import skillCreatorTemplate from "../../../../app/data/skill-creator.md?raw";
@@ -65,6 +66,8 @@ export type ExtensionsStoreSnapshot = {
   workspaceContextKey: string;
   skills: SkillCard[];
   skillsStatus: string | null;
+  templates: TemplateCard[];
+  templatesStatus: string | null;
   hubSkills: HubSkillCard[];
   hubSkillsStatus: string | null;
   hubRepo: HubSkillRepo | null;
@@ -89,6 +92,8 @@ type MutableState = {
   hubSkillsContextKey: string;
   skills: SkillCard[];
   skillsStatus: string | null;
+  templates: TemplateCard[];
+  templatesStatus: string | null;
   hubSkills: HubSkillCard[];
   hubSkillsStatus: string | null;
   hubRepo: HubSkillRepo | null;
@@ -188,6 +193,9 @@ export function createExtensionsStore(options: {
   let hubSkillsLoaded = false;
   let skillsRoot = "";
   let hubSkillsLoadKey = "";
+  let templatesLoaded = false;
+  let templatesRoot = "";
+  let refreshTemplatesInFlight = false;
 
   let state: MutableState = {
     skillsContextKey: "",
@@ -195,6 +203,8 @@ export function createExtensionsStore(options: {
     hubSkillsContextKey: "",
     skills: [],
     skillsStatus: null,
+    templates: [],
+    templatesStatus: null,
     hubSkills: [],
     hubSkillsStatus: null,
     hubRepo: null,
@@ -260,6 +270,8 @@ export function createExtensionsStore(options: {
       workspaceContextKey,
       skills: state.skills,
       skillsStatus: state.skillsStatus,
+      templates: state.templates,
+      templatesStatus: state.templatesStatus,
       hubSkills: state.hubSkills,
       hubSkillsStatus: state.hubSkillsStatus,
       hubRepo: state.hubRepo,
@@ -416,6 +428,8 @@ export function createExtensionsStore(options: {
     hubSkillsLoaded = false;
     skillsRoot = "";
     hubSkillsLoadKey = "";
+    templatesLoaded = false;
+    templatesRoot = "";
   };
 
   const touch = () => {
@@ -929,6 +943,128 @@ export function createExtensionsStore(options: {
       }));
     } finally {
       refreshSkillsInFlight = false;
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Firm template library (.opencode/templates/) — served by the LegalWork
+  // server only; there is no desktop-local fallback because templates are
+  // workspace files the agent reads directly.
+  // ---------------------------------------------------------------------------
+
+  const TEMPLATES_UNAVAILABLE = "Connect a LegalWork server to manage firm templates.";
+
+  const resolveTemplatesTarget = async () => {
+    const { legalworkSnapshot, legalworkClient, legalworkWorkspaceId, hasLegalworkTarget } =
+      await resolveWorkspaceServerTarget();
+    const canUse =
+      hasLegalworkTarget &&
+      legalworkSnapshot.legalworkServerCapabilities?.templates?.read !== false &&
+      Boolean(legalworkClient && legalworkWorkspaceId);
+    return { legalworkClient, legalworkWorkspaceId, canUse };
+  };
+
+  async function refreshTemplates(optionsOverride?: { force?: boolean }) {
+    const { legalworkClient, legalworkWorkspaceId, canUse } = await resolveTemplatesTarget();
+    if (!canUse || !legalworkClient || !legalworkWorkspaceId) {
+      mutateState((current) => ({ ...current, templates: [], templatesStatus: TEMPLATES_UNAVAILABLE }));
+      return;
+    }
+    if (legalworkWorkspaceId !== templatesRoot) templatesLoaded = false;
+    if (!optionsOverride?.force && templatesLoaded) return;
+    if (refreshTemplatesInFlight) return;
+    refreshTemplatesInFlight = true;
+    try {
+      const response = await legalworkClient.listTemplates(legalworkWorkspaceId);
+      const next: TemplateCard[] = Array.isArray(response.items)
+        ? response.items.map((item) => ({
+            name: item.name,
+            path: item.path,
+            size: item.size,
+            updatedAt: item.updatedAt,
+          }))
+        : [];
+      mutateState((current) => ({ ...current, templates: next, templatesStatus: null }));
+      templatesLoaded = true;
+      templatesRoot = legalworkWorkspaceId;
+    } catch (error) {
+      mutateState((current) => ({
+        ...current,
+        templates: [],
+        templatesStatus: error instanceof Error ? error.message : "Failed to load templates.",
+      }));
+    } finally {
+      refreshTemplatesInFlight = false;
+    }
+  }
+
+  async function readTemplate(name: string): Promise<{ name: string; path: string; content: string } | null> {
+    const trimmed = name.trim();
+    if (!trimmed) return null;
+    const { legalworkClient, legalworkWorkspaceId, canUse } = await resolveTemplatesTarget();
+    if (!canUse || !legalworkClient || !legalworkWorkspaceId) {
+      setStateField("templatesStatus", TEMPLATES_UNAVAILABLE);
+      return null;
+    }
+    try {
+      const result = await legalworkClient.getTemplate(legalworkWorkspaceId, trimmed);
+      return { name: result.item.name, path: result.item.path, content: result.content };
+    } catch (error) {
+      setStateField("templatesStatus", error instanceof Error ? error.message : "Failed to load the template.");
+      return null;
+    }
+  }
+
+  async function saveTemplate(input: {
+    name: string;
+    content?: string;
+    contentBase64?: string;
+  }): Promise<{ ok: boolean; message: string }> {
+    const trimmed = input.name.trim();
+    if (!trimmed) return { ok: false, message: "Template name is required." };
+    const { legalworkClient, legalworkWorkspaceId, canUse } = await resolveTemplatesTarget();
+    if (!canUse || !legalworkClient || !legalworkWorkspaceId) {
+      return { ok: false, message: TEMPLATES_UNAVAILABLE };
+    }
+    options.setBusy(true);
+    options.setError(null);
+    try {
+      const result = await legalworkClient.upsertTemplate(legalworkWorkspaceId, {
+        name: trimmed,
+        ...(typeof input.contentBase64 === "string"
+          ? { contentBase64: input.contentBase64 }
+          : { content: input.content ?? "" }),
+      });
+      await refreshTemplates({ force: true });
+      return { ok: true, message: result.action === "added" ? "Template added." : "Template updated." };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : t("skills.unknown_error");
+      setStateField("templatesStatus", message);
+      return { ok: false, message };
+    } finally {
+      options.setBusy(false);
+    }
+  }
+
+  async function deleteTemplate(name: string): Promise<{ ok: boolean; message: string }> {
+    const trimmed = name.trim();
+    if (!trimmed) return { ok: false, message: "Template name is required." };
+    const { legalworkClient, legalworkWorkspaceId, canUse } = await resolveTemplatesTarget();
+    if (!canUse || !legalworkClient || !legalworkWorkspaceId) {
+      return { ok: false, message: TEMPLATES_UNAVAILABLE };
+    }
+    options.setBusy(true);
+    options.setError(null);
+    try {
+      await legalworkClient.deleteTemplate(legalworkWorkspaceId, trimmed);
+      await refreshTemplates({ force: true });
+      return { ok: true, message: "Template removed." };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : t("skills.unknown_error");
+      setStateField("templatesStatus", message);
+      return { ok: false, message };
+    } finally {
+      options.setBusy(false);
     }
   }
 
@@ -1892,6 +2028,8 @@ export function createExtensionsStore(options: {
     syncFromOptions,
     skills: () => snapshot.skills,
     skillsStatus: () => snapshot.skillsStatus,
+    templates: () => snapshot.templates,
+    templatesStatus: () => snapshot.templatesStatus,
     hubSkills: () => snapshot.hubSkills,
     hubSkillsStatus: () => snapshot.hubSkillsStatus,
     hubRepo: () => snapshot.hubRepo,
@@ -1944,6 +2082,10 @@ export function createExtensionsStore(options: {
     readSkill,
     saveSkill,
     createSkill,
+    refreshTemplates,
+    readTemplate,
+    saveTemplate,
+    deleteTemplate,
     abortRefreshes,
     ensureSkillsFresh,
     ensurePluginsFresh,

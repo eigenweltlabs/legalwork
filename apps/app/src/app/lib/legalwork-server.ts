@@ -6,6 +6,7 @@ import type { ImportedMarketplace, ImportedPlugin } from "./extension-imports";
 
 export type LegalworkServerCapabilities = {
   skills: { read: boolean; write: boolean; source: "legalwork" | "opencode" };
+  templates?: { read: boolean; write: boolean };
   hub?: {
     skills?: {
       read: boolean;
@@ -135,6 +136,18 @@ export type LegalworkSkillItem = {
 
 export type LegalworkSkillContent = {
   item: LegalworkSkillItem;
+  content: string;
+};
+
+export type LegalworkTemplateItem = {
+  name: string;
+  path: string;
+  size: number;
+  updatedAt: number;
+};
+
+export type LegalworkTemplateContent = {
+  item: LegalworkTemplateItem;
   content: string;
 };
 
@@ -1459,6 +1472,29 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
           hostToken,
           method: "DELETE",
         },
+      ),
+    listTemplates: (workspaceId: string) =>
+      requestJson<{ items: LegalworkTemplateItem[] }>(baseUrl, `/workspace/${workspaceId}/templates`, {
+        token,
+        hostToken,
+      }),
+    getTemplate: (workspaceId: string, name: string) =>
+      requestJson<LegalworkTemplateContent>(
+        baseUrl,
+        `/workspace/${workspaceId}/templates/${encodeURIComponent(name)}`,
+        { token, hostToken },
+      ),
+    upsertTemplate: (workspaceId: string, payload: { name: string; content?: string; contentBase64?: string }) =>
+      requestJson<{ ok: boolean; name: string; path: string; action: "added" | "updated" }>(
+        baseUrl,
+        `/workspace/${workspaceId}/templates`,
+        { token, hostToken, method: "POST", body: payload },
+      ),
+    deleteTemplate: (workspaceId: string, name: string) =>
+      requestJson<{ ok: boolean; name: string; path: string }>(
+        baseUrl,
+        `/workspace/${workspaceId}/templates/${encodeURIComponent(name)}`,
+        { token, hostToken, method: "DELETE" },
       ),
     listMcp: (workspaceId: string) =>
       requestJson<{ items: LegalworkMcpItem[]; engineSync?: LegalworkMcpEngineSync | null }>(

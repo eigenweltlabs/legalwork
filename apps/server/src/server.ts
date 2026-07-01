@@ -9,6 +9,7 @@ import { addPlugin, listPlugins, normalizePluginSpec, removePlugin } from "./plu
 import { sanitizePortableOpencodeConfig } from "./portable-opencode.js";
 import { addMcp, listMcp, removeMcp, setMcpEnabled } from "./mcp.js";
 import { deleteSkill, listSkills, upsertSkill } from "./skills.js";
+import { deleteTemplate, listTemplates, readTemplate, upsertTemplate } from "./templates.js";
 import { installHubSkill, listHubSkills } from "./skill-hub.js";
 import { scanGithubSkills, installGithubSkills, promoteSkillToWorkflow } from "./github-skills.js";
 import { deleteCommand, listCommands, repairCommands, upsertCommand } from "./commands.js";
@@ -1031,6 +1032,7 @@ function buildCapabilities(config: ServerConfig): Capabilities {
     serverVersion: SERVER_VERSION,
     opencodeVersion: OPENCODE_VERSION,
     skills: { read: true, write: writeEnabled, source: "legalwork" },
+    templates: { read: true, write: writeEnabled },
     hub: {
       skills: {
         read: true,
@@ -2125,6 +2127,78 @@ function createRoutes(
       name,
       action: "removed",
       path: result.path,
+    });
+    return jsonResponse({ ok: true, name, path: result.path });
+  });
+
+  // Firm template library — files in .opencode/templates/ that skills/workflows
+  // can attach via their frontmatter `templates:` list. Mirrors the skills routes.
+  addRoute(routes, "GET", "/workspace/:id/templates", "client", async (ctx) => {
+    const workspace = await resolveWorkspace(config, ctx.params.id);
+    const items = await listTemplates(workspace.path);
+    return jsonResponse({ items });
+  });
+
+  addRoute(routes, "GET", "/workspace/:id/templates/:name", "client", async (ctx) => {
+    const workspace = await resolveWorkspace(config, ctx.params.id);
+    const name = String(ctx.params.name ?? "").trim();
+    if (!name) {
+      throw new ApiError(400, "invalid_template_name", "Template name is required");
+    }
+    const result = await readTemplate(workspace.path, name);
+    return jsonResponse(result);
+  });
+
+  addRoute(routes, "POST", "/workspace/:id/templates", "client", async (ctx) => {
+    ensureWritable(config);
+    requireClientScope(ctx, "collaborator");
+    const workspace = await resolveWorkspace(config, ctx.params.id);
+    const body = await readJsonBody(ctx.request);
+    const name = String(body.name ?? "");
+    const content = typeof body.content === "string" ? body.content : undefined;
+    const contentBase64 = typeof body.contentBase64 === "string" ? body.contentBase64 : undefined;
+    await requireApproval(ctx, {
+      workspaceId: workspace.id,
+      action: "templates.upsert",
+      summary: `Upsert template ${name}`,
+      paths: [join(workspace.path, ".opencode", "templates", name)],
+    });
+    const result = await upsertTemplate(workspace.path, { name, content, contentBase64 });
+    await recordAudit(workspace.path, {
+      id: shortId(),
+      workspaceId: workspace.id,
+      actor: ctx.actor ?? { type: "remote" },
+      action: "templates.upsert",
+      target: result.path,
+      summary: `Upserted template ${name}`,
+      timestamp: Date.now(),
+    });
+    return jsonResponse({ ok: true, ...result });
+  });
+
+  addRoute(routes, "DELETE", "/workspace/:id/templates/:name", "client", async (ctx) => {
+    ensureWritable(config);
+    requireClientScope(ctx, "collaborator");
+    const workspace = await resolveWorkspace(config, ctx.params.id);
+    const name = String(ctx.params.name ?? "").trim();
+    if (!name) {
+      throw new ApiError(400, "invalid_template_name", "Template name is required");
+    }
+    await requireApproval(ctx, {
+      workspaceId: workspace.id,
+      action: "templates.delete",
+      summary: `Delete template ${name}`,
+      paths: [join(workspace.path, ".opencode", "templates", name)],
+    });
+    const result = await deleteTemplate(workspace.path, name);
+    await recordAudit(workspace.path, {
+      id: shortId(),
+      workspaceId: workspace.id,
+      actor: ctx.actor ?? { type: "remote" },
+      action: "templates.delete",
+      target: result.path,
+      summary: `Deleted template ${name}`,
+      timestamp: Date.now(),
     });
     return jsonResponse({ ok: true, name, path: result.path });
   });

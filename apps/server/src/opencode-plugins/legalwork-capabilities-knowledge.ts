@@ -53,6 +53,7 @@ Here is what you can help users with:
 - Skills are specialized instruction packs for workflows.
 - Users can manage skills in Settings > Skills.
 - Custom skills live in workspace skill folders such as \`.opencode/skills/\`.
+- Firm-owned templates and playbooks live in \`.opencode/templates/\`; when a skill or workflow lists files from there (for example in a "Firm templates" section), read those files and follow them.
 
 ## Plugins
 - Plugins extend LegalWork/OpenCode with custom tools.
