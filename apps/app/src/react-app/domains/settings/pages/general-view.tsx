@@ -1,6 +1,7 @@
 /** @jsxImportSource react */
 import {
   ArrowRight,
+  Bot,
   FolderLock,
   KeyRound,
   Layout,
@@ -22,6 +23,7 @@ type SettingsItem = { tab: SettingsTab; icon: typeof Sparkles; title: string; de
 
 const workspaceItems: SettingsItem[] = [
   { tab: "permissions", icon: FolderLock, title: "Permissions", desc: "Authorized folders and file access." },
+  { tab: "agents", icon: Bot, title: "Agents", desc: "Author the AI agents and subagents this workspace uses." },
 ];
 
 const globalItems: SettingsItem[] = [

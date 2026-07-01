@@ -187,6 +187,7 @@ export const SETTINGS_TAB_VALUES = [
   "cloud-marketplaces",
   "cloud-workers",
   "cloud-providers",
+  "agents",
   "skills",
   "workflows",
   "extensions",
