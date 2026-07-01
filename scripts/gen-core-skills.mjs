@@ -27,6 +27,15 @@ const FILES = [
   { source: "skills/docx-edit/assets/vendor/docx-engine.mjs", path: ".opencode/skills/docx-edit/assets/vendor/docx-engine.mjs" },
   { source: "agents/docx-redliner.md", path: ".opencode/agents/docx-redliner.md" },
   { source: "commands/edit-docx.md", path: ".opencode/commands/edit-docx.md" },
+  // pdf-tools: agentic PDF annotate / fill-form / sign (self-contained vendored pdf-lib).
+  { source: "skills/pdf-tools/SKILL.md", path: ".opencode/skills/pdf-tools/SKILL.md" },
+  { source: "skills/pdf-tools/assets/pdf-agent.mjs", path: ".opencode/skills/pdf-tools/assets/pdf-agent.mjs" },
+  { source: "skills/pdf-tools/assets/pdf-ops.mjs", path: ".opencode/skills/pdf-tools/assets/pdf-ops.mjs" },
+  { source: "skills/pdf-tools/assets/vendor/pdf-lib.mjs", path: ".opencode/skills/pdf-tools/assets/vendor/pdf-lib.mjs" },
+  { source: "commands/open.md", path: ".opencode/commands/open.md" },
+  { source: "commands/annotate.md", path: ".opencode/commands/annotate.md" },
+  { source: "commands/fill-form.md", path: ".opencode/commands/fill-form.md" },
+  { source: "commands/sign.md", path: ".opencode/commands/sign.md" },
 ];
 
 const entries = FILES.map((file) => {

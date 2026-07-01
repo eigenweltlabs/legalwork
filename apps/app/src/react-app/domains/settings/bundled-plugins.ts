@@ -44,4 +44,16 @@ export const BUNDLED_PLUGINS: BundledPlugin[] = [
       "in-app .docx editor",
     ],
   },
+  {
+    id: "pdf-tools",
+    name: "PDF Tools",
+    description:
+      "Act on PDFs from chat — open them in the viewer, add sticky notes and highlights, fill form fields, and stamp signatures, always as a new reviewable copy.",
+    command: "/annotate",
+    components: [
+      "pdf-tools skill",
+      "/open, /annotate, /fill-form, /sign commands",
+      "in-app PDF viewer",
+    ],
+  },
 ];
