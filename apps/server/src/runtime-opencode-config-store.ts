@@ -12,6 +12,7 @@ export type RuntimeOpencodeConfig = {
   mcp?: Record<string, Record<string, unknown>>;
   permission?: {
     external_directory?: Record<string, unknown>;
+    [key: string]: unknown;
   };
   provider?: Record<string, unknown>;
 };
@@ -39,15 +40,14 @@ function normalizeRuntimeOpencodeConfig(value: unknown): RuntimeOpencodeConfig {
     ? value.disabled_providers.filter((item) => typeof item === "string")
     : undefined;
   const mcp = isRecord(value.mcp) ? value.mcp as Record<string, Record<string, unknown>> : undefined;
-  const permission = isRecord(value.permission) ? value.permission : undefined;
-  const externalDirectory = permission && isRecord(permission.external_directory) ? permission.external_directory : undefined;
+  const permission = isRecord(value.permission) && Object.keys(value.permission).length ? value.permission : undefined;
   const provider = isRecord(value.provider) ? value.provider : undefined;
   return {
     ...(defaultAgent ? { default_agent: defaultAgent } : {}),
     ...(plugin ? { plugin } : {}),
     ...(disabledProviders ? { disabled_providers: disabledProviders } : {}),
     ...(mcp ? { mcp } : {}),
-    ...(externalDirectory ? { permission: { external_directory: externalDirectory } } : {}),
+    ...(permission ? { permission } : {}),
     ...(provider ? { provider } : {}),
   };
 }
@@ -222,6 +222,7 @@ export function mergeOpencodeConfigs(
     },
     permission: {
       ...persistedPermission,
+      ...(isRecord(runtime.permission) ? runtime.permission : {}),
       external_directory: {
         ...persistedExternalDirectory,
         ...runtimeExternalDirectory(runtime),

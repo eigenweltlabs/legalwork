@@ -65,6 +65,7 @@ import { PreferencesView } from "@/react-app/domains/settings/pages/preferences-
 import { ShellCustomizationView } from "@/react-app/domains/settings/pages/shell-view";
 import { GeneralSettingsView } from "@/react-app/domains/settings/pages/general-view";
 import { AuthorizedFoldersPanel } from "@/react-app/domains/settings/panels/authorized-folders-panel";
+import { ToolPermissionsPanel } from "@/react-app/domains/settings/panels/tool-permissions-panel";
 import { SettingsStack } from "@/react-app/domains/settings/settings-section";
 import { AdvancedView } from "@/react-app/domains/settings/pages/advanced-view";
 import { AppearanceView } from "@/react-app/domains/settings/pages/appearance-view";
@@ -1763,6 +1764,15 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
                 setConfigActionStatus(t("settings.config_updated"));
                 void providerAuthStore.refreshProviders();
                 void connectionsStore.refreshMcpServers();
+              }}
+            />
+            <ToolPermissionsPanel
+              legalworkServerClient={legalworkClient}
+              legalworkServerStatus={routeLegalworkStatus}
+              legalworkServerCapabilities={routeLegalworkCapabilities}
+              runtimeWorkspaceId={runtimeWorkspaceId}
+              onConfigUpdated={() => {
+                setConfigActionStatus(t("settings.config_updated"));
               }}
             />
           </SettingsStack>

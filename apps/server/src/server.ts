@@ -1788,24 +1788,17 @@ function createRoutes(
       }
 
       const permissionUpdate = ensurePlainObject(permission);
-      if (Object.prototype.hasOwnProperty.call(permissionUpdate, "external_directory")) {
+      if (Object.keys(permissionUpdate).length) {
         const existingRuntime = await readRuntimeOpencodeConfig(config, workspace.id);
-        const existingPermission = ensurePlainObject(existingRuntime.permission);
-        const nextExternalDirectory = permissionUpdate.external_directory;
-        const existingPermissionKeys = Object.keys(existingPermission);
-        const removePermissionParent =
-          typeof nextExternalDirectory === "undefined" &&
-            (existingPermissionKeys.length === 0 ||
-            (existingPermissionKeys.length === 1 && Object.prototype.hasOwnProperty.call(existingPermission, "external_directory")));
-
-        if (removePermissionParent) {
-          logicalUpdates.permission = undefined;
-        } else {
-          logicalUpdates.permission = {
-            ...existingPermission,
-            external_directory: nextExternalDirectory,
-          };
-        }
+        // Merge into the existing runtime permission map; a `null` value in the
+        // patch removes that key (JSON cannot carry `undefined`). Keys absent
+        // from the patch — e.g. `external_directory`, which is owned by the
+        // authorized-folders routes — are preserved as-is.
+        const nextPermission = mergeRuntimeProviderPatch(
+          ensurePlainObject(existingRuntime.permission),
+          permissionUpdate,
+        );
+        logicalUpdates.permission = Object.keys(nextPermission).length ? nextPermission : undefined;
       }
 
       if (Object.keys(logicalUpdates).length || Object.prototype.hasOwnProperty.call(logicalUpdates, "permission")) {

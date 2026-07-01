@@ -6,7 +6,7 @@ import { addMcp, listMcp, setMcpEnabled } from "./mcp.js";
 import { buildLegalworkRuntimeConfig } from "./legalwork-runtime-config.js";
 import { readLegalworkWorkspaceConfig } from "./legalwork-workspace-config-store.js";
 import { addPlugin, listPlugins, removePlugin } from "./plugins.js";
-import { readRuntimeOpencodeConfig } from "./runtime-opencode-config-store.js";
+import { readRuntimeOpencodeConfig, writeRuntimeOpencodeConfig } from "./runtime-opencode-config-store.js";
 import { startServer } from "./server.js";
 import type { ServerConfig } from "./types.js";
 
@@ -155,6 +155,62 @@ describe("runtime OpenCode config store", () => {
               plugins: {
                 plugin_1: { pluginId: "plugin_1", name: "productivity", files: [] },
               },
+            },
+          },
+        });
+      } finally {
+        await server.stop(true);
+      }
+    });
+  });
+
+  test("patches tool permissions while preserving external_directory and unknown keys", async () => {
+    await withWorkspace(async ({ config }) => {
+      await writeRuntimeOpencodeConfig(config, WORKSPACE_ID, (current) => ({
+        ...current,
+        permission: {
+          external_directory: { "/tmp/shared/*": "allow" },
+          future_tool: "deny",
+        },
+      }));
+
+      const server = await startServer(config) as Served;
+      try {
+        const patch = async (permission: Record<string, unknown>) => {
+          const response = await fetch(`http://127.0.0.1:${server.port}/workspace/${WORKSPACE_ID}/config`, {
+            method: "PATCH",
+            headers: { authorization: `Bearer ${config.token}`, "content-type": "application/json" },
+            body: JSON.stringify({ opencode: { permission } }),
+          });
+          expect(response.status).toBe(200);
+        };
+
+        await patch({ edit: "ask", bash: { "git *": "allow", "*": "ask" } });
+        expect((await readRuntimeOpencodeConfig(config, WORKSPACE_ID)).permission).toEqual({
+          external_directory: { "/tmp/shared/*": "allow" },
+          future_tool: "deny",
+          edit: "ask",
+          bash: { "git *": "allow", "*": "ask" },
+        });
+
+        // A null value removes the key; unmentioned keys stay untouched.
+        await patch({ bash: null });
+        expect((await readRuntimeOpencodeConfig(config, WORKSPACE_ID)).permission).toEqual({
+          external_directory: { "/tmp/shared/*": "allow" },
+          future_tool: "deny",
+          edit: "ask",
+        });
+
+        const configResponse = await fetch(`http://127.0.0.1:${server.port}/workspace/${WORKSPACE_ID}/config`, {
+          headers: { authorization: `Bearer ${config.token}` },
+        });
+        expect(configResponse.status).toBe(200);
+        expect(await configResponse.json()).toMatchObject({
+          opencode: {
+            permission: {
+              external_directory: { "/tmp/shared/*": "allow" },
+              future_tool: "deny",
+              edit: "ask",
             },
           },
         });
