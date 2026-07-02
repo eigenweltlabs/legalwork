@@ -7,8 +7,10 @@ import { ChevronLeft, ChevronRight, FolderPlus, Plus } from "lucide-react";
 import { toast } from "@/components/ui/sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { createClient, unwrap } from "@/app/lib/opencode";
 import { getDisplaySessionTitle } from "@/app/lib/session-title";
-import type { LegalworkWorkspaceInfo } from "@/app/lib/legalwork-server";
+import { readLegalworkServerSettings, type LegalworkWorkspaceInfo } from "@/app/lib/legalwork-server";
+import { resolveWorkspaceEndpoint } from "@/app/lib/workspace-endpoint";
 import { writeLastSessionFor } from "@/react-app/shell/session-memory";
 import { t } from "@/i18n";
 import { useWordServerClient } from "./use-word-server-client";
@@ -203,13 +205,44 @@ export function WordSessionsScreen() {
   const { workspaceId = "" } = useParams();
   const client = useWordServerClient();
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
 
   const workspaces = useQuery({
     queryKey: ["word-addin", "workspaces"],
     queryFn: () => client.listWorkspaces(),
   });
-  const workspaceName =
-    workspaces.data?.items.find((item) => item.id === workspaceId)?.name ?? "";
+  const workspace = workspaces.data?.items.find((item) => item.id === workspaceId);
+  const workspaceName = workspace?.name ?? "";
+
+  // Mirrors the app's "New Task": create a real (empty) session and open it,
+  // so the user lands in the composer instead of the passive session picker.
+  const createSession = useMutation({
+    mutationFn: async () => {
+      if (!workspace) throw new Error(t("word_addin.load_failed"));
+      const settings = readLegalworkServerSettings();
+      const endpoint = resolveWorkspaceEndpoint(workspace, {
+        baseUrl: settings.urlOverride ?? window.location.origin,
+        token: settings.token ?? "",
+      });
+      if (!endpoint?.token) throw new Error(t("word_addin.load_failed"));
+      const opencodeClient = createClient(
+        endpoint.opencodeBaseUrl,
+        workspace.path?.trim() || undefined,
+        { token: endpoint.token, mode: "legalwork" },
+      );
+      return unwrap(
+        await opencodeClient.session.create({ directory: workspace.path?.trim() || undefined }),
+      );
+    },
+    onSuccess: (session) => {
+      writeLastSessionFor(workspaceId, session.id);
+      void queryClient.invalidateQueries({ queryKey: ["word-addin", "sessions", workspaceId] });
+      navigate(`/workspace/${encodeURIComponent(workspaceId)}/session/${encodeURIComponent(session.id)}`);
+    },
+    onError: (error: unknown) => {
+      toast.warning(error instanceof Error ? error.message : String(error));
+    },
+  });
 
   const sessions = useQuery({
     queryKey: ["word-addin", "sessions", workspaceId],
@@ -232,14 +265,10 @@ export function WordSessionsScreen() {
             size="icon"
             className="size-7"
             aria-label={t("word_addin.new_session")}
-            onClick={() => {
-              // The session route restores the remembered session when the
-              // URL has none; forget it so a fresh task view opens instead.
-              writeLastSessionFor(workspaceId, null);
-              navigate(`/workspace/${encodeURIComponent(workspaceId)}/session`);
-            }}
+            disabled={createSession.isPending || !workspace}
+            onClick={() => createSession.mutate()}
           >
-            <Plus size={15} />
+            <Plus size={15} className={createSession.isPending ? "animate-pulse" : undefined} />
           </Button>
         }
       />
