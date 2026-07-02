@@ -23,16 +23,31 @@ type OpenCodeContext = {
 
 const TOOL_TIMEOUT_MS = 45_000;
 const WORKSPACE_CACHE_MS = 10_000;
+const PANE_STATUS_CACHE_MS = 5_000;
 
-const WORD_TOOLS_INSTRUCTION = `## Microsoft Word document tools
-The user may work with the LegalWork pane open inside Microsoft Word. The word_* tools read and edit the document that is currently open in Word.
-
-Rules:
+const WORD_TOOL_RULES = `Rules for word_* tools:
 - Call word_read_document before editing so anchors are exact.
 - Anchors are short snippets (under 200 characters) copied VERBATIM from the document — including punctuation and casing. Prefer distinctive phrases; if an anchor matches several places, the tool reports the count and you must pass "occurrence".
 - Every edit is applied as a tracked change (redline). Never claim you changed text silently; the user reviews and accepts each change in Word.
 - After substantive edits, add a short word_add_comment on the edited text explaining the reasoning, like a careful colleague would.
 - If a tool answers "No Word pane is connected", tell the user to open the LegalWork pane in Word and retry.`;
+
+/** Injected when no pane is connected: the tools exist but may be offline. */
+const WORD_TOOLS_INSTRUCTION = `## Microsoft Word document tools
+The user may work with the LegalWork pane open inside Microsoft Word. The word_* tools read and edit the document that is currently open in Word.
+
+${WORD_TOOL_RULES}`;
+
+/** Injected when a Word pane is live: switch to document-first behavior. */
+const WORD_MODE_INSTRUCTION = `## You are working inside Microsoft Word right now
+The user has the LegalWork pane open inside Microsoft Word with a document next to the chat. Behave accordingly:
+
+- Assume document-related requests refer to the open Word document. Read it with word_read_document before answering questions about "the document", "the contract", or similar.
+- Prefer word_* tools for document work over editing files in the workspace. Apply changes as tracked redlines (word_replace_text / word_insert_text) and attach a short word_add_comment rationale to each substantive edit.
+- The chat is a narrow sidebar: keep replies short and skimmable. Lead with what you did or found, avoid wide tables and long headed sections, and do not paste large document excerpts back into the chat — the user can see the document.
+- After editing, summarize the redlines in one or two sentences and remind the user to review and accept or reject them in Word.
+
+${WORD_TOOL_RULES}`;
 
 const readDocumentArgs = z.object({
   max_chars: z
@@ -127,6 +142,43 @@ async function resolveWorkspaceId(context: OpenCodeContext): Promise<string> {
   );
 }
 
+let paneStatusCache: { at: number; connected: boolean } | null = null;
+
+/**
+ * True when any workspace currently has a Word pane long-polling the relay.
+ * Checked per chat turn (with a short cache) so the system prompt flips to
+ * document-first behavior as soon as the user opens the pane in Word.
+ */
+async function anyWordPaneConnected(): Promise<boolean> {
+  if (paneStatusCache && Date.now() - paneStatusCache.at < PANE_STATUS_CACHE_MS) {
+    return paneStatusCache.connected;
+  }
+  let connected = false;
+  try {
+    const url = serverUrl();
+    const token = serverToken();
+    if (url && token) {
+      const items = await listWorkspaces();
+      for (const item of items.slice(0, 5)) {
+        const response = await fetch(
+          `${url}/workspace/${encodeURIComponent(item.id)}/word-tools/status`,
+          { headers: { Authorization: `Bearer ${token}` }, signal: AbortSignal.timeout(3_000) },
+        );
+        if (!response.ok) continue;
+        const payload = (await response.json()) as { connected?: unknown };
+        if (payload.connected === true) {
+          connected = true;
+          break;
+        }
+      }
+    }
+  } catch {
+    connected = false;
+  }
+  paneStatusCache = { at: Date.now(), connected };
+  return connected;
+}
+
 async function callWordTool(
   context: OpenCodeContext,
   tool: string,
@@ -164,7 +216,8 @@ export const LegalWorkWordTools = async () => ({
     _input: unknown,
     output: { system: string[] },
   ) => {
-    output.system.push(WORD_TOOLS_INSTRUCTION);
+    const connected = await anyWordPaneConnected();
+    output.system.push(connected ? WORD_MODE_INSTRUCTION : WORD_TOOLS_INSTRUCTION);
   },
   tool: {
     word_read_document: {
