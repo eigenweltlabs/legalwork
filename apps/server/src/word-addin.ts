@@ -8,7 +8,7 @@
  * cross-origin pages must not be able to read it.
  */
 import { readFile, stat } from "node:fs/promises";
-import { homedir } from "node:os";
+import { homedir, userInfo } from "node:os";
 import { dirname, extname, join, normalize, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -43,33 +43,69 @@ function contentTypeFor(path: string): string {
   return CONTENT_TYPES[extname(path).toLowerCase()] ?? "application/octet-stream";
 }
 
-function defaultDevCertPaths(): { certPath: string; keyPath: string } {
-  const base = join(homedir(), ".office-addin-dev-certs");
-  return { certPath: join(base, "localhost.crt"), keyPath: join(base, "localhost.key") };
+/**
+ * Directories where `office-addin-dev-certs` may have installed certificates.
+ * Desktop hosts (Electron) can override HOME to an app-scoped sandbox, so the
+ * real account home from the user database is probed as well.
+ */
+function devCertCandidateDirs(): string[] {
+  const dirs = [join(homedir(), ".office-addin-dev-certs")];
+  try {
+    const realHome = userInfo().homedir;
+    const candidate = realHome ? join(realHome, ".office-addin-dev-certs") : "";
+    if (candidate && !dirs.includes(candidate)) dirs.push(candidate);
+  } catch {
+    // userInfo can throw for accounts without a passwd entry.
+  }
+  return dirs;
 }
 
-async function readIfExists(path: string): Promise<string | null> {
+async function readOrError(path: string): Promise<{ content: string } | { error: string }> {
   try {
-    return await readFile(path, "utf8");
-  } catch {
-    return null;
+    return { content: await readFile(path, "utf8") };
+  } catch (error) {
+    return { error: `${path}: ${error instanceof Error ? error.message : String(error)}` };
   }
 }
+
+export type WordAddinTlsResult = {
+  tls: ServeTlsOptions | null;
+  certPath: string;
+  keyPath: string;
+  /** Human-readable reason when tls is null. */
+  error?: string;
+};
 
 /**
  * Load the TLS material for the add-in HTTPS listener. Falls back to the
  * certificates installed by `npx office-addin-dev-certs install` when no
- * explicit paths are configured. Returns null when nothing usable exists.
+ * explicit paths are configured.
  */
-export async function loadWordAddinTls(
-  wordAddin: WordAddinConfig,
-): Promise<{ tls: ServeTlsOptions; certPath: string; keyPath: string } | null> {
-  const fallback = defaultDevCertPaths();
-  const certPath = wordAddin.certPath ?? fallback.certPath;
-  const keyPath = wordAddin.keyPath ?? fallback.keyPath;
-  const [cert, key] = await Promise.all([readIfExists(certPath), readIfExists(keyPath)]);
-  if (!cert || !key) return null;
-  return { tls: { cert, key }, certPath, keyPath };
+export async function loadWordAddinTls(wordAddin: WordAddinConfig): Promise<WordAddinTlsResult> {
+  const seen = new Set<string>();
+  const candidates = devCertCandidateDirs()
+    .map((dir) => ({
+      certPath: wordAddin.certPath ?? join(dir, "localhost.crt"),
+      keyPath: wordAddin.keyPath ?? join(dir, "localhost.key"),
+    }))
+    .filter((candidate) => {
+      const id = `${candidate.certPath}\n${candidate.keyPath}`;
+      if (seen.has(id)) return false;
+      seen.add(id);
+      return true;
+    });
+
+  const errors: string[] = [];
+  for (const { certPath, keyPath } of candidates) {
+    const [cert, key] = await Promise.all([readOrError(certPath), readOrError(keyPath)]);
+    if ("content" in cert && "content" in key) {
+      return { tls: { cert: cert.content, key: key.content }, certPath, keyPath };
+    }
+    errors.push(...[cert, key].flatMap((entry) => ("error" in entry ? [entry.error] : [])));
+  }
+
+  const last = candidates[candidates.length - 1]!;
+  return { tls: null, certPath: last.certPath, keyPath: last.keyPath, error: errors.join("; ") };
 }
 
 /**

@@ -843,10 +843,11 @@ export async function startServer(config: ServerConfig): Promise<StartedServer> 
   let wordAddinServer: ServeResult | null = null;
   if (config.wordAddin?.enabled) {
     const tlsMaterial = await loadWordAddinTls(config.wordAddin);
-    if (!tlsMaterial) {
+    if (!tlsMaterial.tls) {
       logger.log(
         "warn",
-        "Word add-in is enabled but no TLS certificate was found. Run `npx office-addin-dev-certs install` or pass --word-addin-cert/--word-addin-key.",
+        `Word add-in is enabled but the TLS certificate could not be loaded (${tlsMaterial.error ?? "unknown"}). ` +
+          "Run `npx office-addin-dev-certs install` or pass --word-addin-cert/--word-addin-key.",
       );
     } else {
       try {
