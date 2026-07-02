@@ -3,7 +3,9 @@ import { useEffect, useMemo } from "react";
 import { useLocation } from "react-router-dom";
 
 import { readLegalworkServerSettings } from "@/app/lib/legalwork-server";
-import { getDocumentUrl, isWordDocumentHost } from "./office";
+import { getDocumentUrl, isWordDocumentHost, officeHostName } from "./office";
+import { isExcelWorkbookHost } from "./excel-api";
+import { createExcelToolHandlers } from "./excel-document-tools";
 import { createWordToolHandlers } from "./word-document-tools";
 
 /**
@@ -27,8 +29,9 @@ async function runRelayLoop(workspaceId: string, signal: AbortSignal): Promise<v
   const settings = readLegalworkServerSettings();
   const baseUrl = settings.urlOverride ?? window.location.origin;
   const token = settings.token ?? "";
-  const handlers = createWordToolHandlers();
-  const relayBase = `${baseUrl}/workspace/${encodeURIComponent(workspaceId)}/word-tools`;
+  const host = officeHostName() ?? "";
+  const handlers = isExcelWorkbookHost() ? createExcelToolHandlers() : createWordToolHandlers();
+  const relayBase = `${baseUrl}/workspace/${encodeURIComponent(workspaceId)}/office-tools`;
   const authHeaders = { Authorization: `Bearer ${token}` };
 
   const sleep = (ms: number) =>
@@ -42,11 +45,11 @@ async function runRelayLoop(workspaceId: string, signal: AbortSignal): Promise<v
 
   while (!signal.aborted) {
     try {
-      // Report the open document with every poll so the agent's system
-      // prompt can name it (and notice save-as / document switches).
+      // Report the open document and host with every poll so the agent's
+      // system prompt can name them (and notice save-as / doc switches).
       const documentParam = encodeURIComponent(getDocumentUrl() ?? "");
       const response = await fetch(
-        `${relayBase}/poll?wait=${POLL_WAIT_SECONDS}&document=${documentParam}`,
+        `${relayBase}/poll?wait=${POLL_WAIT_SECONDS}&document=${documentParam}&host=${encodeURIComponent(host)}`,
         {
           headers: authHeaders,
           signal,
@@ -63,7 +66,10 @@ async function runRelayLoop(workspaceId: string, signal: AbortSignal): Promise<v
         try {
           const handler = handlers[request.tool];
           if (!handler) {
-            result = { ok: false, error: `Unknown Word tool: ${request.tool}` };
+            result = {
+              ok: false,
+              error: `Tool ${request.tool} is not available in this Office host (${host || "unknown"}).`,
+            };
           } else {
             result = { ok: true, result: await handler(request.args ?? {}) };
           }
@@ -89,7 +95,8 @@ export function WordToolRelayHost() {
   const workspaceId = useMemo(() => workspaceIdFromPath(location.pathname), [location.pathname]);
 
   useEffect(() => {
-    if (!workspaceId || !isWordDocumentHost()) return;
+    if (!workspaceId) return;
+    if (!isWordDocumentHost() && !isExcelWorkbookHost()) return;
     const controller = new AbortController();
     void runRelayLoop(workspaceId, controller.signal);
     return () => controller.abort();

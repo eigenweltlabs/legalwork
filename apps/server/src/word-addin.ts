@@ -173,6 +173,7 @@ export function buildWordAddinManifest(input: { baseUrl: string; version?: strin
   </AppDomains>
   <Hosts>
     <Host Name="Document"/>
+    <Host Name="Workbook"/>
   </Hosts>
   <DefaultSettings>
     <SourceLocation DefaultValue="${base}/word-addin/taskpane.html"/>
@@ -192,6 +193,38 @@ export function buildWordAddinManifest(input: { baseUrl: string; version?: strin
                   <bt:Image size="80" resid="LegalWork.Icon80"/>
                 </Icon>
                 <Control xsi:type="Button" id="LegalWork.OpenPane">
+                  <Label resid="LegalWork.OpenPane.Label"/>
+                  <Supertip>
+                    <Title resid="LegalWork.OpenPane.Label"/>
+                    <Description resid="LegalWork.OpenPane.Tooltip"/>
+                  </Supertip>
+                  <Icon>
+                    <bt:Image size="16" resid="LegalWork.Icon16"/>
+                    <bt:Image size="32" resid="LegalWork.Icon32"/>
+                    <bt:Image size="80" resid="LegalWork.Icon80"/>
+                  </Icon>
+                  <Action xsi:type="ShowTaskpane">
+                    <TaskpaneId>LegalWork.TaskPane</TaskpaneId>
+                    <SourceLocation resid="LegalWork.Taskpane.Url"/>
+                  </Action>
+                </Control>
+              </Group>
+            </OfficeTab>
+          </ExtensionPoint>
+        </DesktopFormFactor>
+      </Host>
+      <Host xsi:type="Workbook">
+        <DesktopFormFactor>
+          <ExtensionPoint xsi:type="PrimaryCommandSurface">
+            <OfficeTab id="TabHome">
+              <Group id="LegalWork.Excel.Group">
+                <Label resid="LegalWork.GroupLabel"/>
+                <Icon>
+                  <bt:Image size="16" resid="LegalWork.Icon16"/>
+                  <bt:Image size="32" resid="LegalWork.Icon32"/>
+                  <bt:Image size="80" resid="LegalWork.Icon80"/>
+                </Icon>
+                <Control xsi:type="Button" id="LegalWork.Excel.OpenPane">
                   <Label resid="LegalWork.OpenPane.Label"/>
                   <Supertip>
                     <Title resid="LegalWork.OpenPane.Label"/>

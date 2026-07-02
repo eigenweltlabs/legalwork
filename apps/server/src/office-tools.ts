@@ -1,5 +1,5 @@
 /**
- * Relay for tools that execute inside a connected Word task pane.
+ * Relay for tools that execute inside a connected Office task pane (Word, Excel).
  *
  * The agent (an OpenCode plugin) calls `execute`; the pane long-polls for
  * requests, runs them through Office.js, and posts results back. Mirrors the
@@ -9,19 +9,19 @@
  */
 import { shortId } from "./utils.js";
 
-export type WordToolRequest = {
+export type OfficeToolRequest = {
   id: string;
   tool: string;
   args: Record<string, unknown>;
   createdAt: number;
 };
 
-export type WordToolExecutionResult =
+export type OfficeToolExecutionResult =
   | { ok: true; result: unknown }
   | { ok: false; error: string };
 
 const NO_CLIENT_ERROR =
-  "No Word pane is connected for this workspace. Ask the user to open the LegalWork pane in Microsoft Word.";
+  "No Office pane is connected for this workspace. Ask the user to open the LegalWork pane in Microsoft Word or Excel.";
 
 const DEFAULT_EXECUTE_TIMEOUT_MS = 30_000;
 const MAX_EXECUTE_TIMEOUT_MS = 120_000;
@@ -30,25 +30,27 @@ const MAX_POLL_WAIT_MS = 30_000;
 const CLIENT_LIVENESS_MS = 40_000;
 
 type PendingExecution = {
-  request: WordToolRequest;
-  resolve: (result: WordToolExecutionResult) => void;
+  request: OfficeToolRequest;
+  resolve: (result: OfficeToolExecutionResult) => void;
   timer: ReturnType<typeof setTimeout>;
 };
 
 type PollWaiter = {
-  resolve: (requests: WordToolRequest[]) => void;
+  resolve: (requests: OfficeToolRequest[]) => void;
   timer: ReturnType<typeof setTimeout>;
 };
 
-export class WordToolRelay {
+export class OfficeToolRelay {
   /** Requests not yet handed to a poller, per workspace. */
-  private queues = new Map<string, WordToolRequest[]>();
+  private queues = new Map<string, OfficeToolRequest[]>();
   /** All in-flight requests by id (queued or delivered), awaiting a result. */
   private pending = new Map<string, PendingExecution>();
   private waiters = new Map<string, PollWaiter[]>();
   private lastPollAt = new Map<string, number>();
   /** Open-document identity as last reported by the pane's polls. */
   private lastDocumentUrl = new Map<string, string>();
+  /** Office host ("word" | "excel" | ...) as last reported by the pane. */
+  private lastHost = new Map<string, string>();
 
   clientConnected(workspaceId: string): boolean {
     if ((this.waiters.get(workspaceId)?.length ?? 0) > 0) return true;
@@ -62,17 +64,23 @@ export class WordToolRelay {
     return this.lastDocumentUrl.get(workspaceId) ?? null;
   }
 
+  /** Office host of the connected pane ("word", "excel"), if reported. */
+  paneHost(workspaceId: string): string | null {
+    if (!this.clientConnected(workspaceId)) return null;
+    return this.lastHost.get(workspaceId) ?? null;
+  }
+
   execute(
     workspaceId: string,
     tool: string,
     args: Record<string, unknown>,
     timeoutMs?: number,
-  ): Promise<WordToolExecutionResult> {
+  ): Promise<OfficeToolExecutionResult> {
     if (!this.clientConnected(workspaceId)) {
       return Promise.resolve({ ok: false, error: NO_CLIENT_ERROR });
     }
 
-    const request: WordToolRequest = {
+    const request: OfficeToolRequest = {
       id: shortId(),
       tool,
       args,
@@ -83,7 +91,7 @@ export class WordToolRelay {
       MAX_EXECUTE_TIMEOUT_MS,
     );
 
-    return new Promise<WordToolExecutionResult>((resolve) => {
+    return new Promise<OfficeToolExecutionResult>((resolve) => {
       const timer = setTimeout(() => {
         this.pending.delete(request.id);
         const queue = this.queues.get(workspaceId);
@@ -95,7 +103,7 @@ export class WordToolRelay {
         }
         resolve({
           ok: false,
-          error: `The Word pane did not answer within ${Math.round(timeout / 1000)}s. The document may be busy or the pane was closed.`,
+          error: `The Office pane did not answer within ${Math.round(timeout / 1000)}s. The document may be busy or the pane was closed.`,
         });
       }, timeout);
       this.pending.set(request.id, { request, resolve, timer });
@@ -112,8 +120,14 @@ export class WordToolRelay {
     });
   }
 
-  poll(workspaceId: string, waitMs: number, documentUrl?: string): Promise<WordToolRequest[]> {
+  poll(
+    workspaceId: string,
+    waitMs: number,
+    documentUrl?: string,
+    host?: string,
+  ): Promise<OfficeToolRequest[]> {
     this.lastPollAt.set(workspaceId, Date.now());
+    if (host) this.lastHost.set(workspaceId, host.toLowerCase());
     if (documentUrl !== undefined) {
       if (documentUrl) {
         this.lastDocumentUrl.set(workspaceId, documentUrl);
@@ -131,7 +145,7 @@ export class WordToolRelay {
     const wait = Math.min(Math.max(waitMs, 0), MAX_POLL_WAIT_MS);
     if (wait === 0) return Promise.resolve([]);
 
-    return new Promise<WordToolRequest[]>((resolve) => {
+    return new Promise<OfficeToolRequest[]>((resolve) => {
       const waiter: PollWaiter = {
         resolve,
         timer: setTimeout(() => {
@@ -151,7 +165,7 @@ export class WordToolRelay {
     });
   }
 
-  complete(requestId: string, result: WordToolExecutionResult): boolean {
+  complete(requestId: string, result: OfficeToolExecutionResult): boolean {
     const entry = this.pending.get(requestId);
     if (!entry) return false;
     clearTimeout(entry.timer);

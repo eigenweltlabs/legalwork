@@ -119,6 +119,10 @@ const de: Record<string, string> = {
   "word_addin.loading": "Wird geladen…",
   "word_addin.load_failed": "Daten konnten nicht von LegalWork geladen werden.",
   "word_addin.retry": "Erneut versuchen",
+  "word_addin.add_workbook_overview": "Arbeitsmappen-Übersicht in den Chat übernehmen",
+  "word_addin.empty_selection_cells": "Bitte zuerst Zellen auswählen.",
+  "word_addin.excel_selection_context_label": "Ausgewählte Zellen aus der Excel-Arbeitsmappe, tabulatorgetrennt",
+  "word_addin.excel_overview_context_label": "Übersicht der geöffneten Excel-Arbeitsmappe:",
 };
 
 export default de;

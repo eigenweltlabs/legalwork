@@ -1570,4 +1570,8 @@ export default {
   "word_addin.loading": "Loading...",
   "word_addin.load_failed": "Couldn't load data from LegalWork.",
   "word_addin.retry": "Retry",
+  "word_addin.add_workbook_overview": "Add workbook overview to chat",
+  "word_addin.empty_selection_cells": "Select some cells first.",
+  "word_addin.excel_selection_context_label": "Selected cells from the Excel workbook, as tab-separated values",
+  "word_addin.excel_overview_context_label": "Overview of the open Excel workbook:",
 } as const;

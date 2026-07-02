@@ -19,7 +19,7 @@ afterEach(async () => {
 });
 
 async function createWorkspaceRoot() {
-  const root = await mkdtemp(join(tmpdir(), "legalwork-word-tools-"));
+  const root = await mkdtemp(join(tmpdir(), "legalwork-office-tools-"));
   await mkdir(join(root, ".opencode"), { recursive: true });
   roots.push(root);
   return root;
@@ -59,10 +59,10 @@ async function startTestServer() {
   const root = await createWorkspaceRoot();
   const server = await startServer(baseConfig(root));
   stops.push(() => server.stop());
-  return { baseUrl: `http://127.0.0.1:${server.port}/workspace/ws_word_test/word-tools` };
+  return { baseUrl: `http://127.0.0.1:${server.port}/workspace/ws_word_test/office-tools` };
 }
 
-describe("word tool relay", () => {
+describe("office tool relay", () => {
   test("execute fails fast when no pane is connected", async () => {
     const { baseUrl } = await startTestServer();
 
@@ -74,7 +74,7 @@ describe("word tool relay", () => {
     expect(response.status).toBe(200);
     const body = (await response.json()) as { ok: boolean; error?: string };
     expect(body.ok).toBe(false);
-    expect(body.error).toContain("No Word pane");
+    expect(body.error).toContain("No Office pane");
   });
 
   test("round trip: pane polls, executes, posts result", async () => {
@@ -180,13 +180,19 @@ describe("word tool relay", () => {
     expect(status.documentUrl).toBeNull();
 
     const documentUrl = "/Users/test/Matters/Contract.docx";
-    await fetch(`${baseUrl}/poll?wait=0&document=${encodeURIComponent(documentUrl)}`, { headers: AUTH });
-    status = (await (await fetch(`${baseUrl}/status`, { headers: AUTH })).json()) as {
+    await fetch(
+      `${baseUrl}/poll?wait=0&document=${encodeURIComponent(documentUrl)}&host=Excel`,
+      { headers: AUTH },
+    );
+    const fullStatus = (await (await fetch(`${baseUrl}/status`, { headers: AUTH })).json()) as {
       connected: boolean;
       documentUrl: string | null;
+      host: string | null;
     };
-    expect(status.connected).toBe(true);
-    expect(status.documentUrl).toBe(documentUrl);
+    expect(fullStatus.connected).toBe(true);
+    expect(fullStatus.documentUrl).toBe(documentUrl);
+    expect(fullStatus.host).toBe("excel");
+    status = fullStatus;
 
     // An untitled document (empty report) clears the stored identity.
     await fetch(`${baseUrl}/poll?wait=0&document=`, { headers: AUTH });

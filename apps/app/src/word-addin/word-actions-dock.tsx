@@ -7,6 +7,8 @@ import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { t } from "@/i18n";
 import { useLegalworkControl } from "@/react-app/shell/control/control-provider";
+import { isExcelWorkbookHost } from "./excel-api";
+import { createExcelToolHandlers } from "./excel-document-tools";
 import {
   insertTextAtSelection,
   isWordDocumentHost,
@@ -27,11 +29,19 @@ function frameDocumentContext(label: string, text: string, truncated: boolean): 
   return `${label}\n\n"""\n${text}\n"""${suffix}\n\n`;
 }
 
+function matrixToTsv(values: unknown[][]): string {
+  return values
+    .map((row) => row.map((cell) => (cell == null ? "" : String(cell))).join("\t"))
+    .join("\n");
+}
+
 export function WordActionsDock() {
   const control = useLegalworkControl();
   const [busy, setBusy] = useState<DockAction | null>(null);
 
-  if (!control || !isWordDocumentHost()) return null;
+  const isWord = isWordDocumentHost();
+  const isExcel = isExcelWorkbookHost();
+  if (!control || (!isWord && !isExcel)) return null;
 
   const runAction = async (action: DockAction, work: () => Promise<void>) => {
     if (busy) return;
@@ -91,31 +101,79 @@ export function WordActionsDock() {
       toast.success(t("word_addin.inserted"));
     });
 
-  const items: Array<{
+  const sendExcelToComposer = (action: "selection" | "document") =>
+    runAction(action, async () => {
+      const handlers = createExcelToolHandlers();
+      let label: string;
+      let text: string;
+      if (action === "selection") {
+        const selection = (await handlers.excel_read_selection!({})) as {
+          address: string;
+          values: unknown[][];
+        };
+        text = matrixToTsv(selection.values).trim();
+        if (!text) {
+          toast.info(t("word_addin.empty_selection_cells"));
+          return;
+        }
+        label = `${t("word_addin.excel_selection_context_label")} (${selection.address})`;
+      } else {
+        const overview = await handlers.excel_read_workbook!({});
+        text = JSON.stringify(overview, null, 2);
+        label = t("word_addin.excel_overview_context_label");
+      }
+      const truncated = text.length > MAX_CONTEXT_CHARS;
+      const clipped = truncated ? text.slice(0, MAX_CONTEXT_CHARS) : text;
+      const result = await control.executeAction("composer.set_text", {
+        text: frameDocumentContext(label, clipped, truncated),
+      });
+      if (!result.ok) {
+        toast.warning(result.error);
+      }
+    });
+
+  type DockItem = {
     action: DockAction;
     label: string;
     icon: typeof TextSelect;
     onClick: () => void;
-  }> = [
-    {
-      action: "selection",
-      label: t("word_addin.add_selection"),
-      icon: TextSelect,
-      onClick: () => void sendToComposer("selection"),
-    },
-    {
-      action: "document",
-      label: t("word_addin.add_document"),
-      icon: FileText,
-      onClick: () => void sendToComposer("document"),
-    },
-    {
-      action: "insert",
-      label: t("word_addin.insert_reply"),
-      icon: ArrowDownToLine,
-      onClick: () => void insertLatestReply(),
-    },
-  ];
+  };
+
+  const items: DockItem[] = isExcel
+    ? [
+        {
+          action: "selection",
+          label: t("word_addin.add_selection"),
+          icon: TextSelect,
+          onClick: () => void sendExcelToComposer("selection"),
+        },
+        {
+          action: "document",
+          label: t("word_addin.add_workbook_overview"),
+          icon: FileText,
+          onClick: () => void sendExcelToComposer("document"),
+        },
+      ]
+    : [
+        {
+          action: "selection",
+          label: t("word_addin.add_selection"),
+          icon: TextSelect,
+          onClick: () => void sendToComposer("selection"),
+        },
+        {
+          action: "document",
+          label: t("word_addin.add_document"),
+          icon: FileText,
+          onClick: () => void sendToComposer("document"),
+        },
+        {
+          action: "insert",
+          label: t("word_addin.insert_reply"),
+          icon: ArrowDownToLine,
+          onClick: () => void insertLatestReply(),
+        },
+      ];
 
   return (
     <div className="pointer-events-none fixed right-2 top-1/2 z-40 -translate-y-1/2">

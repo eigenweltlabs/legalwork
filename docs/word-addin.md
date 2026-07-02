@@ -102,6 +102,21 @@ The ribbon gets an **Open LegalWork** button (Home tab) that opens the pane.
 | `--word-addin-key` | `LEGALWORK_WORD_ADDIN_KEY` | `wordAddin.keyPath` | `~/.office-addin-dev-certs/localhost.key` |
 | `--word-addin-dist` | `LEGALWORK_WORD_ADDIN_DIST` | `wordAddin.distPath` | `apps/app/dist-word-addin` (monorepo layout) |
 
+## Excel
+
+The same manifest declares Excel (`Workbook`) as a host: sideload it into
+`~/Library/Containers/com.microsoft.Excel/Data/Documents/wef/` and the same
+task pane opens in Excel (Home → Add-ins → LegalWork). The pane detects the
+host via Office.js and registers `excel_*` tools instead of `word_*`:
+`excel_read_workbook`, `excel_read_range`, `excel_read_selection`,
+`excel_write_cells`, `excel_highlight_range`, `excel_add_worksheet`,
+`excel_search`, `excel_add_comment` (via the `legalwork-excel-tools`
+plugin). Excel has no tracked-changes API, so the safety pattern differs:
+agent writes highlight the touched cells (amber fill), rationale goes into
+cell comments, and the agent is instructed to put derived analysis on new
+worksheets rather than overwrite data. The dock offers "add selection"
+(as TSV) and "add workbook overview" to chat.
+
 ## Agent document tools
 
 When the pane is open inside Word, the agent gets `word_*` tools (via the

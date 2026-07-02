@@ -97,19 +97,29 @@ export async function officeReady(timeoutMs = 5000): Promise<boolean> {
   return readyHost != null;
 }
 
+/** Lowercased Office host name ("word", "excel", ...) once ready, else null. */
+export function officeHostName(): string | null {
+  return readyHost ? readyHost.toLowerCase() : null;
+}
+
 /** True when running inside Word with the Word JavaScript API available. */
 export function isWordDocumentHost(): boolean {
-  return readyHost?.toLowerCase() === "word" && Boolean(officeGlobals().word);
+  return officeHostName() === "word" && Boolean(officeGlobals().word);
+}
+
+/** Check any Office requirement set, e.g. ("ExcelApi", "1.10"). */
+export function isOfficeApiSupported(setName: string, version: string): boolean {
+  const supported = officeGlobals().office?.context?.requirements?.isSetSupported;
+  try {
+    return supported ? supported(setName, version) : false;
+  } catch {
+    return false;
+  }
 }
 
 /** Check a Word requirement set, e.g. isWordApiSupported("1.4") for tracking/comments. */
 export function isWordApiSupported(version: string): boolean {
-  const supported = officeGlobals().office?.context?.requirements?.isSetSupported;
-  try {
-    return supported ? supported("WordApi", version) : false;
-  } catch {
-    return false;
-  }
+  return isOfficeApiSupported("WordApi", version);
 }
 
 /** URL/path of the open document, when the host exposes it. */

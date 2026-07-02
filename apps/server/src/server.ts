@@ -59,8 +59,8 @@ import {
 } from "./workspace-export-safety.js";
 import { serve, type ServeResult } from "./serve-node.js";
 import { handleWordAddinRequest, loadWordAddinTls, WORD_ADDIN_PATH_PREFIX } from "./word-addin.js";
-import { WordToolRelay } from "./word-tools.js";
-import { registerWordToolRoutes } from "./routes/word-tools.js";
+import { OfficeToolRelay } from "./office-tools.js";
+import { registerOfficeToolRoutes } from "./routes/office-tools.js";
 import { registerCoreRoutes } from "./routes/core.js";
 import { registerFileRoutes } from "./routes/files.js";
 import { registerOperationRoutes } from "./routes/operations.js";
@@ -673,8 +673,8 @@ export async function startServer(config: ServerConfig): Promise<StartedServer> 
     watcherHandle.close();
     watcherHandle = startReloadWatchers({ config, reloadEvents, logger });
   };
-  const wordTools = new WordToolRelay();
-  const routes = createRoutes(config, approvals, tokens, env, wordTools, restartReloadWatchers);
+  const officeTools = new OfficeToolRelay();
+  const routes = createRoutes(config, approvals, tokens, env, officeTools, restartReloadWatchers);
 
   const serverOptions: {
     hostname: string;
@@ -1359,7 +1359,7 @@ function createRoutes(
   approvals: ApprovalService,
   tokens: TokenService,
   env: EnvService,
-  wordTools: WordToolRelay,
+  officeTools: OfficeToolRelay,
   onWorkspacesChanged: () => void,
 ): Route[] {
   const routes: Route[] = [];
@@ -1935,10 +1935,10 @@ function createRoutes(
     reloadOpencodeEngine,
   });
 
-  registerWordToolRoutes({
+  registerOfficeToolRoutes({
     routes,
     config,
-    wordTools,
+    officeTools,
     jsonResponse,
     readJsonBody,
     requireClientScope,
