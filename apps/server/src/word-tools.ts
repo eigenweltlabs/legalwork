@@ -47,11 +47,19 @@ export class WordToolRelay {
   private pending = new Map<string, PendingExecution>();
   private waiters = new Map<string, PollWaiter[]>();
   private lastPollAt = new Map<string, number>();
+  /** Open-document identity as last reported by the pane's polls. */
+  private lastDocumentUrl = new Map<string, string>();
 
   clientConnected(workspaceId: string): boolean {
     if ((this.waiters.get(workspaceId)?.length ?? 0) > 0) return true;
     const last = this.lastPollAt.get(workspaceId) ?? 0;
     return Date.now() - last < CLIENT_LIVENESS_MS;
+  }
+
+  /** URL/path of the document open next to the connected pane, if reported. */
+  documentUrl(workspaceId: string): string | null {
+    if (!this.clientConnected(workspaceId)) return null;
+    return this.lastDocumentUrl.get(workspaceId) ?? null;
   }
 
   execute(
@@ -104,8 +112,15 @@ export class WordToolRelay {
     });
   }
 
-  poll(workspaceId: string, waitMs: number): Promise<WordToolRequest[]> {
+  poll(workspaceId: string, waitMs: number, documentUrl?: string): Promise<WordToolRequest[]> {
     this.lastPollAt.set(workspaceId, Date.now());
+    if (documentUrl !== undefined) {
+      if (documentUrl) {
+        this.lastDocumentUrl.set(workspaceId, documentUrl);
+      } else {
+        this.lastDocumentUrl.delete(workspaceId);
+      }
+    }
 
     const queue = this.queues.get(workspaceId) ?? [];
     if (queue.length > 0) {

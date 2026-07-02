@@ -30,7 +30,10 @@ export function registerWordToolRoutes(options: RegisterWordToolRoutesOptions): 
 
   addRoute(routes, "GET", "/workspace/:id/word-tools/status", "client", async (ctx) => {
     const workspace = await resolveWorkspace(config, ctx.params.id);
-    return jsonResponse({ connected: wordTools.clientConnected(workspace.id) });
+    return jsonResponse({
+      connected: wordTools.clientConnected(workspace.id),
+      documentUrl: wordTools.documentUrl(workspace.id),
+    });
   });
 
   addRoute(routes, "POST", "/workspace/:id/word-tools/execute", "client", async (ctx) => {
@@ -55,7 +58,8 @@ export function registerWordToolRoutes(options: RegisterWordToolRoutesOptions): 
     const workspace = await resolveWorkspace(config, ctx.params.id);
     const waitRaw = Number(ctx.url.searchParams.get("wait") ?? "25");
     const waitMs = Number.isFinite(waitRaw) ? waitRaw * 1000 : 25_000;
-    const requests = await wordTools.poll(workspace.id, waitMs);
+    const documentUrl = ctx.url.searchParams.get("document") ?? undefined;
+    const requests = await wordTools.poll(workspace.id, waitMs, documentUrl);
     return jsonResponse({ requests });
   });
 

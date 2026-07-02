@@ -169,18 +169,32 @@ describe("word tool relay", () => {
     expect(late.accepted).toBe(false);
   });
 
-  test("status reflects pane liveness", async () => {
+  test("status reflects pane liveness and the reported document", async () => {
     const { baseUrl } = await startTestServer();
 
     let status = (await (await fetch(`${baseUrl}/status`, { headers: AUTH })).json()) as {
       connected: boolean;
+      documentUrl: string | null;
     };
     expect(status.connected).toBe(false);
+    expect(status.documentUrl).toBeNull();
 
-    await fetch(`${baseUrl}/poll?wait=0`, { headers: AUTH });
+    const documentUrl = "/Users/test/Matters/Contract.docx";
+    await fetch(`${baseUrl}/poll?wait=0&document=${encodeURIComponent(documentUrl)}`, { headers: AUTH });
     status = (await (await fetch(`${baseUrl}/status`, { headers: AUTH })).json()) as {
       connected: boolean;
+      documentUrl: string | null;
     };
     expect(status.connected).toBe(true);
+    expect(status.documentUrl).toBe(documentUrl);
+
+    // An untitled document (empty report) clears the stored identity.
+    await fetch(`${baseUrl}/poll?wait=0&document=`, { headers: AUTH });
+    status = (await (await fetch(`${baseUrl}/status`, { headers: AUTH })).json()) as {
+      connected: boolean;
+      documentUrl: string | null;
+    };
+    expect(status.connected).toBe(true);
+    expect(status.documentUrl).toBeNull();
   });
 });

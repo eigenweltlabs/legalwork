@@ -38,9 +38,17 @@ The user may work with the LegalWork pane open inside Microsoft Word. The word_*
 
 ${WORD_TOOL_RULES}`;
 
+function describeOpenDocument(documentUrl: string | null): string {
+  if (!documentUrl) {
+    return "The open document has not been saved yet (untitled).";
+  }
+  const name = documentUrl.split(/[\\/]/).pop() || documentUrl;
+  return `The open document is "${name}" (${documentUrl}).`;
+}
+
 /** Injected when a Word pane is live: switch to document-first behavior. */
-const WORD_MODE_INSTRUCTION = `## You are working inside Microsoft Word right now
-The user has the LegalWork pane open inside Microsoft Word with a document next to the chat. Behave accordingly:
+const wordModeInstruction = (documentUrl: string | null) => `## You are working inside Microsoft Word right now
+The user has the LegalWork pane open inside Microsoft Word with a document next to the chat. ${describeOpenDocument(documentUrl)} Behave accordingly:
 
 - Assume document-related requests refer to the open Word document. Read it with word_read_document before answering questions about "the document", "the contract", or similar.
 - Prefer word_* tools for document work over editing files in the workspace. Apply changes as tracked redlines (word_replace_text / word_insert_text) and attach a short word_add_comment rationale to each substantive edit.
@@ -142,18 +150,21 @@ async function resolveWorkspaceId(context: OpenCodeContext): Promise<string> {
   );
 }
 
-let paneStatusCache: { at: number; connected: boolean } | null = null;
+type WordPaneStatus = { connected: boolean; documentUrl: string | null };
+
+let paneStatusCache: { at: number; status: WordPaneStatus } | null = null;
 
 /**
- * True when any workspace currently has a Word pane long-polling the relay.
- * Checked per chat turn (with a short cache) so the system prompt flips to
- * document-first behavior as soon as the user opens the pane in Word.
+ * Whether any workspace currently has a Word pane long-polling the relay,
+ * and which document it reports as open. Checked per chat turn (with a
+ * short cache) so the system prompt flips to document-first behavior as
+ * soon as the user opens the pane in Word.
  */
-async function anyWordPaneConnected(): Promise<boolean> {
+async function wordPaneStatus(): Promise<WordPaneStatus> {
   if (paneStatusCache && Date.now() - paneStatusCache.at < PANE_STATUS_CACHE_MS) {
-    return paneStatusCache.connected;
+    return paneStatusCache.status;
   }
-  let connected = false;
+  let status: WordPaneStatus = { connected: false, documentUrl: null };
   try {
     const url = serverUrl();
     const token = serverToken();
@@ -165,18 +176,21 @@ async function anyWordPaneConnected(): Promise<boolean> {
           { headers: { Authorization: `Bearer ${token}` }, signal: AbortSignal.timeout(3_000) },
         );
         if (!response.ok) continue;
-        const payload = (await response.json()) as { connected?: unknown };
+        const payload = (await response.json()) as { connected?: unknown; documentUrl?: unknown };
         if (payload.connected === true) {
-          connected = true;
+          status = {
+            connected: true,
+            documentUrl: typeof payload.documentUrl === "string" && payload.documentUrl ? payload.documentUrl : null,
+          };
           break;
         }
       }
     }
   } catch {
-    connected = false;
+    status = { connected: false, documentUrl: null };
   }
-  paneStatusCache = { at: Date.now(), connected };
-  return connected;
+  paneStatusCache = { at: Date.now(), status };
+  return status;
 }
 
 async function callWordTool(
@@ -216,8 +230,8 @@ export const LegalWorkWordTools = async () => ({
     _input: unknown,
     output: { system: string[] },
   ) => {
-    const connected = await anyWordPaneConnected();
-    output.system.push(connected ? WORD_MODE_INSTRUCTION : WORD_TOOLS_INSTRUCTION);
+    const status = await wordPaneStatus();
+    output.system.push(status.connected ? wordModeInstruction(status.documentUrl) : WORD_TOOLS_INSTRUCTION);
   },
   tool: {
     word_read_document: {

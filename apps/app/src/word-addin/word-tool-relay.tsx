@@ -3,7 +3,7 @@ import { useEffect, useMemo } from "react";
 import { useLocation } from "react-router-dom";
 
 import { readLegalworkServerSettings } from "@/app/lib/legalwork-server";
-import { isWordDocumentHost } from "./office";
+import { getDocumentUrl, isWordDocumentHost } from "./office";
 import { createWordToolHandlers } from "./word-document-tools";
 
 /**
@@ -42,10 +42,16 @@ async function runRelayLoop(workspaceId: string, signal: AbortSignal): Promise<v
 
   while (!signal.aborted) {
     try {
-      const response = await fetch(`${relayBase}/poll?wait=${POLL_WAIT_SECONDS}`, {
-        headers: authHeaders,
-        signal,
-      });
+      // Report the open document with every poll so the agent's system
+      // prompt can name it (and notice save-as / document switches).
+      const documentParam = encodeURIComponent(getDocumentUrl() ?? "");
+      const response = await fetch(
+        `${relayBase}/poll?wait=${POLL_WAIT_SECONDS}&document=${documentParam}`,
+        {
+          headers: authHeaders,
+          signal,
+        },
+      );
       if (!response.ok) {
         await sleep(RETRY_DELAY_MS);
         continue;
