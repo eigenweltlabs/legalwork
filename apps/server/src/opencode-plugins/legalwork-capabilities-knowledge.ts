@@ -54,6 +54,10 @@ Here is what you can help users with:
 - Users can manage skills in Settings > Skills.
 - Custom skills live in workspace skill folders such as \`.opencode/skills/\`.
 
+## PDF Actions
+- LegalWork can annotate PDFs (sticky notes, highlights), list and fill form fields, and stamp signatures via the bundled \`pdf-tools\` skill — load it whenever the user wants to act on a PDF, even if they don't use the /annotate, /fill-form, or /sign commands.
+- Every PDF action writes a new copy next to the source (\`.annotated.pdf\`, \`.filled.pdf\`, \`.signed.pdf\`); the original file is never modified. Output the resulting path so it opens in the in-app PDF viewer.
+
 ## Plugins
 - Plugins extend LegalWork/OpenCode with custom tools.
 - Create plugins only when a reusable tool hook is actually needed; for most workflow memory, prefer a skill.
