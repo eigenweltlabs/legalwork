@@ -19,6 +19,7 @@ import { DEFAULT_SHELL_CONFIG, SHELL_CONFIG_STORAGE_KEY } from "@/react-app/shel
 import { officeReady } from "./office";
 import { WordAddinRoot } from "./word-addin-root";
 import "@/app/index.css";
+import "./word-pane.css";
 
 /**
  * The task pane is a slim surface: the agent session UI only. Everything
@@ -149,6 +150,8 @@ if (!root) {
   throw new Error("Task pane root element not found");
 }
 root.dataset.legalworkDeployment = getLegalWorkDeployment();
+// Scope hook for the pane-only compact styles in word-pane.css.
+document.documentElement.classList.add("lw-word-pane");
 
 // Office.js must finish initializing before the app renders; outside Word
 // this resolves immediately and the pane behaves like a plain web client.

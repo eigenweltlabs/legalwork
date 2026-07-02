@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { getDisplaySessionTitle } from "@/app/lib/session-title";
 import type { LegalworkWorkspaceInfo } from "@/app/lib/legalwork-server";
+import { writeLastSessionFor } from "@/react-app/shell/session-memory";
 import { t } from "@/i18n";
 import { useWordServerClient } from "./use-word-server-client";
 
@@ -231,7 +232,12 @@ export function WordSessionsScreen() {
             size="icon"
             className="size-7"
             aria-label={t("word_addin.new_session")}
-            onClick={() => navigate(`/workspace/${encodeURIComponent(workspaceId)}/session`)}
+            onClick={() => {
+              // The session route restores the remembered session when the
+              // URL has none; forget it so a fresh task view opens instead.
+              writeLastSessionFor(workspaceId, null);
+              navigate(`/workspace/${encodeURIComponent(workspaceId)}/session`);
+            }}
           >
             <Plus size={15} />
           </Button>

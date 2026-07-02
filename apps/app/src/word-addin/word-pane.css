@@ -1,0 +1,46 @@
+/*
+ * Compact composer for the Word task pane.
+ *
+ * The pane is ~350-450px wide; the app composer is sized for a desktop
+ * window. These overrides shrink it without touching the shared component:
+ * scoped under .lw-word-pane (set on <html> by the pane entry only) and
+ * keyed off the composer bubble's stable utility classes. The two-class
+ * selectors outweigh single Tailwind utilities in specificity.
+ */
+
+/* Composer bubble: tighter radius. */
+.lw-word-pane .rounded-\[24px\] {
+  border-radius: 16px;
+}
+
+/* Editor block: less inner padding, single-line resting height, smaller type. */
+.lw-word-pane .rounded-\[24px\] .px-4.pt-3.pb-2 {
+  padding: 8px 12px 4px;
+}
+.lw-word-pane .rounded-\[24px\] .min-h-\[60px\] {
+  min-height: 32px;
+}
+.lw-word-pane .rounded-\[24px\] .text-\[15px\] {
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+/* Control rows: smaller buttons and pills (attach, tools, model, send/stop). */
+.lw-word-pane .rounded-\[24px\] .h-9 {
+  height: 30px;
+  max-height: 30px;
+}
+.lw-word-pane .rounded-\[24px\] .w-9 {
+  width: 30px;
+}
+.lw-word-pane .rounded-\[24px\] .max-h-9 {
+  max-height: 30px;
+}
+.lw-word-pane .rounded-\[24px\] .rounded-full.px-4,
+.lw-word-pane .rounded-\[24px\] .rounded-l-full.pl-4 {
+  padding-left: 10px;
+  padding-right: 10px;
+}
+.lw-word-pane .rounded-\[24px\] .text-\[13px\] {
+  font-size: 12px;
+}
