@@ -58,6 +58,54 @@ const QUICK_TOGGLES: QuickPermissionToggle[] = [
   "block_internet",
 ];
 
+type PermissionLabels = { title: string; description: string };
+
+// Static t() keys per entry — the i18n audit forbids dynamically built keys.
+function quickToggleLabels(toggle: QuickPermissionToggle): PermissionLabels {
+  switch (toggle) {
+    case "ask_before_edit":
+      return {
+        title: t("tool_permissions.ask_before_edit"),
+        description: t("tool_permissions.ask_before_edit_desc"),
+      };
+    case "ask_before_shell":
+      return {
+        title: t("tool_permissions.ask_before_shell"),
+        description: t("tool_permissions.ask_before_shell_desc"),
+      };
+    case "block_internet":
+      return {
+        title: t("tool_permissions.block_internet"),
+        description: t("tool_permissions.block_internet_desc"),
+      };
+  }
+}
+
+function toolLabels(tool: ManagedPermissionTool): PermissionLabels {
+  switch (tool) {
+    case "edit":
+      return {
+        title: t("tool_permissions.tool_edit"),
+        description: t("tool_permissions.tool_edit_desc"),
+      };
+    case "bash":
+      return {
+        title: t("tool_permissions.tool_bash"),
+        description: t("tool_permissions.tool_bash_desc"),
+      };
+    case "webfetch":
+      return {
+        title: t("tool_permissions.tool_webfetch"),
+        description: t("tool_permissions.tool_webfetch_desc"),
+      };
+    case "doom_loop":
+      return {
+        title: t("tool_permissions.tool_doom_loop"),
+        description: t("tool_permissions.tool_doom_loop_desc"),
+      };
+  }
+}
+
 type PermissionActionItem = { value: PermissionAction; label: string };
 
 function actionItems(): PermissionActionItem[] {
@@ -281,11 +329,11 @@ export function ToolPermissionsPanel(props: ToolPermissionsPanelProps) {
             {QUICK_TOGGLES.map((toggle) => (
               <PermissionRow
                 key={toggle}
-                title={t(`tool_permissions.${toggle}`)}
-                description={t(`tool_permissions.${toggle}_desc`)}
+                title={quickToggleLabels(toggle).title}
+                description={quickToggleLabels(toggle).description}
               >
                 <Switch
-                  aria-label={t(`tool_permissions.${toggle}`)}
+                  aria-label={quickToggleLabels(toggle).title}
                   checked={quickToggleChecked(state.model, toggle)}
                   disabled={busy || !canWriteConfig}
                   onCheckedChange={(checked) => {
@@ -309,12 +357,12 @@ export function ToolPermissionsPanel(props: ToolPermissionsPanelProps) {
             {MANAGED_PERMISSION_TOOLS.map((tool) => (
               <PermissionRow
                 key={tool}
-                title={t(`tool_permissions.tool_${tool}`)}
-                description={t(`tool_permissions.tool_${tool}_desc`)}
+                title={toolLabels(tool).title}
+                description={toolLabels(tool).description}
               >
                 <ActionSelect
                   value={state.model[tool].action}
-                  ariaLabel={t(`tool_permissions.tool_${tool}`)}
+                  ariaLabel={toolLabels(tool).title}
                   disabled={busy || !canWriteConfig}
                   onChange={(action) => setToolAction(tool, action)}
                 />
