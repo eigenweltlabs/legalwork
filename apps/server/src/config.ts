@@ -1,6 +1,6 @@
 import { homedir } from "node:os";
 import { dirname, resolve } from "node:path";
-import type { ApprovalMode, ApprovalConfig, ServerConfig, WorkspaceConfig, LogFormat } from "./types.js";
+import type { ApprovalMode, ApprovalConfig, ServerConfig, WordAddinConfig, WorkspaceConfig, LogFormat } from "./types.js";
 import { buildWorkspaceInfos } from "./workspaces.js";
 import { parseList, readJsonFile, shortId } from "./utils.js";
 
@@ -24,6 +24,11 @@ export interface CliArgs {
   logRequests?: boolean;
   version?: boolean;
   help?: boolean;
+  wordAddin?: boolean;
+  wordAddinPort?: number;
+  wordAddinCert?: string;
+  wordAddinKey?: string;
+  wordAddinDist?: string;
 }
 
 interface FileConfig {
@@ -42,10 +47,12 @@ interface FileConfig {
   opencodePassword?: string;
   logFormat?: LogFormat;
   logRequests?: boolean;
+  wordAddin?: Partial<WordAddinConfig>;
 }
 
 const DEFAULT_PORT = 8787;
 const DEFAULT_HOST = "127.0.0.1";
+const DEFAULT_WORD_ADDIN_PORT = 47443;
 const DEFAULT_TIMEOUT_MS = 30000;
 const DEFAULT_LOG_FORMAT: LogFormat = "pretty";
 const DEFAULT_LOG_REQUESTS = true;
@@ -169,6 +176,31 @@ export function parseCliArgs(argv: string[]): CliArgs {
       args.readOnly = true;
       continue;
     }
+    if (value === "--word-addin") {
+      args.wordAddin = true;
+      continue;
+    }
+    if (value === "--word-addin-port") {
+      const port = Number(argv[index + 1]);
+      if (!Number.isNaN(port)) args.wordAddinPort = port;
+      index += 1;
+      continue;
+    }
+    if (value === "--word-addin-cert") {
+      args.wordAddinCert = argv[index + 1];
+      index += 1;
+      continue;
+    }
+    if (value === "--word-addin-key") {
+      args.wordAddinKey = argv[index + 1];
+      index += 1;
+      continue;
+    }
+    if (value === "--word-addin-dist") {
+      args.wordAddinDist = argv[index + 1];
+      index += 1;
+      continue;
+    }
   }
   return args;
 }
@@ -192,6 +224,11 @@ export function printHelp(): void {
     "  --workspace <path>       Workspace root (repeatable)",
     "  --cors <origins>          Comma-separated origins or *",
     "  --read-only              Disable writes",
+    "  --word-addin             Serve the Word task pane add-in over HTTPS",
+    "  --word-addin-port <port> Word add-in HTTPS port (default 47443)",
+    "  --word-addin-cert <path> TLS certificate for the add-in listener",
+    "  --word-addin-key <path>  TLS private key for the add-in listener",
+    "  --word-addin-dist <path> Built task pane bundle directory",
     "  --log-format <format>     Log output format: pretty | json",
     "  --log-requests           Log incoming requests (default: true)",
     "  --no-log-requests        Disable request logging",
@@ -313,6 +350,37 @@ export async function resolveServerConfig(cli: CliArgs): Promise<ServerConfig> {
   const host = cli.host ?? process.env.LEGALWORK_HOST ?? fileConfig.host ?? DEFAULT_HOST;
   const port = cli.port ?? (process.env.LEGALWORK_PORT ? Number(process.env.LEGALWORK_PORT) : undefined) ?? fileConfig.port ?? DEFAULT_PORT;
 
+  const wordAddinEnabled =
+    cli.wordAddin ??
+    parseBoolean(process.env.LEGALWORK_WORD_ADDIN) ??
+    fileConfig.wordAddin?.enabled ??
+    false;
+  const wordAddinPortRaw =
+    cli.wordAddinPort ??
+    (process.env.LEGALWORK_WORD_ADDIN_PORT ? Number(process.env.LEGALWORK_WORD_ADDIN_PORT) : undefined) ??
+    fileConfig.wordAddin?.port ??
+    DEFAULT_WORD_ADDIN_PORT;
+  // CLI/env paths resolve against the working directory; file-config paths
+  // resolve against the config file's directory (same rule as authorizedRoots).
+  const resolveWordAddinPath = (cliOrEnv: string | undefined, fromFile: string | undefined) =>
+    cliOrEnv ? resolve(cliOrEnv) : fromFile ? resolve(configDir, fromFile) : undefined;
+  const wordAddin: WordAddinConfig = {
+    enabled: wordAddinEnabled,
+    port: Number.isNaN(wordAddinPortRaw) ? DEFAULT_WORD_ADDIN_PORT : wordAddinPortRaw,
+    certPath: resolveWordAddinPath(
+      cli.wordAddinCert ?? process.env.LEGALWORK_WORD_ADDIN_CERT,
+      fileConfig.wordAddin?.certPath,
+    ),
+    keyPath: resolveWordAddinPath(
+      cli.wordAddinKey ?? process.env.LEGALWORK_WORD_ADDIN_KEY,
+      fileConfig.wordAddin?.keyPath,
+    ),
+    distPath: resolveWordAddinPath(
+      cli.wordAddinDist ?? process.env.LEGALWORK_WORD_ADDIN_DIST,
+      fileConfig.wordAddin?.distPath,
+    ),
+  };
+
   return {
     host,
     port: Number.isNaN(port) ? DEFAULT_PORT : port,
@@ -333,5 +401,6 @@ export async function resolveServerConfig(cli: CliArgs): Promise<ServerConfig> {
     hostTokenSource,
     logFormat,
     logRequests,
+    wordAddin,
   };
 }

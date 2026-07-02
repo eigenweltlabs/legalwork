@@ -6,13 +6,23 @@
  * environment (including Electron's main process) without Bun.
  */
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
+import { createServer as createTlsServer } from "node:https";
 import { Readable } from "node:stream";
+
+export type ServeTlsOptions = {
+  /** PEM-encoded certificate chain. */
+  cert: string;
+  /** PEM-encoded private key. */
+  key: string;
+};
 
 export type ServeOptions = {
   hostname: string;
   port: number;
   fetch: (request: Request) => Response | Promise<Response>;
   idleTimeout?: number;
+  /** When set, serve HTTPS instead of HTTP. */
+  tls?: ServeTlsOptions;
 };
 
 export type ServeResult = {
@@ -79,8 +89,8 @@ async function waitForDrainOrClose(nodeRes: ServerResponse): Promise<void> {
 /**
  * Convert a Node.js IncomingMessage into a Web API Request.
  */
-function toWebRequest(nodeReq: IncomingMessage, hostname: string, port: number): Request {
-  const url = `http://${hostname}:${port}${nodeReq.url ?? "/"}`;
+function toWebRequest(nodeReq: IncomingMessage, hostname: string, port: number, scheme: "http" | "https"): Request {
+  const url = `${scheme}://${hostname}:${port}${nodeReq.url ?? "/"}`;
   const method = nodeReq.method ?? "GET";
   const headers = new Headers();
 
@@ -157,8 +167,9 @@ async function writeWebResponse(webRes: Response, nodeRes: ServerResponse): Prom
  */
 export function serve(options: ServeOptions): Promise<ServeResult> {
   const { hostname, port, fetch: fetchHandler } = options;
+  const scheme: "http" | "https" = options.tls ? "https" : "http";
 
-  const server = createServer(async (nodeReq, nodeRes) => {
+  const handleRequest = async (nodeReq: IncomingMessage, nodeRes: ServerResponse) => {
     nodeRes.on("error", (error) => {
       if (isWriteAfterEndError(error)) {
         console.warn("[serve-node] Ignored response write after end");
@@ -168,7 +179,7 @@ export function serve(options: ServeOptions): Promise<ServeResult> {
     });
 
     try {
-      const webReq = toWebRequest(nodeReq, hostname, boundPort);
+      const webReq = toWebRequest(nodeReq, hostname, boundPort, scheme);
       const webRes = await fetchHandler(webReq);
       await writeWebResponse(webRes, nodeRes);
     } catch (error) {
@@ -185,7 +196,11 @@ export function serve(options: ServeOptions): Promise<ServeResult> {
       }
       endResponse(nodeRes, JSON.stringify({ error: "internal_error" }));
     }
-  });
+  };
+
+  const server = options.tls
+    ? createTlsServer({ cert: options.tls.cert, key: options.tls.key }, handleRequest)
+    : createServer(handleRequest);
 
   // Set keep-alive timeout to match Bun's idleTimeout
   if (options.idleTimeout) {

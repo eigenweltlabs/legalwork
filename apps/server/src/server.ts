@@ -58,6 +58,7 @@ import {
   type WorkspaceExportSensitiveMode,
 } from "./workspace-export-safety.js";
 import { serve, type ServeResult } from "./serve-node.js";
+import { handleWordAddinRequest, loadWordAddinTls, WORD_ADDIN_PATH_PREFIX } from "./word-addin.js";
 import { registerCoreRoutes } from "./routes/core.js";
 import { registerFileRoutes } from "./routes/files.js";
 import { registerOperationRoutes } from "./routes/operations.js";
@@ -651,7 +652,12 @@ function isSessionCommandProxyRequest(method: string, proxyPath: string) {
   return method === "POST" && /^\/session\/[^/]+\/command$/.test(normalizeOpencodeProxyPath(proxyPath));
 }
 
-export async function startServer(config: ServerConfig): Promise<ServeResult> {
+export type StartedServer = ServeResult & {
+  /** Bound port of the HTTPS Word add-in listener, when enabled and started. */
+  wordAddinPort: number | null;
+};
+
+export async function startServer(config: ServerConfig): Promise<StartedServer> {
   const approvals = new ApprovalService(config.approval);
   const reloadEvents = new ReloadEventStore();
   const tokens = new TokenService(config);
@@ -720,6 +726,24 @@ export async function startServer(config: ServerConfig): Promise<ServeResult> {
 
       if (request.method === "OPTIONS") {
         return finalize(new Response(null, { status: 204 }));
+      }
+
+      if (url.pathname === WORD_ADDIN_PATH_PREFIX || url.pathname.startsWith(`${WORD_ADDIN_PATH_PREFIX}/`)) {
+        const addinResponse = await handleWordAddinRequest({ request, url, config });
+        if (addinResponse) {
+          // Deliberately not CORS-wrapped: /word-addin/bootstrap returns the
+          // client token and must only be readable same-origin.
+          if (config.logRequests) {
+            logRequest({
+              logger,
+              request,
+              response: addinResponse,
+              durationMs: Date.now() - startedAt,
+              authMode: "none",
+            });
+          }
+          return addinResponse;
+        }
       }
 
       const canonicalOpencodeMount = parseWorkspaceOpencodeMount(url.pathname);
@@ -812,11 +836,47 @@ export async function startServer(config: ServerConfig): Promise<ServeResult> {
     idleTimeout: 120,
   });
 
+  // Optional HTTPS listener for the Word add-in. It shares the exact same
+  // fetch handler (API, OpenCode proxy, and /word-addin static hosting), so
+  // the task pane talks to a single same-origin base URL. Word requires
+  // HTTPS for task pane sources, hence the dedicated TLS listener.
+  let wordAddinServer: ServeResult | null = null;
+  if (config.wordAddin?.enabled) {
+    const tlsMaterial = await loadWordAddinTls(config.wordAddin);
+    if (!tlsMaterial) {
+      logger.log(
+        "warn",
+        "Word add-in is enabled but no TLS certificate was found. Run `npx office-addin-dev-certs install` or pass --word-addin-cert/--word-addin-key.",
+      );
+    } else {
+      try {
+        wordAddinServer = await serve({
+          hostname: config.host,
+          port: config.wordAddin.port,
+          fetch: serverOptions.fetch,
+          idleTimeout: 120,
+          tls: tlsMaterial.tls,
+        });
+        // Keep the manifest in sync with the actually bound port.
+        config.wordAddin = { ...config.wordAddin, port: wordAddinServer.port };
+        logger.log(
+          "info",
+          `Word add-in listening on https://localhost:${wordAddinServer.port}${WORD_ADDIN_PATH_PREFIX}/ ` +
+            `(manifest: https://localhost:${wordAddinServer.port}${WORD_ADDIN_PATH_PREFIX}/manifest.xml, cert: ${tlsMaterial.certPath})`,
+        );
+      } catch (error) {
+        logger.log("error", `Failed to start the Word add-in listener: ${String(error)}`);
+      }
+    }
+  }
+
   return {
     ...server,
+    wordAddinPort: wordAddinServer?.port ?? null,
     stop: async () => {
       watcherHandle.close();
       reloadBaselineRefreshers.delete(config);
+      await wordAddinServer?.stop();
       await server.stop();
     },
   };

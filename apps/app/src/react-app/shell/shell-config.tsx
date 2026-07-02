@@ -55,7 +55,8 @@ export const DEFAULT_SHELL_CONFIG: ShellConfig = {
 /*  Persistence                                                        */
 /* ------------------------------------------------------------------ */
 
-const STORAGE_KEY = "legalwork.shell-config";
+export const SHELL_CONFIG_STORAGE_KEY = "legalwork.shell-config";
+const STORAGE_KEY = SHELL_CONFIG_STORAGE_KEY;
 
 function readShellConfig(): ShellConfig {
   if (typeof window === "undefined") return DEFAULT_SHELL_CONFIG;

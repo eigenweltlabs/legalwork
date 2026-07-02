@@ -90,6 +90,20 @@ const de: Record<string, string> = {
   "settings.environment.apply_title": "Geheimnis-Änderungen anwenden?",
   "settings.environment.apply_confirm_body":
     "LegalWork aktualisiert deinen Assistenten, damit er die neuesten Geheimnisse verwenden kann. Laufende Aufgaben werden möglicherweise gestoppt.",
+  "word_addin.connecting": "Verbinde mit LegalWork...",
+  "word_addin.connect_error_title": "LegalWork ist nicht erreichbar",
+  "word_addin.connect_error_body": "Stelle sicher, dass der LegalWork-Server mit aktiviertem Word-Add-in läuft, und versuche es erneut.",
+  "word_addin.connect_retry": "Erneut versuchen",
+  "word_addin.add_selection": "Auswahl in den Chat übernehmen",
+  "word_addin.add_document": "Dokument in den Chat übernehmen",
+  "word_addin.insert_reply": "Letzte Antwort am Cursor einfügen",
+  "word_addin.empty_selection": "Bitte zuerst Text im Dokument auswählen.",
+  "word_addin.empty_document": "Das Dokument enthält noch keinen Text.",
+  "word_addin.no_reply": "Noch keine Antwort zum Einfügen vorhanden.",
+  "word_addin.inserted": "In das Dokument eingefügt.",
+  "word_addin.selection_context_label": "Ausgewählter Text aus dem Word-Dokument:",
+  "word_addin.document_context_label": "Text des Word-Dokuments:",
+  "word_addin.context_truncated": "(Das Dokument wurde gekürzt, da es sehr lang ist.)",
 };
 
 export default de;

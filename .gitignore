@@ -9,6 +9,7 @@ dist/
 apps/*/.vite/
 packages/*/dist/
 apps/*/dist/
+apps/app/dist-word-addin/
 tmp/
 
 # Local git worktrees

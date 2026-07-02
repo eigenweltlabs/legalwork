@@ -81,12 +81,26 @@ export interface ApprovalConfig {
   timeoutMs: number;
 }
 
+export interface WordAddinConfig {
+  /** Serve the Word task pane bundle and start the HTTPS add-in listener. */
+  enabled: boolean;
+  /** Fixed port for the HTTPS listener referenced by the add-in manifest. */
+  port: number;
+  /** PEM certificate path. Defaults to ~/.office-addin-dev-certs/localhost.crt. */
+  certPath?: string;
+  /** PEM private key path. Defaults to ~/.office-addin-dev-certs/localhost.key. */
+  keyPath?: string;
+  /** Directory containing the built task pane bundle (apps/app dist-word-addin). */
+  distPath?: string;
+}
+
 export interface ServerConfig {
   host: string;
   port: number;
   token: string;
   hostToken: string;
   configPath?: string;
+  wordAddin?: WordAddinConfig;
   opencodeBaseUrl?: string;
   opencodeDirectory?: string;
   opencodeUsername?: string;

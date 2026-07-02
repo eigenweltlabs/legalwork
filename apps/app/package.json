@@ -9,6 +9,8 @@
     "build": "vite build",
     "dev:web": "LEGALWORK_DEV_MODE=1 vite",
     "build:web": "vite build",
+    "build:word-addin": "vite build --config vite.wordaddin.config.ts",
+    "dev:word-addin": "vite build --watch --config vite.wordaddin.config.ts",
     "preview": "vite preview",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test:health": "node scripts/health.mjs",
