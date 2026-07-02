@@ -11,6 +11,7 @@ import { ShellConfigProvider } from "@/react-app/shell/shell-config";
 import { t } from "@/i18n";
 import { WordActionsDock } from "./word-actions-dock";
 import { WordSessionsScreen, WordWorkspacesScreen } from "./word-screens";
+import { WordToolRelayHost } from "./word-tool-relay";
 
 /**
  * The chat itself is the app's SessionRoute (full agent surface, streaming,
@@ -57,6 +58,7 @@ export function WordAddinRoot() {
             <Route path="/workspace/:workspaceId/session/:sessionId" element={<WordChatScreen />} />
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
+          <WordToolRelayHost />
           <LoadingOverlay />
         </LegalworkControlProvider>
       </AppMenuProvider>

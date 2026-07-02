@@ -59,6 +59,8 @@ import {
 } from "./workspace-export-safety.js";
 import { serve, type ServeResult } from "./serve-node.js";
 import { handleWordAddinRequest, loadWordAddinTls, WORD_ADDIN_PATH_PREFIX } from "./word-addin.js";
+import { WordToolRelay } from "./word-tools.js";
+import { registerWordToolRoutes } from "./routes/word-tools.js";
 import { registerCoreRoutes } from "./routes/core.js";
 import { registerFileRoutes } from "./routes/files.js";
 import { registerOperationRoutes } from "./routes/operations.js";
@@ -671,7 +673,8 @@ export async function startServer(config: ServerConfig): Promise<StartedServer> 
     watcherHandle.close();
     watcherHandle = startReloadWatchers({ config, reloadEvents, logger });
   };
-  const routes = createRoutes(config, approvals, tokens, env, restartReloadWatchers);
+  const wordTools = new WordToolRelay();
+  const routes = createRoutes(config, approvals, tokens, env, wordTools, restartReloadWatchers);
 
   const serverOptions: {
     hostname: string;
@@ -1356,6 +1359,7 @@ function createRoutes(
   approvals: ApprovalService,
   tokens: TokenService,
   env: EnvService,
+  wordTools: WordToolRelay,
   onWorkspacesChanged: () => void,
 ): Route[] {
   const routes: Route[] = [];
@@ -1929,6 +1933,16 @@ function createRoutes(
     requireClientScope,
     resolveWorkspace,
     reloadOpencodeEngine,
+  });
+
+  registerWordToolRoutes({
+    routes,
+    config,
+    wordTools,
+    jsonResponse,
+    readJsonBody,
+    requireClientScope,
+    resolveWorkspace,
   });
 
   registerFileRoutes({

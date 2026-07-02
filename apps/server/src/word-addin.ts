@@ -270,13 +270,14 @@ async function serveStaticFile(distPath: string, relativePath: string): Promise<
   }
 
   // Vite emits content-hashed filenames under assets/; everything else
-  // (HTML entry, icons) must revalidate so new builds take effect.
+  // (HTML entry, icons) must never be cached — Word's webview cache is
+  // sticky and `no-cache` without validators still let stale panes survive.
   const immutable = decoded.startsWith("assets/");
   return new Response(new Uint8Array(body), {
     status: 200,
     headers: {
       "Content-Type": contentTypeFor(target),
-      "Cache-Control": immutable ? "public, max-age=31536000, immutable" : "no-cache",
+      "Cache-Control": immutable ? "public, max-age=31536000, immutable" : "no-store",
     },
   });
 }

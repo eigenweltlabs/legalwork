@@ -3,32 +3,66 @@
  *
  * office.js is loaded from the Microsoft CDN in taskpane.html; the globals
  * are typed structurally here (only the members we use) instead of pulling
- * in @types/office-js for a handful of calls. Everything degrades cleanly
- * when the page runs outside of Word (e.g. opened in a plain browser).
+ * in @types/office-js. Everything degrades cleanly when the page runs
+ * outside of Word (e.g. opened in a plain browser).
  */
 
 type OfficeHostInfo = { host?: unknown; platform?: unknown };
 
 type OfficeNamespace = {
   onReady: (callback?: (info: OfficeHostInfo) => void) => Promise<OfficeHostInfo> | void;
-};
-
-type WordRange = {
-  text: string;
-  load: (properties: string) => void;
-  insertText: (text: string, insertLocation: string) => void;
-};
-
-type WordBody = {
-  text: string;
-  load: (properties: string) => void;
-};
-
-type WordRunContext = {
-  document: {
-    body: WordBody;
-    getSelection: () => WordRange;
+  context?: {
+    requirements?: { isSetSupported?: (name: string, version?: string) => boolean };
+    document?: { url?: string | null };
   };
+};
+
+export type WordParagraph = {
+  text: string;
+  load: (properties: string) => void;
+};
+
+export type WordParagraphCollection = {
+  items: WordParagraph[];
+  load: (properties: string) => void;
+};
+
+export type WordRange = {
+  text: string;
+  load: (properties: string) => void;
+  insertText: (text: string, insertLocation: string) => WordRange;
+  insertComment: (commentText: string) => unknown;
+  delete: () => void;
+  paragraphs: WordParagraphCollection;
+};
+
+export type WordRangeCollection = {
+  items: WordRange[];
+  load: (properties: string) => void;
+};
+
+export type WordSearchOptions = {
+  matchCase?: boolean;
+  matchWholeWord?: boolean;
+  matchWildcards?: boolean;
+};
+
+export type WordBody = {
+  text: string;
+  load: (properties: string) => void;
+  insertText: (text: string, insertLocation: string) => WordRange;
+  search: (searchText: string, options?: WordSearchOptions) => WordRangeCollection;
+};
+
+export type WordDocumentProxy = {
+  body: WordBody;
+  getSelection: () => WordRange;
+  changeTrackingMode: string;
+  load: (properties: string) => void;
+};
+
+export type WordRunContext = {
+  document: WordDocumentProxy;
   sync: () => Promise<void>;
 };
 
@@ -68,6 +102,22 @@ export function isWordDocumentHost(): boolean {
   return readyHost?.toLowerCase() === "word" && Boolean(officeGlobals().word);
 }
 
+/** Check a Word requirement set, e.g. isWordApiSupported("1.4") for tracking/comments. */
+export function isWordApiSupported(version: string): boolean {
+  const supported = officeGlobals().office?.context?.requirements?.isSetSupported;
+  try {
+    return supported ? supported("WordApi", version) : false;
+  } catch {
+    return false;
+  }
+}
+
+/** URL/path of the open document, when the host exposes it. */
+export function getDocumentUrl(): string | null {
+  const url = officeGlobals().office?.context?.document?.url;
+  return typeof url === "string" && url.trim() ? url : null;
+}
+
 function requireWord(): WordNamespace {
   const { word } = officeGlobals();
   if (!word) {
@@ -76,8 +126,13 @@ function requireWord(): WordNamespace {
   return word;
 }
 
+/** Run a Word.run batch. Throws outside of Word. */
+export function wordRun<T>(batch: (context: WordRunContext) => Promise<T>): Promise<T> {
+  return requireWord().run(batch);
+}
+
 export async function readSelectionText(): Promise<string> {
-  return requireWord().run(async (context) => {
+  return wordRun(async (context) => {
     const selection = context.document.getSelection();
     selection.load("text");
     await context.sync();
@@ -86,7 +141,7 @@ export async function readSelectionText(): Promise<string> {
 }
 
 export async function readDocumentText(): Promise<string> {
-  return requireWord().run(async (context) => {
+  return wordRun(async (context) => {
     const body = context.document.body;
     body.load("text");
     await context.sync();
@@ -96,7 +151,7 @@ export async function readDocumentText(): Promise<string> {
 
 /** Replace the current selection (or insert at the cursor) with plain text. */
 export async function insertTextAtSelection(text: string): Promise<void> {
-  await requireWord().run(async (context) => {
+  await wordRun(async (context) => {
     context.document.getSelection().insertText(text, "Replace");
     await context.sync();
   });

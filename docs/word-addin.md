@@ -102,6 +102,23 @@ The ribbon gets an **Open LegalWork** button (Home tab) that opens the pane.
 | `--word-addin-key` | `LEGALWORK_WORD_ADDIN_KEY` | `wordAddin.keyPath` | `~/.office-addin-dev-certs/localhost.key` |
 | `--word-addin-dist` | `LEGALWORK_WORD_ADDIN_DIST` | `wordAddin.distPath` | `apps/app/dist-word-addin` (monorepo layout) |
 
+## Agent document tools
+
+When the pane is open inside Word, the agent gets `word_*` tools (via the
+`legalwork-word-tools` OpenCode plugin) to read and edit the open document:
+`word_read_document`, `word_read_selection`, `word_search`,
+`word_replace_text`, `word_insert_text`, `word_add_comment`.
+
+Flow: tool call → `POST /workspace/:id/word-tools/execute` on
+legalwork-server → the pane (long-polling `/word-tools/poll`) executes it
+through Office.js and posts the result back. Edits are anchor-based (exact
+text snippets, not offsets) and run with Word change tracking forced to
+`TrackAll`, so every agent edit is a native redline the user accepts or
+rejects in Word. On Word versions without WordApi 1.4 (change-tracking
+control), edits are refused rather than applied silently. When no pane is
+connected the tools return a clear error and the agent tells the user to
+open the pane.
+
 ## Security notes
 
 - The bootstrap endpoint returns the collaborator-scoped client token. It is

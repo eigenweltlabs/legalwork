@@ -121,7 +121,7 @@ describe("word add-in hosting", () => {
 
     const entry = await fetch(`${baseUrl}/word-addin/taskpane.html`);
     expect(entry.status).toBe(200);
-    expect(entry.headers.get("cache-control")).toBe("no-cache");
+    expect(entry.headers.get("cache-control")).toBe("no-store");
 
     const asset = await fetch(`${baseUrl}/word-addin/assets/taskpane-abc123.js`);
     expect(asset.status).toBe(200);

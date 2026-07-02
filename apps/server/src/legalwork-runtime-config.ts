@@ -20,6 +20,7 @@ import {
   legalworkCapabilitiesKnowledgePluginPath,
   legalworkAnthropicAdaptiveThinkingPluginPath,
   legalworkAnthropicToolSchemaPluginPath,
+  legalworkWordToolsPluginPath,
 } from "./legalwork-extensions-plugin-path.js";
 import type { ServerConfig } from "./types.js";
 import {
@@ -107,6 +108,7 @@ export async function buildLegalworkRuntimeConfigObject(
       legalworkCapabilitiesKnowledgePluginPath(),
       legalworkAnthropicAdaptiveThinkingPluginPath(),
       legalworkAnthropicToolSchemaPluginPath(),
+      legalworkWordToolsPluginPath(),
       ...runtimePluginList(runtimeConfig),
     ],
     ...(disabledProviders.length ? { disabled_providers: disabledProviders } : {}),
