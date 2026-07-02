@@ -908,7 +908,13 @@ export function SessionPage(props: SessionPageProps) {
             <main className="flex h-full min-w-0 flex-1 flex-col overflow-hidden">
               <header className="z-10 flex h-10 shrink-0 items-center justify-between border-b border-border px-4 md:px-6 mac:titlebar-drag mac:backdrop-blur-2xl mac:backdrop-saturate-150">
                 <div className="flex min-w-0 items-center gap-3">
-                  {shellConfig.sidebar ? <SidebarTrigger className="mac:hidden" /> : null}
+                  {shellConfig.sidebar ? (
+                <SidebarTrigger className="mac:hidden" />
+              ) : (
+                // Keeps the title clear of overlaid leading controls (e.g. the
+                // Word pane back button) when the sidebar trigger is hidden.
+                <span aria-hidden className="w-6 shrink-0" />
+              )}
                 </div>
                 <div className="flex items-center gap-1.5 text-gray-10 mac:titlebar-no-drag">
                   <NotificationBell />
@@ -942,7 +948,13 @@ export function SessionPage(props: SessionPageProps) {
               <main className="flex h-full min-w-0 flex-col overflow-hidden border-r border-border">
           <header className="z-10 flex h-10 shrink-0 items-center justify-between border-b border-border px-4 md:px-6 mac:titlebar-drag  mac:backdrop-blur-2xl mac:backdrop-saturate-150 @container/titlebar">
             <div className="flex min-w-0 items-center gap-3">
-              {shellConfig.sidebar ? <SidebarTrigger className="mac:hidden" /> : null}
+              {shellConfig.sidebar ? (
+                <SidebarTrigger className="mac:hidden" />
+              ) : (
+                // Keeps the title clear of overlaid leading controls (e.g. the
+                // Word pane back button) when the sidebar trigger is hidden.
+                <span aria-hidden className="w-6 shrink-0" />
+              )}
               <h1 className="truncate text-[15px] font-semibold text-dls-text">
                 {showWorkspaceSetupEmptyState
                   ? t("session.create_or_connect_workspace")
@@ -1347,6 +1359,7 @@ export function SessionPage(props: SessionPageProps) {
               </>
             ) : null}
           </ResizablePanelGroup>
+          {shellConfig.panelRail ? (
           <aside className="flex w-11 shrink-0 flex-col items-center gap-1 border-l border-border bg-background/95 px-1 py-2 text-muted-foreground mac:titlebar-no-drag">
             {isElectronRuntime() ? (
               <Button
@@ -1430,6 +1443,7 @@ export function SessionPage(props: SessionPageProps) {
               <Settings2 size={17} />
             </Button>
           </aside>
+          ) : null}
           </div>
         </SidebarInset>
         )}

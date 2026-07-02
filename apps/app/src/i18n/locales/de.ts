@@ -104,6 +104,21 @@ const de: Record<string, string> = {
   "word_addin.selection_context_label": "Ausgewählter Text aus dem Word-Dokument:",
   "word_addin.document_context_label": "Text des Word-Dokuments:",
   "word_addin.context_truncated": "(Das Dokument wurde gekürzt, da es sehr lang ist.)",
+  "word_addin.workspaces_title": "Workspaces",
+  "word_addin.new_workspace": "Neuer Workspace",
+  "word_addin.workspace_name": "Name",
+  "word_addin.workspace_folder": "Ordnerpfad",
+  "word_addin.create": "Erstellen",
+  "word_addin.creating": "Wird erstellt…",
+  "word_addin.cancel": "Abbrechen",
+  "word_addin.no_workspaces": "Noch keine Workspaces. Erstelle einen, um loszulegen.",
+  "word_addin.sessions_title": "Sessions",
+  "word_addin.new_session": "Neue Session",
+  "word_addin.no_sessions": "Noch keine Sessions. Starte eine neue über den +‑Button.",
+  "word_addin.back": "Zurück",
+  "word_addin.loading": "Wird geladen…",
+  "word_addin.load_failed": "Daten konnten nicht von LegalWork geladen werden.",
+  "word_addin.retry": "Erneut versuchen",
 };
 
 export default de;

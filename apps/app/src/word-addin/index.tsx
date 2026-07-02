@@ -32,12 +32,14 @@ function seedWordPaneShellConfig() {
       SHELL_CONFIG_STORAGE_KEY,
       JSON.stringify({
         ...DEFAULT_SHELL_CONFIG,
+        sidebar: false,
         statusBar: false,
         welcomePage: false,
         cloudSignin: false,
         browser: false,
         addWorkspace: false,
         notifications: false,
+        panelRail: false,
       }),
     );
   } catch {
