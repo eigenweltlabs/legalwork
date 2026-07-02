@@ -2,7 +2,6 @@
 import type * as React from "react";
 import {
   ArrowLeft,
-  Bot,
   Bug,
   ChevronDown,
   CloudCog,
@@ -65,8 +64,6 @@ export function getSettingsTabIcon(tab: SettingsTab) {
       return Layout;
     case "permissions":
       return FolderLock;
-    case "agents":
-      return Bot;
     case "cloud-account":
       return UserCircle;
     case "cloud-marketplaces":
@@ -106,8 +103,6 @@ export function getSettingsTabLabel(tab: SettingsTab) {
       return "Customization";
     case "permissions":
       return "Permissions";
-    case "agents":
-      return "Agents";
     case "cloud-account":
       return t("settings.tab_cloud_account");
     case "cloud-marketplaces":
@@ -149,8 +144,6 @@ export function getSettingsTabDescription(tab: SettingsTab) {
       return "Branding and task suggestions";
     case "permissions":
       return "Authorized folders and file access";
-    case "agents":
-      return "Author the AI agents and subagents this workspace uses";
     case "cloud-account":
       return t("settings.tab_description_cloud_account");
     case "cloud-marketplaces":
@@ -186,7 +179,7 @@ export function getWorkspaceSettingsTabs(): SettingsTab[] {
   // Skills now live in the Integrations page (as a tab between Connectors and
   // Plugins); Workflows and Integrations (extensions) are top-level pages in the
   // main app shell. Preferences (Model) and Advanced are hidden.
-  return ["permissions", "agents"];
+  return ["permissions"];
 }
 
 export function getGlobalSettingsTabs(developerMode: boolean): SettingsTab[] {

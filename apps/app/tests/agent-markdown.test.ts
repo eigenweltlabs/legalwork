@@ -1,8 +1,10 @@
 import { describe, expect, test } from "bun:test";
 
 import {
+  agentBadgeKind,
   agentFilePath,
   agentFormFromDefinition,
+  agentModeForAddChoice,
   agentFormToDefinition,
   emptyAgentDefinition,
   emptyAgentForm,
@@ -271,7 +273,20 @@ describe("agent form state", () => {
 });
 
 describe("agent file path", () => {
-  test("builds workspace-relative paths", () => {
-    expect(agentFilePath("diligence-reviewer")).toBe(".opencode/agents/diligence-reviewer.md");
+  test("builds paths relative to the global opencode config dir", () => {
+    expect(agentFilePath("diligence-reviewer")).toBe("agents/diligence-reviewer.md");
+  });
+});
+
+describe("workflows add flow", () => {
+  test("maps the Agent/Subagent choices to builder modes", () => {
+    expect(agentModeForAddChoice("agent")).toBe("primary");
+    expect(agentModeForAddChoice("subagent")).toBe("subagent");
+  });
+
+  test("maps agent modes to workflows-list badges", () => {
+    expect(agentBadgeKind("primary")).toBe("agent");
+    expect(agentBadgeKind("all")).toBe("agent");
+    expect(agentBadgeKind("subagent")).toBe("subagent");
   });
 });

@@ -232,6 +232,12 @@ export type OpencodeConfigFile = {
   content: string | null;
 };
 
+/** An agent markdown file in the global opencode config dir (`agents/<name>.md`). */
+export type OpencodeAgentFile = {
+  name: string;
+  content: string;
+};
+
 export type UpdaterEnvironment = {
   supported: boolean;
   reason: string | null;
@@ -353,6 +359,15 @@ export type DesktopCommandMap = {
     args: [input: { scope: string; projectDir?: string; name: string }];
     result: unknown;
   };
+
+  // Opencode agents — application-wide markdown files in the global opencode
+  // config dir; the engine discovers them for every local workspace.
+  opencodeAgentList: { args: []; result: OpencodeAgentFile[] };
+  opencodeAgentWrite: {
+    args: [input: { name: string; content: string }];
+    result: ExecResult;
+  };
+  opencodeAgentDelete: { args: [input: { name: string }]; result: ExecResult };
 
   // Engine / runtime lifecycle
   engineStart: { args: [projectDir: string, options?: Record<string, unknown>]; result: EngineInfo };

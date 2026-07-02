@@ -1,6 +1,11 @@
-// Pure logic for the Agents settings view (EIG-61): parsing/serializing the
-// `.opencode/agents/<name>.md` files opencode discovers as agents/subagents,
-// plus name validation and builder-form state helpers.
+// Pure logic for the agent builder (EIG-61): parsing/serializing the agent
+// markdown files opencode discovers as agents/subagents, plus name validation
+// and builder-form state helpers.
+//
+// Authored agents are application-wide: they live in the global opencode
+// config dir (`~/.config/opencode/agents/<name>.md`), which the engine merges
+// into every local workspace's config (v1.17.3 scans `{agent,agents}/**/*.md`
+// under each config directory, starting with the global one).
 //
 // The frontmatter schema is the small AgentConfig subset the builder edits
 // (description, mode, model, temperature, tools, permission). The app has no
@@ -8,8 +13,10 @@
 // unknown frontmatter entries verbatim so round-tripping a hand-edited file
 // never loses data.
 
-export const AGENTS_DIR = ".opencode/agents";
+/** Agents dir inside the global opencode config dir (`~/.config/opencode`). */
+export const AGENTS_DIR = "agents";
 
+/** Path of an agent file relative to the global opencode config dir. */
 export function agentFilePath(name: string): string {
   return `${AGENTS_DIR}/${name}.md`;
 }
@@ -407,7 +414,24 @@ export function toggleAgentTool(
   return next;
 }
 
-/** Sets a permission override; null clears it back to the workspace default. */
+// ---------------------------------------------------------------------------
+// Workflows-view add flow
+// ---------------------------------------------------------------------------
+
+/** Add-flow choices in the workflows view that create an agent, not a skill. */
+export type AgentAddChoice = "agent" | "subagent";
+
+/** Maps a workflows-view add choice to the mode the builder is preset to. */
+export function agentModeForAddChoice(choice: AgentAddChoice): AgentMode {
+  return choice === "subagent" ? "subagent" : "primary";
+}
+
+/** Which badge the workflows list shows for an authored agent. */
+export function agentBadgeKind(mode: AgentMode): AgentAddChoice {
+  return mode === "subagent" ? "subagent" : "agent";
+}
+
+/** Sets a permission override; null clears it back to the default. */
 export function setAgentPermission(
   permission: Partial<Record<AgentPermissionKey, AgentPermissionAction>>,
   key: AgentPermissionKey,

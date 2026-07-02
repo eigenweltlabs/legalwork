@@ -9,9 +9,11 @@ import {
   type SetStateAction,
 } from "react";
 import {
+  Bot,
   Download,
   Edit2,
   FolderOpen,
+  Layers,
   Loader2,
   Package,
   Plus,
@@ -44,6 +46,8 @@ import {
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import { ConfirmModal } from "@/react-app/design-system/modals/confirm-modal";
+import { agentModeForAddChoice, type AgentAddChoice, type AgentMode } from "../agent-markdown";
+import { WorkflowAgentsSection, type WorkflowAgentsHost } from "./workflow-agents";
 
 type InstallResult = { ok: boolean; message: string };
 type SkillsFilter = "all" | "installed" | "hub";
@@ -134,6 +138,12 @@ export type SkillsViewProps = {
    * in separate views — workflows are marked by a `workflow-<type>-` name prefix.
    */
   kind?: "skills" | "workflows";
+  /**
+   * When set (workflows view on desktop), the add flow also offers "Agent" and
+   * "Subagent", and authored application-wide agents are listed below the
+   * workflows. See WorkflowAgentsSection.
+   */
+  agents?: WorkflowAgentsHost;
 };
 
 // Workflows are ordinary skills tagged with `kind: workflow` frontmatter (surfaced on the
@@ -258,6 +268,16 @@ export function SkillsView(props: SkillsViewProps) {
     [],
   );
 
+  // Application-wide agents (workflows view only): the add flow presets the
+  // builder's mode, and the section below the workflows list renders it.
+  const [agentCreateMode, setAgentCreateMode] = useState<AgentMode | null>(null);
+  const [agentsRefreshToken, setAgentsRefreshToken] = useState(0);
+  const handleAgentCreateModeHandled = useCallback(() => setAgentCreateMode(null), []);
+  const handlePickAgentChoice = useCallback(
+    (choice: AgentAddChoice) => setAgentCreateMode(agentModeForAddChoice(choice)),
+    [],
+  );
+
   useEffect(() => {
     if (SKILLS_HUB_UI_ENABLED) void extensions.ensureHubSkillsFresh();
   }, [extensions]);
@@ -346,7 +366,8 @@ export function SkillsView(props: SkillsViewProps) {
     if (props.busy) return;
     void extensions.refreshSkills({ force: true });
     if (SKILLS_HUB_UI_ENABLED) void extensions.refreshHubSkills({ force: true });
-  }, [extensions, props.busy]);
+    if (props.agents) setAgentsRefreshToken((token) => token + 1);
+  }, [extensions, props.agents, props.busy]);
 
   const installSkillCreator = useCallback(async () => {
     if (props.busy || installingSkillCreator) return;
@@ -524,6 +545,7 @@ export function SkillsView(props: SkillsViewProps) {
                   disabled={props.busy}
                   existingNames={installedNames}
                   onCreate={extensions.createSkill}
+                  onPickAgent={props.agents ? handlePickAgentChoice : undefined}
                 />
               </>
             ) : (
@@ -703,6 +725,17 @@ export function SkillsView(props: SkillsViewProps) {
             </div>
           )}
         </div>
+      ) : null}
+
+      {isWorkflowsView && props.agents ? (
+        <WorkflowAgentsSection
+          busy={props.busy}
+          host={props.agents}
+          searchQuery={searchQuery}
+          refreshToken={agentsRefreshToken}
+          createMode={agentCreateMode}
+          onCreateModeHandled={handleAgentCreateModeHandled}
+        />
       ) : null}
 
 
@@ -1138,6 +1171,8 @@ function WorkflowCreatorButton(props: {
   disabled?: boolean;
   existingNames: Set<string>;
   onCreate: (input: { name: string; content: string; description?: string }) => Promise<{ ok: boolean; message: string }>;
+  /** When set, the type chooser also offers "Agent"/"Subagent" (application-wide agents). */
+  onPickAgent?: (choice: AgentAddChoice) => void;
 }) {
   const [open, setOpen] = useState(false);
   const [type, setType] = useState<WorkflowType | null>(null);
@@ -1195,6 +1230,12 @@ function WorkflowCreatorButton(props: {
   const inputClass =
     "w-full rounded-xl border border-dls-border bg-dls-hover px-3 py-2 text-sm text-dls-text focus:outline-none focus:ring-2 focus:ring-[rgba(var(--dls-accent-rgb),0.25)]";
 
+  const pickAgent = (choice: AgentAddChoice) => {
+    setOpen(false);
+    reset();
+    props.onPickAgent?.(choice);
+  };
+
   return (
     <>
       <button type="button" onClick={() => setOpen(true)} disabled={props.disabled} className={pillPrimaryClass}>
@@ -1216,7 +1257,9 @@ function WorkflowCreatorButton(props: {
                 ? "A tabular workflow runs a review grid: it tells the agent to use the tabular-review skill with the columns you define."
                 : type === "assistant"
                   ? "An assistant workflow is a normal skill — instructions the agent follows for a legal task."
-                  : "Choose how this workflow runs. Saved to your workspace as a SKILL.md."}
+                  : props.onPickAgent
+                    ? t("agents.add_choose_desc")
+                    : "Choose how this workflow runs. Saved to your workspace as a SKILL.md."}
             </DialogDescription>
           </DialogHeader>
 
@@ -1249,6 +1292,32 @@ function WorkflowCreatorButton(props: {
                     A normal skill — step-by-step instructions for a legal task.
                   </span>
                 </button>
+                {props.onPickAgent ? (
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => pickAgent("agent")}
+                      className="flex flex-col gap-2 rounded-2xl border border-dls-border bg-dls-hover p-4 text-left transition-colors hover:border-[rgba(var(--dls-accent-rgb),0.5)]"
+                    >
+                      <Bot size={20} className="text-dls-secondary" />
+                      <span className="text-sm font-semibold text-dls-text">{t("agents.add_choice_agent")}</span>
+                      <span className="text-[12px] leading-relaxed text-dls-secondary">
+                        {t("agents.add_choice_agent_desc")}
+                      </span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => pickAgent("subagent")}
+                      className="flex flex-col gap-2 rounded-2xl border border-dls-border bg-dls-hover p-4 text-left transition-colors hover:border-[rgba(var(--dls-accent-rgb),0.5)]"
+                    >
+                      <Layers size={20} className="text-dls-secondary" />
+                      <span className="text-sm font-semibold text-dls-text">{t("agents.add_choice_subagent")}</span>
+                      <span className="text-[12px] leading-relaxed text-dls-secondary">
+                        {t("agents.add_choice_subagent_desc")}
+                      </span>
+                    </button>
+                  </>
+                ) : null}
               </div>
             ) : (
               <>

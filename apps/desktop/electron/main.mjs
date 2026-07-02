@@ -743,6 +743,60 @@ async function deleteCommandFile(scope, projectDir, name) {
   return execResult(true, `Deleted ${filePath}`);
 }
 
+// Application-wide agents: single markdown files in the global opencode config
+// dir. opencode (v1.17.3) scans `{agent,agents}/**/*.md` under every config
+// directory — the global one first — so a file here defines the agent for all
+// local workspaces. Same pattern as the global commands/skills dirs above.
+function globalAgentsDir() {
+  return path.join(globalOpencodeRoot(), "agents");
+}
+
+function sanitizeAgentName(raw) {
+  const trimmed = String(raw ?? "").trim();
+  return /^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(trimmed) && trimmed.length <= 64 ? trimmed : null;
+}
+
+async function listGlobalAgentFiles() {
+  const agentsDir = globalAgentsDir();
+  if (!(await isDirectory(agentsDir))) {
+    return [];
+  }
+  const entries = await readdir(agentsDir, { withFileTypes: true });
+  const out = [];
+  for (const entry of entries) {
+    if (!entry.isFile() || !entry.name.endsWith(".md")) continue;
+    out.push({
+      name: entry.name.replace(/\.md$/, ""),
+      content: await readFile(path.join(agentsDir, entry.name), "utf8"),
+    });
+  }
+  return out.sort((a, b) => a.name.localeCompare(b.name));
+}
+
+async function writeGlobalAgentFile(name, content) {
+  const safeName = sanitizeAgentName(name);
+  if (!safeName) {
+    throw new Error("agent name must be a lowercase kebab-case slug");
+  }
+  const agentsDir = globalAgentsDir();
+  await mkdir(agentsDir, { recursive: true });
+  const filePath = path.join(agentsDir, `${safeName}.md`);
+  await writeFile(filePath, String(content ?? ""), "utf8");
+  return execResult(true, `Wrote ${filePath}`);
+}
+
+async function deleteGlobalAgentFile(name) {
+  const safeName = sanitizeAgentName(name);
+  if (!safeName) {
+    throw new Error("agent name must be a lowercase kebab-case slug");
+  }
+  const filePath = path.join(globalAgentsDir(), `${safeName}.md`);
+  if (await pathExists(filePath)) {
+    await rm(filePath, { force: true });
+  }
+  return execResult(true, `Deleted ${filePath}`);
+}
+
 async function collectProjectSkillRoots(projectDir) {
   const roots = [];
   if (!String(projectDir ?? "").trim()) return roots;
@@ -1011,6 +1065,15 @@ const desktopCommandHandlers = {
         String(args[0]?.projectDir ?? "").trim(),
         String(args[0]?.name ?? "").trim(),
       );
+  },
+  "opencodeAgentList": async () => {
+      return listGlobalAgentFiles();
+  },
+  "opencodeAgentWrite": async (event, ...args) => {
+      return writeGlobalAgentFile(String(args[0]?.name ?? ""), String(args[0]?.content ?? ""));
+  },
+  "opencodeAgentDelete": async (event, ...args) => {
+      return deleteGlobalAgentFile(String(args[0]?.name ?? ""));
   },
   "engineStart": async (event, ...args) => {
       const projectDir = String(args[0] ?? "").trim();

@@ -67,7 +67,6 @@ import { GeneralSettingsView } from "@/react-app/domains/settings/pages/general-
 import { AuthorizedFoldersPanel } from "@/react-app/domains/settings/panels/authorized-folders-panel";
 import { SettingsStack } from "@/react-app/domains/settings/settings-section";
 import { AdvancedView } from "@/react-app/domains/settings/pages/advanced-view";
-import { AgentsView } from "@/react-app/domains/settings/pages/agents-view";
 import { AppearanceView } from "@/react-app/domains/settings/pages/appearance-view";
 import { DebugView } from "@/react-app/domains/settings/pages/debug-view";
 import { EnvironmentView } from "@/react-app/domains/settings/pages/environment-view";
@@ -203,7 +202,6 @@ function parseSettingsPath(pathname: string): {
     case "ai":
     case "preferences":
     case "permissions":
-    case "agents":
     case "shell":
     case "advanced":
     case "appearance":
@@ -1769,18 +1767,6 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
             />
           </SettingsStack>
         );
-      case "agents":
-        return (
-          <AgentsView
-            busy={busy}
-            opencodeClient={opencodeClient}
-            opencodeBaseUrl={opencodeBaseUrl}
-            workspaceRoot={selectedWorkspaceRoot}
-            legalworkServerClient={legalworkClient}
-            workspaceId={runtimeWorkspaceId}
-            onReloadEngine={reloadWorkspaceEngineFromUi}
-          />
-        );
       case "ai":
         return (
           <AiSettingsView
@@ -1831,6 +1817,16 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
             canUseDesktopTools={!isRemoteWorkspace}
             accessHint={skillsAccessHint}
             extensions={extensionsStore}
+            agents={
+              route.tab === "workflows" && !isRemoteWorkspace && isDesktopRuntime()
+                ? {
+                    opencodeClient,
+                    opencodeBaseUrl,
+                    workspaceRoot: selectedWorkspaceRoot,
+                    onReloadEngine: reloadWorkspaceEngineFromUi,
+                  }
+                : undefined
+            }
             onOpenLink={(url) => platform.openLink(url)}
             createSessionAndOpen={async (_command?: string): Promise<string | undefined> => {
               props.onClose?.();

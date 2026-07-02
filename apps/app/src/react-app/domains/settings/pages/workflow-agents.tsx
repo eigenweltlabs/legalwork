@@ -1,18 +1,23 @@
 /** @jsxImportSource react */
-// Agents settings view (EIG-61): a GUI builder for opencode agents/subagents.
-// Lists agents from the engine (`GET /agent`), and creates/edits/deletes the
-// workspace-authored ones stored as `.opencode/agents/<name>.md` files via the
-// same LegalWork workspace-file endpoints the messaging view uses.
+// Application-wide agent builder, surfaced in the Workflows settings view
+// (EIG-61). Authored agents are single markdown files in the global opencode
+// config dir (`~/.config/opencode/agents/<name>.md`): the engine merges that
+// dir into every local workspace's config, so an agent saved here is available
+// everywhere — same model as global skills, plugins, and integrations.
+//
+// Files are read/written/deleted through the desktop bridge (opencodeAgent*
+// IPC, the same pattern as the global opencode command files), and the engine
+// is reloaded after save/delete so the composer's agent picker refreshes.
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Bot, Edit2, Loader2, Plus, RefreshCw, Trash2 } from "lucide-react";
-import type { Agent } from "@opencode-ai/sdk/v2/client";
+import { Bot, Edit2, Loader2, Trash2 } from "lucide-react";
 
 import type { Client } from "@/app/types";
 import { unwrap } from "@/app/lib/opencode";
 import {
-  LegalworkServerError,
-  type LegalworkServerClient,
-} from "@/app/lib/legalwork-server";
+  opencodeAgentDelete,
+  opencodeAgentList,
+  opencodeAgentWrite,
+} from "@/app/lib/desktop";
 import { t } from "@/i18n";
 import { Button } from "@/components/ui/button";
 import {
@@ -35,7 +40,6 @@ import {
 import { Switch } from "@/components/ui/switch";
 import { toast } from "@/components/ui/sonner";
 import { ConfirmModal } from "@/react-app/design-system/modals/confirm-modal";
-import { pillPrimaryClass } from "@/react-app/domains/workspace/modal-styles";
 import {
   getConnectedProviderItems,
   useProviderListQuery,
@@ -43,6 +47,7 @@ import {
 import {
   AGENT_PERMISSION_KEYS,
   AGENT_TOOL_KEYS,
+  agentBadgeKind,
   agentFilePath,
   agentFormFromDefinition,
   agentFormToDefinition,
@@ -53,7 +58,9 @@ import {
   setAgentPermission,
   toggleAgentTool,
   validateAgentForm,
+  type AgentDefinition,
   type AgentFormState,
+  type AgentMode,
   type AgentPermissionAction,
   type AgentPermissionKey,
   type AgentToolKey,
@@ -67,87 +74,79 @@ const rowIconBtnClass =
 const inputClass =
   "w-full rounded-xl border border-dls-border bg-dls-hover px-3 py-2 text-sm text-dls-text focus:outline-none focus:ring-2 focus:ring-[rgba(var(--dls-accent-rgb),0.25)]";
 
-const TOOL_LABELS: Record<AgentToolKey, string> = {
-  read: "Read files",
-  write: "Create files",
-  edit: "Edit files",
-  patch: "Patch files",
-  bash: "Run terminal commands",
-  webfetch: "Fetch web pages",
+const TOOL_LABELS: Record<AgentToolKey, () => string> = {
+  read: () => t("agents.tool_read"),
+  write: () => t("agents.tool_write"),
+  edit: () => t("agents.tool_edit"),
+  patch: () => t("agents.tool_patch"),
+  bash: () => t("agents.tool_bash"),
+  webfetch: () => t("agents.tool_webfetch"),
 };
 
-const PERMISSION_LABELS: Record<AgentPermissionKey, string> = {
-  edit: "Editing files",
-  bash: "Terminal commands",
-  webfetch: "Fetching web pages",
+const PERMISSION_LABELS: Record<AgentPermissionKey, () => string> = {
+  edit: () => t("agents.permission_edit"),
+  bash: () => t("agents.permission_bash"),
+  webfetch: () => t("agents.permission_webfetch"),
 };
 
-const PERMISSION_OPTIONS: Array<{ value: string; label: string }> = [
-  { value: "", label: "Workspace default" },
-  { value: "allow", label: "Allow" },
-  { value: "ask", label: "Ask first" },
-  { value: "deny", label: "Never allow" },
-];
-
-const MODE_OPTIONS: Array<{ value: string; label: string }> = [
-  { value: "primary", label: "Primary — users can chat with it" },
-  { value: "subagent", label: "Subagent — other agents delegate to it" },
-  { value: "all", label: "Primary and subagent" },
-];
-
-function modeTag(mode: Agent["mode"]): string {
-  if (mode === "subagent") return "Subagent";
-  if (mode === "primary") return "Primary";
-  return "Primary + subagent";
-}
+const MODE_LABELS: Record<AgentMode, () => string> = {
+  primary: () => t("agents.mode_primary"),
+  subagent: () => t("agents.mode_subagent"),
+  all: () => t("agents.mode_all"),
+};
 
 function formatError(error: unknown): string {
-  if (error instanceof LegalworkServerError) return `${error.message} (${error.status})`;
   return error instanceof Error ? error.message : String(error);
 }
 
-type AgentListEntry = {
-  agent: Agent;
-  /** Set when a `.opencode/agents/<name>.md` file exists — i.e. editable. */
-  fileUpdatedAt: number | null;
-  hasFile: boolean;
+type AgentEntry = {
+  name: string;
+  definition: AgentDefinition;
 };
 
 type EditorState = {
   isNew: boolean;
   form: AgentFormState;
-  baseUpdatedAt: number | null;
   saving: boolean;
   error: string | null;
 };
 
-export type AgentsViewProps = {
-  busy: boolean;
+/** Everything the section needs from the settings route. */
+export type WorkflowAgentsHost = {
   opencodeClient: Client | null;
   opencodeBaseUrl: string;
   workspaceRoot: string;
-  legalworkServerClient: LegalworkServerClient | null;
-  workspaceId: string | null;
-  /** Reloads the workspace engine so newly saved agent files are picked up. */
+  /** Reloads the workspace engine so saved agent files reach the agent picker. */
   onReloadEngine: () => Promise<boolean>;
 };
 
-export function AgentsView(props: AgentsViewProps) {
-  const { opencodeClient, legalworkServerClient, workspaceId } = props;
-  const [entries, setEntries] = useState<AgentListEntry[]>([]);
+export type WorkflowAgentsSectionProps = {
+  busy: boolean;
+  host: WorkflowAgentsHost;
+  /** The workflows view's search box also filters this section. */
+  searchQuery: string;
+  /** Bumped by the workflows view's refresh button. */
+  refreshToken: number;
+  /** Set by the add flow ("Agent"/"Subagent" choice); opens the builder preset to it. */
+  createMode: AgentMode | null;
+  onCreateModeHandled: () => void;
+};
+
+export function WorkflowAgentsSection(props: WorkflowAgentsSectionProps) {
+  const { host, createMode, onCreateModeHandled } = props;
+  const [entries, setEntries] = useState<AgentEntry[]>([]);
   const [loading, setLoading] = useState(false);
   const [listError, setListError] = useState<string | null>(null);
   const [editor, setEditor] = useState<EditorState | null>(null);
-  const [openingName, setOpeningName] = useState<string | null>(null);
-  const [deleteTarget, setDeleteTarget] = useState<AgentListEntry | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<AgentEntry | null>(null);
   const [deleting, setDeleting] = useState(false);
-
-  const canEditFiles = Boolean(legalworkServerClient && workspaceId);
+  // Built-in engine agents (build, plan, ...) so a new agent cannot shadow one.
+  const [engineNames, setEngineNames] = useState<ReadonlySet<string>>(new Set());
 
   const providerList = useProviderListQuery({
-    client: opencodeClient,
-    baseUrl: props.opencodeBaseUrl,
-    directory: props.workspaceRoot,
+    client: host.opencodeClient,
+    baseUrl: host.opencodeBaseUrl,
+    directory: host.workspaceRoot,
   });
   const modelGroups = useMemo(
     () =>
@@ -162,91 +161,80 @@ export function AgentsView(props: AgentsViewProps) {
   );
 
   const refresh = useCallback(async () => {
-    if (!opencodeClient) {
-      setEntries([]);
-      return;
-    }
     setLoading(true);
     setListError(null);
     try {
-      const agents = unwrap(await opencodeClient.app.agents()).filter((agent) => !agent.hidden);
-      const stats = await Promise.all(
-        agents.map(async (agent) => {
-          if (!legalworkServerClient || !workspaceId) return null;
-          try {
-            return await legalworkServerClient.statWorkspaceFile(workspaceId, agentFilePath(agent.name));
-          } catch {
-            return null;
-          }
-        }),
-      );
+      const files = await opencodeAgentList();
       setEntries(
-        agents
-          .map((agent, index) => {
-            const stat = stats[index];
-            const hasFile = stat?.exists === true && stat.kind !== "dir";
-            return {
-              agent,
-              hasFile,
-              fileUpdatedAt: hasFile && typeof stat?.updatedAt === "number" ? stat.updatedAt : null,
-            };
-          })
-          .sort((a, b) => {
-            if (a.hasFile !== b.hasFile) return a.hasFile ? -1 : 1;
-            return a.agent.name.localeCompare(b.agent.name);
-          }),
+        files.map((file) => ({
+          name: file.name,
+          definition: parseAgentMarkdown(file.content),
+        })),
       );
     } catch (error) {
       setListError(formatError(error));
     } finally {
       setLoading(false);
     }
-  }, [legalworkServerClient, opencodeClient, workspaceId]);
+  }, []);
 
   useEffect(() => {
     void refresh();
-  }, [refresh]);
+  }, [refresh, props.refreshToken]);
 
-  const existingNames = useMemo(
-    () => new Set(entries.map((entry) => entry.agent.name)),
-    [entries],
-  );
+  useEffect(() => {
+    const client = host.opencodeClient;
+    if (!client) return;
+    let cancelled = false;
+    void client.app
+      .agents()
+      .then((result) => {
+        if (cancelled) return;
+        setEngineNames(new Set(unwrap(result).map((agent) => agent.name)));
+      })
+      .catch(() => {
+        // Reserved-name checks degrade gracefully when the engine is offline.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [host.opencodeClient]);
 
-  const openCreate = useCallback(() => {
+  const existingNames = useMemo(() => {
+    const names = new Set(engineNames);
+    for (const entry of entries) names.add(entry.name);
+    return names;
+  }, [engineNames, entries]);
+
+  useEffect(() => {
+    if (!createMode) return;
     setEditor({
       isNew: true,
-      form: { ...emptyAgentForm(), mode: "primary" },
-      baseUpdatedAt: null,
+      form: { ...emptyAgentForm(), mode: createMode },
+      saving: false,
+      error: null,
+    });
+    onCreateModeHandled();
+  }, [createMode, onCreateModeHandled]);
+
+  const filteredEntries = useMemo(() => {
+    const query = props.searchQuery.trim().toLowerCase();
+    if (!query) return entries;
+    return entries.filter(
+      (entry) =>
+        entry.name.toLowerCase().includes(query) ||
+        entry.definition.description.toLowerCase().includes(query),
+    );
+  }, [entries, props.searchQuery]);
+
+  const openEdit = useCallback((entry: AgentEntry) => {
+    setEditor({
+      isNew: false,
+      form: agentFormFromDefinition(entry.name, entry.definition),
       saving: false,
       error: null,
     });
   }, []);
-
-  const openEdit = useCallback(
-    async (entry: AgentListEntry) => {
-      if (!legalworkServerClient || !workspaceId || openingName) return;
-      setOpeningName(entry.agent.name);
-      try {
-        const file = await legalworkServerClient.readWorkspaceFile(
-          workspaceId,
-          agentFilePath(entry.agent.name),
-        );
-        const definition = parseAgentMarkdown(file.content);
-        setEditor({
-          isNew: false,
-          form: agentFormFromDefinition(entry.agent.name, definition),
-          baseUpdatedAt: typeof file.updatedAt === "number" ? file.updatedAt : null,
-          saving: false,
-          error: null,
-        });
-      } catch (error) {
-        toast.error(formatError(error));
-      } finally {
-        setOpeningName(null);
-      }
-    },
-    [legalworkServerClient, openingName, workspaceId],
-  );
 
   const updateForm = useCallback((update: Partial<AgentFormState>) => {
     setEditor((current) =>
@@ -255,7 +243,7 @@ export function AgentsView(props: AgentsViewProps) {
   }, []);
 
   const saveEditor = useCallback(async () => {
-    if (!editor || editor.saving || !legalworkServerClient || !workspaceId) return;
+    if (!editor || editor.saving) return;
     const errors = validateAgentForm(editor.form, {
       isNew: editor.isNew,
       existingNames,
@@ -269,94 +257,68 @@ export function AgentsView(props: AgentsViewProps) {
     try {
       const name = editor.form.name.trim();
       const content = serializeAgentMarkdown(agentFormToDefinition(editor.form));
-      await legalworkServerClient.writeWorkspaceFile(workspaceId, {
-        path: agentFilePath(name),
-        content,
-        ...(editor.baseUpdatedAt !== null ? { baseUpdatedAt: editor.baseUpdatedAt } : {}),
-      });
+      const result = await opencodeAgentWrite({ name, content });
+      if (!result.ok) {
+        throw new Error(result.stderr || result.stdout || t("common.something_went_wrong"));
+      }
       setEditor(null);
-      toast.success(editor.isNew ? "Agent created." : "Agent saved.");
-      await props.onReloadEngine();
+      toast.success(editor.isNew ? t("agents.created") : t("agents.saved"));
+      await host.onReloadEngine();
       await refresh();
     } catch (error) {
-      const message =
-        error instanceof LegalworkServerError && error.status === 409
-          ? "This agent file changed elsewhere. Close the editor and reopen it to load the latest version."
-          : formatError(error);
+      const message = formatError(error);
       setEditor((current) => (current ? { ...current, saving: false, error: message } : current));
     }
-  }, [editor, existingNames, legalworkServerClient, props, refresh, workspaceId]);
+  }, [editor, existingNames, host, refresh]);
 
   const deleteAgent = useCallback(async () => {
     const target = deleteTarget;
-    if (!target || deleting || !legalworkServerClient || !workspaceId) return;
+    if (!target || deleting) return;
     setDeleting(true);
     try {
-      const results = await legalworkServerClient.deleteWorkspaceFiles(workspaceId, [
-        { path: agentFilePath(target.agent.name) },
-      ]);
-      const failed = results.find((result) => !result.ok);
-      if (failed) {
-        toast.error(`Could not delete the agent file (${failed.code ?? "unknown error"}).`);
-        return;
+      const result = await opencodeAgentDelete({ name: target.name });
+      if (!result.ok) {
+        throw new Error(result.stderr || result.stdout || t("common.something_went_wrong"));
       }
       setDeleteTarget(null);
-      toast.success("Agent deleted.");
-      await props.onReloadEngine();
+      toast.success(t("agents.deleted"));
+      await host.onReloadEngine();
       await refresh();
     } catch (error) {
       toast.error(formatError(error));
     } finally {
       setDeleting(false);
     }
-  }, [deleteTarget, deleting, legalworkServerClient, props, refresh, workspaceId]);
+  }, [deleteTarget, deleting, host, refresh]);
 
   const form = editor?.form ?? null;
   const selectedModelKnown =
     !form?.model || modelGroups.some((group) => group.options.some((option) => option.value === form.model));
   const modeItems = useMemo(() => {
-    if (!form || form.mode !== "all") {
-      return MODE_OPTIONS.filter((option) => option.value !== "all");
-    }
-    return MODE_OPTIONS;
+    const modes: AgentMode[] =
+      form && form.mode === "all" ? ["primary", "subagent", "all"] : ["primary", "subagent"];
+    return modes.map((mode) => ({ value: mode, label: MODE_LABELS[mode]() }));
   }, [form]);
+  const permissionOptions = useMemo(
+    () => [
+      { value: "", label: t("agents.approval_default") },
+      { value: "allow", label: t("agents.approval_allow") },
+      { value: "ask", label: t("agents.approval_ask") },
+      { value: "deny", label: t("agents.approval_deny") },
+    ],
+    [],
+  );
 
   return (
-    <section className="w-full max-w-3xl space-y-8">
-      <div className="flex flex-col gap-5 sm:flex-row sm:items-end sm:justify-between">
-        <p className="max-w-xl text-[14px] leading-[1.65] text-dls-secondary">
-          Author the AI agents your firm works with — roles like “Diligence Reviewer” or
-          “Compliance Analyst” — without editing configuration files. Each agent has its own
-          instructions, model, and safety limits, saved into this workspace.
-        </p>
-        <div className="flex shrink-0 items-center gap-1">
-          <button
-            type="button"
-            onClick={() => void refresh()}
-            disabled={props.busy || loading}
-            className={rowIconBtnClass}
-            title={t("common.refresh")}
-            aria-label={t("common.refresh")}
-          >
-            <RefreshCw size={14} className={loading ? "animate-spin" : ""} />
-          </button>
-          <button
-            type="button"
-            onClick={openCreate}
-            disabled={props.busy || !canEditFiles}
-            className={pillPrimaryClass}
-          >
-            <Plus size={14} />
-            New agent
-          </button>
-        </div>
+    <div className="space-y-4">
+      <div className="flex items-baseline justify-between gap-3">
+        <span className="lw-section-eyebrow uppercase text-dls-secondary">
+          {t("agents.section_title")}
+        </span>
+        <span className="font-mono text-[11px] tabular-nums text-dls-secondary">
+          {filteredEntries.length.toString().padStart(2, "0")}
+        </span>
       </div>
-
-      {!canEditFiles ? (
-        <div className="rounded-[20px] border border-dls-border bg-dls-hover px-5 py-4 text-[13px] text-dls-secondary">
-          Connect the LegalWork server and select a workspace to create or edit agents.
-        </div>
-      ) : null}
 
       {listError ? (
         <div className="rounded-[20px] border border-red-7/20 bg-red-1/40 px-5 py-4 text-[13px] text-red-12">
@@ -364,56 +326,53 @@ export function AgentsView(props: AgentsViewProps) {
         </div>
       ) : null}
 
-      {entries.length === 0 && !loading && !listError ? (
-        <div className="border-y border-dls-border py-16 text-center text-[14px] text-dls-secondary">
-          No agents yet — use “New agent” to create one.
+      {filteredEntries.length === 0 && !loading && !listError ? (
+        <div className="border-y border-dls-border py-10 text-center text-[14px] text-dls-secondary">
+          {t("agents.section_empty")}
         </div>
       ) : (
         <div className="divide-y divide-dls-border border-y border-dls-border">
-          {entries.map((entry) => (
-            <div key={entry.agent.name} className={ledgerRowClass}>
+          {filteredEntries.map((entry) => (
+            <div key={entry.name} className={ledgerRowClass}>
               <span className="pointer-events-none absolute inset-y-0 left-0 w-[2px] bg-dls-accent opacity-0 transition-opacity group-hover:opacity-100" />
               <Bot size={16} className="mt-0.5 shrink-0 text-dls-secondary" />
               <div className="min-w-0 flex-1">
                 <div className="flex items-center gap-2.5">
                   <h4 className="truncate text-[15px] font-medium tracking-[-0.01em] text-dls-text">
-                    {entry.agent.name}
+                    {entry.name}
                   </h4>
-                  <span className={typeTagClass}>{modeTag(entry.agent.mode)}</span>
-                  {!entry.hasFile ? <span className={typeTagClass}>Built-in</span> : null}
+                  <span className={typeTagClass}>
+                    {agentBadgeKind(entry.definition.mode) === "subagent"
+                      ? t("agents.badge_subagent")
+                      : t("agents.badge_agent")}
+                  </span>
                 </div>
                 <p className="mt-1 truncate text-[13px] leading-relaxed text-dls-secondary">
-                  {entry.agent.description || "No description."}
+                  {entry.definition.description || t("skills.no_description")}
                 </p>
               </div>
-              {entry.hasFile ? (
-                <div className="flex shrink-0 items-center gap-0.5 self-center opacity-0 transition-opacity focus-within:opacity-100 group-hover:opacity-100">
-                  <button
-                    type="button"
-                    className={rowIconBtnClass}
-                    onClick={() => void openEdit(entry)}
-                    disabled={props.busy || !canEditFiles || openingName !== null}
-                    title={t("common.edit")}
-                    aria-label={t("common.edit")}
-                  >
-                    {openingName === entry.agent.name ? (
-                      <Loader2 size={15} className="animate-spin" />
-                    ) : (
-                      <Edit2 size={15} />
-                    )}
-                  </button>
-                  <button
-                    type="button"
-                    className={rowIconBtnClass}
-                    onClick={() => setDeleteTarget(entry)}
-                    disabled={props.busy || !canEditFiles}
-                    title={"Delete"}
-                    aria-label={"Delete"}
-                  >
-                    <Trash2 size={15} />
-                  </button>
-                </div>
-              ) : null}
+              <div className="flex shrink-0 items-center gap-0.5 self-center opacity-0 transition-opacity focus-within:opacity-100 group-hover:opacity-100">
+                <button
+                  type="button"
+                  className={rowIconBtnClass}
+                  onClick={() => openEdit(entry)}
+                  disabled={props.busy}
+                  title={t("common.edit")}
+                  aria-label={t("common.edit")}
+                >
+                  <Edit2 size={15} />
+                </button>
+                <button
+                  type="button"
+                  className={rowIconBtnClass}
+                  onClick={() => setDeleteTarget(entry)}
+                  disabled={props.busy}
+                  title={t("agents.delete_title")}
+                  aria-label={t("agents.delete_title")}
+                >
+                  <Trash2 size={15} />
+                </button>
+              </div>
             </div>
           ))}
         </div>
@@ -427,11 +386,13 @@ export function AgentsView(props: AgentsViewProps) {
       >
         <DialogContent className="flex max-h-[90vh] min-h-0 w-full max-w-2xl flex-col overflow-hidden sm:max-w-2xl">
           <DialogHeader>
-            <DialogTitle>{editor?.isNew ? "New agent" : `Edit ${editor?.form.name}`}</DialogTitle>
-            <DialogDescription>
+            <DialogTitle>
               {editor?.isNew
-                ? "Describe the role, pick a model, and set what the agent may do. Saved to your workspace."
-                : "Changes are saved to this workspace and applied after a quick engine reload."}
+                ? t("agents.dialog_new_title")
+                : t("agents.dialog_edit_title", { name: editor?.form.name ?? "" })}
+            </DialogTitle>
+            <DialogDescription>
+              {editor?.isNew ? t("agents.dialog_new_desc") : t("agents.dialog_edit_desc")}
             </DialogDescription>
           </DialogHeader>
 
@@ -445,7 +406,7 @@ export function AgentsView(props: AgentsViewProps) {
 
               {editor?.isNew ? (
                 <label className="block space-y-1.5">
-                  <span className="text-xs font-medium text-dls-text">Name</span>
+                  <span className="text-xs font-medium text-dls-text">{t("agents.name_label")}</span>
                   <input
                     value={form.name}
                     onChange={(event) => updateForm({ name: event.currentTarget.value })}
@@ -454,26 +415,27 @@ export function AgentsView(props: AgentsViewProps) {
                     className={inputClass}
                   />
                   <span className="text-[11px] text-dls-secondary">
-                    Lowercase letters, numbers, and dashes. Saved as{" "}
-                    {agentFilePath(form.name.trim() || "<name>")}.
+                    {t("agents.name_hint", { path: agentFilePath(form.name.trim() || "<name>") })}
                   </span>
                 </label>
               ) : null}
 
               <label className="block space-y-1.5">
-                <span className="text-xs font-medium text-dls-text">Description (when to use it)</span>
+                <span className="text-xs font-medium text-dls-text">
+                  {t("agents.description_label")}
+                </span>
                 <textarea
                   value={form.description}
                   onChange={(event) => updateForm({ description: event.currentTarget.value })}
                   rows={2}
-                  placeholder="Reviews diligence documents and flags unusual terms."
+                  placeholder={t("agents.description_placeholder")}
                   className={`${inputClass} resize-none`}
                 />
               </label>
 
               <div className="grid gap-3 sm:grid-cols-2">
                 <label className="block space-y-1.5">
-                  <span className="text-xs font-medium text-dls-text">Runs as</span>
+                  <span className="text-xs font-medium text-dls-text">{t("agents.mode_label")}</span>
                   <Select
                     value={form.mode}
                     items={modeItems}
@@ -499,27 +461,29 @@ export function AgentsView(props: AgentsViewProps) {
                 </label>
 
                 <label className="block space-y-1.5">
-                  <span className="text-xs font-medium text-dls-text">Temperature (optional)</span>
+                  <span className="text-xs font-medium text-dls-text">
+                    {t("agents.temperature_label")}
+                  </span>
                   <input
                     value={form.temperature}
                     onChange={(event) => updateForm({ temperature: event.currentTarget.value })}
-                    placeholder="Model default"
+                    placeholder={t("agents.temperature_placeholder")}
                     inputMode="decimal"
                     spellCheck={false}
                     className={inputClass}
                   />
                   <span className="text-[11px] text-dls-secondary">
-                    0 = focused and repeatable, 2 = more creative.
+                    {t("agents.temperature_hint")}
                   </span>
                 </label>
               </div>
 
               <label className="block space-y-1.5">
-                <span className="text-xs font-medium text-dls-text">Model</span>
+                <span className="text-xs font-medium text-dls-text">{t("agents.model_label")}</span>
                 <Select
                   value={form.model}
                   items={[
-                    { value: "", label: "Workspace default" },
+                    { value: "", label: t("agents.model_default") },
                     ...(selectedModelKnown ? [] : [{ value: form.model, label: form.model }]),
                     ...modelGroups.flatMap((group) => group.options),
                   ]}
@@ -528,11 +492,11 @@ export function AgentsView(props: AgentsViewProps) {
                   }}
                 >
                   <SelectTrigger className="w-full">
-                    <SelectValue placeholder="Workspace default" />
+                    <SelectValue placeholder={t("agents.model_default")} />
                   </SelectTrigger>
                   <SelectContent>
                     <SelectGroup>
-                      <SelectItem value="">Workspace default</SelectItem>
+                      <SelectItem value="">{t("agents.model_default")}</SelectItem>
                       {!selectedModelKnown ? (
                         <SelectItem value={form.model}>{form.model}</SelectItem>
                       ) : null}
@@ -554,25 +518,23 @@ export function AgentsView(props: AgentsViewProps) {
               </label>
 
               <label className="block space-y-1.5">
-                <span className="text-xs font-medium text-dls-text">Instructions (role prompt)</span>
+                <span className="text-xs font-medium text-dls-text">{t("agents.prompt_label")}</span>
                 <textarea
                   value={form.prompt}
                   onChange={(event) => updateForm({ prompt: event.currentTarget.value })}
                   rows={10}
                   spellCheck={false}
-                  placeholder={
-                    "You are a diligence reviewer for a law firm.\n\nWhen given documents, you..."
-                  }
+                  placeholder={t("agents.prompt_placeholder")}
                   className={`${inputClass} min-h-[200px] font-mono text-xs`}
                 />
               </label>
 
               <div className="space-y-2">
-                <span className="text-xs font-medium text-dls-text">Tools</span>
+                <span className="text-xs font-medium text-dls-text">{t("agents.tools_label")}</span>
                 <div className="grid gap-2 rounded-xl border border-dls-border p-3 sm:grid-cols-2">
                   {AGENT_TOOL_KEYS.map((key) => (
                     <label key={key} className="flex items-center justify-between gap-3 text-[13px] text-dls-text">
-                      <span>{TOOL_LABELS[key]}</span>
+                      <span>{TOOL_LABELS[key]()}</span>
                       <Switch
                         size="sm"
                         checked={isAgentToolEnabled(form.tools, key)}
@@ -586,17 +548,17 @@ export function AgentsView(props: AgentsViewProps) {
               </div>
 
               <div className="space-y-2">
-                <span className="text-xs font-medium text-dls-text">Approvals</span>
-                <p className="text-[11px] text-dls-secondary">
-                  Whether the agent may act on its own or must check with you first.
-                </p>
+                <span className="text-xs font-medium text-dls-text">
+                  {t("agents.approvals_label")}
+                </span>
+                <p className="text-[11px] text-dls-secondary">{t("agents.approvals_hint")}</p>
                 <div className="grid gap-2 rounded-xl border border-dls-border p-3 sm:grid-cols-3">
                   {AGENT_PERMISSION_KEYS.map((key) => (
                     <label key={key} className="block space-y-1">
-                      <span className="text-[12px] text-dls-text">{PERMISSION_LABELS[key]}</span>
+                      <span className="text-[12px] text-dls-text">{PERMISSION_LABELS[key]()}</span>
                       <Select
                         value={form.permission[key] ?? ""}
-                        items={PERMISSION_OPTIONS}
+                        items={permissionOptions}
                         onValueChange={(value) => {
                           const action: AgentPermissionAction | null =
                             value === "allow" || value === "ask" || value === "deny" ? value : null;
@@ -606,11 +568,11 @@ export function AgentsView(props: AgentsViewProps) {
                         }}
                       >
                         <SelectTrigger className="w-full" size="sm">
-                          <SelectValue placeholder="Workspace default" />
+                          <SelectValue placeholder={t("agents.approval_default")} />
                         </SelectTrigger>
                         <SelectContent>
                           <SelectGroup>
-                            {PERMISSION_OPTIONS.map((option) => (
+                            {permissionOptions.map((option) => (
                               <SelectItem key={option.value} value={option.value}>
                                 {option.label}
                               </SelectItem>
@@ -629,16 +591,16 @@ export function AgentsView(props: AgentsViewProps) {
             <DialogClose render={<Button variant="outline" />}>{t("common.cancel")}</DialogClose>
             <Button
               type="button"
-              disabled={!editor || editor.saving || !canEditFiles}
+              disabled={!editor || editor.saving}
               onClick={() => void saveEditor()}
             >
               {editor?.saving ? (
                 <>
                   <Loader2 size={14} className="animate-spin" />
-                  Saving...
+                  {t("agents.saving")}
                 </>
               ) : editor?.isNew ? (
-                "Create agent"
+                t("agents.create_button")
               ) : (
                 t("common.save")
               )}
@@ -649,9 +611,9 @@ export function AgentsView(props: AgentsViewProps) {
 
       <ConfirmModal
         open={Boolean(deleteTarget)}
-        title="Delete agent"
-        message={`Delete “${deleteTarget?.agent.name ?? ""}”? This removes its file from the workspace.`}
-        confirmLabel={deleting ? "Deleting..." : "Delete"}
+        title={t("agents.delete_title")}
+        message={t("agents.delete_message", { name: deleteTarget?.name ?? "" })}
+        confirmLabel={deleting ? t("agents.deleting") : t("agents.delete_confirm")}
         cancelLabel={t("common.cancel")}
         confirmButtonVariant="destructive"
         onCancel={() => {
@@ -659,8 +621,8 @@ export function AgentsView(props: AgentsViewProps) {
         }}
         onConfirm={() => void deleteAgent()}
       />
-    </section>
+    </div>
   );
 }
 
-export default AgentsView;
+export default WorkflowAgentsSection;
