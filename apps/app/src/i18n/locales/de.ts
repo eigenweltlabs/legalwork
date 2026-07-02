@@ -123,6 +123,12 @@ const de: Record<string, string> = {
   "word_addin.empty_selection_cells": "Bitte zuerst Zellen auswählen.",
   "word_addin.excel_selection_context_label": "Ausgewählte Zellen aus der Excel-Arbeitsmappe, tabulatorgetrennt",
   "word_addin.excel_overview_context_label": "Übersicht der geöffneten Excel-Arbeitsmappe:",
+  "word_addin.add_slide": "Aktuelle Folie in den Chat übernehmen",
+  "word_addin.add_presentation_outline": "Präsentations-Gliederung in den Chat übernehmen",
+  "word_addin.empty_slide": "Bitte zuerst eine Folie mit Text auswählen.",
+  "word_addin.ppt_selection_context_label": "Ausgewählter Text aus der PowerPoint-Präsentation:",
+  "word_addin.ppt_slide_context_label": "Text von PowerPoint-Folie",
+  "word_addin.ppt_outline_context_label": "Gliederung der geöffneten PowerPoint-Präsentation:",
 };
 
 export default de;

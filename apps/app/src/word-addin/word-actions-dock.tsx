@@ -9,6 +9,8 @@ import { t } from "@/i18n";
 import { useLegalworkControl } from "@/react-app/shell/control/control-provider";
 import { isExcelWorkbookHost } from "./excel-api";
 import { createExcelToolHandlers } from "./excel-document-tools";
+import { isPowerPointHost } from "./powerpoint-api";
+import { createPowerPointToolHandlers } from "./powerpoint-document-tools";
 import {
   insertTextAtSelection,
   isWordDocumentHost,
@@ -41,7 +43,8 @@ export function WordActionsDock() {
 
   const isWord = isWordDocumentHost();
   const isExcel = isExcelWorkbookHost();
-  if (!control || (!isWord && !isExcel)) return null;
+  const isPpt = isPowerPointHost();
+  if (!control || (!isWord && !isExcel && !isPpt)) return null;
 
   const runAction = async (action: DockAction, work: () => Promise<void>) => {
     if (busy) return;
@@ -132,6 +135,52 @@ export function WordActionsDock() {
       }
     });
 
+  const sendPptToComposer = (action: "selection" | "document") =>
+    runAction(action, async () => {
+      const handlers = createPowerPointToolHandlers();
+      let label: string;
+      let text: string;
+      if (action === "selection") {
+        const selection = (await handlers.ppt_read_selection!({})) as {
+          selectedText: string | null;
+          selectedSlides: number[];
+        };
+        if (selection.selectedText?.trim()) {
+          text = selection.selectedText;
+          label = t("word_addin.ppt_selection_context_label");
+        } else if (selection.selectedSlides.length > 0) {
+          const slideNumber = selection.selectedSlides[0]!;
+          const slide = (await handlers.ppt_read_slide!({ slide_number: slideNumber })) as {
+            shapes: Array<{ name: string; text: string | null }>;
+          };
+          text = slide.shapes
+            .map((shape) => shape.text)
+            .filter((value): value is string => Boolean(value?.trim()))
+            .join("\n\n");
+          if (!text.trim()) {
+            toast.info(t("word_addin.empty_slide"));
+            return;
+          }
+          label = `${t("word_addin.ppt_slide_context_label")} ${slideNumber}:`;
+        } else {
+          toast.info(t("word_addin.empty_slide"));
+          return;
+        }
+      } else {
+        const outline = await handlers.ppt_read_presentation!({});
+        text = JSON.stringify(outline, null, 2);
+        label = t("word_addin.ppt_outline_context_label");
+      }
+      const truncated = text.length > MAX_CONTEXT_CHARS;
+      const clipped = truncated ? text.slice(0, MAX_CONTEXT_CHARS) : text;
+      const result = await control.executeAction("composer.set_text", {
+        text: frameDocumentContext(label, clipped, truncated),
+      });
+      if (!result.ok) {
+        toast.warning(result.error);
+      }
+    });
+
   type DockItem = {
     action: DockAction;
     label: string;
@@ -139,7 +188,22 @@ export function WordActionsDock() {
     onClick: () => void;
   };
 
-  const items: DockItem[] = isExcel
+  const items: DockItem[] = isPpt
+    ? [
+        {
+          action: "selection",
+          label: t("word_addin.add_slide"),
+          icon: TextSelect,
+          onClick: () => void sendPptToComposer("selection"),
+        },
+        {
+          action: "document",
+          label: t("word_addin.add_presentation_outline"),
+          icon: FileText,
+          onClick: () => void sendPptToComposer("document"),
+        },
+      ]
+    : isExcel
     ? [
         {
           action: "selection",

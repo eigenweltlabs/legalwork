@@ -31,3 +31,4 @@ export const legalworkAnthropicAdaptiveThinkingPluginPath = () => legalworkPlugi
 export const legalworkAnthropicToolSchemaPluginPath = () => legalworkPluginPath("legalwork-anthropic-tool-schema");
 export const legalworkWordToolsPluginPath = () => legalworkPluginPath("legalwork-word-tools");
 export const legalworkExcelToolsPluginPath = () => legalworkPluginPath("legalwork-excel-tools");
+export const legalworkPowerPointToolsPluginPath = () => legalworkPluginPath("legalwork-powerpoint-tools");

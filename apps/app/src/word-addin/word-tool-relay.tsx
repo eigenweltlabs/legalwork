@@ -6,6 +6,8 @@ import { readLegalworkServerSettings } from "@/app/lib/legalwork-server";
 import { getDocumentUrl, isWordDocumentHost, officeHostName } from "./office";
 import { isExcelWorkbookHost } from "./excel-api";
 import { createExcelToolHandlers } from "./excel-document-tools";
+import { isPowerPointHost } from "./powerpoint-api";
+import { createPowerPointToolHandlers } from "./powerpoint-document-tools";
 import { createWordToolHandlers } from "./word-document-tools";
 
 /**
@@ -30,7 +32,11 @@ async function runRelayLoop(workspaceId: string, signal: AbortSignal): Promise<v
   const baseUrl = settings.urlOverride ?? window.location.origin;
   const token = settings.token ?? "";
   const host = officeHostName() ?? "";
-  const handlers = isExcelWorkbookHost() ? createExcelToolHandlers() : createWordToolHandlers();
+  const handlers = isExcelWorkbookHost()
+    ? createExcelToolHandlers()
+    : isPowerPointHost()
+      ? createPowerPointToolHandlers()
+      : createWordToolHandlers();
   const relayBase = `${baseUrl}/workspace/${encodeURIComponent(workspaceId)}/office-tools`;
   const authHeaders = { Authorization: `Bearer ${token}` };
 
@@ -96,7 +102,7 @@ export function WordToolRelayHost() {
 
   useEffect(() => {
     if (!workspaceId) return;
-    if (!isWordDocumentHost() && !isExcelWorkbookHost()) return;
+    if (!isWordDocumentHost() && !isExcelWorkbookHost() && !isPowerPointHost()) return;
     const controller = new AbortController();
     void runRelayLoop(workspaceId, controller.signal);
     return () => controller.abort();

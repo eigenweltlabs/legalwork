@@ -102,6 +102,20 @@ The ribbon gets an **Open LegalWork** button (Home tab) that opens the pane.
 | `--word-addin-key` | `LEGALWORK_WORD_ADDIN_KEY` | `wordAddin.keyPath` | `~/.office-addin-dev-certs/localhost.key` |
 | `--word-addin-dist` | `LEGALWORK_WORD_ADDIN_DIST` | `wordAddin.distPath` | `apps/app/dist-word-addin` (monorepo layout) |
 
+## PowerPoint
+
+The manifest also declares PowerPoint (`Presentation`): sideload into
+`~/Library/Containers/com.microsoft.Powerpoint/Data/Documents/wef/`. The
+pane registers `ppt_*` tools (`legalwork-powerpoint-tools` plugin):
+`ppt_read_presentation`, `ppt_read_slide`, `ppt_read_selection`,
+`ppt_set_shape_text`, `ppt_replace_text`, `ppt_add_slide`,
+`ppt_add_text_box`. PowerPoint's add-in API has neither tracked changes
+nor comments, so safety is behavioral: `set_shape_text` returns the
+previous text, ambiguous replacements are rejected with locations, and the
+agent must report every slide/shape it changed (undo via Cmd+Z). Slide
+design/layout is out of scope for the API — text-level work only. The dock
+offers "add current slide" and "add presentation outline" to chat.
+
 ## Excel
 
 The same manifest declares Excel (`Workbook`) as a host: sideload it into

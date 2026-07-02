@@ -1574,4 +1574,10 @@ export default {
   "word_addin.empty_selection_cells": "Select some cells first.",
   "word_addin.excel_selection_context_label": "Selected cells from the Excel workbook, as tab-separated values",
   "word_addin.excel_overview_context_label": "Overview of the open Excel workbook:",
+  "word_addin.add_slide": "Add current slide to chat",
+  "word_addin.add_presentation_outline": "Add presentation outline to chat",
+  "word_addin.empty_slide": "Select a slide with text first.",
+  "word_addin.ppt_selection_context_label": "Selected text from the PowerPoint presentation:",
+  "word_addin.ppt_slide_context_label": "Text of PowerPoint slide",
+  "word_addin.ppt_outline_context_label": "Outline of the open PowerPoint presentation:",
 } as const;
