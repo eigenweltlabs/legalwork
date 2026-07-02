@@ -6,7 +6,7 @@ import type { ImportedMarketplace, ImportedPlugin } from "./extension-imports";
 
 export type LegalworkServerCapabilities = {
   skills: { read: boolean; write: boolean; source: "legalwork" | "opencode" };
-  templates?: { read: boolean; write: boolean };
+  skillResources?: { read: boolean; write: boolean };
   hub?: {
     skills?: {
       read: boolean;
@@ -139,15 +139,16 @@ export type LegalworkSkillContent = {
   content: string;
 };
 
-export type LegalworkTemplateItem = {
+/** A file attached to a skill — lives in the skill's own resources/ folder. */
+export type LegalworkSkillResourceItem = {
   name: string;
   path: string;
   size: number;
   updatedAt: number;
 };
 
-export type LegalworkTemplateContent = {
-  item: LegalworkTemplateItem;
+export type LegalworkSkillResourceContent = {
+  item: LegalworkSkillResourceItem;
   content: string;
 };
 
@@ -1473,27 +1474,32 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
           method: "DELETE",
         },
       ),
-    listTemplates: (workspaceId: string) =>
-      requestJson<{ items: LegalworkTemplateItem[] }>(baseUrl, `/workspace/${workspaceId}/templates`, {
-        token,
-        hostToken,
-      }),
-    getTemplate: (workspaceId: string, name: string) =>
-      requestJson<LegalworkTemplateContent>(
+    listSkillResources: (workspaceId: string, skill: string) =>
+      requestJson<{ items: LegalworkSkillResourceItem[] }>(
         baseUrl,
-        `/workspace/${workspaceId}/templates/${encodeURIComponent(name)}`,
+        `/workspace/${workspaceId}/skills/${encodeURIComponent(skill)}/resources`,
         { token, hostToken },
       ),
-    upsertTemplate: (workspaceId: string, payload: { name: string; content?: string; contentBase64?: string }) =>
+    getSkillResource: (workspaceId: string, skill: string, name: string) =>
+      requestJson<LegalworkSkillResourceContent>(
+        baseUrl,
+        `/workspace/${workspaceId}/skills/${encodeURIComponent(skill)}/resources/${encodeURIComponent(name)}`,
+        { token, hostToken },
+      ),
+    upsertSkillResource: (
+      workspaceId: string,
+      skill: string,
+      payload: { name: string; content?: string; contentBase64?: string },
+    ) =>
       requestJson<{ ok: boolean; name: string; path: string; action: "added" | "updated" }>(
         baseUrl,
-        `/workspace/${workspaceId}/templates`,
+        `/workspace/${workspaceId}/skills/${encodeURIComponent(skill)}/resources`,
         { token, hostToken, method: "POST", body: payload },
       ),
-    deleteTemplate: (workspaceId: string, name: string) =>
+    deleteSkillResource: (workspaceId: string, skill: string, name: string) =>
       requestJson<{ ok: boolean; name: string; path: string }>(
         baseUrl,
-        `/workspace/${workspaceId}/templates/${encodeURIComponent(name)}`,
+        `/workspace/${workspaceId}/skills/${encodeURIComponent(skill)}/resources/${encodeURIComponent(name)}`,
         { token, hostToken, method: "DELETE" },
       ),
     listMcp: (workspaceId: string) =>

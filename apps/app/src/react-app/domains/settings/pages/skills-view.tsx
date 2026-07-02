@@ -44,8 +44,8 @@ import {
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import { ConfirmModal } from "@/react-app/design-system/modals/confirm-modal";
-import { getSkillTemplates, setSkillTemplates } from "@/app/utils/skill-templates";
-import { TemplatesSection, type TemplatesStore } from "./templates-view";
+import { syncAttachedFilesSection } from "@/app/utils/skill-resources";
+import { SkillResourcesPanel, type SkillResourcesStore } from "./skill-resources-panel";
 
 type InstallResult = { ok: boolean; message: string };
 type SkillsFilter = "all" | "installed" | "hub";
@@ -82,7 +82,7 @@ export type ImportedCloudSkillRecord = {
 
 export type GithubSkillItem = { dir: string; name: string; description: string };
 
-export type SkillsExtensionsStore = TemplatesStore & {
+export type SkillsExtensionsStore = SkillResourcesStore & {
   skills: () => SkillCard[];
   skillsStatus: () => string | null;
   hubSkills: () => HubSkillCard[];
@@ -406,8 +406,6 @@ export function SkillsView(props: SkillsViewProps) {
       setSelectedDirty(false);
       setSelectedError(null);
       setSelectedLoading(true);
-      // Load the firm template library so the editor can offer the attach picker.
-      void extensions.refreshTemplates();
       try {
         const result = await extensions.readSkill(skill.name);
         if (!result) {
@@ -424,21 +422,19 @@ export function SkillsView(props: SkillsViewProps) {
     [extensions, maskError, props.busy],
   );
 
-  // Firm templates attached to the skill being edited — read from / written to
-  // the `templates:` frontmatter list; the server keeps the matching "Firm
-  // templates" body section in sync on save.
-  const templateLibrary = extensions.templates();
-  const attachedTemplates = useMemo(() => getSkillTemplates(selectedContent), [selectedContent]);
-  const toggleAttachedTemplate = useCallback((name: string) => {
-    setSelectedContent((current) => {
-      const currentNames = getSkillTemplates(current);
-      const next = currentNames.includes(name)
-        ? currentNames.filter((entry) => entry !== name)
-        : [...currentNames, name];
-      return setSkillTemplates(current, next);
-    });
-    setSelectedDirty(true);
-  }, []);
+  // Attaching/removing a file rewrites the managed "Attached resources" section
+  // in the SKILL.md on disk. Pull the regenerated section into the editor:
+  // replace the content wholesale when it has no unsaved edits, otherwise
+  // splice just the managed block so the edits survive.
+  const syncEditorAfterResourceChange = useCallback(async () => {
+    const skill = selectedSkill;
+    if (!skill) return;
+    const result = await extensions.readSkill(skill.name);
+    if (!result) return;
+    setSelectedContent((current) =>
+      selectedDirty ? syncAttachedFilesSection(current, result.content) : result.content,
+    );
+  }, [extensions, selectedDirty, selectedSkill]);
 
   const saveSelectedSkill = useCallback(async () => {
     if (!selectedSkill || !selectedDirty) return;
@@ -725,9 +721,6 @@ export function SkillsView(props: SkillsViewProps) {
         </div>
       ) : null}
 
-      {/* Firm template library — playbooks/templates workflows can attach. */}
-      {isWorkflowsView ? <TemplatesSection busy={props.busy} extensions={extensions} /> : null}
-
       {/* Hub catalog hidden for now; flip SKILLS_HUB_UI_ENABLED to restore. */}
       {showHubSection ? (
         <div className="space-y-4">
@@ -872,43 +865,29 @@ export function SkillsView(props: SkillsViewProps) {
 
             <div className="min-h-0 flex-1 overflow-y-auto">
               {selectedError ? <div className="mb-3 rounded-xl border border-red-7/20 bg-red-1/40 px-4 py-3 text-xs text-red-12">{selectedError}</div> : null}
-              {!selectedLoading && templateLibrary.length > 0 ? (
-                <div className="mb-4 rounded-xl border border-dls-border bg-dls-hover/40 px-4 py-3">
-                  <div className="text-xs font-medium text-dls-text">Attached firm templates</div>
-                  <p className="mt-1 text-[11px] text-dls-secondary">
-                    The agent reads the checked files from .opencode/templates/ and follows them when this{" "}
-                    {isWorkflowsView ? "workflow" : "skill"} runs.
-                  </p>
-                  <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1.5">
-                    {templateLibrary.map((template) => (
-                      <label
-                        key={template.name}
-                        className="inline-flex cursor-pointer items-center gap-1.5 text-[12px] text-dls-text"
-                      >
-                        <input
-                          type="checkbox"
-                          className="size-3.5 accent-[var(--dls-accent)]"
-                          checked={attachedTemplates.includes(template.name)}
-                          onChange={() => toggleAttachedTemplate(template.name)}
-                        />
-                        {template.name}
-                      </label>
-                    ))}
-                  </div>
-                </div>
-              ) : null}
               {selectedLoading ? (
                 <div className="text-xs text-dls-secondary">{t("skills.loading")}</div>
               ) : (
-                <textarea
-                  value={selectedContent}
-                  onChange={(event) => {
-                    setSelectedContent(event.currentTarget.value);
-                    setSelectedDirty(true);
-                  }}
-                  className="min-h-[420px] w-full rounded-xl border border-dls-border bg-dls-hover px-4 py-3 text-xs font-mono text-dls-text focus:outline-none focus:ring-2 focus:ring-[rgba(var(--dls-accent-rgb),0.25)]"
-                  spellCheck={false}
-                />
+                <>
+                  <textarea
+                    value={selectedContent}
+                    onChange={(event) => {
+                      setSelectedContent(event.currentTarget.value);
+                      setSelectedDirty(true);
+                    }}
+                    className="min-h-[420px] w-full rounded-xl border border-dls-border bg-dls-hover px-4 py-3 text-xs font-mono text-dls-text focus:outline-none focus:ring-2 focus:ring-[rgba(var(--dls-accent-rgb),0.25)]"
+                    spellCheck={false}
+                  />
+                  {/* Firm templates/playbooks packaged inside this skill's own folder. */}
+                  {selectedSkill ? (
+                    <SkillResourcesPanel
+                      skillName={selectedSkill.name}
+                      busy={props.busy}
+                      extensions={extensions}
+                      onChanged={() => void syncEditorAfterResourceChange()}
+                    />
+                  ) : null}
+                </>
               )}
             </div>
         </DialogContent>

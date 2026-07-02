@@ -9,7 +9,14 @@ import { addPlugin, listPlugins, normalizePluginSpec, removePlugin } from "./plu
 import { sanitizePortableOpencodeConfig } from "./portable-opencode.js";
 import { addMcp, listMcp, removeMcp, setMcpEnabled } from "./mcp.js";
 import { deleteSkill, listSkills, upsertSkill } from "./skills.js";
-import { deleteTemplate, listTemplates, readTemplate, upsertTemplate } from "./templates.js";
+import {
+  deleteSkillResource,
+  listSkillResources,
+  readSkillResource,
+  resolveSkillDir,
+  upsertSkillResource,
+  validateResourceName,
+} from "./skill-resources.js";
 import { installHubSkill, listHubSkills } from "./skill-hub.js";
 import { scanGithubSkills, installGithubSkills, promoteSkillToWorkflow } from "./github-skills.js";
 import { deleteCommand, listCommands, repairCommands, upsertCommand } from "./commands.js";
@@ -1032,7 +1039,7 @@ function buildCapabilities(config: ServerConfig): Capabilities {
     serverVersion: SERVER_VERSION,
     opencodeVersion: OPENCODE_VERSION,
     skills: { read: true, write: writeEnabled, source: "legalwork" },
-    templates: { read: true, write: writeEnabled },
+    skillResources: { read: true, write: writeEnabled },
     hub: {
       skills: {
         read: true,
@@ -2131,74 +2138,93 @@ function createRoutes(
     return jsonResponse({ ok: true, name, path: result.path });
   });
 
-  // Firm template library — files in .opencode/templates/ that skills/workflows
-  // can attach via their frontmatter `templates:` list. Mirrors the skills routes.
-  addRoute(routes, "GET", "/workspace/:id/templates", "client", async (ctx) => {
+  // Attached files (firm templates/playbooks) live INSIDE the skill's own
+  // folder — .opencode/skills/<name>/resources/<file> — so a workflow plus its
+  // templates is one self-contained folder that can be shared as a zip.
+  // Mutations also regenerate the managed "Attached resources" SKILL.md section.
+  addRoute(routes, "GET", "/workspace/:id/skills/:skill/resources", "client", async (ctx) => {
     const workspace = await resolveWorkspace(config, ctx.params.id);
-    const items = await listTemplates(workspace.path);
+    const items = await listSkillResources(workspace.path, String(ctx.params.skill ?? ""));
     return jsonResponse({ items });
   });
 
-  addRoute(routes, "GET", "/workspace/:id/templates/:name", "client", async (ctx) => {
+  addRoute(routes, "GET", "/workspace/:id/skills/:skill/resources/:name", "client", async (ctx) => {
     const workspace = await resolveWorkspace(config, ctx.params.id);
-    const name = String(ctx.params.name ?? "").trim();
-    if (!name) {
-      throw new ApiError(400, "invalid_template_name", "Template name is required");
-    }
-    const result = await readTemplate(workspace.path, name);
+    const result = await readSkillResource(
+      workspace.path,
+      String(ctx.params.skill ?? ""),
+      String(ctx.params.name ?? "").trim(),
+    );
     return jsonResponse(result);
   });
 
-  addRoute(routes, "POST", "/workspace/:id/templates", "client", async (ctx) => {
+  addRoute(routes, "POST", "/workspace/:id/skills/:skill/resources", "client", async (ctx) => {
     ensureWritable(config);
     requireClientScope(ctx, "collaborator");
     const workspace = await resolveWorkspace(config, ctx.params.id);
+    const skill = String(ctx.params.skill ?? "").trim();
     const body = await readJsonBody(ctx.request);
-    const name = String(body.name ?? "");
+    const name = String(body.name ?? "").trim();
     const content = typeof body.content === "string" ? body.content : undefined;
     const contentBase64 = typeof body.contentBase64 === "string" ? body.contentBase64 : undefined;
+    // Validate + resolve up front so the approval prompt shows the real path.
+    validateResourceName(name);
+    const skillDir = await resolveSkillDir(workspace.path, skill);
     await requireApproval(ctx, {
       workspaceId: workspace.id,
-      action: "templates.upsert",
-      summary: `Upsert template ${name}`,
-      paths: [join(workspace.path, ".opencode", "templates", name)],
+      action: "skills.resource.upsert",
+      summary: `Attach ${name} to skill ${skill}`,
+      paths: [join(skillDir, "resources", name)],
     });
-    const result = await upsertTemplate(workspace.path, { name, content, contentBase64 });
+    const result = await upsertSkillResource(workspace.path, skill, { name, content, contentBase64 });
     await recordAudit(workspace.path, {
       id: shortId(),
       workspaceId: workspace.id,
       actor: ctx.actor ?? { type: "remote" },
-      action: "templates.upsert",
+      action: "skills.resource.upsert",
       target: result.path,
-      summary: `Upserted template ${name}`,
+      summary: `Attached ${name} to skill ${skill}`,
       timestamp: Date.now(),
     });
-    return jsonResponse({ ok: true, ...result });
+    // The mutation rewrote the skill's SKILL.md section — reload like a skill edit.
+    emitReloadEvent(ctx.reloadEvents, workspace, "skills", {
+      type: "skill",
+      name: skill,
+      action: "updated",
+      path: result.skillPath,
+    });
+    return jsonResponse({ ok: true, name: result.name, path: result.path, action: result.action });
   });
 
-  addRoute(routes, "DELETE", "/workspace/:id/templates/:name", "client", async (ctx) => {
+  addRoute(routes, "DELETE", "/workspace/:id/skills/:skill/resources/:name", "client", async (ctx) => {
     ensureWritable(config);
     requireClientScope(ctx, "collaborator");
     const workspace = await resolveWorkspace(config, ctx.params.id);
+    const skill = String(ctx.params.skill ?? "").trim();
     const name = String(ctx.params.name ?? "").trim();
-    if (!name) {
-      throw new ApiError(400, "invalid_template_name", "Template name is required");
-    }
+    validateResourceName(name);
+    const skillDir = await resolveSkillDir(workspace.path, skill);
     await requireApproval(ctx, {
       workspaceId: workspace.id,
-      action: "templates.delete",
-      summary: `Delete template ${name}`,
-      paths: [join(workspace.path, ".opencode", "templates", name)],
+      action: "skills.resource.delete",
+      summary: `Remove ${name} from skill ${skill}`,
+      paths: [join(skillDir, "resources", name)],
     });
-    const result = await deleteTemplate(workspace.path, name);
+    const result = await deleteSkillResource(workspace.path, skill, name);
     await recordAudit(workspace.path, {
       id: shortId(),
       workspaceId: workspace.id,
       actor: ctx.actor ?? { type: "remote" },
-      action: "templates.delete",
+      action: "skills.resource.delete",
       target: result.path,
-      summary: `Deleted template ${name}`,
+      summary: `Removed ${name} from skill ${skill}`,
       timestamp: Date.now(),
+    });
+    emitReloadEvent(ctx.reloadEvents, workspace, "skills", {
+      type: "skill",
+      name: skill,
+      action: "updated",
+      path: result.skillPath,
     });
     return jsonResponse({ ok: true, name, path: result.path });
   });

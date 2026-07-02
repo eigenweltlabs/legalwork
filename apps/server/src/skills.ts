@@ -8,7 +8,6 @@ import { exists } from "./utils.js";
 import { validateDescription, validateSkillName } from "./validators.js";
 import { ApiError } from "./errors.js";
 import { projectSkillsDir } from "./workspace-files.js";
-import { applyTemplatesSection, normalizeSkillTemplates } from "./templates.js";
 
 async function findWorkspaceRoots(workspaceRoot: string): Promise<string[]> {
   const roots: string[] = [];
@@ -171,17 +170,12 @@ export function buildSkillContent(payload: UpsertSkillPayload): { name: string; 
     }
     validateDescription(frontmatterDescription || payload.description);
     const nextDescription = frontmatterDescription || payload.description || "";
-    // Attached firm templates: normalize the frontmatter list and keep the
-    // auto-managed "Firm templates" body section in sync with it.
-    const templates = normalizeSkillTemplates(data.templates);
-    const { templates: _templates, ...rest } = data;
     const frontmatter = buildFrontmatter({
-      ...rest,
+      ...data,
       name,
       description: nextDescription,
-      ...(templates.length ? { templates } : {}),
     });
-    content = frontmatter + applyTemplatesSection(body, templates).replace(/^\n/, "");
+    content = frontmatter + body.replace(/^\n/, "");
   } else {
     validateDescription(payload.description);
     const frontmatter = buildFrontmatter({ name, description: payload.description });

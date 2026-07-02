@@ -11,7 +11,7 @@ import type {
   ReloadReason,
   ReloadTrigger,
   SkillCard,
-  TemplateCard,
+  SkillResourceCard,
 } from "../../../../app/types";
 import { addOpencodeCacheHint, isDesktopRuntime, normalizeDirectoryPath } from "../../../../app/utils";
 import skillCreatorTemplate from "../../../../app/data/skill-creator.md?raw";
@@ -66,8 +66,8 @@ export type ExtensionsStoreSnapshot = {
   workspaceContextKey: string;
   skills: SkillCard[];
   skillsStatus: string | null;
-  templates: TemplateCard[];
-  templatesStatus: string | null;
+  skillResources: SkillResourceCard[];
+  skillResourcesStatus: string | null;
   hubSkills: HubSkillCard[];
   hubSkillsStatus: string | null;
   hubRepo: HubSkillRepo | null;
@@ -92,8 +92,8 @@ type MutableState = {
   hubSkillsContextKey: string;
   skills: SkillCard[];
   skillsStatus: string | null;
-  templates: TemplateCard[];
-  templatesStatus: string | null;
+  skillResources: SkillResourceCard[];
+  skillResourcesStatus: string | null;
   hubSkills: HubSkillCard[];
   hubSkillsStatus: string | null;
   hubRepo: HubSkillRepo | null;
@@ -193,9 +193,6 @@ export function createExtensionsStore(options: {
   let hubSkillsLoaded = false;
   let skillsRoot = "";
   let hubSkillsLoadKey = "";
-  let templatesLoaded = false;
-  let templatesRoot = "";
-  let refreshTemplatesInFlight = false;
 
   let state: MutableState = {
     skillsContextKey: "",
@@ -203,8 +200,8 @@ export function createExtensionsStore(options: {
     hubSkillsContextKey: "",
     skills: [],
     skillsStatus: null,
-    templates: [],
-    templatesStatus: null,
+    skillResources: [],
+    skillResourcesStatus: null,
     hubSkills: [],
     hubSkillsStatus: null,
     hubRepo: null,
@@ -270,8 +267,8 @@ export function createExtensionsStore(options: {
       workspaceContextKey,
       skills: state.skills,
       skillsStatus: state.skillsStatus,
-      templates: state.templates,
-      templatesStatus: state.templatesStatus,
+      skillResources: state.skillResources,
+      skillResourcesStatus: state.skillResourcesStatus,
       hubSkills: state.hubSkills,
       hubSkillsStatus: state.hubSkillsStatus,
       hubRepo: state.hubRepo,
@@ -428,8 +425,6 @@ export function createExtensionsStore(options: {
     hubSkillsLoaded = false;
     skillsRoot = "";
     hubSkillsLoadKey = "";
-    templatesLoaded = false;
-    templatesRoot = "";
   };
 
   const touch = () => {
@@ -947,36 +942,38 @@ export function createExtensionsStore(options: {
   }
 
   // ---------------------------------------------------------------------------
-  // Firm template library (.opencode/templates/) — served by the LegalWork
-  // server only; there is no desktop-local fallback because templates are
-  // workspace files the agent reads directly.
+  // Attached files — files in a skill's own resources/ folder
+  // (.opencode/skills/<name>/resources/). Served by the LegalWork server only;
+  // there is no desktop-local fallback because the agent reads the files from
+  // the workspace directly. The state always holds the resources of the skill
+  // most recently passed to refreshSkillResources (the one open in the editor).
   // ---------------------------------------------------------------------------
 
-  const TEMPLATES_UNAVAILABLE = "Connect a LegalWork server to manage firm templates.";
-
-  const resolveTemplatesTarget = async () => {
+  const resolveSkillResourcesTarget = async () => {
     const { legalworkSnapshot, legalworkClient, legalworkWorkspaceId, hasLegalworkTarget } =
       await resolveWorkspaceServerTarget();
     const canUse =
       hasLegalworkTarget &&
-      legalworkSnapshot.legalworkServerCapabilities?.templates?.read !== false &&
+      legalworkSnapshot.legalworkServerCapabilities?.skillResources?.read !== false &&
       Boolean(legalworkClient && legalworkWorkspaceId);
     return { legalworkClient, legalworkWorkspaceId, canUse };
   };
 
-  async function refreshTemplates(optionsOverride?: { force?: boolean }) {
-    const { legalworkClient, legalworkWorkspaceId, canUse } = await resolveTemplatesTarget();
+  async function refreshSkillResources(skillName: string) {
+    const skill = skillName.trim();
+    if (!skill) return;
+    const { legalworkClient, legalworkWorkspaceId, canUse } = await resolveSkillResourcesTarget();
     if (!canUse || !legalworkClient || !legalworkWorkspaceId) {
-      mutateState((current) => ({ ...current, templates: [], templatesStatus: TEMPLATES_UNAVAILABLE }));
+      mutateState((current) => ({
+        ...current,
+        skillResources: [],
+        skillResourcesStatus: t("skill_resources.unavailable"),
+      }));
       return;
     }
-    if (legalworkWorkspaceId !== templatesRoot) templatesLoaded = false;
-    if (!optionsOverride?.force && templatesLoaded) return;
-    if (refreshTemplatesInFlight) return;
-    refreshTemplatesInFlight = true;
     try {
-      const response = await legalworkClient.listTemplates(legalworkWorkspaceId);
-      const next: TemplateCard[] = Array.isArray(response.items)
+      const response = await legalworkClient.listSkillResources(legalworkWorkspaceId, skill);
+      const next: SkillResourceCard[] = Array.isArray(response.items)
         ? response.items.map((item) => ({
             name: item.name,
             path: item.path,
@@ -984,84 +981,91 @@ export function createExtensionsStore(options: {
             updatedAt: item.updatedAt,
           }))
         : [];
-      mutateState((current) => ({ ...current, templates: next, templatesStatus: null }));
-      templatesLoaded = true;
-      templatesRoot = legalworkWorkspaceId;
+      mutateState((current) => ({ ...current, skillResources: next, skillResourcesStatus: null }));
     } catch (error) {
       mutateState((current) => ({
         ...current,
-        templates: [],
-        templatesStatus: error instanceof Error ? error.message : "Failed to load templates.",
+        skillResources: [],
+        skillResourcesStatus: error instanceof Error ? error.message : t("skill_resources.load_failed"),
       }));
-    } finally {
-      refreshTemplatesInFlight = false;
     }
   }
 
-  async function readTemplate(name: string): Promise<{ name: string; path: string; content: string } | null> {
-    const trimmed = name.trim();
-    if (!trimmed) return null;
-    const { legalworkClient, legalworkWorkspaceId, canUse } = await resolveTemplatesTarget();
+  async function readSkillResource(
+    skillName: string,
+    fileName: string,
+  ): Promise<{ name: string; path: string; content: string } | null> {
+    const skill = skillName.trim();
+    const name = fileName.trim();
+    if (!skill || !name) return null;
+    const { legalworkClient, legalworkWorkspaceId, canUse } = await resolveSkillResourcesTarget();
     if (!canUse || !legalworkClient || !legalworkWorkspaceId) {
-      setStateField("templatesStatus", TEMPLATES_UNAVAILABLE);
+      setStateField("skillResourcesStatus", t("skill_resources.unavailable"));
       return null;
     }
     try {
-      const result = await legalworkClient.getTemplate(legalworkWorkspaceId, trimmed);
+      const result = await legalworkClient.getSkillResource(legalworkWorkspaceId, skill, name);
       return { name: result.item.name, path: result.item.path, content: result.content };
     } catch (error) {
-      setStateField("templatesStatus", error instanceof Error ? error.message : "Failed to load the template.");
+      setStateField(
+        "skillResourcesStatus",
+        error instanceof Error ? error.message : t("skill_resources.load_failed"),
+      );
       return null;
     }
   }
 
-  async function saveTemplate(input: {
-    name: string;
-    content?: string;
-    contentBase64?: string;
-  }): Promise<{ ok: boolean; message: string }> {
-    const trimmed = input.name.trim();
-    if (!trimmed) return { ok: false, message: "Template name is required." };
-    const { legalworkClient, legalworkWorkspaceId, canUse } = await resolveTemplatesTarget();
+  async function saveSkillResource(
+    skillName: string,
+    input: { name: string; content?: string; contentBase64?: string },
+  ): Promise<{ ok: boolean; message: string }> {
+    const skill = skillName.trim();
+    const name = input.name.trim();
+    if (!skill || !name) return { ok: false, message: t("skill_resources.save_failed") };
+    const { legalworkClient, legalworkWorkspaceId, canUse } = await resolveSkillResourcesTarget();
     if (!canUse || !legalworkClient || !legalworkWorkspaceId) {
-      return { ok: false, message: TEMPLATES_UNAVAILABLE };
+      return { ok: false, message: t("skill_resources.unavailable") };
     }
     options.setBusy(true);
     options.setError(null);
     try {
-      const result = await legalworkClient.upsertTemplate(legalworkWorkspaceId, {
-        name: trimmed,
+      const result = await legalworkClient.upsertSkillResource(legalworkWorkspaceId, skill, {
+        name,
         ...(typeof input.contentBase64 === "string"
           ? { contentBase64: input.contentBase64 }
           : { content: input.content ?? "" }),
       });
-      await refreshTemplates({ force: true });
-      return { ok: true, message: result.action === "added" ? "Template added." : "Template updated." };
+      await refreshSkillResources(skill);
+      return {
+        ok: true,
+        message: result.action === "added" ? t("skill_resources.added") : t("skill_resources.updated"),
+      };
     } catch (error) {
       const message = error instanceof Error ? error.message : t("skills.unknown_error");
-      setStateField("templatesStatus", message);
+      setStateField("skillResourcesStatus", message);
       return { ok: false, message };
     } finally {
       options.setBusy(false);
     }
   }
 
-  async function deleteTemplate(name: string): Promise<{ ok: boolean; message: string }> {
-    const trimmed = name.trim();
-    if (!trimmed) return { ok: false, message: "Template name is required." };
-    const { legalworkClient, legalworkWorkspaceId, canUse } = await resolveTemplatesTarget();
+  async function deleteSkillResource(skillName: string, fileName: string): Promise<{ ok: boolean; message: string }> {
+    const skill = skillName.trim();
+    const name = fileName.trim();
+    if (!skill || !name) return { ok: false, message: t("skill_resources.save_failed") };
+    const { legalworkClient, legalworkWorkspaceId, canUse } = await resolveSkillResourcesTarget();
     if (!canUse || !legalworkClient || !legalworkWorkspaceId) {
-      return { ok: false, message: TEMPLATES_UNAVAILABLE };
+      return { ok: false, message: t("skill_resources.unavailable") };
     }
     options.setBusy(true);
     options.setError(null);
     try {
-      await legalworkClient.deleteTemplate(legalworkWorkspaceId, trimmed);
-      await refreshTemplates({ force: true });
-      return { ok: true, message: "Template removed." };
+      await legalworkClient.deleteSkillResource(legalworkWorkspaceId, skill, name);
+      await refreshSkillResources(skill);
+      return { ok: true, message: t("skill_resources.removed") };
     } catch (error) {
       const message = error instanceof Error ? error.message : t("skills.unknown_error");
-      setStateField("templatesStatus", message);
+      setStateField("skillResourcesStatus", message);
       return { ok: false, message };
     } finally {
       options.setBusy(false);
@@ -2028,8 +2032,8 @@ export function createExtensionsStore(options: {
     syncFromOptions,
     skills: () => snapshot.skills,
     skillsStatus: () => snapshot.skillsStatus,
-    templates: () => snapshot.templates,
-    templatesStatus: () => snapshot.templatesStatus,
+    skillResources: () => snapshot.skillResources,
+    skillResourcesStatus: () => snapshot.skillResourcesStatus,
     hubSkills: () => snapshot.hubSkills,
     hubSkillsStatus: () => snapshot.hubSkillsStatus,
     hubRepo: () => snapshot.hubRepo,
@@ -2082,10 +2086,10 @@ export function createExtensionsStore(options: {
     readSkill,
     saveSkill,
     createSkill,
-    refreshTemplates,
-    readTemplate,
-    saveTemplate,
-    deleteTemplate,
+    refreshSkillResources,
+    readSkillResource,
+    saveSkillResource,
+    deleteSkillResource,
     abortRefreshes,
     ensureSkillsFresh,
     ensurePluginsFresh,

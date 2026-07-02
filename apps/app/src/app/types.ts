@@ -289,8 +289,8 @@ export type SkillCard = {
   workflowType?: string;
 };
 
-/** A file in the firm template library (.opencode/templates/). */
-export type TemplateCard = {
+/** A file attached to a skill — lives in the skill's own resources/ folder. */
+export type SkillResourceCard = {
   name: string;
   path: string;
   size: number;
