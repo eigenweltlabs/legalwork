@@ -201,7 +201,8 @@ export function getGlobalSettingsTabs(developerMode: boolean): SettingsTab[] {
   // "preferences" is the Privacy tab (usage-analytics opt-in).
   const tabs: SettingsTab[] = ["ai", "safety", "shell", "environment", "preferences", "updates"];
   // Office add-ins install into local desktop apps, so the tab is desktop-only.
-  if (isDesktopRuntime()) tabs.push("office-addins");
+  // Placed right after the first tab.
+  if (isDesktopRuntime()) tabs.splice(1, 0, "office-addins");
   if (developerMode) tabs.push("debug");
   return tabs;
 }

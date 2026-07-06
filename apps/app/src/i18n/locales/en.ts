@@ -8,7 +8,7 @@ export default {
   "office_addins.tab_description": "LegalWork in Word, Excel, and PowerPoint",
   "office_addins.about_title": "LegalWork inside Microsoft Office",
   "office_addins.about_body":
-    "Install the LegalWork add-in to open the agent in a sidebar inside Word, Excel, and PowerPoint. It runs locally against this app — no data leaves your machine to make it work.",
+    "Install the LegalWork add-in to open the agent in a sidebar inside Word, Excel, and PowerPoint. It runs locally against this app, so no data leaves your machine to make it work.",
   "office_addins.requires_desktop_title": "Desktop app required",
   "office_addins.requires_desktop": "Office add-ins can only be installed from the LegalWork desktop app.",
   "office_addins.unsupported_title": "Not supported on this platform yet",
