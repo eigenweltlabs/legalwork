@@ -171,7 +171,19 @@ export function createOfficeAddinManager({ app, locateServerDist, locatePaneDist
     if (platform() !== "darwin") return { ok: true };
     const { caCertPath } = certPaths();
     if (existsSync(caCertPath)) {
-      spawnSync("security", ["remove-trusted-cert", caCertPath], { encoding: "utf8", timeout: 30_000 });
+      const wasTrusted = caTrusted();
+      const result = spawnSync("security", ["remove-trusted-cert", caCertPath], {
+        encoding: "utf8",
+        timeout: 60_000,
+      });
+      // The exit code alone is ambiguous (it is also non-zero when no trust
+      // settings exist). The OS trust state is the truth: if the CA was
+      // trusted before and still is, the user denied the keychain prompt.
+      if (wasTrusted && caTrusted()) {
+        const detail =
+          (result.stderr || result.stdout || "").trim() || "the keychain change was not authorized";
+        return { ok: false, error: detail };
+      }
     }
     for (let i = 0; i < 8; i += 1) {
       const result = spawnSync(
@@ -336,22 +348,33 @@ export function createOfficeAddinManager({ app, locateServerDist, locatePaneDist
       return { ok: false, error: `Unknown Office app: ${appId}`, steps, status: status() };
     }
 
-    rmSync(target.manifestPath, { force: true });
-    steps.push({ step: "manifest", ok: true });
-
     const state = readState();
-    state.apps[appId] = false;
-    const lastOne = !anyEnabled(state);
+    const nextApps = { ...state.apps, [appId]: false };
+    const lastOne = !Object.values(nextApps).some(Boolean);
 
     if (lastOne) {
-      // Last app removed: take the trust-store entry and key material with it.
+      // Last app: remove the trust-store entry FIRST, before touching any
+      // other state. If the user denies the keychain prompt, abort with
+      // everything intact instead of stranding a trusted CA in the keychain.
       const untrust = untrustCa();
-      steps.push({ step: "trust", ok: untrust.ok });
+      steps.push({ step: "trust", ok: untrust.ok, ...(untrust.error ? { error: untrust.error } : {}) });
+      if (!untrust.ok) {
+        logError(`untrust failed: ${untrust.error}`);
+        return {
+          ok: false,
+          steps,
+          status: status(),
+          error: `The certificate was not removed (${untrust.error}). Nothing was uninstalled.`,
+        };
+      }
       rmSync(certDir, { recursive: true, force: true });
       steps.push({ step: "certificate", ok: true });
     }
 
-    writeState({ ...state, installedAt: lastOne ? null : state.installedAt });
+    rmSync(target.manifestPath, { force: true });
+    steps.push({ step: "manifest", ok: true });
+
+    writeState({ apps: nextApps, port: state.port, installedAt: lastOne ? null : state.installedAt });
     await applyListenerState(steps);
 
     return { ok: true, steps, status: status() };
