@@ -373,6 +373,13 @@ export async function handleWordAddinRequest(input: {
   // (instead of Office's uncustomizable "Add-in Error" page). It is a
   // frozen redirector to the versioned shell; see word-addin-shell.ts
   // for the full update mechanics.
+  //
+  // 30 days, not a year: the redirector has no other update path, so this
+  // caps how long a hypothetical redirector bug could persist on user
+  // machines. Within the window offline opens work from cache; after it,
+  // the next online open revalidates via ETag (a 304 when unchanged) and
+  // restarts the clock. Only a user who hasn't opened the pane with
+  // LegalWork running for 30+ days falls back to Office's error page.
   if (rest === "" || rest === "taskpane.html") {
     const etag = '"lw-redirector-v1"';
     if (request.headers.get("if-none-match") === etag) {
@@ -382,7 +389,7 @@ export async function handleWordAddinRequest(input: {
       status: 200,
       headers: {
         "Content-Type": "text/html; charset=utf-8",
-        "Cache-Control": "public, max-age=31536000",
+        "Cache-Control": "public, max-age=2592000",
         ETag: etag,
       },
     });
