@@ -1,21 +1,26 @@
 /**
- * Production manager for the LegalWork Office add-in (Word/Excel/PowerPoint).
+ * Production manager for the LegalWork Office add-ins (Word/Excel/PowerPoint).
  *
  * Owns everything the "Office Add-ins" settings tab drives:
- *  - a persisted enable/disable state (read by startLegalworkServer so the
- *    HTTPS listener comes up on every launch when installed),
- *  - a per-install, localhost-constrained CA + leaf certificate,
+ *  - per-app install state (word/excel/powerpoint), persisted in userData and
+ *    read by startLegalworkServer so the HTTPS listener comes up on every
+ *    launch while at least one app is installed,
+ *  - a per-install, localhost-constrained CA + leaf certificate (shared by
+ *    all apps; created on first install, removed with the last uninstall),
  *  - OS trust-store install/removal of that CA,
- *  - manifest install/removal into each Office app's sideload folder,
- *  - status reporting for the UI.
+ *  - manifest install/removal into each Office app's sideload folder.
+ *
+ * HOME pitfall: in dev mode the Electron main process's HOME is redirected to
+ * an app sandbox (see buildChildEnv in runtime.mjs), so every user-home path
+ * here MUST use the real account home from the user database, never homedir().
  *
  * Privileged steps (trust store) shell out to platform tools and surface a
- * single OS auth prompt. Every operation is best-effort and returns a
- * structured result with per-step outcomes; nothing throws fatally.
+ * single OS auth prompt. Operations return structured results with per-step
+ * outcomes and real error details; failures also log to the main console.
  */
 import { spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { homedir, platform } from "node:os";
+import { homedir, platform, userInfo } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 
@@ -37,6 +42,21 @@ const MAC_OFFICE_APPS = [
   { id: "powerpoint", label: "PowerPoint", container: "com.microsoft.Powerpoint" },
 ];
 
+/** Real account home — homedir() lies when dev mode rewrites $HOME. */
+function realHomeDir() {
+  try {
+    const info = userInfo();
+    if (info?.homedir) return info.homedir;
+  } catch {
+    // Accounts without a passwd entry fall back to the env-derived home.
+  }
+  return homedir();
+}
+
+function logError(message) {
+  console.error(`[office-addin] ${message}`);
+}
+
 /**
  * @param {object} deps
  * @param {import("electron").App} deps.app
@@ -49,23 +69,40 @@ export function createOfficeAddinManager({ app, locateServerDist, locatePaneDist
   const certDir = join(userDataDir, "office-addin-certs");
   const statePath = join(userDataDir, "office-addins.json");
 
+  function emptyApps() {
+    return { word: false, excel: false, powerpoint: false };
+  }
+
   function readState() {
     try {
       const raw = readFileSync(statePath, "utf8");
       const parsed = JSON.parse(raw);
+      const apps = emptyApps();
+      if (parsed.apps && typeof parsed.apps === "object") {
+        for (const id of Object.keys(apps)) {
+          apps[id] = parsed.apps[id] === true;
+        }
+      } else if (parsed.enabled === true) {
+        // Legacy single-switch state: treat as "all apps installed".
+        for (const id of Object.keys(apps)) apps[id] = true;
+      }
       return {
-        enabled: parsed.enabled === true,
+        apps,
         port: Number.isFinite(parsed.port) ? parsed.port : DEFAULT_PORT,
         installedAt: Number.isFinite(parsed.installedAt) ? parsed.installedAt : null,
       };
     } catch {
-      return { enabled: false, port: DEFAULT_PORT, installedAt: null };
+      return { apps: emptyApps(), port: DEFAULT_PORT, installedAt: null };
     }
   }
 
   function writeState(next) {
     mkdirSync(userDataDir, { recursive: true });
     writeFileSync(statePath, `${JSON.stringify(next, null, 2)}\n`, "utf8");
+  }
+
+  function anyEnabled(state) {
+    return Object.values(state.apps).some(Boolean);
   }
 
   function certPaths() {
@@ -77,13 +114,12 @@ export function createOfficeAddinManager({ app, locateServerDist, locatePaneDist
   }
 
   /**
-   * Server config the embedded server should launch with, based on persisted
-   * state. Returns null when the add-in is disabled or its files are missing,
-   * so the listener stays off.
+   * Server config the embedded server should launch with. Null when no app is
+   * installed or the certificate is missing, so the listener stays off.
    */
   function serverConfig() {
     const state = readState();
-    if (!state.enabled) return null;
+    if (!anyEnabled(state)) return null;
     const { leafCertPath, leafKeyPath } = certPaths();
     if (!existsSync(leafCertPath) || !existsSync(leafKeyPath)) return null;
     const distPath = locatePaneDist?.() ?? undefined;
@@ -98,15 +134,13 @@ export function createOfficeAddinManager({ app, locateServerDist, locatePaneDist
 
   // ── OS trust store (macOS) ────────────────────────────────────────────
   function loginKeychain() {
-    return join(homedir(), "Library", "Keychains", "login.keychain-db");
+    return join(realHomeDir(), "Library", "Keychains", "login.keychain-db");
   }
 
   function caTrusted() {
     if (platform() !== "darwin") return false;
     const { caCertPath, leafCertPath } = certPaths();
     if (!existsSync(caCertPath) || !existsSync(leafCertPath)) return false;
-    // verify-cert consults the OS trust store; it only passes when the CA is
-    // present AND trusted for SSL.
     const result = spawnSync("security", ["verify-cert", "-c", leafCertPath], {
       encoding: "utf8",
       timeout: 20_000,
@@ -119,11 +153,12 @@ export function createOfficeAddinManager({ app, locateServerDist, locatePaneDist
       return { ok: false, error: "Trust-store install is only implemented on macOS so far." };
     }
     const { caCertPath } = certPaths();
-    // Adds to the user's login keychain and marks it trusted for SSL. Shows
-    // one native auth prompt; no sudo. Restrict trust to SSL server policy.
+    // Unscoped trust (like office-addin-dev-certs): scoping to `-p ssl` makes
+    // `verify-cert -p ssl` demand Certificate Transparency SCTs, which local
+    // CAs cannot have. The name constraint is the real risk bound here.
     const result = spawnSync(
       "security",
-      ["add-trusted-cert", "-r", "trustRoot", "-p", "ssl", "-k", loginKeychain(), caCertPath],
+      ["add-trusted-cert", "-r", "trustRoot", "-k", loginKeychain(), caCertPath],
       { encoding: "utf8", timeout: 60_000 },
     );
     if (result.status !== 0) {
@@ -138,8 +173,6 @@ export function createOfficeAddinManager({ app, locateServerDist, locatePaneDist
     if (existsSync(caCertPath)) {
       spawnSync("security", ["remove-trusted-cert", caCertPath], { encoding: "utf8", timeout: 30_000 });
     }
-    // Remove every copy of our CA from the login keychain (loop: delete-certificate
-    // removes one match at a time).
     for (let i = 0; i < 8; i += 1) {
       const result = spawnSync(
         "security",
@@ -164,8 +197,9 @@ export function createOfficeAddinManager({ app, locateServerDist, locatePaneDist
 
   function officeApps() {
     if (platform() !== "darwin") return [];
+    const home = realHomeDir();
     return MAC_OFFICE_APPS.map((entry) => {
-      const containerDir = join(homedir(), "Library", "Containers", entry.container);
+      const containerDir = join(home, "Library", "Containers", entry.container);
       const wefDir = join(containerDir, "Data", "Documents", "wef");
       return {
         ...entry,
@@ -176,28 +210,45 @@ export function createOfficeAddinManager({ app, locateServerDist, locatePaneDist
     });
   }
 
-  function installManifests(manifest) {
-    const results = [];
-    for (const entry of officeApps()) {
-      if (!entry.installed) {
-        results.push({ app: entry.id, label: entry.label, present: false, changed: false });
-        continue;
-      }
-      try {
-        mkdirSync(entry.wefDir, { recursive: true });
-        const current = existsSync(entry.manifestPath) ? readFileSync(entry.manifestPath, "utf8") : null;
-        if (current !== manifest) writeFileSync(entry.manifestPath, manifest, "utf8");
-        results.push({ app: entry.id, label: entry.label, present: true, changed: current !== manifest });
-      } catch (error) {
-        results.push({ app: entry.id, label: entry.label, present: true, changed: false, error: String(error?.message ?? error) });
-      }
-    }
-    return results;
+  function officeAppById(appId) {
+    return officeApps().find((entry) => entry.id === appId) ?? null;
   }
 
-  function removeManifests() {
-    for (const entry of officeApps()) {
-      rmSync(entry.manifestPath, { force: true });
+  // ── Shared install pieces ─────────────────────────────────────────────
+  async function ensureCertAndTrust(steps) {
+    try {
+      const { leafCertPath, caCertPath } = ensureLocalCert(certDir);
+      const valid = leafCertValid(leafCertPath, caCertPath);
+      steps.push({ step: "certificate", ok: valid });
+      if (!valid) return "The generated certificate did not validate against its CA.";
+    } catch (error) {
+      const detail = String(error?.message ?? error);
+      steps.push({ step: "certificate", ok: false, error: detail });
+      logError(`certificate generation failed: ${detail}`);
+      return `Certificate generation failed: ${detail}`;
+    }
+
+    if (caTrusted()) {
+      steps.push({ step: "trust", ok: true, skipped: true });
+      return null;
+    }
+    const trust = trustCa();
+    steps.push({ step: "trust", ok: trust.ok, ...(trust.error ? { error: trust.error } : {}) });
+    if (!trust.ok) {
+      logError(`trust step failed: ${trust.error}`);
+      return `Could not trust the certificate: ${trust.error}`;
+    }
+    return null;
+  }
+
+  async function applyListenerState(steps) {
+    try {
+      await requestServerRestart();
+      steps.push({ step: "listener", ok: true });
+    } catch (error) {
+      const detail = String(error?.message ?? error);
+      steps.push({ step: "listener", ok: false, error: detail });
+      logError(`server restart failed: ${detail}`);
     }
   }
 
@@ -209,13 +260,14 @@ export function createOfficeAddinManager({ app, locateServerDist, locatePaneDist
       id: entry.id,
       label: entry.label,
       installed: entry.installed,
+      enabled: state.apps[entry.id] === true,
       manifestInstalled: existsSync(entry.manifestPath),
     }));
     return {
       supported: platform() === "darwin",
       platform: platform(),
       toolAvailable: officeAddinCertToolAvailable(),
-      enabled: state.enabled,
+      enabled: anyEnabled(state),
       port: state.port,
       installedAt: state.installedAt,
       certPresent: existsSync(leafCertPath),
@@ -226,78 +278,81 @@ export function createOfficeAddinManager({ app, locateServerDist, locatePaneDist
     };
   }
 
-  async function install() {
+  /** @param {"word" | "excel" | "powerpoint"} appId */
+  async function install(appId) {
     const steps = [];
+    const target = officeAppById(appId);
     if (platform() !== "darwin") {
-      return { ok: false, error: "The Office add-in installer currently supports macOS only.", status: status() };
+      return { ok: false, error: "The Office add-in installer currently supports macOS only.", steps, status: status() };
+    }
+    if (!target) {
+      return { ok: false, error: `Unknown Office app: ${appId}`, steps, status: status() };
+    }
+    if (!target.installed) {
+      return { ok: false, error: `${target.label} is not installed on this machine.`, steps, status: status() };
     }
     if (!officeAddinCertToolAvailable()) {
-      return { ok: false, error: "OpenSSL is required to generate the certificate but was not found.", status: status() };
+      return { ok: false, error: "OpenSSL is required to generate the certificate but was not found.", steps, status: status() };
     }
 
-    const port = readState().port || DEFAULT_PORT;
+    const state = readState();
 
-    // 1. Certificate.
-    try {
-      const { leafCertPath, caCertPath } = ensureLocalCert(certDir);
-      steps.push({ step: "certificate", ok: leafCertValid(leafCertPath, caCertPath) });
-    } catch (error) {
-      steps.push({ step: "certificate", ok: false, error: String(error?.message ?? error) });
-      return { ok: false, steps, status: status(), error: "Certificate generation failed." };
+    const certError = await ensureCertAndTrust(steps);
+    if (certError) {
+      return { ok: false, steps, status: status(), error: certError };
     }
 
-    // 2. Trust (single OS auth prompt). Idempotent — skip if already trusted.
-    if (caTrusted()) {
-      steps.push({ step: "trust", ok: true, skipped: true });
-    } else {
-      const trust = trustCa();
-      steps.push({ step: "trust", ok: trust.ok, ...(trust.error ? { error: trust.error } : {}) });
-      if (!trust.ok) {
-        return { ok: false, steps, status: status(), error: `Could not trust the certificate: ${trust.error}` };
-      }
-    }
-
-    // 3. Manifests.
-    const manifest = await buildManifest(port);
+    const manifest = await buildManifest(state.port);
     if (!manifest) {
-      steps.push({ step: "manifest", ok: false, error: "Could not build the add-in manifest (server bundle missing)." });
-      return { ok: false, steps, status: status(), error: "Add-in manifest could not be built." };
+      const detail = "Could not build the add-in manifest (server bundle missing).";
+      steps.push({ step: "manifest", ok: false, error: detail });
+      logError(detail);
+      return { ok: false, steps, status: status(), error: detail };
     }
-    const manifestResults = installManifests(manifest);
-    steps.push({ step: "manifest", ok: true, apps: manifestResults });
-
-    // 4. Persist enabled + start the listener.
-    writeState({ enabled: true, port, installedAt: Date.now() });
     try {
-      await requestServerRestart();
-      steps.push({ step: "listener", ok: true });
+      mkdirSync(target.wefDir, { recursive: true });
+      const current = existsSync(target.manifestPath) ? readFileSync(target.manifestPath, "utf8") : null;
+      if (current !== manifest) writeFileSync(target.manifestPath, manifest, "utf8");
+      steps.push({ step: "manifest", ok: true });
     } catch (error) {
-      steps.push({ step: "listener", ok: false, error: String(error?.message ?? error) });
+      const detail = `Could not write the ${target.label} manifest: ${String(error?.message ?? error)}`;
+      steps.push({ step: "manifest", ok: false, error: detail });
+      logError(detail);
+      return { ok: false, steps, status: status(), error: detail };
     }
+
+    state.apps[appId] = true;
+    writeState({ ...state, installedAt: state.installedAt ?? Date.now() });
+    await applyListenerState(steps);
 
     return { ok: true, steps, status: status() };
   }
 
-  async function uninstall() {
+  /** @param {"word" | "excel" | "powerpoint"} appId */
+  async function uninstall(appId) {
     const steps = [];
+    const target = officeAppById(appId);
+    if (!target) {
+      return { ok: false, error: `Unknown Office app: ${appId}`, steps, status: status() };
+    }
 
-    removeManifests();
+    rmSync(target.manifestPath, { force: true });
     steps.push({ step: "manifest", ok: true });
 
-    const untrust = untrustCa();
-    steps.push({ step: "trust", ok: untrust.ok });
+    const state = readState();
+    state.apps[appId] = false;
+    const lastOne = !anyEnabled(state);
 
-    // Keep the generated key material out of the way once uninstalled.
-    rmSync(certDir, { recursive: true, force: true });
-    steps.push({ step: "certificate", ok: true });
-
-    writeState({ enabled: false, port: readState().port, installedAt: null });
-    try {
-      await requestServerRestart();
-      steps.push({ step: "listener", ok: true });
-    } catch (error) {
-      steps.push({ step: "listener", ok: false, error: String(error?.message ?? error) });
+    if (lastOne) {
+      // Last app removed: take the trust-store entry and key material with it.
+      const untrust = untrustCa();
+      steps.push({ step: "trust", ok: untrust.ok });
+      rmSync(certDir, { recursive: true, force: true });
+      steps.push({ step: "certificate", ok: true });
     }
+
+    writeState({ ...state, installedAt: lastOne ? null : state.installedAt });
+    await applyListenerState(steps);
 
     return { ok: true, steps, status: status() };
   }

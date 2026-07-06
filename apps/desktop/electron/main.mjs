@@ -1138,11 +1138,11 @@ const desktopCommandHandlers = {
   "officeAddinStatus": async () => {
       return runtimeManager.officeAddinStatus();
   },
-  "officeAddinInstall": async () => {
-      return runtimeManager.officeAddinInstall();
+  "officeAddinInstall": async (event, ...args) => {
+      return runtimeManager.officeAddinInstall(args[0]);
   },
-  "officeAddinUninstall": async () => {
-      return runtimeManager.officeAddinUninstall();
+  "officeAddinUninstall": async (event, ...args) => {
+      return runtimeManager.officeAddinUninstall(args[0]);
   },
   "pickDirectory": async (event, ...args) => {
       const options = args[0] ?? {};

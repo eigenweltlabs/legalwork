@@ -191,10 +191,13 @@ Electron main process (`apps/desktop/electron/office-addin-manager.mjs`):
   `office-addin-cert.test.mjs` (a CA-signed cert for `evil.example.com`
   fails validation). The CA key never leaves the machine and is never
   shared between installs.
-- **Trust.** Adds the CA to the login keychain for SSL only, via one native
-  auth prompt (macOS). No sudo, no shared key.
-- **Manifests.** Writes the multi-host manifest into each installed Office
-  app's `wef` folder.
+- **Trust.** Adds the CA to the login keychain via one native auth prompt
+  (macOS). No sudo, no shared key. The constraint is enforced by the OS:
+  with the CA trusted, `security verify-cert` accepts the localhost leaf but
+  rejects a cert for any real domain signed by the same CA.
+- **Manifests.** Written per app: each of Word/Excel/PowerPoint is installed
+  and uninstalled individually from the settings tab; the certificate and
+  listener are shared and are torn down with the last uninstall.
 - **Listener.** Persists an enabled flag (`office-addins.json` in userData);
   `startLegalworkServer` reads it and passes the cert/key/dist to the
   embedded server so the HTTPS listener comes up on every launch. Uninstall

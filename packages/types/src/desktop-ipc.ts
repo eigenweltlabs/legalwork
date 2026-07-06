@@ -302,11 +302,15 @@ export type RunningAppsResult = {
   apps: string[];
 };
 
+export type OfficeAddinAppId = "word" | "excel" | "powerpoint";
+
 export type OfficeAddinAppStatus = {
-  id: "word" | "excel" | "powerpoint";
+  id: OfficeAddinAppId;
   label: string;
   /** The Office app is installed on this machine. */
   installed: boolean;
+  /** The user has installed the LegalWork add-in for this app. */
+  enabled: boolean;
   /** The LegalWork manifest is present in this app's sideload folder. */
   manifestInstalled: boolean;
 };
@@ -444,8 +448,8 @@ export type DesktopCommandMap = {
 
   // Office add-ins (Word/Excel/PowerPoint task pane)
   officeAddinStatus: { args: []; result: OfficeAddinStatus };
-  officeAddinInstall: { args: []; result: OfficeAddinActionResult };
-  officeAddinUninstall: { args: []; result: OfficeAddinActionResult };
+  officeAddinInstall: { args: [app: OfficeAddinAppId]; result: OfficeAddinActionResult };
+  officeAddinUninstall: { args: [app: OfficeAddinAppId]; result: OfficeAddinActionResult };
 
   // Dialogs
   pickDirectory: {
