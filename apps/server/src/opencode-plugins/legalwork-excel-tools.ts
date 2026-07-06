@@ -3,6 +3,7 @@ import { z } from "zod";
 import {
   callOfficeTool,
   describeOpenDocument,
+  describeOtherOpenApps,
   officePaneForHost,
   type OpenCodeContext,
 } from "./office-plugin-shared.js";
@@ -84,7 +85,9 @@ export const LegalWorkExcelTools = async () => ({
     output: { system: string[] },
   ) => {
     const pane = await officePaneForHost("excel");
-    output.system.push(pane ? excelModeInstruction(pane.documentUrl) : EXCEL_TOOLS_INSTRUCTION);
+    output.system.push(
+      pane ? excelModeInstruction(pane.documentUrl) + (await describeOtherOpenApps("excel")) : EXCEL_TOOLS_INSTRUCTION,
+    );
   },
   tool: {
     excel_read_workbook: {

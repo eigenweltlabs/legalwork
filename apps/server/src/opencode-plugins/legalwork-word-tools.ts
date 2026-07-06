@@ -3,6 +3,7 @@ import { z } from "zod";
 import {
   callOfficeTool,
   describeOpenDocument,
+  describeOtherOpenApps,
   officePaneForHost,
   type OpenCodeContext,
 } from "./office-plugin-shared.js";
@@ -93,7 +94,9 @@ export const LegalWorkWordTools = async () => ({
     output: { system: string[] },
   ) => {
     const pane = await officePaneForHost("word");
-    output.system.push(pane ? wordModeInstruction(pane.documentUrl) : WORD_TOOLS_INSTRUCTION);
+    output.system.push(
+      pane ? wordModeInstruction(pane.documentUrl) + (await describeOtherOpenApps("word")) : WORD_TOOLS_INSTRUCTION,
+    );
   },
   tool: {
     word_read_document: {

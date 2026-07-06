@@ -166,6 +166,35 @@ export async function officePaneForHost(host: string): Promise<OfficePaneInfo | 
   return status.hosts.find((entry) => entry.host === host) ?? null;
 }
 
+const HOST_LABELS: Record<string, string> = {
+  word: "Microsoft Word",
+  excel: "Microsoft Excel",
+  powerpoint: "Microsoft PowerPoint",
+};
+const HOST_TOOL_PREFIX: Record<string, string> = {
+  word: "word_*",
+  excel: "excel_*",
+  powerpoint: "ppt_*",
+};
+
+/**
+ * A prompt fragment naming the OTHER Office apps whose panes are open, so a
+ * host-specific mode prompt doesn't tunnel the agent into a single app. Empty
+ * when this is the only pane. Appended to each live mode instruction.
+ */
+export async function describeOtherOpenApps(currentHost: string): Promise<string> {
+  const status = await officePaneStatus();
+  const others = status.hosts.filter((entry) => entry.host !== currentHost && HOST_LABELS[entry.host]);
+  if (others.length === 0) return "";
+  const list = others
+    .map((entry) => {
+      const name = entry.documentUrl ? entry.documentUrl.split(/[\\/]/).pop() || "" : "";
+      return `${HOST_LABELS[entry.host]} (${HOST_TOOL_PREFIX[entry.host]} tools${name ? `, "${name}"` : ""})`;
+    })
+    .join(", ");
+  return `\n\nIMPORTANT: other Office apps are open next to this chat and you can use their tools in the SAME conversation: ${list}. Do not restrict yourself to one app — choose tools by which document a request is about. It is expected and correct to read from one app and edit another in a single task (e.g. read a figure from the workbook, then redline the Word document).`;
+}
+
 export function describeOpenDocument(documentUrl: string | null): string {
   if (!documentUrl) {
     return "The open document has not been saved yet (untitled).";
