@@ -139,6 +139,7 @@ const de: Record<string, string> = {
   "word_addin.connect_error_title": "LegalWork ist nicht erreichbar",
   "word_addin.connect_error_body": "Stelle sicher, dass der LegalWork-Server mit aktiviertem Word-Add-in läuft, und versuche es erneut.",
   "word_addin.connect_retry": "Erneut versuchen",
+  "word_addin.open_legalwork": "LegalWork öffnen",
   "word_addin.add_selection": "Auswahl in den Chat übernehmen",
   "word_addin.add_document": "Dokument in den Chat übernehmen",
   "word_addin.insert_reply": "Letzte Antwort am Cursor einfügen",

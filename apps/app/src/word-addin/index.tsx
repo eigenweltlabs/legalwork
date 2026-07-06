@@ -16,7 +16,7 @@ import {
 } from "@/react-app/kernel/platform";
 import { AppProviders } from "@/react-app/shell/providers";
 import { DEFAULT_SHELL_CONFIG, SHELL_CONFIG_STORAGE_KEY } from "@/react-app/shell/shell-config";
-import { officeReady } from "./office";
+import { officeReady, openLegalworkApp } from "./office";
 import { WordAddinRoot } from "./word-addin-root";
 import "@/app/index.css";
 import "./word-pane.css";
@@ -90,13 +90,22 @@ function ConnectScreen({ state, onRetry }: { state: ConnectionState; onRetry: ()
           {state.status === "error" ? (
             <p className="max-w-xs break-all text-[11px] text-dls-secondary/80">{state.message}</p>
           ) : null}
-          <button
-            type="button"
-            className="mt-1 rounded-full border border-dls-border bg-dls-surface px-4 py-1.5 text-xs font-medium text-dls-text transition-colors hover:bg-dls-hover"
-            onClick={onRetry}
-          >
-            {t("word_addin.connect_retry")}
-          </button>
+          <div className="mt-1 flex items-center gap-2">
+            <button
+              type="button"
+              className="rounded-full bg-dls-accent px-4 py-1.5 text-xs font-medium text-[var(--dls-accent-fg)] transition-colors hover:bg-[var(--dls-accent-hover)]"
+              onClick={() => openLegalworkApp()}
+            >
+              {t("word_addin.open_legalwork")}
+            </button>
+            <button
+              type="button"
+              className="rounded-full border border-dls-border bg-dls-surface px-4 py-1.5 text-xs font-medium text-dls-text transition-colors hover:bg-dls-hover"
+              onClick={onRetry}
+            >
+              {t("word_addin.connect_retry")}
+            </button>
+          </div>
         </>
       )}
     </div>

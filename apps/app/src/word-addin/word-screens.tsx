@@ -20,7 +20,7 @@ import { readLegalworkServerSettings } from "@/app/lib/legalwork-server";
 import { resolveWorkspaceEndpoint } from "@/app/lib/workspace-endpoint";
 import { writeLastSessionFor } from "@/react-app/shell/session-memory";
 import { t } from "@/i18n";
-import { fetchDocumentPath, officeCoversTopRightCorner, officeHostName } from "./office";
+import { fetchDocumentPath, officeCoversTopRightCorner, officeHostName, openLegalworkApp } from "./office";
 import { useWordServerClient } from "./use-word-server-client";
 
 // Compact variants of the platform's pill buttons (see
@@ -68,9 +68,16 @@ function PaneNotice(props: { message: string; onRetry?: () => void }) {
     <div className="flex flex-col items-center gap-3 px-6 py-10 text-center">
       <p className="text-xs leading-relaxed text-dls-secondary">{props.message}</p>
       {props.onRetry ? (
-        <button type="button" className={panePillGhost} onClick={props.onRetry}>
-          {t("word_addin.retry")}
-        </button>
+        // Load failures usually mean the desktop app is not running, so
+        // offer to launch it alongside the retry.
+        <div className="flex items-center gap-2">
+          <button type="button" className={panePillPrimary} onClick={() => openLegalworkApp()}>
+            {t("word_addin.open_legalwork")}
+          </button>
+          <button type="button" className={panePillGhost} onClick={props.onRetry}>
+            {t("word_addin.retry")}
+          </button>
+        </div>
       ) : null}
     </div>
   );

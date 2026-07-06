@@ -23,6 +23,7 @@ type OfficeNamespace = {
   context?: {
     requirements?: { isSetSupported?: (name: string, version?: string) => boolean };
     document?: OfficeDocumentContext;
+    ui?: { openBrowserWindow?: (url: string) => void };
   };
 };
 
@@ -109,6 +110,31 @@ export async function officeReady(timeoutMs = 5000): Promise<boolean> {
 /** Lowercased Office host name ("word", "excel", ...) once ready, else null. */
 export function officeHostName(): string | null {
   return readyHost ? readyHost.toLowerCase() : null;
+}
+
+/**
+ * Launch (or foreground) the LegalWork desktop app via its registered
+ * legalwork:// URL scheme. Office webviews block plain window.open for
+ * external URLs, so prefer the Office API and fall back to navigation.
+ */
+export function openLegalworkApp(): void {
+  const url = "legalwork://open";
+  const ui = officeGlobals().office?.context?.ui;
+  if (typeof ui?.openBrowserWindow === "function") {
+    try {
+      ui.openBrowserWindow(url);
+      return;
+    } catch {
+      // fall through
+    }
+  }
+  try {
+    const opened = window.open(url, "_blank");
+    if (opened) return;
+  } catch {
+    // fall through
+  }
+  window.location.href = url;
 }
 
 /**

@@ -1589,6 +1589,7 @@ export default {
   "word_addin.connect_error_title": "Can't reach LegalWork",
   "word_addin.connect_error_body": "Make sure the LegalWork server is running with the Word add-in enabled, then try again.",
   "word_addin.connect_retry": "Try again",
+  "word_addin.open_legalwork": "Open LegalWork",
   "word_addin.add_selection": "Add selection to chat",
   "word_addin.add_document": "Add document to chat",
   "word_addin.insert_reply": "Insert last reply at cursor",
