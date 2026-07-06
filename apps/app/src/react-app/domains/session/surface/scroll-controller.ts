@@ -200,17 +200,19 @@ export function useSessionScrollController(
       const delta = currentTop - previousTop;
       const userGestured = hasScrollGesture();
 
-      // Content shrinking (a streaming tool card collapsing, step runs being
-      // regrouped into the capped scroller) clamps scrollTop and fires a
-      // scroll event with a large negative delta that looks exactly like the
-      // user scrolling up. Without a gesture it is layout movement, not
-      // intent — never let it demote sticky-bottom to manual browsing.
+      // Layout changes (a streaming tool card collapsing, step runs being
+      // regrouped, turn-end chrome unmounting) clamp scrollTop and fire
+      // scroll events with negative deltas that look exactly like the user
+      // scrolling up. Which heights those events observe is timing- and
+      // engine-dependent (WKWebView delivers them after later growth has
+      // already been applied), so height heuristics cannot reliably tell
+      // layout from intent. Only a real input gesture (wheel, touch,
+      // scrollbar) may ever demote sticky-bottom to manual browsing.
       const currentHeight = container.scrollHeight;
       const previousHeight = lastKnownScrollHeightRef.current || currentHeight;
       lastKnownScrollHeightRef.current = currentHeight;
       const contentShrank = currentHeight < previousHeight - 1;
-      const scrolledUp =
-        delta <= -MANUAL_BROWSE_UPWARD_THRESHOLD_PX && !(contentShrank && !userGestured);
+      const scrolledUp = userGestured && delta <= -MANUAL_BROWSE_UPWARD_THRESHOLD_PX;
 
       // If the user scrolls up meaningfully while a programmatic scroll is
       // in flight, abandon the programmatic state and switch to manual browse

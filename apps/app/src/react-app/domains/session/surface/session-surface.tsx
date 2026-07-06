@@ -1128,6 +1128,14 @@ export function SessionSurface(props: SessionSurfaceProps) {
     contentRef,
   });
 
+  // Sending a message is an explicit "take me to the latest": jump to the
+  // bottom and re-arm follow mode regardless of any prior manual scrolling
+  // (awaitingAssistantBaseline is set exactly once per send).
+  const scrollToBottomOnSend = sessionScroll.scrollToBottom;
+  useEffect(() => {
+    if (awaitingAssistantBaseline !== null) scrollToBottomOnSend("auto");
+  }, [awaitingAssistantBaseline, scrollToBottomOnSend]);
+
   const handleMessageListDispatchAction = useCallback((action: DispatchAction) => {
     if (action.target === "settings" && action.action === "open") {
       props.onOpenSettingsSection?.(action.section);
