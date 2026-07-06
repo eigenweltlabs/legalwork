@@ -111,6 +111,19 @@ export function officeHostName(): string | null {
   return readyHost ? readyHost.toLowerCase() : null;
 }
 
+/**
+ * Office on macOS floats its "personality menu" (the round info button) over
+ * the top-right corner of every task pane — a ~26x26 px button inset ~8 px,
+ * drawn by Office above the webview. It cannot be disabled or moved, so pane
+ * UI must keep roughly 40x40 px of that corner free. Checks the Office
+ * global directly (not readyHost) so it is correct on first render.
+ */
+export function officeCoversTopRightCorner(): boolean {
+  if (!officeGlobals().office) return false;
+  const nav = typeof navigator === "undefined" ? null : navigator;
+  return /mac/i.test(nav?.platform ?? "") || /macintosh/i.test(nav?.userAgent ?? "");
+}
+
 /** True when running inside Word with the Word JavaScript API available. */
 export function isWordDocumentHost(): boolean {
   return officeHostName() === "word" && Boolean(officeGlobals().word);

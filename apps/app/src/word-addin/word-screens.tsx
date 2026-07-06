@@ -13,7 +13,7 @@ import { readLegalworkServerSettings } from "@/app/lib/legalwork-server";
 import { resolveWorkspaceEndpoint } from "@/app/lib/workspace-endpoint";
 import { writeLastSessionFor } from "@/react-app/shell/session-memory";
 import { t } from "@/i18n";
-import { fetchDocumentPath } from "./office";
+import { fetchDocumentPath, officeCoversTopRightCorner } from "./office";
 import { useWordServerClient } from "./use-word-server-client";
 
 function paneShell(children: ReactNode) {
@@ -21,8 +21,12 @@ function paneShell(children: ReactNode) {
 }
 
 function PaneHeader(props: { title: string; onBack?: () => void; action?: ReactNode }) {
+  // Keep the top-right corner free of Office's floating info button on Mac.
+  const reserveCorner = officeCoversTopRightCorner();
   return (
-    <div className="flex h-11 shrink-0 items-center gap-1 border-b border-dls-border px-2">
+    <div
+      className={`flex h-11 shrink-0 items-center gap-1 border-b border-dls-border px-2 ${reserveCorner ? "pr-11" : ""}`}
+    >
       {props.onBack ? (
         <Button
           type="button"
