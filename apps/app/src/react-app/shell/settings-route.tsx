@@ -211,6 +211,7 @@ function parseSettingsPath(pathname: string): {
     case "environment":
     case "updates":
     case "recovery":
+    case "office-addins":
     case "debug":
     case "skills":
     case "workflows":
