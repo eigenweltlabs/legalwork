@@ -13,15 +13,34 @@
  *      server appears, then hand off automatically.
  *
  * Updates: app updates never require a shell change (the shell only
- * forwards). When the shell itself changes, bump SHELL_VERSION — every
- * successful pane load re-fetches the shell with cache:"reload", so the
- * new version is active from the next pane open.
+ * forwards). Shell updates use immutable versioned URLs, because that is
+ * the only mechanism navigation caches honor reliably (verified in
+ * Chromium: neither subresource fetches with cache:"reload" nor
+ * location.reload() dependably replace the entry a future navigation
+ * renders):
+ *
+ *   - taskpane.html (the manifest URL) serves a tiny FROZEN redirector,
+ *     cached for a year. It never changes — it only navigates to the
+ *     shell version recorded in localStorage (falling back to the
+ *     version embedded at serve time).
+ *   - shell-v<N>.html serves the actual shell, cached immutable. When a
+ *     running shell learns from the bootstrap response that a newer
+ *     version exists, it records it and NAVIGATES to the new URL while
+ *     online — seeding the navigation cache for future offline opens.
  *
  * Keep this file dependency-free and the HTML self-contained: it must
  * render offline with nothing but itself.
  */
 
-export const WORD_ADDIN_SHELL_VERSION = "1";
+/**
+ * BUMP THIS whenever anything in the shell HTML below changes (markup,
+ * styles, copy, or script). Each version is served at its own immutable
+ * URL (shell-v<N>.html); running shells learn the current version from
+ * the bootstrap response and navigate to the new URL while online.
+ * Without a bump, existing installs keep rendering the old shell for up
+ * to a year. Increment the number.
+ */
+export const WORD_ADDIN_SHELL_VERSION = "4";
 
 export function buildWordAddinShellHtml(): string {
   return `<!doctype html>
@@ -33,29 +52,33 @@ export function buildWordAddinShellHtml(): string {
 <title>LegalWork</title>
 <script src="https://appsforoffice.microsoft.com/lib/1/hosted/office.js" defer onerror="this.remove()"></script>
 <style>
+  /* Colors are the pane theme's computed dls tokens (deployment "web"),
+     baked in so the offline screen matches the app's connect screen:
+     surface #fffffff7, text #0e0a07, secondary #0e0a078c, border
+     #0e0a0714, hover #0e0a070a, accent #18498b / hover #2352de. */
   :root { color-scheme: light; }
   html, body { height: 100%; margin: 0; }
   body {
     display: flex; align-items: center; justify-content: center;
-    background: #fff; color: #1f2430;
+    background: #fffffff7; color: #0e0a07;
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
     text-align: center;
   }
   .box { max-width: 300px; padding: 24px; }
-  .title { font-size: 14px; font-weight: 600; margin: 0 0 8px; }
-  .body { font-size: 12px; line-height: 1.5; color: #6b7280; margin: 0 0 16px; }
+  .title { font-size: 14px; font-weight: 500; margin: 0 0 12px; color: #0e0a07; }
+  .body { font-size: 12px; line-height: 1.6; color: #0e0a078c; margin: 0 0 16px; }
   .row { display: flex; gap: 8px; justify-content: center; }
   button {
     font: inherit; font-size: 12px; font-weight: 500; cursor: pointer;
-    border-radius: 999px; padding: 7px 16px; transition: background-color 120ms;
+    border-radius: 999px; padding: 6px 16px; transition: background-color 120ms, color 120ms;
   }
-  .primary { background: #011627; color: #fff; border: 1px solid #011627; }
-  .primary:hover { background: #1f2937; }
-  .ghost { background: #fff; color: #6b7280; border: 1px solid #e5e7eb; }
-  .ghost:hover { background: #f3f4f6; color: #1f2430; }
+  .primary { background: #18498b; color: #fefefe; border: 1px solid #18498b; }
+  .primary:hover { background: #2352de; border-color: #2352de; }
+  .ghost { background: #fffffff7; color: #0e0a07; border: 1px solid #0e0a0714; }
+  .ghost:hover { background: #0e0a070a; }
   .spinner {
     width: 18px; height: 18px; margin: 0 auto 12px;
-    border: 2px solid #e5e7eb; border-top-color: #011627; border-radius: 50%;
+    border: 2px solid #0e0a0714; border-top-color: #18498b; border-radius: 50%;
     animation: spin 0.8s linear infinite;
   }
   @keyframes spin { to { transform: rotate(360deg); } }
@@ -78,8 +101,12 @@ export function buildWordAddinShellHtml(): string {
 <script>
 (function () {
   "use strict";
-  var de = (navigator.language || "").toLowerCase().indexOf("de") === 0;
-  if (de) {
+  // Match the app's locale behavior: English unless the user chose German
+  // in LegalWork (same-origin localStorage, readable offline). The OS
+  // language is deliberately ignored, like the app does.
+  var lang = "";
+  try { lang = localStorage.getItem("legalwork.language") || ""; } catch (e) { /* ignore */ }
+  if (lang === "de") {
     document.getElementById("connecting-text").textContent = "Verbindung zu LegalWork...";
     document.getElementById("offline-title").textContent = "LegalWork ist nicht geöffnet";
     document.getElementById("offline-body").textContent =
@@ -88,25 +115,37 @@ export function buildWordAddinShellHtml(): string {
     document.getElementById("retry-btn").textContent = "Erneut versuchen";
   }
 
+  var SHELL_VERSION = "${WORD_ADDIN_SHELL_VERSION}";
   var handedOff = false;
 
   function checkServer() {
     var controller = typeof AbortController === "function" ? new AbortController() : null;
     var timer = controller ? setTimeout(function () { controller.abort(); }, 3000) : null;
     return fetch("bootstrap", { cache: "no-store", signal: controller ? controller.signal : undefined })
-      .then(function (response) { return response.ok; })
-      .catch(function () { return false; })
+      .then(function (response) { return response.ok ? response.json() : null; })
+      .then(function (data) { return data && typeof data === "object" ? data : null; })
+      .catch(function () { return null; })
       .finally(function () { if (timer) clearTimeout(timer); });
   }
 
-  function handOff() {
+  function rememberVersion(version) {
+    try { localStorage.setItem("legalwork.shellVersion", version); } catch (e) { /* ignore */ }
+  }
+
+  function handOff(bootstrap) {
     if (handedOff) return;
     handedOff = true;
-    // Refresh this shell's cache entry so shell updates propagate, then
-    // load the real pane (served no-store, always current).
-    fetch("taskpane.html", { cache: "reload" })
-      .catch(function () { /* ignore */ })
-      .finally(function () { location.replace("app.html"); });
+    var current = bootstrap && bootstrap.shellVersion;
+    if (typeof current === "string" && current && current !== SHELL_VERSION) {
+      // Newer shell available: record it and navigate to its immutable
+      // URL while the server is reachable, seeding the navigation cache
+      // for future offline opens. The new shell hands off to the app.
+      rememberVersion(current);
+      location.replace("shell-v" + encodeURIComponent(current) + ".html");
+      return;
+    }
+    rememberVersion(SHELL_VERSION);
+    location.replace("app.html");
   }
 
   function showOffline() {
@@ -132,18 +171,49 @@ export function buildWordAddinShellHtml(): string {
 
   document.getElementById("open-btn").addEventListener("click", openLegalwork);
   document.getElementById("retry-btn").addEventListener("click", function () {
-    checkServer().then(function (ok) { if (ok) handOff(); });
+    checkServer().then(function (data) { if (data) handOff(data); });
   });
 
-  checkServer().then(function (ok) {
-    if (ok) { handOff(); return; }
+  checkServer().then(function (data) {
+    if (data) { handOff(data); return; }
     showOffline();
     var poll = setInterval(function () {
-      checkServer().then(function (ok2) {
-        if (ok2) { clearInterval(poll); handOff(); }
+      checkServer().then(function (next) {
+        if (next) { clearInterval(poll); handOff(next); }
       });
     }, 2500);
   });
+})();
+</script>
+</body>
+</html>
+`;
+}
+
+/**
+ * The FROZEN redirector served at taskpane.html (the manifest URL). It
+ * must never change in any meaningful way: it is cached for a year with
+ * no update path of its own. All it does is navigate to the recorded
+ * shell version's immutable URL (falling back to the version embedded
+ * when it was cached).
+ */
+export function buildWordAddinRedirectorHtml(): string {
+  return `<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>LegalWork</title>
+</head>
+<body>
+<script>
+(function () {
+  "use strict";
+  var version = "${WORD_ADDIN_SHELL_VERSION}";
+  try {
+    var stored = localStorage.getItem("legalwork.shellVersion");
+    if (stored) version = stored;
+  } catch (e) { /* ignore */ }
+  location.replace("shell-v" + encodeURIComponent(version) + ".html");
 })();
 </script>
 </body>

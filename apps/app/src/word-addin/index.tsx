@@ -69,9 +69,9 @@ async function connectToServer(): Promise<void> {
     token,
     hostToken: hostToken || undefined,
   });
-  // Keep the long-cached bootstrap shell fresh (it renders when the pane is
-  // opened while LegalWork is closed; see server word-addin-shell.ts).
-  void fetch("/word-addin/taskpane.html", { cache: "reload" }).catch(() => undefined);
+  // Shell updates are handled by the shell itself (version check against
+  // the bootstrap response + self-reload; see server word-addin-shell.ts).
+  // A subresource fetch here cannot refresh the navigation cache entry.
 }
 
 type ConnectionState =

@@ -14,7 +14,7 @@ import { fileURLToPath } from "node:url";
 
 import type { ServerConfig, WordAddinConfig } from "./types.js";
 import type { ServeTlsOptions } from "./serve-node.js";
-import { buildWordAddinShellHtml, WORD_ADDIN_SHELL_VERSION } from "./word-addin-shell.js";
+import { buildWordAddinRedirectorHtml, buildWordAddinShellHtml, WORD_ADDIN_SHELL_VERSION } from "./word-addin-shell.js";
 
 export const WORD_ADDIN_PATH_PREFIX = "/word-addin";
 
@@ -370,20 +370,44 @@ export async function handleWordAddinRequest(input: {
 
   // The manifest's SourceLocation. Served long-cacheable so the Office
   // webview can render it from its HTTP cache while the server is down
-  // (instead of Office's uncustomizable "Add-in Error" page); the shell
-  // hands off to /word-addin/app.html when the server is reachable. See
-  // word-addin-shell.ts for the update mechanics.
+  // (instead of Office's uncustomizable "Add-in Error" page). It is a
+  // frozen redirector to the versioned shell; see word-addin-shell.ts
+  // for the full update mechanics.
   if (rest === "" || rest === "taskpane.html") {
-    const etag = `"lw-shell-v${WORD_ADDIN_SHELL_VERSION}"`;
+    const etag = '"lw-redirector-v1"';
     if (request.headers.get("if-none-match") === etag) {
       return new Response(null, { status: 304, headers: { ETag: etag } });
     }
-    return new Response(buildWordAddinShellHtml(), {
+    return new Response(buildWordAddinRedirectorHtml(), {
       status: 200,
       headers: {
         "Content-Type": "text/html; charset=utf-8",
         "Cache-Control": "public, max-age=31536000",
         ETag: etag,
+      },
+    });
+  }
+
+  // Versioned, immutable shell pages. Requests for a non-current version
+  // can only happen online (the request reached us), so redirect them to
+  // the current shell instead of serving stale markup under a versioned
+  // URL.
+  const shellMatch = rest.match(/^shell-v([A-Za-z0-9._-]+)\.html$/);
+  if (shellMatch) {
+    if (shellMatch[1] !== WORD_ADDIN_SHELL_VERSION) {
+      return new Response(null, {
+        status: 302,
+        headers: {
+          Location: `shell-v${WORD_ADDIN_SHELL_VERSION}.html`,
+          "Cache-Control": "no-store",
+        },
+      });
+    }
+    return new Response(buildWordAddinShellHtml(), {
+      status: 200,
+      headers: {
+        "Content-Type": "text/html; charset=utf-8",
+        "Cache-Control": "public, max-age=31536000, immutable",
       },
     });
   }
@@ -399,6 +423,23 @@ export async function handleWordAddinRequest(input: {
       token: config.token,
       hostToken: config.hostToken,
       wordAddinPort: wordAddin.port,
+      // Lets a cached shell detect it is outdated and reload itself once
+      // (reloads end-to-end revalidate the navigation cache entry, which
+      // subresource fetches provably do not).
+      shellVersion: WORD_ADDIN_SHELL_VERSION,
+    });
+  }
+
+  // Debug/support utility: clears the origin's HTTP cache (including the
+  // long-cached shell) in browsers that honor Clear-Site-Data.
+  if (rest === "clear-cache") {
+    return new Response("LegalWork add-in cache cleared. Reopen the pane.", {
+      status: 200,
+      headers: {
+        "Content-Type": "text/plain; charset=utf-8",
+        "Clear-Site-Data": '"cache"',
+        "Cache-Control": "no-store",
+      },
     });
   }
 
