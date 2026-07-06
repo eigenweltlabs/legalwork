@@ -1173,6 +1173,20 @@ export function createRuntimeManager({ app, desktopRoot, listLocalWorkspacePaths
       manageOpencode: options.manageOpencode === true,
       opencodeBin: managedOpencode?.path ?? undefined,
       opencodeCwd: managedOpencodeWorkdir(),
+      // Native folder picker for webview clients (Office task pane): the
+      // pane cannot open OS dialogs itself, so the server forwards here.
+      // Focus is stolen because the request originates from another app
+      // (Word/Excel) — without it the dialog opens behind that app.
+      pickDirectory: async (pickOptions) => {
+        const { dialog } = await import("electron");
+        app.focus({ steal: true });
+        const result = await dialog.showOpenDialog({
+          title: pickOptions?.title,
+          defaultPath: pickOptions?.defaultPath,
+          properties: ["openDirectory", "createDirectory"],
+        });
+        return result.canceled ? null : (result.filePaths[0] ?? null);
+      },
       // Word/Excel/PowerPoint add-in listener — enabled via the Office Add-ins
       // settings tab; null when not installed so the listener stays off.
       ...(officeAddinManager.serverConfig() ?? {}),

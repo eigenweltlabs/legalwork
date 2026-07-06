@@ -21,6 +21,8 @@ export type EmbeddedServerOptions = CliArgs & {
   opencodeBin?: string;
   /** Working directory for the managed OpenCode process. */
   opencodeCwd?: string;
+  /** Native folder-picker hook, forwarded to ServerConfig.pickDirectory. */
+  pickDirectory?: ServerConfig["pickDirectory"];
 };
 
 export type EmbeddedServerHandle = {
@@ -38,6 +40,7 @@ export type EmbeddedServerHandle = {
 
 export async function startEmbeddedServer(options: EmbeddedServerOptions): Promise<EmbeddedServerHandle> {
   const config = await resolveServerConfig(options);
+  config.pickDirectory = options.pickDirectory ?? null;
   const serverUrl = `http://${config.host === "0.0.0.0" ? "127.0.0.1" : config.host}:${config.port}`;
   const opencodeModelsUrl = process.env.LEGALWORK_DEV_MODE === "1"
     ? "http://localhost:8791/models"

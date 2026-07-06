@@ -262,6 +262,22 @@ export function registerWorkspaceRoutes(options: RegisterWorkspaceRoutesOptions)
     return resolveWorkspace(config, id);
   };
 
+  // Native folder picker, provided by the desktop app hosting the server.
+  // The Office task pane's webview cannot open OS dialogs itself, so it asks
+  // the server (running inside the desktop app) to show one. Standalone
+  // servers report supported: false and clients fall back to a typed path.
+  addRoute(routes, "POST", "/workspaces/pick-folder", "host", async (ctx) => {
+    const picker = config.pickDirectory;
+    if (!picker) {
+      return jsonResponse({ supported: false, path: null });
+    }
+    const body = await readOptionalJsonBody(ctx.request);
+    const title = readStringField(body, "title") || undefined;
+    const defaultPath = readStringField(body, "defaultPath") || undefined;
+    const path = await picker({ title, defaultPath });
+    return jsonResponse({ supported: true, path: path ?? null });
+  });
+
   addRoute(routes, "POST", "/workspaces/local", "host", async (ctx) => {
     ensureWritable(config);
     const body = await readJsonBody(ctx.request);
