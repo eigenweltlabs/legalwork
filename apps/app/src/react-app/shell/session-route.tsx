@@ -109,6 +109,7 @@ import { RenameWorkspaceModal } from "@/react-app/domains/workspace/rename-works
 import { ModelPickerModal } from "@/react-app/domains/session/modals/model-picker-modal";
 import { CommandPalette, type PaletteItem, type SessionGroupOption, type SessionOption as PaletteSessionOption } from "./command-palette";
 import { SessionSearchDialog } from "./session-search-dialog";
+import { WhatsNewDialog } from "./whats-new";
 import type { SessionMessageFetcher } from "@/react-app/domains/session/search/session-search";
 import { getDisplaySessionTitle } from "@/app/lib/session-title";
 import { useBootState } from "./boot-state";
@@ -1797,6 +1798,7 @@ export function SessionRoute() {
       selectedAgent={selectedAgent}
       onSelectAgent={setSelectedAgent}
     />
+    <WhatsNewDialog />
     <SessionSearchDialog
       open={sessionSearchOpen}
       onClose={() => setSessionSearchOpen(false)}
