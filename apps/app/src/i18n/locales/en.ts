@@ -4,6 +4,36 @@
  */
 
 export default {
+  "office_addins.tab_label": "Office Add-ins",
+  "office_addins.tab_description": "LegalWork in Word, Excel, and PowerPoint",
+  "office_addins.about_title": "LegalWork inside Microsoft Office",
+  "office_addins.about_body":
+    "Install the LegalWork add-in to open the agent in a sidebar inside Word, Excel, and PowerPoint. It runs locally against this app — no data leaves your machine to make it work.",
+  "office_addins.requires_desktop_title": "Desktop app required",
+  "office_addins.requires_desktop": "Office add-ins can only be installed from the LegalWork desktop app.",
+  "office_addins.unsupported_title": "Not supported on this platform yet",
+  "office_addins.unsupported_body": "Installing the Office add-in is currently supported on macOS. Windows support is coming.",
+  "office_addins.status_title": "LegalWork add-in",
+  "office_addins.status_enabled": "Installed and running.",
+  "office_addins.status_disabled": "Not installed.",
+  "office_addins.install": "Install",
+  "office_addins.installing": "Installing…",
+  "office_addins.uninstall": "Uninstall",
+  "office_addins.uninstalling": "Uninstalling…",
+  "office_addins.loading": "Checking status…",
+  "office_addins.cert_trusted": "Local certificate trusted",
+  "office_addins.listener_running": "Add-in server running on port {port}",
+  "office_addins.app_ready": "{app}: ready",
+  "office_addins.app_not_installed": "{app}: add-in not installed",
+  "office_addins.no_office_apps": "No Microsoft Office apps were detected on this machine.",
+  "office_addins.install_success": "Office add-in installed. Restart Word/Excel/PowerPoint if they are open.",
+  "office_addins.install_failed": "Could not install the Office add-in.",
+  "office_addins.uninstall_success": "Office add-in removed.",
+  "office_addins.uninstall_failed": "Could not remove the Office add-in.",
+  "office_addins.install_hint":
+    "Installing generates a localhost-only certificate and asks your OS to trust it (one password prompt), then adds the add-in to your Office apps.",
+  "office_addins.restart_hint":
+    "Open Word, Excel, or PowerPoint and choose Home → Add-ins → LegalWork. Restart the Office app once after installing.",
   "app.compact_command_desc": "Summarize this session to reduce context size.",
   "app.error_audit_load": "Failed to load audit log.",
   "app.error_auth_failed": "Authentication failed",

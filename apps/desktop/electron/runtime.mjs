@@ -8,7 +8,28 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { pathToFileURL } from "node:url";
 
+import { createOfficeAddinManager } from "./office-addin-manager.mjs";
+
 const __runtimeDir = path.dirname(fileURLToPath(import.meta.url));
+
+/** Directory holding the built server bundle (embedded.js, word-addin.js). */
+function locateServerDistDir() {
+  const candidates = [
+    path.resolve(__runtimeDir, "..", "..", "server", "dist"),
+    path.resolve(__runtimeDir, "..", "server", "dist"),
+    ...(process.resourcesPath ? [path.resolve(process.resourcesPath, "server", "dist")] : []),
+  ];
+  return candidates.find((dir) => existsSync(path.join(dir, "word-addin.js"))) ?? null;
+}
+
+/** Directory holding the built Office task pane bundle (taskpane.html). */
+function locatePaneDistDir() {
+  const candidates = [
+    path.resolve(__runtimeDir, "..", "..", "app", "dist-word-addin"),
+    ...(process.resourcesPath ? [path.resolve(process.resourcesPath, "word-addin-dist")] : []),
+  ];
+  return candidates.find((dir) => existsSync(path.join(dir, "taskpane.html"))) ?? null;
+}
 
 const DIRECT_RUNTIME = "direct";
 const ORCHESTRATOR_RUNTIME = "legalwork-orchestrator";
@@ -515,6 +536,16 @@ export function createRuntimeManager({ app, desktopRoot, listLocalWorkspacePaths
     process.resourcesPath ? path.join(process.resourcesPath, "sidecars") : null,
     path.join(path.dirname(app.getPath("exe")), "sidecars"),
   ].filter(Boolean);
+
+  // Office add-in (Word/Excel/PowerPoint) manager. Install/uninstall is driven
+  // by the "Office Add-ins" settings tab; startLegalworkServer reads its state
+  // so the HTTPS listener comes up on every launch when installed.
+  const officeAddinManager = createOfficeAddinManager({
+    app,
+    locateServerDist: locateServerDistDir,
+    locatePaneDist: locatePaneDistDir,
+    requestServerRestart: () => withRuntimeLifecycle(() => legalworkServerRestart({})),
+  });
 
   function legalworkServerTokenStorePath() {
     return path.join(userDataDir, "legalwork-server-tokens.json");
@@ -1142,6 +1173,9 @@ export function createRuntimeManager({ app, desktopRoot, listLocalWorkspacePaths
       manageOpencode: options.manageOpencode === true,
       opencodeBin: managedOpencode?.path ?? undefined,
       opencodeCwd: managedOpencodeWorkdir(),
+      // Word/Excel/PowerPoint add-in listener — enabled via the Office Add-ins
+      // settings tab; null when not installed so the listener stays off.
+      ...(officeAddinManager.serverConfig() ?? {}),
     });
     inProcessServer = handle;
     legalworkServerState.managedOpencodeExecution = handle.managedOpencodeExecution ?? null;
@@ -1902,6 +1936,9 @@ export function createRuntimeManager({ app, desktopRoot, listLocalWorkspacePaths
     engineInstall,
     legalworkServerInfo,
     legalworkServerRestart: (options) => withRuntimeLifecycle(() => legalworkServerRestart(options)),
+    officeAddinStatus: () => officeAddinManager.status(),
+    officeAddinInstall: () => officeAddinManager.install(),
+    officeAddinUninstall: () => officeAddinManager.uninstall(),
     orchestratorStatus,
     orchestratorWorkspaceActivate,
     orchestratorInstanceDispose,

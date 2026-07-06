@@ -10,6 +10,36 @@ import en from "./en";
 
 const de: Record<string, string> = {
   ...en,
+  "office_addins.tab_label": "Office-Add-ins",
+  "office_addins.tab_description": "LegalWork in Word, Excel und PowerPoint",
+  "office_addins.about_title": "LegalWork in Microsoft Office",
+  "office_addins.about_body":
+    "Installiere das LegalWork-Add-in, um den Agenten in einer Seitenleiste in Word, Excel und PowerPoint zu öffnen. Es läuft lokal gegen diese App – es verlassen keine Daten deinen Rechner.",
+  "office_addins.requires_desktop_title": "Desktop-App erforderlich",
+  "office_addins.requires_desktop": "Office-Add-ins können nur aus der LegalWork-Desktop-App installiert werden.",
+  "office_addins.unsupported_title": "Auf dieser Plattform noch nicht unterstützt",
+  "office_addins.unsupported_body": "Die Installation des Office-Add-ins wird derzeit unter macOS unterstützt. Windows folgt.",
+  "office_addins.status_title": "LegalWork-Add-in",
+  "office_addins.status_enabled": "Installiert und aktiv.",
+  "office_addins.status_disabled": "Nicht installiert.",
+  "office_addins.install": "Installieren",
+  "office_addins.installing": "Wird installiert…",
+  "office_addins.uninstall": "Deinstallieren",
+  "office_addins.uninstalling": "Wird entfernt…",
+  "office_addins.loading": "Status wird geprüft…",
+  "office_addins.cert_trusted": "Lokales Zertifikat vertraut",
+  "office_addins.listener_running": "Add-in-Server läuft auf Port {port}",
+  "office_addins.app_ready": "{app}: bereit",
+  "office_addins.app_not_installed": "{app}: Add-in nicht installiert",
+  "office_addins.no_office_apps": "Es wurden keine Microsoft-Office-Apps auf diesem Rechner gefunden.",
+  "office_addins.install_success": "Office-Add-in installiert. Starte Word/Excel/PowerPoint neu, falls geöffnet.",
+  "office_addins.install_failed": "Das Office-Add-in konnte nicht installiert werden.",
+  "office_addins.uninstall_success": "Office-Add-in entfernt.",
+  "office_addins.uninstall_failed": "Das Office-Add-in konnte nicht entfernt werden.",
+  "office_addins.install_hint":
+    "Bei der Installation wird ein nur für localhost gültiges Zertifikat erzeugt und vom Betriebssystem als vertrauenswürdig eingestuft (eine Passwortabfrage); danach wird das Add-in zu deinen Office-Apps hinzugefügt.",
+  "office_addins.restart_hint":
+    "Öffne Word, Excel oder PowerPoint und wähle Start → Add-ins → LegalWork. Starte die Office-App nach der Installation einmal neu.",
 
   /* ---- Common actions ---- */
   "common.add": "Hinzufügen",

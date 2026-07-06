@@ -178,6 +178,38 @@ open the pane.
 - Because the manifest points at localhost, this add-in is distributed by
   sideloading (or your own catalog), not AppSource.
 
+## Production: the "Office Add-ins" settings tab
+
+In a packaged desktop build, users install the add-in from **Settings →
+Office Add-ins** (a desktop-only global tab). Install/uninstall runs in the
+Electron main process (`apps/desktop/electron/office-addin-manager.mjs`):
+
+- **Certificate.** Generates a per-install CA that is *name-constrained to
+  localhost/loopback* (`office-addin-cert.mjs`) — unlike the dev flow's
+  unconstrained `office-addin-dev-certs`. Even if the CA key is stolen from
+  the machine it cannot sign for real domains; the constraint is proven by
+  `office-addin-cert.test.mjs` (a CA-signed cert for `evil.example.com`
+  fails validation). The CA key never leaves the machine and is never
+  shared between installs.
+- **Trust.** Adds the CA to the login keychain for SSL only, via one native
+  auth prompt (macOS). No sudo, no shared key.
+- **Manifests.** Writes the multi-host manifest into each installed Office
+  app's `wef` folder.
+- **Listener.** Persists an enabled flag (`office-addins.json` in userData);
+  `startLegalworkServer` reads it and passes the cert/key/dist to the
+  embedded server so the HTTPS listener comes up on every launch. Uninstall
+  removes manifests, untrusts + deletes the CA, and stops the listener.
+
+The packaged task pane bundle ships via electron-builder `extraResources`
+(`../app/dist-word-addin` → `word-addin-dist`). Currently macOS only;
+Windows install is stubbed (status reports `supported: false`).
+
+Dev note: the `pnpm dev` flow still enables the listener via
+`LEGALWORK_WORD_ADDIN=1` and the dev certificate, independently of the
+settings tab. In dev the tab may therefore show "Not installed" while the
+pane already works from the env path; in production (no env var) the tab is
+the sole control and its status is authoritative.
+
 ## Production / desktop distribution (future work)
 
 - The desktop app can enable `wordAddin` on its embedded server and ship the

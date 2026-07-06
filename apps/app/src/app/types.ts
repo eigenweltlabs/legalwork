@@ -196,6 +196,7 @@ export const SETTINGS_TAB_VALUES = [
   "appearance",
   "updates",
   "recovery",
+  "office-addins",
   "debug",
 ] as const;
 

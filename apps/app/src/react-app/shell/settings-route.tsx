@@ -74,6 +74,7 @@ import { EnvironmentView } from "@/react-app/domains/settings/pages/environment-
 import { ExtensionsView } from "@/react-app/domains/settings/pages/extensions-view";
 import { McpView } from "@/react-app/domains/settings/pages/mcp-view";
 import { RecoveryView } from "@/react-app/domains/settings/pages/recovery-view";
+import { OfficeAddinsView } from "@/react-app/domains/settings/pages/office-addins-view";
 import { MessagingView } from "@/react-app/domains/settings/pages/messaging-view";
 import { SkillsView } from "@/react-app/domains/settings/pages/skills-view";
 import { UpdatesView } from "@/react-app/domains/settings/pages/updates-view";
@@ -2033,6 +2034,8 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
             runtimeKey={environmentRuntimeKey}
           />
         );
+      case "office-addins":
+        return <OfficeAddinsView />;
       case "debug":
         return <DebugView {...debugViewProps} />;
       default:
