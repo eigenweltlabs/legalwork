@@ -98,12 +98,16 @@ function markSeen(ids: string[]): void {
   }
 }
 
-export function WhatsNewDialog() {
+export function WhatsNewDialog(props: { hasWorkspaces: boolean; workspacesReady: boolean }) {
   const local = useLocal();
   const navigate = useNavigate();
   const [announcement, setAnnouncement] = useState<WhatsNewAnnouncement | null>(null);
   const [isPreview, setIsPreview] = useState(false);
-  const hasCompletedOnboarding = local.prefs.hasCompletedOnboarding;
+  const { hasWorkspaces, workspacesReady } = props;
+  // Fresh-install detection must not rely on hasCompletedOnboarding alone:
+  // profiles that predate the flag report false forever. Anyone with an
+  // existing workspace is an existing user.
+  const isFreshInstall = !local.prefs.hasCompletedOnboarding && !hasWorkspaces;
 
   useEffect(() => {
     // Never in the Office task pane (it renders SessionRoute too): the
@@ -126,13 +130,18 @@ export function WhatsNewDialog() {
       return;
     }
 
+    // Decide nothing before workspaces have settled: during boot every
+    // profile briefly looks like a fresh install (0 workspaces) and would
+    // absorb its announcements by accident.
+    if (!workspacesReady) return;
+
     const seen = readSeenIds();
     const pending = WHATS_NEW_ANNOUNCEMENTS.filter(
       (entry) => !seen.includes(entry.id) && (entry.when?.() ?? true),
     );
     if (pending.length === 0) return;
 
-    if (!hasCompletedOnboarding) {
+    if (isFreshInstall) {
       // Fresh install: everything is new to this user, absorb silently.
       markSeen(WHATS_NEW_ANNOUNCEMENTS.map((entry) => entry.id));
       return;
@@ -140,7 +149,7 @@ export function WhatsNewDialog() {
 
     const timer = window.setTimeout(() => setAnnouncement(pending[0] ?? null), 1200);
     return () => window.clearTimeout(timer);
-  }, [hasCompletedOnboarding]);
+  }, [isFreshInstall, workspacesReady]);
 
   if (!announcement) return null;
 

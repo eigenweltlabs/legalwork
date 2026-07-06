@@ -1798,7 +1798,7 @@ export function SessionRoute() {
       selectedAgent={selectedAgent}
       onSelectAgent={setSelectedAgent}
     />
-    <WhatsNewDialog />
+    <WhatsNewDialog hasWorkspaces={workspaces.length > 0} workspacesReady={!effectiveLoading} />
     <SessionSearchDialog
       open={sessionSearchOpen}
       onClose={() => setSessionSearchOpen(false)}
