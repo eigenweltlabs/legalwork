@@ -85,6 +85,7 @@ export function useSessionScrollController(
   const setTopClippedMessageId = useSessionScrollStore((state) => state.setTopClippedMessageId);
 
   const lastKnownScrollTopRef = useRef(0);
+  const lastKnownScrollHeightRef = useRef(0);
   const programmaticScrollRef = useRef(false);
   const programmaticScrollResetRafARef = useRef<number | undefined>(undefined);
   const programmaticScrollResetRafBRef = useRef<number | undefined>(undefined);
@@ -196,15 +197,27 @@ export function useSessionScrollController(
       const currentTop = container.scrollTop;
       const previousTop = lastKnownScrollTopRef.current;
       const delta = currentTop - previousTop;
-      const scrolledUp = delta <= -MANUAL_BROWSE_UPWARD_THRESHOLD_PX;
       const userGestured = hasScrollGesture();
+
+      // Content shrinking (a streaming tool card collapsing, step runs being
+      // regrouped into the capped scroller) clamps scrollTop and fires a
+      // scroll event with a large negative delta that looks exactly like the
+      // user scrolling up. Without a gesture it is layout movement, not
+      // intent — never let it demote sticky-bottom to manual browsing.
+      const currentHeight = container.scrollHeight;
+      const previousHeight = lastKnownScrollHeightRef.current || currentHeight;
+      lastKnownScrollHeightRef.current = currentHeight;
+      const contentShrank = currentHeight < previousHeight - 1;
+      const scrolledUp =
+        delta <= -MANUAL_BROWSE_UPWARD_THRESHOLD_PX && !(contentShrank && !userGestured);
 
       // If the user scrolls up meaningfully while a programmatic scroll is
       // in flight, abandon the programmatic state and switch to manual browse
       // immediately. Without this the ResizeObserver's auto-scroll during
       // streaming keeps re-anchoring us to the bottom and the user can never
-      // actually get away from the tail of the transcript.
-      if (programmaticScrollRef.current && (userGestured || scrolledUp)) {
+      // actually get away from the tail of the transcript. Downward gestures
+      // are not an escape: wheeling toward the tail means "keep following".
+      if (programmaticScrollRef.current && (scrolledUp || (userGestured && delta < 0))) {
         programmaticScrollRef.current = false;
         clearProgrammaticScrollReset();
         saveScrollPosition(container);
@@ -221,6 +234,29 @@ export function useSessionScrollController(
       if (!userGestured && !scrolledUp) {
         if (isExactlyAtBottom(container)) {
           setStickyBottom(selectedSessionId, latestMessageTopClippedId(container));
+        } else if (contentShrank && isStickyBottom(selectedSessionId)) {
+          // A layout shrink clamped us away from the bottom while following
+          // the stream. The ResizeObserver only re-anchors on growth, so
+          // re-pin here or a turn that ends with a collapse leaves the
+          // transcript hovering above the bottom.
+          scrollToBottom("auto");
+        } else {
+          refreshTopClippedMessage();
+        }
+        lastKnownScrollTopRef.current = currentTop;
+        return;
+      }
+
+      // Downward gestures never demote sticky-bottom: the user is chasing
+      // the tail, and during tool-call streaming content grows in large
+      // jumps, so the moving bottom is rarely within the at-bottom epsilon
+      // at the moment the scroll event is handled. Only upward movement
+      // switches to manual browsing.
+      if (delta >= 0) {
+        if (isExactlyAtBottom(container)) {
+          setStickyBottom(selectedSessionId, latestMessageTopClippedId(container));
+        } else if (!isStickyBottom(selectedSessionId)) {
+          setManualScroll(selectedSessionId, currentTop, latestMessageTopClippedId(container));
         } else {
           refreshTopClippedMessage();
         }
@@ -231,7 +267,7 @@ export function useSessionScrollController(
       saveScrollPosition(container);
       lastKnownScrollTopRef.current = currentTop;
     },
-    [clearProgrammaticScrollReset, hasScrollGesture, refreshTopClippedMessage, saveScrollPosition, selectedSessionId, setStickyBottom],
+    [clearProgrammaticScrollReset, hasScrollGesture, refreshTopClippedMessage, saveScrollPosition, scrollToBottom, selectedSessionId, setManualScroll, setStickyBottom],
   );
 
   const jumpToLatest = useCallback(
@@ -299,6 +335,7 @@ export function useSessionScrollController(
 
     observedContentHeightRef.current = 0;
     lastKnownScrollTopRef.current = 0;
+    lastKnownScrollHeightRef.current = 0;
     queueMicrotask(() => {
       const container = options.containerRef.current;
       if (!container) return;
