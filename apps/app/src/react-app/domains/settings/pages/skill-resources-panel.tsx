@@ -1,6 +1,6 @@
 /** @jsxImportSource react */
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Edit2, FileText, Loader2, Plus, Trash2, Upload } from "lucide-react";
+import { Edit2, FilePlus, FileText, Loader2, Plus, Trash2 } from "lucide-react";
 import { toast } from "@/components/ui/sonner";
 
 import {
@@ -74,6 +74,120 @@ async function fileToBase64(file: File): Promise<string> {
     binary += String.fromCharCode(...bytes.subarray(index, index + chunk));
   }
   return btoa(binary);
+}
+
+// A file picked in a create dialog before the skill folder exists: held in
+// memory as base64 and flushed through saveSkillResource right after creation.
+export type StagedResourceFile = { name: string; size: number; contentBase64: string };
+
+/**
+ * Uploads staged files into a just-created skill. Returns the names that
+ * failed so the caller can tell the user which templates to re-attach from
+ * the editor — the skill itself is already created at this point.
+ */
+export async function flushStagedResources(
+  save: SkillResourcesStore["saveSkillResource"],
+  skillName: string,
+  staged: StagedResourceFile[],
+): Promise<string[]> {
+  const failed: string[] = [];
+  for (const file of staged) {
+    try {
+      const result = await save(skillName, { name: file.name, contentBase64: file.contentBase64 });
+      if (!result.ok) failed.push(file.name);
+    } catch {
+      failed.push(file.name);
+    }
+  }
+  return failed;
+}
+
+/**
+ * "Attached files" field for the create dialogs: lets the user pick templates
+ * while the skill/workflow doesn't exist on disk yet. Files are only staged
+ * here; the dialog flushes them via flushStagedResources after creation.
+ */
+export function StagedResourcesField(props: {
+  staged: StagedResourceFile[];
+  disabled?: boolean;
+  onChange: (staged: StagedResourceFile[]) => void;
+}) {
+  const [error, setError] = useState<string | null>(null);
+  const [reading, setReading] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+
+  const addFile = async (file: File) => {
+    if (!isValidResourceFileName(file.name)) {
+      setError(t("skill_resources.upload_invalid_name"));
+      return;
+    }
+    setError(null);
+    setReading(true);
+    try {
+      const contentBase64 = await fileToBase64(file);
+      props.onChange([
+        ...props.staged.filter((existing) => existing.name !== file.name),
+        { name: file.name, size: file.size, contentBase64 },
+      ]);
+    } finally {
+      setReading(false);
+    }
+  };
+
+  return (
+    <div className="block space-y-1.5">
+      <div className="flex items-center justify-between gap-2">
+        <span className="text-xs font-medium text-dls-text">{t("skill_resources.title")}</span>
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept=".md,.markdown,.txt,.csv,.docx,.pdf"
+          className="hidden"
+          onChange={(event) => {
+            const file = event.currentTarget.files?.[0];
+            event.currentTarget.value = "";
+            if (file) void addFile(file);
+          }}
+        />
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          disabled={props.disabled || reading}
+          onClick={() => fileInputRef.current?.click()}
+        >
+          {reading ? <Loader2 size={13} className="animate-spin" /> : <FilePlus size={13} />}
+          {t("skill_resources.upload")}
+        </Button>
+      </div>
+      {error ? <div className="text-[11px] text-red-12">{error}</div> : null}
+      {props.staged.length === 0 ? (
+        <span className="text-[11px] text-dls-secondary">{t("skill_resources.staged_hint")}</span>
+      ) : (
+        <div className="divide-y divide-dls-border/60 rounded-xl border border-dls-border bg-dls-hover/40 px-3">
+          {props.staged.map((file) => (
+            <div key={file.name} className="flex items-center gap-2.5 py-2">
+              <FileText size={14} className="shrink-0 text-dls-secondary" />
+              <span className="min-w-0 flex-1 truncate text-[12px] text-dls-text">{file.name}</span>
+              <span className="shrink-0 font-mono text-[10px] tabular-nums text-dls-secondary/70">
+                {formatResourceSize(file.size)}
+              </span>
+              <button
+                type="button"
+                className={rowIconBtnClass}
+                disabled={props.disabled}
+                onClick={() => props.onChange(props.staged.filter((existing) => existing.name !== file.name))}
+                title={t("common.remove")}
+                aria-label={t("common.remove")}
+              >
+                <Trash2 size={13} />
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
 }
 
 /**
@@ -153,7 +267,7 @@ export function SkillResourcesPanel(props: {
             disabled={props.busy || uploading}
             onClick={() => fileInputRef.current?.click()}
           >
-            {uploading ? <Loader2 size={13} className="animate-spin" /> : <Upload size={13} />}
+            {uploading ? <Loader2 size={13} className="animate-spin" /> : <FilePlus size={13} />}
             {t("skill_resources.upload")}
           </Button>
           <Button type="button" variant="outline" size="sm" disabled={props.busy} onClick={() => setAddOpen(true)}>

@@ -22,7 +22,9 @@ import {
   stripPluginVersion,
 } from "../../../../app/utils/plugins";
 import {
+  exportSkillZip as exportSkillZipCommand,
   importSkill,
+  importSkillZip as importSkillZipCommand,
   installSkillTemplate,
   installSkillFiles,
   joinDesktopPath,
@@ -31,7 +33,9 @@ import {
   pickDirectory,
   readLocalSkill,
   readOpencodeConfig,
+  pickFile,
   revealDesktopItemInDir,
+  saveFile,
   uninstallSkill as uninstallSkillCommand,
   workspaceLegalworkRead,
   workspaceLegalworkWrite,
@@ -1072,6 +1076,32 @@ export function createExtensionsStore(options: {
     }
   }
 
+  // Export a skill/workflow folder (SKILL.md + resources/) as one zip to a
+  // user-picked location. Desktop-only: the folder lives on this machine and
+  // the save dialog is native.
+  async function exportSkillZip(skillName: string): Promise<{ ok: boolean; message: string }> {
+    const name = skillName.trim();
+    if (!name) return { ok: false, message: t("skill_export.failed") };
+    if (!isDesktopRuntime()) return { ok: false, message: t("skill_export.desktop_only") };
+    const target = await saveFile({
+      title: t("skill_export.dialog_title"),
+      defaultPath: `${name}.zip`,
+      filters: [{ name: "Zip archive", extensions: ["zip"] }],
+    });
+    if (!target) return { ok: true, message: "" }; // user cancelled the dialog
+    try {
+      const result = (await exportSkillZipCommand("", name, target)) as {
+        ok: boolean;
+        stdout?: string;
+        stderr?: string;
+      };
+      if (!result.ok) return { ok: false, message: result.stderr || t("skill_export.failed") };
+      return { ok: true, message: t("skill_export.done", { name }) };
+    } catch (error) {
+      return { ok: false, message: error instanceof Error ? error.message : t("skill_export.failed") };
+    }
+  }
+
   async function refreshPlugins(scopeOverride?: PluginScope) {
     const isRemoteWorkspace = options.workspaceType() === "remote";
     const isLocalWorkspace = options.workspaceType() === "local";
@@ -1473,6 +1503,44 @@ export function createExtensionsStore(options: {
         }
         setStateField("skillsStatus", result.stdout || t("skills.imported"));
         options.markReloadRequired?.("skills", { type: "skill", name: targetName, action: "added" });
+      }
+      await refreshSkills({ force: true });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : t("skills.unknown_error");
+      options.setError(addOpencodeCacheHint(message));
+    } finally {
+      options.setBusy(false);
+    }
+  }
+
+  // Import a skill/workflow from a zip — the shape exportSkillZip produces, so
+  // exported workflows round-trip. The main process detects the folder name,
+  // applies the workflow- prefix, and writes into the global skills dir.
+  async function importLocalSkillZip(opts?: { asWorkflow?: boolean }) {
+    if (!isDesktopRuntime()) {
+      options.setError(t("skills.desktop_required"));
+      return;
+    }
+
+    options.setBusy(true);
+    options.setError(null);
+    setStateField("skillsStatus", null);
+    try {
+      const selection = await pickFile({
+        title: t("skills.select_skill_zip"),
+        filters: [{ name: "Zip archive", extensions: ["zip"] }],
+      });
+      const archivePath = typeof selection === "string" ? selection : Array.isArray(selection) ? selection[0] : null;
+      if (!archivePath) return;
+      const result = (await importSkillZipCommand("", archivePath, {
+        overwrite: false,
+        asWorkflow: opts?.asWorkflow === true,
+      })) as { ok: boolean; stderr?: string; stdout?: string; status?: number };
+      if (!result.ok) {
+        setStateField("skillsStatus", result.stderr || result.stdout || t("skills.import_failed").replace("{status}", String(result.status)));
+      } else {
+        setStateField("skillsStatus", result.stdout || t("skills.imported"));
+        options.markReloadRequired?.("skills", { type: "skill", name: undefined, action: "added" });
       }
       await refreshSkills({ force: true });
     } catch (error) {
@@ -2075,6 +2143,7 @@ export function createExtensionsStore(options: {
     addPlugin,
     removePlugin,
     importLocalSkill,
+    importLocalSkillZip,
     scanGithubSkills,
     importGithubSkills,
     installSkillCreator,
@@ -2086,6 +2155,7 @@ export function createExtensionsStore(options: {
     readSkill,
     saveSkill,
     createSkill,
+    exportSkillZip,
     refreshSkillResources,
     readSkillResource,
     saveSkillResource,

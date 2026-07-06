@@ -455,6 +455,20 @@ export type DesktopCommandMap = {
     result: ExecResult;
   };
   uninstallSkill: { args: [projectDir: string, skillName: string]; result: ExecResult };
+  // Zip a skill/workflow folder (SKILL.md + resources/ + supporting files) to
+  // outputPath — the self-contained shareable form. Empty projectDir → global
+  // skills dir, same resolution as readLocalSkill.
+  exportSkillZip: {
+    args: [projectDir: string, skillName: string, outputPath: string];
+    result: ExecResult;
+  };
+  // Install a skill from a zip (the shape exportSkillZip produces, or any zip
+  // with SKILL.md at the root or under one top-level folder). asWorkflow adds
+  // the workflow- name prefix the Workflows view detects.
+  importSkillZip: {
+    args: [projectDir: string, archivePath: string, options?: { overwrite?: boolean; asWorkflow?: boolean }];
+    result: ExecResult;
+  };
   // One-time lift of per-workspace skills + MCP into the global config. No args →
   // self-enumerates all local workspaces.
   migrateExtensionsToGlobal: {

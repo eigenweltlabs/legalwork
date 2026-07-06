@@ -319,3 +319,49 @@ export async function importWorkspaceConfig({ archivePath, targetDir, name }) {
     preset,
   };
 }
+
+// Zip a whole skill/workflow folder (SKILL.md + resources/ + supporting files)
+// so it can be shared as one self-contained archive. Entries are prefixed with
+// the skill name so unzipping produces <name>/SKILL.md etc. directly.
+export async function exportSkillFolder({ skillDir, skillName, outputPath }) {
+  if (!(await pathExists(skillDir))) {
+    throw new Error(`Skill folder not found: ${skillDir}`);
+  }
+  const collected = await collectFiles(skillDir);
+  if (collected.length === 0) throw new Error("Skill folder is empty");
+  const files = [];
+  for (const file of collected) {
+    files.push({ name: `${skillName}/${file.rel}`, data: await readFile(file.absolute) });
+  }
+  await writeZip(outputPath, files);
+  return { outputPath, fileCount: files.length };
+}
+
+// Read a skill zip back into memory — the inverse of exportSkillFolder. Accepts
+// both layouts: SKILL.md under one top-level folder (what export produces) or
+// SKILL.md at the zip root. Unsafe entry paths (absolute, ..) are skipped.
+export async function readSkillArchive(archivePath) {
+  const buffer = await readFile(archivePath);
+  const files = [];
+  for (const entry of listZipEntries(buffer)) {
+    if (!isSafeArchivePath(entry.name)) continue;
+    const name = normalizeZipPath(entry.name);
+    if (name.endsWith("/")) continue; // directory entry
+    files.push({ name, data: readZipEntryData(buffer, entry) });
+  }
+  if (files.some((file) => file.name === "SKILL.md")) {
+    return { folderName: null, files: files.map((file) => ({ rel: file.name, data: file.data })) };
+  }
+  const marker = files.find((file) => /^[^/]+\/SKILL\.md$/.test(file.name));
+  if (!marker) {
+    throw new Error("No SKILL.md found in the zip (expected SKILL.md at the root or under one folder).");
+  }
+  const folderName = marker.name.split("/")[0];
+  const prefix = `${folderName}/`;
+  return {
+    folderName,
+    files: files
+      .filter((file) => file.name.startsWith(prefix))
+      .map((file) => ({ rel: file.name.slice(prefix.length), data: file.data })),
+  };
+}

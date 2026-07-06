@@ -33,6 +33,7 @@ import { createUiControlServer } from "./ui-control-server.mjs";
 import { createApplicationMenu } from "./app-menu.mjs";
 import { createBrowserPanel } from "./browser-panel.mjs";
 import { createWorkspaceStore } from "./workspace-store.mjs";
+import { exportSkillFolder, readSkillArchive } from "./workspace-archive.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const require = createRequire(import.meta.url);
@@ -1245,6 +1246,78 @@ const desktopCommandHandlers = {
   },
   "listLocalSkills": async (event, ...args) => {
       return listLocalSkills(String(args[0] ?? "").trim());
+  },
+  "importSkillZip": async (event, ...args) => {
+      const projectDir = String(args[0] ?? "").trim();
+      const archivePath = String(args[1] ?? "").trim();
+      const overwrite = args[2]?.overwrite === true;
+      const asWorkflow = args[2]?.asWorkflow === true;
+      if (!archivePath) {
+        throw new Error("archivePath is required");
+      }
+      const archive = await readSkillArchive(archivePath);
+      // Folder name inside the zip wins; a root-level SKILL.md falls back to the
+      // zip's own file name. Slugified so hand-named zips still validate.
+      const rawName = archive.folderName ?? path.basename(archivePath).replace(/\.zip$/i, "");
+      const slug = rawName.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
+      let name = validateSkillName(slug);
+      if (asWorkflow && !name.startsWith("workflow-")) {
+        name = validateSkillName(`workflow-assistant-${name}`);
+      }
+      const skillRoot = projectDir ? await ensureProjectSkillRoot(projectDir) : await ensureGlobalSkillRoot();
+      const destination = path.join(skillRoot, name);
+      if (await pathExists(destination)) {
+        if (!overwrite) {
+          return execResult(false, "", `Skill already exists at ${destination}`);
+        }
+        await rm(destination, { recursive: true, force: true });
+      }
+      await mkdir(destination, { recursive: true });
+      const destRoot = path.resolve(destination);
+      let written = 0;
+      for (const file of archive.files) {
+        const rel = file.rel.replace(/\\/g, "/").replace(/^\/+/, "");
+        if (!rel || rel.split("/").includes("..")) continue; // never escape the skill dir
+        const dest = path.join(destination, rel);
+        if (!path.resolve(dest).startsWith(destRoot + path.sep)) continue;
+        await mkdir(path.dirname(dest), { recursive: true });
+        let data = file.data;
+        // Installed under a different name (slugified/workflow-prefixed) — keep
+        // the SKILL.md frontmatter name in sync so the engine loads it.
+        if (rel === "SKILL.md" && name !== rawName) {
+          const content = data.toString("utf8");
+          const tagged = /(^|\n)name:\s*.*$/m.test(content)
+            ? content.replace(/(^|\n)name:\s*.*$/m, `$1name: ${name}`)
+            : content;
+          data = Buffer.from(tagged, "utf8");
+        }
+        await writeFile(dest, data);
+        written += 1;
+      }
+      return execResult(true, `Imported ${name} (${written} file${written === 1 ? "" : "s"})`);
+  },
+  "exportSkillZip": async (event, ...args) => {
+      const projectDir = String(args[0] ?? "").trim();
+      const name = validateSkillName(args[1]);
+      const outputPath = String(args[2] ?? "").trim();
+      if (!outputPath) {
+        throw new Error("outputPath is required");
+      }
+      // Resolve via the same lookup the skill list/editor uses, so anything
+      // visible in the UI (global or project, flat or nested) is exportable.
+      const skillPath = await findSkillFile(projectDir, name);
+      if (!skillPath) {
+        return execResult(false, "", `Skill not found: ${name}`);
+      }
+      const result = await exportSkillFolder({
+        skillDir: path.dirname(skillPath),
+        skillName: name,
+        outputPath,
+      });
+      return execResult(
+        true,
+        `Exported ${result.fileCount} file${result.fileCount === 1 ? "" : "s"} to ${result.outputPath}`,
+      );
   },
   "readLocalSkill": async (event, ...args) => {
       const projectDir = String(args[0] ?? "").trim();
