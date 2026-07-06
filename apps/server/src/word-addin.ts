@@ -468,7 +468,7 @@ export async function handleWordAddinRequest(input: {
       {
         code: "word_addin_bundle_missing",
         message:
-          "Word add-in bundle not found. Build it with `pnpm --filter legalwork-app build:word-addin` or set --word-addin-dist.",
+          "Word add-in bundle not found. Build it with `pnpm --filter @legalwork/app build:word-addin` or set --word-addin-dist.",
       },
       503,
     );

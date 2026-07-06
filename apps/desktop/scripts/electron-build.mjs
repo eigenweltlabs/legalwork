@@ -1,5 +1,5 @@
 import { spawnSync } from "node:child_process";
-import { copyFileSync, cpSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { copyFileSync, cpSync, existsSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -40,6 +40,17 @@ run(pnpmCmd, ["--filter", "legalwork-server", "build"], repoRoot);
 run(pnpmCmd, ["--filter", "@legalwork/app", "build"], repoRoot, {
   LEGALWORK_ELECTRON_BUILD: "1",
 });
+// Office task pane bundle — electron-builder.yml ships apps/app/dist-word-addin
+// as Resources/word-addin-dist. The dir is gitignored, and electron-builder
+// silently skips a missing extraResources source, so build it here and fail
+// loudly if the entry point is absent (the packaged add-in would otherwise
+// 503 with word_addin_bundle_missing).
+run(pnpmCmd, ["--filter", "@legalwork/app", "build:word-addin"], repoRoot);
+const wordAddinDistDir = resolve(repoRoot, "apps", "app", "dist-word-addin");
+if (!existsSync(resolve(wordAddinDistDir, "taskpane.html"))) {
+  console.error(`Word add-in bundle missing after build: ${wordAddinDistDir}/taskpane.html`);
+  process.exit(1);
+}
 // Copy constants.json next to server dist so the packaged asar can resolve it.
 // Also patch the compiled import path so it works from both dev and packaged layouts.
 const serverDistDir = resolve(repoRoot, "apps", "server", "dist");
@@ -67,6 +78,7 @@ process.stdout.write(
     {
       ok: true,
       renderer: "apps/app/dist",
+      wordAddin: "apps/app/dist-word-addin",
       electronMain: "apps/desktop/electron/main.mjs",
       electronPreload: "apps/desktop/electron/preload.mjs",
     },
