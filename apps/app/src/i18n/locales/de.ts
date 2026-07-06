@@ -66,6 +66,7 @@ const de: Record<string, string> = {
 
   /* ---- Navigation / chrome ---- */
   "dashboard.back_to_app": "Zurück zur App",
+  "dashboard.change": "Ändern",
   "session.new_task": "Neue Aufgabe",
   "session.preparing_workspace": "Arbeitsbereich wird vorbereitet",
   "status.back": "Zurück zum vorherigen Bildschirm",

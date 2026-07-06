@@ -2,11 +2,18 @@
 import { useState, type ReactNode } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ChevronLeft, ChevronRight, FolderPlus, Plus } from "lucide-react";
+import {
+  Check,
+  ChevronLeft,
+  ChevronRight,
+  FileText,
+  Folder,
+  FolderPlus,
+  Loader2,
+  Plus,
+} from "lucide-react";
 
 import { toast } from "@/components/ui/sonner";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { createClient, unwrap } from "@/app/lib/opencode";
 import { getDisplaySessionTitle } from "@/app/lib/session-title";
 import { readLegalworkServerSettings } from "@/app/lib/legalwork-server";
@@ -15,6 +22,19 @@ import { writeLastSessionFor } from "@/react-app/shell/session-memory";
 import { t } from "@/i18n";
 import { fetchDocumentPath, officeCoversTopRightCorner, officeHostName } from "./office";
 import { useWordServerClient } from "./use-word-server-client";
+
+// Compact variants of the platform's pill buttons (see
+// react-app/domains/workspace/modal-styles.ts) sized for the narrow pane.
+const panePillBase =
+  "inline-flex shrink-0 items-center justify-center gap-1.5 rounded-full px-3.5 py-1.5 text-[12px] font-medium transition-colors focus:outline-none focus:ring-2 focus:ring-[rgba(var(--dls-accent-rgb),0.18)] disabled:cursor-not-allowed disabled:opacity-60";
+const panePillPrimary = `${panePillBase} bg-dls-accent text-[var(--dls-accent-fg)] hover:bg-[var(--dls-accent-hover)]`;
+const panePillGhost = `${panePillBase} border border-dls-border bg-dls-surface text-dls-secondary hover:bg-dls-hover hover:text-dls-text`;
+
+const paneIconButtonClass =
+  "flex size-7 shrink-0 items-center justify-center rounded-lg text-dls-secondary transition-colors hover:bg-dls-hover hover:text-dls-text focus:outline-none focus-visible:ring-2 focus-visible:ring-[rgba(var(--dls-accent-rgb),0.18)] disabled:cursor-not-allowed disabled:opacity-50";
+
+const paneInputClass =
+  "w-full rounded-xl border border-dls-border bg-dls-hover px-3 py-2 text-[13px] text-dls-text placeholder:text-dls-secondary focus:outline-none focus:ring-2 focus:ring-[rgba(var(--dls-accent-rgb),0.12)] disabled:cursor-not-allowed disabled:opacity-60";
 
 function paneShell(children: ReactNode) {
   return <div className="flex h-dvh flex-col overflow-hidden bg-dls-surface text-dls-text">{children}</div>;
@@ -28,16 +48,14 @@ function PaneHeader(props: { title: string; onBack?: () => void; action?: ReactN
       className={`flex h-11 shrink-0 items-center gap-1 border-b border-dls-border px-2 ${reserveCorner ? "pr-11" : ""}`}
     >
       {props.onBack ? (
-        <Button
+        <button
           type="button"
-          variant="ghost"
-          size="icon"
-          className="size-7 shrink-0"
+          className={paneIconButtonClass}
           aria-label={t("word_addin.back")}
           onClick={props.onBack}
         >
           <ChevronLeft size={16} />
-        </Button>
+        </button>
       ) : null}
       <div className="min-w-0 flex-1 truncate px-1 text-sm font-medium">{props.title}</div>
       {props.action}
@@ -50,9 +68,9 @@ function PaneNotice(props: { message: string; onRetry?: () => void }) {
     <div className="flex flex-col items-center gap-3 px-6 py-10 text-center">
       <p className="text-xs leading-relaxed text-dls-secondary">{props.message}</p>
       {props.onRetry ? (
-        <Button type="button" variant="outline" size="sm" onClick={props.onRetry}>
+        <button type="button" className={panePillGhost} onClick={props.onRetry}>
           {t("word_addin.retry")}
-        </Button>
+        </button>
       ) : null}
     </div>
   );
@@ -169,22 +187,20 @@ export function WordWorkspacesScreen() {
       <PaneHeader
         title={t("word_addin.workspaces_title")}
         action={
-          <Button
+          <button
             type="button"
-            variant="ghost"
-            size="icon"
-            className="size-7"
+            className={paneIconButtonClass}
             aria-label={t("word_addin.new_workspace")}
             onClick={() => setCreating((current) => !current)}
           >
             <FolderPlus size={15} />
-          </Button>
+          </button>
         }
       />
       <div className="min-h-0 flex-1 overflow-y-auto">
         {creating ? (
           <form
-            className="space-y-2 border-b border-dls-border px-3 py-3"
+            className="space-y-2 border-b border-dls-border p-3"
             onSubmit={(event) => {
               event.preventDefault();
               if (!submitDisabled) {
@@ -192,42 +208,74 @@ export function WordWorkspacesScreen() {
               }
             }}
           >
-            <div className="text-xs font-medium">{t("word_addin.new_workspace")}</div>
+            <div className="text-[13px] font-medium text-dls-text">{t("word_addin.new_workspace")}</div>
             {fileFolder && !fileFolderIsWorkspace ? (
-              <Button
+              <button
                 type="button"
-                variant="outline"
-                size="sm"
-                className="h-auto w-full flex-col items-start gap-0.5 py-1.5"
                 disabled={createWorkspace.isPending}
+                className="group flex w-full items-center gap-2.5 rounded-2xl border border-dls-border bg-dls-surface p-2.5 text-left transition-all duration-150 hover:bg-dls-hover hover:shadow-[0_2px_12px_-4px_rgba(0,0,0,0.06)] focus:outline-none focus:ring-2 focus:ring-[rgba(var(--dls-accent-rgb),0.16)] disabled:cursor-not-allowed disabled:opacity-60"
                 onClick={() =>
                   createWorkspace.mutate({ folderPath: fileFolder, name: folderNameFromPath(fileFolder) })
                 }
               >
-                <span className="text-xs">{t("word_addin.create_in_file_folder")}</span>
-                <span className="max-w-full truncate text-[10px] font-normal text-dls-secondary">
-                  {fileFolder}
+                <span className="flex size-9 shrink-0 items-center justify-center rounded-xl border border-dls-border bg-dls-hover text-dls-secondary transition-colors group-hover:text-dls-accent">
+                  {createWorkspace.isPending ? (
+                    <Loader2 size={15} className="animate-spin" />
+                  ) : (
+                    <FileText size={15} />
+                  )}
                 </span>
-              </Button>
+                <span className="min-w-0 flex-1">
+                  <span className="block text-[12px] font-medium leading-snug text-dls-text">
+                    {t("word_addin.create_in_file_folder")}
+                  </span>
+                  <span className="block truncate font-mono text-[10px] text-dls-secondary">{fileFolder}</span>
+                </span>
+              </button>
             ) : null}
-            {pickerSupported ? (
-              <div className="flex items-center gap-2">
-                <Button
+            {folderPath && pickerSupported ? (
+              <div className="flex items-center gap-2.5 rounded-2xl border border-dls-border bg-dls-surface p-2.5">
+                <span className="flex size-9 shrink-0 items-center justify-center rounded-xl bg-emerald-3 text-emerald-11">
+                  <Check size={15} strokeWidth={2.5} />
+                </span>
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate text-[12px] font-medium text-dls-text">
+                    {folderNameFromPath(folderPath)}
+                  </span>
+                  <span className="block truncate font-mono text-[10px] text-dls-secondary">{folderPath}</span>
+                </span>
+                <button
                   type="button"
-                  variant="outline"
-                  size="sm"
-                  className="shrink-0"
+                  className={panePillGhost}
                   disabled={picking || createWorkspace.isPending}
                   onClick={() => void pickFolder()}
                 >
-                  {t("word_addin.choose_folder")}
-                </Button>
-                <span className="min-w-0 flex-1 truncate text-[11px] text-dls-secondary">
-                  {folderPath || t("word_addin.no_folder_selected")}
-                </span>
+                  {picking ? <Loader2 size={13} className="animate-spin" /> : null}
+                  {t("dashboard.change")}
+                </button>
               </div>
+            ) : pickerSupported ? (
+              <button
+                type="button"
+                disabled={picking || createWorkspace.isPending}
+                className="group flex w-full items-center gap-2.5 rounded-2xl border border-dashed border-dls-border bg-dls-hover p-2.5 text-left transition-all duration-150 hover:border-[rgba(var(--dls-accent-rgb),0.35)] hover:bg-dls-surface focus:outline-none focus:ring-2 focus:ring-[rgba(var(--dls-accent-rgb),0.16)] disabled:cursor-not-allowed disabled:opacity-60"
+                onClick={() => void pickFolder()}
+              >
+                <span className="flex size-9 shrink-0 items-center justify-center rounded-xl border border-dls-border bg-dls-surface text-dls-secondary transition-colors group-hover:text-dls-accent">
+                  {picking ? <Loader2 size={15} className="animate-spin" /> : <FolderPlus size={15} />}
+                </span>
+                <span className="min-w-0 flex-1">
+                  <span className="block text-[12px] font-medium text-dls-text">
+                    {t("word_addin.choose_folder")}
+                  </span>
+                  <span className="block truncate text-[10px] text-dls-secondary">
+                    {t("word_addin.no_folder_selected")}
+                  </span>
+                </span>
+              </button>
             ) : (
-              <Input
+              <input
+                className={paneInputClass}
                 value={folderPath}
                 placeholder={t("word_addin.workspace_folder")}
                 onChange={(event) => {
@@ -237,7 +285,8 @@ export function WordWorkspacesScreen() {
                 }}
               />
             )}
-            <Input
+            <input
+              className={paneInputClass}
               value={name}
               placeholder={t("word_addin.workspace_name")}
               onChange={(event) => {
@@ -246,12 +295,12 @@ export function WordWorkspacesScreen() {
               }}
             />
             <div className="flex justify-end gap-2 pt-1">
-              <Button type="button" variant="ghost" size="sm" onClick={() => setCreating(false)}>
+              <button type="button" className={panePillGhost} onClick={() => setCreating(false)}>
                 {t("word_addin.cancel")}
-              </Button>
-              <Button type="submit" size="sm" disabled={submitDisabled}>
+              </button>
+              <button type="submit" className={panePillPrimary} disabled={submitDisabled}>
                 {createWorkspace.isPending ? t("word_addin.creating") : t("word_addin.create")}
-              </Button>
+              </button>
             </div>
           </form>
         ) : null}
@@ -262,19 +311,29 @@ export function WordWorkspacesScreen() {
         ) : items.length === 0 ? (
           <PaneNotice message={t("word_addin.no_workspaces")} />
         ) : (
-          <ul>
+          <ul className="space-y-1 p-2">
             {items.map((workspace) => (
               <li key={workspace.id}>
                 <button
                   type="button"
-                  className="flex w-full items-center gap-2 border-b border-dls-border/60 px-3 py-2.5 text-left transition-colors hover:bg-dls-hover"
+                  className="group flex w-full items-center gap-2.5 rounded-xl px-2.5 py-2 text-left transition-colors hover:bg-dls-hover focus:outline-none focus-visible:ring-2 focus-visible:ring-[rgba(var(--dls-accent-rgb),0.16)]"
                   onClick={() => openWorkspace(workspace.id)}
                 >
-                  <span className="min-w-0 flex-1">
-                    <span className="block truncate text-sm">{workspace.name || workspace.id}</span>
-                    <span className="block truncate text-[11px] text-dls-secondary">{workspace.path}</span>
+                  <span className="flex size-8 shrink-0 items-center justify-center rounded-lg border border-dls-border bg-dls-hover text-dls-secondary transition-colors group-hover:bg-dls-surface">
+                    <Folder size={14} />
                   </span>
-                  <ChevronRight size={14} className="shrink-0 text-dls-secondary" />
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate text-[13px] font-medium text-dls-text">
+                      {workspace.name || workspace.id}
+                    </span>
+                    <span className="block truncate font-mono text-[10px] text-dls-secondary">
+                      {workspace.path}
+                    </span>
+                  </span>
+                  <ChevronRight
+                    size={14}
+                    className="shrink-0 text-dls-secondary opacity-0 transition-opacity group-hover:opacity-100"
+                  />
                 </button>
               </li>
             ))}
@@ -343,17 +402,19 @@ export function WordSessionsScreen() {
         title={workspaceName || t("word_addin.sessions_title")}
         onBack={() => navigate("/")}
         action={
-          <Button
+          <button
             type="button"
-            variant="ghost"
-            size="icon"
-            className="size-7"
+            className={paneIconButtonClass}
             aria-label={t("word_addin.new_session")}
             disabled={createSession.isPending || !workspace}
             onClick={() => createSession.mutate()}
           >
-            <Plus size={15} className={createSession.isPending ? "animate-pulse" : undefined} />
-          </Button>
+            {createSession.isPending ? (
+              <Loader2 size={15} className="animate-spin" />
+            ) : (
+              <Plus size={15} />
+            )}
+          </button>
         }
       />
       <div className="min-h-0 flex-1 overflow-y-auto">
@@ -364,22 +425,22 @@ export function WordSessionsScreen() {
         ) : items.length === 0 ? (
           <PaneNotice message={t("word_addin.no_sessions")} />
         ) : (
-          <ul>
+          <ul className="space-y-0.5 p-2">
             {items.map((session) => (
               <li key={session.id}>
                 <button
                   type="button"
-                  className="flex w-full items-center gap-2 border-b border-dls-border/60 px-3 py-2.5 text-left transition-colors hover:bg-dls-hover"
+                  className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left transition-colors hover:bg-dls-hover focus:outline-none focus-visible:ring-2 focus-visible:ring-[rgba(var(--dls-accent-rgb),0.16)]"
                   onClick={() =>
                     navigate(
                       `/workspace/${encodeURIComponent(workspaceId)}/session/${encodeURIComponent(session.id)}`,
                     )
                   }
                 >
-                  <span className="min-w-0 flex-1 truncate text-sm">
+                  <span className="min-w-0 flex-1 truncate text-[13px] text-dls-text">
                     {getDisplaySessionTitle(session.title)}
                   </span>
-                  <span className="shrink-0 text-[11px] text-dls-secondary">
+                  <span className="shrink-0 text-[10px] text-dls-secondary">
                     {formatSessionTime(session.time?.updated)}
                   </span>
                 </button>
