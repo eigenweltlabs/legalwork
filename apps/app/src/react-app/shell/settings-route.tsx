@@ -1773,6 +1773,14 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
               runtimeWorkspaceId={runtimeWorkspaceId}
               onConfigUpdated={() => {
                 setConfigActionStatus(t("settings.config_updated"));
+                // Permissions only take effect when the engine rebuilds its
+                // config — without this the running engine silently keeps the
+                // old (permissionless) behavior.
+                reloadCoordinator.markReloadRequired("config", {
+                  type: "config",
+                  name: "opencode.json",
+                  action: "updated",
+                });
               }}
             />
           </SettingsStack>
