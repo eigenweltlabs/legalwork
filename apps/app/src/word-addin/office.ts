@@ -9,11 +9,20 @@
 
 type OfficeHostInfo = { host?: unknown; platform?: unknown };
 
+type OfficeFileProperties = { url?: string | null };
+type OfficeAsyncResult<T> = { status?: string; value?: T };
+type OfficeDocumentContext = {
+  url?: string | null;
+  getFilePropertiesAsync?: (
+    callback: (result: OfficeAsyncResult<OfficeFileProperties>) => void,
+  ) => void;
+};
+
 type OfficeNamespace = {
   onReady: (callback?: (info: OfficeHostInfo) => void) => Promise<OfficeHostInfo> | void;
   context?: {
     requirements?: { isSetSupported?: (name: string, version?: string) => boolean };
-    document?: { url?: string | null };
+    document?: OfficeDocumentContext;
   };
 };
 
@@ -126,6 +135,52 @@ export function isWordApiSupported(version: string): boolean {
 export function getDocumentUrl(): string | null {
   const url = officeGlobals().office?.context?.document?.url;
   return typeof url === "string" && url.trim() ? url : null;
+}
+
+/** Normalize a file:// URL to a plain local path; keep http(s) URLs as-is. */
+function normalizeDocumentPath(raw: string | null | undefined): string | null {
+  const value = typeof raw === "string" ? raw.trim() : "";
+  if (!value) return null;
+  if (value.startsWith("file://")) {
+    try {
+      return decodeURIComponent(new URL(value).pathname);
+    } catch {
+      return value.replace(/^file:\/\//, "");
+    }
+  }
+  return value;
+}
+
+/**
+ * The saved path of the open document via getFilePropertiesAsync (the
+ * supported API, more reliable on Mac than context.document.url). Resolves
+ * null for unsaved documents. One-shot; used for workspace auto-detection.
+ */
+export function fetchDocumentPath(timeoutMs = 4000): Promise<string | null> {
+  const doc = officeGlobals().office?.context?.document;
+  const legacy = normalizeDocumentPath(doc?.url);
+  return new Promise((resolve) => {
+    let settled = false;
+    const done = (value: string | null) => {
+      if (settled) return;
+      settled = true;
+      resolve(value);
+    };
+    const timer = window.setTimeout(() => done(legacy), timeoutMs);
+    try {
+      if (doc?.getFilePropertiesAsync) {
+        doc.getFilePropertiesAsync((result) => {
+          window.clearTimeout(timer);
+          done(normalizeDocumentPath(result?.value?.url) ?? legacy);
+        });
+        return;
+      }
+    } catch {
+      // fall through to legacy
+    }
+    window.clearTimeout(timer);
+    done(legacy);
+  });
 }
 
 function requireWord(): WordNamespace {

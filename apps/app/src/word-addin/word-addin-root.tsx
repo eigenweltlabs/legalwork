@@ -12,6 +12,7 @@ import { t } from "@/i18n";
 import { WordActionsDock } from "./word-actions-dock";
 import { WordSessionsScreen, WordWorkspacesScreen } from "./word-screens";
 import { WordToolRelayHost } from "./word-tool-relay";
+import { WorkspaceAutoOpen } from "./workspace-auto-open";
 
 /**
  * The chat itself is the app's SessionRoute (full agent surface, streaming,
@@ -59,6 +60,7 @@ export function WordAddinRoot() {
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
           <WordToolRelayHost />
+          <WorkspaceAutoOpen />
           <LoadingOverlay />
         </LegalworkControlProvider>
       </AppMenuProvider>
