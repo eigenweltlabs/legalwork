@@ -47,7 +47,9 @@ export default defineConfig({
   build: {
     target: "esnext",
     outDir: "dist-word-addin",
-    emptyOutDir: true,
+    // Watch mode (dev) keeps the previous bundle on disk so the task pane
+    // never 404s/503s during the initial rebuild after `pnpm dev` starts.
+    emptyOutDir: process.env.LEGALWORK_PANE_KEEP_DIST !== "1",
     rollupOptions: {
       input: {
         taskpane: resolve(appRoot, "taskpane.html"),

@@ -172,6 +172,7 @@ async function waitForChildren(children, timeoutMs) {
 }
 
 let uiChild = null;
+let paneChild = null;
 let electronChild = null;
 let stopping = false;
 
@@ -180,7 +181,7 @@ async function stopAll(exitCode = 0) {
   stopping = true;
   restoreTerminal();
 
-  const children = [electronChild, uiChild].filter(Boolean);
+  const children = [electronChild, uiChild, paneChild].filter(Boolean);
   for (const child of children) signalTree(child, "SIGINT");
 
   const stoppedCleanly = await waitForChildren(children, 2_000);
@@ -204,6 +205,22 @@ if (process.env.LEGALWORK_ELECTRON_SKIP_SHARED_PREPARE !== "1") {
 // Build the server TS → JS so Electron can import it in-process
 console.log("[electron-dev] Building legalwork-server (tsc)...");
 runSync(pnpmCmd, ["--filter", "legalwork-server", "build"], { cwd: repoRoot });
+
+// Office add-in (Word/Excel/PowerPoint): on by default in dev. Sideload the
+// manifest + dev certs (best-effort, idempotent, never fatal) and keep the
+// task pane bundle fresh with a watch build. Opt out: LEGALWORK_WORD_ADDIN=0.
+const officeAddinEnabled = process.env.LEGALWORK_WORD_ADDIN !== "0";
+if (officeAddinEnabled) {
+  console.log("[electron-dev] Sideloading Office add-in (Word/Excel/PowerPoint)...");
+  spawnSync(nodeCmd, [resolve(__dirname, "office-addin-sideload.mjs")], {
+    cwd: desktopRoot,
+    stdio: "inherit",
+  });
+  paneChild = run(pnpmCmd, ["--filter", "@legalwork/app", "dev:word-addin"], {
+    cwd: repoRoot,
+    env: { ...process.env },
+  });
+}
 
 const initialProbeUrls = [startUrl, ...viteProbeUrls].filter(Boolean);
 let viteReady = false;
@@ -250,6 +267,7 @@ electronChild = run(pnpmCmd, ["exec", "electron", "./electron/main.mjs"], {
     LEGALWORK_DEV_MODE: process.env.LEGALWORK_DEV_MODE ?? "1",
     LEGALWORK_DATA_DIR: process.env.LEGALWORK_DATA_DIR ?? defaultDevDataDir,
     LEGALWORK_ELECTRON_START_URL: resolvedStartUrl,
+    LEGALWORK_WORD_ADDIN: officeAddinEnabled ? "1" : "0",
     ...(cdpPort ? { LEGALWORK_ELECTRON_REMOTE_DEBUG_PORT: cdpPort } : {}),
   },
 });

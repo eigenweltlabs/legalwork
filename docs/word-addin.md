@@ -39,7 +39,25 @@ Key properties:
   welcome page, no browser panel, no workspace management) and only mounts
   the session routes; unknown routes bounce back to `/session`.
 
-## One-time setup (development)
+## Development: just `pnpm dev`
+
+On this branch, `pnpm dev` sets up everything automatically:
+
+1. Installs the localhost dev certificates on first run (one-time keychain
+   trust prompt, via `office-addin-dev-certs`).
+2. Sideloads the multi-host manifest into every installed Office app
+   (Word, Excel, PowerPoint on macOS) — idempotent, only rewrites on change.
+3. Starts a watch build of the task pane bundle alongside the app UI.
+4. The dev desktop app's embedded server hosts the pane and starts the
+   HTTPS add-in listener on port 47443.
+
+Then open Word/Excel/PowerPoint → Home → Add-ins → Developer Add-ins →
+LegalWork. (Restart the Office app once after the very first sideload.)
+
+Opt out with `LEGALWORK_WORD_ADDIN=0 pnpm dev`; re-run just the sideload
+with `pnpm office:sideload`. Windows sideloading is not automated yet.
+
+## Manual setup (standalone CLI server)
 
 1. Install the localhost dev certificates (adds a trusted CA to your keychain):
 
