@@ -14,6 +14,7 @@ import { fileURLToPath } from "node:url";
 
 import type { ServerConfig, WordAddinConfig } from "./types.js";
 import type { ServeTlsOptions } from "./serve-node.js";
+import { buildWordAddinShellHtml, WORD_ADDIN_SHELL_VERSION } from "./word-addin-shell.js";
 
 export const WORD_ADDIN_PATH_PREFIX = "/word-addin";
 
@@ -367,6 +368,26 @@ export async function handleWordAddinRequest(input: {
 
   const rest = url.pathname.slice(WORD_ADDIN_PATH_PREFIX.length).replace(/^\/+/, "");
 
+  // The manifest's SourceLocation. Served long-cacheable so the Office
+  // webview can render it from its HTTP cache while the server is down
+  // (instead of Office's uncustomizable "Add-in Error" page); the shell
+  // hands off to /word-addin/app.html when the server is reachable. See
+  // word-addin-shell.ts for the update mechanics.
+  if (rest === "" || rest === "taskpane.html") {
+    const etag = `"lw-shell-v${WORD_ADDIN_SHELL_VERSION}"`;
+    if (request.headers.get("if-none-match") === etag) {
+      return new Response(null, { status: 304, headers: { ETag: etag } });
+    }
+    return new Response(buildWordAddinShellHtml(), {
+      status: 200,
+      headers: {
+        "Content-Type": "text/html; charset=utf-8",
+        "Cache-Control": "public, max-age=31536000",
+        ETag: etag,
+      },
+    });
+  }
+
   if (rest === "bootstrap") {
     // Same-origin only by construction: no CORS headers are attached to
     // /word-addin responses, so cross-origin scripts cannot read the tokens.
@@ -405,7 +426,9 @@ export async function handleWordAddinRequest(input: {
     );
   }
 
-  const relativePath = rest === "" ? "taskpane.html" : rest;
+  // The real pane page (the vite-built entry), reached via the shell's
+  // hand-off. Stays no-store so app updates apply on every load.
+  const relativePath = rest === "app.html" ? "taskpane.html" : rest;
   const file = await serveStaticFile(distPath, relativePath);
   if (file) return file;
   // SPA-style fallback: unknown non-asset paths load the task pane entry so
