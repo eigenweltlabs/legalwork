@@ -12,7 +12,7 @@
  * or LEGALWORK_SKIP_OFFICE_SIDELOAD=1.
  */
 import { spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { homedir, platform } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -48,20 +48,51 @@ async function main() {
   }
 }
 
-function ensureDevCerts() {
+function devCertsVerified() {
+  // A plain file-existence check is a trap: a non-interactive run can
+  // generate the files while the sudo/keychain trust step fails, and the
+  // files then mask the broken trust forever. On macOS, ask the OS trust
+  // store directly (validates the chain AND expiry — what Office's webview
+  // actually enforces); office-addin-dev-certs' own `verify` reports OK
+  // even when the trust settings are missing.
   const certDir = join(homedir(), ".office-addin-dev-certs");
-  if (existsSync(join(certDir, "localhost.crt")) && existsSync(join(certDir, "localhost.key"))) {
-    return;
+  const certPath = join(certDir, "localhost.crt");
+  if (!existsSync(certPath) || !existsSync(join(certDir, "localhost.key"))) return false;
+  if (platform() === "darwin") {
+    const result = spawnSync("security", ["verify-cert", "-c", certPath], {
+      stdio: "pipe",
+      timeout: 30_000,
+    });
+    return result.status === 0;
   }
-  log("localhost dev certificate missing — running `npx office-addin-dev-certs install`");
-  log("(expect a one-time keychain trust prompt)");
-  const result = spawnSync("npx", ["-y", "office-addin-dev-certs", "install"], {
+  const result = spawnSync("npx", ["-y", "office-addin-dev-certs", "verify"], {
+    stdio: "pipe",
+    timeout: 120_000,
+  });
+  return result.status === 0;
+}
+
+function ensureDevCerts() {
+  if (devCertsVerified()) return;
+
+  // Clear generated-but-untrusted leftovers first: `install` early-exits on
+  // existing files ("You already have trusted access") and would never redo
+  // the failed keychain trust step.
+  rmSync(join(homedir(), ".office-addin-dev-certs"), { recursive: true, force: true });
+
+  log("localhost dev certificate missing or not trusted — running `npx office-addin-dev-certs install`");
+  log("(expect a one-time password prompt for the keychain trust step)");
+  if (!process.stdin.isTTY) {
+    log("NOTE: no interactive terminal — the trust step will likely fail here.");
+  }
+  spawnSync("npx", ["-y", "office-addin-dev-certs", "install"], {
     stdio: "inherit",
     timeout: 180_000,
   });
-  if (result.status !== 0 || !existsSync(join(certDir, "localhost.crt"))) {
-    log("WARNING: dev certificate install did not complete. The Office add-in HTTPS listener");
-    log("will stay off. Run `npx office-addin-dev-certs install` manually, then restart dev.");
+
+  if (!devCertsVerified()) {
+    log("WARNING: the dev certificate is not trusted yet. Office will refuse the add-in pane.");
+    log("Fix: run `pnpm office:sideload` in an interactive terminal, then restart dev.");
   }
 }
 
