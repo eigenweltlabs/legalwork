@@ -4,20 +4,40 @@ import { runOfficeCode } from "../src/word-addin/office-run-code";
 
 type FakeContext = { sync: () => Promise<void>; workbook: { name: string } };
 
+// In the full suite another test file may have registered a DOM, making
+// globalThis.window a readonly accessor. Reuse an existing window and only
+// mutate/restore the Office globals on it; create one only when absent.
+let createdWindow = false;
+let previousGlobals: { excel: unknown; office: unknown } = { excel: undefined, office: undefined };
+
 function installFakeExcel() {
   const context: FakeContext = { sync: async () => undefined, workbook: { name: "Book1" } };
-  (globalThis as Record<string, unknown>).window = {
-    Excel: {
-      run: async <T>(batch: (context: FakeContext) => Promise<T>) => batch(context),
-    },
-    Office: { marker: "office" },
+  const scope = globalThis as Record<string, unknown>;
+  if (!scope.window) {
+    Object.defineProperty(globalThis, "window", { value: {}, configurable: true, writable: true });
+    createdWindow = true;
+  }
+  const win = scope.window as Record<string, unknown>;
+  previousGlobals = { excel: win.Excel, office: win.Office };
+  win.Excel = {
+    run: async <T>(batch: (context: FakeContext) => Promise<T>) => batch(context),
   };
+  win.Office = { marker: "office" };
 }
 
 describe("runOfficeCode", () => {
   beforeEach(() => installFakeExcel());
   afterEach(() => {
-    delete (globalThis as Record<string, unknown>).window;
+    const scope = globalThis as Record<string, unknown>;
+    const win = scope.window as Record<string, unknown> | undefined;
+    if (win) {
+      win.Excel = previousGlobals.excel;
+      win.Office = previousGlobals.office;
+    }
+    if (createdWindow) {
+      delete scope.window;
+      createdWindow = false;
+    }
   });
 
   test("runs the snippet with context and returns the serialized result", async () => {

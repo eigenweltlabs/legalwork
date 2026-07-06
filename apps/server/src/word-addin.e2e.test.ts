@@ -5,6 +5,7 @@ import { join } from "node:path";
 
 import { startServer } from "./server.js";
 import { buildWordAddinManifest } from "./word-addin.js";
+import { WORD_ADDIN_SHELL_VERSION } from "./word-addin-shell.js";
 import type { ServerConfig, WordAddinConfig } from "./types.js";
 
 const stops: Array<() => void | Promise<void>> = [];
@@ -101,7 +102,7 @@ describe("word add-in hosting", () => {
     expect(api.headers.get("access-control-allow-origin")).toBe("*");
   });
 
-  test("serves the task pane bundle with SPA fallback and cache headers", async () => {
+  test("serves shell, redirector, bundle, and assets with the right cache headers", async () => {
     const root = await createTempRoot();
     const dist = await createDistBundle(root);
     const { baseUrl } = await startTestServer(
@@ -114,14 +115,29 @@ describe("word add-in hosting", () => {
       }),
     );
 
-    const page = await fetch(`${baseUrl}/word-addin/`);
-    expect(page.status).toBe(200);
-    expect(page.headers.get("content-type")).toContain("text/html");
-    expect(await page.text()).toContain("LegalWork Word Pane");
-
+    // The manifest URL serves the long-cached frozen redirector, not the
+    // bundle: it must render from the webview cache while the server is
+    // down (see word-addin-shell.ts).
     const entry = await fetch(`${baseUrl}/word-addin/taskpane.html`);
     expect(entry.status).toBe(200);
-    expect(entry.headers.get("cache-control")).toBe("no-store");
+    expect(entry.headers.get("content-type")).toContain("text/html");
+    expect(entry.headers.get("cache-control")).toBe("public, max-age=2592000");
+    expect(await entry.text()).toContain("shell-v");
+
+    // The versioned shell is immutable; older versions redirect to current.
+    const shell = await fetch(`${baseUrl}/word-addin/shell-v${WORD_ADDIN_SHELL_VERSION}.html`);
+    expect(shell.status).toBe(200);
+    expect(shell.headers.get("cache-control")).toContain("immutable");
+    expect(await shell.text()).toContain("Open LegalWork");
+    const oldShell = await fetch(`${baseUrl}/word-addin/shell-v0.html`, { redirect: "manual" });
+    expect(oldShell.status).toBe(302);
+    expect(oldShell.headers.get("location")).toBe(`shell-v${WORD_ADDIN_SHELL_VERSION}.html`);
+
+    // The real pane page stays no-store so app updates apply on every load.
+    const app = await fetch(`${baseUrl}/word-addin/app.html`);
+    expect(app.status).toBe(200);
+    expect(app.headers.get("cache-control")).toBe("no-store");
+    expect(await app.text()).toContain("LegalWork Word Pane");
 
     const asset = await fetch(`${baseUrl}/word-addin/assets/taskpane-abc123.js`);
     expect(asset.status).toBe(200);
@@ -188,7 +204,12 @@ describe("word add-in hosting", () => {
       }),
     );
 
-    const response = await fetch(`${baseUrl}/word-addin/`);
+    // The shell chain works without the bundle (that is its whole point);
+    // the bundle-backed page reports the actionable error.
+    const shell = await fetch(`${baseUrl}/word-addin/taskpane.html`);
+    expect(shell.status).toBe(200);
+
+    const response = await fetch(`${baseUrl}/word-addin/app.html`);
     expect(response.status).toBe(503);
     const body = (await response.json()) as { code?: string };
     expect(body.code).toBe("word_addin_bundle_missing");
