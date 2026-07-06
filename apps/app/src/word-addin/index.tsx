@@ -58,14 +58,16 @@ async function connectToServer(): Promise<void> {
   if (!response.ok) {
     throw new Error(`Bootstrap failed with status ${response.status}`);
   }
-  const data = (await response.json()) as { token?: unknown };
+  const data = (await response.json()) as { token?: unknown; hostToken?: unknown };
   const token = typeof data.token === "string" ? data.token.trim() : "";
   if (!token) {
     throw new Error("Bootstrap response did not include a token");
   }
+  const hostToken = typeof data.hostToken === "string" ? data.hostToken.trim() : "";
   writeLegalworkServerSettings({
     urlOverride: window.location.origin,
     token,
+    hostToken: hostToken || undefined,
   });
 }
 

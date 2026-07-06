@@ -369,10 +369,14 @@ export async function handleWordAddinRequest(input: {
 
   if (rest === "bootstrap") {
     // Same-origin only by construction: no CORS headers are attached to
-    // /word-addin responses, so cross-origin scripts cannot read the token.
+    // /word-addin responses, so cross-origin scripts cannot read the tokens.
+    // The pane is the server's own UI (same trust as the desktop renderer),
+    // so it also receives the host token — host-scoped routes like workspace
+    // creation and the native folder picker need it.
     return jsonResponse({
       app: "legalwork-server",
       token: config.token,
+      hostToken: config.hostToken,
       wordAddinPort: wordAddin.port,
     });
   }

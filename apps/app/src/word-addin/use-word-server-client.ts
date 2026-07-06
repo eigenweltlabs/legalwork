@@ -17,6 +17,7 @@ export function useWordServerClient(): LegalworkServerClient {
     return createLegalworkServerClient({
       baseUrl: settings.urlOverride ?? window.location.origin,
       token: settings.token,
+      hostToken: settings.hostToken,
     });
   }, []);
 }
