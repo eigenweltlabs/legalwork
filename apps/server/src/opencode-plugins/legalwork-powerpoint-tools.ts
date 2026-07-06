@@ -24,7 +24,7 @@ const PPT_TOOL_RULES = `Rules for ppt_* tools:
 - Edits are direct (PowerPoint has no tracked changes): list EVERY slide and shape you changed in your reply, with a one-line before/after summary, so the user can review or undo (Cmd+Z).
 - ppt_replace_text matches exact, case-sensitive text; when it matches multiple places it reports the locations and you must pass occurrence.
 - Prefer editing existing shape text over adding new text boxes; use ppt_add_text_box only for genuinely new content the slide layout has no placeholder for.
-- Slide DESIGN (layout, images, styling) is out of reach for these tools — say so instead of pretending.
+- ppt_run_code executes raw Office.js (PowerPointApi) for styling, shapes, images and anything else the typed tools cannot do. The PowerPointApi is the most limited of the three Office APIs — if something is genuinely not exposed, say so instead of pretending.
 - If a tool answers "No Office pane is connected", tell the user to open the LegalWork pane in PowerPoint and retry.`;
 
 /** Injected when no pane is connected: the tools exist but may be offline. */
@@ -67,6 +67,16 @@ const addTextBoxArgs = z.object({
   top: z.number().optional().describe("Top position in points (default 50)."),
   width: z.number().optional().describe("Width in points (default 500)."),
   height: z.number().optional().describe("Height in points (default 100)."),
+});
+
+const runCodeArgs = z.object({
+  code: z
+    .string()
+    .min(1)
+    .max(20_000)
+    .describe(
+      "Body of a PowerPoint.run batch. In scope: context (PowerPoint.RequestContext), the Office/PowerPoint globals, and console.log for debugging. Load properties before reading them and await context.sync(); a final sync runs automatically. End with `return <json-serializable summary>`.",
+    ),
 });
 
 export const LegalWorkPowerPointTools = async () => ({
@@ -130,6 +140,14 @@ export const LegalWorkPowerPointTools = async () => ({
       args: addTextBoxArgs.shape,
       async execute(rawArgs: unknown, context: OpenCodeContext) {
         return callOfficeTool(context, "ppt_add_text_box", addTextBoxArgs.parse(rawArgs));
+      },
+    },
+    ppt_run_code: {
+      description:
+        "Escape hatch: run Office.js (PowerPoint JavaScript API) code against the open presentation for anything the typed ppt_* tools cannot do — shape formatting, fills, fonts, positions, adding/deleting shapes and slides. PowerPoint has NO tracked changes and NO comments: list every change you make with a before/after summary so the user can review or undo. Errors return the Office.js debugInfo so you can fix the snippet and retry. Prefer the typed tools when they fit.",
+      args: runCodeArgs.shape,
+      async execute(rawArgs: unknown, context: OpenCodeContext) {
+        return callOfficeTool(context, "ppt_run_code", runCodeArgs.parse(rawArgs));
       },
     },
   },

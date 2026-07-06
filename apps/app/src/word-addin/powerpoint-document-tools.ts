@@ -11,6 +11,7 @@
  *   converts that into { ok: false, error } for the tool result.
  */
 import { getDocumentUrl } from "./office";
+import { runOfficeCode } from "./office-run-code";
 import {
   isPowerPointApiSupported,
   powerPointRun,
@@ -308,5 +309,6 @@ export function createPowerPointToolHandlers(): Record<string, WordToolHandler> 
     ppt_replace_text: replaceText,
     ppt_add_slide: addSlide,
     ppt_add_text_box: addTextBox,
+    ppt_run_code: (args) => runOfficeCode("powerpoint", args),
   };
 }

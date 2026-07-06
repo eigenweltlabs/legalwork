@@ -19,6 +19,7 @@ import {
   type WordRange,
   type WordRunContext,
 } from "./office";
+import { runOfficeCode } from "./office-run-code";
 
 export type WordToolHandler = (args: Record<string, unknown>) => Promise<unknown>;
 
@@ -238,5 +239,6 @@ export function createWordToolHandlers(): Record<string, WordToolHandler> {
     word_replace_text: replaceText,
     word_insert_text: insertText,
     word_add_comment: addComment,
+    word_run_code: (args) => runOfficeCode("word", args),
   };
 }

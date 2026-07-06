@@ -23,6 +23,7 @@ const EXCEL_TOOL_RULES = `Rules for excel_* tools:
 - Excel has no tracked changes: be conservative. Never overwrite data you have not read first; put derived analysis on a new worksheet (excel_add_worksheet) instead of squeezing it between existing data.
 - Attach a short excel_add_comment on written cells for substantive changes (assumptions, formulas, sources).
 - After editing, summarize what you wrote and where in one or two sentences.
+- excel_run_code executes raw Office.js for anything the typed tools cannot do (number formats, charts, tables, conditional formatting, sorting). Prefer the typed tools when they fit; keep the highlight-and-report discipline for any cell you change.
 - If a tool answers "No Office pane is connected", tell the user to open the LegalWork pane in Excel and retry.`;
 
 /** Injected when no pane is connected: the tools exist but may be offline. */
@@ -77,6 +78,16 @@ const addCommentArgs = z.object({
   cell: z.string().describe('Cell for the comment, e.g. "B4" or "Sheet1!B4".'),
   sheet: z.string().optional().describe("Worksheet name when cell has no sheet prefix. Defaults to the active sheet."),
   comment: z.string().min(1).describe("The comment text, e.g. assumptions or rationale for a nearby edit."),
+});
+
+const runCodeArgs = z.object({
+  code: z
+    .string()
+    .min(1)
+    .max(20_000)
+    .describe(
+      "Body of an Excel.run batch. In scope: context (Excel.RequestContext), the Office/Excel globals, and console.log for debugging. Load properties before reading them and await context.sync(); a final sync runs automatically. End with `return <json-serializable summary>`.",
+    ),
 });
 
 export const LegalWorkExcelTools = async () => ({
@@ -147,6 +158,14 @@ export const LegalWorkExcelTools = async () => ({
       args: addCommentArgs.shape,
       async execute(rawArgs: unknown, context: OpenCodeContext) {
         return callOfficeTool(context, "excel_add_comment", addCommentArgs.parse(rawArgs));
+      },
+    },
+    excel_run_code: {
+      description:
+        "Escape hatch: run Office.js (Excel JavaScript API) code against the open workbook for anything the typed excel_* tools cannot do — number formats, charts, tables, conditional formatting, sorting/filtering, column widths. Excel has NO revision tracking: shade cells you modify with #FFF3BF like the typed tools do, never overwrite data you have not read, and report every change. Errors return the Office.js debugInfo so you can fix the snippet and retry. Prefer the typed tools when they fit.",
+      args: runCodeArgs.shape,
+      async execute(rawArgs: unknown, context: OpenCodeContext) {
+        return callOfficeTool(context, "excel_run_code", runCodeArgs.parse(rawArgs));
       },
     },
   },

@@ -22,6 +22,7 @@ const WORD_TOOL_RULES = `Rules for word_* tools:
 - Anchors are short snippets (under 200 characters) copied VERBATIM from the document — including punctuation and casing. Prefer distinctive phrases; if an anchor matches several places, the tool reports the count and you must pass "occurrence".
 - Every edit is applied as a tracked change (redline). Never claim you changed text silently; the user reviews and accepts each change in Word.
 - After substantive edits, add a short word_add_comment on the edited text explaining the reasoning, like a careful colleague would.
+- word_run_code executes raw Office.js for anything the typed tools cannot do (formatting, styles, tables, headers/footers, sections). Prefer the typed tools when they fit; keep snippets small and return a compact summary.
 - If a tool answers "No Office pane is connected", tell the user to open the LegalWork pane in Word and retry.`;
 
 /** Injected when no pane is connected: the tools exist but may be offline. */
@@ -88,6 +89,16 @@ const commentArgs = z.object({
   comment: z.string().min(1).describe("The comment text, e.g. the rationale for a nearby edit."),
 });
 
+const runCodeArgs = z.object({
+  code: z
+    .string()
+    .min(1)
+    .max(20_000)
+    .describe(
+      "Body of a Word.run batch. In scope: context (Word.RequestContext), the Office/Word globals, and console.log for debugging. Load properties before reading them and await context.sync(); a final sync runs automatically. End with `return <json-serializable summary>`.",
+    ),
+});
+
 export const LegalWorkWordTools = async () => ({
   "experimental.chat.system.transform": async (
     _input: unknown,
@@ -152,6 +163,15 @@ export const LegalWorkWordTools = async () => ({
       async execute(rawArgs: unknown, context: OpenCodeContext) {
         const args = commentArgs.parse(rawArgs);
         return callOfficeTool(context, "word_add_comment", args);
+      },
+    },
+    word_run_code: {
+      description:
+        "Escape hatch: run Office.js (Word JavaScript API) code against the open document for anything the typed word_* tools cannot do — character formatting (bold, fonts, colors, highlights), paragraph styles (headings, quotes), tables, headers/footers, sections, lists, page setup. Change tracking is forced on, so document edits appear as reviewable redlines. Errors return the Office.js debugInfo so you can fix the snippet and retry. Prefer the typed tools when they fit.",
+      args: runCodeArgs.shape,
+      async execute(rawArgs: unknown, context: OpenCodeContext) {
+        const args = runCodeArgs.parse(rawArgs);
+        return callOfficeTool(context, "word_run_code", args);
       },
     },
   },

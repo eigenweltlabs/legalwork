@@ -18,6 +18,7 @@ import {
   type ExcelWorksheet,
 } from "./excel-api";
 import { getDocumentUrl } from "./office";
+import { runOfficeCode } from "./office-run-code";
 import type { WordToolHandler } from "./word-document-tools";
 
 const MAX_READ_CELLS = 5_000;
@@ -266,5 +267,6 @@ export function createExcelToolHandlers(): Record<string, WordToolHandler> {
     excel_add_worksheet: addWorksheet,
     excel_search: search,
     excel_add_comment: addComment,
+    excel_run_code: (args) => runOfficeCode("excel", args),
   };
 }
