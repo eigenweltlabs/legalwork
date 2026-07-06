@@ -39,6 +39,9 @@ export default {
   "office_addins.restart_body":
     "Quit {app} completely (Cmd+Q) and reopen it. LegalWork will appear under Home → Add-ins.",
   "office_addins.restart_ok": "OK",
+  "office_addins.uninstall_prompt_title": "Remove the secure local connection",
+  "office_addins.uninstall_prompt_body":
+    "This is the last installed Office add-in, so LegalWork will also remove its private certificate from your Mac. macOS may ask for your password once.",
   "office_addins.install_success": "Office add-in installed. Restart Word/Excel/PowerPoint if they are open.",
   "office_addins.install_failed": "Could not install the Office add-in.",
   "office_addins.uninstall_success": "Office add-in removed.",

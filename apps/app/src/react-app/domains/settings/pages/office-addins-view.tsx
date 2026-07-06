@@ -47,6 +47,8 @@ export function OfficeAddinsView() {
   const [busyApp, setBusyApp] = useState<OfficeAddinAppId | null>(null);
   /** App awaiting the certificate explainer's confirmation. */
   const [confirmApp, setConfirmApp] = useState<OfficeAddinAppId | null>(null);
+  /** App awaiting the last-uninstall explainer's confirmation. */
+  const [confirmUninstallApp, setConfirmUninstallApp] = useState<OfficeAddinAppId | null>(null);
   /** Label of the app whose post-install "restart" notice is showing. */
   const [restartApp, setRestartApp] = useState<string | null>(null);
 
@@ -98,6 +100,21 @@ export function OfficeAddinsView() {
       installMutation.mutate(app);
     } else {
       setConfirmApp(app);
+    }
+  };
+
+  /**
+   * Explain the possible OS password prompt before the LAST uninstall — the
+   * trusted certificate is only removed from the keychain when no Office app
+   * remains installed; other uninstalls just delete a manifest.
+   */
+  const requestUninstall = (app: OfficeAddinAppId) => {
+    const enabledApps = statusQuery.data?.apps.filter((entry) => entry.enabled) ?? [];
+    const isLast = enabledApps.length === 1 && enabledApps[0]?.id === app;
+    if (isLast) {
+      setConfirmUninstallApp(app);
+    } else {
+      uninstallMutation.mutate(app);
     }
   };
 
@@ -161,7 +178,7 @@ export function OfficeAddinsView() {
                   variant="outline"
                   size="sm"
                   disabled={busy || !status?.supported}
-                  onClick={() => uninstallMutation.mutate(app.id)}
+                  onClick={() => requestUninstall(app.id)}
                 >
                   {busyApp === app.id && uninstallMutation.isPending
                     ? t("office_addins.uninstalling")
@@ -225,6 +242,36 @@ export function OfficeAddinsView() {
               }}
             >
               {t("office_addins.install")}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={confirmUninstallApp !== null}
+        onOpenChange={(open) => {
+          if (!open) setConfirmUninstallApp(null);
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{t("office_addins.uninstall_prompt_title")}</DialogTitle>
+          </DialogHeader>
+          <p className="text-sm leading-relaxed text-dls-secondary">
+            {t("office_addins.uninstall_prompt_body")}
+          </p>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setConfirmUninstallApp(null)}>
+              {t("office_addins.cancel")}
+            </Button>
+            <Button
+              onClick={() => {
+                const app = confirmUninstallApp;
+                setConfirmUninstallApp(null);
+                if (app) uninstallMutation.mutate(app);
+              }}
+            >
+              {t("office_addins.uninstall")}
             </Button>
           </DialogFooter>
         </DialogContent>

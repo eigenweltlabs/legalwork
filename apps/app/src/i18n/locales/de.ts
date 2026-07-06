@@ -45,6 +45,9 @@ const de: Record<string, string> = {
   "office_addins.restart_body":
     "Beende {app} vollständig (Cmd+Q) und öffne es erneut. LegalWork erscheint dann unter Start → Add-ins.",
   "office_addins.restart_ok": "Verstanden",
+  "office_addins.uninstall_prompt_title": "Sichere lokale Verbindung entfernen",
+  "office_addins.uninstall_prompt_body":
+    "Dies ist das letzte installierte Office-Add-in. LegalWork entfernt daher auch sein privates Zertifikat von deinem Mac. macOS fragt dabei eventuell einmalig nach deinem Passwort.",
   "office_addins.install_success": "Office-Add-in installiert. Starte Word/Excel/PowerPoint neu, falls geöffnet.",
   "office_addins.install_failed": "Das Office-Add-in konnte nicht installiert werden.",
   "office_addins.uninstall_success": "Office-Add-in entfernt.",
