@@ -53,3 +53,13 @@
 .lw-word-pane .chat-reasoning {
   display: none;
 }
+
+/*
+ * Chat top bar: the session view's <header> is transparent and shows the
+ * app shell's tinted --background (blue under the deployment theme). Match
+ * the flat surface look of the pane's own workspace/session headers.
+ */
+.lw-word-pane header {
+  background: var(--dls-surface);
+  border-color: var(--dls-border);
+}
