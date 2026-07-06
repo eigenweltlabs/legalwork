@@ -40,7 +40,7 @@
  * Without a bump, existing installs keep rendering the old shell for up
  * to a year. Increment the number.
  */
-export const WORD_ADDIN_SHELL_VERSION = "4";
+export const WORD_ADDIN_SHELL_VERSION = "5";
 
 export function buildWordAddinShellHtml(): string {
   return `<!doctype html>
@@ -83,6 +83,7 @@ export function buildWordAddinShellHtml(): string {
   }
   @keyframes spin { to { transform: rotate(360deg); } }
   .hidden { display: none; }
+  .ver { font-size: 10px; color: #0e0a0740; margin: 14px 0 0; }
 </style>
 </head>
 <body>
@@ -97,6 +98,7 @@ export function buildWordAddinShellHtml(): string {
       <button type="button" class="primary" id="open-btn">Open LegalWork</button>
       <button type="button" class="ghost" id="retry-btn">Try again</button>
     </div>
+    <p class="ver">v${WORD_ADDIN_SHELL_VERSION}</p>
   </div>
 <script>
 (function () {
