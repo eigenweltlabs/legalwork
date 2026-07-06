@@ -55,11 +55,21 @@
 }
 
 /*
- * Chat top bar: the session view's <header> is transparent and shows the
- * app shell's tinted --background (blue under the deployment theme). Match
- * the flat surface look of the pane's own workspace/session headers.
+ * Chat top bar: the session view's <header> is transparent (shows the app
+ * shell's tinted --background) and uses app metrics (40px, 15px semibold
+ * title, wide padding). Restyle it to match the pane's own workspace and
+ * session headers exactly: flat surface, 44px tall, 8px side padding
+ * (title lands at 44px from the left, same as after the pane back button),
+ * 14px medium title.
  */
 .lw-word-pane header {
   background: var(--dls-surface);
   border-color: var(--dls-border);
+  height: 2.75rem;
+  padding-left: 0.5rem;
+  padding-right: 0.5rem;
+}
+.lw-word-pane header h1 {
+  font-size: 0.875rem;
+  font-weight: 500;
 }

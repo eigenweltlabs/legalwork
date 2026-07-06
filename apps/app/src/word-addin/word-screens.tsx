@@ -30,7 +30,7 @@ const panePillBase =
 const panePillPrimary = `${panePillBase} bg-dls-accent text-[var(--dls-accent-fg)] hover:bg-[var(--dls-accent-hover)]`;
 const panePillGhost = `${panePillBase} border border-dls-border bg-dls-surface text-dls-secondary hover:bg-dls-hover hover:text-dls-text`;
 
-const paneIconButtonClass =
+export const paneIconButtonClass =
   "flex size-7 shrink-0 items-center justify-center rounded-lg text-dls-secondary transition-colors hover:bg-dls-hover hover:text-dls-text focus:outline-none focus-visible:ring-2 focus-visible:ring-[rgba(var(--dls-accent-rgb),0.18)] disabled:cursor-not-allowed disabled:opacity-50";
 
 const paneInputClass =
