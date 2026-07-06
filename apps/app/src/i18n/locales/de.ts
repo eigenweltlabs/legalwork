@@ -54,8 +54,6 @@ const de: Record<string, string> = {
   "office_addins.uninstall_failed": "Das Office-Add-in konnte nicht entfernt werden.",
   "office_addins.install_hint":
     "Bei der Installation wird ein nur für localhost gültiges Zertifikat erzeugt und vom Betriebssystem als vertrauenswürdig eingestuft (eine Passwortabfrage); danach wird das Add-in zu deinen Office-Apps hinzugefügt.",
-  "office_addins.restart_hint":
-    "Öffne Word, Excel oder PowerPoint und wähle Start → Add-ins → LegalWork. Starte die Office-App nach der Installation einmal neu.",
 
   /* ---- Common actions ---- */
   "common.add": "Hinzufügen",

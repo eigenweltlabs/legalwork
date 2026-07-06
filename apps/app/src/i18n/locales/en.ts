@@ -48,8 +48,6 @@ export default {
   "office_addins.uninstall_failed": "Could not remove the Office add-in.",
   "office_addins.install_hint":
     "Installing generates a localhost-only certificate and asks your OS to trust it (one password prompt), then adds the add-in to your Office apps.",
-  "office_addins.restart_hint":
-    "Open Word, Excel, or PowerPoint and choose Home → Add-ins → LegalWork. Restart the Office app once after installing.",
   "app.compact_command_desc": "Summarize this session to reduce context size.",
   "app.error_audit_load": "Failed to load audit log.",
   "app.error_auth_failed": "Authentication failed",

@@ -213,9 +213,9 @@ export function OfficeAddinsView() {
         </LayoutSectionItem>
       ) : null}
 
-      <p className="px-1 text-xs text-dls-secondary">
-        {status?.enabled ? t("office_addins.restart_hint") : t("office_addins.install_hint")}
-      </p>
+      {!status?.enabled ? (
+        <p className="px-1 text-xs text-dls-secondary">{t("office_addins.install_hint")}</p>
+      ) : null}
 
       <Dialog
         open={confirmApp !== null}
