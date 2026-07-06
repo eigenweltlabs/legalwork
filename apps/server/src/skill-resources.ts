@@ -1,4 +1,5 @@
 import { mkdir, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { homedir } from "node:os";
 import { join } from "node:path";
 import { ApiError } from "./errors.js";
 import { exists } from "./utils.js";
@@ -60,10 +61,24 @@ async function findSkillDirInBase(baseDir: string, skillName: string): Promise<s
   return null;
 }
 
+// Same global roots the skills listing scans (see listSkills in skills.ts).
+// The desktop app installs skills globally ($XDG_CONFIG_HOME/opencode/skills),
+// so the resource routes must resolve those folders too, not just the workspace.
+function globalSkillsBaseDirs(): string[] {
+  const configHome = process.env.XDG_CONFIG_HOME?.trim() || join(homedir(), ".config");
+  return [
+    join(configHome, "opencode", "skills"),
+    join(homedir(), ".claude", "skills"),
+    join(homedir(), ".agents", "skills"),
+    join(homedir(), ".agent", "skills"),
+  ];
+}
+
 /**
- * Resolve a project skill's folder from the same identifier the skills routes
- * use (the kebab-case skill name). Checks .opencode/skills and .claude/skills,
- * in both the flat and the nested (<domain>/<name>) layouts.
+ * Resolve a skill's folder from the same identifier the skills routes use
+ * (the kebab-case skill name). Checks the workspace's .opencode/skills and
+ * .claude/skills first, then the global skills dirs, in both the flat and the
+ * nested (<domain>/<name>) layouts.
  */
 export async function resolveSkillDir(workspaceRoot: string, skillName: string): Promise<string> {
   const trimmed = skillName.trim();
@@ -72,6 +87,10 @@ export async function resolveSkillDir(workspaceRoot: string, skillName: string):
   if (fromOpencode) return fromOpencode;
   const fromClaude = await findSkillDirInBase(join(workspaceRoot, ".claude", "skills"), trimmed);
   if (fromClaude) return fromClaude;
+  for (const baseDir of globalSkillsBaseDirs()) {
+    const fromGlobal = await findSkillDirInBase(baseDir, trimmed);
+    if (fromGlobal) return fromGlobal;
+  }
   throw new ApiError(404, "skill_not_found", `Skill not found: ${trimmed}`);
 }
 

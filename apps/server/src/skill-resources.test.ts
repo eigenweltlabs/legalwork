@@ -229,3 +229,54 @@ describe("applyResourcesSection", () => {
     expect(applyResourcesSection(only, ["a.md"])).toBe(only);
   });
 });
+
+describe("global skills fallback", () => {
+  // The desktop app installs skills into the global dir ($XDG_CONFIG_HOME/
+  // opencode/skills), not the workspace — resources must resolve there too.
+  let configHome: string;
+  let savedXdg: string | undefined;
+
+  beforeEach(async () => {
+    configHome = await mkdtemp(join(tmpdir(), "legalwork-xdg-"));
+    savedXdg = process.env.XDG_CONFIG_HOME;
+    process.env.XDG_CONFIG_HOME = configHome;
+  });
+
+  afterEach(async () => {
+    if (savedXdg === undefined) delete process.env.XDG_CONFIG_HOME;
+    else process.env.XDG_CONFIG_HOME = savedXdg;
+    await rm(configHome, { recursive: true, force: true });
+  });
+
+  test("attaches a resource to a skill that only exists globally", async () => {
+    const globalDir = join(configHome, "opencode", "skills", "global-only-skill");
+    await mkdir(globalDir, { recursive: true });
+    await writeFile(
+      join(globalDir, "SKILL.md"),
+      "---\nname: global-only-skill\ndescription: Desktop-installed skill\n---\n\nBody.\n",
+      "utf8",
+    );
+
+    const created = await upsertSkillResource(workspace, "global-only-skill", {
+      name: "vorlage.md",
+      content: "# Vorlage\n",
+    });
+    expect(created.action).toBe("added");
+    expect(await exists(join(globalDir, "resources", "vorlage.md"))).toBe(true);
+    expect(await readFile(join(globalDir, "SKILL.md"), "utf8")).toContain("resources/vorlage.md");
+
+    const items = await listSkillResources(workspace, "global-only-skill");
+    expect(items.map((item) => item.name)).toEqual(["vorlage.md"]);
+  });
+
+  test("prefers the workspace skill over a global one with the same name", async () => {
+    await createSkill("shared-name");
+    const globalDir = join(configHome, "opencode", "skills", "shared-name");
+    await mkdir(globalDir, { recursive: true });
+    await writeFile(join(globalDir, "SKILL.md"), "---\nname: shared-name\ndescription: g\n---\n\nBody.\n", "utf8");
+
+    await upsertSkillResource(workspace, "shared-name", { name: "a.md", content: "x" });
+    expect(await exists(join(workspace, ".opencode", "skills", "shared-name", "resources", "a.md"))).toBe(true);
+    expect(await exists(join(globalDir, "resources", "a.md"))).toBe(false);
+  });
+});
