@@ -13,7 +13,7 @@ import { readLegalworkServerSettings } from "@/app/lib/legalwork-server";
 import { resolveWorkspaceEndpoint } from "@/app/lib/workspace-endpoint";
 import { writeLastSessionFor } from "@/react-app/shell/session-memory";
 import { t } from "@/i18n";
-import { fetchDocumentPath, officeCoversTopRightCorner } from "./office";
+import { fetchDocumentPath, officeCoversTopRightCorner, officeHostName } from "./office";
 import { useWordServerClient } from "./use-word-server-client";
 
 function paneShell(children: ReactNode) {
@@ -141,7 +141,12 @@ export function WordWorkspacesScreen() {
   const pickFolder = async () => {
     setPicking(true);
     try {
-      const result = await client.pickWorkspaceFolder({ title: t("word_addin.new_workspace") });
+      const result = await client.pickWorkspaceFolder({
+        title: t("word_addin.new_workspace"),
+        // So the desktop app can hand focus back to this Office app after
+        // the dialog closes.
+        returnFocusTo: officeHostName() ?? undefined,
+      });
       if (!result.supported) {
         setPickerSupported(false);
         return;

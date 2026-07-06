@@ -1080,7 +1080,7 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
         timeoutMs: timeouts.activateWorkspace,
       }),
     // Long timeout: the server shows a native dialog and waits for the human.
-    pickWorkspaceFolder: (payload?: { title?: string; defaultPath?: string }) =>
+    pickWorkspaceFolder: (payload?: { title?: string; defaultPath?: string; returnFocusTo?: string }) =>
       requestJson<{ supported: boolean; path: string | null }>(baseUrl, "/workspaces/pick-folder", {
         token,
         hostToken,

@@ -274,7 +274,8 @@ export function registerWorkspaceRoutes(options: RegisterWorkspaceRoutesOptions)
     const body = await readOptionalJsonBody(ctx.request);
     const title = readStringField(body, "title") || undefined;
     const defaultPath = readStringField(body, "defaultPath") || undefined;
-    const path = await picker({ title, defaultPath });
+    const returnFocusTo = readStringField(body, "returnFocusTo") || undefined;
+    const path = await picker({ title, defaultPath, returnFocusTo });
     return jsonResponse({ supported: true, path: path ?? null });
   });
 

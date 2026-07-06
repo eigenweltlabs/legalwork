@@ -105,8 +105,11 @@ export interface ServerConfig {
    * Host-app hook that opens a native "choose folder" dialog. Set by the
    * desktop app (which owns OS dialogs); null when the server runs
    * standalone. Lets webview clients like the Office task pane pick folders.
+   * returnFocusTo names the Office app ("word" | "excel" | "powerpoint")
+   * to re-activate after the dialog closes, since showing the dialog steals
+   * focus from it.
    */
-  pickDirectory?: ((options: { title?: string; defaultPath?: string }) => Promise<string | null>) | null;
+  pickDirectory?: ((options: { title?: string; defaultPath?: string; returnFocusTo?: string }) => Promise<string | null>) | null;
   opencodeBaseUrl?: string;
   opencodeDirectory?: string;
   opencodeUsername?: string;

@@ -1176,7 +1176,8 @@ export function createRuntimeManager({ app, desktopRoot, listLocalWorkspacePaths
       // Native folder picker for webview clients (Office task pane): the
       // pane cannot open OS dialogs itself, so the server forwards here.
       // Focus is stolen because the request originates from another app
-      // (Word/Excel) — without it the dialog opens behind that app.
+      // (Word/Excel) — without it the dialog opens behind that app. After
+      // the dialog closes, focus is handed back to that Office app.
       pickDirectory: async (pickOptions) => {
         const { dialog } = await import("electron");
         app.focus({ steal: true });
@@ -1185,6 +1186,15 @@ export function createRuntimeManager({ app, desktopRoot, listLocalWorkspacePaths
           defaultPath: pickOptions?.defaultPath,
           properties: ["openDirectory", "createDirectory"],
         });
+        const officeBundleIds = {
+          word: "com.microsoft.Word",
+          excel: "com.microsoft.Excel",
+          powerpoint: "com.microsoft.Powerpoint",
+        };
+        const bundleId = officeBundleIds[pickOptions?.returnFocusTo ?? ""];
+        if (process.platform === "darwin" && bundleId) {
+          spawn("open", ["-b", bundleId], { stdio: "ignore", detached: true }).unref();
+        }
         return result.canceled ? null : (result.filePaths[0] ?? null);
       },
       // Word/Excel/PowerPoint add-in listener — enabled via the Office Add-ins
