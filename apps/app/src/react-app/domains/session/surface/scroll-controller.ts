@@ -162,9 +162,14 @@ export function useSessionScrollController(
         return;
       }
 
+      // Re-assert the bottom across a few frames: WKWebView (the Office
+      // pane) can finish laying out freshly mounted rows (e.g. the thinking
+      // indicator) a frame after the first set, leaving the tail clipped if
+      // we only settle once.
       container.scrollTop = container.scrollHeight;
       lastKnownScrollTopRef.current = container.scrollTop;
-      window.requestAnimationFrame(() => {
+      let settleFramesLeft = 3;
+      const settle = () => {
         const next = options.containerRef.current;
         if (!next) {
           programmaticScrollRef.current = false;
@@ -172,9 +177,15 @@ export function useSessionScrollController(
         }
         next.scrollTop = next.scrollHeight;
         lastKnownScrollTopRef.current = next.scrollTop;
+        settleFramesLeft -= 1;
+        if (settleFramesLeft > 0) {
+          window.requestAnimationFrame(settle);
+          return;
+        }
         refreshTopClippedMessage();
         releaseProgrammaticScrollSoon();
-      });
+      };
+      window.requestAnimationFrame(settle);
     },
     [options.containerRef, refreshTopClippedMessage, releaseProgrammaticScrollSoon, selectedSessionId, setStickyBottom],
   );
@@ -374,8 +385,19 @@ export function useSessionScrollController(
 
   useEffect(() => {
     void options.renderedMessages;
-    queueMicrotask(refreshTopClippedMessage);
-  }, [options.renderedMessages, refreshTopClippedMessage]);
+    // Convergence invariant: while following and untouched, every message
+    // update must end with the transcript at the bottom. This catches
+    // growth the ResizeObserver's re-anchor missed because the engine
+    // (WKWebView) finished layout after the pin had already settled.
+    queueMicrotask(() => {
+      refreshTopClippedMessage();
+      const container = options.containerRef.current;
+      if (!container) return;
+      if (isStickyBottom(selectedSessionId) && !hasScrollGesture() && !isExactlyAtBottom(container)) {
+        scrollToBottom("auto");
+      }
+    });
+  }, [hasScrollGesture, options.containerRef, options.renderedMessages, refreshTopClippedMessage, scrollToBottom, selectedSessionId]);
 
   useEffect(() => {
     return () => {
