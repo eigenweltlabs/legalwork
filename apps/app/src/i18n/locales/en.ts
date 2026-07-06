@@ -31,6 +31,14 @@ export default {
   "office_addins.app_status_not_installed": "Add the LegalWork sidebar to {app}.",
   "office_addins.shared_title": "Shared components",
   "office_addins.shared_desc": "One local certificate and one add-in server serve all installed Office apps.",
+  "office_addins.cancel": "Cancel",
+  "office_addins.cert_prompt_title": "Set up the secure local connection",
+  "office_addins.cert_prompt_body":
+    "LegalWork will create a private certificate so Office can talk to this app over a secure connection on your Mac. macOS will ask for your password once to mark that certificate as trusted. The certificate only works for connections on this computer — it cannot be used for any website, and nothing is sent anywhere.",
+  "office_addins.restart_title": "Almost done — restart {app}",
+  "office_addins.restart_body":
+    "The LegalWork add-in was installed for Microsoft {app}. If {app} is currently open, quit it completely (Cmd+Q) and reopen it — Office only discovers new add-ins at launch. You will then find LegalWork under Home → Add-ins.",
+  "office_addins.restart_ok": "OK",
   "office_addins.install_success": "Office add-in installed. Restart Word/Excel/PowerPoint if they are open.",
   "office_addins.install_failed": "Could not install the Office add-in.",
   "office_addins.uninstall_success": "Office add-in removed.",

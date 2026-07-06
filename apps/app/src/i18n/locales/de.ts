@@ -37,6 +37,14 @@ const de: Record<string, string> = {
   "office_addins.app_status_not_installed": "Füge die LegalWork-Seitenleiste zu {app} hinzu.",
   "office_addins.shared_title": "Gemeinsame Komponenten",
   "office_addins.shared_desc": "Ein lokales Zertifikat und ein Add-in-Server bedienen alle installierten Office-Apps.",
+  "office_addins.cancel": "Abbrechen",
+  "office_addins.cert_prompt_title": "Sichere lokale Verbindung einrichten",
+  "office_addins.cert_prompt_body":
+    "LegalWork erstellt ein privates Zertifikat, damit Office auf deinem Mac über eine sichere Verbindung mit dieser App kommunizieren kann. macOS fragt einmalig nach deinem Passwort, um dieses Zertifikat als vertrauenswürdig einzustufen. Das Zertifikat funktioniert nur für Verbindungen auf diesem Computer – es kann für keine Website verwendet werden, und es werden keine Daten übertragen.",
+  "office_addins.restart_title": "Fast geschafft – {app} neu starten",
+  "office_addins.restart_body":
+    "Das LegalWork-Add-in wurde für Microsoft {app} installiert. Falls {app} gerade geöffnet ist, beende es vollständig (Cmd+Q) und öffne es erneut – Office erkennt neue Add-ins nur beim Start. Danach findest du LegalWork unter Start → Add-ins.",
+  "office_addins.restart_ok": "Verstanden",
   "office_addins.install_success": "Office-Add-in installiert. Starte Word/Excel/PowerPoint neu, falls geöffnet.",
   "office_addins.install_failed": "Das Office-Add-in konnte nicht installiert werden.",
   "office_addins.uninstall_success": "Office-Add-in entfernt.",

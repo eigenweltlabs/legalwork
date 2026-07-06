@@ -6,10 +6,18 @@ import { CheckCircle2, Info, XCircle } from "lucide-react";
 import type { OfficeAddinAppId, OfficeAddinStatus } from "@legalwork/types/desktop-ipc";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { desktopBridge } from "@/app/lib/desktop";
 import { isDesktopRuntime } from "@/app/utils";
 import { toast } from "@/components/ui/sonner";
 import { t } from "@/i18n";
+import { ConfirmModal } from "../../../design-system/modals/confirm-modal";
 import {
   LayoutSectionItem,
   LayoutSectionItemDescription,
@@ -38,6 +46,10 @@ export function OfficeAddinsView() {
   const queryClient = useQueryClient();
   const desktop = isDesktopRuntime();
   const [busyApp, setBusyApp] = useState<OfficeAddinAppId | null>(null);
+  /** App awaiting the certificate explainer's confirmation. */
+  const [confirmApp, setConfirmApp] = useState<OfficeAddinAppId | null>(null);
+  /** Label of the app whose post-install "restart" notice is showing. */
+  const [restartApp, setRestartApp] = useState<string | null>(null);
 
   const statusQuery = useQuery({
     queryKey: OFFICE_STATUS_KEY,
@@ -46,25 +58,20 @@ export function OfficeAddinsView() {
     refetchOnWindowFocus: false,
   });
 
-  const applyResult = (
-    result: { ok: boolean; error?: string; status: OfficeAddinStatus },
-    successKey: string,
-    failKey: string,
-  ) => {
-    queryClient.setQueryData(OFFICE_STATUS_KEY, result.status);
-    if (result.ok) {
-      toast.success(t(successKey));
-    } else {
-      toast.warning(result.error ?? t(failKey));
-    }
-  };
-
   const installMutation = useMutation({
     mutationFn: (app: OfficeAddinAppId) => {
       setBusyApp(app);
       return desktopBridge.officeAddinInstall(app);
     },
-    onSuccess: (result) => applyResult(result, "office_addins.install_success", "office_addins.install_failed"),
+    onSuccess: (result, app) => {
+      queryClient.setQueryData(OFFICE_STATUS_KEY, result.status);
+      if (result.ok) {
+        const label = result.status.apps.find((entry) => entry.id === app)?.label ?? app;
+        setRestartApp(label);
+      } else {
+        toast.warning(result.error ?? t("office_addins.install_failed"));
+      }
+    },
     onError: (error: unknown) => toast.warning(error instanceof Error ? error.message : String(error)),
     onSettled: () => setBusyApp(null),
   });
@@ -74,10 +81,26 @@ export function OfficeAddinsView() {
       setBusyApp(app);
       return desktopBridge.officeAddinUninstall(app);
     },
-    onSuccess: (result) => applyResult(result, "office_addins.uninstall_success", "office_addins.uninstall_failed"),
+    onSuccess: (result) => {
+      queryClient.setQueryData(OFFICE_STATUS_KEY, result.status);
+      if (result.ok) {
+        toast.success(t("office_addins.uninstall_success"));
+      } else {
+        toast.warning(result.error ?? t("office_addins.uninstall_failed"));
+      }
+    },
     onError: (error: unknown) => toast.warning(error instanceof Error ? error.message : String(error)),
     onSettled: () => setBusyApp(null),
   });
+
+  /** Explain the upcoming OS password prompt before the first cert install. */
+  const requestInstall = (app: OfficeAddinAppId) => {
+    if (statusQuery.data?.certTrusted) {
+      installMutation.mutate(app);
+    } else {
+      setConfirmApp(app);
+    }
+  };
 
   const busy = installMutation.isPending || uninstallMutation.isPending;
   const status = statusQuery.data;
@@ -149,7 +172,7 @@ export function OfficeAddinsView() {
                 <Button
                   size="sm"
                   disabled={busy || !status?.supported || !status?.toolAvailable}
-                  onClick={() => installMutation.mutate(app.id)}
+                  onClick={() => requestInstall(app.id)}
                 >
                   {busyApp === app.id && installMutation.isPending
                     ? t("office_addins.installing")
@@ -177,6 +200,39 @@ export function OfficeAddinsView() {
       <p className="px-1 text-xs text-dls-secondary">
         {status?.enabled ? t("office_addins.restart_hint") : t("office_addins.install_hint")}
       </p>
+
+      <ConfirmModal
+        open={confirmApp !== null}
+        title={t("office_addins.cert_prompt_title")}
+        message={t("office_addins.cert_prompt_body")}
+        confirmLabel={t("office_addins.install")}
+        cancelLabel={t("office_addins.cancel")}
+        onConfirm={() => {
+          const app = confirmApp;
+          setConfirmApp(null);
+          if (app) installMutation.mutate(app);
+        }}
+        onCancel={() => setConfirmApp(null)}
+      />
+
+      <Dialog
+        open={restartApp !== null}
+        onOpenChange={(open) => {
+          if (!open) setRestartApp(null);
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{t("office_addins.restart_title", { app: restartApp ?? "" })}</DialogTitle>
+          </DialogHeader>
+          <p className="text-sm leading-relaxed text-dls-secondary">
+            {t("office_addins.restart_body", { app: restartApp ?? "" })}
+          </p>
+          <DialogFooter>
+            <Button onClick={() => setRestartApp(null)}>{t("office_addins.restart_ok")}</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </LayoutStack>
   );
 }
