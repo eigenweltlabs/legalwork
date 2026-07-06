@@ -40,7 +40,7 @@ const de: Record<string, string> = {
   "office_addins.cancel": "Abbrechen",
   "office_addins.cert_prompt_title": "Sichere lokale Verbindung einrichten",
   "office_addins.cert_prompt_body":
-    "LegalWork erstellt ein privates Zertifikat, damit Office auf deinem Mac über eine sichere Verbindung mit dieser App kommunizieren kann. macOS fragt einmalig nach deinem Passwort, um dieses Zertifikat als vertrauenswürdig einzustufen. Das Zertifikat funktioniert nur für Verbindungen auf diesem Computer – es kann für keine Website verwendet werden, und es werden keine Daten übertragen.",
+    "LegalWork erstellt ein privates Zertifikat, damit Office auf deinem Mac über eine sichere Verbindung mit dieser App kommunizieren kann. macOS fragt einmalig nach deinem Passwort, um dieses Zertifikat als vertrauenswürdig einzustufen.",
   "office_addins.restart_title": "Installation erfolgreich",
   "office_addins.restart_body":
     "Beende {app} vollständig (Cmd+Q) und öffne es erneut – LegalWork erscheint dann unter Start → Add-ins.",

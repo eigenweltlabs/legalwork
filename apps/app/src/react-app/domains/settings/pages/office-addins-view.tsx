@@ -17,7 +17,6 @@ import { desktopBridge } from "@/app/lib/desktop";
 import { isDesktopRuntime } from "@/app/utils";
 import { toast } from "@/components/ui/sonner";
 import { t } from "@/i18n";
-import { ConfirmModal } from "../../../design-system/modals/confirm-modal";
 import {
   LayoutSectionItem,
   LayoutSectionItemDescription,
@@ -201,19 +200,35 @@ export function OfficeAddinsView() {
         {status?.enabled ? t("office_addins.restart_hint") : t("office_addins.install_hint")}
       </p>
 
-      <ConfirmModal
+      <Dialog
         open={confirmApp !== null}
-        title={t("office_addins.cert_prompt_title")}
-        message={t("office_addins.cert_prompt_body")}
-        confirmLabel={t("office_addins.install")}
-        cancelLabel={t("office_addins.cancel")}
-        onConfirm={() => {
-          const app = confirmApp;
-          setConfirmApp(null);
-          if (app) installMutation.mutate(app);
+        onOpenChange={(open) => {
+          if (!open) setConfirmApp(null);
         }}
-        onCancel={() => setConfirmApp(null)}
-      />
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{t("office_addins.cert_prompt_title")}</DialogTitle>
+          </DialogHeader>
+          <p className="text-sm leading-relaxed text-dls-secondary">
+            {t("office_addins.cert_prompt_body")}
+          </p>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setConfirmApp(null)}>
+              {t("office_addins.cancel")}
+            </Button>
+            <Button
+              onClick={() => {
+                const app = confirmApp;
+                setConfirmApp(null);
+                if (app) installMutation.mutate(app);
+              }}
+            >
+              {t("office_addins.install")}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <Dialog
         open={restartApp !== null}

@@ -34,7 +34,7 @@ export default {
   "office_addins.cancel": "Cancel",
   "office_addins.cert_prompt_title": "Set up the secure local connection",
   "office_addins.cert_prompt_body":
-    "LegalWork will create a private certificate so Office can talk to this app over a secure connection on your Mac. macOS will ask for your password once to mark that certificate as trusted. The certificate only works for connections on this computer — it cannot be used for any website, and nothing is sent anywhere.",
+    "LegalWork will create a private certificate so Office can talk to this app over a secure connection on your Mac. macOS will ask for your password once to mark that certificate as trusted.",
   "office_addins.restart_title": "Installation successful",
   "office_addins.restart_body":
     "Quit {app} completely (Cmd+Q) and reopen it — LegalWork will appear under Home → Add-ins.",
