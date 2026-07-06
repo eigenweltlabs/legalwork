@@ -44,3 +44,12 @@
 .lw-word-pane .rounded-\[24px\] .text-\[13px\] {
   font-size: 12px;
 }
+
+/*
+ * Reasoning output: hidden in the pane. The narrow sidebar chat stays
+ * focused on answers; the full reasoning stream remains visible in the
+ * LegalWork app, which renders the same session.
+ */
+.lw-word-pane .chat-reasoning {
+  display: none;
+}
