@@ -38,6 +38,8 @@ export default {
   "office_addins.restart_title": "Installation successful",
   "office_addins.restart_body":
     "Quit {app} completely (Cmd+Q) and reopen it. LegalWork will appear under Home → Add-ins.",
+  "office_addins.restart_note":
+    "LegalWork has to be running for the add-in to work, so keep the app open while you use it.",
   "office_addins.restart_ok": "OK",
   "office_addins.uninstall_prompt_title": "Remove the secure local connection",
   "office_addins.uninstall_prompt_body":

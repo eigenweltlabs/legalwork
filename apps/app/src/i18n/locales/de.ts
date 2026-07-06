@@ -44,6 +44,8 @@ const de: Record<string, string> = {
   "office_addins.restart_title": "Installation erfolgreich",
   "office_addins.restart_body":
     "Beende {app} vollständig (Cmd+Q) und öffne es erneut. LegalWork erscheint dann unter Start → Add-ins.",
+  "office_addins.restart_note":
+    "LegalWork muss geöffnet sein, damit das Add-in funktioniert. Lass die App daher beim Arbeiten laufen.",
   "office_addins.restart_ok": "Verstanden",
   "office_addins.uninstall_prompt_title": "Sichere lokale Verbindung entfernen",
   "office_addins.uninstall_prompt_body":

@@ -290,6 +290,9 @@ export function OfficeAddinsView() {
           <p className="text-sm leading-relaxed text-dls-secondary">
             {t("office_addins.restart_body", { app: restartApp ?? "" })}
           </p>
+          <p className="text-sm leading-relaxed text-dls-secondary">
+            {t("office_addins.restart_note")}
+          </p>
           <DialogFooter>
             <Button onClick={() => setRestartApp(null)}>{t("office_addins.restart_ok")}</Button>
           </DialogFooter>
