@@ -3,7 +3,7 @@ import { z } from "zod";
 import {
   callOfficeTool,
   describeOpenDocument,
-  officePaneStatus,
+  officePaneForHost,
   type OpenCodeContext,
 } from "./office-plugin-shared.js";
 
@@ -92,9 +92,8 @@ export const LegalWorkWordTools = async () => ({
     _input: unknown,
     output: { system: string[] },
   ) => {
-    const status = await officePaneStatus();
-    const wordLive = status.connected && status.host === "word";
-    output.system.push(wordLive ? wordModeInstruction(status.documentUrl) : WORD_TOOLS_INSTRUCTION);
+    const pane = await officePaneForHost("word");
+    output.system.push(pane ? wordModeInstruction(pane.documentUrl) : WORD_TOOLS_INSTRUCTION);
   },
   tool: {
     word_read_document: {

@@ -3,7 +3,7 @@ import { z } from "zod";
 import {
   callOfficeTool,
   describeOpenDocument,
-  officePaneStatus,
+  officePaneForHost,
   type OpenCodeContext,
 } from "./office-plugin-shared.js";
 
@@ -73,9 +73,8 @@ export const LegalWorkPowerPointTools = async () => ({
     _input: unknown,
     output: { system: string[] },
   ) => {
-    const status = await officePaneStatus();
-    const pptLive = status.connected && status.host === "powerpoint";
-    output.system.push(pptLive ? pptModeInstruction(status.documentUrl) : PPT_TOOLS_INSTRUCTION);
+    const pane = await officePaneForHost("powerpoint");
+    output.system.push(pane ? pptModeInstruction(pane.documentUrl) : PPT_TOOLS_INSTRUCTION);
   },
   tool: {
     ppt_read_presentation: {

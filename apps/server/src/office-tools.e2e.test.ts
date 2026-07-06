@@ -74,7 +74,7 @@ describe("office tool relay", () => {
     expect(response.status).toBe(200);
     const body = (await response.json()) as { ok: boolean; error?: string };
     expect(body.ok).toBe(false);
-    expect(body.error).toContain("No Office pane");
+    expect(body.error).toContain("No matching Office pane");
   });
 
   test("round trip: pane polls, executes, posts result", async () => {
@@ -169,38 +169,73 @@ describe("office tool relay", () => {
     expect(late.accepted).toBe(false);
   });
 
+  test("routes tools to the matching host when Word and Excel panes coexist", async () => {
+    const { baseUrl } = await startTestServer();
+
+    // Both panes long-poll the same workspace, each reporting its host.
+    const wordPoll = fetch(`${baseUrl}/poll?wait=3&host=Word&document=%2Fdocs%2Fcontract.docx`, { headers: AUTH });
+    const excelPoll = fetch(`${baseUrl}/poll?wait=3&host=Excel&document=%2Fdocs%2Fmodel.xlsx`, { headers: AUTH });
+    await new Promise((resolve) => setTimeout(resolve, 100));
+
+    // Status reports BOTH panes.
+    const status = (await (await fetch(`${baseUrl}/status`, { headers: AUTH })).json()) as {
+      connected: boolean;
+      hosts: Array<{ host: string; documentUrl: string | null }>;
+    };
+    expect(status.connected).toBe(true);
+    expect(status.hosts.map((entry) => entry.host).sort()).toEqual(["excel", "word"]);
+
+    // A word_* tool must reach the WORD pane even though Excel polled too.
+    const executePromise = fetch(`${baseUrl}/execute`, {
+      method: "POST",
+      headers: JSON_HEADERS,
+      body: JSON.stringify({ tool: "word_read_document" }),
+    });
+
+    const wordRequests = ((await (await wordPoll).json()) as { requests: Array<{ id: string; tool: string }> }).requests;
+    expect(wordRequests.length).toBe(1);
+    expect(wordRequests[0]!.tool).toBe("word_read_document");
+
+    await fetch(`${baseUrl}/requests/${wordRequests[0]!.id}/result`, {
+      method: "POST",
+      headers: JSON_HEADERS,
+      body: JSON.stringify({ ok: true, result: { text: "from word pane" } }),
+    });
+    const executeBody = (await (await executePromise).json()) as { ok: boolean; result?: { text: string } };
+    expect(executeBody.ok).toBe(true);
+    expect(executeBody.result?.text).toBe("from word pane");
+
+    // The Excel pane's poll must NOT have received the word request.
+    const excelRequests = ((await (await excelPoll).json()) as { requests: unknown[] }).requests;
+    expect(excelRequests.length).toBe(0);
+  });
+
+  type StatusBody = {
+    connected: boolean;
+    hosts: Array<{ host: string; documentUrl: string | null }>;
+  };
+  const readStatus = async (baseUrl: string) =>
+    (await (await fetch(`${baseUrl}/status`, { headers: AUTH })).json()) as StatusBody;
+
   test("status reflects pane liveness and the reported document", async () => {
     const { baseUrl } = await startTestServer();
 
-    let status = (await (await fetch(`${baseUrl}/status`, { headers: AUTH })).json()) as {
-      connected: boolean;
-      documentUrl: string | null;
-    };
+    let status = await readStatus(baseUrl);
     expect(status.connected).toBe(false);
-    expect(status.documentUrl).toBeNull();
+    expect(status.hosts).toEqual([]);
 
-    const documentUrl = "/Users/test/Matters/Contract.docx";
+    const documentUrl = "/Users/test/Matters/Model.xlsx";
     await fetch(
       `${baseUrl}/poll?wait=0&document=${encodeURIComponent(documentUrl)}&host=Excel`,
       { headers: AUTH },
     );
-    const fullStatus = (await (await fetch(`${baseUrl}/status`, { headers: AUTH })).json()) as {
-      connected: boolean;
-      documentUrl: string | null;
-      host: string | null;
-    };
-    expect(fullStatus.connected).toBe(true);
-    expect(fullStatus.documentUrl).toBe(documentUrl);
-    expect(fullStatus.host).toBe("excel");
-    status = fullStatus;
-
-    // An untitled document (empty report) clears the stored identity.
-    await fetch(`${baseUrl}/poll?wait=0&document=`, { headers: AUTH });
-    status = (await (await fetch(`${baseUrl}/status`, { headers: AUTH })).json()) as {
-      connected: boolean;
-      documentUrl: string | null;
-    };
+    status = await readStatus(baseUrl);
     expect(status.connected).toBe(true);
-    expect(status.documentUrl).toBeNull();
+    expect(status.hosts).toEqual([{ host: "excel", documentUrl }]);
+
+    // Same pane (host) reporting an untitled document clears its identity.
+    await fetch(`${baseUrl}/poll?wait=0&document=&host=Excel`, { headers: AUTH });
+    status = await readStatus(baseUrl);
+    expect(status.hosts).toEqual([{ host: "excel", documentUrl: null }]);
   });
 });

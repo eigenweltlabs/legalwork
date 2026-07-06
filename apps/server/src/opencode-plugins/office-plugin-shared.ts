@@ -98,25 +98,30 @@ export async function callOfficeTool(
   }
 }
 
+export type OfficePaneInfo = {
+  /** Lowercased Office host name reported by the pane ("word", "excel", "powerpoint"). */
+  host: string;
+  documentUrl: string | null;
+};
+
 export type OfficePaneStatus = {
   connected: boolean;
-  documentUrl: string | null;
-  /** Lowercased Office host name reported by the pane ("word", "excel"). */
-  host: string | null;
+  /** One entry per connected pane — Word and Excel can be open at once. */
+  hosts: OfficePaneInfo[];
 };
 
 let paneStatusCache: { at: number; status: OfficePaneStatus } | null = null;
 
 /**
- * Status of the connected Office pane, if any. Checked per chat turn (with
+ * Status of the connected Office panes, if any. Checked per chat turn (with
  * a short cache) so system prompts flip to document-first behavior as soon
- * as the user opens the pane in an Office host.
+ * as the user opens a pane in an Office host.
  */
 export async function officePaneStatus(): Promise<OfficePaneStatus> {
   if (paneStatusCache && Date.now() - paneStatusCache.at < PANE_STATUS_CACHE_MS) {
     return paneStatusCache.status;
   }
-  let status: OfficePaneStatus = { connected: false, documentUrl: null, host: null };
+  let status: OfficePaneStatus = { connected: false, hosts: [] };
   try {
     const url = serverUrl();
     const token = serverToken();
@@ -130,24 +135,35 @@ export async function officePaneStatus(): Promise<OfficePaneStatus> {
         if (!response.ok) continue;
         const payload = (await response.json()) as {
           connected?: unknown;
-          documentUrl?: unknown;
-          host?: unknown;
+          hosts?: unknown;
         };
-        if (payload.connected === true) {
-          status = {
-            connected: true,
-            documentUrl: typeof payload.documentUrl === "string" && payload.documentUrl ? payload.documentUrl : null,
-            host: typeof payload.host === "string" && payload.host ? payload.host.toLowerCase() : null,
-          };
-          break;
+        if (payload.connected === true && Array.isArray(payload.hosts)) {
+          const hosts = payload.hosts.flatMap((entry) => {
+            if (!entry || typeof entry !== "object") return [];
+            const host = (entry as { host?: unknown }).host;
+            const documentUrl = (entry as { documentUrl?: unknown }).documentUrl;
+            return typeof host === "string" && host
+              ? [{ host: host.toLowerCase(), documentUrl: typeof documentUrl === "string" && documentUrl ? documentUrl : null }]
+              : [];
+          });
+          if (hosts.length > 0) {
+            status = { connected: true, hosts };
+            break;
+          }
         }
       }
     }
   } catch {
-    status = { connected: false, documentUrl: null, host: null };
+    status = { connected: false, hosts: [] };
   }
   paneStatusCache = { at: Date.now(), status };
   return status;
+}
+
+/** The connected pane for a specific host, if any. */
+export async function officePaneForHost(host: string): Promise<OfficePaneInfo | null> {
+  const status = await officePaneStatus();
+  return status.hosts.find((entry) => entry.host === host) ?? null;
 }
 
 export function describeOpenDocument(documentUrl: string | null): string {

@@ -30,10 +30,14 @@ export function registerOfficeToolRoutes(options: RegisterOfficeToolRoutesOption
 
   addRoute(routes, "GET", "/workspace/:id/office-tools/status", "client", async (ctx) => {
     const workspace = await resolveWorkspace(config, ctx.params.id);
+    const panes = officeTools.connectedPanes(workspace.id);
     return jsonResponse({
-      connected: officeTools.clientConnected(workspace.id),
-      documentUrl: officeTools.documentUrl(workspace.id),
-      host: officeTools.paneHost(workspace.id),
+      connected: panes.length > 0,
+      // One entry per connected pane — Word and Excel can be open at once.
+      hosts: panes,
+      // Legacy single-pane fields for older consumers.
+      documentUrl: panes[0]?.documentUrl ?? null,
+      host: panes[0]?.host ?? null,
     });
   });
 
