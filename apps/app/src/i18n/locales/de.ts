@@ -43,7 +43,7 @@ const de: Record<string, string> = {
     "LegalWork erstellt ein privates Zertifikat, damit Office auf deinem Mac über eine sichere Verbindung mit dieser App kommunizieren kann. macOS fragt einmalig nach deinem Passwort, um dieses Zertifikat als vertrauenswürdig einzustufen.",
   "office_addins.restart_title": "Installation erfolgreich",
   "office_addins.restart_body":
-    "Beende {app} vollständig (Cmd+Q) und öffne es erneut – LegalWork erscheint dann unter Start → Add-ins.",
+    "Beende {app} vollständig (Cmd+Q) und öffne es erneut. LegalWork erscheint dann unter Start → Add-ins.",
   "office_addins.restart_ok": "Verstanden",
   "office_addins.install_success": "Office-Add-in installiert. Starte Word/Excel/PowerPoint neu, falls geöffnet.",
   "office_addins.install_failed": "Das Office-Add-in konnte nicht installiert werden.",

@@ -37,7 +37,7 @@ export default {
     "LegalWork will create a private certificate so Office can talk to this app over a secure connection on your Mac. macOS will ask for your password once to mark that certificate as trusted.",
   "office_addins.restart_title": "Installation successful",
   "office_addins.restart_body":
-    "Quit {app} completely (Cmd+Q) and reopen it — LegalWork will appear under Home → Add-ins.",
+    "Quit {app} completely (Cmd+Q) and reopen it. LegalWork will appear under Home → Add-ins.",
   "office_addins.restart_ok": "OK",
   "office_addins.install_success": "Office add-in installed. Restart Word/Excel/PowerPoint if they are open.",
   "office_addins.install_failed": "Could not install the Office add-in.",
