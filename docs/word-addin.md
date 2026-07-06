@@ -127,12 +127,14 @@ The manifest also declares PowerPoint (`Presentation`): sideload into
 pane registers `ppt_*` tools (`legalwork-powerpoint-tools` plugin):
 `ppt_read_presentation`, `ppt_read_slide`, `ppt_read_selection`,
 `ppt_set_shape_text`, `ppt_replace_text`, `ppt_add_slide`,
-`ppt_add_text_box`. PowerPoint's add-in API has neither tracked changes
-nor comments, so safety is behavioral: `set_shape_text` returns the
-previous text, ambiguous replacements are rejected with locations, and the
-agent must report every slide/shape it changed (undo via Cmd+Z). Slide
-design/layout is out of scope for the API — text-level work only. The dock
-offers "add current slide" and "add presentation outline" to chat.
+`ppt_add_text_box`, `ppt_run_code`. PowerPoint's add-in API has neither
+tracked changes nor comments, so safety is behavioral: `set_shape_text`
+returns the previous text, ambiguous replacements are rejected with
+locations, and the agent must report every slide/shape it changed (undo
+via Cmd+Z). `ppt_run_code` runs raw Office.js for styling/shape work the
+typed tools do not cover (the PowerPointApi remains the most limited of
+the three). The dock offers "add current slide" and "add presentation
+outline" to chat.
 
 ## Excel
 
@@ -142,8 +144,8 @@ task pane opens in Excel (Home → Add-ins → LegalWork). The pane detects the
 host via Office.js and registers `excel_*` tools instead of `word_*`:
 `excel_read_workbook`, `excel_read_range`, `excel_read_selection`,
 `excel_write_cells`, `excel_highlight_range`, `excel_add_worksheet`,
-`excel_search`, `excel_add_comment` (via the `legalwork-excel-tools`
-plugin). Excel has no tracked-changes API, so the safety pattern differs:
+`excel_search`, `excel_add_comment`, `excel_run_code` (via the
+`legalwork-excel-tools` plugin). Excel has no tracked-changes API, so the safety pattern differs:
 agent writes highlight the touched cells (amber fill), rationale goes into
 cell comments, and the agent is instructed to put derived analysis on new
 worksheets rather than overwrite data. The dock offers "add selection"
@@ -154,7 +156,18 @@ worksheets rather than overwrite data. The dock offers "add selection"
 When the pane is open inside Word, the agent gets `word_*` tools (via the
 `legalwork-word-tools` OpenCode plugin) to read and edit the open document:
 `word_read_document`, `word_read_selection`, `word_search`,
-`word_replace_text`, `word_insert_text`, `word_add_comment`.
+`word_replace_text`, `word_insert_text`, `word_add_comment`,
+`word_run_code`.
+
+Each host also has a `*_run_code` escape hatch: the agent writes the body
+of a `Word.run`/`Excel.run`/`PowerPoint.run` batch and the pane executes
+it (`office-run-code.ts`), giving full Office.js coverage (formatting,
+styles, tables, charts, shapes) without a typed tool per capability. Pane
+globals like `fetch`/`localStorage` are shadowed inside the snippet as an
+accident guard, results are JSON-serialized with size caps, and Office.js
+errors return their `debugInfo` so the model can fix its own snippet. In
+Word the batch runs with change tracking forced on, so code-driven edits
+are still native redlines.
 
 Flow: tool call → `POST /workspace/:id/word-tools/execute` on
 legalwork-server → the pane (long-polling `/word-tools/poll`) executes it
