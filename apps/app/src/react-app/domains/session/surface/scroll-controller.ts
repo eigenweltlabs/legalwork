@@ -11,10 +11,11 @@ function isStickyBottom(sessionId: string | null) {
 }
 
 // Widened from 1px: WKWebView (the Office task pane) uses fractional pixel
-// metrics and Office UI scaling, which leave a 1-2px residual gap even when
-// pinned to the bottom. With a 1px tolerance sticky mode could never re-arm
-// there, permanently disabling autoscroll after any manual scroll.
-const EXACT_BOTTOM_GAP_PX = 4;
+// metrics and Office UI scaling, which leave a several-px residual gap even
+// when pinned to the bottom. With a 1px tolerance sticky mode could never
+// re-arm there, permanently disabling autoscroll after any manual scroll.
+// Kept well below a text line (~19px) so it never falsely claims bottom.
+const EXACT_BOTTOM_GAP_PX = 8;
 // Widened from 250ms so a single wheel or trackpad flick isn't missed between
 // two rapid programmatic scroll-to-bottom frames during streaming.
 const SCROLL_GESTURE_WINDOW_MS = 600;
@@ -308,7 +309,7 @@ export function useSessionScrollController(
 
       const nextHeight = nextContent.offsetHeight;
       const previousContentHeight = observedContentHeightRef.current;
-      const grew = nextHeight > previousContentHeight + 1;
+      const heightChanged = Math.abs(nextHeight - previousContentHeight) > 1;
       observedContentHeightRef.current = nextHeight;
 
       // Only re-anchor to the bottom when we're already in sticky bottom mode
@@ -316,7 +317,13 @@ export function useSessionScrollController(
       // touchpad, or scrollbar in the last SCROLL_GESTURE_WINDOW_MS, treat
       // that as intent to break out of autoscroll and leave their position
       // alone until the next handleScroll tick reclassifies the mode.
-      if (grew && isStickyBottom(selectedSessionId) && !hasScrollGesture()) {
+      // Shrinks re-anchor too: when a turn completes, streaming chrome
+      // (thinking indicator, running-tool state) unmounts and the content
+      // gets shorter. Chromium clamps scrollTop and fires a scroll event our
+      // handler compensates for, but WKWebView (the Office pane) clamps
+      // without a reliable scroll event, leaving the transcript hovering
+      // above the bottom with autoscroll seemingly dead.
+      if (heightChanged && isStickyBottom(selectedSessionId) && !hasScrollGesture()) {
         scrollToBottom("auto");
         return;
       }
