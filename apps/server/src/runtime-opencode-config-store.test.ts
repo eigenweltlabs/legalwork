@@ -6,7 +6,13 @@ import { addMcp, listMcp, setMcpEnabled } from "./mcp.js";
 import { buildLegalworkRuntimeConfig } from "./legalwork-runtime-config.js";
 import { readLegalworkWorkspaceConfig } from "./legalwork-workspace-config-store.js";
 import { addPlugin, listPlugins, removePlugin } from "./plugins.js";
-import { readRuntimeOpencodeConfig, writeRuntimeOpencodeConfig } from "./runtime-opencode-config-store.js";
+import {
+  applyGlobalToolPermissions,
+  GLOBAL_TOOL_PERMISSIONS_ID,
+  readGlobalToolPermissions,
+  readRuntimeOpencodeConfig,
+  writeRuntimeOpencodeConfig,
+} from "./runtime-opencode-config-store.js";
 import { startServer } from "./server.js";
 import type { ServerConfig } from "./types.js";
 
@@ -164,13 +170,12 @@ describe("runtime OpenCode config store", () => {
     });
   });
 
-  test("patches tool permissions while preserving external_directory and unknown keys", async () => {
+  test("patches tool permissions globally while external_directory stays workspace-scoped", async () => {
     await withWorkspace(async ({ config }) => {
       await writeRuntimeOpencodeConfig(config, WORKSPACE_ID, (current) => ({
         ...current,
         permission: {
           external_directory: { "/tmp/shared/*": "allow" },
-          future_tool: "deny",
         },
       }));
 
@@ -185,22 +190,23 @@ describe("runtime OpenCode config store", () => {
           expect(response.status).toBe(200);
         };
 
+        // Tool keys land in the reserved GLOBAL row, not the workspace row.
         await patch({ edit: "ask", bash: { "git *": "allow", "*": "ask" } });
-        expect((await readRuntimeOpencodeConfig(config, WORKSPACE_ID)).permission).toEqual({
-          external_directory: { "/tmp/shared/*": "allow" },
-          future_tool: "deny",
+        expect((await readRuntimeOpencodeConfig(config, GLOBAL_TOOL_PERMISSIONS_ID)).permission).toEqual({
           edit: "ask",
           bash: { "git *": "allow", "*": "ask" },
+        });
+        expect((await readRuntimeOpencodeConfig(config, WORKSPACE_ID)).permission).toEqual({
+          external_directory: { "/tmp/shared/*": "allow" },
         });
 
         // A null value removes the key; unmentioned keys stay untouched.
         await patch({ bash: null });
-        expect((await readRuntimeOpencodeConfig(config, WORKSPACE_ID)).permission).toEqual({
-          external_directory: { "/tmp/shared/*": "allow" },
-          future_tool: "deny",
+        expect((await readRuntimeOpencodeConfig(config, GLOBAL_TOOL_PERMISSIONS_ID)).permission).toEqual({
           edit: "ask",
         });
 
+        // GET returns the merged view: global tool keys + workspace folders.
         const configResponse = await fetch(`http://127.0.0.1:${server.port}/workspace/${WORKSPACE_ID}/config`, {
           headers: { authorization: `Bearer ${config.token}` },
         });
@@ -209,7 +215,6 @@ describe("runtime OpenCode config store", () => {
           opencode: {
             permission: {
               external_directory: { "/tmp/shared/*": "allow" },
-              future_tool: "deny",
               edit: "ask",
             },
           },
@@ -217,6 +222,34 @@ describe("runtime OpenCode config store", () => {
       } finally {
         await server.stop(true);
       }
+    });
+  });
+
+  test("legacy workspace-row tool permissions are ignored in favor of the global row", async () => {
+    await withWorkspace(async ({ config }) => {
+      // A row written before permissions went global: stale tool keys + folders.
+      await writeRuntimeOpencodeConfig(config, WORKSPACE_ID, (current) => ({
+        ...current,
+        permission: {
+          external_directory: { "/tmp/shared/*": "allow" },
+          bash: "allow",
+          edit: "allow",
+        },
+      }));
+      await writeRuntimeOpencodeConfig(config, GLOBAL_TOOL_PERMISSIONS_ID, (current) => ({
+        ...current,
+        permission: { bash: "ask" },
+      }));
+
+      const merged = applyGlobalToolPermissions(
+        await readRuntimeOpencodeConfig(config, WORKSPACE_ID),
+        await readGlobalToolPermissions(config),
+      );
+      // Stale workspace `bash`/`edit` do not leak through; folders survive.
+      expect(merged.permission).toEqual({
+        bash: "ask",
+        external_directory: { "/tmp/shared/*": "allow" },
+      });
     });
   });
 

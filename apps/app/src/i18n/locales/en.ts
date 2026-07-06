@@ -646,7 +646,7 @@ export default {
   "notifications.view": "View",
   "onboarding.authorize_folder": "Authorize folder",
   "tool_permissions.title": "Tool permissions",
-  "tool_permissions.desc": "Decide what LegalWork may do on its own and when it must ask you first.",
+  "tool_permissions.desc": "Decide what LegalWork may do on its own and when it must ask you first. These settings apply to all workspaces.",
   "tool_permissions.ask_before_edit": "Ask before editing files",
   "tool_permissions.ask_before_edit_desc": "LegalWork asks for your approval before it creates or changes any file.",
   "tool_permissions.ask_before_shell": "Ask before running shell commands",

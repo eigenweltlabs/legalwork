@@ -23,7 +23,10 @@ import {
 } from "./legalwork-extensions-plugin-path.js";
 import type { ServerConfig } from "./types.js";
 import {
+  applyGlobalToolPermissions,
+  GLOBAL_TOOL_PERMISSIONS_ID,
   onRuntimeOpencodeConfigWrite,
+  readGlobalToolPermissions,
   readRuntimeOpencodeConfig,
   runtimeDisabledProviderList,
   runtimeMcpMap,
@@ -78,7 +81,14 @@ export async function buildLegalworkRuntimeConfigObject(
   config?: ServerConfig,
   workspaceId?: string,
 ): Promise<Record<string, unknown>> {
-  const runtimeConfig = config && workspaceId ? await readRuntimeOpencodeConfig(config, workspaceId) : {};
+  // Tool permissions are global (one safety posture across workspaces);
+  // the workspace row only contributes external_directory.
+  const runtimeConfig = config && workspaceId
+    ? applyGlobalToolPermissions(
+        await readRuntimeOpencodeConfig(config, workspaceId),
+        await readGlobalToolPermissions(config),
+      )
+    : {};
   const disabledProviders = runtimeDisabledProviderList(runtimeConfig);
   return {
     ...runtimeConfig,
@@ -145,7 +155,8 @@ export async function writeLegalworkRuntimeConfigFile(config: ServerConfig, work
  */
 export function keepLegalworkRuntimeConfigFileFresh(config: ServerConfig, workspaceId: string): () => void {
   return onRuntimeOpencodeConfigWrite((writeConfig, writtenWorkspaceId) => {
-    if (writtenWorkspaceId !== workspaceId) return;
+    // Global tool-permission writes affect every workspace's derived config.
+    if (writtenWorkspaceId !== workspaceId && writtenWorkspaceId !== GLOBAL_TOOL_PERMISSIONS_ID) return;
     void writeLegalworkRuntimeConfigFile(writeConfig, workspaceId).catch(() => undefined);
   });
 }

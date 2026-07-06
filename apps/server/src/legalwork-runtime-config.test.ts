@@ -8,7 +8,7 @@ import {
   legalworkRuntimeConfigFilePath,
   writeLegalworkRuntimeConfigFile,
 } from "./legalwork-runtime-config.js";
-import { writeRuntimeOpencodeConfig } from "./runtime-opencode-config-store.js";
+import { GLOBAL_TOOL_PERMISSIONS_ID, writeRuntimeOpencodeConfig } from "./runtime-opencode-config-store.js";
 import type { ServerConfig } from "./types.js";
 
 const roots: string[] = [];
@@ -106,5 +106,32 @@ describe("legalwork runtime config file", () => {
     const parsed = await readConfigFile(config);
     const mcp = (parsed.mcp ?? {}) as Record<string, Record<string, unknown>>;
     expect(mcp.other).toBeUndefined();
+  });
+
+  test("global tool permissions land in every workspace's file and rewrite it on change", async () => {
+    const { config } = await setup();
+    await writeRuntimeOpencodeConfig(config, "ws_1", (current) => ({
+      ...current,
+      permission: { external_directory: { "/tmp/shared/*": "allow" } },
+    }));
+    await writeLegalworkRuntimeConfigFile(config, "ws_1");
+    cleanups.push(keepLegalworkRuntimeConfigFileFresh(config, "ws_1"));
+
+    // A write to the reserved global row must rebuild this workspace's file.
+    await writeRuntimeOpencodeConfig(config, GLOBAL_TOOL_PERMISSIONS_ID, (current) => ({
+      ...current,
+      permission: { bash: "ask" },
+    }));
+
+    let permission: Record<string, unknown> = {};
+    for (let attempt = 0; attempt < 50; attempt += 1) {
+      const parsed = await readConfigFile(config);
+      permission = (parsed.permission ?? {}) as Record<string, unknown>;
+      if (permission.bash) break;
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    }
+    // Global tool key + this workspace's own external_directory, merged.
+    expect(permission.bash).toBe("ask");
+    expect(permission.external_directory).toEqual({ "/tmp/shared/*": "allow" });
   });
 });

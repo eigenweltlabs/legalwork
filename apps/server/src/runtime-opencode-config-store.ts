@@ -133,6 +133,44 @@ async function runtimeDb(config: ServerConfig): Promise<RuntimeOpencodeDb> {
   return db;
 }
 
+/**
+ * Tool permissions are GLOBAL — one safety posture for every workspace this
+ * server hosts. They live under a reserved runtime-DB row instead of per
+ * workspace; only `permission.external_directory` (Authorized Folders) stays
+ * workspace-scoped. The id can never collide with real workspaces (those are
+ * `ws_<hash>`).
+ */
+export const GLOBAL_TOOL_PERMISSIONS_ID = "__global_tool_permissions__";
+
+/** Read the global tool-permission map (never contains external_directory). */
+export async function readGlobalToolPermissions(config: ServerConfig): Promise<Record<string, unknown>> {
+  const globalConfig = await readRuntimeOpencodeConfig(config, GLOBAL_TOOL_PERMISSIONS_ID);
+  const permission = isRecord(globalConfig.permission) ? { ...globalConfig.permission } : {};
+  delete permission.external_directory;
+  return permission;
+}
+
+/**
+ * Effective permission map for a workspace: the global tool permissions plus
+ * the workspace's own external_directory. Tool keys in the workspace row are
+ * ignored (legacy rows from when permissions were workspace-scoped).
+ */
+export function applyGlobalToolPermissions(
+  runtimeConfig: RuntimeOpencodeConfig,
+  globalPermission: Record<string, unknown>,
+): RuntimeOpencodeConfig {
+  const workspacePermission = isRecord(runtimeConfig.permission) ? runtimeConfig.permission : {};
+  const permission: Record<string, unknown> = { ...globalPermission };
+  if (isRecord(workspacePermission.external_directory)) {
+    permission.external_directory = workspacePermission.external_directory;
+  }
+  const next = { ...runtimeConfig };
+  delete next.permission;
+  return Object.keys(permission).length
+    ? { ...next, permission: permission as RuntimeOpencodeConfig["permission"] }
+    : next;
+}
+
 export function runtimePluginList(config: RuntimeOpencodeConfig): string[] {
   return Array.isArray(config.plugin) ? config.plugin.filter((item) => typeof item === "string") : [];
 }
