@@ -10,7 +10,11 @@ function isStickyBottom(sessionId: string | null) {
   return readScrollState(sessionId).mode === "stickyBottom";
 }
 
-const EXACT_BOTTOM_GAP_PX = 1;
+// Widened from 1px: WKWebView (the Office task pane) uses fractional pixel
+// metrics and Office UI scaling, which leave a 1-2px residual gap even when
+// pinned to the bottom. With a 1px tolerance sticky mode could never re-arm
+// there, permanently disabling autoscroll after any manual scroll.
+const EXACT_BOTTOM_GAP_PX = 4;
 // Widened from 250ms so a single wheel or trackpad flick isn't missed between
 // two rapid programmatic scroll-to-bottom frames during streaming.
 const SCROLL_GESTURE_WINDOW_MS = 600;
