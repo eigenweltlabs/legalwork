@@ -198,7 +198,7 @@ export function WhatsNewDialog(props: { hasWorkspaces: boolean; workspacesReady:
 
         <div className="space-y-2 px-7 pb-6 pt-1">
           {announcement.cta ? (
-            <Button size="lg" className="w-full" onClick={openCta}>
+            <Button size="lg" className="w-full text-white" onClick={openCta}>
               {t(announcement.cta.labelKey)}
             </Button>
           ) : null}
