@@ -48,6 +48,16 @@ export function officeAddinCertToolAvailable() {
   }
 }
 
+// LibreSSL (macOS system /usr/bin/openssl) requires a [req] section with a
+// distinguished_name entry in any -config file, even when -subj is passed.
+// An empty DN section satisfies it; OpenSSL 3 ignores the shim.
+const REQ_SHIM = [
+  "[req]",
+  "distinguished_name = req_dn",
+  "[req_dn]",
+  "",
+].join("\n");
+
 const CA_EXTENSIONS = [
   "[ca]",
   "basicConstraints = critical, CA:TRUE, pathlen:0",
@@ -90,7 +100,7 @@ export function ensureLocalCert(dir, { force = false } = {}) {
     return { caCertPath, caKeyPath, leafCertPath, leafKeyPath };
   }
 
-  writeFileSync(extPath, `${CA_EXTENSIONS}\n${leafExtensions(LOCALHOST_ALT_NAMES)}\n`, "utf8");
+  writeFileSync(extPath, `${REQ_SHIM}\n${CA_EXTENSIONS}\n${leafExtensions(LOCALHOST_ALT_NAMES)}\n`, "utf8");
   try {
     // CA: self-signed, name-constrained.
     runOpenssl(["genrsa", "-out", caKeyPath, "2048"]);
@@ -103,9 +113,10 @@ export function ensureLocalCert(dir, { force = false } = {}) {
       "-out", caCertPath,
     ]);
 
-    // Leaf: localhost, signed by the CA.
+    // Leaf: localhost, signed by the CA. Pass -config here too so the CSR
+    // step never depends on the system openssl.cnf being present/compatible.
     runOpenssl(["genrsa", "-out", leafKeyPath, "2048"]);
-    const csr = runOpenssl(["req", "-new", "-key", leafKeyPath, "-subj", LEAF_SUBJECT]).stdout;
+    const csr = runOpenssl(["req", "-new", "-key", leafKeyPath, "-subj", LEAF_SUBJECT, "-config", extPath]).stdout;
     runOpenssl([
       "x509", "-req",
       "-CA", caCertPath, "-CAkey", caKeyPath, "-CAcreateserial",
@@ -153,10 +164,10 @@ export function signLeafForTest(dir, altNames, subject = "/CN=test") {
   const keyPath = join(dir, "test-leaf.key");
   const certPath = join(dir, "test-leaf.crt");
   const extPath = join(dir, "test-ext.cnf");
-  writeFileSync(extPath, leafExtensions(altNames), "utf8");
+  writeFileSync(extPath, `${REQ_SHIM}\n${leafExtensions(altNames)}`, "utf8");
   try {
     runOpenssl(["genrsa", "-out", keyPath, "2048"]);
-    const csr = runOpenssl(["req", "-new", "-key", keyPath, "-subj", subject]).stdout;
+    const csr = runOpenssl(["req", "-new", "-key", keyPath, "-subj", subject, "-config", extPath]).stdout;
     runOpenssl([
       "x509", "-req",
       "-CA", caCertPath, "-CAkey", caKeyPath, "-CAcreateserial",
