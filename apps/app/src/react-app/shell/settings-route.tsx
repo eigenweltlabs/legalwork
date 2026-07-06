@@ -203,6 +203,7 @@ function parseSettingsPath(pathname: string): {
     case "ai":
     case "preferences":
     case "permissions":
+    case "safety":
     case "shell":
     case "advanced":
     case "appearance":
@@ -1766,6 +1767,14 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
                 void connectionsStore.refreshMcpServers();
               }}
             />
+          </SettingsStack>
+        );
+      // Tool permissions are global (one safety posture for all workspaces),
+      // so they live in the Global sidebar group — the workspace connection is
+      // only the transport for reading/writing the shared config.
+      case "safety":
+        return (
+          <SettingsStack>
             <ToolPermissionsPanel
               legalworkServerClient={legalworkClient}
               legalworkServerStatus={routeLegalworkStatus}

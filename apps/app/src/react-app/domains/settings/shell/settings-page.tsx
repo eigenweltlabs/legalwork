@@ -64,6 +64,8 @@ export function getSettingsTabIcon(tab: SettingsTab) {
       return Layout;
     case "permissions":
       return FolderLock;
+    case "safety":
+      return ShieldCheck;
     case "cloud-account":
       return UserCircle;
     case "cloud-marketplaces":
@@ -103,6 +105,8 @@ export function getSettingsTabLabel(tab: SettingsTab) {
       return "Customization";
     case "permissions":
       return "Permissions";
+    case "safety":
+      return "Tool Permissions";
     case "cloud-account":
       return t("settings.tab_cloud_account");
     case "cloud-marketplaces":
@@ -144,6 +148,8 @@ export function getSettingsTabDescription(tab: SettingsTab) {
       return "Branding and task suggestions";
     case "permissions":
       return "Authorized folders and file access";
+    case "safety":
+      return "What LegalWork may do on its own — applies to all workspaces";
     case "cloud-account":
       return t("settings.tab_description_cloud_account");
     case "cloud-marketplaces":
@@ -185,7 +191,7 @@ export function getWorkspaceSettingsTabs(): SettingsTab[] {
 export function getGlobalSettingsTabs(developerMode: boolean): SettingsTab[] {
   // Appearance/Language and Recovery are hidden (theme is fixed to Light).
   // "preferences" is the Privacy tab (usage-analytics opt-in).
-  const tabs: SettingsTab[] = ["ai", "shell", "environment", "preferences", "updates"];
+  const tabs: SettingsTab[] = ["ai", "safety", "shell", "environment", "preferences", "updates"];
   if (developerMode) tabs.push("debug");
   return tabs;
 }
