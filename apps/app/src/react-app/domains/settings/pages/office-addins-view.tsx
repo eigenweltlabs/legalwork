@@ -1,7 +1,7 @@
 /** @jsxImportSource react */
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { CheckCircle2, Info, XCircle } from "lucide-react";
+import { CheckCircle2, Info, TriangleAlert, XCircle } from "lucide-react";
 
 import type { OfficeAddinAppId, OfficeAddinStatus } from "@legalwork/types/desktop-ipc";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
@@ -290,8 +290,9 @@ export function OfficeAddinsView() {
           <p className="text-sm leading-relaxed text-dls-secondary">
             {t("office_addins.restart_body", { app: restartApp ?? "" })}
           </p>
-          <p className="text-sm leading-relaxed text-dls-secondary">
-            {t("office_addins.restart_note")}
+          <p className="flex items-start gap-2 text-sm leading-relaxed text-dls-secondary">
+            <TriangleAlert size={16} className="mt-0.5 shrink-0 text-amber-11" />
+            <span>{t("office_addins.restart_note")}</span>
           </p>
           <DialogFooter>
             <Button onClick={() => setRestartApp(null)}>{t("office_addins.restart_ok")}</Button>
