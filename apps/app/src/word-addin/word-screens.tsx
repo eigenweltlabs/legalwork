@@ -1,19 +1,20 @@
 /** @jsxImportSource react */
-import { useState, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ChevronLeft, ChevronRight, FolderPlus, Plus } from "lucide-react";
 
 import { toast } from "@/components/ui/sonner";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { createClient, unwrap } from "@/app/lib/opencode";
 import { getDisplaySessionTitle } from "@/app/lib/session-title";
-import { readLegalworkServerSettings, type LegalworkWorkspaceInfo } from "@/app/lib/legalwork-server";
+import { readLegalworkServerSettings } from "@/app/lib/legalwork-server";
 import { resolveWorkspaceEndpoint } from "@/app/lib/workspace-endpoint";
 import { writeLastSessionFor } from "@/react-app/shell/session-memory";
 import { t } from "@/i18n";
+import { fetchDocumentPath, officeHostName } from "./office";
 import { useWordServerClient } from "./use-word-server-client";
+import { matchWorkspaceForDocument } from "./workspace-match";
 
 function paneShell(children: ReactNode) {
   return <div className="flex h-dvh flex-col overflow-hidden bg-dls-surface text-dls-text">{children}</div>;
@@ -63,32 +64,45 @@ function formatSessionTime(updated: number | undefined): string {
     : date.toLocaleDateString(undefined, { day: "2-digit", month: "short" });
 }
 
-function suggestWorkspaceFolder(existing: LegalworkWorkspaceInfo[], name: string): string {
-  const sibling = existing[0]?.path ?? "";
-  if (!sibling.includes("/")) return "";
-  const parent = sibling.slice(0, sibling.lastIndexOf("/"));
-  const slug = name
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "");
-  return slug ? `${parent}/${slug}` : "";
+function parentFolder(filePath: string): string {
+  const trimmed = filePath.replace(/[/\\]+$/, "");
+  const cut = Math.max(trimmed.lastIndexOf("/"), trimmed.lastIndexOf("\\"));
+  return cut > 0 ? trimmed.slice(0, cut) : "";
+}
+
+function baseName(path: string): string {
+  const trimmed = path.replace(/[/\\]+$/, "");
+  const cut = Math.max(trimmed.lastIndexOf("/"), trimmed.lastIndexOf("\\"));
+  return cut >= 0 ? trimmed.slice(cut + 1) : trimmed;
 }
 
 export function WordWorkspacesScreen() {
   const client = useWordServerClient();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
-  const [creating, setCreating] = useState(false);
-  const [name, setName] = useState("");
-  const [folderPath, setFolderPath] = useState("");
-  const [folderTouched, setFolderTouched] = useState(false);
+  /** Folder of the open Office document, once resolved (null = unsaved/none). */
+  const [fileFolder, setFileFolder] = useState<string | null>(null);
 
   const workspaces = useQuery({
     queryKey: ["word-addin", "workspaces"],
     queryFn: () => client.listWorkspaces(),
   });
   const items = workspaces.data?.items ?? [];
+
+  useEffect(() => {
+    if (!officeHostName()) return;
+    let cancelled = false;
+    void fetchDocumentPath()
+      .then((path) => {
+        if (cancelled) return;
+        const folder = path && !/^https?:\/\//i.test(path) ? parentFolder(path) : "";
+        setFileFolder(folder || null);
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const openWorkspace = (workspaceId: string) => {
     // Mirrors the app sidebar: make the workspace active server-side, but do
@@ -97,16 +111,17 @@ export function WordWorkspacesScreen() {
     navigate(`/w/${encodeURIComponent(workspaceId)}/sessions`);
   };
 
-  const createWorkspace = useMutation({
-    mutationFn: () =>
-      client.createLocalWorkspace({ folderPath: folderPath.trim(), name: name.trim(), preset: "starter" }),
-    onSuccess: async (result) => {
+  // The workspace already covering the open file, if any.
+  const existingForFile = fileFolder
+    ? matchWorkspaceForDocument(`${fileFolder}/x`, items)
+    : null;
+
+  const createInFolder = useMutation({
+    mutationFn: (folder: string) =>
+      client.createLocalWorkspace({ folderPath: folder, name: baseName(folder), preset: "starter" }),
+    onSuccess: async (result, folder) => {
       await queryClient.invalidateQueries({ queryKey: ["word-addin", "workspaces"] });
-      const created = (result.items ?? []).find((item) => item.path === folderPath.trim());
-      setCreating(false);
-      setName("");
-      setFolderPath("");
-      setFolderTouched(false);
+      const created = (result.items ?? []).find((item) => item.path === folder);
       if (created) openWorkspace(created.id);
     },
     onError: (error: unknown) => {
@@ -114,62 +129,29 @@ export function WordWorkspacesScreen() {
     },
   });
 
-  const submitDisabled = !name.trim() || !folderPath.trim() || createWorkspace.isPending;
-
   return paneShell(
     <>
-      <PaneHeader
-        title={t("word_addin.workspaces_title")}
-        action={
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon"
-            className="size-7"
-            aria-label={t("word_addin.new_workspace")}
-            onClick={() => setCreating((current) => !current)}
-          >
-            <FolderPlus size={15} />
-          </Button>
-        }
-      />
+      <PaneHeader title={t("word_addin.workspaces_title")} />
       <div className="min-h-0 flex-1 overflow-y-auto">
-        {creating ? (
-          <form
-            className="space-y-2 border-b border-dls-border px-3 py-3"
-            onSubmit={(event) => {
-              event.preventDefault();
-              if (!submitDisabled) createWorkspace.mutate();
-            }}
-          >
-            <div className="text-xs font-medium">{t("word_addin.new_workspace")}</div>
-            <Input
-              autoFocus
-              value={name}
-              placeholder={t("word_addin.workspace_name")}
-              onChange={(event) => {
-                const next = event.target.value;
-                setName(next);
-                if (!folderTouched) setFolderPath(suggestWorkspaceFolder(items, next));
-              }}
-            />
-            <Input
-              value={folderPath}
-              placeholder={t("word_addin.workspace_folder")}
-              onChange={(event) => {
-                setFolderTouched(true);
-                setFolderPath(event.target.value);
-              }}
-            />
-            <div className="flex justify-end gap-2 pt-1">
-              <Button type="button" variant="ghost" size="sm" onClick={() => setCreating(false)}>
-                {t("word_addin.cancel")}
-              </Button>
-              <Button type="submit" size="sm" disabled={submitDisabled}>
-                {createWorkspace.isPending ? t("word_addin.creating") : t("word_addin.create")}
-              </Button>
-            </div>
-          </form>
+        {fileFolder && !existingForFile ? (
+          <div className="border-b border-dls-border bg-dls-hover/40 px-3 py-3">
+            <p className="text-xs text-dls-secondary">{t("word_addin.file_folder_hint")}</p>
+            <p className="mt-1 truncate text-[11px] text-dls-secondary/80" title={fileFolder}>
+              {fileFolder}
+            </p>
+            <Button
+              type="button"
+              size="sm"
+              className="mt-2 w-full"
+              disabled={createInFolder.isPending}
+              onClick={() => createInFolder.mutate(fileFolder)}
+            >
+              <FolderPlus size={14} />
+              {createInFolder.isPending
+                ? t("word_addin.creating")
+                : t("word_addin.create_in_file_folder", { folder: baseName(fileFolder) })}
+            </Button>
+          </div>
         ) : null}
         {workspaces.isLoading ? (
           <PaneNotice message={t("word_addin.loading")} />
