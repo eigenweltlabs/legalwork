@@ -18,8 +18,11 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { app, BrowserWindow, dialog, ipcMain, nativeImage, nativeTheme, session, shell, systemPreferences } from "electron";
+import { app, BrowserWindow, desktopCapturer, dialog, ipcMain, nativeImage, nativeTheme, session, shell, systemPreferences } from "electron";
 import { configureFakeMediaForTests, installMediaPermissionHandlers } from "./media-permissions.mjs";
+import { appendLoopbackFeatureFlags, disableLoopbackAudio, enableLoopbackAudio } from "./audio/loopback.mjs";
+import { CallOverlay } from "./audio/call-overlay.mjs";
+import { RecorderService } from "./audio/recorder-service.mjs";
 import { registerMigrationIpc } from "./migration.mjs";
 import { createRuntimeManager } from "./runtime.mjs";
 import { registerUpdaterIpc } from "./updater.mjs";
@@ -331,6 +334,9 @@ if (extraLaunchArgs) {
   }
 }
 configureFakeMediaForTests(app, envFlagEnabled("LEGALWORK_ELECTRON_FAKE_MEDIA"));
+// System-audio loopback (Recorder tab) needs Chromium feature flags on
+// macOS/Linux before app-ready; Windows WASAPI loopback works out of the box.
+appendLoopbackFeatureFlags(app);
 // Hosted cloud removed: the desktop shell seeds an empty Den base URL so the
 // bootstrap config never points at a remote control plane. Set a self-hosted
 // Den URL here (and VITE_DEN_BASE_URL at build time) to opt cloud back in.
@@ -403,6 +409,25 @@ const workspaceStore = createWorkspaceStore({
   defaultDenBaseUrl: DEFAULT_DEN_BASE_URL,
   defaultRequireSignin: DEFAULT_DESKTOP_REQUIRE_SIGNIN,
   forceRequireSignin: FORCE_DESKTOP_REQUIRE_SIGNIN,
+});
+
+// ── Local audio recording + transcription (Recorder tab) ──────────────────
+/** @type {RecorderService | null} */
+let recorderServiceInstance = null;
+function recorderService() {
+  if (!recorderServiceInstance) {
+    recorderServiceInstance = new RecorderService({ userDataDir: app.getPath("userData") });
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      recorderServiceInstance.subscribe(mainWindow.webContents);
+    }
+  }
+  return recorderServiceInstance;
+}
+
+const callOverlay = new CallOverlay({
+  getMainWindow: () => mainWindow,
+  onCreated: (window) => recorderService().subscribe(window.webContents),
+  onVisibilityChange: (visible) => recorderService().broadcast({ type: "overlay-visibility", visible }),
 });
 
 function normalizePlatform(value) {
@@ -1459,6 +1484,63 @@ const desktopCommandHandlers = {
   "setWindowDecorations": async (event, ...args) => {
       return undefined;
   },
+  "audioRecorderBootstrap": async (event, ...args) => {
+      return recorderService().bootstrap();
+  },
+  "audioModelDownload": async (event, ...args) => {
+      return recorderService().downloadModel(String(args[0] ?? ""));
+  },
+  "audioModelDownloadCancel": async (event, ...args) => {
+      return recorderService().cancelModelDownload(String(args[0] ?? ""));
+  },
+  "audioModelDelete": async (event, ...args) => {
+      return recorderService().deleteModel(String(args[0] ?? ""));
+  },
+  "audioTranscriberStart": async (event, ...args) => {
+      const input = args[0] ?? {};
+      return recorderService().startTranscriber({
+        modelId: String(input.modelId ?? ""),
+        language: typeof input.language === "string" ? input.language : "auto",
+      });
+  },
+  "audioTranscriberStop": async (event, ...args) => {
+      return recorderService().stopTranscriber();
+  },
+  "audioRecordingStart": async (event, ...args) => {
+      return recorderService().startRecording(args[0] ?? {});
+  },
+  "audioRecordingStop": async (event, ...args) => {
+      return recorderService().stopRecording(String(args[0] ?? ""));
+  },
+  "audioRecordingCancel": async (event, ...args) => {
+      return recorderService().cancelRecording(String(args[0] ?? ""));
+  },
+  "audioRecordingsList": async (event, ...args) => {
+      return recorderService().listRecordings();
+  },
+  "audioRecordingGet": async (event, ...args) => {
+      return recorderService().getRecording(String(args[0] ?? ""));
+  },
+  "audioRecordingDelete": async (event, ...args) => {
+      return recorderService().deleteRecording(String(args[0] ?? ""));
+  },
+  "audioRecordingSaveToWorkspace": async (event, ...args) => {
+      return recorderService().saveToWorkspace(String(args[0] ?? ""), String(args[1] ?? ""));
+  },
+  "audioLoopbackEnable": async (event, ...args) => {
+      enableLoopbackAudio(session, desktopCapturer);
+      return undefined;
+  },
+  "audioLoopbackDisable": async (event, ...args) => {
+      disableLoopbackAudio(session);
+      return undefined;
+  },
+  "audioOverlaySetVisible": async (event, ...args) => {
+      return callOverlay.setVisible(Boolean(args[0]));
+  },
+  "audioOverlayGetVisible": async (event, ...args) => {
+      return { visible: callOverlay.isVisible() };
+  },
   "__openPath": async (event, ...args) => {
       const target = String(args[0] ?? "").trim();
       if (!target) return "Path is required.";
@@ -1651,6 +1733,9 @@ async function createMainWindow() {
     },
   });
   applicationMenu.applyVisibility(mainWindow);
+  if (recorderServiceInstance) {
+    recorderServiceInstance.subscribe(mainWindow.webContents);
+  }
 
   if (isDevMode) {
     mainWindow.on("page-title-updated", (event) => {
@@ -1804,6 +1889,43 @@ ipcMain.handle("legalwork:terminal:kill", (event, terminalId) => {
 
 browserPanel.registerIpc(ipcMain);
 
+// ── Recorder streaming channels ────────────────────────────────────────────
+// High-frequency payloads use fire-and-forget send() instead of the typed
+// invoke bridge: 16 kHz mono Float32 PCM for live transcription and
+// MediaRecorder chunks for the audio file on disk.
+ipcMain.on("legalwork:audio:pcm", (_event, streamId, buffer) => {
+  if (typeof streamId !== "string" || !(buffer instanceof ArrayBuffer)) return;
+  recorderService().feedPcm(streamId, buffer);
+});
+ipcMain.on("legalwork:audio:media-chunk", (_event, recordingId, chunk) => {
+  if (typeof recordingId !== "string" || !(chunk instanceof ArrayBuffer)) return;
+  recorderService().appendMediaChunk(recordingId, chunk);
+});
+// Overlay ↔ main-window relays. The overlay window has no session client of
+// its own; questions go to the main window's AI and answers stream back.
+ipcMain.on("legalwork:audio:overlay-ask", (_event, askId, question) => {
+  recorderService().broadcast({
+    type: "overlay-ask",
+    askId: String(askId ?? ""),
+    question: String(question ?? ""),
+  });
+});
+ipcMain.on("legalwork:audio:overlay-suggest", (_event, askId) => {
+  recorderService().broadcast({ type: "overlay-suggest", askId: String(askId ?? "") });
+});
+ipcMain.on("legalwork:audio:ask-answer", (_event, askId, text, done, error) => {
+  recorderService().broadcast({
+    type: "ask-answer",
+    askId: String(askId ?? ""),
+    text: String(text ?? ""),
+    done: Boolean(done),
+    error: typeof error === "string" && error ? error : null,
+  });
+});
+ipcMain.on("legalwork:audio:overlay-hide", () => {
+  void callOverlay.setVisible(false);
+});
+
 registerMigrationIpc({ app, ipcMain });
 const { ensureAutoUpdater } = registerUpdaterIpc({ app, ipcMain, getMainWindow: () => mainWindow });
 
@@ -1815,6 +1937,8 @@ if (!app.requestSingleInstanceLock()) {
     event.preventDefault();
     if (runtimeDisposeInProgress) return;
     showShutdownScreen();
+    recorderServiceInstance?.dispose();
+    callOverlay.destroy();
     void Promise.all([disposeRuntimeBeforeQuit(), uiControlServer.stop()]).finally(() => app.quit());
   });
 

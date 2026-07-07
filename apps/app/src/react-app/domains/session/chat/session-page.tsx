@@ -100,7 +100,8 @@ export type SessionPageSidebarProps = {
   onShowLearnings?: () => void;
   onShowWorkflows?: () => void;
   onShowExtensions?: () => void;
-  activeNav?: "learnings" | "workflows" | "extensions" | null;
+  onShowRecorder?: () => void;
+  activeNav?: "learnings" | "workflows" | "extensions" | "recorder" | null;
   workspaceSessionGroups: WorkspaceSessionGroup[];
   selectedWorkspaceId: string;
   selectedSessionId: string | null;
@@ -896,6 +897,7 @@ export function SessionPage(props: SessionPageProps) {
           onShowLearnings={props.sidebar.onShowLearnings}
           onShowWorkflows={props.sidebar.onShowWorkflows}
           onShowExtensions={props.sidebar.onShowExtensions}
+          onShowRecorder={props.sidebar.onShowRecorder}
           activeNav={props.sidebar.activeNav}
           onReorderWorkspaces={props.sidebar.onReorderWorkspaces}
           onStartResize={startLeftSidebarResize}

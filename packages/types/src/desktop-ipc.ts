@@ -13,6 +13,16 @@
  * tighten them instead of widening call sites.
  */
 import type { WorkspaceWire } from "./workspace.js";
+import type {
+  AudioModelState,
+  AudioRecorderBootstrap,
+  AudioRecordingDetail,
+  AudioRecordingMeta,
+  AudioRecordingStartInput,
+  AudioSaveToWorkspaceResult,
+  AudioTranscribeLanguage,
+  AudioTranscriberStatus,
+} from "./audio.js";
 
 // ---------------------------------------------------------------------------
 // Payload shapes (moved from apps/app/src/app/lib/desktop-types.ts, which
@@ -544,6 +554,32 @@ export type DesktopCommandMap = {
   resetOpencodeCache: { args: []; result: CacheResetResult };
   opencodeMcpAuth: { args: [action: string, name: string]; result: ExecResult };
   setWindowDecorations: { args: [decorated: boolean]; result: unknown };
+
+  // Local audio recording + transcription (Recorder tab)
+  audioRecorderBootstrap: { args: []; result: AudioRecorderBootstrap };
+  audioModelDownload: { args: [modelId: string]; result: AudioModelState[] };
+  audioModelDownloadCancel: { args: [modelId: string]; result: AudioModelState[] };
+  audioModelDelete: { args: [modelId: string]; result: AudioModelState[] };
+  audioTranscriberStart: {
+    args: [input: { modelId: string; language: AudioTranscribeLanguage }];
+    result: AudioTranscriberStatus;
+  };
+  audioTranscriberStop: { args: []; result: AudioTranscriberStatus };
+  audioRecordingStart: { args: [input: AudioRecordingStartInput]; result: AudioRecordingMeta };
+  audioRecordingStop: { args: [recordingId: string]; result: AudioRecordingMeta };
+  audioRecordingCancel: { args: [recordingId: string]; result: unknown };
+  audioRecordingsList: { args: []; result: AudioRecordingMeta[] };
+  audioRecordingGet: { args: [recordingId: string]; result: AudioRecordingDetail | null };
+  audioRecordingDelete: { args: [recordingId: string]; result: AudioRecordingMeta[] };
+  audioRecordingSaveToWorkspace: {
+    args: [recordingId: string, workspacePath: string];
+    result: AudioSaveToWorkspaceResult;
+  };
+  /** Toggle system-audio loopback routing for getDisplayMedia (recorder capture). */
+  audioLoopbackEnable: { args: []; result: unknown };
+  audioLoopbackDisable: { args: []; result: unknown };
+  audioOverlaySetVisible: { args: [visible: boolean]; result: { visible: boolean } };
+  audioOverlayGetVisible: { args: []; result: { visible: boolean } };
 
   // Window / OS utilities (dunder commands)
   __openPath: { args: [target: string]; result: unknown };

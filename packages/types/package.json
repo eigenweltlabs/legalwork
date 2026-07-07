@@ -33,6 +33,11 @@
       "types": "./src/desktop-ipc.ts",
       "development": "./src/desktop-ipc.ts",
       "default": "./src/desktop-ipc.ts"
+    },
+    "./audio": {
+      "types": "./src/audio.ts",
+      "development": "./src/audio.ts",
+      "default": "./src/audio.ts"
     }
   },
   "files": [

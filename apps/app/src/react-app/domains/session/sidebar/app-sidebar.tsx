@@ -8,6 +8,7 @@ import {
   ChevronRight,
   FolderPlus,
   Loader2,
+  Mic,
   PenLine,
   Puzzle,
   Workflow,
@@ -459,8 +460,9 @@ export type AppSidebarProps = {
   onShowLearnings?: () => void;
   onShowWorkflows?: () => void;
   onShowExtensions?: () => void;
+  onShowRecorder?: () => void;
   /** Which main-pane nav tab is currently shown (shades it like hover). */
-  activeNav?: "learnings" | "workflows" | "extensions" | null;
+  activeNav?: "learnings" | "workflows" | "extensions" | "recorder" | null;
   onReorderWorkspaces?: (workspaceIds: string[]) => void;
   onStartResize?: React.PointerEventHandler<HTMLButtonElement>;
 };
@@ -680,6 +682,16 @@ export function AppSidebar(props: AppSidebarProps) {
             >
               <Puzzle className="size-[18px]" strokeWidth={1.5} />
               <span>Integrations</span>
+            </SidebarMenuButton>
+          </SidebarMenuItem>
+          <SidebarMenuItem>
+            <SidebarMenuButton
+              className="gap-4 text-sidebar-foreground/80 [&_svg]:size-[18px]"
+              isActive={props.activeNav === "recorder"}
+              onClick={() => props.onShowRecorder?.()}
+            >
+              <Mic className="size-[18px]" strokeWidth={1.5} />
+              <span>{t("recorder.nav_label")}</span>
             </SidebarMenuButton>
           </SidebarMenuItem>
         </SidebarMenu>

@@ -139,6 +139,12 @@ declare global {
         onPanelOpened?: (callback: () => void) => () => void;
         onPanelClosed?: (callback: () => void) => () => void;
       };
+      audio?: {
+        sendPcm?: (streamId: string, buffer: ArrayBuffer) => void;
+        sendMediaChunk?: (recordingId: string, chunk: ArrayBuffer) => void;
+        sendAskAnswer?: (askId: string, text: string, done: boolean, error?: string | null) => void;
+        onEvent?: (callback: (event: import("@legalwork/types/audio").AudioRecorderEvent) => void) => () => void;
+      };
       terminal?: {
         create?: (options: { cwd: string; cols: number; rows: number }) => Promise<{ terminalId: string }>;
         write?: (terminalId: string, data: string) => Promise<void>;
@@ -467,6 +473,23 @@ const {
   resetOpencodeCache,
   opencodeMcpAuth,
   setWindowDecorations,
+  audioRecorderBootstrap,
+  audioModelDownload,
+  audioModelDownloadCancel,
+  audioModelDelete,
+  audioTranscriberStart,
+  audioTranscriberStop,
+  audioRecordingStart,
+  audioRecordingStop,
+  audioRecordingCancel,
+  audioRecordingsList,
+  audioRecordingGet,
+  audioRecordingDelete,
+  audioRecordingSaveToWorkspace,
+  audioLoopbackEnable,
+  audioLoopbackDisable,
+  audioOverlaySetVisible,
+  audioOverlayGetVisible,
 } = desktopBridge;
 
 export {
@@ -524,4 +547,21 @@ export {
   resetOpencodeCache,
   opencodeMcpAuth,
   setWindowDecorations,
+  audioRecorderBootstrap,
+  audioModelDownload,
+  audioModelDownloadCancel,
+  audioModelDelete,
+  audioTranscriberStart,
+  audioTranscriberStop,
+  audioRecordingStart,
+  audioRecordingStop,
+  audioRecordingCancel,
+  audioRecordingsList,
+  audioRecordingGet,
+  audioRecordingDelete,
+  audioRecordingSaveToWorkspace,
+  audioLoopbackEnable,
+  audioLoopbackDisable,
+  audioOverlaySetVisible,
+  audioOverlayGetVisible,
 };

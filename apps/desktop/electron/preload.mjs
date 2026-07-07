@@ -140,6 +140,28 @@ contextBridge.exposeInMainWorld("__LEGALWORK_ELECTRON__", {
       return () => ipcRenderer.removeListener("legalwork:browser:panel-closed", handler);
     },
   },
+  audio: {
+    /** Stream 16 kHz mono Float32 PCM to the local transcriber (fire-and-forget). */
+    sendPcm(streamId, buffer) {
+      ipcRenderer.send("legalwork:audio:pcm", streamId, buffer);
+    },
+    /** Append a MediaRecorder chunk to the recording file on disk. */
+    sendMediaChunk(recordingId, chunk) {
+      ipcRenderer.send("legalwork:audio:media-chunk", recordingId, chunk);
+    },
+    /** Stream an AI answer back to the call overlay. */
+    sendAskAnswer(askId, text, done, error) {
+      ipcRenderer.send("legalwork:audio:ask-answer", askId, text, done, error ?? null);
+    },
+    /** Subscribe to recorder events (transcript, model downloads, overlay asks). */
+    onEvent(callback) {
+      const handler = (_event, payload) => callback(payload);
+      ipcRenderer.on("legalwork:audio:event", handler);
+      return () => {
+        ipcRenderer.removeListener("legalwork:audio:event", handler);
+      };
+    },
+  },
   terminal: {
     create(options) { return ipcRenderer.invoke("legalwork:terminal:create", options); },
     write(terminalId, data) { return ipcRenderer.invoke("legalwork:terminal:write", terminalId, data); },

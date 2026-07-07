@@ -8,6 +8,12 @@ import {
 } from "react";
 import { useLocation, useNavigate, useParams } from "react-router-dom";
 import { LearningsPane } from "./learnings-route";
+import { RecorderPane } from "../domains/recorder/recorder-pane";
+import {
+  RECORDER_TRANSCRIPT_EVENT,
+  registerRecorderCopilotContext,
+  useRecorderStore,
+} from "../domains/recorder/recorder-store";
 import { toast } from "@/components/ui/sonner";
 import type {
   AgentPartInput,
@@ -296,20 +302,30 @@ export function SessionRoute() {
   // same mechanism as Learnings. Mutually exclusive — only one main pane at a time.
   const [showWorkflows, setShowWorkflows] = useState(false);
   const [showExtensions, setShowExtensions] = useState(false);
+  const [showRecorder, setShowRecorder] = useState(false);
   const showLearningsPane = useCallback(() => {
     setShowLearnings(true);
     setShowWorkflows(false);
     setShowExtensions(false);
+    setShowRecorder(false);
   }, []);
   const showWorkflowsPane = useCallback(() => {
     setShowWorkflows(true);
     setShowLearnings(false);
     setShowExtensions(false);
+    setShowRecorder(false);
   }, []);
   const showExtensionsPane = useCallback(() => {
     setShowExtensions(true);
     setShowLearnings(false);
     setShowWorkflows(false);
+    setShowRecorder(false);
+  }, []);
+  const showRecorderPane = useCallback(() => {
+    setShowRecorder(true);
+    setShowLearnings(false);
+    setShowWorkflows(false);
+    setShowExtensions(false);
   }, []);
   const platform = usePlatform();
   const { config: shellConfig } = useShellConfig();
@@ -533,6 +549,21 @@ export function SessionRoute() {
   }, [errorsByWorkspaceId, workspaceConnectionOverrides, workspaces]);
 
   const mcpConnectedCount = useMcpConnectedCount(opencodeClient, selectedWorkspaceRoot);
+
+  // Recorder: subscribe to recorder events app-wide (the call overlay asks
+  // must work even when the Recorder pane is closed) and keep the copilot
+  // pointed at the active workspace's OpenCode client.
+  useEffect(() => {
+    void useRecorderStore.getState().init();
+  }, []);
+  useEffect(() => {
+    registerRecorderCopilotContext({
+      getClient: () => opencodeClient,
+      getDirectory: () => selectedWorkspaceRoot || null,
+    });
+    return () => registerRecorderCopilotContext(null);
+  }, [opencodeClient, selectedWorkspaceRoot]);
+
   const providerListQuery = useProviderListQuery({
     client: opencodeClient,
     baseUrl: opencodeBaseUrl,
@@ -1545,6 +1576,19 @@ export function SessionRoute() {
           <SettingsSurface embedded singleView initialPath="extensions" workspaceId={selectedWorkspaceId} />
         ) : showLearnings ? (
           <LearningsPane />
+        ) : showRecorder ? (
+          <RecorderPane
+            workspacePath={selectedWorkspaceRoot ?? null}
+            onInsertTranscript={(text) => {
+              // The composer's listener lives in SessionSurface, which is
+              // unmounted while this pane is the main view — swap back to the
+              // session first, then dispatch once it has remounted.
+              setShowRecorder(false);
+              window.setTimeout(() => {
+                window.dispatchEvent(new CustomEvent(RECORDER_TRANSCRIPT_EVENT, { detail: { text } }));
+              }, 350);
+            }}
+          />
         ) : undefined
       }
       settingsSlot={
@@ -1570,7 +1614,8 @@ export function SessionRoute() {
         onShowLearnings: showLearningsPane,
         onShowWorkflows: showWorkflowsPane,
         onShowExtensions: showExtensionsPane,
-        activeNav: showWorkflows ? "workflows" : showExtensions ? "extensions" : showLearnings ? "learnings" : null,
+        onShowRecorder: showRecorderPane,
+        activeNav: showWorkflows ? "workflows" : showExtensions ? "extensions" : showLearnings ? "learnings" : showRecorder ? "recorder" : null,
         workspaceSessionGroups,
         selectedWorkspaceId,
         selectedSessionId,
@@ -1631,6 +1676,7 @@ export function SessionRoute() {
           setShowLearnings(false);
           setShowWorkflows(false);
           setShowExtensions(false);
+          setShowRecorder(false);
           setLegacySelectedWorkspaceId(workspaceId);
           writeActiveWorkspaceId(workspaceId || null);
           writeLastSessionFor(workspaceId, sessionId);

@@ -20,7 +20,7 @@
     "check:electron": "node ./scripts/check-electron-bridge.mjs",
     "typecheck:electron": "pnpm --dir ../server exec tsc -p ../desktop/tsconfig.electron.json --noEmit",
     "prepare:sidecar": "node ./scripts/prepare-sidecar.mjs",
-    "test": "node --test electron/runtime.test.mjs electron/updater.test.mjs electron/remote-workspace.test.mjs electron/workspace-store.test.mjs electron/office-addin-cert.test.mjs electron/office-addin-cert-web.test.mjs electron/office-addin-platform.test.mjs",
+    "test": "node --test electron/runtime.test.mjs electron/updater.test.mjs electron/remote-workspace.test.mjs electron/workspace-store.test.mjs electron/office-addin-cert.test.mjs electron/office-addin-cert-web.test.mjs electron/office-addin-platform.test.mjs electron/audio-recorder.test.mjs",
     "office:sideload": "node ./scripts/office-addin-sideload.mjs"
   },
   "dependencies": {
@@ -35,6 +35,7 @@
     "minimatch": "^10.0.1",
     "node-pty": "npm:@lydell/node-pty@1.2.0-beta.12",
     "reflect-metadata": "^0.2.2",
+    "sherpa-onnx-node": "1.13.3",
     "yaml": "^2.6.1",
     "zod": "^4.3.6"
   },
