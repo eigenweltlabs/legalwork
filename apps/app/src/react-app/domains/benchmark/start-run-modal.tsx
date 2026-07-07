@@ -1,7 +1,8 @@
 /** @jsxImportSource react */
-import { useEffect, useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   Dialog,
   DialogContent,
@@ -16,6 +17,9 @@ import type { ProviderListItem } from "../../../app/types";
 import { SettingsNotice } from "../settings/settings-section";
 import { buildModelOptions, defaultJudgeOption, ModelSelectStep } from "./model-select";
 import { useBenchmarkStore } from "./store";
+
+/** Evaluations (tasks × models) above which a run runs long enough locally to warrant a heads-up. */
+const LARGE_RUN_THRESHOLD = 25;
 
 export type StartRunModalProps = {
   open: boolean;
@@ -36,9 +40,17 @@ export function StartRunModal(props: StartRunModalProps) {
   const resetDraft = useBenchmarkStore((state) => state.resetDraft);
   const createRun = useBenchmarkStore((state) => state.createRun);
 
+  const [acknowledged, setAcknowledged] = useState(false);
+
   useEffect(() => {
-    if (props.open) resetDraft();
+    if (props.open) {
+      resetDraft();
+      setAcknowledged(false);
+    }
   }, [props.open, resetDraft]);
+
+  const evaluations = selectedTaskIds.length * Math.max(draft.models.length, 1);
+  const isLargeRun = evaluations >= LARGE_RUN_THRESHOLD;
 
   // Judge defaults to deepseek-v4-flash (or closest available) once models load.
   const modelOptions = useMemo(
@@ -86,8 +98,20 @@ export function StartRunModal(props: StartRunModalProps) {
           />
 
           <div className="text-[12px] text-muted-foreground">
-            {selectedTaskIds.length * Math.max(draft.models.length, 1)} evaluations
+            {t("benchmark.evaluations", { count: evaluations })}
           </div>
+
+          {isLargeRun ? (
+            <SettingsNotice tone="warning">
+              <div className="flex flex-col gap-2">
+                <span>{t("benchmark.large_run_warning", { count: evaluations })}</span>
+                <label className="flex items-center gap-2 font-medium text-foreground">
+                  <Checkbox checked={acknowledged} onCheckedChange={(value) => setAcknowledged(value === true)} />
+                  {t("benchmark.large_run_ack")}
+                </label>
+              </div>
+            </SettingsNotice>
+          ) : null}
 
           {createError ? (
             <SettingsNotice tone="error">
@@ -99,7 +123,7 @@ export function StartRunModal(props: StartRunModalProps) {
         <DialogFooter>
           <Button
             onClick={() => void start()}
-            disabled={creating || !selectedTaskIds.length || !draft.models.length}
+            disabled={creating || !selectedTaskIds.length || !draft.models.length || (isLargeRun && !acknowledged)}
           >
             {creating ? t("benchmark.starting") : t("benchmark.start_run")}
           </Button>
