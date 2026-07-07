@@ -156,7 +156,7 @@ const de: Record<string, string> = {
     "Noch keine Benchmark-Läufe. Erstelle einen, um deine verbundenen Modelle an juristischen Aufgaben zu vergleichen.",
   "benchmark.evaluations": "{count} Bewertungen",
   "benchmark.large_run_ack": "Mir ist bewusst, dass dies lokal läuft und eine Weile dauern kann.",
-  "benchmark.large_run_warning": "Dies führt {count} Bewertungen auf deinem Gerät aus – das kann lange dauern und viele Ressourcen verbrauchen. Du kannst den Lauf jederzeit abbrechen.",
+  "benchmark.large_run_warning": "Dies führt {count} Bewertungen auf deinem Gerät aus. Das kann lange dauern und viele Ressourcen verbrauchen. Du kannst den Lauf jederzeit abbrechen.",
   "benchmark.filter_vertical": "Rechtsgebiet",
   "benchmark.filter_work_type": "Aufgabentyp",
   "benchmark.judge_hint": "Das Judge-Modell bewertet jedes Arbeitsergebnis anhand der Pass/Fail-Kriterien der Aufgabe.",
