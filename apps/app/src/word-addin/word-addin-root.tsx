@@ -8,7 +8,6 @@ import { LoadingOverlay } from "@/react-app/shell/loading-overlay";
 import { SessionRoute } from "@/react-app/shell/session-route";
 import { ShellConfigProvider } from "@/react-app/shell/shell-config";
 import { t } from "@/i18n";
-import { WordActionsDock } from "./word-actions-dock";
 import { paneIconButtonClass, WordSessionsScreen, WordWorkspacesScreen } from "./word-screens";
 import { WordToolRelayHost } from "./word-tool-relay";
 import { WorkspaceAutoOpen } from "./workspace-auto-open";
@@ -36,7 +35,6 @@ function WordChatScreen() {
       >
         <ChevronLeft size={16} />
       </button>
-      <WordActionsDock />
     </div>
   );
 }
