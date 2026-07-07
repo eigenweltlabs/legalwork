@@ -1,8 +1,7 @@
 /** @jsxImportSource react */
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo } from "react";
 
 import { Button } from "@/components/ui/button";
-import { Checkbox } from "@/components/ui/checkbox";
 import {
   Dialog,
   DialogContent,
@@ -40,13 +39,8 @@ export function StartRunModal(props: StartRunModalProps) {
   const resetDraft = useBenchmarkStore((state) => state.resetDraft);
   const createRun = useBenchmarkStore((state) => state.createRun);
 
-  const [acknowledged, setAcknowledged] = useState(false);
-
   useEffect(() => {
-    if (props.open) {
-      resetDraft();
-      setAcknowledged(false);
-    }
+    if (props.open) resetDraft();
   }, [props.open, resetDraft]);
 
   const evaluations = selectedTaskIds.length * Math.max(draft.models.length, 1);
@@ -101,18 +95,6 @@ export function StartRunModal(props: StartRunModalProps) {
             {t("benchmark.evaluations", { count: evaluations })}
           </div>
 
-          {isLargeRun ? (
-            <SettingsNotice tone="warning">
-              <div className="flex flex-col gap-2">
-                <span>{t("benchmark.large_run_warning", { count: evaluations })}</span>
-                <label className="flex items-center gap-2 font-medium text-foreground">
-                  <Checkbox checked={acknowledged} onCheckedChange={(value) => setAcknowledged(value === true)} />
-                  {t("benchmark.large_run_ack")}
-                </label>
-              </div>
-            </SettingsNotice>
-          ) : null}
-
           {createError ? (
             <SettingsNotice tone="error">
               {t("benchmark.error_create_run", { message: createError })}
@@ -120,10 +102,15 @@ export function StartRunModal(props: StartRunModalProps) {
           ) : null}
         </div>
 
-        <DialogFooter>
+        <DialogFooter className="items-center">
+          {isLargeRun ? (
+            <span className="mr-auto max-w-md text-left text-[11px] leading-snug text-amber-11">
+              {t("benchmark.large_run_warning", { count: evaluations })}
+            </span>
+          ) : null}
           <Button
             onClick={() => void start()}
-            disabled={creating || !selectedTaskIds.length || !draft.models.length || (isLargeRun && !acknowledged)}
+            disabled={creating || !selectedTaskIds.length || !draft.models.length}
           >
             {creating ? t("benchmark.starting") : t("benchmark.start_run")}
           </Button>
