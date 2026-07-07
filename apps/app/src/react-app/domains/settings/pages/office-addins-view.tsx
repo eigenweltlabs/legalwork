@@ -1,7 +1,7 @@
 /** @jsxImportSource react */
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { CheckCircle2, Info, TriangleAlert, XCircle } from "lucide-react";
+import { ArrowUpRight, CheckCircle2, Info, TriangleAlert, XCircle } from "lucide-react";
 
 import type { OfficeAddinAppId, OfficeAddinStatus } from "@legalwork/types/desktop-ipc";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
@@ -118,6 +118,17 @@ export function OfficeAddinsView() {
     }
   };
 
+  const openApp = async (app: OfficeAddinAppId, label: string) => {
+    try {
+      const result = await desktopBridge.officeAddinOpenApp(app);
+      if (!result.ok) {
+        toast.warning(result.error ?? t("office_addins.open_app_failed", { app: label }));
+      }
+    } catch (error) {
+      toast.warning(error instanceof Error ? error.message : String(error));
+    }
+  };
+
   const busy = installMutation.isPending || uninstallMutation.isPending;
   const status = statusQuery.data;
 
@@ -174,16 +185,22 @@ export function OfficeAddinsView() {
             </LayoutSectionItemDescription>
             <LayoutSectionItemHeaderActions>
               {app.enabled ? (
-                <Button
-                  variant="outline"
-                  size="sm"
-                  disabled={busy || !status?.supported}
-                  onClick={() => requestUninstall(app.id)}
-                >
-                  {busyApp === app.id && uninstallMutation.isPending
-                    ? t("office_addins.uninstalling")
-                    : t("office_addins.uninstall")}
-                </Button>
+                <>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    disabled={busy || !status?.supported}
+                    onClick={() => requestUninstall(app.id)}
+                  >
+                    {busyApp === app.id && uninstallMutation.isPending
+                      ? t("office_addins.uninstalling")
+                      : t("office_addins.uninstall")}
+                  </Button>
+                  <Button size="sm" onClick={() => void openApp(app.id, app.label)}>
+                    {t("office_addins.open_app", { app: app.label })}
+                    <ArrowUpRight />
+                  </Button>
+                </>
               ) : (
                 <Button
                   size="sm"

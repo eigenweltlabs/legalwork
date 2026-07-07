@@ -1963,6 +1963,7 @@ export function createRuntimeManager({ app, desktopRoot, listLocalWorkspacePaths
     officeAddinStatus: () => officeAddinManager.status(),
     officeAddinInstall: (appId) => officeAddinManager.install(appId),
     officeAddinUninstall: (appId) => officeAddinManager.uninstall(appId),
+    officeAddinOpenApp: (appId) => officeAddinManager.openApp(appId),
     orchestratorStatus,
     orchestratorWorkspaceActivate,
     orchestratorInstanceDispose,

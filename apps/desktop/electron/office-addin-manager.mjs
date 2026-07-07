@@ -380,5 +380,25 @@ export function createOfficeAddinManager({ app, locateServerDist, locatePaneDist
     return { ok: true, steps, status: status() };
   }
 
-  return { readState, serverConfig, status, install, uninstall };
+  /** @param {"word" | "excel" | "powerpoint"} appId */
+  function openApp(appId) {
+    const target = officeAppById(appId);
+    if (!target) {
+      return { ok: false, error: `Unknown Office app: ${appId}` };
+    }
+    if (!target.installed) {
+      return { ok: false, error: `${target.label} is not installed on this machine.` };
+    }
+    // The sandbox container id doubles as the app's bundle id on macOS.
+    const result = spawnSync("open", ["-b", target.container], { encoding: "utf8", timeout: 30_000 });
+    if (result.status !== 0) {
+      const detail =
+        (result.stderr || result.stdout || "").trim() || `Could not open ${target.label}.`;
+      logError(`open app failed: ${detail}`);
+      return { ok: false, error: detail };
+    }
+    return { ok: true };
+  }
+
+  return { readState, serverConfig, status, install, uninstall, openApp };
 }

@@ -341,6 +341,11 @@ export type OfficeAddinActionResult = {
   status: OfficeAddinStatus;
 };
 
+export type OfficeAddinOpenAppResult = {
+  ok: boolean;
+  error?: string;
+};
+
 // ---------------------------------------------------------------------------
 // The command map
 // ---------------------------------------------------------------------------
@@ -450,6 +455,7 @@ export type DesktopCommandMap = {
   officeAddinStatus: { args: []; result: OfficeAddinStatus };
   officeAddinInstall: { args: [app: OfficeAddinAppId]; result: OfficeAddinActionResult };
   officeAddinUninstall: { args: [app: OfficeAddinAppId]; result: OfficeAddinActionResult };
+  officeAddinOpenApp: { args: [app: OfficeAddinAppId]; result: OfficeAddinOpenAppResult };
 
   // Dialogs
   pickDirectory: {

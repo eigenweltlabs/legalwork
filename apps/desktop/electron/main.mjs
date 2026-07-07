@@ -1144,6 +1144,9 @@ const desktopCommandHandlers = {
   "officeAddinUninstall": async (event, ...args) => {
       return runtimeManager.officeAddinUninstall(args[0]);
   },
+  "officeAddinOpenApp": async (event, ...args) => {
+      return runtimeManager.officeAddinOpenApp(args[0]);
+  },
   "pickDirectory": async (event, ...args) => {
       const options = args[0] ?? {};
       /** @type {import("electron").OpenDialogOptions["properties"]} */
