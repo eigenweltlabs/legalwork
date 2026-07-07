@@ -211,7 +211,7 @@ jobs:
             $DRAFT_FLAG $PRERELEASE_FLAG
 
   verify-release:
-    name: Verify Release Versions
+    name: Verify Release Tag
     needs: resolve-release
     # SignPath trusted builds require every job leading to the Windows signing
     # request to use GitHub-hosted runners.
@@ -335,11 +335,16 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      # After the frozen-lockfile install so the 0.0.0 placeholder specifiers
-      # still match pnpm-lock.yaml; electron-builder, the updater feed, and
-      # app.getVersion() all pick the stamped version up from package.json.
+      # After the frozen-lockfile install; electron-builder, the updater feed,
+      # and app.getVersion() all pick the stamped version up from package.json.
+      # The lockfile-only resync keeps pnpm-lock.yaml consistent with the
+      # stamped orchestrator dependency pins (workspace links, no re-resolution)
+      # so later pnpm invocations in this job don't reject the workspace.
       - name: Stamp release version from tag
-        run: node scripts/release/apply-version.mjs --tag "$RELEASE_TAG"
+        shell: bash
+        run: |
+          node scripts/release/apply-version.mjs --tag "$RELEASE_TAG"
+          pnpm install --lockfile-only --no-frozen-lockfile
 
       - name: Write Electron notary API key (macOS)
         if: matrix.os_type == 'macos' && env.MACOS_NOTARIZE == 'true'
@@ -621,7 +626,10 @@ jobs:
         run: pnpm install --frozen-lockfile --prefer-offline
 
       - name: Stamp release version from tag
-        run: node scripts/release/apply-version.mjs --tag "$RELEASE_TAG"
+        shell: bash
+        run: |
+          node scripts/release/apply-version.mjs --tag "$RELEASE_TAG"
+          pnpm install --lockfile-only --no-frozen-lockfile
 
       - name: Resolve sidecar versions
         id: sidecar-versions
@@ -737,7 +745,10 @@ jobs:
         run: pnpm install --frozen-lockfile --prefer-offline
 
       - name: Stamp release version from tag
-        run: node scripts/release/apply-version.mjs --tag "$RELEASE_TAG"
+        shell: bash
+        run: |
+          node scripts/release/apply-version.mjs --tag "$RELEASE_TAG"
+          pnpm install --lockfile-only --no-frozen-lockfile
 
       - name: Resolve package versions
         id: package-versions

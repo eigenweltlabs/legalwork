@@ -119,7 +119,12 @@ jobs:
         shell: bash
         env:
           ALPHA_VERSION: ${{ steps.alpha-version.outputs.alpha_version }}
-        run: node scripts/release/apply-version.mjs --version "$ALPHA_VERSION"
+        # Lockfile-only resync keeps pnpm-lock.yaml consistent with the stamped
+        # orchestrator dependency pins so later pnpm invocations don't reject
+        # the workspace (installs stay explicit + frozen before this step).
+        run: |
+          node scripts/release/apply-version.mjs --version "$ALPHA_VERSION"
+          pnpm install --lockfile-only --no-frozen-lockfile
 
       - name: Write notary API key
         if: env.MACOS_NOTARIZE == 'true'
