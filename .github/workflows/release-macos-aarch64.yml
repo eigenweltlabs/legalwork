@@ -132,9 +132,6 @@ jobs:
               "- Electron builds use the attached latest-mac.yml updater feed."
           fi
 
-          SIGNPATH_RELEASE_NOTE='*Windows Build free code signing provided by [SignPath.io](https://about.signpath.io), certificate by [SignPath Foundation](https://signpath.org)*'
-          printf -v RELEASE_BODY '%s\n\n%s' "$RELEASE_BODY" "$SIGNPATH_RELEASE_NOTE"
-
           draft="${INPUT_DRAFT:-}"
           if [ -z "$draft" ]; then
             if [ "${GITHUB_EVENT_NAME}" = "push" ]; then
