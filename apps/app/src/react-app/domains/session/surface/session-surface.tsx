@@ -71,6 +71,8 @@ import {
 } from "./composer-state-store";
 import { MessageList } from "@/components/chat/message-list";
 import { MessageListProvider, type DispatchAction } from "@/components/chat/message-list-provider";
+import { FusionColumnsPanel } from "@/react-app/domains/session/fusion/fusion-columns";
+import { useFusionStore } from "@/react-app/domains/session/fusion/fusion-store";
 import { OpenTargetProvider, type OpenTargetOptions } from "@/lib/target-provider";
 import type { ThreadStatus } from "@/lib/messages";
 import {
@@ -441,6 +443,11 @@ export function SessionSurface(props: SessionSurfaceProps) {
   // session B when the route swaps the same surface component to another
   // session.
   const queuedDrafts = useComposerStateStore((state) => getComposerQueuedDrafts(state, props.sessionId));
+  const fusionEnabled = useFusionStore((state) => Boolean(state.enabledSessionIds[props.sessionId]));
+  const setFusionEnabled = useFusionStore((state) => state.setEnabled);
+  const handleToggleFusion = useCallback(() => {
+    setFusionEnabled(props.sessionId, !useFusionStore.getState().enabledSessionIds[props.sessionId]);
+  }, [props.sessionId, setFusionEnabled]);
   const appendQueuedDraft = useComposerStateStore((state) => state.appendQueuedDraft);
   const removeQueuedDraftFromStore = useComposerStateStore((state) => state.removeQueuedDraft);
   const clearQueuedDrafts = useComposerStateStore((state) => state.clearQueuedDrafts);
@@ -1338,6 +1345,7 @@ export function SessionSurface(props: SessionSurfaceProps) {
                 </OpenTargetProvider>
               </DevProfiler>
             )}
+            <FusionColumnsPanel sessionId={props.sessionId} />
           </div>
         </div>
         <SessionScrollOverlay
@@ -1411,6 +1419,8 @@ export function SessionSurface(props: SessionSurfaceProps) {
         onRemovePastedText={handleRemovePastedText}
         isRemoteWorkspace={props.isRemoteWorkspace}
           isSandboxWorkspace={props.isSandboxWorkspace}
+          fusionEnabled={fusionEnabled}
+          onToggleFusion={handleToggleFusion}
           onUploadInboxFiles={props.onUploadInboxFiles ?? handleUploadInboxFiles}
           compactTopSpacing={Boolean(props.freeModelSelected || props.activeQuestion || (props.todos ?? []).some((todo) => todo.content.trim()) || props.activePermission || queuedMessages.length > 0)}
           topAccessory={

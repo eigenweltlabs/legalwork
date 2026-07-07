@@ -98,6 +98,8 @@ import {
 import { firstLineLocalFileParts } from "@/react-app/domains/session/sync/prompt-file-parts";
 import { useSessionInteractions } from "@/react-app/domains/session/sync/use-session-interactions";
 import { useModelBehavior } from "@/react-app/domains/session/surface/use-model-behavior";
+import { runFusionTurn } from "@/react-app/domains/session/fusion/fusion-controller";
+import { isFusionEnabled } from "@/react-app/domains/session/fusion/fusion-store";
 import { useModelPicker } from "@/react-app/domains/session/modals/use-model-picker";
 import { appMentionInstruction } from "@/react-app/domains/session/surface/composer/app-mentions";
 import { CreateWorkspaceModal } from "@/react-app/domains/workspace/create-workspace-modal";
@@ -790,6 +792,28 @@ export function SessionRoute() {
           cacheKey: targetSessionId,
           runtimeKey: environmentRuntimeKey,
         });
+
+        if (isFusionEnabled(targetSessionId)) {
+          const candidateModels = (local.prefs.fusionModels ?? []).slice(0, 3);
+          const fusionModel = local.prefs.fusionModel;
+          if (candidateModels.length === 0 || !fusionModel) {
+            toast.error(t("fusion.not_configured"));
+          } else {
+            await runFusionTurn({
+              client: opencodeClient,
+              directory: selectedWorkspaceRoot || undefined,
+              mainSessionId: targetSessionId,
+              parts,
+              userText: text,
+              candidateModels,
+              fusionModel,
+              agent: selectedAgent ?? undefined,
+              baseSystem: envSystemContext ?? undefined,
+            });
+            return;
+          }
+        }
+
         const result = await opencodeClient.session.promptAsync({
           sessionID: targetSessionId,
           parts,

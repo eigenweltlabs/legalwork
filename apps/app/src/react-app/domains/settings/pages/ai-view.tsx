@@ -45,6 +45,8 @@ export type AiSettingsViewProps = {
   /** Set of local provider IDs that were imported from cloud. */
   cloudProviderIds?: Set<string>;
   cloudProvidersView?: ReactNode;
+  /** Fusion mode configuration section (candidate models + fusion model). */
+  fusionView?: ReactNode;
 };
 
 function providerSourceLabel(source?: ConnectedProvider["source"]) {
@@ -171,6 +173,8 @@ export function AiSettingsView(props: AiSettingsViewProps) {
       </LayoutSection>
 
       {props.cloudProvidersView}
+
+      {props.fusionView}
 
     </LayoutStack>
   );

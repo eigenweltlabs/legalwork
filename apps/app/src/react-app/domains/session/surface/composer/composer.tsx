@@ -1,7 +1,7 @@
 /** @jsxImportSource react */
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type { Agent } from "@opencode-ai/sdk/v2/client";
-import { AppWindowMac, ArrowUp, ChevronDown, ChevronRight, FileText, ListPlus, Paperclip, Plug, Settings, Square, Terminal, X, Zap } from "lucide-react";
+import { AppWindowMac, ArrowUp, ChevronDown, ChevronRight, FileText, ListPlus, Paperclip, Plug, Settings, Sparkles, Square, Terminal, X, Zap } from "lucide-react";
 import fuzzysort from "fuzzysort";
 import { toast } from "@/components/ui/sonner";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuShortcut, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
@@ -99,6 +99,9 @@ type ComposerProps = {
   draftScopeKey?: string;
   compactTopSpacing?: boolean;
   topAccessory?: ReactNode;
+  /** Fusion mode: fan the prompt out to the configured candidate models and fuse their outputs. */
+  fusionEnabled?: boolean;
+  onToggleFusion?: () => void;
 };
 
 const FLUSH_PROMPT_EVENT = "legalwork:flushPromptDraft";
@@ -1048,7 +1051,9 @@ export function ReactSessionComposer(props: ComposerProps) {
       <div className="max-w-[800px] mx-auto">
         {/* Main composer panel */}
         <div
-          className={`relative overflow-visible rounded-[24px] border border-dls-border bg-dls-surface transition-all ${panelRoundedClass}`}
+          className={`relative overflow-visible rounded-[24px] border bg-dls-surface transition-all ${
+            props.fusionEnabled ? "fusion-rainbow-border border-transparent" : "border-dls-border"
+          } ${panelRoundedClass}`}
         >
           {props.topAccessory ? <div className="relative z-10">{props.topAccessory}</div> : null}
 
@@ -1445,6 +1450,24 @@ export function ReactSessionComposer(props: ComposerProps) {
                   onChange={props.onModelVariantChange}
                   disabled={props.busy}
                 />
+
+                {props.onToggleFusion ? (
+                  <button
+                    type="button"
+                    onClick={props.onToggleFusion}
+                    disabled={props.busy}
+                    aria-pressed={props.fusionEnabled}
+                    className={`inline-flex h-9 max-h-9 items-center gap-1.5 rounded-md px-2.5 text-sm transition-colors disabled:pointer-events-none disabled:opacity-60 ${
+                      props.fusionEnabled
+                        ? "fusion-rainbow-text font-medium"
+                        : "text-gray-10 hover:bg-gray-3 hover:text-gray-12"
+                    }`}
+                    title={props.fusionEnabled ? t("fusion.toggle_off") : t("fusion.toggle_on")}
+                  >
+                    <Sparkles size={14} />
+                    <span>{t("fusion.toggle_label")}</span>
+                  </button>
+                ) : null}
               </div>
 
               {/*

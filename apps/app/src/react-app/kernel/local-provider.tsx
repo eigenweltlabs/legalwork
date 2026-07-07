@@ -50,6 +50,13 @@ export type LocalPreferences = {
    * on in onboarding or Settings -> Privacy. Never includes message content.
    */
   analyticsEnabled: boolean;
+  /**
+   * Fusion mode: up to three candidate models that answer every prompt in
+   * parallel, and the fusion model that synthesizes their outputs into the
+   * final answer.
+   */
+  fusionModels: ModelRef[];
+  fusionModel: ModelRef | null;
 };
 
 type LocalContextValue = {
@@ -76,6 +83,8 @@ const INITIAL_PREFS: LocalPreferences = {
   featureFlags: { microsandboxCreateSandbox: true },
   hasCompletedOnboarding: false,
   analyticsEnabled: false,
+  fusionModels: [],
+  fusionModel: null,
 };
 
 function readPersisted<T>(key: string, fallback: T): T {
