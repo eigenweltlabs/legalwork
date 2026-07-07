@@ -2,8 +2,10 @@
 /**
  * release:ship
  *
- * Pushes the current tag + dev branch to origin, then prints the
- * GitHub Actions workflow URL. Optionally tails the workflow run.
+ * Pushes the release tag to origin (dev itself is never pushed — the tag
+ * points at a commit already on origin/dev, and CI stamps the version from
+ * the tag), then prints the GitHub Actions workflow URL. Optionally tails
+ * the workflow run.
  *
  * Flags:
  *   --dry-run   Print what would happen without pushing.
@@ -65,15 +67,26 @@ if (!/^v\d+\.\d+\.\d+/.test(tag)) {
 
 success(`Found tag: ${tag}`);
 
-// ── Step 2: Push tag ────────────────────────────────────────────────
+// ── Step 2: Verify the tag is on origin/dev ────────────────────────
+heading("Verifying tag against origin/dev");
+run("git fetch origin dev", { readOnly: true });
+const onDev = run(`git merge-base --is-ancestor ${tag} origin/dev && echo yes`, {
+  readOnly: true,
+  allowFail: true,
+});
+if (onDev !== "yes") {
+  fail(
+    `Tag ${tag} does not point at a commit on origin/dev.\n` +
+    "  Releases build from dev history — merge your work via a PR, then re-run\n" +
+    "  'pnpm release:prepare' on the updated dev."
+  );
+}
+success(`${tag} is on origin/dev`);
+
+// ── Step 3: Push tag ────────────────────────────────────────────────
 heading("Pushing tag to origin");
 run(`git push origin ${tag}`);
 success(`Pushed ${tag}`);
-
-// ── Step 3: Push dev ────────────────────────────────────────────────
-heading("Pushing dev to origin");
-run("git push origin dev");
-success("Pushed dev");
 
 // ── Step 4: Print workflow URL ──────────────────────────────────────
 heading("GitHub Actions");

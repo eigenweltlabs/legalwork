@@ -1,7 +1,7 @@
 {
   "name": "@legalwork/desktop",
   "private": true,
-  "version": "0.0.13",
+  "version": "0.0.0",
   "description": "LegalWork desktop shell",
   "author": {
     "name": "LegalWork",
@@ -45,5 +45,5 @@
     "electron-devtools-installer": "^4.0.0"
   },
   "packageManager": "pnpm@10.27.0",
-  "opencodeRouterVersion": "0.0.13"
+  "opencodeRouterVersion": "0.0.0"
 }

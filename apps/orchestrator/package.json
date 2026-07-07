@@ -1,6 +1,6 @@
 {
   "name": "legalwork-orchestrator",
-  "version": "0.0.13",
+  "version": "0.0.0",
   "description": "LegalWork host orchestrator for opencode + LegalWork server + opencode-router",
   "private": true,
   "type": "module",
@@ -47,8 +47,8 @@
     "@opencode-ai/sdk": "^1.17.3",
     "@opentui/core": "0.1.77",
     "@opentui/solid": "0.1.77",
-    "opencode-router": "0.0.13",
-    "legalwork-server": "0.0.13",
+    "opencode-router": "0.0.0",
+    "legalwork-server": "0.0.0",
     "solid-js": "1.9.9"
   },
   "devDependencies": {

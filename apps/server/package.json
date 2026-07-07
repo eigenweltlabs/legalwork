@@ -1,6 +1,6 @@
 {
   "name": "legalwork-server",
-  "version": "0.0.13",
+  "version": "0.0.0",
   "description": "Filesystem-backed API for LegalWork remote clients",
   "type": "module",
   "bin": {
