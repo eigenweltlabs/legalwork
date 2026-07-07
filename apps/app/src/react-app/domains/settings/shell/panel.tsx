@@ -15,6 +15,7 @@ export function SettingsContent(props: SettingsContentProps) {
 
 type SettingsPanelProps = {
   children: React.ReactNode;
+  className?: string;
 };
 
 export function SettingsPanel(props: SettingsPanelProps) {
@@ -22,6 +23,7 @@ export function SettingsPanel(props: SettingsPanelProps) {
     <div
       className={cn(
         "flex flex-col gap-3 md:flex-row md:items-center md:justify-between lg:max-w-3xl w-full",
+        props.className,
       )}
     >
       {props.children}

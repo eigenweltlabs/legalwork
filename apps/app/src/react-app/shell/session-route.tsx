@@ -1578,7 +1578,7 @@ export function SessionRoute() {
         ) : showExtensions ? (
           <SettingsSurface embedded singleView initialPath="extensions" workspaceId={selectedWorkspaceId} />
         ) : showLearnings ? (
-          <LearningsPane />
+          <LearningsPane workspaceId={selectedWorkspaceId} />
         ) : undefined
       }
       settingsSlot={

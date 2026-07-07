@@ -9,6 +9,7 @@ import {
   Container,
   FileStack,
   FolderLock,
+  Gauge,
   KeyRound,
   Languages,
   Layout,
@@ -60,6 +61,8 @@ export function getSettingsTabIcon(tab: SettingsTab) {
   switch (tab) {
     case "ai":
       return Zap;
+    case "benchmark":
+      return Gauge;
     case "preferences":
       return ShieldCheck;
     case "shell":
@@ -103,6 +106,8 @@ export function getSettingsTabLabel(tab: SettingsTab) {
   switch (tab) {
     case "ai":
       return "AI Providers";
+    case "benchmark":
+      return t("settings.tab_benchmark");
     case "preferences":
       return "Privacy";
     case "shell":
@@ -148,6 +153,8 @@ export function getSettingsTabDescription(tab: SettingsTab) {
   switch (tab) {
     case "ai":
       return "Connect services that provide AI models";
+    case "benchmark":
+      return t("settings.tab_description_benchmark");
     case "preferences":
       return "Usage analytics and data sharing";
     case "shell":
@@ -199,6 +206,8 @@ export function getWorkspaceSettingsTabs(): SettingsTab[] {
 export function getGlobalSettingsTabs(developerMode: boolean): SettingsTab[] {
   // Appearance/Language and Recovery are hidden (theme is fixed to Light).
   // "preferences" is the Privacy tab (usage-analytics opt-in).
+  // "benchmark" is not listed here: it lives on the Learnings page in the main
+  // app shell (embedded singleView surface), not in the settings sidebar.
   const tabs: SettingsTab[] = ["ai", "safety", "shell", "environment", "preferences", "updates"];
   // Office add-ins install into local desktop apps, so the tab is desktop-only.
   // Placed right after the first tab.
@@ -344,9 +353,11 @@ export function SettingsSidebar(props: SettingsSidebarProps) {
 }
 
 export function SettingsPage(props: SettingsPageProps) {
+  // Wide tabs (benchmark tables) share a larger cap so the heading stays aligned with the content.
+  const wide = props.activeTab === "benchmark";
   return (
     <SettingsContent>
-      <SettingsPanel>
+      <SettingsPanel className={wide ? "lg:max-w-6xl" : undefined}>
         <SettingsPanelHeading>
           <SettingsPanelTitle>{getSettingsTabLabel(props.activeTab)}</SettingsPanelTitle>
           <SettingsPanelDescription>{getSettingsTabDescription(props.activeTab)}</SettingsPanelDescription>

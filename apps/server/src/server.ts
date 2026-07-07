@@ -61,6 +61,9 @@ import { serve, type ServeResult } from "./serve-node.js";
 import { handleWordAddinRequest, loadWordAddinTls, WORD_ADDIN_PATH_PREFIX } from "./word-addin.js";
 import { OfficeToolRelay } from "./office-tools.js";
 import { registerOfficeToolRoutes } from "./routes/office-tools.js";
+import { BenchmarkRunner, type BenchmarkOpencodeClient } from "./benchmarks/runner.js";
+import { openBenchmarkStore } from "./benchmarks/store.js";
+import { registerBenchmarkRoutes } from "./routes/benchmarks.js";
 import { registerCoreRoutes } from "./routes/core.js";
 import { registerFileRoutes } from "./routes/files.js";
 import { registerOperationRoutes } from "./routes/operations.js";
@@ -694,7 +697,14 @@ export async function startServer(config: ServerConfig): Promise<StartedServer> 
     watcherHandle = startReloadWatchers({ config, reloadEvents, logger });
   };
   const officeTools = new OfficeToolRelay();
-  const routes = createRoutes(config, approvals, tokens, env, officeTools, restartReloadWatchers);
+  const benchmarkRunner = new BenchmarkRunner({
+    config,
+    // The SDK client is structurally compatible with the runner's reduced
+    // client surface, but the generics make TS unable to prove it.
+    createClient: (workspace, directory) =>
+      createDirectoryOpencodeClient(config, workspace, directory) as unknown as BenchmarkOpencodeClient,
+  });
+  const routes = createRoutes(config, approvals, tokens, env, officeTools, restartReloadWatchers, benchmarkRunner);
 
   const serverOptions: {
     hostname: string;
@@ -898,6 +908,7 @@ export async function startServer(config: ServerConfig): Promise<StartedServer> 
     ...server,
     wordAddinPort: wordAddinServer?.port ?? null,
     stop: async () => {
+      benchmarkRunner.dispose();
       watcherHandle.close();
       reloadBaselineRefreshers.delete(config);
       await wordAddinServer?.stop();
@@ -943,6 +954,21 @@ function createWorkspaceOpencodeClient(config: ServerConfig, workspace: Workspac
     baseUrl: connection.baseUrl?.trim(),
     ...(directory ? { directory } : {}),
     ...(directoryFetch ? { fetch: directoryFetch } : {}),
+    ...(connection.authHeader ? { headers: { Authorization: connection.authHeader } } : {}),
+  });
+}
+
+/**
+ * Like createWorkspaceOpencodeClient, but pinned to an explicit directory
+ * (e.g. a benchmark scratch dir inside the workspace) so the directory header
+ * and per-call directory params agree.
+ */
+function createDirectoryOpencodeClient(config: ServerConfig, workspace: WorkspaceInfo, directory: string) {
+  const connection = resolveWorkspaceOpencodeConnection(config, workspace);
+  return createOpencodeClient({
+    baseUrl: connection.baseUrl?.trim(),
+    directory,
+    fetch: createOpencodeDirectoryFetch(directory),
     ...(connection.authHeader ? { headers: { Authorization: connection.authHeader } } : {}),
   });
 }
@@ -1381,6 +1407,7 @@ function createRoutes(
   env: EnvService,
   officeTools: OfficeToolRelay,
   onWorkspacesChanged: () => void,
+  benchmarkRunner: BenchmarkRunner,
 ): Route[] {
   const routes: Route[] = [];
   registerCoreRoutes({
@@ -1431,6 +1458,21 @@ function createRoutes(
     resolveWorkspace,
     createWorkspaceOpencodeClient,
     unwrapOpencodeResult,
+  });
+
+  registerBenchmarkRoutes({
+    routes,
+    config,
+    jsonResponse,
+    readJsonBody,
+    parseOptionalBoolean,
+    parseOptionalPositiveInteger,
+    parseOptionalNonNegativeInteger,
+    ensureWritable,
+    requireClientScope,
+    resolveWorkspace,
+    getStore: () => openBenchmarkStore(config),
+    runner: benchmarkRunner,
   });
 
   addRoute(routes, "GET", "/workspace/:id/config", "client", async (ctx) => {
