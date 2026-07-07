@@ -274,7 +274,7 @@ ${versionOverrideHosts}
       <bt:Images>
         <bt:Image id="LegalWork.Icon16" DefaultValue="${base}/word-addin/favicon-16x16.png"/>
         <bt:Image id="LegalWork.Icon32" DefaultValue="${base}/word-addin/favicon-32x32.png"/>
-        <bt:Image id="LegalWork.Icon80" DefaultValue="${base}/word-addin/apple-touch-icon.png"/>
+        <bt:Image id="LegalWork.Icon80" DefaultValue="${base}/word-addin/favicon-80x80.png"/>
       </bt:Images>
       <bt:Urls>
         <bt:Url id="LegalWork.Taskpane.Url" DefaultValue="${base}/word-addin/taskpane.html"/>
@@ -326,15 +326,25 @@ async function serveStaticFile(distPath: string, relativePath: string): Promise<
     return null;
   }
 
-  // Vite emits content-hashed filenames under assets/; everything else
-  // (HTML entry, icons) must never be cached — Word's webview cache is
-  // sticky and `no-cache` without validators still let stale panes survive.
-  const immutable = decoded.startsWith("assets/");
+  // Cache-Control policy, by asset kind:
+  //  - assets/*: Vite content-hashes these, so they can cache forever.
+  //  - *.html (the task pane entry): never cache — Word's webview cache is
+  //    sticky and `no-cache` without validators still lets stale panes survive.
+  //  - everything else, notably the ribbon icons: MUST be cacheable. Office
+  //    desktop (Windows) refuses to render add-in command icons served with
+  //    no-store/no-cache, so the ribbon logo came up blank. The icons are not
+  //    content-hashed, so use a modest TTL rather than immutable.
+  //    See https://learn.microsoft.com/office/dev/add-ins/design/add-in-icons
+  const cacheControl = decoded.startsWith("assets/")
+    ? "public, max-age=31536000, immutable"
+    : decoded.endsWith(".html")
+      ? "no-store"
+      : "public, max-age=86400";
   return new Response(new Uint8Array(body), {
     status: 200,
     headers: {
       "Content-Type": contentTypeFor(target),
-      "Cache-Control": immutable ? "public, max-age=31536000, immutable" : "no-store",
+      "Cache-Control": cacheControl,
     },
   });
 }
