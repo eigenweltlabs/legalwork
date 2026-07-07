@@ -18,8 +18,8 @@ import { SettingsNotice } from "../settings/settings-section";
 import { buildModelOptions, defaultJudgeOption, ModelSelectStep } from "./model-select";
 import { useBenchmarkStore } from "./store";
 
-/** Evaluations (tasks × models) above which a run runs long enough locally to warrant a heads-up. */
-const LARGE_RUN_THRESHOLD = 25;
+/** Evaluations (tasks × models) at/above which a run runs long enough locally to warrant a heads-up. */
+const LARGE_RUN_THRESHOLD = 100;
 
 export type StartRunModalProps = {
   open: boolean;
