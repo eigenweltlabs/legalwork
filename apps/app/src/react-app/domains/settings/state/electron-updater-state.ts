@@ -1,21 +1,17 @@
 /** @jsxImportSource react */
-import { useCallback, useEffect, useReducer, useRef, useState } from "react";
+import { useCallback, useEffect, useReducer, useRef } from "react";
 
 import { isAlphaUpdateAllowed, isUpdateAllowed } from "../../../../app/lib/version-gate";
 import type { ReleaseChannel } from "../../../../app/types";
 import { isElectronRuntime, safeStringify } from "../../../../app/utils";
 import { useUpdateCheckRequestStore } from "./update-check-request";
+import {
+  UPDATE_AUTO_CHECK_STORAGE_KEY,
+  useUpdateStatusStore,
+  type SettingsUpdateStatus,
+} from "./update-status-store";
 
-export type SettingsUpdateStatus = {
-  state: "idle" | "checking" | "available" | "downloading" | "ready" | "error";
-  lastCheckedAt?: number | null;
-  version?: string;
-  date?: string;
-  notes?: string;
-  totalBytes?: number | null;
-  downloadedBytes?: number;
-  message?: string;
-} | null;
+export type { SettingsUpdateStatus } from "./update-status-store";
 
 type ElectronUpdaterBridge = NonNullable<Window["__LEGALWORK_ELECTRON__"]>["updater"] & {
   onDownloadProgress?: (callback: (data: { transferred: number; total: number; percent: number; bytesPerSecond: number }) => void) => (() => void);
@@ -92,9 +88,65 @@ function updateProgress(event: unknown): { downloaded?: number; total?: number }
   };
 }
 
+function readAutoCheckEnabled(): boolean {
+  if (typeof window === "undefined") return false;
+  try {
+    const raw = window.localStorage.getItem(UPDATE_AUTO_CHECK_STORAGE_KEY);
+    return raw == null ? true : raw === "1";
+  } catch {
+    return true;
+  }
+}
+
+let backgroundUpdateCheckStarted = false;
+
+/**
+ * One-shot, silent startup check driven by the sidebar update badge, so an
+ * available update is surfaced without ever visiting the settings page.
+ * Uses the channel persisted in the Electron main process, never
+ * auto-downloads, and resets the status on failure instead of surfacing
+ * errors (the settings page runs its own, louder checks).
+ */
+export async function checkForUpdatesInBackground(): Promise<void> {
+  if (backgroundUpdateCheckStarted) return;
+  backgroundUpdateCheckStarted = true;
+  if (!isElectronRuntime() || !readAutoCheckEnabled()) return;
+  const bridge = electronUpdaterBridge();
+  if (!bridge?.check) return;
+  const store = useUpdateStatusStore.getState();
+  // The settings updater state is already mounted and checking (or has
+  // checked); don't race it.
+  if (store.status != null) return;
+  store.setStatus({ state: "checking" });
+  try {
+    const channel = bridge.getChannel ? (await bridge.getChannel()).channel : undefined;
+    const result = await bridge.check(channel);
+    if (result.reason) {
+      store.setStatus(null);
+      return;
+    }
+    const checkedChannel = result.channel ?? channel ?? "stable";
+    const availableAllowed = result.available && result.latestVersion
+      ? checkedChannel === "alpha"
+        ? await isAlphaUpdateAllowed(result.latestVersion)
+        : await isUpdateAllowed(result.latestVersion)
+      : result.available;
+    store.setStatus({
+      state: availableAllowed ? "available" : "idle",
+      lastCheckedAt: Date.now(),
+      version: result.latestVersion ?? undefined,
+      date: result.releaseDate ?? undefined,
+      notes: releaseNotesToText(result.releaseNotes),
+    });
+  } catch {
+    store.setStatus((current) => (current?.state === "checking" ? null : current));
+  }
+}
+
 export function useElectronUpdaterState(options: UseElectronUpdaterStateOptions) {
   const { releaseChannel, onReleaseChannelChange, updateAutoCheck, updateAutoDownload, desktopConfig, setError } = options;
-  const [updateStatus, setUpdateStatus] = useState<SettingsUpdateStatus>(null);
+  const updateStatus = useUpdateStatusStore((state) => state.status);
+  const setUpdateStatus = useUpdateStatusStore((state) => state.setStatus);
   const [envState, dispatchEnvState] = useReducer(electronUpdaterEnvReducer, {
     appVersion: null,
     updateEnv: null,
@@ -179,6 +231,12 @@ export function useElectronUpdaterState(options: UseElectronUpdaterStateOptions)
   }, [desktopConfig, releaseChannel, setError]);
 
   const checkForUpdates = useCallback(async (channelOverride?: ReleaseChannel) => {
+    // Never clobber an in-flight or completed download: the status is
+    // shared app-wide (sidebar badge), and mounting the settings page
+    // auto-checks. The downloaded binary stays valid regardless of what
+    // a re-check would report.
+    const current = useUpdateStatusStore.getState().status;
+    if (current?.state === "downloading" || current?.state === "ready") return;
     const activeReleaseChannel = channelOverride ?? releaseChannel;
     const bridge = electronUpdaterBridge();
     if (!bridge?.check) {
@@ -242,6 +300,10 @@ export function useElectronUpdaterState(options: UseElectronUpdaterStateOptions)
     const key = `${releaseChannel}:${appVersion ?? "unknown"}`;
     if (autoCheckKeyRef.current === key) return;
     autoCheckKeyRef.current = key;
+    // An update is already known to be available (e.g. found by the
+    // sidebar badge's background check); keep that result so Download is
+    // immediately actionable instead of flashing through "checking".
+    if (useUpdateStatusStore.getState().status?.state === "available") return;
     void checkForUpdates();
   }, [appVersion, checkForUpdates, releaseChannel, updateAutoCheck, updateEnv?.supported]);
 

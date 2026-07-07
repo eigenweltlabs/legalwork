@@ -78,6 +78,7 @@ import { Button } from "@/components/ui/button";
 
 import { SidebarContext, useSidebarContext } from "./app-sidebar-provider";
 import type { SidebarContextValue } from "./app-sidebar-provider";
+import { SidebarUpdateBadge } from "./sidebar-update-badge";
 import {
   MAX_SESSIONS_PREVIEW,
   buildSessionTreeState,
@@ -716,6 +717,7 @@ export function AppSidebar(props: AppSidebarProps) {
               </Reorder.Group>
             </m.div>
           </LazyMotion>
+          <SidebarUpdateBadge onOpenUpdatesSettings={() => navigate("/settings/updates")} />
           <SidebarFooter>
             <SidebarMenu>
               <SidebarMenuItem>
