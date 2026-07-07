@@ -125,7 +125,7 @@ export default {
   "benchmark.empty_runs": "No benchmark runs yet. Create one to compare your connected models on legal tasks.",
   "benchmark.error_create_run": "Could not start the benchmark: {message}",
   "benchmark.evaluations": "{count} evaluations",
-  "benchmark.large_run_warning": "This runs {count} evaluations on your machine. It can take a long time and use significant resources. You can abort the run at any time.",
+  "benchmark.large_run_warning": "{count} evaluations run locally and may take a while.",
   "benchmark.error_load_catalog": "Could not load the task catalog: {message}",
   "benchmark.error_load_runs": "Could not load benchmark runs: {message}",
   "benchmark.filter_vertical": "Practice area",
