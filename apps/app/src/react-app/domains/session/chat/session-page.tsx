@@ -285,8 +285,14 @@ export function SessionPage(props: SessionPageProps) {
   const { config: shellConfig } = useShellConfig();
   const sidebarOpen = useUiStateStore((state) => state.sidebarOpen);
   const setSidebarOpen = useUiStateStore((state) => state.setSidebarOpen);
+  // The side panel's open/close state is keyed per chat session. Top-level
+  // mainView pages (Learnings / Benchmark) have no selected session, so they key
+  // it on the synthetic LEARNINGS_PANEL_SESSION_ID instead. Without this the key
+  // is null and the panel can never open (regressed as "opens only on the 2nd
+  // click, and only after having visited a chat session first").
+  const panelStateSessionId = props.mainView ? LEARNINGS_PANEL_SESSION_ID : props.selectedSessionId;
   const sessionSidePanel = useUiStateStore((state) => (
-    props.selectedSessionId ? state.sidePanelState[props.selectedSessionId] ?? null : null
+    panelStateSessionId ? state.sidePanelState[panelStateSessionId] ?? null : null
   ));
   const voiceSidePanelOpen = useUiStateStore((state) => state.sidePanelState[GLOBAL_VOICE_SIDE_PANEL_KEY] === "voice");
   const setSidePanelState = useUiStateStore((state) => state.setSidePanelState);
@@ -354,8 +360,8 @@ export function SessionPage(props: SessionPageProps) {
   const setCurrentSidePanel = useCallback((panel: SidePanelItem | null) => {
     setSidePanelState(GLOBAL_VOICE_SIDE_PANEL_KEY, panel === "voice" ? "voice" : null);
     if (panel === "voice") return;
-    setSidePanelState(props.selectedSessionId, panel);
-  }, [props.selectedSessionId, setSidePanelState]);
+    setSidePanelState(panelStateSessionId, panel);
+  }, [panelStateSessionId, setSidePanelState]);
 
   const toggleCurrentSidePanel = useCallback((panel: SidePanelItem) => {
     if (panel === "voice") {
@@ -363,8 +369,8 @@ export function SessionPage(props: SessionPageProps) {
       return;
     }
     setSidePanelState(GLOBAL_VOICE_SIDE_PANEL_KEY, null);
-    toggleSidePanelState(props.selectedSessionId, panel);
-  }, [props.selectedSessionId, setSidePanelState, toggleSidePanelState]);
+    toggleSidePanelState(panelStateSessionId, panel);
+  }, [panelStateSessionId, setSidePanelState, toggleSidePanelState]);
 
   // When the agent calls a built-in browser tool, the main process opens
   // the WebContentsView and sends panel-opened; when hide_browser is called
