@@ -22,6 +22,7 @@ import { app, BrowserWindow, dialog, ipcMain, nativeImage, nativeTheme, session,
 import { configureFakeMediaForTests, installMediaPermissionHandlers } from "./media-permissions.mjs";
 import { registerMigrationIpc } from "./migration.mjs";
 import { createRuntimeManager } from "./runtime.mjs";
+import { collectSupportBundle } from "./support-bundle.mjs";
 import { registerUpdaterIpc } from "./updater.mjs";
 import {
   checkComputerUsePermissions,
@@ -51,9 +52,30 @@ const APP_IDENTIFIER =
   (isDevMode ? DEV_APP_IDENTIFIER : APP_BUNDLE_IDENTIFIER);
 const RELEASE_DOWNLOAD_BASE_URL = "https://github.com/eigenweltlabs/legalwork/releases/latest/download";
 const RELEASE_PAGE_URL = "https://github.com/eigenweltlabs/legalwork/releases/latest";
+// Collect the support-log bundle and reveal it next to the file manager so
+// the user can attach it to an email. Shared by the Help menu and the
+// `supportBundleCollect` IPC command (boot error screen). `runtimeManager` is
+// created later at module scope; the click/IPC always happens after startup,
+// so the late binding via closure is safe.
+function collectSupportLogsAndReveal() {
+  const bundlePath = collectSupportBundle({ app, runtimeManager });
+  shell.showItemInFolder(bundlePath);
+  return bundlePath;
+}
+
 const applicationMenu = createApplicationMenu({
   appName: APP_NAME,
   getWindow: () => createMainWindow(),
+  collectSupportLogs: () => {
+    try {
+      collectSupportLogsAndReveal();
+    } catch (error) {
+      dialog.showErrorBox(
+        "Collect Support Logs",
+        `Could not write the support bundle: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+  },
 });
 
 const uiControlServer = createUiControlServer({
@@ -1063,6 +1085,10 @@ const desktopCommandHandlers = {
   },
   "runtimeBootstrap": async (event, ...args) => {
       return ensureRuntimeBootstrap();
+  },
+  "supportBundleCollect": async (event, ...args) => {
+      const path = collectSupportLogsAndReveal();
+      return { path };
   },
   "runtimeStatus": async (event, ...args) => {
       return runtimeManager.runtimeStatus();
