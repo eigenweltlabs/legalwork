@@ -98,8 +98,8 @@ import {
 import { firstLineLocalFileParts } from "@/react-app/domains/session/sync/prompt-file-parts";
 import { useSessionInteractions } from "@/react-app/domains/session/sync/use-session-interactions";
 import { useModelBehavior } from "@/react-app/domains/session/surface/use-model-behavior";
-import { runFusionTurn } from "@/react-app/domains/session/fusion/fusion-controller";
-import { isFusionEnabled } from "@/react-app/domains/session/fusion/fusion-store";
+import { runFusionSend } from "@/react-app/domains/session/fusion/fusion-controller";
+import { getFusionSelectedModels, isFusionEnabled } from "@/react-app/domains/session/fusion/fusion-store";
 import { useModelPicker } from "@/react-app/domains/session/modals/use-model-picker";
 import { appMentionInstruction } from "@/react-app/domains/session/surface/composer/app-mentions";
 import { CreateWorkspaceModal } from "@/react-app/domains/workspace/create-workspace-modal";
@@ -794,21 +794,31 @@ export function SessionRoute() {
         });
 
         if (isFusionEnabled(targetSessionId)) {
-          const candidateModels = (local.prefs.fusionModels ?? []).slice(0, 3);
-          const fusionModel = local.prefs.fusionModel;
-          if (candidateModels.length === 0 || !fusionModel) {
+          const candidateModels = getFusionSelectedModels(targetSessionId);
+          if (candidateModels.length === 0) {
+            // No candidates picked for this chat: warn and fall through to a
+            // normal single-model send.
             toast.error(t("fusion.not_configured"));
           } else {
-            await runFusionTurn({
+            // Deliberately not awaited: the composer should clear as soon as
+            // the message is handed off, not when the whole fusion turn
+            // (routing + candidates + synthesis) finishes. Progress streams
+            // through the fusion store; failures surface as a session error.
+            void runFusionSend({
               client: opencodeClient,
               directory: selectedWorkspaceRoot || undefined,
               mainSessionId: targetSessionId,
               parts,
               userText: text,
               candidateModels,
-              fusionModel,
+              mainModel: local.prefs.defaultModel ?? undefined,
               agent: selectedAgent ?? undefined,
+              variant: modelVariantValue ?? undefined,
               baseSystem: envSystemContext ?? undefined,
+            }).catch((error: unknown) => {
+              const message = error instanceof Error ? error.message : String(error);
+              toast.error(t("fusion.turn_failed"), { description: message });
+              useSessionActivityStore.getState().setError(selectedWorkspaceId, targetSessionId, message);
             });
             return;
           }

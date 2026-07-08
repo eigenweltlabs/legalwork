@@ -764,9 +764,9 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
   const handleModelPickerLoadError = useCallback((error: unknown) => {
     toast.error(error instanceof Error ? error.message : t("app.unknown_error"));
   }, []);
-  // Which fusion slot (candidate 0-2 or the fusion model) the shared model
-  // picker modal is currently choosing for; null = picking the default model.
-  const [fusionPickerSlot, setFusionPickerSlot] = useState<number | "fusion" | null>(null);
+  // Which fusion default-candidate slot (0-2) the shared model picker modal
+  // is currently choosing for; null = picking the default model.
+  const [fusionPickerSlot, setFusionPickerSlot] = useState<number | null>(null);
   const modelPicker = useModelPicker({
     client: opencodeClient,
     baseUrl: opencodeBaseUrl,
@@ -1822,18 +1822,16 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
             fusionView={
               <FusionSettingsSection
                 fusionModels={local.prefs.fusionModels ?? []}
-                fusionModel={local.prefs.fusionModel ?? null}
                 onPickModel={(slot) => {
                   setFusionPickerSlot(slot);
                   modelPicker.setQuery("");
                   modelPicker.setOpen(true);
                 }}
                 onClearModel={(slot) => {
-                  local.setPrefs((prev) =>
-                    slot === "fusion"
-                      ? { ...prev, fusionModel: null }
-                      : { ...prev, fusionModels: (prev.fusionModels ?? []).filter((_, index) => index !== slot) },
-                  );
+                  local.setPrefs((prev) => ({
+                    ...prev,
+                    fusionModels: (prev.fusionModels ?? []).filter((_, index) => index !== slot),
+                  }));
                 }}
               />
             }
@@ -2167,16 +2165,12 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
         setQuery={modelPicker.setQuery}
         target="default"
         current={
-          (fusionPickerSlot === "fusion"
-            ? local.prefs.fusionModel
-            : fusionPickerSlot !== null
-              ? (local.prefs.fusionModels ?? [])[fusionPickerSlot]
-              : local.prefs.defaultModel) ?? { providerID: "", modelID: "" }
+          (fusionPickerSlot !== null
+            ? (local.prefs.fusionModels ?? [])[fusionPickerSlot]
+            : local.prefs.defaultModel) ?? { providerID: "", modelID: "" }
         }
         onSelect={(next: ModelRef) => {
-          if (fusionPickerSlot === "fusion") {
-            local.setPrefs((prev) => ({ ...prev, fusionModel: next }));
-          } else if (fusionPickerSlot !== null) {
+          if (fusionPickerSlot !== null) {
             local.setPrefs((prev) => {
               const models = [...(prev.fusionModels ?? [])];
               if (fusionPickerSlot < models.length) {

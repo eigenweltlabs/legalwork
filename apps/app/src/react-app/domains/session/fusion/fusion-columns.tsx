@@ -24,8 +24,8 @@ function CandidateColumn({ run }: { run: FusionCandidateRun }) {
   }, [run.reasoning, run.text]);
 
   return (
-    <div className="flex min-w-0 flex-col overflow-hidden rounded-2xl border border-dls-border bg-gray-2/40">
-      <div className="flex items-center gap-2 border-b border-dls-border px-3 py-2">
+    <div className="flex min-w-0 flex-col">
+      <div className="mb-1.5 flex items-center gap-1.5">
         {run.status === "running" || run.status === "pending" ? (
           <Loader2 size={12} className="shrink-0 animate-spin text-gray-10" />
         ) : run.status === "error" ? (
@@ -37,7 +37,9 @@ function CandidateColumn({ run }: { run: FusionCandidateRun }) {
           {resolveModelDisplayName(run.model.modelID)}
         </span>
       </div>
-      <div ref={scrollRef} className="max-h-56 min-h-16 overflow-y-auto px-3 py-2">
+      {/* data-scrollable: keep the transcript's autoscroll controller from
+          treating wheel gestures inside this nested scroller as browsing. */}
+      <div ref={scrollRef} data-scrollable className="max-h-56 overflow-y-auto">
         {run.error ? (
           <div className="text-xs whitespace-pre-wrap text-red-11">{run.error}</div>
         ) : (
@@ -86,7 +88,7 @@ export function FusionColumnsPanel({ sessionId }: { sessionId: string }) {
           </button>
         ) : null}
       </div>
-      <div className={`grid grid-cols-1 gap-2 ${columnsClass}`}>
+      <div className={`grid grid-cols-1 gap-x-6 gap-y-4 ${columnsClass}`}>
         {turn.runs.map((run, index) => (
           <CandidateColumn key={`${run.model.providerID}/${run.model.modelID}/${index}`} run={run} />
         ))}

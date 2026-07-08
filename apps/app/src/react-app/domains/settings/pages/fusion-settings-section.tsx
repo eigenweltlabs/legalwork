@@ -17,10 +17,9 @@ import {
 
 export type FusionSettingsSectionProps = {
   fusionModels: ModelRef[];
-  fusionModel: ModelRef | null;
-  /** Opens the model picker for candidate slot 0-2, or the fusion model when slot is "fusion". */
-  onPickModel: (slot: number | "fusion") => void;
-  onClearModel: (slot: number | "fusion") => void;
+  /** Opens the model picker for default candidate slot 0-2. */
+  onPickModel: (slot: number) => void;
+  onClearModel: (slot: number) => void;
 };
 
 function ModelSlotRow(props: {
@@ -77,13 +76,6 @@ export function FusionSettingsSection(props: FusionSettingsSectionProps) {
           onClear={() => props.onClearModel(slot)}
         />
       ))}
-
-      <ModelSlotRow
-        label={t("fusion.settings_fusion_model")}
-        model={props.fusionModel}
-        onPick={() => props.onPickModel("fusion")}
-        onClear={() => props.onClearModel("fusion")}
-      />
 
       <LayoutSectionItemFootnote>{t("fusion.settings_footnote")}</LayoutSectionItemFootnote>
     </LayoutSection>

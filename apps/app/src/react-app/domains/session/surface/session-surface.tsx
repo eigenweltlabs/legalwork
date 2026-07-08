@@ -444,10 +444,24 @@ export function SessionSurface(props: SessionSurfaceProps) {
   // session.
   const queuedDrafts = useComposerStateStore((state) => getComposerQueuedDrafts(state, props.sessionId));
   const fusionEnabled = useFusionStore((state) => Boolean(state.enabledSessionIds[props.sessionId]));
+  const fusionTurn = useFusionStore((state) => state.turns[props.sessionId]);
+  const fusionModels = useFusionStore((state) => state.selectedModelsBySessionId[props.sessionId]);
   const setFusionEnabled = useFusionStore((state) => state.setEnabled);
+  const setFusionModels = useFusionStore((state) => state.setSelectedModels);
+  const fusionDefaultModels = local.prefs.fusionModels;
   const handleToggleFusion = useCallback(() => {
-    setFusionEnabled(props.sessionId, !useFusionStore.getState().enabledSessionIds[props.sessionId]);
-  }, [props.sessionId, setFusionEnabled]);
+    const store = useFusionStore.getState();
+    const enabling = !store.enabledSessionIds[props.sessionId];
+    // First enable on a chat seeds the candidate picker from the settings defaults.
+    if (enabling && store.selectedModelsBySessionId[props.sessionId] === undefined) {
+      setFusionModels(props.sessionId, fusionDefaultModels ?? []);
+    }
+    setFusionEnabled(props.sessionId, enabling);
+  }, [fusionDefaultModels, props.sessionId, setFusionEnabled, setFusionModels]);
+  const handleFusionModelsChange = useCallback((models: ModelRef[]) => {
+    setFusionModels(props.sessionId, models);
+  }, [props.sessionId, setFusionModels]);
+  const fusionConfigured = (fusionModels?.length ?? 0) > 0;
   const appendQueuedDraft = useComposerStateStore((state) => state.appendQueuedDraft);
   const removeQueuedDraftFromStore = useComposerStateStore((state) => state.removeQueuedDraft);
   const clearQueuedDrafts = useComposerStateStore((state) => state.clearQueuedDrafts);
@@ -594,6 +608,13 @@ export function SessionSurface(props: SessionSurfaceProps) {
     () => deriveRenderedSessionMessages({ transcriptState, snapshot }),
     [snapshot, transcriptState],
   );
+  // First assistant message created after the fusion turn started = the fused
+  // answer; the columns panel renders directly above it in the transcript.
+  const fusionAnchorMessageId = useMemo(() => {
+    if (!fusionTurn) return null;
+    const baseline = new Set(fusionTurn.baselineMessageIds ?? []);
+    return renderedMessages.find((message) => message.role === "assistant" && !baseline.has(message.id))?.id ?? null;
+  }, [fusionTurn, renderedMessages]);
   const openTargets = useMemo(() => deriveOpenTargets(renderedMessages), [renderedMessages]);
   const openTargetsFingerprint = useMemo(
     () => openTargets.map((target) => `${target.kind}:${target.value}:${target.confidence}`).join("|"),
@@ -1303,6 +1324,7 @@ export function SessionSurface(props: SessionSurfaceProps) {
             ) : renderedMessages.length === 0 && effectiveActivityStatus !== "idle" ? (
               <div className="px-6 py-12">
                 <AssistantWaitingCard label={getSessionActivityStatusLabel(effectiveActivityStatus)} />
+                {fusionTurn ? <FusionColumnsPanel sessionId={props.sessionId} /> : null}
               </div>
             ) : renderedMessages.length === 0 && snapshot && snapshot.messages.length === 0 && error ? (
               <SessionErrorCard
@@ -1339,13 +1361,14 @@ export function SessionSurface(props: SessionSurfaceProps) {
                         messages={renderedMessages}
                         status={status}
                         retryStatus={liveStatus.type === "retry" ? liveStatus : null}
+                        interlude={fusionTurn ? <FusionColumnsPanel sessionId={props.sessionId} /> : null}
+                        interludeBeforeMessageId={fusionAnchorMessageId}
                       />
                     </MessageListProvider>
                   </EnvironmentVariableProvider>
                 </OpenTargetProvider>
               </DevProfiler>
             )}
-            <FusionColumnsPanel sessionId={props.sessionId} />
           </div>
         </div>
         <SessionScrollOverlay
@@ -1366,6 +1389,18 @@ export function SessionSurface(props: SessionSurfaceProps) {
             <span className="font-medium">No AI model connected.</span>
             <span className="text-amber-11/70">Add a provider to run tasks.</span>
           </button>
+        ) : null}
+        {fusionEnabled && !fusionConfigured ? (
+          <div className="mx-3 mb-2 flex w-[calc(100%-1.5rem)] flex-wrap items-center gap-2 rounded-lg border border-amber-7/40 bg-amber-2/30 px-3 py-2 text-xs text-amber-11">
+            <span className="font-medium">{t("fusion.banner_not_configured")}</span>
+            <button
+              type="button"
+              className="ml-auto shrink-0 rounded-full border border-amber-7/50 px-2.5 py-1 font-medium transition-colors hover:bg-amber-3/50"
+              onClick={() => props.onOpenSettingsSection?.("providers")}
+            >
+              {t("fusion.banner_open_settings")}
+            </button>
+          </div>
         ) : null}
         <DevProfiler id="SessionComposer">
         <ReactSessionComposer
@@ -1421,6 +1456,8 @@ export function SessionSurface(props: SessionSurfaceProps) {
           isSandboxWorkspace={props.isSandboxWorkspace}
           fusionEnabled={fusionEnabled}
           onToggleFusion={handleToggleFusion}
+          fusionModels={fusionModels ?? []}
+          onFusionModelsChange={handleFusionModelsChange}
           onUploadInboxFiles={props.onUploadInboxFiles ?? handleUploadInboxFiles}
           compactTopSpacing={Boolean(props.freeModelSelected || props.activeQuestion || (props.todos ?? []).some((todo) => todo.content.trim()) || props.activePermission || queuedMessages.length > 0)}
           topAccessory={

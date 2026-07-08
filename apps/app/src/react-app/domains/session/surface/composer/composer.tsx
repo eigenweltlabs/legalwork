@@ -11,6 +11,7 @@ import type { ComposerAttachment, McpServerEntry, McpStatusMap, ModelRef, SkillC
 import { formatBytes, isMacPlatform } from "@/app/utils";
 import { t } from "@/i18n";
 import { isLegalWorkExtensionEnabled, isLegalWorkExtensionHidden, LEGALWORK_EXTENSION_STATE_CHANGED } from "@/react-app/domains/settings/extension-state";
+import { FusionModelMultiSelect } from "@/components/fusion-model-multi-select";
 import { ModelBehaviorSelect } from "@/components/model-behavior-select";
 import { ModelSelect } from "@/components/model-select";
 import { LexicalPromptEditor, type LexicalPromptEditorHandle } from "./editor";
@@ -99,9 +100,12 @@ type ComposerProps = {
   draftScopeKey?: string;
   compactTopSpacing?: boolean;
   topAccessory?: ReactNode;
-  /** Fusion mode: fan the prompt out to the configured candidate models and fuse their outputs. */
+  /** Fusion mode: fan tasks out to the selected candidate models; the session model fuses their outputs. */
   fusionEnabled?: boolean;
   onToggleFusion?: () => void;
+  /** Candidate models selected for this chat (up to 3), shown in the fusion multi-select. */
+  fusionModels?: ModelRef[];
+  onFusionModelsChange?: (models: ModelRef[]) => void;
 };
 
 const FLUSH_PROMPT_EVENT = "legalwork:flushPromptDraft";
@@ -1467,6 +1471,14 @@ export function ReactSessionComposer(props: ComposerProps) {
                     <Sparkles size={14} />
                     <span>{t("fusion.toggle_label")}</span>
                   </button>
+                ) : null}
+
+                {props.fusionEnabled && props.onFusionModelsChange ? (
+                  <FusionModelMultiSelect
+                    selected={props.fusionModels ?? []}
+                    onChange={props.onFusionModelsChange}
+                    disabled={props.busy}
+                  />
                 ) : null}
               </div>
 

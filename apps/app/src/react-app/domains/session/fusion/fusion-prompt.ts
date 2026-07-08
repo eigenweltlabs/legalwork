@@ -16,6 +16,40 @@ export type FusionCandidateOutput = {
   text: string;
 };
 
+/**
+ * Structured-output schema for the fusion router pass: the main model
+ * decides whether the user's message is a substantive task (delegate to the
+ * fusion candidate subagents) or conversational (answer directly).
+ */
+export const FUSION_ROUTER_SCHEMA = {
+  type: "object",
+  properties: {
+    task: { type: "boolean" },
+    brief: { type: "string" },
+  },
+  required: ["task"],
+  additionalProperties: false,
+} as const;
+
+export function buildRouterSystemPrompt(previousFusionText: string | null): string {
+  const base = `You are the fusion-mode router of a legal work assistant. Classify the user's latest message:
+
+- task = true when handling it well requires producing a substantive output or many tool calls of legal analysis: drafting or revising documents, clauses, memos, or letters; reviewing or comparing documents; legal or commercial analysis; research; calculations; anything with a deliverable.
+- task = false when the message is conversational: clarifying questions, questions about a previous answer, small talk, quick factual questions, meta questions about the workflow, or instructions that only change how future work should be done.
+
+When task = true, also set brief to a one-paragraph, self-contained restatement of the task including all constraints from the message. When in doubt between the two, prefer task = true for anything that asks for new work product.
+
+Respond only with the structured object.`;
+  if (!previousFusionText?.trim()) return base;
+  return `${base}
+
+For context, the assistant's previous answer to the user was:
+
+<previous_answer>
+${previousFusionText.trim()}
+</previous_answer>`;
+}
+
 export function buildFusionSystemPrompt(candidates: FusionCandidateOutput[]): string {
   const sections = candidates
     .map(
@@ -43,11 +77,20 @@ The user's original message and any formatting it requests still control. Produc
 ${sections}`;
 }
 
-export function buildCandidateSystemPrompt(previousFusionText: string | null): string {
-  const base =
+export function buildCandidateSystemPrompt(previousFusionText: string | null, taskBrief?: string | null): string {
+  let prompt =
     "You are one of several models independently answering the user in a multi-model fusion workflow. Answer completely and self-contained, as if you were the only model: your full answer is what gets reviewed and merged. Be specific and preserve concrete details (numbers, dates, calculations, mechanisms, recommendations).";
-  if (!previousFusionText?.trim()) return base;
-  return `${base}
+  if (taskBrief?.trim()) {
+    prompt += `
+
+The task, as restated by the workflow router:
+
+<task_brief>
+${taskBrief.trim()}
+</task_brief>`;
+  }
+  if (previousFusionText?.trim()) {
+    prompt += `
 
 For context: the answer actually delivered to the user for the previous turn was fused from all models' outputs and may differ from your own previous answer. The delivered answer was:
 
@@ -56,4 +99,6 @@ ${previousFusionText.trim()}
 </previous_fused_answer>
 
 Treat the delivered answer above as the assistant's authoritative previous turn when interpreting the user's new message.`;
+  }
+  return prompt;
 }

@@ -812,9 +812,17 @@ interface MessageListProps {
   messages: UIMessage[]
   status: ThreadStatus
   retryStatus?: RetryStatus | null
+  /**
+   * Optional node rendered inside the transcript flow (e.g. the fusion
+   * columns panel). When interludeBeforeMessageId matches a message, the
+   * node renders directly above that message's block; otherwise it renders
+   * after the last message.
+   */
+  interlude?: React.ReactNode
+  interludeBeforeMessageId?: string | null
 }
 
-export function MessageList({ messages, status, retryStatus }: MessageListProps) {
+export function MessageList({ messages, status, retryStatus, interlude, interludeBeforeMessageId }: MessageListProps) {
   const isStreaming = status === "streaming" || status === "retrying"
   const items = React.useMemo(() => groupMessages(messages, status), [messages, status]);
   const error = useSessionErrorMessage();
@@ -822,20 +830,37 @@ export function MessageList({ messages, status, retryStatus }: MessageListProps)
   const liveActionLabel = isStreaming
     ? getActiveToolLabel(collectToolParts(messages))
     : null
+  const interludeAnchorFound = Boolean(
+    interlude &&
+    interludeBeforeMessageId &&
+    items.some((item) =>
+      isMessageGroup(item)
+        ? item.messages.some((entry) => entry.message.id === interludeBeforeMessageId)
+        : item.message.id === interludeBeforeMessageId,
+    ),
+  )
 
   return (
     <div className={cn("flex flex-col gap-2 @container/message-list")}>
       {messages.length === 0 && <TaskSuggestions className="mx-auto w-full max-w-3xl shrink-0 px-3 pb-3 md:px-5 md:pb-5 grow" />}
 
       {items.map((item) => {
+        const containsInterludeAnchor = interludeAnchorFound && (
+          isMessageGroup(item)
+            ? item.messages.some((entry) => entry.message.id === interludeBeforeMessageId)
+            : item.message.id === interludeBeforeMessageId
+        )
         if (isMessageGroup(item)) {
+          const key = item.messages[0]?.message.id ?? "empty-assistant-group"
           return (
-            <MessageGroup
-              key={item.messages[0]?.message.id ?? "empty-assistant-group"}
-              items={item.messages}
-              messages={messages}
-              isStreaming={isStreaming}
-            />
+            <React.Fragment key={key}>
+              {containsInterludeAnchor ? interlude : null}
+              <MessageGroup
+                items={item.messages}
+                messages={messages}
+                isStreaming={isStreaming}
+              />
+            </React.Fragment>
           )
         }
 
@@ -845,6 +870,7 @@ export function MessageList({ messages, status, retryStatus }: MessageListProps)
 
         return (
           <div key={item.message.id}>
+            {containsInterludeAnchor ? interlude : null}
             <MessageComponent
               message={item.message}
               isLastMessage={isLastMessage}
@@ -856,6 +882,7 @@ export function MessageList({ messages, status, retryStatus }: MessageListProps)
         )
       })}
 
+      {interlude && !interludeAnchorFound ? interlude : null}
       {status === "streaming" && <LoadingMessage label={liveActionLabel ?? undefined} />}
       {retryStatus ? <RetryMessage status={retryStatus} /> : null}
       {error && !hasSessionErrorMessage ? <ErrorMessage error={error} /> : null}

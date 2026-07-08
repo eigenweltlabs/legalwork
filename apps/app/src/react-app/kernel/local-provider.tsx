@@ -51,12 +51,11 @@ export type LocalPreferences = {
    */
   analyticsEnabled: boolean;
   /**
-   * Fusion mode: up to three candidate models that answer every prompt in
-   * parallel, and the fusion model that synthesizes their outputs into the
-   * final answer.
+   * Fusion mode defaults: up to three candidate models preselected in the
+   * chat's fusion picker when fusion is turned on. The session's default
+   * model acts as the main/fusion model.
    */
   fusionModels: ModelRef[];
-  fusionModel: ModelRef | null;
 };
 
 type LocalContextValue = {
@@ -84,7 +83,6 @@ const INITIAL_PREFS: LocalPreferences = {
   hasCompletedOnboarding: false,
   analyticsEnabled: false,
   fusionModels: [],
-  fusionModel: null,
 };
 
 function readPersisted<T>(key: string, fallback: T): T {

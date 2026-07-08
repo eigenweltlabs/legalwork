@@ -1,19 +1,22 @@
 /**
- * Fusion mode orchestration.
+ * Fusion mode orchestration, modeled on the engine's subagent (task tool)
+ * system: hidden child sessions of the main chat run the delegated work,
+ * while the main model owns the conversation.
  *
- * One fusion turn:
- * 1. Ensure a hidden child session exists per configured candidate model
- *    (children of the main chat session, reused across turns).
- * 2. Send the user's message to every candidate session in parallel and
- *    stream each one's reasoning/output into the fusion store (rendered as
- *    columns in the chat).
- * 3. Send the user's message to the main session with the fusion system
- *    prompt (carrying all candidate outputs) using the configured fusion
- *    model — its synthesis streams into the chat as the visible answer.
+ * One fusion send:
+ * 1. Router pass — the MAIN model classifies the message in a hidden child
+ *    session (structured output): conversational messages are answered
+ *    directly by the main model, with no fan-out.
+ * 2. For substantive tasks, the message fans out to the chat's selected
+ *    candidate models in parallel — each a reusable child session prompted
+ *    with a per-run model override (the same lever the task tool uses) —
+ *    and their reasoning/output stream into the chat as columns.
+ * 3. The main model then answers the user in the main session under the
+ *    fusion system prompt carrying all candidate outputs; its synthesis is
+ *    the visible reply.
  *
- * Follow-up turns repeat the fan-out on the same candidate sessions; each
- * candidate is told what fused answer was actually delivered for the
- * previous turn so all three chats stay coherent with the main chat.
+ * Follow-up tasks reuse the same candidate sessions; each candidate is told
+ * what answer was actually delivered previously so all chats stay coherent.
  */
 import type {
   AgentPartInput,
@@ -26,34 +29,34 @@ import type {
 import { unwrap } from "@/app/lib/opencode";
 import type { Client, ModelRef } from "@/app/types";
 import {
+  FUSION_ROUTER_SCHEMA,
   buildCandidateSystemPrompt,
   buildFusionSystemPrompt,
+  buildRouterSystemPrompt,
   type FusionCandidateOutput,
 } from "./fusion-prompt";
 import { candidateSessionKey, useFusionStore } from "./fusion-store";
 
 const CANDIDATE_POLL_MS = 1200;
 const CANDIDATE_TIMEOUT_MS = 15 * 60_000;
-/**
- * Grace window after the prompt request settles: prompt_async is expected to
- * resolve when the run completes, but if the server treats it as
- * enqueue-and-return we keep polling until the assistant message reports a
- * completion timestamp.
- */
-const COMPLETION_GRACE_MS = 60_000;
+const ROUTER_POLL_MS = 700;
+const ROUTER_TIMEOUT_MS = 90_000;
 
 export type FusionPromptParts = Array<TextPartInput | FilePartInput | AgentPartInput>;
 
-export type RunFusionTurnInput = {
+export type RunFusionSendInput = {
   client: Client;
   directory?: string;
   mainSessionId: string;
   parts: FusionPromptParts;
   userText: string;
+  /** Candidate models selected for this chat (the fusion subagents). */
   candidateModels: ModelRef[];
-  fusionModel: ModelRef;
+  /** The session's main model: converses, routes, and fuses. */
+  mainModel?: ModelRef;
   agent?: string;
-  /** Extra system context (e.g. environment context) prepended to the fusion system prompt. */
+  variant?: string;
+  /** Extra system context (e.g. environment context) prepended to every main-session prompt. */
   baseSystem?: string;
 };
 
@@ -78,21 +81,41 @@ async function listMessages(client: Client, sessionID: string, directory?: strin
 }
 
 /**
- * Text of the last completed assistant message in the main session — the
- * fused answer delivered for the previous turn (null on the first turn).
+ * Snapshot of the main session at turn start: the text of the last completed
+ * assistant message (the fused answer delivered for the previous turn; null
+ * on the first turn) and the ids of all existing messages, so the UI can tell
+ * which assistant message is this turn's fused answer.
  */
-async function getPreviousFusionText(client: Client, sessionID: string, directory?: string): Promise<string | null> {
+async function readMainSessionBaseline(
+  client: Client,
+  sessionID: string,
+  directory?: string,
+): Promise<{ previousFusionText: string | null; baselineMessageIds: string[] }> {
   try {
     const messages = await listMessages(client, sessionID, directory);
+    let previousFusionText: string | null = null;
     for (let index = messages.length - 1; index >= 0; index -= 1) {
       const message = messages[index];
       if (message.info.role !== "assistant") continue;
       const text = collectText(message.parts);
-      if (text.trim()) return text;
+      if (text.trim()) {
+        previousFusionText = text;
+        break;
+      }
     }
-    return null;
+    return { previousFusionText, baselineMessageIds: messages.map((message) => message.info.id) };
   } catch {
-    return null;
+    return { previousFusionText: null, baselineMessageIds: [] };
+  }
+}
+
+async function isSessionBusy(client: Client, sessionID: string, directory?: string): Promise<boolean | null> {
+  try {
+    const statuses = unwrap(await client.session.status({ directory }));
+    const status = statuses[sessionID];
+    return status !== undefined && status.type !== "idle";
+  } catch {
+    return null; // unknown — the caller keeps waiting on message state instead
   }
 }
 
@@ -110,14 +133,14 @@ function collectReasoning(parts: Part[]): string {
     .trim();
 }
 
-async function ensureCandidateSession(input: {
+async function ensureChildSession(input: {
   client: Client;
   directory?: string;
   mainSessionId: string;
-  model: ModelRef;
+  key: string;
+  title: string;
 }): Promise<string> {
-  const { client, directory, mainSessionId, model } = input;
-  const key = candidateSessionKey(mainSessionId, model);
+  const { client, directory, mainSessionId, key, title } = input;
   const store = useFusionStore.getState();
   const existing = store.candidateSessionIds[key];
   if (existing) {
@@ -126,14 +149,96 @@ async function ensureCandidateSession(input: {
     store.forgetCandidateSession(key);
   }
   const created = unwrap(
-    await client.session.create({
-      directory,
-      parentID: mainSessionId,
-      title: `Fusion candidate · ${model.modelID}`,
-    }),
+    await client.session.create({ directory, parentID: mainSessionId, title }),
   );
   useFusionStore.getState().rememberCandidateSession(key, created.id);
   return created.id;
+}
+
+type RouterDecision = { task: boolean; brief: string | null };
+
+function parseRouterDecision(structured: unknown, text: string): RouterDecision | null {
+  let candidate = structured;
+  if (candidate === undefined || candidate === null) {
+    try {
+      candidate = JSON.parse(text) as unknown;
+    } catch {
+      return null;
+    }
+  }
+  if (typeof candidate !== "object" || candidate === null) return null;
+  const record = candidate as { task?: unknown; brief?: unknown };
+  if (typeof record.task !== "boolean") return null;
+  return {
+    task: record.task,
+    brief: typeof record.brief === "string" && record.brief.trim() ? record.brief.trim() : null,
+  };
+}
+
+/**
+ * Router pass: the main model classifies the message as a substantive task
+ * (delegate to fusion subagents) or conversational (answer directly), via a
+ * hidden child session with structured output. When the router cannot decide
+ * (error, timeout, unparseable output), the message is treated as a task —
+ * the user turned fusion on expecting the fan-out.
+ */
+async function classifyMessage(input: {
+  client: Client;
+  directory?: string;
+  mainSessionId: string;
+  mainModel?: ModelRef;
+  userText: string;
+  previousFusionText: string | null;
+}): Promise<RouterDecision> {
+  const { client, directory, mainSessionId, mainModel, userText, previousFusionText } = input;
+  try {
+    const sessionID = await ensureChildSession({
+      client,
+      directory,
+      mainSessionId,
+      key: `${mainSessionId}|fusion-router`,
+      title: "Fusion router",
+    });
+    const before = new Set((await listMessages(client, sessionID, directory)).map((message) => message.info.id));
+
+    let promptError: unknown = null;
+    void client.session
+      .promptAsync({
+        sessionID,
+        directory,
+        parts: [{ type: "text", text: userText }],
+        model: mainModel,
+        system: buildRouterSystemPrompt(previousFusionText),
+        format: { type: "json_schema", schema: { ...FUSION_ROUTER_SCHEMA }, retryCount: 2 },
+      })
+      .then((result) => {
+        if (result.error) promptError = result.error;
+      })
+      .catch((error: unknown) => {
+        promptError = error;
+      });
+
+    const deadline = Date.now() + ROUTER_TIMEOUT_MS;
+    while (Date.now() < deadline) {
+      await sleep(ROUTER_POLL_MS);
+      if (promptError) break;
+      let fresh: MessageWithParts[] = [];
+      try {
+        const messages = await listMessages(client, sessionID, directory);
+        fresh = messages.filter((message) => message.info.role === "assistant" && !before.has(message.info.id));
+      } catch {
+        continue;
+      }
+      const last = fresh[fresh.length - 1];
+      if (!last || last.info.role !== "assistant" || typeof last.info.time.completed !== "number") continue;
+      const parsed = parseRouterDecision(last.info.structured, collectText(last.parts));
+      if (parsed) return parsed;
+      break;
+    }
+  } catch {
+    // fall through to the task default
+  }
+  return { task: true, brief: null };
 }
 
 async function runCandidate(input: {
@@ -150,22 +255,22 @@ async function runCandidate(input: {
 
   const before = new Set((await listMessages(client, sessionID, directory)).map((message) => message.info.id));
 
-  let promptSettled = false;
+  // prompt_async may either enqueue-and-return or resolve when the run
+  // completes, so its resolution only signals errors; run completion is
+  // detected from the session's own status and message state below.
   let promptError: unknown = null;
   void client.session
     .promptAsync({ sessionID, directory, parts, model, agent, system })
     .then((result) => {
-      promptSettled = true;
       if (result.error) promptError = result.error;
     })
     .catch((error: unknown) => {
-      promptSettled = true;
       promptError = error;
     });
 
   const deadline = Date.now() + CANDIDATE_TIMEOUT_MS;
-  let settledAt: number | null = null;
   let latestText = "";
+  let sawActivity = false;
 
   while (Date.now() < deadline) {
     await sleep(CANDIDATE_POLL_MS);
@@ -183,33 +288,48 @@ async function runCandidate(input: {
     const reasoning = fresh.map((message) => collectReasoning(message.parts)).filter(Boolean).join("\n\n");
     onProgress(reasoning, latestText);
 
+    const busy = await isSessionBusy(client, sessionID, directory);
+    if (busy === true || fresh.length > 0) sawActivity = true;
+    if (!sawActivity || busy !== false) continue;
+
+    // Session is idle again after having worked: the run is over once the
+    // last assistant message reports completion.
     const last = fresh[fresh.length - 1];
     const completed = last?.info.role === "assistant" && typeof last.info.time.completed === "number";
-    if (promptSettled && completed) {
-      if (!latestText) throw new Error("Model produced no output.");
-      return latestText;
-    }
-    if (promptSettled) {
-      settledAt ??= Date.now();
-      if (Date.now() - settledAt > COMPLETION_GRACE_MS) {
-        if (latestText) return latestText;
-        throw new Error("Model produced no output.");
-      }
-    }
+    if (!completed) continue;
+    if (!latestText) throw new Error("Model produced no output.");
+    return latestText;
   }
   throw new Error("Timed out waiting for the model to finish.");
 }
 
-export async function runFusionTurn(input: RunFusionTurnInput): Promise<void> {
-  const { client, directory, mainSessionId, parts, userText, candidateModels, fusionModel, agent, baseSystem } = input;
+export async function runFusionSend(input: RunFusionSendInput): Promise<void> {
+  const { client, directory, mainSessionId, parts, userText, candidateModels, mainModel, agent, variant, baseSystem } = input;
 
-  const previousFusionText = await getPreviousFusionText(client, mainSessionId, directory);
-  const candidateSystem = buildCandidateSystemPrompt(previousFusionText);
+  const { previousFusionText, baselineMessageIds } = await readMainSessionBaseline(client, mainSessionId, directory);
+
+  const decision = await classifyMessage({ client, directory, mainSessionId, mainModel, userText, previousFusionText });
+  if (!decision.task) {
+    // Conversational message: the main model answers directly, no fan-out.
+    const result = await client.session.promptAsync({
+      sessionID: mainSessionId,
+      parts,
+      model: mainModel,
+      agent,
+      ...(variant ? { variant } : {}),
+      ...(baseSystem ? { system: baseSystem } : {}),
+    });
+    if (result.error) throw new Error(describeError(result.error));
+    return;
+  }
+
+  const candidateSystem = buildCandidateSystemPrompt(previousFusionText, decision.brief);
 
   const store = useFusionStore.getState();
   store.startTurn(mainSessionId, {
     userText,
     phase: "candidates",
+    baselineMessageIds,
     runs: candidateModels.map((model) => ({
       model,
       sessionID: null,
@@ -225,7 +345,13 @@ export async function runFusionTurn(input: RunFusionTurnInput): Promise<void> {
   const results = await Promise.allSettled(
     candidateModels.map(async (model, index): Promise<FusionCandidateOutput> => {
       try {
-        const sessionID = await ensureCandidateSession({ client, directory, mainSessionId, model });
+        const sessionID = await ensureChildSession({
+          client,
+          directory,
+          mainSessionId,
+          key: candidateSessionKey(mainSessionId, model),
+          title: `Fusion candidate · ${model.modelID}`,
+        });
         updateRun(mainSessionId, index, { sessionID, status: "running" });
         const text = await runCandidate({
           client,
@@ -264,8 +390,9 @@ export async function runFusionTurn(input: RunFusionTurnInput): Promise<void> {
   const result = await client.session.promptAsync({
     sessionID: mainSessionId,
     parts,
-    model: fusionModel,
+    model: mainModel,
     agent,
+    ...(variant ? { variant } : {}),
     system: fusionSystem,
   });
   if (result.error) {
