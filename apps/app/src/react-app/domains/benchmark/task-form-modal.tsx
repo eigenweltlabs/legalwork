@@ -22,6 +22,7 @@ import {
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { t } from "@/i18n";
+import { cn } from "@/lib/utils";
 import type { BenchmarkWorkType } from "../../../app/lib/benchmark-types";
 import { BENCHMARK_WORK_TYPES } from "../../../app/lib/benchmark-types";
 import { SettingsNotice } from "../settings/settings-section";
@@ -111,61 +112,130 @@ function TagInput(props: {
   onChange: (tags: string[]) => void;
 }) {
   const [draft, setDraft] = useState("");
-  const suggestions = useMemo(() => {
-    const query = draft.trim().toLowerCase();
+  const [open, setOpen] = useState(false);
+  const [highlight, setHighlight] = useState(0);
+  const blurTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const inputRef = useRef<HTMLInputElement | null>(null);
+
+  const query = draft.trim();
+  const filtered = useMemo(() => {
+    const q = query.toLowerCase();
     return props.suggestions
       .filter((tag) => !props.tags.includes(tag))
-      .filter((tag) => (query ? tag.toLowerCase().includes(query) : true))
+      .filter((tag) => (q ? tag.toLowerCase().includes(q) : true))
       .slice(0, 8);
-  }, [draft, props.suggestions, props.tags]);
+  }, [query, props.suggestions, props.tags]);
+
+  // Offer "Create" when the draft isn't an exact existing tag/suggestion.
+  const showCreate =
+    query.length > 0 &&
+    !props.tags.some((tag) => tag.toLowerCase() === query.toLowerCase()) &&
+    !filtered.some((tag) => tag.toLowerCase() === query.toLowerCase());
+  const items: Array<{ kind: "create" | "existing"; value: string }> = [
+    ...(showCreate ? [{ kind: "create" as const, value: query }] : []),
+    ...filtered.map((tag) => ({ kind: "existing" as const, value: tag })),
+  ];
+  const dropdownOpen = open && items.length > 0;
 
   const addTag = (tag: string) => {
     const trimmed = tag.trim();
     if (!trimmed || props.tags.includes(trimmed)) return;
     props.onChange([...props.tags, trimmed]);
     setDraft("");
+    setHighlight(0);
+  };
+
+  const commitHighlighted = () => {
+    const chosen = items[highlight] ?? items[0];
+    if (chosen) addTag(chosen.value);
   };
 
   return (
     <div className="space-y-1.5">
       <Label className="text-[12px]">{t("benchmark.form_tags")}</Label>
-      {props.tags.length ? (
-        <div className="flex flex-wrap gap-1.5">
+      <div className="relative">
+        {/* Chips live inside the input box; the bare input grows after them. */}
+        <div
+          className="flex min-h-9 w-full cursor-text flex-wrap items-center gap-1.5 rounded-lg border border-border bg-background px-2 py-1.5 transition-[box-shadow,border-color] focus-within:border-ring focus-within:ring-3 focus-within:ring-ring/30"
+          onMouseDown={(event) => {
+            // Clicking empty space focuses the input without stealing focus mid-drag.
+            if (event.target === event.currentTarget) inputRef.current?.focus();
+          }}
+        >
           {props.tags.map((tag) => (
-            <Badge key={tag} variant="secondary" className="gap-1 px-1.5 py-0.5 text-[11px]">
+            <Badge key={tag} variant="outline" className="gap-1 border-dls-border bg-dls-hover px-1.5 py-0.5 text-[11px]">
               {tag}
-              <button type="button" onClick={() => props.onChange(props.tags.filter((entry) => entry !== tag))}>
+              <button
+                type="button"
+                onMouseDown={(event) => event.preventDefault()}
+                onClick={() => props.onChange(props.tags.filter((entry) => entry !== tag))}
+              >
                 <X size={11} />
               </button>
             </Badge>
           ))}
+          <input
+            ref={inputRef}
+            value={draft}
+            placeholder={props.tags.length ? "" : t("benchmark.form_tags_placeholder")}
+            className="min-w-[8ch] flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground"
+            onChange={(event) => {
+              setDraft(event.target.value);
+              setHighlight(0);
+              setOpen(true);
+            }}
+            onFocus={() => setOpen(true)}
+            onBlur={() => {
+              // Delay so a click on a dropdown row registers before it closes.
+              blurTimer.current = setTimeout(() => setOpen(false), 120);
+            }}
+            onKeyDown={(event) => {
+              if (event.key === "ArrowDown") {
+                event.preventDefault();
+                setOpen(true);
+                setHighlight((index) => Math.min(index + 1, Math.max(items.length - 1, 0)));
+              } else if (event.key === "ArrowUp") {
+                event.preventDefault();
+                setHighlight((index) => Math.max(index - 1, 0));
+              } else if (event.key === "Enter") {
+                event.preventDefault();
+                if (dropdownOpen) commitHighlighted();
+                else addTag(draft);
+              } else if (event.key === "Escape") {
+                setOpen(false);
+              } else if (event.key === "Backspace" && !draft && props.tags.length) {
+                props.onChange(props.tags.slice(0, -1));
+              }
+            }}
+          />
         </div>
-      ) : null}
-      <Input
-        value={draft}
-        placeholder={t("benchmark.form_tags_placeholder")}
-        onChange={(event) => setDraft(event.target.value)}
-        onKeyDown={(event) => {
-          if (event.key === "Enter") {
-            event.preventDefault();
-            addTag(draft);
-          }
-        }}
-      />
-      {suggestions.length ? (
-        <div className="flex flex-wrap gap-1">
-          {suggestions.map((tag) => (
-            <button
-              key={tag}
-              type="button"
-              className="rounded-full border border-dls-border px-2 py-0.5 text-[11px] text-muted-foreground hover:bg-dls-hover"
-              onClick={() => addTag(tag)}
-            >
-              {tag}
-            </button>
-          ))}
-        </div>
-      ) : null}
+        {dropdownOpen ? (
+          <div className="absolute left-0 right-0 top-full z-20 mt-1 max-h-52 overflow-y-auto rounded-lg border border-dls-border bg-background p-1 shadow-md">
+            {items.map((item, index) => (
+              <button
+                key={`${item.kind}:${item.value}`}
+                type="button"
+                className={cn(
+                  "flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-[13px] hover:bg-dls-hover",
+                  index === highlight && "bg-dls-hover",
+                )}
+                onMouseEnter={() => setHighlight(index)}
+                onMouseDown={(event) => event.preventDefault()}
+                onClick={() => addTag(item.value)}
+              >
+                {item.kind === "create" ? (
+                  <>
+                    <Plus size={13} className="shrink-0 text-muted-foreground" />
+                    <span className="text-muted-foreground">{t("benchmark.create_tag", { tag: item.value })}</span>
+                  </>
+                ) : (
+                  <span className="truncate">{item.value}</span>
+                )}
+              </button>
+            ))}
+          </div>
+        ) : null}
+      </div>
     </div>
   );
 }

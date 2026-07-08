@@ -121,6 +121,7 @@ const de: Record<string, string> = {
   "benchmark.already_imported": "Importiert",
   "benchmark.back_to_tasks": "Alle Aufgaben",
   "benchmark.column_task": "Aufgabe",
+  "benchmark.create_tag": "\"{tag}\" erstellen",
   "benchmark.remove_from_selection": "Aus Auswahl entfernen",
   "benchmark.search_tags": "Tags durchsuchen…",
   "benchmark.task_not_found": "Diese Aufgabe existiert nicht mehr.",

@@ -89,6 +89,7 @@ export default {
   "benchmark.already_imported": "Imported",
   "benchmark.back_to_tasks": "All tasks",
   "benchmark.column_task": "Task",
+  "benchmark.create_tag": "Create \"{tag}\"",
   "benchmark.remove_from_selection": "Remove from selection",
   "benchmark.search_tags": "Search tags…",
   "benchmark.task_not_found": "This task no longer exists.",
