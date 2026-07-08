@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { spawn, spawnSync } from "node:child_process";
 import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
-import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { chmod, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import net from "node:net";
 import os from "node:os";
 import path from "node:path";
@@ -386,14 +386,31 @@ function extraPathEntries() {
   return candidates.filter((entry) => entry && isDirectory(entry));
 }
 
-function enrichedPath(sidecarDirs, currentPath) {
+function enrichedPath(sidecarDirs, currentPath, fallbackDirs = []) {
   const entries = [
     ...sidecarDirs.filter(isDirectory),
     ...extraPathEntries(),
     ...String(currentPath ?? "").split(path.delimiter).filter(Boolean),
+    ...fallbackDirs.filter(isDirectory),
   ];
   const deduped = entries.filter((entry, index) => entries.indexOf(entry) === index);
   return deduped.length > 0 ? deduped.join(path.delimiter) : null;
+}
+
+export function nodeShimFileName(platform = process.platform) {
+  return platform === "win32" ? "node.cmd" : "node";
+}
+
+// A `node` that re-execs this app's own binary in Node mode. Electron ships a
+// full Node runtime, so machines without a system Node.js can still run the
+// bundled workspace skills (docx-edit, pdf-tools, tabular-review), which shell
+// out to `node`. The shim directory is appended LAST to the child PATH, so any
+// real Node installation always wins.
+export function nodeShimScriptContent(execPath, platform = process.platform) {
+  if (platform === "win32") {
+    return `@echo off\r\nset ELECTRON_RUN_AS_NODE=1\r\n"${execPath}" %*\r\n`;
+  }
+  return `#!/bin/sh\nELECTRON_RUN_AS_NODE=1 exec "${execPath}" "$@"\n`;
 }
 
 async function portAvailable(host, port) {
@@ -718,6 +735,24 @@ export function createRuntimeManager({ app, desktopRoot, listLocalWorkspacePaths
     return paths;
   }
 
+  // Written once per app launch so the shim tracks the current binary
+  // location across updates/moves. Best-effort: on failure children simply
+  // fall back to whatever `node` the PATH provides.
+  let nodeShimDirPromise = null;
+  function ensureNodeShimDir() {
+    nodeShimDirPromise ??= (async () => {
+      const shimDir = path.join(userDataDir, "node-shim");
+      const shimPath = path.join(shimDir, nodeShimFileName());
+      await mkdir(shimDir, { recursive: true });
+      await writeFile(shimPath, nodeShimScriptContent(process.execPath), "utf8");
+      if (process.platform !== "win32") {
+        await chmod(shimPath, 0o755);
+      }
+      return shimDir;
+    })().catch(() => null);
+    return nodeShimDirPromise;
+  }
+
   async function buildChildEnv(extra = {}) {
     /** @type {NodeJS.ProcessEnv} */
     // User env is layered first so process.env + any caller overrides always
@@ -734,7 +769,8 @@ export function createRuntimeManager({ app, desktopRoot, listLocalWorkspacePaths
       !Object.prototype.hasOwnProperty.call(env, "Path")
         ? "PATH"
         : "Path";
-    const pathEnv = enrichedPath(sidecarDirs, env[pathKey]);
+    const nodeShimDir = await ensureNodeShimDir();
+    const pathEnv = enrichedPath(sidecarDirs, env[pathKey], nodeShimDir ? [nodeShimDir] : []);
     if (pathEnv) {
       env[pathKey] = pathEnv;
     }
@@ -1068,12 +1104,23 @@ export function createRuntimeManager({ app, desktopRoot, listLocalWorkspacePaths
   }
 
   async function ensureOpencodeConfig(projectDir) {
-    const jsoncPath = path.join(projectDir, "opencode.jsonc");
-    const jsonPath = path.join(projectDir, "opencode.json");
-    if ((await fileExists(jsoncPath)) || (await fileExists(jsonPath))) return;
-    await mkdir(projectDir, { recursive: true });
+    // Seed the project config in the hidden .opencode/ directory (the engine
+    // reads it from there too) so the user's workspace folder stays free of
+    // files they didn't create. A config the user already keeps at the
+    // workspace root is respected and left alone.
+    const candidates = [
+      path.join(projectDir, "opencode.jsonc"),
+      path.join(projectDir, "opencode.json"),
+      path.join(projectDir, ".opencode", "opencode.jsonc"),
+      path.join(projectDir, ".opencode", "opencode.json"),
+    ];
+    for (const candidate of candidates) {
+      if (await fileExists(candidate)) return;
+    }
+    const hiddenJsoncPath = path.join(projectDir, ".opencode", "opencode.jsonc");
+    await mkdir(path.dirname(hiddenJsoncPath), { recursive: true });
     await writeFile(
-      jsoncPath,
+      hiddenJsoncPath,
       `${JSON.stringify({ $schema: "https://opencode.ai/config.json" }, null, 2)}\n`,
       "utf8",
     );
