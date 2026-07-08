@@ -161,6 +161,7 @@ function PreviewCard({
   children,
   blurred = true,
   onClick,
+  cta,
 }: {
   step: string;
   title: string;
@@ -168,6 +169,7 @@ function PreviewCard({
   children: ReactNode;
   blurred?: boolean;
   onClick?: () => void;
+  cta?: ReactNode;
 }) {
   return (
     <div
@@ -196,7 +198,23 @@ function PreviewCard({
         </div>
         <p className="mt-1.5 text-[13px] leading-relaxed text-muted-foreground">{desc}</p>
       </div>
+      {cta ? <div className="mt-auto pt-1">{cta}</div> : null}
     </div>
+  );
+}
+
+function TalkWithResearcherLink() {
+  return (
+    <a
+      href="https://eigenweltlabs.com"
+      target="_blank"
+      rel="noopener noreferrer"
+      onClick={(event) => event.stopPropagation()}
+      className="inline-flex h-8 items-center justify-center gap-1.5 rounded-full border border-[rgba(35,82,222,0.22)] px-3 text-[12px] font-medium text-[#2352DE] transition-colors hover:bg-[rgba(35,82,222,0.08)]"
+    >
+      Talk with Researcher
+      <ArrowUpRight className="size-3.5" />
+    </a>
   );
 }
 
@@ -315,6 +333,19 @@ export function LearningsPane(props: LearningsPaneProps) {
             desc="We extract the firm's tacit knowledge from your matters, redlines, and comments: partner preferences, drafting style, negotiation playbooks, and review standards."
             blurred={false}
             onClick={() => setView("benchmark")}
+            cta={
+              <Button
+                size="sm"
+                className="gap-1.5"
+                onClick={(event) => {
+                  event.stopPropagation();
+                  setView("benchmark");
+                }}
+              >
+                Start
+                <ArrowRight className="size-3.5" />
+              </Button>
+            }
           >
             <DataStructuringViz />
           </PreviewCard>
@@ -322,6 +353,7 @@ export function LearningsPane(props: LearningsPaneProps) {
             step="02"
             title="Post learning"
             desc="A specialist model per practice area, learned on your work and benchmarked against open baselines. Weights your firm owns."
+            cta={<TalkWithResearcherLink />}
           >
             <ModelsViz />
           </PreviewCard>
@@ -329,22 +361,10 @@ export function LearningsPane(props: LearningsPaneProps) {
             step="03"
             title="Continual learning"
             desc="Signals from real work, like corrections, rewrites, and missed context, become verifiable tasks that continual learn your models and roll out."
+            cta={<TalkWithResearcherLink />}
           >
             <ContinualLearningViz />
           </PreviewCard>
-        </div>
-
-        {/* CTA */}
-        <div className="mt-8 flex justify-start">
-          <a
-            href="https://eigenweltlabs.com"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="ow-button-primary inline-flex h-10 items-center justify-center gap-2 rounded-full px-6 text-sm font-medium text-white"
-          >
-            Talk with Researcher
-            <ArrowUpRight className="size-4" />
-          </a>
         </div>
         </div>
       </div>
