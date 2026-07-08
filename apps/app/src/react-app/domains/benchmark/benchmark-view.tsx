@@ -6,6 +6,7 @@ import { t } from "@/i18n";
 import type { LegalworkServerClient } from "../../../app/lib/legalwork-server";
 import type { ProviderListItem } from "../../../app/types";
 import { attachBenchmarkContext, useBenchmarkStore } from "./store";
+import { AnalyticsView } from "./analytics-view";
 import { BenchmarkOnboardingModal } from "./onboarding-modal";
 import { ImportTasksModal } from "./import-tasks-modal";
 import { ItemDetailScreen } from "./item-detail-screen";
@@ -82,6 +83,7 @@ export function BenchmarkView(props: BenchmarkViewProps) {
         <TabsList className="self-start">
           <TabsTrigger value="tasks">{t("benchmark.tab_tasks")}</TabsTrigger>
           <TabsTrigger value="runs">{t("benchmark.tab_runs")}</TabsTrigger>
+          <TabsTrigger value="models">{t("benchmark.tab_models")}</TabsTrigger>
         </TabsList>
         <TabsContent value="tasks" className="w-full pt-3">
           <TaskTable
@@ -93,6 +95,9 @@ export function BenchmarkView(props: BenchmarkViewProps) {
         </TabsContent>
         <TabsContent value="runs" className="w-full pt-3">
           <RunTable onOpenRun={props.onOpenRun} />
+        </TabsContent>
+        <TabsContent value="models" className="w-full pt-3">
+          <AnalyticsView />
         </TabsContent>
       </Tabs>
 

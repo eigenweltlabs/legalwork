@@ -2,7 +2,8 @@ import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import type { ServerConfig } from "../types.js";
 import { ensureDir } from "../utils.js";
-import type { BenchmarkTaskSource, BenchmarkWorkType } from "./task-schema.js";
+import type { AnalyticsRow } from "./analytics.js";
+import { parseStoredTaskJson, type BenchmarkTaskSource, type BenchmarkWorkType } from "./task-schema.js";
 
 export type BenchmarkRunStatus =
   | "pending"
@@ -611,6 +612,32 @@ export class BenchmarkStore {
          ORDER BY i.task_key, i.provider_id, i.model_id`,
       )
       .all(workspaceId) as BenchmarkLatestResultRow[];
+  }
+
+  /** Latest judged result per (task, provider, model) with its vertical + tags — powers cross-run analytics. */
+  modelAnalyticsRows(workspaceId: string): AnalyticsRow[] {
+    const rows = this.db
+      .prepare(
+        `SELECT i.task_key AS taskKey, i.provider_id AS providerID, i.model_id AS modelID,
+                i.vertical AS vertical, i.n_criteria AS nCriteria, i.n_passed AS nPassed, i.task_json AS taskJson
+         FROM benchmark_run_items i
+         JOIN benchmark_runs r ON r.id = i.run_id
+         WHERE r.workspace_id = ?
+           AND r.created_at = (
+             SELECT MAX(r2.created_at)
+             FROM benchmark_run_items i2
+             JOIN benchmark_runs r2 ON r2.id = i2.run_id
+             WHERE r2.workspace_id = r.workspace_id
+               AND i2.task_key = i.task_key
+               AND i2.provider_id = i.provider_id
+               AND i2.model_id = i.model_id
+           )`,
+      )
+      .all(workspaceId) as Array<Omit<AnalyticsRow, "tags"> & { taskJson: string }>;
+    return rows.map(({ taskJson, ...row }) => ({
+      ...row,
+      tags: parseStoredTaskJson(taskJson)?.tags ?? [],
+    }));
   }
 
   getCatalogHead(): { ref: string; fetchedAt: number } | null {

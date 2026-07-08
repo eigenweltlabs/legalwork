@@ -6,6 +6,7 @@ import type { ImportedMarketplace, ImportedPlugin } from "./extension-imports";
 import type {
   BenchmarkCatalogResponse,
   BenchmarkCustomTaskInput,
+  BenchmarkAnalytics,
   BenchmarkImportResponse,
   BenchmarkImportZipResponse,
   BenchmarkItemDetail,
@@ -1232,6 +1233,14 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
         `/workspace/${encodeURIComponent(workspaceId)}/benchmarks/tasks/${encodeURIComponent(taskId)}/documents`,
         { token, hostToken, timeoutMs: timeouts.benchmarkCatalog },
       ),
+    benchmarkGetAnalytics: (workspaceId: string, options?: { tags?: string[] }) => {
+      const query = options?.tags?.length ? `?tags=${encodeURIComponent(options.tags.join(","))}` : "";
+      return requestJson<BenchmarkAnalytics>(
+        baseUrl,
+        `/workspace/${encodeURIComponent(workspaceId)}/benchmarks/analytics${query}`,
+        { token, hostToken, timeoutMs: timeouts.benchmark },
+      );
+    },
     benchmarkExportTasks: (workspaceId: string, taskIds: string[]) =>
       requestBinary(
         baseUrl,

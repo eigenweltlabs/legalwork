@@ -153,6 +153,27 @@ export type BenchmarkModelScore = {
   criteriaTotal: number;
 };
 
+/** Cross-run model analytics (Models tab). */
+export type BenchmarkAnalyticsStat = {
+  rate: number | null;
+  tasks: number;
+  criteriaPassed: number;
+  criteriaTotal: number;
+};
+
+export type BenchmarkModelAnalytics = {
+  providerID: string;
+  modelID: string;
+  overall: BenchmarkAnalyticsStat;
+  byVertical: Array<{ vertical: string } & BenchmarkAnalyticsStat>;
+};
+
+export type BenchmarkAnalytics = {
+  models: BenchmarkModelAnalytics[];
+  verticals: string[];
+  tags: string[];
+};
+
 export type BenchmarkRunSummary = {
   id: string;
   title: string;

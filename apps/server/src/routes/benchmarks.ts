@@ -20,6 +20,7 @@ import {
 import type { BenchmarkLatestResultRow, BenchmarkStore, BenchmarkTaskRow } from "../benchmarks/store.js";
 import { removeTaskDocumentsScratchDir, stageTaskDocuments } from "../benchmarks/workdir.js";
 import { buildTasksZip, MAX_ZIP_TASKS, parseTasksZip } from "../benchmarks/task-zip.js";
+import { aggregateModelAnalytics } from "../benchmarks/analytics.js";
 import type { BenchmarkRunner } from "../benchmarks/runner.js";
 import {
   BENCHMARK_WORK_TYPES,
@@ -239,6 +240,13 @@ export function registerBenchmarkRoutes(options: RegisterBenchmarkRoutesOptions)
       store.listTasks(workspace.id).map((row) => serializeTask(row, resultsByTask.get(row.id) ?? [])),
     );
     return jsonResponse({ items });
+  });
+
+  addRoute(routes, "GET", "/workspace/:id/benchmarks/analytics", "client", async (ctx) => {
+    const workspace = await resolveWorkspace(config, ctx.params.id);
+    const store = await getStore();
+    const tags = parseListParam(ctx.url.searchParams.get("tags"));
+    return jsonResponse(aggregateModelAnalytics(store.modelAnalyticsRows(workspace.id), tags));
   });
 
   addRoute(routes, "POST", "/workspace/:id/benchmarks/tasks/import", "client", async (ctx) => {

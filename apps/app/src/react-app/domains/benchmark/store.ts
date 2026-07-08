@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import type { LegalworkServerClient } from "../../../app/lib/legalwork-server";
 import type {
+  BenchmarkAnalytics,
   BenchmarkCatalogItem,
   BenchmarkCustomTaskInput,
   BenchmarkItemDetail,
@@ -101,6 +102,12 @@ type BenchmarkState = {
   itemDetails: Record<string, BenchmarkItemDetail>;
   itemDetailLoading: string | null;
 
+  // cross-run model analytics (Models tab)
+  analytics: BenchmarkAnalytics | null;
+  analyticsStatus: LoadStatus;
+  analyticsError: string | null;
+  analyticsTags: string[];
+
   // Legal Agent Benchmark catalog (import modal)
   catalogRef: string | null;
   catalogItems: BenchmarkCatalogItem[];
@@ -149,6 +156,9 @@ type BenchmarkActions = {
   deleteRun(runId: string): Promise<void>;
   loadItemDetail(runId: string, itemId: string): Promise<void>;
 
+  loadAnalytics(): Promise<void>;
+  setAnalyticsTags(tags: string[]): void;
+
   ensureCatalog(): Promise<void>;
   refreshCatalog(): Promise<void>;
   startCatalogPolling(): void;
@@ -184,6 +194,10 @@ const INITIAL_STATE: BenchmarkState = {
   activeRunError: null,
   itemDetails: {},
   itemDetailLoading: null,
+  analytics: null,
+  analyticsStatus: "idle",
+  analyticsError: null,
+  analyticsTags: [],
   catalogRef: null,
   catalogItems: [],
   catalogVerticals: [],
@@ -492,6 +506,24 @@ export const useBenchmarkStore = create<BenchmarkState & BenchmarkActions>()((se
     } catch {
       set({ itemDetailLoading: null });
     }
+  },
+
+  async loadAnalytics() {
+    const ctx = context();
+    if (!ctx) return;
+    if (get().analyticsStatus === "idle") set({ analyticsStatus: "loading" });
+    const tags = get().analyticsTags;
+    try {
+      const analytics = await ctx.client.benchmarkGetAnalytics(ctx.workspaceId, tags.length ? { tags } : undefined);
+      set({ analytics, analyticsStatus: "ready", analyticsError: null });
+    } catch (error) {
+      set({ analyticsStatus: "error", analyticsError: errorMessage(error) });
+    }
+  },
+
+  setAnalyticsTags(tags) {
+    set({ analyticsTags: tags });
+    void get().loadAnalytics();
   },
 
   // ---- Legal Agent Benchmark catalog (import) --------------------------------
