@@ -1,7 +1,7 @@
 /** @jsxImportSource react */
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
-import { ChevronDown, Download } from "lucide-react";
+import { ArrowLeft, ChevronDown, Download, Github, Plus, Scale } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -34,6 +34,54 @@ export type ImportTasksModalProps = {
   open: boolean;
   onOpenChange: (open: boolean) => void;
 };
+
+/** A selectable benchmark source (meta-layer above the task catalog). */
+function SourceTile(props: {
+  icon: typeof Scale;
+  title: string;
+  subtitle: string;
+  onClick?: () => void;
+  disabled?: boolean;
+  link?: { href: string; label: string };
+}) {
+  const interactive = Boolean(props.onClick) && !props.disabled;
+  return (
+    <div
+      role={interactive ? "button" : undefined}
+      tabIndex={interactive ? 0 : undefined}
+      onClick={interactive ? props.onClick : undefined}
+      onKeyDown={
+        interactive
+          ? (event) => (event.key === "Enter" || event.key === " ") && props.onClick?.()
+          : undefined
+      }
+      className={cn(
+        "flex flex-col items-start gap-3 rounded-2xl border border-dls-border bg-background p-5 text-left transition-shadow",
+        props.disabled ? "cursor-default opacity-55" : "cursor-pointer hover:border-primary/40 hover:shadow-sm",
+      )}
+    >
+      <span className="flex size-10 items-center justify-center rounded-xl border border-dls-border bg-dls-hover">
+        <props.icon size={18} className="text-foreground" />
+      </span>
+      <div>
+        <h3 className="text-[15px] font-medium text-foreground">{props.title}</h3>
+        <p className="mt-1 text-[13px] leading-relaxed text-muted-foreground">{props.subtitle}</p>
+      </div>
+      {props.link ? (
+        <a
+          href={props.link.href}
+          target="_blank"
+          rel="noopener noreferrer"
+          onClick={(event) => event.stopPropagation()}
+          className="mt-1 inline-flex items-center gap-1.5 text-[12px] font-medium text-primary hover:underline"
+        >
+          <Github size={13} />
+          {props.link.label}
+        </a>
+      ) : null}
+    </div>
+  );
+}
 
 function CatalogPreview({ item }: { item: BenchmarkCatalogItem }) {
   const preview = useBenchmarkStore((state) => state.catalogPreviews[item.key]);
@@ -150,6 +198,7 @@ export function ImportTasksModal(props: ImportTasksModalProps) {
   const workspaceTasks = useBenchmarkStore((state) => state.tasks);
   const alreadyImported = useMemo(() => new Set(workspaceTasks.map((task) => task.id)), [workspaceTasks]);
 
+  const [stage, setStage] = useState<"source" | "catalog">("source");
   const [searchDraft, setSearchDraft] = useState(filters.search);
   const [tagSearch, setTagSearch] = useState("");
   const [previewKey, setPreviewKey] = useState<string | null>(null);
@@ -157,6 +206,7 @@ export function ImportTasksModal(props: ImportTasksModalProps) {
 
   useEffect(() => {
     if (!props.open) return;
+    setStage("source");
     setSelection([]);
     setPreviewKey(null);
     void ensureCatalog();
@@ -215,9 +265,47 @@ export function ImportTasksModal(props: ImportTasksModalProps) {
     <Dialog open={props.open} onOpenChange={props.onOpenChange}>
       <DialogContent className="flex h-[min(860px,92vh)] w-[min(1280px,95vw)] max-w-[95vw] flex-col sm:max-w-[1280px]">
         <DialogHeader>
-          <DialogTitle>{t("benchmark.import_title")}</DialogTitle>
+          <DialogTitle>
+            {stage === "catalog" ? (
+              <span className="flex items-center gap-2">
+                <button
+                  type="button"
+                  className="inline-flex items-center gap-1 text-[13px] font-normal text-muted-foreground hover:text-foreground"
+                  onClick={() => setStage("source")}
+                >
+                  <ArrowLeft size={14} />
+                  {t("benchmark.import_sources")}
+                </button>
+                <span className="text-muted-foreground/40">/</span>
+                {t("benchmark.import_title")}
+              </span>
+            ) : (
+              t("benchmark.import_sources")
+            )}
+          </DialogTitle>
         </DialogHeader>
 
+        {stage === "source" ? (
+          <div className="min-h-0 flex-1">
+            <p className="mb-4 text-[13px] text-muted-foreground">{t("benchmark.import_source_hint")}</p>
+            <div className="grid gap-4 sm:grid-cols-2">
+              <SourceTile
+                icon={Scale}
+                title="Harvey Legal Agent Benchmark"
+                subtitle="1,700+ realistic legal agent tasks across 25 practice areas, with rubric-based grading."
+                onClick={() => setStage("catalog")}
+                link={{ href: "https://github.com/harveyai/harvey-labs", label: t("benchmark.import_view_repo") }}
+              />
+              <SourceTile
+                icon={Plus}
+                title={t("benchmark.import_more_sources")}
+                subtitle={t("benchmark.import_more_sources_hint")}
+                disabled
+              />
+            </div>
+          </div>
+        ) : (
+        <>
         <div className="flex flex-wrap items-center gap-2">
           <DropdownMenu>
             <DropdownMenuTrigger
@@ -389,6 +477,8 @@ export function ImportTasksModal(props: ImportTasksModalProps) {
               : `${t("benchmark.import_tasks")}${selection.length ? ` (${selection.length})` : ""}`}
           </Button>
         </DialogFooter>
+        </>
+        )}
       </DialogContent>
     </Dialog>
   );
