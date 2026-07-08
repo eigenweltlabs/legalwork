@@ -12,7 +12,7 @@
 //   - the packaged sidecar versions.json
 // A final scrub pass redacts anything that still looks like a secret
 // assignment, as a safety net for stderr passthrough from child processes.
-import { mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
@@ -48,12 +48,18 @@ function section(title, body) {
   return `\n========== ${title} ==========\n${content}\n`;
 }
 
+/** Timestamped default file name offered in the save dialog. */
+export function defaultSupportBundleFileName() {
+  const stamp = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19);
+  return `legalwork-support-${stamp}.txt`;
+}
+
 /**
- * Collect the bundle and write it as a single .txt file. Returns the absolute
- * path of the written file. Throws only when even the fallback location is
- * unwritable.
+ * Build the bundle contents as one scrubbed plain-text string. Writing it to
+ * disk is the caller's job (main.mjs shows a save dialog first, so the user
+ * picks where the file goes).
  */
-export function collectSupportBundle({ app, runtimeManager }) {
+export function buildSupportBundleText({ app, runtimeManager }) {
   const parts = [];
 
   const meta = {
@@ -108,31 +114,5 @@ export function collectSupportBundle({ app, runtimeManager }) {
     if (versions) parts.push(section(`Sidecar versions (${dir})`, versions));
   }
 
-  const bundleText = scrubSecrets(`LegalWork support bundle\n${parts.join("")}`);
-
-  const stamp = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19);
-  const fileName = `legalwork-support-${stamp}.txt`;
-
-  // Prefer the Desktop so the file is easy to find and attach; fall back to
-  // the logs directory when the Desktop is unavailable (headless, permissions).
-  const targets = [];
-  try {
-    targets.push(app.getPath("desktop"));
-  } catch {
-    /* no desktop dir on this platform/user */
-  }
-  if (logsDir) targets.push(logsDir);
-
-  let lastError = null;
-  for (const dir of targets) {
-    try {
-      mkdirSync(dir, { recursive: true });
-      const filePath = path.join(dir, fileName);
-      writeFileSync(filePath, bundleText, "utf8");
-      return filePath;
-    } catch (error) {
-      lastError = error;
-    }
-  }
-  throw lastError ?? new Error("No writable location for the support bundle.");
+  return scrubSecrets(`LegalWork support bundle\n${parts.join("")}`);
 }

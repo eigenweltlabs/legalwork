@@ -22,7 +22,7 @@ import { app, BrowserWindow, dialog, ipcMain, nativeImage, nativeTheme, session,
 import { configureFakeMediaForTests, installMediaPermissionHandlers } from "./media-permissions.mjs";
 import { registerMigrationIpc } from "./migration.mjs";
 import { createRuntimeManager } from "./runtime.mjs";
-import { collectSupportBundle } from "./support-bundle.mjs";
+import { buildSupportBundleText, defaultSupportBundleFileName } from "./support-bundle.mjs";
 import { registerUpdaterIpc } from "./updater.mjs";
 import {
   checkComputerUsePermissions,
@@ -52,29 +52,47 @@ const APP_IDENTIFIER =
   (isDevMode ? DEV_APP_IDENTIFIER : APP_BUNDLE_IDENTIFIER);
 const RELEASE_DOWNLOAD_BASE_URL = "https://github.com/eigenweltlabs/legalwork/releases/latest/download";
 const RELEASE_PAGE_URL = "https://github.com/eigenweltlabs/legalwork/releases/latest";
-// Collect the support-log bundle and reveal it next to the file manager so
-// the user can attach it to an email. Shared by the Help menu and the
-// `supportBundleCollect` IPC command (boot error screen). `runtimeManager` is
-// created later at module scope; the click/IPC always happens after startup,
-// so the late binding via closure is safe.
-function collectSupportLogsAndReveal() {
-  const bundlePath = collectSupportBundle({ app, runtimeManager });
-  shell.showItemInFolder(bundlePath);
-  return bundlePath;
+// Collect the support-log bundle: ask the user where to save it (defaulting
+// to the Desktop), write it there, and reveal it in the file manager so it
+// can be attached to an email. Shared by the Help menu and the
+// `supportBundleCollect` IPC command (boot error screen). Returns the saved
+// path, or null when the user cancels the dialog. `runtimeManager` is created
+// later at module scope; the click/IPC always happens after startup, so the
+// late binding via closure is safe.
+async function collectSupportLogsAndReveal() {
+  let defaultDir;
+  try {
+    defaultDir = app.getPath("desktop");
+  } catch {
+    defaultDir = os.homedir();
+  }
+  const parent = mainWindow && !mainWindow.isDestroyed() ? mainWindow : undefined;
+  const options = {
+    title: "Save Support Logs",
+    defaultPath: path.join(defaultDir, defaultSupportBundleFileName()),
+    filters: [{ name: "Text", extensions: ["txt"] }],
+  };
+  const { canceled, filePath } = parent
+    ? await dialog.showSaveDialog(parent, options)
+    : await dialog.showSaveDialog(options);
+  if (canceled || !filePath) return null;
+
+  // Build after the dialog so the diagnostics snapshot is as fresh as possible.
+  writeFileSync(filePath, buildSupportBundleText({ app, runtimeManager }), "utf8");
+  shell.showItemInFolder(filePath);
+  return filePath;
 }
 
 const applicationMenu = createApplicationMenu({
   appName: APP_NAME,
   getWindow: () => createMainWindow(),
   collectSupportLogs: () => {
-    try {
-      collectSupportLogsAndReveal();
-    } catch (error) {
+    void collectSupportLogsAndReveal().catch((error) => {
       dialog.showErrorBox(
         "Collect Support Logs",
         `Could not write the support bundle: ${error instanceof Error ? error.message : String(error)}`,
       );
-    }
+    });
   },
 });
 
@@ -1087,8 +1105,8 @@ const desktopCommandHandlers = {
       return ensureRuntimeBootstrap();
   },
   "supportBundleCollect": async (event, ...args) => {
-      const path = collectSupportLogsAndReveal();
-      return { path };
+      const bundlePath = await collectSupportLogsAndReveal();
+      return { path: bundlePath };
   },
   "runtimeStatus": async (event, ...args) => {
       return runtimeManager.runtimeStatus();

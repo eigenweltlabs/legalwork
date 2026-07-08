@@ -23,7 +23,12 @@ function CollectLogsButton() {
     setState({ status: "collecting" });
     try {
       const result = (await supportBundleCollect()) as { path?: string | null };
-      setState({ status: "done", path: result?.path ?? "" });
+      if (!result?.path) {
+        // User canceled the save dialog — quietly return to the idle button.
+        setState({ status: "idle" });
+        return;
+      }
+      setState({ status: "done", path: result.path });
     } catch (error) {
       console.error("[boot-overlay] support bundle collection failed:", error);
       setState({ status: "failed" });
@@ -33,7 +38,7 @@ function CollectLogsButton() {
   if (state.status === "done") {
     return (
       <div className="text-[11px] leading-4 text-dls-secondary">
-        Log file saved{state.path ? ` to ${state.path}` : ""}. Please send it to support.
+        Log file saved to {state.path}. Please send it to support.
       </div>
     );
   }
