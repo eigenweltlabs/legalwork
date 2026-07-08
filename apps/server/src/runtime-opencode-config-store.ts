@@ -15,6 +15,7 @@ export type RuntimeOpencodeConfig = {
     [key: string]: unknown;
   };
   provider?: Record<string, unknown>;
+  agent?: Record<string, Record<string, unknown>>;
 };
 
 const runtimeOpencodeConfigs = sqliteTable("runtime_opencode_configs", {
@@ -32,6 +33,15 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
+function recordRecordMap(value: unknown): Record<string, Record<string, unknown>> | undefined {
+  if (!isRecord(value)) return undefined;
+  const entries: Record<string, Record<string, unknown>> = {};
+  for (const [key, item] of Object.entries(value)) {
+    if (isRecord(item)) entries[key] = item;
+  }
+  return Object.keys(entries).length ? entries : undefined;
+}
+
 function normalizeRuntimeOpencodeConfig(value: unknown): RuntimeOpencodeConfig {
   if (!isRecord(value)) return {};
   const defaultAgent = typeof value.default_agent === "string" ? value.default_agent : undefined;
@@ -42,6 +52,7 @@ function normalizeRuntimeOpencodeConfig(value: unknown): RuntimeOpencodeConfig {
   const mcp = isRecord(value.mcp) ? value.mcp as Record<string, Record<string, unknown>> : undefined;
   const permission = isRecord(value.permission) && Object.keys(value.permission).length ? value.permission : undefined;
   const provider = isRecord(value.provider) ? value.provider : undefined;
+  const agent = recordRecordMap(value.agent);
   return {
     ...(defaultAgent ? { default_agent: defaultAgent } : {}),
     ...(plugin ? { plugin } : {}),
@@ -49,6 +60,7 @@ function normalizeRuntimeOpencodeConfig(value: unknown): RuntimeOpencodeConfig {
     ...(mcp ? { mcp } : {}),
     ...(permission ? { permission } : {}),
     ...(provider ? { provider } : {}),
+    ...(agent ? { agent } : {}),
   };
 }
 
@@ -185,6 +197,10 @@ export function runtimeMcpMap(config: RuntimeOpencodeConfig): Record<string, Rec
   return isRecord(config.mcp) ? config.mcp as Record<string, Record<string, unknown>> : {};
 }
 
+export function runtimeAgentMap(config: RuntimeOpencodeConfig): Record<string, Record<string, unknown>> {
+  return recordRecordMap(config.agent) ?? {};
+}
+
 export function runtimeExternalDirectory(config: RuntimeOpencodeConfig): Record<string, unknown> {
   const permission = isRecord(config.permission) ? config.permission : null;
   const externalDirectory = permission && isRecord(permission.external_directory) ? permission.external_directory : null;
@@ -267,6 +283,7 @@ export function mergeOpencodeConfigs(
       },
     },
     ...(runtime.provider ? { provider: { ...(isRecord(persisted.provider) ? persisted.provider : {}), ...runtime.provider } } : {}),
+    ...(runtime.agent ? { agent: { ...(isRecord(persisted.agent) ? persisted.agent : {}), ...runtime.agent } } : {}),
     ...(runtime.default_agent ? { default_agent: runtime.default_agent } : {}),
   };
 }

@@ -54,7 +54,6 @@ import type {
   SlashCommandOption,
   WorkspacePreset,
   WorkspaceConnectionState,
-  Client,
   ProviderListItem,
   WorkspaceDisplay,
   WorkspaceSessionGroup,
@@ -62,6 +61,7 @@ import type {
 import {
   getWorkspaceTaskLoadErrorDisplay,
   isDesktopRuntime,
+  isOfficeAddinRuntime,
   isSandboxWorkspace,
   normalizeDirectoryPath,
   normalizeSessionStatus,
@@ -793,7 +793,7 @@ export function SessionRoute() {
           runtimeKey: environmentRuntimeKey,
         });
 
-        if (isFusionEnabled(targetSessionId)) {
+        if (!isOfficeAddinRuntime() && isFusionEnabled(targetSessionId)) {
           const candidateModels = getFusionSelectedModels(targetSessionId);
           if (candidateModels.length === 0) {
             // No candidates picked for this chat: warn and fall through to a
@@ -802,7 +802,7 @@ export function SessionRoute() {
           } else {
             // Deliberately not awaited: the composer should clear as soon as
             // the message is handed off, not when the whole fusion turn
-            // (routing + candidates + synthesis) finishes. Progress streams
+            // (task calls + synthesis) finishes. Progress streams
             // through the fusion store; failures surface as a session error.
             void runFusionSend({
               client: opencodeClient,

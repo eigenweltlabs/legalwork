@@ -1,15 +1,13 @@
 /**
  * Fusion mode state.
  *
- * Fusion mode fans a prompt out to up to three configured candidate models
- * (each in its own hidden child session of the main chat session), then asks
- * a dedicated fusion model to synthesize their outputs into the answer that
- * streams into the main chat.
+ * Fusion mode gives the main session up to three configured task-tool
+ * candidate subagents, then the main model decides when to call them and
+ * synthesizes their outputs into the answer that streams into the main chat.
  *
- * Persisted: which sessions have fusion enabled and the candidate child
- * session ids (so follow-up turns continue the same three chats after a
- * reload). Turn progress (streamed reasoning/text per candidate) is
- * ephemeral render state.
+ * Persisted: which sessions have fusion enabled, selected candidate models,
+ * and auxiliary child-session ids used by hidden helper passes such as the
+ * router. Turn progress (task output per candidate) is ephemeral render state.
  */
 import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
@@ -46,7 +44,7 @@ type FusionStore = {
   enabledSessionIds: Record<string, true>;
   /** Per-chat candidate models chosen in the composer's fusion picker (up to 3). */
   selectedModelsBySessionId: Record<string, ModelRef[]>;
-  /** `${mainSessionId}|${providerID}/${modelID}` -> candidate child session id. */
+  /** Legacy auxiliary ids retained so older persisted state can hydrate safely. */
   candidateSessionIds: Record<string, string>;
   /** Latest fusion turn per main session (ephemeral, not persisted). */
   turns: Record<string, FusionTurn>;
@@ -61,10 +59,6 @@ type FusionStore = {
 };
 
 export const MAX_FUSION_MODELS = 3;
-
-export function candidateSessionKey(mainSessionId: string, model: ModelRef) {
-  return `${mainSessionId}|${model.providerID}/${model.modelID}`;
-}
 
 export const useFusionStore = create<FusionStore>()(
   persist(

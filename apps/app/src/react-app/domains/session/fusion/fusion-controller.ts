@@ -1,22 +1,16 @@
 /**
  * Fusion mode orchestration, modeled on the engine's subagent (task tool)
- * system: hidden child sessions of the main chat run the delegated work,
- * while the main model owns the conversation.
+ * system: the main chat receives one normal prompt, the main model decides
+ * when to call task-tool subagents, and the main model owns synthesis.
  *
  * One fusion send:
- * 1. Router pass — the MAIN model classifies the message in a hidden child
- *    session (structured output): conversational messages are answered
- *    directly by the main model, with no fan-out.
- * 2. For substantive tasks, the message fans out to the chat's selected
- *    candidate models in parallel — each a reusable child session prompted
- *    with a per-run model override (the same lever the task tool uses) —
- *    and their reasoning/output stream into the chat as columns.
- * 3. The main model then answers the user in the main session under the
- *    fusion system prompt carrying all candidate outputs; its synthesis is
- *    the visible reply.
- *
- * Follow-up tasks reuse the same candidate sessions; each candidate is told
- * what answer was actually delivered previously so all chats stay coherent.
+ * 1. The app sends one normal prompt to the main model.
+ * 2. The main model receives Fusion instructions and the normal task-tool
+ *    subagent type.
+ * 3. The main model calls task-tool subagents when useful, waits on those
+ *    outputs, and writes the visible fused
+ *    answer in the main session. The differentiated Fusion columns mirror the
+ *    resulting task-tool parts.
  */
 import type {
   AgentPartInput,
@@ -24,23 +18,19 @@ import type {
   Message,
   Part,
   TextPartInput,
+  ToolPart,
 } from "@opencode-ai/sdk/v2/client";
 
 import { unwrap } from "@/app/lib/opencode";
 import type { Client, ModelRef } from "@/app/types";
 import {
-  FUSION_ROUTER_SCHEMA,
-  buildCandidateSystemPrompt,
-  buildFusionSystemPrompt,
-  buildRouterSystemPrompt,
-  type FusionCandidateOutput,
+  buildFusionDelegationSystemPrompt,
+  isFusionCandidateAgentName,
 } from "./fusion-prompt";
-import { candidateSessionKey, useFusionStore } from "./fusion-store";
+import { useFusionStore, type FusionCandidateRun } from "./fusion-store";
 
-const CANDIDATE_POLL_MS = 1200;
-const CANDIDATE_TIMEOUT_MS = 15 * 60_000;
-const ROUTER_POLL_MS = 700;
-const ROUTER_TIMEOUT_MS = 90_000;
+const FUSION_TASK_POLL_MS = 1200;
+const FUSION_TASK_TIMEOUT_MS = 15 * 60_000;
 
 export type FusionPromptParts = Array<TextPartInput | FilePartInput | AgentPartInput>;
 
@@ -126,269 +116,264 @@ function collectText(parts: Part[]): string {
     .trim();
 }
 
-function collectReasoning(parts: Part[]): string {
-  return parts
-    .flatMap((part) => (part.type === "reasoning" ? [part.text] : []))
-    .join("\n")
-    .trim();
+function fusionTracePrompt(sections: string): string {
+  return `The user may be asking about the latest fusion candidate outputs. Answer from this trace when relevant. Do not claim no candidate/subagent/fusion models ran if this trace is present.
+
+## Latest fusion candidate trace
+
+${sections}`;
 }
 
-async function ensureChildSession(input: {
+function taskTraceSection(part: ToolPart, index: number): string {
+  const input = recordValue(part.state.input);
+  const metadata = taskStateMetadata(part);
+  const model = taskStateModel(part);
+  const modelLabel = model ? `${model.providerID}/${model.modelID}` : stringValue(input, "description") || `Candidate ${index + 1}`;
+  const sessionID = stringValue(metadata, "sessionId");
+  const status = part.state.status;
+  const output =
+    part.state.status === "completed"
+      ? part.state.output.trim() || "(no output captured)"
+      : part.state.status === "error"
+        ? `Error: ${part.state.error}`
+        : "(still running)";
+  return `### Candidate ${index + 1} (${modelLabel})
+Status: ${status}${sessionID ? `\nSession: ${sessionID}` : ""}
+
+${output}`;
+}
+
+async function buildFusionTraceSystemPrompt(input: {
   client: Client;
   directory?: string;
-  mainSessionId: string;
-  key: string;
-  title: string;
-}): Promise<string> {
-  const { client, directory, mainSessionId, key, title } = input;
-  const store = useFusionStore.getState();
-  const existing = store.candidateSessionIds[key];
-  if (existing) {
-    const lookup = await client.session.get({ sessionID: existing, directory });
-    if (lookup.data) return existing;
-    store.forgetCandidateSession(key);
+  sessionId: string;
+}): Promise<string | null> {
+  const { client, directory, sessionId } = input;
+  const turn = useFusionStore.getState().turns[sessionId];
+  if (turn && turn.runs.length > 0 && turn.runs.some((run) => run.text.trim() || run.error)) {
+    const sections = turn.runs
+      .map((run, index) => {
+        const output = run.error ? `Error: ${run.error}` : run.text.trim() || "(no output captured)";
+        return `### Candidate ${index + 1} (${run.model.providerID}/${run.model.modelID})
+Status: ${run.status}
+
+${output}`;
+      })
+      .join("\n\n");
+    return fusionTracePrompt(sections);
   }
-  const created = unwrap(
-    await client.session.create({ directory, parentID: mainSessionId, title }),
-  );
-  useFusionStore.getState().rememberCandidateSession(key, created.id);
-  return created.id;
-}
-
-type RouterDecision = { task: boolean; brief: string | null };
-
-function parseRouterDecision(structured: unknown, text: string): RouterDecision | null {
-  let candidate = structured;
-  if (candidate === undefined || candidate === null) {
-    try {
-      candidate = JSON.parse(text) as unknown;
-    } catch {
-      return null;
-    }
-  }
-  if (typeof candidate !== "object" || candidate === null) return null;
-  const record = candidate as { task?: unknown; brief?: unknown };
-  if (typeof record.task !== "boolean") return null;
-  return {
-    task: record.task,
-    brief: typeof record.brief === "string" && record.brief.trim() ? record.brief.trim() : null,
-  };
-}
-
-/**
- * Router pass: the main model classifies the message as a substantive task
- * (delegate to fusion subagents) or conversational (answer directly), via a
- * hidden child session with structured output. When the router cannot decide
- * (error, timeout, unparseable output), the message is treated as a task —
- * the user turned fusion on expecting the fan-out.
- */
-async function classifyMessage(input: {
-  client: Client;
-  directory?: string;
-  mainSessionId: string;
-  mainModel?: ModelRef;
-  userText: string;
-  previousFusionText: string | null;
-}): Promise<RouterDecision> {
-  const { client, directory, mainSessionId, mainModel, userText, previousFusionText } = input;
   try {
-    const sessionID = await ensureChildSession({
-      client,
-      directory,
-      mainSessionId,
-      key: `${mainSessionId}|fusion-router`,
-      title: "Fusion router",
-    });
-    const before = new Set((await listMessages(client, sessionID, directory)).map((message) => message.info.id));
-
-    let promptError: unknown = null;
-    void client.session
-      .promptAsync({
-        sessionID,
-        directory,
-        parts: [{ type: "text", text: userText }],
-        model: mainModel,
-        system: buildRouterSystemPrompt(previousFusionText),
-        format: { type: "json_schema", schema: { ...FUSION_ROUTER_SCHEMA }, retryCount: 2 },
-      })
-      .then((result) => {
-        if (result.error) promptError = result.error;
-      })
-      .catch((error: unknown) => {
-        promptError = error;
-      });
-
-    const deadline = Date.now() + ROUTER_TIMEOUT_MS;
-    while (Date.now() < deadline) {
-      await sleep(ROUTER_POLL_MS);
-      if (promptError) break;
-      let fresh: MessageWithParts[] = [];
-      try {
-        const messages = await listMessages(client, sessionID, directory);
-        fresh = messages.filter((message) => message.info.role === "assistant" && !before.has(message.info.id));
-      } catch {
-        continue;
-      }
-      const last = fresh[fresh.length - 1];
-      if (!last || last.info.role !== "assistant" || typeof last.info.time.completed !== "number") continue;
-      const parsed = parseRouterDecision(last.info.structured, collectText(last.parts));
-      if (parsed) return parsed;
-      break;
-    }
+    const taskParts = collectFusionTaskParts(await listMessages(client, sessionId, directory));
+    const latest = taskParts.slice(-3);
+    if (latest.length === 0) return null;
+    return fusionTracePrompt(latest.map(taskTraceSection).join("\n\n"));
   } catch {
-    // fall through to the task default
+    return null;
   }
-  return { task: true, brief: null };
 }
 
-async function runCandidate(input: {
+function recordValue(value: unknown): Record<string, unknown> | null {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return null;
+  return value as Record<string, unknown>;
+}
+
+function stringValue(record: Record<string, unknown> | null, key: string): string | null {
+  if (!record) return null;
+  const value = record[key];
+  return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+function modelFromRecord(record: Record<string, unknown> | null): ModelRef | null {
+  if (!record) return null;
+  const providerID = stringValue(record, "providerID");
+  const modelID = stringValue(record, "modelID");
+  if (!providerID || !modelID) return null;
+  return { providerID, modelID };
+}
+
+function sameModel(left: ModelRef, right: ModelRef): boolean {
+  return left.providerID === right.providerID && left.modelID === right.modelID;
+}
+
+function taskInput(part: ToolPart): Record<string, unknown> | null {
+  return recordValue(part.state.input);
+}
+
+function taskStateMetadata(part: ToolPart): Record<string, unknown> | null {
+  if (!("metadata" in part.state)) return null;
+  return recordValue(part.state.metadata);
+}
+
+function taskStateModel(part: ToolPart): ModelRef | null {
+  return modelFromRecord(recordValue(taskStateMetadata(part)?.model));
+}
+
+function isFusionTaskPart(part: Part): part is ToolPart {
+  if (part.type !== "tool" || part.tool !== "task") return false;
+  const input = taskInput(part);
+  const subagentType = stringValue(input, "subagent_type");
+  if (subagentType && isFusionCandidateAgentName(subagentType)) return true;
+  const description = stringValue(input, "description");
+  return Boolean(description?.startsWith("Fusion candidate"));
+}
+
+function collectFusionTaskParts(messages: MessageWithParts[], baselineMessageIds?: Set<string>): ToolPart[] {
+  return messages.flatMap((message) => {
+    if (baselineMessageIds?.has(message.info.id)) return [];
+    return message.parts.filter(isFusionTaskPart);
+  });
+}
+
+function taskStatus(part: ToolPart): FusionCandidateRun["status"] {
+  if (part.state.status === "completed") return "done";
+  if (part.state.status === "error") return "error";
+  if (part.state.status === "pending") return "pending";
+  return "running";
+}
+
+function patchFromTaskPart(part: ToolPart): Partial<FusionCandidateRun> {
+  const metadata = taskStateMetadata(part);
+  const patch: Partial<FusionCandidateRun> = {
+    status: taskStatus(part),
+  };
+  const model = taskStateModel(part);
+  if (model) patch.model = model;
+  const sessionID = stringValue(metadata, "sessionId");
+  if (sessionID) patch.sessionID = sessionID;
+  if (part.state.status === "completed") {
+    patch.text = part.state.output.trim();
+    patch.error = null;
+  }
+  if (part.state.status === "error") {
+    patch.error = part.state.error;
+  }
+  return patch;
+}
+
+function matchTaskPartsToCandidates(taskParts: ToolPart[], candidateModels: ModelRef[]): Array<ToolPart | null> {
+  const matched = new Set<number>();
+  return candidateModels.map((model, index) => {
+    const byModelIndex = taskParts.findIndex((part, partIndex) => {
+      if (matched.has(partIndex)) return false;
+      const taskModel = taskStateModel(part);
+      return Boolean(taskModel && sameModel(taskModel, model));
+    });
+    if (byModelIndex >= 0) {
+      matched.add(byModelIndex);
+      return taskParts[byModelIndex] ?? null;
+    }
+    if (matched.has(index)) return null;
+    const fallback = taskParts[index] ?? null;
+    if (fallback) matched.add(index);
+    return fallback;
+  });
+}
+
+function applyFusionTaskProgress(sessionId: string, candidateModels: ModelRef[], taskParts: ToolPart[]): void {
+  const updateRun = useFusionStore.getState().updateRun;
+  matchTaskPartsToCandidates(taskParts, candidateModels).forEach((part, index) => {
+    if (!part) return;
+    updateRun(sessionId, index, patchFromTaskPart(part));
+  });
+}
+
+async function monitorFusionTaskProgress(input: {
   client: Client;
   directory?: string;
-  sessionID: string;
-  parts: FusionPromptParts;
-  model: ModelRef;
-  agent?: string;
-  system: string;
-  onProgress: (reasoning: string, text: string) => void;
-}): Promise<string> {
-  const { client, directory, sessionID, parts, model, agent, system, onProgress } = input;
+  sessionId: string;
+  userText: string;
+  candidateModels: ModelRef[];
+  baselineMessageIds: string[];
+  startTurnOnFirstTask: boolean;
+}): Promise<void> {
+  const { client, directory, sessionId, userText, candidateModels, baselineMessageIds, startTurnOnFirstTask } = input;
+  const baseline = new Set(baselineMessageIds);
+  const setPhase = useFusionStore.getState().setPhase;
+  const deadline = Date.now() + FUSION_TASK_TIMEOUT_MS;
+  let turnStarted = Boolean(useFusionStore.getState().turns[sessionId]);
 
-  const before = new Set((await listMessages(client, sessionID, directory)).map((message) => message.info.id));
-
-  // prompt_async may either enqueue-and-return or resolve when the run
-  // completes, so its resolution only signals errors; run completion is
-  // detected from the session's own status and message state below.
-  let promptError: unknown = null;
-  void client.session
-    .promptAsync({ sessionID, directory, parts, model, agent, system })
-    .then((result) => {
-      if (result.error) promptError = result.error;
-    })
-    .catch((error: unknown) => {
-      promptError = error;
+  const ensureTurnStarted = () => {
+    if (turnStarted) return;
+    useFusionStore.getState().startTurn(sessionId, {
+      userText,
+      phase: "candidates",
+      baselineMessageIds,
+      runs: candidateModels.map((model) => ({
+        model,
+        sessionID: null,
+        status: "pending",
+        reasoning: "",
+        text: "",
+        error: null,
+      })),
     });
-
-  const deadline = Date.now() + CANDIDATE_TIMEOUT_MS;
-  let latestText = "";
-  let sawActivity = false;
+    turnStarted = true;
+  };
 
   while (Date.now() < deadline) {
-    await sleep(CANDIDATE_POLL_MS);
-    if (promptError) throw new Error(describeError(promptError));
-
-    let fresh: MessageWithParts[] = [];
+    await sleep(FUSION_TASK_POLL_MS);
+    let taskParts: ToolPart[] = [];
     try {
-      const messages = await listMessages(client, sessionID, directory);
-      fresh = messages.filter((message) => message.info.role === "assistant" && !before.has(message.info.id));
+      taskParts = collectFusionTaskParts(await listMessages(client, sessionId, directory), baseline);
+      if (taskParts.length > 0) {
+        if (startTurnOnFirstTask) ensureTurnStarted();
+        applyFusionTaskProgress(sessionId, candidateModels, taskParts);
+        const terminalCount = taskParts.filter((part) => part.state.status === "completed" || part.state.status === "error").length;
+        if (terminalCount >= candidateModels.length) setPhase(sessionId, "fusing");
+      }
     } catch {
-      continue; // transient read failure; the prompt keeps running server-side
+      // transient read failure; the main run continues server-side
     }
 
-    latestText = fresh.map((message) => collectText(message.parts)).filter(Boolean).join("\n\n");
-    const reasoning = fresh.map((message) => collectReasoning(message.parts)).filter(Boolean).join("\n\n");
-    onProgress(reasoning, latestText);
-
-    const busy = await isSessionBusy(client, sessionID, directory);
-    if (busy === true || fresh.length > 0) sawActivity = true;
-    if (!sawActivity || busy !== false) continue;
-
-    // Session is idle again after having worked: the run is over once the
-    // last assistant message reports completion.
-    const last = fresh[fresh.length - 1];
-    const completed = last?.info.role === "assistant" && typeof last.info.time.completed === "number";
-    if (!completed) continue;
-    if (!latestText) throw new Error("Model produced no output.");
-    return latestText;
+    const busy = await isSessionBusy(client, sessionId, directory);
+    if (busy === false) {
+      let latest = taskParts;
+      if (latest.length === 0) {
+        try {
+          latest = collectFusionTaskParts(await listMessages(client, sessionId, directory), baseline);
+        } catch {
+          latest = [];
+        }
+      }
+      if (latest.length === 0) {
+        if (turnStarted) {
+          candidateModels.forEach((_, index) => {
+            useFusionStore.getState().updateRun(sessionId, index, {
+              status: "error",
+              error: "The main agent finished without spawning Fusion task-tool subagents.",
+            });
+          });
+          setPhase(sessionId, "error");
+        }
+        return;
+      }
+      if (startTurnOnFirstTask) ensureTurnStarted();
+      applyFusionTaskProgress(sessionId, candidateModels, latest);
+      setPhase(sessionId, latest.some((part) => part.state.status === "completed") ? "done" : "error");
+      return;
+    }
   }
-  throw new Error("Timed out waiting for the model to finish.");
+  setPhase(sessionId, "error");
 }
 
 export async function runFusionSend(input: RunFusionSendInput): Promise<void> {
   const { client, directory, mainSessionId, parts, userText, candidateModels, mainModel, agent, variant, baseSystem } = input;
 
-  const { previousFusionText, baselineMessageIds } = await readMainSessionBaseline(client, mainSessionId, directory);
-
-  const decision = await classifyMessage({ client, directory, mainSessionId, mainModel, userText, previousFusionText });
-  if (!decision.task) {
-    // Conversational message: the main model answers directly, no fan-out.
-    const result = await client.session.promptAsync({
-      sessionID: mainSessionId,
-      parts,
-      model: mainModel,
-      agent,
-      ...(variant ? { variant } : {}),
-      ...(baseSystem ? { system: baseSystem } : {}),
-    });
-    if (result.error) throw new Error(describeError(result.error));
-    return;
-  }
-
-  const candidateSystem = buildCandidateSystemPrompt(previousFusionText, decision.brief);
+  const { baselineMessageIds } = await readMainSessionBaseline(client, mainSessionId, directory);
 
   const store = useFusionStore.getState();
-  store.startTurn(mainSessionId, {
-    userText,
-    phase: "candidates",
-    baselineMessageIds,
-    runs: candidateModels.map((model) => ({
-      model,
-      sessionID: null,
-      status: "pending",
-      reasoning: "",
-      text: "",
-      error: null,
-    })),
-  });
-  const updateRun = useFusionStore.getState().updateRun;
+  store.clearTurn(mainSessionId);
   const setPhase = useFusionStore.getState().setPhase;
+  const traceSystem = await buildFusionTraceSystemPrompt({ client, directory, sessionId: mainSessionId });
 
-  const results = await Promise.allSettled(
-    candidateModels.map(async (model, index): Promise<FusionCandidateOutput> => {
-      try {
-        const sessionID = await ensureChildSession({
-          client,
-          directory,
-          mainSessionId,
-          key: candidateSessionKey(mainSessionId, model),
-          title: `Fusion candidate · ${model.modelID}`,
-        });
-        updateRun(mainSessionId, index, { sessionID, status: "running" });
-        const text = await runCandidate({
-          client,
-          directory,
-          sessionID,
-          parts,
-          model,
-          agent,
-          system: candidateSystem,
-          onProgress: (reasoning, progressText) => {
-            updateRun(mainSessionId, index, { reasoning, text: progressText });
-          },
-        });
-        updateRun(mainSessionId, index, { status: "done", text });
-        return { providerID: model.providerID, modelID: model.modelID, text };
-      } catch (error) {
-        updateRun(mainSessionId, index, { status: "error", error: describeError(error) });
-        throw error;
-      }
-    }),
-  );
-
-  const outputs = results.flatMap((result) => (result.status === "fulfilled" ? [result.value] : []));
-  if (outputs.length === 0) {
-    setPhase(mainSessionId, "error");
-    const firstFailure = results.find((result) => result.status === "rejected");
-    throw new Error(
-      `All fusion models failed${firstFailure ? `: ${describeError(firstFailure.reason)}` : "."}`,
-    );
-  }
-
-  setPhase(mainSessionId, "fusing");
-  const fusionSystem = [baseSystem, buildFusionSystemPrompt(outputs)]
+  const fusionSystem = [baseSystem, traceSystem, buildFusionDelegationSystemPrompt({
+    candidateModels,
+  })]
     .filter((section): section is string => Boolean(section?.trim()))
     .join("\n\n");
   const result = await client.session.promptAsync({
     sessionID: mainSessionId,
+    directory,
     parts,
     model: mainModel,
     agent,
@@ -399,5 +384,13 @@ export async function runFusionSend(input: RunFusionSendInput): Promise<void> {
     setPhase(mainSessionId, "error");
     throw new Error(describeError(result.error));
   }
-  setPhase(mainSessionId, "done");
+  await monitorFusionTaskProgress({
+    client,
+    directory,
+    sessionId: mainSessionId,
+    userText,
+    candidateModels,
+    baselineMessageIds,
+    startTurnOnFirstTask: true,
+  });
 }

@@ -21,7 +21,7 @@ import { useNavigate } from "react-router-dom";
 
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
-import { isDesktopRuntime } from "@/app/utils";
+import { isDesktopRuntime, isOfficeAddinRuntime } from "@/app/utils";
 import { useLocal } from "@/react-app/kernel/local-provider";
 import { t } from "@/i18n";
 
@@ -97,7 +97,7 @@ export function WhatsNewDialog(props: { hasWorkspaces: boolean; workspacesReady:
     // Never in the Office task pane (it renders SessionRoute too): the
     // narrow sidebar is no place for release announcements, and the pane
     // shares localStorage with nothing that should absorb them either.
-    if (document.documentElement.classList.contains("lw-word-pane")) return;
+    if (isOfficeAddinRuntime()) return;
 
     // QA hook: localStorage.setItem("legalwork.whatsNewPreview", "1")
     // force-shows the newest announcement, ignoring seen state and

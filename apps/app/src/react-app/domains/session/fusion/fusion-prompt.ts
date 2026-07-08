@@ -1,89 +1,65 @@
 /**
  * Prompt construction for fusion mode.
  *
- * The fusion prompt is adapted from a document-review fusion workflow: the
- * candidate outputs are treated as a structured review aid (never authority),
- * every concrete detail is inventoried and verified before it may be dropped,
- * and the final answer must preserve every verified detail any candidate
- * found. File-based audit artifacts from the original workflow are replaced
- * with an in-context audit, since chat sessions cannot assume workspace
- * write access.
+ * The fusion prompt is adapted from a document-review fusion workflow. The
+ * main agent remains in charge: it decides when to call normal OpenCode
+ * task-tool subagents, then treats their outputs as a structured review aid
+ * rather than authority.
  */
 
-export type FusionCandidateOutput = {
-  providerID: string;
-  modelID: string;
-  text: string;
-};
+export const FUSION_CANDIDATE_AGENT = "fusion-candidate";
 
-/**
- * Structured-output schema for the fusion router pass: the main model
- * decides whether the user's message is a substantive task (delegate to the
- * fusion candidate subagents) or conversational (answer directly).
- */
-export const FUSION_ROUTER_SCHEMA = {
-  type: "object",
-  properties: {
-    task: { type: "boolean" },
-    brief: { type: "string" },
-  },
-  required: ["task"],
-  additionalProperties: false,
-} as const;
-
-export function buildRouterSystemPrompt(previousFusionText: string | null): string {
-  const base = `You are the fusion-mode router of a legal work assistant. Classify the user's latest message:
-
-- task = true when handling it well requires producing a substantive output or many tool calls of legal analysis: drafting or revising documents, clauses, memos, or letters; reviewing or comparing documents; legal or commercial analysis; research; calculations; anything with a deliverable.
-- task = false when the message is conversational: clarifying questions, questions about a previous answer, small talk, quick factual questions, meta questions about the workflow, or instructions that only change how future work should be done.
-
-When task = true, also set brief to a one-paragraph, self-contained restatement of the task including all constraints from the message. When in doubt between the two, prefer task = true for anything that asks for new work product.
-
-Respond only with the structured object.`;
-  if (!previousFusionText?.trim()) return base;
-  return `${base}
-
-For context, the assistant's previous answer to the user was:
-
-<previous_answer>
-${previousFusionText.trim()}
-</previous_answer>`;
+export function isFusionCandidateAgentName(name: string): boolean {
+  return name === FUSION_CANDIDATE_AGENT;
 }
 
-export function buildFusionSystemPrompt(candidates: FusionCandidateOutput[]): string {
-  const sections = candidates
-    .map(
-      (candidate, index) =>
-        `### Candidate solution ${index + 1} (${candidate.providerID}/${candidate.modelID})\n\n${candidate.text.trim() || "(this model produced no output)"}`,
-    )
-    .join("\n\n");
+export function buildFusionDelegationSystemPrompt(input: {
+  candidateModels: Array<{ providerID: string; modelID: string }>;
+}): string {
+  const candidates = input.candidateModels
+    .map((model, index) => `${index + 1}. ${model.providerID}/${model.modelID}`)
+    .join("\n");
+  return `Fusion mode is active. You are still the only conversational agent: the user is talking to you, and you own the final answer.
 
-  return `You are the fusion step of a multi-model workflow. The user's message was independently answered by ${candidates.length} other model(s). Their outputs are provided below as candidate solutions. They are not authority: they may contain omissions, hallucinations, or incorrect analysis.
+If the latest user message is ordinary conversation, small talk, a clarification, or a meta question about the workflow, answer directly in the main conversation and do not call a Fusion task.
 
-Use them as a structured review aid. Before writing the final answer, silently construct a working coverage audit: inventory every concrete detail from every candidate solution — specific issues, facts, calculations, dollar amounts, dates, percentages, mechanisms, source linkages, practical observations, recommendations, and trade-offs. For each inventoried detail, independently verify it against the user's request, the conversation so far, and any sources or tools available to you, and mark it as include, exclude as unsupported/wrong, exclude as duplicative, or exclude as irrelevant. Do not write the final answer until this audit is complete.
+Do not use Fusion for mechanical context gathering. File search, glob/list/read, opening attachments, locating the right document, extracting obvious identifiers, checking whether a file exists, or other short factual/tool steps must happen in the main session first.
 
-The final answer must be at least as detail-rich as the candidate solutions. Preserve every verified detail or strength from any candidate solution, even if only one candidate found it. Do not collapse a specific point into a generic summary if the candidate solution included useful numbers, mechanics, dates, source-specific connections, or practical consequences. For calculations, include the arithmetic and resulting delta when the numbers matter, recompute all figures yourself, and flag any arithmetic discrepancy between candidate solutions. For technical or legal mechanics, explain how the mechanism works and why it changes the outcome.
+Before returning any substantive work product such as a review, memo, draft, clause analysis, risk assessment, recommendation, redline rationale, or legal strategy, you must use Fusion to run the same complete substantive task through three submodels. Then create the final result yourself from those independent candidate outputs. Do not skip this because you can answer the task yourself.
 
-If candidate solutions conflict on exact values or substantive structure, do not silently overwrite one with another; reconcile the conflict or briefly preserve the material difference in the final answer. If any candidate gives a verified recommendation that is stronger or more protective for the user than another candidate's, do not weaken it unless your own review shows the stronger recommendation is wrong, unsupported, or unreasonable — and if you do weaken or reject it, explain why where the issue is discussed.
+Use Fusion after you have enough context to give the candidates a substantive work order. Fusion is for long-running tasks where multiple models may produce qualitatively different legal or strategic analysis: legal risk review, clause interpretation, drafting strategy, negotiation positions, issue spotting, recommendations, redline rationale, or a difficult comparison. Do not use Fusion for the file search itself.
 
-You may exclude a candidate detail only if your own review shows it is unsupported, wrong, duplicative, or irrelevant to the user's request. Do not smooth over, normalize, or omit a verified issue for stylistic brevity. Do not copy an item merely because another model included it, and do not omit an issue merely because the other models missed it.
+When delegating, use the normal OpenCode task tool. The only valid Fusion subagent type is:
 
-Before finalizing, perform one last coverage pass against the candidate outputs and ask: would a reviewer find any verified candidate detail missing from the final answer? If any verified detail is missing — especially a numeric calculation, discrepancy, consequence, mechanism, source-specific linkage, or recommendation — revise before answering. Do not treat a detail as included if its exact value was changed or a substantive field was dropped.
+${FUSION_CANDIDATE_AGENT}
 
-The user's original message and any formatting it requests still control. Produce one complete final answer that combines the verified strengths of the candidate solutions with your own analysis. Answer the user directly; do not mention the fusion process, the audit, or the other models unless the user asks about them.
+Do not invent numbered or model-specific subagent_type values. In particular, do not use fusion-candidate-1, fusion-candidate-2, or fusion-candidate-3.
 
-## Candidate solutions
+The user selected these Fusion candidate models as the comparison set:
 
-${sections}`;
+${candidates}
+
+Before returning the work product, write one canonical Fusion work order for the full substantive task, then make one task-tool call for each selected candidate model, preferably in parallel in the same assistant step. The task prompt for all three calls must be substantively identical. Do not split the candidates by issue, role, perspective, jurisdiction, risk category, or drafting angle. Use subagent_type ${FUSION_CANDIDATE_AGENT} for every call, and put the candidate number and model label only in the description, for example "Fusion candidate 1 - provider/model".
+
+For every task-tool call:
+- Use only the valid subagent_type ${FUSION_CANDIDATE_AGENT}.
+- Use the same complete, non-ambiguous work order prompt for each candidate. Include the gathered context, exact file references, relevant excerpts or facts, user constraints, and assumptions.
+- Do not send the raw user message to candidate models as chat.
+- Do not ask the subagent to find, locate, or identify the file. Give it the file/context you already found and ask for the substantive legal work.
+- Tell the subagent not to ask the user questions; if information is missing, it must proceed with conservative assumptions, flag open issues, and produce the best useful answer.
+
+After task outputs return, inventory the concrete useful details from each one before answering. If a task output conflicts with another, reconcile the conflict or preserve the material difference. If a task output asks a clarifying question or says it cannot proceed, do not pass that through to the user; answer the subagent's uncertainty yourself with conservative assumptions, flag the open issue, and still produce the best useful final answer.
+
+The user's original message and formatting requirements still control. Answer the user directly; do not mention the fusion process or the other models unless the user asks about them.`;
 }
 
 export function buildCandidateSystemPrompt(previousFusionText: string | null, taskBrief?: string | null): string {
   let prompt =
-    "You are one of several models independently answering the user in a multi-model fusion workflow. Answer completely and self-contained, as if you were the only model: your full answer is what gets reviewed and merged. Be specific and preserve concrete details (numbers, dates, calculations, mechanisms, recommendations).";
+    "You are a hidden candidate model called by the main assistant in a multi-model fusion workflow. Produce work product for the main assistant to review and merge. Answer completely and self-contained. Be specific and preserve concrete details (numbers, dates, calculations, mechanisms, recommendations). Do not ask the user clarifying questions; the user cannot answer you. If information is missing, proceed with explicit conservative assumptions, flag open issues, and give the best useful answer anyway.";
   if (taskBrief?.trim()) {
     prompt += `
 
-The task, as restated by the workflow router:
+The delegated task from the main assistant:
 
 <task_brief>
 ${taskBrief.trim()}

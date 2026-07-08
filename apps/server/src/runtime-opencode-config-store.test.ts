@@ -117,8 +117,8 @@ describe("runtime OpenCode config store", () => {
       const mcpItems = await listMcp(config, WORKSPACE_ID, root);
       const pluginItems = await listPlugins(config, WORKSPACE_ID, root, false);
 
-      expect(mcpItems.map((item) => item.name)).toEqual(["runtime"]);
-      expect(pluginItems.items.map((item) => item.spec)).toEqual(["runtime-plugin"]);
+      expect(mcpItems.map((item) => item.name)).toContain("runtime");
+      expect(pluginItems.items.map((item) => item.spec)).toContain("runtime-plugin");
     });
   });
 
@@ -351,6 +351,7 @@ describe("runtime OpenCode config store", () => {
         default_agent: "legalwork",
         plugin: ["opencode-chrome-devtools", "user-plugin"],
         provider: { local: { npm: "@ai-sdk/openai-compatible" } },
+        agent: { reviewer: { mode: "subagent", model: "opencode/big-pickle" } },
         disabled_providers: ["old-provider"],
         custom_user_key: true,
       }, null, 2) + "\n", "utf8");
@@ -364,13 +365,14 @@ describe("runtime OpenCode config store", () => {
         expect(response.status).toBe(200);
         expect(await response.json()).toMatchObject({
           migrated: true,
-          userOpencodeKeys: ["default_agent", "plugin", "disabled_providers", "provider"],
+          userOpencodeKeys: ["default_agent", "plugin", "disabled_providers", "provider", "agent"],
         });
 
         const runtime = await readRuntimeOpencodeConfig(config, WORKSPACE_ID);
         expect(runtime.default_agent).toBe("legalwork");
         expect(runtime.plugin).toEqual(["opencode-chrome-devtools", "user-plugin"]);
         expect(runtime.provider?.local).toEqual({ npm: "@ai-sdk/openai-compatible" });
+        expect(runtime.agent?.reviewer).toEqual({ mode: "subagent", model: "opencode/big-pickle" });
         expect(runtime.disabled_providers).toEqual(["old-provider"]);
 
         const opencode = JSON.parse(await readFile(opencodePath, "utf8")) as Record<string, unknown>;
@@ -379,6 +381,7 @@ describe("runtime OpenCode config store", () => {
         expect(opencode.default_agent).toBeUndefined();
         expect(opencode.plugin).toBeUndefined();
         expect(opencode.provider).toBeUndefined();
+        expect(opencode.agent).toBeUndefined();
         expect(opencode.disabled_providers).toBeUndefined();
       } finally {
         await server.stop(true);

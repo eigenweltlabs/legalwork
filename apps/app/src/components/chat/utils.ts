@@ -119,7 +119,9 @@ export function getAssistantRenderGroups(
   parts: UIMessage["parts"],
   showThinking: boolean
 ): AssistantRenderGroup[] {
-  const filteredParts = parts.filter((part) => showThinking || !isReasoningUIPart(part))
+  const filteredParts = parts.filter(
+    (part) => showThinking || !isReasoningUIPart(part)
+  )
   const groups: AssistantRenderGroup[] = []
 
   const appendText = (text: string) => {
