@@ -38,9 +38,12 @@ Review **only** the file you were given. Do not look at other documents.
 ## How to read the document
 
 1. Get the text. The `read` tool handles text, markdown, and many formats directly.
-   For binaries that don't come through cleanly, use `bash` to extract text:
-   - PDF: `pdftotext -layout "<file>" -` (fall back to `pdftotext "<file>" -`).
-   - DOCX: `pandoc "<file>" -t plain` or, on macOS, `textutil -convert txt -stdout "<file>"`.
+   For binaries, use the bundled extractors — they ship with every workspace, so no
+   system tools are needed:
+   - PDF: `node .opencode/skills/pdf-tools/assets/pdf-agent.mjs text "<file>"`
+     (per-page JSON; empty pages mean a scan with no text layer).
+   - DOCX: `node .opencode/skills/docx-edit/assets/docx-agent.mjs inspect "<file>"`
+     (every paragraph including table cells, with indexes and locations).
    - If nothing works, set every cell's value to `"Unreadable"` with `confidence: "low"`
      and explain in `notes`.
 2. Read the **whole** document, not just the first page. Defined terms, schedules,
@@ -74,9 +77,10 @@ Review **only** the file you were given. Do not look at other documents.
 - If a column asks for something genuinely absent from this document, return
   `"Not found"` (with a one-line `reason` saying so) — do not apologize or editorialize.
 
-To find the page number reliably, prefer extracting text with page markers, e.g.
-`pdftotext -layout "<file>" - | ...` keeps layout; or run `pdftotext -f N -l N` to confirm
-a sentence is on page N. Count pages from 1.
+To find the page number reliably, use the bundled extractor's per-page output:
+`node .opencode/skills/pdf-tools/assets/pdf-agent.mjs text "<file>"` returns one entry
+per page, so the `page` of the entry containing your quote is the page number. To
+confirm a single page, pass `--pages N`. Count pages from 1.
 
 ## Output contract — return ONLY this JSON, nothing before or after
 

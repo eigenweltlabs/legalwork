@@ -3,7 +3,7 @@ import { execFileSync } from "node:child_process";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { PDFDocument } from "pdf-lib";
+import { PDFDocument, StandardFonts } from "pdf-lib";
 import { z } from "zod";
 
 import { CORE_OPENCODE_FILES } from "./core-skills.js";
@@ -17,6 +17,7 @@ const PDF_SKILL_FILES = [
   ".opencode/skills/pdf-tools/SKILL.md",
   ".opencode/skills/pdf-tools/assets/pdf-agent.mjs",
   ".opencode/skills/pdf-tools/assets/pdf-ops.mjs",
+  ".opencode/skills/pdf-tools/assets/pdf-text.mjs",
   ".opencode/skills/pdf-tools/assets/vendor/pdf-lib.mjs",
 ];
 
@@ -65,6 +66,11 @@ const fillResult = z.object({
 });
 
 const annotateResult = z.object({ ok: z.boolean(), name: z.string(), notes: z.number(), highlights: z.number() });
+
+const textResult = z.object({
+  pageCount: z.number(),
+  pages: z.array(z.object({ page: z.number(), text: z.string() })),
+});
 
 const signResult = z.object({ ok: z.boolean(), name: z.string(), page: z.number(), x: z.number(), y: z.number() });
 
@@ -121,6 +127,23 @@ describe("pdf-agent script", () => {
       "client.name:text",
       "client.state:dropdown",
     ]);
+  });
+
+  test("text extracts per-page text content", async () => {
+    const doc = await PDFDocument.create();
+    const font = await doc.embedFont(StandardFonts.Helvetica);
+    doc.addPage([612, 792]).drawText("The annual salary shall be EUR 55,000.00.", { x: 72, y: 700, size: 11, font });
+    doc.addPage([612, 792]).drawText("Governing law: Germany.", { x: 72, y: 700, size: 11, font });
+    const textPath = join(workspace, "text-sample.pdf");
+    await writeFile(textPath, await doc.save());
+
+    const result = textResult.parse(JSON.parse(runAgent(["text", textPath])));
+    expect(result.pageCount).toBe(2);
+    expect(result.pages[0]?.text).toContain("EUR 55,000.00");
+    expect(result.pages[1]?.text).toContain("Governing law: Germany.");
+
+    const single = textResult.parse(JSON.parse(runAgent(["text", textPath, "--pages", "2"])));
+    expect(single.pages.map((p) => p.page)).toEqual([2]);
   });
 
   test("fill writes <name>.filled.pdf with the values and reports skips", async () => {

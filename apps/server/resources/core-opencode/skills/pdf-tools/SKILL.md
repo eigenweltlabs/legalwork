@@ -1,22 +1,23 @@
 ---
 name: pdf-tools
 description: >-
-  Firm-owned PDF actions over the in-app PDF viewer. Use whenever the user wants to
-  act on a PDF: annotate it (sticky notes, highlight boxes), list or fill its form
-  fields (AcroForm), or stamp a signature (typed name + date, or a PNG signature
-  image). Always writes a NEW copy (.annotated.pdf / .filled.pdf / .signed.pdf) —
-  the original PDF is never modified. Self-contained; runs on the firm's own
-  infrastructure; pairs with the in-app PDF viewer.
+  Firm-owned PDF reading + actions over the in-app PDF viewer. Use whenever the user
+  wants to work with a PDF: read it (extract its text to quote, summarize, or compare),
+  annotate it (sticky notes, highlight boxes), list or fill its form fields (AcroForm),
+  or stamp a signature (typed name + date, or a PNG signature image). Editing always
+  writes a NEW copy (.annotated.pdf / .filled.pdf / .signed.pdf) — the original PDF is
+  never modified. Self-contained; runs on the firm's own infrastructure; pairs with
+  the in-app PDF viewer.
 ---
 
-# PDF actions (annotate / fill-form / sign)
+# PDF reading + actions (text / annotate / fill-form / sign)
 
-This skill is how this firm annotates, fills, and signs PDFs with AI. It is
-**self-contained**: `assets/pdf-agent.mjs` imports a vendored copy of pdf-lib
-(`assets/vendor/pdf-lib.mjs`, MIT — pure JS, no native deps), so it runs in any
-workspace with no install. **Do not hand-edit PDF bytes or reach for python** —
-use this tool. Every command writes a **new file next to the source**; the
-original PDF is **never touched**.
+This skill is how this firm reads, annotates, fills, and signs PDFs with AI. It is
+**self-contained**: `assets/pdf-agent.mjs` imports vendored engines (pdf-lib for
+actions, pdf.js for text — pure JS, no native deps), so it runs in any workspace
+with no install. **Do not hand-edit PDF bytes or reach for python or `pdftotext`**
+(they may not exist on the machine) — use this tool. Every editing command writes
+a **new file next to the source**; the original PDF is **never touched**.
 
 ## The tool
 
@@ -24,6 +25,10 @@ original PDF is **never touched**.
 # ALWAYS FIRST: page count, page sizes (points), and every form field
 # (name / type / current value / options) as JSON.
 node .opencode/skills/pdf-tools/assets/pdf-agent.mjs inspect "<file.pdf>"
+
+# READ the PDF: its text content per page as JSON ({ pageCount, pages: [{page, text}] }).
+# All pages by default; --pages limits it ("3", "1-4", "1,3,7-9").
+node .opencode/skills/pdf-tools/assets/pdf-agent.mjs text "<file.pdf>" --pages 1-4
 
 # Sticky notes + highlight rectangles (plan JSON on stdin). Writes <base>.annotated.pdf.
 echo '<plan-json>' | node .opencode/skills/pdf-tools/assets/pdf-agent.mjs annotate "<file.pdf>" --plan -
@@ -74,6 +79,13 @@ on the signature line `inspect` showed you). With `--image sig.png` the PNG is d
 above the signature rule instead of the typed name (`--image-width` scales it,
 default 140pt). This is a visible signature stamp, not a cryptographic signature.
 
+## Read (text)
+
+To answer questions about a PDF, quote it, summarize it, or compare it against
+another document, run `text` and work from the returned per-page JSON — cite the
+`page` numbers it gives you. A scanned/image-only PDF has no text layer: pages come
+back empty. Say so plainly (offer annotation instead); never fabricate content.
+
 ## Workflow
 
 1. **Resolve the target PDF** (attached, `@path`, named, or in a folder). If the user
@@ -81,7 +93,7 @@ default 140pt). This is a visible signature stamp, not a cryptographic signature
    AcroForm fields — `inspect` reports `fields: []` for flat PDFs; say so and offer
    annotations instead.
 2. **`inspect`** and read the JSON: page sizes for placement, field names/options for
-   filling.
+   filling. To read the document itself, run **`text`**.
 3. **Run the action** (`annotate` / `fill` / `sign`). The tool refuses to overwrite
    the source; output goes to `<base>.annotated.pdf` / `.filled.pdf` / `.signed.pdf`
    next to it (`--out` to change).

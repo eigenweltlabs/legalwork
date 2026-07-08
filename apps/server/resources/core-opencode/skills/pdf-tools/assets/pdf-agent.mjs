@@ -12,6 +12,10 @@
  *       Print page count, page sizes (points), and every AcroForm form field
  *       (name / type / current value / options) as JSON. Run this FIRST.
  *
+ *   text <file.pdf> [--pages 1-4,7]
+ *       Print the PDF's text content per page as JSON (1-based pages, all
+ *       pages by default). Use this to READ a PDF — no system tools needed.
+ *
  *   annotate <file.pdf> --plan <plan.json|-> [--out <file>]
  *       Draw sticky notes + highlight rectangles. Writes <base>.annotated.pdf.
  *       Plan: { annotations: [ { type: "note", page, x, y, text, color? },
@@ -31,6 +35,7 @@
 import { readFileSync, writeFileSync, existsSync } from "node:fs";
 import { dirname, join, resolve, basename, extname } from "node:path";
 import { annotatePdf, fillFormFields, inspectPdf, signPdf, PdfOpsError } from "./pdf-ops.mjs";
+import { extractPdfText, PdfTextError } from "./pdf-text.mjs";
 
 // ---------- args ----------
 
@@ -108,6 +113,12 @@ async function cmdInspect(positional) {
   printResult({ file: path, ...(await inspectPdf(bytes)) });
 }
 
+async function cmdText(positional, flags) {
+  const { path, bytes } = loadSource(positional[0]);
+  const pages = flags.pages === undefined ? undefined : String(flags.pages);
+  printResult({ file: path, ...(await extractPdfText(bytes, { pages })) });
+}
+
 async function cmdAnnotate(positional, flags) {
   const { path, bytes } = loadSource(positional[0]);
   const plan = readJsonFlag(flags, "plan");
@@ -155,11 +166,12 @@ const command = positional.shift();
 
 try {
   if (command === "inspect") await cmdInspect(positional);
+  else if (command === "text") await cmdText(positional, flags);
   else if (command === "annotate") await cmdAnnotate(positional, flags);
   else if (command === "fill") await cmdFill(positional, flags);
   else if (command === "sign") await cmdSign(positional, flags);
-  else fail(`unknown command "${command ?? ""}". Use inspect | annotate | fill | sign.`);
+  else fail(`unknown command "${command ?? ""}". Use inspect | text | annotate | fill | sign.`);
 } catch (error) {
-  if (error instanceof PdfOpsError) fail(error.message);
+  if (error instanceof PdfOpsError || error instanceof PdfTextError) fail(error.message);
   throw error;
 }
