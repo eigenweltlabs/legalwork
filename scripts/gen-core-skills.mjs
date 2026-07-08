@@ -39,6 +39,8 @@ const FILES = [
   { source: "commands/annotate.md", path: ".opencode/commands/annotate.md" },
   { source: "commands/fill-form.md", path: ".opencode/commands/fill-form.md" },
   { source: "commands/sign.md", path: ".opencode/commands/sign.md" },
+  // benchmark-task: create a LegalWork benchmark task from chat (uses the benchmark_create_task tool).
+  { source: "skills/benchmark-task/SKILL.md", path: ".opencode/skills/benchmark-task/SKILL.md" },
 ];
 
 const entries = FILES.map((file) => {

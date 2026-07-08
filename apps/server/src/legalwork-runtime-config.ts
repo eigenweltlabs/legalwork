@@ -23,6 +23,7 @@ import {
   legalworkWordToolsPluginPath,
   legalworkExcelToolsPluginPath,
   legalworkPowerPointToolsPluginPath,
+  legalworkBenchmarkToolsPluginPath,
 } from "./legalwork-extensions-plugin-path.js";
 import type { ServerConfig } from "./types.js";
 import {
@@ -115,6 +116,7 @@ export async function buildLegalworkRuntimeConfigObject(
       legalworkWordToolsPluginPath(),
       legalworkExcelToolsPluginPath(),
       legalworkPowerPointToolsPluginPath(),
+      legalworkBenchmarkToolsPluginPath(),
       ...runtimePluginList(runtimeConfig),
     ],
     ...(disabledProviders.length ? { disabled_providers: disabledProviders } : {}),
