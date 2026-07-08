@@ -101,7 +101,7 @@ export default {
   "benchmark.doc_count": "{count} input documents",
   "benchmark.leaderboard_title": "Model ranking",
   "benchmark.metric_explainer": "Mean rubric pass rate — average share of criteria passed per task.",
-  "benchmark.by_vertical_title": "By practice area",
+  "benchmark.by_tag_title": "By tag",
   "benchmark.tasks_count": "{count} tasks",
   "benchmark.criteria_meta": "{count} criteria",
   "benchmark.deliverables_meta": "{count} deliverables",

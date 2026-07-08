@@ -17,7 +17,7 @@ import {
 import { criteriaScoreLabel, criteriaScoreToneClass, formatRunMeta, formatScorePercent, isRunActive, runStatusLabel, runStatusTone } from "./format";
 import { ResultMatrix } from "./result-matrix";
 import { RunLeaderboard } from "./run-leaderboard";
-import { RunVerticalBreakdown } from "./run-vertical-breakdown";
+import { RunTagBreakdown } from "./run-tag-breakdown";
 import { useBenchmarkStore } from "./store";
 
 export type RunDetailProps = {
@@ -139,7 +139,7 @@ export function RunDetail(props: RunDetailProps) {
           />
         ) : null}
 
-        {items.length > 0 && run ? <RunVerticalBreakdown items={items} models={run.models} /> : null}
+        {items.length > 0 && run ? <RunTagBreakdown items={items} models={run.models} /> : null}
       </LayoutSection>
     </LayoutStack>
   );

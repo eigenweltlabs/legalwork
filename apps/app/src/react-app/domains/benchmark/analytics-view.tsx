@@ -1,6 +1,6 @@
 /** @jsxImportSource react */
-import { useEffect } from "react";
-import { ChevronDown } from "lucide-react";
+import { useEffect, useState } from "react";
+import { ChevronDown, RefreshCw } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -67,10 +67,17 @@ export function AnalyticsView() {
   const loadAnalytics = useBenchmarkStore((state) => state.loadAnalytics);
   const selectedTags = useBenchmarkStore((state) => state.analyticsTags);
   const setAnalyticsTags = useBenchmarkStore((state) => state.setAnalyticsTags);
+  const [refreshing, setRefreshing] = useState(false);
 
   useEffect(() => {
     void loadAnalytics();
   }, [loadAnalytics]);
+
+  const refresh = async () => {
+    setRefreshing(true);
+    await loadAnalytics();
+    setRefreshing(false);
+  };
 
   if (status === "loading" && !analytics) {
     return (
@@ -96,44 +103,65 @@ export function AnalyticsView() {
 
   const models = analytics.models.map((model) => ({ providerID: model.providerID, modelID: model.modelID }));
   const scoreByModel = analytics.models.map(toModelScore);
-  const { verticals, tags: availableTags } = analytics;
+  const availableTags = analytics.tags;
   const toggleTag = (tag: string) =>
     setAnalyticsTags(selectedTags.includes(tag) ? selectedTags.filter((entry) => entry !== tag) : [...selectedTags, tag]);
 
+  // Breakdown columns = tags present in the (filtered) results, most-tested first.
+  const columnCounts = new Map<string, number>();
+  for (const model of analytics.models) {
+    for (const entry of model.byTag) columnCounts.set(entry.tag, (columnCounts.get(entry.tag) ?? 0) + entry.tasks);
+  }
+  const columns = Array.from(columnCounts.entries())
+    .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+    .map(([tag]) => tag);
+
   return (
     <div className="flex max-w-5xl flex-col gap-4">
-      {availableTags.length ? (
-        <div className="flex items-center gap-2">
-          <DropdownMenu>
-            <DropdownMenuTrigger
-              render={
-                <Button variant="outline" size="sm">
-                  {t("benchmark.filter_tags")}
-                  {selectedTags.length ? ` (${selectedTags.length})` : ""}
-                  <ChevronDown size={13} />
-                </Button>
-              }
-            />
-            <DropdownMenuContent align="start" className="max-h-72 w-64 overflow-y-auto">
-              {availableTags.map((tag) => (
-                <DropdownMenuCheckboxItem
-                  key={tag}
-                  checked={selectedTags.includes(tag)}
-                  onCheckedChange={() => toggleTag(tag)}
-                  onSelect={(event) => event.preventDefault()}
-                >
-                  {tag}
-                </DropdownMenuCheckboxItem>
-              ))}
-            </DropdownMenuContent>
-          </DropdownMenu>
-          {selectedTags.length ? (
-            <Button variant="ghost" size="sm" onClick={() => setAnalyticsTags([])}>
-              {t("benchmark.clear_filter")}
-            </Button>
-          ) : null}
-        </div>
-      ) : null}
+      <div className="flex items-center gap-2">
+        {availableTags.length ? (
+          <>
+            <DropdownMenu>
+              <DropdownMenuTrigger
+                render={
+                  <Button variant="outline" size="sm">
+                    {t("benchmark.filter_tags")}
+                    {selectedTags.length ? ` (${selectedTags.length})` : ""}
+                    <ChevronDown size={13} />
+                  </Button>
+                }
+              />
+              <DropdownMenuContent align="start" className="max-h-72 w-64 overflow-y-auto">
+                {availableTags.map((tag) => (
+                  <DropdownMenuCheckboxItem
+                    key={tag}
+                    checked={selectedTags.includes(tag)}
+                    onCheckedChange={() => toggleTag(tag)}
+                    onSelect={(event) => event.preventDefault()}
+                  >
+                    {tag}
+                  </DropdownMenuCheckboxItem>
+                ))}
+              </DropdownMenuContent>
+            </DropdownMenu>
+            {selectedTags.length ? (
+              <Button variant="ghost" size="sm" onClick={() => setAnalyticsTags([])}>
+                {t("benchmark.clear_filter")}
+              </Button>
+            ) : null}
+          </>
+        ) : null}
+        <Button
+          variant="outline"
+          size="sm"
+          className="ml-auto"
+          onClick={() => void refresh()}
+          disabled={refreshing}
+        >
+          <RefreshCw size={13} className={cn(refreshing && "animate-spin")} />
+          {t("common.refresh")}
+        </Button>
+      </div>
 
       {analytics.models.length === 0 ? (
         <SettingsListEmptyState>{t("benchmark.analytics_no_match")}</SettingsListEmptyState>
@@ -141,53 +169,53 @@ export function AnalyticsView() {
         <>
           <RunLeaderboard models={models} scoreByModel={scoreByModel} />
 
-      {verticals.length ? (
-        <section className="overflow-hidden rounded-2xl border border-dls-border bg-background">
-          <header className="border-b border-dls-border px-5 py-3">
-            <h2 className="text-[13px] font-semibold text-foreground">{t("benchmark.by_vertical_title")}</h2>
-          </header>
-          <div className="overflow-x-auto">
-            <table className="w-full border-collapse text-[13px]">
-              <thead>
-                <tr>
-                  <th className="sticky left-0 z-10 bg-background px-5 py-2 text-left font-medium text-muted-foreground">
-                    {t("benchmark.column_model")}
-                  </th>
-                  <th className="min-w-24 border-l border-dls-border px-3 py-2 text-center font-medium">
-                    {t("benchmark.analytics_overall")}
-                  </th>
-                  {verticals.map((vertical) => (
-                    <th key={vertical} className="min-w-28 px-3 py-2 text-center font-medium" title={vertical}>
-                      <span className="block max-w-36 truncate">{vertical}</span>
-                    </th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {analytics.models.map((model) => {
-                  const byVertical = new Map(model.byVertical.map((entry) => [entry.vertical, entry]));
-                  return (
-                    <tr key={`${model.providerID}/${model.modelID}`} className="border-t border-dls-border">
-                      <td className="sticky left-0 z-10 max-w-52 bg-background px-5 py-2">
-                        <span className="inline-flex min-w-0 items-center gap-1.5">
-                          <ProviderIcon providerId={model.providerID} size={13} />
-                          <span className="truncate" title={model.modelID}>
-                            {model.modelID}
-                          </span>
-                        </span>
-                      </td>
-                      <StatCell stat={model.overall} className="border-l border-dls-border font-semibold" />
-                      {verticals.map((vertical) => (
-                        <StatCell key={vertical} stat={byVertical.get(vertical)} />
+          {columns.length ? (
+            <section className="overflow-hidden rounded-2xl border border-dls-border bg-background">
+              <header className="border-b border-dls-border px-5 py-3">
+                <h2 className="text-[13px] font-semibold text-foreground">{t("benchmark.by_tag_title")}</h2>
+              </header>
+              <div className="overflow-x-auto">
+                <table className="w-full border-collapse text-[13px]">
+                  <thead>
+                    <tr>
+                      <th className="sticky left-0 z-10 bg-background px-5 py-2 text-left font-medium text-muted-foreground">
+                        {t("benchmark.column_model")}
+                      </th>
+                      <th className="min-w-24 border-l border-dls-border px-3 py-2 text-center font-medium">
+                        {t("benchmark.analytics_overall")}
+                      </th>
+                      {columns.map((tag) => (
+                        <th key={tag} className="min-w-28 px-3 py-2 text-center font-medium" title={tag}>
+                          <span className="block max-w-36 truncate">{tag}</span>
+                        </th>
                       ))}
                     </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        </section>
-      ) : null}
+                  </thead>
+                  <tbody>
+                    {analytics.models.map((model) => {
+                      const byTag = new Map(model.byTag.map((entry) => [entry.tag, entry]));
+                      return (
+                        <tr key={`${model.providerID}/${model.modelID}`} className="border-t border-dls-border">
+                          <td className="sticky left-0 z-10 max-w-52 bg-background px-5 py-2">
+                            <span className="inline-flex min-w-0 items-center gap-1.5">
+                              <ProviderIcon providerId={model.providerID} size={13} />
+                              <span className="truncate" title={model.modelID}>
+                                {model.modelID}
+                              </span>
+                            </span>
+                          </td>
+                          <StatCell stat={model.overall} className="border-l border-dls-border font-semibold" />
+                          {columns.map((tag) => (
+                            <StatCell key={tag} stat={byTag.get(tag)} />
+                          ))}
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </section>
+          ) : null}
         </>
       )}
     </div>

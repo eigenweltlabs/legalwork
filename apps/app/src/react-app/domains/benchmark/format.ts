@@ -66,45 +66,51 @@ export function criteriaScoreTintClass(nPassed: number, nCriteria: number): stri
   return scoreTintClass(nPassed / Math.max(nCriteria, 1));
 }
 
-export type VerticalRate = { rate: number | null; count: number };
-export type VerticalBreakdownRow = { vertical: string; byModel: Record<string, VerticalRate> };
+export type TagRate = { rate: number | null; count: number };
+export type TagBreakdownRow = { tag: string; byModel: Record<string, TagRate> };
 
 function modelRefKey(ref: { providerID: string; modelID: string }): string {
   return `${ref.providerID}/${ref.modelID}`;
 }
 
 /**
- * Mean rubric pass rate per (vertical × model), for the per-practice-area
- * breakdown. Verticals keep first-seen order; only judged items count.
+ * Mean rubric pass rate per (tag × model), for the per-tag breakdown. A task
+ * contributes to every tag it carries. Tags are ordered most-tested first;
+ * only judged items count.
  */
-export function aggregateByVertical(
+export function aggregateByTag(
   items: BenchmarkRunItem[],
   models: Array<{ providerID: string; modelID: string }>,
-): VerticalBreakdownRow[] {
-  const byVertical = new Map<string, Map<string, { sum: number; n: number }>>();
-  const order: string[] = [];
+): TagBreakdownRow[] {
+  const byTag = new Map<string, Map<string, { sum: number; n: number }>>();
+  const tagTotals = new Map<string, number>();
   for (const item of items) {
     if (item.nPassed === null || item.nCriteria === null || item.nCriteria === 0) continue;
-    const vertical = item.vertical || "—";
-    if (!byVertical.has(vertical)) {
-      byVertical.set(vertical, new Map());
-      order.push(vertical);
-    }
-    const bucket = byVertical.get(vertical)!;
+    const rate = item.nPassed / item.nCriteria;
     const key = modelRefKey(item);
-    const acc = bucket.get(key) ?? { sum: 0, n: 0 };
-    acc.sum += item.nPassed / item.nCriteria;
-    acc.n += 1;
-    bucket.set(key, acc);
+    for (const rawTag of item.tags) {
+      const tag = rawTag.trim();
+      if (!tag) continue;
+      if (!byTag.has(tag)) byTag.set(tag, new Map());
+      const bucket = byTag.get(tag)!;
+      const acc = bucket.get(key) ?? { sum: 0, n: 0 };
+      acc.sum += rate;
+      acc.n += 1;
+      bucket.set(key, acc);
+      tagTotals.set(tag, (tagTotals.get(tag) ?? 0) + 1);
+    }
   }
-  return order.map((vertical) => {
-    const bucket = byVertical.get(vertical)!;
-    const byModel: Record<string, VerticalRate> = {};
+  const orderedTags = Array.from(tagTotals.entries())
+    .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+    .map(([tag]) => tag);
+  return orderedTags.map((tag) => {
+    const bucket = byTag.get(tag)!;
+    const byModel: Record<string, TagRate> = {};
     for (const model of models) {
       const acc = bucket.get(modelRefKey(model));
       byModel[modelRefKey(model)] = acc && acc.n ? { rate: acc.sum / acc.n, count: acc.n } : { rate: null, count: 0 };
     }
-    return { vertical, byModel };
+    return { tag, byModel };
   });
 }
 

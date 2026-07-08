@@ -165,12 +165,11 @@ export type BenchmarkModelAnalytics = {
   providerID: string;
   modelID: string;
   overall: BenchmarkAnalyticsStat;
-  byVertical: Array<{ vertical: string } & BenchmarkAnalyticsStat>;
+  byTag: Array<{ tag: string } & BenchmarkAnalyticsStat>;
 };
 
 export type BenchmarkAnalytics = {
   models: BenchmarkModelAnalytics[];
-  verticals: string[];
   tags: string[];
 };
 
@@ -200,6 +199,7 @@ export type BenchmarkRunItem = {
   taskTitle: string;
   workType: BenchmarkWorkType;
   vertical: string;
+  tags: string[];
   providerID: string;
   modelID: string;
   status: BenchmarkItemStatus;

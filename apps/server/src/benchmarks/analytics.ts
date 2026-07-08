@@ -28,14 +28,13 @@ export type ModelAnalytics = {
   providerID: string;
   modelID: string;
   overall: AnalyticsStat;
-  byVertical: Array<{ vertical: string } & AnalyticsStat>;
+  /** Per-tag breakdown: a task contributes to every tag it carries. */
+  byTag: Array<{ tag: string } & AnalyticsStat>;
 };
 
 export type BenchmarkAnalytics = {
   /** Models ranked by overall mean rubric pass rate (best first). */
   models: ModelAnalytics[];
-  /** All practice areas seen, most-tested first — column order for the UI. */
-  verticals: string[];
   /** All tags across judged results (unfiltered), for the tag filter. */
   tags: string[];
 };
@@ -72,8 +71,7 @@ export function aggregateModelAnalytics(rows: AnalyticsRow[], filterTags: string
   const wanted = new Set(filterTags.map((tag) => tag.trim()).filter(Boolean));
   const selected = wanted.size ? judged.filter((row) => row.tags.some((tag) => wanted.has(tag.trim()))) : judged;
 
-  const models = new Map<string, { providerID: string; modelID: string; all: Acc; byVertical: Map<string, Acc> }>();
-  const verticalCounts = new Map<string, number>();
+  const models = new Map<string, { providerID: string; modelID: string; all: Acc; byTag: Map<string, Acc> }>();
 
   for (const row of selected) {
     const passed = row.nPassed as number;
@@ -82,32 +80,30 @@ export function aggregateModelAnalytics(rows: AnalyticsRow[], filterTags: string
     const modelKey = `${row.providerID}/${row.modelID}`;
     let model = models.get(modelKey);
     if (!model) {
-      model = { providerID: row.providerID, modelID: row.modelID, all: newAcc(), byVertical: new Map() };
+      model = { providerID: row.providerID, modelID: row.modelID, all: newAcc(), byTag: new Map() };
       models.set(modelKey, model);
     }
     accumulate(model.all, rate, passed, total);
-    const vertical = row.vertical?.trim() || "—";
-    let verticalAcc = model.byVertical.get(vertical);
-    if (!verticalAcc) {
-      verticalAcc = newAcc();
-      model.byVertical.set(vertical, verticalAcc);
+    for (const rawTag of row.tags) {
+      const tag = rawTag.trim();
+      if (!tag) continue;
+      let tagAcc = model.byTag.get(tag);
+      if (!tagAcc) {
+        tagAcc = newAcc();
+        model.byTag.set(tag, tagAcc);
+      }
+      accumulate(tagAcc, rate, passed, total);
     }
-    accumulate(verticalAcc, rate, passed, total);
-    verticalCounts.set(vertical, (verticalCounts.get(vertical) ?? 0) + 1);
   }
-
-  const verticals = Array.from(verticalCounts.entries())
-    .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
-    .map(([vertical]) => vertical);
 
   const modelList: ModelAnalytics[] = Array.from(models.values())
     .map((model) => ({
       providerID: model.providerID,
       modelID: model.modelID,
       overall: finalize(model.all),
-      byVertical: Array.from(model.byVertical.entries()).map(([vertical, acc]) => ({ vertical, ...finalize(acc) })),
+      byTag: Array.from(model.byTag.entries()).map(([tag, acc]) => ({ tag, ...finalize(acc) })),
     }))
     .sort((a, b) => (b.overall.rate ?? -1) - (a.overall.rate ?? -1));
 
-  return { models: modelList, verticals, tags: Array.from(allTags).sort((a, b) => a.localeCompare(b)) };
+  return { models: modelList, tags: Array.from(allTags).sort((a, b) => a.localeCompare(b)) };
 }

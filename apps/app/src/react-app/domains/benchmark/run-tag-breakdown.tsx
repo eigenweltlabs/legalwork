@@ -3,9 +3,9 @@ import { t } from "@/i18n";
 import { cn } from "@/lib/utils";
 import type { BenchmarkModelRef, BenchmarkRunItem } from "../../../app/lib/benchmark-types";
 import { ProviderIcon } from "../../design-system/provider-icon";
-import { aggregateByVertical, scoreTintClass, scoreToneClass } from "./format";
+import { aggregateByTag, scoreTintClass, scoreToneClass } from "./format";
 
-export type RunVerticalBreakdownProps = {
+export type RunTagBreakdownProps = {
   items: BenchmarkRunItem[];
   models: BenchmarkModelRef[];
 };
@@ -14,15 +14,15 @@ function modelKey(ref: { providerID: string; modelID: string }): string {
   return `${ref.providerID}/${ref.modelID}`;
 }
 
-export function RunVerticalBreakdown(props: RunVerticalBreakdownProps) {
-  const rows = aggregateByVertical(props.items, props.models);
-  // Only meaningful once there is more than one practice area to compare.
+export function RunTagBreakdown(props: RunTagBreakdownProps) {
+  const rows = aggregateByTag(props.items, props.models);
+  // Only meaningful once there is more than one tag to compare.
   if (rows.length < 2) return null;
 
   return (
     <section className="overflow-hidden rounded-2xl border border-dls-border bg-background">
       <header className="border-b border-dls-border px-5 py-3">
-        <h2 className="text-[13px] font-semibold text-foreground">{t("benchmark.by_vertical_title")}</h2>
+        <h2 className="text-[13px] font-semibold text-foreground">{t("benchmark.by_tag_title")}</h2>
       </header>
       <div className="overflow-x-auto">
         <table className="w-full border-collapse text-[13px]">
@@ -43,9 +43,9 @@ export function RunVerticalBreakdown(props: RunVerticalBreakdownProps) {
           </thead>
           <tbody>
             {rows.map((row) => (
-              <tr key={row.vertical} className="border-t border-dls-border">
-                <td className="sticky left-0 z-10 max-w-52 truncate bg-background px-5 py-2" title={row.vertical}>
-                  {row.vertical}
+              <tr key={row.tag} className="border-t border-dls-border">
+                <td className="sticky left-0 z-10 max-w-52 truncate bg-background px-5 py-2" title={row.tag}>
+                  {row.tag}
                 </td>
                 {props.models.map((model) => {
                   const cell = row.byModel[modelKey(model)];

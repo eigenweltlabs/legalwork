@@ -133,7 +133,7 @@ const de: Record<string, string> = {
   "benchmark.doc_count": "{count} Eingabedokumente",
   "benchmark.leaderboard_title": "Modell-Ranking",
   "benchmark.metric_explainer": "Mittlere Rubric-Erfüllungsquote — durchschnittlicher Anteil bestandener Kriterien pro Aufgabe.",
-  "benchmark.by_vertical_title": "Nach Rechtsgebiet",
+  "benchmark.by_tag_title": "Nach Tag",
   "benchmark.tasks_count": "{count} Aufgaben",
   "benchmark.criteria_meta": "{count} Kriterien",
   "benchmark.deliverables_meta": "{count} Ergebnisdateien",

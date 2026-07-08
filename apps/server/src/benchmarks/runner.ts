@@ -912,6 +912,7 @@ export class BenchmarkRunner {
       taskTitle: item.taskTitle,
       workType: item.workType,
       vertical: item.vertical,
+      tags: parseStoredTaskJson(item.taskJson)?.tags ?? [],
       providerID: item.providerId,
       modelID: item.modelId,
       status: item.status,
