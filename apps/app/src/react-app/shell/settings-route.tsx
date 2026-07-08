@@ -55,6 +55,7 @@ import { createProviderAuthStore, useProviderAuthStoreSnapshot, type CustomProvi
 import ProviderAuthModal from "@/react-app/domains/connections/provider-auth/provider-auth-modal";
 import ConnectionsModals from "@/react-app/domains/connections/modals";
 import { AiSettingsView } from "@/react-app/domains/settings/pages/ai-view";
+import { FusionSettingsSection } from "@/react-app/domains/settings/pages/fusion-settings-section";
 // Side-effect imports: register extension config components into the registry.
 import "@/react-app/domains/settings/computer-use-config";
 import "@/react-app/domains/settings/google-workspace-config";
@@ -763,6 +764,9 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
   const handleModelPickerLoadError = useCallback((error: unknown) => {
     toast.error(error instanceof Error ? error.message : t("app.unknown_error"));
   }, []);
+  // Which fusion default-candidate slot (0-2) the shared model picker modal
+  // is currently choosing for; null = picking the default model.
+  const [fusionPickerSlot, setFusionPickerSlot] = useState<number | null>(null);
   const modelPicker = useModelPicker({
     client: opencodeClient,
     baseUrl: opencodeBaseUrl,
@@ -1815,6 +1819,22 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
             onDisconnectProvider={handleDisconnectProvider}
             onEditProvider={handleEditCustomProvider}
             canDisconnectProvider={(source) => source !== "env"}
+            fusionView={
+              <FusionSettingsSection
+                fusionModels={local.prefs.fusionModels ?? []}
+                onPickModel={(slot) => {
+                  setFusionPickerSlot(slot);
+                  modelPicker.setQuery("");
+                  modelPicker.setOpen(true);
+                }}
+                onClearModel={(slot) => {
+                  local.setPrefs((prev) => ({
+                    ...prev,
+                    fusionModels: (prev.fusionModels ?? []).filter((_, index) => index !== slot),
+                  }));
+                }}
+              />
+            }
           />
         );
       case "preferences":
@@ -2145,21 +2165,39 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
         setQuery={modelPicker.setQuery}
         target="default"
         current={
-          local.prefs.defaultModel ?? { providerID: "", modelID: "" }
+          (fusionPickerSlot !== null
+            ? (local.prefs.fusionModels ?? [])[fusionPickerSlot]
+            : local.prefs.defaultModel) ?? { providerID: "", modelID: "" }
         }
         onSelect={(next: ModelRef) => {
-          local.setPrefs((prev) => ({
-            ...prev,
-            defaultModel: next,
-            modelVariant: prev.defaultModel?.providerID === next.providerID && prev.defaultModel.modelID === next.modelID
-              ? prev.modelVariant
-              : null,
-          }));
+          if (fusionPickerSlot !== null) {
+            local.setPrefs((prev) => {
+              const models = [...(prev.fusionModels ?? [])];
+              if (fusionPickerSlot < models.length) {
+                models[fusionPickerSlot] = next;
+              } else {
+                models.push(next);
+              }
+              return { ...prev, fusionModels: models.slice(0, 3) };
+            });
+          } else {
+            local.setPrefs((prev) => ({
+              ...prev,
+              defaultModel: next,
+              modelVariant: prev.defaultModel?.providerID === next.providerID && prev.defaultModel.modelID === next.modelID
+                ? prev.modelVariant
+                : null,
+            }));
+          }
+          setFusionPickerSlot(null);
           modelPicker.setOpen(false);
         }}
         onBehaviorChange={() => {}}
         onOpenSettings={() => {}}
-        onClose={() => modelPicker.setOpen(false)}
+        onClose={() => {
+          setFusionPickerSlot(null);
+          modelPicker.setOpen(false);
+        }}
       />
     </>
   );

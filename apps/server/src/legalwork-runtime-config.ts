@@ -32,6 +32,7 @@ import {
   readGlobalToolPermissions,
   readRuntimeOpencodeConfig,
   runtimeDisabledProviderList,
+  runtimeAgentMap,
   runtimeMcpMap,
   runtimePluginList,
   runtimeStorageDir,
@@ -97,6 +98,7 @@ export async function buildLegalworkRuntimeConfigObject(
     ...runtimeConfig,
     default_agent: runtimeConfig.default_agent ?? "legalwork",
     agent: {
+      ...runtimeAgentMap(runtimeConfig),
       legalwork: {
         description: "LegalWork default agent",
         mode: "primary",

@@ -829,9 +829,10 @@ export function MessageList({ messages, status, retryStatus }: MessageListProps)
 
       {items.map((item) => {
         if (isMessageGroup(item)) {
+          const key = item.messages[0]?.message.id ?? "empty-assistant-group"
           return (
             <MessageGroup
-              key={item.messages[0]?.message.id ?? "empty-assistant-group"}
+              key={key}
               items={item.messages}
               messages={messages}
               isStreaming={isStreaming}

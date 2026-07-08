@@ -138,8 +138,17 @@ function readStringField(value: unknown, key: string): string {
   return typeof field === "string" ? field.trim() : "";
 }
 
-const LEGACY_RUNTIME_CONFIG_KEYS = ["plugin", "mcp", "permission", "provider"] as const;
-const USER_OPENCODE_RUNTIME_CONFIG_KEYS = ["default_agent", "plugin", "mcp", "disabled_providers", "provider"] as const;
+function recordRecordMap(value: unknown): Record<string, Record<string, unknown>> | null {
+  if (!isRecord(value)) return null;
+  const entries: Record<string, Record<string, unknown>> = {};
+  for (const [key, item] of Object.entries(value)) {
+    if (isRecord(item)) entries[key] = item;
+  }
+  return Object.keys(entries).length ? entries : null;
+}
+
+const LEGACY_RUNTIME_CONFIG_KEYS = ["plugin", "mcp", "permission", "provider", "agent"] as const;
+const USER_OPENCODE_RUNTIME_CONFIG_KEYS = ["default_agent", "plugin", "mcp", "disabled_providers", "provider", "agent"] as const;
 
 type LegacyRuntimeConfigKey = typeof LEGACY_RUNTIME_CONFIG_KEYS[number];
 type UserOpencodeRuntimeConfigKey = typeof USER_OPENCODE_RUNTIME_CONFIG_KEYS[number];
@@ -159,11 +168,13 @@ function legacyRuntimeConfigFromLegalworkConfig(legalwork: Record<string, unknow
   const permission = isRecord(legalwork.permission) ? legalwork.permission : null;
   const externalDirectory = permission && isRecord(permission.external_directory) ? permission.external_directory : null;
   const provider = isRecord(legalwork.provider) ? legalwork.provider : null;
+  const agent = recordRecordMap(legalwork.agent);
 
   if (plugin.length) keys.push("plugin");
   if (Object.keys(mcp).length) keys.push("mcp");
   if (externalDirectory && Object.keys(externalDirectory).length) keys.push("permission");
   if (provider && Object.keys(provider).length) keys.push("provider");
+  if (agent && Object.keys(agent).length) keys.push("agent");
 
   return {
     keys,
@@ -172,6 +183,7 @@ function legacyRuntimeConfigFromLegalworkConfig(legalwork: Record<string, unknow
       ...(Object.keys(mcp).length ? { mcp } : {}),
       ...(externalDirectory ? { permission: { external_directory: externalDirectory } } : {}),
       ...(provider ? { provider } : {}),
+      ...(agent ? { agent } : {}),
     },
   };
 }
@@ -201,12 +213,14 @@ function userRuntimeConfigFromOpencodeConfig(opencode: Record<string, unknown>):
     ? opencode.disabled_providers.filter((item) => typeof item === "string")
     : undefined;
   const provider = isRecord(opencode.provider) ? opencode.provider : undefined;
+  const agent = recordRecordMap(opencode.agent) ?? undefined;
 
   if (defaultAgent) keys.push("default_agent");
   if (Array.isArray(opencode.plugin)) keys.push("plugin");
   if (Object.keys(mcp).length) keys.push("mcp");
   if (Array.isArray(opencode.disabled_providers)) keys.push("disabled_providers");
   if (isRecord(opencode.provider)) keys.push("provider");
+  if (isRecord(opencode.agent)) keys.push("agent");
 
   return {
     keys,
@@ -216,6 +230,7 @@ function userRuntimeConfigFromOpencodeConfig(opencode: Record<string, unknown>):
       ...(Object.keys(mcp).length ? { mcp } : {}),
       ...(disabledProviders?.length ? { disabled_providers: disabledProviders } : {}),
       ...(provider && Object.keys(provider).length ? { provider } : {}),
+      ...(agent && Object.keys(agent).length ? { agent } : {}),
     },
   };
 }
@@ -237,6 +252,7 @@ function runtimeConfigKeys(config: RuntimeOpencodeConfig): string[] {
     keys.push("permission");
   }
   if (isRecord(config.provider) && Object.keys(config.provider).length) keys.push("provider");
+  if (isRecord(config.agent) && Object.keys(config.agent).length) keys.push("agent");
   return keys;
 }
 
@@ -277,6 +293,10 @@ function mergeLegacyRuntimeConfig(
     provider: {
       ...(isRecord(legacy.provider) ? legacy.provider : {}),
       ...(isRecord(current.provider) ? current.provider : {}),
+    },
+    agent: {
+      ...(isRecord(legacy.agent) ? legacy.agent : {}),
+      ...(isRecord(current.agent) ? current.agent : {}),
     },
   };
 }
@@ -1846,7 +1866,7 @@ function createRoutes(
     if (opencode) {
       const configPath = legalworkConfigPath(workspace.path);
       const nextOpencode = ensurePlainObject(opencode);
-      const { permission, provider, ...topLevelUpdates } = nextOpencode;
+      const { permission, provider, agent, ...topLevelUpdates } = nextOpencode;
       const logicalUpdates: Record<string, unknown> = { ...topLevelUpdates };
 
       const providerUpdate = ensurePlainObject(provider);
@@ -1857,6 +1877,15 @@ function createRoutes(
         logicalUpdates.provider = mergeRuntimeProviderPatch(
           ensurePlainObject(currentRuntime.provider),
           providerUpdate,
+        );
+      }
+
+      const agentUpdate = ensurePlainObject(agent);
+      if (Object.keys(agentUpdate).length) {
+        const currentRuntime = await readRuntimeOpencodeConfig(config, workspace.id);
+        logicalUpdates.agent = mergeRuntimeProviderPatch(
+          ensurePlainObject(currentRuntime.agent),
+          agentUpdate,
         );
       }
 

@@ -21,6 +21,7 @@ const FILES = [
   { source: "skills/tabular-review/assets/vendor/pdf.min.js", path: ".opencode/skills/tabular-review/assets/vendor/pdf.min.js" },
   { source: "skills/tabular-review/assets/vendor/pdf.worker.min.js", path: ".opencode/skills/tabular-review/assets/vendor/pdf.worker.min.js" },
   { source: "agents/document-extractor.md", path: ".opencode/agents/document-extractor.md" },
+  { source: "agents/fusion-candidate.md", path: ".opencode/agents/fusion-candidate.md" },
   // docx-edit: agentic Word reading + editing (self-contained vendored OOXML engine).
   { source: "skills/docx-edit/SKILL.md", path: ".opencode/skills/docx-edit/SKILL.md" },
   { source: "skills/docx-edit/assets/docx-agent.mjs", path: ".opencode/skills/docx-edit/assets/docx-agent.mjs" },

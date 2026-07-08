@@ -8,3 +8,7 @@ export function isElectronRuntime() {
 export function isDesktopRuntime() {
   return isElectronRuntime();
 }
+
+export function isOfficeAddinRuntime() {
+  return typeof document !== "undefined" && document.documentElement.classList.contains("lw-word-pane");
+}

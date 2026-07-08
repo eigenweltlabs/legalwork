@@ -54,7 +54,6 @@ import type {
   SlashCommandOption,
   WorkspacePreset,
   WorkspaceConnectionState,
-  Client,
   ProviderListItem,
   WorkspaceDisplay,
   WorkspaceSessionGroup,
@@ -62,6 +61,7 @@ import type {
 import {
   getWorkspaceTaskLoadErrorDisplay,
   isDesktopRuntime,
+  isOfficeAddinRuntime,
   isSandboxWorkspace,
   normalizeDirectoryPath,
   normalizeSessionStatus,
@@ -98,6 +98,8 @@ import {
 import { firstLineLocalFileParts } from "@/react-app/domains/session/sync/prompt-file-parts";
 import { useSessionInteractions } from "@/react-app/domains/session/sync/use-session-interactions";
 import { useModelBehavior } from "@/react-app/domains/session/surface/use-model-behavior";
+import { runFusionSend } from "@/react-app/domains/session/fusion/fusion-controller";
+import { getFusionSelectedModels, isFusionEnabled } from "@/react-app/domains/session/fusion/fusion-store";
 import { useModelPicker } from "@/react-app/domains/session/modals/use-model-picker";
 import { appMentionInstruction } from "@/react-app/domains/session/surface/composer/app-mentions";
 import { CreateWorkspaceModal } from "@/react-app/domains/workspace/create-workspace-modal";
@@ -790,6 +792,38 @@ export function SessionRoute() {
           cacheKey: targetSessionId,
           runtimeKey: environmentRuntimeKey,
         });
+
+        if (!isOfficeAddinRuntime() && isFusionEnabled(targetSessionId)) {
+          const candidateModels = getFusionSelectedModels(targetSessionId);
+          if (candidateModels.length === 0) {
+            // No candidates picked for this chat: warn and fall through to a
+            // normal single-model send.
+            toast.error(t("fusion.not_configured"));
+          } else {
+            // Deliberately not awaited: the composer should clear as soon as
+            // the message is handed off, not when the whole fusion turn
+            // (task calls + synthesis) finishes. Progress streams
+            // through the fusion store; failures surface as a session error.
+            void runFusionSend({
+              client: opencodeClient,
+              directory: selectedWorkspaceRoot || undefined,
+              mainSessionId: targetSessionId,
+              parts,
+              userText: text,
+              candidateModels,
+              mainModel: local.prefs.defaultModel ?? undefined,
+              agent: selectedAgent ?? undefined,
+              variant: modelVariantValue ?? undefined,
+              baseSystem: envSystemContext ?? undefined,
+            }).catch((error: unknown) => {
+              const message = error instanceof Error ? error.message : String(error);
+              toast.error(t("fusion.turn_failed"), { description: message });
+              useSessionActivityStore.getState().setError(selectedWorkspaceId, targetSessionId, message);
+            });
+            return;
+          }
+        }
+
         const result = await opencodeClient.session.promptAsync({
           sessionID: targetSessionId,
           parts,

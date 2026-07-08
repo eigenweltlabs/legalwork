@@ -9,6 +9,7 @@ import { toast } from "@/components/ui/sonner";
 import { captureAnalyticsEvent } from "@/app/lib/analytics";
 import { createClient, unwrap } from "@/app/lib/opencode";
 import { abortSessionSafe } from "@/app/lib/opencode-session";
+import { isOfficeAddinRuntime } from "@/app/lib/runtime-env";
 import { t } from "@/i18n";
 import { readWorkspaceImports, type ImportedPlugin } from "@/app/lib/extension-imports";
 import type {
@@ -71,6 +72,8 @@ import {
 } from "./composer-state-store";
 import { MessageList } from "@/components/chat/message-list";
 import { MessageListProvider, type DispatchAction } from "@/components/chat/message-list-provider";
+import { FusionIntroDialog, markFusionIntroSeen, shouldShowFusionIntro } from "@/react-app/domains/session/fusion/fusion-intro-dialog";
+import { useFusionStore } from "@/react-app/domains/session/fusion/fusion-store";
 import { OpenTargetProvider, type OpenTargetOptions } from "@/lib/target-provider";
 import type { ThreadStatus } from "@/lib/messages";
 import {
@@ -441,6 +444,36 @@ export function SessionSurface(props: SessionSurfaceProps) {
   // session B when the route swaps the same surface component to another
   // session.
   const queuedDrafts = useComposerStateStore((state) => getComposerQueuedDrafts(state, props.sessionId));
+  const fusionAvailable = !isOfficeAddinRuntime();
+  const storedFusionEnabled = useFusionStore((state) => Boolean(state.enabledSessionIds[props.sessionId]));
+  const fusionEnabled = fusionAvailable && storedFusionEnabled;
+  const fusionModels = useFusionStore((state) => state.selectedModelsBySessionId[props.sessionId]);
+  const setFusionEnabled = useFusionStore((state) => state.setEnabled);
+  const setFusionModels = useFusionStore((state) => state.setSelectedModels);
+  const fusionDefaultModels = local.prefs.fusionModels;
+  const [fusionIntroOpen, setFusionIntroOpen] = useState(false);
+  useEffect(() => {
+    if (!fusionAvailable && storedFusionEnabled) {
+      setFusionEnabled(props.sessionId, false);
+    }
+  }, [fusionAvailable, props.sessionId, setFusionEnabled, storedFusionEnabled]);
+  const handleToggleFusion = useCallback(() => {
+    const store = useFusionStore.getState();
+    const enabling = !store.enabledSessionIds[props.sessionId];
+    // First enable on a chat seeds the candidate picker from the settings defaults.
+    if (enabling && store.selectedModelsBySessionId[props.sessionId] === undefined) {
+      setFusionModels(props.sessionId, fusionDefaultModels ?? []);
+    }
+    if (enabling && shouldShowFusionIntro()) {
+      markFusionIntroSeen();
+      setFusionIntroOpen(true);
+    }
+    setFusionEnabled(props.sessionId, enabling);
+  }, [fusionDefaultModels, props.sessionId, setFusionEnabled, setFusionModels]);
+  const handleFusionModelsChange = useCallback((models: ModelRef[]) => {
+    setFusionModels(props.sessionId, models);
+  }, [props.sessionId, setFusionModels]);
+  const fusionConfigured = (fusionModels?.length ?? 0) > 0;
   const appendQueuedDraft = useComposerStateStore((state) => state.appendQueuedDraft);
   const removeQueuedDraftFromStore = useComposerStateStore((state) => state.removeQueuedDraft);
   const clearQueuedDrafts = useComposerStateStore((state) => state.clearQueuedDrafts);
@@ -1242,6 +1275,7 @@ export function SessionSurface(props: SessionSurfaceProps) {
   return (
     <DevProfiler id="SessionSurface">
     <div className="flex h-full min-h-0 flex-col">
+      {fusionAvailable ? <FusionIntroDialog open={fusionIntroOpen} onOpenChange={setFusionIntroOpen} /> : null}
       {model.transitionState === "switching" && showDelayedLoading ? (
         <div className="flex justify-center px-6 pt-4">
           <div className="rounded-full border border-dls-border bg-dls-hover/80 px-3 py-1 text-xs text-dls-secondary">
@@ -1359,6 +1393,18 @@ export function SessionSurface(props: SessionSurfaceProps) {
             <span className="text-amber-11/70">Add a provider to run tasks.</span>
           </button>
         ) : null}
+        {fusionEnabled && !fusionConfigured ? (
+          <div className="mx-3 mb-2 flex w-[calc(100%-1.5rem)] flex-wrap items-center gap-2 rounded-lg border border-amber-7/40 bg-amber-2/30 px-3 py-2 text-xs text-amber-11">
+            <span className="font-medium">{t("fusion.banner_not_configured")}</span>
+            <button
+              type="button"
+              className="ml-auto shrink-0 rounded-full border border-amber-7/50 px-2.5 py-1 font-medium transition-colors hover:bg-amber-3/50"
+              onClick={() => props.onOpenSettingsSection?.("providers")}
+            >
+              {t("fusion.banner_open_settings")}
+            </button>
+          </div>
+        ) : null}
         <DevProfiler id="SessionComposer">
         <ReactSessionComposer
           draft={draft}
@@ -1411,6 +1457,10 @@ export function SessionSurface(props: SessionSurfaceProps) {
         onRemovePastedText={handleRemovePastedText}
         isRemoteWorkspace={props.isRemoteWorkspace}
           isSandboxWorkspace={props.isSandboxWorkspace}
+          fusionEnabled={fusionEnabled}
+          onToggleFusion={fusionAvailable ? handleToggleFusion : undefined}
+          fusionModels={fusionAvailable ? fusionModels ?? [] : []}
+          onFusionModelsChange={fusionAvailable ? handleFusionModelsChange : undefined}
           onUploadInboxFiles={props.onUploadInboxFiles ?? handleUploadInboxFiles}
           compactTopSpacing={Boolean(props.freeModelSelected || props.activeQuestion || (props.todos ?? []).some((todo) => todo.content.trim()) || props.activePermission || queuedMessages.length > 0)}
           topAccessory={
