@@ -22,7 +22,16 @@ import type { AudioModelDiskCandidate, AudioModelState } from "@legalwork/types/
 import { useRecorderStore } from "./recorder-store";
 
 function tierLabel(tier: AudioModelState["tier"]): string {
-  return t(`recorder.tier_${tier}`);
+  switch (tier) {
+    case "fastest":
+      return t("recorder.tier_fastest");
+    case "balanced":
+      return t("recorder.tier_balanced");
+    case "accurate":
+      return t("recorder.tier_accurate");
+    case "best":
+      return t("recorder.tier_best");
+  }
 }
 
 function ModelRow(props: { model: AudioModelState }) {

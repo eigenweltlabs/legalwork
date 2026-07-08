@@ -16,16 +16,10 @@ import { fileURLToPath } from "node:url";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
+import { macOsAtLeast } from "./mac-version.mjs";
+
 const APP_PCM_CHANNEL = "legalwork:audio:app-pcm";
 const HELPER_NAME = "LegalWorkAudioTap";
-
-function macVersionAtLeast(major, minor) {
-  if (process.platform !== "darwin") return false;
-  const parts = String(process.getSystemVersion?.() ?? "").split(".").map((part) => Number.parseInt(part, 10));
-  const [gotMajor, gotMinor = 0] = parts;
-  if (!Number.isFinite(gotMajor)) return false;
-  return gotMajor > major || (gotMajor === major && gotMinor >= minor);
-}
 
 export function resolveHelperPath(app) {
   if (app.isPackaged) {
@@ -55,7 +49,7 @@ export class AppAudioTap {
     // (dev: `pnpm run build:audiotap`; packaged: shipped in resources/helpers).
     return (
       process.platform === "darwin" &&
-      macVersionAtLeast(14, 4) &&
+      macOsAtLeast(14, 4) &&
       fs.existsSync(resolveHelperPath(this.app))
     );
   }

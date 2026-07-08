@@ -14,6 +14,8 @@
  * rest of the app keeps default screen-share behavior.
  */
 
+import { macOsAtLeast } from "./mac-version.mjs";
+
 const FEATURE_SWITCH = "enable-features";
 
 // True between enableLoopbackAudio() and the handler answering (or explicit
@@ -26,17 +28,11 @@ export function isLoopbackCaptureArmed() {
   return loopbackArmed;
 }
 
-function macMajorVersion() {
-  if (process.platform !== "darwin") return 0;
-  const version = Number.parseInt(String(process.getSystemVersion?.() ?? "").split(".")[0] ?? "", 10);
-  return Number.isFinite(version) ? version : 0;
-}
-
 export function appendLoopbackFeatureFlags(app) {
   const flags = [];
   if (process.platform === "darwin") {
     flags.push("MacLoopbackAudioForScreenShare");
-    flags.push(macMajorVersion() >= 15 ? "MacCatapSystemAudioLoopbackCapture" : "MacSckSystemAudioLoopbackOverride");
+    flags.push(macOsAtLeast(15) ? "MacCatapSystemAudioLoopbackCapture" : "MacSckSystemAudioLoopbackOverride");
   } else if (process.platform === "linux") {
     flags.push("PulseaudioLoopbackForScreenShare");
   }

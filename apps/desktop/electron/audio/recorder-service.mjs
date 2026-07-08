@@ -21,6 +21,7 @@ import { fileURLToPath } from "node:url";
 
 import { AudioModelManager } from "./model-manager.mjs";
 import { findAudioModel } from "./model-catalog.mjs";
+import { macOsAtLeast } from "./mac-version.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -139,11 +140,7 @@ export class RecorderService {
     // WASAPI loopback ships in Chromium on Windows; macOS needs
     // ScreenCaptureKit (13+) behind the feature flags enabled at startup;
     // Linux goes through PipeWire/Pulse (assumed present on desktop distros).
-    let systemAudio = true;
-    if (process.platform === "darwin") {
-      const major = Number.parseInt(String(process.getSystemVersion?.() ?? "").split(".")[0] ?? "", 10);
-      systemAudio = Number.isFinite(major) && major >= 13;
-    }
+    const systemAudio = process.platform === "darwin" ? macOsAtLeast(13) : true;
     return {
       microphone: true,
       systemAudio,
