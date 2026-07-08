@@ -52,6 +52,60 @@ const APP_IDENTIFIER =
   (isDevMode ? DEV_APP_IDENTIFIER : APP_BUNDLE_IDENTIFIER);
 const RELEASE_DOWNLOAD_BASE_URL = "https://github.com/eigenweltlabs/legalwork/releases/latest/download";
 const RELEASE_PAGE_URL = "https://github.com/eigenweltlabs/legalwork/releases/latest";
+
+async function showSupportLogsProgressWindow(parent) {
+  const dark = nativeTheme.shouldUseDarkColors;
+  const background = dark ? "#0b0b0f" : "#ffffff";
+  const foreground = dark ? "#f4f4f5" : "#18181b";
+  const muted = dark ? "#a1a1aa" : "#71717a";
+  const spinnerTrack = dark ? "rgba(244,244,245,.25)" : "rgba(24,24,27,.18)";
+  const progressWindow = new BrowserWindow({
+    width: 360,
+    height: 180,
+    title: "Collect Support Logs",
+    show: false,
+    resizable: false,
+    minimizable: false,
+    maximizable: false,
+    fullscreenable: false,
+    skipTaskbar: true,
+    modal: Boolean(parent),
+    ...(parent ? { parent } : {}),
+    backgroundColor: background,
+    webPreferences: {
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: true,
+    },
+  });
+
+  progressWindow.setMenu(null);
+  await progressWindow.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(`<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <style>
+      html, body { height: 100%; margin: 0; background: ${background}; color: ${foreground}; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+      body { display: grid; place-items: center; }
+      main { display: grid; gap: 10px; justify-items: center; padding: 24px; text-align: center; }
+      .spinner { width: 24px; height: 24px; border: 2px solid ${spinnerTrack}; border-top-color: ${foreground}; border-radius: 50%; animation: spin .9s linear infinite; }
+      .title { font-size: 15px; font-weight: 600; }
+      .body { font-size: 13px; color: ${muted}; }
+      @keyframes spin { to { transform: rotate(360deg); } }
+    </style>
+  </head>
+  <body>
+    <main>
+      <div class="spinner" aria-hidden="true"></div>
+      <div class="title">Collecting support logs</div>
+      <div class="body">This can take a few seconds.</div>
+    </main>
+  </body>
+</html>`)}`);
+  progressWindow.show();
+  return progressWindow;
+}
+
 // Collect the support-log bundle: ask the user where to save it (defaulting
 // to the Desktop), write it there, and reveal it in the file manager so it
 // can be attached to an email. Shared by the Help menu and the
@@ -77,8 +131,17 @@ async function collectSupportLogsAndReveal() {
     : await dialog.showSaveDialog(options);
   if (canceled || !filePath) return null;
 
-  // Build after the dialog so the diagnostics snapshot is as fresh as possible.
-  writeFileSync(filePath, buildSupportBundleText({ app, runtimeManager }), "utf8");
+  const progressWindow = await showSupportLogsProgressWindow(parent);
+  try {
+    // Give the progress window one paint before the synchronous diagnostics
+    // snapshot starts probing binaries and reading log tails.
+    await new Promise((resolve) => setTimeout(resolve, 80));
+    // Build after the dialog so the diagnostics snapshot is as fresh as possible.
+    writeFileSync(filePath, buildSupportBundleText({ app, runtimeManager }), "utf8");
+  } finally {
+    if (!progressWindow.isDestroyed()) progressWindow.close();
+  }
+
   shell.showItemInFolder(filePath);
   return filePath;
 }
