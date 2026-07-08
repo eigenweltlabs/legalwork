@@ -23,7 +23,7 @@ import {
 import { Textarea } from "@/components/ui/textarea";
 import { t } from "@/i18n";
 import { cn } from "@/lib/utils";
-import type { BenchmarkWorkType } from "../../../app/lib/benchmark-types";
+import type { BenchmarkTaskItem, BenchmarkWorkType } from "../../../app/lib/benchmark-types";
 import { BENCHMARK_WORK_TYPES } from "../../../app/lib/benchmark-types";
 import { SettingsNotice } from "../settings/settings-section";
 import { collectTaskTags } from "./filter-tasks";
@@ -38,7 +38,21 @@ import { useBenchmarkStore } from "./store";
 export type TaskFormModalProps = {
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  /** When set, the modal edits this task instead of creating a new one. */
+  task?: BenchmarkTaskItem | null;
 };
+
+function draftFromTask(task: BenchmarkTaskItem): CustomTaskDraft {
+  return {
+    title: task.title,
+    workType: task.workType,
+    tags: [...task.tags],
+    instructions: task.instructions,
+    deliverables: task.deliverables.length ? [...task.deliverables] : [""],
+    criteria: task.criteria.length ? task.criteria.map((criterion) => criterion.matchCriteria) : [""],
+    documents: [],
+  };
+}
 
 function fileToBase64(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -243,17 +257,21 @@ function TagInput(props: {
 export function TaskFormModal(props: TaskFormModalProps) {
   const tasks = useBenchmarkStore((state) => state.tasks);
   const createTask = useBenchmarkStore((state) => state.createTask);
+  const updateTask = useBenchmarkStore((state) => state.updateTask);
   const [draft, setDraft] = useState<CustomTaskDraft>(EMPTY_CUSTOM_TASK_DRAFT);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
+  const editingTask = props.task ?? null;
+  const isEdit = Boolean(editingTask);
+
   useEffect(() => {
     if (props.open) {
-      setDraft(EMPTY_CUSTOM_TASK_DRAFT);
+      setDraft(editingTask ? draftFromTask(editingTask) : EMPTY_CUSTOM_TASK_DRAFT);
       setErrors({});
     }
-  }, [props.open]);
+  }, [props.open, editingTask]);
 
   const tagSuggestions = useMemo(() => collectTaskTags(tasks), [tasks]);
   const patch = (update: Partial<CustomTaskDraft>) => setDraft((previous) => ({ ...previous, ...update }));
@@ -280,7 +298,9 @@ export function TaskFormModal(props: TaskFormModalProps) {
     }
     setErrors({});
     setSaving(true);
-    const item = await createTask(result.input);
+    const item = editingTask
+      ? await updateTask(editingTask.id, result.input)
+      : await createTask(result.input);
     setSaving(false);
     if (item) props.onOpenChange(false);
   };
@@ -289,7 +309,7 @@ export function TaskFormModal(props: TaskFormModalProps) {
     <Dialog open={props.open} onOpenChange={props.onOpenChange}>
       <DialogContent className="flex h-[min(820px,90vh)] w-[min(1120px,95vw)] max-w-[95vw] flex-col sm:max-w-[1120px]">
         <DialogHeader>
-          <DialogTitle>{t("benchmark.new_task")}</DialogTitle>
+          <DialogTitle>{isEdit ? t("benchmark.edit_custom_task") : t("benchmark.new_task")}</DialogTitle>
         </DialogHeader>
 
         <div className="grid min-h-0 flex-1 grid-cols-1 content-start gap-4 overflow-y-auto pr-1 md:grid-cols-2 md:gap-6">
@@ -342,40 +362,48 @@ export function TaskFormModal(props: TaskFormModalProps) {
 
             <section className="rounded-xl border border-dls-border p-4">
               <Label className="mb-1.5 block text-[12px]">{t("benchmark.form_documents")}</Label>
-              {draft.documents.length ? (
-                <ul className="mb-2 space-y-1">
-                  {draft.documents.map((doc) => (
-                    <li key={doc.name} className="flex items-center gap-2 text-[12px]">
-                      <Paperclip size={12} className="text-muted-foreground" />
-                      <span className="min-w-0 flex-1 truncate font-mono">{doc.name}</span>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="size-6"
-                        onClick={() =>
-                          patch({ documents: draft.documents.filter((entry) => entry.name !== doc.name) })
-                        }
-                      >
-                        <X size={12} />
-                      </Button>
-                    </li>
-                  ))}
-                </ul>
-              ) : null}
-              <input
-                ref={fileInputRef}
-                type="file"
-                multiple
-                className="hidden"
-                onChange={(event) => {
-                  void addFiles(event.target.files);
-                  event.target.value = "";
-                }}
-              />
-              <Button variant="outline" size="sm" onClick={() => fileInputRef.current?.click()}>
-                <Paperclip size={13} />
-                {t("benchmark.form_add_documents")}
-              </Button>
+              {isEdit && editingTask && editingTask.docCount > 0 ? (
+                <p className="text-[12px] text-muted-foreground">
+                  {t("benchmark.edit_documents_kept", { count: editingTask.docCount })}
+                </p>
+              ) : (
+                <>
+                  {draft.documents.length ? (
+                    <ul className="mb-2 space-y-1">
+                      {draft.documents.map((doc) => (
+                        <li key={doc.name} className="flex items-center gap-2 text-[12px]">
+                          <Paperclip size={12} className="text-muted-foreground" />
+                          <span className="min-w-0 flex-1 truncate font-mono">{doc.name}</span>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="size-6"
+                            onClick={() =>
+                              patch({ documents: draft.documents.filter((entry) => entry.name !== doc.name) })
+                            }
+                          >
+                            <X size={12} />
+                          </Button>
+                        </li>
+                      ))}
+                    </ul>
+                  ) : null}
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    multiple
+                    className="hidden"
+                    onChange={(event) => {
+                      void addFiles(event.target.files);
+                      event.target.value = "";
+                    }}
+                  />
+                  <Button variant="outline" size="sm" onClick={() => fileInputRef.current?.click()}>
+                    <Paperclip size={13} />
+                    {t("benchmark.form_add_documents")}
+                  </Button>
+                </>
+              )}
             </section>
           </div>
 

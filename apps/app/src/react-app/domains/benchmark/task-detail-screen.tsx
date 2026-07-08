@@ -1,6 +1,6 @@
 /** @jsxImportSource react */
-import { useEffect, type ReactNode } from "react";
-import { FileText, Trash2 } from "lucide-react";
+import { useEffect, useState, type ReactNode } from "react";
+import { FileText, Pencil, Trash2 } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -14,6 +14,7 @@ import { resolvePathOpenTarget } from "../session/artifacts/open-target";
 import { LEARNINGS_PANEL_SESSION_ID, usePanelTabStore } from "../session/panel/panel-tab-store";
 import { criteriaScoreLabel, criteriaScoreToneClass, isItemActive, itemStatusBadge, workTypeLabel } from "./format";
 import { useBenchmarkStore } from "./store";
+import { TaskFormModal } from "./task-form-modal";
 
 export type TaskDetailScreenProps = {
   taskId: string;
@@ -41,6 +42,7 @@ export function TaskDetailScreen(props: TaskDetailScreenProps) {
   const documents = useBenchmarkStore((state) => state.taskDocuments[props.taskId]);
   const documentsLoading = useBenchmarkStore((state) => state.taskDocumentsLoading === props.taskId);
   const loadTaskDocuments = useBenchmarkStore((state) => state.loadTaskDocuments);
+  const [editOpen, setEditOpen] = useState(false);
 
   useEffect(() => {
     if (!tasks.length) void refreshTasks();
@@ -100,17 +102,25 @@ export function TaskDetailScreen(props: TaskDetailScreenProps) {
                   ))}
                 </div>
               </div>
-              <Button
-                variant="ghost"
-                size="sm"
-                className="shrink-0 text-red-11 hover:text-red-11"
-                onClick={() => {
-                  void deleteTask(task.id).then(() => props.onBack());
-                }}
-              >
-                <Trash2 size={13} />
-                {t("common.remove")}
-              </Button>
+              <div className="flex shrink-0 items-center gap-1">
+                {task.source === "custom" ? (
+                  <Button variant="ghost" size="sm" onClick={() => setEditOpen(true)}>
+                    <Pencil size={13} />
+                    {t("common.edit")}
+                  </Button>
+                ) : null}
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="text-red-11 hover:text-red-11"
+                  onClick={() => {
+                    void deleteTask(task.id).then(() => props.onBack());
+                  }}
+                >
+                  <Trash2 size={13} />
+                  {t("common.remove")}
+                </Button>
+              </div>
             </div>
             <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 text-[12px] text-muted-foreground">
               <span>{t("benchmark.criteria_meta", { count: task.criteria.length })}</span>
@@ -221,6 +231,8 @@ export function TaskDetailScreen(props: TaskDetailScreenProps) {
               ))}
             </ul>
           </DetailCard>
+
+          <TaskFormModal open={editOpen} onOpenChange={setEditOpen} task={task} />
         </div>
       ) : null}
     </LayoutStack>

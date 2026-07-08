@@ -152,6 +152,7 @@ export default {
   "benchmark.delete_tasks_message": "This permanently deletes {count} selected task(s) and their results. This can't be undone.",
   "benchmark.deliverables_title": "Deliverables",
   "benchmark.edit_custom_task": "Edit custom task",
+  "benchmark.edit_documents_kept": "{count} input document(s) attached. They're kept unchanged when you save.",
   "benchmark.empty_runs": "No benchmark runs yet. Create one to compare your connected models on legal tasks.",
   "benchmark.error_create_run": "Could not start the benchmark: {message}",
   "benchmark.evaluations": "{count} evaluations",

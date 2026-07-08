@@ -178,6 +178,7 @@ const de: Record<string, string> = {
   "benchmark.tab_tasks": "Aufgaben",
   "benchmark.back_to_runs": "Alle Läufe",
   "benchmark.custom_badge": "Eigene",
+  "benchmark.edit_documents_kept": "{count} Eingabedokument(e) angehängt. Sie bleiben beim Speichern unverändert.",
   "benchmark.delete_run": "Lauf löschen",
   "benchmark.delete_tasks": "Löschen",
   "benchmark.delete_tasks_title": "Aufgaben löschen?",
