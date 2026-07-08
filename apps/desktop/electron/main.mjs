@@ -1,7 +1,7 @@
 import { execFileSync, spawn } from "node:child_process";
 import { createServer } from "node:http";
 import net from "node:net";
-import { existsSync } from "node:fs";
+import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import {
   chmod,
   cp,
@@ -584,6 +584,49 @@ function assertLegalworkServerReady(info) {
   return info;
 }
 
+// Turn a runtime boot failure into a rich, token-free result the renderer can
+// log and (partly) display. We also drop the same payload into a log file so a
+// failing machine can be diagnosed by sending one file — the on-screen message
+// alone is a generic catch-all that hides the real cause.
+function describeRuntimeBootFailure(error) {
+  const message = error instanceof Error ? error.message : String(error);
+  let diagnostics = null;
+  try {
+    diagnostics = runtimeManager.collectRuntimeDiagnostics();
+  } catch {
+    /* diagnostics are best-effort */
+  }
+
+  console.error(
+    "[runtime] boot failed:",
+    error instanceof Error ? error.stack || message : message,
+  );
+  if (diagnostics) {
+    console.error("[runtime] diagnostics:", JSON.stringify(diagnostics, null, 2));
+  }
+
+  let logPath = null;
+  try {
+    const logsDir = app.getPath("logs");
+    mkdirSync(logsDir, { recursive: true });
+    logPath = path.join(logsDir, "runtime-boot-failure.log");
+    const dump = [
+      `LegalWork runtime boot failure`,
+      `error: ${message}`,
+      error instanceof Error && error.stack ? `stack:\n${error.stack}` : null,
+      `diagnostics:\n${JSON.stringify(diagnostics, null, 2)}`,
+      "",
+    ]
+      .filter(Boolean)
+      .join("\n");
+    writeFileSync(logPath, dump, "utf8");
+  } catch {
+    logPath = null;
+  }
+
+  return { ok: false, error: message, diagnostics, logPath };
+}
+
 async function bootRuntimeForSelectedWorkspace() {
   const list = await workspaceStore.readWorkspaceState();
   const selectedId = list.selectedId || list.activeId || list.workspaces[0]?.id || "";
@@ -649,10 +692,7 @@ async function bootRuntimeForSelectedWorkspace() {
 
 function ensureRuntimeBootstrap() {
   if (!runtimeBootstrapPromise) {
-    runtimeBootstrapPromise = bootRuntimeForSelectedWorkspace().catch((error) => ({
-      ok: false,
-      error: error instanceof Error ? error.message : String(error),
-    }));
+    runtimeBootstrapPromise = bootRuntimeForSelectedWorkspace().catch(describeRuntimeBootFailure);
   }
   return runtimeBootstrapPromise;
 }
@@ -1846,10 +1886,7 @@ if (!app.requestSingleInstanceLock()) {
     await uiControlServer.start().catch((error) => {
       console.warn("[ui-control] failed to start", error);
     });
-    runtimeBootstrapPromise = bootRuntimeForSelectedWorkspace().catch((error) => ({
-      ok: false,
-      error: error instanceof Error ? error.message : String(error),
-    }));
+    runtimeBootstrapPromise = bootRuntimeForSelectedWorkspace().catch(describeRuntimeBootFailure);
 
     queueDeepLinks(forwardedDeepLinks(process.argv));
     const win = await createMainWindow();
