@@ -4,10 +4,10 @@
  * Rendered in the session shell's main view (sidebar stays), like Learnings.
  */
 import { useEffect, useMemo, useRef, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import {
   AppWindowMac,
   Check,
-  Download,
   FolderInput,
   FolderOpen,
   HardDrive,
@@ -18,6 +18,7 @@ import {
   PanelTopOpen,
   Pencil,
   Play,
+  Settings2,
   Sparkles,
   SendHorizontal,
   Square,
@@ -25,7 +26,6 @@ import {
   X,
 } from "lucide-react";
 
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
@@ -36,7 +36,6 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { InputGroup, InputGroupAddon, InputGroupButton, InputGroupTextarea } from "@/components/ui/input-group";
-import { Progress } from "@/components/ui/progress";
 import {
   Select,
   SelectContent,
@@ -48,10 +47,11 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { cn } from "@/lib/utils";
 import { t } from "@/i18n";
 import type {
-  AudioModelState,
   AudioRecordingMeta,
+  AudioTapApp,
 } from "@legalwork/types/audio";
 
+import { audioTapListApps } from "@/app/lib/desktop";
 import { formatBytes } from "../../../app/utils";
 import { revealRecording, useRecorderStore, type CopilotEntry } from "./recorder-store";
 
@@ -62,10 +62,6 @@ function formatDuration(ms: number): string {
   const s = total % 60;
   const pad = (n: number) => String(n).padStart(2, "0");
   return h > 0 ? `${h}:${pad(m)}:${pad(s)}` : `${m}:${pad(s)}`;
-}
-
-function tierLabel(tier: AudioModelState["tier"]): string {
-  return t(`recorder.tier_${tier}`);
 }
 
 function LevelMeter({ level, label, icon }: { level: number; label: string; icon: React.ReactNode }) {
@@ -121,67 +117,104 @@ function SourceToggle(props: {
   );
 }
 
-function ModelRow(props: { model: AudioModelState }) {
-  const { model } = props;
+/** MacWhisper-style picker: choose which running apps to capture. */
+function AppPickerDialog(props: { open: boolean; onClose: () => void }) {
   const store = useRecorderStore();
-  const progress =
-    model.totalBytes > 0 ? Math.round((model.downloadedBytes / model.totalBytes) * 100) : 0;
+  const [apps, setApps] = useState<AudioTapApp[]>([]);
+  const [query, setQuery] = useState("");
+  const [selected, setSelected] = useState<Set<number>>(() => new Set(store.appPids));
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    if (!props.open) return;
+    setLoading(true);
+    setSelected(new Set(useRecorderStore.getState().appPids));
+    void audioTapListApps()
+      .then(setApps)
+      .finally(() => setLoading(false));
+  }, [props.open]);
+
+  const filtered = apps.filter((app) => app.name.toLowerCase().includes(query.trim().toLowerCase()));
+
+  const toggle = (pid: number) => {
+    setSelected((current) => {
+      const next = new Set(current);
+      if (next.has(pid)) next.delete(pid);
+      else next.add(pid);
+      return next;
+    });
+  };
+
   return (
-    <div className="flex items-center gap-3 rounded-xl border border-border bg-card/60 px-3 py-2.5">
-      <div className="min-w-0 flex-1">
-        <div className="flex flex-wrap items-center gap-2">
-          <span className="text-sm font-medium text-foreground">{model.label}</span>
-          <Badge variant="outline" className="text-[10px]">{tierLabel(model.tier)}</Badge>
-          <Badge variant="outline" className="text-[10px]">EN · DE</Badge>
-          {model.recommended ? (
-            <Badge className="text-[10px]">{t("recorder.model_recommended")}</Badge>
-          ) : null}
-        </div>
-        <div className="mt-0.5 truncate text-xs text-muted-foreground">{model.description}</div>
-        {model.state === "downloading" ? (
-          <div className="mt-2 flex items-center gap-2">
-            <Progress value={progress} className="h-1.5 flex-1" />
-            <span className="text-[11px] tabular-nums text-muted-foreground">
-              {formatBytes(model.downloadedBytes)} / {formatBytes(model.totalBytes || model.approxSizeBytes)}
+    <Dialog open={props.open} onOpenChange={(open) => !open && props.onClose()}>
+      <DialogContent className="max-w-2xl">
+        <DialogHeader>
+          <DialogTitle>{t("recorder.app_picker_title")}</DialogTitle>
+        </DialogHeader>
+        <Input
+          value={query}
+          onChange={(event) => setQuery(event.currentTarget.value)}
+          placeholder={t("recorder.app_picker_search")}
+          className="h-8"
+        />
+        <div className="grid max-h-[50vh] grid-cols-4 gap-2 overflow-y-auto py-1 sm:grid-cols-5">
+          <button
+            type="button"
+            className={cn(
+              "flex flex-col items-center gap-1.5 rounded-xl border border-transparent p-2 text-center transition-colors hover:bg-muted",
+              selected.size === 0 && "border-primary bg-primary/10",
+            )}
+            onClick={() => setSelected(new Set())}
+          >
+            <MonitorSpeaker className="size-9 text-muted-foreground" />
+            <span className="line-clamp-2 text-[11px] leading-tight text-foreground">
+              {t("recorder.app_picker_all_system")}
             </span>
-          </div>
-        ) : null}
-        {model.state === "error" && model.error ? (
-          <div className="mt-1 text-xs text-destructive">{model.error}</div>
-        ) : null}
-      </div>
-      <div className="flex shrink-0 items-center gap-1.5">
-        <span className="text-xs tabular-nums text-muted-foreground">
-          {formatBytes(model.installedSizeBytes ?? model.approxSizeBytes)}
-        </span>
-        {model.state === "installed" ? (
-          <>
-            <Badge variant="outline" className="gap-1 text-[10px] text-green-11">
-              <HardDrive className="size-3" />
-              {t("recorder.model_installed")}
-            </Badge>
-            <Button
-              variant="ghost"
-              size="icon-sm"
-              aria-label={t("recorder.model_delete")}
-              onClick={() => void store.deleteModel(model.id)}
+          </button>
+          {loading ? (
+            <div className="col-span-3 flex items-center gap-2 p-2 text-sm text-muted-foreground">
+              <Loader2 className="size-4 animate-spin" />
+              {t("recorder.app_picker_loading")}
+            </div>
+          ) : null}
+          {filtered.map((app) => (
+            <button
+              key={app.pid}
+              type="button"
+              className={cn(
+                "flex flex-col items-center gap-1.5 rounded-xl border border-transparent p-2 text-center transition-colors hover:bg-muted",
+                selected.has(app.pid) && "border-primary bg-primary/10",
+              )}
+              onClick={() => toggle(app.pid)}
             >
-              <Trash2 />
-            </Button>
-          </>
-        ) : model.state === "downloading" ? (
-          <Button variant="outline" size="sm" onClick={() => void store.cancelModelDownload(model.id)}>
-            <X data-icon="inline-start" />
+              {app.icon ? (
+                <img src={app.icon} alt="" className="size-9 rounded-lg" />
+              ) : (
+                <AppWindowMac className="size-9 text-muted-foreground" />
+              )}
+              <span className="line-clamp-2 text-[11px] leading-tight text-foreground">{app.name}</span>
+            </button>
+          ))}
+        </div>
+        <div className="flex justify-end gap-2">
+          <Button variant="outline" size="sm" onClick={props.onClose}>
             {t("recorder.model_cancel")}
           </Button>
-        ) : (
-          <Button variant="outline" size="sm" onClick={() => void store.downloadModel(model.id)}>
-            <Download data-icon="inline-start" />
-            {t("recorder.model_download")}
+          <Button
+            size="sm"
+            onClick={() => {
+              const pids = Array.from(selected);
+              const names = apps.filter((app) => selected.has(app.pid)).map((app) => app.name);
+              store.setAppSelection(pids, names);
+              props.onClose();
+            }}
+          >
+            <Check data-icon="inline-start" />
+            {t("recorder.app_picker_confirm")}
           </Button>
-        )}
-      </div>
-    </div>
+        </div>
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -292,6 +325,8 @@ export function RecorderPane(props: {
 }) {
   const store = useRecorderStore();
   const [title, setTitle] = useState("");
+  const [appPickerOpen, setAppPickerOpen] = useState(false);
+  const navigate = useNavigate();
   const [question, setQuestion] = useState("");
   const transcriptEndRef = useRef<HTMLDivElement>(null);
 
@@ -402,12 +437,19 @@ export function RecorderPane(props: {
                 label={t("recorder.source_system")}
               />
               <SourceToggle
-                active={false}
-                disabled
+                active={store.sources.includes("app")}
+                disabled={isRecording || store.bootstrap?.capabilities.appAudio !== true}
                 disabledHint={t("recorder.source_app_hint")}
-                onToggle={() => {}}
+                onToggle={() => {
+                  if (store.sources.includes("app")) store.toggleSource("app");
+                  else setAppPickerOpen(true);
+                }}
                 icon={<AppWindowMac />}
-                label={t("recorder.source_app")}
+                label={
+                  store.sources.includes("app") && store.appNames.length
+                    ? `${t("recorder.source_app")}: ${store.appNames.slice(0, 2).join(", ")}${store.appNames.length > 2 ? "…" : ""}`
+                    : t("recorder.source_app")
+                }
               />
             </div>
             <div className="flex items-center gap-2">
@@ -450,6 +492,10 @@ export function RecorderPane(props: {
                   ))}
                 </SelectContent>
               </Select>
+              <Button variant="ghost" size="sm" onClick={() => navigate("/settings/recorder")}>
+                <Settings2 data-icon="inline-start" />
+                {t("recorder.manage_models")}
+              </Button>
             </div>
             <div className="flex min-w-[200px] flex-1 items-center gap-2">
               <Pencil className="size-4 shrink-0 text-muted-foreground" />
@@ -463,6 +509,8 @@ export function RecorderPane(props: {
             </div>
           </CardContent>
         </Card>
+
+        <AppPickerDialog open={appPickerOpen} onClose={() => setAppPickerOpen(false)} />
 
         {/* Live transcript */}
         {(isRecording || liveSegments.length > 0 || store.partial) ? (
@@ -603,19 +651,6 @@ export function RecorderPane(props: {
             </CardContent>
           </Card>
         ) : null}
-
-        {/* Models */}
-        <Card variant="outline" size="sm" className="mt-4">
-          <CardHeader>
-            <CardTitle className="text-sm">{t("recorder.models_title")}</CardTitle>
-            <p className="text-xs text-muted-foreground">{t("recorder.models_subtitle")}</p>
-          </CardHeader>
-          <CardContent className="space-y-2">
-            {models.map((model) => (
-              <ModelRow key={model.id} model={model} />
-            ))}
-          </CardContent>
-        </Card>
 
         {/* Recordings */}
         <Card variant="outline" size="sm" className="mt-4">

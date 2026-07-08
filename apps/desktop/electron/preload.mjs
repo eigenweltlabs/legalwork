@@ -161,6 +161,14 @@ contextBridge.exposeInMainWorld("__LEGALWORK_ELECTRON__", {
         ipcRenderer.removeListener("legalwork:audio:event", handler);
       };
     },
+    /** PCM from the native per-app audio tap (macOS), mixed by the renderer. */
+    onAppPcm(callback) {
+      const handler = (_event, payload) => callback(payload);
+      ipcRenderer.on("legalwork:audio:app-pcm", handler);
+      return () => {
+        ipcRenderer.removeListener("legalwork:audio:app-pcm", handler);
+      };
+    },
   },
   terminal: {
     create(options) { return ipcRenderer.invoke("legalwork:terminal:create", options); },

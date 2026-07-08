@@ -20,7 +20,8 @@ import { fileURLToPath } from "node:url";
 
 import { app, BrowserWindow, desktopCapturer, dialog, ipcMain, nativeImage, nativeTheme, session, shell, systemPreferences } from "electron";
 import { configureFakeMediaForTests, installMediaPermissionHandlers } from "./media-permissions.mjs";
-import { appendLoopbackFeatureFlags, disableLoopbackAudio, enableLoopbackAudio } from "./audio/loopback.mjs";
+import { appendLoopbackFeatureFlags, disableLoopbackAudio, enableLoopbackAudio, isLoopbackCaptureArmed } from "./audio/loopback.mjs";
+import { AppAudioTap } from "./audio/app-audio.mjs";
 import { CallOverlay } from "./audio/call-overlay.mjs";
 import { RecorderService } from "./audio/recorder-service.mjs";
 import { registerMigrationIpc } from "./migration.mjs";
@@ -412,11 +413,19 @@ const workspaceStore = createWorkspaceStore({
 });
 
 // ── Local audio recording + transcription (Recorder tab) ──────────────────
+const appAudioTap = new AppAudioTap({
+  app,
+  getTargetWebContents: () => (mainWindow && !mainWindow.isDestroyed() ? mainWindow.webContents : null),
+});
+
 /** @type {RecorderService | null} */
 let recorderServiceInstance = null;
 function recorderService() {
   if (!recorderServiceInstance) {
-    recorderServiceInstance = new RecorderService({ userDataDir: app.getPath("userData") });
+    recorderServiceInstance = new RecorderService({
+      userDataDir: app.getPath("userData"),
+      appAudioAvailable: () => appAudioTap.isAvailable(),
+    });
     if (mainWindow && !mainWindow.isDestroyed()) {
       recorderServiceInstance.subscribe(mainWindow.webContents);
     }
@@ -1487,6 +1496,26 @@ const desktopCommandHandlers = {
   "audioRecorderBootstrap": async (event, ...args) => {
       return recorderService().bootstrap();
   },
+  "audioModelsScanExisting": async (event, ...args) => {
+      return recorderService().modelManager.scanExistingModels();
+  },
+  "audioModelImport": async (event, ...args) => {
+      return recorderService().modelManager.importFromFolder(
+        String(args[0] ?? ""),
+        typeof args[1] === "string" && args[1] ? args[1] : null,
+      );
+  },
+  "audioTapListApps": async (event, ...args) => {
+      return appAudioTap.listApps((filePath) => app.getFileIcon(filePath, { size: "large" }));
+  },
+  "audioTapStart": async (event, ...args) => {
+      const pids = Array.isArray(args[0]) ? args[0].map((pid) => Number(pid)).filter(Number.isFinite) : [];
+      return appAudioTap.start(pids);
+  },
+  "audioTapStop": async (event, ...args) => {
+      appAudioTap.stop();
+      return undefined;
+  },
   "audioModelDownload": async (event, ...args) => {
       return recorderService().downloadModel(String(args[0] ?? ""));
   },
@@ -1938,6 +1967,7 @@ if (!app.requestSingleInstanceLock()) {
     if (runtimeDisposeInProgress) return;
     showShutdownScreen();
     recorderServiceInstance?.dispose();
+    appAudioTap.stop();
     callOverlay.destroy();
     void Promise.all([disposeRuntimeBeforeQuit(), uiControlServer.stop()]).finally(() => app.quit());
   });
@@ -1959,7 +1989,7 @@ if (!app.requestSingleInstanceLock()) {
   });
 
   app.whenReady().then(async () => {
-    installMediaPermissionHandlers(session, () => mainWindow);
+    installMediaPermissionHandlers(session, () => mainWindow, { isLoopbackCaptureArmed });
     applicationMenu.install();
     await runtimeManager.prepareFreshRuntime().catch(() => undefined);
 

@@ -12,6 +12,7 @@ import {
   KeyRound,
   Languages,
   Layout,
+  Mic,
   Puzzle,
   RefreshCcw,
   ShieldCheck,
@@ -92,6 +93,8 @@ export function getSettingsTabIcon(tab: SettingsTab) {
       return ShieldCheck;
     case "office-addins":
       return FileStack;
+    case "recorder":
+      return Mic;
     case "debug":
       return Bug;
     default:
@@ -135,6 +138,8 @@ export function getSettingsTabLabel(tab: SettingsTab) {
       return t("settings.tab_recovery");
     case "office-addins":
       return t("office_addins.tab_label");
+    case "recorder":
+      return t("recorder.settings_tab_label");
     case "debug":
       return t("settings.tab_debug");
     case "general":
@@ -180,6 +185,8 @@ export function getSettingsTabDescription(tab: SettingsTab) {
       return t("settings.tab_description_recovery");
     case "office-addins":
       return t("office_addins.tab_description");
+    case "recorder":
+      return t("recorder.settings_tab_description");
     case "debug":
       return t("settings.tab_description_debug");
     case "general":
@@ -203,6 +210,8 @@ export function getGlobalSettingsTabs(developerMode: boolean): SettingsTab[] {
   // Office add-ins install into local desktop apps, so the tab is desktop-only.
   // Placed right after the first tab.
   if (isDesktopRuntime()) tabs.splice(1, 0, "office-addins");
+  // Recorder models/settings are desktop-only (local transcription engine).
+  if (isDesktopRuntime()) tabs.splice(1, 0, "recorder");
   if (developerMode) tabs.push("debug");
   return tabs;
 }

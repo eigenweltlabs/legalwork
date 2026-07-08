@@ -39,7 +39,7 @@ type Answer = {
 const MAX_VISIBLE_SEGMENTS = 4;
 /** No answer within this window → show an error instead of spinning forever
  * (the main window may have been closed mid-call). */
-const ASK_TIMEOUT_MS = 90_000;
+const ASK_TIMEOUT_MS = 120_000;
 
 function formatClock(ms: number): string {
   const total = Math.max(0, Math.floor(ms / 1000));
@@ -144,15 +144,6 @@ function OverlayApp() {
         <div className="ml-auto flex items-center gap-1" style={{ WebkitAppRegion: "no-drag" } as React.CSSProperties}>
           <button
             type="button"
-            aria-label={t("recorder.copilot_suggest")}
-            title={t("recorder.copilot_suggest")}
-            className="rounded-md p-1 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-            onClick={() => submitAsk("suggestions", t("recorder.copilot_suggest"))}
-          >
-            <Sparkles className="size-4" />
-          </button>
-          <button
-            type="button"
             aria-label={t("recorder.overlay_close")}
             className="rounded-md p-1 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
             onClick={() => api?.hide()}
@@ -213,8 +204,17 @@ function OverlayApp() {
         </div>
       ) : null}
 
-      {/* Ask box */}
+      {/* Copilot actions */}
       <div className="shrink-0 border-t border-border/60 p-2">
+        <button
+          type="button"
+          className="mb-1.5 flex w-full items-center justify-center gap-2 rounded-lg bg-primary px-3 py-2 text-[13px] font-semibold text-primary-foreground transition-opacity hover:opacity-90 disabled:opacity-40"
+          disabled={segments.length === 0}
+          onClick={() => submitAsk("suggestions", t("recorder.copilot_suggest"))}
+        >
+          <Sparkles className="size-4" />
+          {t("recorder.copilot_suggest")}
+        </button>
         <div className="flex items-end gap-1.5">
           <textarea
             value={question}

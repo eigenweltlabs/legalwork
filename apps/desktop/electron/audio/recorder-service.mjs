@@ -50,12 +50,14 @@ export class RecorderService {
    *   userDataDir: string,
    *   resolveWorkerPath?: () => string,
    *   forkWorker?: (workerPath: string) => TranscriberWorkerHandle,
+   *   appAudioAvailable?: () => boolean,
    * }} options
    */
   constructor(options) {
     this.userDataDir = options.userDataDir;
     this.modelsDir = path.join(options.userDataDir, "stt-models");
     this.recordingsDir = path.join(options.userDataDir, "recordings");
+    this.appAudioAvailable = options.appAudioAvailable ?? (() => false);
     this.resolveWorkerPath =
       options.resolveWorkerPath ?? (() => path.join(__dirname, "transcription-worker.cjs"));
     // Injectable so unit tests run without electron.
@@ -145,7 +147,7 @@ export class RecorderService {
     return {
       microphone: true,
       systemAudio,
-      appAudio: false,
+      appAudio: this.appAudioAvailable(),
     };
   }
 
@@ -194,8 +196,17 @@ export class RecorderService {
       return this.transcriberStatus;
     }
     if (!this.modelManager.isVadInstalled()) {
-      this.setTranscriberStatus({ state: "error", modelId, error: "Voice activity model missing — re-download any model." });
-      return this.transcriberStatus;
+      // Imported models skip the bundled VAD — fetch the ~2 MB file now.
+      try {
+        await this.modelManager.ensureVadInstalled();
+      } catch (error) {
+        this.setTranscriberStatus({
+          state: "error",
+          modelId,
+          error: `Voice activity model missing and could not be downloaded: ${error instanceof Error ? error.message : String(error)}`,
+        });
+        return this.transcriberStatus;
+      }
     }
     if (
       this.workerReady &&

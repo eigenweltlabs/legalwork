@@ -16,9 +16,72 @@ import path from "node:path";
 import { Readable, Transform } from "node:stream";
 import { pipeline } from "node:stream/promises";
 
+import os from "node:os";
+
 import { AUDIO_MODEL_CATALOG, VAD_MODEL, findAudioModel } from "./model-catalog.mjs";
 
 const COMPLETE_MARKER = ".complete";
+
+/**
+ * Hugging Face repo name per catalog model — used to find already-downloaded
+ * copies in local HF caches so users don't re-download gigabytes.
+ */
+function hfRepoDirName(entry) {
+  const match = entry.files[0]?.url.match(/huggingface\.co\/([^/]+)\/([^/]+)\/resolve\//);
+  if (!match) return null;
+  return `models--${match[1]}--${match[2]}`;
+}
+
+/**
+ * Model files inside HF snapshots / sherpa release folders often carry a
+ * prefix (e.g. `tiny-encoder.int8.onnx`); map any candidate file in `dir`
+ * to the catalog's canonical name.
+ */
+function locateModelFile(dir, canonicalName) {
+  const direct = path.join(dir, canonicalName);
+  if (isCompleteFile(direct)) return direct;
+  let entries = [];
+  try {
+    entries = fs.readdirSync(dir);
+  } catch {
+    return null;
+  }
+  const suffixed = entries.find((name) => name.endsWith(`-${canonicalName}`) || name.endsWith(`_${canonicalName}`));
+  if (suffixed && isCompleteFile(path.join(dir, suffixed))) return path.join(dir, suffixed);
+  // tokens.txt may also appear as <model>-tokens.txt
+  return null;
+}
+
+function candidateDirsForEntry(entry) {
+  const home = os.homedir();
+  const dirs = [];
+  const repo = hfRepoDirName(entry);
+  const cacheRoots = [
+    path.join(home, ".cache", "huggingface", "hub"),
+    path.join(home, "Library", "Caches", "huggingface", "hub"),
+    process.env.HF_HOME ? path.join(process.env.HF_HOME, "hub") : null,
+  ].filter(Boolean);
+  if (repo) {
+    for (const root of cacheRoots) {
+      const snapshots = path.join(root, repo, "snapshots");
+      try {
+        for (const snap of fs.readdirSync(snapshots)) {
+          dirs.push(path.join(snapshots, snap));
+        }
+      } catch {
+        // cache root or repo not present
+      }
+    }
+  }
+  // Common manual-download location used by sherpa-onnx docs.
+  const downloads = path.join(home, "Downloads");
+  const repoShort = repo?.replace(/^models--[^-]+.*?--/, "") ?? null;
+  if (repoShort) {
+    const guess = path.join(downloads, repoShort);
+    if (fs.existsSync(guess)) dirs.push(guess);
+  }
+  return dirs;
+}
 
 export class AudioModelManager {
   /**
@@ -162,6 +225,78 @@ export class AudioModelManager {
       this.emitEvent({ type: "model-download-error", modelId, error: message });
       throw error;
     }
+  }
+
+  /**
+   * Find models already on this machine (Hugging Face caches, common
+   * download folders) that match catalog entries and are not yet installed.
+   * @returns {Array<{ modelId: string, sourcePath: string, sizeBytes: number }>}
+   */
+  scanExistingModels() {
+    const found = [];
+    for (const entry of AUDIO_MODEL_CATALOG) {
+      if (this.isModelInstalled(entry.id) || this.activeDownloads.has(entry.id)) continue;
+      for (const dir of candidateDirsForEntry(entry)) {
+        const files = entry.files.map((file) => locateModelFile(dir, file.name));
+        if (files.some((file) => !file)) continue;
+        const sizeBytes = files.reduce((sum, file) => sum + (statOrNull(file)?.size ?? 0), 0);
+        found.push({ modelId: entry.id, sourcePath: dir, sizeBytes });
+        break;
+      }
+    }
+    return found;
+  }
+
+  /**
+   * Install a model from a local folder (an HF snapshot, an extracted
+   * sherpa-onnx archive, or a MacWhisper-style models directory). Files may
+   * carry prefixes; they are copied under their canonical names.
+   * @returns {Promise<{ ok: boolean, modelId: string | null, error: string | null }>}
+   */
+  async importFromFolder(folderPath, expectedModelId = null) {
+    const dir = String(folderPath ?? "").trim();
+    if (!dir || !fs.existsSync(dir)) return { ok: false, modelId: null, error: "Folder not found." };
+
+    const candidates = expectedModelId
+      ? [findAudioModel(expectedModelId)].filter(Boolean)
+      : AUDIO_MODEL_CATALOG;
+    for (const entry of candidates) {
+      const files = entry.files.map((file) => ({
+        name: file.name,
+        source: locateModelFile(dir, file.name),
+      }));
+      if (files.some((file) => !file.source)) continue;
+      const targetDir = this.modelDir(entry.id);
+      await fsp.mkdir(targetDir, { recursive: true });
+      for (const file of files) {
+        await fsp.copyFile(file.source, path.join(targetDir, file.name));
+      }
+      await fsp.writeFile(path.join(targetDir, COMPLETE_MARKER), String(Date.now()));
+      // A local silero_vad.onnx rides along when present.
+      if (!this.isVadInstalled()) {
+        const vad = locateModelFile(dir, VAD_MODEL.fileName);
+        if (vad) {
+          await fsp.mkdir(path.dirname(this.vadModelPath()), { recursive: true });
+          await fsp.copyFile(vad, this.vadModelPath());
+        }
+      }
+      this.lastErrors.delete(entry.id);
+      return { ok: true, modelId: entry.id, error: null };
+    }
+    return {
+      ok: false,
+      modelId: null,
+      error:
+        "No compatible model found in this folder. LegalWork needs sherpa-onnx ONNX exports (encoder/decoder int8 + tokens.txt) — ggml/CoreML models from other apps are a different format.",
+    };
+  }
+
+  /** Fetch just the Silero VAD model (~2 MB) — used when a model was
+   * imported from disk without one. */
+  async ensureVadInstalled() {
+    if (this.isVadInstalled()) return;
+    await fsp.mkdir(path.dirname(this.vadModelPath()), { recursive: true });
+    await downloadFile(VAD_MODEL.url, this.vadModelPath(), new AbortController().signal, () => {});
   }
 
   cancelDownload(modelId) {

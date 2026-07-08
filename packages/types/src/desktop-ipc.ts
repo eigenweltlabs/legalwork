@@ -14,8 +14,11 @@
  */
 import type { WorkspaceWire } from "./workspace.js";
 import type {
+  AudioModelDiskCandidate,
+  AudioModelImportResult,
   AudioModelState,
   AudioRecorderBootstrap,
+  AudioTapApp,
   AudioRecordingDetail,
   AudioRecordingMeta,
   AudioRecordingStartInput,
@@ -557,6 +560,24 @@ export type DesktopCommandMap = {
 
   // Local audio recording + transcription (Recorder tab)
   audioRecorderBootstrap: { args: []; result: AudioRecorderBootstrap };
+  /** Catalog-compatible models already on disk (HF caches etc.). */
+  audioModelsScanExisting: { args: []; result: AudioModelDiskCandidate[] };
+  /** Copy a detected/on-disk model into the local store. */
+  audioModelImport: {
+    args: [folderPath: string, expectedModelId?: string | null];
+    result: AudioModelImportResult;
+  };
+  /** Running apps for the macOS App Audio picker (empty elsewhere). */
+  audioTapListApps: { args: []; result: AudioTapApp[] };
+  /**
+   * Start the native per-app audio tap (macOS 14.4+). PCM arrives on the
+   * `legalwork:audio:app-pcm` channel; empty pids = whole system mixdown.
+   */
+  audioTapStart: {
+    args: [pids: number[]];
+    result: { ok: boolean; sampleRate: number; error: string | null };
+  };
+  audioTapStop: { args: []; result: unknown };
   audioModelDownload: { args: [modelId: string]; result: AudioModelState[] };
   audioModelDownloadCancel: { args: [modelId: string]; result: AudioModelState[] };
   audioModelDelete: { args: [modelId: string]; result: AudioModelState[] };

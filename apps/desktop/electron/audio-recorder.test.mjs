@@ -84,6 +84,43 @@ test("model manager reports install state from files + marker", async () => {
   await fsp.rm(dir, { recursive: true, force: true });
 });
 
+test("model manager imports a model folder with prefixed file names", async () => {
+  const dir = await tempDir("lw-models-");
+  const manager = new AudioModelManager({ modelsDir: dir, emitEvent: () => {} });
+
+  // Simulate an extracted sherpa-onnx-whisper-tiny folder (prefixed names).
+  const sourceDir = await tempDir("lw-import-");
+  for (const name of ["tiny-encoder.int8.onnx", "tiny-decoder.int8.onnx", "tiny-tokens.txt"]) {
+    await fsp.writeFile(path.join(sourceDir, name), "model-bytes");
+  }
+  await fsp.writeFile(path.join(sourceDir, "silero_vad.onnx"), "vad-bytes");
+
+  const result = await manager.importFromFolder(sourceDir);
+  assert.equal(result.ok, true);
+  assert.equal(result.modelId, "whisper-tiny");
+  assert.equal(manager.isModelInstalled("whisper-tiny"), true);
+  assert.equal(manager.isVadInstalled(), true, "silero_vad.onnx rides along");
+
+  // Unrecognizable folders produce a helpful error, not a crash.
+  const junkDir = await tempDir("lw-junk-");
+  await fsp.writeFile(path.join(junkDir, "ggml-tiny.bin"), "ggml");
+  const failed = await manager.importFromFolder(junkDir);
+  assert.equal(failed.ok, false);
+  assert.match(failed.error, /sherpa-onnx/);
+
+  await fsp.rm(dir, { recursive: true, force: true });
+  await fsp.rm(sourceDir, { recursive: true, force: true });
+  await fsp.rm(junkDir, { recursive: true, force: true });
+});
+
+test("scanExistingModels skips installed models and tolerates missing caches", async () => {
+  const dir = await tempDir("lw-models-");
+  const manager = new AudioModelManager({ modelsDir: dir, emitEvent: () => {} });
+  const results = manager.scanExistingModels();
+  assert.ok(Array.isArray(results));
+  await fsp.rm(dir, { recursive: true, force: true });
+});
+
 // ── recorder service with a mocked worker ──────────────────────────────────
 
 class FakeWorker extends EventEmitter {

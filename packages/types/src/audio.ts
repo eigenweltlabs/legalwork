@@ -73,6 +73,28 @@ export type AudioRecorderBootstrap = {
 
 export type AudioCaptureSourceKind = "microphone" | "system" | "app";
 
+/** A catalog-compatible model found on disk (HF cache, downloads folder). */
+export type AudioModelDiskCandidate = {
+  modelId: string;
+  sourcePath: string;
+  sizeBytes: number;
+};
+
+export type AudioModelImportResult = {
+  ok: boolean;
+  modelId: string | null;
+  error: string | null;
+};
+
+/** A running application offered by the macOS App Audio picker. */
+export type AudioTapApp = {
+  pid: number;
+  name: string;
+  bundleId: string;
+  /** Data URL of the app icon (resolved via Electron), may be empty. */
+  icon: string;
+};
+
 /** Transcription language. `auto` lets the model detect (Whisper + Parakeet v3). */
 export type AudioTranscribeLanguage = "auto" | "en" | "de";
 

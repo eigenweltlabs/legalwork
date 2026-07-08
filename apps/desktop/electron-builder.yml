@@ -69,6 +69,7 @@ mac:
       to: helpers
       filter:
         - "LegalWork Computer Use.app/**"
+        - LegalWorkAudioTap
   target:
     - dmg
     - zip

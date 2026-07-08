@@ -16,6 +16,16 @@
 
 const FEATURE_SWITCH = "enable-features";
 
+// True between enableLoopbackAudio() and the handler answering (or explicit
+// disable). The media permission handler consults this so the recorder's
+// getDisplayMedia — whose permission request includes "video" — is allowed
+// without opening screen/camera access to ordinary content.
+let loopbackArmed = false;
+
+export function isLoopbackCaptureArmed() {
+  return loopbackArmed;
+}
+
 function macMajorVersion() {
   if (process.platform !== "darwin") return 0;
   const version = Number.parseInt(String(process.getSystemVersion?.() ?? "").split(".")[0] ?? "", 10);
@@ -50,6 +60,11 @@ export function appendLoopbackFeatureFlags(app) {
  * screen-share behavior is restored immediately.
  */
 export function enableLoopbackAudio(session, desktopCapturer) {
+  loopbackArmed = true;
+  // Safety net if the renderer dies before its finally-disable runs.
+  setTimeout(() => {
+    loopbackArmed = false;
+  }, 30_000);
   session.defaultSession.setDisplayMediaRequestHandler((request, callback) => {
     session.defaultSession.setDisplayMediaRequestHandler(null);
     desktopCapturer
@@ -66,5 +81,6 @@ export function enableLoopbackAudio(session, desktopCapturer) {
 }
 
 export function disableLoopbackAudio(session) {
+  loopbackArmed = false;
   session.defaultSession.setDisplayMediaRequestHandler(null);
 }

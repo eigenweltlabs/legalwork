@@ -93,6 +93,9 @@ export type RecorderState = {
   modelId: string;
   language: AudioTranscribeLanguage;
   sources: AudioCaptureSourceKind[];
+  /** macOS App Audio selection (empty = all system audio via the tap). */
+  appPids: number[];
+  appNames: string[];
 };
 
 type RecorderActions = {
@@ -101,7 +104,9 @@ type RecorderActions = {
   refreshRecordings: () => Promise<void>;
   setModelId: (modelId: string) => void;
   setLanguage: (language: AudioTranscribeLanguage) => void;
+  prewarm: () => Promise<void>;
   toggleSource: (source: AudioCaptureSourceKind) => void;
+  setAppSelection: (pids: number[], names: string[]) => void;
   downloadModel: (modelId: string) => Promise<void>;
   cancelModelDownload: (modelId: string) => Promise<void>;
   deleteModel: (modelId: string) => Promise<void>;
@@ -180,20 +185,24 @@ async function runCopilotPrompt(question: string, transcript: string, language: 
         : "Answer in the language of the transcript.";
   const system = [
     "You are a discreet real-time assistant for a lawyer who is in a live conversation (client call, negotiation, hearing).",
-    "You receive the live transcript so far plus one request. Be terse and immediately useful: at most 3 short sentences or 3 bullet points.",
+    "You receive the live transcript so far plus one request. The lawyer is waiting mid-call, so default to answering immediately from the transcript and your own knowledge.",
+    "Tools are available but use them RARELY: only when the request clearly needs a specific fact from the case files (a date, clause, figure) — then do one quick lookup, never a broad investigation.",
+    "Be terse and immediately useful: at most 3 short sentences or 3 bullet points.",
     "Never invent facts that are not in the transcript. When asked for follow-up questions, ask sharp, critical ones that surface missing facts, inconsistencies, deadlines, and legal risk.",
     languageHint,
   ].join(" ");
   const prompt = transcript.trim().length
     ? `Live transcript so far:\n"""\n${transcript}\n"""\n\nRequest: ${question}`
     : `There is no transcript yet.\n\nRequest: ${question}`;
-  const result = unwrap(
-    await client.session.prompt({
-      sessionID,
-      system,
-      parts: [{ type: "text", text: prompt }],
-    }),
-  );
+  const promptCall = client.session.prompt({
+    sessionID,
+    system,
+    parts: [{ type: "text", text: prompt }],
+  });
+  const timeout = new Promise<never>((_, reject) => {
+    setTimeout(() => reject(new Error(t("recorder.copilot_timeout"))), 75_000);
+  });
+  const result = unwrap(await Promise.race([promptCall, timeout]));
   const answer = (result.parts ?? [])
     .flatMap((part) => (part.type === "text" && typeof part.text === "string" ? [part.text] : []))
     .join("\n")
@@ -334,6 +343,8 @@ export const useRecorderStore = create<RecorderState & RecorderActions>((set, ge
     modelId: readPref(MODEL_PREF_KEY, "whisper-base"),
     language: readLanguagePref(),
     sources: readSourcesPref(),
+    appPids: [],
+    appNames: [],
 
     init: async () => {
       if (!eventsSubscribed) {
@@ -343,6 +354,7 @@ export const useRecorderStore = create<RecorderState & RecorderActions>((set, ge
       if (get().initialized) return;
       set({ initialized: true });
       await Promise.all([get().refreshBootstrap(), get().refreshRecordings()]);
+      void get().prewarm();
     },
 
     refreshBootstrap: async () => {
@@ -365,11 +377,25 @@ export const useRecorderStore = create<RecorderState & RecorderActions>((set, ge
     setModelId: (modelId) => {
       writePref(MODEL_PREF_KEY, modelId);
       set({ modelId });
+      void get().prewarm();
     },
 
     setLanguage: (language) => {
       writePref(LANGUAGE_PREF_KEY, language);
       set({ language });
+      void get().prewarm();
+    },
+
+    /**
+     * Load the selected model in the worker ahead of time so hitting Record
+     * starts transcribing immediately (large models take seconds to load).
+     */
+    prewarm: async () => {
+      const { modelId, language, recording, bootstrap } = get();
+      if (recording) return;
+      const model = bootstrap?.models.find((entry) => entry.id === modelId);
+      if (!model || model.state !== "installed") return;
+      await audioTranscriberStart({ modelId, language }).catch(() => {});
     },
 
     toggleSource: (source) => {
@@ -380,6 +406,14 @@ export const useRecorderStore = create<RecorderState & RecorderActions>((set, ge
         writePref(SOURCES_PREF_KEY, normalized.join(","));
         return { sources: normalized };
       });
+    },
+
+    setAppSelection: (pids, names) => {
+      set((state) => ({
+        appPids: pids,
+        appNames: names,
+        sources: state.sources.includes("app") ? state.sources : [...state.sources, "app"],
+      }));
     },
 
     downloadModel: async (modelId) => {
@@ -410,6 +444,9 @@ export const useRecorderStore = create<RecorderState & RecorderActions>((set, ge
       if (bootstrap && !bootstrap.capabilities.systemAudio) {
         sources = sources.filter((source) => source !== "system");
       }
+      if (bootstrap && !bootstrap.capabilities.appAudio) {
+        sources = sources.filter((source) => source !== "app");
+      }
       if (!sources.length) sources = ["microphone"];
       set({ error: null, segments: [], partial: null, copilotEntries: [] });
       let startedMetaId: string | null = null;
@@ -420,13 +457,17 @@ export const useRecorderStore = create<RecorderState & RecorderActions>((set, ge
         const meta = await audioRecordingStart({ title, language, modelId, sources });
         startedMetaId = meta.id;
         const audio = window.__LEGALWORK_ELECTRON__?.audio;
-        captureHandle = await startCapture(sources, {
-          onPcm: (chunk) => audio?.sendPcm?.(meta.id, chunk),
-          onMediaChunk: (chunk) => audio?.sendMediaChunk?.(meta.id, chunk),
-          onSourceEnded: () => {
-            if (get().recording?.id === meta.id) void get().stopRecording();
+        captureHandle = await startCapture(
+          sources,
+          {
+            onPcm: (chunk) => audio?.sendPcm?.(meta.id, chunk),
+            onMediaChunk: (chunk) => audio?.sendMediaChunk?.(meta.id, chunk),
+            onSourceEnded: () => {
+              if (get().recording?.id === meta.id) void get().stopRecording();
+            },
           },
-        });
+          { appPids: get().appPids },
+        );
         set({ recording: meta, recordingStartedAt: Date.now() });
         levelTimer = window.setInterval(() => {
           if (captureHandle) set({ levels: captureHandle.readLevels() });

@@ -1652,7 +1652,7 @@ export default {
   "recorder.source_app": "App audio",
   "recorder.source_system_unavailable": "System audio capture is not available on this system.",
   "recorder.source_app_hint":
-    "Per-app capture is coming next; System audio already covers calls in any app.",
+    "Per-app capture needs macOS 14.4 or newer. On Windows, System audio covers calls in any app.",
   "recorder.language_auto": "Auto-detect",
   "recorder.model_select_placeholder": "Choose a model",
   "recorder.model_not_installed": "not installed",
@@ -1680,6 +1680,8 @@ export default {
   "recorder.copilot_unavailable":
     "The AI copilot needs a connected workspace. Open a workspace and try again.",
   "recorder.copilot_empty_answer": "The model returned no answer.",
+  "recorder.copilot_timeout":
+    "The assistant took too long. Check that a model is configured for this workspace and try again.",
   "recorder.copilot_suggest_prompt":
     "Suggest 3 critical follow-up questions I should ask right now, based on the conversation so far.",
   "recorder.models_title": "Local models",
@@ -1702,4 +1704,20 @@ export default {
   "recorder.overlay_no_transcript": "Waiting for the conversation…",
   "recorder.overlay_close": "Close",
   "recorder.overlay_hidden_note": "Invisible in screen shares",
+  "recorder.settings_tab_label": "Recorder",
+  "recorder.settings_tab_description": "Local transcription models and defaults",
+  "recorder.defaults_title": "Transcription defaults",
+  "recorder.defaults_subtitle": "Language and model used when you hit Record.",
+  "recorder.manage_models": "Manage models",
+  "recorder.models_found_on_disk": "Already on this Mac / PC",
+  "recorder.model_use_local": "Use this copy",
+  "recorder.import_folder": "Import from folder…",
+  "recorder.import_folder_title": "Choose a folder containing a sherpa-onnx model",
+  "recorder.import_folder_hint":
+    "Have a model already? Point LegalWork at a sherpa-onnx ONNX folder and skip the download.",
+  "recorder.app_picker_title": "Record app audio",
+  "recorder.app_picker_search": "Search active applications…",
+  "recorder.app_picker_all_system": "All system audio",
+  "recorder.app_picker_loading": "Listing running apps…",
+  "recorder.app_picker_confirm": "Use selection",
 } as const;

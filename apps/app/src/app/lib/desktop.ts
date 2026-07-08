@@ -144,6 +144,7 @@ declare global {
         sendMediaChunk?: (recordingId: string, chunk: ArrayBuffer) => void;
         sendAskAnswer?: (askId: string, text: string, done: boolean, error?: string | null) => void;
         onEvent?: (callback: (event: import("@legalwork/types/audio").AudioRecorderEvent) => void) => () => void;
+        onAppPcm?: (callback: (payload: { sampleRate: number; buffer: ArrayBuffer }) => void) => () => void;
       };
       terminal?: {
         create?: (options: { cwd: string; cols: number; rows: number }) => Promise<{ terminalId: string }>;
@@ -474,6 +475,11 @@ const {
   opencodeMcpAuth,
   setWindowDecorations,
   audioRecorderBootstrap,
+  audioModelsScanExisting,
+  audioModelImport,
+  audioTapListApps,
+  audioTapStart,
+  audioTapStop,
   audioModelDownload,
   audioModelDownloadCancel,
   audioModelDelete,
@@ -548,6 +554,11 @@ export {
   opencodeMcpAuth,
   setWindowDecorations,
   audioRecorderBootstrap,
+  audioModelsScanExisting,
+  audioModelImport,
+  audioTapListApps,
+  audioTapStart,
+  audioTapStop,
   audioModelDownload,
   audioModelDownloadCancel,
   audioModelDelete,

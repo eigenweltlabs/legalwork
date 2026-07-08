@@ -15,17 +15,23 @@ function isLocalRendererOrigin(origin) {
 }
 
 function shouldAllowMainWindowPermission(input) {
-  const { webContents, permission, origin, details, mainWindow } = input;
+  const { webContents, permission, origin, details, mainWindow, isLoopbackCaptureArmed } = input;
   if (!mainWindow || !webContents || webContents.id !== mainWindow.webContents.id) return false;
   if (!isLocalRendererOrigin(origin)) return false;
   if (permission !== "media" && permission !== "audioCapture") return true;
+  // The Recorder's system-audio capture goes through getDisplayMedia, whose
+  // permission request includes "video" — allow it only while the recorder
+  // has armed a loopback capture (see audio/loopback.mjs), so ordinary web
+  // content still can't grab the screen or camera.
+  if (isLoopbackCaptureArmed?.()) return true;
   const mediaType = typeof details.mediaType === "string" ? details.mediaType : "";
   if (mediaType && mediaType !== "audio") return false;
   const mediaTypes = Array.isArray(details.mediaTypes) ? details.mediaTypes : [];
   return mediaType === "audio" || (mediaTypes.includes("audio") && !mediaTypes.includes("video"));
 }
 
-export function installMediaPermissionHandlers(session, getMainWindow) {
+export function installMediaPermissionHandlers(session, getMainWindow, options = {}) {
+  const isLoopbackCaptureArmed = options.isLoopbackCaptureArmed;
   session.defaultSession.setPermissionRequestHandler((webContents, permission, callback, details) => {
     callback(shouldAllowMainWindowPermission({
       webContents,
@@ -33,6 +39,7 @@ export function installMediaPermissionHandlers(session, getMainWindow) {
       origin: details?.requestingUrl,
       details: details ?? {},
       mainWindow: getMainWindow(),
+      isLoopbackCaptureArmed,
     }));
   });
   session.defaultSession.setPermissionCheckHandler((webContents, permission, requestingOrigin, details) => (
@@ -42,6 +49,7 @@ export function installMediaPermissionHandlers(session, getMainWindow) {
       origin: requestingOrigin,
       details: details ?? {},
       mainWindow: getMainWindow(),
+      isLoopbackCaptureArmed,
     })
   ));
 }

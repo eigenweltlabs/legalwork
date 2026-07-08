@@ -15,7 +15,7 @@
  * `setDisplayMediaRequestHandler` (see apps/desktop/electron/audio/loopback.mjs).
  */
 
-import { audioLoopbackDisable, audioLoopbackEnable } from "@/app/lib/desktop";
+import { audioLoopbackDisable, audioLoopbackEnable, audioTapStart, audioTapStop } from "@/app/lib/desktop";
 import type { AudioCaptureSourceKind } from "@legalwork/types/audio";
 
 const TARGET_SAMPLE_RATE = 16000;
@@ -103,20 +103,32 @@ async function requestSystemStream(): Promise<MediaStream> {
   }
 }
 
+export type CaptureOptions = {
+  /** Process IDs for macOS per-app capture (empty = whole system mixdown). */
+  appPids?: number[];
+};
+
 export async function startCapture(
   sources: AudioCaptureSourceKind[],
   callbacks: CaptureCallbacks,
+  options: CaptureOptions = {},
 ): Promise<CaptureHandle> {
   const context = new AudioContext({ sampleRate: TARGET_SAMPLE_RATE });
   const streams = new Map<AudioCaptureSourceKind, MediaStream>();
   const analysers = new Map<AudioCaptureSourceKind, AnalyserNode>();
   let recorder: MediaRecorder | null = null;
   let workletNode: AudioWorkletNode | null = null;
+  let stopAppTap: (() => void) | null = null;
   let stopped = false;
 
   const cleanup = async () => {
     if (stopped) return;
     stopped = true;
+    try {
+      stopAppTap?.();
+    } catch {
+      // tap teardown is best-effort
+    }
     try {
       workletNode?.port.close();
       workletNode?.disconnect();
@@ -128,6 +140,44 @@ export async function startCapture(
     }
     streams.clear();
     await context.close().catch(() => {});
+  };
+
+  /**
+   * macOS per-app audio: the native tap streams mono Float32 PCM at its own
+   * rate; schedule it as back-to-back AudioBuffers (WebAudio resamples each
+   * buffer to the 16 kHz context) feeding a gain node in the mix.
+   */
+  const startAppAudio = async (mix: GainNode) => {
+    const result = await audioTapStart(options.appPids ?? []);
+    if (!result.ok) {
+      throw new Error(result.error ?? "App audio capture failed to start.");
+    }
+    const appGain = context.createGain();
+    appGain.connect(mix);
+    const analyser = context.createAnalyser();
+    analyser.fftSize = 512;
+    appGain.connect(analyser);
+    analysers.set("app", analyser);
+
+    let nextStart = 0;
+    const unsubscribe = window.__LEGALWORK_ELECTRON__?.audio?.onAppPcm?.((payload) => {
+      if (stopped || payload.buffer.byteLength < 4) return;
+      const samples = new Float32Array(payload.buffer);
+      const buffer = context.createBuffer(1, samples.length, payload.sampleRate || 48000);
+      buffer.copyToChannel(samples, 0);
+      const node = context.createBufferSource();
+      node.buffer = buffer;
+      node.connect(appGain);
+      const now = context.currentTime;
+      // Keep a small jitter cushion; resync if we fell behind.
+      if (nextStart < now + 0.05) nextStart = now + 0.08;
+      node.start(nextStart);
+      nextStart += buffer.duration;
+    });
+    stopAppTap = () => {
+      unsubscribe?.();
+      void audioTapStop().catch(() => {});
+    };
   };
 
   try {
@@ -144,9 +194,12 @@ export async function startCapture(
     if (sources.includes("system")) {
       streams.set("system", await requestSystemStream());
     }
-    if (streams.size === 0) throw new Error("No audio sources selected.");
+    if (streams.size === 0 && !sources.includes("app")) throw new Error("No audio sources selected.");
 
     const mix = context.createGain();
+    if (sources.includes("app")) {
+      await startAppAudio(mix);
+    }
     for (const [kind, stream] of streams) {
       const sourceNode = context.createMediaStreamSource(stream);
       const analyser = context.createAnalyser();

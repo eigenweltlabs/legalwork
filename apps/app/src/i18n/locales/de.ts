@@ -207,7 +207,7 @@ const de: Record<string, string> = {
   "recorder.source_app": "App-Audio",
   "recorder.source_system_unavailable": "Systemaudio-Aufnahme ist auf diesem System nicht verfügbar.",
   "recorder.source_app_hint":
-    "Aufnahme pro App folgt als Nächstes; Systemaudio deckt Anrufe in jeder App bereits ab.",
+    "Aufnahme pro App erfordert macOS 14.4 oder neuer. Unter Windows deckt Systemaudio Anrufe in jeder App ab.",
   "recorder.language_auto": "Automatisch erkennen",
   "recorder.model_select_placeholder": "Modell wählen",
   "recorder.model_not_installed": "nicht installiert",
@@ -235,6 +235,8 @@ const de: Record<string, string> = {
   "recorder.copilot_unavailable":
     "Der KI-Copilot braucht einen verbundenen Workspace. Öffne einen Workspace und versuche es erneut.",
   "recorder.copilot_empty_answer": "Das Modell hat keine Antwort geliefert.",
+  "recorder.copilot_timeout":
+    "Die Antwort hat zu lange gedauert. Prüfe, ob für diesen Workspace ein Modell konfiguriert ist, und versuche es erneut.",
   "recorder.copilot_suggest_prompt":
     "Schlage 3 kritische Nachfragen vor, die ich jetzt stellen sollte — basierend auf dem bisherigen Gespräch.",
   "recorder.models_title": "Lokale Modelle",
@@ -257,6 +259,22 @@ const de: Record<string, string> = {
   "recorder.overlay_no_transcript": "Warte auf das Gespräch…",
   "recorder.overlay_close": "Schließen",
   "recorder.overlay_hidden_note": "In Bildschirmfreigaben unsichtbar",
+  "recorder.settings_tab_label": "Rekorder",
+  "recorder.settings_tab_description": "Lokale Transkriptionsmodelle und Standardwerte",
+  "recorder.defaults_title": "Transkriptions-Standards",
+  "recorder.defaults_subtitle": "Sprache und Modell für neue Aufnahmen.",
+  "recorder.manage_models": "Modelle verwalten",
+  "recorder.models_found_on_disk": "Bereits auf diesem Gerät gefunden",
+  "recorder.model_use_local": "Diese Kopie nutzen",
+  "recorder.import_folder": "Aus Ordner importieren…",
+  "recorder.import_folder_title": "Ordner mit einem sherpa-onnx-Modell wählen",
+  "recorder.import_folder_hint":
+    "Modell schon vorhanden? Wähle einen sherpa-onnx-ONNX-Ordner und spare dir den Download.",
+  "recorder.app_picker_title": "App-Audio aufnehmen",
+  "recorder.app_picker_search": "Aktive Anwendungen durchsuchen…",
+  "recorder.app_picker_all_system": "Gesamtes Systemaudio",
+  "recorder.app_picker_loading": "Laufende Apps werden geladen…",
+  "recorder.app_picker_confirm": "Auswahl verwenden",
 };
 
 export default de;
