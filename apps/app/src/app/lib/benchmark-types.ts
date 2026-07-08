@@ -105,6 +105,12 @@ export type BenchmarkImportResponse = {
   failed: Array<{ key: string; error: string }>;
 };
 
+/** Result of importing tasks from a Zip archive (failures keyed by archive path). */
+export type BenchmarkImportZipResponse = {
+  items: BenchmarkTaskItem[];
+  failed: Array<{ path: string; error: string }>;
+};
+
 /** A task input document staged inside the workspace for the file viewer. */
 export type BenchmarkTaskDocument = {
   name: string;

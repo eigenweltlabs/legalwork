@@ -53,6 +53,19 @@ function errorMessage(error: unknown): string {
   return String(error);
 }
 
+/** Save downloaded bytes to disk via a synthetic anchor (browser/Electron renderer). */
+function triggerDownload(data: ArrayBuffer, filename: string): void {
+  if (typeof document === "undefined") return;
+  const url = URL.createObjectURL(new Blob([data], { type: "application/zip" }));
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = filename;
+  document.body.appendChild(anchor);
+  anchor.click();
+  anchor.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1_000);
+}
+
 const RUNS_POLL_MS = 5_000;
 const DETAIL_POLL_MS = 2_500;
 const CATALOG_POLL_MS = 3_000;
@@ -75,6 +88,8 @@ type BenchmarkState = {
   filters: TaskTableFilters;
   taskDocuments: Record<string, BenchmarkTaskDocument[]>;
   taskDocumentsLoading: string | null;
+  exporting: boolean;
+  exportError: string | null;
 
   // runs
   runs: BenchmarkRunSummary[];
@@ -118,6 +133,9 @@ type BenchmarkActions = {
   createTask(input: BenchmarkCustomTaskInput): Promise<BenchmarkTaskItem | null>;
   updateTask(taskId: string, input: BenchmarkCustomTaskInput): Promise<BenchmarkTaskItem | null>;
   deleteTask(taskId: string): Promise<void>;
+  deleteTasks(taskIds: string[]): Promise<void>;
+  exportTasks(taskIds: string[]): Promise<boolean>;
+  importTasksZip(zipBase64: string): Promise<number>;
 
   refreshRuns(): Promise<void>;
   startRunsPolling(): void;
@@ -156,6 +174,8 @@ const INITIAL_STATE: BenchmarkState = {
   filters: EMPTY_TABLE_FILTERS,
   taskDocuments: {},
   taskDocumentsLoading: null,
+  exporting: false,
+  exportError: null,
   runs: [],
   runsStatus: "idle",
   runsError: null,
@@ -287,6 +307,57 @@ export const useBenchmarkStore = create<BenchmarkState & BenchmarkActions>()((se
       }));
     } catch (error) {
       set({ tasksError: errorMessage(error) });
+    }
+  },
+
+  async deleteTasks(taskIds) {
+    const ctx = context();
+    const ids = Array.from(new Set(taskIds));
+    if (!ctx || !ids.length) return;
+    try {
+      await Promise.all(ids.map((id) => ctx.client.benchmarkDeleteTask(ctx.workspaceId, id)));
+      const removed = new Set(ids);
+      set((state) => ({
+        tasks: state.tasks.filter((task) => !removed.has(task.id)),
+        selectedTaskIds: state.selectedTaskIds.filter((id) => !removed.has(id)),
+      }));
+    } catch (error) {
+      // A partial failure may have deleted some — reconcile against the server.
+      set({ tasksError: errorMessage(error) });
+      await get().refreshTasks();
+    }
+  },
+
+  async exportTasks(taskIds) {
+    const ctx = context();
+    if (!ctx || !taskIds.length) return false;
+    set({ exporting: true, exportError: null });
+    try {
+      const { data, filename } = await ctx.client.benchmarkExportTasks(ctx.workspaceId, taskIds);
+      triggerDownload(data, filename ?? "benchmark-tasks.zip");
+      set({ exporting: false });
+      return true;
+    } catch (error) {
+      set({ exporting: false, exportError: errorMessage(error) });
+      return false;
+    }
+  },
+
+  async importTasksZip(zipBase64) {
+    const ctx = context();
+    if (!ctx) return 0;
+    set({ importing: true, importError: null });
+    try {
+      const result = await ctx.client.benchmarkImportZip(ctx.workspaceId, zipBase64);
+      set({ importing: false });
+      if (result.failed.length) {
+        set({ importError: result.failed.map((entry) => `${entry.path}: ${entry.error}`).join("; ") });
+      }
+      await get().refreshTasks();
+      return result.items.length;
+    } catch (error) {
+      set({ importing: false, importError: errorMessage(error) });
+      return 0;
     }
   },
 

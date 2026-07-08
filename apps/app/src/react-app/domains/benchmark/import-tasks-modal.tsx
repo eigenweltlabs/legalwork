@@ -1,7 +1,7 @@
 /** @jsxImportSource react */
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
-import { ArrowLeft, ChevronDown, Download, Github, Plus, Scale } from "lucide-react";
+import { ArrowLeft, ChevronDown, Download, Github, Scale, Upload } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -34,6 +34,16 @@ export type ImportTasksModalProps = {
   open: boolean;
   onOpenChange: (open: boolean) => void;
 };
+
+function arrayBufferToBase64(buffer: ArrayBuffer): string {
+  const bytes = new Uint8Array(buffer);
+  let binary = "";
+  const chunk = 0x8000;
+  for (let index = 0; index < bytes.length; index += chunk) {
+    binary += String.fromCharCode(...bytes.subarray(index, index + chunk));
+  }
+  return btoa(binary);
+}
 
 /** A selectable benchmark source (meta-layer above the task catalog). */
 function SourceTile(props: {
@@ -192,6 +202,7 @@ export function ImportTasksModal(props: ImportTasksModalProps) {
   const importing = useBenchmarkStore((state) => state.importing);
   const importError = useBenchmarkStore((state) => state.importError);
   const importSelected = useBenchmarkStore((state) => state.importSelected);
+  const importTasksZip = useBenchmarkStore((state) => state.importTasksZip);
   const ensureCatalog = useBenchmarkStore((state) => state.ensureCatalog);
   const startCatalogPolling = useBenchmarkStore((state) => state.startCatalogPolling);
   const stopCatalogPolling = useBenchmarkStore((state) => state.stopCatalogPolling);
@@ -203,6 +214,7 @@ export function ImportTasksModal(props: ImportTasksModalProps) {
   const [tagSearch, setTagSearch] = useState("");
   const [previewKey, setPreviewKey] = useState<string | null>(null);
   const searchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const zipInputRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
     if (!props.open) return;
@@ -261,6 +273,13 @@ export function ImportTasksModal(props: ImportTasksModalProps) {
     if (count > 0) props.onOpenChange(false);
   };
 
+  const handleZipSelected = async (file: File | undefined) => {
+    if (!file) return;
+    const base64 = arrayBufferToBase64(await file.arrayBuffer());
+    const count = await importTasksZip(base64);
+    if (count > 0) props.onOpenChange(false);
+  };
+
   return (
     <Dialog open={props.open} onOpenChange={props.onOpenChange}>
       <DialogContent className="flex h-[min(860px,92vh)] w-[min(1280px,95vw)] max-w-[95vw] flex-col sm:max-w-[1280px]">
@@ -297,12 +316,28 @@ export function ImportTasksModal(props: ImportTasksModalProps) {
                 link={{ href: "https://github.com/harveyai/harvey-labs", label: t("benchmark.import_view_repo") }}
               />
               <SourceTile
-                icon={Plus}
-                title={t("benchmark.import_more_sources")}
-                subtitle={t("benchmark.import_more_sources_hint")}
-                disabled
+                icon={Upload}
+                title={t("benchmark.import_zip_title")}
+                subtitle={importing ? t("benchmark.importing") : t("benchmark.import_zip_hint")}
+                onClick={importing ? undefined : () => zipInputRef.current?.click()}
+                disabled={importing}
               />
             </div>
+            {importError ? (
+              <div className="mt-4">
+                <SettingsNotice tone="error">{importError}</SettingsNotice>
+              </div>
+            ) : null}
+            <input
+              ref={zipInputRef}
+              type="file"
+              accept=".zip,application/zip"
+              className="hidden"
+              onChange={(event) => {
+                void handleZipSelected(event.target.files?.[0]);
+                event.target.value = "";
+              }}
+            />
           </div>
         ) : (
         <>

@@ -7,6 +7,7 @@ import type {
   BenchmarkCatalogResponse,
   BenchmarkCustomTaskInput,
   BenchmarkImportResponse,
+  BenchmarkImportZipResponse,
   BenchmarkItemDetail,
   BenchmarkRunCreateInput,
   BenchmarkRunDetail,
@@ -1006,7 +1007,7 @@ async function requestMultipartRaw(
 async function requestBinary(
   baseUrl: string,
   path: string,
-  options: { method?: string; token?: string; hostToken?: string; timeoutMs?: number } = {},
+  options: { method?: string; token?: string; hostToken?: string; body?: unknown; timeoutMs?: number } = {},
 ): Promise<{ data: ArrayBuffer; contentType: string | null; filename: string | null }>{
   const url = `${baseUrl}${path}`;
   const fetchImpl = resolveFetch(url);
@@ -1015,7 +1016,10 @@ async function requestBinary(
     url,
     {
       method: options.method ?? "GET",
-      headers: buildAuthHeaders(options.token, options.hostToken),
+      headers: options.body
+        ? buildHeaders(options.token, options.hostToken)
+        : buildAuthHeaders(options.token, options.hostToken),
+      body: options.body ? JSON.stringify(options.body) : undefined,
     },
     options.timeoutMs ?? DEFAULT_LEGALWORK_SERVER_TIMEOUT_MS,
   );
@@ -1227,6 +1231,18 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
         baseUrl,
         `/workspace/${encodeURIComponent(workspaceId)}/benchmarks/tasks/${encodeURIComponent(taskId)}/documents`,
         { token, hostToken, timeoutMs: timeouts.benchmarkCatalog },
+      ),
+    benchmarkExportTasks: (workspaceId: string, taskIds: string[]) =>
+      requestBinary(
+        baseUrl,
+        `/workspace/${encodeURIComponent(workspaceId)}/benchmarks/tasks/export`,
+        { token, hostToken, method: "POST", body: { taskIds }, timeoutMs: timeouts.benchmarkCatalog },
+      ),
+    benchmarkImportZip: (workspaceId: string, zipBase64: string) =>
+      requestJson<BenchmarkImportZipResponse>(
+        baseUrl,
+        `/workspace/${encodeURIComponent(workspaceId)}/benchmarks/tasks/import-zip`,
+        { token, hostToken, method: "POST", body: { zipBase64 }, timeoutMs: timeouts.benchmarkCatalog },
       ),
     benchmarkListRuns: (workspaceId: string, options?: { limit?: number; start?: number }) => {
       const query = new URLSearchParams();

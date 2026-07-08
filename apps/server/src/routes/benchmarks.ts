@@ -19,6 +19,7 @@ import {
 } from "../benchmarks/harvey-catalog.js";
 import type { BenchmarkLatestResultRow, BenchmarkStore, BenchmarkTaskRow } from "../benchmarks/store.js";
 import { removeTaskDocumentsScratchDir, stageTaskDocuments } from "../benchmarks/workdir.js";
+import { buildTasksZip, MAX_ZIP_TASKS, parseTasksZip } from "../benchmarks/task-zip.js";
 import type { BenchmarkRunner } from "../benchmarks/runner.js";
 import {
   BENCHMARK_WORK_TYPES,
@@ -409,6 +410,85 @@ export function registerBenchmarkRoutes(options: RegisterBenchmarkRoutesOptions)
       await rm(join(benchmarksDataDir(config), "custom-tasks", taskId), { recursive: true, force: true });
     }
     return jsonResponse({ ok: true });
+  });
+
+  addRoute(routes, "POST", "/workspace/:id/benchmarks/tasks/export", "client", async (ctx) => {
+    requireClientScope(ctx, "collaborator");
+    const workspace = await resolveWorkspace(config, ctx.params.id);
+    const body = await readJsonBody(ctx.request);
+    const ids = Array.isArray(body.taskIds)
+      ? body.taskIds.filter((id): id is string => typeof id === "string" && id.trim().length > 0)
+      : [];
+    if (!ids.length || ids.length > MAX_ZIP_TASKS) {
+      throw new ApiError(400, "invalid_payload", `taskIds must be 1–${MAX_ZIP_TASKS} task ids`);
+    }
+    const store = await getStore();
+    const rows: BenchmarkTaskRow[] = [];
+    for (const id of ids) {
+      const row = store.getTask(workspace.id, id.trim());
+      if (row) rows.push(row);
+    }
+    if (!rows.length) {
+      throw new ApiError(404, "benchmark_task_not_found", "None of the requested tasks exist.");
+    }
+    const zip = await buildTasksZip(config, rows);
+    const filename = rows.length === 1 ? `${rows[0].id.split("/").pop() ?? "task"}.zip` : "benchmark-tasks.zip";
+    return new Response(Buffer.from(zip.buffer, zip.byteOffset, zip.byteLength) as unknown as BodyInit, {
+      status: 200,
+      headers: {
+        "Content-Type": "application/zip",
+        "Content-Disposition": `attachment; filename="${filename.replace(/[^A-Za-z0-9._-]/g, "_")}"`,
+        "Content-Length": String(zip.byteLength),
+      },
+    });
+  });
+
+  addRoute(routes, "POST", "/workspace/:id/benchmarks/tasks/import-zip", "client", async (ctx) => {
+    ensureWritable(config);
+    requireClientScope(ctx, "collaborator");
+    const workspace = await resolveWorkspace(config, ctx.params.id);
+    const body = await readJsonBody(ctx.request);
+    if (typeof body.zipBase64 !== "string" || !body.zipBase64.trim()) {
+      throw new ApiError(400, "invalid_payload", "zipBase64 is required");
+    }
+    let bytes: Uint8Array;
+    try {
+      bytes = new Uint8Array(Buffer.from(body.zipBase64, "base64"));
+    } catch {
+      throw new ApiError(400, "invalid_payload", "zipBase64 is not valid base64");
+    }
+    const { tasks, failed } = parseTasksZip(bytes);
+    const store = await getStore();
+    const imported: BenchmarkTaskRow[] = [];
+    for (const parsed of tasks) {
+      const id = `ct_${Date.now().toString(36)}_${shortId().slice(0, 8)}`;
+      const documents: CustomDocumentInput[] = parsed.documents.map((document) => ({
+        name: document.name,
+        contentBase64: Buffer.from(document.bytes).toString("base64"),
+      }));
+      const documentsDir = await writeCustomTaskDocuments(config, id, documents);
+      const now = Date.now();
+      store.upsertTask({
+        workspaceId: workspace.id,
+        id,
+        source: "custom",
+        title: parsed.definition.title,
+        workType: parsed.definition.workType,
+        tagsJson: JSON.stringify(parsed.definition.tags),
+        instructions: parsed.definition.instructions,
+        deliverablesJson: JSON.stringify(parsed.definition.deliverables),
+        criteriaJson: JSON.stringify(parsed.definition.criteria),
+        harveyDocumentsJson: null,
+        catalogRef: null,
+        documentsDir,
+        createdAt: now,
+        updatedAt: now,
+      });
+      const row = store.getTask(workspace.id, id);
+      if (row) imported.push(row);
+    }
+    const items = await Promise.all(imported.map((row) => serializeTask(row)));
+    return jsonResponse({ items, failed });
   });
 
   // ---- Runs -----------------------------------------------------------------

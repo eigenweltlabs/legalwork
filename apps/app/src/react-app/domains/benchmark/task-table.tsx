@@ -1,6 +1,6 @@
 /** @jsxImportSource react */
 import { useMemo, useRef, useState } from "react";
-import { AlertTriangle, ChevronDown, Download, Play, Plus, Trash2 } from "lucide-react";
+import { AlertTriangle, ChevronDown, Download, FileDown, Play, Plus, Trash2 } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -12,6 +12,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { ConfirmModal } from "@/react-app/design-system/modals/confirm-modal";
 import { t } from "@/i18n";
 import { cn } from "@/lib/utils";
 import type { BenchmarkTaskItem, BenchmarkTaskResult, BenchmarkWorkType } from "../../../app/lib/benchmark-types";
@@ -85,7 +86,11 @@ export function TaskTable(props: TaskTableProps) {
   const setTaskSelection = useBenchmarkStore((state) => state.setTaskSelection);
   const clearTaskSelection = useBenchmarkStore((state) => state.clearTaskSelection);
   const deleteTask = useBenchmarkStore((state) => state.deleteTask);
+  const deleteTasks = useBenchmarkStore((state) => state.deleteTasks);
+  const exportTasks = useBenchmarkStore((state) => state.exportTasks);
+  const exporting = useBenchmarkStore((state) => state.exporting);
   const [searchDraft, setSearchDraft] = useState(filters.search);
+  const [confirmDelete, setConfirmDelete] = useState(false);
   const searchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const allTags = useMemo(() => collectTaskTags(tasks), [tasks]);
@@ -181,9 +186,30 @@ export function TaskTable(props: TaskTableProps) {
           <Download size={13} />
           {t("benchmark.import_tasks")}
         </Button>
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => void exportTasks(selectedTaskIds)}
+          disabled={exporting || selectedTaskIds.length === 0}
+          title={t("benchmark.export_tasks_hint")}
+        >
+          <FileDown size={13} />
+          {exporting ? t("benchmark.exporting") : t("benchmark.export_tasks")}
+          {selectedTaskIds.length ? ` (${selectedTaskIds.length})` : ""}
+        </Button>
         <Button variant="outline" size="sm" onClick={props.onNewTask}>
           <Plus size={13} />
           {t("benchmark.new_task")}
+        </Button>
+        <Button
+          variant="outline"
+          size="icon"
+          className="size-8 text-red-11 hover:text-red-11"
+          onClick={() => setConfirmDelete(true)}
+          disabled={selectedTaskIds.length === 0}
+          title={`${t("benchmark.delete_tasks")}${selectedTaskIds.length ? ` (${selectedTaskIds.length})` : ""}`}
+        >
+          <Trash2 size={13} />
         </Button>
         <Button size="sm" onClick={props.onStartRun} disabled={selectedTaskIds.length === 0}>
           <Play size={13} />
@@ -282,6 +308,20 @@ export function TaskTable(props: TaskTableProps) {
           </Table>
         </div>
       )}
+
+      <ConfirmModal
+        open={confirmDelete}
+        variant="danger"
+        title={t("benchmark.delete_tasks_title")}
+        message={t("benchmark.delete_tasks_message", { count: selectedTaskIds.length })}
+        confirmLabel={t("benchmark.delete_tasks")}
+        cancelLabel={t("common.cancel")}
+        onCancel={() => setConfirmDelete(false)}
+        onConfirm={() => {
+          setConfirmDelete(false);
+          void deleteTasks(selectedTaskIds);
+        }}
+      />
     </div>
   );
 }
