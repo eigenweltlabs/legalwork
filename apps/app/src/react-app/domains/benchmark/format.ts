@@ -29,12 +29,83 @@ export function criteriaScoreLabel(nPassed: number, nCriteria: number): string {
   return `${pct}% (${nPassed}/${nCriteria})`;
 }
 
+type ScoreBand = "high" | "mid" | "low";
+
+/** ≥80% high, ≥50% mid, below low — the shared traffic-light thresholds. */
+function scoreBand(fraction: number): ScoreBand {
+  if (fraction >= 0.8) return "high";
+  if (fraction >= 0.5) return "mid";
+  return "low";
+}
+
+/** Text tone for a 0–1 score fraction. */
+export function scoreToneClass(fraction: number): string {
+  const band = scoreBand(fraction);
+  return band === "high" ? "text-green-11" : band === "mid" ? "text-amber-11" : "text-red-11";
+}
+
+/** Solid fill color for a leaderboard / heatmap bar. */
+export function scoreBarClass(fraction: number): string {
+  const band = scoreBand(fraction);
+  return band === "high" ? "bg-green-9" : band === "mid" ? "bg-amber-9" : "bg-red-9";
+}
+
+/** Subtle cell/tile background tint for heatmaps. */
+export function scoreTintClass(fraction: number): string {
+  const band = scoreBand(fraction);
+  return band === "high" ? "bg-green-3" : band === "mid" ? "bg-amber-3" : "bg-red-3";
+}
+
 /** Traffic-light tone by pass fraction: ≥80% green, ≥50% yellow, below red. */
 export function criteriaScoreToneClass(nPassed: number, nCriteria: number): string {
-  const fraction = nPassed / Math.max(nCriteria, 1);
-  if (fraction >= 0.8) return "text-green-11";
-  if (fraction >= 0.5) return "text-amber-11";
-  return "text-red-11";
+  return scoreToneClass(nPassed / Math.max(nCriteria, 1));
+}
+
+/** Heatmap tint for a task×model cell by its pass fraction. */
+export function criteriaScoreTintClass(nPassed: number, nCriteria: number): string {
+  return scoreTintClass(nPassed / Math.max(nCriteria, 1));
+}
+
+export type VerticalRate = { rate: number | null; count: number };
+export type VerticalBreakdownRow = { vertical: string; byModel: Record<string, VerticalRate> };
+
+function modelRefKey(ref: { providerID: string; modelID: string }): string {
+  return `${ref.providerID}/${ref.modelID}`;
+}
+
+/**
+ * Mean rubric pass rate per (vertical × model), for the per-practice-area
+ * breakdown. Verticals keep first-seen order; only judged items count.
+ */
+export function aggregateByVertical(
+  items: BenchmarkRunItem[],
+  models: Array<{ providerID: string; modelID: string }>,
+): VerticalBreakdownRow[] {
+  const byVertical = new Map<string, Map<string, { sum: number; n: number }>>();
+  const order: string[] = [];
+  for (const item of items) {
+    if (item.nPassed === null || item.nCriteria === null || item.nCriteria === 0) continue;
+    const vertical = item.vertical || "—";
+    if (!byVertical.has(vertical)) {
+      byVertical.set(vertical, new Map());
+      order.push(vertical);
+    }
+    const bucket = byVertical.get(vertical)!;
+    const key = modelRefKey(item);
+    const acc = bucket.get(key) ?? { sum: 0, n: 0 };
+    acc.sum += item.nPassed / item.nCriteria;
+    acc.n += 1;
+    bucket.set(key, acc);
+  }
+  return order.map((vertical) => {
+    const bucket = byVertical.get(vertical)!;
+    const byModel: Record<string, VerticalRate> = {};
+    for (const model of models) {
+      const acc = bucket.get(modelRefKey(model));
+      byModel[modelRefKey(model)] = acc && acc.n ? { rate: acc.sum / acc.n, count: acc.n } : { rate: null, count: 0 };
+    }
+    return { vertical, byModel };
+  });
 }
 
 /** "3/4" style pass-count for a single task×model cell. */

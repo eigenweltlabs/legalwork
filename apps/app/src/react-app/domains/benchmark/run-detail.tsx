@@ -16,6 +16,8 @@ import {
 } from "../settings/settings-layout";
 import { criteriaScoreLabel, criteriaScoreToneClass, formatRunMeta, formatScorePercent, isRunActive, runStatusLabel, runStatusTone } from "./format";
 import { ResultMatrix } from "./result-matrix";
+import { RunLeaderboard } from "./run-leaderboard";
+import { RunVerticalBreakdown } from "./run-vertical-breakdown";
 import { useBenchmarkStore } from "./store";
 
 export type RunDetailProps = {
@@ -123,6 +125,8 @@ export function RunDetail(props: RunDetailProps) {
         ) : null}
 
 
+        {run ? <RunLeaderboard models={run.models} scoreByModel={run.scoreByModel} /> : null}
+
         {items.length > 0 && run ? (
           <ResultMatrix
             runId={run.id}
@@ -135,6 +139,7 @@ export function RunDetail(props: RunDetailProps) {
           />
         ) : null}
 
+        {items.length > 0 && run ? <RunVerticalBreakdown items={items} models={run.models} /> : null}
       </LayoutSection>
     </LayoutStack>
   );

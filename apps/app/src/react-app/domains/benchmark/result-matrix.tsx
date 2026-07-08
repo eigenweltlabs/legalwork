@@ -8,7 +8,14 @@ import { cn } from "@/lib/utils";
 import type { BenchmarkModelRef, BenchmarkModelScore, BenchmarkRunItem } from "../../../app/lib/benchmark-types";
 import { ProviderIcon } from "../../design-system/provider-icon";
 import { Spinner } from "../settings/settings-section";
-import { criteriaScoreLabel, criteriaScoreToneClass, formatCellScore, isItemActive, workTypeLabel } from "./format";
+import {
+  criteriaScoreLabel,
+  criteriaScoreTintClass,
+  criteriaScoreToneClass,
+  formatCellScore,
+  isItemActive,
+  workTypeLabel,
+} from "./format";
 import { useBenchmarkStore } from "./store";
 
 export type ResultMatrixProps = {
@@ -143,11 +150,14 @@ export function ResultMatrix(props: ResultMatrixProps) {
               </TableCell>
               {props.models.map((model) => {
                 const item = row.itemsByModel.get(modelKey(model));
+                const scored =
+                  item && !isItemActive(item.status) && item.nPassed !== null && item.nCriteria !== null;
                 return (
                   <TableCell
                     key={modelKey(model)}
                     className={cn(
                       "cursor-pointer text-center transition-colors hover:bg-dls-hover",
+                      scored && criteriaScoreTintClass(item!.nPassed!, item!.nCriteria!),
                       item && item.id === props.selectedItemId && "bg-dls-hover",
                     )}
                     onClick={() => item && props.onSelectItem(item)}
