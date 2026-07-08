@@ -81,6 +81,7 @@ import { UpdatesView } from "@/react-app/domains/settings/pages/updates-view";
 import { useDebugViewModel } from "@/react-app/domains/settings/state/debug-view-model";
 import { useMessagingViewProps } from "@/react-app/domains/settings/state/messaging-view-state";
 import { useElectronUpdaterState } from "@/react-app/domains/settings/state/electron-updater-state";
+import { UPDATE_AUTO_CHECK_STORAGE_KEY } from "@/react-app/domains/settings/state/update-status-store";
 import { useBootState } from "./boot-state";
 import { SettingsShell } from "@/react-app/domains/settings/shell/settings-shell";
 import { createExtensionsStore, useExtensionsStoreSnapshot } from "@/react-app/domains/settings/state/extensions-store";
@@ -182,7 +183,8 @@ function reconcileSelectedWorkspaceId(
 }
 
 const SETTINGS_HIDE_TITLEBAR_KEY = "legalwork.react.settings.hide-titlebar";
-const SETTINGS_UPDATE_AUTO_CHECK_KEY = "legalwork.react.settings.update-auto-check";
+// Shared with the sidebar update badge's background check.
+const SETTINGS_UPDATE_AUTO_CHECK_KEY = UPDATE_AUTO_CHECK_STORAGE_KEY;
 const SETTINGS_UPDATE_AUTO_DOWNLOAD_KEY = "legalwork.react.settings.update-auto-download";
 
 function parseSettingsPath(pathname: string): {

@@ -132,9 +132,6 @@ jobs:
               "- Electron builds use the attached latest-mac.yml updater feed."
           fi
 
-          SIGNPATH_RELEASE_NOTE='*Windows Build free code signing provided by [SignPath.io](https://about.signpath.io), certificate by [SignPath Foundation](https://signpath.org)*'
-          printf -v RELEASE_BODY '%s\n\n%s' "$RELEASE_BODY" "$SIGNPATH_RELEASE_NOTE"
-
           draft="${INPUT_DRAFT:-}"
           if [ -z "$draft" ]; then
             if [ "${GITHUB_EVENT_NAME}" = "push" ]; then
@@ -214,7 +211,7 @@ jobs:
             $DRAFT_FLAG $PRERELEASE_FLAG
 
   verify-release:
-    name: Verify Release Versions
+    name: Verify Release Tag
     needs: resolve-release
     # SignPath trusted builds require every job leading to the Windows signing
     # request to use GitHub-hosted runners.
@@ -233,8 +230,15 @@ jobs:
         with:
           node-version: 24
 
-      - name: Verify tag matches app versions
+      # The tag is the single source of truth for the release version; the
+      # repo carries 0.0.0 placeholders and every build job stamps the tag
+      # version into the workspace (scripts/release/apply-version.mjs). The
+      # tag only needs to point at a commit that is already on origin/dev.
+      - name: Verify release tag
         run: node scripts/release/verify-tag.mjs --tag "$RELEASE_TAG"
+
+      - name: Stamp release version from tag
+        run: node scripts/release/apply-version.mjs --tag "$RELEASE_TAG"
 
       - name: Release review (strict)
         run: node scripts/release/review.mjs --strict
@@ -330,6 +334,17 @@ jobs:
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
+
+      # After the frozen-lockfile install; electron-builder, the updater feed,
+      # and app.getVersion() all pick the stamped version up from package.json.
+      # The lockfile-only resync keeps pnpm-lock.yaml consistent with the
+      # stamped orchestrator dependency pins (workspace links, no re-resolution)
+      # so later pnpm invocations in this job don't reject the workspace.
+      - name: Stamp release version from tag
+        shell: bash
+        run: |
+          node scripts/release/apply-version.mjs --tag "$RELEASE_TAG"
+          pnpm install --lockfile-only --no-frozen-lockfile
 
       - name: Write Electron notary API key (macOS)
         if: matrix.os_type == 'macos' && env.MACOS_NOTARIZE == 'true'
@@ -610,6 +625,12 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile --prefer-offline
 
+      - name: Stamp release version from tag
+        shell: bash
+        run: |
+          node scripts/release/apply-version.mjs --tag "$RELEASE_TAG"
+          pnpm install --lockfile-only --no-frozen-lockfile
+
       - name: Resolve sidecar versions
         id: sidecar-versions
         shell: bash
@@ -722,6 +743,12 @@ jobs:
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile --prefer-offline
+
+      - name: Stamp release version from tag
+        shell: bash
+        run: |
+          node scripts/release/apply-version.mjs --tag "$RELEASE_TAG"
+          pnpm install --lockfile-only --no-frozen-lockfile
 
       - name: Resolve package versions
         id: package-versions

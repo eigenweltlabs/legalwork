@@ -12,7 +12,7 @@ export default {
   "office_addins.requires_desktop_title": "Desktop app required",
   "office_addins.requires_desktop": "Office add-ins can only be installed from the LegalWork desktop app.",
   "office_addins.unsupported_title": "Not supported on this platform yet",
-  "office_addins.unsupported_body": "Installing the Office add-in is currently supported on macOS. Windows support is coming.",
+  "office_addins.unsupported_body": "Installing the Office add-in is supported on macOS and Windows.",
   "office_addins.status_title": "LegalWork add-in",
   "office_addins.status_enabled": "Installed and running.",
   "office_addins.status_disabled": "Not installed.",
@@ -37,21 +37,27 @@ export default {
   "office_addins.cert_prompt_title": "Set up the secure local connection",
   "office_addins.cert_prompt_body":
     "LegalWork will create a private certificate so Office can talk to this app over a secure connection on your Mac. macOS will ask for your password once to mark that certificate as trusted.",
+  "office_addins.cert_prompt_body_windows":
+    "LegalWork will create a private certificate so Office can talk to this app over a secure connection. Windows will show one security dialog asking you to confirm adding it to your trusted certificates.",
   "office_addins.restart_title": "Installation successful",
   "office_addins.restart_body":
     "Quit {app} completely (Cmd+Q) and reopen it. LegalWork will appear under Home → Add-ins.",
+  "office_addins.restart_body_windows":
+    "Close {app} completely and reopen it. LegalWork will appear under Home → Add-ins.",
   "office_addins.restart_note":
     "LegalWork has to be running for the add-in to work, so keep the app open while you use it.",
   "office_addins.restart_ok": "OK",
   "office_addins.uninstall_prompt_title": "Remove the secure local connection",
   "office_addins.uninstall_prompt_body":
     "This is the last installed Office add-in, so LegalWork will also remove its private certificate from your Mac. macOS may ask for your password once.",
+  "office_addins.uninstall_prompt_body_windows":
+    "This is the last installed Office add-in, so LegalWork will also remove its private certificate from Windows. Windows may ask you to confirm the removal.",
   "office_addins.install_success": "Office add-in installed. Restart Word/Excel/PowerPoint if they are open.",
   "office_addins.install_failed": "Could not install the Office add-in.",
   "office_addins.uninstall_success": "Office add-in removed.",
   "office_addins.uninstall_failed": "Could not remove the Office add-in.",
   "office_addins.install_hint":
-    "Installing generates a localhost-only certificate and asks your OS to trust it (one password prompt), then adds the add-in to your Office apps.",
+    "Installing generates a localhost-only certificate and asks your OS to trust it (a one-time confirmation), then adds the add-in to your Office apps.",
   "app.compact_command_desc": "Summarize this session to reduce context size.",
   "app.error_audit_load": "Failed to load audit log.",
   "app.error_auth_failed": "Authentication failed",
@@ -1354,6 +1360,9 @@ export default {
   "share_skill_destination.trigger_label": "Trigger",
   "sidebar.collapse": "Collapse",
   "sidebar.expand": "Expand",
+  "sidebar.update_available_title": "Update available",
+  "sidebar.update_dismiss": "Dismiss",
+  "sidebar.update_ready_title": "Ready to install",
   "skill_export.action": "Export as zip",
   "skill_export.desktop_only": "Export is available in the desktop app.",
   "skill_export.dialog_title": "Export as zip",

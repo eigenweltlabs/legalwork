@@ -10,7 +10,7 @@ const NATIVE_MENU_TOGGLE_SIDEBAR_EVENT = "legalwork:native-menu:toggle-sidebar";
 const NATIVE_MENU_CHECK_UPDATES_EVENT = "legalwork:native-menu:check-updates";
 const NATIVE_MENU_ZOOM_EVENT = "legalwork:native-menu:zoom";
 
-export function createApplicationMenu({ appName, getWindow }) {
+export function createApplicationMenu({ appName, getWindow, collectSupportLogs }) {
   let applicationMenuVisible = process.platform === "darwin";
 
   async function openSettingsFromNativeMenu() {
@@ -190,23 +190,32 @@ export function createApplicationMenu({ appName, getWindow }) {
               ]),
         ],
       },
-      // Help menu carries only the (non-mac) updater entry now that the Docs
-      // link is gone; omit it entirely on macOS where it would be empty.
-      ...(isMac
-        ? []
-        : [
-            {
-              role: "help",
-              submenu: [
+      // Help menu: support-log collection on every platform (works even when
+      // the renderer is stuck on the boot error screen, since the menu is
+      // native), plus the updater entry on non-mac (macOS keeps it in the app
+      // menu).
+      {
+        role: "help",
+        submenu: [
+          {
+            label: "Collect Support Logs...",
+            click: () => {
+              collectSupportLogs?.();
+            },
+          },
+          ...(isMac
+            ? []
+            : [
+                { type: "separator" },
                 {
                   label: "Check for Updates...",
                   click: () => {
                     void checkForUpdatesFromNativeMenu();
                   },
                 },
-              ],
-            },
-          ]),
+              ]),
+        ],
+      },
     ]);
 
     Menu.setApplicationMenu(Menu.buildFromTemplate(template));

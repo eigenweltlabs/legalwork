@@ -131,6 +131,8 @@ export function OfficeAddinsView() {
 
   const busy = installMutation.isPending || uninstallMutation.isPending;
   const status = statusQuery.data;
+  /** The trust-store prompts differ: keychain password on macOS, a security dialog on Windows. */
+  const isWindows = status?.platform === "win32";
 
   if (!desktop) {
     return (
@@ -245,7 +247,7 @@ export function OfficeAddinsView() {
             <DialogTitle>{t("office_addins.cert_prompt_title")}</DialogTitle>
           </DialogHeader>
           <p className="text-sm leading-relaxed text-dls-secondary">
-            {t("office_addins.cert_prompt_body")}
+            {t(isWindows ? "office_addins.cert_prompt_body_windows" : "office_addins.cert_prompt_body")}
           </p>
           <DialogFooter>
             <Button variant="outline" onClick={() => setConfirmApp(null)}>
@@ -275,7 +277,11 @@ export function OfficeAddinsView() {
             <DialogTitle>{t("office_addins.uninstall_prompt_title")}</DialogTitle>
           </DialogHeader>
           <p className="text-sm leading-relaxed text-dls-secondary">
-            {t("office_addins.uninstall_prompt_body")}
+            {t(
+              isWindows
+                ? "office_addins.uninstall_prompt_body_windows"
+                : "office_addins.uninstall_prompt_body",
+            )}
           </p>
           <DialogFooter>
             <Button variant="outline" onClick={() => setConfirmUninstallApp(null)}>
@@ -305,7 +311,9 @@ export function OfficeAddinsView() {
             <DialogTitle>{t("office_addins.restart_title", { app: restartApp ?? "" })}</DialogTitle>
           </DialogHeader>
           <p className="text-sm leading-relaxed text-dls-secondary">
-            {t("office_addins.restart_body", { app: restartApp ?? "" })}
+            {t(isWindows ? "office_addins.restart_body_windows" : "office_addins.restart_body", {
+              app: restartApp ?? "",
+            })}
           </p>
           <p className="flex items-start gap-2 text-sm leading-relaxed text-dls-secondary">
             <TriangleAlert size={16} className="mt-0.5 shrink-0 text-amber-11" />

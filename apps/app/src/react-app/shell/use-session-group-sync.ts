@@ -70,6 +70,10 @@ export function useSessionGroupSync(input: UseSessionGroupSyncInput): void {
   const endpointForWorkspaceRef = useRef(endpointForWorkspace);
   const eventCursorByWorkspaceRef = useRef<Record<string, number | null>>({});
   const pollInFlightRef = useRef(false);
+  // Per-endpoint backoff so a down/restarting local server doesn't get hit on
+  // every 3s tick — that turns a transient outage into an endless stream of
+  // net::ERR_CONNECTION_REFUSED in the console. Cleared on the first success.
+  const pollBackoffRef = useRef<Record<string, { failures: number; nextAttemptAt: number }>>({});
 
   useEffect(() => {
     workspacesRef.current = workspaces;
@@ -158,10 +162,15 @@ export function useSessionGroupSync(input: UseSessionGroupSyncInput): void {
       if (pollInFlightRef.current) return;
       pollInFlightRef.current = true;
       try {
+        const now = Date.now();
         for (const workspace of workspacesRef.current) {
           const endpoint = endpointForWorkspaceRef.current(workspace);
           if (!endpoint) continue;
           const key = `${endpoint.baseUrl}:${endpoint.workspaceId}`;
+          // Skip endpoints we're currently backing off from (server down /
+          // restarting) so we don't hammer a refused port every tick.
+          const backoff = pollBackoffRef.current[key];
+          if (backoff && now < backoff.nextAttemptAt) continue;
           const currentCursor = eventCursorByWorkspaceRef.current[key];
           try {
             const response = await endpoint.client.listSessionGroupEvents(
@@ -169,6 +178,8 @@ export function useSessionGroupSync(input: UseSessionGroupSyncInput): void {
               typeof currentCursor === "number" ? { since: currentCursor } : undefined,
             );
             if (cancelled) return;
+            // Recovered: drop any backoff so polling returns to the 3s cadence.
+            if (pollBackoffRef.current[key]) delete pollBackoffRef.current[key];
             eventCursorByWorkspaceRef.current[key] =
               typeof response.cursor === "number"
                 ? response.cursor
@@ -177,7 +188,12 @@ export function useSessionGroupSync(input: UseSessionGroupSyncInput): void {
             if ((response.items ?? []).length === 0) continue;
             await syncWorkspace(workspace, false);
           } catch {
-            // Best effort: normal workspace/session loading still surfaces connection issues.
+            // Best effort: normal workspace/session loading still surfaces
+            // connection issues. Grow the backoff (3s → up to ~48s) so a
+            // persistently-down endpoint stops flooding the console.
+            const failures = (pollBackoffRef.current[key]?.failures ?? 0) + 1;
+            const delayMs = Math.min(48_000, 3_000 * 2 ** Math.min(failures, 4));
+            pollBackoffRef.current[key] = { failures, nextAttemptAt: Date.now() + delayMs };
           }
         }
       } finally {

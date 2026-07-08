@@ -311,13 +311,14 @@ export type OfficeAddinAppStatus = {
   installed: boolean;
   /** The user has installed the LegalWork add-in for this app. */
   enabled: boolean;
-  /** The LegalWork manifest is present in this app's sideload folder. */
+  /** The LegalWork manifest is sideloaded (wef folder on macOS, registry on Windows). */
   manifestInstalled: boolean;
 };
 
 export type OfficeAddinStatus = {
-  /** The current platform supports installing the add-in (macOS today). */
+  /** The current platform supports installing the add-in (macOS and Windows). */
   supported: boolean;
+  /** process.platform of the desktop app, e.g. "darwin" | "win32". */
   platform: string;
   /** OpenSSL (needed to generate the certificate) is available. */
   toolAvailable: boolean;
@@ -403,6 +404,8 @@ export type DesktopCommandMap = {
   prepareFreshRuntime: { args: []; result: unknown };
   runtimeBootstrap: { args: []; result: unknown };
   runtimeStatus: { args: []; result: unknown };
+  /** Write a token-free support-log bundle and reveal it in the file manager. */
+  supportBundleCollect: { args: []; result: { path: string | null } };
   engineStop: { args: []; result: EngineInfo };
   engineRestart: { args: [options?: Record<string, unknown>]; result: EngineInfo };
   engineInfo: { args: []; result: EngineInfo };

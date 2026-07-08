@@ -8,11 +8,17 @@
  * mint certificates for real domains — modern macOS/Windows enforce the
  * constraint — so trusting it in the OS store is a bounded decision.
  *
- * Generation shells out to OpenSSL (present on macOS; on Windows this needs
- * a bundled openssl or a JS fallback — see officeAddinCertToolAvailable).
+ * On macOS generation shells out to the system OpenSSL (LibreSSL). Windows
+ * has no system OpenSSL, so there — and only there — generation and
+ * validation run in pure JS (office-addin-cert-web.mjs, loaded lazily so
+ * macOS never touches it). Both generators produce the same certificate
+ * shape; office-addin-cert-web.test.mjs proves the JS output against the
+ * OpenSSL verifier.
  */
 import { spawnSync } from "node:child_process";
+import { X509Certificate } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { platform } from "node:os";
 import { join } from "node:path";
 
 const CA_SUBJECT = "/CN=LegalWork Local CA/O=LegalWork";
@@ -38,8 +44,12 @@ function runOpenssl(args, input) {
   return result;
 }
 
-/** True when the OpenSSL binary needed for generation is callable. */
+/**
+ * True when certificate generation can work here: always on Windows (pure
+ * JS), otherwise when the OpenSSL binary is callable.
+ */
 export function officeAddinCertToolAvailable() {
+  if (platform() === "win32") return true;
   try {
     const result = spawnSync(opensslBin(), ["version"], { encoding: "utf8", timeout: 10_000 });
     return result.status === 0;
@@ -86,7 +96,7 @@ const LOCALHOST_ALT_NAMES = "DNS:localhost, IP:127.0.0.1, IP:::1";
  * in `dir`. Idempotent: existing valid material is kept. Returns absolute
  * paths for the CA, leaf cert, and leaf key.
  */
-export function ensureLocalCert(dir, { force = false } = {}) {
+export async function ensureLocalCert(dir, { force = false } = {}) {
   mkdirSync(dir, { recursive: true });
   const caKeyPath = join(dir, "legalwork-local-ca.key");
   const caCertPath = join(dir, "legalwork-local-ca.crt");
@@ -98,6 +108,11 @@ export function ensureLocalCert(dir, { force = false } = {}) {
     existsSync(caKeyPath) && existsSync(caCertPath) && existsSync(leafKeyPath) && existsSync(leafCertPath);
   if (complete && !force && leafCertValid(leafCertPath, caCertPath)) {
     return { caCertPath, caKeyPath, leafCertPath, leafKeyPath };
+  }
+
+  if (platform() === "win32") {
+    const { generateLocalCertWeb } = await import("./office-addin-cert-web.mjs");
+    return generateLocalCertWeb({ caCertPath, caKeyPath, leafCertPath, leafKeyPath });
   }
 
   writeFileSync(extPath, `${REQ_SHIM}\n${CA_EXTENSIONS}\n${leafExtensions(LOCALHOST_ALT_NAMES)}\n`, "utf8");
@@ -132,9 +147,30 @@ export function ensureLocalCert(dir, { force = false } = {}) {
   return { caCertPath, caKeyPath, leafCertPath, leafKeyPath };
 }
 
+/**
+ * Signature/expiry validation of the local pair via node:crypto — used on
+ * Windows where OpenSSL is unavailable. This gates regeneration; the name
+ * constraint itself is enforced by the OS chain validator at connect time
+ * (and proven cross-generator in office-addin-cert-web.test.mjs).
+ */
+export function leafCertValidNode(leafCertPath, caCertPath) {
+  try {
+    const leaf = new X509Certificate(readFileSync(leafCertPath));
+    const ca = new X509Certificate(readFileSync(caCertPath));
+    const now = Date.now();
+    for (const cert of [leaf, ca]) {
+      if (now < Date.parse(cert.validFrom) || now > Date.parse(cert.validTo)) return false;
+    }
+    return leaf.checkIssued(ca) && leaf.verify(ca.publicKey);
+  } catch {
+    return false;
+  }
+}
+
 /** Verify a leaf certificate chains to the CA (enforces name constraints). */
 export function leafCertValid(leafCertPath, caCertPath) {
   if (!existsSync(leafCertPath) || !existsSync(caCertPath)) return false;
+  if (platform() === "win32") return leafCertValidNode(leafCertPath, caCertPath);
   const result = spawnSync(opensslBin(), ["verify", "-CAfile", caCertPath, leafCertPath], {
     encoding: "utf8",
     timeout: 30_000,
@@ -145,6 +181,13 @@ export function leafCertValid(leafCertPath, caCertPath) {
 /** SHA-256 fingerprint of the CA cert, for status display / dedup. */
 export function caFingerprint(caCertPath) {
   if (!existsSync(caCertPath)) return null;
+  if (platform() === "win32") {
+    try {
+      return new X509Certificate(readFileSync(caCertPath)).fingerprint256;
+    } catch {
+      return null;
+    }
+  }
   try {
     const out = runOpenssl(["x509", "-in", caCertPath, "-noout", "-fingerprint", "-sha256"]).stdout;
     return out.split("=")[1]?.trim() ?? null;

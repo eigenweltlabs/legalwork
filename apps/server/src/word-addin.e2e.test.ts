@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { startServer } from "./server.js";
-import { buildWordAddinManifest } from "./word-addin.js";
+import { buildWordAddinManifest, WORD_ADDIN_MANIFEST_IDS } from "./word-addin.js";
 import { WORD_ADDIN_SHELL_VERSION } from "./word-addin-shell.js";
 import type { ServerConfig, WordAddinConfig } from "./types.js";
 
@@ -222,5 +222,36 @@ describe("buildWordAddinManifest", () => {
     expect(xml).toContain("<Version>1.0.0.0</Version>");
     expect(xml).toContain('SourceLocation DefaultValue="https://localhost:47443/word-addin/taskpane.html"');
     expect(xml).not.toContain("47443//word-addin");
+  });
+
+  test("declares all hosts under the multi-host id by default", () => {
+    const xml = buildWordAddinManifest({ baseUrl: "https://localhost:47443" });
+    expect(xml).toContain(`<Id>${WORD_ADDIN_MANIFEST_IDS.all}</Id>`);
+    expect(xml).toContain('<Host Name="Document"/>');
+    expect(xml).toContain('<Host Name="Workbook"/>');
+    expect(xml).toContain('<Host Name="Presentation"/>');
+  });
+
+  test("single-host manifests carry only their host and a per-host id", () => {
+    const cases = [
+      { host: "word", name: "Document", xsiType: 'xsi:type="Document"' },
+      { host: "excel", name: "Workbook", xsiType: 'xsi:type="Workbook"' },
+      { host: "powerpoint", name: "Presentation", xsiType: 'xsi:type="Presentation"' },
+    ] as const;
+    for (const { host, name, xsiType } of cases) {
+      const xml = buildWordAddinManifest({ baseUrl: "https://localhost:47443", host });
+      expect(xml).toContain(`<Id>${WORD_ADDIN_MANIFEST_IDS[host]}</Id>`);
+      expect(xml).toContain(`<Host Name="${name}"/>`);
+      expect(xml).toContain(`<Host ${xsiType}>`);
+      for (const other of cases) {
+        if (other.host === host) continue;
+        expect(xml).not.toContain(`<Host Name="${other.name}"/>`);
+        expect(xml).not.toContain(`<Host ${other.xsiType}>`);
+      }
+    }
+    // Office treats the manifest id as the add-in's identity — the per-host
+    // ids must be distinct from each other and from the multi-host id.
+    const ids = Object.values(WORD_ADDIN_MANIFEST_IDS);
+    expect(new Set(ids).size).toBe(ids.length);
   });
 });

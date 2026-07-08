@@ -16,6 +16,12 @@ catalogs:
     react-dom: 18.2.0
 linkWorkspacePackages: true
 preferWorkspacePackages: true
+# pnpm 11 re-verifies manifests vs lockfile before every `pnpm run` and
+# auto-installs on drift. Release builds intentionally drift: CI stamps the
+# tag version into package.json after the frozen-lockfile install
+# (scripts/release/apply-version.mjs), which the auto-install then rejects.
+# Installs are always explicit here, so skip the pre-run check.
+verifyDepsBeforeRun: false
 allowBuilds:
   "@whiskeysockets/baileys": true
   better-sqlite3: true

@@ -14,10 +14,10 @@ import {
 
 const opensslAvailable = officeAddinCertToolAvailable();
 
-test("generates a localhost leaf that validates against the CA", { skip: !opensslAvailable }, () => {
+test("generates a localhost leaf that validates against the CA", { skip: !opensslAvailable }, async () => {
   const dir = mkdtempSync(join(tmpdir(), "lw-cert-ok-"));
   try {
-    const { caCertPath, leafCertPath, leafKeyPath } = ensureLocalCert(dir);
+    const { caCertPath, leafCertPath, leafKeyPath } = await ensureLocalCert(dir);
     assert.ok(leafCertValid(leafCertPath, caCertPath), "localhost leaf should chain to the CA");
     assert.ok(caFingerprint(caCertPath), "CA fingerprint should be readable");
     assert.ok(leafKeyPath.endsWith("localhost.key"));
@@ -26,10 +26,10 @@ test("generates a localhost leaf that validates against the CA", { skip: !openss
   }
 });
 
-test("name constraint rejects a non-localhost certificate", { skip: !opensslAvailable }, () => {
+test("name constraint rejects a non-localhost certificate", { skip: !opensslAvailable }, async () => {
   const dir = mkdtempSync(join(tmpdir(), "lw-cert-evil-"));
   try {
-    ensureLocalCert(dir);
+    await ensureLocalCert(dir);
 
     // A well-formed, CA-signed cert for a real domain — the signature is
     // valid, but the name constraint must make chain verification fail.
@@ -51,12 +51,12 @@ test("name constraint rejects a non-localhost certificate", { skip: !opensslAvai
   }
 });
 
-test("ensureLocalCert is idempotent (reuses valid material)", { skip: !opensslAvailable }, () => {
+test("ensureLocalCert is idempotent (reuses valid material)", { skip: !opensslAvailable }, async () => {
   const dir = mkdtempSync(join(tmpdir(), "lw-cert-idem-"));
   try {
-    const first = ensureLocalCert(dir);
+    const first = await ensureLocalCert(dir);
     const firstFp = caFingerprint(first.caCertPath);
-    const second = ensureLocalCert(dir);
+    const second = await ensureLocalCert(dir);
     assert.equal(caFingerprint(second.caCertPath), firstFp, "CA should not be regenerated when valid");
   } finally {
     rmSync(dir, { recursive: true, force: true });

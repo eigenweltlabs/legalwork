@@ -55,7 +55,10 @@ Then open Word/Excel/PowerPoint → Home → Add-ins → Developer Add-ins →
 LegalWork. (Restart the Office app once after the very first sideload.)
 
 Opt out with `LEGALWORK_WORD_ADDIN=0 pnpm dev`; re-run just the sideload
-with `pnpm office:sideload`. Windows sideloading is not automated yet.
+with `pnpm office:sideload`. On Windows the sideload writes the manifest to
+`~/.legalwork/office-addin-dev/` and registers it under
+`HKCU\Software\Microsoft\Office\16.0\WEF\Developer` (one multi-host
+registration covers Word, Excel, and PowerPoint).
 
 ## Manual setup (standalone CLI server)
 
@@ -100,7 +103,12 @@ cp legalwork-word-addin.manifest.xml \
 
 Then in Word: **Home → Add-ins ▾ (or Insert → My Add-ins) → Developer Add-ins → LegalWork**.
 
-**Word on Windows** — use the Office toolchain:
+**Word on Windows** — register the manifest in the registry (what
+`pnpm office:sideload` automates): save the manifest somewhere stable, then
+add a `REG_SZ` value under
+`HKCU\Software\Microsoft\Office\16.0\WEF\Developer` whose name is the
+manifest's `<Id>` and whose data is the manifest's full path. Alternatively
+use the Office toolchain:
 
 ```powershell
 npx office-addin-debugging start legalwork-word-addin.manifest.xml desktop --app word
@@ -195,7 +203,9 @@ open the pane.
 
 In a packaged desktop build, users install the add-in from **Settings →
 Office Add-ins** (a desktop-only global tab). Install/uninstall runs in the
-Electron main process (`apps/desktop/electron/office-addin-manager.mjs`):
+Electron main process (`office-addin-manager.mjs`, with the OS-specific
+pieces in `office-addin-platform.mjs`) and is supported on macOS and
+Windows:
 
 - **Certificate.** Generates a per-install CA that is *name-constrained to
   localhost/loopback* (`office-addin-cert.mjs`) — unlike the dev flow's
@@ -203,22 +213,44 @@ Electron main process (`apps/desktop/electron/office-addin-manager.mjs`):
   the machine it cannot sign for real domains; the constraint is proven by
   `office-addin-cert.test.mjs` (a CA-signed cert for `evil.example.com`
   fails validation). The CA key never leaves the machine and is never
-  shared between installs.
-- **Trust.** Adds the CA to the login keychain via one native auth prompt
-  (macOS). No sudo, no shared key. The constraint is enforced by the OS:
-  with the CA trusted, `security verify-cert` accepts the localhost leaf but
-  rejects a cert for any real domain signed by the same CA.
+  shared between installs. On macOS generation shells out to the system
+  LibreSSL; on Windows it runs in pure JS (`office-addin-cert-web.mjs`,
+  @peculiar/x509 on top of Node's native webcrypto) so no external tools
+  are needed. `office-addin-cert-web.test.mjs` proves the JS output —
+  including the name-constraint rejection — against the OpenSSL verifier.
+- **Trust.** macOS adds the CA to the login keychain via one native auth
+  prompt (`security add-trusted-cert`); Windows adds it to the CurrentUser
+  Root store via `certutil -user -addstore Root`, which shows one native
+  confirmation dialog (no admin). No sudo, no shared key. The name
+  constraint is enforced by both OSes' chain validation.
 - **Manifests.** Written per app: each of Word/Excel/PowerPoint is installed
   and uninstalled individually from the settings tab; the certificate and
-  listener are shared and are torn down with the last uninstall.
+  listener are shared and are torn down with the last uninstall. On macOS
+  the multi-host manifest is copied into each app's `wef` folder. On
+  Windows each app gets a *single-host* manifest with its own stable id
+  (`WORD_ADDIN_MANIFEST_IDS` in `apps/server/src/word-addin.ts`), registered
+  as a `REG_SZ` value under `HKCU\...\Office\16.0\WEF\Developer` (value
+  name = manifest id, data = manifest path in userData) — the same registry
+  sideload Microsoft's `office-addin-dev-settings` uses.
 - **Listener.** Persists an enabled flag (`office-addins.json` in userData);
   `startLegalworkServer` reads it and passes the cert/key/dist to the
   embedded server so the HTTPS listener comes up on every launch. Uninstall
   removes manifests, untrusts + deletes the CA, and stops the listener.
+- **Windows uninstaller.** The NSIS uninstaller
+  (`apps/desktop/build/installer.nsh`) removes the registry registrations
+  and the trusted CA when LegalWork itself is uninstalled, so Office apps
+  are not left pointing at a dead manifest. Auto-updates skip this cleanup.
 
 The packaged task pane bundle ships via electron-builder `extraResources`
-(`../app/dist-word-addin` → `word-addin-dist`). Currently macOS only;
-Windows install is stubbed (status reports `supported: false`).
+(`../app/dist-word-addin` → `word-addin-dist`) on all platforms.
+
+Windows notes: the pane requires an Office build that renders add-ins in
+**Edge WebView2** (Microsoft 365 current channel; WebView2 runtime
+installed). Older EdgeHTML/IE11 webviews block localhost loopback inside
+their AppContainer and are not supported. Office installed from the
+**Microsoft Store** cannot load registry-sideloaded add-ins at all — the
+installer detects this (WindowsApps executable path) and refuses with a
+clear error instead of appearing to succeed.
 
 Dev note: the `pnpm dev` flow still enables the listener via
 `LEGALWORK_WORD_ADDIN=1` and the dev certificate, independently of the
@@ -226,11 +258,7 @@ settings tab. In dev the tab may therefore show "Not installed" while the
 pane already works from the env path; in production (no env var) the tab is
 the sole control and its status is authoritative.
 
-## Production / desktop distribution (future work)
+## Known limitations
 
-- The desktop app can enable `wordAddin` on its embedded server and ship the
-  built bundle; the installer should install a trusted localhost certificate
-  (what `office-addin-dev-certs` does for dev) and drop the manifest into the
-  Word sideload location.
 - Settings navigation inside the pane is intentionally disabled; flows that
   need it (e.g. connecting a model provider) must be done in the LegalWork app.

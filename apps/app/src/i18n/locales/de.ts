@@ -18,7 +18,7 @@ const de: Record<string, string> = {
   "office_addins.requires_desktop_title": "Desktop-App erforderlich",
   "office_addins.requires_desktop": "Office-Add-ins können nur aus der LegalWork-Desktop-App installiert werden.",
   "office_addins.unsupported_title": "Auf dieser Plattform noch nicht unterstützt",
-  "office_addins.unsupported_body": "Die Installation des Office-Add-ins wird derzeit unter macOS unterstützt. Windows folgt.",
+  "office_addins.unsupported_body": "Die Installation des Office-Add-ins wird unter macOS und Windows unterstützt.",
   "office_addins.status_title": "LegalWork-Add-in",
   "office_addins.status_enabled": "Installiert und aktiv.",
   "office_addins.status_disabled": "Nicht installiert.",
@@ -43,21 +43,27 @@ const de: Record<string, string> = {
   "office_addins.cert_prompt_title": "Sichere lokale Verbindung einrichten",
   "office_addins.cert_prompt_body":
     "LegalWork erstellt ein privates Zertifikat, damit Office auf deinem Mac über eine sichere Verbindung mit dieser App kommunizieren kann. macOS fragt einmalig nach deinem Passwort, um dieses Zertifikat als vertrauenswürdig einzustufen.",
+  "office_addins.cert_prompt_body_windows":
+    "LegalWork erstellt ein privates Zertifikat, damit Office über eine sichere Verbindung mit dieser App kommunizieren kann. Windows zeigt einmalig einen Sicherheitsdialog, in dem du die Aufnahme in die vertrauenswürdigen Zertifikate bestätigst.",
   "office_addins.restart_title": "Installation erfolgreich",
   "office_addins.restart_body":
     "Beende {app} vollständig (Cmd+Q) und öffne es erneut. LegalWork erscheint dann unter Start → Add-ins.",
+  "office_addins.restart_body_windows":
+    "Schließe {app} vollständig und öffne es erneut. LegalWork erscheint dann unter Start → Add-ins.",
   "office_addins.restart_note":
     "LegalWork muss geöffnet sein, damit das Add-in funktioniert. Lass die App daher beim Arbeiten laufen.",
   "office_addins.restart_ok": "Verstanden",
   "office_addins.uninstall_prompt_title": "Sichere lokale Verbindung entfernen",
   "office_addins.uninstall_prompt_body":
     "Dies ist das letzte installierte Office-Add-in. LegalWork entfernt daher auch sein privates Zertifikat von deinem Mac. macOS fragt dabei eventuell einmalig nach deinem Passwort.",
+  "office_addins.uninstall_prompt_body_windows":
+    "Dies ist das letzte installierte Office-Add-in. LegalWork entfernt daher auch sein privates Zertifikat aus Windows. Windows bittet dich dabei eventuell um eine Bestätigung.",
   "office_addins.install_success": "Office-Add-in installiert. Starte Word/Excel/PowerPoint neu, falls geöffnet.",
   "office_addins.install_failed": "Das Office-Add-in konnte nicht installiert werden.",
   "office_addins.uninstall_success": "Office-Add-in entfernt.",
   "office_addins.uninstall_failed": "Das Office-Add-in konnte nicht entfernt werden.",
   "office_addins.install_hint":
-    "Bei der Installation wird ein nur für localhost gültiges Zertifikat erzeugt und vom Betriebssystem als vertrauenswürdig eingestuft (eine Passwortabfrage); danach wird das Add-in zu deinen Office-Apps hinzugefügt.",
+    "Bei der Installation wird ein nur für localhost gültiges Zertifikat erzeugt und vom Betriebssystem als vertrauenswürdig eingestuft (eine einmalige Bestätigung); danach wird das Add-in zu deinen Office-Apps hinzugefügt.",
 
   /* ---- Common actions ---- */
   "common.add": "Hinzufügen",
@@ -73,6 +79,14 @@ const de: Record<string, string> = {
   "dashboard.change": "Ändern",
   "session.new_task": "Neue Aufgabe",
   "session.preparing_workspace": "Arbeitsbereich wird vorbereitet",
+  "sidebar.update_available_title": "Update verfügbar",
+  "sidebar.update_dismiss": "Ausblenden",
+  "sidebar.update_ready_title": "Bereit zur Installation",
+  "settings.update_downloading": "Update wird heruntergeladen…",
+  "settings.update_install_button": "Installieren & neu starten",
+  "settings.update_restart_confirm_title": "Neu starten trotz aktiver Aufgaben?",
+  "settings.update_restart_confirm_message":
+    "Die Installation des Updates startet LegalWork jetzt neu und unterbricht deine aktiven Aufgaben. Danach musst du sie ggf. fortsetzen.",
   "status.back": "Zurück zum vorherigen Bildschirm",
   "status.connected": "Verbunden",
   "status.ready_for_tasks": "Bereit für neue Aufgaben",

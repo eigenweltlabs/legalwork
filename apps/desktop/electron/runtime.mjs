@@ -1496,6 +1496,18 @@ export function createRuntimeManager({ app, desktopRoot, listLocalWorkspacePaths
       return snapshotEngineState(engineState);
     } catch (error) {
       lifecycleState = "error";
+      // Surface the *real* reason to the main-process log before the generic
+      // boot error bubbles up to the renderer. Best-effort; never mask the
+      // original failure with a diagnostics error.
+      try {
+        console.error(
+          "[runtime] engineStart failed:",
+          error instanceof Error ? error.stack || error.message : String(error),
+        );
+        console.error("[runtime] diagnostics:", JSON.stringify(collectRuntimeDiagnostics(), null, 2));
+      } catch {
+        /* diagnostics are best-effort */
+      }
       throw error;
     }
   }
@@ -1529,6 +1541,69 @@ export function createRuntimeManager({ app, desktopRoot, listLocalWorkspacePaths
       lifecycleState,
       engine: await engineInfo(),
       legalworkServer: snapshotLegalworkServerState(legalworkServerState),
+    };
+  }
+
+  // A token-free snapshot of everything we know about why the local runtime is
+  // (not) up: the embedded server + managed OpenCode stderr/stdout tails, exit
+  // codes, resolved binary paths, and the OpenCode doctor probe. This is the
+  // payload we surface to the console / boot screen instead of the generic
+  // "server did not finish starting" message, so a failing machine can be
+  // diagnosed without a special build.
+  function collectRuntimeDiagnostics() {
+    const diagTail = (value, limit = 4000) => {
+      const text = String(value ?? "").trim();
+      if (!text) return null;
+      return text.length <= limit ? text : text.slice(text.length - limit);
+    };
+    const engine = snapshotEngineState(engineState);
+    const server = snapshotLegalworkServerState(legalworkServerState);
+    let opencode = null;
+    try {
+      opencode = engineDoctor({
+        opencodeBinPath:
+          legalworkServerState.managedOpencodeBinPath || engineState.opencodeBinPath || undefined,
+      });
+    } catch (error) {
+      opencode = { error: error instanceof Error ? error.message : String(error) };
+    }
+    return {
+      platform: process.platform,
+      arch: process.arch,
+      lifecycleState,
+      // NOTE: token fields from the snapshots are intentionally omitted here.
+      engine: {
+        running: engine.running,
+        runtime: engine.runtime,
+        baseUrl: engine.baseUrl,
+        port: engine.port,
+        pid: engine.pid,
+        opencodeBinPath: engine.opencodeBinPath,
+        opencodeBinSource: engine.opencodeBinSource,
+        lastStdout: diagTail(engine.lastStdout),
+        lastStderr: diagTail(engine.lastStderr),
+        execution: engine.execution ?? null,
+      },
+      legalworkServer: {
+        running: server.running,
+        inProcess: legalworkServerState.inProcess === true,
+        host: server.host,
+        port: server.port,
+        baseUrl: server.baseUrl,
+        pid: server.pid,
+        managedOpencodeBinPath: server.managedOpencodeBinPath,
+        managedOpencodeBinSource: server.managedOpencodeBinSource,
+        lastStdout: diagTail(server.lastStdout),
+        lastStderr: diagTail(server.lastStderr),
+        managedOpencodeExecution: server.managedOpencodeExecution ?? null,
+      },
+      orchestrator: {
+        baseUrl: orchestratorState.baseUrl,
+        daemonPort: orchestratorState.daemonPort,
+        lastStdout: diagTail(orchestratorState.lastStdout),
+        lastStderr: diagTail(orchestratorState.lastStderr),
+      },
+      opencode,
     };
   }
 
@@ -1955,6 +2030,7 @@ export function createRuntimeManager({ app, desktopRoot, listLocalWorkspacePaths
     prepareFreshRuntime: () => withRuntimeLifecycle(() => prepareFreshRuntime()),
     dispose: () => withRuntimeLifecycle(() => stopAllRuntimeChildren()),
     runtimeStatus,
+    collectRuntimeDiagnostics,
     engineInfo,
     engineDoctor,
     engineInstall,

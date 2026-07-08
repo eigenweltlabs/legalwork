@@ -18,8 +18,26 @@ import { buildWordAddinRedirectorHtml, buildWordAddinShellHtml, WORD_ADDIN_SHELL
 
 export const WORD_ADDIN_PATH_PREFIX = "/word-addin";
 
-/** Stable identity of the add-in across installs; referenced by Word. */
-const WORD_ADDIN_MANIFEST_ID = "47744a24-6fd7-4ee5-b981-97b16ce5d488";
+export type WordAddinHost = "word" | "excel" | "powerpoint";
+
+/**
+ * Stable identities of the add-in across installs; referenced by Office.
+ * `all` is the original multi-host manifest id (macOS sideload folders,
+ * manual downloads). The per-host ids exist for Windows, where each Office
+ * app is registered individually under HKCU\...\WEF\Developer and the
+ * registry value name must be the manifest's Id — so per-app install needs
+ * per-app manifests with distinct ids.
+ *
+ * Keep in sync with the copies in
+ * apps/desktop/electron/office-addin-platform.mjs and
+ * apps/desktop/build/installer.nsh (the NSIS uninstaller cleanup).
+ */
+export const WORD_ADDIN_MANIFEST_IDS: Record<"all" | WordAddinHost, string> = {
+  all: "47744a24-6fd7-4ee5-b981-97b16ce5d488",
+  word: "fdea378d-ff62-4a4f-af08-d1622c083957",
+  excel: "65facd67-9deb-4356-8072-e2cc6e36d9fe",
+  powerpoint: "db1cc438-a239-4b01-b732-2ff838ecca38",
+};
 
 const CONTENT_TYPES: Record<string, string> = {
   ".html": "text/html; charset=utf-8",
@@ -146,13 +164,82 @@ function xmlEscape(value: string): string {
     .replace(/'/g, "&apos;");
 }
 
+/** `<Hosts>` declaration names, in the manifest's declaration order. */
+const HOST_DECLARATIONS: ReadonlyArray<{ host: WordAddinHost; name: string }> = [
+  { host: "word", name: "Document" },
+  { host: "excel", name: "Workbook" },
+  { host: "powerpoint", name: "Presentation" },
+];
+
+/** VersionOverrides blocks, in the manifest's (historical) block order. */
+const VERSION_OVERRIDE_HOSTS: ReadonlyArray<{ host: WordAddinHost; xsiType: string; idInfix: string }> = [
+  { host: "word", xsiType: "Document", idInfix: "" },
+  { host: "powerpoint", xsiType: "Presentation", idInfix: "Ppt." },
+  { host: "excel", xsiType: "Workbook", idInfix: "Excel." },
+];
+
+function versionOverrideHostXml(xsiType: string, idInfix: string): string {
+  return `      <Host xsi:type="${xsiType}">
+        <DesktopFormFactor>
+          <ExtensionPoint xsi:type="PrimaryCommandSurface">
+            <OfficeTab id="TabHome">
+              <Group id="LegalWork.${idInfix}Group">
+                <Label resid="LegalWork.GroupLabel"/>
+                <Icon>
+                  <bt:Image size="16" resid="LegalWork.Icon16"/>
+                  <bt:Image size="32" resid="LegalWork.Icon32"/>
+                  <bt:Image size="80" resid="LegalWork.Icon80"/>
+                </Icon>
+                <Control xsi:type="Button" id="LegalWork.${idInfix}OpenPane">
+                  <Label resid="LegalWork.OpenPane.Label"/>
+                  <Supertip>
+                    <Title resid="LegalWork.OpenPane.Label"/>
+                    <Description resid="LegalWork.OpenPane.Tooltip"/>
+                  </Supertip>
+                  <Icon>
+                    <bt:Image size="16" resid="LegalWork.Icon16"/>
+                    <bt:Image size="32" resid="LegalWork.Icon32"/>
+                    <bt:Image size="80" resid="LegalWork.Icon80"/>
+                  </Icon>
+                  <Action xsi:type="ShowTaskpane">
+                    <TaskpaneId>LegalWork.TaskPane</TaskpaneId>
+                    <SourceLocation resid="LegalWork.Taskpane.Url"/>
+                  </Action>
+                </Control>
+              </Group>
+            </OfficeTab>
+          </ExtensionPoint>
+        </DesktopFormFactor>
+      </Host>`;
+}
+
 /**
- * Add-in only manifest (XML) for a Word task pane. The base URL is the
- * HTTPS listener this server starts; Word requires HTTPS even on localhost.
+ * Add-in only manifest (XML) for the Office task pane. The base URL is the
+ * HTTPS listener this server starts; Office requires HTTPS even on localhost.
+ *
+ * Without `host` this is the multi-host manifest (Word + Excel + PowerPoint)
+ * used on macOS and for manual downloads. With `host` it is a single-host
+ * manifest with that host's stable id — Windows registers each Office app
+ * individually in the registry, keyed by manifest id.
  */
-export function buildWordAddinManifest(input: { baseUrl: string; version?: string }): string {
+export function buildWordAddinManifest(input: {
+  baseUrl: string;
+  version?: string;
+  host?: WordAddinHost;
+}): string {
   const base = xmlEscape(input.baseUrl.replace(/\/+$/, ""));
   const version = /^\d+\.\d+\.\d+\.\d+$/.test(input.version ?? "") ? input.version : "1.0.0.0";
+  const manifestId = WORD_ADDIN_MANIFEST_IDS[input.host ?? "all"];
+  const hostDeclarations = HOST_DECLARATIONS.filter(
+    (entry) => !input.host || entry.host === input.host,
+  )
+    .map((entry) => `    <Host Name="${entry.name}"/>`)
+    .join("\n");
+  const versionOverrideHosts = VERSION_OVERRIDE_HOSTS.filter(
+    (entry) => !input.host || entry.host === input.host,
+  )
+    .map((entry) => versionOverrideHostXml(entry.xsiType, entry.idInfix))
+    .join("\n");
   return `<?xml version="1.0" encoding="UTF-8"?>
 <OfficeApp
   xmlns="http://schemas.microsoft.com/office/appforoffice/1.1"
@@ -160,7 +247,7 @@ export function buildWordAddinManifest(input: { baseUrl: string; version?: strin
   xmlns:bt="http://schemas.microsoft.com/office/officeappbasictypes/1.0"
   xmlns:ov="http://schemas.microsoft.com/office/taskpaneappversionoverrides"
   xsi:type="TaskPaneApp">
-  <Id>${WORD_ADDIN_MANIFEST_ID}</Id>
+  <Id>${manifestId}</Id>
   <Version>${version}</Version>
   <ProviderName>Eigenwelt Labs</ProviderName>
   <DefaultLocale>en-US</DefaultLocale>
@@ -173,9 +260,7 @@ export function buildWordAddinManifest(input: { baseUrl: string; version?: strin
     <AppDomain>${base}</AppDomain>
   </AppDomains>
   <Hosts>
-    <Host Name="Document"/>
-    <Host Name="Workbook"/>
-    <Host Name="Presentation"/>
+${hostDeclarations}
   </Hosts>
   <DefaultSettings>
     <SourceLocation DefaultValue="${base}/word-addin/taskpane.html"/>
@@ -183,108 +268,13 @@ export function buildWordAddinManifest(input: { baseUrl: string; version?: strin
   <Permissions>ReadWriteDocument</Permissions>
   <VersionOverrides xmlns="http://schemas.microsoft.com/office/taskpaneappversionoverrides" xsi:type="VersionOverridesV1_0">
     <Hosts>
-      <Host xsi:type="Document">
-        <DesktopFormFactor>
-          <ExtensionPoint xsi:type="PrimaryCommandSurface">
-            <OfficeTab id="TabHome">
-              <Group id="LegalWork.Group">
-                <Label resid="LegalWork.GroupLabel"/>
-                <Icon>
-                  <bt:Image size="16" resid="LegalWork.Icon16"/>
-                  <bt:Image size="32" resid="LegalWork.Icon32"/>
-                  <bt:Image size="80" resid="LegalWork.Icon80"/>
-                </Icon>
-                <Control xsi:type="Button" id="LegalWork.OpenPane">
-                  <Label resid="LegalWork.OpenPane.Label"/>
-                  <Supertip>
-                    <Title resid="LegalWork.OpenPane.Label"/>
-                    <Description resid="LegalWork.OpenPane.Tooltip"/>
-                  </Supertip>
-                  <Icon>
-                    <bt:Image size="16" resid="LegalWork.Icon16"/>
-                    <bt:Image size="32" resid="LegalWork.Icon32"/>
-                    <bt:Image size="80" resid="LegalWork.Icon80"/>
-                  </Icon>
-                  <Action xsi:type="ShowTaskpane">
-                    <TaskpaneId>LegalWork.TaskPane</TaskpaneId>
-                    <SourceLocation resid="LegalWork.Taskpane.Url"/>
-                  </Action>
-                </Control>
-              </Group>
-            </OfficeTab>
-          </ExtensionPoint>
-        </DesktopFormFactor>
-      </Host>
-      <Host xsi:type="Presentation">
-        <DesktopFormFactor>
-          <ExtensionPoint xsi:type="PrimaryCommandSurface">
-            <OfficeTab id="TabHome">
-              <Group id="LegalWork.Ppt.Group">
-                <Label resid="LegalWork.GroupLabel"/>
-                <Icon>
-                  <bt:Image size="16" resid="LegalWork.Icon16"/>
-                  <bt:Image size="32" resid="LegalWork.Icon32"/>
-                  <bt:Image size="80" resid="LegalWork.Icon80"/>
-                </Icon>
-                <Control xsi:type="Button" id="LegalWork.Ppt.OpenPane">
-                  <Label resid="LegalWork.OpenPane.Label"/>
-                  <Supertip>
-                    <Title resid="LegalWork.OpenPane.Label"/>
-                    <Description resid="LegalWork.OpenPane.Tooltip"/>
-                  </Supertip>
-                  <Icon>
-                    <bt:Image size="16" resid="LegalWork.Icon16"/>
-                    <bt:Image size="32" resid="LegalWork.Icon32"/>
-                    <bt:Image size="80" resid="LegalWork.Icon80"/>
-                  </Icon>
-                  <Action xsi:type="ShowTaskpane">
-                    <TaskpaneId>LegalWork.TaskPane</TaskpaneId>
-                    <SourceLocation resid="LegalWork.Taskpane.Url"/>
-                  </Action>
-                </Control>
-              </Group>
-            </OfficeTab>
-          </ExtensionPoint>
-        </DesktopFormFactor>
-      </Host>
-      <Host xsi:type="Workbook">
-        <DesktopFormFactor>
-          <ExtensionPoint xsi:type="PrimaryCommandSurface">
-            <OfficeTab id="TabHome">
-              <Group id="LegalWork.Excel.Group">
-                <Label resid="LegalWork.GroupLabel"/>
-                <Icon>
-                  <bt:Image size="16" resid="LegalWork.Icon16"/>
-                  <bt:Image size="32" resid="LegalWork.Icon32"/>
-                  <bt:Image size="80" resid="LegalWork.Icon80"/>
-                </Icon>
-                <Control xsi:type="Button" id="LegalWork.Excel.OpenPane">
-                  <Label resid="LegalWork.OpenPane.Label"/>
-                  <Supertip>
-                    <Title resid="LegalWork.OpenPane.Label"/>
-                    <Description resid="LegalWork.OpenPane.Tooltip"/>
-                  </Supertip>
-                  <Icon>
-                    <bt:Image size="16" resid="LegalWork.Icon16"/>
-                    <bt:Image size="32" resid="LegalWork.Icon32"/>
-                    <bt:Image size="80" resid="LegalWork.Icon80"/>
-                  </Icon>
-                  <Action xsi:type="ShowTaskpane">
-                    <TaskpaneId>LegalWork.TaskPane</TaskpaneId>
-                    <SourceLocation resid="LegalWork.Taskpane.Url"/>
-                  </Action>
-                </Control>
-              </Group>
-            </OfficeTab>
-          </ExtensionPoint>
-        </DesktopFormFactor>
-      </Host>
+${versionOverrideHosts}
     </Hosts>
     <Resources>
       <bt:Images>
         <bt:Image id="LegalWork.Icon16" DefaultValue="${base}/word-addin/favicon-16x16.png"/>
         <bt:Image id="LegalWork.Icon32" DefaultValue="${base}/word-addin/favicon-32x32.png"/>
-        <bt:Image id="LegalWork.Icon80" DefaultValue="${base}/word-addin/apple-touch-icon.png"/>
+        <bt:Image id="LegalWork.Icon80" DefaultValue="${base}/word-addin/favicon-80x80.png"/>
       </bt:Images>
       <bt:Urls>
         <bt:Url id="LegalWork.Taskpane.Url" DefaultValue="${base}/word-addin/taskpane.html"/>
@@ -336,15 +326,25 @@ async function serveStaticFile(distPath: string, relativePath: string): Promise<
     return null;
   }
 
-  // Vite emits content-hashed filenames under assets/; everything else
-  // (HTML entry, icons) must never be cached — Word's webview cache is
-  // sticky and `no-cache` without validators still let stale panes survive.
-  const immutable = decoded.startsWith("assets/");
+  // Cache-Control policy, by asset kind:
+  //  - assets/*: Vite content-hashes these, so they can cache forever.
+  //  - *.html (the task pane entry): never cache — Word's webview cache is
+  //    sticky and `no-cache` without validators still lets stale panes survive.
+  //  - everything else, notably the ribbon icons: MUST be cacheable. Office
+  //    desktop (Windows) refuses to render add-in command icons served with
+  //    no-store/no-cache, so the ribbon logo came up blank. The icons are not
+  //    content-hashed, so use a modest TTL rather than immutable.
+  //    See https://learn.microsoft.com/office/dev/add-ins/design/add-in-icons
+  const cacheControl = decoded.startsWith("assets/")
+    ? "public, max-age=31536000, immutable"
+    : decoded.endsWith(".html")
+      ? "no-store"
+      : "public, max-age=86400";
   return new Response(new Uint8Array(body), {
     status: 200,
     headers: {
       "Content-Type": contentTypeFor(target),
-      "Cache-Control": immutable ? "public, max-age=31536000, immutable" : "no-store",
+      "Cache-Control": cacheControl,
     },
   });
 }

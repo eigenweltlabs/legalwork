@@ -101,4 +101,8 @@ win:
         - versions.json-x86_64-pc-windows-msvc.exe
   target:
     - nsis
+# Uninstall cleanup for the Office add-in (registry sideload entries and the
+# trusted local CA) — see build/installer.nsh.
+nsis:
+  include: build/installer.nsh
 artifactName: legalwork-${os}-${arch}-${version}.${ext}
