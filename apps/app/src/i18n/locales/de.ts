@@ -168,6 +168,7 @@ const de: Record<string, string> = {
   "benchmark.run_meta": "{models} Modelle · {tasks} Aufgaben",
   "benchmark.run_name_label": "Name des Laufs",
   "benchmark.search_tasks": "Aufgaben durchsuchen…",
+  "benchmark.select_models": "Modelle auswählen…",
   "benchmark.selected_count": "{count} ausgewählt",
   "benchmark.start_run": "Benchmark starten",
   "benchmark.starting": "Wird gestartet…",

@@ -64,7 +64,7 @@ export function StartRunModal(props: StartRunModalProps) {
 
   return (
     <Dialog open={props.open} onOpenChange={props.onOpenChange}>
-      <DialogContent className="flex h-[min(640px,85vh)] max-w-2xl flex-col">
+      <DialogContent className="flex max-h-[85vh] max-w-2xl flex-col">
         <DialogHeader>
           <DialogTitle>
             {t("benchmark.new_run")} — {t("benchmark.selected_count", { count: selectedTaskIds.length })}

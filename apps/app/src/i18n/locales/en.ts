@@ -153,6 +153,7 @@ export default {
   "benchmark.run_meta": "{models} models · {tasks} tasks",
   "benchmark.run_name_label": "Run name",
   "benchmark.search_tasks": "Search tasks…",
+  "benchmark.select_models": "Select models…",
   "benchmark.selected_count": "{count} selected",
   "benchmark.start_run": "Start benchmark",
   "benchmark.starting": "Starting…",
