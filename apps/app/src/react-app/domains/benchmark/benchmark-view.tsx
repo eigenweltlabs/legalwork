@@ -6,6 +6,7 @@ import { t } from "@/i18n";
 import type { LegalworkServerClient } from "../../../app/lib/legalwork-server";
 import type { ProviderListItem } from "../../../app/types";
 import { attachBenchmarkContext, useBenchmarkStore } from "./store";
+import { BenchmarkOnboardingModal } from "./onboarding-modal";
 import { ImportTasksModal } from "./import-tasks-modal";
 import { ItemDetailScreen } from "./item-detail-screen";
 import { RunDetail } from "./run-detail";
@@ -95,6 +96,7 @@ export function BenchmarkView(props: BenchmarkViewProps) {
         </TabsContent>
       </Tabs>
 
+      <BenchmarkOnboardingModal onImport={() => setImportOpen(true)} />
       <ImportTasksModal open={importOpen} onOpenChange={setImportOpen} />
       <TaskFormModal open={taskFormOpen} onOpenChange={setTaskFormOpen} />
       <StartRunModal
