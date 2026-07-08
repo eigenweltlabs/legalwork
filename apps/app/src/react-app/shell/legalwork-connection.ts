@@ -30,6 +30,7 @@ function hasUsableConnection(url: string, token: string) {
  */
 export async function resolveLegalworkConnection(): Promise<ResolvedLegalworkConnection> {
   let staleDesktopRuntimeBaseUrl = "";
+  let desktopRuntimeReportedDown = false;
 
   if (isDesktopRuntime()) {
     try {
@@ -48,6 +49,10 @@ export async function resolveLegalworkConnection(): Promise<ResolvedLegalworkCon
         };
       }
       staleDesktopRuntimeBaseUrl = normalizedBaseUrl;
+      // The bridge answered and the local server is not (yet) up. Any stored
+      // loopback URL can only point at a previous local server process, so it
+      // must not be used as a fallback below.
+      desktopRuntimeReportedDown = true;
     } catch {
       // Fall through to stored settings for remote/manual connections.
     }
@@ -65,8 +70,21 @@ export async function resolveLegalworkConnection(): Promise<ResolvedLegalworkCon
       staleDesktopRuntimeBaseUrl &&
       normalizedBaseUrl === staleDesktopRuntimeBaseUrl,
   );
+  // Local ports/tokens are ephemeral per app boot. While the desktop runtime
+  // says the local server is down (typically during startup, before the boot
+  // sequence publishes fresh settings), a persisted loopback URL is guaranteed
+  // stale — firing requests at it only produces ERR_CONNECTION_REFUSED spam.
+  // Resolve as "empty" instead; routes re-resolve on the
+  // "legalwork-server-settings-changed" event once the server is up.
+  const storedLoopbackWhileLocalServerDown = Boolean(
+    desktopRuntimeReportedDown &&
+      normalizedBaseUrl &&
+      isLoopbackLegalworkServerUrl(normalizedBaseUrl),
+  );
   const source =
-    !storedConnectionIsStaleDesktopRuntime && hasUsableConnection(normalizedBaseUrl, resolvedToken)
+    !storedConnectionIsStaleDesktopRuntime &&
+    !storedLoopbackWhileLocalServerDown &&
+    hasUsableConnection(normalizedBaseUrl, resolvedToken)
       ? "stored-settings"
       : "empty";
 
