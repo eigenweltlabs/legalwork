@@ -252,6 +252,94 @@ test("recorder service surfaces missing model as error", async () => {
   await fsp.rm(userDataDir, { recursive: true, force: true });
 });
 
+// ── real worker + real Silero VAD end-to-end ────────────────────────────────
+// Exercises the full worker pipeline (windowed VAD feeding, speech
+// segmentation, partials, finalize) with the actual sherpa-onnx native
+// engine and a real Silero model; only the ASR decode is canned
+// (LEGALWORK_TRANSCRIBER_FAKE_ASR) since model weights are gigabytes.
+
+const SAMPLE_RATE = 16000;
+
+/** Speech-like signal: harmonic pulse train + syllable-rate AM. */
+function synthSpeech(durationSec) {
+  const n = Math.floor(durationSec * SAMPLE_RATE);
+  const out = new Float32Array(n);
+  const partials = [
+    [1, 0.6], [2, 0.8], [3, 1.0], [4, 0.9], [5, 0.8], [6, 0.7], [8, 0.5], [10, 0.35],
+  ];
+  for (let i = 0; i < n; i++) {
+    const t = i / SAMPLE_RATE;
+    let sample = 0;
+    for (const [h, w] of partials) {
+      sample += w * Math.sin(2 * Math.PI * 120 * h * (1 + 0.01 * Math.sin(2 * Math.PI * 5 * t)) * t);
+    }
+    out[i] = (0.25 * (0.55 + 0.45 * Math.sin(2 * Math.PI * 3.5 * t)) * sample) / 8;
+  }
+  return out;
+}
+
+test("worker segments real audio with the real Silero VAD (fake ASR)", async () => {
+  const vadPath = path.join(
+    __dirname,
+    "..",
+    "node_modules",
+    "@ricky0123",
+    "vad-web",
+    "dist",
+    "silero_vad_legacy.onnx",
+  );
+  assert.ok(fs.existsSync(vadPath), "silero model devDependency present");
+
+  const workerPath = path.join(__dirname, "audio", "transcription-worker.cjs");
+  const child = fork(workerPath, [], {
+    stdio: "ignore",
+    env: { ...process.env, LEGALWORK_TRANSCRIBER_FAKE_ASR: "1" },
+  });
+  const received = [];
+  child.on("message", (message) => received.push(message));
+  const waitFor = (predicate, timeoutMs = 30_000) =>
+    new Promise((resolve, reject) => {
+      const check = () => {
+        const found = received.find(predicate);
+        if (found) return resolve(found);
+        if (Date.now() > deadline) return reject(new Error(`timeout; got ${JSON.stringify(received)}`));
+        setTimeout(check, 25);
+      };
+      const deadline = Date.now() + timeoutMs;
+      check();
+    });
+
+  await waitFor((m) => m.type === "booted");
+  child.send({
+    type: "load",
+    model: { kind: "whisper", files: {} },
+    vadPath,
+    language: "de",
+    numThreads: 1,
+  });
+  await waitFor((m) => m.type === "ready");
+
+  // 1s silence, 2.4s speech, 1.5s silence — streamed in 4096-sample chunks
+  // exactly like the renderer's AudioWorklet batches.
+  const audio = new Float32Array(SAMPLE_RATE * 5);
+  audio.set(synthSpeech(2.4), SAMPLE_RATE);
+  for (let offset = 0; offset < audio.length; offset += 4096) {
+    const chunk = audio.slice(offset, Math.min(offset + 4096, audio.length));
+    child.send({ type: "pcm", streamId: "e2e", buffer: Array.from(chunk) });
+  }
+  child.send({ type: "finalize", streamId: "e2e" });
+
+  const segment = await waitFor((m) => m.type === "segment" && m.streamId === "e2e");
+  assert.match(segment.text, /decoded \d+ samples/);
+  // Speech was placed at 1.0s–3.4s; allow generous VAD hysteresis.
+  assert.ok(segment.startMs > 500 && segment.startMs < 1600, `startMs=${segment.startMs}`);
+  assert.ok(segment.endMs > 2800 && segment.endMs < 4600, `endMs=${segment.endMs}`);
+  await waitFor((m) => m.type === "finalized" && m.streamId === "e2e");
+
+  child.kill();
+  await new Promise((resolve) => child.once("exit", resolve));
+});
+
 // ── real worker process boot (protocol smoke test) ─────────────────────────
 
 test("transcription worker boots in a plain node fork and reports load errors", async () => {

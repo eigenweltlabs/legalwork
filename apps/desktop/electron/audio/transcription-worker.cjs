@@ -107,6 +107,10 @@ function configureRecognizer(model, language, numThreads) {
   };
 }
 
+// Test hook: real VAD, canned recognizer — lets CI exercise the whole
+// worker pipeline without gigabyte ASR models (see audio-recorder.test.mjs).
+const FAKE_ASR = process.env.LEGALWORK_TRANSCRIBER_FAKE_ASR === "1";
+
 async function handleLoad(message) {
   try {
     if (!sherpa) {
@@ -128,8 +132,12 @@ async function handleLoad(message) {
       provider: "cpu",
       debug: 0,
     };
-    const config = configureRecognizer(message.model, message.language, message.numThreads ?? 2);
-    recognizer = await sherpa.OfflineRecognizer.createAsync(config);
+    if (FAKE_ASR) {
+      recognizer = { fake: true };
+    } else {
+      const config = configureRecognizer(message.model, message.language, message.numThreads ?? 2);
+      recognizer = await sherpa.OfflineRecognizer.createAsync(config);
+    }
     streams.clear();
     send({ type: "ready" });
   } catch (error) {
@@ -145,6 +153,9 @@ function enqueueDecode(task) {
 }
 
 async function decodeSamples(samples) {
+  if (FAKE_ASR) {
+    return `[decoded ${samples.length} samples]`;
+  }
   const stream = recognizer.createStream();
   stream.acceptWaveform({ samples, sampleRate: SAMPLE_RATE });
   const result = await recognizer.decodeAsync(stream);

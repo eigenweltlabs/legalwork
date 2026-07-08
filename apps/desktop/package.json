@@ -42,6 +42,7 @@
   },
   "devDependencies": {
     "@legalwork/types": "workspace:*",
+    "@ricky0123/vad-web": "0.0.30",
     "electron": "^35.0.0",
     "electron-builder": "^25.1.8",
     "electron-devtools-installer": "^4.0.0"
