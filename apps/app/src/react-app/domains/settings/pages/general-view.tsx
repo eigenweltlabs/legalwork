@@ -1,6 +1,7 @@
 /** @jsxImportSource react */
 import {
   ArrowRight,
+  FileStack,
   FolderLock,
   KeyRound,
   Layout,
@@ -11,6 +12,7 @@ import {
 } from "lucide-react";
 
 import { t } from "../../../../i18n";
+import { isDesktopRuntime } from "../../../../app/utils";
 import type { SettingsTab } from "../../../../app/types";
 
 export type GeneralSettingsViewProps = {
@@ -26,11 +28,27 @@ const workspaceItems: SettingsItem[] = [
 
 const globalItems: SettingsItem[] = [
   { tab: "ai", icon: Zap, title: "AI Providers", desc: "Connect services that provide AI models." },
+  { tab: "safety", icon: ShieldCheck, title: "Tool Permissions", desc: "Decide what LegalWork can do on its own across all workspaces." },
   { tab: "shell", icon: Layout, title: "Customization", desc: "Branding and task suggestions." },
   { tab: "environment", icon: KeyRound, title: "Secrets", desc: "Store API keys and passwords for connected services." },
   { tab: "preferences", icon: ShieldCheck, title: "Privacy", desc: "Usage analytics and data sharing." },
   { tab: "updates", icon: RefreshCcw, title: "Updates", desc: "App version and update channel." },
 ];
+
+// Office add-ins install into local desktop apps, so this entry is desktop-only —
+// mirrors getGlobalSettingsTabs, which slots it right after AI Providers.
+function resolveGlobalItems(): SettingsItem[] {
+  if (!isDesktopRuntime()) return globalItems;
+  const officeAddinsItem: SettingsItem = {
+    tab: "office-addins",
+    icon: FileStack,
+    title: t("office_addins.tab_label"),
+    // Trailing period to match the other overview rows; the shared i18n value
+    // omits it because the settings-page tab header uses no trailing period.
+    desc: `${t("office_addins.tab_description")}.`,
+  };
+  return [globalItems[0], officeAddinsItem, ...globalItems.slice(1)];
+}
 
 function SettingsRow(props: { icon: typeof Sparkles; title: string; desc: string; onClick: () => void }) {
   return (
@@ -77,7 +95,7 @@ export function GeneralSettingsView(props: GeneralSettingsViewProps) {
   return (
     <div className="w-full max-w-2xl space-y-9">
       <SettingsGroup label="Workspace" items={workspaceItems} onNavigateTab={props.onNavigateTab} />
-      <SettingsGroup label="Global" items={globalItems} onNavigateTab={props.onNavigateTab} />
+      <SettingsGroup label="Global" items={resolveGlobalItems()} onNavigateTab={props.onNavigateTab} />
       <p className="px-1 text-[11px] text-muted-foreground/70">
         {t("settings.tab_description_general")}
       </p>

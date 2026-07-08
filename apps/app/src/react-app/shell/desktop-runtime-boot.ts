@@ -121,6 +121,18 @@ export function useDesktopRuntimeBoot() {
             return null;
           });
           if (!isLegalworkServerInfoLike(serverInfo) || !isLegalworkServerReady(serverInfo)) {
+            // Log a token-free view of why the server isn't ready so the cause
+            // shows up in the console instead of only the generic message.
+            const info = serverInfo as (BootLegalworkServerInfo & Record<string, unknown>) | null;
+            console.error("[desktop-boot] LegalWork server did not finish starting:", {
+              running: info?.running ?? null,
+              baseUrl: info?.baseUrl ?? null,
+              port: info?.port ?? null,
+              managedOpencodeBinPath: info?.managedOpencodeBinPath ?? null,
+              managedOpencodeBinSource: info?.managedOpencodeBinSource ?? null,
+              lastStdout: info?.lastStdout ?? null,
+              lastStderr: info?.lastStderr ?? null,
+            });
             setError("LegalWork server did not finish starting. Please restart LegalWork.");
             return;
           }
@@ -161,14 +173,27 @@ export function useDesktopRuntimeBoot() {
             error?: string;
             engine?: { baseUrl?: string | null };
             legalworkServer?: BootLegalworkServerInfo;
+            diagnostics?: unknown;
+            logPath?: string | null;
           };
 
           if (boot.ok === false) {
+            // The generic message hides the real cause; dump the full runtime
+            // diagnostics (embedded server + managed OpenCode stderr, resolved
+            // binary paths, OpenCode doctor) so the console shows why it failed.
+            console.error("[desktop-boot] runtime bootstrap failed:", boot.error);
+            if (boot.diagnostics) console.error("[desktop-boot] diagnostics:", boot.diagnostics);
+            if (boot.logPath) console.error("[desktop-boot] failure log written to:", boot.logPath);
             setError(boot.error || "Failed to start LegalWork runtime");
             return;
           }
 
           if (!boot.skipped && !isLegalworkServerReady(boot.legalworkServer)) {
+            console.error(
+              "[desktop-boot] LegalWork server did not finish starting; runtime info:",
+              boot,
+            );
+            if (boot.diagnostics) console.error("[desktop-boot] diagnostics:", boot.diagnostics);
             setError("LegalWork server did not finish starting. Please restart LegalWork.");
             return;
           }
