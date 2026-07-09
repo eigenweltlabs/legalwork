@@ -31,10 +31,14 @@ let benchmarkClient: LegalworkServerClient | null = null;
 let benchmarkWorkspaceId = "";
 
 export function attachBenchmarkContext(client: LegalworkServerClient | null, workspaceId: string): void {
-  const changed = benchmarkClient !== client || benchmarkWorkspaceId !== workspaceId;
+  // Reset only when the workspace actually changes. The parent shell recreates
+  // the client object on unrelated re-renders; treating that as a context change
+  // would wipe loaded runs/tasks mid-view (blanking the screen). We still adopt
+  // the latest client reference for subsequent API calls.
+  const workspaceChanged = benchmarkWorkspaceId !== workspaceId;
   benchmarkClient = client;
   benchmarkWorkspaceId = workspaceId;
-  if (changed) {
+  if (workspaceChanged) {
     useBenchmarkStore.getState().reset();
   }
 }

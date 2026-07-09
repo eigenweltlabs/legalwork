@@ -7,13 +7,7 @@ import { Progress } from "@/components/ui/progress";
 import { t } from "@/i18n";
 import { ProviderIcon } from "../../design-system/provider-icon";
 import { SettingsNotice, SettingsStatusBadge, Spinner } from "../settings/settings-section";
-import {
-  LayoutSection,
-  LayoutSectionDescription,
-  LayoutSectionHeader,
-  LayoutSectionTitle,
-  LayoutStack,
-} from "../settings/settings-layout";
+import { LayoutSection, LayoutSectionHeader, LayoutStack } from "../settings/settings-layout";
 import { criteriaScoreLabel, criteriaScoreToneClass, formatRunMeta, formatScorePercent, isRunActive, runStatusLabel, runStatusTone } from "./format";
 import { ResultMatrix } from "./result-matrix";
 import { RunLeaderboard } from "./run-leaderboard";
@@ -51,23 +45,24 @@ export function RunDetail(props: RunDetailProps) {
       <LayoutSection>
         <LayoutSectionHeader>
           {run ? (
-            <LayoutSectionDescription>
-              <span className="mr-2 inline-flex items-center gap-2 align-middle">
+            <div className="flex flex-wrap items-center gap-x-1.5 gap-y-1 text-sm text-muted-foreground">
+              <span className="mr-1 inline-flex items-center gap-2">
                 {isRunActive(run.status) ? <Spinner /> : null}
                 <SettingsStatusBadge tone={runStatusTone(run.status)} label={runStatusLabel(run.status)} />
               </span>
-              {formatRunMeta(run)} · {t("benchmark.judge_title")}:{" "}
-              <span className="inline-flex items-center gap-1 align-middle">
+              <span>
+                {formatRunMeta(run)} · {t("benchmark.judge_title")}:
+              </span>
+              <span className="inline-flex items-center gap-1">
                 <ProviderIcon providerId={run.judgeModel.providerID} size={12} />
                 {run.judgeModel.modelID}
               </span>
               {run.aggregateScore !== null ? (
-                <>
-                  {" "}
+                <span>
                   · {t("benchmark.aggregate_score")}: {formatScorePercent(run.aggregateScore)}
-                </>
+                </span>
               ) : null}
-            </LayoutSectionDescription>
+            </div>
           ) : null}
         </LayoutSectionHeader>
 

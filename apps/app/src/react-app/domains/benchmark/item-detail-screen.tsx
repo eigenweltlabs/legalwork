@@ -5,7 +5,7 @@ import { FileText, MessageSquareText } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { t } from "@/i18n";
 import { SettingsNotice, SettingsStatusBadge, Spinner } from "../settings/settings-section";
-import { LayoutSection, LayoutSectionHeader, LayoutSectionDescription, LayoutStack } from "../settings/settings-layout";
+import { LayoutSection, LayoutSectionHeader, LayoutStack } from "../settings/settings-layout";
 import { resolvePathOpenTarget } from "../session/artifacts/open-target";
 import { LEARNINGS_PANEL_SESSION_ID, usePanelTabStore } from "../session/panel/panel-tab-store";
 import { criteriaScoreLabel, criteriaScoreToneClass, isItemActive, itemStatusBadge } from "./format";
@@ -56,18 +56,18 @@ export function ItemDetailScreen(props: ItemDetailScreenProps) {
       <LayoutSection>
         <LayoutSectionHeader>
           {item ? (
-            <LayoutSectionDescription>
-              <span className="mr-2 inline-flex items-center gap-2 align-middle">
+            <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-muted-foreground">
+              <span className="inline-flex items-center gap-2">
                 {isItemActive(item.status) ? <Spinner /> : null}
                 <SettingsStatusBadge tone={itemStatusBadge(item.status).tone} label={itemStatusBadge(item.status).label} />
               </span>
               {item.nPassed !== null && item.nCriteria !== null ? (
-                <span className={`mr-2 font-medium ${criteriaScoreToneClass(item.nPassed, item.nCriteria)}`}>
+                <span className={`font-medium ${criteriaScoreToneClass(item.nPassed, item.nCriteria)}`}>
                   {criteriaScoreLabel(item.nPassed, item.nCriteria)}
                 </span>
               ) : null}
-              {typeof item.cost === "number" && item.cost > 0 ? `· $${item.cost.toFixed(3)}` : null}
-            </LayoutSectionDescription>
+              {typeof item.cost === "number" && item.cost > 0 ? <span>· ${item.cost.toFixed(3)}</span> : null}
+            </div>
           ) : null}
         </LayoutSectionHeader>
 
