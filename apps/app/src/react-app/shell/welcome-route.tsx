@@ -20,6 +20,7 @@ import { AttributionStep } from "../domains/onboarding/attribution-step";
 import { CreateWorkspaceModal } from "../domains/workspace/create-workspace-modal";
 import { resolveLegalworkConnection } from "./legalwork-connection";
 import { analyticsSurface, captureAnalyticsEvent } from "../../app/lib/analytics";
+import { captureAppError } from "../../app/lib/app-error";
 import { buildLegalworkWorkspaceBaseUrl, createLegalworkServerClient } from "../../app/lib/legalwork-server";
 import { writeActiveWorkspaceId, writeLastSessionFor } from "./session-memory";
 import { workspaceSessionRoute } from "./workspace-routes";
@@ -215,6 +216,7 @@ export function WelcomeRoute() {
         const sep = target.includes("?") ? "&" : "?";
         navigate(`${target}${sep}onboarding=1`, { replace: true });
       } catch (error) {
+        captureAppError("workspace_create", error);
         dispatch({
           type: "create:error",
           error: error instanceof Error ? error.message : "Failed to create workspace.",

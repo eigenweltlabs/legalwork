@@ -4,6 +4,8 @@ import { useEffect } from "react";
 import { Navigate, Route, Routes } from "react-router-dom";
 
 import { captureAnalyticsEvent, initAnalytics } from "../../app/lib/analytics";
+import { initErrorAnalytics } from "../../app/lib/app-error";
+import { AppErrorBoundary } from "./app-error-boundary";
 import { NewProvidersListener } from "./new-providers-listener";
 import { useDesktopFontZoomBehavior } from "./font-zoom";
 import { LoadingOverlay } from "./loading-overlay";
@@ -27,10 +29,12 @@ export function AppRoot() {
     if (appOpenedCaptured) return;
     appOpenedCaptured = true;
     initAnalytics();
+    initErrorAnalytics();
     captureAnalyticsEvent("app_opened", {});
   }, []);
 
   return (
+    <AppErrorBoundary>
     <>
       <DevProfiler id="AppRoot">
         <ShellConfigProvider>
@@ -133,5 +137,6 @@ export function AppRoot() {
       <DevProfilerOverlay />
       <ReactRenderWatchdogOverlay />
     </>
+    </AppErrorBoundary>
   );
 }
