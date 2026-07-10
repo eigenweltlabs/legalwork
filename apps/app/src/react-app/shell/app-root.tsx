@@ -4,7 +4,7 @@ import { useEffect } from "react";
 import { Navigate, Route, Routes } from "react-router-dom";
 
 import { captureAnalyticsEvent, initAnalytics } from "../../app/lib/analytics";
-import { initErrorAnalytics } from "../../app/lib/app-error";
+import { captureRelayedAppError, initErrorAnalytics } from "../../app/lib/app-error";
 import { AppErrorBoundary } from "./app-error-boundary";
 import { NewProvidersListener } from "./new-providers-listener";
 import { useDesktopFontZoomBehavior } from "./font-zoom";
@@ -30,6 +30,15 @@ export function AppRoot() {
     appOpenedCaptured = true;
     initAnalytics();
     initErrorAnalytics();
+    // Relay main-process / sidecar errors (content-free) into app_error.
+    const electron = (
+      window as Window & {
+        __LEGALWORK_ELECTRON__?: {
+          onAppError?: (cb: (d: Parameters<typeof captureRelayedAppError>[0]) => void) => () => void;
+        };
+      }
+    ).__LEGALWORK_ELECTRON__;
+    electron?.onAppError?.((data) => captureRelayedAppError(data));
     captureAnalyticsEvent("app_opened", {});
   }, []);
 

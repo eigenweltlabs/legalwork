@@ -496,6 +496,28 @@ const IDLE_ROUTER_INFO = Object.freeze({
 let mainWindow = null;
 const pendingDeepLinks = [];
 
+// Relay a content-free error signal to the renderer, which turns it into an
+// `app_error` analytics event (only when the user has analytics enabled).
+function relayAppError(source, error, service) {
+  try {
+    const name =
+      error instanceof Error
+        ? error.name || "Error"
+        : error && typeof error === "object" && "name" in error
+          ? String(error.name)
+          : "Error";
+    if (mainWindow?.webContents && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send("legalwork:app-error", { source, error_name: name, service });
+    }
+  } catch {
+    // Never let error reporting throw.
+  }
+}
+// `uncaughtExceptionMonitor` reports without suppressing Electron's default
+// crash behavior (unlike `uncaughtException`).
+process.on("uncaughtExceptionMonitor", (error) => relayAppError("main_uncaught", error, "server"));
+process.on("unhandledRejection", (reason) => relayAppError("main_unhandledrejection", reason, "server"));
+
 const browserPanel = createBrowserPanel({
   remoteDebugPort,
   getWindow: () => mainWindow,
