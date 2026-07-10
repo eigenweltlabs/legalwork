@@ -31,11 +31,19 @@ function resolveAppVersion(app) {
 }
 const ELECTRON_UPDATER_FEEDS = Object.freeze({
   stable: "https://github.com/eigenweltlabs/legalwork/releases/latest/download",
-  alpha: "https://github.com/eigenweltlabs/legalwork/releases/download/alpha-macos-latest",
+  // Alpha is a per-platform rolling release: each platform's alpha workflow
+  // (alpha-macos-aarch64.yml / alpha-windows-x64.yml) refreshes its own
+  // updater manifest on its own tag.
+  alpha:
+    process.platform === "win32"
+      ? "https://github.com/eigenweltlabs/legalwork/releases/download/alpha-windows-latest"
+      : "https://github.com/eigenweltlabs/legalwork/releases/download/alpha-macos-latest",
 });
 
+const ALPHA_CHANNEL_PLATFORMS = new Set(["darwin", "win32"]);
+
 function normalizeElectronUpdaterChannel(value) {
-  if (value === "alpha" && process.platform === "darwin") return "alpha";
+  if (value === "alpha" && ALPHA_CHANNEL_PLATFORMS.has(process.platform)) return "alpha";
   return "stable";
 }
 
