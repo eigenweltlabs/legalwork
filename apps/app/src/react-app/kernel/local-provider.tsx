@@ -49,11 +49,12 @@ export type LocalPreferences = {
    */
   hasCompletedOnboarding: boolean;
   /**
-   * Anonymous product analytics (PostHog). Off by default. Turned on only when a
-   * new user leaves the welcome onboarding screen with the analytics toggle left on
-   * (see welcome-route's handleCreateWorkspace) — never before, and never for
-   * existing users who don't pass through onboarding. Switchable anytime in
-   * Settings -> Privacy. Never includes message content.
+   * Anonymous product analytics (PostHog). Opt-out: the welcome onboarding
+   * screen shows an on-by-default toggle, and the choice is committed when the
+   * user leaves that screen (see welcome-route's handleCreateWorkspace) —
+   * nothing is sent before then, and existing users who never pass through
+   * onboarding stay off. Switchable anytime in Settings -> Privacy. Never
+   * includes message content.
    */
   analyticsEnabled: boolean;
   /**

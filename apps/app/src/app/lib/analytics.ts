@@ -3,12 +3,14 @@
  *
  * Principles:
  * - Never send message content, file paths, code, or prompts. Only event
- *   names, counts, lengths, durations, and coarse context (workspace type,
- *   provider/model id). Sole exception: answers the user types directly
- *   into an explicit survey field (e.g. the onboarding attribution survey).
+ *   names, counts, durations, and coarse context (provider/model id, app
+ *   version, platform).
  * - Fire-and-forget: analytics must never break or slow the app.
- * - Respect the user: analytics are opt-in via a single `analyticsEnabled`
- *   preference (onboarding or Settings -> Privacy) — off until explicitly on.
+ * - Respect the user: analytics run only with the `analyticsEnabled`
+ *   preference set. It is presented as an on-by-default toggle on the welcome
+ *   onboarding screen and committed when the user leaves that screen (opt-out;
+ *   nothing is sent before then), and can be switched off anytime in
+ *   Settings -> Privacy.
  * - Every capture is mirrored into the local app inspector
  *   (`window.__legalwork.record("analytics.<event>")`) so coded evals can
  *   assert instrumentation without any analytics backend.
@@ -57,7 +59,8 @@ export function isAnalyticsEnabled(): boolean {
     if (!raw) return false;
     const parsed: unknown = JSON.parse(raw);
     if (parsed && typeof parsed === "object" && "analyticsEnabled" in parsed) {
-      // Opt-in: only send when the user explicitly turned it on.
+      // Send only while the preference is true (set via the welcome screen's
+      // on-by-default toggle, or Settings -> Privacy).
       return (parsed as { analyticsEnabled?: unknown }).analyticsEnabled === true;
     }
     return false;

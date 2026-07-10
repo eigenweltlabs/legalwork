@@ -205,7 +205,7 @@ export function getWorkspaceSettingsTabs(): SettingsTab[] {
 
 export function getGlobalSettingsTabs(developerMode: boolean): SettingsTab[] {
   // Appearance/Language and Recovery are hidden (theme is fixed to Light).
-  // "preferences" is the Privacy tab (usage-analytics opt-in).
+  // "preferences" is the Privacy tab (usage-analytics opt-out toggle).
   // "benchmark" is not listed here: it lives on the Learnings page in the main
   // app shell (embedded singleView surface), not in the settings sidebar.
   const tabs: SettingsTab[] = ["ai", "safety", "shell", "environment", "preferences", "updates"];
