@@ -307,9 +307,9 @@ function FreeModelNotice() {
     <div className="flex items-start gap-2.5 border-b border-dls-border bg-amber-2/40 px-4 py-3">
       <TriangleAlert size={14} className="mt-0.5 shrink-0 text-amber-11" />
       <p className="text-xs leading-relaxed text-amber-11">
-        <span className="font-medium">Free model.</span>{" "}
-        Usage data is logged, so please keep privileged, client, and matter data
-        out. For real work, connect your own model.
+        <span className="font-medium">Free test model.</span>{" "}
+        Lower-quality, and zero data retention is not guaranteed. Don&apos;t use
+        it with client or matter data. Connect your own model for real work.
       </p>
     </div>
   );
