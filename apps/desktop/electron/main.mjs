@@ -498,7 +498,7 @@ const pendingDeepLinks = [];
 
 // Relay a content-free error signal to the renderer, which turns it into an
 // `app_error` analytics event (only when the user has analytics enabled).
-function relayAppError(source, error, service) {
+function relayAppError(source, error, service, exitCode = null) {
   try {
     const name =
       error instanceof Error
@@ -507,7 +507,12 @@ function relayAppError(source, error, service) {
           ? String(error.name)
           : "Error";
     if (mainWindow?.webContents && !mainWindow.isDestroyed()) {
-      mainWindow.webContents.send("legalwork:app-error", { source, error_name: name, service });
+      mainWindow.webContents.send("legalwork:app-error", {
+        source,
+        error_name: name,
+        service,
+        exit_code: typeof exitCode === "number" ? exitCode : null,
+      });
     }
   } catch {
     // Never let error reporting throw.
@@ -650,7 +655,7 @@ const runtimeManager = createRuntimeManager({
   // The agent runtime (orchestrator / opencode) runs as a child process; relay
   // an unexpected exit as a content-free `sidecar_exit` app_error. Intentional
   // stops/restarts are filtered out inside the runtime manager.
-  onSidecarExit: () => relayAppError("sidecar_exit", { name: "Error" }, "sidecar"),
+  onSidecarExit: (detail) => relayAppError("sidecar_exit", { name: "Error" }, "sidecar", detail?.exitCode ?? null),
 });
 
 let runtimeDisposedForQuit = false;

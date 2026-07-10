@@ -1,9 +1,10 @@
 /**
  * Content-free error analytics. `app_error` NEVER carries an error message or
  * stack — only: an allowlisted class name, an opaque one-way fingerprint of the
- * error's structure, the originating service, an HTTP status, and the surface.
- * The guarantee comes from the schema (allowlist + hash + enums), not from
- * scrubbing free-form strings.
+ * error's structure, the originating service, an HTTP status, a numeric process
+ * exit code (sidecar crashes), and the surface. The guarantee comes from the
+ * schema (allowlist + hash + enums + numbers), not from scrubbing free-form
+ * strings.
  */
 import { captureAnalyticsEvent, analyticsSurface, type AnalyticsSurface } from "./analytics";
 import { analyticsErrorService, analyticsErrorStatus, type AnalyticsErrorService } from "./analytics-error";
@@ -85,11 +86,16 @@ type AppErrorFields = {
   error_fingerprint: string | null;
   service: AppErrorService;
   status_code: number | null;
+  // Process exit code for `sidecar_exit` (a signal is encoded as 128 + signal
+  // number: 137 = SIGKILL/OOM, 139 = SIGSEGV, ...). null for all other sources.
+  exit_code: number | null;
   surface: AnalyticsSurface;
 };
 
 function emit(fields: AppErrorFields): void {
-  const key = `${fields.source}:${fields.error_name}:${fields.error_fingerprint ?? ""}`;
+  // Include exit_code so distinct sidecar failure modes each record once while a
+  // crash loop with the same code is still deduped to one event per session.
+  const key = `${fields.source}:${fields.error_name}:${fields.error_fingerprint ?? ""}:${fields.exit_code ?? ""}`;
   if (seenFingerprints.has(key)) return;
   if (sentCount >= MAX_ERRORS_PER_SESSION) return;
   seenFingerprints.add(key);
@@ -107,6 +113,7 @@ export function captureAppError(source: AppErrorSource, error: unknown, service?
       error_fingerprint: errorFingerprint(name, error),
       service: service ?? (GLOBAL_SOURCES.has(source) ? "renderer" : analyticsErrorService(error)),
       status_code: analyticsErrorStatus(error),
+      exit_code: null,
       surface: analyticsSurface(),
     });
   } catch {
@@ -119,6 +126,7 @@ export function captureRelayedAppError(fields: {
   source: AppErrorSource;
   error_name?: string | null;
   service: AppErrorService;
+  exit_code?: number | null;
 }): void {
   try {
     const name = fields.error_name && ALLOWED_ERROR_NAMES.has(fields.error_name) ? fields.error_name : "other";
@@ -128,6 +136,7 @@ export function captureRelayedAppError(fields: {
       error_fingerprint: null,
       service: fields.service,
       status_code: null,
+      exit_code: typeof fields.exit_code === "number" ? fields.exit_code : null,
       surface: analyticsSurface(),
     });
   } catch {

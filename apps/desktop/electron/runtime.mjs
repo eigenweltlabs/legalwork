@@ -530,9 +530,16 @@ export function createRuntimeManager({ app, desktopRoot, listLocalWorkspacePaths
   // Intentional stops/restarts are filtered out in spawnManagedChild via the
   // `legalworkIntentionalStop` flag set by stopChild, and a crash loop is
   // deduped to one event per session by the renderer's app_error throttle.
-  function reportSidecarCrash() {
+  function reportSidecarCrash(detail = {}) {
     try {
-      onSidecarExit?.();
+      // A numeric exit uses the code directly; a signal-terminated exit is
+      // encoded as the conventional 128 + signal number (137 = SIGKILL/OOM,
+      // 139 = SIGSEGV, ...); a spawn failure (error event) has no code.
+      const { code = null, signal = null } = detail;
+      let exitCode = null;
+      if (typeof code === "number") exitCode = code;
+      else if (signal) exitCode = 128 + (os.constants.signals[signal] ?? 0);
+      onSidecarExit?.({ exitCode });
     } catch {
       // Never let crash reporting throw.
     }
