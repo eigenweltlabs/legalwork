@@ -576,8 +576,8 @@ export function SessionRoute() {
   }, [providerListQuery.data, local.prefs.defaultModel, setPrefs]);
   // Warn above the composer whenever the active model is a free-tier model
   // (the no-key fallback — Eigenwelt free gateway, or OpenCode Zen when the
-  // platform is unreachable). Free-tier prompts/outputs are logged and used
-  // to improve models, so they must not be used with client/matter data.
+  // platform is unreachable). Free models are for testing only (usage data
+  // is logged) — never for privileged, client, or matter data.
   const freeModelSelected = useMemo(
     () => isFreeOpencodeModel(providerListQuery.data, local.prefs.defaultModel),
     [providerListQuery.data, local.prefs.defaultModel],

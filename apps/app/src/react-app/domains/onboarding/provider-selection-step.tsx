@@ -96,9 +96,9 @@ export function ProviderSelectionStep({ onConnect, onSkip }: ProviderSelectionSt
                     <div className="flex max-w-sm items-start gap-2.5 rounded-xl border border-amber-6/40 bg-amber-2/30 px-3.5 py-3">
                       <TriangleAlertIcon className="mt-0.5 size-4 shrink-0 text-amber-11" />
                       <p className="text-[12px] leading-relaxed text-amber-11">
-                        Free models are provided by Eigenwelt. Prompts and outputs are logged and
-                        used to improve our models — don&apos;t use them with client or matter data.
-                        For real work, connect your own model above.
+                        Free models are provided by Eigenwelt for testing only. Eigenwelt logs
+                        usage data for these requests — don&apos;t use them with privileged, client,
+                        or matter data. For real work, connect your own model above.
                       </p>
                     </div>
                   </div>

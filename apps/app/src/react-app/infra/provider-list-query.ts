@@ -95,10 +95,10 @@ export const EIGENWELT_FREE_PROVIDER_ID = "eigenwelt-free";
 
 /**
  * True when `model` is a *free-tier* model — the no-key models the app falls
- * back to when no paid provider is configured. Free-tier prompts and outputs
- * are logged and used to improve models (Eigenwelt free gateway) or may be
- * trained on (OpenCode Zen, the fallback when the Eigenwelt platform is
- * unreachable), so the UI warns before they're used with client/matter data.
+ * back to when no paid provider is configured. Usage data is logged for
+ * free-tier requests (Eigenwelt free gateway) or may be retained (OpenCode
+ * Zen, the fallback when the Eigenwelt platform is unreachable), so the UI
+ * warns before they're used with privileged, client, or matter data.
  *
  * Every model on the `eigenwelt-free` provider is free by definition. For the
  * built-in `opencode` provider only zero-cost models count, so genuinely-

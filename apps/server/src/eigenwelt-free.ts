@@ -10,7 +10,7 @@
  * apiKey exists it is never re-requested; later refreshes only update the
  * model list (and baseURL) via GET `/api/public/free-models`.
  *
- * Free traffic is logged and used to improve models, unlike the paid
+ * Usage data for free traffic is logged (testing tier), unlike the paid
  * `eigenwelt` provider (connect flow, zero retention), which stays untouched.
  *
  * Design constraints this module satisfies:
