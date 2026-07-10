@@ -19,6 +19,9 @@ _worktrees/
 apps/desktop/resources/sidecars/
 apps/desktop/server/
 
+# SwiftPM build output (native audiotap helper)
+apps/desktop/native/audiotap/.build/
+
 # Env
 .env
 .env.*

@@ -21,6 +21,15 @@ import { macOsAtLeast } from "./mac-version.mjs";
 const APP_PCM_CHANNEL = "legalwork:audio:app-pcm";
 const HELPER_NAME = "LegalWorkAudioTap";
 
+const BYTES_PER_SAMPLE = 4; // Float32
+/**
+ * Renderer IPC frame size: ~50 ms of mono Float32 at 48 kHz. Pipe chunks
+ * arrive at arbitrary sizes and boundaries (they even split mid-float), so
+ * we re-frame before webContents.send: coalesce dribbles, cap bursts, and
+ * only ever forward whole samples.
+ */
+const FRAME_BYTES = 2400 * BYTES_PER_SAMPLE;
+
 export function resolveHelperPath(app) {
   if (app.isPackaged) {
     return path.join(process.resourcesPath, "helpers", HELPER_NAME);
@@ -42,6 +51,8 @@ export class AppAudioTap {
     /** @type {import('node:child_process').ChildProcess | null} */
     this.child = null;
     this.sampleRate = 0;
+    /** Unforwarded stdout bytes: sub-frame dribbles plus any split sample. */
+    this.pcmBacklog = Buffer.alloc(0);
   }
 
   isAvailable() {
@@ -55,11 +66,12 @@ export class AppAudioTap {
   }
 
   /** @returns {Promise<import("@legalwork/types/audio").AudioTapApp[]>} */
-  async listApps(getFileIcon) {
+  async listApps() {
     if (!this.isAvailable()) return [];
     const helper = resolveHelperPath(this.app);
     const stdout = await new Promise((resolve) => {
-      execFile(helper, ["list"], { timeout: 5000, maxBuffer: 4 * 1024 * 1024 }, (error, out) => {
+      // 15s: the helper renders a 32px PNG icon per app (~40 apps).
+      execFile(helper, ["list"], { timeout: 15000, maxBuffer: 16 * 1024 * 1024 }, (error, out) => {
         resolve(error ? "[]" : String(out));
       });
     });
@@ -70,25 +82,15 @@ export class AppAudioTap {
     } catch {
       return [];
     }
-    return Promise.all(
-      apps.map(async (item) => {
-        let icon = "";
-        try {
-          if (item.path) {
-            const image = await getFileIcon(item.path);
-            icon = image?.toDataURL?.() ?? "";
-          }
-        } catch {
-          // icon is cosmetic
-        }
-        return {
-          pid: Number(item.pid) || 0,
-          name: String(item.name ?? ""),
-          bundleId: String(item.bundleId ?? ""),
-          icon,
-        };
-      }),
-    );
+    // Icons come pre-rendered from the helper as data URLs. Never call
+    // app.getFileIcon here: it SIGTRAPs the main process on
+    // macOS 15.6 / Electron 35 (deterministic, even for a single call).
+    return apps.map((item) => ({
+      pid: Number(item.pid) || 0,
+      name: String(item.name ?? ""),
+      bundleId: String(item.bundleId ?? ""),
+      icon: typeof item.icon === "string" && item.icon.startsWith("data:image/") ? item.icon : "",
+    }));
   }
 
   /**
@@ -144,7 +146,10 @@ export class AppAudioTap {
       });
       child.on("exit", () => {
         clearTimeout(timeout);
-        if (this.child === child) this.child = null;
+        if (this.child === child) {
+          this.child = null;
+          this.flushPcm();
+        }
         if (!headerParsed) {
           resolve({ ok: false, sampleRate: 0, error: stderrText.trim() || "App audio helper exited." });
         }
@@ -157,16 +162,33 @@ export class AppAudioTap {
   }
 
   forwardPcm(chunk) {
+    this.pcmBacklog = this.pcmBacklog.byteLength === 0 ? chunk : Buffer.concat([this.pcmBacklog, chunk]);
+    // Fixed-size frames keep the renderer's structured-clone traffic bounded
+    // and sample-aligned; the remainder waits for the next stdout chunk.
+    while (this.pcmBacklog.byteLength >= FRAME_BYTES) {
+      this.sendFrame(this.pcmBacklog.subarray(0, FRAME_BYTES));
+      this.pcmBacklog = this.pcmBacklog.subarray(FRAME_BYTES);
+    }
+  }
+
+  flushPcm() {
+    const whole = this.pcmBacklog.byteLength - (this.pcmBacklog.byteLength % BYTES_PER_SAMPLE);
+    if (whole > 0) this.sendFrame(this.pcmBacklog.subarray(0, whole));
+    this.pcmBacklog = Buffer.alloc(0);
+  }
+
+  sendFrame(frame) {
     const target = this.getTargetWebContents();
     if (!target || target.isDestroyed()) return;
     // Copy into a standalone ArrayBuffer (Buffer views share pooled memory).
-    const buffer = chunk.buffer.slice(chunk.byteOffset, chunk.byteOffset + chunk.byteLength);
+    const buffer = frame.buffer.slice(frame.byteOffset, frame.byteOffset + frame.byteLength);
     target.send(APP_PCM_CHANNEL, { sampleRate: this.sampleRate, buffer });
   }
 
   stop() {
     const child = this.child;
     this.child = null;
+    this.pcmBacklog = Buffer.alloc(0);
     if (!child) return;
     try {
       child.stdin?.end();

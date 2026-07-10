@@ -14,9 +14,11 @@
  */
 import type { WorkspaceWire } from "./workspace.js";
 import type {
+  AudioCapturePermissions,
   AudioModelDiskCandidate,
   AudioModelImportResult,
   AudioModelState,
+  AudioPermissionKind,
   AudioRecorderBootstrap,
   AudioTapApp,
   AudioRecordingDetail,
@@ -560,6 +562,15 @@ export type DesktopCommandMap = {
 
   // Local audio recording + transcription (Recorder tab)
   audioRecorderBootstrap: { args: []; result: AudioRecorderBootstrap };
+  /** OS-level capture permission status for the recorder's sources. */
+  audioCapturePermissions: { args: []; result: AudioCapturePermissions };
+  /**
+   * Trigger the native permission flow for a kind: microphone shows the OS
+   * prompt (when undetermined); systemAudio opens the matching privacy pane.
+   */
+  audioCapturePermissionsRequest: { args: [kind: AudioPermissionKind]; result: AudioCapturePermissions };
+  /** Deep-link the OS settings pane for a permission kind. */
+  audioCaptureOpenSettings: { args: [kind: AudioPermissionKind]; result: boolean };
   /** Catalog-compatible models already on disk (HF caches etc.). */
   audioModelsScanExisting: { args: []; result: AudioModelDiskCandidate[] };
   /** Copy a detected/on-disk model into the local store. */

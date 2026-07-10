@@ -1653,6 +1653,26 @@ export default {
   "recorder.source_system_unavailable": "System audio capture is not available on this system.",
   "recorder.source_app_hint":
     "Per-app capture needs macOS 14.4 or newer. On Windows, System audio covers calls in any app.",
+  "recorder.perm_title": "Recording needs your permission",
+  "recorder.perm_intro":
+    "The sources you selected require system-level access. Grant each permission below, then start recording.",
+  "recorder.perm_microphone": "Microphone",
+  "recorder.perm_system_audio": "System & app audio",
+  "recorder.perm_microphone_instructions":
+    "Enable LegalWork under System Settings → Privacy & Security → Microphone, then try again.",
+  "recorder.perm_system_audio_instructions_mac":
+    "Open System Settings → Privacy & Security → Screen & System Audio Recording, switch on LegalWork, then quit and reopen the app.",
+  "recorder.perm_system_audio_instructions":
+    "Allow screen/system audio recording for LegalWork in your system privacy settings, then try again.",
+  "recorder.perm_status_granted": "Granted",
+  "recorder.perm_status_denied": "Blocked",
+  "recorder.perm_status_not_determined": "Not yet allowed",
+  "recorder.perm_allow": "Allow",
+  "recorder.perm_open_settings": "Open System Settings",
+  "recorder.perm_check_again": "Check again",
+  "recorder.perm_recheck_hint": "Status refreshes automatically when you come back to this window.",
+  "recorder.perm_dev_hint":
+    "Development build: macOS attributes these permissions to the app that launched LegalWork (your terminal or IDE) — enable that app in the settings pane, then restart it.",
   "recorder.language_auto": "Auto-detect",
   "recorder.model_select_placeholder": "Choose a model",
   "recorder.model_not_installed": "not installed",

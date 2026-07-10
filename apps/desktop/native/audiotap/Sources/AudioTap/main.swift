@@ -21,12 +21,35 @@ import Foundation
 
 // MARK: - list
 
+/// 32 px PNG data-URL for an app bundle's icon. Rendered here (not via
+/// Electron's app.getFileIcon, which SIGTRAPs the whole app on
+/// macOS 15.6 / Electron 35 — three identical crash reports, 2026-07-08).
+func iconDataURL(forPath path: String) -> String {
+    guard !path.isEmpty else { return "" }
+    let icon = NSWorkspace.shared.icon(forFile: path)
+    guard
+        let rep = NSBitmapImageRep(
+            bitmapDataPlanes: nil, pixelsWide: 32, pixelsHigh: 32,
+            bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true, isPlanar: false,
+            colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0
+        ),
+        let context = NSGraphicsContext(bitmapImageRep: rep)
+    else { return "" }
+    NSGraphicsContext.saveGraphicsState()
+    NSGraphicsContext.current = context
+    icon.draw(in: NSRect(x: 0, y: 0, width: 32, height: 32), from: .zero, operation: .copy, fraction: 1.0)
+    NSGraphicsContext.restoreGraphicsState()
+    guard let png = rep.representation(using: .png, properties: [:]) else { return "" }
+    return "data:image/png;base64," + png.base64EncodedString()
+}
+
 func listRunningApps() {
     struct AppInfo: Codable {
         let pid: Int32
         let name: String
         let bundleId: String
         let path: String
+        let icon: String
     }
     let apps = NSWorkspace.shared.runningApplications
         .filter { $0.activationPolicy == .regular && $0.processIdentifier != ProcessInfo.processInfo.processIdentifier }
@@ -35,7 +58,8 @@ func listRunningApps() {
                 pid: $0.processIdentifier,
                 name: $0.localizedName ?? $0.bundleIdentifier ?? "App \($0.processIdentifier)",
                 bundleId: $0.bundleIdentifier ?? "",
-                path: $0.bundleURL?.path ?? ""
+                path: $0.bundleURL?.path ?? "",
+                icon: iconDataURL(forPath: $0.bundleURL?.path ?? "")
             )
         }
         .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }

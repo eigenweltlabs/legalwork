@@ -53,6 +53,7 @@ import type {
 
 import { audioTapListApps } from "@/app/lib/desktop";
 import { formatBytes } from "../../../app/utils";
+import { PermissionsPanel } from "./permissions-panel";
 import { revealRecording, useRecorderStore, type CopilotEntry } from "./recorder-store";
 
 function formatDuration(ms: number): string {
@@ -398,6 +399,8 @@ export function RecorderPane(props: {
             )}
           </div>
         </div>
+
+        <PermissionsPanel />
 
         {store.error ? (
           <div className="mt-4 flex items-start justify-between gap-3 rounded-xl border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">

@@ -21,6 +21,7 @@ import { fileURLToPath } from "node:url";
 import { app, BrowserWindow, desktopCapturer, dialog, ipcMain, nativeImage, nativeTheme, session, shell, systemPreferences } from "electron";
 import { configureFakeMediaForTests, installMediaPermissionHandlers } from "./media-permissions.mjs";
 import { appendLoopbackFeatureFlags, disableLoopbackAudio, enableLoopbackAudio, isLoopbackCaptureArmed } from "./audio/loopback.mjs";
+import { captureAuthStatus, openCapturePermissionSettings, requestCapturePermission } from "./audio/capture-permissions.mjs";
 import { AppAudioTap } from "./audio/app-audio.mjs";
 import { CallOverlay } from "./audio/call-overlay.mjs";
 import { RecorderService } from "./audio/recorder-service.mjs";
@@ -1496,6 +1497,17 @@ const desktopCommandHandlers = {
   "audioRecorderBootstrap": async (event, ...args) => {
       return recorderService().bootstrap();
   },
+  "audioCapturePermissions": async (event, ...args) => {
+      return captureAuthStatus(app);
+  },
+  "audioCapturePermissionsRequest": async (event, ...args) => {
+      const kind = args[0] === "systemAudio" ? "systemAudio" : "microphone";
+      return requestCapturePermission(app, kind);
+  },
+  "audioCaptureOpenSettings": async (event, ...args) => {
+      const kind = args[0] === "systemAudio" ? "systemAudio" : "microphone";
+      return openCapturePermissionSettings(kind);
+  },
   "audioModelsScanExisting": async (event, ...args) => {
       return recorderService().modelManager.scanExistingModels();
   },
@@ -1506,7 +1518,9 @@ const desktopCommandHandlers = {
       );
   },
   "audioTapListApps": async (event, ...args) => {
-      return appAudioTap.listApps((filePath) => app.getFileIcon(filePath, { size: "large" }));
+      // Icons are rendered by the native helper; app.getFileIcon crashes
+      // the main process on macOS 15.6 / Electron 35.
+      return appAudioTap.listApps();
   },
   "audioTapStart": async (event, ...args) => {
       const pids = Array.isArray(args[0]) ? args[0].map((pid) => Number(pid)).filter(Number.isFinite) : [];

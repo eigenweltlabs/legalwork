@@ -162,7 +162,8 @@ export async function startCapture(
     let nextStart = 0;
     const unsubscribe = window.__LEGALWORK_ELECTRON__?.audio?.onAppPcm?.((payload) => {
       if (stopped || payload.buffer.byteLength < 4) return;
-      const samples = new Float32Array(payload.buffer);
+      // Main re-frames to whole samples, but never trust alignment across IPC.
+      const samples = new Float32Array(payload.buffer, 0, Math.floor(payload.buffer.byteLength / 4));
       const buffer = context.createBuffer(1, samples.length, payload.sampleRate || 48000);
       buffer.copyToChannel(samples, 0);
       const node = context.createBufferSource();

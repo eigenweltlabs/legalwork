@@ -4,7 +4,9 @@ import PackageDescription
 let package = Package(
     name: "LegalWorkAudioTap",
     platforms: [
-        .macOS(.v14)
+        // Core Audio process taps (CATapDescription / AudioHardwareCreateProcessTap)
+        // require macOS 14.4 — matches AppAudioTap.isAvailable()'s runtime gate.
+        .macOS("14.4")
     ],
     targets: [
         .executableTarget(

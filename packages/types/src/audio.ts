@@ -57,6 +57,24 @@ export type AudioCaptureCapabilities = {
   appAudio: boolean;
 };
 
+/** Mirrors Electron's systemPreferences.getMediaAccessStatus values. */
+export type AudioPermissionState = "granted" | "denied" | "not-determined" | "restricted" | "unknown";
+
+/**
+ * OS-level capture permissions the recorder needs. `systemAudio` maps to the
+ * macOS "Screen & System Audio Recording" privacy pane, which gates both the
+ * getDisplayMedia loopback and the per-app Core Audio tap.
+ */
+export type AudioCapturePermissions = {
+  platform: string;
+  /** False in dev, where macOS attributes permissions to the launching app (terminal/IDE). */
+  packaged: boolean;
+  microphone: AudioPermissionState;
+  systemAudio: AudioPermissionState;
+};
+
+export type AudioPermissionKind = "microphone" | "systemAudio";
+
 export type AudioEngineStatus = {
   /** sherpa-onnx native addon is present for this platform. */
   available: boolean;

@@ -8,6 +8,9 @@
 import { create } from "zustand";
 
 import {
+  audioCaptureOpenSettings,
+  audioCapturePermissions,
+  audioCapturePermissionsRequest,
   audioModelDelete,
   audioModelDownload,
   audioModelDownloadCancel,
@@ -26,7 +29,9 @@ import {
 import { unwrap } from "@/app/lib/opencode";
 import type { Client } from "@/app/types";
 import type {
+  AudioCapturePermissions,
   AudioCaptureSourceKind,
+  AudioPermissionKind,
   AudioRecorderBootstrap,
   AudioRecorderEvent,
   AudioRecordingDetail,
@@ -79,6 +84,9 @@ export type CopilotEntry = {
 export type RecorderState = {
   initialized: boolean;
   bootstrap: AudioRecorderBootstrap | null;
+  permissions: AudioCapturePermissions | null;
+  /** Permissions blocking the selected sources — non-empty shows the guided panel. */
+  permissionsNeeded: AudioPermissionKind[];
   transcriber: AudioTranscriberStatus;
   recording: AudioRecordingMeta | null;
   recordingStartedAt: number | null;
@@ -102,6 +110,12 @@ type RecorderActions = {
   init: () => Promise<void>;
   refreshBootstrap: () => Promise<void>;
   refreshRecordings: () => Promise<void>;
+  /** Re-read OS permission status; clears `permissionsNeeded` once satisfied. */
+  refreshPermissions: () => Promise<void>;
+  /** Native prompt (microphone) or System Settings deep link (systemAudio). */
+  requestPermission: (kind: AudioPermissionKind) => Promise<void>;
+  openPermissionSettings: (kind: AudioPermissionKind) => Promise<void>;
+  dismissPermissionsPanel: () => void;
   setModelId: (modelId: string) => void;
   setLanguage: (language: AudioTranscribeLanguage) => void;
   prewarm: () => Promise<void>;
@@ -152,6 +166,54 @@ function readSourcesPref(): AudioCaptureSourceKind[] {
 function readLanguagePref(): AudioTranscribeLanguage {
   const raw = readPref(LANGUAGE_PREF_KEY, "auto");
   return raw === "en" || raw === "de" ? raw : "auto";
+}
+
+/** Which OS permissions the selected sources depend on. */
+function requiredPermissionKinds(sources: AudioCaptureSourceKind[]): AudioPermissionKind[] {
+  const kinds: AudioPermissionKind[] = [];
+  if (sources.includes("microphone")) kinds.push("microphone");
+  // System-audio loopback and the per-app tap are both gated by the macOS
+  // "Screen & System Audio Recording" pane.
+  if (sources.includes("system") || sources.includes("app")) kinds.push("systemAudio");
+  return kinds;
+}
+
+/**
+ * Kinds that will make capture fail as things stand. Microphone
+ * "not-determined" is fine — getUserMedia triggers the native prompt — but
+ * screen/system-audio has no runtime prompt, so anything short of granted
+ * needs the guided flow. "unknown" (status unreadable) never blocks.
+ */
+function missingPermissionKinds(
+  permissions: AudioCapturePermissions | null,
+  kinds: AudioPermissionKind[],
+): AudioPermissionKind[] {
+  if (!permissions) return [];
+  return kinds.filter((kind) => {
+    const state = permissions[kind];
+    if (kind === "microphone") return state === "denied" || state === "restricted";
+    return state === "denied" || state === "restricted" || state === "not-determined";
+  });
+}
+
+/** Runtime errors that mean "an OS permission is missing", per source. */
+function permissionKindsFromCaptureError(message: string, sources: AudioCaptureSourceKind[]): AudioPermissionKind[] {
+  const text = message.toLowerCase();
+  const kinds: AudioPermissionKind[] = [];
+  if (sources.includes("microphone") && (text.includes("microphone") || text.includes("mikrofon"))) {
+    kinds.push("microphone");
+  }
+  const systemShaped =
+    text.includes("error starting capture") || // Chromium getDisplayMedia loopback failure
+    text.includes("screen capture") ||
+    text.includes("system audio") ||
+    text.includes("audio recording permission") || // audio-tap helper stderr
+    text.includes("notallowederror") ||
+    text.includes("permission denied");
+  if ((sources.includes("system") || sources.includes("app")) && systemShaped) {
+    kinds.push("systemAudio");
+  }
+  return kinds;
 }
 
 let captureHandle: CaptureHandle | null = null;
@@ -329,6 +391,8 @@ export const useRecorderStore = create<RecorderState & RecorderActions>((set, ge
   return {
     initialized: false,
     bootstrap: null,
+    permissions: null,
+    permissionsNeeded: [],
     transcriber: { state: "idle", modelId: null, error: null },
     recording: null,
     recordingStartedAt: null,
@@ -353,7 +417,7 @@ export const useRecorderStore = create<RecorderState & RecorderActions>((set, ge
       }
       if (get().initialized) return;
       set({ initialized: true });
-      await Promise.all([get().refreshBootstrap(), get().refreshRecordings()]);
+      await Promise.all([get().refreshBootstrap(), get().refreshRecordings(), get().refreshPermissions()]);
       void get().prewarm();
     },
 
@@ -364,6 +428,36 @@ export const useRecorderStore = create<RecorderState & RecorderActions>((set, ge
       } catch (error) {
         set({ error: error instanceof Error ? error.message : String(error) });
       }
+    },
+
+    refreshPermissions: async () => {
+      try {
+        const permissions = await audioCapturePermissions();
+        // Prune satisfied kinds so the panel collapses as the user grants
+        // access (e.g. coming back from System Settings on window focus).
+        const stillMissing = missingPermissionKinds(permissions, get().permissionsNeeded);
+        set({ permissions, permissionsNeeded: stillMissing });
+      } catch {
+        // plain web / old desktop build — pre-flight simply stays off
+      }
+    },
+
+    requestPermission: async (kind) => {
+      try {
+        const permissions = await audioCapturePermissionsRequest(kind);
+        const stillMissing = missingPermissionKinds(permissions, get().permissionsNeeded);
+        set({ permissions, permissionsNeeded: stillMissing });
+      } catch {
+        // bridge unavailable — the panel's settings link still explains the manual path
+      }
+    },
+
+    openPermissionSettings: async (kind) => {
+      await audioCaptureOpenSettings(kind).catch(() => {});
+    },
+
+    dismissPermissionsPanel: () => {
+      set({ permissionsNeeded: [] });
     },
 
     refreshRecordings: async () => {
@@ -448,7 +542,17 @@ export const useRecorderStore = create<RecorderState & RecorderActions>((set, ge
         sources = sources.filter((source) => source !== "app");
       }
       if (!sources.length) sources = ["microphone"];
-      set({ error: null, segments: [], partial: null, copilotEntries: [] });
+
+      // Pre-flight: check OS permissions for the selected sources and show
+      // the guided panel instead of letting capture fail with a raw error.
+      await get().refreshPermissions();
+      const needed = missingPermissionKinds(get().permissions, requiredPermissionKinds(sources));
+      if (needed.length > 0) {
+        set({ permissionsNeeded: needed, error: null });
+        return;
+      }
+
+      set({ error: null, permissionsNeeded: [], segments: [], partial: null, copilotEntries: [] });
       let startedMetaId: string | null = null;
       try {
         const status = await audioTranscriberStart({ modelId, language });
@@ -481,10 +585,15 @@ export const useRecorderStore = create<RecorderState & RecorderActions>((set, ge
           captureHandle = null;
         }
         if (startedMetaId) await audioRecordingCancel(startedMetaId).catch(() => {});
+        const message = error instanceof Error ? error.message : String(error);
+        // Permission-shaped runtime failures (status looked fine but the OS
+        // still refused) get the guided panel, not a raw error banner.
+        const permissionKinds = permissionKindsFromCaptureError(message, sources);
         set({
           recording: null,
           recordingStartedAt: null,
-          error: error instanceof Error ? error.message : String(error),
+          permissionsNeeded: permissionKinds,
+          error: permissionKinds.length > 0 ? null : message,
         });
       }
     },

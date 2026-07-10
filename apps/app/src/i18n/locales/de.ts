@@ -208,6 +208,26 @@ const de: Record<string, string> = {
   "recorder.source_system_unavailable": "Systemaudio-Aufnahme ist auf diesem System nicht verfügbar.",
   "recorder.source_app_hint":
     "Aufnahme pro App erfordert macOS 14.4 oder neuer. Unter Windows deckt Systemaudio Anrufe in jeder App ab.",
+  "recorder.perm_title": "Für die Aufnahme fehlen Berechtigungen",
+  "recorder.perm_intro":
+    "Die gewählten Quellen benötigen Systemzugriff. Erteilen Sie die folgenden Berechtigungen und starten Sie die Aufnahme dann erneut.",
+  "recorder.perm_microphone": "Mikrofon",
+  "recorder.perm_system_audio": "System- & App-Audio",
+  "recorder.perm_microphone_instructions":
+    "Aktivieren Sie LegalWork unter Systemeinstellungen → Datenschutz & Sicherheit → Mikrofon und versuchen Sie es erneut.",
+  "recorder.perm_system_audio_instructions_mac":
+    "Öffnen Sie Systemeinstellungen → Datenschutz & Sicherheit → Bildschirm- & Systemaudioaufnahme, aktivieren Sie LegalWork und starten Sie die App danach neu.",
+  "recorder.perm_system_audio_instructions":
+    "Erlauben Sie LegalWork die Bildschirm-/Systemaudio-Aufnahme in den Datenschutzeinstellungen Ihres Systems und versuchen Sie es erneut.",
+  "recorder.perm_status_granted": "Erteilt",
+  "recorder.perm_status_denied": "Blockiert",
+  "recorder.perm_status_not_determined": "Noch nicht erlaubt",
+  "recorder.perm_allow": "Erlauben",
+  "recorder.perm_open_settings": "Systemeinstellungen öffnen",
+  "recorder.perm_check_again": "Erneut prüfen",
+  "recorder.perm_recheck_hint": "Der Status wird automatisch aktualisiert, sobald Sie zu diesem Fenster zurückkehren.",
+  "recorder.perm_dev_hint":
+    "Entwicklungs-Build: macOS ordnet diese Berechtigungen der App zu, die LegalWork gestartet hat (Terminal oder IDE) — aktivieren Sie diese App in den Einstellungen und starten Sie sie neu.",
   "recorder.language_auto": "Automatisch erkennen",
   "recorder.model_select_placeholder": "Modell wählen",
   "recorder.model_not_installed": "nicht installiert",
