@@ -934,15 +934,27 @@ function applyEvent(entry: SyncEntry, workspaceId: string, event: OpencodeEvent)
     // send path); also dedupes idle events from multiple workspace syncs.
     const runStartedAt = takeTaskRunStart(props.sessionID);
     if (runStartedAt !== null) {
-      const snapshot = getReactQueryClient().getQueryData<LegalworkSessionSnapshot>(
-        snapshotKey(workspaceId, props.sessionID),
-      );
-      captureAnalyticsEvent("task_run_completed", {
-        session_id: props.sessionID,
-        duration_ms: Date.now() - runStartedAt,
-        surface: analyticsSurface(),
-        ...(runStatsFromSnapshot(snapshot) ?? {}),
-      });
+      const durationMs = Date.now() - runStartedAt;
+      const sessionId = props.sessionID;
+      // The cached snapshot can predate the completed assistant message (its
+      // tokens/parts), so refresh it first — reusing the session view's own
+      // query fn — then read the fresh copy for the opencode run stats.
+      void (async () => {
+        try {
+          await queryClient.refetchQueries({ queryKey: snapshotKey(workspaceId, sessionId), exact: true });
+        } catch {
+          // Best-effort: fall back to whatever is cached.
+        }
+        const snapshot = queryClient.getQueryData<LegalworkSessionSnapshot>(
+          snapshotKey(workspaceId, sessionId),
+        );
+        captureAnalyticsEvent("task_run_completed", {
+          session_id: sessionId,
+          duration_ms: durationMs,
+          surface: analyticsSurface(),
+          ...(runStatsFromSnapshot(snapshot) ?? {}),
+        });
+      })();
     }
     useSessionActivityStore.getState().setRunStatus(workspaceId, props.sessionID, idleStatus);
     const tracked = isTrackedSession(entry, props.sessionID);
