@@ -11,7 +11,10 @@ import {
 } from "react";
 
 import { THINKING_PREF_KEY } from "../../app/constants";
+import { getAnalyticsDistinctId } from "../../app/lib/analytics";
+import { desktopBridge } from "../../app/lib/desktop";
 import { coerceReleaseChannel } from "../../app/lib/release-channels";
+import { isDesktopRuntime } from "../../app/lib/runtime-env";
 import type { ModelRef, ReleaseChannel, SettingsTab, View } from "../../app/types";
 import { readStoredDefaultModel } from "./model-config";
 
@@ -140,6 +143,19 @@ export function LocalProvider({ children }: LocalProviderProps) {
   useEffect(() => {
     writePersisted(PREFS_STORAGE_KEY, prefs);
   }, [prefs]);
+
+  // Mirror the analytics identity (distinct id + consent) to the local server so
+  // the Office pane — served from a separate origin — reports as the same user
+  // and honors the same on/off choice. Desktop only (the pane isn't electron).
+  useEffect(() => {
+    if (!isDesktopRuntime()) return;
+    void desktopBridge
+      .setAnalyticsIdentity({
+        distinctId: getAnalyticsDistinctId(),
+        analyticsEnabled: prefs.analyticsEnabled,
+      })
+      .catch(() => undefined);
+  }, [prefs.analyticsEnabled]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;

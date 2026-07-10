@@ -21,7 +21,7 @@ import { fileURLToPath } from "node:url";
 import { app, BrowserWindow, dialog, ipcMain, nativeImage, nativeTheme, session, shell, systemPreferences } from "electron";
 import { configureFakeMediaForTests, installMediaPermissionHandlers } from "./media-permissions.mjs";
 import { registerMigrationIpc } from "./migration.mjs";
-import { createRuntimeManager } from "./runtime.mjs";
+import { createRuntimeManager, resolveLegalworkServerConfigPath } from "./runtime.mjs";
 import { buildSupportBundleText, defaultSupportBundleFileName } from "./support-bundle.mjs";
 import { registerUpdaterIpc } from "./updater.mjs";
 import {
@@ -1633,6 +1633,19 @@ const desktopCommandHandlers = {
   },
   "resetLegalworkState": async (event, ...args) => {
       return workspaceStore.resetLegalworkState();
+  },
+  "setAnalyticsIdentity": async (event, ...args) => {
+      const input = args[0] ?? { distinctId: "", analyticsEnabled: false };
+      const distinctId = typeof input.distinctId === "string" ? input.distinctId : "";
+      const analyticsEnabled = input.analyticsEnabled === true;
+      try {
+        const configPath = resolveLegalworkServerConfigPath(process.env);
+        const file = path.join(path.dirname(configPath), "legalwork-analytics-identity.json");
+        await mkdir(path.dirname(file), { recursive: true });
+        await writeFile(file, `${JSON.stringify({ distinctId, analyticsEnabled })}\n`, "utf8");
+      } catch {
+        // Best-effort: the Office pane just falls back to analytics off.
+      }
   },
   "resetOpencodeCache": async (event, ...args) => {
       return { removed: [], missing: [], errors: [] };

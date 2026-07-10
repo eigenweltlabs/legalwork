@@ -5,6 +5,7 @@ import { QueryClientProvider } from "@tanstack/react-query";
 import { HashRouter } from "react-router-dom";
 
 import { TooltipProvider } from "@/components/ui/tooltip";
+import { setAnalyticsDistinctId, setAnalyticsEnabledPreference } from "@/app/lib/analytics";
 import { getLegalWorkDeployment } from "@/app/lib/legalwork-deployment";
 import { writeLegalworkServerSettings } from "@/app/lib/legalwork-server";
 import { bootstrapTheme } from "@/app/theme";
@@ -58,7 +59,12 @@ async function connectToServer(): Promise<void> {
   if (!response.ok) {
     throw new Error(`Bootstrap failed with status ${response.status}`);
   }
-  const data = (await response.json()) as { token?: unknown; hostToken?: unknown };
+  const data = (await response.json()) as {
+    token?: unknown;
+    hostToken?: unknown;
+    analyticsDistinctId?: unknown;
+    analyticsEnabled?: unknown;
+  };
   const token = typeof data.token === "string" ? data.token.trim() : "";
   if (!token) {
     throw new Error("Bootstrap response did not include a token");
@@ -69,6 +75,11 @@ async function connectToServer(): Promise<void> {
     token,
     hostToken: hostToken || undefined,
   });
+  // Adopt the desktop app's analytics identity + consent (from the bootstrap)
+  // BEFORE analytics initializes, so the pane reports as the same user and only
+  // sends when the desktop user has opted in.
+  if (typeof data.analyticsDistinctId === "string") setAnalyticsDistinctId(data.analyticsDistinctId);
+  setAnalyticsEnabledPreference(data.analyticsEnabled === true);
   // Shell updates are handled by the shell itself (version check against
   // the bootstrap response + self-reload; see server word-addin-shell.ts).
   // A subresource fetch here cannot refresh the navigation cache entry.

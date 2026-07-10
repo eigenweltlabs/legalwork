@@ -350,6 +350,28 @@ async function serveStaticFile(distPath: string, relativePath: string): Promise<
 }
 
 /**
+ * The desktop app writes its anonymous analytics identity (distinct id + the
+ * user's consent) next to the server config, so the Office pane — served from a
+ * separate origin — can report as the same user and honor the same on/off
+ * choice. Absent (or unparsable) file means: no id, analytics off.
+ */
+const ANALYTICS_IDENTITY_FILE = "legalwork-analytics-identity.json";
+async function readAnalyticsIdentity(
+  configPath: string | undefined,
+): Promise<{ distinctId: string | null; enabled: boolean }> {
+  if (!configPath) return { distinctId: null, enabled: false };
+  try {
+    const raw = await readFile(join(dirname(configPath), ANALYTICS_IDENTITY_FILE), "utf8");
+    const parsed = JSON.parse(raw) as { distinctId?: unknown; analyticsEnabled?: unknown };
+    const distinctId =
+      typeof parsed.distinctId === "string" && parsed.distinctId.trim() ? parsed.distinctId.trim() : null;
+    return { distinctId, enabled: parsed.analyticsEnabled === true };
+  } catch {
+    return { distinctId: null, enabled: false };
+  }
+}
+
+/**
  * Handle a request under /word-addin. Returns null only for non-GET/HEAD
  * methods so the caller can produce its standard 404/405 handling.
  */
@@ -425,11 +447,16 @@ export async function handleWordAddinRequest(input: {
     // The pane is the server's own UI (same trust as the desktop renderer),
     // so it also receives the host token — host-scoped routes like workspace
     // creation and the native folder picker need it.
+    const analyticsIdentity = await readAnalyticsIdentity(config.configPath);
     return jsonResponse({
       app: "legalwork-server",
       token: config.token,
       hostToken: config.hostToken,
       wordAddinPort: wordAddin.port,
+      // Anonymous analytics identity from the desktop app, so the pane reports
+      // as the same user and honors the same consent. Both may be absent/off.
+      analyticsDistinctId: analyticsIdentity.distinctId,
+      analyticsEnabled: analyticsIdentity.enabled,
       // Lets a cached shell detect it is outdated and reload itself once
       // (reloads end-to-end revalidate the navigation cache entry, which
       // subresource fetches provably do not).

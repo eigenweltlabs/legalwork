@@ -79,6 +79,41 @@ export function getAnalyticsDistinctId(): string {
   }
 }
 
+/**
+ * Seed the analytics distinct id. Used by the Office pane (a separate origin,
+ * separate localStorage) so it reports as the same user as the desktop app.
+ */
+export function setAnalyticsDistinctId(id: string): void {
+  if (typeof window === "undefined") return;
+  const trimmed = id.trim();
+  if (!trimmed) return;
+  try {
+    window.localStorage.setItem(DISTINCT_ID_STORAGE_KEY, trimmed);
+  } catch {
+    // ignore quota errors
+  }
+}
+
+/**
+ * Seed the analytics consent flag in preferences. Used by the Office pane to
+ * honor the desktop app's on/off choice (the pane has no Settings of its own).
+ */
+export function setAnalyticsEnabledPreference(enabled: boolean): void {
+  if (typeof window === "undefined") return;
+  try {
+    const raw = window.localStorage.getItem(PREFS_STORAGE_KEY);
+    let prefs: Record<string, unknown> = {};
+    if (raw) {
+      const parsed: unknown = JSON.parse(raw);
+      if (parsed && typeof parsed === "object") prefs = parsed as Record<string, unknown>;
+    }
+    prefs.analyticsEnabled = enabled;
+    window.localStorage.setItem(PREFS_STORAGE_KEY, JSON.stringify(prefs));
+  } catch {
+    // ignore
+  }
+}
+
 function baseProperties(): AnalyticsProperties {
   return {
     app_version: ENV_APP_VERSION || null,
