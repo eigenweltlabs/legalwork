@@ -82,9 +82,9 @@ export type UpdatesViewProps = {
    */
   onReleaseChannelChange?: (next: ReleaseChannel) => void;
   /**
-   * Whether the alpha channel is available on this platform. Alpha is
-   * macOS-only today; other platforms should receive `false` so the
-   * toggle is hidden.
+   * Whether the alpha channel is available on this platform. Alpha ships
+   * for macOS and Windows today; other platforms should receive `false`
+   * so the toggle is hidden.
    */
   alphaChannelSupported?: boolean;
 };

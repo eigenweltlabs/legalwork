@@ -109,6 +109,7 @@ import {
   isDesktopRuntime,
   isElectronRuntime,
   isMacPlatform,
+  isWindowsPlatform,
   normalizeDirectoryPath,
   resolveModelDisplayName,
   resolveProviderDisplayName,
@@ -2102,7 +2103,7 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
             installUpdateAndRestart={electronUpdaterState.installUpdateAndRestart}
             releaseChannel={local.prefs.releaseChannel ?? "stable"}
             onReleaseChannelChange={electronUpdaterState.setReleaseChannel}
-            alphaChannelSupported={isElectronRuntime() && isMacPlatform()}
+            alphaChannelSupported={isElectronRuntime() && (isMacPlatform() || isWindowsPlatform())}
           />
         );
       case "recovery":

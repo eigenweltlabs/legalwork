@@ -24,7 +24,7 @@
     "office:sideload": "node ./scripts/office-addin-sideload.mjs"
   },
   "dependencies": {
-    "@opencode-ai/sdk": "^1.17.3",
+    "@opencode-ai/sdk": "^1.17.18",
     "@peculiar/asn1-schema": "^2.8.0",
     "@peculiar/asn1-x509": "^2.8.0",
     "@peculiar/x509": "^2.0.0",
