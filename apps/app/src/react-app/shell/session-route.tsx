@@ -1462,10 +1462,20 @@ export function SessionRoute() {
       }
     } catch (error) {
       setCreateWorkspaceError(describeWorkspaceCreateError(error));
+      // Surface the error even when creation was started outside the modal
+      // (e.g. from the New Task workspace picker's folder select).
+      setCreateWorkspaceOpen(true);
     } finally {
       setCreateWorkspaceBusy(false);
     }
   }, [baseUrl, client, local, navigateToWorkspaceSession, refreshRouteState, rememberPendingCreatedSession, token]);
+
+  const handleCreateTaskInNewWorkspace = useCallback(async () => {
+    if (createWorkspaceBusy) return;
+    const folder = (await pickDirectory({ title: t("onboarding.authorize_folder") })) as string | null;
+    if (!folder?.trim()) return;
+    await handleCreateWorkspace("starter", folder);
+  }, [createWorkspaceBusy, handleCreateWorkspace]);
 
   // Leaving a top-level pane (Learnings/Skills/Integrations): any session/workspace
   // navigation drops back to the session view.
@@ -1715,6 +1725,9 @@ export function SessionRoute() {
           setShowWorkflows(false);
           setShowExtensions(false);
           handleOpenCreateWorkspace();
+        },
+        onCreateTaskInNewWorkspace: () => {
+          void handleCreateTaskInNewWorkspace();
         },
         onReorderWorkspaces: handleReorderWorkspaces,
       }}
