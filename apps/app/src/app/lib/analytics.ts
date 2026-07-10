@@ -14,6 +14,8 @@
  *   assert instrumentation without any analytics backend.
  */
 import { recordInspectorEvent } from "./app-inspector";
+import { isOfficeAddinRuntime } from "./runtime-env";
+import { officeHostName } from "@/word-addin/office";
 
 const ENV_POSTHOG_KEY = String(import.meta.env.VITE_LEGALWORK_POSTHOG_KEY ?? "").trim();
 const ENV_POSTHOG_HOST = String(import.meta.env.VITE_LEGALWORK_POSTHOG_HOST ?? "").trim();
@@ -36,7 +38,7 @@ const DISTINCT_ID_STORAGE_KEY = "legalwork.analytics.distinctId";
 const FLUSH_INTERVAL_MS = 10_000;
 const MAX_BATCH = 50;
 
-export type AnalyticsProperties = Record<string, string | number | boolean | null>;
+export type AnalyticsProperties = Record<string, string | number | boolean | null | readonly string[]>;
 
 type QueuedEvent = {
   event: string;
@@ -82,6 +84,18 @@ function baseProperties(): AnalyticsProperties {
     app_version: ENV_APP_VERSION || null,
     platform: typeof navigator === "undefined" ? null : navigator.platform || null,
   };
+}
+
+/**
+ * Where an event was triggered: the desktop app, or a specific Office add-in
+ * pane. NOT a base property — attached explicitly to the events that can fire
+ * inside the pane.
+ */
+export type AnalyticsSurface = "desktop" | "word" | "excel" | "powerpoint" | "office";
+export function analyticsSurface(): AnalyticsSurface {
+  if (!isOfficeAddinRuntime()) return "desktop";
+  const host = officeHostName();
+  return host === "word" || host === "excel" || host === "powerpoint" ? host : "office";
 }
 
 /**

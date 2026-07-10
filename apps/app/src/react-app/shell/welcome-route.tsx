@@ -16,10 +16,10 @@ import { createClient, unwrap } from "../../app/lib/opencode";
 import { useLocal } from "../kernel/local-provider";
 import { usePlatform } from "../kernel/platform";
 import { WelcomePage } from "../domains/onboarding/welcome-page";
-import { AttributionStep, type AttributionSource } from "../domains/onboarding/attribution-step";
+import { AttributionStep } from "../domains/onboarding/attribution-step";
 import { CreateWorkspaceModal } from "../domains/workspace/create-workspace-modal";
 import { resolveLegalworkConnection } from "./legalwork-connection";
-import { captureAnalyticsEvent } from "../../app/lib/analytics";
+import { analyticsSurface, captureAnalyticsEvent } from "../../app/lib/analytics";
 import { buildLegalworkWorkspaceBaseUrl, createLegalworkServerClient } from "../../app/lib/legalwork-server";
 import { writeActiveWorkspaceId, writeLastSessionFor } from "./session-memory";
 import { workspaceSessionRoute } from "./workspace-routes";
@@ -192,7 +192,7 @@ export function WelcomeRoute() {
               { token: serverToken, mode: "legalwork" },
             ).session.create({ directory: workspacePath || undefined }));
             targetSessionId = session.id;
-            captureAnalyticsEvent("task_created", { source: "onboarding", workspace_type: "local" });
+            captureAnalyticsEvent("task_created", { source: "onboarding", surface: analyticsSurface() });
           } catch {
             // Best-effort first task creation.
           }
@@ -312,22 +312,13 @@ export function WelcomeRoute() {
     if (state.pendingSessionId) focusPromptSoon();
   }, [navigate, state.pendingRoute, state.pendingSessionId]);
 
-  const handleAttributionSubmit = useCallback(
-    (source: AttributionSource, aiPrompt?: string) => {
-      const prompt = aiPrompt?.trim().slice(0, 500) ?? "";
-      captureAnalyticsEvent("attribution_survey_submitted", {
-        source,
-        // User-volunteered survey answer (not session content); see survey UI.
-        ai_prompt: prompt || null,
-        ai_prompt_length: prompt.length,
-      });
-      finishOnboarding();
-    },
-    [finishOnboarding],
-  );
+  // Attribution survey no longer reports analytics (events removed); it just
+  // advances onboarding.
+  const handleAttributionSubmit = useCallback(() => {
+    finishOnboarding();
+  }, [finishOnboarding]);
 
   const handleAttributionSkip = useCallback(() => {
-    captureAnalyticsEvent("attribution_survey_skipped");
     finishOnboarding();
   }, [finishOnboarding]);
 

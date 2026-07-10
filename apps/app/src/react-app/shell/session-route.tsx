@@ -16,7 +16,7 @@ import type {
   TextPartInput,
 } from "@opencode-ai/sdk/v2/client";
 
-import { captureAnalyticsEvent, markTaskRunStart } from "@/app/lib/analytics";
+import { analyticsSurface, captureAnalyticsEvent, markTaskRunStart } from "@/app/lib/analytics";
 import { createClient, unwrap } from "@/app/lib/opencode";
 import { abortSessionSafe, forkSession, listCommands, revertSession, setSessionArchived, shellInSession } from "@/app/lib/opencode-session";
 import { useSessionManagementStore as sessionManagementStore } from "@/react-app/domains/session/sidebar/session-management-store";
@@ -759,13 +759,14 @@ export function SessionRoute() {
         if (selectedModelUnavailable) throw new Error("Selected model is unavailable. Choose another model before sending.");
 
         captureAnalyticsEvent("task_message_sent", {
-          mode: draft.mode ?? "prompt",
+          session_id: targetSessionId,
           is_command: Boolean(draft.command),
-          attachment_count: draft.attachments.length,
-          text_length: text.length,
-          workspace_type: selectedWorkspace?.workspaceType ?? "unknown",
           provider_id: local.prefs.defaultModel?.providerID ?? null,
           model_id: local.prefs.defaultModel?.modelID ?? null,
+          surface: analyticsSurface(),
+          fusion_enabled: isFusionEnabled(targetSessionId),
+          fusion_model_count: getFusionSelectedModels(targetSessionId).length,
+          fusion_models: getFusionSelectedModels(targetSessionId).map((m) => `${m.providerID}/${m.modelID}`),
         });
         markTaskRunStart(targetSessionId);
 
@@ -1052,7 +1053,7 @@ export function SessionRoute() {
       );
       captureAnalyticsEvent("task_created", {
         source: "new_task",
-        workspace_type: workspace.workspaceType ?? "unknown",
+        surface: analyticsSurface(),
       });
       setLegacySelectedWorkspaceId(workspaceId);
       writeActiveWorkspaceId(workspaceId || null);
@@ -1442,9 +1443,9 @@ export function SessionRoute() {
           : null;
         setLegacySelectedWorkspaceId(targetWorkspaceId);
         writeActiveWorkspaceId(targetWorkspaceId);
-        captureAnalyticsEvent("workspace_created", { workspace_type: "local" });
+        captureAnalyticsEvent("workspace_created", { surface: analyticsSurface() });
         if (session?.id) {
-          captureAnalyticsEvent("task_created", { source: "workspace_created", workspace_type: "local" });
+          captureAnalyticsEvent("task_created", { source: "workspace_created", surface: analyticsSurface() });
           writeLastSessionFor(targetWorkspaceId, session.id);
           rememberPendingCreatedSession(targetWorkspaceId, session.id);
           setSessionsByWorkspaceId((current) => {

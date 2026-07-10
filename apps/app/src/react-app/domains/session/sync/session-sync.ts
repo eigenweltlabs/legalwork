@@ -2,7 +2,8 @@ import type { UIMessage } from "ai";
 import type { FilePart, Part, PermissionRequest, PermissionV2Request, QuestionRequest, Session, SessionStatus, Todo } from "@opencode-ai/sdk/v2/client";
 
 import { getReactQueryClient } from "../../../infra/query-client";
-import { captureAnalyticsEvent, takeTaskRunStart } from "@/app/lib/analytics";
+import { analyticsSurface, captureAnalyticsEvent, takeTaskRunStart } from "@/app/lib/analytics";
+import { analyticsErrorService, analyticsErrorStatus } from "@/app/lib/analytics-error";
 import { createClient } from "@/app/lib/opencode";
 import { normalizeEvent } from "@/app/utils";
 import { SYNTHETIC_SESSION_ERROR_MESSAGE_PREFIX, type OpencodeEvent, type PendingPermission, type PendingQuestion } from "@/app/types";
@@ -621,11 +622,16 @@ function applyEvent(entry: SyncEntry, workspaceId: string, event: OpencodeEvent)
   if (event.type === "session.error") {
     const sessionId = sessionIdFromProperties(event.properties);
     if (sessionId) {
-      const errorText = describeOpencodeSessionError(sessionErrorFromProperties(event.properties));
+      const sessionError = sessionErrorFromProperties(event.properties);
+      const errorText = describeOpencodeSessionError(sessionError);
       const runStartedAt = takeTaskRunStart(sessionId);
       if (runStartedAt !== null) {
         captureAnalyticsEvent("task_run_errored", {
+          session_id: sessionId,
           duration_ms: Date.now() - runStartedAt,
+          service: analyticsErrorService(sessionError),
+          status_code: analyticsErrorStatus(sessionError),
+          surface: analyticsSurface(),
         });
       }
       useSessionActivityStore.getState().setError(workspaceId, sessionId, errorText);

@@ -6,7 +6,8 @@ import type { SessionStatus } from "@opencode-ai/sdk/v2/client";
 import { Check, Minimize2, TriangleAlert } from "lucide-react";
 import { toast } from "@/components/ui/sonner";
 
-import { captureAnalyticsEvent } from "@/app/lib/analytics";
+import { analyticsSurface, captureAnalyticsEvent } from "@/app/lib/analytics";
+import { analyticsErrorService, analyticsErrorStatus } from "@/app/lib/analytics-error";
 import { createClient, unwrap } from "@/app/lib/opencode";
 import { abortSessionSafe } from "@/app/lib/opencode-session";
 import { isOfficeAddinRuntime } from "@/app/lib/runtime-env";
@@ -799,7 +800,12 @@ export function SessionSurface(props: SessionSurfaceProps) {
       setSending(false);
     } catch (nextError) {
       const parsed = parseSessionError(nextError);
-      captureAnalyticsEvent("task_send_failed", {});
+      captureAnalyticsEvent("task_send_failed", {
+        session_id: props.sessionId,
+        service: analyticsErrorService(nextError),
+        status_code: analyticsErrorStatus(nextError),
+        surface: analyticsSurface(),
+      });
       setError(parsed);
       useSessionActivityStore.getState().setError(props.workspaceId, props.sessionId, parsed.message);
       setComposerDraft(props.sessionId, "");
@@ -877,7 +883,10 @@ export function SessionSurface(props: SessionSurfaceProps) {
       setError({ message: t("session.stop_failed") });
       return;
     }
-    captureAnalyticsEvent("task_run_stopped", {});
+    captureAnalyticsEvent("task_run_stopped", {
+      session_id: props.sessionId,
+      surface: analyticsSurface(),
+    });
     await snapshotQuery.refetch();
   }, [chatStreaming, clearQueuedDrafts, opencodeClient, props.sessionId, props.workspaceRoot, snapshotQuery.refetch]);
 
