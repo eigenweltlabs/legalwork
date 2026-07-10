@@ -528,7 +528,7 @@ export function createRuntimeManager({ app, desktopRoot, listLocalWorkspacePaths
 
   // Report an unexpected sidecar (agent runtime) exit as a content-free signal.
   // Intentional stops/restarts are filtered out in spawnManagedChild via the
-  // `legalworkIntentionalStop` flag set by stopChild, and a crash loop is
+  // intentional-stop registry that stopChild marks, and a crash loop is
   // deduped to one event per session by the renderer's app_error throttle.
   function reportSidecarCrash(detail = {}) {
     try {
@@ -1024,6 +1024,11 @@ export function createRuntimeManager({ app, desktopRoot, listLocalWorkspacePaths
     return `curl -fsSL https://opencode.ai/install | bash -s -- --version ${version} --no-modify-path`;
   }
 
+  // Children stopped on purpose (stop/restart) — their exit is not a crash.
+  // A WeakSet rather than a property on the child, so the entries die with the
+  // process objects and the Electron-main typecheck accepts it.
+  const intentionallyStoppedChildren = new WeakSet();
+
   function spawnManagedChild(state, program, args, options = {}) {
     const child = spawn(program, args, {
       cwd: options.cwd,
@@ -1045,7 +1050,7 @@ export function createRuntimeManager({ app, desktopRoot, listLocalWorkspacePaths
         appendOutput(state, "lastStderr", `Process exited with code ${code}.\n`);
       }
       // A clean exit (code 0) or a stop/restart we initiated is not a crash.
-      const intentional = child.legalworkIntentionalStop === true || child.killed === true;
+      const intentional = intentionallyStoppedChildren.has(child) || child.killed === true;
       const abnormal = code === 0 ? false : code != null || signal != null;
       if (abnormal && !intentional) options.onCrash?.({ code, signal });
       options.onExit?.(code);
@@ -1054,7 +1059,7 @@ export function createRuntimeManager({ app, desktopRoot, listLocalWorkspacePaths
       state.childExited = true;
       appendOutput(state, "lastStderr", `${error instanceof Error ? error.message : String(error)}\n`);
       // Spawn/runtime failure (e.g. ENOENT) — a crash unless we were stopping it.
-      const intentional = child.legalworkIntentionalStop === true || child.killed === true;
+      const intentional = intentionallyStoppedChildren.has(child) || child.killed === true;
       if (!intentional) options.onCrash?.({ error });
     });
 
@@ -1109,7 +1114,7 @@ export function createRuntimeManager({ app, desktopRoot, listLocalWorkspacePaths
     state.childExited = true;
     // Mark this as a deliberate shutdown so the managed-child exit/error handler
     // doesn't misreport the stop (or a subsequent restart) as a sidecar crash.
-    if (child) child.legalworkIntentionalStop = true;
+    if (child) intentionallyStoppedChildren.add(child);
     if (!child || child.exitCode != null || child.killed) return;
 
     if (options.requestShutdown) {
