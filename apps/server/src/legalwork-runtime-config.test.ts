@@ -179,10 +179,10 @@ describe("eigenwelt free provider injection", () => {
     expect(free.name).toBe("Eigenwelt Free");
     // This device's own key inline in options — intentional for the free tier.
     expect(free.options?.baseURL).toBe("https://free.gateway.test/v1");
-    expect(free.options?.apiKey).toBe("sk-device-key-1");
+    expect(free.options?.headers?.Authorization).toBe("Bearer sk-device-key-1");
     // Limits are keyed on the virtual key itself now; the old
     // x-litellm-end-user-id header must NOT be injected anymore.
-    expect(free.options?.headers).toBeUndefined();
+    expect(free.options?.apiKey).toBeUndefined();
     // BOTH limit keys are mandatory: one missing key silently invalidates
     // the whole runtime config in the engine schema and kills all plugins.
     expect(free.models?.["ewl-free-small"]?.limit).toEqual({ context: 32000, output: 16384 });
@@ -199,7 +199,7 @@ describe("eigenwelt free provider injection", () => {
     await writeLegalworkRuntimeConfigFile(config, "ws_1");
     const rebuilt = await readConfigFile(config);
     const rebuiltFree = (rebuilt.provider as Record<string, FreeProviderBlock>)["eigenwelt-free"];
-    expect(rebuiltFree.options?.apiKey).toBe("sk-device-key-1");
+    expect(rebuiltFree.options?.headers?.Authorization).toBe("Bearer sk-device-key-1");
   });
 
   test("no disk cache: no eigenwelt-free block and zen stays enabled", async () => {

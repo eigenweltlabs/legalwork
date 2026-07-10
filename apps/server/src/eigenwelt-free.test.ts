@@ -365,10 +365,10 @@ describe("buildEigenweltFreeProviderBlock", () => {
     expect(block.npm).toBe("@ai-sdk/openai-compatible");
     expect(block.name).toBe("Eigenwelt Free");
     expect(block.options.baseURL).toBe(CACHED_MANIFEST.baseURL);
-    // The device's own key — limits are per-key on the gateway now, so no
-    // x-litellm-end-user-id header may be injected.
-    expect(block.options.apiKey).toBe(CACHED_MANIFEST.apiKey);
-    expect(block.options.headers).toBeUndefined();
+    // The device's own key travels as an Authorization header — the engine
+    // spreads options into createOpenAICompatible, which ignores `apiKey`.
+    expect(block.options.headers).toEqual({ Authorization: `Bearer ${CACHED_MANIFEST.apiKey}` });
+    expect(block.options.apiKey).toBeUndefined();
     // Both limit keys are mandatory for the engine schema.
     expect(block.models["ewl-free-small"]?.limit).toEqual({ context: 32000, output: 16384 });
     expect(block.models["ewl-free-base"]?.limit).toEqual({ context: 128000, output: 16384 });

@@ -320,9 +320,11 @@ export function buildEigenweltFreeProviderBlock(manifest: EigenweltFreeManifest)
     options: {
       baseURL: manifest.baseURL,
       // This device's own free-gateway key (minted via /api/public/free-key).
-      // Rate/budget limits are enforced per key by the gateway — no
-      // per-request device header needed.
-      apiKey: manifest.apiKey,
+      // Rate/budget limits are enforced per key by the gateway. The engine
+      // passes provider `options` verbatim to createOpenAICompatible, which
+      // ignores an `apiKey` field — the key MUST travel as an Authorization
+      // header (options.headers is verified to reach every request).
+      headers: { Authorization: `Bearer ${manifest.apiKey}` },
     },
     models: buildEigenweltModelsMap(manifest.models),
   };
