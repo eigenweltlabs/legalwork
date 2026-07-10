@@ -35,29 +35,21 @@ obligations. If you run a model locally, no inference content leaves your device
 
 ## 3. Free models provided by Eigenwelt
 
-The App includes free models provided by Eigenwelt through a dedicated free
-gateway. No account or login is required to use them.
+The App includes free models provided by Eigenwelt for **testing purposes**.
+No account or login is required to use them.
 
-**Free-tier requests are logged.** When you use a free model, your prompts and
-the model's outputs are transmitted to Eigenwelt, logged, and used to improve
-and train our models. This is the opposite of the paid Eigenwelt Model API
-described below. Treat the free tier as having **no expectation of
-confidentiality**: do not use free models with client or matter data,
-privileged material, personal data, or anything else you are not permitted to
-share with us. The App shows a warning to this effect when a free model is in
-use.
+If you choose free models, we will log usage data for those requests. Please
+do not use free models with privileged, client, or matter data — use them
+only to try the App. The App shows a notice when a free model is in use.
 
-The free tier is usage-limited. Limits currently include a per-device daily
-allowance (on the order of US$0.10 of model usage per day, roughly 3–10
-typical tasks), a per-device rate limit (10 requests per minute), and
-additional per-IP and global daily caps. The limits, the set of available free
-models, and the free tier itself may change, rotate, or be withdrawn at any
-time without notice.
+The free tier is usage-limited (a small per-device daily allowance and rate
+limits). Limits, the set of available free models, and the free tier itself
+may change or be withdrawn at any time.
 
-If you want hosted Eigenwelt models without logging, the paid **Eigenwelt
-Model API** uses prepaid organization credits and API keys owned by your firm,
-with zero prompt retention at the gateway: we record only token counts, the
-model used, cost, and timestamps — never prompt or output content.
+For real work, the paid **Eigenwelt Model API** uses prepaid organization
+credits and API keys owned by your firm, with zero prompt retention at the
+gateway: we record only token counts, the model used, cost, and timestamps —
+never prompt or output content.
 
 ## 4. Usage analytics (PostHog) — off unless you turn it on
 
