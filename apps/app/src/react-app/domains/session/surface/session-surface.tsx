@@ -108,7 +108,7 @@ export type SessionSurfaceProps = {
   modelPickerOpen: boolean;
   modelUnavailable?: boolean;
   selectedModel: ModelRef;
-  /** True when the active model is a free OpenCode Zen model (no-key fallback). */
+  /** True when the active model is a free-tier model (no-key fallback). */
   freeModelSelected?: boolean;
   onModelPickerOpenChange: (open: boolean) => void;
   onModelChange: (model: ModelRef) => void;
@@ -289,19 +289,19 @@ function TodoPanel(props: { todos: TodoItem[] }) {
 }
 
 /**
- * Banner shown above the composer whenever the active model is a free OpenCode
- * Zen model (the no-key fallback). Free Zen models are lower-performance and
- * their provider may train on the inputs they receive, so they must not be used
- * with client/matter data — only to try the app.
+ * Banner shown above the composer whenever the active model is a free model
+ * (the no-key fallback, served by Eigenwelt's free gateway). Free-tier
+ * prompts and outputs are logged and used to improve models, so they must
+ * not be used with client/matter data — only to try the app.
  */
 function FreeModelNotice() {
   return (
     <div className="flex items-start gap-2.5 border-b border-dls-border bg-amber-2/40 px-4 py-3">
       <TriangleAlert size={14} className="mt-0.5 shrink-0 text-amber-11" />
       <p className="text-xs leading-relaxed text-amber-11">
-        <span className="font-medium">Free test model.</span>{" "}
-        Lower-quality, and this provider may train on what you send it. Don&apos;t
-        use it with client or matter data. Connect your own model for real work.
+        <span className="font-medium">Free Eigenwelt model.</span>{" "}
+        Prompts and outputs are logged and used to improve models. Don&apos;t use
+        it with client or matter data. Connect your own model for real work.
       </p>
     </div>
   );
