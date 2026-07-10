@@ -521,10 +521,22 @@ function loadUserEnvFile() {
   }
 }
 
-export function createRuntimeManager({ app, desktopRoot, listLocalWorkspacePaths }) {
+export function createRuntimeManager({ app, desktopRoot, listLocalWorkspacePaths, onSidecarExit }) {
   const engineState = createEngineState();
   const legalworkServerState = createLegalworkServerState();
   const orchestratorState = createOrchestratorState();
+
+  // Report an unexpected sidecar (agent runtime) exit as a content-free signal.
+  // Intentional stops/restarts are filtered out in spawnManagedChild via the
+  // `legalworkIntentionalStop` flag set by stopChild, and a crash loop is
+  // deduped to one event per session by the renderer's app_error throttle.
+  function reportSidecarCrash() {
+    try {
+      onSidecarExit?.();
+    } catch {
+      // Never let crash reporting throw.
+    }
+  }
 
   // Serialize engine lifecycle operations. Without this, concurrent renderer
   // invocations of engineStart/engineStop/engineRestart race: each call's
@@ -1020,16 +1032,23 @@ export function createRuntimeManager({ app, desktopRoot, listLocalWorkspacePaths
 
     child.stdout?.on("data", (chunk) => appendOutput(state, "lastStdout", chunk.toString()));
     child.stderr?.on("data", (chunk) => appendOutput(state, "lastStderr", chunk.toString()));
-    child.on("exit", (code) => {
+    child.on("exit", (code, signal) => {
       state.childExited = true;
       if (code != null && code !== 0) {
         appendOutput(state, "lastStderr", `Process exited with code ${code}.\n`);
       }
+      // A clean exit (code 0) or a stop/restart we initiated is not a crash.
+      const intentional = child.legalworkIntentionalStop === true || child.killed === true;
+      const abnormal = code === 0 ? false : code != null || signal != null;
+      if (abnormal && !intentional) options.onCrash?.({ code, signal });
       options.onExit?.(code);
     });
     child.on("error", (error) => {
       state.childExited = true;
       appendOutput(state, "lastStderr", `${error instanceof Error ? error.message : String(error)}\n`);
+      // Spawn/runtime failure (e.g. ENOENT) — a crash unless we were stopping it.
+      const intentional = child.legalworkIntentionalStop === true || child.killed === true;
+      if (!intentional) options.onCrash?.({ error });
     });
 
     return child;
@@ -1081,6 +1100,9 @@ export function createRuntimeManager({ app, desktopRoot, listLocalWorkspacePaths
     const child = state.child;
     state.child = null;
     state.childExited = true;
+    // Mark this as a deliberate shutdown so the managed-child exit/error handler
+    // doesn't misreport the stop (or a subsequent restart) as a sidecar crash.
+    if (child) child.legalworkIntentionalStop = true;
     if (!child || child.exitCode != null || child.killed) return;
 
     if (options.requestShutdown) {
@@ -1371,7 +1393,7 @@ export function createRuntimeManager({ app, desktopRoot, listLocalWorkspacePaths
       "*",
     ];
 
-    spawnManagedChild(orchestratorState, orchestratorProgram, args, { env });
+    spawnManagedChild(orchestratorState, orchestratorProgram, args, { env, onCrash: reportSidecarCrash });
     orchestratorState.dataDir = dataDir;
     orchestratorState.daemonPort = daemonPort;
     orchestratorState.baseUrl = `http://127.0.0.1:${daemonPort}`;
@@ -1427,6 +1449,7 @@ export function createRuntimeManager({ app, desktopRoot, listLocalWorkspacePaths
       {
         cwd: projectDir,
         env,
+        onCrash: reportSidecarCrash,
       },
     );
 

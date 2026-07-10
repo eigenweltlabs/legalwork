@@ -647,6 +647,10 @@ const runtimeManager = createRuntimeManager({
   app,
   desktopRoot: path.resolve(__dirname, ".."),
   listLocalWorkspacePaths: () => workspaceStore.listLocalWorkspacePaths(),
+  // The agent runtime (orchestrator / opencode) runs as a child process; relay
+  // an unexpected exit as a content-free `sidecar_exit` app_error. Intentional
+  // stops/restarts are filtered out inside the runtime manager.
+  onSidecarExit: () => relayAppError("sidecar_exit", { name: "Error" }, "sidecar"),
 });
 
 let runtimeDisposedForQuit = false;

@@ -15,9 +15,7 @@ export type AppErrorSource =
   | "react_render"
   // explicit (fired from subsystem catch blocks)
   | "workspace_create"
-  | "provider_connect"
   | "integration_connect"
-  | "document_op"
   // main process (relayed from Electron main over IPC)
   | "main_uncaught"
   | "main_unhandledrejection"
