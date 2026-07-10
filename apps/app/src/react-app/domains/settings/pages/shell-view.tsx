@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Field, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
+import { captureAnalyticsEvent } from "@/app/lib/analytics";
 import { cn } from "@/lib/utils";
 import legalworkMarkDark from "@/assets/legalwork-mark-dark.svg";
 
@@ -71,6 +72,10 @@ export function ShellCustomizationView() {
       try {
         const dataUrl = await readFileAsDataUrl(file);
         update({ sidebarBrandLogoDataUrl: dataUrl });
+        captureAnalyticsEvent("branding_customized", {
+          has_custom_name: config.sidebarBrandName.trim().length > 0,
+          has_custom_logo: dataUrl.trim().length > 0,
+        });
       } catch (error) {
         setBrandLogoError(error instanceof Error ? error.message : "Could not load logo.");
       }
@@ -114,6 +119,12 @@ export function ShellCustomizationView() {
                   value={config.sidebarBrandName}
                   placeholder={DEFAULT_SHELL_CONFIG.sidebarBrandName}
                   onChange={(event) => update({ sidebarBrandName: event.currentTarget.value })}
+                  onBlur={(event) =>
+                    captureAnalyticsEvent("branding_customized", {
+                      has_custom_name: event.currentTarget.value.trim().length > 0,
+                      has_custom_logo: config.sidebarBrandLogoDataUrl.trim().length > 0,
+                    })
+                  }
                 />
               </Field>
             </LayoutSectionItemHeaderActions>
