@@ -30,12 +30,23 @@ const GLOBAL_SOURCES = new Set<AppErrorSource>(["uncaught", "unhandledrejection"
 // Only these class names are ever emitted; anything else is bucketed to "other"
 // so an unexpected (possibly content-bearing) name never leaves the machine.
 const ALLOWED_ERROR_NAMES = new Set([
+  // Standard JS / DOM error classes.
   "Error", "TypeError", "RangeError", "ReferenceError", "SyntaxError", "EvalError",
   "URIError", "AggregateError", "DOMException", "AbortError", "NotFoundError",
-  "NetworkError", "TimeoutError", "LegalworkServerError",
+  "NetworkError", "TimeoutError",
+  // App / server error classes.
+  "LegalworkServerError", "ApiError",
+  // opencode agent / run-failure reasons (the "why a run failed" types).
+  "ProviderAuthError", "ProviderModelNotFoundError", "ContextOverflowError",
+  "MessageOutputLengthError", "StructuredOutputError", "MessageAbortedError",
 ]);
 
-function errorName(error: unknown): string {
+/**
+ * Resolve an error's class name, gated to the allowlist above — anything else
+ * (including a name derived from runtime/user data) becomes "other" so the
+ * field can only ever hold a compile-time constant from our own code.
+ */
+export function allowlistedErrorName(error: unknown): string {
   const raw =
     error instanceof Error
       ? (error.name || error.constructor?.name || "Error")
@@ -91,7 +102,7 @@ function emit(fields: AppErrorFields): void {
 /** Report a renderer error. Never throws. */
 export function captureAppError(source: AppErrorSource, error: unknown, service?: AppErrorService): void {
   try {
-    const name = errorName(error);
+    const name = allowlistedErrorName(error);
     emit({
       source,
       error_name: name,

@@ -4,6 +4,7 @@ import type { FilePart, Part, PermissionRequest, PermissionV2Request, QuestionRe
 import { getReactQueryClient } from "../../../infra/query-client";
 import { analyticsSurface, captureAnalyticsEvent, takeTaskRunStart } from "@/app/lib/analytics";
 import { analyticsErrorService, analyticsErrorStatus } from "@/app/lib/analytics-error";
+import { allowlistedErrorName } from "@/app/lib/app-error";
 import { createClient } from "@/app/lib/opencode";
 import { normalizeEvent } from "@/app/utils";
 import { SYNTHETIC_SESSION_ERROR_MESSAGE_PREFIX, type OpencodeEvent, type PendingPermission, type PendingQuestion } from "@/app/types";
@@ -658,6 +659,7 @@ function applyEvent(entry: SyncEntry, workspaceId: string, event: OpencodeEvent)
         captureAnalyticsEvent("task_run_errored", {
           session_id: sessionId,
           duration_ms: Date.now() - runStartedAt,
+          error_name: allowlistedErrorName(sessionError),
           service: analyticsErrorService(sessionError),
           status_code: analyticsErrorStatus(sessionError),
           surface: analyticsSurface(),
