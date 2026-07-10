@@ -1,7 +1,11 @@
 /** @jsxImportSource react */
+import { useEffect } from "react";
 import { Navigate, Route, Routes, useNavigate, useParams } from "react-router-dom";
 import { ChevronLeft } from "lucide-react";
 
+import { initAnalytics } from "@/app/lib/analytics";
+import { initErrorAnalytics } from "@/app/lib/app-error";
+import { AppErrorBoundary } from "@/react-app/shell/app-error-boundary";
 import { AppMenuProvider } from "@/react-app/shell/app-menu";
 import { LegalworkControlProvider } from "@/react-app/shell/control/control-provider";
 import { LoadingOverlay } from "@/react-app/shell/loading-overlay";
@@ -45,7 +49,14 @@ function WordChatScreen() {
  * workspace picker.
  */
 export function WordAddinRoot() {
+  useEffect(() => {
+    // The pane runs in Office's webview (no AppRoot), so it wires its own
+    // analytics flush loop + error hooks. No app_opened here.
+    initAnalytics();
+    initErrorAnalytics();
+  }, []);
   return (
+    <AppErrorBoundary>
     <ShellConfigProvider>
       <AppMenuProvider>
         <LegalworkControlProvider>
@@ -62,5 +73,6 @@ export function WordAddinRoot() {
         </LegalworkControlProvider>
       </AppMenuProvider>
     </ShellConfigProvider>
+    </AppErrorBoundary>
   );
 }
