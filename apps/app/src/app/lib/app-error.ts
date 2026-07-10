@@ -62,19 +62,17 @@ function errorFingerprint(name: string, error: unknown): string {
     .split("\n")
     .slice(0, 15)
     .map((raw) => {
-      // Reduce each V8 frame to "function:line" — the location paren bounds the
-      // function name, and the greedy path match strips the file/URL (and any
-      // colons it carries, e.g. an https port) and the column. Message lines
-      // (no leading "at ") are skipped so no message text is ever hashed.
+      // Reduce each V8 frame to its function name only. The `(loc:line:col)`
+      // shape validates it's a real frame; the location (path/URL, and any
+      // colons it carries), the line, and the column are all discarded. Line
+      // numbers shift every build, so omitting them lets the same bug group
+      // across releases — at the cost of coarser grouping (distinct bugs in one
+      // function share a fingerprint). Message lines (no leading "at ") and
+      // anonymous frames (no function name) contribute nothing.
       const line = raw.trim();
       if (!line.startsWith("at ")) return "";
-      // "at fn (loc:line:col)"
-      const withFn = line.match(/^at\s+(.+?)\s+\(.*:(\d+):\d+\)\s*$/);
-      if (withFn) return `${withFn[1].trim()}:${withFn[2]}`;
-      // "at loc:line:col" (anonymous frame — no function name)
-      const anon = line.match(/^at\s+.*:(\d+):\d+\)?\s*$/);
-      if (anon) return `:${anon[1]}`;
-      return "";
+      const withFn = line.match(/^at\s+(.+?)\s+\(.*:\d+:\d+\)\s*$/);
+      return withFn ? withFn[1].trim() : "";
     })
     .filter(Boolean)
     .join("|");
