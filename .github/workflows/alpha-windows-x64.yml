@@ -1,0 +1,309 @@
+name: Alpha Channel (Windows x64)
+
+# Dispatch this workflow manually (Actions tab) to publish a fresh Windows x64
+# build to the LegalWork alpha release channel.
+#
+# Mirrors alpha-macos-aarch64.yml: each run publishes an immutable prerelease
+# with the build artifacts and refreshes a small manifest on the fixed
+# `alpha-windows-latest` release so the Electron updater feed stays stable
+# while historical alpha artifacts remain available. The Windows build +
+# SignPath signing steps mirror the stable channel
+# (.github/workflows/release-macos-aarch64.yml).
+#
+# See:
+#   - .github/workflows/alpha-macos-aarch64.yml (macOS alpha channel)
+#   - .github/workflows/release-macos-aarch64.yml (stable channel)
+
+on:
+  # Manual-only: dispatch from the GitHub Actions tab to publish a Windows x64
+  # alpha build to the rolling alpha-windows-latest release. Builds are signed
+  # via SignPath when the SIGNPATH_* configuration is present; otherwise the
+  # installer ships unsigned (SmartScreen warning — acceptable for the
+  # opt-in alpha channel).
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: alpha-windows-x64-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  publish-alpha-windows-x64:
+    name: Build + Publish alpha (x86_64-pc-windows-msvc)
+    runs-on: windows-2022
+    timeout-minutes: 180
+
+    env:
+      ALPHA_RELEASE_TAG: alpha-windows-latest
+      ALPHA_RELEASE_NAME: LegalWork Alpha (Windows x64)
+      SIGNPATH_ORGANIZATION_ID: ${{ secrets.SIGNPATH_ORGANIZATION_ID || vars.SIGNPATH_ORGANIZATION_ID }}
+      SIGNPATH_PROJECT_SLUG: ${{ secrets.SIGNPATH_PROJECT_SLUG || vars.SIGNPATH_PROJECT_SLUG }}
+      SIGNPATH_SIGNING_POLICY_SLUG: ${{ secrets.SIGNPATH_SIGNING_POLICY_SLUG || vars.SIGNPATH_SIGNING_POLICY_SLUG }}
+      SIGNPATH_ARTIFACT_CONFIGURATION_SLUG: ${{ secrets.SIGNPATH_ARTIFACT_CONFIGURATION_SLUG || vars.SIGNPATH_ARTIFACT_CONFIGURATION_SLUG }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ github.sha }}
+          # Full history so `git describe` can find the latest v* release tag —
+          # alpha versions are derived from it (package.json is a placeholder).
+          fetch-depth: 0
+
+      - name: Enable git long paths (Windows)
+        shell: pwsh
+        run: git config --global core.longpaths true
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 11.4.0
+
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.9
+
+      - name: Get pnpm store path
+        id: pnpm-store
+        shell: bash
+        run: echo "path=$(pnpm store path --silent)" >> "$GITHUB_OUTPUT"
+
+      - name: Cache pnpm store
+        uses: actions/cache@v5
+        continue-on-error: true
+        with:
+          path: ${{ steps.pnpm-store.outputs.path }}
+          key: ${{ runner.os }}-electron-pnpm-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-electron-pnpm-
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Resolve alpha version
+        id: alpha-version
+        shell: bash
+        env:
+          GITHUB_RUN_NUMBER: ${{ github.run_number }}
+          GITHUB_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          # The latest v* tag reachable from this commit is the version source
+          # of truth (package.json only carries a 0.0.0 placeholder). Alpha
+          # builds advertise the *next* patch version so semver comparison
+          # makes the alpha newer than the current stable. Once that stable
+          # ships, its semver beats the alpha prerelease tag and alpha users
+          # cleanly migrate forward.
+          latest_tag="$(git describe --tags --match 'v*' --abbrev=0 2>/dev/null || echo v0.0.0)"
+          base="${latest_tag#v}"
+          base="${base%%[-+]*}"
+          if [[ ! "$base" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Unsupported release tag: $latest_tag" >&2
+            exit 1
+          fi
+          IFS=. read -r major minor patch <<<"$base"
+          next_patch=$((patch + 1))
+          run="${GITHUB_RUN_NUMBER:-0}"
+          sha="${GITHUB_SHA:0:7}"
+          sha="${sha:-local}"
+          echo "Latest release tag: $latest_tag -> alpha base ${major}.${minor}.${next_patch}"
+          # The commit sha rides in the prerelease part (…-alpha.<run>.<sha>),
+          # not as +<sha> build metadata: pnpm refuses to workspace-link the
+          # exact-pinned internal deps (legalwork-server, opencode-router) when
+          # the stamped version carries build metadata, and falls back to the
+          # public npm registry (404 / name-squatted package).
+          {
+            echo "alpha_version=${major}.${minor}.${next_patch}-alpha.${run}.${sha}"
+            echo "base_version=${major}.${minor}.${next_patch}"
+            echo "release_tag=alpha-windows-v${major}.${minor}.${next_patch}-alpha.${run}-${sha}"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Stamp alpha version
+        shell: bash
+        env:
+          ALPHA_VERSION: ${{ steps.alpha-version.outputs.alpha_version }}
+        # Lockfile-only resync keeps pnpm-lock.yaml consistent with the stamped
+        # orchestrator dependency pins so later pnpm invocations don't reject
+        # the workspace (installs stay explicit + frozen before this step).
+        run: |
+          node scripts/release/apply-version.mjs --version "$ALPHA_VERSION"
+          pnpm install --lockfile-only --no-frozen-lockfile
+
+      - name: Build Electron alpha app
+        shell: bash
+        env:
+          # TARGET tells prepare-sidecar.mjs which architecture's sidecars
+          # to download.
+          TARGET: x86_64-pc-windows-msvc
+        run: pnpm --filter @legalwork/desktop build:electron
+
+      - name: Package Electron alpha (Windows)
+        shell: bash
+        run: |
+          set -euo pipefail
+          pnpm --dir apps/desktop exec electron-builder \
+            --config electron-builder.yml \
+            --win --x64 \
+            --publish never
+
+      - name: Validate SignPath configuration (Windows)
+        if: env.SIGNPATH_PROJECT_SLUG != ''
+        shell: bash
+        env:
+          SIGNPATH_API_TOKEN: ${{ secrets.SIGNPATH_API_TOKEN }}
+        run: |
+          set -euo pipefail
+
+          missing=()
+          for name in \
+            SIGNPATH_API_TOKEN \
+            SIGNPATH_ORGANIZATION_ID \
+            SIGNPATH_PROJECT_SLUG \
+            SIGNPATH_SIGNING_POLICY_SLUG; do
+            if [ -z "${!name:-}" ]; then
+              missing+=("$name")
+            fi
+          done
+
+          if [ "${#missing[@]}" -gt 0 ]; then
+            printf 'Missing Windows SignPath configuration: %s\n' "${missing[*]}" >&2
+            exit 1
+          fi
+
+      - name: Stage unsigned Windows installer for SignPath
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          mkdir -p "$RUNNER_TEMP/signpath-unsigned"
+          shopt -s nullglob
+          installers=(apps/desktop/dist-electron/legalwork-win-x64-*.exe)
+          if [ "${#installers[@]}" -ne 1 ]; then
+            printf 'Expected exactly one unsigned Windows installer, found %s.\n' "${#installers[@]}" >&2
+            printf '%s\n' "${installers[@]}" >&2
+            exit 1
+          fi
+          cp "${installers[0]}" "$RUNNER_TEMP/signpath-unsigned/"
+
+      - name: Upload unsigned Windows installer for SignPath
+        id: upload-unsigned-windows-installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: unsigned-legalwork-windows-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/signpath-unsigned/*.exe
+          if-no-files-found: error
+          retention-days: 1
+
+      - name: Submit Windows signing request to SignPath
+        if: env.SIGNPATH_PROJECT_SLUG != '' && env.SIGNPATH_ARTIFACT_CONFIGURATION_SLUG == ''
+        uses: signpath/github-action-submit-signing-request@v2
+        with:
+          api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
+          organization-id: ${{ env.SIGNPATH_ORGANIZATION_ID }}
+          project-slug: ${{ env.SIGNPATH_PROJECT_SLUG }}
+          signing-policy-slug: ${{ env.SIGNPATH_SIGNING_POLICY_SLUG }}
+          github-artifact-id: ${{ steps.upload-unsigned-windows-installer.outputs.artifact-id }}
+          wait-for-completion: true
+          output-artifact-directory: ${{ runner.temp }}/signpath-signed
+
+      - name: Submit Windows signing request to SignPath (artifact configuration)
+        if: env.SIGNPATH_ARTIFACT_CONFIGURATION_SLUG != ''
+        uses: signpath/github-action-submit-signing-request@v2
+        with:
+          api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
+          organization-id: ${{ env.SIGNPATH_ORGANIZATION_ID }}
+          project-slug: ${{ env.SIGNPATH_PROJECT_SLUG }}
+          signing-policy-slug: ${{ env.SIGNPATH_SIGNING_POLICY_SLUG }}
+          artifact-configuration-slug: ${{ env.SIGNPATH_ARTIFACT_CONFIGURATION_SLUG }}
+          github-artifact-id: ${{ steps.upload-unsigned-windows-installer.outputs.artifact-id }}
+          wait-for-completion: true
+          output-artifact-directory: ${{ runner.temp }}/signpath-signed
+
+      - name: Apply signed Windows installer
+        if: env.SIGNPATH_PROJECT_SLUG != ''
+        shell: bash
+        # Copies the signed installer back into dist-electron and rewrites the
+        # sha512/size in latest.yml so the updater accepts the signed binary.
+        run: node scripts/release/apply-signpath-windows-artifact.mjs "$RUNNER_TEMP/signpath-signed" apps/desktop/dist-electron
+
+      - name: Create immutable alpha prerelease
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ALPHA_VERSION: ${{ steps.alpha-version.outputs.alpha_version }}
+          ALPHA_RUN_RELEASE_TAG: ${{ steps.alpha-version.outputs.release_tag }}
+        run: |
+          set -euo pipefail
+          body="Rolling alpha build for LegalWork (Windows x64) from ${GITHUB_SHA}."
+          if gh release view "$ALPHA_RUN_RELEASE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "Alpha prerelease $ALPHA_RUN_RELEASE_TAG already exists; reusing it."
+            exit 0
+          fi
+          gh release create "$ALPHA_RUN_RELEASE_TAG" \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "LegalWork Alpha ${ALPHA_VERSION} (Windows x64)" \
+            --notes "$body" \
+            --target "$GITHUB_SHA" \
+            --prerelease
+
+      - name: Upload Electron alpha updater assets
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ALPHA_RUN_RELEASE_TAG: ${{ steps.alpha-version.outputs.release_tag }}
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          assets=(
+            apps/desktop/dist-electron/*.exe
+            apps/desktop/dist-electron/*.blockmap
+            apps/desktop/dist-electron/latest.yml
+          )
+          if [ ${#assets[@]} -eq 0 ]; then
+            echo "No Electron alpha assets found in apps/desktop/dist-electron" >&2
+            exit 1
+          fi
+          gh release upload "$ALPHA_RUN_RELEASE_TAG" "${assets[@]}" \
+            --repo "$GITHUB_REPOSITORY" \
+            --clobber
+
+      - name: Update alpha updater pointer
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ALPHA_RUN_RELEASE_TAG: ${{ steps.alpha-version.outputs.release_tag }}
+        run: |
+          set -euo pipefail
+          POINTER_MANIFEST="$RUNNER_TEMP/latest.yml"
+          export POINTER_MANIFEST
+          node <<'NODE'
+          const fs = require("node:fs");
+          const manifestPath = "apps/desktop/dist-electron/latest.yml";
+          const releaseTag = process.env.ALPHA_RUN_RELEASE_TAG;
+          const baseUrl = `https://github.com/eigenweltlabs/legalwork/releases/download/${releaseTag}`;
+          const rewritten = fs.readFileSync(manifestPath, "utf8")
+            .replace(/(url:\s*)(legalwork-[^\n]+)/g, `$1${baseUrl}/$2`)
+            .replace(/(path:\s*)(legalwork-[^\n]+)/g, `$1${baseUrl}/$2`);
+          fs.writeFileSync(process.env.POINTER_MANIFEST, rewritten);
+          NODE
+
+          if ! gh release view "$ALPHA_RELEASE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release create "$ALPHA_RELEASE_TAG" \
+              --repo "$GITHUB_REPOSITORY" \
+              --title "$ALPHA_RELEASE_NAME" \
+              --notes "Stable Electron updater pointer for the newest Windows x64 alpha prerelease." \
+              --target "$GITHUB_SHA" \
+              --prerelease
+          fi
+
+          gh release upload "$ALPHA_RELEASE_TAG" "$POINTER_MANIFEST#latest.yml" \
+            --repo "$GITHUB_REPOSITORY" \
+            --clobber
