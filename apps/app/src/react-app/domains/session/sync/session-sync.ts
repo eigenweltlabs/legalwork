@@ -87,6 +87,35 @@ function getErrorStatus(error: unknown) {
   return typeof status === "number" ? status : null;
 }
 
+/**
+ * Per-run stats straight from opencode's own data on the completed run: the
+ * last assistant message's token totals, plus counts of its tool and
+ * step-finish parts. Content-free (numbers only).
+ */
+function runStatsFromSnapshot(
+  snapshot: LegalworkSessionSnapshot | undefined,
+): { tokens_input: number; tokens_output: number; tool_call_count: number; turn_count: number } | null {
+  const messages = snapshot?.messages ?? [];
+  let last: LegalworkSessionSnapshot["messages"][number] | undefined;
+  for (const message of messages) {
+    if (message.info.role === "assistant") last = message;
+  }
+  if (!last) return null;
+  const tokens = (last.info as { tokens?: { input?: number; output?: number } }).tokens ?? {};
+  let toolCalls = 0;
+  let turns = 0;
+  for (const part of last.parts) {
+    if (part.type === "tool") toolCalls += 1;
+    else if (part.type === "step-finish") turns += 1;
+  }
+  return {
+    tokens_input: typeof tokens.input === "number" ? tokens.input : 0,
+    tokens_output: typeof tokens.output === "number" ? tokens.output : 0,
+    tool_call_count: toolCalls,
+    turn_count: turns,
+  };
+}
+
 function shouldRetrySyncSubscribe(error: unknown) {
   const status = getErrorStatus(error);
   return status !== 401 && status !== 403 && status !== 404;
@@ -905,8 +934,14 @@ function applyEvent(entry: SyncEntry, workspaceId: string, event: OpencodeEvent)
     // send path); also dedupes idle events from multiple workspace syncs.
     const runStartedAt = takeTaskRunStart(props.sessionID);
     if (runStartedAt !== null) {
+      const snapshot = getReactQueryClient().getQueryData<LegalworkSessionSnapshot>(
+        snapshotKey(workspaceId, props.sessionID),
+      );
       captureAnalyticsEvent("task_run_completed", {
+        session_id: props.sessionID,
         duration_ms: Date.now() - runStartedAt,
+        surface: analyticsSurface(),
+        ...(runStatsFromSnapshot(snapshot) ?? {}),
       });
     }
     useSessionActivityStore.getState().setRunStatus(workspaceId, props.sessionID, idleStatus);
