@@ -46,7 +46,7 @@
     ".": "./src/index.ts"
   },
   "dependencies": {
-    "@opencode-ai/sdk": "^1.17.3",
+    "@opencode-ai/sdk": "^1.17.18",
     "better-sqlite3": "^11.10.0",
     "drizzle-orm": "^0.45.1",
     "fflate": "^0.8.3",
