@@ -114,6 +114,10 @@ export function WelcomeRoute() {
   const platform = usePlatform();
   const [state, dispatch] = useReducer(welcomeReducer, initialWelcomeState);
   const [manualFolder, setManualFolder] = useState("");
+  // Pending usage-analytics choice for the welcome screen. Defaults on, but is only
+  // a local UI state here — it is not written to prefs (and so nothing is tracked)
+  // until the user actually leaves the welcome screen; see handleCreateWorkspace.
+  const [analyticsOptIn, setAnalyticsOptIn] = useState(true);
 
   // If user already completed onboarding, redirect away immediately — but NOT while the
   // provider step is showing (the workspace exists, yet the user still has to connect a
@@ -198,9 +202,13 @@ export function WelcomeRoute() {
           if (targetSessionId) writeLastSessionFor(targetWorkspaceId, targetSessionId);
         }
         dispatch({ type: "close" });
+        // The user is now leaving the welcome screen — commit the usage-analytics
+        // choice (default on; off if they turned the toggle off). Analytics is never
+        // enabled before this point, nor for users who never pass through onboarding.
+        local.setPrefs((prev) => ({ ...prev, analyticsEnabled: analyticsOptIn }));
         // Hand off to the new session, which runs the remaining onboarding steps as
-        // full-screen covers (connect a model, then usage analytics). Onboarding is
-        // marked complete at the end of those steps — see the session route.
+        // full-screen covers (connect a model). Onboarding is marked complete at the
+        // end of those steps — see the session route.
         const target = targetWorkspaceId
           ? workspaceSessionRoute(targetWorkspaceId, targetSessionId)
           : "/session";
@@ -215,7 +223,7 @@ export function WelcomeRoute() {
         dispatch({ type: "create:finish" });
       }
     },
-    [markOnboardingComplete, navigate],
+    [markOnboardingComplete, navigate, local, analyticsOptIn],
   );
 
   const handleCreateRemote = useCallback(
@@ -335,6 +343,8 @@ export function WelcomeRoute() {
           onManualFolderChange={setManualFolder}
           onUseManualFolder={handleUseManualFolder}
           showManualFolder={import.meta.env.DEV && isDesktopRuntime()}
+          analyticsEnabled={analyticsOptIn}
+          onAnalyticsChange={setAnalyticsOptIn}
         />
       ) : null}
       <CreateWorkspaceModal

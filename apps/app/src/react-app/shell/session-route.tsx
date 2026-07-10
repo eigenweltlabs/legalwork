@@ -105,7 +105,6 @@ import { appMentionInstruction } from "@/react-app/domains/session/surface/compo
 import { CreateWorkspaceModal } from "@/react-app/domains/workspace/create-workspace-modal";
 import { useSessionProviderAuth } from "@/react-app/domains/connections/provider-auth/use-session-provider-auth";
 import { ProviderSelectionStep } from "@/react-app/domains/onboarding/provider-selection-step";
-import { UsageAnalyticsStep } from "@/react-app/domains/onboarding/usage-analytics-step";
 import { useMcpConnectedCount } from "@/react-app/domains/connections/use-mcp-connected-count";
 import { RenameWorkspaceModal } from "@/react-app/domains/workspace/rename-workspace-modal";
 import { ModelPickerModal } from "@/react-app/domains/session/modals/model-picker-modal";
@@ -568,7 +567,7 @@ export function SessionRoute() {
     opencodeClient && selectedWorkspaceId && !loading && !selectedWorkspaceError && !selectedModelUnavailable,
   );
 
-  const { store: sessionProviderAuthStore, snapshot: sessionProviderAuthSnapshot, onboardingStep, goToAnalytics, finishOnboarding } =
+  const { store: sessionProviderAuthStore, snapshot: sessionProviderAuthSnapshot, onboardingStep, finishOnboarding } =
     useSessionProviderAuth({
       opencodeClient,
       providers,
@@ -1496,8 +1495,9 @@ export function SessionRoute() {
       />
     ) : null}
     {onboardingStep === "connect" ? (
-      // Step 2 cover: the real provider-selection design (z-40) with the searchable
-      // connect modal (z-50) opening on top of it. Connecting auto-advances to step 3.
+      // Final onboarding cover: the real provider-selection design (z-40) with the
+      // searchable connect modal (z-50) on top. Usage-analytics consent lives on the
+      // welcome step; connecting or skipping here ends onboarding.
       <ProviderSelectionStep
         onConnect={(providerId) =>
           sessionProviderAuthStore.openProviderAuthModal({
@@ -1505,16 +1505,7 @@ export function SessionRoute() {
             returnFocusTarget: "composer",
           })
         }
-        onSkip={goToAnalytics}
-      />
-    ) : null}
-    {onboardingStep === "analytics" ? (
-      // Step 3 cover: usage-analytics consent, then onboarding is complete.
-      <UsageAnalyticsStep
-        onChoice={(enabled) => {
-          local.setPrefs((prev) => ({ ...prev, analyticsEnabled: enabled, hasCompletedOnboarding: true }));
-          finishOnboarding();
-        }}
+        onSkip={finishOnboarding}
       />
     ) : null}
     <SessionPage
