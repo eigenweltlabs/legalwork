@@ -56,6 +56,14 @@ function send(message) {
   }
 }
 
+// A native-addon throw (e.g. Electron's "External buffers are not allowed")
+// must reach the UI as a readable error, not a silent exit-code-1. Report,
+// then die so the service can respawn a clean process.
+process.on("uncaughtException", (error) => {
+  send({ type: "load-error", error: `Transcriber crashed: ${error?.message ?? String(error)}` });
+  setTimeout(() => process.exit(1), 50);
+});
+
 class StreamState {
   constructor(streamId) {
     this.streamId = streamId;
@@ -178,7 +186,11 @@ function msFromSamples(sampleIndex) {
 
 function drainVadSegments(state) {
   while (!state.vad.isEmpty()) {
-    const segment = state.vad.front();
+    // enableExternalBuffer=false: Electron forbids N-API external buffers
+    // ("External buffers are not allowed"), and the default (true) made this
+    // call throw — killing the worker on the first speech frame. The copy
+    // into a V8-owned buffer is trivial next to the decode that follows.
+    const segment = state.vad.front(false);
     state.vad.pop();
     const startMs = msFromSamples(segment.start);
     const endMs = msFromSamples(segment.start + segment.samples.length);

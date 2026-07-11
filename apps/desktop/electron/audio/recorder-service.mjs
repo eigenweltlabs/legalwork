@@ -67,10 +67,22 @@ export class RecorderService {
       ((workerPath) => {
         const nodeRequire = createRequire(import.meta.url);
         const { utilityProcess } = nodeRequire("electron");
-        return utilityProcess.fork(workerPath, [], {
+        // Pipe (not ignore) so a worker crash leaves its uncaught exception
+        // in the main-process log instead of dying silently with "exited
+        // unexpectedly (code 1)" and no trace.
+        const worker = utilityProcess.fork(workerPath, [], {
           serviceName: "legalwork-transcriber",
-          stdio: "ignore",
+          stdio: ["ignore", "pipe", "pipe"],
         });
+        for (const stream of [worker.stdout, worker.stderr]) {
+          stream?.setEncoding("utf8");
+          stream?.on("data", (text) => {
+            for (const line of String(text).split("\n")) {
+              if (line.trim()) console.warn(`[transcriber] ${line}`);
+            }
+          });
+        }
+        return worker;
       });
 
     this.modelManager = new AudioModelManager({
@@ -225,7 +237,9 @@ export class RecorderService {
       this.worker = null;
       this.workerReady = false;
       this.loadedModel = null;
-      if (this.transcriberStatus.state !== "idle") {
+      // Keep a specific error (e.g. the worker's own crash report) over the
+      // generic exit message.
+      if (this.transcriberStatus.state !== "idle" && this.transcriberStatus.state !== "error") {
         this.setTranscriberStatus({
           state: "error",
           modelId,
@@ -495,6 +509,26 @@ export class RecorderService {
   async deleteRecording(recordingId) {
     await this.cancelRecording(recordingId).catch(() => {});
     await fsp.rm(path.join(this.recordingsDir, recordingId), { recursive: true, force: true });
+    return this.listRecordings();
+  }
+
+  async renameRecording(recordingId, title) {
+    const raw = String(title ?? "").trim();
+    const nextTitle = raw ? sanitizeTitle(raw) : "";
+    if (nextTitle) {
+      const active = this.activeRecordings.get(recordingId);
+      if (active) {
+        active.meta.title = nextTitle;
+        await writeMeta(active.meta.folderPath, active.meta);
+      } else {
+        const folderPath = path.join(this.recordingsDir, recordingId);
+        const meta = await readMeta(folderPath);
+        if (meta) {
+          meta.title = nextTitle;
+          await writeMeta(folderPath, meta);
+        }
+      }
+    }
     return this.listRecordings();
   }
 
