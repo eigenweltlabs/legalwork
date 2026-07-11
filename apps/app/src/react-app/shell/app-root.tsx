@@ -14,6 +14,7 @@ import { LegalworkControlProvider, LegalworkRouteControlActions } from "./contro
 import { SessionRoute } from "./session-route";
 import { SettingsRoute } from "./settings-route";
 import { ShellConfigProvider } from "./shell-config";
+import { StealthMode } from "./stealth-mode";
 import { WelcomeRoute } from "./welcome-route";
 
 
@@ -130,6 +131,7 @@ export function AppRoot() {
         true app-level signal.
       */}
       <NewProvidersListener />
+      <StealthMode />
       <DevProfilerOverlay />
       <ReactRenderWatchdogOverlay />
     </>

@@ -561,6 +561,12 @@ export type DesktopCommandMap = {
   resetOpencodeCache: { args: []; result: CacheResetResult };
   opencodeMcpAuth: { args: [action: string, name: string]; result: ExecResult };
   setWindowDecorations: { args: [decorated: boolean]; result: unknown };
+  /**
+   * Stealth (local-recording) mode for the main window: excludes it from
+   * screen shares / recordings via setContentProtection and drops it to a
+   * flat matte-black backdrop. Replaces the old always-on-top call overlay.
+   */
+  windowSetStealth: { args: [enabled: boolean]; result: boolean };
 
   // Local audio recording + transcription (Recorder tab)
   audioRecorderBootstrap: { args: []; result: AudioRecorderBootstrap };
@@ -605,6 +611,8 @@ export type DesktopCommandMap = {
   audioRecordingsList: { args: []; result: AudioRecordingMeta[] };
   audioRecordingGet: { args: [recordingId: string]; result: AudioRecordingDetail | null };
   audioRecordingDelete: { args: [recordingId: string]; result: AudioRecordingMeta[] };
+  /** Rename a recording (active or on disk); returns the refreshed list. */
+  audioRecordingRename: { args: [recordingId: string, title: string]; result: AudioRecordingMeta[] };
   audioRecordingSaveToWorkspace: {
     args: [recordingId: string, workspacePath: string];
     result: AudioSaveToWorkspaceResult;

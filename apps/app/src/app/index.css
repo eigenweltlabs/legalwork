@@ -1040,3 +1040,110 @@ html:not([data-theme="dark"]):not(.dark) {
   --dls-background: rgba(249, 251, 254, 0.72);
   --dls-canvas:     rgba(249, 251, 254, 0.58);
 }
+
+/* ============================================================================
+   STEALTH / LOCAL-RECORDING MODE — must stay LAST in this file.
+   While a recording runs, StealthMode pins the resolved theme to dark (so
+   every dark-keyed rule above engages) and sets
+   `document.documentElement[data-stealth="on"]`; the main process excludes
+   the window from screen shares (setContentProtection) and paints it black.
+   This layer then re-tints the dark theme to a flat matte black: no
+   gradients, no frosted glass, no shadows, no hover lifts — an inert black
+   panel to anyone glancing at (or accidentally seeing) the screen.
+   `:root[data-stealth="on"]` outguns the `[data-theme="dark"]` blocks above
+   on specificity AND order, so keep it at the bottom.
+   ========================================================================= */
+:root[data-stealth="on"] {
+  --lw-ink:       #E6E6E6;
+  --lw-paper:     #050505;
+  --lw-paper-2:   #000000;
+  --lw-paper-3:   #0A0A0A;
+
+  --background:           #000000;
+  --foreground:           #E6E6E6;
+  --card:                 #0A0A0A;
+  --card-foreground:      #E6E6E6;
+  --popover:              #0A0A0A;
+  --popover-foreground:   #E6E6E6;
+  --popover-border:       rgba(255,255,255,.08);
+  --primary:              #E6E6E6;
+  --primary-foreground:   #000000;
+  --secondary:            #0A0A0A;
+  --secondary-foreground: #E6E6E6;
+  --muted:                #0A0A0A;
+  --muted-foreground:     rgba(230,230,230,.50);
+  --accent:               rgba(255,255,255,.06);
+  --accent-foreground:    #E6E6E6;
+  --border:               rgba(255,255,255,.09);
+  --input:                rgba(255,255,255,.10);
+
+  --sidebar:                   #000000;
+  --sidebar-foreground:        #E6E6E6;
+  --sidebar-accent:            rgba(255,255,255,.06);
+  --sidebar-accent-foreground: #E6E6E6;
+  --sidebar-border:            rgba(255,255,255,.06);
+
+  --glass-fill:        linear-gradient(180deg, rgba(255,255,255,.04), rgba(255,255,255,.02));
+  --glass-fill-strong: linear-gradient(180deg, rgba(255,255,255,.05), rgba(255,255,255,.03));
+  --glass-fill-dark:   linear-gradient(180deg, rgba(255,255,255,.04), rgba(255,255,255,.02));
+  --glass-border:      rgba(255,255,255,.08);
+  --glass-border-dark: rgba(255,255,255,.08);
+  --shadow-glass:      none;
+  --shadow-glass-lg:   none;
+  --overlay-fill:      linear-gradient(180deg, #0E0E0E, #060606);
+
+  --dls-surface:        #0A0A0A;
+  --dls-sidebar:        #000000;
+  --dls-app-bg:         #000000;
+  --dls-background:     #000000;
+  --dls-canvas:         #000000;
+  --dls-surface-muted:  #101010;
+  --dls-border:         rgba(255,255,255,.09);
+  --dls-text-primary:   #E6E6E6;
+  --dls-text-secondary: rgba(230,230,230,.50);
+  --dls-hover:          rgba(255,255,255,.05);
+  --dls-active:         rgba(255,255,255,.08);
+  --dls-shell-shadow:   none;
+  --dls-card-shadow:    none;
+
+  color-scheme: dark;
+}
+
+/* Flat black everywhere the environment paints a field. */
+:root[data-stealth="on"] body,
+:root[data-stealth="on"] html {
+  background: #000000 !important;
+}
+
+/* De-frost the chrome: sidebar rail, cards, soft shells — solid, flat. */
+:root[data-stealth="on"] [data-slot="sidebar-inner"] {
+  background: #000000 !important;
+  box-shadow: none !important;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+:root[data-stealth="on"] [data-slot="card"],
+:root[data-stealth="on"] .ow-soft-card,
+:root[data-stealth="on"] .ow-soft-shell,
+:root[data-stealth="on"] .glass,
+:root[data-stealth="on"] .glass-strong,
+:root[data-stealth="on"] .lw-glass-panel {
+  background: #0A0A0A !important;
+  border-color: rgba(255,255,255,.09) !important;
+  box-shadow: none !important;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+:root[data-stealth="on"] [data-slot="card"]:hover {
+  box-shadow: none !important;
+  transform: none;
+}
+
+/* Opaque flat overlays (dialogs/popovers) — no lurching glass shadows. */
+:root[data-stealth="on"] [data-slot="dialog-content"],
+:root[data-stealth="on"] [data-slot="popover-content"],
+:root[data-stealth="on"] [data-slot="command-dialog-popup"] {
+  background: #0E0E0E !important;
+  box-shadow: none !important;
+  border: 1px solid rgba(255,255,255,.10) !important;
+}

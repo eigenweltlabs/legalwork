@@ -1729,6 +1729,9 @@ const desktopCommandHandlers = {
   "audioRecordingDelete": async (event, ...args) => {
       return recorderService().deleteRecording(String(args[0] ?? ""));
   },
+  "audioRecordingRename": async (event, ...args) => {
+      return recorderService().renameRecording(String(args[0] ?? ""), String(args[1] ?? ""));
+  },
   "audioRecordingSaveToWorkspace": async (event, ...args) => {
       return recorderService().saveToWorkspace(String(args[0] ?? ""), String(args[1] ?? ""));
   },
@@ -1745,6 +1748,24 @@ const desktopCommandHandlers = {
   },
   "audioOverlayGetVisible": async (event, ...args) => {
       return { visible: callOverlay.isVisible() };
+  },
+  "windowSetStealth": async (event, ...args) => {
+      const enabled = Boolean(args[0]);
+      if (!mainWindow || mainWindow.isDestroyed()) return false;
+      // Stealth mode: while a local recording runs the whole app is excluded
+      // from screen shares / recordings and drops to a flat matte-black
+      // backdrop (the renderer paints the rest via [data-stealth]). This
+      // replaces the old always-on-top call overlay.
+      mainWindow.setContentProtection(enabled);
+      if (process.platform === "darwin") {
+        // Clear the translucent vibrancy so the window reads as solid black,
+        // not a frosted panel that still hints at content underneath.
+        mainWindow.setVibrancy(enabled ? null : macosVibrancyForCurrentTheme());
+        mainWindow.setBackgroundColor(enabled ? "#000000" : "#00000001");
+      } else {
+        mainWindow.setBackgroundColor(enabled ? "#000000" : "#00000000");
+      }
+      return true;
   },
   "__openPath": async (event, ...args) => {
       const target = String(args[0] ?? "").trim();
