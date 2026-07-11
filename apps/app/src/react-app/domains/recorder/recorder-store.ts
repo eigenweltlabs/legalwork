@@ -19,6 +19,7 @@ import {
   audioRecordingCancel,
   audioRecordingDelete,
   audioRecordingGet,
+  audioRecordingRename,
   audioRecordingSaveToWorkspace,
   audioRecordingStart,
   audioRecordingStop,
@@ -128,10 +129,17 @@ type RecorderActions = {
   stopRecording: () => Promise<void>;
   cancelRecording: () => Promise<void>;
   deleteRecording: (recordingId: string) => Promise<void>;
+  renameRecording: (recordingId: string, title: string) => Promise<void>;
   openRecording: (recordingId: string) => Promise<void>;
   closeOpenedRecording: () => void;
   saveRecordingToWorkspace: (recordingId: string, workspacePath: string) => Promise<string | null>;
   getInsertableTranscript: () => string;
+  /**
+   * Drop the current live transcript into a chat's context as a hidden,
+   * no-reply message (the composer's "add call context" button). The model
+   * sees it on the next real turn; nothing renders in the thread.
+   */
+  insertTranscriptIntoSession: (sessionId: string, directory?: string) => Promise<boolean>;
   setOverlayVisible: (visible: boolean) => Promise<void>;
   ask: (question: string) => Promise<void>;
   suggestFollowUps: () => Promise<void>;
@@ -652,6 +660,28 @@ export const useRecorderStore = create<RecorderState & RecorderActions>((set, ge
       }));
     },
 
+    renameRecording: async (recordingId, title) => {
+      const trimmed = title.trim();
+      if (!trimmed) return;
+      try {
+        const recordings = await audioRecordingRename(recordingId, trimmed);
+        set((state) => {
+          const renamed = recordings.find((item) => item.id === recordingId);
+          return {
+            recordings,
+            openedRecording:
+              renamed && state.openedRecording?.meta.id === recordingId
+                ? { ...state.openedRecording, meta: renamed }
+                : state.openedRecording,
+            recording:
+              renamed && state.recording?.id === recordingId ? renamed : state.recording,
+          };
+        });
+      } catch (error) {
+        set({ error: error instanceof Error ? error.message : String(error) });
+      }
+    },
+
     openRecording: async (recordingId) => {
       const detail = await audioRecordingGet(recordingId);
       set({ openedRecording: detail });
@@ -672,6 +702,37 @@ export const useRecorderStore = create<RecorderState & RecorderActions>((set, ge
       const { segments, openedRecording } = get();
       const source = openedRecording ? openedRecording.segments : segments;
       return transcriptText(source, 100_000).trim();
+    },
+
+    insertTranscriptIntoSession: async (sessionId, directory) => {
+      const text = get().getInsertableTranscript();
+      if (!text) {
+        set({ error: t("recorder.context_inject_empty") });
+        return false;
+      }
+      const client = copilotContext?.getClient();
+      if (!client) {
+        set({ error: t("recorder.context_inject_no_session") });
+        return false;
+      }
+      const body = `${t("recorder.context_inject_header")}\n\n${text}`;
+      try {
+        // A synthetic part is invisible in the thread but still in the model's
+        // context; noReply keeps it from triggering a turn — it just seeds
+        // context for the user's next real message.
+        unwrap(
+          await client.session.promptAsync({
+            sessionID: sessionId,
+            directory: directory || copilotContext?.getDirectory() || undefined,
+            noReply: true,
+            parts: [{ type: "text", text: body, synthetic: true }],
+          }),
+        );
+        return true;
+      } catch (error) {
+        set({ error: error instanceof Error ? error.message : String(error) });
+        return false;
+      }
     },
 
     setOverlayVisible: async (visible) => {

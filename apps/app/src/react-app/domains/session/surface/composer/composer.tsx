@@ -1,7 +1,7 @@
 /** @jsxImportSource react */
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type { Agent } from "@opencode-ai/sdk/v2/client";
-import { AppWindowMac, ArrowUp, ChevronDown, ChevronRight, FileText, ListPlus, Paperclip, Plug, Settings, Sparkles, Square, Terminal, X, Zap } from "lucide-react";
+import { AppWindowMac, ArrowUp, AudioLines, ChevronDown, ChevronRight, FileText, ListPlus, Paperclip, Plug, Settings, Sparkles, Square, Terminal, X, Zap } from "lucide-react";
 import fuzzysort from "fuzzysort";
 import { toast } from "@/components/ui/sonner";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuShortcut, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
@@ -106,6 +106,12 @@ type ComposerProps = {
   /** Candidate models selected for this chat (up to 3), shown in the fusion multi-select. */
   fusionModels?: ModelRef[];
   onFusionModelsChange?: (models: ModelRef[]) => void;
+  /**
+   * Present only while a local recording runs: drop the live call transcript
+   * into this chat's context in the background (a hidden, no-reply message).
+   * Sits next to Fusion.
+   */
+  onInsertLiveTranscript?: () => void;
 };
 
 const FLUSH_PROMPT_EVENT = "legalwork:flushPromptDraft";
@@ -1529,6 +1535,23 @@ export function ReactSessionComposer(props: ComposerProps) {
                     onChange={props.onFusionModelsChange}
                     disabled={props.busy}
                   />
+                ) : null}
+
+                {props.onInsertLiveTranscript ? (
+                  <button
+                    type="button"
+                    onClick={props.onInsertLiveTranscript}
+                    disabled={props.busy}
+                    className="inline-flex h-9 max-h-9 items-center gap-1.5 rounded-md px-2.5 text-sm text-gray-10 transition-colors hover:bg-gray-3 hover:text-gray-12 disabled:pointer-events-none disabled:opacity-60"
+                    title={t("composer.insert_live_transcript_hint")}
+                  >
+                    <span className="relative flex size-2">
+                      <span className="absolute inline-flex size-full animate-ping rounded-full bg-red-9 opacity-75" />
+                      <span className="relative inline-flex size-2 rounded-full bg-red-9" />
+                    </span>
+                    <AudioLines size={14} />
+                    <span>{t("composer.insert_live_transcript")}</span>
+                  </button>
                 ) : null}
               </div>
 

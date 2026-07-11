@@ -44,6 +44,7 @@ import { useReactRenderWatchdog } from "@/react-app/shell/react-render-watchdog"
 import { SessionDebugPanel } from "./debug-panel";
 import { deriveRenderedSessionMessages, resolveRenderedSessionSnapshot } from "./session-render-state";
 import { useLocal } from "@/react-app/kernel/local-provider";
+import { useRecorderStore } from "@/react-app/domains/recorder/recorder-store";
 import { isModelReadableAttachment } from "@/react-app/domains/session/sync/attachment-support";
 import { deriveSessionRenderModel } from "@/react-app/domains/session/sync/transition-controller";
 import { useSessionScrollController } from "./scroll-controller";
@@ -474,6 +475,20 @@ export function SessionSurface(props: SessionSurfaceProps) {
     setFusionModels(props.sessionId, models);
   }, [props.sessionId, setFusionModels]);
   const fusionConfigured = (fusionModels?.length ?? 0) > 0;
+
+  // Live-transcript → context. `recording` is a stable object for the whole
+  // capture (set at start, cleared at stop), so subscribing here doesn't
+  // re-render the surface on every transcript segment; the transcript itself
+  // is read lazily at click time.
+  const recorderActive = useRecorderStore((state) => Boolean(state.recording));
+  const handleInsertLiveTranscript = useCallback(() => {
+    void useRecorderStore
+      .getState()
+      .insertTranscriptIntoSession(props.sessionId, props.workspaceRoot || undefined)
+      .then((ok) => {
+        if (ok) toast.success(t("composer.insert_live_transcript_done"));
+      });
+  }, [props.sessionId, props.workspaceRoot]);
   const appendQueuedDraft = useComposerStateStore((state) => state.appendQueuedDraft);
   const removeQueuedDraftFromStore = useComposerStateStore((state) => state.removeQueuedDraft);
   const clearQueuedDrafts = useComposerStateStore((state) => state.clearQueuedDrafts);
@@ -1461,6 +1476,7 @@ export function SessionSurface(props: SessionSurfaceProps) {
           onToggleFusion={fusionAvailable ? handleToggleFusion : undefined}
           fusionModels={fusionAvailable ? fusionModels ?? [] : []}
           onFusionModelsChange={fusionAvailable ? handleFusionModelsChange : undefined}
+          onInsertLiveTranscript={recorderActive ? handleInsertLiveTranscript : undefined}
           onUploadInboxFiles={props.onUploadInboxFiles ?? handleUploadInboxFiles}
           compactTopSpacing={Boolean(props.freeModelSelected || props.activeQuestion || (props.todos ?? []).some((todo) => todo.content.trim()) || props.activePermission || queuedMessages.length > 0)}
           topAccessory={
