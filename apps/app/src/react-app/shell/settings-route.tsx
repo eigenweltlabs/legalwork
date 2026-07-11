@@ -55,6 +55,8 @@ import { createProviderAuthStore, useProviderAuthStoreSnapshot, type CustomProvi
 import ProviderAuthModal from "@/react-app/domains/connections/provider-auth/provider-auth-modal";
 import ConnectionsModals from "@/react-app/domains/connections/modals";
 import { AiSettingsView } from "@/react-app/domains/settings/pages/ai-view";
+import { FusionSettingsSection } from "@/react-app/domains/settings/pages/fusion-settings-section";
+import { BenchmarkView } from "@/react-app/domains/benchmark/benchmark-view";
 // Side-effect imports: register extension config components into the registry.
 import "@/react-app/domains/settings/computer-use-config";
 import "@/react-app/domains/settings/google-workspace-config";
@@ -107,6 +109,7 @@ import {
   isDesktopRuntime,
   isElectronRuntime,
   isMacPlatform,
+  isWindowsPlatform,
   normalizeDirectoryPath,
   resolveModelDisplayName,
   resolveProviderDisplayName,
@@ -192,6 +195,10 @@ function parseSettingsPath(pathname: string): {
   tab: SettingsTab;
   redirectPath: string | null;
   extensionsSection?: "all" | "mcp" | "skills" | "plugins";
+  benchmarkRunId?: string;
+  benchmarkTaskId?: string;
+  benchmarkItemId?: string;
+  benchmarkItemChat?: boolean;
 } {
   const trimmed = pathname
     .replace(/^\/workspace\/[^/]+\/settings\/?/, "")
@@ -201,7 +208,7 @@ function parseSettingsPath(pathname: string): {
     return { tab: "general", redirectPath: "general" };
   }
 
-  const [head, tail] = trimmed.split("/");
+  const [head, tail, third] = trimmed.split("/");
   switch (head) {
     case "general":
     case "ai":
@@ -220,6 +227,24 @@ function parseSettingsPath(pathname: string): {
     case "skills":
     case "workflows":
       return { tab: head, redirectPath: null };
+    case "benchmark": {
+      const segments = trimmed.split("/");
+      if (tail === "runs" && third) {
+        const base = { tab: "benchmark" as const, redirectPath: null, benchmarkRunId: decodeURIComponent(third) };
+        if (segments[3] === "items" && segments[4]) {
+          return {
+            ...base,
+            benchmarkItemId: decodeURIComponent(segments[4]),
+            ...(segments[5] === "chat" ? { benchmarkItemChat: true } : {}),
+          };
+        }
+        return base;
+      }
+      if (tail === "tasks" && third) {
+        return { tab: "benchmark", redirectPath: null, benchmarkTaskId: decodeURIComponent(third) };
+      }
+      return { tab: "benchmark", redirectPath: null };
+    }
     case "extensions":
       if (tail === "mcp") return { tab: "extensions", redirectPath: null, extensionsSection: "mcp" };
       if (tail === "skills") return { tab: "extensions", redirectPath: null, extensionsSection: "skills" };
@@ -275,6 +300,15 @@ function settingsPathForRoute(route: ReturnType<typeof parseSettingsPath>) {
   if (route.tab === "extensions" && route.extensionsSection && route.extensionsSection !== "all") {
     return `extensions/${route.extensionsSection}`;
   }
+  if (route.tab === "benchmark" && route.benchmarkRunId) {
+    const base = `benchmark/runs/${encodeURIComponent(route.benchmarkRunId)}`;
+    if (!route.benchmarkItemId) return base;
+    const itemPath = `${base}/items/${encodeURIComponent(route.benchmarkItemId)}`;
+    return route.benchmarkItemChat ? `${itemPath}/chat` : itemPath;
+  }
+  if (route.tab === "benchmark" && route.benchmarkTaskId) {
+    return `benchmark/tasks/${encodeURIComponent(route.benchmarkTaskId)}`;
+  }
   return route.tab;
 }
 
@@ -283,6 +317,10 @@ export type SettingsSurfaceProps = {
   initialPath?: string;
   workspaceId?: string;
   onClose?: () => void;
+  /** Embedded mode only: notified whenever internal navigation changes the path. */
+  onEmbeddedPathChange?: (path: string) => void;
+  /** Embedded mode only: filled with the internal navigate function so the host can drive navigation. */
+  embeddedNavigateRef?: React.MutableRefObject<((path: string) => void) | null>;
   /**
    * Render only the active view (no settings nav chrome) so the surface can be
    * dropped into the main app shell as a standalone page — used by the top-level
@@ -312,6 +350,12 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
   const [legacySelectedWorkspaceId, setLegacySelectedWorkspaceId] = useState(() => navigationWorkspaceId ?? readActiveWorkspaceId() ?? "");
   const selectedWorkspaceId = routeWorkspaceId || legacySelectedWorkspaceId;
 
+  const onEmbeddedPathChange = props.onEmbeddedPathChange;
+  useEffect(() => {
+    if (!props.embedded) return;
+    onEmbeddedPathChange?.(embeddedPath);
+  }, [props.embedded, embeddedPath, onEmbeddedPathChange]);
+
   useEffect(() => {
     if (!props.embedded || !route.redirectPath) return;
     setEmbeddedPath(route.redirectPath);
@@ -334,6 +378,15 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
     }
     navigate(selectedWorkspaceId ? workspaceSettingsRoute(selectedWorkspaceId, path) : `/settings/${path}`);
   }, [navigate, props.embedded, selectedWorkspaceId]);
+
+  const embeddedNavigateRef = props.embeddedNavigateRef;
+  useEffect(() => {
+    if (!props.embedded || !embeddedNavigateRef) return;
+    embeddedNavigateRef.current = navigateSettingsPath;
+    return () => {
+      embeddedNavigateRef.current = null;
+    };
+  }, [props.embedded, embeddedNavigateRef, navigateSettingsPath]);
   const [baseUrl, setBaseUrl] = useState("");
   const [token, setToken] = useState("");
   const [legalworkClient, setLegalworkClient] = useState<LegalworkServerClient | null>(null);
@@ -765,6 +818,9 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
   const handleModelPickerLoadError = useCallback((error: unknown) => {
     toast.error(error instanceof Error ? error.message : t("app.unknown_error"));
   }, []);
+  // Which fusion default-candidate slot (0-2) the shared model picker modal
+  // is currently choosing for; null = picking the default model.
+  const [fusionPickerSlot, setFusionPickerSlot] = useState<number | null>(null);
   const modelPicker = useModelPicker({
     client: opencodeClient,
     baseUrl: opencodeBaseUrl,
@@ -1817,6 +1873,46 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
             onDisconnectProvider={handleDisconnectProvider}
             onEditProvider={handleEditCustomProvider}
             canDisconnectProvider={(source) => source !== "env"}
+            fusionView={
+              <FusionSettingsSection
+                fusionModels={local.prefs.fusionModels ?? []}
+                onPickModel={(slot) => {
+                  setFusionPickerSlot(slot);
+                  modelPicker.setQuery("");
+                  modelPicker.setOpen(true);
+                }}
+                onClearModel={(slot) => {
+                  local.setPrefs((prev) => ({
+                    ...prev,
+                    fusionModels: (prev.fusionModels ?? []).filter((_, index) => index !== slot),
+                  }));
+                }}
+              />
+            }
+          />
+        );
+      case "benchmark":
+        return (
+          <BenchmarkView
+            legalworkClient={legalworkClient}
+            workspaceId={runtimeWorkspaceId ?? selectedWorkspaceId}
+            providers={providers}
+            providerConnectedIds={providerConnectedIds}
+            runId={route.benchmarkRunId ?? null}
+            taskId={route.benchmarkTaskId ?? null}
+            itemId={route.benchmarkItemId ?? null}
+            itemChat={route.benchmarkItemChat ?? false}
+            onOpenRun={(id) => navigateSettingsPath(`benchmark/runs/${encodeURIComponent(id)}`)}
+            onOpenTask={(id) => navigateSettingsPath(`benchmark/tasks/${encodeURIComponent(id)}`)}
+            onOpenRunItem={(runId, itemId) =>
+              navigateSettingsPath(`benchmark/runs/${encodeURIComponent(runId)}/items/${encodeURIComponent(itemId)}`)
+            }
+            onOpenRunItemChat={(runId, itemId) =>
+              navigateSettingsPath(
+                `benchmark/runs/${encodeURIComponent(runId)}/items/${encodeURIComponent(itemId)}/chat`,
+              )
+            }
+            onBackToList={() => navigateSettingsPath("benchmark")}
           />
         );
       case "preferences":
@@ -2005,7 +2101,7 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
             installUpdateAndRestart={electronUpdaterState.installUpdateAndRestart}
             releaseChannel={local.prefs.releaseChannel ?? "stable"}
             onReleaseChannelChange={electronUpdaterState.setReleaseChannel}
-            alphaChannelSupported={isElectronRuntime() && isMacPlatform()}
+            alphaChannelSupported={isElectronRuntime() && (isMacPlatform() || isWindowsPlatform())}
           />
         );
       case "recovery":
@@ -2149,21 +2245,39 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
         setQuery={modelPicker.setQuery}
         target="default"
         current={
-          local.prefs.defaultModel ?? { providerID: "", modelID: "" }
+          (fusionPickerSlot !== null
+            ? (local.prefs.fusionModels ?? [])[fusionPickerSlot]
+            : local.prefs.defaultModel) ?? { providerID: "", modelID: "" }
         }
         onSelect={(next: ModelRef) => {
-          local.setPrefs((prev) => ({
-            ...prev,
-            defaultModel: next,
-            modelVariant: prev.defaultModel?.providerID === next.providerID && prev.defaultModel.modelID === next.modelID
-              ? prev.modelVariant
-              : null,
-          }));
+          if (fusionPickerSlot !== null) {
+            local.setPrefs((prev) => {
+              const models = [...(prev.fusionModels ?? [])];
+              if (fusionPickerSlot < models.length) {
+                models[fusionPickerSlot] = next;
+              } else {
+                models.push(next);
+              }
+              return { ...prev, fusionModels: models.slice(0, 3) };
+            });
+          } else {
+            local.setPrefs((prev) => ({
+              ...prev,
+              defaultModel: next,
+              modelVariant: prev.defaultModel?.providerID === next.providerID && prev.defaultModel.modelID === next.modelID
+                ? prev.modelVariant
+                : null,
+            }));
+          }
+          setFusionPickerSlot(null);
           modelPicker.setOpen(false);
         }}
         onBehaviorChange={() => {}}
         onOpenSettings={() => {}}
-        onClose={() => modelPicker.setOpen(false)}
+        onClose={() => {
+          setFusionPickerSlot(null);
+          modelPicker.setOpen(false);
+        }}
       />
     </>
   );

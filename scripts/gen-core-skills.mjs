@@ -21,21 +21,26 @@ const FILES = [
   { source: "skills/tabular-review/assets/vendor/pdf.min.js", path: ".opencode/skills/tabular-review/assets/vendor/pdf.min.js" },
   { source: "skills/tabular-review/assets/vendor/pdf.worker.min.js", path: ".opencode/skills/tabular-review/assets/vendor/pdf.worker.min.js" },
   { source: "agents/document-extractor.md", path: ".opencode/agents/document-extractor.md" },
+  { source: "agents/fusion-candidate.md", path: ".opencode/agents/fusion-candidate.md" },
   // docx-edit: agentic Word reading + editing (self-contained vendored OOXML engine).
   { source: "skills/docx-edit/SKILL.md", path: ".opencode/skills/docx-edit/SKILL.md" },
   { source: "skills/docx-edit/assets/docx-agent.mjs", path: ".opencode/skills/docx-edit/assets/docx-agent.mjs" },
   { source: "skills/docx-edit/assets/vendor/docx-engine.mjs", path: ".opencode/skills/docx-edit/assets/vendor/docx-engine.mjs" },
   { source: "agents/docx-redliner.md", path: ".opencode/agents/docx-redliner.md" },
   { source: "commands/edit-docx.md", path: ".opencode/commands/edit-docx.md" },
-  // pdf-tools: agentic PDF annotate / fill-form / sign (self-contained vendored pdf-lib).
+  // pdf-tools: agentic PDF text / annotate / fill-form / sign (self-contained vendored
+  // pdf-lib; `text` reuses tabular-review's vendored pdf.js, seeded above).
   { source: "skills/pdf-tools/SKILL.md", path: ".opencode/skills/pdf-tools/SKILL.md" },
   { source: "skills/pdf-tools/assets/pdf-agent.mjs", path: ".opencode/skills/pdf-tools/assets/pdf-agent.mjs" },
   { source: "skills/pdf-tools/assets/pdf-ops.mjs", path: ".opencode/skills/pdf-tools/assets/pdf-ops.mjs" },
+  { source: "skills/pdf-tools/assets/pdf-text.mjs", path: ".opencode/skills/pdf-tools/assets/pdf-text.mjs" },
   { source: "skills/pdf-tools/assets/vendor/pdf-lib.mjs", path: ".opencode/skills/pdf-tools/assets/vendor/pdf-lib.mjs" },
   { source: "commands/open.md", path: ".opencode/commands/open.md" },
   { source: "commands/annotate.md", path: ".opencode/commands/annotate.md" },
   { source: "commands/fill-form.md", path: ".opencode/commands/fill-form.md" },
   { source: "commands/sign.md", path: ".opencode/commands/sign.md" },
+  // benchmark-task: create a LegalWork benchmark task from chat (uses the benchmark_create_task tool).
+  { source: "skills/benchmark-task/SKILL.md", path: ".opencode/skills/benchmark-task/SKILL.md" },
 ];
 
 const entries = FILES.map((file) => {

@@ -62,7 +62,7 @@ import { VoicePanel } from "../voice/voice-panel";
 import { SidePanel } from "../panel/side-panel";
 import { WorkspaceFilesPanel } from "../panel/workspace-files-panel";
 import { TerminalDock } from "../terminal/terminal-dock";
-import { useActivePanelTab, usePanelTabStore, useSessionPanelState } from "../panel/panel-tab-store";
+import { LEARNINGS_PANEL_SESSION_ID, useActivePanelTab, usePanelTabStore, useSessionPanelState } from "../panel/panel-tab-store";
 import { useWorkspaceShellLayout } from "../../../shell/workspace-shell-layout";
 import { useControlAction, type LegalworkControlAction } from "../../../shell/control/control-provider";
 import { getExtensionId, isLegalWorkExtensionEnabled, LEGALWORK_EXTENSION_STATE_CHANGED } from "../../settings/extension-state";
@@ -286,8 +286,14 @@ export function SessionPage(props: SessionPageProps) {
   const { config: shellConfig } = useShellConfig();
   const sidebarOpen = useUiStateStore((state) => state.sidebarOpen);
   const setSidebarOpen = useUiStateStore((state) => state.setSidebarOpen);
+  // The side panel's open/close state is keyed per chat session. Top-level
+  // mainView pages (Learnings / Benchmark) have no selected session, so they key
+  // it on the synthetic LEARNINGS_PANEL_SESSION_ID instead. Without this the key
+  // is null and the panel can never open (regressed as "opens only on the 2nd
+  // click, and only after having visited a chat session first").
+  const panelStateSessionId = props.mainView ? LEARNINGS_PANEL_SESSION_ID : props.selectedSessionId;
   const sessionSidePanel = useUiStateStore((state) => (
-    props.selectedSessionId ? state.sidePanelState[props.selectedSessionId] ?? null : null
+    panelStateSessionId ? state.sidePanelState[panelStateSessionId] ?? null : null
   ));
   const voiceSidePanelOpen = useUiStateStore((state) => state.sidePanelState[GLOBAL_VOICE_SIDE_PANEL_KEY] === "voice");
   const setSidePanelState = useUiStateStore((state) => state.setSidePanelState);
@@ -319,6 +325,10 @@ export function SessionPage(props: SessionPageProps) {
   const filesRailActive = activeSidePanel === "files";
   const extensionsRailActive = activeSidePanel === "extensions";
   const voiceRailActive = activeSidePanel === "voice";
+  // Artifact targets registered by mainView pages (Learnings / Benchmark documents).
+  const learningsArtifactCount = usePanelTabStore(
+    (state) => state.transcriptArtifactTargets[LEARNINGS_PANEL_SESSION_ID]?.length ?? 0,
+  );
   const voiceExtension = useMemo(
     () => LEGALWORK_EXTENSION_CATALOG.find((entry) => getExtensionId(entry) === "legalwork-voice") ?? null,
     [],
@@ -351,8 +361,8 @@ export function SessionPage(props: SessionPageProps) {
   const setCurrentSidePanel = useCallback((panel: SidePanelItem | null) => {
     setSidePanelState(GLOBAL_VOICE_SIDE_PANEL_KEY, panel === "voice" ? "voice" : null);
     if (panel === "voice") return;
-    setSidePanelState(props.selectedSessionId, panel);
-  }, [props.selectedSessionId, setSidePanelState]);
+    setSidePanelState(panelStateSessionId, panel);
+  }, [panelStateSessionId, setSidePanelState]);
 
   const toggleCurrentSidePanel = useCallback((panel: SidePanelItem) => {
     if (panel === "voice") {
@@ -360,8 +370,8 @@ export function SessionPage(props: SessionPageProps) {
       return;
     }
     setSidePanelState(GLOBAL_VOICE_SIDE_PANEL_KEY, null);
-    toggleSidePanelState(props.selectedSessionId, panel);
-  }, [props.selectedSessionId, setSidePanelState, toggleSidePanelState]);
+    toggleSidePanelState(panelStateSessionId, panel);
+  }, [panelStateSessionId, setSidePanelState, toggleSidePanelState]);
 
   // When the agent calls a built-in browser tool, the main process opens
   // the WebContentsView and sends panel-opened; when hide_browser is called
@@ -622,7 +632,9 @@ export function SessionPage(props: SessionPageProps) {
       const target = accessibleTargets.find((item) => item.id === requested?.id || item.value === requested?.value) ?? (
         requested?.kind && requested?.value ? requested : null
       );
-      if (target) openTarget(target);
+      // On mainView pages (Learnings / Benchmark) tabs live under the synthetic
+      // panel session so the side panel can render without a chat session.
+      if (target) openTarget(target, undefined, props.mainView ? LEARNINGS_PANEL_SESSION_ID : undefined);
     };
     const hide = (event: Event) => {
       const requested = (event as CustomEvent<OpenTarget>).detail;
@@ -907,6 +919,9 @@ export function SessionPage(props: SessionPageProps) {
           // chat has — the draggable top header and the bottom StatusBar (with the
           // settings gear) — and swap only the center content.
           <SidebarInset className="min-h-0 overflow-hidden bg-background mac:bg-background/80 mac:[&_header]:transition-[padding-left] mac:[&_header]:duration-200 mac:[&_header]:ease-linear mac:peer-data-[state=collapsed]:[&_header]:pl-28 mac:max-md:[&_header]:pl-28">
+            <div className="flex min-h-0 flex-1">
+            <ResizablePanelGroup orientation="horizontal" className="min-h-0 flex-1">
+              <ResizablePanel minSize="360px" className="min-w-0">
             <main className="flex h-full min-w-0 flex-1 flex-col overflow-hidden">
               <header className="z-10 flex h-10 shrink-0 items-center justify-between border-b border-border px-4 md:px-6 mac:titlebar-drag mac:backdrop-blur-2xl mac:backdrop-saturate-150">
                 <div className="flex min-w-0 items-center gap-3">
@@ -937,6 +952,72 @@ export function SessionPage(props: SessionPageProps) {
                 />
               ) : null}
             </main>
+              </ResizablePanel>
+              {activeSidePanel === "panel" || (activeSidePanel === "extensions" && props.settingsSlot) ? (
+                <>
+                  <ResizableHandle withHandle className="hidden lg:flex" />
+                  <ResizablePanel
+                    defaultSize="480px"
+                    minSize="320px"
+                    maxSize="70%"
+                    className="min-h-0 overflow-hidden lg:flex lg:flex-col"
+                  >
+                    {activeSidePanel === "extensions" && props.settingsSlot ? (
+                      <div className="flex h-full min-h-0 flex-col overflow-y-auto bg-background">
+                        {props.settingsSlot}
+                      </div>
+                    ) : (
+                      <SidePanel
+                        sessionId={LEARNINGS_PANEL_SESSION_ID}
+                        client={props.legalworkServerClient}
+                        workspaceId={props.runtimeWorkspaceId}
+                        workspaceRoot={props.selectedWorkspaceRoot}
+                        isRemoteWorkspace={props.selectedWorkspaceDisplay.workspaceType === "remote"}
+                        onClose={closeRightPane}
+                      />
+                    )}
+                  </ResizablePanel>
+                </>
+              ) : null}
+            </ResizablePanelGroup>
+            {/* Same right icon rail as the session view. */}
+            <aside className="flex w-11 shrink-0 flex-col items-center gap-1 border-l border-border bg-background/95 px-1 py-2 text-muted-foreground mac:titlebar-no-drag">
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                className={cn(
+                  "rounded-xl transition-colors hover:bg-muted hover:text-foreground",
+                  panelRailActive && "bg-primary/10 text-primary hover:bg-primary/15 hover:text-primary",
+                )}
+                onClick={() => setCurrentSidePanel(panelRailActive ? null : "panel")}
+                title={learningsArtifactCount > 0 ? `Files (${learningsArtifactCount})` : "No files yet"}
+                aria-label={learningsArtifactCount > 0 ? `Files (${learningsArtifactCount})` : "No files yet"}
+                aria-pressed={panelRailActive}
+                disabled={learningsArtifactCount === 0}
+              >
+                <FileText size={17} />
+                {learningsArtifactCount > 0 ? (
+                  <span className="absolute right-0 top-0 flex min-w-3.5 translate-x-1 -translate-y-1 items-center justify-center rounded-full bg-primary px-1 text-[9px] font-semibold leading-3 text-primary-foreground">
+                    {learningsArtifactCount > 9 ? "9+" : learningsArtifactCount}
+                  </span>
+                ) : null}
+              </Button>
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                className={cn(
+                  "rounded-xl transition-colors hover:bg-muted hover:text-foreground",
+                  extensionsRailActive && "bg-primary/10 text-primary hover:bg-primary/15 hover:text-primary",
+                )}
+                onClick={props.settingsSlot ? openExtensionsRailPane : props.onOpenSettings}
+                title="Extensions"
+                aria-label="Extensions"
+                aria-pressed={extensionsRailActive}
+              >
+                <Settings2 size={17} />
+              </Button>
+            </aside>
+            </div>
           </SidebarInset>
         ) : (
         <SidebarInset className="min-h-0 overflow-hidden bg-background mac:bg-background/80 mac:[&_header]:transition-[padding-left] mac:[&_header]:duration-200 mac:[&_header]:ease-linear mac:peer-data-[state=collapsed]:[&_header]:pl-28 mac:max-md:[&_header]:pl-28">

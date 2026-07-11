@@ -1,7 +1,11 @@
 /** @jsxImportSource react */
 
-import type { ReactNode } from "react";
-import { Activity, ArrowRight, ArrowUpRight, ChevronRight, FileText, Folder, ListChecks, RefreshCw, Rocket } from "lucide-react";
+import { useRef, useState, type ReactNode } from "react";
+import { Activity, ArrowLeft, ArrowRight, ArrowUpRight, ChevronRight, FileText, Folder, ListChecks, RefreshCw, Rocket } from "lucide-react";
+
+import { Button } from "@/components/ui/button";
+import { useBenchmarkStore } from "../domains/benchmark/store";
+import { SettingsSurface } from "./settings-route";
 
 /**
  * Learnings main pane. Rendered inside the session shell's `SidebarInset`
@@ -9,8 +13,10 @@ import { Activity, ArrowRight, ArrowUpRight, ChevronRight, FileText, Folder, Lis
  *
  * Teaser for the unreleased Learning product: three frosted glass cards, each
  * holding a small purpose-built visualization of one pillar —
- *   1. Data structuring  2. Post learning  3. Continual learning
- * with a short description. All content is illustrative demo data, not live state.
+ *   1. Data structuring & Benchmarks  2. Post learning  3. Continual learning
+ * The first card is live: clicking it opens the Benchmark task page (embedded
+ * via the same singleView SettingsSurface mechanism the Workflows and
+ * Integrations pages use). The other two are blurred illustrative demo data.
  */
 
 type ModelStatus = "live" | "learning" | "staged";
@@ -148,27 +154,158 @@ function ContinualLearningViz() {
   );
 }
 
-function PreviewCard({ step, title, desc, children }: { step: string; title: string; desc: string; children: ReactNode }) {
+function PreviewCard({
+  step,
+  title,
+  desc,
+  children,
+  blurred = true,
+  onClick,
+  cta,
+}: {
+  step: string;
+  title: string;
+  desc: string;
+  children: ReactNode;
+  blurred?: boolean;
+  onClick?: () => void;
+  cta?: ReactNode;
+}) {
   return (
-    <div className="glass flex flex-col gap-4 rounded-[20px] p-4" style={{ boxShadow: "none" }}>
+    <div
+      className={`glass flex flex-col gap-4 rounded-[20px] p-4 ${
+        onClick ? "cursor-pointer transition-shadow hover:shadow-[0_0_0_1.5px_rgba(35,82,222,0.35)]" : ""
+      }`}
+      style={{ boxShadow: "none" }}
+      role={onClick ? "button" : undefined}
+      tabIndex={onClick ? 0 : undefined}
+      onClick={onClick}
+      onKeyDown={onClick ? (event) => (event.key === "Enter" || event.key === " ") && onClick() : undefined}
+    >
       <div
         className="flex h-[150px] items-center justify-center overflow-hidden rounded-xl p-4"
         style={{ border: "1px solid var(--border)", background: "rgba(255,255,255,.30)" }}
       >
-        <div className="pointer-events-none h-full w-full select-none blur-[2px]">{children}</div>
+        <div className={`pointer-events-none h-full w-full select-none ${blurred ? "blur-[2px]" : ""}`}>
+          {children}
+        </div>
       </div>
       <div>
         <div className="flex items-center gap-2">
           <span className="font-mono text-[10px] tracking-[0.08em] text-muted-foreground">{step}</span>
           <h3 className="text-sm font-medium text-foreground">{title}</h3>
+          {onClick ? <ArrowRight className="ml-auto size-3.5 text-muted-foreground/60" /> : null}
         </div>
         <p className="mt-1.5 text-[13px] leading-relaxed text-muted-foreground">{desc}</p>
       </div>
+      {cta ? <div className="mt-auto pt-1">{cta}</div> : null}
     </div>
   );
 }
 
-export function LearningsPane() {
+function TalkWithResearcherLink() {
+  return (
+    <a
+      href="https://eigenweltlabs.com"
+      target="_blank"
+      rel="noopener noreferrer"
+      onClick={(event) => event.stopPropagation()}
+      className="inline-flex h-8 items-center justify-center gap-1.5 rounded-full border border-[rgba(35,82,222,0.22)] px-3 text-[12px] font-medium text-[#2352DE] transition-colors hover:bg-[rgba(35,82,222,0.08)]"
+    >
+      Talk with Researcher
+      <ArrowUpRight className="size-3.5" />
+    </a>
+  );
+}
+
+export type LearningsPaneProps = {
+  workspaceId?: string;
+};
+
+export function LearningsPane(props: LearningsPaneProps) {
+  const [view, setView] = useState<"overview" | "benchmark">("overview");
+  const [benchmarkPath, setBenchmarkPath] = useState("benchmark");
+  const benchmarkNavigateRef = useRef<((path: string) => void) | null>(null);
+
+  const benchmarkTasks = useBenchmarkStore((state) => state.tasks);
+  const benchmarkRuns = useBenchmarkStore((state) => state.runs);
+  const activeRun = useBenchmarkStore((state) => state.activeRun);
+
+  // One back affordance, always in the same spot: its label and target follow
+  // the current depth (detail screens go up one level, the root leaves to
+  // Learnings), and the current screen's title sits next to it.
+  const back = (() => {
+    const segments = benchmarkPath.split("/");
+    if (segments[1] === "tasks" && segments[2]) {
+      const taskId = decodeURIComponent(segments[2]);
+      return {
+        label: "Tasks",
+        action: () => benchmarkNavigateRef.current?.("benchmark"),
+        title: benchmarkTasks.find((task) => task.id === taskId)?.title ?? null,
+      };
+    }
+    if (segments[1] === "runs" && segments[2] && segments[3] === "items" && segments[4]) {
+      const runPath = `benchmark/runs/${segments[2]}`;
+      const itemPath = `${runPath}/items/${segments[4]}`;
+      const itemId = decodeURIComponent(segments[4]);
+      const item = activeRun?.items.find((entry) => entry.id === itemId) ?? null;
+      const itemTitle = item ? `${item.taskTitle} · ${item.modelID}` : null;
+      if (segments[5] === "chat") {
+        return {
+          label: "Details",
+          action: () => benchmarkNavigateRef.current?.(itemPath),
+          title: itemTitle ? `${itemTitle} — Chat` : "Chat",
+        };
+      }
+      return {
+        label: "Run",
+        action: () => benchmarkNavigateRef.current?.(runPath),
+        title: itemTitle,
+      };
+    }
+    if (segments[1] === "runs" && segments[2]) {
+      const runId = decodeURIComponent(segments[2]);
+      return {
+        label: "Runs",
+        action: () => benchmarkNavigateRef.current?.("benchmark"),
+        title:
+          activeRun?.run.id === runId
+            ? activeRun.run.title
+            : benchmarkRuns.find((run) => run.id === runId)?.title ?? null,
+      };
+    }
+    return { label: "Learnings", action: () => setView("overview"), title: "Benchmark" };
+  })();
+
+  if (view === "benchmark") {
+    return (
+      <div className="flex h-full w-full flex-col">
+        <div className="flex min-w-0 items-center gap-2 px-4 pt-3">
+          <Button variant="ghost" size="sm" onClick={back.action}>
+            <ArrowLeft size={14} />
+            {back.label}
+          </Button>
+          {back.title ? (
+            <>
+              <span className="text-muted-foreground/40">/</span>
+              <span className="truncate text-sm font-medium text-foreground">{back.title}</span>
+            </>
+          ) : null}
+        </div>
+        <div className="flex min-h-0 flex-1 flex-col">
+          <SettingsSurface
+            embedded
+            singleView
+            initialPath="benchmark"
+            workspaceId={props.workspaceId}
+            onEmbeddedPathChange={setBenchmarkPath}
+            embeddedNavigateRef={benchmarkNavigateRef}
+          />
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="relative h-full w-full overflow-y-auto">
       {/* Brand radial wash (kept from the original placeholder). */}
@@ -192,8 +329,23 @@ export function LearningsPane() {
         <div className="mt-8 grid gap-4 md:grid-cols-3">
           <PreviewCard
             step="01"
-            title="Data structuring"
+            title="Data structuring & Benchmarks"
             desc="We extract the firm's tacit knowledge from your matters, redlines, and comments: partner preferences, drafting style, negotiation playbooks, and review standards."
+            blurred={false}
+            onClick={() => setView("benchmark")}
+            cta={
+              <Button
+                size="sm"
+                className="gap-1.5"
+                onClick={(event) => {
+                  event.stopPropagation();
+                  setView("benchmark");
+                }}
+              >
+                Start
+                <ArrowRight className="size-3.5" />
+              </Button>
+            }
           >
             <DataStructuringViz />
           </PreviewCard>
@@ -201,6 +353,7 @@ export function LearningsPane() {
             step="02"
             title="Post learning"
             desc="A specialist model per practice area, learned on your work and benchmarked against open baselines. Weights your firm owns."
+            cta={<TalkWithResearcherLink />}
           >
             <ModelsViz />
           </PreviewCard>
@@ -208,22 +361,10 @@ export function LearningsPane() {
             step="03"
             title="Continual learning"
             desc="Signals from real work, like corrections, rewrites, and missed context, become verifiable tasks that continual learn your models and roll out."
+            cta={<TalkWithResearcherLink />}
           >
             <ContinualLearningViz />
           </PreviewCard>
-        </div>
-
-        {/* CTA */}
-        <div className="mt-8 flex justify-start">
-          <a
-            href="https://eigenweltlabs.com"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="ow-button-primary inline-flex h-10 items-center justify-center gap-2 rounded-full px-6 text-sm font-medium text-white"
-          >
-            Talk with Researcher
-            <ArrowUpRight className="size-4" />
-          </a>
         </div>
         </div>
       </div>

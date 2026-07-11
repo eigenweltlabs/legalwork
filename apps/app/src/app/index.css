@@ -42,6 +42,15 @@
   app-region: no-drag;
 }
 
+@utility no-scrollbar {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+
+  &::-webkit-scrollbar {
+    display: none;
+  }
+}
+
 :root {
   color-scheme: light;
   --dls-surface: var(--slate-1);
@@ -356,6 +365,66 @@ select:disabled {
 .command-just-saved {
   animation: command-highlight 2s ease-out;
   border-color: var(--indigo-a9);
+}
+
+/* Fusion mode: animated rainbow ring around the composer panel. The gradient
+   is painted on an inset pseudo-element and masked down to the border ring so
+   the panel background and content stay untouched. */
+@keyframes fusion-rainbow-slide {
+  to {
+    background-position: 400% 50%;
+  }
+}
+
+.fusion-rainbow-border::before {
+  content: "";
+  position: absolute;
+  inset: -1px;
+  z-index: 1;
+  border-radius: inherit;
+  padding: 2px;
+  background: linear-gradient(
+    90deg,
+    #ff5f6d,
+    #ffc371,
+    #f9f871,
+    #3ec97e,
+    #38b6ff,
+    #8b5cf6,
+    #ff5f6d
+  );
+  background-size: 400% 100%;
+  animation: fusion-rainbow-slide 6s linear infinite;
+  -webkit-mask:
+    linear-gradient(#fff 0 0) content-box,
+    linear-gradient(#fff 0 0);
+  -webkit-mask-composite: xor;
+  mask:
+    linear-gradient(#fff 0 0) content-box,
+    linear-gradient(#fff 0 0);
+  mask-composite: exclude;
+  pointer-events: none;
+}
+
+.fusion-rainbow-text {
+  background: linear-gradient(
+    90deg,
+    #ff5f6d,
+    #ffc371,
+    #3ec97e,
+    #38b6ff,
+    #8b5cf6,
+    #ff5f6d
+  );
+  background-size: 400% 100%;
+  animation: fusion-rainbow-slide 6s linear infinite;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+.fusion-rainbow-text svg {
+  color: #8b5cf6;
 }
 
 @keyframes progress-shimmer {

@@ -140,7 +140,7 @@ export function SettingsStatusBadge({ label, tone, className }: SettingsStatusBa
 }
 
 export interface SettingsNoticeProps extends SettingsLayoutProps {
-  tone?: "neutral" | "error";
+  tone?: "neutral" | "error" | "warning";
 }
 
 export function SettingsNotice({
@@ -153,6 +153,7 @@ export function SettingsNotice({
       className={cn(
         "rounded-xl border border-dls-border bg-dls-hover px-3 py-2 text-xs text-muted-foreground",
         tone === "error" && "border-red-7/30 bg-red-1/40 text-red-11",
+        tone === "warning" && "border-amber-7/30 bg-amber-1/40 text-amber-11",
         className,
       )}
     >

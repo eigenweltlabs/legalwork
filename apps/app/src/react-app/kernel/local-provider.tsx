@@ -50,6 +50,12 @@ export type LocalPreferences = {
    * on in onboarding or Settings -> Privacy. Never includes message content.
    */
   analyticsEnabled: boolean;
+  /**
+   * Fusion mode defaults: up to three candidate models preselected in the
+   * chat's fusion picker when fusion is turned on. The session's default
+   * model acts as the main/fusion model.
+   */
+  fusionModels: ModelRef[];
 };
 
 type LocalContextValue = {
@@ -76,6 +82,7 @@ const INITIAL_PREFS: LocalPreferences = {
   featureFlags: { microsandboxCreateSandbox: true },
   hasCompletedOnboarding: false,
   analyticsEnabled: false,
+  fusionModels: [],
 };
 
 function readPersisted<T>(key: string, fallback: T): T {

@@ -59,6 +59,7 @@ describe("legalwork runtime config file", () => {
     await writeRuntimeOpencodeConfig(config, "ws_1", (current) => ({
       ...current,
       mcp: { posthog: { type: "remote", url: "https://mcp.posthog.com/mcp", enabled: true } },
+      agent: { reviewer: { mode: "subagent", model: "opencode/big-pickle" } },
     }));
 
     const path = await writeLegalworkRuntimeConfigFile(config, "ws_1");
@@ -69,6 +70,8 @@ describe("legalwork runtime config file", () => {
     expect(mcp.posthog?.enabled).toBe(true);
     expect(parsed.default_agent).toBe("legalwork");
     expect(Array.isArray(parsed.plugin)).toBe(true);
+    const agents = parsed.agent as Record<string, Record<string, unknown>>;
+    expect(agents.reviewer?.model).toBe("opencode/big-pickle");
   });
 
   test("keepLegalworkRuntimeConfigFileFresh rewrites the file on runtime-DB writes", async () => {

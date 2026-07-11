@@ -1,7 +1,7 @@
 /** @jsxImportSource react */
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type { Agent } from "@opencode-ai/sdk/v2/client";
-import { AppWindowMac, ArrowUp, ChevronDown, ChevronRight, FileText, ListPlus, Paperclip, Plug, Settings, Square, Terminal, X, Zap } from "lucide-react";
+import { AppWindowMac, ArrowUp, ChevronDown, ChevronRight, FileText, ListPlus, Paperclip, Plug, Settings, Sparkles, Square, Terminal, X, Zap } from "lucide-react";
 import fuzzysort from "fuzzysort";
 import { toast } from "@/components/ui/sonner";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuShortcut, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
@@ -11,6 +11,7 @@ import type { ComposerAttachment, McpServerEntry, McpStatusMap, ModelRef, SkillC
 import { formatBytes, isMacPlatform } from "@/app/utils";
 import { t } from "@/i18n";
 import { isLegalWorkExtensionEnabled, isLegalWorkExtensionHidden, LEGALWORK_EXTENSION_STATE_CHANGED } from "@/react-app/domains/settings/extension-state";
+import { FusionModelMultiSelect } from "@/components/fusion-model-multi-select";
 import { ModelBehaviorSelect } from "@/components/model-behavior-select";
 import { ModelSelect } from "@/components/model-select";
 import { LexicalPromptEditor, type LexicalPromptEditorHandle } from "./editor";
@@ -99,16 +100,41 @@ type ComposerProps = {
   draftScopeKey?: string;
   compactTopSpacing?: boolean;
   topAccessory?: ReactNode;
+  /** Fusion mode: fan tasks out to the selected candidate models; the session model fuses their outputs. */
+  fusionEnabled?: boolean;
+  onToggleFusion?: () => void;
+  /** Candidate models selected for this chat (up to 3), shown in the fusion multi-select. */
+  fusionModels?: ModelRef[];
+  onFusionModelsChange?: (models: ModelRef[]) => void;
 };
 
 const FLUSH_PROMPT_EVENT = "legalwork:flushPromptDraft";
 const FOCUS_PROMPT_EVENT = "legalwork:focusPrompt";
+const FUSION_NEW_TOOLTIP_STORAGE_KEY = "legalwork.fusionNewTooltipSeen";
 const MAX_ATTACHMENT_BYTES = 8 * 1024 * 1024;
 const IMAGE_COMPRESS_MAX_PX = 2048;
 const IMAGE_COMPRESS_QUALITY = 0.82;
 const IMAGE_COMPRESS_TARGET_BYTES = 1_500_000;
 const FILE_URL_RE = /^file:\/\//i;
 const HTTP_URL_RE = /^https?:\/\//i;
+
+function shouldShowFusionNewTooltip(): boolean {
+  if (typeof window === "undefined") return false;
+  try {
+    return window.localStorage.getItem(FUSION_NEW_TOOLTIP_STORAGE_KEY) !== "1";
+  } catch {
+    return false;
+  }
+}
+
+function markFusionNewTooltipSeen(): void {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(FUSION_NEW_TOOLTIP_STORAGE_KEY, "1");
+  } catch {
+    // Storage unavailable: keep the composer usable.
+  }
+}
 
 /**
  * Extract external file/URL drops from a clipboard. Only used when the user
@@ -303,6 +329,7 @@ export function ReactSessionComposer(props: ComposerProps) {
   const [pluginsLoaded, setPluginsLoaded] = useState(Boolean(props.importedPlugins));
   const [, setExtensionStateVersion] = useState(0);
   const [dropzoneActive, setDropzoneActive] = useState(false);
+  const [fusionNewTooltipOpen, setFusionNewTooltipOpen] = useState(false);
   const toolMenuRef = useRef<HTMLDivElement | null>(null);
   const editorRef = useRef<LexicalPromptEditorHandle | null>(null);
   // IME composition guard: while an IME composition is active, we must not
@@ -315,6 +342,22 @@ export function ReactSessionComposer(props: ComposerProps) {
   useEffect(() => {
     draftRef.current = props.draft;
   }, [props.draft]);
+
+  useEffect(() => {
+    if (!props.onToggleFusion || props.fusionEnabled || !shouldShowFusionNewTooltip()) return;
+
+    let hideTimer: number | undefined;
+    const showTimer = window.setTimeout(() => {
+      markFusionNewTooltipSeen();
+      setFusionNewTooltipOpen(true);
+      hideTimer = window.setTimeout(() => setFusionNewTooltipOpen(false), 7000);
+    }, 1000);
+
+    return () => {
+      window.clearTimeout(showTimer);
+      if (hideTimer !== undefined) window.clearTimeout(hideTimer);
+    };
+  }, [props.fusionEnabled, props.onToggleFusion]);
 
   // Follow-up message UX (only relevant while the agent is busy):
   // - Enter sends immediately (the agent adjusts mid-task, aka "steer").
@@ -1048,7 +1091,9 @@ export function ReactSessionComposer(props: ComposerProps) {
       <div className="max-w-[800px] mx-auto">
         {/* Main composer panel */}
         <div
-          className={`relative overflow-visible rounded-[24px] border border-dls-border bg-dls-surface transition-all ${panelRoundedClass}`}
+          className={`relative overflow-visible rounded-[24px] border bg-dls-surface transition-all ${
+            props.fusionEnabled ? "fusion-rainbow-border border-transparent" : "border-dls-border"
+          } ${panelRoundedClass}`}
         >
           {props.topAccessory ? <div className="relative z-10">{props.topAccessory}</div> : null}
 
@@ -1445,6 +1490,46 @@ export function ReactSessionComposer(props: ComposerProps) {
                   onChange={props.onModelVariantChange}
                   disabled={props.busy}
                 />
+
+                {props.onToggleFusion ? (
+                  <span className="relative inline-flex">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setFusionNewTooltipOpen(false);
+                        props.onToggleFusion?.();
+                      }}
+                      disabled={props.busy}
+                      aria-pressed={props.fusionEnabled}
+                      className={`inline-flex h-9 max-h-9 items-center gap-1.5 rounded-md px-2.5 text-sm transition-colors disabled:pointer-events-none disabled:opacity-60 ${
+                        props.fusionEnabled
+                          ? "fusion-rainbow-text font-medium"
+                          : "text-gray-10 hover:bg-gray-3 hover:text-gray-12"
+                      }`}
+                      title={props.fusionEnabled ? t("fusion.toggle_off") : t("fusion.toggle_on")}
+                    >
+                      <Sparkles size={14} />
+                      <span>{t("fusion.toggle_label")}</span>
+                    </button>
+                    {fusionNewTooltipOpen ? (
+                      <span
+                        role="status"
+                        className="pointer-events-none absolute bottom-full left-1/2 z-50 mb-2 -translate-x-1/2 whitespace-nowrap rounded-xl bg-gray-12 px-3 py-1.5 text-xs font-medium text-gray-1 shadow-lg"
+                      >
+                        {t("fusion.new_tooltip")}
+                        <span className="absolute left-1/2 top-full size-2 -translate-x-1/2 -translate-y-1/2 rotate-45 rounded-[1px] bg-gray-12" />
+                      </span>
+                    ) : null}
+                  </span>
+                ) : null}
+
+                {props.fusionEnabled && props.onFusionModelsChange ? (
+                  <FusionModelMultiSelect
+                    selected={props.fusionModels ?? []}
+                    onChange={props.onFusionModelsChange}
+                    disabled={props.busy}
+                  />
+                ) : null}
               </div>
 
               {/*

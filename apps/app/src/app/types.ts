@@ -180,6 +180,7 @@ export type OnboardingStep = "welcome" | "local" | "server" | "connecting";
 export const SETTINGS_TAB_VALUES = [
   "general",
   "ai",
+  "benchmark",
   "preferences",
   "permissions",
   "safety",

@@ -39,7 +39,7 @@ function getProviderDisplayName(providerId: string) {
     .join(" ");
 }
 
-function useModelOptions(open: boolean) {
+export function useModelOptions(open: boolean) {
   const { client, opencodeBaseUrl, selectedWorkspaceRoot } = useWorkspace();
 
   const { data, refetch } = useProviderListQuery({

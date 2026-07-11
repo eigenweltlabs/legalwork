@@ -3,6 +3,24 @@ import { desktopFetch } from "./desktop";
 import { isDesktopRuntime } from "./runtime-env";
 import type { ExecResult, OpencodeConfigFile, WorkspaceInfo, WorkspaceList } from "./desktop";
 import type { ImportedMarketplace, ImportedPlugin } from "./extension-imports";
+import type {
+  BenchmarkCatalogResponse,
+  BenchmarkCustomTaskInput,
+  BenchmarkAnalytics,
+  BenchmarkImportResponse,
+  BenchmarkImportZipResponse,
+  BenchmarkItemDetail,
+  BenchmarkRunCreateInput,
+  BenchmarkRunDetail,
+  BenchmarkRunProgress,
+  BenchmarkRunSummary,
+  BenchmarkTaskDefinition,
+  BenchmarkTaskDocument,
+  BenchmarkTaskItem,
+  BenchmarkWorkType,
+} from "./benchmark-types";
+
+export * from "./benchmark-types";
 
 export type LegalworkServerCapabilities = {
   skills: { read: boolean; write: boolean; source: "legalwork" | "opencode" };
@@ -990,7 +1008,7 @@ async function requestMultipartRaw(
 async function requestBinary(
   baseUrl: string,
   path: string,
-  options: { method?: string; token?: string; hostToken?: string; timeoutMs?: number } = {},
+  options: { method?: string; token?: string; hostToken?: string; body?: unknown; timeoutMs?: number } = {},
 ): Promise<{ data: ArrayBuffer; contentType: string | null; filename: string | null }>{
   const url = `${baseUrl}${path}`;
   const fetchImpl = resolveFetch(url);
@@ -999,7 +1017,10 @@ async function requestBinary(
     url,
     {
       method: options.method ?? "GET",
-      headers: buildAuthHeaders(options.token, options.hostToken),
+      headers: options.body
+        ? buildHeaders(options.token, options.hostToken)
+        : buildAuthHeaders(options.token, options.hostToken),
+      body: options.body ? JSON.stringify(options.body) : undefined,
     },
     options.timeoutMs ?? DEFAULT_LEGALWORK_SERVER_TIMEOUT_MS,
   );
@@ -1044,6 +1065,8 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
     workspaceExport: 30_000,
     workspaceImport: 30_000,
     binary: 60_000,
+    benchmark: 15_000,
+    benchmarkCatalog: 45_000,
   };
 
   return {
@@ -1152,6 +1175,137 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
         { token, hostToken, timeoutMs: timeouts.sessionRead },
       );
     },
+    benchmarkGetCatalog: (
+      workspaceId: string,
+      options?: { verticals?: string[]; workTypes?: BenchmarkWorkType[]; search?: string; refresh?: boolean },
+    ) => {
+      const query = new URLSearchParams();
+      if (options?.verticals?.length) query.set("vertical", options.verticals.join(","));
+      if (options?.workTypes?.length) query.set("workType", options.workTypes.join(","));
+      if (options?.search?.trim()) query.set("search", options.search.trim());
+      if (options?.refresh) query.set("refresh", "true");
+      const suffix = query.size ? `?${query.toString()}` : "";
+      return requestJson<BenchmarkCatalogResponse>(
+        baseUrl,
+        `/workspace/${encodeURIComponent(workspaceId)}/benchmarks/catalog${suffix}`,
+        { token, hostToken, timeoutMs: timeouts.benchmarkCatalog },
+      );
+    },
+    benchmarkGetCatalogTask: (workspaceId: string, key: string) =>
+      requestJson<{ key: string; ref: string; task: BenchmarkTaskDefinition }>(
+        baseUrl,
+        `/workspace/${encodeURIComponent(workspaceId)}/benchmarks/catalog/task?key=${encodeURIComponent(key)}`,
+        { token, hostToken, timeoutMs: timeouts.benchmarkCatalog },
+      ),
+    benchmarkListTasks: (workspaceId: string) =>
+      requestJson<{ items: BenchmarkTaskItem[] }>(
+        baseUrl,
+        `/workspace/${encodeURIComponent(workspaceId)}/benchmarks/tasks`,
+        { token, hostToken, timeoutMs: timeouts.benchmark },
+      ),
+    benchmarkImportTasks: (workspaceId: string, keys: string[]) =>
+      requestJson<BenchmarkImportResponse>(
+        baseUrl,
+        `/workspace/${encodeURIComponent(workspaceId)}/benchmarks/tasks/import`,
+        { token, hostToken, method: "POST", body: { keys }, timeoutMs: timeouts.benchmarkCatalog },
+      ),
+    benchmarkCreateTask: (workspaceId: string, payload: BenchmarkCustomTaskInput) =>
+      requestJson<{ item: BenchmarkTaskItem }>(
+        baseUrl,
+        `/workspace/${encodeURIComponent(workspaceId)}/benchmarks/tasks`,
+        { token, hostToken, method: "POST", body: payload, timeoutMs: timeouts.benchmark },
+      ),
+    benchmarkUpdateTask: (workspaceId: string, taskId: string, payload: BenchmarkCustomTaskInput) =>
+      requestJson<{ item: BenchmarkTaskItem }>(
+        baseUrl,
+        `/workspace/${encodeURIComponent(workspaceId)}/benchmarks/tasks/${encodeURIComponent(taskId)}`,
+        { token, hostToken, method: "PUT", body: payload, timeoutMs: timeouts.benchmark },
+      ),
+    benchmarkDeleteTask: (workspaceId: string, taskId: string) =>
+      requestJson<{ ok: boolean }>(
+        baseUrl,
+        `/workspace/${encodeURIComponent(workspaceId)}/benchmarks/tasks/${encodeURIComponent(taskId)}`,
+        { token, hostToken, method: "DELETE", timeoutMs: timeouts.benchmark },
+      ),
+    benchmarkGetTaskDocuments: (workspaceId: string, taskId: string) =>
+      requestJson<{ items: BenchmarkTaskDocument[] }>(
+        baseUrl,
+        `/workspace/${encodeURIComponent(workspaceId)}/benchmarks/tasks/${encodeURIComponent(taskId)}/documents`,
+        { token, hostToken, timeoutMs: timeouts.benchmarkCatalog },
+      ),
+    benchmarkGetAnalytics: (workspaceId: string, options?: { tags?: string[] }) => {
+      const query = options?.tags?.length ? `?tags=${encodeURIComponent(options.tags.join(","))}` : "";
+      return requestJson<BenchmarkAnalytics>(
+        baseUrl,
+        `/workspace/${encodeURIComponent(workspaceId)}/benchmarks/analytics${query}`,
+        { token, hostToken, timeoutMs: timeouts.benchmark },
+      );
+    },
+    benchmarkExportTasks: (workspaceId: string, taskIds: string[]) =>
+      requestBinary(
+        baseUrl,
+        `/workspace/${encodeURIComponent(workspaceId)}/benchmarks/tasks/export`,
+        { token, hostToken, method: "POST", body: { taskIds }, timeoutMs: timeouts.benchmarkCatalog },
+      ),
+    benchmarkImportZip: (workspaceId: string, zipBase64: string) =>
+      requestJson<BenchmarkImportZipResponse>(
+        baseUrl,
+        `/workspace/${encodeURIComponent(workspaceId)}/benchmarks/tasks/import-zip`,
+        { token, hostToken, method: "POST", body: { zipBase64 }, timeoutMs: timeouts.benchmarkCatalog },
+      ),
+    benchmarkListRuns: (workspaceId: string, options?: { limit?: number; start?: number }) => {
+      const query = new URLSearchParams();
+      if (typeof options?.limit === "number") query.set("limit", String(options.limit));
+      if (typeof options?.start === "number") query.set("start", String(options.start));
+      const suffix = query.size ? `?${query.toString()}` : "";
+      return requestJson<{ items: BenchmarkRunSummary[] }>(
+        baseUrl,
+        `/workspace/${encodeURIComponent(workspaceId)}/benchmarks/runs${suffix}`,
+        { token, hostToken, timeoutMs: timeouts.benchmark },
+      );
+    },
+    benchmarkCreateRun: (workspaceId: string, payload: BenchmarkRunCreateInput) =>
+      requestJson<{ run: BenchmarkRunSummary }>(
+        baseUrl,
+        `/workspace/${encodeURIComponent(workspaceId)}/benchmarks/runs`,
+        { token, hostToken, method: "POST", body: payload, timeoutMs: timeouts.benchmarkCatalog },
+      ),
+    benchmarkGetRun: (workspaceId: string, runId: string) =>
+      requestJson<BenchmarkRunDetail>(
+        baseUrl,
+        `/workspace/${encodeURIComponent(workspaceId)}/benchmarks/runs/${encodeURIComponent(runId)}`,
+        { token, hostToken, timeoutMs: timeouts.benchmark },
+      ),
+    benchmarkGetRunProgress: (workspaceId: string, runId: string) =>
+      requestJson<BenchmarkRunProgress>(
+        baseUrl,
+        `/workspace/${encodeURIComponent(workspaceId)}/benchmarks/runs/${encodeURIComponent(runId)}/progress`,
+        { token, hostToken, timeoutMs: timeouts.benchmark },
+      ),
+    benchmarkGetRunItem: (workspaceId: string, runId: string, itemId: string) =>
+      requestJson<BenchmarkItemDetail>(
+        baseUrl,
+        `/workspace/${encodeURIComponent(workspaceId)}/benchmarks/runs/${encodeURIComponent(runId)}/items/${encodeURIComponent(itemId)}`,
+        { token, hostToken, timeoutMs: timeouts.benchmark },
+      ),
+    benchmarkAbortRun: (workspaceId: string, runId: string) =>
+      requestJson<{ run: BenchmarkRunSummary }>(
+        baseUrl,
+        `/workspace/${encodeURIComponent(workspaceId)}/benchmarks/runs/${encodeURIComponent(runId)}/abort`,
+        { token, hostToken, method: "POST", timeoutMs: timeouts.benchmark },
+      ),
+    benchmarkResumeRun: (workspaceId: string, runId: string) =>
+      requestJson<{ run: BenchmarkRunSummary }>(
+        baseUrl,
+        `/workspace/${encodeURIComponent(workspaceId)}/benchmarks/runs/${encodeURIComponent(runId)}/resume`,
+        { token, hostToken, method: "POST", timeoutMs: timeouts.benchmark },
+      ),
+    benchmarkDeleteRun: (workspaceId: string, runId: string) =>
+      requestJson<{ ok: boolean }>(
+        baseUrl,
+        `/workspace/${encodeURIComponent(workspaceId)}/benchmarks/runs/${encodeURIComponent(runId)}`,
+        { token, hostToken, method: "DELETE", timeoutMs: timeouts.benchmark },
+      ),
     getSessionGroups: (workspaceId: string) =>
       requestJson<{ state: LegalworkSessionGroupState; updatedAt: number | null }>(
         baseUrl,

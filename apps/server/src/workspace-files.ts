@@ -10,7 +10,10 @@ export function opencodeConfigPath(workspaceRoot: string): string {
   if (existsSync(jsonPath)) return jsonPath;
   if (existsSync(hiddenJsoncPath)) return hiddenJsoncPath;
   if (existsSync(hiddenJsonPath)) return hiddenJsonPath;
-  return jsoncPath;
+  // Nothing exists yet: default to the hidden location so a fresh workspace
+  // folder stays free of app-managed files the user didn't create. The engine
+  // reads both; a root file the user creates themselves still wins above.
+  return hiddenJsoncPath;
 }
 
 export function legalworkConfigPath(workspaceRoot: string): string {

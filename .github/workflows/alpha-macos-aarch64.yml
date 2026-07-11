@@ -109,8 +109,13 @@ jobs:
           sha="${GITHUB_SHA:0:7}"
           sha="${sha:-local}"
           echo "Latest release tag: $latest_tag -> alpha base ${major}.${minor}.${next_patch}"
+          # The commit sha rides in the prerelease part (…-alpha.<run>.<sha>),
+          # not as +<sha> build metadata: pnpm refuses to workspace-link the
+          # exact-pinned internal deps (legalwork-server, opencode-router) when
+          # the stamped version carries build metadata, and falls back to the
+          # public npm registry (404 / name-squatted package).
           {
-            echo "alpha_version=${major}.${minor}.${next_patch}-alpha.${run}+${sha}"
+            echo "alpha_version=${major}.${minor}.${next_patch}-alpha.${run}.${sha}"
             echo "base_version=${major}.${minor}.${next_patch}"
             echo "release_tag=alpha-macos-v${major}.${minor}.${next_patch}-alpha.${run}-${sha}"
           } >> "$GITHUB_OUTPUT"

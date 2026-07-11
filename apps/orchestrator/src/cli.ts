@@ -1106,18 +1106,26 @@ async function ensureWorkspace(workspace: string): Promise<string> {
   const resolved = resolve(workspace);
   await mkdir(resolved, { recursive: true });
 
-  const configPathJsonc = join(resolved, "opencode.jsonc");
-  const configPathJson = join(resolved, "opencode.json");
-  const hasJsonc = await fileExists(configPathJsonc);
-  const hasJson = await fileExists(configPathJson);
+  // Seed the config in the hidden .opencode/ directory (the engine reads it
+  // from there too) so the workspace folder stays free of files the user
+  // didn't create. An existing root config is respected and left alone.
+  const candidates = [
+    join(resolved, "opencode.jsonc"),
+    join(resolved, "opencode.json"),
+    join(resolved, ".opencode", "opencode.jsonc"),
+    join(resolved, ".opencode", "opencode.json"),
+  ];
+  const existing = await Promise.all(candidates.map((path) => fileExists(path)));
 
-  if (!hasJsonc && !hasJson) {
+  if (!existing.some(Boolean)) {
     const payload = JSON.stringify(
       { $schema: "https://opencode.ai/config.json" },
       null,
       2,
     );
-    await writeFile(configPathJsonc, `${payload}\n`, "utf8");
+    const hiddenJsonc = join(resolved, ".opencode", "opencode.jsonc");
+    await mkdir(join(resolved, ".opencode"), { recursive: true });
+    await writeFile(hiddenJsonc, `${payload}\n`, "utf8");
   }
 
   return resolved;

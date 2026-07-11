@@ -467,7 +467,9 @@ describe("workspace import preview", () => {
       expect(response.status).toBe(200);
       const body = await response.json() as { preview: { summary: { create: number } } };
       expect(body.preview.summary.create).toBe(3);
-      expect(await readFile(join(workspace, "opencode.jsonc"), "utf8")).toContain('"plugin"');
+      // A fresh workspace has no config file yet, so the import lands in the
+      // hidden default location.
+      expect(await readFile(join(workspace, ".opencode", "opencode.jsonc"), "utf8")).toContain('"plugin"');
       expect(await readFile(join(workspace, ".opencode", "skills", "demo", "SKILL.md"), "utf8")).toContain("Demo skill");
       expect(await readFile(join(workspace, ".opencode", "agents", "demo.md"), "utf8")).toBe("Demo agent\n");
       expect(await readFile(auditLogPath("workspace"), "utf8")).toContain("Imported workspace config");

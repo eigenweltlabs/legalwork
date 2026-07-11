@@ -1,7 +1,7 @@
 import { execFileSync, spawn } from "node:child_process";
 import { createServer } from "node:http";
 import net from "node:net";
-import { existsSync } from "node:fs";
+import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import {
   chmod,
   cp,
@@ -27,6 +27,7 @@ import { CallOverlay } from "./audio/call-overlay.mjs";
 import { RecorderService } from "./audio/recorder-service.mjs";
 import { registerMigrationIpc } from "./migration.mjs";
 import { createRuntimeManager } from "./runtime.mjs";
+import { buildSupportBundleText, defaultSupportBundleFileName } from "./support-bundle.mjs";
 import { registerUpdaterIpc } from "./updater.mjs";
 import {
   checkComputerUsePermissions,
@@ -56,9 +57,111 @@ const APP_IDENTIFIER =
   (isDevMode ? DEV_APP_IDENTIFIER : APP_BUNDLE_IDENTIFIER);
 const RELEASE_DOWNLOAD_BASE_URL = "https://github.com/eigenweltlabs/legalwork/releases/latest/download";
 const RELEASE_PAGE_URL = "https://github.com/eigenweltlabs/legalwork/releases/latest";
+
+async function showSupportLogsProgressWindow(parent) {
+  const dark = nativeTheme.shouldUseDarkColors;
+  const background = dark ? "#0b0b0f" : "#ffffff";
+  const foreground = dark ? "#f4f4f5" : "#18181b";
+  const muted = dark ? "#a1a1aa" : "#71717a";
+  const spinnerTrack = dark ? "rgba(244,244,245,.25)" : "rgba(24,24,27,.18)";
+  const progressWindow = new BrowserWindow({
+    width: 360,
+    height: 180,
+    title: "Collect Support Logs",
+    show: false,
+    resizable: false,
+    minimizable: false,
+    maximizable: false,
+    fullscreenable: false,
+    skipTaskbar: true,
+    modal: Boolean(parent),
+    ...(parent ? { parent } : {}),
+    backgroundColor: background,
+    webPreferences: {
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: true,
+    },
+  });
+
+  progressWindow.setMenu(null);
+  await progressWindow.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(`<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <style>
+      html, body { height: 100%; margin: 0; background: ${background}; color: ${foreground}; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+      body { display: grid; place-items: center; }
+      main { display: grid; gap: 10px; justify-items: center; padding: 24px; text-align: center; }
+      .spinner { width: 24px; height: 24px; border: 2px solid ${spinnerTrack}; border-top-color: ${foreground}; border-radius: 50%; animation: spin .9s linear infinite; }
+      .title { font-size: 15px; font-weight: 600; }
+      .body { font-size: 13px; color: ${muted}; }
+      @keyframes spin { to { transform: rotate(360deg); } }
+    </style>
+  </head>
+  <body>
+    <main>
+      <div class="spinner" aria-hidden="true"></div>
+      <div class="title">Collecting support logs</div>
+      <div class="body">This can take a few seconds.</div>
+    </main>
+  </body>
+</html>`)}`);
+  progressWindow.show();
+  return progressWindow;
+}
+
+// Collect the support-log bundle: ask the user where to save it (defaulting
+// to the Desktop), write it there, and reveal it in the file manager so it
+// can be attached to an email. Shared by the Help menu and the
+// `supportBundleCollect` IPC command (boot error screen). Returns the saved
+// path, or null when the user cancels the dialog. `runtimeManager` is created
+// later at module scope; the click/IPC always happens after startup, so the
+// late binding via closure is safe.
+async function collectSupportLogsAndReveal() {
+  let defaultDir;
+  try {
+    defaultDir = app.getPath("desktop");
+  } catch {
+    defaultDir = os.homedir();
+  }
+  const parent = mainWindow && !mainWindow.isDestroyed() ? mainWindow : undefined;
+  const options = {
+    title: "Save Support Logs",
+    defaultPath: path.join(defaultDir, defaultSupportBundleFileName()),
+    filters: [{ name: "Text", extensions: ["txt"] }],
+  };
+  const { canceled, filePath } = parent
+    ? await dialog.showSaveDialog(parent, options)
+    : await dialog.showSaveDialog(options);
+  if (canceled || !filePath) return null;
+
+  const progressWindow = await showSupportLogsProgressWindow(parent);
+  try {
+    // Give the progress window one paint before the synchronous diagnostics
+    // snapshot starts probing binaries and reading log tails.
+    await new Promise((resolve) => setTimeout(resolve, 80));
+    // Build after the dialog so the diagnostics snapshot is as fresh as possible.
+    writeFileSync(filePath, buildSupportBundleText({ app, runtimeManager }), "utf8");
+  } finally {
+    if (!progressWindow.isDestroyed()) progressWindow.close();
+  }
+
+  shell.showItemInFolder(filePath);
+  return filePath;
+}
+
 const applicationMenu = createApplicationMenu({
   appName: APP_NAME,
   getWindow: () => createMainWindow(),
+  collectSupportLogs: () => {
+    void collectSupportLogsAndReveal().catch((error) => {
+      dialog.showErrorBox(
+        "Collect Support Logs",
+        `Could not write the support bundle: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    });
+  },
 });
 
 const uiControlServer = createUiControlServer({
@@ -619,6 +722,49 @@ function assertLegalworkServerReady(info) {
   return info;
 }
 
+// Turn a runtime boot failure into a rich, token-free result the renderer can
+// log and (partly) display. We also drop the same payload into a log file so a
+// failing machine can be diagnosed by sending one file — the on-screen message
+// alone is a generic catch-all that hides the real cause.
+function describeRuntimeBootFailure(error) {
+  const message = error instanceof Error ? error.message : String(error);
+  let diagnostics = null;
+  try {
+    diagnostics = runtimeManager.collectRuntimeDiagnostics();
+  } catch {
+    /* diagnostics are best-effort */
+  }
+
+  console.error(
+    "[runtime] boot failed:",
+    error instanceof Error ? error.stack || message : message,
+  );
+  if (diagnostics) {
+    console.error("[runtime] diagnostics:", JSON.stringify(diagnostics, null, 2));
+  }
+
+  let logPath = null;
+  try {
+    const logsDir = app.getPath("logs");
+    mkdirSync(logsDir, { recursive: true });
+    logPath = path.join(logsDir, "runtime-boot-failure.log");
+    const dump = [
+      `LegalWork runtime boot failure`,
+      `error: ${message}`,
+      error instanceof Error && error.stack ? `stack:\n${error.stack}` : null,
+      `diagnostics:\n${JSON.stringify(diagnostics, null, 2)}`,
+      "",
+    ]
+      .filter(Boolean)
+      .join("\n");
+    writeFileSync(logPath, dump, "utf8");
+  } catch {
+    logPath = null;
+  }
+
+  return { ok: false, error: message, diagnostics, logPath };
+}
+
 async function bootRuntimeForSelectedWorkspace() {
   const list = await workspaceStore.readWorkspaceState();
   const selectedId = list.selectedId || list.activeId || list.workspaces[0]?.id || "";
@@ -684,35 +830,48 @@ async function bootRuntimeForSelectedWorkspace() {
 
 function ensureRuntimeBootstrap() {
   if (!runtimeBootstrapPromise) {
-    runtimeBootstrapPromise = bootRuntimeForSelectedWorkspace().catch((error) => ({
-      ok: false,
-      error: error instanceof Error ? error.message : String(error),
-    }));
+    runtimeBootstrapPromise = bootRuntimeForSelectedWorkspace().catch(describeRuntimeBootFailure);
   }
   return runtimeBootstrapPromise;
 }
 
-function resolveOpencodeConfigPath(scope, projectDir) {
-  let root;
+// Ordered config file candidates for a scope; the first existing one is used.
+// New project configs default to the hidden .opencode/ location (the engine
+// reads both) so the workspace folder stays free of app-created files — must
+// agree with opencodeConfigPath in apps/server/src/workspace-files.ts.
+function opencodeConfigCandidates(scope, projectDir) {
   if (scope === "project") {
     if (!String(projectDir ?? "").trim()) {
       throw new Error("projectDir is required");
     }
-    root = projectDir;
-  } else if (scope === "global") {
-    root = globalOpencodeRoot();
-  } else {
-    throw new Error("scope must be 'project' or 'global'");
+    return {
+      candidates: [
+        path.join(projectDir, "opencode.jsonc"),
+        path.join(projectDir, "opencode.json"),
+        path.join(projectDir, ".opencode", "opencode.jsonc"),
+        path.join(projectDir, ".opencode", "opencode.json"),
+      ],
+      fallback: path.join(projectDir, ".opencode", "opencode.jsonc"),
+    };
   }
+  if (scope === "global") {
+    const root = globalOpencodeRoot();
+    const jsoncPath = path.join(root, "opencode.jsonc");
+    return { candidates: [jsoncPath, path.join(root, "opencode.json")], fallback: jsoncPath };
+  }
+  throw new Error("scope must be 'project' or 'global'");
+}
 
-  const jsoncPath = path.join(root, "opencode.jsonc");
-  const jsonPath = path.join(root, "opencode.json");
-  return { jsoncPath, jsonPath };
+async function chooseOpencodeConfigPath(scope, projectDir) {
+  const { candidates, fallback } = opencodeConfigCandidates(scope, projectDir);
+  for (const candidate of candidates) {
+    if (await pathExists(candidate)) return candidate;
+  }
+  return fallback;
 }
 
 async function readOpencodeConfig(scope, projectDir) {
-  const { jsoncPath, jsonPath } = resolveOpencodeConfigPath(scope, projectDir);
-  const chosenPath = (await pathExists(jsoncPath)) ? jsoncPath : (await pathExists(jsonPath)) ? jsonPath : jsoncPath;
+  const chosenPath = await chooseOpencodeConfigPath(scope, projectDir);
   const exists = await pathExists(chosenPath);
   return {
     path: chosenPath,
@@ -722,8 +881,7 @@ async function readOpencodeConfig(scope, projectDir) {
 }
 
 async function writeOpencodeConfig(scope, projectDir, content) {
-  const { jsoncPath, jsonPath } = resolveOpencodeConfigPath(scope, projectDir);
-  const targetPath = (await pathExists(jsoncPath)) ? jsoncPath : (await pathExists(jsonPath)) ? jsonPath : jsoncPath;
+  const targetPath = await chooseOpencodeConfigPath(scope, projectDir);
   await mkdir(path.dirname(targetPath), { recursive: true });
   await writeFile(targetPath, content, "utf8");
   return execResult(true, `Wrote ${targetPath}`);
@@ -1058,6 +1216,10 @@ const desktopCommandHandlers = {
   },
   "runtimeBootstrap": async (event, ...args) => {
       return ensureRuntimeBootstrap();
+  },
+  "supportBundleCollect": async (event, ...args) => {
+      const bundlePath = await collectSupportLogsAndReveal();
+      return { path: bundlePath };
   },
   "runtimeStatus": async (event, ...args) => {
       return runtimeManager.runtimeStatus();
@@ -2014,10 +2176,7 @@ if (!app.requestSingleInstanceLock()) {
     await uiControlServer.start().catch((error) => {
       console.warn("[ui-control] failed to start", error);
     });
-    runtimeBootstrapPromise = bootRuntimeForSelectedWorkspace().catch((error) => ({
-      ok: false,
-      error: error instanceof Error ? error.message : String(error),
-    }));
+    runtimeBootstrapPromise = bootRuntimeForSelectedWorkspace().catch(describeRuntimeBootFailure);
 
     queueDeepLinks(forwardedDeepLinks(process.argv));
     const win = await createMainWindow();

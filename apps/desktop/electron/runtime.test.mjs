@@ -3,6 +3,8 @@ import assert from "node:assert/strict";
 
 import {
   commandMatchesPackagedSidecar,
+  nodeShimFileName,
+  nodeShimScriptContent,
   prioritizeWorkspacePaths,
   resolveLegalworkServerConfigPath,
   seedWorkspacePathsForEmbeddedServer,
@@ -92,6 +94,28 @@ describe("resolveLegalworkServerConfigPath", () => {
     assert.equal(
       resolveLegalworkServerConfigPath({ XDG_CONFIG_HOME: "/tmp/xdg" }),
       "/tmp/xdg/legalwork/server.json",
+    );
+  });
+});
+
+describe("node shim", () => {
+  it("names the shim node.cmd on Windows and node elsewhere", () => {
+    assert.equal(nodeShimFileName("win32"), "node.cmd");
+    assert.equal(nodeShimFileName("darwin"), "node");
+    assert.equal(nodeShimFileName("linux"), "node");
+  });
+
+  it("re-execs the app binary in Node mode on posix", () => {
+    assert.equal(
+      nodeShimScriptContent("/Applications/LegalWork.app/Contents/MacOS/LegalWork", "darwin"),
+      '#!/bin/sh\nELECTRON_RUN_AS_NODE=1 exec "/Applications/LegalWork.app/Contents/MacOS/LegalWork" "$@"\n',
+    );
+  });
+
+  it("re-execs the app binary in Node mode on Windows", () => {
+    assert.equal(
+      nodeShimScriptContent("C:\\Program Files\\LegalWork\\LegalWork.exe", "win32"),
+      '@echo off\r\nset ELECTRON_RUN_AS_NODE=1\r\n"C:\\Program Files\\LegalWork\\LegalWork.exe" %*\r\n',
     );
   });
 });

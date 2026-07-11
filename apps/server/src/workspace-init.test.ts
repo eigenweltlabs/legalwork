@@ -30,6 +30,7 @@ describe("ensureWorkspaceFiles", () => {
         stat(join(root, ".opencode", "skills", "tabular-review", "assets", "review-template.html")),
       ).resolves.toBeDefined();
       await expect(stat(join(root, ".opencode", "agents", "document-extractor.md"))).resolves.toBeDefined();
+      await expect(stat(join(root, ".opencode", "agents", "fusion-candidate.md"))).resolves.toBeDefined();
       expect([...result.reloadReasons].sort()).toEqual(["agents", "commands", "skills"]);
 
       // idempotent: a second ensure writes nothing
