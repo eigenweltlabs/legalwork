@@ -10,12 +10,12 @@ import {
   Check,
   FolderInput,
   FolderOpen,
+  EyeOff,
   HardDrive,
   Languages,
   Loader2,
   Mic,
   MonitorSpeaker,
-  PanelTopOpen,
   Pencil,
   Play,
   Settings2,
@@ -27,7 +27,7 @@ import {
 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import {
   Dialog,
   DialogContent,
@@ -55,6 +55,24 @@ import { audioTapListApps } from "@/app/lib/desktop";
 import { formatBytes } from "../../../app/utils";
 import { PermissionsPanel } from "./permissions-panel";
 import { revealRecording, useRecorderStore, type CopilotEntry } from "./recorder-store";
+
+/**
+ * Flat section card, same recipe as the Learnings page's PreviewCard: liquid
+ * glass fill + hairline border, rounded 20, and an explicit inline
+ * `boxShadow: none` — the global `[data-slot="card"]` frost rule puts
+ * `!important` shadows + a hover lift on the shared Card component, so a
+ * plain div is the only way to stay truly flat.
+ */
+function SectionCard(props: { className?: string; children: React.ReactNode }) {
+  return (
+    <div
+      className={cn("glass flex flex-col gap-4 rounded-[20px] p-4", props.className)}
+      style={{ boxShadow: "none" }}
+    >
+      {props.children}
+    </div>
+  );
+}
 
 function formatDuration(ms: number): string {
   const total = Math.max(0, Math.floor(ms / 1000));
@@ -244,54 +262,114 @@ function CopilotEntryRow({ entry }: { entry: CopilotEntry }) {
   );
 }
 
+export type RecorderWorkspaceTarget = { id: string; name: string; path: string };
+
 function RecordingRow(props: {
   recording: AudioRecordingMeta;
-  workspacePath: string | null;
+  workspaceTargets: RecorderWorkspaceTarget[];
   onOpen: () => void;
 }) {
   const store = useRecorderStore();
   const { recording } = props;
   const [savedTo, setSavedTo] = useState<string | null>(null);
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(recording.title);
+
+  const commitRename = () => {
+    setEditing(false);
+    const next = draft.trim();
+    if (next && next !== recording.title) void store.renameRecording(recording.id, next);
+  };
+
   return (
     <div className="flex items-center gap-3 rounded-xl border border-border bg-card/60 px-3 py-2.5">
-      <button type="button" className="min-w-0 flex-1 text-left" onClick={props.onOpen}>
-        <div className="flex items-center gap-2">
-          <Play className="size-3.5 shrink-0 text-muted-foreground" />
-          <span className="truncate text-sm font-medium text-foreground">{recording.title}</span>
-        </div>
-        <div className="mt-0.5 flex flex-wrap gap-x-3 text-xs text-muted-foreground">
-          <span>{new Date(recording.createdAt).toLocaleString()}</span>
-          <span className="tabular-nums">{formatDuration(recording.durationMs)}</span>
-          <span className="tabular-nums">{formatBytes(recording.sizeBytes)}</span>
-          <span>
-            {recording.segmentCount} {t("recorder.segments")}
-          </span>
-        </div>
-        {savedTo ? (
-          <div className="mt-1 truncate text-xs text-green-11">
-            {t("recorder.saved_to_workspace")}: {savedTo}
-          </div>
-        ) : null}
-      </button>
-      <div className="flex shrink-0 items-center gap-1">
-        {props.workspacePath ? (
-          <Tooltip>
-            <TooltipTrigger render={<span className="inline-flex" />}>
-              <Button
-                variant="ghost"
-                size="icon-sm"
-                aria-label={t("recorder.save_to_workspace")}
-                onClick={() =>
-                  void store
-                    .saveRecordingToWorkspace(recording.id, props.workspacePath ?? "")
-                    .then((folder) => setSavedTo(folder))
+      {editing ? (
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-2">
+            <Play className="size-3.5 shrink-0 text-muted-foreground" />
+            <Input
+              autoFocus
+              value={draft}
+              onChange={(event) => setDraft(event.currentTarget.value)}
+              onBlur={commitRename}
+              onKeyDown={(event) => {
+                if (event.key === "Enter") {
+                  event.preventDefault();
+                  commitRename();
+                } else if (event.key === "Escape") {
+                  setDraft(recording.title);
+                  setEditing(false);
                 }
-              >
-                <FolderInput />
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent>{t("recorder.save_to_workspace")}</TooltipContent>
-          </Tooltip>
+              }}
+              className="h-7 max-w-xs text-sm"
+            />
+          </div>
+        </div>
+      ) : (
+        <button type="button" className="min-w-0 flex-1 text-left" onClick={props.onOpen}>
+          <div className="flex items-center gap-2">
+            <Play className="size-3.5 shrink-0 text-muted-foreground" />
+            <span className="truncate text-sm font-medium text-foreground">{recording.title}</span>
+          </div>
+          <div className="mt-0.5 flex flex-wrap gap-x-3 text-xs text-muted-foreground">
+            <span>{new Date(recording.createdAt).toLocaleString()}</span>
+            <span className="tabular-nums">{formatDuration(recording.durationMs)}</span>
+            <span className="tabular-nums">{formatBytes(recording.sizeBytes)}</span>
+            <span>
+              {recording.segmentCount} {t("recorder.segments")}
+            </span>
+          </div>
+          {savedTo ? (
+            <div className="mt-1 truncate text-xs text-green-11">
+              {t("recorder.saved_to_workspace")}: {savedTo}
+            </div>
+          ) : null}
+        </button>
+      )}
+      <div className="flex shrink-0 items-center gap-1">
+        <Tooltip>
+          <TooltipTrigger render={<span className="inline-flex" />}>
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              aria-label={t("recorder.rename")}
+              onClick={() => {
+                setDraft(recording.title);
+                setEditing(true);
+              }}
+            >
+              <Pencil />
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent>{t("recorder.rename")}</TooltipContent>
+        </Tooltip>
+        {props.workspaceTargets.length > 0 ? (
+          <DropdownMenu>
+            <DropdownMenuTrigger
+              render={
+                <Button variant="ghost" size="icon-sm" aria-label={t("recorder.save_to_workspace")} title={t("recorder.save_to_workspace")}>
+                  <FolderInput />
+                </Button>
+              }
+            />
+            <DropdownMenuContent align="end">
+              {props.workspaceTargets.map((target) => (
+                <DropdownMenuItem
+                  key={target.id}
+                  onClick={() =>
+                    void store
+                      .saveRecordingToWorkspace(recording.id, target.path)
+                      .then((folder) => setSavedTo(folder))
+                  }
+                >
+                  <div className="min-w-0">
+                    <div className="truncate text-sm">{target.name}</div>
+                    <div className="truncate text-xs text-muted-foreground">{target.path}</div>
+                  </div>
+                </DropdownMenuItem>
+              ))}
+            </DropdownMenuContent>
+          </DropdownMenu>
         ) : null}
         <Tooltip>
           <TooltipTrigger render={<span className="inline-flex" />}>
@@ -321,6 +399,8 @@ function RecordingRow(props: {
 
 export function RecorderPane(props: {
   workspacePath: string | null;
+  /** Local workspaces offered as save targets (selected workspace first). */
+  workspaceTargets?: RecorderWorkspaceTarget[];
   /** Close the pane and hand the transcript to the session composer. */
   onInsertTranscript?: (text: string) => void;
 }) {
@@ -351,17 +431,23 @@ export function RecorderPane(props: {
 
   const liveSegments = store.segments;
 
+  // Save targets: every local workspace (selected first, provided by the
+  // shell); older callers that only pass workspacePath still get one target.
+  const saveTargets = useMemo<RecorderWorkspaceTarget[]>(() => {
+    if (props.workspaceTargets?.length) return props.workspaceTargets;
+    if (props.workspacePath) {
+      return [{ id: "current", name: t("recorder.save_to_workspace"), path: props.workspacePath }];
+    }
+    return [];
+  }, [props.workspaceTargets, props.workspacePath]);
+
   if (!isDesktop) {
     return (
       <div className="flex h-full items-center justify-center px-6">
-        <Card variant="outline" size="sm" className="max-w-md">
-          <CardHeader>
-            <CardTitle>{t("recorder.desktop_required_title")}</CardTitle>
-          </CardHeader>
-          <CardContent className="text-sm text-muted-foreground">
-            {t("recorder.desktop_required_body")}
-          </CardContent>
-        </Card>
+        <SectionCard className="max-w-md">
+          <h3 className="text-sm font-medium text-foreground">{t("recorder.desktop_required_title")}</h3>
+          <p className="text-sm text-muted-foreground">{t("recorder.desktop_required_body")}</p>
+        </SectionCard>
       </div>
     );
   }
@@ -379,13 +465,6 @@ export function RecorderPane(props: {
             <p className="mt-1 max-w-lg text-sm text-muted-foreground">{t("recorder.subtitle")}</p>
           </div>
           <div className="flex items-center gap-2">
-            <Button
-              variant={store.overlayVisible ? "default" : "outline"}
-              onClick={() => void store.setOverlayVisible(!store.overlayVisible)}
-            >
-              <PanelTopOpen data-icon="inline-start" />
-              {store.overlayVisible ? t("recorder.overlay_hide") : t("recorder.overlay_show")}
-            </Button>
             {isRecording ? (
               <Button variant="destructive" onClick={() => void store.stopRecording()}>
                 <Square data-icon="inline-start" />
@@ -399,6 +478,13 @@ export function RecorderPane(props: {
             )}
           </div>
         </div>
+
+        {isRecording ? (
+          <div className="mt-4 flex items-center gap-2 rounded-[20px] border border-border bg-card/40 px-3 py-2 text-xs text-muted-foreground">
+            <EyeOff className="size-3.5 shrink-0" />
+            {t("recorder.stealth_active")}
+          </div>
+        ) : null}
 
         <PermissionsPanel />
 
@@ -417,12 +503,16 @@ export function RecorderPane(props: {
           </div>
         ) : null}
 
+        {store.transcriber.state === "error" && store.transcriber.error ? (
+          <div className="mt-4 rounded-xl border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+            {t("recorder.transcriber_error")} {store.transcriber.error}
+          </div>
+        ) : null}
+
         {/* Setup */}
-        <Card variant="outline" size="sm" className="mt-6">
-          <CardHeader>
-            <CardTitle className="text-sm">{t("recorder.setup_title")}</CardTitle>
-          </CardHeader>
-          <CardContent className="flex flex-wrap items-center gap-x-6 gap-y-3">
+        <SectionCard className="mt-6">
+          <h3 className="text-sm font-medium text-foreground">{t("recorder.setup_title")}</h3>
+          <div className="flex flex-wrap items-center gap-x-6 gap-y-3">
             <div className="flex items-center gap-2">
               <SourceToggle
                 active={store.sources.includes("microphone")}
@@ -510,16 +600,16 @@ export function RecorderPane(props: {
                 className="h-8"
               />
             </div>
-          </CardContent>
-        </Card>
+          </div>
+        </SectionCard>
 
         <AppPickerDialog open={appPickerOpen} onClose={() => setAppPickerOpen(false)} />
 
         {/* Live transcript */}
         {(isRecording || liveSegments.length > 0 || store.partial) ? (
-          <Card variant="outline" size="sm" className="mt-4">
-            <CardHeader className="flex-row items-center justify-between">
-              <CardTitle className="flex items-center gap-2 text-sm">
+          <SectionCard className="mt-4">
+            <div className="flex flex-row items-center justify-between">
+              <h3 className="flex items-center gap-2 text-sm font-medium text-foreground">
                 <span
                   className={cn(
                     "size-2 rounded-full",
@@ -533,7 +623,7 @@ export function RecorderPane(props: {
                     {t("recorder.loading_model")}
                   </span>
                 ) : null}
-              </CardTitle>
+              </h3>
               <div className="flex items-center gap-4">
                 {store.sources.includes("microphone") && isRecording ? (
                   <LevelMeter
@@ -555,8 +645,8 @@ export function RecorderPane(props: {
                   </span>
                 ) : null}
               </div>
-            </CardHeader>
-            <CardContent>
+            </div>
+            <div>
               <div className="max-h-72 space-y-1.5 overflow-y-auto pr-1">
                 {liveSegments.length === 0 && !store.partial ? (
                   <div className="py-4 text-center text-sm text-muted-foreground">
@@ -596,18 +686,18 @@ export function RecorderPane(props: {
                   </Button>
                 </div>
               ) : null}
-            </CardContent>
-          </Card>
+            </div>
+          </SectionCard>
         ) : null}
 
         {/* AI copilot */}
         {(isRecording || store.copilotEntries.length > 0) ? (
-          <Card variant="outline" size="sm" className="mt-4">
-            <CardHeader className="flex-row items-center justify-between">
-              <CardTitle className="flex items-center gap-2 text-sm">
-                <Sparkles className="text-primary" />
+          <SectionCard className="mt-4">
+            <div className="flex flex-row items-center justify-between">
+              <h3 className="flex items-center gap-2 text-sm font-medium text-foreground">
+                <Sparkles className="size-4 text-primary" />
                 {t("recorder.copilot_title")}
-              </CardTitle>
+              </h3>
               <Button
                 variant="outline"
                 size="sm"
@@ -617,8 +707,8 @@ export function RecorderPane(props: {
                 <Sparkles data-icon="inline-start" />
                 {t("recorder.copilot_suggest")}
               </Button>
-            </CardHeader>
-            <CardContent className="space-y-2">
+            </div>
+            <div className="space-y-2">
               {store.copilotEntries.map((entry) => (
                 <CopilotEntryRow key={entry.id} entry={entry} />
               ))}
@@ -651,19 +741,19 @@ export function RecorderPane(props: {
                   </InputGroupButton>
                 </InputGroupAddon>
               </InputGroup>
-            </CardContent>
-          </Card>
+            </div>
+          </SectionCard>
         ) : null}
 
         {/* Recordings */}
-        <Card variant="outline" size="sm" className="mt-4">
-          <CardHeader>
-            <CardTitle className="text-sm">{t("recorder.recordings_title")}</CardTitle>
-            <p className="text-xs text-muted-foreground">
+        <SectionCard className="mt-4">
+          <div>
+            <h3 className="text-sm font-medium text-foreground">{t("recorder.recordings_title")}</h3>
+            <p className="mt-0.5 text-xs text-muted-foreground">
               {t("recorder.recordings_subtitle")} {store.bootstrap?.recordingsDir ?? ""}
             </p>
-          </CardHeader>
-          <CardContent className="space-y-2">
+          </div>
+          <div className="space-y-2">
             {store.recordings.length === 0 ? (
               <div className="py-4 text-center text-sm text-muted-foreground">
                 {t("recorder.recordings_empty")}
@@ -673,13 +763,13 @@ export function RecorderPane(props: {
                 <RecordingRow
                   key={recording.id}
                   recording={recording}
-                  workspacePath={props.workspacePath}
+                  workspaceTargets={saveTargets}
                   onOpen={() => void store.openRecording(recording.id)}
                 />
               ))
             )}
-          </CardContent>
-        </Card>
+          </div>
+        </SectionCard>
       </div>
 
       {/* Transcript viewer dialog */}

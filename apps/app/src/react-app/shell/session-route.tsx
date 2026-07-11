@@ -1613,6 +1613,15 @@ export function SessionRoute() {
         ) : showRecorder ? (
           <RecorderPane
             workspacePath={selectedWorkspaceRoot ?? null}
+            workspaceTargets={workspaces
+              .filter((workspace) => workspace.workspaceType !== "remote" && workspace.path?.trim())
+              .map((workspace) => ({
+                id: workspace.id,
+                name: workspace.displayNameResolved,
+                path: workspace.path,
+              }))
+              // Selected workspace first, so the common case is one click away.
+              .sort((a, b) => Number(b.id === selectedWorkspaceId) - Number(a.id === selectedWorkspaceId))}
             onInsertTranscript={(text) => {
               // The composer's listener lives in SessionSurface, which is
               // unmounted while this pane is the main view — swap back to the
