@@ -51,6 +51,35 @@ class LegalworkPcmBatcher extends AudioWorkletProcessor {
 registerProcessor("legalwork-pcm-batcher", LegalworkPcmBatcher);
 `;
 
+/**
+ * Decode an imported audio file (mp3/wav/m4a/aac/flac/ogg/webm…) to 16 kHz mono
+ * Float32 PCM using Web Audio — the same shape the live capture worklet emits,
+ * so the transcription worker treats it identically. The main process has no
+ * bundled audio decoder, which is why this happens in the renderer.
+ */
+export async function decodeAudioFileToPcm16k(
+  file: Blob,
+): Promise<{ pcm: Float32Array; durationMs: number }> {
+  const bytes = await file.arrayBuffer();
+  // decodeAudioData detaches its input; hand it a copy so `bytes` stays usable.
+  const decodeCtx = new AudioContext();
+  let decoded: AudioBuffer;
+  try {
+    decoded = await decodeCtx.decodeAudioData(bytes.slice(0));
+  } finally {
+    await decodeCtx.close().catch(() => {});
+  }
+  const frames = Math.max(1, Math.ceil(decoded.duration * TARGET_SAMPLE_RATE));
+  // OfflineAudioContext(1, …, 16000) downmixes to mono AND resamples to 16 kHz.
+  const offline = new OfflineAudioContext(1, frames, TARGET_SAMPLE_RATE);
+  const source = offline.createBufferSource();
+  source.buffer = decoded;
+  source.connect(offline.destination);
+  source.start();
+  const rendered = await offline.startRendering();
+  return { pcm: rendered.getChannelData(0), durationMs: Math.round(decoded.duration * 1000) };
+}
+
 export type CaptureLevels = Partial<Record<AudioCaptureSourceKind, number>>;
 
 export type CaptureHandle = {

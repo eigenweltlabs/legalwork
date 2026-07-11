@@ -25,6 +25,10 @@ import type {
   AudioRecordingMeta,
   AudioRecordingStartInput,
   AudioSaveToWorkspaceResult,
+  AudioSystemDictationPasteResult,
+  AudioSystemDictationMode,
+  AudioSystemDictationRuntimeState,
+  AudioSystemDictationStatus,
   AudioTranscribeLanguage,
   AudioTranscriberStatus,
 } from "./audio.js";
@@ -613,6 +617,28 @@ export type DesktopCommandMap = {
   audioRecordingDelete: { args: [recordingId: string]; result: AudioRecordingMeta[] };
   /** Rename a recording (active or on disk); returns the refreshed list. */
   audioRecordingRename: { args: [recordingId: string, title: string]; result: AudioRecordingMeta[] };
+  /**
+   * Start mirroring the active recording's growing transcript to a markdown
+   * file in the given workspace (composer "Live call" toggle); updates on
+   * every segment until stopped or the recording ends.
+   */
+  audioLiveTranscriptStart: {
+    args: [workspacePath: string];
+    result: { ok: boolean; filePath: string | null; fileName: string | null; error: string | null };
+  };
+  audioLiveTranscriptStop: { args: []; result: { ok: boolean } };
+  /**
+   * Transcribe an imported audio file (drag & drop). The renderer decodes it to
+   * PCM and streams it through the normal `legalwork:audio:pcm` channel keyed
+   * by the returned recording id, then calls finish. Original file bytes are
+   * persisted via importSource.
+   */
+  audioImportStart: {
+    args: [input: { title?: string; fileName: string; language: AudioTranscribeLanguage; modelId: string }];
+    result: AudioRecordingMeta;
+  };
+  audioImportSource: { args: [recordingId: string, buffer: ArrayBuffer]; result: { ok: boolean } };
+  audioImportFinish: { args: [recordingId: string, durationMs: number]; result: AudioRecordingMeta };
   audioRecordingSaveToWorkspace: {
     args: [recordingId: string, workspacePath: string];
     result: AudioSaveToWorkspaceResult;
@@ -622,6 +648,32 @@ export type DesktopCommandMap = {
   audioLoopbackDisable: { args: []; result: unknown };
   audioOverlaySetVisible: { args: [visible: boolean]; result: { visible: boolean } };
   audioOverlayGetVisible: { args: []; result: { visible: boolean } };
+  audioSystemDictationGet: { args: []; result: AudioSystemDictationStatus };
+  audioSystemDictationSetEnabled: {
+    args: [enabled: boolean];
+    result: AudioSystemDictationStatus;
+  };
+  audioSystemDictationSetShortcut: {
+    args: [accelerator: string];
+    result: AudioSystemDictationStatus;
+  };
+  audioSystemDictationSetMode: {
+    args: [mode: AudioSystemDictationMode];
+    result: AudioSystemDictationStatus;
+  };
+  audioSystemDictationSetShortcutCapture: {
+    args: [active: boolean];
+    result: AudioSystemDictationStatus;
+  };
+  audioSystemDictationOpenSettings: { args: []; result: AudioSystemDictationStatus };
+  audioSystemDictationSetState: {
+    args: [state: AudioSystemDictationRuntimeState, message?: string];
+    result: AudioSystemDictationStatus;
+  };
+  audioSystemDictationPaste: {
+    args: [text: string];
+    result: AudioSystemDictationPasteResult;
+  };
 
   // Window / OS utilities (dunder commands)
   __openPath: { args: [target: string]; result: unknown };

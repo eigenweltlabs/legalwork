@@ -107,11 +107,12 @@ type ComposerProps = {
   fusionModels?: ModelRef[];
   onFusionModelsChange?: (models: ModelRef[]) => void;
   /**
-   * Present only while a local recording runs: drop the live call transcript
-   * into this chat's context in the background (a hidden, no-reply message).
-   * Sits next to Fusion.
+   * Present only while a local recording runs: toggle streaming the live call
+   * transcript to a workspace file the agent can read as it grows. Sits next
+   * to Fusion.
    */
-  onInsertLiveTranscript?: () => void;
+  onToggleLiveTranscript?: () => void;
+  liveTranscriptActive?: boolean;
 };
 
 const FLUSH_PROMPT_EVENT = "legalwork:flushPromptDraft";
@@ -1537,20 +1538,28 @@ export function ReactSessionComposer(props: ComposerProps) {
                   />
                 ) : null}
 
-                {props.onInsertLiveTranscript ? (
+                {props.onToggleLiveTranscript ? (
                   <button
                     type="button"
-                    onClick={props.onInsertLiveTranscript}
+                    onClick={props.onToggleLiveTranscript}
                     disabled={props.busy}
-                    className="inline-flex h-9 max-h-9 items-center gap-1.5 rounded-md px-2.5 text-sm text-gray-10 transition-colors hover:bg-gray-3 hover:text-gray-12 disabled:pointer-events-none disabled:opacity-60"
-                    title={t("composer.insert_live_transcript_hint")}
+                    aria-pressed={props.liveTranscriptActive}
+                    className={`inline-flex h-9 max-h-9 items-center gap-1.5 rounded-md px-2.5 text-sm transition-colors disabled:pointer-events-none disabled:opacity-60 ${
+                      props.liveTranscriptActive
+                        ? "bg-red-3 font-medium text-red-11 hover:bg-red-4"
+                        : "text-gray-10 hover:bg-gray-3 hover:text-gray-12"
+                    }`}
+                    title={t("composer.live_transcript_hint")}
                   >
-                    <span className="relative flex size-2">
-                      <span className="absolute inline-flex size-full animate-ping rounded-full bg-red-9 opacity-75" />
-                      <span className="relative inline-flex size-2 rounded-full bg-red-9" />
-                    </span>
-                    <AudioLines size={14} />
-                    <span>{t("composer.insert_live_transcript")}</span>
+                    {props.liveTranscriptActive ? (
+                      <span className="relative flex size-2">
+                        <span className="absolute inline-flex size-full animate-ping rounded-full bg-red-9 opacity-75" />
+                        <span className="relative inline-flex size-2 rounded-full bg-red-9" />
+                      </span>
+                    ) : (
+                      <AudioLines size={14} />
+                    )}
+                    <span>{props.liveTranscriptActive ? t("composer.live_transcript_on") : t("composer.live_transcript_off")}</span>
                   </button>
                 ) : null}
               </div>

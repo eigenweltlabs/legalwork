@@ -16,6 +16,19 @@ import {
   audioModelDownloadCancel,
   audioOverlaySetVisible,
   audioRecorderBootstrap,
+  audioSystemDictationGet,
+  audioSystemDictationOpenSettings,
+  audioSystemDictationPaste,
+  audioSystemDictationSetEnabled,
+  audioSystemDictationSetMode,
+  audioSystemDictationSetShortcut,
+  audioSystemDictationSetShortcutCapture,
+  audioSystemDictationSetState,
+  audioLiveTranscriptStart,
+  audioLiveTranscriptStop,
+  audioImportStart,
+  audioImportSource,
+  audioImportFinish,
   audioRecordingCancel,
   audioRecordingDelete,
   audioRecordingGet,
@@ -37,13 +50,19 @@ import type {
   AudioRecorderEvent,
   AudioRecordingDetail,
   AudioRecordingMeta,
+  AudioSystemDictationRuntimeState,
+  AudioSystemDictationMode,
+  AudioSystemDictationStatus,
   AudioTranscribeLanguage,
   AudioTranscriberStatus,
   AudioTranscriptSegment,
 } from "@legalwork/types/audio";
 import { t } from "@/i18n";
 
-import { startCapture, type CaptureHandle, type CaptureLevels } from "./capture";
+import { decodeAudioFileToPcm16k, startCapture, type CaptureHandle, type CaptureLevels } from "./capture";
+
+/** PCM chunk size when streaming a decoded file to the worker (~1 s at 16 kHz). */
+const IMPORT_PCM_CHUNK = 16000;
 
 const MODEL_PREF_KEY = "legalwork.recorder.model";
 const LANGUAGE_PREF_KEY = "legalwork.recorder.language";
@@ -95,10 +114,17 @@ export type RecorderState = {
   partial: AudioTranscriptSegment | null;
   recordings: AudioRecordingMeta[];
   openedRecording: AudioRecordingDetail | null;
+  /** A file drag-dropped for transcription is being decoded/transcribed. */
+  importing: { fileName: string } | null;
   levels: CaptureLevels;
   overlayVisible: boolean;
   copilotEntries: CopilotEntry[];
+  /** Session whose chat currently mirrors the live transcript to a file, if any. */
+  liveTranscriptSessionId: string | null;
   error: string | null;
+  systemDictation: AudioSystemDictationStatus | null;
+  dictationState: AudioSystemDictationRuntimeState;
+  dictationRecordingId: string | null;
   modelId: string;
   language: AudioTranscribeLanguage;
   sources: AudioCaptureSourceKind[];
@@ -125,9 +151,21 @@ type RecorderActions = {
   downloadModel: (modelId: string) => Promise<void>;
   cancelModelDownload: (modelId: string) => Promise<void>;
   deleteModel: (modelId: string) => Promise<void>;
-  startRecording: (title?: string) => Promise<void>;
+  startRecording: (
+    title?: string,
+    options?: { sources: AudioCaptureSourceKind[]; systemDictation: boolean },
+  ) => Promise<void>;
   stopRecording: () => Promise<void>;
   cancelRecording: () => Promise<void>;
+  refreshSystemDictation: () => Promise<void>;
+  setSystemDictationEnabled: (enabled: boolean) => Promise<void>;
+  setSystemDictationMode: (mode: AudioSystemDictationMode) => Promise<void>;
+  setSystemDictationShortcut: (accelerator: string) => Promise<boolean>;
+  setSystemDictationShortcutCapture: (active: boolean) => Promise<void>;
+  openSystemDictationSettings: () => Promise<void>;
+  startSystemDictation: () => Promise<void>;
+  /** Transcribe a dropped/opened audio file locally; adds it to Recordings. */
+  importAudioFile: (file: File) => Promise<void>;
   deleteRecording: (recordingId: string) => Promise<void>;
   renameRecording: (recordingId: string, title: string) => Promise<void>;
   openRecording: (recordingId: string) => Promise<void>;
@@ -135,11 +173,13 @@ type RecorderActions = {
   saveRecordingToWorkspace: (recordingId: string, workspacePath: string) => Promise<string | null>;
   getInsertableTranscript: () => string;
   /**
-   * Drop the current live transcript into a chat's context as a hidden,
-   * no-reply message (the composer's "add call context" button). The model
-   * sees it on the next real turn; nothing renders in the thread.
+   * Toggle: start mirroring the live transcript to a `live-call-transcript.md`
+   * file in the given workspace and tell the chat's agent (once, via a hidden
+   * no-reply message) that a growing transcript file exists to check. Returns
+   * true when armed. Stops automatically when the recording ends.
    */
-  insertTranscriptIntoSession: (sessionId: string, directory?: string) => Promise<boolean>;
+  startLiveTranscriptShare: (sessionId: string, workspacePath: string, directory?: string) => Promise<boolean>;
+  stopLiveTranscriptShare: () => Promise<void>;
   setOverlayVisible: (visible: boolean) => Promise<void>;
   ask: (question: string) => Promise<void>;
   suggestFollowUps: () => Promise<void>;
@@ -227,6 +267,10 @@ function permissionKindsFromCaptureError(message: string, sources: AudioCaptureS
 let captureHandle: CaptureHandle | null = null;
 let levelTimer: number | null = null;
 let eventsSubscribed = false;
+let dictationTogglePending = false;
+let dictationHoldStartPending = false;
+let dictationHoldReleased = false;
+let dictationHoldStopPending = false;
 
 function transcriptText(segments: AudioTranscriptSegment[], limit = 12_000): string {
   const text = segments.map((segment) => segment.text).join("\n");
@@ -379,6 +423,63 @@ export const useRecorderStore = create<RecorderState & RecorderActions>((set, ge
         set({ error: event.error });
         break;
       }
+      case "system-dictation-toggle": {
+        if (dictationTogglePending) break;
+        dictationTogglePending = true;
+        void (async () => {
+          try {
+            await get().init();
+            if (get().dictationRecordingId) await get().stopRecording();
+            else await get().startSystemDictation();
+          } finally {
+            dictationTogglePending = false;
+          }
+        })();
+        break;
+      }
+      case "system-dictation-press": {
+        if (dictationHoldStartPending || state.dictationRecordingId) break;
+        dictationHoldReleased = false;
+        dictationHoldStartPending = true;
+        void (async () => {
+          try {
+            await get().init();
+            await get().startSystemDictation();
+          } finally {
+            dictationHoldStartPending = false;
+            if (dictationHoldReleased && get().dictationRecordingId && !dictationHoldStopPending) {
+              dictationHoldStopPending = true;
+              await get().stopRecording().finally(() => {
+                dictationHoldStopPending = false;
+              });
+            }
+          }
+        })();
+        break;
+      }
+      case "system-dictation-release": {
+        dictationHoldReleased = true;
+        if (state.dictationRecordingId && !dictationHoldStartPending && !dictationHoldStopPending) {
+          dictationHoldStopPending = true;
+          void get().stopRecording().finally(() => {
+            dictationHoldStopPending = false;
+          });
+        }
+        break;
+      }
+      case "system-dictation-cancel": {
+        if (state.dictationRecordingId) void get().cancelRecording();
+        break;
+      }
+      case "system-dictation-status": {
+        set({ systemDictation: event.status, error: event.status.error });
+        break;
+      }
+      case "live-transcript-stopped": {
+        // Recording ended → the workspace mirror is finalized; reset the toggle.
+        set({ liveTranscriptSessionId: null });
+        break;
+      }
       case "overlay-visibility": {
         set({ overlayVisible: event.visible });
         break;
@@ -408,10 +509,15 @@ export const useRecorderStore = create<RecorderState & RecorderActions>((set, ge
     partial: null,
     recordings: [],
     openedRecording: null,
+    importing: null,
     levels: {},
     overlayVisible: false,
     copilotEntries: [],
+    liveTranscriptSessionId: null,
     error: null,
+    systemDictation: null,
+    dictationState: "idle",
+    dictationRecordingId: null,
     modelId: readPref(MODEL_PREF_KEY, "whisper-base"),
     language: readLanguagePref(),
     sources: readSourcesPref(),
@@ -425,7 +531,12 @@ export const useRecorderStore = create<RecorderState & RecorderActions>((set, ge
       }
       if (get().initialized) return;
       set({ initialized: true });
-      await Promise.all([get().refreshBootstrap(), get().refreshRecordings(), get().refreshPermissions()]);
+      await Promise.all([
+        get().refreshBootstrap(),
+        get().refreshRecordings(),
+        get().refreshPermissions(),
+        get().refreshSystemDictation(),
+      ]);
       void get().prewarm();
     },
 
@@ -474,6 +585,82 @@ export const useRecorderStore = create<RecorderState & RecorderActions>((set, ge
       } catch {
         // desktop bridge unavailable (plain web) — recorder UI shows a hint
       }
+    },
+
+    refreshSystemDictation: async () => {
+      try {
+        set({ systemDictation: await audioSystemDictationGet() });
+      } catch {
+        // Plain web and older desktop builds do not expose this feature.
+      }
+    },
+
+    setSystemDictationEnabled: async (enabled) => {
+      if (!enabled && get().dictationRecordingId) await get().cancelRecording();
+      try {
+        const status = await audioSystemDictationSetEnabled(enabled);
+        set({ systemDictation: status, error: status.error });
+      } catch (error) {
+        set({ error: error instanceof Error ? error.message : String(error) });
+      }
+    },
+
+    setSystemDictationMode: async (mode) => {
+      try {
+        const status = await audioSystemDictationSetMode(mode);
+        set({ systemDictation: status, error: status.error });
+      } catch (error) {
+        set({ error: error instanceof Error ? error.message : String(error) });
+      }
+    },
+
+    setSystemDictationShortcut: async (accelerator) => {
+      try {
+        const status = await audioSystemDictationSetShortcut(accelerator);
+        set({ systemDictation: status, error: status.error });
+        return status.error === null;
+      } catch (error) {
+        set({ error: error instanceof Error ? error.message : String(error) });
+        return false;
+      }
+    },
+
+    setSystemDictationShortcutCapture: async (active) => {
+      try {
+        set({ systemDictation: await audioSystemDictationSetShortcutCapture(active) });
+      } catch (error) {
+        set({ error: error instanceof Error ? error.message : String(error) });
+      }
+    },
+
+    openSystemDictationSettings: async () => {
+      try {
+        set({ systemDictation: await audioSystemDictationOpenSettings() });
+      } catch (error) {
+        set({ error: error instanceof Error ? error.message : String(error) });
+      }
+    },
+
+    startSystemDictation: async () => {
+      const { systemDictation, bootstrap, modelId, recording } = get();
+      if (!systemDictation?.enabled || !systemDictation.registered) return;
+      if (recording) {
+        const message = "Stop the current Recorder session before starting system-wide dictation.";
+        set({ error: message, dictationState: "error" });
+        await audioSystemDictationSetState("error", message).catch(() => {});
+        return;
+      }
+      const model = bootstrap?.models.find((entry) => entry.id === modelId);
+      if (!model || model.state !== "installed") {
+        const message = "Install and select a local transcription model in Recorder settings first.";
+        set({ error: message, dictationState: "error" });
+        await audioSystemDictationSetState("error", message).catch(() => {});
+        return;
+      }
+      await get().startRecording("System dictation", {
+        sources: ["microphone"],
+        systemDictation: true,
+      });
     },
 
     setModelId: (modelId) => {
@@ -537,12 +724,12 @@ export const useRecorderStore = create<RecorderState & RecorderActions>((set, ge
       await get().refreshBootstrap();
     },
 
-    startRecording: async (title) => {
+    startRecording: async (title, options) => {
       const { modelId, language, recording, bootstrap } = get();
       if (recording) return;
       // A persisted "system" pref may predate running on a platform that
       // can't capture it (e.g. macOS 12) — drop unsupported sources.
-      let sources = get().sources;
+      let sources = options?.sources ?? get().sources;
       if (bootstrap && !bootstrap.capabilities.systemAudio) {
         sources = sources.filter((source) => source !== "system");
       }
@@ -557,6 +744,11 @@ export const useRecorderStore = create<RecorderState & RecorderActions>((set, ge
       const needed = missingPermissionKinds(get().permissions, requiredPermissionKinds(sources));
       if (needed.length > 0) {
         set({ permissionsNeeded: needed, error: null });
+        if (options?.systemDictation) {
+          const message = "Microphone access is required. Open Recorder settings to finish setup.";
+          set({ dictationState: "error" });
+          await audioSystemDictationSetState("error", message).catch(() => {});
+        }
         return;
       }
 
@@ -566,7 +758,13 @@ export const useRecorderStore = create<RecorderState & RecorderActions>((set, ge
         const status = await audioTranscriberStart({ modelId, language });
         if (status.state === "error") throw new Error(status.error ?? "Transcriber failed to start.");
 
-        const meta = await audioRecordingStart({ title, language, modelId, sources });
+        const meta = await audioRecordingStart({
+          title,
+          language,
+          modelId,
+          sources,
+          ephemeral: options?.systemDictation === true,
+        });
         startedMetaId = meta.id;
         const audio = window.__LEGALWORK_ELECTRON__?.audio;
         captureHandle = await startCapture(
@@ -580,7 +778,15 @@ export const useRecorderStore = create<RecorderState & RecorderActions>((set, ge
           },
           { appPids: get().appPids },
         );
-        set({ recording: meta, recordingStartedAt: Date.now() });
+        set({
+          recording: meta,
+          recordingStartedAt: Date.now(),
+          dictationRecordingId: options?.systemDictation ? meta.id : null,
+          dictationState: options?.systemDictation ? "listening" : get().dictationState,
+        });
+        if (options?.systemDictation) {
+          await audioSystemDictationSetState("listening").catch(() => {});
+        }
         levelTimer = window.setInterval(() => {
           if (captureHandle) set({ levels: captureHandle.readLevels() });
         }, 150);
@@ -600,45 +806,80 @@ export const useRecorderStore = create<RecorderState & RecorderActions>((set, ge
         set({
           recording: null,
           recordingStartedAt: null,
+          dictationRecordingId: null,
+          dictationState: options?.systemDictation ? "error" : get().dictationState,
           permissionsNeeded: permissionKinds,
           error: permissionKinds.length > 0 ? null : message,
         });
+        if (options?.systemDictation) {
+          await audioSystemDictationSetState("error", message).catch(() => {});
+        }
       }
     },
 
     stopRecording: async () => {
       const recording = get().recording;
       if (!recording) return;
+      const isSystemDictation = get().dictationRecordingId === recording.id;
       if (levelTimer !== null) {
         window.clearInterval(levelTimer);
         levelTimer = null;
       }
       try {
+        if (isSystemDictation) {
+          set({ dictationState: "transcribing" });
+          await audioSystemDictationSetState("transcribing").catch(() => {});
+        }
         if (captureHandle) {
           await captureHandle.stop();
           captureHandle = null;
         }
         const meta = await audioRecordingStop(recording.id);
+        let dictationError: string | null = null;
+        let recordingsAfterDictation: AudioRecordingMeta[] | null = null;
+        if (isSystemDictation) {
+          const detail = await audioRecordingGet(meta.id);
+          const text = (detail?.segments ?? []).map((segment) => segment.text).join(" ").trim();
+          try {
+            const result = await audioSystemDictationPaste(text);
+            dictationError = result.error;
+          } finally {
+            recordingsAfterDictation = await audioRecordingDelete(meta.id).catch(() => null);
+          }
+          await audioSystemDictationSetState(
+            dictationError ? "error" : "idle",
+            dictationError ?? "",
+          ).catch(() => {});
+        }
         set((state) => ({
           recording: null,
           recordingStartedAt: null,
+          dictationRecordingId: null,
+          dictationState: isSystemDictation && dictationError ? "error" : "idle",
           partial: null,
           levels: {},
-          recordings: [meta, ...state.recordings.filter((item) => item.id !== meta.id)],
+          error: dictationError,
+          recordings:
+            recordingsAfterDictation ?? [meta, ...state.recordings.filter((item) => item.id !== meta.id)],
         }));
       } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
         set({
           recording: null,
           recordingStartedAt: null,
+          dictationRecordingId: null,
+          dictationState: isSystemDictation ? "error" : get().dictationState,
           levels: {},
-          error: error instanceof Error ? error.message : String(error),
+          error: message,
         });
+        if (isSystemDictation) await audioSystemDictationSetState("error", message).catch(() => {});
       }
       await get().refreshRecordings();
     },
 
     cancelRecording: async () => {
       const recording = get().recording;
+      const isSystemDictation = Boolean(recording && get().dictationRecordingId === recording.id);
       if (levelTimer !== null) {
         window.clearInterval(levelTimer);
         levelTimer = null;
@@ -648,7 +889,67 @@ export const useRecorderStore = create<RecorderState & RecorderActions>((set, ge
         captureHandle = null;
       }
       if (recording) await audioRecordingCancel(recording.id).catch(() => {});
-      set({ recording: null, recordingStartedAt: null, partial: null, segments: [], levels: {} });
+      set({
+        recording: null,
+        recordingStartedAt: null,
+        dictationRecordingId: null,
+        dictationState: "idle",
+        partial: null,
+        segments: [],
+        levels: {},
+      });
+      if (isSystemDictation) await audioSystemDictationSetState("idle").catch(() => {});
+    },
+
+    importAudioFile: async (file) => {
+      if (get().recording || get().importing) return;
+      const { modelId, language, bootstrap } = get();
+      const model = bootstrap?.models.find((entry) => entry.id === modelId);
+      if (!model || model.state !== "installed") {
+        set({ error: t("recorder.import_no_model") });
+        return;
+      }
+
+      set({ importing: { fileName: file.name }, error: null });
+      let recordingId: string | null = null;
+      try {
+        // Load the model and wait until it's ready — a whole file's PCM would
+        // otherwise overflow the worker's pre-ready buffer for long recordings.
+        const status = await audioTranscriberStart({ modelId, language });
+        if (status.state === "error") throw new Error(status.error ?? "Transcriber failed to start.");
+        if (get().transcriber.state !== "ready") {
+          const deadline = Date.now() + 60_000;
+          while (Date.now() < deadline) {
+            const state = get().transcriber.state;
+            if (state === "ready") break;
+            if (state === "error") throw new Error(get().transcriber.error ?? "Transcriber failed to load.");
+            await new Promise((resolve) => setTimeout(resolve, 150));
+          }
+        }
+
+        const { pcm, durationMs } = await decodeAudioFileToPcm16k(file);
+        if (pcm.length === 0) throw new Error(t("recorder.import_decode_failed"));
+
+        const meta = await audioImportStart({ title: file.name, fileName: file.name, language, modelId });
+        recordingId = meta.id;
+        await audioImportSource(meta.id, await file.arrayBuffer());
+
+        const audio = window.__LEGALWORK_ELECTRON__?.audio;
+        for (let offset = 0; offset < pcm.length; offset += IMPORT_PCM_CHUNK) {
+          const slice = pcm.slice(offset, Math.min(offset + IMPORT_PCM_CHUNK, pcm.length));
+          audio?.sendPcm?.(meta.id, slice.buffer);
+        }
+        const finalMeta = await audioImportFinish(meta.id, durationMs);
+        set((state) => ({
+          recordings: [finalMeta, ...state.recordings.filter((item) => item.id !== finalMeta.id)],
+        }));
+      } catch (error) {
+        if (recordingId) await audioRecordingCancel(recordingId).catch(() => {});
+        set({ error: error instanceof Error ? error.message : String(error) });
+      } finally {
+        set({ importing: null });
+        await get().refreshRecordings();
+      }
     },
 
     deleteRecording: async (recordingId) => {
@@ -704,35 +1005,50 @@ export const useRecorderStore = create<RecorderState & RecorderActions>((set, ge
       return transcriptText(source, 100_000).trim();
     },
 
-    insertTranscriptIntoSession: async (sessionId, directory) => {
-      const text = get().getInsertableTranscript();
-      if (!text) {
-        set({ error: t("recorder.context_inject_empty") });
-        return false;
-      }
-      const client = copilotContext?.getClient();
-      if (!client) {
+    startLiveTranscriptShare: async (sessionId, workspacePath, directory) => {
+      const root = workspacePath?.trim();
+      if (!root) {
         set({ error: t("recorder.context_inject_no_session") });
         return false;
       }
-      const body = `${t("recorder.context_inject_header")}\n\n${text}`;
+      let fileName = "live-call-transcript.md";
       try {
-        // A synthetic part is invisible in the thread but still in the model's
-        // context; noReply keeps it from triggering a turn — it just seeds
-        // context for the user's next real message.
-        unwrap(
-          await client.session.promptAsync({
-            sessionID: sessionId,
-            directory: directory || copilotContext?.getDirectory() || undefined,
-            noReply: true,
-            parts: [{ type: "text", text: body, synthetic: true }],
-          }),
-        );
-        return true;
+        const result = await audioLiveTranscriptStart(root);
+        if (!result.ok) {
+          set({ error: result.error ?? "Could not start the live transcript." });
+          return false;
+        }
+        if (result.fileName) fileName = result.fileName;
       } catch (error) {
         set({ error: error instanceof Error ? error.message : String(error) });
         return false;
       }
+
+      // Tell the agent — once, invisibly (synthetic + noReply) — that a growing
+      // transcript file exists to read on demand. No repeated pasting.
+      const client = copilotContext?.getClient();
+      if (client) {
+        const body = t("recorder.live_share_notice").replace("{file}", fileName);
+        try {
+          unwrap(
+            await client.session.promptAsync({
+              sessionID: sessionId,
+              directory: directory || copilotContext?.getDirectory() || undefined,
+              noReply: true,
+              parts: [{ type: "text", text: body, synthetic: true }],
+            }),
+          );
+        } catch {
+          // The file is already live; a failed notice shouldn't block the toggle.
+        }
+      }
+      set({ liveTranscriptSessionId: sessionId });
+      return true;
+    },
+
+    stopLiveTranscriptShare: async () => {
+      await audioLiveTranscriptStop().catch(() => {});
+      set({ liveTranscriptSessionId: null });
     },
 
     setOverlayVisible: async (visible) => {

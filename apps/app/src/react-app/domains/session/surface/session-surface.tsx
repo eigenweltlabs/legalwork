@@ -445,7 +445,8 @@ export function SessionSurface(props: SessionSurfaceProps) {
   // session B when the route swaps the same surface component to another
   // session.
   const queuedDrafts = useComposerStateStore((state) => getComposerQueuedDrafts(state, props.sessionId));
-  const fusionAvailable = !isOfficeAddinRuntime();
+  const officeAddinRuntime = isOfficeAddinRuntime();
+  const fusionAvailable = !officeAddinRuntime;
   const storedFusionEnabled = useFusionStore((state) => Boolean(state.enabledSessionIds[props.sessionId]));
   const fusionEnabled = fusionAvailable && storedFusionEnabled;
   const fusionModels = useFusionStore((state) => state.selectedModelsBySessionId[props.sessionId]);
@@ -475,20 +476,96 @@ export function SessionSurface(props: SessionSurfaceProps) {
     setFusionModels(props.sessionId, models);
   }, [props.sessionId, setFusionModels]);
   const fusionConfigured = (fusionModels?.length ?? 0) > 0;
+  const opencodeClient = useMemo(
+    () => createClient(props.opencodeBaseUrl, undefined, { token: props.legalworkToken, mode: "legalwork" }),
+    [props.opencodeBaseUrl, props.legalworkToken],
+  );
 
-  // Live-transcript → context. `recording` is a stable object for the whole
+  // Live-transcript sharing. `recording` is a stable object for the whole
   // capture (set at start, cleared at stop), so subscribing here doesn't
-  // re-render the surface on every transcript segment; the transcript itself
-  // is read lazily at click time.
-  const recorderActive = useRecorderStore((state) => Boolean(state.recording));
-  const handleInsertLiveTranscript = useCallback(() => {
-    void useRecorderStore
-      .getState()
-      .insertTranscriptIntoSession(props.sessionId, props.workspaceRoot || undefined)
-      .then((ok) => {
-        if (ok) toast.success(t("composer.insert_live_transcript_done"));
-      });
-  }, [props.sessionId, props.workspaceRoot]);
+  // re-render the surface on every transcript segment.
+  const desktopRecorderActive = useRecorderStore((state) =>
+    Boolean(state.recording && state.recording.id !== state.dictationRecordingId),
+  );
+  const desktopLiveTranscriptActive = useRecorderStore(
+    (state) => state.liveTranscriptSessionId === props.sessionId,
+  );
+  const officeRecorderQuery = useQuery({
+    queryKey: ["office-recorder-live-transcript", props.workspaceId],
+    queryFn: () => props.client.getRecorderLiveTranscript(props.workspaceId),
+    enabled: officeAddinRuntime,
+    refetchInterval: officeAddinRuntime ? 1_000 : false,
+    retry: false,
+  });
+  const officeRecorderStatus = officeRecorderQuery.data;
+  const refetchOfficeRecorder = officeRecorderQuery.refetch;
+  const recorderActive = officeAddinRuntime
+    ? Boolean(officeRecorderStatus?.available && officeRecorderStatus.recordingActive)
+    : desktopRecorderActive;
+  const liveTranscriptActive = officeAddinRuntime
+    ? Boolean(officeRecorderStatus?.liveTranscriptActive)
+    : desktopLiveTranscriptActive;
+  const liveTranscriptToggleBusyRef = useRef(false);
+  const handleToggleLiveTranscript = useCallback(async () => {
+    if (liveTranscriptToggleBusyRef.current) return;
+    liveTranscriptToggleBusyRef.current = true;
+    try {
+      if (officeAddinRuntime) {
+        const result = await props.client.setRecorderLiveTranscript(
+          props.workspaceId,
+          !officeRecorderStatus?.liveTranscriptActive,
+        );
+        if (result.error) {
+          toast.error(result.error);
+          return;
+        }
+        if (result.liveTranscriptActive && result.fileName) {
+          const body = t("recorder.live_share_notice").replace("{file}", result.fileName);
+          try {
+            unwrap(await opencodeClient.session.promptAsync({
+              sessionID: props.sessionId,
+              directory: props.workspaceRoot || undefined,
+              noReply: true,
+              parts: [{ type: "text", text: body, synthetic: true }],
+            }));
+          } catch {
+            // The transcript is already live; a failed notice must not undo it.
+          }
+          toast.success(t("composer.live_transcript_started"));
+        } else {
+          toast.success(t("composer.live_transcript_stopped"));
+        }
+        return;
+      }
+
+      const store = useRecorderStore.getState();
+      if (store.liveTranscriptSessionId === props.sessionId) {
+        await store.stopLiveTranscriptShare();
+        toast.success(t("composer.live_transcript_stopped"));
+        return;
+      }
+      const started = await store.startLiveTranscriptShare(
+        props.sessionId,
+        props.workspaceRoot || "",
+        props.workspaceRoot || undefined,
+      );
+      if (started) toast.success(t("composer.live_transcript_started"));
+    } catch (toggleError) {
+      toast.error(toggleError instanceof Error ? toggleError.message : t("app.unknown_error"));
+    } finally {
+      liveTranscriptToggleBusyRef.current = false;
+      if (officeAddinRuntime) await refetchOfficeRecorder();
+    }
+  }, [
+    officeAddinRuntime,
+    officeRecorderStatus?.liveTranscriptActive,
+    opencodeClient,
+    props.client,
+    props.sessionId,
+    props.workspaceId,
+    props.workspaceRoot,
+    refetchOfficeRecorder,
+  ]);
   const appendQueuedDraft = useComposerStateStore((state) => state.appendQueuedDraft);
   const removeQueuedDraftFromStore = useComposerStateStore((state) => state.removeQueuedDraft);
   const clearQueuedDrafts = useComposerStateStore((state) => state.clearQueuedDrafts);
@@ -508,11 +585,6 @@ export function SessionSurface(props: SessionSurfaceProps) {
   const hydratedKeyRef = useRef<string | null>(null);
   const autoOpenedTargetRef = useRef<string | null>(null);
   const initializedAutoOpenSessionRef = useRef<string | null>(null);
-  const opencodeClient = useMemo(
-    () => createClient(props.opencodeBaseUrl, undefined, { token: props.legalworkToken, mode: "legalwork" }),
-    [props.opencodeBaseUrl, props.legalworkToken],
-  );
-
   const snapshotQueryKey = useMemo(
     () => reactSnapshotKey(props.workspaceId, props.sessionId),
     [props.workspaceId, props.sessionId],
@@ -1476,7 +1548,8 @@ export function SessionSurface(props: SessionSurfaceProps) {
           onToggleFusion={fusionAvailable ? handleToggleFusion : undefined}
           fusionModels={fusionAvailable ? fusionModels ?? [] : []}
           onFusionModelsChange={fusionAvailable ? handleFusionModelsChange : undefined}
-          onInsertLiveTranscript={recorderActive ? handleInsertLiveTranscript : undefined}
+          onToggleLiveTranscript={recorderActive ? handleToggleLiveTranscript : undefined}
+          liveTranscriptActive={liveTranscriptActive}
           onUploadInboxFiles={props.onUploadInboxFiles ?? handleUploadInboxFiles}
           compactTopSpacing={Boolean(props.freeModelSelected || props.activeQuestion || (props.todos ?? []).some((todo) => todo.content.trim()) || props.activePermission || queuedMessages.length > 0)}
           topAccessory={

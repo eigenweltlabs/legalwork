@@ -1930,6 +1930,10 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
             onToggleAnalytics={() => {
               local.setPrefs((previous) => ({ ...previous, analyticsEnabled: !previous.analyticsEnabled }));
             }}
+            hideAppMode={local.prefs.hideAppMode}
+            onChangeHideAppMode={(mode) => {
+              local.setPrefs((previous) => ({ ...previous, hideAppMode: mode }));
+            }}
           />
         );
       case "shell":

@@ -94,6 +94,22 @@ export interface WordAddinConfig {
   distPath?: string;
 }
 
+export interface RecorderLiveTranscriptStatus {
+  available: boolean;
+  recordingActive: boolean;
+  liveTranscriptActive: boolean;
+  fileName: string | null;
+  error: string | null;
+}
+
+export interface RecorderBridge {
+  status: (workspacePath: string) => RecorderLiveTranscriptStatus | Promise<RecorderLiveTranscriptStatus>;
+  setLiveTranscript: (
+    enabled: boolean,
+    workspacePath: string,
+  ) => RecorderLiveTranscriptStatus | Promise<RecorderLiveTranscriptStatus>;
+}
+
 export interface ServerConfig {
   host: string;
   port: number;
@@ -110,6 +126,8 @@ export interface ServerConfig {
    * focus from it.
    */
   pickDirectory?: ((options: { title?: string; defaultPath?: string; returnFocusTo?: string }) => Promise<string | null>) | null;
+  /** Desktop-owned recorder controls used by browser-hosted Office add-ins. */
+  recorder?: RecorderBridge | null;
   opencodeBaseUrl?: string;
   opencodeDirectory?: string;
   opencodeUsername?: string;

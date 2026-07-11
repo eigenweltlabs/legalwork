@@ -145,6 +145,8 @@ export type AudioRecordingMeta = {
   segmentCount: number;
   status: AudioRecordingStatus;
   error: string | null;
+  /** Temporary capture used by system dictation; never shown in Recorder history. */
+  ephemeral?: boolean;
 };
 
 export type AudioRecordingDetail = {
@@ -160,11 +162,41 @@ export type AudioTranscriberStatus = {
   error: string | null;
 };
 
+export type AudioSystemDictationPlatform = "darwin" | "windows" | "linux";
+export type AudioSystemDictationMode = "tap" | "hold";
+
+export type AudioSystemDictationStatus = {
+  enabled: boolean;
+  registered: boolean;
+  accelerator: string;
+  defaultAccelerator: string;
+  customAccelerator: boolean;
+  mode: AudioSystemDictationMode;
+  supportsHold: boolean;
+  shortcutCaptureActive: boolean;
+  platform: AudioSystemDictationPlatform;
+  accessibility: "granted" | "needed" | "not-required";
+  error: string | null;
+};
+
+export type AudioSystemDictationRuntimeState =
+  | "idle"
+  | "listening"
+  | "transcribing"
+  | "error";
+
+export type AudioSystemDictationPasteResult = {
+  pasted: boolean;
+  copied: boolean;
+  error: string | null;
+};
+
 export type AudioRecordingStartInput = {
   title?: string;
   language: AudioTranscribeLanguage;
   modelId: string;
   sources: AudioCaptureSourceKind[];
+  ephemeral?: boolean;
 };
 
 export type AudioSaveToWorkspaceResult = {
@@ -190,6 +222,13 @@ export type AudioRecorderEvent =
   | { type: "recording-started"; recordingId: string }
   | { type: "transcribe-file-done"; streamId: string }
   | { type: "recording-error"; recordingId: string; error: string }
+  | { type: "system-dictation-toggle" }
+  | { type: "system-dictation-press" }
+  | { type: "system-dictation-release" }
+  | { type: "system-dictation-cancel" }
+  | { type: "system-dictation-status"; status: AudioSystemDictationStatus }
+  /** The live-transcript workspace mirror stopped (recording ended). */
+  | { type: "live-transcript-stopped" }
   | { type: "overlay-visibility"; visible: boolean }
   /** Overlay → main window: the lawyer typed a question for the AI copilot. */
   | { type: "overlay-ask"; askId: string; question: string }

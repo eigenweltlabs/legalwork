@@ -8,9 +8,12 @@ import { useNavigate } from "react-router-dom";
 import {
   AppWindowMac,
   Check,
+  ChevronLeft,
+  ChevronRight,
+  FileAudio,
   FolderInput,
   FolderOpen,
-  EyeOff,
+  Globe2,
   HardDrive,
   Languages,
   Loader2,
@@ -19,10 +22,10 @@ import {
   Pencil,
   Play,
   Settings2,
-  Sparkles,
   SendHorizontal,
   Square,
   Trash2,
+  Upload,
   X,
 } from "lucide-react";
 
@@ -35,7 +38,6 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
-import { InputGroup, InputGroupAddon, InputGroupButton, InputGroupTextarea } from "@/components/ui/input-group";
 import {
   Select,
   SelectContent,
@@ -54,7 +56,7 @@ import type {
 import { audioTapListApps } from "@/app/lib/desktop";
 import { formatBytes } from "../../../app/utils";
 import { PermissionsPanel } from "./permissions-panel";
-import { revealRecording, useRecorderStore, type CopilotEntry } from "./recorder-store";
+import { revealRecording, useRecorderStore } from "./recorder-store";
 
 /**
  * Flat section card, same recipe as the Learnings page's PreviewCard: liquid
@@ -83,19 +85,11 @@ function formatDuration(ms: number): string {
   return h > 0 ? `${h}:${pad(m)}:${pad(s)}` : `${m}:${pad(s)}`;
 }
 
-function LevelMeter({ level, label, icon }: { level: number; label: string; icon: React.ReactNode }) {
-  return (
-    <div className="flex items-center gap-2" title={label}>
-      <span className="text-muted-foreground [&_svg]:size-3.5">{icon}</span>
-      <div className="h-1.5 w-16 overflow-hidden rounded-full bg-muted">
-        <div
-          className="h-full rounded-full bg-green-9 transition-[width] duration-100"
-          style={{ width: `${Math.min(100, Math.round(level * 130))}%` }}
-        />
-      </div>
-    </div>
-  );
-}
+/** Recordings list page size — paginated so a long history stays manageable. */
+const RECORDINGS_PER_PAGE = 8;
+
+/** Persisted flag: the "Dictate anywhere" intro was dismissed via its ✕. */
+const DICTATE_INFO_DISMISSED_KEY = "legalwork.recorder.dictateInfoDismissed";
 
 function RecordingTimer({ startedAt }: { startedAt: number }) {
   const [now, setNow] = useState(() => Date.now());
@@ -234,31 +228,6 @@ function AppPickerDialog(props: { open: boolean; onClose: () => void }) {
         </div>
       </DialogContent>
     </Dialog>
-  );
-}
-
-function CopilotEntryRow({ entry }: { entry: CopilotEntry }) {
-  return (
-    <div className="rounded-xl border border-border bg-card px-3 py-2">
-      <div className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
-        {entry.kind === "suggestions" ? <Sparkles className="size-3.5 text-primary" /> : null}
-        <span className="truncate">
-          {entry.kind === "suggestions" ? t("recorder.copilot_suggestions_title") : entry.question}
-        </span>
-      </div>
-      {entry.pending ? (
-        <div className="mt-1.5 flex items-center gap-2 text-xs text-muted-foreground">
-          <Loader2 className="size-3.5 animate-spin" />
-          {t("recorder.copilot_thinking")}
-        </div>
-      ) : entry.error ? (
-        <div className="mt-1.5 text-xs text-destructive">{entry.error}</div>
-      ) : (
-        <div className="mt-1.5 whitespace-pre-wrap break-words text-sm leading-relaxed text-foreground">
-          {entry.answer}
-        </div>
-      )}
-    </div>
   );
 }
 
@@ -407,19 +376,32 @@ export function RecorderPane(props: {
   const store = useRecorderStore();
   const [title, setTitle] = useState("");
   const [appPickerOpen, setAppPickerOpen] = useState(false);
+  const [dragActive, setDragActive] = useState(false);
+  const [recordingsPage, setRecordingsPage] = useState(0);
+  const [dictateInfoDismissed, setDictateInfoDismissed] = useState(() => {
+    try {
+      return localStorage.getItem(DICTATE_INFO_DISMISSED_KEY) === "1";
+    } catch {
+      return false;
+    }
+  });
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
   const navigate = useNavigate();
-  const [question, setQuestion] = useState("");
-  const transcriptEndRef = useRef<HTMLDivElement>(null);
+
+  const dismissDictateInfo = () => {
+    setDictateInfoDismissed(true);
+    try {
+      localStorage.setItem(DICTATE_INFO_DISMISSED_KEY, "1");
+    } catch {
+      // storage unavailable — dismiss for this session only
+    }
+  };
 
   useEffect(() => {
     void store.init();
     // The store is module-scoped; init is idempotent.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-
-  useEffect(() => {
-    transcriptEndRef.current?.scrollIntoView({ block: "end", behavior: "smooth" });
-  }, [store.segments.length, store.partial?.text]);
 
   const models = store.bootstrap?.models ?? [];
   const installedModels = useMemo(() => models.filter((model) => model.state === "installed"), [models]);
@@ -428,8 +410,7 @@ export function RecorderPane(props: {
   const selectedInstalled = installedModels.some((model) => model.id === store.modelId);
   const canRecord = !isRecording && selectedInstalled && engine?.available !== false;
   const isDesktop = Boolean(window.__LEGALWORK_ELECTRON__?.invokeDesktop);
-
-  const liveSegments = store.segments;
+  const showDictateInfo = store.systemDictation?.enabled === false && !dictateInfoDismissed;
 
   // Save targets: every local workspace (selected first, provided by the
   // shell); older callers that only pass workspacePath still get one target.
@@ -440,6 +421,39 @@ export function RecorderPane(props: {
     }
     return [];
   }, [props.workspaceTargets, props.workspacePath]);
+
+  // Client-side pagination for the recordings history — the whole list is in
+  // memory, but rendering hundreds of rows (and their dropdowns) is wasteful.
+  const recordingsCount = store.recordings.length;
+  const recordingsPageCount = Math.max(1, Math.ceil(recordingsCount / RECORDINGS_PER_PAGE));
+  const recordingsCurrentPage = Math.min(recordingsPage, recordingsPageCount - 1);
+  const pagedRecordings = useMemo(
+    () =>
+      store.recordings.slice(
+        recordingsCurrentPage * RECORDINGS_PER_PAGE,
+        recordingsCurrentPage * RECORDINGS_PER_PAGE + RECORDINGS_PER_PAGE,
+      ),
+    [store.recordings, recordingsCurrentPage],
+  );
+
+  const importing = store.importing;
+  const canImport = !isRecording && !importing && selectedInstalled && engine?.available !== false;
+  const pickAudioFile = (list: FileList | null): File | null => {
+    if (!list) return null;
+    return (
+      Array.from(list).find(
+        (file) =>
+          file.type.startsWith("audio/") ||
+          file.type.startsWith("video/") ||
+          /\.(mp3|wav|m4a|aac|flac|ogg|oga|opus|webm|mp4|mov|caf|aif|aiff|wma|3gp)$/i.test(file.name),
+      ) ?? null
+    );
+  };
+  const handleImportFiles = (list: FileList | null) => {
+    if (!canImport) return;
+    const file = pickAudioFile(list);
+    if (file) void store.importAudioFile(file);
+  };
 
   if (!isDesktop) {
     return (
@@ -453,7 +467,40 @@ export function RecorderPane(props: {
   }
 
   return (
-    <div className="relative h-full w-full overflow-y-auto">
+    <div
+      className="relative h-full w-full overflow-y-auto"
+      onDragOver={(event) => {
+        if (!canImport) return;
+        event.preventDefault();
+        if (!dragActive) setDragActive(true);
+      }}
+      onDragLeave={(event) => {
+        if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setDragActive(false);
+      }}
+      onDrop={(event) => {
+        event.preventDefault();
+        setDragActive(false);
+        handleImportFiles(event.dataTransfer.files);
+      }}
+    >
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept="audio/*,video/*,.m4a,.caf,.opus"
+        className="hidden"
+        onChange={(event) => {
+          handleImportFiles(event.currentTarget.files);
+          event.currentTarget.value = "";
+        }}
+      />
+      {dragActive ? (
+        <div className="pointer-events-none absolute inset-3 z-30 flex items-center justify-center rounded-[24px] border-2 border-dashed border-primary/60 bg-primary/5 backdrop-blur-[1px]">
+          <div className="flex flex-col items-center gap-2 text-primary">
+            <FileAudio className="size-8" />
+            <span className="text-sm font-medium">{t("recorder.import_drop_hint")}</span>
+          </div>
+        </div>
+      ) : null}
       <div className="relative z-10 mx-auto w-full max-w-[1080px] px-6 py-8">
         {/* Header */}
         <div className="flex flex-wrap items-end justify-between gap-4">
@@ -465,6 +512,14 @@ export function RecorderPane(props: {
             <p className="mt-1 max-w-lg text-sm text-muted-foreground">{t("recorder.subtitle")}</p>
           </div>
           <div className="flex items-center gap-2">
+            <Button
+              variant="outline"
+              disabled={!canImport}
+              onClick={() => fileInputRef.current?.click()}
+            >
+              <Upload data-icon="inline-start" />
+              {t("recorder.import_file")}
+            </Button>
             {isRecording ? (
               <Button variant="destructive" onClick={() => void store.stopRecording()}>
                 <Square data-icon="inline-start" />
@@ -479,11 +534,16 @@ export function RecorderPane(props: {
           </div>
         </div>
 
-        {isRecording ? (
-          <div className="mt-4 flex items-center gap-2 rounded-[20px] border border-border bg-card/40 px-3 py-2 text-xs text-muted-foreground">
-            <EyeOff className="size-3.5 shrink-0" />
-            {t("recorder.stealth_active")}
-          </div>
+        {importing ? (
+          <SectionCard className="mt-4 flex-row items-center gap-3">
+            <Loader2 className="size-4 shrink-0 animate-spin text-primary" />
+            <div className="min-w-0">
+              <div className="truncate text-sm font-medium text-foreground">
+                {t("recorder.import_transcribing")} {importing.fileName}
+              </div>
+              <div className="text-xs text-muted-foreground">{t("recorder.import_transcribing_hint")}</div>
+            </div>
+          </SectionCard>
         ) : null}
 
         <PermissionsPanel />
@@ -509,8 +569,42 @@ export function RecorderPane(props: {
           </div>
         ) : null}
 
+        {showDictateInfo ? (
+          <div className="mt-6 flex flex-col gap-3 border-y border-border py-4 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex min-w-0 items-start gap-3">
+              <Globe2 className="mt-0.5 size-5 shrink-0 text-primary" />
+              <div className="min-w-0">
+                <div className="flex flex-wrap items-center gap-2">
+                  <h2 className="text-sm font-medium text-foreground">{t("recorder.dictation_title")}</h2>
+                  <span className="text-xs font-medium text-muted-foreground">
+                    {t("recorder.dictation_off")}
+                  </span>
+                </div>
+                <p className="mt-1 max-w-2xl text-sm text-muted-foreground">
+                  {t("recorder.dictation_pane_description")}
+                </p>
+              </div>
+            </div>
+            <div className="flex shrink-0 items-center gap-1">
+              <Button variant="outline" size="sm" onClick={() => navigate("/settings/recorder")}>
+                <Settings2 data-icon="inline-start" />
+                {t("recorder.dictation_configure")}
+              </Button>
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                aria-label={t("recorder.dismiss")}
+                title={t("recorder.dismiss")}
+                onClick={dismissDictateInfo}
+              >
+                <X />
+              </Button>
+            </div>
+          </div>
+        ) : null}
+
         {/* Setup */}
-        <SectionCard className="mt-6">
+        <SectionCard className="mt-4">
           <h3 className="text-sm font-medium text-foreground">{t("recorder.setup_title")}</h3>
           <div className="flex flex-wrap items-center gap-x-6 gap-y-3">
             <div className="flex items-center gap-2">
@@ -605,18 +699,15 @@ export function RecorderPane(props: {
 
         <AppPickerDialog open={appPickerOpen} onClose={() => setAppPickerOpen(false)} />
 
-        {/* Live transcript */}
-        {(isRecording || liveSegments.length > 0 || store.partial) ? (
+        {/* While recording, a slim status row replaces the old live-transcript
+            card: the transcript itself lives in the workspace file (composer
+            "Live call" toggle) and in the recording afterwards. */}
+        {isRecording ? (
           <SectionCard className="mt-4">
             <div className="flex flex-row items-center justify-between">
               <h3 className="flex items-center gap-2 text-sm font-medium text-foreground">
-                <span
-                  className={cn(
-                    "size-2 rounded-full",
-                    isRecording ? "animate-pulse bg-red-9" : "bg-muted-foreground",
-                  )}
-                />
-                {isRecording ? t("recorder.live_transcript") : t("recorder.last_transcript")}
+                <span className="size-2 animate-pulse rounded-full bg-red-9" />
+                {t("recorder.live_transcript")}
                 {store.transcriber.state === "loading" ? (
                   <span className="flex items-center gap-1 text-xs font-normal text-muted-foreground">
                     <Loader2 className="size-3 animate-spin" />
@@ -624,142 +715,37 @@ export function RecorderPane(props: {
                   </span>
                 ) : null}
               </h3>
-              <div className="flex items-center gap-4">
-                {store.sources.includes("microphone") && isRecording ? (
-                  <LevelMeter
-                    level={store.levels.microphone ?? 0}
-                    label={t("recorder.source_microphone")}
-                    icon={<Mic />}
-                  />
-                ) : null}
-                {store.sources.includes("system") && isRecording ? (
-                  <LevelMeter
-                    level={store.levels.system ?? 0}
-                    label={t("recorder.source_system")}
-                    icon={<MonitorSpeaker />}
-                  />
-                ) : null}
-                {store.recordingStartedAt ? (
-                  <span className="text-sm text-muted-foreground">
-                    <RecordingTimer startedAt={store.recordingStartedAt} />
-                  </span>
-                ) : null}
-              </div>
-            </div>
-            <div>
-              <div className="max-h-72 space-y-1.5 overflow-y-auto pr-1">
-                {liveSegments.length === 0 && !store.partial ? (
-                  <div className="py-4 text-center text-sm text-muted-foreground">
-                    {t("recorder.waiting_for_speech")}
-                  </div>
-                ) : null}
-                {liveSegments.map((segment) => (
-                  <div key={segment.id} className="flex gap-2 text-sm leading-relaxed">
-                    <span className="shrink-0 pt-px text-[11px] tabular-nums text-muted-foreground">
-                      {formatDuration(segment.startMs)}
-                    </span>
-                    <span className="text-foreground">{segment.text}</span>
-                  </div>
-                ))}
-                {store.partial ? (
-                  <div className="flex gap-2 text-sm italic leading-relaxed text-muted-foreground">
-                    <span className="shrink-0 pt-px text-[11px] not-italic tabular-nums">
-                      {formatDuration(store.partial.startMs)}
-                    </span>
-                    <span>{store.partial.text}…</span>
-                  </div>
-                ) : null}
-                <div ref={transcriptEndRef} />
-              </div>
-              {liveSegments.length > 0 ? (
-                <div className="mt-3 flex justify-end">
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => {
-                      const text = store.getInsertableTranscript();
-                      if (text) props.onInsertTranscript?.(text);
-                    }}
-                  >
-                    <SendHorizontal data-icon="inline-start" />
-                    {t("recorder.insert_into_composer")}
-                  </Button>
-                </div>
+              {store.recordingStartedAt ? (
+                <span className="text-sm tabular-nums text-muted-foreground">
+                  <RecordingTimer startedAt={store.recordingStartedAt} />
+                </span>
               ) : null}
-            </div>
-          </SectionCard>
-        ) : null}
-
-        {/* AI copilot */}
-        {(isRecording || store.copilotEntries.length > 0) ? (
-          <SectionCard className="mt-4">
-            <div className="flex flex-row items-center justify-between">
-              <h3 className="flex items-center gap-2 text-sm font-medium text-foreground">
-                <Sparkles className="size-4 text-primary" />
-                {t("recorder.copilot_title")}
-              </h3>
-              <Button
-                variant="outline"
-                size="sm"
-                disabled={liveSegments.length === 0}
-                onClick={() => void store.suggestFollowUps()}
-              >
-                <Sparkles data-icon="inline-start" />
-                {t("recorder.copilot_suggest")}
-              </Button>
-            </div>
-            <div className="space-y-2">
-              {store.copilotEntries.map((entry) => (
-                <CopilotEntryRow key={entry.id} entry={entry} />
-              ))}
-              <InputGroup>
-                <InputGroupTextarea
-                  value={question}
-                  onChange={(event) => setQuestion(event.currentTarget.value)}
-                  onKeyDown={(event) => {
-                    if (event.key !== "Enter" || event.shiftKey) return;
-                    event.preventDefault();
-                    const text = question;
-                    setQuestion("");
-                    void store.ask(text);
-                  }}
-                  placeholder={t("recorder.copilot_placeholder")}
-                  rows={2}
-                />
-                <InputGroupAddon align="block-end" className="justify-end border-t border-border">
-                  <InputGroupButton
-                    variant="outline"
-                    disabled={!question.trim()}
-                    onClick={() => {
-                      const text = question;
-                      setQuestion("");
-                      void store.ask(text);
-                    }}
-                  >
-                    <SendHorizontal data-icon="inline-start" />
-                    {t("recorder.copilot_ask")}
-                  </InputGroupButton>
-                </InputGroupAddon>
-              </InputGroup>
             </div>
           </SectionCard>
         ) : null}
 
         {/* Recordings */}
         <SectionCard className="mt-4">
-          <div>
-            <h3 className="text-sm font-medium text-foreground">{t("recorder.recordings_title")}</h3>
-            <p className="mt-0.5 text-xs text-muted-foreground">
-              {t("recorder.recordings_subtitle")} {store.bootstrap?.recordingsDir ?? ""}
-            </p>
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <h3 className="text-sm font-medium text-foreground">{t("recorder.recordings_title")}</h3>
+              <p className="mt-0.5 text-xs text-muted-foreground">
+                {t("recorder.recordings_subtitle")} {store.bootstrap?.recordingsDir ?? ""}
+              </p>
+            </div>
+            {recordingsCount > 0 ? (
+              <span className="shrink-0 pt-0.5 text-xs tabular-nums text-muted-foreground">
+                {recordingsCount} {t("recorder.recordings_count_label")}
+              </span>
+            ) : null}
           </div>
           <div className="space-y-2">
-            {store.recordings.length === 0 ? (
+            {recordingsCount === 0 ? (
               <div className="py-4 text-center text-sm text-muted-foreground">
                 {t("recorder.recordings_empty")}
               </div>
             ) : (
-              store.recordings.map((recording) => (
+              pagedRecordings.map((recording) => (
                 <RecordingRow
                   key={recording.id}
                   recording={recording}
@@ -769,6 +755,31 @@ export function RecorderPane(props: {
               ))
             )}
           </div>
+          {recordingsPageCount > 1 ? (
+            <div className="flex items-center justify-end gap-2">
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                aria-label={t("recorder.page_prev")}
+                disabled={recordingsCurrentPage === 0}
+                onClick={() => setRecordingsPage(Math.max(0, recordingsCurrentPage - 1))}
+              >
+                <ChevronLeft />
+              </Button>
+              <span className="text-xs tabular-nums text-muted-foreground">
+                {recordingsCurrentPage + 1} / {recordingsPageCount}
+              </span>
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                aria-label={t("recorder.page_next")}
+                disabled={recordingsCurrentPage >= recordingsPageCount - 1}
+                onClick={() => setRecordingsPage(Math.min(recordingsPageCount - 1, recordingsCurrentPage + 1))}
+              >
+                <ChevronRight />
+              </Button>
+            </div>
+          ) : null}
         </SectionCard>
       </div>
 

@@ -252,6 +252,64 @@ test("recorder service surfaces missing model as error", async () => {
   await fsp.rm(userDataDir, { recursive: true, force: true });
 });
 
+test("ephemeral dictations never appear in recording history and are cleaned up", async () => {
+  const userDataDir = await tempDir("lw-recorder-");
+  const service = new RecorderService({ userDataDir, forkWorker: () => new FakeWorker() });
+  service.broadcast = () => {};
+  const meta = await service.startRecording({
+    title: "System dictation",
+    language: "en",
+    modelId: null,
+    sources: ["microphone"],
+    ephemeral: true,
+  });
+  assert.equal((await service.listRecordings()).length, 0);
+  await service.stopRecording(meta.id);
+  assert.equal((await service.listRecordings()).length, 0);
+  assert.equal(fs.existsSync(meta.folderPath), false);
+  service.dispose();
+  await fsp.rm(userDataDir, { recursive: true, force: true });
+});
+
+test("live transcript bridge tracks normal recordings but ignores dictation", async () => {
+  const userDataDir = await tempDir("lw-recorder-");
+  const workspaceDir = await tempDir("lw-workspace-");
+  const service = new RecorderService({ userDataDir, forkWorker: () => new FakeWorker() });
+  service.broadcast = () => {};
+
+  const dictation = await service.startRecording({
+    title: "System dictation",
+    language: "en",
+    modelId: null,
+    sources: ["microphone"],
+    ephemeral: true,
+  });
+  assert.equal(service.liveTranscriptStatus(workspaceDir).recordingActive, false);
+  assert.match(service.setLiveTranscript(true, workspaceDir).error, /No recording/);
+  await service.cancelRecording(dictation.id);
+
+  const recording = await service.startRecording({
+    title: "Client call",
+    language: "en",
+    modelId: null,
+    sources: ["microphone"],
+  });
+  assert.equal(service.liveTranscriptStatus(workspaceDir).recordingActive, true);
+  const started = service.setLiveTranscript(true, workspaceDir);
+  assert.equal(started.liveTranscriptActive, true);
+  assert.equal(started.fileName, RecorderService.LIVE_TRANSCRIPT_FILE);
+  await service.liveTranscriptWriteQueue;
+  assert.equal(fs.existsSync(path.join(workspaceDir, RecorderService.LIVE_TRANSCRIPT_FILE)), true);
+  assert.equal(service.setLiveTranscript(false, workspaceDir).liveTranscriptActive, false);
+
+  service.setLiveTranscript(true, workspaceDir);
+  await service.cancelRecording(recording.id);
+  assert.equal(service.liveTranscriptStatus(workspaceDir).liveTranscriptActive, false);
+  service.dispose();
+  await fsp.rm(userDataDir, { recursive: true, force: true });
+  await fsp.rm(workspaceDir, { recursive: true, force: true });
+});
+
 // ── real worker + real Silero VAD end-to-end ────────────────────────────────
 // Exercises the full worker pipeline (windowed VAD feeding, speech
 // segmentation, partials, finalize) with the actual sherpa-onnx native

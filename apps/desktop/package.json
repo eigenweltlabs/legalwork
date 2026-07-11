@@ -21,7 +21,8 @@
     "typecheck:electron": "pnpm --dir ../server exec tsc -p ../desktop/tsconfig.electron.json --noEmit",
     "prepare:sidecar": "node ./scripts/prepare-sidecar.mjs",
     "build:audiotap": "node ./scripts/build-audiotap.mjs",
-    "test": "node --test electron/runtime.test.mjs electron/updater.test.mjs electron/remote-workspace.test.mjs electron/workspace-store.test.mjs electron/office-addin-cert.test.mjs electron/office-addin-cert-web.test.mjs electron/office-addin-platform.test.mjs electron/audio-recorder.test.mjs",
+    "build:key-monitor": "node ./scripts/build-key-monitor.mjs",
+    "test": "node --test electron/runtime.test.mjs electron/updater.test.mjs electron/remote-workspace.test.mjs electron/workspace-store.test.mjs electron/office-addin-cert.test.mjs electron/office-addin-cert-web.test.mjs electron/office-addin-platform.test.mjs electron/audio-recorder.test.mjs electron/system-dictation.test.mjs",
     "office:sideload": "node ./scripts/office-addin-sideload.mjs"
   },
   "dependencies": {

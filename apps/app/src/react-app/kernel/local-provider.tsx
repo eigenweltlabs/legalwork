@@ -20,8 +20,17 @@ export type LocalUIState = {
   tab: SettingsTab;
 };
 
+/**
+ * Screen-capture privacy for the LegalWork window (setContentProtection):
+ * `never` = always capturable; `recording` = hidden only while the Recorder is
+ * capturing; `always` = always hidden from screen shares / recordings.
+ */
+export type HideAppMode = "never" | "recording" | "always";
+
 export type LocalPreferences = {
   showThinking: boolean;
+  /** When to exclude the window from screen shares / recordings. */
+  hideAppMode: HideAppMode;
   modelVariant: string | null;
   defaultModel: ModelRef | null;
   /**
@@ -75,6 +84,7 @@ export const DEFAULT_SHOW_THINKING = true;
 const INITIAL_UI: LocalUIState = { view: "settings", tab: "general" };
 const INITIAL_PREFS: LocalPreferences = {
   showThinking: DEFAULT_SHOW_THINKING,
+  hideAppMode: "recording",
   modelVariant: null,
   defaultModel: null,
   selectedAgent: null,

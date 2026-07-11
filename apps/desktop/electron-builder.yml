@@ -52,6 +52,7 @@ mac:
   extendInfo:
     NSMicrophoneUsageDescription: LegalWork uses the microphone when you start Voice Mode or record a conversation in the Recorder tab.
     NSAudioCaptureUsageDescription: LegalWork captures system audio when you record calls or meetings in the Recorder tab. Audio is transcribed locally on this device and never uploaded.
+    NSInputMonitoringUsageDescription: LegalWork uses keyboard monitoring to detect your dictation shortcut and support hold-to-talk outside the app.
   extraResources:
     - from: resources/sidecars
       to: sidecars
@@ -70,6 +71,7 @@ mac:
       filter:
         - "LegalWork Computer Use.app/**"
         - LegalWorkAudioTap
+        - LegalWorkKeyMonitor
   target:
     - dmg
     - zip

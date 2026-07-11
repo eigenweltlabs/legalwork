@@ -18,13 +18,16 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { app, BrowserWindow, desktopCapturer, dialog, ipcMain, nativeImage, nativeTheme, session, shell, systemPreferences } from "electron";
+import { app, BrowserWindow, clipboard, desktopCapturer, dialog, globalShortcut, ipcMain, nativeImage, nativeTheme, session, shell, systemPreferences } from "electron";
 import { configureFakeMediaForTests, installMediaPermissionHandlers } from "./media-permissions.mjs";
 import { appendLoopbackFeatureFlags, disableLoopbackAudio, enableLoopbackAudio, isLoopbackCaptureArmed } from "./audio/loopback.mjs";
 import { captureAuthStatus, openCapturePermissionSettings, requestCapturePermission } from "./audio/capture-permissions.mjs";
 import { AppAudioTap } from "./audio/app-audio.mjs";
 import { CallOverlay } from "./audio/call-overlay.mjs";
+import { DictationHud } from "./audio/dictation-hud.mjs";
 import { RecorderService } from "./audio/recorder-service.mjs";
+import { SystemDictationService } from "./audio/system-dictation.mjs";
+import { SystemKeyMonitor } from "./audio/system-key-monitor.mjs";
 import { registerMigrationIpc } from "./migration.mjs";
 import { createRuntimeManager } from "./runtime.mjs";
 import { buildSupportBundleText, defaultSupportBundleFileName } from "./support-bundle.mjs";
@@ -57,6 +60,96 @@ const APP_IDENTIFIER =
   (isDevMode ? DEV_APP_IDENTIFIER : APP_BUNDLE_IDENTIFIER);
 const RELEASE_DOWNLOAD_BASE_URL = "https://github.com/eigenweltlabs/legalwork/releases/latest/download";
 const RELEASE_PAGE_URL = "https://github.com/eigenweltlabs/legalwork/releases/latest";
+
+const WINDOWS_PASTE_SCRIPT = `
+$source = @'
+using System;
+using System.Runtime.InteropServices;
+
+public static class LegalWorkPaste {
+  [StructLayout(LayoutKind.Sequential)]
+  private struct INPUT {
+    public uint type;
+    public InputUnion data;
+  }
+
+  [StructLayout(LayoutKind.Explicit)]
+  private struct InputUnion {
+    [FieldOffset(0)] public KEYBDINPUT keyboard;
+  }
+
+  [StructLayout(LayoutKind.Sequential)]
+  private struct KEYBDINPUT {
+    public ushort virtualKey;
+    public ushort scanCode;
+    public uint flags;
+    public uint time;
+    public UIntPtr extraInfo;
+  }
+
+  [DllImport("user32.dll", SetLastError = true)]
+  private static extern uint SendInput(uint count, INPUT[] inputs, int size);
+
+  private static INPUT Key(ushort virtualKey, uint flags) {
+    return new INPUT {
+      type = 1,
+      data = new InputUnion {
+        keyboard = new KEYBDINPUT { virtualKey = virtualKey, flags = flags }
+      }
+    };
+  }
+
+  public static bool Paste() {
+    INPUT[] inputs = {
+      Key(0x11, 0),
+      Key(0x56, 0),
+      Key(0x56, 2),
+      Key(0x11, 2)
+    };
+    return SendInput((uint)inputs.Length, inputs, Marshal.SizeOf(typeof(INPUT))) == (uint)inputs.Length;
+  }
+}
+'@
+Add-Type -TypeDefinition $source -ErrorAction Stop
+if (-not [LegalWorkPaste]::Paste()) { exit 2 }
+`;
+
+function runChildProcess(executable, args) {
+  return new Promise((resolve, reject) => {
+    const child = spawn(executable, args, { stdio: "ignore", windowsHide: true });
+    const timeout = setTimeout(() => {
+      child.kill();
+      reject(new Error("Paste command timed out."));
+    }, 10_000);
+    child.once("error", (error) => {
+      clearTimeout(timeout);
+      reject(error);
+    });
+    child.once("exit", (code) => {
+      clearTimeout(timeout);
+      if (code === 0) resolve(undefined);
+      else reject(new Error(`Paste command exited with code ${code ?? "unknown"}.`));
+    });
+  });
+}
+
+function runSystemPasteCommand(platform) {
+  if (platform === "darwin") {
+    return runChildProcess("/usr/bin/osascript", [
+      "-e",
+      "tell application \"System Events\" to key code 9 using command down",
+    ]);
+  }
+  if (platform === "windows") {
+    return runChildProcess("powershell.exe", [
+      "-NoProfile",
+      "-NonInteractive",
+      "-Command",
+      WINDOWS_PASTE_SCRIPT,
+    ]);
+  }
+  return Promise.reject(new Error("Automatic paste is not available on this platform."));
+}
 
 async function showSupportLogsProgressWindow(parent) {
   const dark = nativeTheme.shouldUseDarkColors;
@@ -213,6 +306,9 @@ function killTerminalsForWebContents(webContentsId) {
 // Electron install from the real Tauri app.
 app.setName(APP_NAME);
 app.setAppUserModelId(APP_IDENTIFIER);
+if (process.platform === "darwin") {
+  app.setActivationPolicy("regular");
+}
 if (app.isPackaged) {
   app.setAsDefaultProtocolClient(DESKTOP_PROTOCOL_SCHEME);
 }
@@ -383,10 +479,6 @@ async function resolveArchitectureInfo() {
 const APP_ICON_PATH = resolveAppIconPath();
 const APP_ICON_IMAGE = APP_ICON_PATH ? nativeImage.createFromPath(APP_ICON_PATH) : null;
 
-if (process.platform === "darwin" && APP_ICON_IMAGE && !APP_ICON_IMAGE.isEmpty() && app.dock) {
-  app.dock.setIcon(APP_ICON_IMAGE);
-}
-
 // Expose Chrome DevTools Protocol so the opencode-chrome-devtools plugin can
 // drive the built-in browser panel.  Use LEGALWORK_ELECTRON_REMOTE_DEBUG_PORT to
 // pin a specific port; otherwise probe for a free one starting at 9223.
@@ -543,6 +635,27 @@ const callOverlay = new CallOverlay({
   onVisibilityChange: (visible) => recorderService().broadcast({ type: "overlay-visibility", visible }),
 });
 
+const dictationHud = new DictationHud();
+const systemKeyMonitor = new SystemKeyMonitor({ app, platform: process.platform });
+const systemDictation = new SystemDictationService({
+  userDataDir: app.getPath("userData"),
+  platform: process.platform,
+  globalShortcut,
+  clipboard,
+  systemPreferences,
+  shell,
+  runPasteCommand: runSystemPasteCommand,
+  keyMonitor: systemKeyMonitor,
+  onToggle: () => recorderService().broadcast({ type: "system-dictation-toggle" }),
+  onPress: () => recorderService().broadcast({ type: "system-dictation-press" }),
+  onRelease: () => recorderService().broadcast({ type: "system-dictation-release" }),
+  onCancel: () => recorderService().broadcast({ type: "system-dictation-cancel" }),
+  onStatus: (status) => recorderService().broadcast({ type: "system-dictation-status", status }),
+  onState: (state, message) => {
+    void dictationHud.setState(state, message);
+  },
+});
+
 function normalizePlatform(value) {
   if (value === "darwin" || value === "linux") return value;
   if (value === "win32") return "windows";
@@ -660,6 +773,10 @@ const runtimeManager = createRuntimeManager({
   app,
   desktopRoot: path.resolve(__dirname, ".."),
   listLocalWorkspacePaths: () => workspaceStore.listLocalWorkspacePaths(),
+  recorder: {
+    status: (workspacePath) => recorderService().liveTranscriptStatus(workspacePath),
+    setLiveTranscript: (enabled, workspacePath) => recorderService().setLiveTranscript(enabled, workspacePath),
+  },
 });
 
 let runtimeDisposedForQuit = false;
@@ -1732,6 +1849,22 @@ const desktopCommandHandlers = {
   "audioRecordingRename": async (event, ...args) => {
       return recorderService().renameRecording(String(args[0] ?? ""), String(args[1] ?? ""));
   },
+  "audioLiveTranscriptStart": async (event, ...args) => {
+      return recorderService().startLiveTranscript(String(args[0] ?? ""));
+  },
+  "audioLiveTranscriptStop": async (event, ...args) => {
+      return recorderService().stopLiveTranscript();
+  },
+  "audioImportStart": async (event, ...args) => {
+      return recorderService().importFileStart(args[0] ?? {});
+  },
+  "audioImportSource": async (event, ...args) => {
+      const buffer = args[1] instanceof ArrayBuffer ? args[1] : new ArrayBuffer(0);
+      return recorderService().importFileSource(String(args[0] ?? ""), buffer);
+  },
+  "audioImportFinish": async (event, ...args) => {
+      return recorderService().importFileFinish(String(args[0] ?? ""), Number(args[1]) || 0);
+  },
   "audioRecordingSaveToWorkspace": async (event, ...args) => {
       return recorderService().saveToWorkspace(String(args[0] ?? ""), String(args[1] ?? ""));
   },
@@ -1749,22 +1882,41 @@ const desktopCommandHandlers = {
   "audioOverlayGetVisible": async (event, ...args) => {
       return { visible: callOverlay.isVisible() };
   },
+  "audioSystemDictationGet": async (event, ...args) => {
+      return systemDictation.status();
+  },
+  "audioSystemDictationSetEnabled": async (event, ...args) => {
+      return systemDictation.setEnabled(Boolean(args[0]));
+  },
+  "audioSystemDictationSetShortcut": async (event, ...args) => {
+      return systemDictation.setShortcut(String(args[0] ?? ""));
+  },
+  "audioSystemDictationSetMode": async (event, ...args) => {
+      return systemDictation.setMode(args[0] === "hold" ? "hold" : "tap");
+  },
+  "audioSystemDictationSetShortcutCapture": async (event, ...args) => {
+      return systemDictation.setShortcutCapture(Boolean(args[0]));
+  },
+  "audioSystemDictationOpenSettings": async (event, ...args) => {
+      return systemDictation.openSettings();
+  },
+  "audioSystemDictationSetState": async (event, ...args) => {
+      const state = ["idle", "listening", "transcribing", "error"].includes(args[0])
+        ? args[0]
+        : "idle";
+      return systemDictation.setRuntimeState(state, String(args[1] ?? ""));
+  },
+  "audioSystemDictationPaste": async (event, ...args) => {
+      return systemDictation.pasteText(String(args[0] ?? ""));
+  },
   "windowSetStealth": async (event, ...args) => {
       const enabled = Boolean(args[0]);
       if (!mainWindow || mainWindow.isDestroyed()) return false;
-      // Stealth mode: while a local recording runs the whole app is excluded
-      // from screen shares / recordings and drops to a flat matte-black
-      // backdrop (the renderer paints the rest via [data-stealth]). This
-      // replaces the old always-on-top call overlay.
+      // While a local recording runs, exclude the window from screen shares /
+      // recordings (invisible in Zoom/Teams/QuickTime). This is the only thing
+      // stealth does now — no theme/backdrop change; the renderer shows a small
+      // topbar "Recording locally" cue so the user knows it's on.
       mainWindow.setContentProtection(enabled);
-      if (process.platform === "darwin") {
-        // Clear the translucent vibrancy so the window reads as solid black,
-        // not a frosted panel that still hints at content underneath.
-        mainWindow.setVibrancy(enabled ? null : macosVibrancyForCurrentTheme());
-        mainWindow.setBackgroundColor(enabled ? "#000000" : "#00000001");
-      } else {
-        mainWindow.setBackgroundColor(enabled ? "#000000" : "#00000000");
-      }
       return true;
   },
   "__openPath": async (event, ...args) => {
@@ -2166,6 +2318,8 @@ if (!app.requestSingleInstanceLock()) {
     recorderServiceInstance?.dispose();
     appAudioTap.stop();
     callOverlay.destroy();
+    systemDictation.dispose();
+    dictationHud.destroy();
     void Promise.all([disposeRuntimeBeforeQuit(), uiControlServer.stop()]).finally(() => app.quit());
   });
 
@@ -2186,6 +2340,10 @@ if (!app.requestSingleInstanceLock()) {
   });
 
   app.whenReady().then(async () => {
+    if (process.platform === "darwin" && app.dock) {
+      await app.dock.show();
+      if (APP_ICON_IMAGE && !APP_ICON_IMAGE.isEmpty()) app.dock.setIcon(APP_ICON_IMAGE);
+    }
     installMediaPermissionHandlers(session, () => mainWindow, { isLoopbackCaptureArmed });
     applicationMenu.install();
     await runtimeManager.prepareFreshRuntime().catch(() => undefined);
@@ -2200,6 +2358,7 @@ if (!app.requestSingleInstanceLock()) {
     runtimeBootstrapPromise = bootRuntimeForSelectedWorkspace().catch(describeRuntimeBootFailure);
 
     queueDeepLinks(forwardedDeepLinks(process.argv));
+    await systemDictation.initialize();
     const win = await createMainWindow();
     win.webContents.on("did-finish-load", () => {
       flushPendingDeepLinks();

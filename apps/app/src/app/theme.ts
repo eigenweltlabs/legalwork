@@ -40,13 +40,7 @@ const readStoredMode = (): ThemeMode => {
   return "light";
 };
 
-// Stealth (local-recording) mode pins the app to dark while active so every
-// dark-keyed rule engages; the matte-black [data-stealth] layer then re-tints
-// dark → flat black. Not persisted — purely a runtime override.
-let stealthOverride = false;
-
 const resolveMode = (mode: ThemeMode): ResolvedThemeMode => {
-  if (stealthOverride) return "dark";
   if (mode !== "system") return mode;
   return getMediaQueryList()?.matches ? "dark" : "light";
 };
@@ -119,15 +113,6 @@ export const subscribeToTheme = (onChange: () => void) => {
   return () => {
     listeners.delete(onChange);
   };
-};
-
-export const setStealthThemeOverride = (active: boolean) => {
-  if (stealthOverride === active) return;
-  stealthOverride = active;
-  // Re-resolve with the override; native window chrome is handled separately
-  // by windowSetStealth, so no syncNativeTheme here.
-  applyTheme(getCurrentMode());
-  emitThemeChange();
 };
 
 export const setThemeMode = (mode: ThemeMode) => {

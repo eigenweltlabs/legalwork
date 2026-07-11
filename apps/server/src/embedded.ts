@@ -23,6 +23,8 @@ export type EmbeddedServerOptions = CliArgs & {
   opencodeCwd?: string;
   /** Native folder-picker hook, forwarded to ServerConfig.pickDirectory. */
   pickDirectory?: ServerConfig["pickDirectory"];
+  /** Desktop recorder hook, forwarded to Office add-in API routes. */
+  recorder?: ServerConfig["recorder"];
 };
 
 export type EmbeddedServerHandle = {
@@ -41,6 +43,7 @@ export type EmbeddedServerHandle = {
 export async function startEmbeddedServer(options: EmbeddedServerOptions): Promise<EmbeddedServerHandle> {
   const config = await resolveServerConfig(options);
   config.pickDirectory = options.pickDirectory ?? null;
+  config.recorder = options.recorder ?? null;
   const serverUrl = `http://${config.host === "0.0.0.0" ? "127.0.0.1" : config.host}:${config.port}`;
   const opencodeModelsUrl = process.env.LEGALWORK_DEV_MODE === "1"
     ? "http://localhost:8791/models"

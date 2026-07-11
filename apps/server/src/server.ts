@@ -1475,6 +1475,33 @@ function createRoutes(
     runner: benchmarkRunner,
   });
 
+  const recorderUnavailable = () => ({
+    available: false,
+    recordingActive: false,
+    liveTranscriptActive: false,
+    fileName: null,
+    error: null,
+  });
+
+  addRoute(routes, "GET", "/workspace/:id/recorder/live-transcript", "client", async (ctx) => {
+    const workspace = await resolveWorkspace(config, ctx.params.id);
+    return jsonResponse(config.recorder ? await config.recorder.status(workspace.path) : recorderUnavailable());
+  });
+
+  addRoute(routes, "POST", "/workspace/:id/recorder/live-transcript", "client", async (ctx) => {
+    requireClientScope(ctx, "collaborator");
+    const workspace = await resolveWorkspace(config, ctx.params.id);
+    const body = await readJsonBody(ctx.request);
+    if (typeof body.enabled !== "boolean") {
+      throw new ApiError(400, "invalid_recorder_state", "enabled must be a boolean");
+    }
+    return jsonResponse(
+      config.recorder
+        ? await config.recorder.setLiveTranscript(body.enabled, workspace.path)
+        : recorderUnavailable(),
+    );
+  });
+
   addRoute(routes, "GET", "/workspace/:id/config", "client", async (ctx) => {
     const workspace = await resolveWorkspace(config, ctx.params.id);
     const legalwork = mergeLegalworkWorkspaceConfigs(

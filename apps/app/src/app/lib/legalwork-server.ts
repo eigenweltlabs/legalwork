@@ -122,6 +122,14 @@ export type LegalworkWorkspaceList = {
   activeId?: string | null;
 };
 
+export type LegalworkRecorderLiveTranscriptStatus = {
+  available: boolean;
+  recordingActive: boolean;
+  liveTranscriptActive: boolean;
+  fileName: string | null;
+  error: string | null;
+};
+
 export type LegalworkSessionMessage = {
   info: Message;
   parts: Part[];
@@ -1094,6 +1102,18 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
         timeoutMs: timeouts.binary,
       }),
     listWorkspaces: () => requestJson<LegalworkWorkspaceList>(baseUrl, "/workspaces", { token, hostToken, timeoutMs: timeouts.listWorkspaces }),
+    getRecorderLiveTranscript: (workspaceId: string) =>
+      requestJson<LegalworkRecorderLiveTranscriptStatus>(
+        baseUrl,
+        `/workspace/${encodeURIComponent(workspaceId)}/recorder/live-transcript`,
+        { token, hostToken, timeoutMs: timeouts.status },
+      ),
+    setRecorderLiveTranscript: (workspaceId: string, enabled: boolean) =>
+      requestJson<LegalworkRecorderLiveTranscriptStatus>(
+        baseUrl,
+        `/workspace/${encodeURIComponent(workspaceId)}/recorder/live-transcript`,
+        { token, hostToken, method: "POST", body: { enabled }, timeoutMs: timeouts.status },
+      ),
     createLocalWorkspace: (payload: { folderPath: string; name: string; preset: string }) =>
       requestJson<WorkspaceList>(baseUrl, "/workspaces/local", {
         token,
