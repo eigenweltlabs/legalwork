@@ -502,6 +502,15 @@ export type DesktopCommandMap = {
     result: ExecResult;
   };
   listLocalSkills: { args: [projectDir: string]; result: LocalSkillCard[] };
+  // Import every <dir>/SKILL.md skill folder found directly inside sourceDir into
+  // the global skills dir, skipping names that already exist. Used to move
+  // agent-staged workflows (generated inside a workspace, where the agent needs
+  // no extra permissions) into the shared library. Removes sourceDir when
+  // nothing failed.
+  importSkillsFromFolder: {
+    args: [sourceDir: string];
+    result: { imported: string[]; skipped: string[]; failed: { name: string; error: string }[] };
+  };
   readLocalSkill: { args: [projectDir: string, skillName: string]; result: LocalSkillContent };
   writeLocalSkill: {
     args: [projectDir: string, skillName: string, content: string];
