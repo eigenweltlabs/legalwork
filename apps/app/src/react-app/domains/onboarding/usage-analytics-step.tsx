@@ -7,7 +7,7 @@ type UsageAnalyticsStepProps = {
 };
 
 /**
- * Step three of onboarding: a single usage-analytics consent question. Sets
+ * Final onboarding step: a single usage-analytics consent question. Sets
  * `analyticsEnabled`; never collects document, prompt, or matter content.
  */
 export function UsageAnalyticsStep({ onChoice }: UsageAnalyticsStepProps) {
@@ -20,7 +20,7 @@ export function UsageAnalyticsStep({ onChoice }: UsageAnalyticsStepProps) {
         <div className="relative z-10 flex min-h-screen items-center justify-center px-6">
           <div className="flex w-full max-w-md flex-col gap-8">
             <div>
-              <span className="lw-section-eyebrow uppercase text-dls-secondary">Step three · Privacy</span>
+              <span className="lw-section-eyebrow uppercase text-dls-secondary">Step four · Privacy</span>
               <h1 className="mt-3 text-[34px] font-medium leading-[1.05] tracking-[-0.035em] text-dls-text">
                 Help improve LegalWork
               </h1>
