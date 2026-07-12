@@ -2,7 +2,7 @@ import type { UIMessage } from "ai";
 import type { FilePart, Part, PermissionRequest, PermissionV2Request, QuestionRequest, Session, SessionStatus, Todo } from "@opencode-ai/sdk/v2/client";
 
 import { getReactQueryClient } from "../../../infra/query-client";
-import { analyticsSurface, captureAnalyticsEvent, takeTaskRunStart } from "@/app/lib/analytics";
+import { analyticsSurface, captureAnalyticsEvent, isAnalyticsSending, takeTaskRunStart } from "@/app/lib/analytics";
 import { analyticsErrorService, analyticsErrorStatus } from "@/app/lib/analytics-error";
 import { allowlistedErrorName } from "@/app/lib/app-error";
 import { createClient } from "@/app/lib/opencode";
@@ -938,14 +938,16 @@ function applyEvent(entry: SyncEntry, workspaceId: string, event: OpencodeEvent)
     if (runStartedAt !== null) {
       const durationMs = Date.now() - runStartedAt;
       const sessionId = props.sessionID;
-      // The cached snapshot can predate the completed assistant message (its
-      // tokens/parts), so refresh it first — reusing the session view's own
-      // query fn — then read the fresh copy for the opencode run stats.
+      // Refresh the snapshot first so the run stats cover the completed
+      // assistant message; skip the round-trip when nothing would be sent
+      // (the inspector mirror then uses whatever is cached).
       void (async () => {
-        try {
-          await queryClient.refetchQueries({ queryKey: snapshotKey(workspaceId, sessionId), exact: true });
-        } catch {
-          // Best-effort: fall back to whatever is cached.
+        if (isAnalyticsSending()) {
+          try {
+            await queryClient.refetchQueries({ queryKey: snapshotKey(workspaceId, sessionId), exact: true });
+          } catch {
+            // Best-effort: fall back to whatever is cached.
+          }
         }
         const snapshot = queryClient.getQueryData<LegalworkSessionSnapshot>(
           snapshotKey(workspaceId, sessionId),

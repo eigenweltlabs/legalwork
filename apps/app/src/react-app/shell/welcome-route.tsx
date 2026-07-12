@@ -19,7 +19,7 @@ import { WelcomePage } from "../domains/onboarding/welcome-page";
 import { AttributionStep } from "../domains/onboarding/attribution-step";
 import { CreateWorkspaceModal } from "../domains/workspace/create-workspace-modal";
 import { resolveLegalworkConnection } from "./legalwork-connection";
-import { analyticsSurface, captureAnalyticsEvent } from "../../app/lib/analytics";
+import { analyticsSurface, captureAnalyticsEvent, getStoredAnalyticsConsent } from "../../app/lib/analytics";
 import { captureAppError } from "../../app/lib/app-error";
 import { buildLegalworkWorkspaceBaseUrl, createLegalworkServerClient } from "../../app/lib/legalwork-server";
 import { writeActiveWorkspaceId, writeLastSessionFor } from "./session-memory";
@@ -115,10 +115,10 @@ export function WelcomeRoute() {
   const platform = usePlatform();
   const [state, dispatch] = useReducer(welcomeReducer, initialWelcomeState);
   const [manualFolder, setManualFolder] = useState("");
-  // Pending usage-analytics choice for the welcome screen. Defaults on, but is only
-  // a local UI state here — it is not written to prefs (and so nothing is tracked)
-  // until the user actually leaves the welcome screen; see handleCreateWorkspace.
-  const [analyticsOptIn, setAnalyticsOptIn] = useState(true);
+  // Pending usage-analytics choice; committed when the user leaves the welcome
+  // screen (see handleCreateWorkspace). Seeded from any previously recorded
+  // choice so re-entering the screen never overrides an opt-out.
+  const [analyticsOptIn, setAnalyticsOptIn] = useState(() => getStoredAnalyticsConsent() ?? true);
 
   // If user already completed onboarding, redirect away immediately — but NOT while the
   // provider step is showing (the workspace exists, yet the user still has to connect a
@@ -203,13 +203,11 @@ export function WelcomeRoute() {
           if (targetSessionId) writeLastSessionFor(targetWorkspaceId, targetSessionId);
         }
         dispatch({ type: "close" });
-        // The user is now leaving the welcome screen — commit the usage-analytics
-        // choice (default on; off if they turned the toggle off). Analytics is never
-        // enabled before this point, nor for users who never pass through onboarding.
-        local.setPrefs((prev) => ({ ...prev, analyticsEnabled: analyticsOptIn }));
+        // Leaving the welcome screen — commit the analytics choice and mark
+        // onboarding complete (the connect cover only clears its own state).
+        local.setPrefs((prev) => ({ ...prev, analyticsEnabled: analyticsOptIn, hasCompletedOnboarding: true }));
         // Hand off to the new session, which runs the remaining onboarding steps as
-        // full-screen covers (connect a model). Onboarding is marked complete at the
-        // end of those steps — see the session route.
+        // full-screen covers (connect a model).
         const target = targetWorkspaceId
           ? workspaceSessionRoute(targetWorkspaceId, targetSessionId)
           : "/session";
@@ -225,7 +223,7 @@ export function WelcomeRoute() {
         dispatch({ type: "create:finish" });
       }
     },
-    [markOnboardingComplete, navigate, local, analyticsOptIn],
+    [navigate, local, analyticsOptIn],
   );
 
   const handleCreateRemote = useCallback(

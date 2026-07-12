@@ -1643,19 +1643,6 @@ const desktopCommandHandlers = {
   "resetLegalworkState": async (event, ...args) => {
       return workspaceStore.resetLegalworkState();
   },
-  "setAnalyticsIdentity": async (event, ...args) => {
-      const input = args[0] ?? { distinctId: "", analyticsEnabled: false };
-      const distinctId = typeof input.distinctId === "string" ? input.distinctId : "";
-      const analyticsEnabled = input.analyticsEnabled === true;
-      try {
-        const configPath = resolveLegalworkServerConfigPath(process.env);
-        const file = path.join(path.dirname(configPath), "legalwork-analytics-identity.json");
-        await mkdir(path.dirname(file), { recursive: true });
-        await writeFile(file, `${JSON.stringify({ distinctId, analyticsEnabled })}\n`, "utf8");
-      } catch {
-        // Best-effort: the Office pane just falls back to analytics off.
-      }
-  },
   "resetOpencodeCache": async (event, ...args) => {
       return { removed: [], missing: [], errors: [] };
   },
@@ -2049,6 +2036,15 @@ if (!app.requestSingleInstanceLock()) {
     // Electron see the same workspace list. Import the short-lived
     // Electron-only filename only when the shared file is missing.
     await workspaceStore.migrateLegacyElectronWorkspaceStateIfNeeded();
+
+    // Remove the analytics identity file persisted by earlier builds (the
+    // identity is now in-memory only).
+    try {
+      const configPath = resolveLegalworkServerConfigPath(process.env);
+      await rm(path.join(path.dirname(configPath), "legalwork-analytics-identity.json"), { force: true });
+    } catch {
+      // Best-effort cleanup only.
+    }
     await uiControlServer.start().catch((error) => {
       console.warn("[ui-control] failed to start", error);
     });

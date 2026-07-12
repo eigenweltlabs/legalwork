@@ -5,12 +5,14 @@
  * - Never send message content, file paths, code, or prompts. Only event
  *   names, counts, durations, and coarse context (provider/model id, app
  *   version, platform).
+ * - The distinct id lives in memory and rotates per app start — never
+ *   persisted to localStorage or disk.
+ * - Location is capped at city level server-side (the "GeoIP city cap"
+ *   transformation in the PostHog project — keep it enabled after GeoIP);
+ *   events are anonymous ($process_person_profile: false).
  * - Fire-and-forget: analytics must never break or slow the app.
- * - Respect the user: analytics run only with the `analyticsEnabled`
- *   preference set. It is presented as an on-by-default toggle on the welcome
- *   onboarding screen and committed when the user leaves that screen (opt-out;
- *   nothing is sent before then), and can be switched off anytime in
- *   Settings -> Privacy.
+ * - Opt-out (welcome toggle or Settings -> Privacy) takes effect immediately:
+ *   captures stop and the send queue is purged.
  * - Every capture is mirrored into the local app inspector
  *   (`window.__legalwork.record("analytics.<event>")`) so coded evals can
  *   assert instrumentation without any analytics backend.
@@ -36,7 +38,8 @@ const POSTHOG_KEY = ENV_POSTHOG_KEY || (import.meta.env.DEV ? "" : DEFAULT_POSTH
 const POSTHOG_HOST = (ENV_POSTHOG_HOST || DEFAULT_POSTHOG_HOST).replace(/\/+$/, "");
 
 const PREFS_STORAGE_KEY = "legalwork.preferences";
-const DISTINCT_ID_STORAGE_KEY = "legalwork.analytics.distinctId";
+// Earlier builds persisted the distinct id here; initAnalytics cleans it up.
+const LEGACY_DISTINCT_ID_STORAGE_KEY = "legalwork.analytics.distinctId";
 const FLUSH_INTERVAL_MS = 10_000;
 const MAX_BATCH = 50;
 
@@ -52,69 +55,56 @@ let queue: QueuedEvent[] = [];
 let flushTimer: ReturnType<typeof setInterval> | null = null;
 let initialized = false;
 
-export function isAnalyticsEnabled(): boolean {
-  if (typeof window === "undefined") return false;
+/** The stored consent choice, or null when the user never made one. */
+export function getStoredAnalyticsConsent(): boolean | null {
+  if (typeof window === "undefined") return null;
   try {
     const raw = window.localStorage.getItem(PREFS_STORAGE_KEY);
-    if (!raw) return false;
+    if (!raw) return null;
     const parsed: unknown = JSON.parse(raw);
     if (parsed && typeof parsed === "object" && "analyticsEnabled" in parsed) {
-      // Send only while the preference is true (set via the welcome screen's
-      // on-by-default toggle, or Settings -> Privacy).
       return (parsed as { analyticsEnabled?: unknown }).analyticsEnabled === true;
     }
-    return false;
+    return null;
   } catch {
-    return false;
+    return null;
   }
 }
+
+// The Office pane mirrors the desktop's consent (adopted from the server
+// bootstrap, refreshed by polling — see word-addin/index.tsx). Memory only.
+let consentOverride: boolean | null = null;
+export function setAnalyticsConsentOverride(enabled: boolean): void {
+  consentOverride = enabled;
+}
+
+export function isAnalyticsEnabled(): boolean {
+  if (consentOverride !== null) return consentOverride;
+  return getStoredAnalyticsConsent() === true;
+}
+
+/** True when a capture would actually be sent — lets callers skip enrichment work. */
+export function isAnalyticsSending(): boolean {
+  return Boolean(POSTHOG_KEY) && isAnalyticsEnabled();
+}
+
+// Per-launch analytics id: minted in memory on first use, never persisted.
+let runtimeDistinctId = "";
 
 export function getAnalyticsDistinctId(): string {
-  if (typeof window === "undefined") return "server";
+  if (runtimeDistinctId) return runtimeDistinctId;
   try {
-    const existing = window.localStorage.getItem(DISTINCT_ID_STORAGE_KEY)?.trim();
-    if (existing) return existing;
-    const next = crypto.randomUUID();
-    window.localStorage.setItem(DISTINCT_ID_STORAGE_KEY, next);
-    return next;
+    runtimeDistinctId = crypto.randomUUID();
   } catch {
-    return "unknown";
+    runtimeDistinctId = `lw.${Math.random().toString(36).slice(2)}${Math.random().toString(36).slice(2)}`;
   }
+  return runtimeDistinctId;
 }
 
-/**
- * Seed the analytics distinct id. Used by the Office pane (a separate origin,
- * separate localStorage) so it reports as the same user as the desktop app.
- */
+/** Adopt the desktop's per-launch id (Office pane) so desktop + pane count as one user. */
 export function setAnalyticsDistinctId(id: string): void {
-  if (typeof window === "undefined") return;
   const trimmed = id.trim();
-  if (!trimmed) return;
-  try {
-    window.localStorage.setItem(DISTINCT_ID_STORAGE_KEY, trimmed);
-  } catch {
-    // ignore quota errors
-  }
-}
-
-/**
- * Seed the analytics consent flag in preferences. Used by the Office pane to
- * honor the desktop app's on/off choice (the pane has no Settings of its own).
- */
-export function setAnalyticsEnabledPreference(enabled: boolean): void {
-  if (typeof window === "undefined") return;
-  try {
-    const raw = window.localStorage.getItem(PREFS_STORAGE_KEY);
-    let prefs: Record<string, unknown> = {};
-    if (raw) {
-      const parsed: unknown = JSON.parse(raw);
-      if (parsed && typeof parsed === "object") prefs = parsed as Record<string, unknown>;
-    }
-    prefs.analyticsEnabled = enabled;
-    window.localStorage.setItem(PREFS_STORAGE_KEY, JSON.stringify(prefs));
-  } catch {
-    // ignore
-  }
+  if (trimmed) runtimeDistinctId = trimmed;
 }
 
 function baseProperties(): AnalyticsProperties {
@@ -160,7 +150,13 @@ export function captureAnalyticsEvent(event: string, properties: AnalyticsProper
 }
 
 export async function flushAnalytics(): Promise<void> {
-  if (queue.length === 0 || !POSTHOG_KEY) return;
+  if (!POSTHOG_KEY) return;
+  if (!isAnalyticsEnabled()) {
+    // Consent withdrawn — drop anything still queued.
+    queue = [];
+    return;
+  }
+  if (queue.length === 0) return;
   const batch = queue.splice(0, MAX_BATCH);
   const distinctId = getAnalyticsDistinctId();
 
@@ -173,12 +169,10 @@ export async function flushAnalytics(): Promise<void> {
         api_key: POSTHOG_KEY,
         batch: batch.map((entry) => ({
           event: entry.event,
-          distinct_id:
-            typeof entry.properties.distinct_id === "string"
-              ? entry.properties.distinct_id
-              : distinctId,
+          distinct_id: distinctId,
           timestamp: entry.timestamp,
-          properties: entry.properties,
+          // Anonymous events — no person profiles.
+          properties: { ...entry.properties, $process_person_profile: false },
         })),
       }),
     });
@@ -210,6 +204,13 @@ export function takeTaskRunStart(sessionId: string): number | null {
 export function initAnalytics() {
   if (initialized || typeof window === "undefined") return;
   initialized = true;
+
+  // Remove the distinct id persisted by earlier builds.
+  try {
+    window.localStorage.removeItem(LEGACY_DISTINCT_ID_STORAGE_KEY);
+  } catch {
+    // Storage unavailable.
+  }
 
   flushTimer = setInterval(() => void flushAnalytics(), FLUSH_INTERVAL_MS);
 

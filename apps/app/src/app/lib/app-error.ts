@@ -8,6 +8,7 @@
  */
 import { captureAnalyticsEvent, analyticsSurface, type AnalyticsSurface } from "./analytics";
 import { analyticsErrorService, analyticsErrorStatus, type AnalyticsErrorService } from "./analytics-error";
+import { hashString } from "./hash";
 
 export type AppErrorSource =
   // global (caught automatically in the renderer)
@@ -76,10 +77,7 @@ function errorFingerprint(name: string, error: unknown): string {
     })
     .filter(Boolean)
     .join("|");
-  let hash = 5381;
-  const input = `${name}#${normalized}`;
-  for (let i = 0; i < input.length; i += 1) hash = ((hash << 5) + hash + input.charCodeAt(i)) | 0;
-  return (hash >>> 0).toString(36);
+  return hashString(`${name}#${normalized}`);
 }
 
 // Throttle: send each distinct fingerprint at most once per session, and cap

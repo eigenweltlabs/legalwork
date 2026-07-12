@@ -544,13 +544,6 @@ export type DesktopCommandMap = {
    */
   resetLegalworkState: { args: [mode?: "onboarding" | "all"]; result: unknown };
   resetOpencodeCache: { args: []; result: CacheResetResult };
-  // Persist the desktop's anonymous analytics identity next to the server
-  // config so the Office pane can share the distinct id and honor the same
-  // consent (see apps/server/src/word-addin.ts bootstrap).
-  setAnalyticsIdentity: {
-    args: [input: { distinctId: string; analyticsEnabled: boolean }];
-    result: void;
-  };
   opencodeMcpAuth: { args: [action: string, name: string]; result: ExecResult };
   setWindowDecorations: { args: [decorated: boolean]; result: unknown };
 

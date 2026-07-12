@@ -758,6 +758,7 @@ export function SessionRoute() {
         if (!text && draft.attachments.length === 0) return;
         if (selectedModelUnavailable) throw new Error("Selected model is unavailable. Choose another model before sending.");
 
+        const fusionModels = getFusionSelectedModels(targetSessionId);
         captureAnalyticsEvent("task_message_sent", {
           session_id: targetSessionId,
           is_command: Boolean(draft.command),
@@ -765,8 +766,8 @@ export function SessionRoute() {
           model_id: local.prefs.defaultModel?.modelID ?? null,
           surface: analyticsSurface(),
           fusion_enabled: isFusionEnabled(targetSessionId),
-          fusion_model_count: getFusionSelectedModels(targetSessionId).length,
-          fusion_models: getFusionSelectedModels(targetSessionId).map((m) => `${m.providerID}/${m.modelID}`),
+          fusion_model_count: fusionModels.length,
+          fusion_models: fusionModels.map((m) => `${m.providerID}/${m.modelID}`),
         });
         markTaskRunStart(targetSessionId);
 

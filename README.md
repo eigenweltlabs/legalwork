@@ -17,12 +17,13 @@ https://github.com/user-attachments/assets/4a576c3a-7c2a-46c6-9856-1254282b1b70
 
 ## Telemetry
 
-Official builds can send **anonymous, content-free usage statistics** — event
-names, counts, and durations, never your documents, prompts, or matter content —
-to our EU-hosted PostHog so we can improve the app. The option is shown on the
-welcome screen at first launch (enabled unless you switch it off) and can be
-turned off anytime in **Settings → Privacy**. Development builds (`pnpm dev`)
-send nothing. Details: [TERMS.md](./TERMS.md) and the
+Official builds can send **anonymous usage statistics** — event names, counts,
+and durations, never your documents, prompts, or matter content — to our
+EU-hosted PostHog so we can improve the app. Events carry a random per-launch
+id (nothing is stored on your device) and location no finer than city. The
+option is shown on the welcome screen at first launch and can be turned off
+anytime in **Settings → Privacy**. Development builds (`pnpm dev`) send
+nothing. Details: [TERMS.md](./TERMS.md) and the
 [privacy policy](https://eigenweltlabs.com/privacy).
 
 ## Develop
