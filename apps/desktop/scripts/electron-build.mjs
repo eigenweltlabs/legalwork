@@ -56,14 +56,18 @@ if (!existsSync(resolve(wordAddinDistDir, "taskpane.html"))) {
 const serverDistDir = resolve(repoRoot, "apps", "server", "dist");
 const constantsSrc = resolve(repoRoot, "constants.json");
 copyFileSync(constantsSrc, resolve(serverDistDir, "constants.json"));
-const serverJsPath = resolve(serverDistDir, "server.js");
-const serverJsSrc = readFileSync(serverJsPath, "utf8");
-const patched = serverJsSrc.replace(
-  /from\s+["']\.\.\/\.\.\/\.\.\/constants\.json["']/,
-  'from "./constants.json"',
-);
-if (patched !== serverJsSrc) {
-  writeFileSync(serverJsPath, patched, "utf8");
+// Every compiled module importing the repo-root constants.json needs the
+// same rewrite (server.js: opencodeVersion; eigenwelt-free.js: mint key).
+for (const jsFile of ["server.js", "eigenwelt-free.js"]) {
+  const jsPath = resolve(serverDistDir, jsFile);
+  const jsSrc = readFileSync(jsPath, "utf8");
+  const patched = jsSrc.replace(
+    /from\s+["']\.\.\/\.\.\/\.\.\/constants\.json["']/,
+    'from "./constants.json"',
+  );
+  if (patched !== jsSrc) {
+    writeFileSync(jsPath, patched, "utf8");
+  }
 }
 rmSync(packagedServerRoot, { recursive: true, force: true });
 cpSync(serverDistDir, resolve(packagedServerRoot, "dist"), { recursive: true });

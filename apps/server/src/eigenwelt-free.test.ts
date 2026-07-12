@@ -46,6 +46,7 @@ type FakePlatform = {
   freeModelsCalls: number;
   freeKeyCalls: number;
   lastFreeKeyDeviceId: string | undefined;
+  lastFreeKeyMintHeader: string | undefined;
   close: () => Promise<void>;
   failFreeModels: boolean;
   failFreeKey: boolean;
@@ -61,6 +62,7 @@ async function startFakePlatform(): Promise<FakePlatform> {
     freeModelsCalls: 0,
     freeKeyCalls: 0,
     lastFreeKeyDeviceId: undefined,
+    lastFreeKeyMintHeader: undefined,
     close: async () => {},
     failFreeModels: false,
     failFreeKey: false,
@@ -82,6 +84,9 @@ async function startFakePlatform(): Promise<FakePlatform> {
     }
     if (req.method === "POST" && req.url === "/api/public/free-key") {
       platform.freeKeyCalls += 1;
+      platform.lastFreeKeyMintHeader = Array.isArray(req.headers["x-eigenwelt-mint-key"])
+        ? req.headers["x-eigenwelt-mint-key"][0]
+        : req.headers["x-eigenwelt-mint-key"];
       let body = "";
       req.on("data", (chunk) => {
         body += String(chunk);
@@ -115,6 +120,7 @@ async function startFakePlatform(): Promise<FakePlatform> {
 
 const previousPlatformUrl = process.env.EIGENWELT_PLATFORM_URL;
 const previousRuntimeDb = process.env.LEGALWORK_RUNTIME_DB;
+const previousMintKey = process.env.EIGENWELT_FREE_MINT_KEY;
 const cleanups: Array<() => Promise<void> | void> = [];
 
 afterEach(async () => {
@@ -124,6 +130,8 @@ afterEach(async () => {
   else process.env.EIGENWELT_PLATFORM_URL = previousPlatformUrl;
   if (previousRuntimeDb === undefined) delete process.env.LEGALWORK_RUNTIME_DB;
   else process.env.LEGALWORK_RUNTIME_DB = previousRuntimeDb;
+  if (previousMintKey === undefined) delete process.env.EIGENWELT_FREE_MINT_KEY;
+  else process.env.EIGENWELT_FREE_MINT_KEY = previousMintKey;
 });
 
 async function setupPlatform(): Promise<FakePlatform> {
@@ -170,6 +178,20 @@ describe("mintEigenweltFreeDeviceKey", () => {
     expect(manifest.apiKey).toBe(FREE_KEY_PAYLOAD.apiKey);
     expect(manifest.baseURL).toBe(FREE_KEY_PAYLOAD.baseURL);
     expect(manifest.models.map((model) => model.id)).toEqual(["ewl-free-small", "ewl-free-base"]);
+  });
+
+  test("sends the baked-in mint token header (env override)", async () => {
+    const platform = await setupPlatform();
+    process.env.EIGENWELT_FREE_MINT_KEY = "mint-token-under-test";
+    await mintEigenweltFreeDeviceKey("device-under-test-1234");
+    expect(platform.lastFreeKeyMintHeader).toBe("mint-token-under-test");
+  });
+
+  test("omits the mint token header when no token is configured", async () => {
+    const platform = await setupPlatform();
+    delete process.env.EIGENWELT_FREE_MINT_KEY;
+    await mintEigenweltFreeDeviceKey("device-under-test-1234");
+    expect(platform.lastFreeKeyMintHeader).toBeUndefined();
   });
 
   test("rejects when the platform is unreachable", async () => {

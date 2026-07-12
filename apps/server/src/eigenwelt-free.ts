@@ -31,12 +31,30 @@ import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { randomUUID } from "node:crypto";
 
+import constants from "../../../constants.json" with { type: "json" };
+
 import { runtimeStorageDir } from "./runtime-opencode-config-store.js";
 import type { ServerConfig } from "./types.js";
 
-/** Base URL of the Eigenwelt platform (overridable for tests/staging). */
+/**
+ * Base URL of the Eigenwelt platform (overridable for tests/staging).
+ * Until the platform app is deployed, the free gateway itself serves the
+ * public free-key/free-models endpoints (free-mint sidecar), so the default
+ * is the gateway host; flip to the platform host when it ships.
+ */
 export function eigenweltPlatformUrl(): string {
-  return (process.env.EIGENWELT_PLATFORM_URL ?? "https://platform.eigenwelt.ai").replace(/\/+$/, "");
+  return (process.env.EIGENWELT_PLATFORM_URL ?? "https://free-api.eigenweltlabs.com").replace(/\/+$/, "");
+}
+
+/**
+ * Baked-in mint token the free-key endpoint requires (x-eigenwelt-mint-key).
+ * A bot filter, not auth: the release workflows inject the real value into
+ * constants.json from the EIGENWELT_FREE_MINT_KEY repo secret before the
+ * server builds (the checked-in value is empty — this repo is public). The
+ * env var overrides for dev/tests.
+ */
+export function eigenweltFreeMintKey(): string {
+  return process.env.EIGENWELT_FREE_MINT_KEY ?? constants.eigenweltFreeMintKey ?? "";
 }
 
 /** A model entry as the platform manifest reports it. */
@@ -126,11 +144,18 @@ function parseEigenweltFreeManifest(value: unknown): EigenweltFreeManifest | nul
  */
 export async function mintEigenweltFreeDeviceKey(deviceId: string): Promise<EigenweltFreeManifest> {
   const platform = eigenweltPlatformUrl();
+  const mintKey = eigenweltFreeMintKey();
   let response: Response;
   try {
     response = await fetch(`${platform}/api/public/free-key`, {
       method: "POST",
-      headers: { "Content-Type": "application/json", Accept: "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+        Accept: "application/json",
+        // Required by the mint endpoint (401 without it) — see
+        // eigenweltFreeMintKey. free-models needs no token.
+        ...(mintKey ? { "x-eigenwelt-mint-key": mintKey } : {}),
+      },
       body: JSON.stringify({ deviceId }),
     });
   } catch {
