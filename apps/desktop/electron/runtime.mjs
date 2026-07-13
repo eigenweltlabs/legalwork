@@ -93,6 +93,20 @@ export function selectStickyLegalworkPortWorkspace(requestedWorkspacePaths = [],
   return "";
 }
 
+// Env overrides that point OpenCode at an app-owned directory tree rooted at
+// `root`, used as a fallback when the user's standard config/data locations
+// (e.g. ~/.config/opencode) are not writable. Mirrors the dev-mode layout.
+// Pure + exported so the layout is unit-testable without touching the FS.
+export function opencodeHomeEnvFromRoot(root) {
+  return {
+    XDG_CONFIG_HOME: path.join(root, "config"),
+    XDG_DATA_HOME: path.join(root, "data"),
+    XDG_CACHE_HOME: path.join(root, "cache"),
+    XDG_STATE_HOME: path.join(root, "state"),
+    OPENCODE_CONFIG_DIR: path.join(root, "config", "opencode"),
+  };
+}
+
 export function commandMatchesPackagedSidecar(command, sidecarDirs = []) {
   const value = String(command ?? "");
   if (!sidecarDirs.some((dir) => String(dir ?? "").trim() && value.includes(dir))) {
@@ -521,10 +535,29 @@ function loadUserEnvFile() {
   }
 }
 
-export function createRuntimeManager({ app, desktopRoot, listLocalWorkspacePaths, recorder }) {
+export function createRuntimeManager({ app, desktopRoot, listLocalWorkspacePaths, recorder, onSidecarExit }) {
   const engineState = createEngineState();
   const legalworkServerState = createLegalworkServerState();
   const orchestratorState = createOrchestratorState();
+
+  // Report an unexpected sidecar (agent runtime) exit as a content-free signal.
+  // Intentional stops/restarts are filtered out in spawnManagedChild via the
+  // intentional-stop registry that stopChild marks, and a crash loop is
+  // deduped to one event per session by the renderer's app_error throttle.
+  function reportSidecarCrash(detail = {}) {
+    try {
+      // A numeric exit uses the code directly; a signal-terminated exit is
+      // encoded as the conventional 128 + signal number (137 = SIGKILL/OOM,
+      // 139 = SIGSEGV, ...); a spawn failure (error event) has no code.
+      const { code = null, signal = null } = detail;
+      let exitCode = null;
+      if (typeof code === "number") exitCode = code;
+      else if (signal) exitCode = 128 + (os.constants.signals[signal] ?? 0);
+      onSidecarExit?.({ exitCode });
+    } catch {
+      // Never let crash reporting throw.
+    }
+  }
 
   // Serialize engine lifecycle operations. Without this, concurrent renderer
   // invocations of engineStart/engineStop/engineRestart race: each call's
@@ -735,6 +768,62 @@ export function createRuntimeManager({ app, desktopRoot, listLocalWorkspacePaths
     return paths;
   }
 
+  // Can OpenCode create + write its dir under `parent` (…/opencode)? Probes by
+  // creating the dir and round-tripping a marker file, so it catches both an
+  // unwritable parent (mkdir EACCES) and a pre-existing but unwritable dir.
+  async function opencodeDirIsWritable(parent) {
+    const dir = path.join(parent, "opencode");
+    const probe = path.join(dir, ".legalwork-write-probe");
+    try {
+      await mkdir(dir, { recursive: true });
+      await writeFile(probe, "");
+      await rm(probe, { force: true });
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  // Production only. OpenCode uses its standard config/data locations
+  // (~/.config/opencode + ~/.local/share/opencode). If those aren't writable —
+  // most commonly ~/.config ends up owned by root after someone runs a tool
+  // with sudo — OpenCode dies at startup with EACCES and the embedded server
+  // never finishes coming up. Detect that once per launch and, only then,
+  // redirect OpenCode to an app-owned directory under userData so a broken
+  // ~/.config can't block the app. Returns the env overrides to apply, or null
+  // when the standard locations are fine (leave them untouched) / on Windows.
+  let opencodeHomeOverridePromise = null;
+  function ensureWritableOpencodeHome() {
+    opencodeHomeOverridePromise ??= (async () => {
+      if (process.platform === "win32") return null;
+      const home = app.getPath("home");
+      const configParent = String(process.env.XDG_CONFIG_HOME ?? "").trim() || path.join(home, ".config");
+      const dataParent = String(process.env.XDG_DATA_HOME ?? "").trim() || path.join(home, ".local", "share");
+      const [configOk, dataOk] = await Promise.all([
+        opencodeDirIsWritable(configParent),
+        opencodeDirIsWritable(dataParent),
+      ]);
+      if (configOk && dataOk) return null;
+
+      const root = path.join(userDataDir, "opencode-home");
+      const overrideEnv = opencodeHomeEnvFromRoot(root);
+      for (const dir of Object.values(overrideEnv)) {
+        await mkdir(dir, { recursive: true });
+      }
+      await mkdir(path.join(overrideEnv.XDG_DATA_HOME, "opencode"), { recursive: true });
+      console.warn(
+        `[runtime] OpenCode's standard config/data location is not writable ` +
+          `(config: ${configParent}, data: ${dataParent}); redirecting OpenCode to ${root}. ` +
+          `The original is likely owned by root — restoring ownership of ~/.config would let OpenCode use it again.`,
+      );
+      return overrideEnv;
+    })().catch((error) => {
+      console.warn("[runtime] failed to prepare a writable OpenCode home:", error);
+      return null;
+    });
+    return opencodeHomeOverridePromise;
+  }
+
   // Written once per app launch so the shim tracks the current binary
   // location across updates/moves. Best-effort: on failure children simply
   // fall back to whatever `node` the PATH provides.
@@ -785,13 +874,16 @@ export function createRuntimeManager({ app, desktopRoot, listLocalWorkspacePaths
       env.XDG_STATE_HOME = devPaths.xdgStateHome;
       env.OPENCODE_CONFIG_DIR = devPaths.opencodeConfigDir;
       env.OPENCODE_TEST_HOME = devPaths.homeDir;
+    } else {
+      // Production uses opencode's standard per-platform config/data locations
+      // (unix: $XDG_DATA_HOME|~/.local/share/opencode + ~/.config/opencode;
+      // Windows: %LOCALAPPDATA%\opencode) rather than a LegalWork-specific dir.
+      // The one exception: if those locations aren't writable (e.g. ~/.config
+      // owned by root), opencode fails to start with EACCES, so transparently
+      // redirect it to an app-owned dir. No-op on healthy machines and Windows.
+      const opencodeHomeOverride = await ensureWritableOpencodeHome();
+      if (opencodeHomeOverride) Object.assign(env, opencodeHomeOverride);
     }
-    // Production no longer scopes opencode's store to a LegalWork-specific dir.
-    // opencode uses its standard per-platform data/config locations
-    // (unix: $XDG_DATA_HOME|~/.local/share/opencode + ~/.config/opencode;
-    // Windows: %LOCALAPPDATA%\opencode). The previous override set OPENCODE_DB /
-    // OPENCODE_CONFIG_DIR (+ XDG_DATA_HOME on unix) but broke on Windows, so it
-    // was removed in favor of opencode's defaults.
     return env;
   }
 
@@ -1005,6 +1097,11 @@ export function createRuntimeManager({ app, desktopRoot, listLocalWorkspacePaths
     return `curl -fsSL https://opencode.ai/install | bash -s -- --version ${version} --no-modify-path`;
   }
 
+  // Children stopped on purpose (stop/restart) — their exit is not a crash.
+  // A WeakSet rather than a property on the child, so the entries die with the
+  // process objects and the Electron-main typecheck accepts it.
+  const intentionallyStoppedChildren = new WeakSet();
+
   function spawnManagedChild(state, program, args, options = {}) {
     const child = spawn(program, args, {
       cwd: options.cwd,
@@ -1020,16 +1117,23 @@ export function createRuntimeManager({ app, desktopRoot, listLocalWorkspacePaths
 
     child.stdout?.on("data", (chunk) => appendOutput(state, "lastStdout", chunk.toString()));
     child.stderr?.on("data", (chunk) => appendOutput(state, "lastStderr", chunk.toString()));
-    child.on("exit", (code) => {
+    child.on("exit", (code, signal) => {
       state.childExited = true;
       if (code != null && code !== 0) {
         appendOutput(state, "lastStderr", `Process exited with code ${code}.\n`);
       }
+      // A clean exit (code 0) or a stop/restart we initiated is not a crash.
+      const intentional = intentionallyStoppedChildren.has(child) || child.killed === true;
+      const abnormal = code === 0 ? false : code != null || signal != null;
+      if (abnormal && !intentional) options.onCrash?.({ code, signal });
       options.onExit?.(code);
     });
     child.on("error", (error) => {
       state.childExited = true;
       appendOutput(state, "lastStderr", `${error instanceof Error ? error.message : String(error)}\n`);
+      // Spawn/runtime failure (e.g. ENOENT) — a crash unless we were stopping it.
+      const intentional = intentionallyStoppedChildren.has(child) || child.killed === true;
+      if (!intentional) options.onCrash?.({ error });
     });
 
     return child;
@@ -1081,6 +1185,9 @@ export function createRuntimeManager({ app, desktopRoot, listLocalWorkspacePaths
     const child = state.child;
     state.child = null;
     state.childExited = true;
+    // Mark this as a deliberate shutdown so the managed-child exit/error handler
+    // doesn't misreport the stop (or a subsequent restart) as a sidecar crash.
+    if (child) intentionallyStoppedChildren.add(child);
     if (!child || child.exitCode != null || child.killed) return;
 
     if (options.requestShutdown) {
@@ -1372,7 +1479,7 @@ export function createRuntimeManager({ app, desktopRoot, listLocalWorkspacePaths
       "*",
     ];
 
-    spawnManagedChild(orchestratorState, orchestratorProgram, args, { env });
+    spawnManagedChild(orchestratorState, orchestratorProgram, args, { env, onCrash: reportSidecarCrash });
     orchestratorState.dataDir = dataDir;
     orchestratorState.daemonPort = daemonPort;
     orchestratorState.baseUrl = `http://127.0.0.1:${daemonPort}`;
@@ -1428,6 +1535,7 @@ export function createRuntimeManager({ app, desktopRoot, listLocalWorkspacePaths
       {
         cwd: projectDir,
         env,
+        onCrash: reportSidecarCrash,
       },
     );
 

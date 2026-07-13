@@ -16,10 +16,11 @@ import { createClient, unwrap } from "../../app/lib/opencode";
 import { useLocal } from "../kernel/local-provider";
 import { usePlatform } from "../kernel/platform";
 import { WelcomePage } from "../domains/onboarding/welcome-page";
-import { AttributionStep, type AttributionSource } from "../domains/onboarding/attribution-step";
+import { AttributionStep } from "../domains/onboarding/attribution-step";
 import { CreateWorkspaceModal } from "../domains/workspace/create-workspace-modal";
 import { resolveLegalworkConnection } from "./legalwork-connection";
-import { captureAnalyticsEvent } from "../../app/lib/analytics";
+import { analyticsSurface, captureAnalyticsEvent, getStoredAnalyticsConsent } from "../../app/lib/analytics";
+import { captureAppError } from "../../app/lib/app-error";
 import { buildLegalworkWorkspaceBaseUrl, createLegalworkServerClient } from "../../app/lib/legalwork-server";
 import { writeActiveWorkspaceId, writeLastSessionFor } from "./session-memory";
 import { workspaceSessionRoute } from "./workspace-routes";
@@ -114,6 +115,10 @@ export function WelcomeRoute() {
   const platform = usePlatform();
   const [state, dispatch] = useReducer(welcomeReducer, initialWelcomeState);
   const [manualFolder, setManualFolder] = useState("");
+  // Pending usage-analytics choice; committed when the user leaves the welcome
+  // screen (see handleCreateWorkspace). Seeded from any previously recorded
+  // choice so re-entering the screen never overrides an opt-out.
+  const [analyticsOptIn, setAnalyticsOptIn] = useState(() => getStoredAnalyticsConsent() ?? true);
 
   // If user already completed onboarding, redirect away immediately — but NOT while the
   // provider step is showing (the workspace exists, yet the user still has to connect a
@@ -188,7 +193,7 @@ export function WelcomeRoute() {
               { token: serverToken, mode: "legalwork" },
             ).session.create({ directory: workspacePath || undefined }));
             targetSessionId = session.id;
-            captureAnalyticsEvent("task_created", { source: "onboarding", workspace_type: "local" });
+            captureAnalyticsEvent("task_created", { source: "onboarding", surface: analyticsSurface() });
           } catch {
             // Best-effort first task creation.
           }
@@ -198,15 +203,18 @@ export function WelcomeRoute() {
           if (targetSessionId) writeLastSessionFor(targetWorkspaceId, targetSessionId);
         }
         dispatch({ type: "close" });
+        // Leaving the welcome screen — commit the analytics choice and mark
+        // onboarding complete (the connect cover only clears its own state).
+        local.setPrefs((prev) => ({ ...prev, analyticsEnabled: analyticsOptIn, hasCompletedOnboarding: true }));
         // Hand off to the new session, which runs the remaining onboarding steps as
-        // full-screen covers (connect a model, then usage analytics). Onboarding is
-        // marked complete at the end of those steps — see the session route.
+        // full-screen covers (connect a model).
         const target = targetWorkspaceId
           ? workspaceSessionRoute(targetWorkspaceId, targetSessionId)
           : "/session";
         const sep = target.includes("?") ? "&" : "?";
         navigate(`${target}${sep}onboarding=1`, { replace: true });
       } catch (error) {
+        captureAppError("workspace_create", error);
         dispatch({
           type: "create:error",
           error: error instanceof Error ? error.message : "Failed to create workspace.",
@@ -215,7 +223,7 @@ export function WelcomeRoute() {
         dispatch({ type: "create:finish" });
       }
     },
-    [markOnboardingComplete, navigate],
+    [navigate, local, analyticsOptIn],
   );
 
   const handleCreateRemote = useCallback(
@@ -304,22 +312,13 @@ export function WelcomeRoute() {
     if (state.pendingSessionId) focusPromptSoon();
   }, [navigate, state.pendingRoute, state.pendingSessionId]);
 
-  const handleAttributionSubmit = useCallback(
-    (source: AttributionSource, aiPrompt?: string) => {
-      const prompt = aiPrompt?.trim().slice(0, 500) ?? "";
-      captureAnalyticsEvent("attribution_survey_submitted", {
-        source,
-        // User-volunteered survey answer (not session content); see survey UI.
-        ai_prompt: prompt || null,
-        ai_prompt_length: prompt.length,
-      });
-      finishOnboarding();
-    },
-    [finishOnboarding],
-  );
+  // Attribution survey no longer reports analytics (events removed); it just
+  // advances onboarding.
+  const handleAttributionSubmit = useCallback(() => {
+    finishOnboarding();
+  }, [finishOnboarding]);
 
   const handleAttributionSkip = useCallback(() => {
-    captureAnalyticsEvent("attribution_survey_skipped");
     finishOnboarding();
   }, [finishOnboarding]);
 
@@ -335,6 +334,8 @@ export function WelcomeRoute() {
           onManualFolderChange={setManualFolder}
           onUseManualFolder={handleUseManualFolder}
           showManualFolder={import.meta.env.DEV && isDesktopRuntime()}
+          analyticsEnabled={analyticsOptIn}
+          onAnalyticsChange={setAnalyticsOptIn}
         />
       ) : null}
       <CreateWorkspaceModal

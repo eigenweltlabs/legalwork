@@ -137,6 +137,12 @@ jobs:
           node scripts/release/apply-version.mjs --version "$ALPHA_VERSION"
           pnpm install --lockfile-only --no-frozen-lockfile
 
+      - name: Bake Eigenwelt free-mint key
+        shell: bash
+        env:
+          EIGENWELT_FREE_MINT_KEY: ${{ secrets.EIGENWELT_FREE_MINT_KEY }}
+        run: node scripts/release/bake-mint-key.mjs
+
       - name: Build Electron alpha app
         shell: bash
         env:

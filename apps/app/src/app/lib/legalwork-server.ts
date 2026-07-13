@@ -142,7 +142,22 @@ export type LegalworkSessionSnapshot = {
   status:
     | { type: "idle" }
     | { type: "busy" }
-    | { type: "retry"; attempt: number; message: string; next: number };
+    | {
+        type: "retry";
+        attempt: number;
+        message: string;
+        next: number;
+        // Mirrors the engine's `SessionStatus` retry action (the chat renders
+        // it as a titled block with an optional external-link button).
+        action?: {
+          reason: string;
+          provider: string;
+          title: string;
+          message: string;
+          label: string;
+          link?: string;
+        };
+      };
 };
 
 export type LegalworkPluginItem = {
@@ -1085,6 +1100,16 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
     runtimeVersions: () =>
       requestJson<LegalworkRuntimeSnapshot>(baseUrl, "/runtime/versions", { token, hostToken, timeoutMs: timeouts.status }),
     status: () => requestJson<LegalworkServerDiagnostics>(baseUrl, "/status", { token, hostToken, timeoutMs: timeouts.status }),
+    // Sync analytics consent; the server answers with the per-launch
+    // distinct id (in-memory) for the caller to adopt.
+    setAnalyticsIdentity: (payload: { analyticsEnabled: boolean }) =>
+      requestJson<{ ok: boolean; distinctId?: string }>(baseUrl, "/analytics/identity", {
+        token,
+        hostToken,
+        method: "PUT",
+        body: payload,
+        timeoutMs: timeouts.status,
+      }),
     capabilities: () => requestJson<LegalworkServerCapabilities>(baseUrl, "/capabilities", { token, hostToken, timeoutMs: timeouts.capabilities }),
     googleWorkspaceStatus: () => requestJson<GoogleWorkspaceAuthStatus>(baseUrl, "/experimental/google-workspace/status", { token, hostToken, timeoutMs: timeouts.status }),
     googleWorkspaceConnectStart: (options?: { gmailRead?: boolean; features?: string[] }) => requestJson<GoogleWorkspaceConnectStart>(baseUrl, "/experimental/google-workspace/connect/start", { token, hostToken, method: "POST", body: { gmailRead: options?.gmailRead === true, features: options?.features ?? [] }, timeoutMs: timeouts.status }),

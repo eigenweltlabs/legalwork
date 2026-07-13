@@ -1,15 +1,32 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 
+import path from "node:path";
+
 import {
   commandMatchesPackagedSidecar,
   nodeShimFileName,
   nodeShimScriptContent,
+  opencodeHomeEnvFromRoot,
   prioritizeWorkspacePaths,
   resolveLegalworkServerConfigPath,
   seedWorkspacePathsForEmbeddedServer,
   selectStickyLegalworkPortWorkspace,
 } from "./runtime.mjs";
+
+describe("opencodeHomeEnvFromRoot", () => {
+  it("points every OpenCode dir under the app-owned root", () => {
+    const root = path.join("/tmp", "userData", "opencode-home");
+    const env = opencodeHomeEnvFromRoot(root);
+    assert.equal(env.XDG_CONFIG_HOME, path.join(root, "config"));
+    assert.equal(env.XDG_DATA_HOME, path.join(root, "data"));
+    assert.equal(env.XDG_CACHE_HOME, path.join(root, "cache"));
+    assert.equal(env.XDG_STATE_HOME, path.join(root, "state"));
+    // The config dir must live under XDG_CONFIG_HOME so opencode and any XDG
+    // reader agree on the same location.
+    assert.equal(env.OPENCODE_CONFIG_DIR, path.join(env.XDG_CONFIG_HOME, "opencode"));
+  });
+});
 
 describe("prioritizeWorkspacePaths", () => {
   it("keeps the active runtime workspace first", () => {

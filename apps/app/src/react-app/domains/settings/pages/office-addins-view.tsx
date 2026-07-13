@@ -17,6 +17,7 @@ import { desktopBridge } from "@/app/lib/desktop";
 import { isDesktopRuntime } from "@/app/utils";
 import { toast } from "@/components/ui/sonner";
 import { t } from "@/i18n";
+import { captureAnalyticsEvent } from "@/app/lib/analytics";
 import {
   LayoutSectionItem,
   LayoutSectionItemDescription,
@@ -67,6 +68,7 @@ export function OfficeAddinsView() {
     onSuccess: (result, app) => {
       queryClient.setQueryData(OFFICE_STATUS_KEY, result.status);
       if (result.ok) {
+        captureAnalyticsEvent("office_addin_installed", { host: app });
         const label = result.status.apps.find((entry) => entry.id === app)?.label ?? app;
         setRestartApp(label);
       } else {
@@ -82,9 +84,10 @@ export function OfficeAddinsView() {
       setBusyApp(app);
       return desktopBridge.officeAddinUninstall(app);
     },
-    onSuccess: (result) => {
+    onSuccess: (result, app) => {
       queryClient.setQueryData(OFFICE_STATUS_KEY, result.status);
       if (result.ok) {
+        captureAnalyticsEvent("office_addin_uninstalled", { host: app });
         toast.success(t("office_addins.uninstall_success"));
       } else {
         toast.warning(result.error ?? t("office_addins.uninstall_failed"));

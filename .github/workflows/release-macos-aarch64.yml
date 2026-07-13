@@ -379,6 +379,12 @@ jobs:
 
           echo "NOTARY_KEY_PATH=$NOTARY_KEY_PATH" >> "$GITHUB_ENV"
 
+      - name: Bake Eigenwelt free-mint key
+        shell: bash
+        env:
+          EIGENWELT_FREE_MINT_KEY: ${{ secrets.EIGENWELT_FREE_MINT_KEY }}
+        run: node scripts/release/bake-mint-key.mjs
+
       - name: Build Electron app
         shell: bash
         env:

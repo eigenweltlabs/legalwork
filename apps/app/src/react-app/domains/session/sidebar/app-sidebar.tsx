@@ -80,6 +80,8 @@ import { Button } from "@/components/ui/button";
 import { SidebarContext, useSidebarContext } from "./app-sidebar-provider";
 import type { SidebarContextValue } from "./app-sidebar-provider";
 import { SidebarUpdateBadge } from "./sidebar-update-badge";
+import { SidebarWorkflowGenerationBadge } from "./sidebar-workflow-generation-badge";
+import { workspaceSessionRoute } from "@/react-app/shell/workspace-routes";
 import {
   MAX_SESSIONS_PREVIEW,
   buildSessionTreeState,
@@ -457,6 +459,7 @@ export type AppSidebarProps = {
   onRevealWorkspace: (workspaceId: string) => void;
   onForgetWorkspace: (workspaceId: string) => void;
   onOpenCreateWorkspace: () => void;
+  onCreateTaskInNewWorkspace: () => void;
   onShowLearnings?: () => void;
   onShowWorkflows?: () => void;
   onShowExtensions?: () => void;
@@ -649,10 +652,33 @@ export function AppSidebar(props: AppSidebarProps) {
         </div>
         <SidebarMenu className={cn("gap-0.5 px-2 mac:titlebar-no-drag", showSidebarBrandName ? "pt-4" : "pt-3")}>
           <SidebarMenuItem>
-            <SidebarMenuButton className="gap-4 text-sidebar-foreground/80 [&_svg]:size-[18px]" onClick={props.onOpenCreateWorkspace}>
-              <PenLine className="size-[18px]" strokeWidth={1.5} />
-              <span>New Task</span>
-            </SidebarMenuButton>
+            <DropdownMenu>
+              <DropdownMenuTrigger
+                render={
+                  <SidebarMenuButton className="gap-4 text-sidebar-foreground/80 [&_svg]:size-[18px]">
+                    <PenLine className="size-[18px]" strokeWidth={1.5} />
+                    <span>New Task</span>
+                  </SidebarMenuButton>
+                }
+              />
+              <DropdownMenuContent align="start" side="bottom" sideOffset={4} className="w-64">
+                {props.workspaceSessionGroups.map((group) => (
+                  <DropdownMenuItem
+                    key={group.workspace.id}
+                    disabled={props.newTaskDisabled}
+                    onClick={() => props.onCreateTaskInWorkspace(group.workspace.id)}
+                  >
+                    <WorkspaceIcon workspaceId={group.workspace.id} sizeClass="size-4" />
+                    <span className="truncate">{workspaceLabel(group.workspace)}</span>
+                  </DropdownMenuItem>
+                ))}
+                {props.workspaceSessionGroups.length > 0 ? <DropdownMenuSeparator /> : null}
+                <DropdownMenuItem onClick={props.onCreateTaskInNewWorkspace}>
+                  <FolderPlus className="size-4" />
+                  New folder…
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
           </SidebarMenuItem>
           <SidebarMenuItem>
             <SidebarMenuButton
@@ -695,6 +721,12 @@ export function AppSidebar(props: AppSidebarProps) {
             </SidebarMenuButton>
           </SidebarMenuItem>
         </SidebarMenu>
+        {/* Flows directly under the last nav item, with a little breathing room. */}
+        <div className="mt-3">
+          <SidebarWorkflowGenerationBadge
+            onOpenSession={(workspaceId, sessionId) => navigate(workspaceSessionRoute(workspaceId, sessionId))}
+          />
+        </div>
         </div>
 
         {/* Folders — fixed bottom 60% (top edge at 40% from top). */}

@@ -14,6 +14,7 @@ import type {
   BenchmarkTaskItem,
 } from "../../../app/lib/benchmark-types";
 import { DEFAULT_JUDGE_MODEL } from "../../../app/lib/benchmark-types";
+import { captureAnalyticsEvent } from "../../../app/lib/analytics";
 import { isRunActive } from "./format";
 import {
   EMPTY_TABLE_FILTERS,
@@ -387,9 +388,24 @@ export const useBenchmarkStore = create<BenchmarkState & BenchmarkActions>()((se
     if (get().runsStatus === "idle") set({ runsStatus: "loading" });
     try {
       const { items } = await ctx.client.benchmarkListRuns(ctx.workspaceId);
+      const prevById = new Map(get().runs.map((run) => [run.id, run]));
       const hadActive = get().runs.some((run) => isRunActive(run.status));
       const hasActive = items.some((run) => isRunActive(run.status));
       set({ runs: items, runsStatus: "ready", runsError: null });
+      // Fire a completion event for each run that just went active -> terminal.
+      for (const run of items) {
+        const prev = prevById.get(run.id);
+        if (prev && isRunActive(prev.status) && !isRunActive(run.status)) {
+          captureAnalyticsEvent("benchmark_run_completed", {
+            status: run.status,
+            duration_ms:
+              run.startedAt !== null && run.finishedAt !== null ? run.finishedAt - run.startedAt : 0,
+            passed_count: run.counts.passed,
+            failed_count: run.counts.failed,
+            error_count: run.counts.error,
+          });
+        }
+      }
       // A run just finished — the task table's "latest results" changed.
       if (hadActive && !hasActive) void get().refreshTasks();
     } catch (error) {
@@ -672,6 +688,10 @@ export const useBenchmarkStore = create<BenchmarkState & BenchmarkActions>()((se
         judgeModel: draft.judge ?? DEFAULT_JUDGE_MODEL,
       };
       const { run } = await ctx.client.benchmarkCreateRun(ctx.workspaceId, payload);
+      captureAnalyticsEvent("benchmark_run_created", {
+        model_count: draft.models.length,
+        task_count: selectedTaskIds.length,
+      });
       set((state) => ({ creating: false, runs: [run, ...state.runs.filter((entry) => entry.id !== run.id)] }));
       get().resetDraft();
       get().clearTaskSelection();

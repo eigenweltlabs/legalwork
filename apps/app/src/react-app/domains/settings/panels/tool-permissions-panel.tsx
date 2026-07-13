@@ -3,6 +3,7 @@ import { useCallback, useEffect, useMemo, useReducer, useState, type ReactNode }
 import { Plus, X } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
+import { captureAnalyticsEvent } from "@/app/lib/analytics";
 import { Input } from "@/components/ui/input";
 import {
   Select,
@@ -253,6 +254,7 @@ export function ToolPermissionsPanel(props: ToolPermissionsPanelProps) {
   }, [canWriteConfig, props.legalworkServerClient, props.onConfigUpdated, props.runtimeWorkspaceId, state.loadedPermission]);
 
   const setToolAction = useCallback((tool: ManagedPermissionTool, action: PermissionAction) => {
+    captureAnalyticsEvent("tool_permission_changed", { tool, action });
     const nextModel = { ...state.model, [tool]: { ...state.model[tool], action } };
     void persistModel(nextModel);
   }, [persistModel, state.model]);
@@ -337,6 +339,7 @@ export function ToolPermissionsPanel(props: ToolPermissionsPanelProps) {
                   checked={quickToggleChecked(state.model, toggle)}
                   disabled={busy || !canWriteConfig}
                   onCheckedChange={(checked) => {
+                    captureAnalyticsEvent("quick_permission_toggled", { toggle, enabled: checked });
                     void persistModel(applyQuickToggle(state.model, toggle, checked));
                   }}
                 />

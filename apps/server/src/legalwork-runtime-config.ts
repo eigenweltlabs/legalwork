@@ -38,6 +38,12 @@ import {
   runtimePluginList,
   runtimeStorageDir,
 } from "./runtime-opencode-config-store.js";
+import {
+  buildEigenweltFreeProviderBlock,
+  EIGENWELT_FREE_PROVIDER_ID,
+  OPENCODE_ZEN_PROVIDER_ID,
+  readCachedEigenweltFreeManifest,
+} from "./eigenwelt-free.js";
 
 const LEGALWORK_AGENT_PROMPT = `You are LegalWork — an AI agent that works alongside legal professionals inside a law firm.
 
@@ -94,9 +100,32 @@ export async function buildLegalworkRuntimeConfigObject(
         await readGlobalToolPermissions(config),
       )
     : {};
-  const disabledProviders = runtimeDisabledProviderList(runtimeConfig);
+  // Free Eigenwelt tier: served from the DISK CACHE only — config building
+  // must never block on the network. refreshEigenweltFreeManifest (cli.ts /
+  // embedded.ts) keeps the cache fresh out-of-band (minting this device's
+  // key once, then only refreshing models) and triggers a rewrite of this
+  // file when it changes. Config-defined providers are always reported
+  // "connected" by the engine, which is exactly the desired no-login behavior
+  // for the free tier. Injected only when the cache holds a key AND at least
+  // one model.
+  const freeManifest = config ? await readCachedEigenweltFreeManifest(config) : null;
+  const freeProvider = freeManifest && freeManifest.models.length > 0
+    ? buildEigenweltFreeProviderBlock(freeManifest)
+    : null;
+  const disabledProviders = [
+    ...runtimeDisabledProviderList(runtimeConfig),
+    // Disable the engine's anonymous OpenCode Zen provider ONLY while our
+    // free provider is actually available — otherwise a first launch with
+    // the platform down would lose free models entirely.
+    ...(freeProvider ? [OPENCODE_ZEN_PROVIDER_ID] : []),
+  ].filter((item, index, list) => list.indexOf(item) === index);
+  const providerMap = {
+    ...(runtimeConfig.provider ?? {}),
+    ...(freeProvider ? { [EIGENWELT_FREE_PROVIDER_ID]: freeProvider } : {}),
+  };
   return {
     ...runtimeConfig,
+    ...(Object.keys(providerMap).length ? { provider: providerMap } : {}),
     default_agent: runtimeConfig.default_agent ?? "legalwork",
     agent: {
       ...runtimeAgentMap(runtimeConfig),

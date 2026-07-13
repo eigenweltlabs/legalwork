@@ -11,7 +11,11 @@ import {
 } from "react";
 
 import { THINKING_PREF_KEY } from "../../app/constants";
+import { setAnalyticsDistinctId } from "../../app/lib/analytics";
+import { createLegalworkServerClient } from "../../app/lib/legalwork-server";
 import { coerceReleaseChannel } from "../../app/lib/release-channels";
+import { isDesktopRuntime } from "../../app/lib/runtime-env";
+import { resolveLegalworkConnection } from "../shell/legalwork-connection";
 import type { ModelRef, ReleaseChannel, SettingsTab, View } from "../../app/types";
 import { readStoredDefaultModel } from "./model-config";
 
@@ -55,8 +59,9 @@ export type LocalPreferences = {
    */
   hasCompletedOnboarding: boolean;
   /**
-   * Anonymous product analytics (PostHog). Opt-in: off until the user turns it
-   * on in onboarding or Settings -> Privacy. Never includes message content.
+   * Anonymous product analytics (PostHog). Committed from the welcome-screen
+   * toggle (nothing is sent before then); switchable anytime in
+   * Settings -> Privacy. See analytics.ts for the data model.
    */
   analyticsEnabled: boolean;
   /**
@@ -147,6 +152,37 @@ export function LocalProvider({ children }: LocalProviderProps) {
   useEffect(() => {
     writePersisted(PREFS_STORAGE_KEY, prefs);
   }, [prefs]);
+
+  // Sync analytics consent with the local server and adopt its per-launch
+  // distinct id in return. In-memory on both sides; retried briefly because
+  // the server may still be booting. Desktop only. Until the round-trip
+  // succeeds, analytics falls back to a locally minted id.
+  useEffect(() => {
+    if (!isDesktopRuntime()) return;
+    let cancelled = false;
+    void (async () => {
+      for (let attempt = 0; attempt < 8 && !cancelled; attempt += 1) {
+        try {
+          const { normalizedBaseUrl, resolvedToken, resolvedHostToken } = await resolveLegalworkConnection();
+          if (normalizedBaseUrl && (resolvedToken || resolvedHostToken)) {
+            const result = await createLegalworkServerClient({
+              baseUrl: normalizedBaseUrl,
+              token: resolvedToken || undefined,
+              hostToken: resolvedHostToken || undefined,
+            }).setAnalyticsIdentity({ analyticsEnabled: prefs.analyticsEnabled });
+            if (typeof result?.distinctId === "string") setAnalyticsDistinctId(result.distinctId);
+            return;
+          }
+        } catch {
+          // Server not reachable yet — retry below.
+        }
+        await new Promise((resolve) => setTimeout(resolve, 3_000));
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [prefs.analyticsEnabled]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;

@@ -13,6 +13,7 @@ import { dirname, extname, join, normalize, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import type { ServerConfig, WordAddinConfig } from "./types.js";
+import { launchAnalyticsId } from "./launch-analytics-id.js";
 import type { ServeTlsOptions } from "./serve-node.js";
 import { buildWordAddinRedirectorHtml, buildWordAddinShellHtml, WORD_ADDIN_SHELL_VERSION } from "./word-addin-shell.js";
 
@@ -350,6 +351,22 @@ async function serveStaticFile(distPath: string, relativePath: string): Promise<
 }
 
 /**
+ * Analytics identity: the server-minted per-launch id plus the desktop's
+ * consent flag (pushed via PUT /analytics/identity). In-memory only — a
+ * server restart rotates the id and resets consent to off.
+ */
+export type AnalyticsIdentity = { distinctId: string; enabled: boolean };
+let analyticsConsent = false;
+
+export function setAnalyticsConsent(next: { analyticsEnabled?: unknown }): void {
+  analyticsConsent = next.analyticsEnabled === true;
+}
+
+export function getAnalyticsIdentity(): AnalyticsIdentity {
+  return { distinctId: launchAnalyticsId(), enabled: analyticsConsent };
+}
+
+/**
  * Handle a request under /word-addin. Returns null only for non-GET/HEAD
  * methods so the caller can produce its standard 404/405 handling.
  */
@@ -425,11 +442,16 @@ export async function handleWordAddinRequest(input: {
     // The pane is the server's own UI (same trust as the desktop renderer),
     // so it also receives the host token — host-scoped routes like workspace
     // creation and the native folder picker need it.
+    const identity = getAnalyticsIdentity();
     return jsonResponse({
       app: "legalwork-server",
       token: config.token,
       hostToken: config.hostToken,
       wordAddinPort: wordAddin.port,
+      // Analytics identity (per-launch, in-memory); the pane polls this
+      // endpoint so consent changes propagate.
+      analyticsDistinctId: identity.distinctId,
+      analyticsEnabled: identity.enabled,
       // Lets a cached shell detect it is outdated and reload itself once
       // (reloads end-to-end revalidate the navigation cache entry, which
       // subresource fetches provably do not).

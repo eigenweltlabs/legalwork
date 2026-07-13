@@ -9,6 +9,8 @@ import {
   type McpDirectoryInfo,
 } from "../../../app/constants";
 import { extensionResource } from "../../../app/extensions";
+import { captureAnalyticsEvent } from "../../../app/lib/analytics";
+import { captureAppError } from "../../../app/lib/app-error";
 import { createClient, unwrap } from "../../../app/lib/opencode";
 import { finishPerf, perfNow, recordPerfLog } from "../../../app/lib/perf-log";
 import {
@@ -798,8 +800,10 @@ export function createConnectionsStore(options: {
         type: entryType,
         slug,
       });
+      captureAnalyticsEvent("integration_connected", {});
       return true;
     } catch (error) {
+      captureAppError("integration_connect", error);
       console.error("[mcp.connect] failed", entry.name, error);
       setStateField(
         "mcpStatus",
@@ -947,6 +951,7 @@ export function createConnectionsStore(options: {
         setStateField("selectedMcp", null);
       }
       setStateField("mcpStatus", null);
+      captureAnalyticsEvent("integration_disconnected", {});
     } catch (error) {
       setStateField(
         "mcpStatus",

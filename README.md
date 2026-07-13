@@ -12,8 +12,20 @@ https://github.com/user-attachments/assets/4a576c3a-7c2a-46c6-9856-1254282b1b70
 - **Tabular review** — extract terms across many documents into a sourced grid.
 - **Draft** briefs, memos, contracts, and engagement letters.
 - **Bring your own model** — AWS Bedrock, Azure OpenAI, or any provider. Your data is only ever shared with the model you choose.
+- **Free models included** — Eigenwelt provides free models to try LegalWork, no login required. Free-tier usage data is logged, so don't use them with privileged, client, or matter data — testing only — see [`TERMS.md`](./TERMS.md).
 - **Runs on this machine** by default; connect a remote worker only when you want to.
 - **Extend it** with skills, plugins, and MCP connectors, managed in **Settings → Extensions** and shared across every workspace.
+
+## Telemetry
+
+Official builds can send **anonymous usage statistics** — event names, counts,
+and durations, never your documents, prompts, or matter content — to our
+EU-hosted PostHog so we can improve the app. Events carry a random per-launch
+id (nothing is stored on your device) and location no finer than city. The
+option is shown on the welcome screen at first launch and can be turned off
+anytime in **Settings → Privacy**. Development builds (`pnpm dev`) send
+nothing. Details: [TERMS.md](./TERMS.md) and the
+[privacy policy](https://eigenweltlabs.com/privacy).
 
 ## Develop
 

@@ -22,7 +22,7 @@ import type {
   TextPartInput,
 } from "@opencode-ai/sdk/v2/client";
 
-import { captureAnalyticsEvent, markTaskRunStart } from "@/app/lib/analytics";
+import { analyticsSurface, captureAnalyticsEvent, markTaskRunStart } from "@/app/lib/analytics";
 import { createClient, unwrap } from "@/app/lib/opencode";
 import { abortSessionSafe, forkSession, listCommands, revertSession, setSessionArchived, shellInSession } from "@/app/lib/opencode-session";
 import { useSessionManagementStore as sessionManagementStore } from "@/react-app/domains/session/sidebar/session-management-store";
@@ -111,7 +111,13 @@ import { appMentionInstruction } from "@/react-app/domains/session/surface/compo
 import { CreateWorkspaceModal } from "@/react-app/domains/workspace/create-workspace-modal";
 import { useSessionProviderAuth } from "@/react-app/domains/connections/provider-auth/use-session-provider-auth";
 import { ProviderSelectionStep } from "@/react-app/domains/onboarding/provider-selection-step";
-import { UsageAnalyticsStep } from "@/react-app/domains/onboarding/usage-analytics-step";
+import { TemplateWorkflowsStep } from "@/react-app/domains/onboarding/template-workflows-step";
+import {
+  ensureTemplateWorkflowWatcher,
+  startTemplateWorkflowGeneration,
+  useHiddenTemplateWorkspaceIds,
+  useTemplateWorkflowRun,
+} from "@/react-app/domains/settings/state/template-workflow-generation";
 import { useMcpConnectedCount } from "@/react-app/domains/connections/use-mcp-connected-count";
 import { RenameWorkspaceModal } from "@/react-app/domains/workspace/rename-workspace-modal";
 import { ModelPickerModal } from "@/react-app/domains/session/modals/model-picker-modal";
@@ -159,6 +165,7 @@ import {
   isFreeOpencodeModel,
   isModelAvailableInConnectedProviders,
   refreshProviderListQueries,
+  remapZenSelectionToEigenweltFree,
   useProviderListQuery,
 } from "@/react-app/infra/provider-list-query";
 
@@ -486,9 +493,18 @@ export function SessionRoute() {
     }
   }, [activeReloadBlockingSessions.length, reloadWorkspaceEngineFromUi, selectedWorkspaceRoot]);
 
+  // Templates workspaces (created by workflow generation) are utility plumbing:
+  // they stay out of the sidebar; their session is reached via the Workflows
+  // progress banner. Route resolution keeps using the unfiltered list so that
+  // navigation still works.
+  const hiddenTemplateWorkspaceIds = useHiddenTemplateWorkspaceIds();
+  const sidebarWorkspaces = useMemo(
+    () => workspaces.filter((workspace) => !hiddenTemplateWorkspaceIds.includes(workspace.id)),
+    [hiddenTemplateWorkspaceIds, workspaces],
+  );
   const workspaceSessionGroups = useMemo(
-    () => toSessionGroups(workspaces, sessionsByWorkspaceId, errorsByWorkspaceId, new Set(retryingWorkspaceIds)),
-    [errorsByWorkspaceId, retryingWorkspaceIds, sessionsByWorkspaceId, workspaces],
+    () => toSessionGroups(sidebarWorkspaces, sessionsByWorkspaceId, errorsByWorkspaceId, new Set(retryingWorkspaceIds)),
+    [errorsByWorkspaceId, retryingWorkspaceIds, sessionsByWorkspaceId, sidebarWorkspaces],
   );
   useSessionGroupSync({ workspaces, endpointForWorkspace });
   const selectedWorkspaceGroupState = sessionManagementStore((state) => (
@@ -588,9 +604,26 @@ export function SessionRoute() {
       !isModelAvailableInConnectedProviders(providerListQuery.data, local.prefs.defaultModel),
   );
   const hasUsableModel = Boolean(local.prefs.defaultModel && !selectedModelUnavailable);
-  // Warn above the composer whenever the active model is a free OpenCode Zen
-  // model (the no-key fallback) — those providers may train on inputs, so they
-  // must not be used with client/matter data.
+  // One-time free-tier migration for existing installs: a persisted default
+  // model on the engine's built-in Zen provider ("opencode") strands when the
+  // server injects the eigenwelt-free provider and disables zen. Auto-switch
+  // to the free provider's first model instead of leaving the user stuck on
+  // "model no longer available". Idempotent: after the switch (or any manual
+  // pick of a non-zen model) the remap returns null.
+  const { setPrefs } = local;
+  useEffect(() => {
+    const replacement = remapZenSelectionToEigenweltFree(
+      providerListQuery.data,
+      local.prefs.defaultModel,
+    );
+    if (!replacement) return;
+    setPrefs((previous) => ({ ...previous, defaultModel: replacement, modelVariant: null }));
+    toast(`Free models are now served by Eigenwelt — switched to ${resolveModelDisplayName(replacement.modelID)}.`);
+  }, [providerListQuery.data, local.prefs.defaultModel, setPrefs]);
+  // Warn above the composer whenever the active model is a free-tier model
+  // (the no-key fallback — Eigenwelt free gateway, or OpenCode Zen when the
+  // platform is unreachable). Free models are for testing only (usage data
+  // is logged) — never for privileged, client, or matter data.
   const freeModelSelected = useMemo(
     () => isFreeOpencodeModel(providerListQuery.data, local.prefs.defaultModel),
     [providerListQuery.data, local.prefs.defaultModel],
@@ -599,7 +632,7 @@ export function SessionRoute() {
     opencodeClient && selectedWorkspaceId && !loading && !selectedWorkspaceError && !selectedModelUnavailable,
   );
 
-  const { store: sessionProviderAuthStore, snapshot: sessionProviderAuthSnapshot, onboardingStep, goToAnalytics, finishOnboarding } =
+  const { store: sessionProviderAuthStore, snapshot: sessionProviderAuthSnapshot, onboardingStep, goToTemplates, finishOnboarding } =
     useSessionProviderAuth({
       opencodeClient,
       providers,
@@ -615,6 +648,58 @@ export function SessionRoute() {
       setProviderConnectedIds,
       setDisabledProviderIds,
     });
+  // The templates onboarding step needs the desktop runtime (folder picker,
+  // skill import IPC); anywhere else it finishes onboarding straight away
+  // (usage-analytics consent already lives on the welcome step).
+  // The start handler carries its own connection guard.
+  const templatesStepEligible = isDesktopRuntime();
+  useEffect(() => {
+    if (onboardingStep === "templates" && !templatesStepEligible) finishOnboarding();
+  }, [finishOnboarding, onboardingStep, templatesStepEligible]);
+
+  // Resume the generation-completion watcher after a reload: a persisted
+  // "running" run keeps its Workflows spinner honest only while someone polls.
+  useEffect(() => {
+    if (baseUrl && token) ensureTemplateWorkflowWatcher(baseUrl, token);
+  }, [baseUrl, token]);
+
+  // The generation run's hidden workspace is registered server-side without
+  // going through the manual create flow, so route state doesn't know it yet —
+  // and navigating to /workspace/<id>/... from the Workflows banner would show
+  // "Workspace was not found". Pull it in once per run (guarded so a stale run
+  // pointing at a forgotten workspace can't refresh-loop).
+  const templateWorkflowRun = useTemplateWorkflowRun();
+  const templateRunRefreshAttemptedRef = useRef<string | null>(null);
+  useEffect(() => {
+    const workspaceId = templateWorkflowRun?.workspaceId;
+    if (!workspaceId) return;
+    if (workspaces.some((workspace) => workspace.id === workspaceId)) return;
+    if (templateRunRefreshAttemptedRef.current === workspaceId) return;
+    templateRunRefreshAttemptedRef.current = workspaceId;
+    void refreshRouteState();
+  }, [refreshRouteState, templateWorkflowRun?.workspaceId, workspaces]);
+
+  const startTemplateWorkflowsFromOnboarding = async (): Promise<{ started: boolean; message?: string }> => {
+    const selection = await pickDirectory({ title: "Choose your templates folder" });
+    const folder = typeof selection === "string" ? selection : Array.isArray(selection) ? selection[0] : null;
+    if (!folder?.trim()) return { started: false };
+    if (!client || !baseUrl || !token) {
+      return { started: false, message: "Still connecting to the LegalWork server. Try again in a moment." };
+    }
+    const result = await startTemplateWorkflowGeneration({
+      environmentClient: client,
+      baseUrl,
+      token,
+      templatesDir: folder.trim(),
+      model: local.prefs.defaultModel,
+    });
+    if (!result.ok) return { started: false, message: result.message };
+    // The templates folder is a workspace now — pull it into the sidebar list.
+    void refreshRouteState();
+    finishOnboarding();
+    return { started: true };
+  };
+
   const {
     activePermission,
     permissionReplyBusy,
@@ -790,14 +875,16 @@ export function SessionRoute() {
         if (!text && draft.attachments.length === 0) return;
         if (selectedModelUnavailable) throw new Error("Selected model is unavailable. Choose another model before sending.");
 
+        const fusionModels = getFusionSelectedModels(targetSessionId);
         captureAnalyticsEvent("task_message_sent", {
-          mode: draft.mode ?? "prompt",
+          session_id: targetSessionId,
           is_command: Boolean(draft.command),
-          attachment_count: draft.attachments.length,
-          text_length: text.length,
-          workspace_type: selectedWorkspace?.workspaceType ?? "unknown",
           provider_id: local.prefs.defaultModel?.providerID ?? null,
           model_id: local.prefs.defaultModel?.modelID ?? null,
+          surface: analyticsSurface(),
+          fusion_enabled: isFusionEnabled(targetSessionId),
+          fusion_model_count: fusionModels.length,
+          fusion_models: fusionModels.map((m) => `${m.providerID}/${m.modelID}`),
         });
         markTaskRunStart(targetSessionId);
 
@@ -1084,7 +1171,7 @@ export function SessionRoute() {
       );
       captureAnalyticsEvent("task_created", {
         source: "new_task",
-        workspace_type: workspace.workspaceType ?? "unknown",
+        surface: analyticsSurface(),
       });
       setLegacySelectedWorkspaceId(workspaceId);
       writeActiveWorkspaceId(workspaceId || null);
@@ -1474,9 +1561,9 @@ export function SessionRoute() {
           : null;
         setLegacySelectedWorkspaceId(targetWorkspaceId);
         writeActiveWorkspaceId(targetWorkspaceId);
-        captureAnalyticsEvent("workspace_created", { workspace_type: "local" });
+        captureAnalyticsEvent("workspace_created", { surface: analyticsSurface() });
         if (session?.id) {
-          captureAnalyticsEvent("task_created", { source: "workspace_created", workspace_type: "local" });
+          captureAnalyticsEvent("task_created", { source: "workspace_created", surface: analyticsSurface() });
           writeLastSessionFor(targetWorkspaceId, session.id);
           rememberPendingCreatedSession(targetWorkspaceId, session.id);
           setSessionsByWorkspaceId((current) => {
@@ -1493,10 +1580,20 @@ export function SessionRoute() {
       }
     } catch (error) {
       setCreateWorkspaceError(describeWorkspaceCreateError(error));
+      // Surface the error even when creation was started outside the modal
+      // (e.g. from the New Task workspace picker's folder select).
+      setCreateWorkspaceOpen(true);
     } finally {
       setCreateWorkspaceBusy(false);
     }
   }, [baseUrl, client, local, navigateToWorkspaceSession, refreshRouteState, rememberPendingCreatedSession, token]);
+
+  const handleCreateTaskInNewWorkspace = useCallback(async () => {
+    if (createWorkspaceBusy) return;
+    const folder = (await pickDirectory({ title: t("onboarding.authorize_folder") })) as string | null;
+    if (!folder?.trim()) return;
+    await handleCreateWorkspace("starter", folder);
+  }, [createWorkspaceBusy, handleCreateWorkspace]);
 
   // Leaving a top-level pane (Learnings/Skills/Integrations): any session/workspace
   // navigation drops back to the session view.
@@ -1527,8 +1624,9 @@ export function SessionRoute() {
       />
     ) : null}
     {onboardingStep === "connect" ? (
-      // Step 2 cover: the real provider-selection design (z-40) with the searchable
-      // connect modal (z-50) opening on top of it. Connecting auto-advances to step 3.
+      // Provider-selection cover: the real provider-selection design (z-40) with the
+      // searchable connect modal (z-50) on top. Usage-analytics consent lives on the
+      // welcome step; connecting or skipping here advances to the optional templates step.
       <ProviderSelectionStep
         onConnect={(providerId) =>
           sessionProviderAuthStore.openProviderAuthModal({
@@ -1536,16 +1634,15 @@ export function SessionRoute() {
             returnFocusTarget: "composer",
           })
         }
-        onSkip={goToAnalytics}
+        onSkip={goToTemplates}
       />
     ) : null}
-    {onboardingStep === "analytics" ? (
-      // Step 3 cover: usage-analytics consent, then onboarding is complete.
-      <UsageAnalyticsStep
-        onChoice={(enabled) => {
-          local.setPrefs((prev) => ({ ...prev, analyticsEnabled: enabled, hasCompletedOnboarding: true }));
-          finishOnboarding();
-        }}
+    {onboardingStep === "templates" && templatesStepEligible ? (
+      // Optional final cover: point a local agent at the firm's templates folder;
+      // the generation run continues in the background while onboarding finishes.
+      <TemplateWorkflowsStep
+        onStart={startTemplateWorkflowsFromOnboarding}
+        onSkip={finishOnboarding}
       />
     ) : null}
     <SessionPage
@@ -1561,7 +1658,7 @@ export function SessionRoute() {
       selectedWorkspaceError={selectedWorkspaceError}
       runtimeWorkspaceId={selectedWorkspaceEndpoint?.workspaceId || null}
       opencodeBaseUrl={opencodeBaseUrl}
-      workspaces={workspaces}
+      workspaces={sidebarWorkspaces}
       clientConnected={canCreateTask}
       legalworkServerStatus={client ? "connected" : "disconnected"}
       legalworkServerClient={selectedWorkspaceEndpoint?.client ?? client}
@@ -1605,7 +1702,17 @@ export function SessionRoute() {
         // via an effect, so switching Workflows <-> Integrations is instant and doesn't
         // re-fetch the workspace/stores.
         showWorkflows ? (
-          <SettingsSurface embedded singleView initialPath="workflows" workspaceId={selectedWorkspaceId} />
+          // onClose drops the pane so actions that navigate to a session (e.g.
+          // opening the workflow-generation session) always reveal the chat —
+          // even when the target session is already the selected one and the
+          // route (and thus the pane-closing route effect) doesn't change.
+          <SettingsSurface
+            embedded
+            singleView
+            initialPath="workflows"
+            workspaceId={selectedWorkspaceId}
+            onClose={() => setShowWorkflows(false)}
+          />
         ) : showExtensions ? (
           <SettingsSurface embedded singleView initialPath="extensions" workspaceId={selectedWorkspaceId} />
         ) : showLearnings ? (
@@ -1770,6 +1877,9 @@ export function SessionRoute() {
           setShowWorkflows(false);
           setShowExtensions(false);
           handleOpenCreateWorkspace();
+        },
+        onCreateTaskInNewWorkspace: () => {
+          void handleCreateTaskInNewWorkspace();
         },
         onReorderWorkspaces: handleReorderWorkspaces,
       }}

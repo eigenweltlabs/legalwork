@@ -121,6 +121,7 @@ export type SessionPageSidebarProps = {
   onRevealWorkspace: (workspaceId: string) => void;
   onForgetWorkspace: (workspaceId: string) => void;
   onOpenCreateWorkspace: () => void;
+  onCreateTaskInNewWorkspace: () => void;
   onReorderWorkspaces?: (workspaceIds: string[]) => void;
 };
 
@@ -906,6 +907,7 @@ export function SessionPage(props: SessionPageProps) {
           onRevealWorkspace={props.sidebar.onRevealWorkspace}
           onForgetWorkspace={props.sidebar.onForgetWorkspace}
           onOpenCreateWorkspace={props.sidebar.onOpenCreateWorkspace}
+          onCreateTaskInNewWorkspace={props.sidebar.onCreateTaskInNewWorkspace}
           onShowLearnings={props.sidebar.onShowLearnings}
           onShowWorkflows={props.sidebar.onShowWorkflows}
           onShowExtensions={props.sidebar.onShowExtensions}

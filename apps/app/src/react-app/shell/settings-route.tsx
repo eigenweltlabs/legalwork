@@ -71,6 +71,7 @@ import { ToolPermissionsPanel } from "@/react-app/domains/settings/panels/tool-p
 import { SettingsStack } from "@/react-app/domains/settings/settings-section";
 import { AdvancedView } from "@/react-app/domains/settings/pages/advanced-view";
 import { AppearanceView } from "@/react-app/domains/settings/pages/appearance-view";
+import { captureAnalyticsEvent } from "@/app/lib/analytics";
 import { DebugView } from "@/react-app/domains/settings/pages/debug-view";
 import { EnvironmentView } from "@/react-app/domains/settings/pages/environment-view";
 import { ExtensionsView } from "@/react-app/domains/settings/pages/extensions-view";
@@ -88,6 +89,10 @@ import { UPDATE_AUTO_CHECK_STORAGE_KEY } from "@/react-app/domains/settings/stat
 import { useBootState } from "./boot-state";
 import { SettingsShell } from "@/react-app/domains/settings/shell/settings-shell";
 import { createExtensionsStore, useExtensionsStoreSnapshot } from "@/react-app/domains/settings/state/extensions-store";
+import {
+  getTemplateWorkflowRun,
+  startTemplateWorkflowGeneration,
+} from "@/react-app/domains/settings/state/template-workflow-generation";
 import { usePlatform } from "@/react-app/kernel/platform";
 import { useLocal } from "@/react-app/kernel/local-provider";
 import {
@@ -1956,6 +1961,29 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
               navigate(selectedWorkspaceId ? workspaceSessionRoute(selectedWorkspaceId) : "/session");
               return undefined;
             }}
+            onGenerateFromTemplates={async () => {
+              const selection = await pickDirectory({ title: "Choose your templates folder" });
+              const folder =
+                typeof selection === "string" ? selection : Array.isArray(selection) ? selection[0] : null;
+              // A cancelled picker is not an error — resolve ok with no message.
+              if (!folder?.trim()) return { ok: true };
+              if (!legalworkClient || !baseUrl || !token) {
+                return { ok: false, message: "Still connecting to the LegalWork server. Try again in a moment." };
+              }
+              return startTemplateWorkflowGeneration({
+                environmentClient: legalworkClient,
+                baseUrl,
+                token,
+                templatesDir: folder.trim(),
+                model: local.prefs.defaultModel,
+              });
+            }}
+            onOpenTemplateGenerationSession={() => {
+              const run = getTemplateWorkflowRun();
+              if (!run) return;
+              props.onClose?.();
+              navigate(workspaceSessionRoute(run.workspaceId, run.sessionId));
+            }}
           />
         );
       case "extensions":
@@ -2080,7 +2108,10 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
           <AppearanceView
             busy={busy}
             themeMode={themeMode}
-            setThemeMode={setThemeModeState}
+            setThemeMode={(mode) => {
+              captureAnalyticsEvent("theme_changed", { mode });
+              setThemeModeState(mode);
+            }}
             language={currentLocale() as Language}
             setLanguage={setLocale}
             hideTitlebar={hideTitlebar}

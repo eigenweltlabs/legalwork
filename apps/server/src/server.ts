@@ -58,7 +58,8 @@ import {
   type WorkspaceExportSensitiveMode,
 } from "./workspace-export-safety.js";
 import { serve, type ServeResult } from "./serve-node.js";
-import { handleWordAddinRequest, loadWordAddinTls, WORD_ADDIN_PATH_PREFIX } from "./word-addin.js";
+import { launchAnalyticsId } from "./launch-analytics-id.js";
+import { handleWordAddinRequest, loadWordAddinTls, setAnalyticsConsent, WORD_ADDIN_PATH_PREFIX } from "./word-addin.js";
 import { OfficeToolRelay } from "./office-tools.js";
 import { registerOfficeToolRoutes } from "./routes/office-tools.js";
 import { BenchmarkRunner, type BenchmarkOpencodeClient } from "./benchmarks/runner.js";
@@ -1500,6 +1501,16 @@ function createRoutes(
         ? await config.recorder.setLiveTranscript(body.enabled, workspace.path)
         : recorderUnavailable(),
     );
+  });
+
+  addRoute(routes, "PUT", "/analytics/identity", "client", async (ctx) => {
+    // Desktop pushes its analytics consent here and gets the per-launch
+    // distinct id back; the Office pane adopts it via the word-addin
+    // bootstrap. Held in memory only.
+    requireClientScope(ctx, "collaborator");
+    const body = await readJsonBody(ctx.request);
+    setAnalyticsConsent({ analyticsEnabled: body.analyticsEnabled });
+    return jsonResponse({ ok: true, distinctId: launchAnalyticsId() });
   });
 
   addRoute(routes, "GET", "/workspace/:id/config", "client", async (ctx) => {

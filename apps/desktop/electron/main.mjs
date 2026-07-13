@@ -32,7 +32,7 @@ import { PowerLifecycle, PowerSessions } from "./power-lifecycle.mjs";
 import { AppTray } from "./tray.mjs";
 import { pinWindowsProcessQoS } from "./windows-qos.mjs";
 import { registerMigrationIpc } from "./migration.mjs";
-import { createRuntimeManager } from "./runtime.mjs";
+import { createRuntimeManager, resolveLegalworkServerConfigPath } from "./runtime.mjs";
 import { buildSupportBundleText, defaultSupportBundleFileName } from "./support-bundle.mjs";
 import { registerUpdaterIpc } from "./updater.mjs";
 import {
@@ -599,6 +599,33 @@ const IDLE_ROUTER_INFO = Object.freeze({
 let mainWindow = null;
 const pendingDeepLinks = [];
 
+// Relay a content-free error signal to the renderer, which turns it into an
+// `app_error` analytics event (only when the user has analytics enabled).
+function relayAppError(source, error, service, exitCode = null) {
+  try {
+    const name =
+      error instanceof Error
+        ? error.name || "Error"
+        : error && typeof error === "object" && "name" in error
+          ? String(error.name)
+          : "Error";
+    if (mainWindow?.webContents && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send("legalwork:app-error", {
+        source,
+        error_name: name,
+        service,
+        exit_code: typeof exitCode === "number" ? exitCode : null,
+      });
+    }
+  } catch {
+    // Never let error reporting throw.
+  }
+}
+// `uncaughtExceptionMonitor` reports without suppressing Electron's default
+// crash behavior (unlike `uncaughtException`).
+process.on("uncaughtExceptionMonitor", (error) => relayAppError("main_uncaught", error, "server"));
+process.on("unhandledRejection", (reason) => relayAppError("main_unhandledrejection", reason, "server"));
+
 const browserPanel = createBrowserPanel({
   remoteDebugPort,
   getWindow: () => mainWindow,
@@ -849,6 +876,48 @@ function validateSkillName(raw) {
   return trimmed;
 }
 
+// The 64-char cap is not ours to relax: a skill is exposed to the model as a
+// tool, and the LLM providers reject tool names longer than 64 chars
+// (Anthropic: `^[a-zA-Z0-9_-]{1,64}$`). Rather than fail an over-long import,
+// coerce the name into a valid, <=64-char kebab-case slug by dropping whole
+// trailing words — so a too-long workflow still lands (and stays meaningful)
+// instead of being rejected. Returns null only when nothing valid remains.
+const MAX_SKILL_NAME_LENGTH = 64;
+function fitSkillName(raw) {
+  const cleaned = String(raw ?? "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+  if (!cleaned) return null;
+  if (cleaned.length <= MAX_SKILL_NAME_LENGTH) return cleaned;
+  const words = cleaned.split("-");
+  let candidate = words[0].slice(0, MAX_SKILL_NAME_LENGTH);
+  for (let i = 1; i < words.length; i += 1) {
+    const next = `${candidate}-${words[i]}`;
+    if (next.length > MAX_SKILL_NAME_LENGTH) break;
+    candidate = next;
+  }
+  return candidate.replace(/-+$/g, "") || null;
+}
+
+// When we shorten a folder name to fit, keep the SKILL.md frontmatter `name` in
+// sync so the engine loads the skill under the same (valid) name it now lives
+// in. Only the leading frontmatter block is touched, never a `name:` in the
+// body. Best-effort: a copied folder that imported is not un-imported on error.
+async function syncSkillFrontmatterName(skillMdPath, name) {
+  try {
+    const raw = await readFile(skillMdPath, "utf8");
+    if (!raw.startsWith("---")) return;
+    const end = raw.indexOf("\n---", 3);
+    if (end === -1) return;
+    const header = raw.slice(0, end).replace(/^name:[ \t]*.*$/m, `name: ${name}`);
+    const patched = header + raw.slice(end);
+    if (patched !== raw) await writeFile(skillMdPath, patched, "utf8");
+  } catch {
+    // Non-fatal — the folder still imported.
+  }
+}
+
 const runtimeManager = createRuntimeManager({
   app,
   desktopRoot: path.resolve(__dirname, ".."),
@@ -857,6 +926,10 @@ const runtimeManager = createRuntimeManager({
     status: (workspacePath) => recorderService().liveTranscriptStatus(workspacePath),
     setLiveTranscript: (enabled, workspacePath) => recorderService().setLiveTranscript(enabled, workspacePath),
   },
+  // The agent runtime (orchestrator / opencode) runs as a child process; relay
+  // an unexpected exit as a content-free `sidecar_exit` app_error. Intentional
+  // stops/restarts are filtered out inside the runtime manager.
+  onSidecarExit: (detail) => relayAppError("sidecar_exit", { name: "Error" }, "sidecar", detail?.exitCode ?? null),
 });
 
 let runtimeDisposedForQuit = false;
@@ -1652,6 +1725,47 @@ const desktopCommandHandlers = {
   },
   "listLocalSkills": async (event, ...args) => {
       return listLocalSkills(String(args[0] ?? "").trim());
+  },
+  "importSkillsFromFolder": async (event, ...args) => {
+      const sourceDir = String(args[0] ?? "").trim();
+      const imported = [];
+      const skipped = [];
+      const failed = [];
+      if (!sourceDir || !(await isDirectory(sourceDir))) {
+        return { imported, skipped, failed };
+      }
+      const root = await ensureGlobalSkillRoot();
+      const entries = await readdir(sourceDir, { withFileTypes: true }).catch(() => []);
+      for (const entry of entries) {
+        if (!entry.isDirectory()) continue;
+        const name = entry.name;
+        const from = path.join(sourceDir, name);
+        if (!(await pathExists(path.join(from, "SKILL.md")))) continue;
+        try {
+          // Coerce (don't reject) an over-long or lightly-malformed name into a
+          // valid <=64-char slug; keep the SKILL.md name in sync if we changed it.
+          const targetName = fitSkillName(name);
+          if (!targetName) throw new Error("skill name is empty or has no usable characters");
+          const destination = path.join(root, targetName);
+          if (await pathExists(destination)) {
+            skipped.push(targetName);
+            continue;
+          }
+          await cp(from, destination, { recursive: true });
+          if (targetName !== name) {
+            await syncSkillFrontmatterName(path.join(destination, "SKILL.md"), targetName);
+          }
+          imported.push(targetName);
+        } catch (error) {
+          failed.push({ name, error: error?.message ?? String(error) });
+        }
+      }
+      // Staging is disposable once everything landed; keep it around for
+      // inspection when any folder failed to import.
+      if (failed.length === 0) {
+        await rm(sourceDir, { recursive: true, force: true }).catch(() => {});
+      }
+      return { imported, skipped, failed };
   },
   "importSkillZip": async (event, ...args) => {
       const projectDir = String(args[0] ?? "").trim();
@@ -2554,6 +2668,15 @@ if (!app.requestSingleInstanceLock()) {
     // Electron see the same workspace list. Import the short-lived
     // Electron-only filename only when the shared file is missing.
     await workspaceStore.migrateLegacyElectronWorkspaceStateIfNeeded();
+
+    // Remove the analytics identity file persisted by earlier builds (the
+    // identity is now in-memory only).
+    try {
+      const configPath = resolveLegalworkServerConfigPath(process.env);
+      await rm(path.join(path.dirname(configPath), "legalwork-analytics-identity.json"), { force: true });
+    } catch {
+      // Best-effort cleanup only.
+    }
     await uiControlServer.start().catch((error) => {
       console.warn("[ui-control] failed to start", error);
     });
