@@ -70,7 +70,10 @@ async function fetchAllReleases() {
  * Returns null for assets that should not be reported (blockmaps), otherwise
  * { fileKind, platform, arch, version }. electron-updater manifests are kept
  * as fileKind "update-manifest": their counts approximate update *checks*,
- * not human downloads, so insights should usually filter them out.
+ * not human downloads, so insights should usually filter them out. The same
+ * goes for mac zips (fileKind "zip", platform "mac"): they are what
+ * electron-updater downloads during auto-update, while humans get the .dmg —
+ * treat their counts as update *installs*, not human downloads.
  */
 function classifyAsset(name) {
   if (name.endsWith(".blockmap")) return null;
@@ -192,8 +195,11 @@ try {
 const installerTotals = new Map();
 for (const event of events) {
   if (event.event !== EVENT_NAME) continue;
-  if (event.properties.file_kind === "update-manifest") continue;
-  const key = event.properties.platform ?? "unknown";
+  const { file_kind: fileKind, platform } = event.properties;
+  if (fileKind === "update-manifest") continue;
+  // Mac zips are auto-update fetches, not human downloads (see classifyAsset).
+  if (fileKind === "zip" && platform === "mac") continue;
+  const key = platform ?? "unknown";
   installerTotals.set(key, (installerTotals.get(key) ?? 0) + event.properties.cumulative_downloads);
 }
 

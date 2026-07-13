@@ -21,7 +21,9 @@ describe("checkForUpdatesWithFeedFallback", () => {
     getPath: () => path.join(os.tmpdir(), "legalwork-updater-test-userdata"),
   };
 
-  function fakeUpdater({ failFeeds }) {
+  // `versions` maps a feed-URL prefix to the version that feed advertises
+  // (default "9.9.9", i.e. an available update).
+  function fakeUpdater({ failFeeds, versions = {} }) {
     return {
       feedUrls: [],
       setFeedURL({ url }) {
@@ -32,7 +34,8 @@ describe("checkForUpdatesWithFeedFallback", () => {
         if (failFeeds.some((feed) => current.startsWith(feed))) {
           throw new Error(`feed unreachable: ${current}`);
         }
-        return { updateInfo: { version: "9.9.9" } };
+        const match = Object.entries(versions).find(([feed]) => current.startsWith(feed));
+        return { updateInfo: { version: match ? match[1] : "9.9.9" } };
       },
     };
   }
@@ -59,11 +62,63 @@ describe("checkForUpdatesWithFeedFallback", () => {
     );
   });
 
-  it("throws only when both feeds fail", async () => {
+  it("throws only when both feeds fail, tagging the error against redundant retries", async () => {
     const updater = fakeUpdater({ failFeeds: ["https://eigenweltlabs.com", "https://github.com"] });
-    await assert.rejects(
-      () => checkForUpdatesWithFeedFallback(feedApp, updater),
-      /feed unreachable: https:\/\/github\.com/,
+    const error = await checkForUpdatesWithFeedFallback(feedApp, updater).then(
+      () => assert.fail("expected rejection"),
+      (rejection) => rejection,
+    );
+    assert.match(String(error?.message), /feed unreachable: https:\/\/github\.com/);
+    // The tag tells the IPC handlers' last-ditch recovery that GitHub was
+    // already tried, so they don't repeat the identical request.
+    assert.equal(error.githubFallbackAttempted, true);
+  });
+
+  /* A tracked feed that answers with valid-but-stale data never errors, so the
+     error fallback alone would pin the fleet on the current version. The
+     freshness cross-check is what heals that. */
+  it("cross-checks GitHub on 'no update' and prefers the newer version", async () => {
+    const updater = fakeUpdater({
+      failFeeds: [],
+      versions: { "https://eigenweltlabs.com": "0.1.0" }, // stale: equals current
+    });
+    const { channelState, result } = await checkForUpdatesWithFeedFallback(feedApp, updater);
+    assert.equal(result.updateInfo.version, "9.9.9");
+    assert.equal(channelState.feedFallback, true);
+    assert.equal(channelState.feedUrl, ELECTRON_UPDATER_FALLBACK_FEEDS.stable);
+    // GitHub must stay applied so the follow-up download resolves against it.
+    assert.equal(
+      updater.feedUrls[updater.feedUrls.length - 1],
+      ELECTRON_UPDATER_FALLBACK_FEEDS.stable,
+    );
+  });
+
+  it("keeps the tracked feed's answer when GitHub agrees there is no update", async () => {
+    const updater = fakeUpdater({
+      failFeeds: [],
+      versions: { "https://eigenweltlabs.com": "0.1.0", "https://github.com": "0.1.0" },
+    });
+    const { channelState, result } = await checkForUpdatesWithFeedFallback(feedApp, updater);
+    assert.equal(result.updateInfo.version, "0.1.0");
+    assert.equal(channelState.feedFallback, false);
+    // The tracked feed is re-applied after the cross-check.
+    assert.equal(
+      updater.feedUrls[updater.feedUrls.length - 1],
+      "https://eigenweltlabs.com/legalwork/update",
+    );
+  });
+
+  it("ignores a failing GitHub cross-check when the tracked feed answered", async () => {
+    const updater = fakeUpdater({
+      failFeeds: ["https://github.com"],
+      versions: { "https://eigenweltlabs.com": "0.1.0" },
+    });
+    const { channelState, result } = await checkForUpdatesWithFeedFallback(feedApp, updater);
+    assert.equal(result.updateInfo.version, "0.1.0");
+    assert.equal(channelState.feedFallback, false);
+    assert.equal(
+      updater.feedUrls[updater.feedUrls.length - 1],
+      "https://eigenweltlabs.com/legalwork/update",
     );
   });
 });

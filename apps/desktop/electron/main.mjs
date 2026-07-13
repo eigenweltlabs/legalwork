@@ -23,7 +23,11 @@ import { configureFakeMediaForTests, installMediaPermissionHandlers } from "./me
 import { registerMigrationIpc } from "./migration.mjs";
 import { createRuntimeManager, resolveLegalworkServerConfigPath } from "./runtime.mjs";
 import { buildSupportBundleText, defaultSupportBundleFileName } from "./support-bundle.mjs";
-import { registerUpdaterIpc } from "./updater.mjs";
+import {
+  ELECTRON_UPDATER_FALLBACK_FEEDS,
+  ELECTRON_UPDATER_FEEDS,
+  registerUpdaterIpc,
+} from "./updater.mjs";
 import {
   checkComputerUsePermissions,
   getComputerUseMcpCommand,
@@ -52,12 +56,12 @@ const APP_IDENTIFIER =
   (isDevMode ? DEV_APP_IDENTIFIER : APP_BUNDLE_IDENTIFIER);
 // Our update feed mirrors GitHub's releases/latest/download file layout and
 // redirects to the GitHub assets (see eigenwelt-website
-// app/legalwork/update/[file]/route.ts). If it is unreachable, resolution
-// falls back to GitHub directly so the arch-mismatch download flow never
-// depends on our site being up.
-const RELEASE_DOWNLOAD_BASE_URL = "https://eigenweltlabs.com/legalwork/update";
-const RELEASE_DOWNLOAD_FALLBACK_BASE_URL =
-  "https://github.com/eigenweltlabs/legalwork/releases/latest/download";
+// app/legalwork/update/[file]/route.ts). If it misbehaves, resolution falls
+// back to GitHub directly so the arch-mismatch download flow never depends on
+// our site being up. The URLs are defined once, in updater.mjs, so this flow
+// and the self-updater can never point at different feeds.
+const RELEASE_DOWNLOAD_BASE_URL = ELECTRON_UPDATER_FEEDS.stable;
+const RELEASE_DOWNLOAD_FALLBACK_BASE_URL = ELECTRON_UPDATER_FALLBACK_FEEDS.stable;
 const RELEASE_PAGE_URL = "https://github.com/eigenweltlabs/legalwork/releases/latest";
 
 async function showSupportLogsProgressWindow(parent) {
@@ -351,7 +355,13 @@ async function resolveCorrectArchitectureDownloadUrl(arch) {
       });
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
       const selected = selectDownloadFile(parseUpdaterManifestFiles(await response.text()), arch);
-      if (!selected?.url) return null;
+      // No match is treated like an unreachable feed: a 200 with a
+      // non-manifest body (maintenance page, bot challenge) parses to nothing
+      // and must not short-circuit past the GitHub fallback.
+      if (!selected?.url) {
+        console.warn(`[architecture] no matching download in manifest via ${baseUrl}`);
+        continue;
+      }
       return /^https?:\/\//i.test(selected.url)
         ? selected.url
         : new URL(selected.url, `${baseUrl}/`).toString();
