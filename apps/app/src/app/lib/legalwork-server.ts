@@ -1077,6 +1077,15 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
     runtimeVersions: () =>
       requestJson<LegalworkRuntimeSnapshot>(baseUrl, "/runtime/versions", { token, hostToken, timeoutMs: timeouts.status }),
     status: () => requestJson<LegalworkServerDiagnostics>(baseUrl, "/status", { token, hostToken, timeoutMs: timeouts.status }),
+    // Push the per-launch analytics identity for the Office pane (in-memory on the server).
+    setAnalyticsIdentity: (payload: { distinctId: string | null; analyticsEnabled: boolean }) =>
+      requestJson<{ ok: boolean }>(baseUrl, "/analytics/identity", {
+        token,
+        hostToken,
+        method: "PUT",
+        body: payload,
+        timeoutMs: timeouts.status,
+      }),
     capabilities: () => requestJson<LegalworkServerCapabilities>(baseUrl, "/capabilities", { token, hostToken, timeoutMs: timeouts.capabilities }),
     googleWorkspaceStatus: () => requestJson<GoogleWorkspaceAuthStatus>(baseUrl, "/experimental/google-workspace/status", { token, hostToken, timeoutMs: timeouts.status }),
     googleWorkspaceConnectStart: (options?: { gmailRead?: boolean; features?: string[] }) => requestJson<GoogleWorkspaceConnectStart>(baseUrl, "/experimental/google-workspace/connect/start", { token, hostToken, method: "POST", body: { gmailRead: options?.gmailRead === true, features: options?.features ?? [] }, timeoutMs: timeouts.status }),

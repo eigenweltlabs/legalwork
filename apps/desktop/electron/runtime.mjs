@@ -521,10 +521,29 @@ function loadUserEnvFile() {
   }
 }
 
-export function createRuntimeManager({ app, desktopRoot, listLocalWorkspacePaths }) {
+export function createRuntimeManager({ app, desktopRoot, listLocalWorkspacePaths, onSidecarExit }) {
   const engineState = createEngineState();
   const legalworkServerState = createLegalworkServerState();
   const orchestratorState = createOrchestratorState();
+
+  // Report an unexpected sidecar (agent runtime) exit as a content-free signal.
+  // Intentional stops/restarts are filtered out in spawnManagedChild via the
+  // intentional-stop registry that stopChild marks, and a crash loop is
+  // deduped to one event per session by the renderer's app_error throttle.
+  function reportSidecarCrash(detail = {}) {
+    try {
+      // A numeric exit uses the code directly; a signal-terminated exit is
+      // encoded as the conventional 128 + signal number (137 = SIGKILL/OOM,
+      // 139 = SIGSEGV, ...); a spawn failure (error event) has no code.
+      const { code = null, signal = null } = detail;
+      let exitCode = null;
+      if (typeof code === "number") exitCode = code;
+      else if (signal) exitCode = 128 + (os.constants.signals[signal] ?? 0);
+      onSidecarExit?.({ exitCode });
+    } catch {
+      // Never let crash reporting throw.
+    }
+  }
 
   // Serialize engine lifecycle operations. Without this, concurrent renderer
   // invocations of engineStart/engineStop/engineRestart race: each call's
@@ -1005,6 +1024,11 @@ export function createRuntimeManager({ app, desktopRoot, listLocalWorkspacePaths
     return `curl -fsSL https://opencode.ai/install | bash -s -- --version ${version} --no-modify-path`;
   }
 
+  // Children stopped on purpose (stop/restart) — their exit is not a crash.
+  // A WeakSet rather than a property on the child, so the entries die with the
+  // process objects and the Electron-main typecheck accepts it.
+  const intentionallyStoppedChildren = new WeakSet();
+
   function spawnManagedChild(state, program, args, options = {}) {
     const child = spawn(program, args, {
       cwd: options.cwd,
@@ -1020,16 +1044,23 @@ export function createRuntimeManager({ app, desktopRoot, listLocalWorkspacePaths
 
     child.stdout?.on("data", (chunk) => appendOutput(state, "lastStdout", chunk.toString()));
     child.stderr?.on("data", (chunk) => appendOutput(state, "lastStderr", chunk.toString()));
-    child.on("exit", (code) => {
+    child.on("exit", (code, signal) => {
       state.childExited = true;
       if (code != null && code !== 0) {
         appendOutput(state, "lastStderr", `Process exited with code ${code}.\n`);
       }
+      // A clean exit (code 0) or a stop/restart we initiated is not a crash.
+      const intentional = intentionallyStoppedChildren.has(child) || child.killed === true;
+      const abnormal = code === 0 ? false : code != null || signal != null;
+      if (abnormal && !intentional) options.onCrash?.({ code, signal });
       options.onExit?.(code);
     });
     child.on("error", (error) => {
       state.childExited = true;
       appendOutput(state, "lastStderr", `${error instanceof Error ? error.message : String(error)}\n`);
+      // Spawn/runtime failure (e.g. ENOENT) — a crash unless we were stopping it.
+      const intentional = intentionallyStoppedChildren.has(child) || child.killed === true;
+      if (!intentional) options.onCrash?.({ error });
     });
 
     return child;
@@ -1081,6 +1112,9 @@ export function createRuntimeManager({ app, desktopRoot, listLocalWorkspacePaths
     const child = state.child;
     state.child = null;
     state.childExited = true;
+    // Mark this as a deliberate shutdown so the managed-child exit/error handler
+    // doesn't misreport the stop (or a subsequent restart) as a sidecar crash.
+    if (child) intentionallyStoppedChildren.add(child);
     if (!child || child.exitCode != null || child.killed) return;
 
     if (options.requestShutdown) {
@@ -1371,7 +1405,7 @@ export function createRuntimeManager({ app, desktopRoot, listLocalWorkspacePaths
       "*",
     ];
 
-    spawnManagedChild(orchestratorState, orchestratorProgram, args, { env });
+    spawnManagedChild(orchestratorState, orchestratorProgram, args, { env, onCrash: reportSidecarCrash });
     orchestratorState.dataDir = dataDir;
     orchestratorState.daemonPort = daemonPort;
     orchestratorState.baseUrl = `http://127.0.0.1:${daemonPort}`;
@@ -1427,6 +1461,7 @@ export function createRuntimeManager({ app, desktopRoot, listLocalWorkspacePaths
       {
         cwd: projectDir,
         env,
+        onCrash: reportSidecarCrash,
       },
     );
 

@@ -350,6 +350,25 @@ async function serveStaticFile(distPath: string, relativePath: string): Promise<
 }
 
 /**
+ * The desktop app's analytics identity (per-launch distinct id + consent),
+ * pushed via PUT /analytics/identity and served to the Office pane by the
+ * bootstrap. In-memory only — the id rotates per launch and must not be
+ * persisted; a server restart resets to "no id, analytics off".
+ */
+export type AnalyticsIdentity = { distinctId: string | null; enabled: boolean };
+let analyticsIdentity: AnalyticsIdentity = { distinctId: null, enabled: false };
+
+export function setAnalyticsIdentity(next: { distinctId?: unknown; analyticsEnabled?: unknown }): void {
+  const distinctId =
+    typeof next.distinctId === "string" && next.distinctId.trim() ? next.distinctId.trim() : null;
+  analyticsIdentity = { distinctId, enabled: next.analyticsEnabled === true };
+}
+
+export function getAnalyticsIdentity(): AnalyticsIdentity {
+  return analyticsIdentity;
+}
+
+/**
  * Handle a request under /word-addin. Returns null only for non-GET/HEAD
  * methods so the caller can produce its standard 404/405 handling.
  */
@@ -425,11 +444,16 @@ export async function handleWordAddinRequest(input: {
     // The pane is the server's own UI (same trust as the desktop renderer),
     // so it also receives the host token — host-scoped routes like workspace
     // creation and the native folder picker need it.
+    const identity = getAnalyticsIdentity();
     return jsonResponse({
       app: "legalwork-server",
       token: config.token,
       hostToken: config.hostToken,
       wordAddinPort: wordAddin.port,
+      // Desktop analytics identity (per-launch, in-memory); the pane polls
+      // this endpoint so consent changes propagate.
+      analyticsDistinctId: identity.distinctId,
+      analyticsEnabled: identity.enabled,
       // Lets a cached shell detect it is outdated and reload itself once
       // (reloads end-to-end revalidate the navigation cache entry, which
       // subresource fetches provably do not).

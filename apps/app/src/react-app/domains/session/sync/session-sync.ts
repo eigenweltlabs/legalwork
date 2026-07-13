@@ -2,7 +2,9 @@ import type { UIMessage } from "ai";
 import type { FilePart, Part, PermissionRequest, PermissionV2Request, QuestionRequest, Session, SessionStatus, Todo } from "@opencode-ai/sdk/v2/client";
 
 import { getReactQueryClient } from "../../../infra/query-client";
-import { captureAnalyticsEvent, takeTaskRunStart } from "@/app/lib/analytics";
+import { analyticsSurface, captureAnalyticsEvent, isAnalyticsSending, takeTaskRunStart } from "@/app/lib/analytics";
+import { analyticsErrorService, analyticsErrorStatus } from "@/app/lib/analytics-error";
+import { allowlistedErrorName } from "@/app/lib/app-error";
 import { createClient } from "@/app/lib/opencode";
 import { normalizeEvent } from "@/app/utils";
 import { SYNTHETIC_SESSION_ERROR_MESSAGE_PREFIX, type OpencodeEvent, type PendingPermission, type PendingQuestion } from "@/app/types";
@@ -84,6 +86,35 @@ function getErrorStatus(error: unknown) {
   };
   const status = record.status ?? record.response?.status ?? record.cause?.status;
   return typeof status === "number" ? status : null;
+}
+
+/**
+ * Per-run stats straight from opencode's own data on the completed run: the
+ * last assistant message's token totals, plus counts of its tool and
+ * step-finish parts. Content-free (numbers only).
+ */
+function runStatsFromSnapshot(
+  snapshot: LegalworkSessionSnapshot | undefined,
+): { tokens_input: number; tokens_output: number; tool_call_count: number; turn_count: number } | null {
+  const messages = snapshot?.messages ?? [];
+  let last: LegalworkSessionSnapshot["messages"][number] | undefined;
+  for (const message of messages) {
+    if (message.info.role === "assistant") last = message;
+  }
+  if (!last) return null;
+  const tokens = (last.info as { tokens?: { input?: number; output?: number } }).tokens ?? {};
+  let toolCalls = 0;
+  let turns = 0;
+  for (const part of last.parts) {
+    if (part.type === "tool") toolCalls += 1;
+    else if (part.type === "step-finish") turns += 1;
+  }
+  return {
+    tokens_input: typeof tokens.input === "number" ? tokens.input : 0,
+    tokens_output: typeof tokens.output === "number" ? tokens.output : 0,
+    tool_call_count: toolCalls,
+    turn_count: turns,
+  };
 }
 
 function shouldRetrySyncSubscribe(error: unknown) {
@@ -621,11 +652,17 @@ function applyEvent(entry: SyncEntry, workspaceId: string, event: OpencodeEvent)
   if (event.type === "session.error") {
     const sessionId = sessionIdFromProperties(event.properties);
     if (sessionId) {
-      const errorText = describeOpencodeSessionError(sessionErrorFromProperties(event.properties));
+      const sessionError = sessionErrorFromProperties(event.properties);
+      const errorText = describeOpencodeSessionError(sessionError);
       const runStartedAt = takeTaskRunStart(sessionId);
       if (runStartedAt !== null) {
         captureAnalyticsEvent("task_run_errored", {
+          session_id: sessionId,
           duration_ms: Date.now() - runStartedAt,
+          error_name: allowlistedErrorName(sessionError),
+          service: analyticsErrorService(sessionError),
+          status_code: analyticsErrorStatus(sessionError),
+          surface: analyticsSurface(),
         });
       }
       useSessionActivityStore.getState().setError(workspaceId, sessionId, errorText);
@@ -899,9 +936,29 @@ function applyEvent(entry: SyncEntry, workspaceId: string, event: OpencodeEvent)
     // send path); also dedupes idle events from multiple workspace syncs.
     const runStartedAt = takeTaskRunStart(props.sessionID);
     if (runStartedAt !== null) {
-      captureAnalyticsEvent("task_run_completed", {
-        duration_ms: Date.now() - runStartedAt,
-      });
+      const durationMs = Date.now() - runStartedAt;
+      const sessionId = props.sessionID;
+      // Refresh the snapshot first so the run stats cover the completed
+      // assistant message; skip the round-trip when nothing would be sent
+      // (the inspector mirror then uses whatever is cached).
+      void (async () => {
+        if (isAnalyticsSending()) {
+          try {
+            await queryClient.refetchQueries({ queryKey: snapshotKey(workspaceId, sessionId), exact: true });
+          } catch {
+            // Best-effort: fall back to whatever is cached.
+          }
+        }
+        const snapshot = queryClient.getQueryData<LegalworkSessionSnapshot>(
+          snapshotKey(workspaceId, sessionId),
+        );
+        captureAnalyticsEvent("task_run_completed", {
+          session_id: sessionId,
+          duration_ms: durationMs,
+          surface: analyticsSurface(),
+          ...(runStatsFromSnapshot(snapshot) ?? {}),
+        });
+      })();
     }
     useSessionActivityStore.getState().setRunStatus(workspaceId, props.sessionID, idleStatus);
     const tracked = isTrackedSession(entry, props.sessionID);

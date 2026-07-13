@@ -5,6 +5,7 @@ import { t } from "../../../i18n";
 import { Page, PageBackground, PageTitlebarRegion } from "@/components/page";
 import { Button } from "@/components/ui/button";
 import { ScrollArea, ScrollAreaViewport } from "@/components/ui/scroll-area";
+import { Switch } from "@/components/ui/switch";
 import { cn } from "@/lib/utils";
 
 // The "how" — three plain-English steps.
@@ -44,6 +45,9 @@ type WelcomePageProps = {
   onManualFolderChange?: (value: string) => void;
   onUseManualFolder?: () => void;
   showManualFolder?: boolean;
+  // Anonymous usage analytics consent (opt-out: on by default).
+  analyticsEnabled: boolean;
+  onAnalyticsChange: (enabled: boolean) => void;
 };
 
 export function WelcomePage({
@@ -51,6 +55,8 @@ export function WelcomePage({
   getStartedLabel,
   busy,
   error,
+  analyticsEnabled,
+  onAnalyticsChange,
 }: WelcomePageProps) {
   return (
     <Page className="min-h-screen bg-background">
@@ -101,6 +107,30 @@ export function WelcomePage({
                     Runs on this machine. Connect AWS, Azure, or your own model — your data is only shared with
                     the model you choose.
                   </p>
+
+                  {/* Usage analytics — opt-out toggle (on by default). */}
+                  <div className="border-t border-dls-border pt-4">
+                    <div className="flex items-start justify-between gap-4 text-left">
+                      <div className="min-w-0">
+                        <div className="text-[13px] font-medium text-dls-text">
+                          Help us improve your experience
+                        </div>
+                        <p className="mt-1 text-[12px] leading-relaxed text-dls-secondary">
+                          Share anonymous usage data, like which features you use, errors, and
+                          performance, so we can make LegalWork better. Never your documents,
+                          prompts, or matter content. Change anytime in Settings.
+                        </p>
+                      </div>
+                      <div className="mt-0.5 shrink-0">
+                        <Switch
+                          aria-label="Share anonymous usage analytics"
+                          checked={analyticsEnabled}
+                          onCheckedChange={onAnalyticsChange}
+                          className="data-checked:bg-foreground data-checked:border-transparent"
+                        />
+                      </div>
+                    </div>
+                  </div>
                 </div>
               </div>
             </div>

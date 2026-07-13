@@ -1,6 +1,6 @@
 # LegalWork — Terms & Conditions
 
-**Last updated: 26 June 2026**
+**Last updated: 12 July 2026**
 
 LegalWork is a local-first desktop application published by **Eigenwelt Labs**
 (Berlin, Germany) ("Eigenwelt", "we", "us"). These Terms & Conditions ("Terms")
@@ -30,24 +30,27 @@ agreement with that provider, not by these Terms. You are responsible for
 choosing providers appropriate for your confidentiality and professional
 obligations. If you run a model locally, no inference content leaves your device.
 
-## 3. Usage analytics (PostHog) — off unless you turn it on
+## 3. Usage analytics (PostHog)
 
 To understand which features are used and to improve the product, the App can
 send **anonymous product-usage analytics** to [PostHog](https://posthog.com), our
 analytics provider. LegalWork uses PostHog's EU ingestion endpoint.
 
-**This is off by default.** The App sends analytics only after you explicitly
-enable **Settings → Privacy → "Share anonymous usage data."** You can turn it off
-again at any time in the same place. Turning it off stops analytics network
-requests.
+This option is shown on the welcome screen when you first set up the App;
+nothing is sent before you complete that screen. You can turn it off at any
+time in **Settings → Privacy → "Share anonymous usage data,"** which takes
+effect immediately.
 
 What is sent when analytics is on:
 
-- Event names, counts, durations, and lengths (for example, that a task ran and
-  how long it took).
-- Coarse, non-identifying context such as app version, operating-system platform,
-  and the type of workspace or the provider/model identifier you used.
-- An anonymous, randomly generated device identifier.
+- Event names, counts, and durations (for example, that a task ran and how long
+  it took).
+- Coarse context such as app version, operating-system platform, and the
+  provider or model identifier you used.
+- A random identifier, new on every app start and never stored on your device,
+  plus a machine-generated task id used to group the events of one task.
+- Where the App is used from, no finer than city level (derived from the
+  request IP, which is not stored).
 
 What is **never** sent to analytics:
 
@@ -55,10 +58,9 @@ What is **never** sent to analytics:
 - Your documents, file paths, or file contents.
 - Your code, matter data, or any work product.
 
-The only exception is text you type directly into an explicit in-app survey field
-(for example, an onboarding "how did you hear about us?" question); that answer is
-sent because you entered it for that purpose. Analytics is fire-and-forget and
-never blocks or slows the App.
+Analytics never blocks or slows the App. Details on the legal basis,
+retention, and your rights are in our
+[privacy policy](https://eigenweltlabs.com/privacy).
 
 ## 4. License
 

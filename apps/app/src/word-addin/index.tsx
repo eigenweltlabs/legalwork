@@ -5,6 +5,7 @@ import { QueryClientProvider } from "@tanstack/react-query";
 import { HashRouter } from "react-router-dom";
 
 import { TooltipProvider } from "@/components/ui/tooltip";
+import { setAnalyticsConsentOverride, setAnalyticsDistinctId } from "@/app/lib/analytics";
 import { getLegalWorkDeployment } from "@/app/lib/legalwork-deployment";
 import { writeLegalworkServerSettings } from "@/app/lib/legalwork-server";
 import { bootstrapTheme } from "@/app/theme";
@@ -49,6 +50,32 @@ function seedWordPaneShellConfig() {
 }
 
 /**
+ * Adopt the desktop's analytics identity (per-launch id + consent) from a
+ * bootstrap payload. In-memory only — nothing touches the pane's storage.
+ */
+function applyAnalyticsIdentity(data: { analyticsDistinctId?: unknown; analyticsEnabled?: unknown }) {
+  if (typeof data.analyticsDistinctId === "string") setAnalyticsDistinctId(data.analyticsDistinctId);
+  setAnalyticsConsentOverride(data.analyticsEnabled === true);
+}
+
+// Re-read the identity every minute so a desktop consent change reaches an
+// already-open pane.
+const ANALYTICS_IDENTITY_POLL_MS = 60_000;
+let analyticsIdentityPollStarted = false;
+function startAnalyticsIdentityPoll() {
+  if (analyticsIdentityPollStarted) return;
+  analyticsIdentityPollStarted = true;
+  setInterval(() => {
+    void fetch("/word-addin/bootstrap", { cache: "no-store" })
+      .then((response) => (response.ok ? (response.json() as Promise<Record<string, unknown>>) : null))
+      .then((data) => {
+        if (data) applyAnalyticsIdentity(data);
+      })
+      .catch(() => undefined);
+  }, ANALYTICS_IDENTITY_POLL_MS);
+}
+
+/**
  * Pair with the server that serves this page. The bootstrap endpoint is
  * same-origin only and hands out the current client token, so the pane
  * survives server restarts with rotated tokens.
@@ -58,7 +85,12 @@ async function connectToServer(): Promise<void> {
   if (!response.ok) {
     throw new Error(`Bootstrap failed with status ${response.status}`);
   }
-  const data = (await response.json()) as { token?: unknown; hostToken?: unknown };
+  const data = (await response.json()) as {
+    token?: unknown;
+    hostToken?: unknown;
+    analyticsDistinctId?: unknown;
+    analyticsEnabled?: unknown;
+  };
   const token = typeof data.token === "string" ? data.token.trim() : "";
   if (!token) {
     throw new Error("Bootstrap response did not include a token");
@@ -69,6 +101,10 @@ async function connectToServer(): Promise<void> {
     token,
     hostToken: hostToken || undefined,
   });
+  // Adopt the desktop's analytics identity BEFORE analytics initializes; keep
+  // polling for changes.
+  applyAnalyticsIdentity(data);
+  startAnalyticsIdentityPoll();
   // Shell updates are handled by the shell itself (version check against
   // the bootstrap response + self-reload; see server word-addin-shell.ts).
   // A subresource fetch here cannot refresh the navigation cache entry.
