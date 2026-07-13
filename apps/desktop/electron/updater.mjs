@@ -29,6 +29,14 @@ function resolveAppVersion(app) {
   }
   return _cachedAppVersion;
 }
+/* Test-only escape hatches: point the updater feeds at a mock server so the
+   full check/download pipeline can be fault-injected offline (see
+   scripts/updater-fault-injection.mjs). Never set in production builds — when
+   the variables are absent the hardcoded URLs below apply unchanged. */
+const STABLE_FEED_OVERRIDE = process.env.LEGALWORK_ELECTRON_UPDATE_FEED?.trim();
+const STABLE_FALLBACK_FEED_OVERRIDE = process.env.LEGALWORK_ELECTRON_UPDATE_FALLBACK_FEED?.trim();
+const ALPHA_FEED_OVERRIDE = process.env.LEGALWORK_ELECTRON_UPDATE_ALPHA_FEED?.trim();
+
 // Exported (with the fallback map below) so main.mjs's arch-mismatch download
 // flow resolves against the exact same feeds — one definition per URL.
 export const ELECTRON_UPDATER_FEEDS = Object.freeze({
@@ -36,14 +44,15 @@ export const ELECTRON_UPDATER_FEEDS = Object.freeze({
   // app/legalwork/update/[file]/route.ts) redirects every file to the same
   // GitHub release assets this URL used to point at:
   //   https://github.com/eigenweltlabs/legalwork/releases/latest/download
-  stable: "https://eigenweltlabs.com/legalwork/update",
+  stable: STABLE_FEED_OVERRIDE || "https://eigenweltlabs.com/legalwork/update",
   // Alpha is a per-platform rolling release: each platform's alpha workflow
   // (alpha-macos-aarch64.yml / alpha-windows-x64.yml) refreshes its own
   // updater manifest on its own tag.
   alpha:
-    process.platform === "win32"
+    ALPHA_FEED_OVERRIDE ||
+    (process.platform === "win32"
       ? "https://github.com/eigenweltlabs/legalwork/releases/download/alpha-windows-latest"
-      : "https://github.com/eigenweltlabs/legalwork/releases/download/alpha-macos-latest",
+      : "https://github.com/eigenweltlabs/legalwork/releases/download/alpha-macos-latest"),
 });
 
 // Safety net: if the tracked feed host is unreachable (outage, or the domain
@@ -51,7 +60,9 @@ export const ELECTRON_UPDATER_FEEDS = Object.freeze({
 // ALWAYS self-update as long as releases exist. Alpha already points at
 // GitHub, so only stable needs a fallback.
 export const ELECTRON_UPDATER_FALLBACK_FEEDS = Object.freeze({
-  stable: "https://github.com/eigenweltlabs/legalwork/releases/latest/download",
+  stable:
+    STABLE_FALLBACK_FEED_OVERRIDE ||
+    "https://github.com/eigenweltlabs/legalwork/releases/latest/download",
 });
 
 const ALPHA_CHANNEL_PLATFORMS = new Set(["darwin", "win32"]);

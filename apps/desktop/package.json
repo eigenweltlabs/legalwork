@@ -21,7 +21,8 @@
     "typecheck:electron": "pnpm --dir ../server exec tsc -p ../desktop/tsconfig.electron.json --noEmit",
     "prepare:sidecar": "node ./scripts/prepare-sidecar.mjs",
     "test": "node --test electron/runtime.test.mjs electron/updater.test.mjs electron/remote-workspace.test.mjs electron/workspace-store.test.mjs electron/office-addin-cert.test.mjs electron/office-addin-cert-web.test.mjs electron/office-addin-platform.test.mjs",
-    "office:sideload": "node ./scripts/office-addin-sideload.mjs"
+    "office:sideload": "node ./scripts/office-addin-sideload.mjs",
+    "test:updater-faults": "electron scripts/updater-fault-injection.mjs"
   },
   "dependencies": {
     "@opencode-ai/sdk": "^1.17.18",
