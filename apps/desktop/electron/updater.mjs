@@ -30,7 +30,11 @@ function resolveAppVersion(app) {
   return _cachedAppVersion;
 }
 const ELECTRON_UPDATER_FEEDS = Object.freeze({
-  stable: "https://github.com/eigenweltlabs/legalwork/releases/latest/download",
+  // Stable is served via our domain; the route (eigenwelt-website
+  // app/legalwork/update/[file]/route.ts) redirects every file to the same
+  // GitHub release assets this URL used to point at:
+  //   https://github.com/eigenweltlabs/legalwork/releases/latest/download
+  stable: "https://eigenweltlabs.com/legalwork/update",
   // Alpha is a per-platform rolling release: each platform's alpha workflow
   // (alpha-macos-aarch64.yml / alpha-windows-x64.yml) refreshes its own
   // updater manifest on its own tag.
@@ -38,6 +42,14 @@ const ELECTRON_UPDATER_FEEDS = Object.freeze({
     process.platform === "win32"
       ? "https://github.com/eigenweltlabs/legalwork/releases/download/alpha-windows-latest"
       : "https://github.com/eigenweltlabs/legalwork/releases/download/alpha-macos-latest",
+});
+
+// Safety net: if the tracked feed host is unreachable (outage, or the domain
+// is gone entirely), checks retry directly against GitHub so shipped apps can
+// ALWAYS self-update as long as releases exist. Alpha already points at
+// GitHub, so only stable needs a fallback.
+export const ELECTRON_UPDATER_FALLBACK_FEEDS = Object.freeze({
+  stable: "https://github.com/eigenweltlabs/legalwork/releases/latest/download",
 });
 
 const ALPHA_CHANNEL_PLATFORMS = new Set(["darwin", "win32"]);
@@ -171,6 +183,29 @@ async function applyElectronUpdaterFeed(app, updater) {
   return state;
 }
 
+/* Check against the channel's primary feed first; if that errors, retry the
+   same check against the GitHub fallback feed. Leaves the feed that answered
+   applied on the updater instance, so a subsequent downloadUpdate() resolves
+   installer files against the feed the update info actually came from.
+   Exported for tests — a broken update path is the app's worst failure mode. */
+export async function checkForUpdatesWithFeedFallback(app, updater) {
+  const channelState = await applyElectronUpdaterFeed(app, updater);
+  try {
+    const result = await updater.checkForUpdates();
+    return { channelState: { ...channelState, feedFallback: false }, result };
+  } catch (error) {
+    const fallbackUrl = ELECTRON_UPDATER_FALLBACK_FEEDS[channelState.channel];
+    if (!fallbackUrl || !updater?.setFeedURL) throw error;
+    console.warn("[updater] feed check failed, retrying via GitHub", error?.message ?? error);
+    updater.setFeedURL({ provider: "generic", url: fallbackUrl });
+    const result = await updater.checkForUpdates();
+    return {
+      channelState: { ...channelState, feedUrl: fallbackUrl, feedFallback: true },
+      result,
+    };
+  }
+}
+
 function runDefaults(args) {
   return new Promise((resolve) => {
     execFile("/usr/bin/defaults", args, (error) => {
@@ -301,13 +336,11 @@ export function registerUpdaterIpc({ app, ipcMain, getMainWindow }) {
       await writeElectronUpdaterChannel(app, rawChannel);
     }
     const updater = await ensureAutoUpdater();
-    const channelState = updater
-      ? await applyElectronUpdaterFeed(app, updater)
-      : updaterChannelState(app, await readElectronUpdaterChannel(app));
-    if (!updater) return { available: false, reason: "unavailable", ...channelState };
-    try {
-      const result = await updater.checkForUpdates();
-      const info = result?.updateInfo ?? null;
+    if (!updater) {
+      const channelState = updaterChannelState(app, await readElectronUpdaterChannel(app));
+      return { available: false, reason: "unavailable", ...channelState };
+    }
+    const shapeCheckResult = (info, channelState) => {
       const currentVersion = resolveAppVersion(app);
       const available = Boolean(info?.version && isVersionNewer(info.version, currentVersion));
       checkedUpdateVersion = available ? info.version : null;
@@ -319,9 +352,30 @@ export function registerUpdaterIpc({ app, ipcMain, getMainWindow }) {
         releaseNotes: info?.releaseNotes ?? null,
         ...channelState,
       };
+    };
+    try {
+      const { channelState, result } = await checkForUpdatesWithFeedFallback(app, updater);
+      return shapeCheckResult(result?.updateInfo ?? null, channelState);
     } catch (error) {
-      checkedUpdateVersion = null;
-      return { available: false, reason: String(error?.message ?? error), ...channelState };
+      /* Last-ditch recovery, deliberately dumb: if ANYTHING above threw —
+         including a bug in our own feed/channel plumbing — try one raw check
+         straight against GitHub with no helpers in the way. The less code on
+         this path, the less of it can be broken; self-updating must outlive
+         every other failure in this file. */
+      try {
+        updater.setFeedURL({ provider: "generic", url: ELECTRON_UPDATER_FALLBACK_FEEDS.stable });
+        const result = await updater.checkForUpdates();
+        return shapeCheckResult(result?.updateInfo ?? null, {
+          channel: "stable",
+          feedUrl: ELECTRON_UPDATER_FALLBACK_FEEDS.stable,
+          currentVersion: resolveAppVersion(app),
+          feedFallback: true,
+        });
+      } catch {
+        checkedUpdateVersion = null;
+        const channelState = updaterChannelState(app, await readElectronUpdaterChannel(app));
+        return { available: false, reason: String(error?.message ?? error), ...channelState };
+      }
     }
   });
 
@@ -329,10 +383,12 @@ export function registerUpdaterIpc({ app, ipcMain, getMainWindow }) {
     const updater = await ensureAutoUpdater();
     if (!updater) return { ok: false, reason: "unavailable" };
     try {
-      await applyElectronUpdaterFeed(app, updater);
+      // No unconditional feed re-apply here: the feed left active by the last
+      // successful check (primary or GitHub fallback) is the one the cached
+      // update info came from, and channel switches clear the cache below.
       const currentVersion = resolveAppVersion(app);
       if (!checkedUpdateVersion || !isVersionNewer(checkedUpdateVersion, currentVersion)) {
-        const result = await updater.checkForUpdates();
+        const { result } = await checkForUpdatesWithFeedFallback(app, updater);
         const info = result?.updateInfo ?? null;
         checkedUpdateVersion = info?.version && isVersionNewer(info.version, currentVersion)
           ? info.version
@@ -347,7 +403,21 @@ export function registerUpdaterIpc({ app, ipcMain, getMainWindow }) {
       await updater.downloadUpdate();
       return { ok: true };
     } catch (error) {
-      return { ok: false, reason: String(error?.message ?? error) };
+      /* Last-ditch mirror of the check path: one raw GitHub check + download
+         with no helpers, so a bug in our plumbing can't block updates. */
+      try {
+        updater.setFeedURL({ provider: "generic", url: ELECTRON_UPDATER_FALLBACK_FEEDS.stable });
+        const result = await updater.checkForUpdates();
+        const info = result?.updateInfo ?? null;
+        if (!info?.version || !isVersionNewer(info.version, resolveAppVersion(app))) {
+          return { ok: false, reason: String(error?.message ?? error) };
+        }
+        checkedUpdateVersion = info.version;
+        await updater.downloadUpdate();
+        return { ok: true };
+      } catch {
+        return { ok: false, reason: String(error?.message ?? error) };
+      }
     }
   });
 
