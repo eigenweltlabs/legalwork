@@ -13,6 +13,7 @@ import { dirname, extname, join, normalize, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import type { ServerConfig, WordAddinConfig } from "./types.js";
+import { launchAnalyticsId } from "./launch-analytics-id.js";
 import type { ServeTlsOptions } from "./serve-node.js";
 import { buildWordAddinRedirectorHtml, buildWordAddinShellHtml, WORD_ADDIN_SHELL_VERSION } from "./word-addin-shell.js";
 
@@ -350,22 +351,19 @@ async function serveStaticFile(distPath: string, relativePath: string): Promise<
 }
 
 /**
- * The desktop app's analytics identity (per-launch distinct id + consent),
- * pushed via PUT /analytics/identity and served to the Office pane by the
- * bootstrap. In-memory only — the id rotates per launch and must not be
- * persisted; a server restart resets to "no id, analytics off".
+ * Analytics identity: the server-minted per-launch id plus the desktop's
+ * consent flag (pushed via PUT /analytics/identity). In-memory only — a
+ * server restart rotates the id and resets consent to off.
  */
-export type AnalyticsIdentity = { distinctId: string | null; enabled: boolean };
-let analyticsIdentity: AnalyticsIdentity = { distinctId: null, enabled: false };
+export type AnalyticsIdentity = { distinctId: string; enabled: boolean };
+let analyticsConsent = false;
 
-export function setAnalyticsIdentity(next: { distinctId?: unknown; analyticsEnabled?: unknown }): void {
-  const distinctId =
-    typeof next.distinctId === "string" && next.distinctId.trim() ? next.distinctId.trim() : null;
-  analyticsIdentity = { distinctId, enabled: next.analyticsEnabled === true };
+export function setAnalyticsConsent(next: { analyticsEnabled?: unknown }): void {
+  analyticsConsent = next.analyticsEnabled === true;
 }
 
 export function getAnalyticsIdentity(): AnalyticsIdentity {
-  return analyticsIdentity;
+  return { distinctId: launchAnalyticsId(), enabled: analyticsConsent };
 }
 
 /**
@@ -450,8 +448,8 @@ export async function handleWordAddinRequest(input: {
       token: config.token,
       hostToken: config.hostToken,
       wordAddinPort: wordAddin.port,
-      // Desktop analytics identity (per-launch, in-memory); the pane polls
-      // this endpoint so consent changes propagate.
+      // Analytics identity (per-launch, in-memory); the pane polls this
+      // endpoint so consent changes propagate.
       analyticsDistinctId: identity.distinctId,
       analyticsEnabled: identity.enabled,
       // Lets a cached shell detect it is outdated and reload itself once
