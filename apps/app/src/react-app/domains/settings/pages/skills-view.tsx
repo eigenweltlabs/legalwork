@@ -69,8 +69,8 @@ import {
 type InstallResult = { ok: boolean; message: string };
 type SkillsFilter = "all" | "installed" | "hub";
 const SKILLS_HUB_UI_ENABLED = false;
-// Workflows grid: 2 columns × 3 rows before paging.
-const WORKFLOWS_PER_PAGE = 6;
+// Workflows grid: 2 columns × 4 rows of compact cards before paging.
+const WORKFLOWS_PER_PAGE = 8;
 
 const pageTitleClass = "text-[34px] font-medium leading-[1.04] tracking-[-0.035em] text-dls-text";
 const sectionTitleClass = "text-[15px] font-medium tracking-[-0.2px] text-dls-text";
@@ -780,25 +780,26 @@ export function SkillsView(props: SkillsViewProps) {
                       tabIndex={0}
                       onClick={() => void openSkill(skill)}
                       onKeyDown={(event) => handleSkillCardKeyDown(event, skill)}
-                      className="group relative flex min-h-[136px] cursor-pointer flex-col overflow-hidden rounded-[20px] border border-dls-border bg-dls-surface p-5 transition-all duration-200 hover:-translate-y-0.5 hover:border-[rgba(var(--dls-accent-rgb),0.3)] hover:shadow-[0_14px_34px_-18px_rgba(8,23,79,0.3)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[rgba(var(--dls-accent-rgb),0.25)]"
+                      className="group relative flex cursor-pointer flex-col overflow-hidden rounded-[16px] border border-dls-border bg-dls-surface p-3.5 transition-all duration-200 hover:-translate-y-0.5 hover:border-[rgba(var(--dls-accent-rgb),0.3)] hover:shadow-[0_14px_34px_-18px_rgba(8,23,79,0.3)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[rgba(var(--dls-accent-rgb),0.25)]"
                     >
                       <span
                         aria-hidden
                         className="pointer-events-none absolute inset-x-0 top-0 h-[2px] bg-dls-accent opacity-0 transition-opacity group-hover:opacity-100"
                       />
                       <div className="flex items-start justify-between gap-3">
-                        <div className="flex min-w-0 items-center gap-2.5">
-                          <span className="inline-flex size-9 shrink-0 items-center justify-center rounded-[11px] border border-dls-border bg-dls-hover text-dls-accent transition-colors group-hover:border-[rgba(var(--dls-accent-rgb),0.25)]">
-                            <TypeIcon size={16} strokeWidth={1.75} />
+                        <div className="flex min-w-0 items-center gap-2">
+                          <span className="inline-flex size-7 shrink-0 items-center justify-center rounded-[9px] border border-dls-border bg-dls-hover text-dls-accent transition-colors group-hover:border-[rgba(var(--dls-accent-rgb),0.25)]">
+                            <TypeIcon size={14} strokeWidth={1.75} />
                           </span>
-                          <h4 className="truncate text-[15px] font-medium tracking-[-0.01em] text-dls-text">{displayName}</h4>
+                          <h4 className="truncate text-[14px] font-medium tracking-[-0.01em] text-dls-text">{displayName}</h4>
                         </div>
                         <span className={typeTagClass}>{typeLabel}</span>
                       </div>
-                      <p className="mt-3 line-clamp-2 text-[13px] leading-relaxed text-dls-secondary">
+                      <p className="mt-2 line-clamp-2 text-[12.5px] leading-snug text-dls-secondary">
                         {skill.description || t("skills.no_description")}
                       </p>
-                      <div className="mt-auto flex items-center justify-end gap-0.5 pt-3 opacity-0 transition-opacity focus-within:opacity-100 group-hover:opacity-100">
+                      {/* Actions overlay the bottom-right on hover so they never add card height. */}
+                      <div className="absolute bottom-2 right-2 flex items-center gap-0.5 rounded-lg bg-dls-surface/85 opacity-0 backdrop-blur-sm transition-opacity focus-within:opacity-100 group-hover:opacity-100">
                         <button
                           type="button"
                           className={rowIconBtnClass}
