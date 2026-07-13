@@ -4,6 +4,7 @@ import { PaperGrainGradient } from "@legalwork/ui/react";
 import { ArrowRightIcon, FolderOpenIcon, Loader2 } from "lucide-react";
 
 import { Page, PageBackground, PageTitlebarRegion } from "@/components/page";
+import { Button } from "@/components/ui/button";
 import { ScrollArea, ScrollAreaViewport } from "@/components/ui/scroll-area";
 
 type TemplateWorkflowsStepProps = {
@@ -71,53 +72,53 @@ export function TemplateWorkflowsStep({ onStart, onSkip }: TemplateWorkflowsStep
           <ScrollAreaViewport>
             <div className="flex min-h-screen">
               {/* ---- Left: choose the templates folder ---- */}
-              <div className="flex w-full flex-col justify-center px-8 py-16 lg:w-[46%] lg:px-16">
-                <div className="flex w-full max-w-md flex-col gap-8">
-                  <div>
-                    <span className="lw-section-eyebrow uppercase text-dls-secondary">Step three · Your templates</span>
-                    <h1 className="mt-3 text-[36px] font-medium leading-[1.04] tracking-[-0.035em] text-dls-text">
-                      Turn your templates into workflows.
-                    </h1>
-                    <p className="mt-3 max-w-sm text-[14px] leading-[1.6] text-dls-secondary">
-                      Choose a folder with your firm&apos;s templates: engagement letters, contracts, memos.
-                      Tasks an agent to read each one and draft a reusable workflow for it while you finish
-                      setting up.
-                    </p>
-                  </div>
+              <div className="flex w-full flex-col px-8 pt-16 pb-10 lg:w-[46%] lg:px-16">
+                <div className="flex w-full flex-1 items-center">
+                  <div className="flex w-full max-w-md flex-col gap-8">
+                    <div>
+                      <span className="lw-section-eyebrow uppercase text-dls-secondary">Step three · Your templates</span>
+                      <h1 className="mt-3 text-[36px] font-medium leading-[1.04] tracking-[-0.035em] text-dls-text">
+                        Turn your templates into workflows.
+                      </h1>
+                      <p className="mt-3 max-w-sm text-[14px] leading-[1.6] text-dls-secondary">
+                        Choose a folder with your firm&apos;s templates: engagement letters, contracts, memos.
+                        Tasks an agent to read each one and draft a reusable workflow for it while you finish
+                        setting up.
+                      </p>
+                    </div>
 
-                  <div className="space-y-2.5">
-                    <span className="lw-section-eyebrow uppercase text-dls-secondary/80">Start in the background</span>
-                    <button type="button" className={quickButtonClass} onClick={() => void handleStart()} disabled={starting}>
-                      {starting ? (
-                        <Loader2 className="size-4 shrink-0 animate-spin text-dls-secondary" />
-                      ) : (
-                        <FolderOpenIcon className="size-4 shrink-0 text-dls-secondary" />
-                      )}
-                      <div className="min-w-0 flex-1">
-                        <div className="text-[14px] font-medium text-dls-text">
-                          {starting ? "Starting…" : "Choose your templates folder"}
+                    <div className="space-y-2.5">
+                      <span className="lw-section-eyebrow uppercase text-dls-secondary/80">Start in the background</span>
+                      <button type="button" className={quickButtonClass} onClick={() => void handleStart()} disabled={starting}>
+                        {starting ? (
+                          <Loader2 className="size-4 shrink-0 animate-spin text-dls-secondary" />
+                        ) : (
+                          <FolderOpenIcon className="size-4 shrink-0 text-dls-secondary" />
+                        )}
+                        <div className="min-w-0 flex-1">
+                          <div className="text-[14px] font-medium text-dls-text">
+                            {starting ? "Starting…" : "Choose your templates folder"}
+                          </div>
+                          <div className="text-[12px] text-dls-secondary">
+                            One reusable workflow per template, with the original attached.
+                          </div>
                         </div>
-                        <div className="text-[12px] text-dls-secondary">
-                          One reusable workflow per template, with the original attached.
-                        </div>
-                      </div>
-                      <ArrowRightIcon className="size-4 shrink-0 text-dls-secondary/60 transition-transform group-hover:translate-x-0.5" />
-                    </button>
-                    <p className="text-[12px] leading-relaxed text-dls-secondary">
-                      Runs on this computer with your selected model. The results land in your firm&apos;s
-                      library under Workflows.
-                    </p>
-                    {error ? <p className="text-[12px] leading-relaxed text-red-500">{error}</p> : null}
+                        <ArrowRightIcon className="size-4 shrink-0 text-dls-secondary/60 transition-transform group-hover:translate-x-0.5" />
+                      </button>
+                      <p className="text-[12px] leading-relaxed text-dls-secondary">
+                        Runs on this computer with your selected model. The results land in your firm&apos;s
+                        library under Workflows.
+                      </p>
+                      {error ? <p className="text-[12px] leading-relaxed text-red-500">{error}</p> : null}
+                    </div>
                   </div>
+                </div>
 
-                  <button
-                    type="button"
-                    onClick={onSkip}
-                    disabled={starting}
-                    className="self-start text-[13px] text-dls-secondary transition-colors hover:text-dls-text disabled:cursor-not-allowed disabled:opacity-60"
-                  >
-                    Skip for now. You can start this anytime from Workflows
-                  </button>
+                <div className="flex w-full max-w-md justify-end">
+                  <Button variant="outline" onClick={onSkip} disabled={starting}>
+                    Skip for now
+                    <ArrowRightIcon data-icon="inline-end" />
+                  </Button>
                 </div>
               </div>
 
