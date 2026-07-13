@@ -33,6 +33,7 @@ import { randomUUID } from "node:crypto";
 
 import constants from "../../../constants.json" with { type: "json" };
 
+import { EIGENWELT_ANALYTICS_ID_HEADER, launchAnalyticsId } from "./launch-analytics-id.js";
 import { runtimeStorageDir } from "./runtime-opencode-config-store.js";
 import type { ServerConfig } from "./types.js";
 
@@ -349,7 +350,12 @@ export function buildEigenweltFreeProviderBlock(manifest: EigenweltFreeManifest)
       // passes provider `options` verbatim to createOpenAICompatible, which
       // ignores an `apiKey` field — the key MUST travel as an Authorization
       // header (options.headers is verified to reach every request).
-      headers: { Authorization: `Bearer ${manifest.apiKey}` },
+      headers: {
+        Authorization: `Bearer ${manifest.apiKey}`,
+        // Anonymous per-launch id; the gateway reads it as the request's
+        // end user (user_header_name).
+        [EIGENWELT_ANALYTICS_ID_HEADER]: launchAnalyticsId(),
+      },
     },
     models: buildEigenweltModelsMap(manifest.models),
   };

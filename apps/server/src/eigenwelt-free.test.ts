@@ -4,6 +4,7 @@ import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
+import { EIGENWELT_ANALYTICS_ID_HEADER, launchAnalyticsId } from "./launch-analytics-id.js";
 import {
   buildEigenweltFreeProviderBlock,
   eigenweltFreeDeviceId,
@@ -377,7 +378,7 @@ describe("eigenweltFreeDeviceId", () => {
 });
 
 describe("buildEigenweltFreeProviderBlock", () => {
-  test("carries the per-device key and both limit keys — no device header", () => {
+  test("carries the per-device key, the launch analytics id, and both limit keys", () => {
     const block = buildEigenweltFreeProviderBlock({ ...CACHED_MANIFEST }) as {
       npm: string;
       name: string;
@@ -389,12 +390,21 @@ describe("buildEigenweltFreeProviderBlock", () => {
     expect(block.options.baseURL).toBe(CACHED_MANIFEST.baseURL);
     // The device's own key travels as an Authorization header — the engine
     // spreads options into createOpenAICompatible, which ignores `apiKey`.
-    expect(block.options.headers).toEqual({ Authorization: `Bearer ${CACHED_MANIFEST.apiKey}` });
+    expect(block.options.headers).toEqual({
+      Authorization: `Bearer ${CACHED_MANIFEST.apiKey}`,
+      // Anonymous per-launch id — never the persistent device id.
+      [EIGENWELT_ANALYTICS_ID_HEADER]: launchAnalyticsId(),
+    });
     expect(block.options.apiKey).toBeUndefined();
     // Both limit keys are mandatory for the engine schema.
     expect(block.models["ewl-free-small"]?.limit).toEqual({ context: 32000, output: 16384 });
     expect(block.models["ewl-free-base"]?.limit).toEqual({ context: 128000, output: 16384 });
     // The manifest's description field must not leak into the engine config.
     expect("description" in (block.models["ewl-free-small"] as Record<string, unknown>)).toBe(false);
+  });
+
+  test("launch analytics id is stable within a process and is a UUID", () => {
+    expect(launchAnalyticsId()).toBe(launchAnalyticsId());
+    expect(launchAnalyticsId()).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/);
   });
 });
