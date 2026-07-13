@@ -24,6 +24,9 @@ export class DictationHud {
       height: HEIGHT,
       x: Math.round(area.x + (area.width - WIDTH) / 2),
       y: area.y + area.height - HEIGHT - 32,
+      // A non-activating NSPanel: the HUD must never take key status from
+      // the app that is about to receive the paste.
+      ...(process.platform === "darwin" ? { type: "panel" } : {}),
       frame: false,
       transparent: true,
       resizable: false,
@@ -40,10 +43,18 @@ export class DictationHud {
         contextIsolation: true,
         nodeIntegration: false,
         sandbox: true,
+        // The pulse animation runs while every app window is unfocused —
+        // exactly when Chromium would throttle it.
+        backgroundThrottling: false,
       },
     });
     window.setAlwaysOnTop(true, "screen-saver");
-    window.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
+    // skipTransformProcessType: without it this call can flip the process
+    // activation policy and dismiss the dock icon (electron#26350).
+    window.setVisibleOnAllWorkspaces(true, {
+      visibleOnFullScreen: true,
+      skipTransformProcessType: true,
+    });
     window.setContentProtection(true);
     window.setMenuBarVisibility(false);
     await window.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(`<!doctype html>

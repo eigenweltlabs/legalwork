@@ -497,6 +497,7 @@ const {
   audioRecordingGet,
   audioRecordingDelete,
   audioRecordingRename,
+  audioRecordingRetain,
   audioRecordingSaveToWorkspace,
   audioLiveTranscriptStart,
   audioLiveTranscriptStop,
@@ -515,6 +516,8 @@ const {
   audioSystemDictationOpenSettings,
   audioSystemDictationSetState,
   audioSystemDictationPaste,
+  desktopLoginItemGet,
+  desktopLoginItemSet,
 } = desktopBridge;
 
 export {
@@ -595,6 +598,7 @@ export {
   audioRecordingGet,
   audioRecordingDelete,
   audioRecordingRename,
+  audioRecordingRetain,
   audioRecordingSaveToWorkspace,
   audioLiveTranscriptStart,
   audioLiveTranscriptStop,
@@ -613,4 +617,6 @@ export {
   audioSystemDictationOpenSettings,
   audioSystemDictationSetState,
   audioSystemDictationPaste,
+  desktopLoginItemGet,
+  desktopLoginItemSet,
 };

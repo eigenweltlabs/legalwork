@@ -227,6 +227,12 @@ export type AudioRecorderEvent =
   | { type: "system-dictation-release" }
   | { type: "system-dictation-cancel" }
   | { type: "system-dictation-status"; status: AudioSystemDictationStatus }
+  /**
+   * The machine is about to sleep — finalize the active call recording and
+   * cancel any dictation (pasting into whatever is focused after wake would
+   * be wrong). Capture devices will need reacquiring after resume anyway.
+   */
+  | { type: "power-suspend" }
   /** The live-transcript workspace mirror stopped (recording ended). */
   | { type: "live-transcript-stopped" }
   | { type: "overlay-visibility"; visible: boolean }

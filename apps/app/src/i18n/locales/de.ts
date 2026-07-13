@@ -331,6 +331,11 @@ const de: Record<string, string> = {
   "recorder.dictation_configure": "Einrichten",
   "recorder.dictation_shortcut_label": "Starten und beenden mit",
   "recorder.dictation_shortcut_setting": "Systemweites Tastenkürzel",
+  "recorder.dictation_login_title": "Beim Anmelden starten",
+  "recorder.dictation_login_description":
+    "Startet LegalWork beim Anmelden im Hintergrund, damit das Diktier-Kürzel sofort bereit ist.",
+  "recorder.dictation_login_requires_approval":
+    "Wartet auf Freigabe. Erlauben Sie LegalWork unter Systemeinstellungen, Allgemein, Anmeldeobjekte.",
   "recorder.dictation_shortcut_capture": "Klicken und Tastenkombination drücken",
   "recorder.dictation_shortcut_save": "Tastenkürzel speichern",
   "recorder.dictation_shortcut_reset": "Zurücksetzen",

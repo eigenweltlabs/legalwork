@@ -1839,6 +1839,11 @@ export default {
   "recorder.dictation_configure": "Set up",
   "recorder.dictation_shortcut_label": "Start and finish with",
   "recorder.dictation_shortcut_setting": "System-wide shortcut",
+  "recorder.dictation_login_title": "Start at login",
+  "recorder.dictation_login_description":
+    "Launch LegalWork in the background at login so the dictation shortcut is ready right away.",
+  "recorder.dictation_login_requires_approval":
+    "Waiting for approval. Allow LegalWork under System Settings, General, Login Items.",
   "recorder.dictation_shortcut_capture": "Click, then press a key combination",
   "recorder.dictation_shortcut_save": "Save shortcut",
   "recorder.dictation_shortcut_reset": "Reset",

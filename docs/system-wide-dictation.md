@@ -6,7 +6,38 @@ Recorder > Dictate anywhere**. It is off by default.
 
 System dictations are ephemeral. LegalWork deletes their temporary audio and
 transcript files after insertion, so they do not appear in Recorder history.
-Call and meeting recordings continue to use the normal retained history.
+If the paste fails, the dictation is retained in Recorder history instead so
+the spoken text stays recoverable. Call and meeting recordings continue to
+use the normal retained history.
+
+## Background operation
+
+Dictation is used with LegalWork in the background, so the app is built to
+keep the shortcut working without a visible window:
+
+- While **Dictate anywhere** is on, a tray icon (Windows) or menu bar icon
+  (macOS) shows the shortcut and offers Open and Quit. Closing the window
+  hides it instead of quitting; Quit from the tray menu or app menu exits for
+  real. The same applies while a recording is still running behind a closed
+  window, so it can finalize.
+- **Start at login** (Settings > Recorder, next to the dictation setting)
+  registers LegalWork as a login item. It starts in the background: the
+  window stays hidden and the shortcut is armed. On macOS 13+ the entry
+  appears under **System Settings > General > Login Items** and macOS shows a
+  one-time notification; on Windows it appears under **Settings > Apps >
+  Startup** and in Task Manager.
+- Sleep, wake, and the lock screen are handled: going to sleep finalizes an
+  active call recording and cancels an in-flight dictation (nothing is pasted
+  into whatever happens to be focused after wake). After wake and after
+  unlocking, LegalWork restarts the native keyboard listener and re-warms the
+  transcription engine, the two components that commonly die across sleep.
+- While recording, importing, or pasting, LegalWork holds an OS power
+  assertion so idle sleep (and Windows Modern Standby) cannot freeze a
+  recording mid-write. The assertion is released when the work finishes; an
+  idle armed shortcut holds nothing. Lid-close sleep cannot be prevented on
+  macOS by design; the suspend handling above covers it.
+- A crashed window process reloads automatically so the capture pipeline
+  behind the hotkey comes back without a manual restart.
 
 ## User installation
 
@@ -115,3 +146,28 @@ On each target OS:
     stops capture, transcribes, and pastes exactly once.
 11. Save a modifier-only shortcut (Control on both platforms and Fn on macOS)
     and verify it remains active after restart.
+
+### Background matrix
+
+12. Close the window with dictation enabled: the app stays in the tray or
+    menu bar and the shortcut still dictates into another app. Reopen from
+    the tray (Windows: single click; macOS: menu item or Dock icon).
+13. Sleep and wake, then dictate within 5 seconds and again after 5 minutes.
+    The shortcut must work without restarting LegalWork (hooks and event taps
+    are reinstalled on wake).
+14. Lock (Win+L / Ctrl+Cmd+Q) while dictation is listening: the dictation is
+    canceled, nothing is pasted into the password field, and after unlocking
+    the shortcut works again. In Hold mode verify no key is latched.
+15. Start a long call recording, close the lid or force sleep, and wake:
+    everything captured before sleep is finalized and playable, and the
+    recording is not left in a broken "recording" state.
+16. Leave the machine idle for 30+ minutes, then dictate: the first spoken
+    words must appear (post-idle microphone tracks and cold engines are
+    reacquired automatically).
+17. Enable Start at login, reboot, and dictate without opening the window.
+    macOS: approve the Login Items notification if shown.
+18. Repeat sleep/wake ten times in a row; the shortcut must survive every
+    cycle.
+19. Deny automatic paste (remove Accessibility on macOS) and dictate: the
+    transcript stays on the clipboard, the HUD reports the failure, and the
+    dictation appears in Recorder history instead of being deleted.

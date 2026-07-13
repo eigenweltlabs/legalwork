@@ -10,10 +10,12 @@ class FakeShortcuts {
   constructor(blocked = []) {
     this.blocked = new Set(blocked);
     this.callbacks = new Map();
+    this.registerCount = 0;
   }
 
   register(accelerator, callback) {
     if (this.blocked.has(accelerator)) return false;
+    this.registerCount += 1;
     this.callbacks.set(accelerator, callback);
     return true;
   }
@@ -21,15 +23,29 @@ class FakeShortcuts {
   unregister(accelerator) {
     this.callbacks.delete(accelerator);
   }
+
+  isRegistered(accelerator) {
+    return this.callbacks.has(accelerator);
+  }
 }
 
 class FakeKeyMonitor {
+  constructor() {
+    this.restarts = 0;
+  }
+
   isSupported() {
     return true;
   }
 
   async start(callback) {
     this.callback = callback;
+    return true;
+  }
+
+  async restart() {
+    this.restarts += 1;
+    await this.callback?.({ type: "reset" });
     return true;
   }
 
@@ -250,6 +266,116 @@ test("native shortcut monitoring supports modifier-only capture and hold-to-talk
   const stored = JSON.parse(await readFile(path.join(userDataDir, "system-dictation.json"), "utf8"));
   assert.equal(stored.accelerator, "Control");
   assert.equal(stored.mode, "tap");
+  service.dispose();
+  await rm(userDataDir, { recursive: true, force: true });
+});
+
+test("a monitor reset releases a latched hold and clears chord state", async () => {
+  const userDataDir = await tempDir();
+  const keyMonitor = new FakeKeyMonitor();
+  let presses = 0;
+  let releases = 0;
+  const service = new SystemDictationService({
+    userDataDir,
+    platform: "darwin",
+    globalShortcut: new FakeShortcuts(),
+    keyMonitor,
+    clipboard: new FakeClipboard(),
+    systemPreferences: { isTrustedAccessibilityClient: () => true },
+    shell: { openExternal: async () => {} },
+    runPasteCommand: async () => {},
+    onToggle: () => {},
+    onPress: () => { presses += 1; },
+    onRelease: () => { releases += 1; },
+    onCancel: () => {},
+  });
+
+  await service.initialize();
+  await service.setEnabled(true);
+  await service.setShortcutCapture(true);
+  await keyMonitor.emit("down", "Control");
+  await keyMonitor.emit("up", "Control");
+  await service.setMode("hold");
+
+  // Hold engaged, then the tap/hook is rebuilt (wake, session switch) and
+  // the key-up is lost: the reset must finalize the dictation, not leave it
+  // latched "recording" forever.
+  await keyMonitor.emit("down", "Control");
+  assert.equal(presses, 1);
+  await keyMonitor.emit("reset", "*");
+  assert.equal(releases, 1);
+
+  // Chord state was cleared, so the next press starts cleanly.
+  await keyMonitor.emit("down", "Control");
+  assert.equal(presses, 2);
+  await keyMonitor.emit("up", "Control");
+  assert.equal(releases, 2);
+
+  service.dispose();
+  await rm(userDataDir, { recursive: true, force: true });
+});
+
+test("refreshAfterResume restarts the monitor and re-registers only a lost chord", async () => {
+  const userDataDir = await tempDir();
+  const keyMonitor = new FakeKeyMonitor();
+  const service = new SystemDictationService({
+    userDataDir,
+    platform: "darwin",
+    globalShortcut: new FakeShortcuts(),
+    keyMonitor,
+    clipboard: new FakeClipboard(),
+    systemPreferences: { isTrustedAccessibilityClient: () => true },
+    shell: { openExternal: async () => {} },
+    runPasteCommand: async () => {},
+    onToggle: () => {},
+    onCancel: () => {},
+  });
+
+  await service.initialize();
+  const disabled = await service.refreshAfterResume();
+  assert.equal(keyMonitor.restarts, 0, "disabled dictation does nothing on resume");
+  assert.equal(disabled.enabled, false);
+
+  await service.setEnabled(true);
+  const resumed = await service.refreshAfterResume();
+  assert.equal(keyMonitor.restarts, 1, "the monitor is the component that dies across sleep");
+  assert.equal(resumed.registered, true);
+  service.dispose();
+  await rm(userDataDir, { recursive: true, force: true });
+});
+
+test("refreshAfterResume re-registers the Electron chord the OS lost", async () => {
+  const userDataDir = await tempDir();
+  const shortcuts = new FakeShortcuts();
+  let toggles = 0;
+  const service = new SystemDictationService({
+    userDataDir,
+    platform: "win32",
+    globalShortcut: shortcuts,
+    clipboard: new FakeClipboard(),
+    shell: { openExternal: async () => {} },
+    runPasteCommand: async () => {},
+    onToggle: () => { toggles += 1; },
+    onCancel: () => {},
+  });
+
+  await service.initialize();
+  const status = await service.setEnabled(true);
+  assert.equal(status.registered, true);
+
+  // Healthy chord: resume must NOT churn the registration (re-registering
+  // opens a window where another app can steal it).
+  const registersBefore = shortcuts.registerCount;
+  await service.refreshAfterResume();
+  assert.equal(shortcuts.registerCount, registersBefore);
+
+  // Simulate the OS dropping the registration across a session change.
+  shortcuts.callbacks.delete(status.accelerator);
+  const restored = await service.refreshAfterResume();
+  assert.equal(restored.registered, true);
+  shortcuts.callbacks.get(status.accelerator)?.();
+  assert.equal(toggles, 1);
+
   service.dispose();
   await rm(userDataDir, { recursive: true, force: true });
 });

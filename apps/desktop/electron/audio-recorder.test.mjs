@@ -265,8 +265,114 @@ test("ephemeral dictations never appear in recording history and are cleaned up"
   });
   assert.equal((await service.listRecordings()).length, 0);
   await service.stopRecording(meta.id);
+  // Hidden from history, but the folder survives the list: the paste outcome
+  // decides between explicit delete (success) and retain (failure), and a
+  // concurrent list must not sweep it out from underneath that decision.
+  assert.equal((await service.listRecordings()).length, 0);
+  assert.equal(fs.existsSync(meta.folderPath), true);
+
+  // Stale strays (crash leftovers) do get swept.
+  const metaPath = path.join(meta.folderPath, "meta.json");
+  const stored = JSON.parse(await fsp.readFile(metaPath, "utf8"));
+  stored.createdAt = Date.now() - 2 * 60 * 60 * 1000;
+  await fsp.writeFile(metaPath, JSON.stringify(stored));
   assert.equal((await service.listRecordings()).length, 0);
   assert.equal(fs.existsSync(meta.folderPath), false);
+  service.dispose();
+  await fsp.rm(userDataDir, { recursive: true, force: true });
+});
+
+test("a failed dictation paste retains the recording in history", async () => {
+  const userDataDir = await tempDir("lw-recorder-");
+  const service = new RecorderService({ userDataDir, forkWorker: () => new FakeWorker() });
+  service.broadcast = () => {};
+  const meta = await service.startRecording({
+    title: "System dictation",
+    language: "en",
+    modelId: null,
+    sources: ["microphone"],
+    ephemeral: true,
+  });
+  await service.stopRecording(meta.id);
+  const retained = await service.retainRecording(meta.id);
+  assert.equal(retained.length, 1);
+  assert.equal(retained[0].id, meta.id);
+  assert.equal(retained[0].ephemeral, false);
+  service.dispose();
+  await fsp.rm(userDataDir, { recursive: true, force: true });
+});
+
+test("power sessions are held for exactly the duration of a recording", async () => {
+  const userDataDir = await tempDir("lw-recorder-");
+  const held = new Set();
+  const service = new RecorderService({
+    userDataDir,
+    forkWorker: () => new FakeWorker(),
+    powerSessions: {
+      acquire: (key) => held.add(key),
+      release: (key) => held.delete(key),
+    },
+  });
+  service.broadcast = () => {};
+
+  const meta = await service.startRecording({
+    title: "Call",
+    language: "en",
+    modelId: null,
+    sources: ["microphone"],
+  });
+  assert.equal(held.size, 1);
+  await service.stopRecording(meta.id);
+  assert.equal(held.size, 0);
+
+  const canceled = await service.startRecording({
+    title: "Call",
+    language: "en",
+    modelId: null,
+    sources: ["microphone"],
+  });
+  assert.equal(held.size, 1);
+  await service.cancelRecording(canceled.id);
+  assert.equal(held.size, 0);
+  service.dispose();
+  await fsp.rm(userDataDir, { recursive: true, force: true });
+});
+
+test("abandonActiveRecordings finalizes calls, cancels dictations, releases blockers", async () => {
+  const userDataDir = await tempDir("lw-recorder-");
+  const held = new Set();
+  const service = new RecorderService({
+    userDataDir,
+    forkWorker: () => new FakeWorker(),
+    powerSessions: { acquire: (key) => held.add(key), release: (key) => held.delete(key) },
+  });
+  service.broadcast = () => {};
+
+  const call = await service.startRecording({
+    title: "Client call",
+    language: "en",
+    modelId: null,
+    sources: ["microphone"],
+  });
+  const dictation = await service.startRecording({
+    title: "System dictation",
+    language: "en",
+    modelId: null,
+    sources: ["microphone"],
+    ephemeral: true,
+  });
+  assert.equal(held.size, 2);
+  assert.equal(service.activeRecordings.size, 2);
+
+  await service.abandonActiveRecordings();
+  assert.equal(held.size, 0, "every abandoned recording released its blocker");
+  assert.equal(service.activeRecordings.size, 0);
+
+  // The call recording was finalized (kept); the dictation was cancelled.
+  const listed = await service.listRecordings();
+  assert.equal(listed.length, 1);
+  assert.equal(listed[0].id, call.id);
+  assert.equal((await service.getRecording(dictation.id)), null);
   service.dispose();
   await fsp.rm(userDataDir, { recursive: true, force: true });
 });

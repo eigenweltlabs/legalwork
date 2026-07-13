@@ -94,6 +94,55 @@ export type CaptureCallbacks = {
   onSourceEnded: (source: AudioCaptureSourceKind) => void;
 };
 
+const MIC_CONSTRAINTS = {
+  audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
+} as const;
+
+/** Resolve once the track is delivering audio, or false if it never does. */
+function waitForLiveTrack(track: MediaStreamTrack): Promise<boolean> {
+  if (track.readyState === "live" && !track.muted) return Promise.resolve(true);
+  if (track.readyState === "ended") return Promise.resolve(false);
+  return new Promise<boolean>((resolve) => {
+    let done = false;
+    const settle = (value: boolean) => {
+      if (done) return;
+      done = true;
+      clearTimeout(timer);
+      track.removeEventListener("unmute", onUnmute);
+      track.removeEventListener("ended", onEnded);
+      resolve(value);
+    };
+    const onUnmute = () => settle(true);
+    const onEnded = () => settle(false);
+    const timer = setTimeout(() => settle(track.readyState === "live" && !track.muted), 600);
+    track.addEventListener("unmute", onUnmute);
+    track.addEventListener("ended", onEnded);
+  });
+}
+
+/**
+ * After the machine sat idle or woke from sleep, getUserMedia can hand back a
+ * track that stays muted or is already ended and yields pure silence. Wait
+ * briefly for it to come alive; if it doesn't, reacquire the device once and
+ * re-check. If it still isn't delivering audio, fail loudly rather than
+ * record silence — startRecording's rollback then surfaces it to the user.
+ */
+async function ensureLiveMicStream(stream: MediaStream): Promise<MediaStream> {
+  const track = stream.getAudioTracks()[0];
+  if (!track) return stream;
+  if (await waitForLiveTrack(track)) return stream;
+
+  for (const stale of stream.getTracks()) stale.stop();
+  const retry = await navigator.mediaDevices.getUserMedia(MIC_CONSTRAINTS);
+  const retryTrack = retry.getAudioTracks()[0];
+  if (retryTrack && (await waitForLiveTrack(retryTrack))) return retry;
+
+  for (const stale of retry.getTracks()) stale.stop();
+  throw new Error(
+    "The microphone did not start delivering audio. This can happen right after the computer wakes. Try dictating again.",
+  );
+}
+
 async function requestMicStream(): Promise<MediaStream> {
   const ask = window.__LEGALWORK_ELECTRON__?.system?.askMicrophoneAccess;
   if (ask) {
@@ -104,9 +153,8 @@ async function requestMicStream(): Promise<MediaStream> {
       );
     }
   }
-  return navigator.mediaDevices.getUserMedia({
-    audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
-  });
+  const stream = await navigator.mediaDevices.getUserMedia(MIC_CONSTRAINTS);
+  return ensureLiveMicStream(stream);
 }
 
 async function requestSystemStream(): Promise<MediaStream> {
@@ -211,6 +259,10 @@ export async function startCapture(
   };
 
   try {
+    // A context created while every window is hidden/unfocused can start out
+    // suspended; the graph would build fine and record silence.
+    if (context.state === "suspended") await context.resume().catch(() => {});
+
     const workletUrl = URL.createObjectURL(new Blob([PCM_WORKLET_SOURCE], { type: "text/javascript" }));
     try {
       await context.audioWorklet.addModule(workletUrl);

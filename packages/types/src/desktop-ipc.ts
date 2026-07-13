@@ -618,6 +618,11 @@ export type DesktopCommandMap = {
   /** Rename a recording (active or on disk); returns the refreshed list. */
   audioRecordingRename: { args: [recordingId: string, title: string]; result: AudioRecordingMeta[] };
   /**
+   * Flip an ephemeral recording (system dictation) to retained. Used when the
+   * paste failed so the spoken text stays recoverable in Recorder history.
+   */
+  audioRecordingRetain: { args: [recordingId: string]; result: AudioRecordingMeta[] };
+  /**
    * Start mirroring the active recording's growing transcript to a markdown
    * file in the given workspace (composer "Live call" toggle); updates on
    * every segment until stopped or the recording ends.
@@ -673,6 +678,17 @@ export type DesktopCommandMap = {
   audioSystemDictationPaste: {
     args: [text: string];
     result: AudioSystemDictationPasteResult;
+  };
+  /**
+   * Launch-at-login for background dictation. On Windows the login item
+   * starts the app with --hidden (boots into the tray); on macOS 13+ the
+   * entry appears under System Settings > General > Login Items and may
+   * report requires-approval until the user allows it there.
+   */
+  desktopLoginItemGet: { args: []; result: { openAtLogin: boolean; requiresApproval: boolean } };
+  desktopLoginItemSet: {
+    args: [openAtLogin: boolean];
+    result: { openAtLogin: boolean; requiresApproval: boolean };
   };
 
   // Window / OS utilities (dunder commands)

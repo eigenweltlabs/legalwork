@@ -18,7 +18,7 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { app, BrowserWindow, clipboard, desktopCapturer, dialog, globalShortcut, ipcMain, nativeImage, nativeTheme, session, shell, systemPreferences } from "electron";
+import { app, BrowserWindow, clipboard, desktopCapturer, dialog, globalShortcut, ipcMain, nativeImage, nativeTheme, powerMonitor, powerSaveBlocker, session, shell, systemPreferences } from "electron";
 import { configureFakeMediaForTests, installMediaPermissionHandlers } from "./media-permissions.mjs";
 import { appendLoopbackFeatureFlags, disableLoopbackAudio, enableLoopbackAudio, isLoopbackCaptureArmed } from "./audio/loopback.mjs";
 import { captureAuthStatus, openCapturePermissionSettings, requestCapturePermission } from "./audio/capture-permissions.mjs";
@@ -28,6 +28,9 @@ import { DictationHud } from "./audio/dictation-hud.mjs";
 import { RecorderService } from "./audio/recorder-service.mjs";
 import { SystemDictationService } from "./audio/system-dictation.mjs";
 import { SystemKeyMonitor } from "./audio/system-key-monitor.mjs";
+import { PowerLifecycle, PowerSessions } from "./power-lifecycle.mjs";
+import { AppTray } from "./tray.mjs";
+import { pinWindowsProcessQoS } from "./windows-qos.mjs";
 import { registerMigrationIpc } from "./migration.mjs";
 import { createRuntimeManager } from "./runtime.mjs";
 import { buildSupportBundleText, defaultSupportBundleFileName } from "./support-bundle.mjs";
@@ -614,6 +617,11 @@ const appAudioTap = new AppAudioTap({
   getTargetWebContents: () => (mainWindow && !mainWindow.isDestroyed() ? mainWindow.webContents : null),
 });
 
+// Refcounted 'prevent-app-suspension' blocker, held only while real work is
+// in flight (recording, import, dictation transcribe+paste) — never while
+// merely armed for the hotkey.
+const powerSessions = new PowerSessions({ powerSaveBlocker });
+
 /** @type {RecorderService | null} */
 let recorderServiceInstance = null;
 function recorderService() {
@@ -621,6 +629,8 @@ function recorderService() {
     recorderServiceInstance = new RecorderService({
       userDataDir: app.getPath("userData"),
       appAudioAvailable: () => appAudioTap.isAvailable(),
+      powerSessions,
+      pinProcessQoS: pinWindowsProcessQoS,
     });
     if (mainWindow && !mainWindow.isDestroyed()) {
       recorderServiceInstance.subscribe(mainWindow.webContents);
@@ -650,11 +660,81 @@ const systemDictation = new SystemDictationService({
   onPress: () => recorderService().broadcast({ type: "system-dictation-press" }),
   onRelease: () => recorderService().broadcast({ type: "system-dictation-release" }),
   onCancel: () => recorderService().broadcast({ type: "system-dictation-cancel" }),
-  onStatus: (status) => recorderService().broadcast({ type: "system-dictation-status", status }),
+  onStatus: (status) => {
+    recorderService().broadcast({ type: "system-dictation-status", status });
+    syncBackgroundPresence();
+  },
   onState: (state, message) => {
     void dictationHud.setState(state, message);
   },
 });
+
+// ── Background presence (tray + close-to-hide) ────────────────────────────
+//
+// Dictation users keep the app closed/hidden ~100% of the time, but the
+// hotkey pipeline lives in the main window's renderer: capture (getUserMedia
+// + AudioWorklet) runs there. So while "Dictate anywhere" is on (or a
+// recording is still running), closing the window hides it instead of
+// destroying it, and a tray icon keeps the app reachable.
+
+let appIsQuitting = false;
+let windowsCloseHintShown = false;
+// --hidden comes from the login-item registration (Windows args); macOS
+// login-item launches are detected via wasOpenedAtLogin in whenReady.
+let startHiddenPending = process.argv.includes("--hidden");
+
+const appTray = new AppTray({
+  appName: APP_NAME,
+  icon: APP_ICON_IMAGE,
+  onOpen: () => {
+    void createMainWindow().then((win) => {
+      if (win.isMinimized()) win.restore();
+      win.show();
+      win.focus();
+    });
+  },
+  onQuit: () => {
+    app.quit();
+  },
+});
+
+function trayShortcutLabel(status) {
+  if (!status.registered) return null;
+  const parts = String(status.accelerator ?? "").split("+").filter(Boolean);
+  if (parts.length === 0) return null;
+  const labels = status.platform === "darwin"
+    ? { CommandOrControl: "Cmd", Command: "Cmd", Super: "Cmd", Control: "Ctrl", Alt: "Option", Shift: "Shift", Fn: "Fn" }
+    : { CommandOrControl: "Ctrl", Command: "Ctrl", Control: "Ctrl", Super: "Win", Alt: "Alt", Shift: "Shift", Fn: "Fn" };
+  return parts.map((part) => labels[part] ?? part).join("+");
+}
+
+function keepAliveOnClose() {
+  if (systemDictation.status().enabled) return true;
+  // A call recording behind a closed window must finalize, not vanish.
+  return (recorderServiceInstance?.activeRecordings.size ?? 0) > 0;
+}
+
+function syncBackgroundPresence() {
+  if (!app.isReady() || appIsQuitting) return;
+  const status = systemDictation.status();
+  // A minimized window also reports !isVisible() on Windows, but that is not
+  // background presence — only an explicit close-to-hide (hidden AND not
+  // minimized) warrants a keepalive tray.
+  const windowHidden = mainWindow !== null
+    && !mainWindow.isDestroyed()
+    && !mainWindow.isVisible()
+    && !mainWindow.isMinimized();
+  if (status.enabled || windowHidden) {
+    // While the window is hidden the tray must exist even if dictation was
+    // just disabled — on Windows it is the only way back into the app.
+    appTray.ensure({
+      dictationEnabled: status.enabled,
+      shortcutLabel: trayShortcutLabel(status),
+    });
+  } else {
+    appTray.destroy();
+  }
+}
 
 function normalizePlatform(value) {
   if (value === "darwin" || value === "linux") return value;
@@ -1832,10 +1912,20 @@ const desktopCommandHandlers = {
       return recorderService().startRecording(args[0] ?? {});
   },
   "audioRecordingStop": async (event, ...args) => {
-      return recorderService().stopRecording(String(args[0] ?? ""));
+      try {
+        return await recorderService().stopRecording(String(args[0] ?? ""));
+      } finally {
+        // A recording that ended behind a hidden window may have been the
+        // only reason for the tray keepalive.
+        syncBackgroundPresence();
+      }
   },
   "audioRecordingCancel": async (event, ...args) => {
-      return recorderService().cancelRecording(String(args[0] ?? ""));
+      try {
+        return await recorderService().cancelRecording(String(args[0] ?? ""));
+      } finally {
+        syncBackgroundPresence();
+      }
   },
   "audioRecordingsList": async (event, ...args) => {
       return recorderService().listRecordings();
@@ -1848,6 +1938,9 @@ const desktopCommandHandlers = {
   },
   "audioRecordingRename": async (event, ...args) => {
       return recorderService().renameRecording(String(args[0] ?? ""), String(args[1] ?? ""));
+  },
+  "audioRecordingRetain": async (event, ...args) => {
+      return recorderService().retainRecording(String(args[0] ?? ""));
   },
   "audioLiveTranscriptStart": async (event, ...args) => {
       return recorderService().startLiveTranscript(String(args[0] ?? ""));
@@ -1886,10 +1979,19 @@ const desktopCommandHandlers = {
       return systemDictation.status();
   },
   "audioSystemDictationSetEnabled": async (event, ...args) => {
-      return systemDictation.setEnabled(Boolean(args[0]));
+      try {
+        return await systemDictation.setEnabled(Boolean(args[0]));
+      } finally {
+        syncBackgroundPresence();
+      }
   },
   "audioSystemDictationSetShortcut": async (event, ...args) => {
-      return systemDictation.setShortcut(String(args[0] ?? ""));
+      try {
+        return await systemDictation.setShortcut(String(args[0] ?? ""));
+      } finally {
+        // The tray menu shows the shortcut.
+        syncBackgroundPresence();
+      }
   },
   "audioSystemDictationSetMode": async (event, ...args) => {
       return systemDictation.setMode(args[0] === "hold" ? "hold" : "tap");
@@ -1907,7 +2009,48 @@ const desktopCommandHandlers = {
       return systemDictation.setRuntimeState(state, String(args[1] ?? ""));
   },
   "audioSystemDictationPaste": async (event, ...args) => {
-      return systemDictation.pasteText(String(args[0] ?? ""));
+      // The recording's own power session ends at stop; the decode tail and
+      // paste still need suspension protection (the sherpa decode has no
+      // audio-stream exemption from idle sleep).
+      powerSessions.acquire("dictation-paste");
+      try {
+        return await systemDictation.pasteText(String(args[0] ?? ""));
+      } finally {
+        powerSessions.release("dictation-paste");
+      }
+  },
+  "desktopLoginItemGet": async (event, ...args) => {
+      try {
+        const settings = app.getLoginItemSettings();
+        return {
+          openAtLogin: settings.openAtLogin === true,
+          requiresApproval: settings.status === "requires-approval",
+        };
+      } catch {
+        return { openAtLogin: false, requiresApproval: false };
+      }
+  },
+  "desktopLoginItemSet": async (event, ...args) => {
+      const openAtLogin = Boolean(args[0]);
+      try {
+        app.setLoginItemSettings({
+          openAtLogin,
+          // Windows: boot into the tray. macOS login items launch normally;
+          // whenReady detects wasOpenedAtLogin instead.
+          ...(process.platform === "win32" ? { args: openAtLogin ? ["--hidden"] : [] } : {}),
+        });
+      } catch {
+        // Fall through to reporting the actual state below.
+      }
+      try {
+        const settings = app.getLoginItemSettings();
+        return {
+          openAtLogin: settings.openAtLogin === true,
+          requiresApproval: settings.status === "requires-approval",
+        };
+      } catch {
+        return { openAtLogin, requiresApproval: false };
+      }
   },
   "windowSetStealth": async (event, ...args) => {
       const enabled = Boolean(args[0]);
@@ -2127,13 +2270,64 @@ async function createMainWindow() {
     if (isDevMode) {
       mainWindow?.setTitle(APP_NAME);
     }
+    // Login-item launches boot into the background: the renderer loads (and
+    // arms the dictation pipeline) without a window appearing. Only honored
+    // while dictation keeps a tray around — a hidden window with no tray
+    // would be unreachable.
+    if (startHiddenPending && systemDictation.status().enabled) {
+      startHiddenPending = false;
+      syncBackgroundPresence();
+      return;
+    }
+    startHiddenPending = false;
     mainWindow?.show();
     flushPendingDeepLinks();
+  });
+
+  // While dictation is armed (or a recording is finishing), closing the
+  // window would kill the renderer that hosts the capture pipeline — hide it
+  // instead. Quit still closes for real via the before-quit flag.
+  mainWindow.on("close", (event) => {
+    if (appIsQuitting || !keepAliveOnClose()) return;
+    const status = systemDictation.status();
+    appTray.ensure({
+      dictationEnabled: status.enabled,
+      shortcutLabel: trayShortcutLabel(status),
+    });
+    // A hidden window leaves no taskbar entry on Windows; if the tray could
+    // not be created, a real close beats stranding the user.
+    if (process.platform === "win32" && !appTray.isActive()) return;
+    event.preventDefault();
+    mainWindow?.hide();
+    if (process.platform === "win32" && !windowsCloseHintShown) {
+      windowsCloseHintShown = true;
+      appTray.displayCloseHint();
+    }
+  });
+
+  mainWindow.on("show", () => {
+    syncBackgroundPresence();
   });
 
   mainWindow.on("closed", () => {
     browserPanel.destroy();
     mainWindow = null;
+  });
+
+  // A crashed renderer takes the dictation capture pipeline with it; reload
+  // so the hotkey keeps working. Repeated crashes stop the loop.
+  let rendererReloads = 0;
+  mainWindow.webContents.on("render-process-gone", (_event, details) => {
+    if (details.reason === "clean-exit" || details.reason === "killed") return;
+    // The dead renderer owned every active recording's capture; finalize or
+    // cancel them so their power blocker and the close-to-hide latch release
+    // instead of pinning the machine awake until quit.
+    void recorderServiceInstance?.abandonActiveRecordings().finally(syncBackgroundPresence);
+    if (rendererReloads >= 3) return;
+    rendererReloads += 1;
+    setTimeout(() => {
+      if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.reload();
+    }, 1_000);
   });
 
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
@@ -2311,6 +2505,8 @@ if (!app.requestSingleInstanceLock()) {
   app.quit();
 } else {
   app.on("before-quit", (event) => {
+    // Lets the window 'close' handler distinguish quit from close-to-hide.
+    appIsQuitting = true;
     if (runtimeDisposedForQuit) return;
     event.preventDefault();
     if (runtimeDisposeInProgress) return;
@@ -2320,6 +2516,8 @@ if (!app.requestSingleInstanceLock()) {
     callOverlay.destroy();
     systemDictation.dispose();
     dictationHud.destroy();
+    appTray.destroy();
+    powerSessions.releaseAll();
     void Promise.all([disposeRuntimeBeforeQuit(), uiControlServer.stop()]).finally(() => app.quit());
   });
 
@@ -2344,6 +2542,10 @@ if (!app.requestSingleInstanceLock()) {
       await app.dock.show();
       if (APP_ICON_IMAGE && !APP_ICON_IMAGE.isEmpty()) app.dock.setIcon(APP_ICON_IMAGE);
     }
+    // Keep the main process (which delivers the globalShortcut chord and the
+    // hotkey→capture IPC) at Windows HighQoS so a hidden/occluded window
+    // can't get it EcoQoS-throttled into laggy hotkey response.
+    pinWindowsProcessQoS([process.pid]);
     installMediaPermissionHandlers(session, () => mainWindow, { isLoopbackCaptureArmed });
     applicationMenu.install();
     await runtimeManager.prepareFreshRuntime().catch(() => undefined);
@@ -2358,7 +2560,44 @@ if (!app.requestSingleInstanceLock()) {
     runtimeBootstrapPromise = bootRuntimeForSelectedWorkspace().catch(describeRuntimeBootFailure);
 
     queueDeepLinks(forwardedDeepLinks(process.argv));
+    if (process.platform === "darwin" && !startHiddenPending) {
+      try {
+        startHiddenPending = app.getLoginItemSettings().wasOpenedAtLogin === true;
+      } catch {
+        // Login-item status is a convenience; never block startup on it.
+      }
+    }
     await systemDictation.initialize();
+    syncBackgroundPresence();
+
+    // Suspend/resume/lock sequencing: stop work immediately on suspend (the
+    // renderer finalizes call recordings and cancels dictation — a paste
+    // into whatever is focused after wake would be wrong), then health-check
+    // the parts that verifiably die across sleep: the native key monitor and
+    // the transcription worker. The Electron chord registration is OS-held
+    // and is only re-applied when the OS reports it lost.
+    const powerLifecycle = new PowerLifecycle({
+      powerMonitor,
+      onSuspend: () => {
+        recorderService().broadcast({ type: "power-suspend" });
+      },
+      onResume: async () => {
+        await systemDictation.refreshAfterResume();
+        await recorderService().ensureTranscriberAfterWake();
+      },
+      onLockScreen: () => {
+        // No paste target exists behind the lock screen; call recordings
+        // legitimately continue (locking during a call is normal).
+        recorderService().broadcast({ type: "system-dictation-cancel" });
+      },
+      onUnlockScreen: async () => {
+        // The secure desktop swallows key-ups (Win+L is pressed to get
+        // there) — rebuild key state even without a sleep in between.
+        await systemDictation.refreshAfterResume();
+      },
+    });
+    powerLifecycle.start();
+
     const win = await createMainWindow();
     win.webContents.on("did-finish-load", () => {
       flushPendingDeepLinks();
@@ -2380,6 +2619,8 @@ if (!app.requestSingleInstanceLock()) {
     win.focus();
   });
 
+  // Only reachable when the window really closed — with dictation enabled
+  // (or a recording running) the 'close' handler hides instead.
   app.on("window-all-closed", () => {
     if (process.platform !== "darwin") {
       app.quit();

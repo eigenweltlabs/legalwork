@@ -16,6 +16,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
+import { desktopLoginItemGet, desktopLoginItemSet } from "@/app/lib/desktop";
 import { t } from "../../../../i18n";
 import {
   LayoutSectionItem,
@@ -34,6 +35,8 @@ export function RecorderSettingsView() {
   const store = useRecorderStore();
   const [changingDictation, setChangingDictation] = useState(false);
   const [dictationSetupOpen, setDictationSetupOpen] = useState(false);
+  const [loginItem, setLoginItem] = useState<{ openAtLogin: boolean; requiresApproval: boolean } | null>(null);
+  const [changingLoginItem, setChangingLoginItem] = useState(false);
   const models = store.bootstrap?.models ?? [];
   const engine = store.bootstrap?.engine;
   const selectedModelInstalled = models.some(
@@ -43,6 +46,9 @@ export function RecorderSettingsView() {
 
   useEffect(() => {
     void store.init();
+    void desktopLoginItemGet()
+      .then(setLoginItem)
+      .catch(() => setLoginItem(null));
     const onFocus = () => {
       void store.refreshSystemDictation();
       void store.refreshPermissions();
@@ -52,6 +58,14 @@ export function RecorderSettingsView() {
     // The recorder store is module-scoped and init is idempotent.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  const setOpenAtLogin = (openAtLogin: boolean) => {
+    setChangingLoginItem(true);
+    void desktopLoginItemSet(openAtLogin)
+      .then(setLoginItem)
+      .catch(() => {})
+      .finally(() => setChangingLoginItem(false));
+  };
 
   return (
     <LayoutStack>
@@ -102,6 +116,27 @@ export function RecorderSettingsView() {
         </div>
 
         <DictationSetupDialog open={dictationSetupOpen} onOpenChange={setDictationSetupOpen} />
+
+        {loginItem !== null ? (
+          <div className="flex flex-col gap-3 border-t border-border pt-4 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <div className="text-xs font-medium text-foreground">
+                {t("recorder.dictation_login_title")}
+              </div>
+              <div className="mt-1 text-sm text-muted-foreground">
+                {loginItem.requiresApproval
+                  ? t("recorder.dictation_login_requires_approval")
+                  : t("recorder.dictation_login_description")}
+              </div>
+            </div>
+            <Switch
+              aria-label={t("recorder.dictation_login_title")}
+              checked={loginItem.openAtLogin}
+              disabled={changingLoginItem}
+              onCheckedChange={setOpenAtLogin}
+            />
+          </div>
+        ) : null}
 
         <div className="grid gap-4 border-t border-border pt-4 md:grid-cols-[minmax(0,1fr)_auto]">
           <ol className="space-y-3 text-sm text-foreground">

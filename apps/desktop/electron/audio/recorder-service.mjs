@@ -62,6 +62,8 @@ export class RecorderService {
    *   resolveWorkerPath?: () => string,
    *   forkWorker?: (workerPath: string) => TranscriberWorkerHandle,
    *   appAudioAvailable?: () => boolean,
+   *   powerSessions?: { acquire: (key: string) => void, release: (key: string) => void },
+   *   pinProcessQoS?: (pids: number[]) => void,
    * }} options
    */
   constructor(options) {
@@ -69,6 +71,13 @@ export class RecorderService {
     this.modelsDir = path.join(options.userDataDir, "stt-models");
     this.recordingsDir = path.join(options.userDataDir, "recordings");
     this.appAudioAvailable = options.appAudioAvailable ?? (() => false);
+    // Keeps the OS from idle-sleeping (and Modern Standby from freezing the
+    // process) while a recording or import is in flight; no-op in tests.
+    this.powerSessions = options.powerSessions ?? { acquire: () => {}, release: () => {} };
+    // Pins the transcription utilityProcess to Windows HighQoS so a hidden
+    // window can't get it EcoQoS-throttled (slow decode = slow paste); no-op
+    // off Windows and in tests.
+    this.pinProcessQoS = options.pinProcessQoS ?? (() => {});
     this.resolveWorkerPath =
       options.resolveWorkerPath ?? (() => path.join(__dirname, "transcription-worker.cjs"));
     // Injectable so unit tests run without electron.
@@ -340,6 +349,7 @@ export class RecorderService {
 
     const worker = this.forkWorker(this.resolveWorkerPath());
     this.worker = worker;
+    if (typeof worker.pid === "number" && worker.pid > 0) this.pinProcessQoS([worker.pid]);
 
     worker.on("message", (message) => this.handleWorkerMessage(message));
     worker.on("exit", (code) => {
@@ -528,7 +538,19 @@ export class RecorderService {
       this.broadcast({ type: "recording-error", recordingId: id, error: meta.error });
     });
     this.activeRecordings.set(id, recording);
-    await writeMeta(folderPath, meta);
+    this.powerSessions.acquire(`recording:${id}`);
+    try {
+      await writeMeta(folderPath, meta);
+    } catch (error) {
+      // The renderer's rollback only fires once it has the id; a throw here
+      // never returns one, so undo everything before rethrowing or the power
+      // blocker and the active entry would leak until quit.
+      this.activeRecordings.delete(id);
+      this.powerSessions.release(`recording:${id}`);
+      await new Promise((resolve) => audioStream.end(resolve));
+      await fsp.rm(folderPath, { recursive: true, force: true }).catch(() => {});
+      throw error;
+    }
     this.broadcast({ type: "recording-started", recordingId: id });
     return meta;
   }
@@ -536,6 +558,14 @@ export class RecorderService {
   async stopRecording(recordingId) {
     const recording = this.activeRecordings.get(recordingId);
     if (!recording) throw new Error(`Unknown recording: ${recordingId}`);
+    try {
+      return await this.finishRecording(recordingId, recording);
+    } finally {
+      this.powerSessions.release(`recording:${recordingId}`);
+    }
+  }
+
+  async finishRecording(recordingId, recording) {
     // Duration is capture time — the finalize round-trip below must not count.
     const stoppedAt = Date.now();
 
@@ -589,6 +619,7 @@ export class RecorderService {
     this.pendingPcm.delete(recordingId);
     if (!recording) return;
     this.activeRecordings.delete(recordingId);
+    this.powerSessions.release(`recording:${recordingId}`);
     if (this.worker && this.workerReady) {
       this.worker.postMessage({ type: "drop", streamId: recordingId });
     }
@@ -647,7 +678,17 @@ export class RecorderService {
       importAudioPath: audioPath,
     };
     this.activeRecordings.set(id, recording);
-    await writeMeta(folderPath, meta);
+    // Same key namespace as live recordings: the shared cancelRecording
+    // error path releases it either way.
+    this.powerSessions.acquire(`recording:${id}`);
+    try {
+      await writeMeta(folderPath, meta);
+    } catch (error) {
+      this.activeRecordings.delete(id);
+      this.powerSessions.release(`recording:${id}`);
+      await fsp.rm(folderPath, { recursive: true, force: true }).catch(() => {});
+      throw error;
+    }
     this.broadcast({ type: "recording-started", recordingId: id });
     return meta;
   }
@@ -664,7 +705,14 @@ export class RecorderService {
   async importFileFinish(recordingId, durationMs) {
     const recording = this.activeRecordings.get(recordingId);
     if (!recording) throw new Error(`Unknown import: ${recordingId}`);
+    try {
+      return await this.finishImport(recordingId, recording, durationMs);
+    } finally {
+      this.powerSessions.release(`recording:${recordingId}`);
+    }
+  }
 
+  async finishImport(recordingId, recording, durationMs) {
     // The renderer streams the whole file's PCM before calling finish; wait for
     // the model if it is still loading so nothing is dropped.
     if (this.worker && !this.workerReady) {
@@ -717,7 +765,12 @@ export class RecorderService {
       const meta = await readMeta(path.join(this.recordingsDir, entry.name));
       if (!meta) continue;
       if (meta.ephemeral) {
-        if (!this.activeRecordings.has(meta.id)) {
+        // Sweep only stale strays (crash leftovers). A fresh ephemeral
+        // dictation may be between "stopped" and retainRecording (failed
+        // paste) when a concurrent list runs — deleting it here would race
+        // the retain and destroy spoken text.
+        const age = Date.now() - (Number(meta.createdAt) || 0);
+        if (!this.activeRecordings.has(meta.id) && age > 60 * 60 * 1000) {
           await fsp.rm(path.join(this.recordingsDir, entry.name), { recursive: true, force: true });
         }
         continue;
@@ -747,6 +800,55 @@ export class RecorderService {
     await this.cancelRecording(recordingId).catch(() => {});
     await fsp.rm(path.join(this.recordingsDir, recordingId), { recursive: true, force: true });
     return this.listRecordings();
+  }
+
+  /**
+   * The renderer that was feeding PCM died (crash / reload). Its recordings
+   * can never receive more audio, so finalize call recordings (keep what was
+   * captured) and cancel dictations/imports (no renderer left to paste or
+   * stream). Both paths release the power session and clear the active entry,
+   * so the app can idle-sleep and the close-to-hide latch lifts.
+   */
+  async abandonActiveRecordings() {
+    for (const id of [...this.activeRecordings.keys()]) {
+      const recording = this.activeRecordings.get(id);
+      if (!recording) continue;
+      const savePartial = Boolean(recording.audioStream) && recording.meta.ephemeral !== true;
+      if (savePartial) {
+        await this.stopRecording(id).catch(() => this.cancelRecording(id).catch(() => {}));
+      } else {
+        await this.cancelRecording(id).catch(() => {});
+      }
+    }
+  }
+
+  /**
+   * Flip an ephemeral recording (system dictation) to retained. Used when the
+   * paste failed: spoken text that never reached its target must stay
+   * recoverable in the Recorder history instead of being swept on next list.
+   */
+  async retainRecording(recordingId) {
+    const folderPath = path.join(this.recordingsDir, recordingId);
+    const meta = this.activeRecordings.get(recordingId)?.meta ?? (await readMeta(folderPath));
+    if (!meta || meta.ephemeral !== true) return this.listRecordings();
+    meta.ephemeral = false;
+    await writeMeta(meta.folderPath, meta);
+    return this.listRecordings();
+  }
+
+  /**
+   * Post-wake health check: sleep can take the transcription utilityProcess
+   * down (or leave its runtime dead); if a model was loaded, make sure the
+   * worker is alive again so the first post-wake dictation is not the moment
+   * the user discovers it died.
+   */
+  async ensureTranscriberAfterWake() {
+    const loaded = this.loadedModel;
+    if (!loaded) return this.transcriberStatus;
+    if (this.worker && this.workerReady) return this.transcriberStatus;
+    if (this.worker && !this.workerReady) return this.transcriberStatus; // load in flight
+    this.loadedModel = null;
+    return this.startTranscriber({ modelId: loaded.modelId, language: loaded.language });
   }
 
   async renameRecording(recordingId, title) {
@@ -802,6 +904,7 @@ export class RecorderService {
   dispose() {
     this.stopWorker();
     for (const recording of this.activeRecordings.values()) {
+      this.powerSessions.release(`recording:${recording.meta.id}`);
       try {
         recording.audioStream.end();
       } catch {

@@ -33,6 +33,7 @@ import {
   audioRecordingDelete,
   audioRecordingGet,
   audioRecordingRename,
+  audioRecordingRetain,
   audioRecordingSaveToWorkspace,
   audioRecordingStart,
   audioRecordingStop,
@@ -271,6 +272,12 @@ let dictationTogglePending = false;
 let dictationHoldStartPending = false;
 let dictationHoldReleased = false;
 let dictationHoldStopPending = false;
+let dictationCancelPending = false;
+// Bumped whenever the machine suspends. startRecording captures it on entry
+// and rolls back if it changed by the time capture is wired up — a recording
+// whose start straddled a sleep would otherwise latch on indefinitely (and
+// hold the OS power blocker) until the user next toggles the hotkey.
+let suspendEpoch = 0;
 
 function transcriptText(segments: AudioTranscriptSegment[], limit = 12_000): string {
   const text = segments.map((segment) => segment.text).join("\n");
@@ -468,11 +475,41 @@ export const useRecorderStore = create<RecorderState & RecorderActions>((set, ge
         break;
       }
       case "system-dictation-cancel": {
-        if (state.dictationRecordingId) void get().cancelRecording();
+        if (state.dictationRecordingId && !dictationCancelPending) {
+          dictationCancelPending = true;
+          void get().cancelRecording().finally(() => {
+            dictationCancelPending = false;
+          });
+        }
         break;
       }
       case "system-dictation-status": {
         set({ systemDictation: event.status, error: event.status.error });
+        break;
+      }
+      case "power-suspend": {
+        // Machine is going to sleep. Dictation is canceled (a paste into
+        // whatever happens to be focused after wake would be wrong); a call
+        // recording is stopped so everything captured so far finalizes to
+        // disk instead of freezing mid-write.
+        suspendEpoch += 1;
+        // A hold-mode dictation may be mid-start with its key-up about to be
+        // swallowed by sleep — release it so the press handler's finally
+        // stops it (and so startRecording's post-capture check rolls back).
+        dictationHoldReleased = true;
+        // Don't race a stop/start that's already in flight: issuing a cancel
+        // against a recording another handler is finalizing throws
+        // "Unknown recording" and deletes the folder out from under it. A
+        // pending start is covered by the suspendEpoch rollback; a pending
+        // stop already finalizes (and retains on paste failure) on its own.
+        if (
+          dictationTogglePending
+          || dictationHoldStartPending
+          || dictationHoldStopPending
+          || dictationCancelPending
+        ) break;
+        if (state.dictationRecordingId) void get().cancelRecording();
+        else if (state.recording) void get().stopRecording();
         break;
       }
       case "live-transcript-stopped": {
@@ -754,6 +791,10 @@ export const useRecorderStore = create<RecorderState & RecorderActions>((set, ge
 
       set({ error: null, permissionsNeeded: [], segments: [], partial: null, copilotEntries: [] });
       let startedMetaId: string | null = null;
+      // The start window (model cold-load + getUserMedia + track settle) is
+      // seconds wide; if the machine sleeps inside it, roll the whole thing
+      // back instead of latching a recording nobody can see.
+      const startEpoch = suspendEpoch;
       try {
         const status = await audioTranscriberStart({ modelId, language });
         if (status.state === "error") throw new Error(status.error ?? "Transcriber failed to start.");
@@ -778,6 +819,21 @@ export const useRecorderStore = create<RecorderState & RecorderActions>((set, ge
           },
           { appPids: get().appPids },
         );
+        // Suspended (or a hold-release fired) while we were starting: abandon
+        // the half-built recording rather than leave it running post-wake.
+        if (suspendEpoch !== startEpoch) {
+          await captureHandle.stop().catch(() => {});
+          captureHandle = null;
+          await audioRecordingCancel(meta.id).catch(() => {});
+          set({
+            recording: null,
+            recordingStartedAt: null,
+            dictationRecordingId: null,
+            dictationState: options?.systemDictation ? "idle" : get().dictationState,
+          });
+          if (options?.systemDictation) await audioSystemDictationSetState("idle").catch(() => {});
+          return;
+        }
         set({
           recording: meta,
           recordingStartedAt: Date.now(),
@@ -843,9 +899,15 @@ export const useRecorderStore = create<RecorderState & RecorderActions>((set, ge
           try {
             const result = await audioSystemDictationPaste(text);
             dictationError = result.error;
-          } finally {
-            recordingsAfterDictation = await audioRecordingDelete(meta.id).catch(() => null);
+          } catch (error) {
+            dictationError = error instanceof Error ? error.message : String(error);
           }
+          // Delete only after confirmed insertion. On failure the clipboard
+          // copy can be overwritten at any time, so the dictation is flipped
+          // to a retained recording — spoken text must never just vanish.
+          recordingsAfterDictation = dictationError === null
+            ? await audioRecordingDelete(meta.id).catch(() => null)
+            : await audioRecordingRetain(meta.id).catch(() => null);
           await audioSystemDictationSetState(
             dictationError ? "error" : "idle",
             dictationError ?? "",

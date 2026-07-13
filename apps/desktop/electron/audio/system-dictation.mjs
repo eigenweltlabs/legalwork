@@ -87,12 +87,12 @@ export class SystemDictationService {
    * @param {{
    *   userDataDir: string,
    *   platform?: string,
-   *   globalShortcut: { register: (accelerator: string, callback: () => void) => boolean, unregister: (accelerator: string) => void },
+   *   globalShortcut: { register: (accelerator: string, callback: () => void) => boolean, unregister: (accelerator: string) => void, isRegistered?: (accelerator: string) => boolean },
    *   clipboard: { availableFormats: () => string[], readBuffer: (format: string) => Buffer, clear: () => void, writeBuffer: (format: string, data: Buffer) => void, readText: () => string, writeText: (text: string) => void },
    *   systemPreferences?: { isTrustedAccessibilityClient?: (prompt: boolean) => boolean },
    *   shell: { openExternal: (url: string) => Promise<unknown> },
    *   runPasteCommand: (platform: "darwin" | "windows" | "linux") => Promise<void>,
-   *   keyMonitor?: { isSupported?: () => boolean, start: (onEvent: (event: { type: "down" | "up"; key: string } | { type: "unavailable"; error: string }) => void | Promise<void>) => Promise<boolean>, stop: () => void },
+   *   keyMonitor?: { isSupported?: () => boolean, start: (onEvent: (event: { type: "down" | "up"; key: string } | { type: "reset" } | { type: "unavailable"; error: string }) => void | Promise<void>) => Promise<boolean>, stop: () => void, restart?: () => Promise<boolean> },
    *   onToggle: () => void,
    *   onPress?: () => void,
    *   onRelease?: () => void,
@@ -357,6 +357,18 @@ export class SystemDictationService {
       return;
     }
 
+    if (event.type === "reset") {
+      // The monitor (or its in-process tap) was recreated — key-ups emitted
+      // while it was down are gone, so any held-chord bookkeeping is stale.
+      // Releasing a latched hold finalizes that dictation instead of leaving
+      // it recording forever. A partly-captured chord is discarded too, so
+      // the next key-up can't commit half a pre-reset combination.
+      this.pressedKeys.clear();
+      this.captureChord.clear();
+      this.resetShortcutTrigger(this.mode === "hold");
+      return;
+    }
+
     if (event.type === "down") {
       if (this.pressedKeys.has(event.key)) return;
       this.pressedKeys.add(event.key);
@@ -417,6 +429,41 @@ export class SystemDictationService {
     }
     if (!this.enabled) this.stopKeyMonitor();
     this.onStatus(this.status());
+  }
+
+  /**
+   * Post-wake / post-unlock health check. The native key monitor is the
+   * component that verifiably dies across sleep and session transitions, so
+   * it is restarted outright. The Electron chord registration is OS-held and
+   * survives sleep by construction — re-registering it blind would open a
+   * window where another app can steal the chord, so it is only re-applied
+   * when the OS reports it lost.
+   */
+  async refreshAfterResume() {
+    if (!this.enabled) return this.status();
+    const hadMonitor = this.monitorAvailable;
+    if (this.keyMonitor) {
+      // Key state recorded before sleep is meaningless now; clear it without
+      // firing onRelease — suspend already canceled any active dictation. A
+      // chord half-captured before sleep is dropped too, so the first key-up
+      // after wake can't silently commit it as the new shortcut.
+      this.pressedKeys.clear();
+      this.captureChord.clear();
+      this.shortcutTriggered = false;
+      if (hadMonitor && typeof this.keyMonitor.restart === "function") {
+        this.monitorAvailable = await this.keyMonitor.restart();
+      } else if (!hadMonitor && this.keyMonitor.isSupported?.() !== false) {
+        this.monitorAvailable = await this.keyMonitor.start((event) => this.handleMonitorEvent(event));
+      }
+    }
+    const monitorChanged = this.monitorAvailable !== hadMonitor;
+    const chordLost =
+      this.registeredAccelerator !== null
+      && typeof this.globalShortcut.isRegistered === "function"
+      && !this.globalShortcut.isRegistered(this.registeredAccelerator);
+    if (monitorChanged || chordLost || !this.registered) this.applyRegistration();
+    this.onStatus(this.status());
+    return this.status();
   }
 
   async openSettings() {

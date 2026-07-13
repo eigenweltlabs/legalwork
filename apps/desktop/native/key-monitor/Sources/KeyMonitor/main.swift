@@ -1,3 +1,4 @@
+import AppKit
 import ApplicationServices
 import Foundation
 
@@ -26,6 +27,7 @@ private let modifierFlags: [CGKeyCode: CGEventFlags] = [
 ]
 
 private var eventTap: CFMachPort?
+private var runLoopSource: CFRunLoopSource?
 
 private func emit(_ type: String, _ key: String) {
     let data = Data("\(type)\t\(key)\n".utf8)
@@ -56,26 +58,94 @@ private let callback: CGEventTapCallBack = { _, type, event, _ in
     return Unmanaged.passUnretained(event)
 }
 
-let mask = (1 << CGEventType.keyDown.rawValue)
-    | (1 << CGEventType.keyUp.rawValue)
-    | (1 << CGEventType.flagsChanged.rawValue)
+private func teardownTap() {
+    if let runLoopSource {
+        CFRunLoopRemoveSource(CFRunLoopGetMain(), runLoopSource, .commonModes)
+    }
+    if let eventTap {
+        CGEvent.tapEnable(tap: eventTap, enable: false)
+        CFMachPortInvalidate(eventTap)
+    }
+    runLoopSource = nil
+    eventTap = nil
+}
 
-guard let tap = CGEvent.tapCreate(
-    tap: .cgSessionEventTap,
-    place: .headInsertEventTap,
-    options: .listenOnly,
-    eventsOfInterest: CGEventMask(mask),
-    callback: callback,
-    userInfo: nil
-) else {
+private func createTap() -> Bool {
+    let mask = (1 << CGEventType.keyDown.rawValue)
+        | (1 << CGEventType.keyUp.rawValue)
+        | (1 << CGEventType.flagsChanged.rawValue)
+
+    guard let tap = CGEvent.tapCreate(
+        tap: .cgSessionEventTap,
+        place: .headInsertEventTap,
+        options: .listenOnly,
+        eventsOfInterest: CGEventMask(mask),
+        callback: callback,
+        userInfo: nil
+    ) else {
+        return false
+    }
+
+    let source = CFMachPortCreateRunLoopSource(kCFAllocatorDefault, tap, 0)
+    eventTap = tap
+    runLoopSource = source
+    CFRunLoopAddSource(CFRunLoopGetMain(), source, .commonModes)
+    CGEvent.tapEnable(tap: tap, enable: true)
+    return true
+}
+
+/// Sleep/wake and session switches can leave a tap that looks enabled but
+/// never fires again. Rebuilding it is cheap and unambiguous; the "reset"
+/// line tells the app that key-ups may have been lost so it can drop any
+/// held-chord state instead of latching hold-to-talk.
+private func recreateTap() {
+    teardownTap()
+    guard createTap() else {
+        FileHandle.standardError.write(Data("Keyboard monitoring permission was revoked.\n".utf8))
+        exit(2)
+    }
+    emit("reset", "*")
+}
+
+guard createTap() else {
     FileHandle.standardError.write(Data("Keyboard monitoring permission is required.\n".utf8))
     exit(2)
 }
 
-let source = CFMachPortCreateRunLoopSource(kCFAllocatorDefault, tap, 0)
-eventTap = tap
-CFRunLoopAddSource(CFRunLoopGetCurrent(), source, .commonModes)
-CGEvent.tapEnable(tap: tap, enable: true)
+// Keep the listener out of App Nap: a coalesced helper services its tap
+// callback late, and the OS disables taps whose callbacks run late. This
+// option deliberately still allows idle system sleep.
+let activity = ProcessInfo.processInfo.beginActivity(
+    options: .userInitiatedAllowingIdleSystemSleep,
+    reason: "Dictation hotkey listener"
+)
+_ = activity
+
+let workspaceCenter = NSWorkspace.shared.notificationCenter
+workspaceCenter.addObserver(
+    forName: NSWorkspace.didWakeNotification, object: nil, queue: .main
+) { _ in recreateTap() }
+workspaceCenter.addObserver(
+    forName: NSWorkspace.sessionDidBecomeActiveNotification, object: nil, queue: .main
+) { _ in recreateTap() }
+
+// Watchdog for the disable path the callback cannot see: the
+// tapDisabledBy* events are themselves dropped in rare cases (they are
+// delivered through the same tap), so poll and re-enable.
+let watchdog = CFRunLoopTimerCreateWithHandler(
+    kCFAllocatorDefault,
+    CFAbsoluteTimeGetCurrent() + 2.0,
+    2.0,
+    0,
+    0
+) { _ in
+    if let eventTap, !CGEvent.tapIsEnabled(tap: eventTap) {
+        CGEvent.tapEnable(tap: eventTap, enable: true)
+        emit("reset", "*")
+    }
+}
+CFRunLoopAddTimer(CFRunLoopGetMain(), watchdog, .commonModes)
+
 print("ready")
 fflush(stdout)
 CFRunLoopRun()
