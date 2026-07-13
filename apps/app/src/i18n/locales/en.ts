@@ -1124,7 +1124,7 @@ export default {
   "settings.appearance_hint": "Match the system or force light/dark mode.",
   "settings.appearance_title": "Appearance",
   "settings.analytics_toggle": "Share anonymous usage data",
-  "settings.analytics_toggle_desc": "Off unless you turn it on. Helps us understand which features matter — never your messages, prompts, code, or file contents.",
+  "settings.analytics_toggle_desc": "Helps us understand which features matter, never your messages, prompts, code, or file contents. Turn it off anytime.",
   "settings.audit_log_title": "Audit log",
   "settings.auto_compact": "Auto context compaction",
   "settings.privacy_section_desc": "Control what LegalWork shares to improve the product.",

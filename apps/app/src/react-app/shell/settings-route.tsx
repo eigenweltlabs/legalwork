@@ -71,6 +71,7 @@ import { ToolPermissionsPanel } from "@/react-app/domains/settings/panels/tool-p
 import { SettingsStack } from "@/react-app/domains/settings/settings-section";
 import { AdvancedView } from "@/react-app/domains/settings/pages/advanced-view";
 import { AppearanceView } from "@/react-app/domains/settings/pages/appearance-view";
+import { captureAnalyticsEvent } from "@/app/lib/analytics";
 import { DebugView } from "@/react-app/domains/settings/pages/debug-view";
 import { EnvironmentView } from "@/react-app/domains/settings/pages/environment-view";
 import { ExtensionsView } from "@/react-app/domains/settings/pages/extensions-view";
@@ -2074,7 +2075,10 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
           <AppearanceView
             busy={busy}
             themeMode={themeMode}
-            setThemeMode={setThemeModeState}
+            setThemeMode={(mode) => {
+              captureAnalyticsEvent("theme_changed", { mode });
+              setThemeModeState(mode);
+            }}
             language={currentLocale() as Language}
             setLanguage={setLocale}
             hideTitlebar={hideTitlebar}

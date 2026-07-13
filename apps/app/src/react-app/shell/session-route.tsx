@@ -16,7 +16,7 @@ import type {
   TextPartInput,
 } from "@opencode-ai/sdk/v2/client";
 
-import { captureAnalyticsEvent, markTaskRunStart } from "@/app/lib/analytics";
+import { analyticsSurface, captureAnalyticsEvent, markTaskRunStart } from "@/app/lib/analytics";
 import { createClient, unwrap } from "@/app/lib/opencode";
 import { abortSessionSafe, forkSession, listCommands, revertSession, setSessionArchived, shellInSession } from "@/app/lib/opencode-session";
 import { useSessionManagementStore as sessionManagementStore } from "@/react-app/domains/session/sidebar/session-management-store";
@@ -105,7 +105,6 @@ import { appMentionInstruction } from "@/react-app/domains/session/surface/compo
 import { CreateWorkspaceModal } from "@/react-app/domains/workspace/create-workspace-modal";
 import { useSessionProviderAuth } from "@/react-app/domains/connections/provider-auth/use-session-provider-auth";
 import { ProviderSelectionStep } from "@/react-app/domains/onboarding/provider-selection-step";
-import { UsageAnalyticsStep } from "@/react-app/domains/onboarding/usage-analytics-step";
 import { useMcpConnectedCount } from "@/react-app/domains/connections/use-mcp-connected-count";
 import { RenameWorkspaceModal } from "@/react-app/domains/workspace/rename-workspace-modal";
 import { ModelPickerModal } from "@/react-app/domains/session/modals/model-picker-modal";
@@ -568,7 +567,7 @@ export function SessionRoute() {
     opencodeClient && selectedWorkspaceId && !loading && !selectedWorkspaceError && !selectedModelUnavailable,
   );
 
-  const { store: sessionProviderAuthStore, snapshot: sessionProviderAuthSnapshot, onboardingStep, goToAnalytics, finishOnboarding } =
+  const { store: sessionProviderAuthStore, snapshot: sessionProviderAuthSnapshot, onboardingStep, finishOnboarding } =
     useSessionProviderAuth({
       opencodeClient,
       providers,
@@ -759,14 +758,16 @@ export function SessionRoute() {
         if (!text && draft.attachments.length === 0) return;
         if (selectedModelUnavailable) throw new Error("Selected model is unavailable. Choose another model before sending.");
 
+        const fusionModels = getFusionSelectedModels(targetSessionId);
         captureAnalyticsEvent("task_message_sent", {
-          mode: draft.mode ?? "prompt",
+          session_id: targetSessionId,
           is_command: Boolean(draft.command),
-          attachment_count: draft.attachments.length,
-          text_length: text.length,
-          workspace_type: selectedWorkspace?.workspaceType ?? "unknown",
           provider_id: local.prefs.defaultModel?.providerID ?? null,
           model_id: local.prefs.defaultModel?.modelID ?? null,
+          surface: analyticsSurface(),
+          fusion_enabled: isFusionEnabled(targetSessionId),
+          fusion_model_count: fusionModels.length,
+          fusion_models: fusionModels.map((m) => `${m.providerID}/${m.modelID}`),
         });
         markTaskRunStart(targetSessionId);
 
@@ -1053,7 +1054,7 @@ export function SessionRoute() {
       );
       captureAnalyticsEvent("task_created", {
         source: "new_task",
-        workspace_type: workspace.workspaceType ?? "unknown",
+        surface: analyticsSurface(),
       });
       setLegacySelectedWorkspaceId(workspaceId);
       writeActiveWorkspaceId(workspaceId || null);
@@ -1443,9 +1444,9 @@ export function SessionRoute() {
           : null;
         setLegacySelectedWorkspaceId(targetWorkspaceId);
         writeActiveWorkspaceId(targetWorkspaceId);
-        captureAnalyticsEvent("workspace_created", { workspace_type: "local" });
+        captureAnalyticsEvent("workspace_created", { surface: analyticsSurface() });
         if (session?.id) {
-          captureAnalyticsEvent("task_created", { source: "workspace_created", workspace_type: "local" });
+          captureAnalyticsEvent("task_created", { source: "workspace_created", surface: analyticsSurface() });
           writeLastSessionFor(targetWorkspaceId, session.id);
           rememberPendingCreatedSession(targetWorkspaceId, session.id);
           setSessionsByWorkspaceId((current) => {
@@ -1462,10 +1463,20 @@ export function SessionRoute() {
       }
     } catch (error) {
       setCreateWorkspaceError(describeWorkspaceCreateError(error));
+      // Surface the error even when creation was started outside the modal
+      // (e.g. from the New Task workspace picker's folder select).
+      setCreateWorkspaceOpen(true);
     } finally {
       setCreateWorkspaceBusy(false);
     }
   }, [baseUrl, client, local, navigateToWorkspaceSession, refreshRouteState, rememberPendingCreatedSession, token]);
+
+  const handleCreateTaskInNewWorkspace = useCallback(async () => {
+    if (createWorkspaceBusy) return;
+    const folder = (await pickDirectory({ title: t("onboarding.authorize_folder") })) as string | null;
+    if (!folder?.trim()) return;
+    await handleCreateWorkspace("starter", folder);
+  }, [createWorkspaceBusy, handleCreateWorkspace]);
 
   // Leaving a top-level pane (Learnings/Skills/Integrations): any session/workspace
   // navigation drops back to the session view.
@@ -1496,8 +1507,9 @@ export function SessionRoute() {
       />
     ) : null}
     {onboardingStep === "connect" ? (
-      // Step 2 cover: the real provider-selection design (z-40) with the searchable
-      // connect modal (z-50) opening on top of it. Connecting auto-advances to step 3.
+      // Final onboarding cover: the real provider-selection design (z-40) with the
+      // searchable connect modal (z-50) on top. Usage-analytics consent lives on the
+      // welcome step; connecting or skipping here ends onboarding.
       <ProviderSelectionStep
         onConnect={(providerId) =>
           sessionProviderAuthStore.openProviderAuthModal({
@@ -1505,16 +1517,7 @@ export function SessionRoute() {
             returnFocusTarget: "composer",
           })
         }
-        onSkip={goToAnalytics}
-      />
-    ) : null}
-    {onboardingStep === "analytics" ? (
-      // Step 3 cover: usage-analytics consent, then onboarding is complete.
-      <UsageAnalyticsStep
-        onChoice={(enabled) => {
-          local.setPrefs((prev) => ({ ...prev, analyticsEnabled: enabled, hasCompletedOnboarding: true }));
-          finishOnboarding();
-        }}
+        onSkip={finishOnboarding}
       />
     ) : null}
     <SessionPage
@@ -1715,6 +1718,9 @@ export function SessionRoute() {
           setShowWorkflows(false);
           setShowExtensions(false);
           handleOpenCreateWorkspace();
+        },
+        onCreateTaskInNewWorkspace: () => {
+          void handleCreateTaskInNewWorkspace();
         },
         onReorderWorkspaces: handleReorderWorkspaces,
       }}

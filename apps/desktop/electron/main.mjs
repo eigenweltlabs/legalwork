@@ -21,7 +21,7 @@ import { fileURLToPath } from "node:url";
 import { app, BrowserWindow, dialog, ipcMain, nativeImage, nativeTheme, session, shell, systemPreferences } from "electron";
 import { configureFakeMediaForTests, installMediaPermissionHandlers } from "./media-permissions.mjs";
 import { registerMigrationIpc } from "./migration.mjs";
-import { createRuntimeManager } from "./runtime.mjs";
+import { createRuntimeManager, resolveLegalworkServerConfigPath } from "./runtime.mjs";
 import { buildSupportBundleText, defaultSupportBundleFileName } from "./support-bundle.mjs";
 import { registerUpdaterIpc } from "./updater.mjs";
 import {
@@ -496,6 +496,33 @@ const IDLE_ROUTER_INFO = Object.freeze({
 let mainWindow = null;
 const pendingDeepLinks = [];
 
+// Relay a content-free error signal to the renderer, which turns it into an
+// `app_error` analytics event (only when the user has analytics enabled).
+function relayAppError(source, error, service, exitCode = null) {
+  try {
+    const name =
+      error instanceof Error
+        ? error.name || "Error"
+        : error && typeof error === "object" && "name" in error
+          ? String(error.name)
+          : "Error";
+    if (mainWindow?.webContents && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send("legalwork:app-error", {
+        source,
+        error_name: name,
+        service,
+        exit_code: typeof exitCode === "number" ? exitCode : null,
+      });
+    }
+  } catch {
+    // Never let error reporting throw.
+  }
+}
+// `uncaughtExceptionMonitor` reports without suppressing Electron's default
+// crash behavior (unlike `uncaughtException`).
+process.on("uncaughtExceptionMonitor", (error) => relayAppError("main_uncaught", error, "server"));
+process.on("unhandledRejection", (reason) => relayAppError("main_unhandledrejection", reason, "server"));
+
 const browserPanel = createBrowserPanel({
   remoteDebugPort,
   getWindow: () => mainWindow,
@@ -625,6 +652,10 @@ const runtimeManager = createRuntimeManager({
   app,
   desktopRoot: path.resolve(__dirname, ".."),
   listLocalWorkspacePaths: () => workspaceStore.listLocalWorkspacePaths(),
+  // The agent runtime (orchestrator / opencode) runs as a child process; relay
+  // an unexpected exit as a content-free `sidecar_exit` app_error. Intentional
+  // stops/restarts are filtered out inside the runtime manager.
+  onSidecarExit: (detail) => relayAppError("sidecar_exit", { name: "Error" }, "sidecar", detail?.exitCode ?? null),
 });
 
 let runtimeDisposedForQuit = false;
@@ -2005,6 +2036,15 @@ if (!app.requestSingleInstanceLock()) {
     // Electron see the same workspace list. Import the short-lived
     // Electron-only filename only when the shared file is missing.
     await workspaceStore.migrateLegacyElectronWorkspaceStateIfNeeded();
+
+    // Remove the analytics identity file persisted by earlier builds (the
+    // identity is now in-memory only).
+    try {
+      const configPath = resolveLegalworkServerConfigPath(process.env);
+      await rm(path.join(path.dirname(configPath), "legalwork-analytics-identity.json"), { force: true });
+    } catch {
+      // Best-effort cleanup only.
+    }
     await uiControlServer.start().catch((error) => {
       console.warn("[ui-control] failed to start", error);
     });

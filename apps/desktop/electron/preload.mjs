@@ -52,6 +52,14 @@ contextBridge.exposeInMainWorld("__LEGALWORK_ELECTRON__", {
   invokeDesktop(command, ...args) {
     return ipcRenderer.invoke("legalwork:desktop", command, ...args);
   },
+  /** Subscribe to content-free error signals relayed from the main process. */
+  onAppError(callback) {
+    const handler = (_event, data) => callback(data);
+    ipcRenderer.on("legalwork:app-error", handler);
+    return () => {
+      ipcRenderer.removeListener("legalwork:app-error", handler);
+    };
+  },
   shell: {
     openExternal(url) {
       return ipcRenderer.invoke("legalwork:shell:openExternal", url);

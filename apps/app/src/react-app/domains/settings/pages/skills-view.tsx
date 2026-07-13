@@ -22,6 +22,7 @@ import {
   Trash2,
 } from "lucide-react";
 import { toast } from "@/components/ui/sonner";
+import { captureAnalyticsEvent } from "@/app/lib/analytics";
 
 import {
   Dialog,
@@ -1260,6 +1261,7 @@ function WorkflowCreatorButton(props: {
     try {
       const result = await props.onCreate({ name: fullName, content, description: description.trim() });
       if (result.ok) {
+        captureAnalyticsEvent("workflow_created", {});
         // The workflow folder exists now — flush the files staged during creation.
         const failed = await flushStagedResources(props.saveSkillResource, fullName, staged);
         if (failed.length > 0) {
