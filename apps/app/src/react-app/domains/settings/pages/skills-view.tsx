@@ -10,6 +10,8 @@ import {
 } from "react";
 import {
   CheckCircle2,
+  ChevronLeft,
+  ChevronRight,
   Download,
   Edit2,
   FileArchive,
@@ -20,6 +22,7 @@ import {
   RefreshCw,
   Search,
   Sparkles,
+  Table2,
   Trash2,
   X,
 } from "lucide-react";
@@ -66,6 +69,8 @@ import {
 type InstallResult = { ok: boolean; message: string };
 type SkillsFilter = "all" | "installed" | "hub";
 const SKILLS_HUB_UI_ENABLED = false;
+// Workflows grid: 2 columns × 3 rows before paging.
+const WORKFLOWS_PER_PAGE = 6;
 
 const pageTitleClass = "text-[34px] font-medium leading-[1.04] tracking-[-0.035em] text-dls-text";
 const sectionTitleClass = "text-[15px] font-medium tracking-[-0.2px] text-dls-text";
@@ -335,6 +340,21 @@ export function SkillsView(props: SkillsViewProps) {
     });
   }, [searchQuery, skills]);
 
+  // Workflows render as a paginated 2-column card grid (6 per page); skills keep
+  // the hairline ledger. Page resets whenever the filtered set shrinks or search changes.
+  const [workflowPage, setWorkflowPage] = useState(0);
+  const workflowPageCount = Math.max(1, Math.ceil(filteredSkills.length / WORKFLOWS_PER_PAGE));
+  useEffect(() => {
+    if (workflowPage > workflowPageCount - 1) setWorkflowPage(workflowPageCount - 1);
+  }, [workflowPage, workflowPageCount]);
+  useEffect(() => {
+    setWorkflowPage(0);
+  }, [searchQuery]);
+  const pagedWorkflows = useMemo(
+    () => filteredSkills.slice(workflowPage * WORKFLOWS_PER_PAGE, (workflowPage + 1) * WORKFLOWS_PER_PAGE),
+    [filteredSkills, workflowPage],
+  );
+
   const installedNames = useMemo(() => new Set(allSkills.map((skill) => skill.name)), [allSkills]);
 
   const filteredHubSkills = useMemo(() => {
@@ -570,7 +590,7 @@ export function SkillsView(props: SkillsViewProps) {
   };
 
   return (
-    <section className="space-y-8 max-w-3xl w-full">
+    <section className={`space-y-8 w-full ${isWorkflowsView ? "max-w-4xl" : "max-w-3xl"}`}>
       <div className="space-y-7">
         <div className="flex flex-col gap-5 sm:flex-row sm:items-end sm:justify-between">
           <div className="min-w-0">
@@ -742,20 +762,129 @@ export function SkillsView(props: SkillsViewProps) {
           ) : null}
 
           {filteredSkills.length === 0 ? (
-            <div className="border-y border-dls-border py-16 text-center text-[14px] text-dls-secondary">
+            <div className="rounded-[20px] border border-dashed border-dls-border py-16 text-center text-[14px] text-dls-secondary">
               {isWorkflowsView ? "No workflows yet — use “Add workflow” to create one." : t("skills.no_skills")}
+            </div>
+          ) : isWorkflowsView ? (
+            <div className="space-y-5">
+              <div className="grid gap-3 sm:grid-cols-2">
+                {pagedWorkflows.map((skill) => {
+                  const displayName = workflowDisplayName(skill.name);
+                  const workflowType = cardWorkflowType(skill);
+                  const typeLabel = workflowType === "tabular" ? "Tabular" : "Assistant";
+                  const TypeIcon = workflowType === "tabular" ? Table2 : Sparkles;
+                  return (
+                    <div
+                      key={skill.path}
+                      role="button"
+                      tabIndex={0}
+                      onClick={() => void openSkill(skill)}
+                      onKeyDown={(event) => handleSkillCardKeyDown(event, skill)}
+                      className="group relative flex min-h-[136px] cursor-pointer flex-col overflow-hidden rounded-[20px] border border-dls-border bg-dls-surface p-5 transition-all duration-200 hover:-translate-y-0.5 hover:border-[rgba(var(--dls-accent-rgb),0.3)] hover:shadow-[0_14px_34px_-18px_rgba(8,23,79,0.3)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[rgba(var(--dls-accent-rgb),0.25)]"
+                    >
+                      <span
+                        aria-hidden
+                        className="pointer-events-none absolute inset-x-0 top-0 h-[2px] bg-dls-accent opacity-0 transition-opacity group-hover:opacity-100"
+                      />
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="flex min-w-0 items-center gap-2.5">
+                          <span className="inline-flex size-9 shrink-0 items-center justify-center rounded-[11px] border border-dls-border bg-dls-hover text-dls-accent transition-colors group-hover:border-[rgba(var(--dls-accent-rgb),0.25)]">
+                            <TypeIcon size={16} strokeWidth={1.75} />
+                          </span>
+                          <h4 className="truncate text-[15px] font-medium tracking-[-0.01em] text-dls-text">{displayName}</h4>
+                        </div>
+                        <span className={typeTagClass}>{typeLabel}</span>
+                      </div>
+                      <p className="mt-3 line-clamp-2 text-[13px] leading-relaxed text-dls-secondary">
+                        {skill.description || t("skills.no_description")}
+                      </p>
+                      <div className="mt-auto flex items-center justify-end gap-0.5 pt-3 opacity-0 transition-opacity focus-within:opacity-100 group-hover:opacity-100">
+                        <button
+                          type="button"
+                          className={rowIconBtnClass}
+                          onClick={(event) => {
+                            event.preventDefault();
+                            event.stopPropagation();
+                            void openSkill(skill);
+                          }}
+                          disabled={props.busy}
+                          title={t("common.edit")}
+                          aria-label={t("common.edit")}
+                        >
+                          <Edit2 size={15} />
+                        </button>
+                        <button
+                          type="button"
+                          className={rowIconBtnClass}
+                          onClick={(event) => {
+                            event.preventDefault();
+                            event.stopPropagation();
+                            void exportSkill(skill);
+                          }}
+                          disabled={props.busy || !props.canUseDesktopTools}
+                          title={t("skill_export.action")}
+                          aria-label={t("skill_export.action")}
+                        >
+                          <Download size={15} />
+                        </button>
+                        <button
+                          type="button"
+                          className={rowIconBtnClass}
+                          onClick={(event) => {
+                            event.preventDefault();
+                            event.stopPropagation();
+                            if (props.busy || !props.canUseDesktopTools) {
+                              if (!props.canUseDesktopTools) toast.warning(t("skills.desktop_required"));
+                              return;
+                            }
+                            setUninstallTarget(skill);
+                          }}
+                          disabled={props.busy || !props.canUseDesktopTools}
+                          title={t("skills.uninstall")}
+                          aria-label={t("skills.uninstall")}
+                        >
+                          <Trash2 size={15} />
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+              {workflowPageCount > 1 ? (
+                <div className="flex items-center justify-between border-t border-dls-border pt-4">
+                  <span className="font-mono text-[11px] tabular-nums text-dls-secondary">
+                    Page {workflowPage + 1} / {workflowPageCount}
+                  </span>
+                  <div className="flex items-center gap-1">
+                    <button
+                      type="button"
+                      className={rowIconBtnClass}
+                      onClick={() => setWorkflowPage((page) => Math.max(0, page - 1))}
+                      disabled={workflowPage === 0}
+                      title="Previous page"
+                      aria-label="Previous page"
+                    >
+                      <ChevronLeft size={16} />
+                    </button>
+                    <button
+                      type="button"
+                      className={rowIconBtnClass}
+                      onClick={() => setWorkflowPage((page) => Math.min(workflowPageCount - 1, page + 1))}
+                      disabled={workflowPage >= workflowPageCount - 1}
+                      title="Next page"
+                      aria-label="Next page"
+                    >
+                      <ChevronRight size={16} />
+                    </button>
+                  </div>
+                </div>
+              ) : null}
             </div>
           ) : (
             <div className="divide-y divide-dls-border border-y border-dls-border">
               {filteredSkills.map((skill) => {
-                const displayName = isWorkflowsView ? workflowDisplayName(skill.name) : skill.name;
-                const typeLabel = isWorkflowsView
-                  ? cardWorkflowType(skill) === "tabular"
-                    ? "Tabular"
-                    : "Assistant"
-                  : isLegalworkInjectedSkill(skill)
-                    ? "LegalWork"
-                    : null;
+                const displayName = skill.name;
+                const typeLabel = isLegalworkInjectedSkill(skill) ? "LegalWork" : null;
                 return (
                   <div
                     key={skill.path}

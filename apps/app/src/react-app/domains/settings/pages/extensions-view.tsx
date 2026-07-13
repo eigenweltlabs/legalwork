@@ -81,18 +81,25 @@ export function ExtensionsView(props: ExtensionsViewProps) {
   return (
     <section className="space-y-6 max-w-3xl w-full animate-in fade-in duration-300">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="flex w-fit rounded-xl border border-dls-border bg-dls-surface p-1">
-          {TABS.map(({ id, label, icon: Icon }) => (
-            <Button
-              key={id}
-              variant={tab === id ? "secondary" : "ghost"}
-              size="sm"
-              onClick={() => selectTab(id)}
-            >
-              <Icon size={14} />
-              {label}
-            </Button>
-          ))}
+        <div className="flex w-fit gap-0.5 rounded-full border border-dls-border bg-dls-surface p-1 shadow-[0_1px_2px_rgba(8,23,79,0.04)]">
+          {TABS.map(({ id, label, icon: Icon }) => {
+            const active = tab === id;
+            return (
+              <button
+                key={id}
+                type="button"
+                onClick={() => selectTab(id)}
+                className={`inline-flex items-center gap-1.5 rounded-full px-3.5 py-1.5 text-[13px] font-medium transition-all duration-200 ${
+                  active
+                    ? "bg-dls-accent text-[var(--dls-accent-fg)] shadow-[0_2px_8px_-2px_rgba(var(--dls-accent-rgb),0.5)]"
+                    : "text-dls-secondary hover:bg-dls-hover hover:text-dls-text"
+                }`}
+              >
+                <Icon size={14} strokeWidth={1.75} />
+                {label}
+              </button>
+            );
+          })}
         </div>
         <div className="flex items-center gap-2">
           {props.mcpConnectedAppsCount > 0 ? (
@@ -129,14 +136,17 @@ export function ExtensionsView(props: ExtensionsViewProps) {
 
           <div className="grid grid-cols-[repeat(auto-fill,minmax(min(100%,20rem),1fr))] gap-3">
             {BUNDLED_PLUGINS.map((plugin) => (
-              <div key={plugin.id} className="rounded-xl border border-dls-border bg-dls-surface p-4">
+              <div
+                key={plugin.id}
+                className="group rounded-[18px] border border-dls-border bg-dls-surface p-4 transition-all duration-200 hover:-translate-y-0.5 hover:border-[rgba(var(--dls-accent-rgb),0.25)] hover:shadow-[0_14px_34px_-18px_rgba(8,23,79,0.28)]"
+              >
                 <div className="flex items-center justify-between gap-2">
                   <h4 className="text-sm font-semibold text-dls-text">{plugin.name}</h4>
-                  <span className="shrink-0 rounded-md bg-teal-3 px-1.5 py-0.5 text-[10px] font-medium text-teal-11">
+                  <span className="shrink-0 rounded-full bg-teal-3 px-2 py-0.5 text-[10px] font-medium text-teal-11">
                     Bundled
                   </span>
                 </div>
-                <p className="mt-1 text-xs leading-relaxed text-dls-secondary">{plugin.description}</p>
+                <p className="mt-1.5 text-xs leading-relaxed text-dls-secondary">{plugin.description}</p>
                 <div className="mt-3 flex flex-wrap gap-1.5">
                   {plugin.components.map((component) => (
                     <span
@@ -147,7 +157,7 @@ export function ExtensionsView(props: ExtensionsViewProps) {
                     </span>
                   ))}
                 </div>
-                <div className="mt-3 inline-flex items-center rounded-md bg-dls-hover px-2 py-1 font-mono text-[11px] text-dls-text">
+                <div className="mt-3 inline-flex items-center rounded-lg bg-dls-hover px-2 py-1 font-mono text-[11px] text-dls-text">
                   {plugin.command}
                 </div>
               </div>
