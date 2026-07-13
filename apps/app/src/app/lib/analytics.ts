@@ -25,9 +25,15 @@ const ENV_POSTHOG_KEY = String(import.meta.env.VITE_LEGALWORK_POSTHOG_KEY ?? "")
 const ENV_POSTHOG_HOST = String(import.meta.env.VITE_LEGALWORK_POSTHOG_HOST ?? "").trim();
 const ENV_APP_VERSION = String(import.meta.env.VITE_LEGALWORK_APP_VERSION ?? "").trim();
 
-// LegalWork's PostHog project (EU region). PostHog client keys are publishable
-// by design. Override or blank via VITE_LEGALWORK_POSTHOG_KEY / _HOST.
-const DEFAULT_POSTHOG_KEY = "phc_mvBQ5pbmKNZPmLn6c6bMZb9yXqEtf6bvSPZBa5vwRJfw";
+// LegalWork's PostHog projects (EU region). PostHog client keys are publishable
+// by design. Alpha builds (stamped version `x.y.z-alpha.<run>.<sha>`) report to
+// the "LegalWork Dev & Alpha" project so they never mix with stable data.
+// Override or blank via VITE_LEGALWORK_POSTHOG_KEY / _HOST.
+const STABLE_POSTHOG_KEY = "phc_mvBQ5pbmKNZPmLn6c6bMZb9yXqEtf6bvSPZBa5vwRJfw";
+const ALPHA_POSTHOG_KEY = "phc_Bfnpz8tU5KkWcQ3uzqe99RPL74RuQXLJvHs9zPWZqRqJ";
+const DEFAULT_POSTHOG_KEY = ENV_APP_VERSION.includes("-alpha")
+  ? ALPHA_POSTHOG_KEY
+  : STABLE_POSTHOG_KEY;
 const DEFAULT_POSTHOG_HOST = "https://eu.i.posthog.com";
 
 // Production builds send usage analytics to LegalWork's PostHog (the default key
