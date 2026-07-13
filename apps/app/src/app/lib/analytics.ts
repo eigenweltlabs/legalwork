@@ -6,7 +6,9 @@
  *   names, counts, durations, and coarse context (provider/model id, app
  *   version, platform).
  * - The distinct id lives in memory and rotates per app start — never
- *   persisted to localStorage or disk.
+ *   persisted to localStorage or disk. The local server mints it per launch;
+ *   desktop and Office pane adopt it via setAnalyticsDistinctId, with a
+ *   local mint as boot-time fallback.
  * - Location is capped at city level server-side (the "GeoIP city cap"
  *   transformation in the PostHog project — keep it enabled after GeoIP);
  *   events are anonymous ($process_person_profile: false).
@@ -95,6 +97,7 @@ export function isAnalyticsSending(): boolean {
 }
 
 // Per-launch analytics id: minted in memory on first use, never persisted.
+// Normally replaced by the server's launch id via setAnalyticsDistinctId.
 let runtimeDistinctId = "";
 
 export function getAnalyticsDistinctId(): string {
@@ -107,7 +110,7 @@ export function getAnalyticsDistinctId(): string {
   return runtimeDistinctId;
 }
 
-/** Adopt the desktop's per-launch id (Office pane) so desktop + pane count as one user. */
+/** Adopt the server's per-launch id so desktop + pane count as one user. */
 export function setAnalyticsDistinctId(id: string): void {
   const trimmed = id.trim();
   if (trimmed) runtimeDistinctId = trimmed;

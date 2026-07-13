@@ -1092,9 +1092,10 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
     runtimeVersions: () =>
       requestJson<LegalworkRuntimeSnapshot>(baseUrl, "/runtime/versions", { token, hostToken, timeoutMs: timeouts.status }),
     status: () => requestJson<LegalworkServerDiagnostics>(baseUrl, "/status", { token, hostToken, timeoutMs: timeouts.status }),
-    // Push the per-launch analytics identity for the Office pane (in-memory on the server).
-    setAnalyticsIdentity: (payload: { distinctId: string | null; analyticsEnabled: boolean }) =>
-      requestJson<{ ok: boolean }>(baseUrl, "/analytics/identity", {
+    // Sync analytics consent; the server answers with the per-launch
+    // distinct id (in-memory) for the caller to adopt.
+    setAnalyticsIdentity: (payload: { analyticsEnabled: boolean }) =>
+      requestJson<{ ok: boolean; distinctId?: string }>(baseUrl, "/analytics/identity", {
         token,
         hostToken,
         method: "PUT",

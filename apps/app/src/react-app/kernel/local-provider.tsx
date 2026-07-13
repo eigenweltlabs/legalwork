@@ -11,7 +11,7 @@ import {
 } from "react";
 
 import { THINKING_PREF_KEY } from "../../app/constants";
-import { getAnalyticsDistinctId } from "../../app/lib/analytics";
+import { setAnalyticsDistinctId } from "../../app/lib/analytics";
 import { createLegalworkServerClient } from "../../app/lib/legalwork-server";
 import { coerceReleaseChannel } from "../../app/lib/release-channels";
 import { isDesktopRuntime } from "../../app/lib/runtime-env";
@@ -143,27 +143,24 @@ export function LocalProvider({ children }: LocalProviderProps) {
     writePersisted(PREFS_STORAGE_KEY, prefs);
   }, [prefs]);
 
-  // Push the analytics identity (per-launch id + consent) to the local server
-  // for the Office pane. In-memory on the server; retried briefly because the
-  // server may still be booting. Desktop only.
+  // Sync analytics consent with the local server and adopt its per-launch
+  // distinct id in return. In-memory on both sides; retried briefly because
+  // the server may still be booting. Desktop only. Until the round-trip
+  // succeeds, analytics falls back to a locally minted id.
   useEffect(() => {
     if (!isDesktopRuntime()) return;
     let cancelled = false;
-    const payload = {
-      // The id is only handed out while analytics is on.
-      distinctId: prefs.analyticsEnabled ? getAnalyticsDistinctId() : null,
-      analyticsEnabled: prefs.analyticsEnabled,
-    };
     void (async () => {
       for (let attempt = 0; attempt < 8 && !cancelled; attempt += 1) {
         try {
           const { normalizedBaseUrl, resolvedToken, resolvedHostToken } = await resolveLegalworkConnection();
           if (normalizedBaseUrl && (resolvedToken || resolvedHostToken)) {
-            await createLegalworkServerClient({
+            const result = await createLegalworkServerClient({
               baseUrl: normalizedBaseUrl,
               token: resolvedToken || undefined,
               hostToken: resolvedHostToken || undefined,
-            }).setAnalyticsIdentity(payload);
+            }).setAnalyticsIdentity({ analyticsEnabled: prefs.analyticsEnabled });
+            if (typeof result?.distinctId === "string") setAnalyticsDistinctId(result.distinctId);
             return;
           }
         } catch {
