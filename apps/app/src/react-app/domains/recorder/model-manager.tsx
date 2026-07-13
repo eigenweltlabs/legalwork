@@ -5,7 +5,7 @@
  * recorder event bus).
  */
 import { useEffect, useState } from "react";
-import { Download, FolderSearch, HardDrive, Import, Loader2, Trash2, X } from "lucide-react";
+import { Check, Download, FolderSearch, HardDrive, Import, Loader2, Lock, Sparkles, Trash2, X } from "lucide-react";
 
 import {
   audioModelImport,
@@ -15,85 +15,115 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
+import { cn } from "@/lib/utils";
 import { formatBytes } from "../../../app/utils";
 import { t } from "@/i18n";
 import type { AudioModelDiskCandidate, AudioModelState } from "@legalwork/types/audio";
 
+import { isPremiumEntitled, tierForModelId, tierName, tierTagline } from "./model-tiers";
+import { PremiumUpgradeDialog } from "./model-tier-select";
 import { useRecorderStore } from "./recorder-store";
 
-function tierLabel(tier: AudioModelState["tier"]): string {
-  switch (tier) {
-    case "fastest":
-      return t("recorder.tier_fastest");
-    case "balanced":
-      return t("recorder.tier_balanced");
-    case "accurate":
-      return t("recorder.tier_accurate");
-    case "best":
-      return t("recorder.tier_best");
-  }
-}
-
-function ModelRow(props: { model: AudioModelState }) {
+function ModelRow(props: { model: AudioModelState; recommended: boolean; selected: boolean }) {
   const { model } = props;
   const store = useRecorderStore();
+  const [upgradeOpen, setUpgradeOpen] = useState(false);
+  const tier = tierForModelId(model.id);
+  const name = tier ? tierName(tier.key) : model.label;
+  const tagline = tier ? tierTagline(tier.key) : model.description;
+  const isPremium = model.plan === "premium";
+  const locked = isPremium && !isPremiumEntitled();
   const progress =
     model.totalBytes > 0 ? Math.round((model.downloadedBytes / model.totalBytes) * 100) : 0;
+
+  const select = () => {
+    if (locked) {
+      setUpgradeOpen(true);
+      return;
+    }
+    store.setModelId(model.id);
+    if (model.state !== "installed" && model.state !== "downloading") void store.downloadModel(model.id);
+  };
+
   return (
-    <div className="flex items-center gap-3 rounded-xl border border-border bg-card/60 px-3 py-2.5">
-      <div className="min-w-0 flex-1">
-        <div className="flex flex-wrap items-center gap-2">
-          <span className="text-sm font-medium text-foreground">{model.label}</span>
-          <Badge variant="outline" className="text-[10px]">{tierLabel(model.tier)}</Badge>
-          <Badge variant="outline" className="text-[10px]">EN · DE</Badge>
-          {model.recommended ? (
-            <Badge className="text-[10px]">{t("recorder.model_recommended")}</Badge>
+    <div
+      className={cn(
+        "rounded-xl border bg-card/60 px-3.5 py-3 transition-colors",
+        props.selected ? "border-primary/60 ring-1 ring-primary/20" : "border-border",
+      )}
+    >
+      <div className="flex items-start gap-3">
+        <div className="min-w-0 flex-1">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-sm font-semibold text-foreground">{name}</span>
+            {isPremium ? (
+              <Badge className="gap-1 text-[10px]">
+                <Sparkles className="size-2.5" />
+                {t("recorder.tier_premium_locked")}
+              </Badge>
+            ) : null}
+            {props.recommended ? (
+              <Badge variant="outline" className="text-[10px]">{t("recorder.tier_recommended_device")}</Badge>
+            ) : null}
+            {props.selected ? (
+              <Badge variant="outline" className="gap-1 text-[10px] text-primary">
+                <Check className="size-3" />
+                {t("recorder.model_selected")}
+              </Badge>
+            ) : null}
+          </div>
+          <div className="mt-0.5 text-xs text-muted-foreground">{tagline}</div>
+          {model.state === "downloading" ? (
+            <div className="mt-2 flex items-center gap-2">
+              <Progress value={progress} className="h-1.5 flex-1" />
+              <span className="text-[11px] tabular-nums text-muted-foreground">
+                {formatBytes(model.downloadedBytes)} / {formatBytes(model.totalBytes || model.approxSizeBytes)}
+              </span>
+            </div>
+          ) : null}
+          {model.state === "error" && model.error ? (
+            <div className="mt-1 text-xs text-destructive">{model.error}</div>
           ) : null}
         </div>
-        <div className="mt-0.5 truncate text-xs text-muted-foreground">{model.description}</div>
-        {model.state === "downloading" ? (
-          <div className="mt-2 flex items-center gap-2">
-            <Progress value={progress} className="h-1.5 flex-1" />
-            <span className="text-[11px] tabular-nums text-muted-foreground">
-              {formatBytes(model.downloadedBytes)} / {formatBytes(model.totalBytes || model.approxSizeBytes)}
-            </span>
-          </div>
-        ) : null}
-        {model.state === "error" && model.error ? (
-          <div className="mt-1 text-xs text-destructive">{model.error}</div>
-        ) : null}
-      </div>
-      <div className="flex shrink-0 items-center gap-1.5">
-        <span className="text-xs tabular-nums text-muted-foreground">
-          {formatBytes(model.installedSizeBytes ?? model.approxSizeBytes)}
-        </span>
-        {model.state === "installed" ? (
-          <>
-            <Badge variant="outline" className="gap-1 text-[10px] text-green-11">
-              <HardDrive className="size-3" />
-              {t("recorder.model_installed")}
-            </Badge>
-            <Button
-              variant="ghost"
-              size="icon-sm"
-              aria-label={t("recorder.model_delete")}
-              onClick={() => void store.deleteModel(model.id)}
-            >
-              <Trash2 />
+        <div className="flex shrink-0 flex-col items-end gap-1.5">
+          <span className="text-[11px] tabular-nums text-muted-foreground">
+            {formatBytes(model.installedSizeBytes ?? model.approxSizeBytes)}
+          </span>
+          {locked ? (
+            <Button variant="outline" size="sm" onClick={() => setUpgradeOpen(true)}>
+              <Lock data-icon="inline-start" />
+              {t("recorder.tier_premium_locked")}
             </Button>
-          </>
-        ) : model.state === "downloading" ? (
-          <Button variant="outline" size="sm" onClick={() => void store.cancelModelDownload(model.id)}>
-            <X data-icon="inline-start" />
-            {t("recorder.model_cancel")}
-          </Button>
-        ) : (
-          <Button variant="outline" size="sm" onClick={() => void store.downloadModel(model.id)}>
-            <Download data-icon="inline-start" />
-            {t("recorder.model_download")}
-          </Button>
-        )}
+          ) : model.state === "installed" ? (
+            <div className="flex items-center gap-1.5">
+              {props.selected ? null : (
+                <Button variant="outline" size="sm" onClick={() => store.setModelId(model.id)}>
+                  {t("recorder.model_use")}
+                </Button>
+              )}
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                aria-label={t("recorder.model_delete")}
+                onClick={() => void store.deleteModel(model.id)}
+              >
+                <Trash2 />
+              </Button>
+            </div>
+          ) : model.state === "downloading" ? (
+            <Button variant="outline" size="sm" onClick={() => void store.cancelModelDownload(model.id)}>
+              <X data-icon="inline-start" />
+              {t("recorder.model_cancel")}
+            </Button>
+          ) : (
+            <Button variant="outline" size="sm" onClick={select}>
+              <Download data-icon="inline-start" />
+              {t("recorder.model_download")}
+            </Button>
+          )}
+        </div>
       </div>
+      <PremiumUpgradeDialog open={upgradeOpen} onOpenChange={setUpgradeOpen} />
     </div>
   );
 }
@@ -146,10 +176,16 @@ export function ModelManagerList() {
     await Promise.all([store.refreshBootstrap(), rescan()]);
   };
 
+  const recommendedId = store.bootstrap?.device?.recommendedModelId;
   return (
     <div className="space-y-2">
       {models.map((model) => (
-        <ModelRow key={model.id} model={model} />
+        <ModelRow
+          key={model.id}
+          model={model}
+          recommended={model.id === recommendedId}
+          selected={model.id === store.modelId}
+        />
       ))}
 
       {diskCandidates.length > 0 ? (

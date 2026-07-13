@@ -15,6 +15,7 @@
 
 import fs from "node:fs";
 import fsp from "node:fs/promises";
+import os from "node:os";
 import path from "node:path";
 import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
@@ -132,9 +133,11 @@ export class RecorderService {
      *   segments: import("@legalwork/types/audio").AudioTranscriptSegment[],
      *   sizeBytes: number,
      *   startedAt: number,
-     *   audioStream: import('node:fs').WriteStream,
+     *   audioStream: import('node:fs').WriteStream | null,
      *   resolveFinalized: (() => void) | null,
      *   importAudioPath?: string,
+     *   diarize?: boolean,
+     *   speakerTurns?: { startMs: number, endMs: number, speaker: number }[] | null,
      * }>}
      */
     this.activeRecordings = new Map();
@@ -279,11 +282,33 @@ export class RecorderService {
     };
   }
 
+  /**
+   * Rough device tier for the "recommended for your device" hint. sherpa-onnx
+   * runs CPU-only here, so Apple Silicon and roomy machines get the Standard
+   * model; small/old machines get Basic. Premium (Parakeet) is always offered
+   * when entitled and is comfortable on ~8 GB+.
+   * @returns {import("@legalwork/types/audio").AudioDeviceProfile}
+   */
+  deviceProfile() {
+    const totalMemoryGb = os.totalmem() / 1024 ** 3;
+    const logicalCores = os.cpus().length || 1;
+    const appleSilicon = process.platform === "darwin" && process.arch === "arm64";
+    const strong = appleSilicon || (totalMemoryGb >= 8 && logicalCores >= 4);
+    return {
+      totalMemoryGb: Math.round(totalMemoryGb * 10) / 10,
+      logicalCores,
+      appleSilicon,
+      recommendedModelId: strong ? "whisper-small" : "whisper-tiny",
+    };
+  }
+
   bootstrap() {
     return {
       models: this.modelManager.listModelStates(),
       capabilities: this.capabilities(),
       engine: this.engineStatus(),
+      diarization: this.modelManager.diarizationState(),
+      device: this.deviceProfile(),
       modelsDir: this.modelsDir,
       recordingsDir: this.recordingsDir,
     };
@@ -303,6 +328,14 @@ export class RecorderService {
     if (this.loadedModel?.modelId === modelId) this.stopTranscriber();
     await this.modelManager.delete(modelId);
     return this.modelManager.listModelStates();
+  }
+
+  diarizationState() {
+    return this.modelManager.diarizationState();
+  }
+
+  async downloadDiarization() {
+    return this.modelManager.downloadDiarization();
   }
 
   // ── transcriber lifecycle ───────────────────────────────────────────────
@@ -436,6 +469,7 @@ export class RecorderService {
       case "finalized": {
         const recording = this.activeRecordings.get(message.streamId);
         if (recording) {
+          recording.speakerTurns = Array.isArray(message.speakers) ? message.speakers : null;
           recording.resolveFinalized?.();
         } else {
           this.broadcast({ type: "transcribe-file-done", streamId: message.streamId });
@@ -521,6 +555,13 @@ export class RecorderService {
       ephemeral: input?.ephemeral === true,
     };
 
+    // Diarization is opt-in, needs the models, and only makes sense for a
+    // retained multi-voice recording (never a one-shot dictation).
+    const diarize =
+      input?.diarize === true &&
+      input?.ephemeral !== true &&
+      this.modelManager.isDiarizationInstalled();
+
     const audioStream = fs.createWriteStream(audioPath);
     const recording = {
       meta,
@@ -529,6 +570,8 @@ export class RecorderService {
       startedAt: Date.now(),
       audioStream,
       resolveFinalized: null,
+      diarize,
+      speakerTurns: null,
     };
     // Without a listener a disk-full/unlink error would crash the main
     // process as an uncaught 'error' event mid-call.
@@ -550,6 +593,20 @@ export class RecorderService {
       await new Promise((resolve) => audioStream.end(resolve));
       await fsp.rm(folderPath, { recursive: true, force: true }).catch(() => {});
       throw error;
+    }
+    // Arm the worker to tee this stream's PCM for the finalize diarization
+    // pass. Sent before any PCM flows (the renderer starts capture after this
+    // resolves), and processed regardless of recognizer readiness.
+    if (diarize && this.worker) {
+      const paths = this.modelManager.diarizationModelPaths();
+      this.worker.postMessage({
+        type: "diarize-begin",
+        streamId: id,
+        pcmPath: path.join(folderPath, "diarize.f32"),
+        segModel: paths.segmentation,
+        embModel: paths.embedding,
+        threshold: 0.5,
+      });
     }
     this.broadcast({ type: "recording-started", recordingId: id });
     return meta;
@@ -580,9 +637,14 @@ export class RecorderService {
     this.pendingPcm.delete(recordingId);
 
     // Flush the VAD → wait for the trailing segments before writing files.
+    // When diarizing, the worker also reads the recording back and runs the
+    // speaker pass before replying, which can take tens of seconds — give it a
+    // generous window and tell the UI what's happening.
     if (this.worker && this.workerReady) {
+      if (recording.diarize) this.broadcast({ type: "recording-diarizing", recordingId });
+      const finalizeTimeout = recording.diarize ? 10 * 60_000 : 15_000;
       await new Promise((resolve) => {
-        const timeout = setTimeout(resolve, 15_000);
+        const timeout = setTimeout(resolve, finalizeTimeout);
         recording.resolveFinalized = () => {
           clearTimeout(timeout);
           resolve(undefined);
@@ -602,6 +664,7 @@ export class RecorderService {
     meta.transcriptPath = path.join(meta.folderPath, "transcript.json");
 
     const segments = recording.segments.sort((a, b) => a.startMs - b.startMs);
+    meta.speakerCount = assignSpeakers(segments, recording.speakerTurns);
     await writeTranscriptFiles(meta, segments);
     await writeMeta(meta.folderPath, meta);
     // Recording ended → finalize the live-transcript mirror (one last write
@@ -962,6 +1025,61 @@ function formatClockTime(ms) {
   return h > 0 ? `${h}:${pad(m)}:${pad(s)}` : `${m}:${pad(s)}`;
 }
 
+/**
+ * Stamp a speaker id on each ASR segment from independent diarization turns,
+ * by largest total time-overlap (majority vote), with a nearest-turn fallback
+ * for short utterances that fell in a gap. Raw ids are remapped to
+ * first-appearance order so labels read "Speaker 1", "Speaker 2", … Returns
+ * the distinct speaker count, or null when no diarization was available.
+ */
+export function assignSpeakers(segments, turns) {
+  if (!Array.isArray(turns) || turns.length === 0) {
+    for (const segment of segments) segment.speaker = null;
+    return null;
+  }
+  const overlap = (a, b) => Math.max(0, Math.min(a.endMs, b.endMs) - Math.max(a.startMs, b.startMs));
+  for (const segment of segments) {
+    const perSpeaker = new Map();
+    for (const turn of turns) {
+      const ov = overlap(segment, turn);
+      if (ov > 0) perSpeaker.set(turn.speaker, (perSpeaker.get(turn.speaker) ?? 0) + ov);
+    }
+    let best = null;
+    let bestOverlap = 0;
+    for (const [speaker, ov] of perSpeaker) {
+      if (ov > bestOverlap) {
+        bestOverlap = ov;
+        best = speaker;
+      }
+    }
+    if (best === null) {
+      const mid = (segment.startMs + segment.endMs) / 2;
+      let nearestDist = Infinity;
+      for (const turn of turns) {
+        const dist = mid < turn.startMs ? turn.startMs - mid : mid > turn.endMs ? mid - turn.endMs : 0;
+        if (dist < nearestDist) {
+          nearestDist = dist;
+          best = turn.speaker;
+        }
+      }
+    }
+    segment.speaker = best;
+  }
+  const order = new Map();
+  for (const segment of segments) {
+    if (segment.speaker == null) continue;
+    if (!order.has(segment.speaker)) order.set(segment.speaker, order.size);
+  }
+  for (const segment of segments) {
+    if (segment.speaker != null) segment.speaker = order.get(segment.speaker);
+  }
+  return order.size || null;
+}
+
+function speakerLabel(speaker) {
+  return speaker == null ? null : `Speaker ${speaker + 1}`;
+}
+
 export async function writeTranscriptFiles(meta, segments) {
   const folder = meta.folderPath;
   await fsp.writeFile(
@@ -983,14 +1101,20 @@ export async function writeTranscriptFiles(meta, segments) {
   );
 
   const srt = segments
-    .map(
-      (segment, index) =>
-        `${index + 1}\n${formatSrtTime(segment.startMs)} --> ${formatSrtTime(segment.endMs)}\n${segment.text}\n`,
-    )
+    .map((segment, index) => {
+      const label = speakerLabel(segment.speaker);
+      const text = label ? `${label}: ${segment.text}` : segment.text;
+      return `${index + 1}\n${formatSrtTime(segment.startMs)} --> ${formatSrtTime(segment.endMs)}\n${text}\n`;
+    })
     .join("\n");
   await fsp.writeFile(path.join(folder, "transcript.srt"), srt);
 
-  const txt = segments.map((segment) => segment.text).join("\n");
+  const txt = segments
+    .map((segment) => {
+      const label = speakerLabel(segment.speaker);
+      return label ? `${label}: ${segment.text}` : segment.text;
+    })
+    .join("\n");
   await fsp.writeFile(path.join(folder, "transcript.txt"), txt);
 
   const md = [
@@ -1001,10 +1125,16 @@ export async function writeTranscriptFiles(meta, segments) {
     `- Language: ${meta.language}`,
     `- Model: ${meta.modelId ?? "—"} (local, on-device)`,
     `- Sources: ${meta.sources.join(", ")}`,
+    ...(meta.speakerCount ? [`- Speakers: ${meta.speakerCount} (identified on-device)`] : []),
     "",
     "## Transcript",
     "",
-    ...segments.map((segment) => `**[${formatClockTime(segment.startMs)}]** ${segment.text}`),
+    ...segments.map((segment) => {
+      const time = formatClockTime(segment.startMs);
+      const label = speakerLabel(segment.speaker);
+      const prefix = label ? `**[${time}] ${label}:**` : `**[${time}]**`;
+      return `${prefix} ${segment.text}`;
+    }),
     "",
   ].join("\n");
   await fsp.writeFile(path.join(folder, "transcript.md"), md);

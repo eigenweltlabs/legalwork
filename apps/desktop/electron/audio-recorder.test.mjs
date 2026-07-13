@@ -10,7 +10,7 @@ import { EventEmitter } from "node:events";
 
 import { AUDIO_MODEL_CATALOG, VAD_MODEL, findAudioModel } from "./audio/model-catalog.mjs";
 import { AudioModelManager } from "./audio/model-manager.mjs";
-import { RecorderService } from "./audio/recorder-service.mjs";
+import { RecorderService, assignSpeakers } from "./audio/recorder-service.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -21,13 +21,15 @@ function tempDir(prefix) {
 // ── catalog ────────────────────────────────────────────────────────────────
 
 test("model catalog entries are well formed", () => {
-  assert.ok(AUDIO_MODEL_CATALOG.length >= 4);
+  // Three lawyer-facing tiers: Basic, Standard, Premium.
+  assert.ok(AUDIO_MODEL_CATALOG.length >= 3);
   const ids = new Set();
   for (const entry of AUDIO_MODEL_CATALOG) {
     assert.ok(!ids.has(entry.id), `duplicate model id ${entry.id}`);
     ids.add(entry.id);
     assert.ok(entry.approxSizeBytes > 0);
     assert.ok(["whisper", "nemo-transducer"].includes(entry.kind));
+    assert.ok(["free", "premium"].includes(entry.plan), `${entry.id} needs a plan`);
     assert.ok(entry.files.length >= 3, `${entry.id} needs model files`);
     for (const file of entry.files) {
       assert.match(file.url, /^https:\/\/huggingface\.co\/.+\/resolve\/main\/.+/);
@@ -43,9 +45,9 @@ test("model catalog entries are well formed", () => {
   }
   // German + English coverage: every catalog model must be multilingual.
   assert.ok(AUDIO_MODEL_CATALOG.every((entry) => entry.languages === "multilingual"));
-  // A resource-light and a top-quality option must both exist.
-  assert.ok(AUDIO_MODEL_CATALOG.some((entry) => entry.tier === "fastest"));
-  assert.ok(AUDIO_MODEL_CATALOG.some((entry) => entry.tier === "best"));
+  // A resource-light free option and a gated premium option must both exist.
+  assert.ok(AUDIO_MODEL_CATALOG.some((entry) => entry.tier === "fastest" && entry.plan === "free"));
+  assert.ok(AUDIO_MODEL_CATALOG.some((entry) => entry.plan === "premium"));
   assert.match(VAD_MODEL.url, /^https:\/\/huggingface\.co\/.+silero_vad\.onnx$/);
   assert.equal(findAudioModel("parakeet-tdt-0.6b-v3")?.kind, "nemo-transducer");
   assert.equal(findAudioModel("nope"), null);
@@ -336,6 +338,42 @@ test("power sessions are held for exactly the duration of a recording", async ()
   assert.equal(held.size, 0);
   service.dispose();
   await fsp.rm(userDataDir, { recursive: true, force: true });
+});
+
+test("assignSpeakers labels segments by overlap and remaps to first-appearance order", () => {
+  const segments = [
+    { startMs: 0, endMs: 2000, text: "a" }, // overlaps raw speaker 7
+    { startMs: 2200, endMs: 4000, text: "b" }, // overlaps raw speaker 3
+    { startMs: 4200, endMs: 5000, text: "c" }, // back to raw speaker 7
+  ];
+  const turns = [
+    { startMs: 0, endMs: 2100, speaker: 7 },
+    { startMs: 2100, endMs: 4100, speaker: 3 },
+    { startMs: 4100, endMs: 5200, speaker: 7 },
+  ];
+  const count = assignSpeakers(segments, turns);
+  assert.equal(count, 2);
+  // Raw ids 7,3 → first-appearance order 0,1.
+  assert.equal(segments[0].speaker, 0);
+  assert.equal(segments[1].speaker, 1);
+  assert.equal(segments[2].speaker, 0);
+});
+
+test("assignSpeakers falls back to the nearest turn for a segment in a gap", () => {
+  const segments = [{ startMs: 5000, endMs: 5100, text: "hi" }]; // no overlap
+  const turns = [
+    { startMs: 0, endMs: 1000, speaker: 0 },
+    { startMs: 5300, endMs: 6000, speaker: 1 }, // nearest to the segment
+  ];
+  const count = assignSpeakers(segments, turns);
+  assert.equal(count, 1);
+  assert.equal(segments[0].speaker, 0); // remapped first-appearance
+});
+
+test("assignSpeakers with no turns clears speakers and returns null", () => {
+  const segments = [{ startMs: 0, endMs: 1000, text: "x", speaker: 4 }];
+  assert.equal(assignSpeakers(segments, null), null);
+  assert.equal(segments[0].speaker, null);
 });
 
 test("abandonActiveRecordings finalizes calls, cancels dictations, releases blockers", async () => {

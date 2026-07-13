@@ -81,6 +81,15 @@ function markSeen(ids: string[]): void {
   }
 }
 
+/** Whether any platform-eligible announcement is still unseen (so a first-run
+ *  modal can defer and not stack on top of the "What's new" dialog). */
+export function hasPendingWhatsNew(): boolean {
+  const seen = readSeenIds();
+  return WHATS_NEW_ANNOUNCEMENTS.some(
+    (entry) => !seen.includes(entry.id) && (entry.when?.() ?? true),
+  );
+}
+
 export function WhatsNewDialog(props: { hasWorkspaces: boolean; workspacesReady: boolean }) {
   const local = useLocal();
   const navigate = useNavigate();

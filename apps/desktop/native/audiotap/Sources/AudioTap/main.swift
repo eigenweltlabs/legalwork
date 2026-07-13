@@ -17,6 +17,7 @@
 import AppKit
 import AudioToolbox
 import CoreAudio
+import Darwin
 import Foundation
 
 // MARK: - list
@@ -70,6 +71,8 @@ func listRunningApps() {
 
 // MARK: - Core Audio helpers
 
+let systemObject = AudioObjectID(kAudioObjectSystemObject)
+
 func translatePid(_ pid: pid_t) -> AudioObjectID? {
     var address = AudioObjectPropertyAddress(
         mSelector: kAudioHardwarePropertyTranslatePIDToProcessObject,
@@ -81,7 +84,7 @@ func translatePid(_ pid: pid_t) -> AudioObjectID? {
     var size = UInt32(MemoryLayout<AudioObjectID>.size)
     let status = withUnsafeMutablePointer(to: &pidValue) { pidPointer in
         AudioObjectGetPropertyData(
-            AudioObjectID(kAudioObjectSystemObject),
+            systemObject,
             &address,
             UInt32(MemoryLayout<pid_t>.size),
             pidPointer,
@@ -91,6 +94,89 @@ func translatePid(_ pid: pid_t) -> AudioObjectID? {
     }
     guard status == noErr, processObject != AudioObjectID(kAudioObjectUnknown) else { return nil }
     return processObject
+}
+
+/// Every HAL audio process object the system currently knows about. A
+/// multiprocess app (Chrome/Electron/Safari) appears as several of these —
+/// one per helper that has touched audio I/O — plus/instead of its main pid.
+func processObjectList() -> [AudioObjectID] {
+    var address = AudioObjectPropertyAddress(
+        mSelector: kAudioHardwarePropertyProcessObjectList,
+        mScope: kAudioObjectPropertyScopeGlobal,
+        mElement: kAudioObjectPropertyElementMain
+    )
+    var dataSize: UInt32 = 0
+    guard AudioObjectGetPropertyDataSize(systemObject, &address, 0, nil, &dataSize) == noErr else { return [] }
+    let count = Int(dataSize) / MemoryLayout<AudioObjectID>.size
+    guard count > 0 else { return [] }
+    var ids = [AudioObjectID](repeating: 0, count: count)
+    guard AudioObjectGetPropertyData(systemObject, &address, 0, nil, &dataSize, &ids) == noErr else { return [] }
+    return ids
+}
+
+/// The OS pid backing a HAL audio process object.
+func processPid(_ object: AudioObjectID) -> pid_t? {
+    var address = AudioObjectPropertyAddress(
+        mSelector: kAudioProcessPropertyPID,
+        mScope: kAudioObjectPropertyScopeGlobal,
+        mElement: kAudioObjectPropertyElementMain
+    )
+    var pid: pid_t = -1
+    var size = UInt32(MemoryLayout<pid_t>.size)
+    guard AudioObjectGetPropertyData(object, &address, 0, nil, &size, &pid) == noErr else { return nil }
+    return pid
+}
+
+/// The macOS "responsible pid" (what Activity Monitor / TCC use to group
+/// helpers under their app). Private but stable symbol in libSystem, resolved
+/// at runtime so a future removal degrades to the bundle-path fallback rather
+/// than failing to launch. Reliably resolves Safari/WebKit XPC helpers.
+private typealias ResponsibilityFunc = @convention(c) (pid_t) -> pid_t
+private let responsibilityFn: ResponsibilityFunc? = {
+    // RTLD_DEFAULT searches every loaded image.
+    guard let symbol = dlsym(UnsafeMutableRawPointer(bitPattern: -2), "responsibility_get_pid_responsible_for_pid")
+    else { return nil }
+    return unsafeBitCast(symbol, to: ResponsibilityFunc.self)
+}()
+
+func responsiblePid(_ pid: pid_t) -> pid_t? {
+    guard let fn = responsibilityFn else { return nil }
+    let responsible = fn(pid)
+    return responsible > 0 && responsible != pid ? responsible : nil
+}
+
+/// Absolute executable path of a pid. Chrome/Electron helper executables live
+/// *inside* the parent .app bundle, so a path-prefix test catches the helpers
+/// the responsible-pid API leaves "self-responsible".
+func executablePath(_ pid: pid_t) -> String? {
+    var buffer = [CChar](repeating: 0, count: 4096) // PROC_PIDPATHINFO_MAXSIZE
+    let length = proc_pidpath(pid, &buffer, UInt32(buffer.count))
+    return length > 0 ? String(cString: buffer) : nil
+}
+
+/// Nominal sample rate of the default output device — used for the stream
+/// header when a tap can't be formed yet (the app isn't producing audio).
+func defaultOutputSampleRate() -> Double {
+    var deviceAddress = AudioObjectPropertyAddress(
+        mSelector: kAudioHardwarePropertyDefaultOutputDevice,
+        mScope: kAudioObjectPropertyScopeGlobal,
+        mElement: kAudioObjectPropertyElementMain
+    )
+    var device = AudioObjectID(kAudioObjectUnknown)
+    var size = UInt32(MemoryLayout<AudioObjectID>.size)
+    guard AudioObjectGetPropertyData(systemObject, &deviceAddress, 0, nil, &size, &device) == noErr,
+        device != AudioObjectID(kAudioObjectUnknown)
+    else { return 48000 }
+    var rateAddress = AudioObjectPropertyAddress(
+        mSelector: kAudioDevicePropertyNominalSampleRate,
+        mScope: kAudioObjectPropertyScopeGlobal,
+        mElement: kAudioObjectPropertyElementMain
+    )
+    var rate: Float64 = 48000
+    size = UInt32(MemoryLayout<Float64>.size)
+    guard AudioObjectGetPropertyData(device, &rateAddress, 0, nil, &size, &rate) == noErr, rate > 0
+    else { return 48000 }
+    return rate
 }
 
 func fail(_ message: String) -> Never {
@@ -106,27 +192,93 @@ final class TapCapture {
     private var ioProcID: AudioDeviceIOProcID?
     private let output = FileHandle.standardOutput
 
-    func start(pids: [pid_t]) {
-        let description: CATapDescription
-        if pids.isEmpty {
-            // Whole-system mixdown (mono keeps the stream small; speech only).
-            description = CATapDescription(monoGlobalTapButExcludeProcesses: [])
-        } else {
-            let objects = pids.compactMap { translatePid($0) }
-            guard !objects.isEmpty else {
-                fail("none of the requested processes could be resolved for audio capture")
+    /// The user-selected apps. Empty = whole-system capture.
+    private var selectedPids: Set<pid_t> = []
+    private var selectedBundlePaths: [String] = []
+    private var wholeSystem = false
+
+    /// The audio process objects the current tap covers, so a process-list
+    /// change only rebuilds when the selected app's set actually changed.
+    private var currentObjects: [AudioObjectID] = []
+    private var headerEmitted = false
+    private var processListListener: AudioObjectPropertyListenerBlock?
+
+    // MARK: selection resolution
+
+    /// Every audio process object that belongs to one of the selected apps:
+    /// the main pid, plus helper/renderer/audio-service processes matched by
+    /// responsible-pid (Safari) or by living inside the app's .app bundle
+    /// (Chrome/Electron). This is what makes multiprocess apps actually record.
+    private func resolveObjects() -> [AudioObjectID] {
+        let ownPid = ProcessInfo.processInfo.processIdentifier
+        var matched: [AudioObjectID] = []
+        var seen = Set<AudioObjectID>()
+        // Seed with each selected app's main object so a tap can always form,
+        // even before the app has produced any audio.
+        for pid in selectedPids {
+            if let object = translatePid(pid), seen.insert(object).inserted {
+                matched.append(object)
             }
-            description = CATapDescription(monoMixdownOfProcesses: objects)
         }
+        for object in processObjectList() {
+            guard let pid = processPid(object), pid != ownPid else { continue }
+            guard matchesSelection(pid) else { continue }
+            if seen.insert(object).inserted { matched.append(object) }
+        }
+        return matched
+    }
+
+    private func matchesSelection(_ pid: pid_t) -> Bool {
+        if selectedPids.contains(pid) { return true }
+        if let responsible = responsiblePid(pid), selectedPids.contains(responsible) { return true }
+        if let path = executablePath(pid) {
+            for base in selectedBundlePaths where !base.isEmpty {
+                if path == base || path.hasPrefix(base + "/") { return true }
+            }
+        }
+        return false
+    }
+
+    // MARK: lifecycle
+
+    func start(pids: [pid_t]) {
+        selectedPids = Set(pids)
+        wholeSystem = pids.isEmpty
+        selectedBundlePaths = pids.compactMap {
+            NSRunningApplication(processIdentifier: $0)?.bundleURL?.path
+        }
+
+        let objects = wholeSystem ? [] : resolveObjects()
+        if !buildTap(objects: objects) {
+            // No audio objects yet (app not playing). Emit a header from the
+            // output device rate and wait — the process-list listener will
+            // build the tap when a helper starts producing audio.
+            emitHeaderIfNeeded(sampleRate: defaultOutputSampleRate())
+        }
+        installProcessListListener()
+    }
+
+    /// (Re)create the tap+aggregate over `objects` (empty = global for
+    /// whole-system capture). Returns whether a tap is now running.
+    @discardableResult
+    private func buildTap(objects: [AudioObjectID]) -> Bool {
+        if !wholeSystem && objects.isEmpty { return false }
+
+        let description = wholeSystem
+            ? CATapDescription(monoGlobalTapButExcludeProcesses: [])
+            : CATapDescription(monoMixdownOfProcesses: objects)
         description.isPrivate = true
         description.muteBehavior = .unmuted
 
-        var status = AudioHardwareCreateProcessTap(description, &tapID)
-        guard status == noErr, tapID != AudioObjectID(kAudioObjectUnknown) else {
-            fail("AudioHardwareCreateProcessTap failed (\(status)) — is Audio Recording permission granted?")
+        var newTap = AudioObjectID(kAudioObjectUnknown)
+        var status = AudioHardwareCreateProcessTap(description, &newTap)
+        guard status == noErr, newTap != AudioObjectID(kAudioObjectUnknown) else {
+            if !headerEmitted {
+                fail("AudioHardwareCreateProcessTap failed (\(status)) — is Audio Recording permission granted?")
+            }
+            return false
         }
 
-        // Read the tap's stream format so we know the sample rate.
         var format = AudioStreamBasicDescription()
         var formatSize = UInt32(MemoryLayout<AudioStreamBasicDescription>.size)
         var formatAddress = AudioObjectPropertyAddress(
@@ -134,14 +286,12 @@ final class TapCapture {
             mScope: kAudioObjectPropertyScopeGlobal,
             mElement: kAudioObjectPropertyElementMain
         )
-        status = AudioObjectGetPropertyData(tapID, &formatAddress, 0, nil, &formatSize, &format)
+        status = AudioObjectGetPropertyData(newTap, &formatAddress, 0, nil, &formatSize, &format)
         guard status == noErr, format.mSampleRate > 0 else {
-            fail("could not read tap format (\(status))")
+            AudioHardwareDestroyProcessTap(newTap)
+            return false
         }
-        let sampleRate = format.mSampleRate
-        let channels = max(1, Int(format.mChannelsPerFrame))
 
-        // Aggregate device wrapping the tap; auto-starts the tap stream.
         let aggregateUID = UUID().uuidString
         let composition: [String: Any] = [
             kAudioAggregateDeviceNameKey as String: "LegalWork Tap",
@@ -157,17 +307,22 @@ final class TapCapture {
                 ]
             ],
         ]
-        status = AudioHardwareCreateAggregateDevice(composition as CFDictionary, &aggregateID)
-        guard status == noErr, aggregateID != AudioObjectID(kAudioObjectUnknown) else {
-            fail("AudioHardwareCreateAggregateDevice failed (\(status))")
+        var newAggregate = AudioObjectID(kAudioObjectUnknown)
+        status = AudioHardwareCreateAggregateDevice(composition as CFDictionary, &newAggregate)
+        guard status == noErr, newAggregate != AudioObjectID(kAudioObjectUnknown) else {
+            AudioHardwareDestroyProcessTap(newTap)
+            return false
         }
 
-        // Announce the stream format to the parent, then stream PCM.
-        let header = "{\"sampleRate\":\(Int(sampleRate)),\"channels\":1}\n"
-        output.write(Data(header.utf8))
+        // Tear down any previous tap only now that the replacement is ready,
+        // so streaming never stops mid-recording during a rebuild.
+        teardownTap()
+
+        emitHeaderIfNeeded(sampleRate: format.mSampleRate)
 
         let writeHandle = output
-        status = AudioDeviceCreateIOProcIDWithBlock(&ioProcID, aggregateID, nil) {
+        var newProcID: AudioDeviceIOProcID?
+        status = AudioDeviceCreateIOProcIDWithBlock(&newProcID, newAggregate, nil) {
             _, inputData, _, _, _ in
             let buffers = UnsafeMutableAudioBufferListPointer(UnsafeMutablePointer(mutating: inputData))
             guard let buffer = buffers.first, let data = buffer.mData else { return }
@@ -178,7 +333,6 @@ final class TapCapture {
             if bufferChannels == 1 {
                 writeHandle.write(Data(bytes: samples, count: frameCount * MemoryLayout<Float32>.size))
             } else {
-                // Downmix interleaved channels to mono.
                 let frames = frameCount / bufferChannels
                 var mono = [Float32](repeating: 0, count: frames)
                 for frame in 0..<frames {
@@ -193,17 +347,57 @@ final class TapCapture {
                 }
             }
         }
-        guard status == noErr, let procID = ioProcID else {
-            fail("AudioDeviceCreateIOProcIDWithBlock failed (\(status))")
+        guard status == noErr, let procID = newProcID else {
+            AudioHardwareDestroyAggregateDevice(newAggregate)
+            AudioHardwareDestroyProcessTap(newTap)
+            return false
         }
-        status = AudioDeviceStart(aggregateID, procID)
+        status = AudioDeviceStart(newAggregate, procID)
         guard status == noErr else {
-            fail("AudioDeviceStart failed (\(status))")
+            AudioDeviceDestroyIOProcID(newAggregate, procID)
+            AudioHardwareDestroyAggregateDevice(newAggregate)
+            AudioHardwareDestroyProcessTap(newTap)
+            return false
         }
-        _ = channels // mono downmix handled in the IO block
+
+        tapID = newTap
+        aggregateID = newAggregate
+        ioProcID = procID
+        currentObjects = objects
+        return true
     }
 
-    func stop() {
+    private func emitHeaderIfNeeded(sampleRate: Double) {
+        guard !headerEmitted else { return }
+        headerEmitted = true
+        let header = "{\"sampleRate\":\(Int(sampleRate)),\"channels\":1}\n"
+        output.write(Data(header.utf8))
+    }
+
+    /// Watch for helper processes appearing/disappearing (e.g. a Chrome tab
+    /// starts playing after capture began) and rebuild the tap over the new
+    /// object set — a CATapDescription's process list is fixed at creation.
+    private func installProcessListListener() {
+        guard !wholeSystem else { return }
+        var address = AudioObjectPropertyAddress(
+            mSelector: kAudioHardwarePropertyProcessObjectList,
+            mScope: kAudioObjectPropertyScopeGlobal,
+            mElement: kAudioObjectPropertyElementMain
+        )
+        let listener: AudioObjectPropertyListenerBlock = { [weak self] _, _ in
+            DispatchQueue.main.async { self?.refresh() }
+        }
+        processListListener = listener
+        AudioObjectAddPropertyListenerBlock(systemObject, &address, DispatchQueue.main, listener)
+    }
+
+    private func refresh() {
+        let objects = resolveObjects()
+        if objects.sorted() == currentObjects.sorted() { return }
+        buildTap(objects: objects)
+    }
+
+    private func teardownTap() {
         if let procID = ioProcID, aggregateID != AudioObjectID(kAudioObjectUnknown) {
             AudioDeviceStop(aggregateID, procID)
             AudioDeviceDestroyIOProcID(aggregateID, procID)
@@ -214,6 +408,22 @@ final class TapCapture {
         if tapID != AudioObjectID(kAudioObjectUnknown) {
             AudioHardwareDestroyProcessTap(tapID)
         }
+        ioProcID = nil
+        aggregateID = AudioObjectID(kAudioObjectUnknown)
+        tapID = AudioObjectID(kAudioObjectUnknown)
+    }
+
+    func stop() {
+        if let listener = processListListener {
+            var address = AudioObjectPropertyAddress(
+                mSelector: kAudioHardwarePropertyProcessObjectList,
+                mScope: kAudioObjectPropertyScopeGlobal,
+                mElement: kAudioObjectPropertyElementMain
+            )
+            AudioObjectRemovePropertyListenerBlock(systemObject, &address, DispatchQueue.main, listener)
+            processListListener = nil
+        }
+        teardownTap()
     }
 }
 

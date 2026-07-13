@@ -11,6 +11,7 @@ import {
   audioCaptureOpenSettings,
   audioCapturePermissions,
   audioCapturePermissionsRequest,
+  audioDiarizationDownload,
   audioModelDelete,
   audioModelDownload,
   audioModelDownloadCancel,
@@ -59,6 +60,7 @@ import type {
   AudioTranscriptSegment,
 } from "@legalwork/types/audio";
 import { t } from "@/i18n";
+import { isPremiumEntitled } from "./model-tiers";
 
 import { decodeAudioFileToPcm16k, startCapture, type CaptureHandle, type CaptureLevels } from "./capture";
 
@@ -129,9 +131,8 @@ export type RecorderState = {
   modelId: string;
   language: AudioTranscribeLanguage;
   sources: AudioCaptureSourceKind[];
-  /** macOS App Audio selection (empty = all system audio via the tap). */
-  appPids: number[];
-  appNames: string[];
+  /** A stopping recording is running its speaker pass. */
+  diarizing: boolean;
 };
 
 type RecorderActions = {
@@ -148,13 +149,15 @@ type RecorderActions = {
   setLanguage: (language: AudioTranscribeLanguage) => void;
   prewarm: () => Promise<void>;
   toggleSource: (source: AudioCaptureSourceKind) => void;
-  setAppSelection: (pids: number[], names: string[]) => void;
+  downloadDiarization: () => Promise<void>;
+  /** Background-download the speaker models when they aren't installed yet. */
+  ensureDiarizationReady: () => Promise<void>;
   downloadModel: (modelId: string) => Promise<void>;
   cancelModelDownload: (modelId: string) => Promise<void>;
   deleteModel: (modelId: string) => Promise<void>;
   startRecording: (
     title?: string,
-    options?: { sources: AudioCaptureSourceKind[]; systemDictation: boolean },
+    options?: { sources?: AudioCaptureSourceKind[]; systemDictation?: boolean; diarize?: boolean },
   ) => Promise<void>;
   stopRecording: () => Promise<void>;
   cancelRecording: () => Promise<void>;
@@ -195,6 +198,15 @@ function readPref(key: string, fallback: string): string {
   }
 }
 
+/** Raw stored value (null when the user never set it), to tell default from choice. */
+function readStoredPref(key: string): string | null {
+  try {
+    return localStorage.getItem(key);
+  } catch {
+    return null;
+  }
+}
+
 function writePref(key: string, value: string) {
   try {
     localStorage.setItem(key, value);
@@ -208,7 +220,7 @@ function readSourcesPref(): AudioCaptureSourceKind[] {
   const parsed = raw
     .split(",")
     .map((item) => item.trim())
-    .filter((item): item is AudioCaptureSourceKind => item === "microphone" || item === "system" || item === "app");
+    .filter((item): item is AudioCaptureSourceKind => item === "microphone" || item === "system");
   return parsed.length ? parsed : ["microphone"];
 }
 
@@ -221,9 +233,9 @@ function readLanguagePref(): AudioTranscribeLanguage {
 function requiredPermissionKinds(sources: AudioCaptureSourceKind[]): AudioPermissionKind[] {
   const kinds: AudioPermissionKind[] = [];
   if (sources.includes("microphone")) kinds.push("microphone");
-  // System-audio loopback and the per-app tap are both gated by the macOS
-  // "Screen & System Audio Recording" pane.
-  if (sources.includes("system") || sources.includes("app")) kinds.push("systemAudio");
+  // System-audio loopback is gated by the macOS "Screen & System Audio
+  // Recording" pane.
+  if (sources.includes("system")) kinds.push("systemAudio");
   return kinds;
 }
 
@@ -256,10 +268,9 @@ function permissionKindsFromCaptureError(message: string, sources: AudioCaptureS
     text.includes("error starting capture") || // Chromium getDisplayMedia loopback failure
     text.includes("screen capture") ||
     text.includes("system audio") ||
-    text.includes("audio recording permission") || // audio-tap helper stderr
     text.includes("notallowederror") ||
     text.includes("permission denied");
-  if ((sources.includes("system") || sources.includes("app")) && systemShaped) {
+  if (sources.includes("system") && systemShaped) {
     kinds.push("systemAudio");
   }
   return kinds;
@@ -280,7 +291,11 @@ let dictationCancelPending = false;
 let suspendEpoch = 0;
 
 function transcriptText(segments: AudioTranscriptSegment[], limit = 12_000): string {
-  const text = segments.map((segment) => segment.text).join("\n");
+  const text = segments
+    .map((segment) =>
+      segment.speaker != null ? `Speaker ${segment.speaker + 1}: ${segment.text}` : segment.text,
+    )
+    .join("\n");
   return text.length > limit ? text.slice(text.length - limit) : text;
 }
 
@@ -396,8 +411,15 @@ export const useRecorderStore = create<RecorderState & RecorderActions>((set, ge
         break;
       }
       case "model-download-done":
-      case "model-download-error": {
+      case "model-download-error":
+      case "diarization-download-progress":
+      case "diarization-download-done":
+      case "diarization-download-error": {
         void get().refreshBootstrap();
+        break;
+      }
+      case "recording-diarizing": {
+        if (state.recording?.id === event.recordingId) set({ diarizing: true });
         break;
       }
       case "transcriber-status": {
@@ -555,11 +577,10 @@ export const useRecorderStore = create<RecorderState & RecorderActions>((set, ge
     systemDictation: null,
     dictationState: "idle",
     dictationRecordingId: null,
-    modelId: readPref(MODEL_PREF_KEY, "whisper-base"),
+    modelId: readPref(MODEL_PREF_KEY, "whisper-small"),
     language: readLanguagePref(),
     sources: readSourcesPref(),
-    appPids: [],
-    appNames: [],
+    diarizing: false,
 
     init: async () => {
       if (!eventsSubscribed) {
@@ -575,12 +596,37 @@ export const useRecorderStore = create<RecorderState & RecorderActions>((set, ge
         get().refreshSystemDictation(),
       ]);
       void get().prewarm();
+      void get().ensureDiarizationReady();
+    },
+
+    /**
+     * Speaker identification is always on, so pull its models in the
+     * background the first time — recordings then just get labeled without the
+     * user ever setting anything up.
+     */
+    ensureDiarizationReady: async () => {
+      const diarization = get().bootstrap?.diarization;
+      if (!diarization || diarization.installed || diarization.downloading) return;
+      await get().downloadDiarization();
     },
 
     refreshBootstrap: async () => {
       try {
         const bootstrap = await audioRecorderBootstrap();
         set({ bootstrap });
+        // Repoint the selection when it references a model that no longer
+        // exists (old Base/Turbo tiers) or the user never chose one — pick the
+        // model recommended for this device so nothing is silently unselectable.
+        const chosen = get().modelId;
+        const stored = readStoredPref(MODEL_PREF_KEY);
+        const known = bootstrap.models.some((model) => model.id === chosen);
+        if (!known || !stored) {
+          const recommended = bootstrap.device?.recommendedModelId;
+          const fallback = bootstrap.models.find((model) => model.id === recommended)
+            ? recommended
+            : bootstrap.models.find((model) => model.plan === "free")?.id ?? chosen;
+          if (fallback && fallback !== chosen) set({ modelId: fallback });
+        }
       } catch (error) {
         set({ error: error instanceof Error ? error.message : String(error) });
       }
@@ -701,6 +747,9 @@ export const useRecorderStore = create<RecorderState & RecorderActions>((set, ge
     },
 
     setModelId: (modelId) => {
+      // Never let a gated model become the active selection.
+      const model = get().bootstrap?.models.find((entry) => entry.id === modelId);
+      if (model?.plan === "premium" && !isPremiumEntitled()) return;
       writePref(MODEL_PREF_KEY, modelId);
       set({ modelId });
       void get().prewarm();
@@ -734,15 +783,20 @@ export const useRecorderStore = create<RecorderState & RecorderActions>((set, ge
       });
     },
 
-    setAppSelection: (pids, names) => {
-      set((state) => ({
-        appPids: pids,
-        appNames: names,
-        sources: state.sources.includes("app") ? state.sources : [...state.sources, "app"],
-      }));
+    downloadDiarization: async () => {
+      try {
+        await audioDiarizationDownload();
+      } catch (error) {
+        set({ error: error instanceof Error ? error.message : String(error) });
+      }
+      await get().refreshBootstrap();
     },
 
     downloadModel: async (modelId) => {
+      // Premium models don't download until the user is entitled; the UI shows
+      // the locked/upgrade state, this guards the path itself.
+      const model = get().bootstrap?.models.find((entry) => entry.id === modelId);
+      if (model?.plan === "premium" && !isPremiumEntitled()) return;
       try {
         await audioModelDownload(modelId);
         await get().refreshBootstrap();
@@ -770,9 +824,6 @@ export const useRecorderStore = create<RecorderState & RecorderActions>((set, ge
       if (bootstrap && !bootstrap.capabilities.systemAudio) {
         sources = sources.filter((source) => source !== "system");
       }
-      if (bootstrap && !bootstrap.capabilities.appAudio) {
-        sources = sources.filter((source) => source !== "app");
-      }
       if (!sources.length) sources = ["microphone"];
 
       // Pre-flight: check OS permissions for the selected sources and show
@@ -789,8 +840,14 @@ export const useRecorderStore = create<RecorderState & RecorderActions>((set, ge
         return;
       }
 
-      set({ error: null, permissionsNeeded: [], segments: [], partial: null, copilotEntries: [] });
+      set({ error: null, permissionsNeeded: [], segments: [], partial: null, copilotEntries: [], diarizing: false });
       let startedMetaId: string | null = null;
+      // Speaker identification is always on for retained recordings once the
+      // models are present; never a one-shot dictation.
+      const diarize =
+        options?.diarize !== false &&
+        options?.systemDictation !== true &&
+        bootstrap?.diarization.installed === true;
       // The start window (model cold-load + getUserMedia + track settle) is
       // seconds wide; if the machine sleeps inside it, roll the whole thing
       // back instead of latching a recording nobody can see.
@@ -805,6 +862,7 @@ export const useRecorderStore = create<RecorderState & RecorderActions>((set, ge
           modelId,
           sources,
           ephemeral: options?.systemDictation === true,
+          diarize,
         });
         startedMetaId = meta.id;
         const audio = window.__LEGALWORK_ELECTRON__?.audio;
@@ -817,7 +875,6 @@ export const useRecorderStore = create<RecorderState & RecorderActions>((set, ge
               if (get().recording?.id === meta.id) void get().stopRecording();
             },
           },
-          { appPids: get().appPids },
         );
         // Suspended (or a hold-release fired) while we were starting: abandon
         // the half-built recording rather than leave it running post-wake.
@@ -920,6 +977,7 @@ export const useRecorderStore = create<RecorderState & RecorderActions>((set, ge
           dictationState: isSystemDictation && dictationError ? "error" : "idle",
           partial: null,
           levels: {},
+          diarizing: false,
           error: dictationError,
           recordings:
             recordingsAfterDictation ?? [meta, ...state.recordings.filter((item) => item.id !== meta.id)],
@@ -932,6 +990,7 @@ export const useRecorderStore = create<RecorderState & RecorderActions>((set, ge
           dictationRecordingId: null,
           dictationState: isSystemDictation ? "error" : get().dictationState,
           levels: {},
+          diarizing: false,
           error: message,
         });
         if (isSystemDictation) await audioSystemDictationSetState("error", message).catch(() => {});
@@ -959,6 +1018,7 @@ export const useRecorderStore = create<RecorderState & RecorderActions>((set, ge
         partial: null,
         segments: [],
         levels: {},
+        diarizing: false,
       });
       if (isSystemDictation) await audioSystemDictationSetState("idle").catch(() => {});
     },

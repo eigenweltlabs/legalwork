@@ -56,7 +56,7 @@ export function useSessionProviderAuth(input: UseSessionProviderAuthInput) {
   // workflow generation). Usage-analytics consent is a toggle on the welcome step, so there
   // is no longer a separate analytics cover. null = not onboarding. The welcome route lands
   // here with ?onboarding=1.
-  const [onboardingStep, setOnboardingStep] = useState<"connect" | "templates" | null>(() =>
+  const [onboardingStep, setOnboardingStep] = useState<"connect" | "templates" | "setup" | null>(() =>
     typeof window !== "undefined" && window.location.hash.includes("onboarding=1") ? "connect" : null,
   );
   const connectedAtModalOpenRef = useRef<number | null>(null);
@@ -177,6 +177,7 @@ export function useSessionProviderAuth(input: UseSessionProviderAuthInput) {
     snapshot,
     onboardingStep,
     goToTemplates: () => setOnboardingStep("templates"),
+    goToSetup: () => setOnboardingStep("setup"),
     finishOnboarding: () => setOnboardingStep(null),
   };
 }

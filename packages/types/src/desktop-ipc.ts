@@ -15,6 +15,7 @@
 import type { WorkspaceWire } from "./workspace.js";
 import type {
   AudioCapturePermissions,
+  AudioDiarizationState,
   AudioModelDiskCandidate,
   AudioModelImportResult,
   AudioModelState,
@@ -613,6 +614,9 @@ export type DesktopCommandMap = {
   audioModelDownload: { args: [modelId: string]; result: AudioModelState[] };
   audioModelDownloadCancel: { args: [modelId: string]; result: AudioModelState[] };
   audioModelDelete: { args: [modelId: string]; result: AudioModelState[] };
+  /** Download the speaker-diarization models (pyannote + embedding) on demand. */
+  audioDiarizationDownload: { args: []; result: AudioDiarizationState };
+  audioDiarizationStatus: { args: []; result: AudioDiarizationState };
   audioTranscriberStart: {
     args: [input: { modelId: string; language: AudioTranscribeLanguage }];
     result: AudioTranscriberStatus;

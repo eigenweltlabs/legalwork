@@ -15,7 +15,7 @@
  * `setDisplayMediaRequestHandler` (see apps/desktop/electron/audio/loopback.mjs).
  */
 
-import { audioLoopbackDisable, audioLoopbackEnable, audioTapStart, audioTapStop } from "@/app/lib/desktop";
+import { audioLoopbackDisable, audioLoopbackEnable } from "@/app/lib/desktop";
 import type { AudioCaptureSourceKind } from "@legalwork/types/audio";
 
 const TARGET_SAMPLE_RATE = 16000;
@@ -94,9 +94,26 @@ export type CaptureCallbacks = {
   onSourceEnded: (source: AudioCaptureSourceKind) => void;
 };
 
-const MIC_CONSTRAINTS = {
-  audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
-} as const;
+/**
+ * Microphone constraints tuned for ASR, not telephony. Chromium's
+ * autoGainControl / noiseSuppression / echoCancellation non-linearly distort
+ * the waveform (gain pumping, spectral smearing) and measurably hurt
+ * transcription accuracy — native dictation tools (Handy, OpenWhispr) capture
+ * raw audio with none of it. So for microphone-only capture we turn all three
+ * off. When system/app audio is also captured (call recording), the speaker
+ * output can leak back into the mic, so echo cancellation earns its place
+ * there; noise suppression / AGC stay off to protect accuracy.
+ */
+function micConstraints(withEchoCancellation: boolean): MediaStreamConstraints {
+  return {
+    audio: {
+      echoCancellation: withEchoCancellation,
+      noiseSuppression: false,
+      autoGainControl: false,
+      channelCount: 1,
+    },
+  };
+}
 
 /** Resolve once the track is delivering audio, or false if it never does. */
 function waitForLiveTrack(track: MediaStreamTrack): Promise<boolean> {
@@ -127,13 +144,16 @@ function waitForLiveTrack(track: MediaStreamTrack): Promise<boolean> {
  * re-check. If it still isn't delivering audio, fail loudly rather than
  * record silence — startRecording's rollback then surfaces it to the user.
  */
-async function ensureLiveMicStream(stream: MediaStream): Promise<MediaStream> {
+async function ensureLiveMicStream(
+  stream: MediaStream,
+  constraints: MediaStreamConstraints,
+): Promise<MediaStream> {
   const track = stream.getAudioTracks()[0];
   if (!track) return stream;
   if (await waitForLiveTrack(track)) return stream;
 
   for (const stale of stream.getTracks()) stale.stop();
-  const retry = await navigator.mediaDevices.getUserMedia(MIC_CONSTRAINTS);
+  const retry = await navigator.mediaDevices.getUserMedia(constraints);
   const retryTrack = retry.getAudioTracks()[0];
   if (retryTrack && (await waitForLiveTrack(retryTrack))) return retry;
 
@@ -143,7 +163,7 @@ async function ensureLiveMicStream(stream: MediaStream): Promise<MediaStream> {
   );
 }
 
-async function requestMicStream(): Promise<MediaStream> {
+async function requestMicStream(withEchoCancellation: boolean): Promise<MediaStream> {
   const ask = window.__LEGALWORK_ELECTRON__?.system?.askMicrophoneAccess;
   if (ask) {
     const result = await ask();
@@ -153,8 +173,9 @@ async function requestMicStream(): Promise<MediaStream> {
       );
     }
   }
-  const stream = await navigator.mediaDevices.getUserMedia(MIC_CONSTRAINTS);
-  return ensureLiveMicStream(stream);
+  const constraints = micConstraints(withEchoCancellation);
+  const stream = await navigator.mediaDevices.getUserMedia(constraints);
+  return ensureLiveMicStream(stream, constraints);
 }
 
 async function requestSystemStream(): Promise<MediaStream> {
@@ -180,32 +201,20 @@ async function requestSystemStream(): Promise<MediaStream> {
   }
 }
 
-export type CaptureOptions = {
-  /** Process IDs for macOS per-app capture (empty = whole system mixdown). */
-  appPids?: number[];
-};
-
 export async function startCapture(
   sources: AudioCaptureSourceKind[],
   callbacks: CaptureCallbacks,
-  options: CaptureOptions = {},
 ): Promise<CaptureHandle> {
   const context = new AudioContext({ sampleRate: TARGET_SAMPLE_RATE });
   const streams = new Map<AudioCaptureSourceKind, MediaStream>();
   const analysers = new Map<AudioCaptureSourceKind, AnalyserNode>();
   let recorder: MediaRecorder | null = null;
   let workletNode: AudioWorkletNode | null = null;
-  let stopAppTap: (() => void) | null = null;
   let stopped = false;
 
   const cleanup = async () => {
     if (stopped) return;
     stopped = true;
-    try {
-      stopAppTap?.();
-    } catch {
-      // tap teardown is best-effort
-    }
     try {
       workletNode?.port.close();
       workletNode?.disconnect();
@@ -217,45 +226,6 @@ export async function startCapture(
     }
     streams.clear();
     await context.close().catch(() => {});
-  };
-
-  /**
-   * macOS per-app audio: the native tap streams mono Float32 PCM at its own
-   * rate; schedule it as back-to-back AudioBuffers (WebAudio resamples each
-   * buffer to the 16 kHz context) feeding a gain node in the mix.
-   */
-  const startAppAudio = async (mix: GainNode) => {
-    const result = await audioTapStart(options.appPids ?? []);
-    if (!result.ok) {
-      throw new Error(result.error ?? "App audio capture failed to start.");
-    }
-    const appGain = context.createGain();
-    appGain.connect(mix);
-    const analyser = context.createAnalyser();
-    analyser.fftSize = 512;
-    appGain.connect(analyser);
-    analysers.set("app", analyser);
-
-    let nextStart = 0;
-    const unsubscribe = window.__LEGALWORK_ELECTRON__?.audio?.onAppPcm?.((payload) => {
-      if (stopped || payload.buffer.byteLength < 4) return;
-      // Main re-frames to whole samples, but never trust alignment across IPC.
-      const samples = new Float32Array(payload.buffer, 0, Math.floor(payload.buffer.byteLength / 4));
-      const buffer = context.createBuffer(1, samples.length, payload.sampleRate || 48000);
-      buffer.copyToChannel(samples, 0);
-      const node = context.createBufferSource();
-      node.buffer = buffer;
-      node.connect(appGain);
-      const now = context.currentTime;
-      // Keep a small jitter cushion; resync if we fell behind.
-      if (nextStart < now + 0.05) nextStart = now + 0.08;
-      node.start(nextStart);
-      nextStart += buffer.duration;
-    });
-    stopAppTap = () => {
-      unsubscribe?.();
-      void audioTapStop().catch(() => {});
-    };
   };
 
   try {
@@ -270,18 +240,18 @@ export async function startCapture(
       URL.revokeObjectURL(workletUrl);
     }
 
+    // Echo cancellation on the mic only matters when the machine is also
+    // playing captured system audio that could leak back into it.
+    const hasOtherSources = sources.includes("system");
     if (sources.includes("microphone")) {
-      streams.set("microphone", await requestMicStream());
+      streams.set("microphone", await requestMicStream(hasOtherSources));
     }
     if (sources.includes("system")) {
       streams.set("system", await requestSystemStream());
     }
-    if (streams.size === 0 && !sources.includes("app")) throw new Error("No audio sources selected.");
+    if (streams.size === 0) throw new Error("No audio sources selected.");
 
     const mix = context.createGain();
-    if (sources.includes("app")) {
-      await startAppAudio(mix);
-    }
     for (const [kind, stream] of streams) {
       const sourceNode = context.createMediaStreamSource(stream);
       const analyser = context.createAnalyser();
@@ -295,6 +265,26 @@ export async function startCapture(
       });
     }
 
+    // When several sources are summed, two loud ones can overshoot [-1,1] and
+    // Web Audio hard-clips at the destination — square-wave distortion the ASR
+    // reads as garbage. Trim and limit the mix so peaks are caught, not
+    // clipped. A single clean source is left untouched (no dynamics change).
+    let bus: AudioNode = mix;
+    const multiSource = sources.length > 1;
+    if (multiSource) {
+      const trim = context.createGain();
+      trim.gain.value = 0.7;
+      const limiter = context.createDynamicsCompressor();
+      limiter.threshold.value = -3;
+      limiter.knee.value = 0;
+      limiter.ratio.value = 20;
+      limiter.attack.value = 0.003;
+      limiter.release.value = 0.25;
+      mix.connect(trim);
+      trim.connect(limiter);
+      bus = limiter;
+    }
+
     // PCM branch → local transcriber.
     workletNode = new AudioWorkletNode(context, "legalwork-pcm-batcher", {
       numberOfInputs: 1,
@@ -306,11 +296,11 @@ export async function startCapture(
     workletNode.port.onmessage = (event) => {
       if (!stopped && event.data instanceof ArrayBuffer) callbacks.onPcm(event.data);
     };
-    mix.connect(workletNode);
+    bus.connect(workletNode);
 
     // Compressed branch → audio.webm on disk.
     const destination = context.createMediaStreamDestination();
-    mix.connect(destination);
+    bus.connect(destination);
     const mimeType = MediaRecorder.isTypeSupported("audio/webm;codecs=opus")
       ? "audio/webm;codecs=opus"
       : "audio/webm";

@@ -2012,6 +2012,12 @@ const desktopCommandHandlers = {
   "audioModelDelete": async (event, ...args) => {
       return recorderService().deleteModel(String(args[0] ?? ""));
   },
+  "audioDiarizationDownload": async (event, ...args) => {
+      return recorderService().downloadDiarization();
+  },
+  "audioDiarizationStatus": async (event, ...args) => {
+      return recorderService().diarizationState();
+  },
   "audioTranscriberStart": async (event, ...args) => {
       const input = args[0] ?? {};
       return recorderService().startTranscriber({

@@ -24,45 +24,45 @@ function whisperFiles(name) {
   ];
 }
 
-/** @type {import("@legalwork/types/audio").AudioModelCatalogEntry[]} */
+/**
+ * Three lawyer-facing tiers (see apps/app/.../recorder/model-tiers.ts for the
+ * friendly names). The middle "standard" and "premium" models are both far
+ * more accurate than Whisper Base/Turbo on CPU for German legal audio, so the
+ * old Base/Turbo entries were dropped. `plan: "premium"` marks the gated tier.
+ *
+ * @type {import("@legalwork/types/audio").AudioModelCatalogEntry[]}
+ */
 export const AUDIO_MODEL_CATALOG = [
   {
     id: "whisper-tiny",
-    label: "Whisper Tiny",
-    description: "Smallest and lightest. Good for quick notes on low-power machines.",
+    label: "Basic",
+    description: "Fast and light. Runs on any computer, even older ones.",
     kind: "whisper",
     tier: "fastest",
+    plan: "free",
     languages: "multilingual",
     approxSizeBytes: 105 * 1024 * 1024,
     files: whisperFiles("tiny"),
   },
   {
-    id: "whisper-base",
-    label: "Whisper Base",
-    description: "Light and quick with noticeably better accuracy than Tiny.",
-    kind: "whisper",
-    tier: "fastest",
-    languages: "multilingual",
-    approxSizeBytes: 165 * 1024 * 1024,
-    files: whisperFiles("base"),
-  },
-  {
     id: "whisper-small",
-    label: "Whisper Small",
-    description: "Solid everyday accuracy for English and German at moderate size.",
+    label: "Standard",
+    description: "Balanced accuracy for English and German. For most modern computers.",
     kind: "whisper",
     tier: "balanced",
+    plan: "free",
     languages: "multilingual",
     approxSizeBytes: 440 * 1024 * 1024,
     files: whisperFiles("small"),
   },
   {
     id: "parakeet-tdt-0.6b-v3",
-    label: "Parakeet v3 (0.6B)",
+    label: "Premium",
     description:
-      "NVIDIA Parakeet TDT — very fast with near large-model accuracy. 25 languages including English and German.",
+      "Best accuracy and real-time fast, on device. English and German with automatic punctuation.",
     kind: "nemo-transducer",
     tier: "accurate",
+    plan: "premium",
     languages: "multilingual",
     approxSizeBytes: 672 * 1024 * 1024,
     recommended: true,
@@ -85,16 +85,6 @@ export const AUDIO_MODEL_CATALOG = [
       },
     ],
   },
-  {
-    id: "whisper-turbo",
-    label: "Whisper Large v3 Turbo",
-    description: "Best transcription quality. Large download and heavier on CPU/RAM.",
-    kind: "whisper",
-    tier: "best",
-    languages: "multilingual",
-    approxSizeBytes: 870 * 1024 * 1024,
-    files: whisperFiles("turbo"),
-  },
 ];
 
 /**
@@ -105,6 +95,24 @@ export const VAD_MODEL = {
   fileName: "silero_vad.onnx",
   url: `${HF}/csukuangfj/vad/resolve/main/silero_vad.onnx`,
   approxSizeBytes: 1.9 * 1024 * 1024,
+};
+
+/**
+ * Speaker diarization ("who said what") — fully on-device via sherpa-onnx:
+ * pyannote segmentation 3.0 + a 3D-Speaker CAM++ embedding extractor. Runs as
+ * a finalize pass over a recording's audio. Downloaded on demand (~36 MB)
+ * only when the user turns on "Identify speakers".
+ */
+export const DIARIZATION_MODELS = {
+  approxSizeBytes: 36 * 1024 * 1024,
+  segmentation: {
+    fileName: "segmentation.onnx",
+    url: `${HF}/csukuangfj/sherpa-onnx-pyannote-segmentation-3-0/resolve/main/model.onnx`,
+  },
+  embedding: {
+    fileName: "embedding.onnx",
+    url: `${HF}/csukuangfj/speaker-embedding-models/resolve/main/3dspeaker_speech_campplus_sv_en_voxceleb_16k.onnx`,
+  },
 };
 
 export function findAudioModel(modelId) {

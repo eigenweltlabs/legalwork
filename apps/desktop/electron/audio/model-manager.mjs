@@ -18,7 +18,9 @@ import { pipeline } from "node:stream/promises";
 
 import os from "node:os";
 
-import { AUDIO_MODEL_CATALOG, VAD_MODEL, findAudioModel } from "./model-catalog.mjs";
+import { AUDIO_MODEL_CATALOG, DIARIZATION_MODELS, VAD_MODEL, findAudioModel } from "./model-catalog.mjs";
+
+const DIARIZATION_ID = "__diarization__";
 
 const COMPLETE_MARKER = ".complete";
 
@@ -304,6 +306,87 @@ export class AudioModelManager {
     if (!active) return;
     active.controller.abort();
     this.activeDownloads.delete(modelId);
+  }
+
+  // ── speaker diarization models (shared, downloaded on demand) ────────────
+
+  diarizationDir() {
+    return path.join(this.modelsDir, "diarization");
+  }
+
+  diarizationModelPaths() {
+    return {
+      segmentation: path.join(this.diarizationDir(), DIARIZATION_MODELS.segmentation.fileName),
+      embedding: path.join(this.diarizationDir(), DIARIZATION_MODELS.embedding.fileName),
+    };
+  }
+
+  isDiarizationInstalled() {
+    const paths = this.diarizationModelPaths();
+    return isCompleteFile(paths.segmentation) && isCompleteFile(paths.embedding);
+  }
+
+  /** @returns {import("@legalwork/types/audio").AudioDiarizationState} */
+  diarizationState() {
+    const active = this.activeDownloads.get(DIARIZATION_ID);
+    return {
+      installed: this.isDiarizationInstalled(),
+      downloading: Boolean(active),
+      downloadedBytes: active?.downloadedBytes ?? 0,
+      totalBytes: active?.totalBytes ?? DIARIZATION_MODELS.approxSizeBytes,
+      error: this.lastErrors.get(DIARIZATION_ID) ?? null,
+    };
+  }
+
+  async downloadDiarization() {
+    if (this.activeDownloads.has(DIARIZATION_ID) || this.isDiarizationInstalled()) {
+      return this.diarizationState();
+    }
+    const controller = new AbortController();
+    const progress = { controller, downloadedBytes: 0, totalBytes: DIARIZATION_MODELS.approxSizeBytes };
+    this.activeDownloads.set(DIARIZATION_ID, progress);
+    this.lastErrors.delete(DIARIZATION_ID);
+    const dir = this.diarizationDir();
+    await fsp.mkdir(dir, { recursive: true });
+    const files = [DIARIZATION_MODELS.segmentation, DIARIZATION_MODELS.embedding];
+    let lastEmit = 0;
+    try {
+      const sizes = await Promise.all(files.map((file) => fetchContentLength(file.url, controller.signal)));
+      const knownTotal = sizes.reduce((sum, size) => sum + (size ?? 0), 0);
+      if (knownTotal > 0) progress.totalBytes = knownTotal;
+
+      let downloadedSoFar = 0;
+      for (const file of files) {
+        const target = path.join(dir, file.fileName);
+        if (isCompleteFile(target)) {
+          downloadedSoFar += statOrNull(target)?.size ?? 0;
+          continue;
+        }
+        const base = downloadedSoFar;
+        await downloadFile(file.url, target, controller.signal, (bytes) => {
+          progress.downloadedBytes = base + bytes;
+          const now = Date.now();
+          if (now - lastEmit < 250) return;
+          lastEmit = now;
+          this.emitEvent({
+            type: "diarization-download-progress",
+            downloadedBytes: progress.downloadedBytes,
+            totalBytes: progress.totalBytes,
+          });
+        });
+        downloadedSoFar += statOrNull(target)?.size ?? 0;
+      }
+      this.activeDownloads.delete(DIARIZATION_ID);
+      this.emitEvent({ type: "diarization-download-done" });
+      return this.diarizationState();
+    } catch (error) {
+      this.activeDownloads.delete(DIARIZATION_ID);
+      if (controller.signal.aborted) return this.diarizationState();
+      const message = error instanceof Error ? error.message : String(error);
+      this.lastErrors.set(DIARIZATION_ID, message);
+      this.emitEvent({ type: "diarization-download-error", error: message });
+      return this.diarizationState();
+    }
   }
 
   async delete(modelId) {

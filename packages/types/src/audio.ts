@@ -23,6 +23,9 @@ export type AudioModelFile = {
   url: string;
 };
 
+/** Commercial tier: "free" installs for anyone, "premium" is entitlement-gated. */
+export type AudioModelPlan = "free" | "premium";
+
 export type AudioModelCatalogEntry = {
   id: string;
   label: string;
@@ -30,12 +33,26 @@ export type AudioModelCatalogEntry = {
   description: string;
   kind: AudioModelKind;
   tier: AudioModelTier;
+  /** Free to install, or gated behind a premium entitlement. */
+  plan: AudioModelPlan;
   /** Languages the model can transcribe. */
   languages: "multilingual" | "english";
   /** Display-only estimate; real progress uses Content-Length. */
   approxSizeBytes: number;
   files: AudioModelFile[];
   recommended?: boolean;
+};
+
+/**
+ * Rough device capability so the UI can hint "recommended for your device".
+ * Measured once in the main process (os.cpus / os.totalmem / process.arch).
+ */
+export type AudioDeviceProfile = {
+  totalMemoryGb: number;
+  logicalCores: number;
+  appleSilicon: boolean;
+  /** The model id the app suggests for this machine (a free tier). */
+  recommendedModelId: string;
 };
 
 export type AudioModelInstallState = "not-installed" | "downloading" | "installed" | "error";
@@ -85,6 +102,8 @@ export type AudioRecorderBootstrap = {
   models: AudioModelState[];
   capabilities: AudioCaptureCapabilities;
   engine: AudioEngineStatus;
+  diarization: AudioDiarizationState;
+  device: AudioDeviceProfile;
   modelsDir: string;
   recordingsDir: string;
 };
@@ -123,6 +142,24 @@ export type AudioTranscriptSegment = {
   text: string;
   /** True once the segment is finalized by VAD; partials get replaced. */
   final: boolean;
+  /**
+   * Zero-based speaker id from on-device diarization, or null when speakers
+   * were not identified (diarization off, or the segment fell in a gap). The
+   * UI renders these as "Speaker 1", "Speaker 2", … by first appearance.
+   */
+  speaker?: number | null;
+};
+
+/**
+ * Local speaker-diarization models (pyannote segmentation + a speaker
+ * embedding extractor). Downloaded on demand, shared across recordings.
+ */
+export type AudioDiarizationState = {
+  installed: boolean;
+  downloading: boolean;
+  downloadedBytes: number;
+  totalBytes: number;
+  error: string | null;
 };
 
 export type AudioRecordingStatus = "recording" | "complete" | "error";
@@ -147,6 +184,8 @@ export type AudioRecordingMeta = {
   error: string | null;
   /** Temporary capture used by system dictation; never shown in Recorder history. */
   ephemeral?: boolean;
+  /** Number of distinct speakers identified, or null when not diarized. */
+  speakerCount?: number | null;
 };
 
 export type AudioRecordingDetail = {
@@ -197,6 +236,8 @@ export type AudioRecordingStartInput = {
   modelId: string;
   sources: AudioCaptureSourceKind[];
   ephemeral?: boolean;
+  /** Run on-device speaker diarization at finalize (retained recordings only). */
+  diarize?: boolean;
 };
 
 export type AudioSaveToWorkspaceResult = {
@@ -213,6 +254,11 @@ export type AudioRecorderEvent =
   | { type: "model-download-progress"; modelId: string; downloadedBytes: number; totalBytes: number }
   | { type: "model-download-done"; modelId: string }
   | { type: "model-download-error"; modelId: string; error: string }
+  | { type: "diarization-download-progress"; downloadedBytes: number; totalBytes: number }
+  | { type: "diarization-download-done" }
+  | { type: "diarization-download-error"; error: string }
+  /** A stopping recording is running its on-device speaker pass (can take a while). */
+  | { type: "recording-diarizing"; recordingId: string }
   | { type: "transcriber-status"; status: AudioTranscriberStatus }
   | { type: "transcript-partial"; streamId: string; segment: AudioTranscriptSegment }
   | { type: "transcript-segment"; streamId: string; segment: AudioTranscriptSegment }

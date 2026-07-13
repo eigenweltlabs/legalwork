@@ -112,6 +112,7 @@ import { CreateWorkspaceModal } from "@/react-app/domains/workspace/create-works
 import { useSessionProviderAuth } from "@/react-app/domains/connections/provider-auth/use-session-provider-auth";
 import { ProviderSelectionStep } from "@/react-app/domains/onboarding/provider-selection-step";
 import { TemplateWorkflowsStep } from "@/react-app/domains/onboarding/template-workflows-step";
+import { TranscriptionSetupStep } from "@/react-app/domains/onboarding/transcription-setup-step";
 import {
   ensureTemplateWorkflowWatcher,
   startTemplateWorkflowGeneration,
@@ -124,6 +125,7 @@ import { ModelPickerModal } from "@/react-app/domains/session/modals/model-picke
 import { CommandPalette, type PaletteItem, type SessionGroupOption, type SessionOption as PaletteSessionOption } from "./command-palette";
 import { SessionSearchDialog } from "./session-search-dialog";
 import { WhatsNewDialog } from "./whats-new";
+import { TranscriptionIntroDialog } from "./transcription-intro";
 import type { SessionMessageFetcher } from "@/react-app/domains/session/search/session-search";
 import { getDisplaySessionTitle } from "@/app/lib/session-title";
 import { useBootState } from "./boot-state";
@@ -632,7 +634,7 @@ export function SessionRoute() {
     opencodeClient && selectedWorkspaceId && !loading && !selectedWorkspaceError && !selectedModelUnavailable,
   );
 
-  const { store: sessionProviderAuthStore, snapshot: sessionProviderAuthSnapshot, onboardingStep, goToTemplates, finishOnboarding } =
+  const { store: sessionProviderAuthStore, snapshot: sessionProviderAuthSnapshot, onboardingStep, goToTemplates, goToSetup, finishOnboarding } =
     useSessionProviderAuth({
       opencodeClient,
       providers,
@@ -696,7 +698,8 @@ export function SessionRoute() {
     if (!result.ok) return { started: false, message: result.message };
     // The templates folder is a workspace now — pull it into the sidebar list.
     void refreshRouteState();
-    finishOnboarding();
+    // Templates → the final install step (Office add-ins + transcription model).
+    goToSetup();
     return { started: true };
   };
 
@@ -1638,12 +1641,16 @@ export function SessionRoute() {
       />
     ) : null}
     {onboardingStep === "templates" && templatesStepEligible ? (
-      // Optional final cover: point a local agent at the firm's templates folder;
+      // Optional cover: point a local agent at the firm's templates folder;
       // the generation run continues in the background while onboarding finishes.
       <TemplateWorkflowsStep
         onStart={startTemplateWorkflowsFromOnboarding}
-        onSkip={finishOnboarding}
+        onSkip={goToSetup}
       />
+    ) : null}
+    {onboardingStep === "setup" ? (
+      // Final cover: one-tap installs — Office add-ins + a transcription model.
+      <TranscriptionSetupStep onDone={finishOnboarding} />
     ) : null}
     <SessionPage
       selectedSessionId={selectedSessionId}
@@ -1998,6 +2005,7 @@ export function SessionRoute() {
       onSelectAgent={setSelectedAgent}
     />
     <WhatsNewDialog hasWorkspaces={workspaces.length > 0} workspacesReady={!effectiveLoading} />
+    <TranscriptionIntroDialog workspacesReady={!effectiveLoading} />
     <SessionSearchDialog
       open={sessionSearchOpen}
       onClose={() => setSessionSearchOpen(false)}

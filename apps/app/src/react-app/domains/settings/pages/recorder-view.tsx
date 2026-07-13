@@ -16,6 +16,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
+import { cn } from "@/lib/utils";
 import { desktopLoginItemGet, desktopLoginItemSet } from "@/app/lib/desktop";
 import { t } from "../../../../i18n";
 import {
@@ -33,6 +34,7 @@ import { DictationSetupDialog } from "./dictation-setup-dialog";
 
 export function RecorderSettingsView() {
   const store = useRecorderStore();
+  const [tab, setTab] = useState<"models" | "dictation">("models");
   const [changingDictation, setChangingDictation] = useState(false);
   const [dictationSetupOpen, setDictationSetupOpen] = useState(false);
   const [loginItem, setLoginItem] = useState<{ openAtLogin: boolean; requiresApproval: boolean } | null>(null);
@@ -69,7 +71,61 @@ export function RecorderSettingsView() {
 
   return (
     <LayoutStack>
-      <LayoutSectionItem>
+      <div className="inline-flex w-fit items-center rounded-lg border border-border bg-muted/40 p-0.5">
+        {(["models", "dictation"] as const).map((key) => (
+          <button
+            key={key}
+            type="button"
+            onClick={() => setTab(key)}
+            className={cn(
+              "rounded-md px-3.5 py-1.5 text-sm font-medium transition-colors",
+              tab === key ? "bg-background text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground",
+            )}
+          >
+            {key === "models" ? t("recorder.models_tab") : t("recorder.dictation_tab")}
+          </button>
+        ))}
+      </div>
+
+      {tab === "models" ? (
+        <>
+          <LayoutSectionItem>
+            <LayoutSectionItemHeader>
+              <div>
+                <LayoutSectionItemTitle>{t("recorder.models_title")}</LayoutSectionItemTitle>
+                <LayoutSectionItemDescription>{t("recorder.models_subtitle")}</LayoutSectionItemDescription>
+              </div>
+              <LayoutSectionItemHeaderActions>
+                <div className="flex items-center gap-2">
+                  <Languages className="size-4 text-muted-foreground" />
+                  <Select
+                    value={store.language}
+                    onValueChange={(value) => {
+                      if (value === "auto" || value === "en" || value === "de") store.setLanguage(value);
+                    }}
+                  >
+                    <SelectTrigger size="sm" className="w-[160px]">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="auto">{t("recorder.language_auto")}</SelectItem>
+                      <SelectItem value="en">English</SelectItem>
+                      <SelectItem value="de">Deutsch</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              </LayoutSectionItemHeaderActions>
+            </LayoutSectionItemHeader>
+            {engine && !engine.available ? (
+              <div className="rounded-xl border border-amber-6 bg-amber-2 px-3 py-2 text-sm text-amber-11">
+                {t("recorder.engine_unavailable")} {engine.error ?? ""}
+              </div>
+            ) : null}
+            <ModelManagerList />
+          </LayoutSectionItem>
+        </>
+      ) : (
+        <LayoutSectionItem>
         <LayoutSectionItemHeader>
           <div>
             <LayoutSectionItemTitle>{t("recorder.dictation_title")}</LayoutSectionItemTitle>
@@ -192,69 +248,8 @@ export function RecorderSettingsView() {
             </span>
           </div>
         </div>
-      </LayoutSectionItem>
-
-      <LayoutSectionItem>
-        <LayoutSectionItemHeader>
-          <div>
-            <LayoutSectionItemTitle>{t("recorder.models_title")}</LayoutSectionItemTitle>
-            <LayoutSectionItemDescription>{t("recorder.models_subtitle")}</LayoutSectionItemDescription>
-          </div>
-        </LayoutSectionItemHeader>
-        {engine && !engine.available ? (
-          <div className="rounded-xl border border-amber-6 bg-amber-2 px-3 py-2 text-sm text-amber-11">
-            {t("recorder.engine_unavailable")} {engine.error ?? ""}
-          </div>
-        ) : null}
-        <ModelManagerList />
-      </LayoutSectionItem>
-
-      <LayoutSectionItem>
-        <LayoutSectionItemHeader>
-          <div>
-            <LayoutSectionItemTitle>{t("recorder.defaults_title")}</LayoutSectionItemTitle>
-            <LayoutSectionItemDescription>{t("recorder.defaults_subtitle")}</LayoutSectionItemDescription>
-          </div>
-          <LayoutSectionItemHeaderActions>
-            <div className="flex items-center gap-2">
-              <Languages className="size-4 text-muted-foreground" />
-              <Select
-                value={store.language}
-                onValueChange={(value) => {
-                  if (value === "auto" || value === "en" || value === "de") store.setLanguage(value);
-                }}
-              >
-                <SelectTrigger size="sm" className="w-[160px]">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="auto">{t("recorder.language_auto")}</SelectItem>
-                  <SelectItem value="en">English</SelectItem>
-                  <SelectItem value="de">Deutsch</SelectItem>
-                </SelectContent>
-              </Select>
-              <Select
-                value={store.modelId}
-                onValueChange={(value) => {
-                  if (value) store.setModelId(value);
-                }}
-              >
-                <SelectTrigger size="sm" className="w-[220px]">
-                  <SelectValue placeholder={t("recorder.model_select_placeholder")} />
-                </SelectTrigger>
-                <SelectContent>
-                  {models.map((model) => (
-                    <SelectItem key={model.id} value={model.id} disabled={model.state !== "installed"}>
-                      {model.label}
-                      {model.state !== "installed" ? ` (${t("recorder.model_not_installed")})` : ""}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-          </LayoutSectionItemHeaderActions>
-        </LayoutSectionItemHeader>
-      </LayoutSectionItem>
+        </LayoutSectionItem>
+      )}
     </LayoutStack>
   );
 }
