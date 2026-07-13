@@ -11,7 +11,7 @@ import { createManagedOpencodeServer, type ManagedOpencodeServer, type OpencodeE
 import { startServer, syncAllWorkspacesRuntimeMcpToEngine } from "./server.js";
 import { ensureWorkspaceFiles } from "./workspace-init.js";
 import { keepLegalworkRuntimeConfigFileFresh, writeLegalworkRuntimeConfigFile } from "./legalwork-runtime-config.js";
-import { refreshEigenweltFreeManifest } from "./eigenwelt-free.js";
+import { readCachedEigenweltFreeManifest, refreshEigenweltFreeManifest } from "./eigenwelt-free.js";
 import type { ServeResult } from "./serve-node.js";
 import type { ServerConfig } from "./types.js";
 
@@ -59,15 +59,33 @@ export async function startEmbeddedServer(options: EmbeddedServerOptions): Promi
   if (!config.opencodeBaseUrl && options.manageOpencode) {
     const workspace = config.workspaces[0];
     if (workspace?.path) {
+      // Refresh the free-tier manifest disk cache. On a FRESH install the cache
+      // is empty, so if we wrote the engine config before the mint landed the
+      // engine would boot with zen and no free provider — the free tier (and
+      // zen's removal) would only appear after a later instance rebuild. So when
+      // nothing is cached yet, wait for this first mint (bounded, so a slow or
+      // unreachable platform never blocks startup) BEFORE writing the config, so
+      // a first launch comes up with the free provider already present. When a
+      // cache already exists we don't wait — the config below is written from it
+      // immediately and the refresh only updates models in the background.
+      const freeManifestRefresh = refreshEigenweltFreeManifest(config).catch(() => false);
+      if (!(await readCachedEigenweltFreeManifest(config))) {
+        await Promise.race([
+          freeManifestRefresh,
+          new Promise((resolve) => setTimeout(resolve, 8_000)),
+        ]);
+      }
+
       // Server-managed config file: the engine re-reads it from disk on every
       // instance rebuild, and keepLegalworkRuntimeConfigFileFresh rewrites it
       // on every runtime-DB write — so disposes always pick up current state.
       const runtimeConfigPath = await writeLegalworkRuntimeConfigFile(config, workspace.id);
       keepLegalworkRuntimeConfigFileFresh(config, workspace.id);
-      // Fire-and-forget: refresh the free-tier manifest disk cache; on
-      // change, rewrite the engine config file so the free provider (and the
-      // zen disable that rides on it) update on the next instance rebuild.
-      void refreshEigenweltFreeManifest(config)
+      // Whenever the refresh actually lands new data — including the case where
+      // the bounded wait above timed out and it finished afterwards — rewrite the
+      // engine config file so the free provider (and the zen disable that rides
+      // on it) update on the next instance rebuild.
+      void freeManifestRefresh
         .then((changed) => (changed ? writeLegalworkRuntimeConfigFile(config, workspace.id) : undefined))
         .catch(() => undefined);
       const cwd = options.opencodeCwd
