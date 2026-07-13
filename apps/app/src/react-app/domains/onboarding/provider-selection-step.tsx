@@ -1,6 +1,6 @@
 /** @jsxImportSource react */
 import { PaperGrainGradient } from "@legalwork/ui/react";
-import { ArrowRightIcon, GithubIcon, SearchIcon, SparklesIcon, TriangleAlertIcon } from "lucide-react";
+import { ArrowRightIcon, FlaskConicalIcon, SearchIcon, SparklesIcon, TriangleAlertIcon } from "lucide-react";
 
 import { Page, PageBackground, PageTitlebarRegion } from "@/components/page";
 import { ScrollArea, ScrollAreaViewport } from "@/components/ui/scroll-area";
@@ -41,14 +41,14 @@ export function ProviderSelectionStep({ onConnect, onSkip }: ProviderSelectionSt
                       Connect a model.
                     </h1>
                     <p className="mt-3 max-w-sm text-[14px] leading-[1.6] text-dls-secondary">
-                      LegalWork runs on this machine — your documents are only ever shared with the model you
+                      LegalWork runs on this machine. Your documents are only ever shared with the model you
                       connect, and nothing else.
                     </p>
                   </div>
 
-                  {/* Quick connect — subscriptions, for testing */}
+                  {/* Quick connect — subscription sign-in */}
                   <div className="space-y-2.5">
-                    <span className="lw-section-eyebrow uppercase text-dls-secondary/80">Quick connect · for testing</span>
+                    <span className="lw-section-eyebrow uppercase text-dls-secondary/80">Quick connect</span>
                     <button type="button" className={quickButtonClass} onClick={() => onConnect("openai", "oauth")}>
                       <SparklesIcon className="size-4 shrink-0 text-dls-secondary" />
                       <div className="min-w-0 flex-1">
@@ -57,14 +57,28 @@ export function ProviderSelectionStep({ onConnect, onSkip }: ProviderSelectionSt
                       </div>
                       <ArrowRightIcon className="size-4 shrink-0 text-dls-secondary/60 transition-transform group-hover:translate-x-0.5" />
                     </button>
-                    <button type="button" className={quickButtonClass} onClick={() => onConnect("github-copilot", "oauth")}>
-                      <GithubIcon className="size-4 shrink-0 text-dls-secondary" />
+                  </div>
+
+                  {/* For testing — included free models (same path as skipping) */}
+                  <div className="space-y-2.5">
+                    <span className="lw-section-eyebrow uppercase text-dls-secondary/80">For testing</span>
+                    <button type="button" className={quickButtonClass} onClick={onSkip}>
+                      <FlaskConicalIcon className="size-4 shrink-0 text-dls-secondary" />
                       <div className="min-w-0 flex-1">
-                        <div className="text-[14px] font-medium text-dls-text">Sign in with GitHub Copilot</div>
-                        <div className="text-[12px] text-dls-secondary">Use your Copilot subscription.</div>
+                        <div className="text-[14px] font-medium text-dls-text">Use Eigenwelt free models</div>
+                        <div className="text-[12px] text-dls-secondary">Try LegalWork right away. No account, no key.</div>
                       </div>
                       <ArrowRightIcon className="size-4 shrink-0 text-dls-secondary/60 transition-transform group-hover:translate-x-0.5" />
                     </button>
+                  </div>
+
+                  <div className="-mt-4 flex max-w-sm items-start gap-2.5">
+                    <TriangleAlertIcon className="mt-0.5 size-4 shrink-0 text-amber-11" />
+                    <p className="text-[12px] leading-relaxed text-amber-11">
+                      Free models are included to try LegalWork. Usage data is
+                      logged, so please keep privileged, client, and matter data out. For real
+                      work, connect your own model.
+                    </p>
                   </div>
 
                   {/* Enterprise / private — searchable list of every provider */}
@@ -80,27 +94,6 @@ export function ProviderSelectionStep({ onConnect, onSkip }: ProviderSelectionSt
                       </div>
                       <ArrowRightIcon className="size-4 shrink-0 text-dls-secondary/60 transition-transform group-hover:translate-x-0.5" />
                     </button>
-                    <p className="text-[12px] leading-relaxed text-dls-secondary">
-                      Run on your own cloud — connect with your own keys, any OpenAI-compatible endpoint.
-                    </p>
-                  </div>
-
-                  <div className="flex flex-col gap-3">
-                    <button
-                      type="button"
-                      onClick={onSkip}
-                      className="self-start text-[13px] text-dls-secondary transition-colors hover:text-dls-text"
-                    >
-                      Skip for now, use free models
-                    </button>
-                    <div className="flex max-w-sm items-start gap-2.5 rounded-xl border border-amber-6/40 bg-amber-2/30 px-3.5 py-3">
-                      <TriangleAlertIcon className="mt-0.5 size-4 shrink-0 text-amber-11" />
-                      <p className="text-[12px] leading-relaxed text-amber-11">
-                        Free models are included to try LegalWork. Usage data is
-                        logged, so please keep privileged, client, and matter data out. For real
-                        work, connect your own model above.
-                      </p>
-                    </div>
                   </div>
                 </div>
               </div>
