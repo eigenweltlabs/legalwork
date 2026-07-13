@@ -648,6 +648,48 @@ function validateSkillName(raw) {
   return trimmed;
 }
 
+// The 64-char cap is not ours to relax: a skill is exposed to the model as a
+// tool, and the LLM providers reject tool names longer than 64 chars
+// (Anthropic: `^[a-zA-Z0-9_-]{1,64}$`). Rather than fail an over-long import,
+// coerce the name into a valid, <=64-char kebab-case slug by dropping whole
+// trailing words — so a too-long workflow still lands (and stays meaningful)
+// instead of being rejected. Returns null only when nothing valid remains.
+const MAX_SKILL_NAME_LENGTH = 64;
+function fitSkillName(raw) {
+  const cleaned = String(raw ?? "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+  if (!cleaned) return null;
+  if (cleaned.length <= MAX_SKILL_NAME_LENGTH) return cleaned;
+  const words = cleaned.split("-");
+  let candidate = words[0].slice(0, MAX_SKILL_NAME_LENGTH);
+  for (let i = 1; i < words.length; i += 1) {
+    const next = `${candidate}-${words[i]}`;
+    if (next.length > MAX_SKILL_NAME_LENGTH) break;
+    candidate = next;
+  }
+  return candidate.replace(/-+$/g, "") || null;
+}
+
+// When we shorten a folder name to fit, keep the SKILL.md frontmatter `name` in
+// sync so the engine loads the skill under the same (valid) name it now lives
+// in. Only the leading frontmatter block is touched, never a `name:` in the
+// body. Best-effort: a copied folder that imported is not un-imported on error.
+async function syncSkillFrontmatterName(skillMdPath, name) {
+  try {
+    const raw = await readFile(skillMdPath, "utf8");
+    if (!raw.startsWith("---")) return;
+    const end = raw.indexOf("\n---", 3);
+    if (end === -1) return;
+    const header = raw.slice(0, end).replace(/^name:[ \t]*.*$/m, `name: ${name}`);
+    const patched = header + raw.slice(end);
+    if (patched !== raw) await writeFile(skillMdPath, patched, "utf8");
+  } catch {
+    // Non-fatal — the folder still imported.
+  }
+}
+
 const runtimeManager = createRuntimeManager({
   app,
   desktopRoot: path.resolve(__dirname, ".."),
@@ -1468,15 +1510,20 @@ const desktopCommandHandlers = {
         const from = path.join(sourceDir, name);
         if (!(await pathExists(path.join(from, "SKILL.md")))) continue;
         try {
-          validateSkillName(name);
-          if (name.length > 64) throw new Error("skill name too long (max 64 chars)");
-          const destination = path.join(root, name);
+          // Coerce (don't reject) an over-long or lightly-malformed name into a
+          // valid <=64-char slug; keep the SKILL.md name in sync if we changed it.
+          const targetName = fitSkillName(name);
+          if (!targetName) throw new Error("skill name is empty or has no usable characters");
+          const destination = path.join(root, targetName);
           if (await pathExists(destination)) {
-            skipped.push(name);
+            skipped.push(targetName);
             continue;
           }
           await cp(from, destination, { recursive: true });
-          imported.push(name);
+          if (targetName !== name) {
+            await syncSkillFrontmatterName(path.join(destination, "SKILL.md"), targetName);
+          }
+          imported.push(targetName);
         } catch (error) {
           failed.push({ name, error: error?.message ?? String(error) });
         }
