@@ -134,7 +134,22 @@ export type LegalworkSessionSnapshot = {
   status:
     | { type: "idle" }
     | { type: "busy" }
-    | { type: "retry"; attempt: number; message: string; next: number };
+    | {
+        type: "retry";
+        attempt: number;
+        message: string;
+        next: number;
+        // Mirrors the engine's `SessionStatus` retry action (the chat renders
+        // it as a titled block with an optional external-link button).
+        action?: {
+          reason: string;
+          provider: string;
+          title: string;
+          message: string;
+          label: string;
+          link?: string;
+        };
+      };
 };
 
 export type LegalworkPluginItem = {

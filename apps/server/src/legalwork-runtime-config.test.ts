@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -8,6 +8,7 @@ import {
   legalworkRuntimeConfigFilePath,
   writeLegalworkRuntimeConfigFile,
 } from "./legalwork-runtime-config.js";
+import { eigenweltFreeManifestCachePath } from "./eigenwelt-free.js";
 import { GLOBAL_TOOL_PERMISSIONS_ID, writeRuntimeOpencodeConfig } from "./runtime-opencode-config-store.js";
 import type { ServerConfig } from "./types.js";
 
@@ -136,5 +137,122 @@ describe("legalwork runtime config file", () => {
     // Global tool key + this workspace's own external_directory, merged.
     expect(permission.bash).toBe("ask");
     expect(permission.external_directory).toEqual({ "/tmp/shared/*": "allow" });
+  });
+});
+
+describe("eigenwelt free provider injection", () => {
+  // The cached manifest now carries this DEVICE's own key (minted once via
+  // /api/public/free-key) — limits are per-key on the gateway.
+  const FREE_MANIFEST = {
+    baseURL: "https://free.gateway.test/v1",
+    apiKey: "sk-device-key-1",
+    models: [
+      { id: "ewl-free-small", name: "EWL Free Small", contextLength: 32000 },
+      { id: "ewl-free-base" },
+    ],
+  };
+
+  type FreeProviderBlock = {
+    npm?: string;
+    name?: string;
+    options?: { baseURL?: string; apiKey?: string; headers?: Record<string, string> };
+    models?: Record<string, { name?: string; tool_call?: boolean; reasoning?: boolean; limit?: { context?: number; output?: number } }>;
+  };
+
+  test("seeded disk cache: injects eigenwelt-free (both limit keys, per-device apiKey, no device header) and disables zen", async () => {
+    const { config } = await setup();
+    await writeFile(eigenweltFreeManifestCachePath(config), JSON.stringify(FREE_MANIFEST), "utf8");
+    // The user's runtime DB may disable other providers — preserved, deduped.
+    await writeRuntimeOpencodeConfig(config, "ws_1", (current) => ({
+      ...current,
+      disabled_providers: ["openrouter", "opencode"],
+    }));
+
+    await writeLegalworkRuntimeConfigFile(config, "ws_1");
+    const parsed = await readConfigFile(config);
+
+    const free = (parsed.provider as Record<string, FreeProviderBlock>)[
+      "eigenwelt-free"
+    ];
+    expect(free).toBeDefined();
+    expect(free.npm).toBe("@ai-sdk/openai-compatible");
+    expect(free.name).toBe("Eigenwelt Free");
+    // This device's own key inline in options — intentional for the free tier.
+    expect(free.options?.baseURL).toBe("https://free.gateway.test/v1");
+    expect(free.options?.headers?.Authorization).toBe("Bearer sk-device-key-1");
+    // Limits are keyed on the virtual key itself now; the old
+    // x-litellm-end-user-id header must NOT be injected anymore.
+    expect(free.options?.apiKey).toBeUndefined();
+    // BOTH limit keys are mandatory: one missing key silently invalidates
+    // the whole runtime config in the engine schema and kills all plugins.
+    expect(free.models?.["ewl-free-small"]?.limit).toEqual({ context: 32000, output: 16384 });
+    expect(free.models?.["ewl-free-base"]?.limit).toEqual({ context: 128000, output: 16384 });
+    expect(free.models?.["ewl-free-small"]?.tool_call).toBe(true);
+    expect(free.models?.["ewl-free-small"]?.reasoning).toBe(false);
+
+    const disabled = parsed.disabled_providers as string[];
+    expect(disabled).toContain("opencode");
+    expect(disabled).toContain("openrouter");
+    expect(disabled.filter((id) => id === "opencode")).toHaveLength(1);
+
+    // The cached device key is stable across config rebuilds.
+    await writeLegalworkRuntimeConfigFile(config, "ws_1");
+    const rebuilt = await readConfigFile(config);
+    const rebuiltFree = (rebuilt.provider as Record<string, FreeProviderBlock>)["eigenwelt-free"];
+    expect(rebuiltFree.options?.headers?.Authorization).toBe("Bearer sk-device-key-1");
+  });
+
+  test("no disk cache: no eigenwelt-free block and zen stays enabled", async () => {
+    const { config } = await setup();
+    await writeLegalworkRuntimeConfigFile(config, "ws_1");
+    const parsed = await readConfigFile(config);
+    expect((parsed.provider as Record<string, unknown> | undefined)?.["eigenwelt-free"]).toBeUndefined();
+    // Zen must NOT be disabled when the free provider is unavailable —
+    // otherwise a first launch with the platform down loses free models.
+    const disabled = (parsed.disabled_providers ?? []) as string[];
+    expect(disabled).not.toContain("opencode");
+  });
+
+  test("corrupt disk cache is ignored; empty-model cache injects nothing", async () => {
+    const { config } = await setup();
+    await writeFile(eigenweltFreeManifestCachePath(config), "not json {", "utf8");
+    await writeLegalworkRuntimeConfigFile(config, "ws_1");
+    let parsed = await readConfigFile(config);
+    expect((parsed.provider as Record<string, unknown> | undefined)?.["eigenwelt-free"]).toBeUndefined();
+    expect(((parsed.disabled_providers ?? []) as string[])).not.toContain("opencode");
+
+    // A valid manifest with zero models must not inject the provider either.
+    await writeFile(
+      eigenweltFreeManifestCachePath(config),
+      JSON.stringify({ ...FREE_MANIFEST, models: [] }),
+      "utf8",
+    );
+    await writeLegalworkRuntimeConfigFile(config, "ws_1");
+    parsed = await readConfigFile(config);
+    expect((parsed.provider as Record<string, unknown> | undefined)?.["eigenwelt-free"]).toBeUndefined();
+    expect(((parsed.disabled_providers ?? []) as string[])).not.toContain("opencode");
+  });
+
+  test("free provider merges with runtime-DB providers without clobbering them", async () => {
+    const { config } = await setup();
+    await writeFile(eigenweltFreeManifestCachePath(config), JSON.stringify(FREE_MANIFEST), "utf8");
+    // Paid eigenwelt provider (connect flow) lives in the runtime DB.
+    await writeRuntimeOpencodeConfig(config, "ws_1", (current) => ({
+      ...current,
+      provider: {
+        eigenwelt: {
+          npm: "@ai-sdk/openai-compatible",
+          name: "Eigenwelt Model API",
+          options: { baseURL: "https://paid.gateway.test/v1" },
+          models: { "ewl-pro": { name: "EWL Pro", limit: { context: 200000, output: 16384 } } },
+        },
+      },
+    }));
+
+    await writeLegalworkRuntimeConfigFile(config, "ws_1");
+    const parsed = await readConfigFile(config);
+    const providers = parsed.provider as Record<string, FreeProviderBlock>;
+    expect(providers.eigenwelt?.name).toBe("Eigenwelt Model API");
+    expect(providers["eigenwelt-free"]?.name).toBe("Eigenwelt Free");
   });
 });

@@ -12,6 +12,7 @@ https://github.com/user-attachments/assets/4a576c3a-7c2a-46c6-9856-1254282b1b70
 - **Tabular review** — extract terms across many documents into a sourced grid.
 - **Draft** briefs, memos, contracts, and engagement letters.
 - **Bring your own model** — AWS Bedrock, Azure OpenAI, or any provider. Your data is only ever shared with the model you choose.
+- **Free models included** — Eigenwelt provides free models to try LegalWork, no login required. Free-tier usage data is logged, so don't use them with privileged, client, or matter data — testing only — see [`TERMS.md`](./TERMS.md).
 - **Runs on this machine** by default; connect a remote worker only when you want to.
 - **Extend it** with skills, plugins, and MCP connectors, managed in **Settings → Extensions** and shared across every workspace.
 

@@ -8,6 +8,13 @@ import { toast } from "@/components/ui/sonner";
 
 import { analyticsSurface, captureAnalyticsEvent } from "@/app/lib/analytics";
 import { analyticsErrorService, analyticsErrorStatus } from "@/app/lib/analytics-error";
+import {
+  EIGENWELT_FREE_LIMIT_ERROR_TEXT,
+  eigenweltFreeBudgetRetryAction,
+  isEigenweltFreeBudgetError,
+  markEigenweltFreeBudgetStop,
+  shouldStopEigenweltFreeBudgetRetry,
+} from "@/app/lib/eigenwelt-free-budget";
 import { createClient, unwrap } from "@/app/lib/opencode";
 import { abortSessionSafe } from "@/app/lib/opencode-session";
 import { isOfficeAddinRuntime } from "@/app/lib/runtime-env";
@@ -56,6 +63,7 @@ import { QueuedMessagesPanel } from "@/react-app/domains/session/modals/queued-m
 import { deriveOpenTargets, selectAutoOpenTarget, type OpenTarget } from "@/react-app/domains/session/artifacts/open-target";
 import { usePanelTabStore } from "@/react-app/domains/session/panel/panel-tab-store";
 import {
+  injectSessionErrorMessage,
   seedSessionState,
   snapshotKey as reactSnapshotKey,
   statusKey as reactStatusKey,
@@ -109,7 +117,7 @@ export type SessionSurfaceProps = {
   modelPickerOpen: boolean;
   modelUnavailable?: boolean;
   selectedModel: ModelRef;
-  /** True when the active model is a free OpenCode Zen model (no-key fallback). */
+  /** True when the active model is a free-tier model (no-key fallback). */
   freeModelSelected?: boolean;
   onModelPickerOpenChange: (open: boolean) => void;
   onModelChange: (model: ModelRef) => void;
@@ -290,10 +298,10 @@ function TodoPanel(props: { todos: TodoItem[] }) {
 }
 
 /**
- * Banner shown above the composer whenever the active model is a free OpenCode
- * Zen model (the no-key fallback). Free Zen models are lower-performance and
- * their provider may train on the inputs they receive, so they must not be used
- * with client/matter data — only to try the app.
+ * Banner shown above the composer whenever the active model is a free model
+ * (the no-key fallback, served by Eigenwelt's free gateway). Free-tier usage
+ * data is logged, so free models are for testing only — never for
+ * privileged, client, or matter data.
  */
 function FreeModelNotice() {
   return (
@@ -301,8 +309,8 @@ function FreeModelNotice() {
       <TriangleAlert size={14} className="mt-0.5 shrink-0 text-amber-11" />
       <p className="text-xs leading-relaxed text-amber-11">
         <span className="font-medium">Free test model.</span>{" "}
-        Lower-quality, and this provider may train on what you send it. Don&apos;t
-        use it with client or matter data. Connect your own model for real work.
+        Lower-quality, and zero data retention is not guaranteed. Don&apos;t use
+        it with client or matter data. Connect your own model for real work.
       </p>
     </div>
   );
@@ -494,6 +502,9 @@ export function SessionSurface(props: SessionSurfaceProps) {
   const hydratedKeyRef = useRef<string | null>(null);
   const autoOpenedTargetRef = useRef<string | null>(null);
   const initializedAutoOpenSessionRef = useRef<string | null>(null);
+  // One daily-limit stop per failing run (re-armed by session switch, a new
+  // busy attempt, or a failed abort).
+  const budgetStopFiredRef = useRef(false);
   const opencodeClient = useMemo(
     () => createClient(props.opencodeBaseUrl, undefined, { token: props.legalworkToken, mode: "legalwork" }),
     [props.opencodeBaseUrl, props.legalworkToken],
@@ -536,6 +547,7 @@ export function SessionSurface(props: SessionSurfaceProps) {
     // switching sessions preserves each session's own in-progress composer.
     autoOpenedTargetRef.current = null;
     initializedAutoOpenSessionRef.current = null;
+    budgetStopFiredRef.current = false;
     setVerifiedOpenTargets([]);
   }, [props.sessionId]);
 
@@ -617,6 +629,58 @@ export function SessionSurface(props: SessionSurfaceProps) {
 
     return "ready";
   }, [liveStatus, sending]);
+
+  // --- Eigenwelt free-tier daily-limit retries -----------------------------
+  // Gateway budget errors (LiteLLM 429 "Budget has been exceeded" on the
+  // free key's daily budget) never resolve on their own, so the engine's
+  // endless retry/backoff loop is pointless. Policy: let it retry up to 3
+  // attempts (with an upgrade action on the banner), then abort the run and
+  // surface the friendly terminal limit card. Gated on the session's selected
+  // provider being `eigenwelt-free`; every other provider/error keeps the
+  // engine's default retry behavior.
+  const budgetRetryActive =
+    liveStatus.type === "retry" &&
+    isEigenweltFreeBudgetError(props.selectedModel.providerID, liveStatus.message);
+  const retryStatusForDisplay = useMemo(() => {
+    if (liveStatus.type !== "retry") return null;
+    if (!budgetRetryActive || liveStatus.action) return liveStatus;
+    return { ...liveStatus, action: eigenweltFreeBudgetRetryAction() };
+  }, [budgetRetryActive, liveStatus]);
+  useEffect(() => {
+    // A fresh attempt (busy) re-arms the guard so a later prompt that hits
+    // the daily limit again is stopped again.
+    if (liveStatus.type === "busy") budgetStopFiredRef.current = false;
+  }, [liveStatus.type]);
+  useEffect(() => {
+    if (liveStatus.type !== "retry") return;
+    if (!shouldStopEigenweltFreeBudgetRetry(props.selectedModel.providerID, liveStatus.message, liveStatus.attempt)) return;
+    if (budgetStopFiredRef.current) return;
+    budgetStopFiredRef.current = true;
+    const attempt = liveStatus.attempt;
+    // Stop means stop (mirrors handleAbort): drop queued follow-ups so the
+    // queue-drain effect doesn't re-prompt straight into the same limit wall.
+    clearQueuedDrafts(props.sessionId);
+    // Render the terminal card immediately; the engine's abort error for the
+    // same turn reconciles into this message (see session-sync's
+    // budget-stop substitution).
+    injectSessionErrorMessage(props.workspaceId, props.sessionId, EIGENWELT_FREE_LIMIT_ERROR_TEXT);
+    markEigenweltFreeBudgetStop(props.sessionId);
+    void (async () => {
+      const aborted = await abortSessionSafe(
+        opencodeClient,
+        props.sessionId,
+        props.workspaceRoot.trim() || undefined,
+      );
+      if (!aborted) {
+        // Engine unreachable or scope mismatch — re-arm so the next retry
+        // event tries the abort again instead of backing off forever.
+        budgetStopFiredRef.current = false;
+        return;
+      }
+      captureAnalyticsEvent("task_run_free_limit_stopped", { attempts: attempt });
+      await snapshotQuery.refetch();
+    })();
+  }, [clearQueuedDrafts, liveStatus, opencodeClient, props.selectedModel.providerID, props.sessionId, props.workspaceId, props.workspaceRoot, snapshotQuery.refetch]);
   const renderedMessages = useMemo(
     () => deriveRenderedSessionMessages({ transcriptState, snapshot }),
     [snapshot, transcriptState],
@@ -1374,7 +1438,7 @@ export function SessionSurface(props: SessionSurfaceProps) {
                       <MessageList
                         messages={renderedMessages}
                         status={status}
-                        retryStatus={liveStatus.type === "retry" ? liveStatus : null}
+                        retryStatus={retryStatusForDisplay}
                       />
                     </MessageListProvider>
                   </EnvironmentVariableProvider>

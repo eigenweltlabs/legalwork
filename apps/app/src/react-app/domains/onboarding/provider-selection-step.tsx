@@ -96,9 +96,9 @@ export function ProviderSelectionStep({ onConnect, onSkip }: ProviderSelectionSt
                     <div className="flex max-w-sm items-start gap-2.5 rounded-xl border border-amber-6/40 bg-amber-2/30 px-3.5 py-3">
                       <TriangleAlertIcon className="mt-0.5 size-4 shrink-0 text-amber-11" />
                       <p className="text-[12px] leading-relaxed text-amber-11">
-                        Free models are slower, lower-quality test models, and these providers may
-                        train on what you send them. Don&apos;t use them with client or matter data;
-                        use them only to try LegalWork. Connect your own model above for real work.
+                        Free models are included to try LegalWork. Usage data is
+                        logged, so please keep privileged, client, and matter data out. For real
+                        work, connect your own model above.
                       </p>
                     </div>
                   </div>
