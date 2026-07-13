@@ -79,6 +79,8 @@ import { Button } from "@/components/ui/button";
 import { SidebarContext, useSidebarContext } from "./app-sidebar-provider";
 import type { SidebarContextValue } from "./app-sidebar-provider";
 import { SidebarUpdateBadge } from "./sidebar-update-badge";
+import { SidebarWorkflowGenerationBadge } from "./sidebar-workflow-generation-badge";
+import { workspaceSessionRoute } from "@/react-app/shell/workspace-routes";
 import {
   MAX_SESSIONS_PREVIEW,
   buildSessionTreeState,
@@ -707,6 +709,12 @@ export function AppSidebar(props: AppSidebarProps) {
             </SidebarMenuButton>
           </SidebarMenuItem>
         </SidebarMenu>
+        {/* Flows directly under the last nav item, with a little breathing room. */}
+        <div className="mt-3">
+          <SidebarWorkflowGenerationBadge
+            onOpenSession={(workspaceId, sessionId) => navigate(workspaceSessionRoute(workspaceId, sessionId))}
+          />
+        </div>
         </div>
 
         {/* Folders — fixed bottom 60% (top edge at 40% from top). */}

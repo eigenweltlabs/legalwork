@@ -9,6 +9,7 @@ import {
   type SetStateAction,
 } from "react";
 import {
+  CheckCircle2,
   Download,
   Edit2,
   FileArchive,
@@ -20,6 +21,7 @@ import {
   Search,
   Sparkles,
   Trash2,
+  X,
 } from "lucide-react";
 import { toast } from "@/components/ui/sonner";
 import { captureAnalyticsEvent } from "@/app/lib/analytics";
@@ -42,11 +44,17 @@ import type {
 import {
   pillGhostClass,
   pillPrimaryClass,
+  pillSecondaryClass,
 } from "@/react-app/domains/workspace/modal-styles";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import { ConfirmModal } from "@/react-app/design-system/modals/confirm-modal";
 import { syncAttachedFilesSection } from "@/app/utils/skill-resources";
+import {
+  dismissTemplateWorkflowRun,
+  retryTemplateWorkflowImport,
+  useTemplateWorkflowRun,
+} from "../state/template-workflow-generation";
 import {
   SkillResourcesPanel,
   StagedResourcesField,
@@ -148,6 +156,14 @@ export type SkillsViewProps = {
    * in separate views — workflows are marked by a `workflow-<type>-` name prefix.
    */
   kind?: "skills" | "workflows";
+  /**
+   * Workflows view only: picks a templates folder and starts the local
+   * template-to-workflow generation agent. Resolves ok:false with a message on
+   * failure; a cancelled folder pick resolves ok:true with no message.
+   */
+  onGenerateFromTemplates?: () => Promise<{ ok: boolean; message?: string }>;
+  /** Opens the running/finished generation session in the normal chat view. */
+  onOpenTemplateGenerationSession?: () => void;
 };
 
 // Workflows are ordinary skills tagged with `kind: workflow` frontmatter (surfaced on the
@@ -283,6 +299,16 @@ export function SkillsView(props: SkillsViewProps) {
 
 
   const isWorkflowsView = props.kind === "workflows";
+  // Template-to-workflow generation run (module store shared with onboarding).
+  const templateRun = useTemplateWorkflowRun();
+  const templateRunActive = templateRun?.status === "running";
+  // The generated workflows land on disk as the agent goes — pull them into the
+  // list the moment the run completes.
+  useEffect(() => {
+    if (isWorkflowsView && templateRun?.status === "done") {
+      void extensions.refreshSkills({ force: true });
+    }
+  }, [extensions, isWorkflowsView, templateRun?.status]);
   const allSkills = extensions.skills();
   // Each view shows only its own kind; both live in the same skill store.
   const skills = useMemo(
@@ -361,6 +387,17 @@ export function SkillsView(props: SkillsViewProps) {
     void extensions.refreshSkills({ force: true });
     if (SKILLS_HUB_UI_ENABLED) void extensions.refreshHubSkills({ force: true });
   }, [extensions, props.busy]);
+
+  const generateFromTemplates = useCallback(async () => {
+    const start = props.onGenerateFromTemplates;
+    if (props.busy || !start || templateRunActive) return;
+    if (!props.canUseDesktopTools) {
+      toast.warning(t("skills.desktop_required"));
+      return;
+    }
+    const result = await start();
+    if (!result.ok && result.message) toast.error(result.message);
+  }, [props.busy, props.canUseDesktopTools, props.onGenerateFromTemplates, templateRunActive]);
 
   const installSkillCreator = useCallback(async () => {
     if (props.busy || installingSkillCreator) return;
@@ -568,6 +605,25 @@ export function SkillsView(props: SkillsViewProps) {
                   onCreate={extensions.createSkill}
                   saveSkillResource={extensions.saveSkillResource}
                 />
+                {props.onGenerateFromTemplates ? (
+                  // The flagship action: brand-primary treatment (accent fill,
+                  // light-catching inner glow, layered accent shadow, hover
+                  // lift + light sweep) so it outranks the plain pills.
+                  <button
+                    type="button"
+                    onClick={() => void generateFromTemplates()}
+                    disabled={props.busy || !props.canUseDesktopTools || templateRunActive}
+                    className="group relative inline-flex items-center justify-center gap-1.5 overflow-hidden rounded-full border border-white/30 bg-dls-accent px-4 py-2 text-[13px] font-medium tracking-[-0.01em] text-[var(--dls-accent-fg)] shadow-[inset_0_0_8px_4px_rgba(255,255,255,0.18),0_8px_20px_-8px_rgba(var(--dls-accent-rgb),0.7)] transition-all duration-200 hover:-translate-y-px hover:bg-[var(--dls-accent-hover)] hover:shadow-[inset_0_0_8px_4px_rgba(255,255,255,0.22),0_12px_26px_-8px_rgba(var(--dls-accent-rgb),0.8)] focus:outline-none focus:ring-2 focus:ring-[rgba(var(--dls-accent-rgb),0.3)] active:translate-y-0 disabled:cursor-not-allowed disabled:opacity-60 disabled:shadow-none disabled:hover:translate-y-0"
+                    title="Point a local agent at a folder of firm templates; it drafts one workflow per template."
+                  >
+                    <span
+                      aria-hidden
+                      className="pointer-events-none absolute inset-0 -translate-x-[110%] bg-gradient-to-r from-transparent via-white/30 to-transparent transition-transform duration-700 ease-out group-hover:translate-x-[110%]"
+                    />
+                    {templateRunActive ? <Loader2 size={14} className="animate-spin" /> : <Sparkles size={14} />}
+                    Generate from templates
+                  </button>
+                ) : null}
               </>
             ) : (
               <>
@@ -672,6 +728,18 @@ export function SkillsView(props: SkillsViewProps) {
               {filteredSkills.length.toString().padStart(2, "0")}
             </span>
           </div>
+
+          {isWorkflowsView && templateRun ? (
+            <TemplateGenerationRow
+              status={templateRun.status}
+              templatesDir={templateRun.templatesDir}
+              error={templateRun.error}
+              summary={templateRun.summary}
+              onOpen={props.onOpenTemplateGenerationSession}
+              onRetry={retryTemplateWorkflowImport}
+              onDismiss={dismissTemplateWorkflowRun}
+            />
+          ) : null}
 
           {filteredSkills.length === 0 ? (
             <div className="border-y border-dls-border py-16 text-center text-[14px] text-dls-secondary">
@@ -1212,6 +1280,101 @@ function buildWorkflowContent(input: {
   return `${frontmatter}\n${md}\n`;
 }
 
+// Progress card for a template-to-workflow generation run. Clicking it opens
+// the agent's session in the normal chat view so the user can watch (and answer
+// any permission prompts); done/error states carry a dismiss control, and a
+// failed import can be retried in place (the staged workflows survive it).
+function TemplateGenerationRow(props: {
+  status: "running" | "done" | "error";
+  templatesDir: string;
+  error?: string;
+  summary?: string;
+  onOpen?: () => void;
+  onRetry: () => Promise<void>;
+  onDismiss: () => void;
+}) {
+  const [retrying, setRetrying] = useState(false);
+  const folderName = props.templatesDir.split(/[\/\\]/).filter(Boolean).pop() || props.templatesDir;
+  const title =
+    props.status === "running"
+      ? "Generating workflows from your templates…"
+      : props.status === "done"
+        ? "Workflows generated from your templates"
+        : "Workflow generation failed";
+  const subtitle =
+    props.status === "running"
+      ? `Reading “${folderName}”. Click to watch the agent work`
+      : props.status === "done"
+        ? `${props.summary ? `${props.summary}. ` : ""}Review them below, or open the session for the full log.`
+        : props.error || "Open the session to see what went wrong.";
+
+  const retry = async () => {
+    if (retrying) return;
+    setRetrying(true);
+    try {
+      await props.onRetry();
+    } finally {
+      setRetrying(false);
+    }
+  };
+
+  return (
+    <div
+      role="button"
+      tabIndex={0}
+      onClick={() => props.onOpen?.()}
+      onKeyDown={(event) => {
+        if (event.key !== "Enter" && event.key !== " ") return;
+        event.preventDefault();
+        props.onOpen?.();
+      }}
+      className="group flex cursor-pointer items-center gap-4 rounded-[16px] border border-dls-border bg-dls-hover/40 px-5 py-4 transition-colors hover:border-[rgba(var(--dls-accent-rgb),0.35)] hover:bg-dls-hover focus-visible:bg-dls-hover focus:outline-none"
+    >
+      {props.status === "running" ? (
+        <Loader2 size={18} className="shrink-0 animate-spin text-dls-accent" />
+      ) : props.status === "done" ? (
+        <CheckCircle2 size={18} className="shrink-0 text-dls-accent" />
+      ) : (
+        <Sparkles size={18} className="shrink-0 text-red-500" />
+      )}
+      <div className="min-w-0 flex-1">
+        <h4 className="truncate text-[14px] font-medium tracking-[-0.01em] text-dls-text">{title}</h4>
+        <p className="mt-0.5 truncate text-[12.5px] leading-relaxed text-dls-secondary">{subtitle}</p>
+      </div>
+      {props.status === "error" ? (
+        <button
+          type="button"
+          className={ghostActionClass}
+          onClick={(event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            void retry();
+          }}
+          disabled={retrying}
+        >
+          {retrying ? <Loader2 size={14} className="animate-spin" /> : <RefreshCw size={14} />}
+          Retry import
+        </button>
+      ) : null}
+      {props.status !== "running" ? (
+        <button
+          type="button"
+          className={rowIconBtnClass}
+          onClick={(event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            props.onDismiss();
+          }}
+          title="Dismiss"
+          aria-label="Dismiss"
+        >
+          <X size={15} />
+        </button>
+      ) : null}
+    </div>
+  );
+}
+
 function WorkflowCreatorButton(props: {
   disabled?: boolean;
   existingNames: Set<string>;
@@ -1284,7 +1447,8 @@ function WorkflowCreatorButton(props: {
 
   return (
     <>
-      <button type="button" onClick={() => setOpen(true)} disabled={props.disabled} className={pillPrimaryClass}>
+      {/* Secondary on purpose: "Generate from templates" is the hero action in this toolbar. */}
+      <button type="button" onClick={() => setOpen(true)} disabled={props.disabled} className={pillSecondaryClass}>
         <Plus size={14} />
         Add workflow
       </button>

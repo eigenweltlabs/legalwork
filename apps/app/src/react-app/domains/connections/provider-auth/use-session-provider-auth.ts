@@ -51,11 +51,12 @@ export function useSessionProviderAuth(input: UseSessionProviderAuthInput) {
     setDisabledProviderIds,
   } = input;
   const reloadCoordinator = useReloadCoordinator();
-  // Onboarding runs through the session as a full-screen "connect" cover (the provider
-  // selection step with the searchable modal on top). Usage-analytics consent is a toggle
-  // on the welcome step, so there is no longer a separate analytics cover.
-  // null = not onboarding. The welcome route lands here with ?onboarding=1.
-  const [onboardingStep, setOnboardingStep] = useState<"connect" | null>(() =>
+  // Onboarding runs through the session as full-screen covers: "connect" (the provider
+  // selection step with the searchable modal on top) and "templates" (optional firm-template
+  // workflow generation). Usage-analytics consent is a toggle on the welcome step, so there
+  // is no longer a separate analytics cover. null = not onboarding. The welcome route lands
+  // here with ?onboarding=1.
+  const [onboardingStep, setOnboardingStep] = useState<"connect" | "templates" | null>(() =>
     typeof window !== "undefined" && window.location.hash.includes("onboarding=1") ? "connect" : null,
   );
   const connectedAtModalOpenRef = useRef<number | null>(null);
@@ -152,10 +153,10 @@ export function useSessionProviderAuth(input: UseSessionProviderAuthInput) {
 
   const snapshot = useProviderAuthStoreSnapshot(store);
 
-  // Finish onboarding only when a provider connects *during the connect modal*.
-  // Baseline the connected count when the modal opens (not at mount): the existing
-  // provider list streams in asynchronously after mount, and counting that as a new
-  // connection is what made onboarding dismiss itself immediately.
+  // Advance to the templates step only when a provider connects *during the connect
+  // modal*. Baseline the connected count when the modal opens (not at mount): the
+  // existing provider list streams in asynchronously after mount, and counting that
+  // as a new connection is what made onboarding skip straight past the connect step.
   useEffect(() => {
     if (onboardingStep !== "connect") return;
     if (snapshot.providerAuthModalOpen) {
@@ -167,7 +168,7 @@ export function useSessionProviderAuth(input: UseSessionProviderAuthInput) {
     if (connectedAtModalOpenRef.current !== null) {
       const connectedSomething = providerConnectedIds.length > connectedAtModalOpenRef.current;
       connectedAtModalOpenRef.current = null;
-      if (connectedSomething) setOnboardingStep(null);
+      if (connectedSomething) setOnboardingStep("templates");
     }
   }, [onboardingStep, providerConnectedIds.length, snapshot.providerAuthModalOpen]);
 
@@ -175,6 +176,7 @@ export function useSessionProviderAuth(input: UseSessionProviderAuthInput) {
     store,
     snapshot,
     onboardingStep,
+    goToTemplates: () => setOnboardingStep("templates"),
     finishOnboarding: () => setOnboardingStep(null),
   };
 }

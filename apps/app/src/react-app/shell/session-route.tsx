@@ -105,6 +105,13 @@ import { appMentionInstruction } from "@/react-app/domains/session/surface/compo
 import { CreateWorkspaceModal } from "@/react-app/domains/workspace/create-workspace-modal";
 import { useSessionProviderAuth } from "@/react-app/domains/connections/provider-auth/use-session-provider-auth";
 import { ProviderSelectionStep } from "@/react-app/domains/onboarding/provider-selection-step";
+import { TemplateWorkflowsStep } from "@/react-app/domains/onboarding/template-workflows-step";
+import {
+  ensureTemplateWorkflowWatcher,
+  startTemplateWorkflowGeneration,
+  useHiddenTemplateWorkspaceIds,
+  useTemplateWorkflowRun,
+} from "@/react-app/domains/settings/state/template-workflow-generation";
 import { useMcpConnectedCount } from "@/react-app/domains/connections/use-mcp-connected-count";
 import { RenameWorkspaceModal } from "@/react-app/domains/workspace/rename-workspace-modal";
 import { ModelPickerModal } from "@/react-app/domains/session/modals/model-picker-modal";
@@ -470,9 +477,18 @@ export function SessionRoute() {
     }
   }, [activeReloadBlockingSessions.length, reloadWorkspaceEngineFromUi, selectedWorkspaceRoot]);
 
+  // Templates workspaces (created by workflow generation) are utility plumbing:
+  // they stay out of the sidebar; their session is reached via the Workflows
+  // progress banner. Route resolution keeps using the unfiltered list so that
+  // navigation still works.
+  const hiddenTemplateWorkspaceIds = useHiddenTemplateWorkspaceIds();
+  const sidebarWorkspaces = useMemo(
+    () => workspaces.filter((workspace) => !hiddenTemplateWorkspaceIds.includes(workspace.id)),
+    [hiddenTemplateWorkspaceIds, workspaces],
+  );
   const workspaceSessionGroups = useMemo(
-    () => toSessionGroups(workspaces, sessionsByWorkspaceId, errorsByWorkspaceId, new Set(retryingWorkspaceIds)),
-    [errorsByWorkspaceId, retryingWorkspaceIds, sessionsByWorkspaceId, workspaces],
+    () => toSessionGroups(sidebarWorkspaces, sessionsByWorkspaceId, errorsByWorkspaceId, new Set(retryingWorkspaceIds)),
+    [errorsByWorkspaceId, retryingWorkspaceIds, sessionsByWorkspaceId, sidebarWorkspaces],
   );
   useSessionGroupSync({ workspaces, endpointForWorkspace });
   const selectedWorkspaceGroupState = sessionManagementStore((state) => (
@@ -585,7 +601,7 @@ export function SessionRoute() {
     opencodeClient && selectedWorkspaceId && !loading && !selectedWorkspaceError && !selectedModelUnavailable,
   );
 
-  const { store: sessionProviderAuthStore, snapshot: sessionProviderAuthSnapshot, onboardingStep, finishOnboarding } =
+  const { store: sessionProviderAuthStore, snapshot: sessionProviderAuthSnapshot, onboardingStep, goToTemplates, finishOnboarding } =
     useSessionProviderAuth({
       opencodeClient,
       providers,
@@ -601,6 +617,58 @@ export function SessionRoute() {
       setProviderConnectedIds,
       setDisabledProviderIds,
     });
+  // The templates onboarding step needs the desktop runtime (folder picker,
+  // skill import IPC); anywhere else it finishes onboarding straight away
+  // (usage-analytics consent already lives on the welcome step).
+  // The start handler carries its own connection guard.
+  const templatesStepEligible = isDesktopRuntime();
+  useEffect(() => {
+    if (onboardingStep === "templates" && !templatesStepEligible) finishOnboarding();
+  }, [finishOnboarding, onboardingStep, templatesStepEligible]);
+
+  // Resume the generation-completion watcher after a reload: a persisted
+  // "running" run keeps its Workflows spinner honest only while someone polls.
+  useEffect(() => {
+    if (baseUrl && token) ensureTemplateWorkflowWatcher(baseUrl, token);
+  }, [baseUrl, token]);
+
+  // The generation run's hidden workspace is registered server-side without
+  // going through the manual create flow, so route state doesn't know it yet —
+  // and navigating to /workspace/<id>/... from the Workflows banner would show
+  // "Workspace was not found". Pull it in once per run (guarded so a stale run
+  // pointing at a forgotten workspace can't refresh-loop).
+  const templateWorkflowRun = useTemplateWorkflowRun();
+  const templateRunRefreshAttemptedRef = useRef<string | null>(null);
+  useEffect(() => {
+    const workspaceId = templateWorkflowRun?.workspaceId;
+    if (!workspaceId) return;
+    if (workspaces.some((workspace) => workspace.id === workspaceId)) return;
+    if (templateRunRefreshAttemptedRef.current === workspaceId) return;
+    templateRunRefreshAttemptedRef.current = workspaceId;
+    void refreshRouteState();
+  }, [refreshRouteState, templateWorkflowRun?.workspaceId, workspaces]);
+
+  const startTemplateWorkflowsFromOnboarding = async (): Promise<{ started: boolean; message?: string }> => {
+    const selection = await pickDirectory({ title: "Choose your templates folder" });
+    const folder = typeof selection === "string" ? selection : Array.isArray(selection) ? selection[0] : null;
+    if (!folder?.trim()) return { started: false };
+    if (!client || !baseUrl || !token) {
+      return { started: false, message: "Still connecting to the LegalWork server. Try again in a moment." };
+    }
+    const result = await startTemplateWorkflowGeneration({
+      environmentClient: client,
+      baseUrl,
+      token,
+      templatesDir: folder.trim(),
+      model: local.prefs.defaultModel,
+    });
+    if (!result.ok) return { started: false, message: result.message };
+    // The templates folder is a workspace now — pull it into the sidebar list.
+    void refreshRouteState();
+    finishOnboarding();
+    return { started: true };
+  };
+
   const {
     activePermission,
     permissionReplyBusy,
@@ -1525,9 +1593,9 @@ export function SessionRoute() {
       />
     ) : null}
     {onboardingStep === "connect" ? (
-      // Final onboarding cover: the real provider-selection design (z-40) with the
+      // Provider-selection cover: the real provider-selection design (z-40) with the
       // searchable connect modal (z-50) on top. Usage-analytics consent lives on the
-      // welcome step; connecting or skipping here ends onboarding.
+      // welcome step; connecting or skipping here advances to the optional templates step.
       <ProviderSelectionStep
         onConnect={(providerId) =>
           sessionProviderAuthStore.openProviderAuthModal({
@@ -1535,6 +1603,14 @@ export function SessionRoute() {
             returnFocusTarget: "composer",
           })
         }
+        onSkip={goToTemplates}
+      />
+    ) : null}
+    {onboardingStep === "templates" && templatesStepEligible ? (
+      // Optional final cover: point a local agent at the firm's templates folder;
+      // the generation run continues in the background while onboarding finishes.
+      <TemplateWorkflowsStep
+        onStart={startTemplateWorkflowsFromOnboarding}
         onSkip={finishOnboarding}
       />
     ) : null}
@@ -1551,7 +1627,7 @@ export function SessionRoute() {
       selectedWorkspaceError={selectedWorkspaceError}
       runtimeWorkspaceId={selectedWorkspaceEndpoint?.workspaceId || null}
       opencodeBaseUrl={opencodeBaseUrl}
-      workspaces={workspaces}
+      workspaces={sidebarWorkspaces}
       clientConnected={canCreateTask}
       legalworkServerStatus={client ? "connected" : "disconnected"}
       legalworkServerClient={selectedWorkspaceEndpoint?.client ?? client}
@@ -1595,7 +1671,17 @@ export function SessionRoute() {
         // via an effect, so switching Workflows <-> Integrations is instant and doesn't
         // re-fetch the workspace/stores.
         showWorkflows ? (
-          <SettingsSurface embedded singleView initialPath="workflows" workspaceId={selectedWorkspaceId} />
+          // onClose drops the pane so actions that navigate to a session (e.g.
+          // opening the workflow-generation session) always reveal the chat —
+          // even when the target session is already the selected one and the
+          // route (and thus the pane-closing route effect) doesn't change.
+          <SettingsSurface
+            embedded
+            singleView
+            initialPath="workflows"
+            workspaceId={selectedWorkspaceId}
+            onClose={() => setShowWorkflows(false)}
+          />
         ) : showExtensions ? (
           <SettingsSurface embedded singleView initialPath="extensions" workspaceId={selectedWorkspaceId} />
         ) : showLearnings ? (

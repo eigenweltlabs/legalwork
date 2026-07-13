@@ -1452,6 +1452,42 @@ const desktopCommandHandlers = {
   "listLocalSkills": async (event, ...args) => {
       return listLocalSkills(String(args[0] ?? "").trim());
   },
+  "importSkillsFromFolder": async (event, ...args) => {
+      const sourceDir = String(args[0] ?? "").trim();
+      const imported = [];
+      const skipped = [];
+      const failed = [];
+      if (!sourceDir || !(await isDirectory(sourceDir))) {
+        return { imported, skipped, failed };
+      }
+      const root = await ensureGlobalSkillRoot();
+      const entries = await readdir(sourceDir, { withFileTypes: true }).catch(() => []);
+      for (const entry of entries) {
+        if (!entry.isDirectory()) continue;
+        const name = entry.name;
+        const from = path.join(sourceDir, name);
+        if (!(await pathExists(path.join(from, "SKILL.md")))) continue;
+        try {
+          validateSkillName(name);
+          if (name.length > 64) throw new Error("skill name too long (max 64 chars)");
+          const destination = path.join(root, name);
+          if (await pathExists(destination)) {
+            skipped.push(name);
+            continue;
+          }
+          await cp(from, destination, { recursive: true });
+          imported.push(name);
+        } catch (error) {
+          failed.push({ name, error: error?.message ?? String(error) });
+        }
+      }
+      // Staging is disposable once everything landed; keep it around for
+      // inspection when any folder failed to import.
+      if (failed.length === 0) {
+        await rm(sourceDir, { recursive: true, force: true }).catch(() => {});
+      }
+      return { imported, skipped, failed };
+  },
   "importSkillZip": async (event, ...args) => {
       const projectDir = String(args[0] ?? "").trim();
       const archivePath = String(args[1] ?? "").trim();
