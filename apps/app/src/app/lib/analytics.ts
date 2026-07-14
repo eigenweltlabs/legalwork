@@ -71,7 +71,8 @@ export function getStoredAnalyticsConsent(): boolean | null {
     if (!raw) return null;
     const parsed: unknown = JSON.parse(raw);
     if (parsed && typeof parsed === "object" && "analyticsEnabled" in parsed) {
-      return (parsed as { analyticsEnabled?: unknown }).analyticsEnabled === true;
+      const value = (parsed as { analyticsEnabled?: unknown }).analyticsEnabled;
+      return typeof value === "boolean" ? value : null;
     }
     return null;
   } catch {

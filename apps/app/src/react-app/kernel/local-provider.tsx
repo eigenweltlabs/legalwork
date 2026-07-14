@@ -59,11 +59,12 @@ export type LocalPreferences = {
    */
   hasCompletedOnboarding: boolean;
   /**
-   * Anonymous product analytics (PostHog). Committed from the welcome-screen
-   * toggle (nothing is sent before then); switchable anytime in
-   * Settings -> Privacy. See analytics.ts for the data model.
+   * User preference committed from the welcome-screen toggle (nothing is
+   * applied before then); switchable anytime in Settings -> Privacy.
+   * `null` means the user has not made a choice yet — do not persist a
+   * concrete default, or the welcome toggle's opt-out default is defeated.
    */
-  analyticsEnabled: boolean;
+  analyticsEnabled: boolean | null;
   /**
    * Fusion mode defaults: up to three candidate models preselected in the
    * chat's fusion picker when fusion is turned on. The session's default
@@ -96,7 +97,10 @@ const INITIAL_PREFS: LocalPreferences = {
   releaseChannel: "stable",
   featureFlags: { microsandboxCreateSandbox: true },
   hasCompletedOnboarding: false,
-  analyticsEnabled: false,
+  // null until the user chooses on the welcome screen — persisting a concrete
+  // value here would make getStoredAnalyticsConsent() report a choice that was
+  // never made, defeating the welcome toggle's default.
+  analyticsEnabled: null,
   fusionModels: [],
 };
 
@@ -169,7 +173,7 @@ export function LocalProvider({ children }: LocalProviderProps) {
               baseUrl: normalizedBaseUrl,
               token: resolvedToken || undefined,
               hostToken: resolvedHostToken || undefined,
-            }).setAnalyticsIdentity({ analyticsEnabled: prefs.analyticsEnabled });
+            }).setAnalyticsIdentity({ analyticsEnabled: prefs.analyticsEnabled === true });
             if (typeof result?.distinctId === "string") setAnalyticsDistinctId(result.distinctId);
             return;
           }
