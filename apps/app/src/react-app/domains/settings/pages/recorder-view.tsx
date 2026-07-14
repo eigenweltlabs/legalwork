@@ -72,6 +72,7 @@ export function RecorderSettingsView() {
   return (
     <LayoutStack>
       <SegmentedControl
+        className="w-fit"
         aria-label={t("recorder.models_tab")}
         value={tab}
         onValueChange={(key) => setTab(key as "models" | "dictation")}
