@@ -47,6 +47,8 @@ export type AiSettingsViewProps = {
   cloudProvidersView?: ReactNode;
   /** Fusion mode configuration section (candidate models + fusion model). */
   fusionView?: ReactNode;
+  /** Firm Hub: "share current settings as preset" section (shown only when entitled). */
+  presetShareView?: ReactNode;
 };
 
 function providerSourceLabel(source?: ConnectedProvider["source"]) {
@@ -175,6 +177,8 @@ export function AiSettingsView(props: AiSettingsViewProps) {
       {props.cloudProvidersView}
 
       {props.fusionView}
+
+      {props.presetShareView}
 
     </LayoutStack>
   );

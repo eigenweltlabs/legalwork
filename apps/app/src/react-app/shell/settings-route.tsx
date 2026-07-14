@@ -56,6 +56,11 @@ import ProviderAuthModal from "@/react-app/domains/connections/provider-auth/pro
 import ConnectionsModals from "@/react-app/domains/connections/modals";
 import { AiSettingsView } from "@/react-app/domains/settings/pages/ai-view";
 import { FirmHubView } from "@/react-app/domains/settings/pages/firm-hub-view";
+import { SharePresetSection } from "@/react-app/domains/settings/pages/share-preset-section";
+import {
+  hasEigenweltFeature,
+  useEigenweltEntitlements,
+} from "@/react-app/domains/connections/eigenwelt-entitlements";
 import { FusionSettingsSection } from "@/react-app/domains/settings/pages/fusion-settings-section";
 import { BenchmarkView } from "@/react-app/domains/benchmark/benchmark-view";
 // Side-effect imports: register extension config components into the registry.
@@ -805,6 +810,47 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
   const opencodeBaseUrl = selectedWorkspaceEndpoint?.opencodeBaseUrl ?? "";
   const runtimeWorkspaceId = selectedWorkspaceEndpoint?.workspaceId ?? selectedWorkspace?.id ?? null;
   routeStateRef.current.runtimeWorkspaceId = runtimeWorkspaceId;
+
+  // Firm Hub: share-with-firm actions on the Skills / Integrations lists are
+  // gated on the admin_hub entitlement of the connected Eigenwelt firm.
+  const hubWorkspaceId = (runtimeWorkspaceId ?? selectedWorkspaceId)?.trim() || null;
+  const firmEntitlementsQuery = useEigenweltEntitlements({
+    client: legalworkClient,
+    workspaceId: hubWorkspaceId,
+  });
+  const canShareWithFirm = hasEigenweltFeature(firmEntitlementsQuery.data?.entitlements, "admin_hub");
+
+  const shareWorkflowWithFirm = useCallback(
+    async (skillName: string) => {
+      if (!legalworkClient || !hubWorkspaceId) {
+        toast.error(t("app.error_connect_first"));
+        return;
+      }
+      try {
+        await legalworkClient.hubShareWorkflow(hubWorkspaceId, { skill: skillName });
+        toast.success(t("firm_hub.share_workflow_success", { name: skillName }));
+      } catch (error) {
+        toast.error(error instanceof Error ? error.message : t("firm_hub.share_workflow_failed"));
+      }
+    },
+    [legalworkClient, hubWorkspaceId],
+  );
+
+  const shareIntegrationWithFirm = useCallback(
+    async (mcpName: string) => {
+      if (!legalworkClient || !hubWorkspaceId) {
+        toast.error(t("app.error_connect_first"));
+        return;
+      }
+      try {
+        await legalworkClient.hubShareIntegration(hubWorkspaceId, { mcp: mcpName });
+        toast.success(t("firm_hub.share_integration_success", { name: mcpName }));
+      } catch (error) {
+        toast.error(error instanceof Error ? error.message : t("firm_hub.share_integration_failed"));
+      }
+    },
+    [legalworkClient, hubWorkspaceId],
+  );
 
   const opencodeClient = useMemo(() => {
     if (!selectedWorkspaceEndpoint || !selectedWorkspaceEndpoint.token) return null;
@@ -1896,6 +1942,9 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
                 }}
               />
             }
+            presetShareView={
+              <SharePresetSection client={legalworkClient} workspaceId={hubWorkspaceId} />
+            }
           />
         );
       case "firm-hub":
@@ -1967,6 +2016,8 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
             canUseDesktopTools={!isRemoteWorkspace}
             accessHint={skillsAccessHint}
             extensions={extensionsStore}
+            canShareWithFirm={canShareWithFirm}
+            onShareWithFirm={shareWorkflowWithFirm}
             onOpenLink={(url) => platform.openLink(url)}
             createSessionAndOpen={async (_command?: string): Promise<string | undefined> => {
               props.onClose?.();
@@ -2060,6 +2111,8 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
                 uninstallSkill={(name) => { void extensionsStore.uninstallSkill(name); }}
                 readSkill={(name) => extensionsStore.readSkill(name)}
                 showHeader={false}
+                canShareWithFirm={canShareWithFirm}
+                onShareWithFirm={shareIntegrationWithFirm}
               />
             }
             skillsView={
@@ -2071,6 +2124,8 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
                 canUseDesktopTools={!isRemoteWorkspace}
                 accessHint={skillsAccessHint}
                 extensions={extensionsStore}
+                canShareWithFirm={canShareWithFirm}
+                onShareWithFirm={shareWorkflowWithFirm}
                 onOpenLink={(url) => platform.openLink(url)}
                 createSessionAndOpen={async (_command?: string): Promise<string | undefined> => {
                   props.onClose?.();

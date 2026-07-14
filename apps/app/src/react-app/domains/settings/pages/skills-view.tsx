@@ -23,6 +23,7 @@ import {
   Plus,
   RefreshCw,
   Search,
+  Share2,
   Table2,
   Trash2,
   Wand2,
@@ -170,6 +171,9 @@ export type SkillsViewProps = {
   onGenerateFromTemplates?: () => Promise<{ ok: boolean; message?: string }>;
   /** Opens the running/finished generation session in the normal chat view. */
   onOpenTemplateGenerationSession?: () => void;
+  /** Firm Hub: share a skill/workflow folder org-wide (gated on admin_hub). */
+  canShareWithFirm?: boolean;
+  onShareWithFirm?: (skillName: string) => void | Promise<void>;
 };
 
 // Workflows are ordinary skills tagged with `kind: workflow` frontmatter (surfaced on the
@@ -831,6 +835,22 @@ export function SkillsView(props: SkillsViewProps) {
                         >
                           <Download size={15} />
                         </button>
+                        {props.canShareWithFirm && props.onShareWithFirm ? (
+                          <button
+                            type="button"
+                            className={rowIconBtnClass}
+                            onClick={(event) => {
+                              event.preventDefault();
+                              event.stopPropagation();
+                              void props.onShareWithFirm?.(skill.name);
+                            }}
+                            disabled={props.busy}
+                            title={t("firm_hub.share_with_firm")}
+                            aria-label={t("firm_hub.share_with_firm")}
+                          >
+                            <Share2 size={15} />
+                          </button>
+                        ) : null}
                         <button
                           type="button"
                           className={rowIconBtnClass}

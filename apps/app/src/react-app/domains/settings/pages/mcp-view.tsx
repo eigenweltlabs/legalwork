@@ -17,6 +17,7 @@ import {
   Power,
   Search,
   Settings2,
+  Share2,
   Unplug,
   Zap,
 } from "lucide-react";
@@ -114,6 +115,9 @@ export type McpViewProps = {
   enablementContext?: import("../../../../app/enablement").EnablementContext;
   /** Organization policy restriction for LegalWork-provided built-in extensions. */
   builtInExtensionsDisabled?: boolean;
+  /** Firm Hub: share an MCP server entry org-wide (gated on admin_hub). */
+  canShareWithFirm?: boolean;
+  onShareWithFirm?: (mcpName: string) => void | Promise<void>;
 };
 
 const builtInExtensionDisabledReason = "Disabled by organization";
@@ -690,6 +694,8 @@ export function McpView(props: McpViewProps) {
         }}
         onToggleEnabled={props.setMcpEnabled}
         onToggleBusy={setTogglingMcp}
+        canShareWithFirm={props.canShareWithFirm}
+        onShareWithFirm={props.onShareWithFirm}
       />
 
       <ConfirmModal
@@ -1096,6 +1102,8 @@ function McpConfiguredServersSection(props: {
   onRemove: (name: string) => void;
   onToggleEnabled?: (name: string, enabled: boolean) => Promise<void> | void;
   onToggleBusy: (value: SetStateAction<string | null>) => void;
+  canShareWithFirm?: boolean;
+  onShareWithFirm?: (mcpName: string) => void | Promise<void>;
 }) {
   return (
     <div className="space-y-4">
@@ -1134,6 +1142,8 @@ function McpConfiguredServersSection(props: {
               onRemove={props.onRemove}
               onToggleEnabled={props.onToggleEnabled}
               onToggleBusy={props.onToggleBusy}
+              canShareWithFirm={props.canShareWithFirm}
+              onShareWithFirm={props.onShareWithFirm}
             />
           ))}
         </div>
@@ -1170,6 +1180,8 @@ function McpConfiguredServerRow(props: {
   onRemove: (name: string) => void;
   onToggleEnabled?: (name: string, enabled: boolean) => Promise<void> | void;
   onToggleBusy: (value: SetStateAction<string | null>) => void;
+  canShareWithFirm?: boolean;
+  onShareWithFirm?: (mcpName: string) => void | Promise<void>;
 }) {
   const Icon = serviceIcon(props.entry.name);
   return (
@@ -1227,6 +1239,20 @@ function McpConfiguredServerDetails(props: Parameters<typeof McpConfiguredServer
       </details>
       <McpConfiguredServerAuthActions {...props} />
       <div className="flex justify-end gap-2 pt-1">
+        {props.canShareWithFirm && props.onShareWithFirm ? (
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={(event) => {
+              event.stopPropagation();
+              void props.onShareWithFirm?.(props.entry.name);
+            }}
+            title={t("firm_hub.share_with_firm")}
+          >
+            <Share2 size={13} />
+            {t("firm_hub.share_with_firm")}
+          </Button>
+        ) : null}
         {props.onToggleEnabled && props.entry.source !== "config.global" ? (
           <Button
             variant="outline"
