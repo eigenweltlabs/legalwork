@@ -529,7 +529,7 @@ export function McpView(props: McpViewProps) {
   };
 
   return (
-    <section className="space-y-8 max-w-3xl w-full animate-in fade-in duration-300">
+    <section className="space-y-8 max-w-5xl w-full animate-in fade-in duration-300">
       <div className="space-y-7">
         <div className="flex flex-col gap-5 sm:flex-row sm:items-end sm:justify-between">
           <div className="min-w-0">
