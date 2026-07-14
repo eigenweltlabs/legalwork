@@ -525,8 +525,13 @@ export function RecorderPane(props: {
                 </Button>
               )
             ) : (
-              <Button disabled={!canRecord} onClick={() => void store.startRecording(title || undefined)}>
-                <Mic data-icon="inline-start" />
+              <Button
+                disabled={!canRecord}
+                onClick={() => void store.startRecording(title || undefined)}
+                className="gap-2"
+              >
+                <span className="size-2.5 shrink-0 rounded-full bg-danger" aria-hidden />
+                <Mic className="size-4 text-danger" />
                 {t("recorder.record")}
               </Button>
             )}
@@ -594,7 +599,7 @@ export function RecorderPane(props: {
               </div>
             </div>
             <div className="flex shrink-0 items-center gap-1">
-              <Button variant="outline" size="sm" onClick={() => navigate("/settings/recorder")}>
+              <Button variant="outline" size="sm" onClick={() => navigate("/settings/recorder?tab=dictation")}>
                 <Settings2 data-icon="inline-start" />
                 {t("recorder.dictation_configure")}
               </Button>
@@ -670,6 +675,15 @@ export function RecorderPane(props: {
               />
             </div>
           </div>
+          {!selectedInstalled && !isRecording ? (
+            <div className="flex flex-wrap items-center gap-2 rounded-xl border border-warning/40 bg-warning-soft px-3 py-2 text-sm text-ink">
+              <HardDrive className="size-4 shrink-0 text-warning" />
+              <span className="min-w-0 flex-1">{t("recorder.model_required_hint")}</span>
+              <Button variant="outline" size="sm" onClick={() => navigate("/settings/recorder")}>
+                {t("recorder.model_required_cta")}
+              </Button>
+            </div>
+          ) : null}
         </SectionCard>
 
         {/* While recording, a slim status row replaces the old live-transcript

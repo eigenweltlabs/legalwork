@@ -5,6 +5,7 @@
  * lean — just record.
  */
 import { useEffect, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import { HardDrive, Keyboard, Languages, Mic, ShieldCheck } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -34,7 +35,16 @@ import { DictationSetupDialog } from "./dictation-setup-dialog";
 
 export function RecorderSettingsView() {
   const store = useRecorderStore();
-  const [tab, setTab] = useState<"models" | "dictation">("models");
+  const [searchParams] = useSearchParams();
+  // Callers deep-link the tab: "Dictate anywhere" opens ?tab=dictation, model
+  // entries default to the models tab.
+  const [tab, setTab] = useState<"models" | "dictation">(
+    searchParams.get("tab") === "dictation" ? "dictation" : "models",
+  );
+  useEffect(() => {
+    const requested = searchParams.get("tab");
+    if (requested === "dictation" || requested === "models") setTab(requested);
+  }, [searchParams]);
   const [changingDictation, setChangingDictation] = useState(false);
   const [dictationSetupOpen, setDictationSetupOpen] = useState(false);
   const [loginItem, setLoginItem] = useState<{ openAtLogin: boolean; requiresApproval: boolean } | null>(null);

@@ -1947,6 +1947,8 @@ export default {
   "recorder.engine_unavailable":
     "The local transcription engine is not available on this platform/build.",
   "recorder.setup_title": "Sources, language & model",
+  "recorder.model_required_hint": "Recording needs a transcription model. Choose one and download it first.",
+  "recorder.model_required_cta": "Download a model",
   "recorder.source_microphone": "Microphone",
   "recorder.source_system": "System audio",
   "recorder.source_app": "App audio",
@@ -2019,7 +2021,7 @@ export default {
     "Suggest 3 critical follow-up questions I should ask right now, based on the conversation so far.",
   "recorder.models_title": "Local models",
   "recorder.models_subtitle":
-    "From small and light to best-in-class. All models transcribe English and German fully on this device.",
+    "Download a model to start recording — it's required. From small and light to best-in-class, all run fully on this device and transcribe English and German.",
   "recorder.recordings_title": "Recordings",
   "recorder.recordings_subtitle": "Stored locally in",
   "recorder.recordings_empty": "No recordings yet.",

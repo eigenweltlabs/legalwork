@@ -283,11 +283,10 @@ export class RecorderService {
   }
 
   /**
-   * Rough device tier for the "recommended for your device" hint. Premium
-   * (Parakeet) is the default recommendation on any capable machine: it is
-   * fast, multilingual, and comfortable on ~8 GB+. Weak/old machines fall back
-   * to the free Basic (Whisper small) model. We never auto-recommend the
-   * Maximum model (see `fastDevice`).
+   * Rough device tier for the "recommended for your device" hint. We recommend
+   * a FREE tier so a first-run user isn't nudged toward the gated Premium model
+   * they can't use yet: Basic (Whisper small) on a capable machine, Super small
+   * (Whisper tiny) on a weak/old one. Never the Premium or Maximum models.
    *
    * `fastDevice` is a stricter bar than `strong`: the Maximum (Whisper
    * large-v3) model is ~1.7 GB and slow on CPU, so it only makes sense on
@@ -305,7 +304,7 @@ export class RecorderService {
       logicalCores,
       appleSilicon,
       fastDevice,
-      recommendedModelId: strong ? "parakeet-tdt-0.6b-v3" : "whisper-small",
+      recommendedModelId: strong ? "whisper-small" : "whisper-tiny",
     };
   }
 

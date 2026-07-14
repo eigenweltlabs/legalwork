@@ -154,8 +154,12 @@ export function ModelTierSelect(props: { disabled?: boolean }) {
   const navigate = useNavigate();
   const [open, setOpen] = useState(false);
   const recommendedId = store.bootstrap?.device?.recommendedModelId;
-  const currentTier = tierForModelId(store.modelId) ?? MODEL_TIERS[1];
-  const currentModel = store.bootstrap?.models.find((entry) => entry.id === currentTier.modelId);
+  // null when the user hasn't picked a model yet — the trigger shows a
+  // "choose a model" placeholder and recording stays disabled until they do.
+  const selectedTier = tierForModelId(store.modelId);
+  const currentModel = selectedTier
+    ? store.bootstrap?.models.find((entry) => entry.id === selectedTier.modelId)
+    : undefined;
   const currentInstalled = currentModel?.state === "installed";
 
   const pick = (tier: ModelTier) => {
@@ -179,12 +183,20 @@ export function ModelTierSelect(props: { disabled?: boolean }) {
           render={
             <Button variant="outline" size="sm" className="h-8 min-w-[180px] justify-between">
               <span className="flex items-center gap-2">
-                <span className="font-medium text-ink">{tierName(currentTier.key)}</span>
-                {!currentInstalled ? (
-                  <span className="text-2xs text-subtext">
-                    {currentModel?.state === "downloading" ? "…" : t("recorder.model_download_short")}
+                {selectedTier ? (
+                  <>
+                    <span className="font-medium text-ink">{tierName(selectedTier.key)}</span>
+                    {!currentInstalled ? (
+                      <span className="text-2xs text-subtext">
+                        {currentModel?.state === "downloading" ? "…" : t("recorder.model_download_short")}
+                      </span>
+                    ) : null}
+                  </>
+                ) : (
+                  <span className="font-medium text-subtext">
+                    {t("recorder.model_select_placeholder")}
                   </span>
-                ) : null}
+                )}
               </span>
               <ChevronsUpDown className="size-3.5 opacity-60" />
             </Button>

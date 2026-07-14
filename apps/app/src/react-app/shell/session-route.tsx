@@ -2005,7 +2005,7 @@ export function SessionRoute() {
       onSelectAgent={setSelectedAgent}
     />
     <WhatsNewDialog hasWorkspaces={workspaces.length > 0} workspacesReady={!effectiveLoading} />
-    <TranscriptionIntroDialog workspacesReady={!effectiveLoading} />
+    <TranscriptionIntroDialog workspacesReady={!effectiveLoading} onOpenRecorder={showRecorderPane} />
     <SessionSearchDialog
       open={sessionSearchOpen}
       onClose={() => setSessionSearchOpen(false)}

@@ -214,15 +214,6 @@ function readPref(key: string, fallback: string): string {
   }
 }
 
-/** Raw stored value (null when the user never set it), to tell default from choice. */
-function readStoredPref(key: string): string | null {
-  try {
-    return localStorage.getItem(key);
-  } catch {
-    return null;
-  }
-}
-
 function writePref(key: string, value: string) {
   try {
     localStorage.setItem(key, value);
@@ -232,12 +223,14 @@ function writePref(key: string, value: string) {
 }
 
 function readSourcesPref(): AudioCaptureSourceKind[] {
-  const raw = readPref(SOURCES_PREF_KEY, "microphone");
+  // Default to capturing both the mic and system audio (call recordings want
+  // both); unsupported sources are filtered out at capture time per platform.
+  const raw = readPref(SOURCES_PREF_KEY, "microphone,system");
   const parsed = raw
     .split(",")
     .map((item) => item.trim())
     .filter((item): item is AudioCaptureSourceKind => item === "microphone" || item === "system");
-  return parsed.length ? parsed : ["microphone"];
+  return parsed.length ? parsed : ["microphone", "system"];
 }
 
 function readLanguagePref(): AudioTranscribeLanguage {
@@ -270,6 +263,23 @@ function missingPermissionKinds(
     const state = permissions[kind];
     if (kind === "microphone") return state === "denied" || state === "restricted";
     return state === "denied" || state === "restricted" || state === "not-determined";
+  });
+}
+
+/**
+ * Kinds not yet granted — used to surface the permission panel PROACTIVELY (on
+ * entering the recorder) rather than only after a failed start. Unlike
+ * {@link missingPermissionKinds}, an undetermined microphone counts here too so
+ * the user can grant everything the raw recorder needs up front.
+ */
+function ungrantedPermissionKinds(
+  permissions: AudioCapturePermissions | null,
+  kinds: AudioPermissionKind[],
+): AudioPermissionKind[] {
+  if (!permissions) return [];
+  return kinds.filter((kind) => {
+    const state = permissions[kind];
+    return state !== "granted" && state !== "unknown";
   });
 }
 
@@ -599,7 +609,7 @@ export const useRecorderStore = create<RecorderState & RecorderActions>((set, ge
     systemDictation: null,
     dictationState: "idle",
     dictationRecordingId: null,
-    modelId: readPref(MODEL_PREF_KEY, "whisper-small"),
+    modelId: readPref(MODEL_PREF_KEY, ""),
     language: readLanguagePref(),
     sources: readSourcesPref(),
     diarizing: false,
@@ -619,6 +629,14 @@ export const useRecorderStore = create<RecorderState & RecorderActions>((set, ge
         get().refreshPermissions(),
         get().refreshSystemDictation(),
       ]);
+      // Surface any OS permission the raw recorder still needs (microphone /
+      // the macOS system-audio recording pane) up front, so the user grants it
+      // before pressing Record instead of bouncing off a failed start.
+      const needed = ungrantedPermissionKinds(
+        get().permissions,
+        requiredPermissionKinds(get().sources),
+      );
+      if (needed.length) set({ permissionsNeeded: needed });
       void get().prewarm();
       void get().ensureDiarizationReady();
     },
@@ -638,18 +656,13 @@ export const useRecorderStore = create<RecorderState & RecorderActions>((set, ge
       try {
         const bootstrap = await audioRecorderBootstrap();
         set({ bootstrap });
-        // Repoint the selection when it references a model that no longer
-        // exists (old Base/Turbo tiers) or the user never chose one — pick the
-        // model recommended for this device so nothing is silently unselectable.
+        // Clear a stale selection that no longer maps to a real model (e.g. an
+        // old Base/Turbo tier) so the user consciously picks + downloads one.
+        // Never auto-select a model on their behalf — recording requires an
+        // explicit, installed choice.
         const chosen = get().modelId;
-        const stored = readStoredPref(MODEL_PREF_KEY);
-        const known = bootstrap.models.some((model) => model.id === chosen);
-        if (!known || !stored) {
-          const recommended = bootstrap.device?.recommendedModelId;
-          const fallback = bootstrap.models.find((model) => model.id === recommended)
-            ? recommended
-            : bootstrap.models.find((model) => model.plan === "free")?.id ?? chosen;
-          if (fallback && fallback !== chosen) set({ modelId: fallback });
+        if (chosen && !bootstrap.models.some((model) => model.id === chosen)) {
+          set({ modelId: "" });
         }
       } catch (error) {
         set({ error: error instanceof Error ? error.message : String(error) });

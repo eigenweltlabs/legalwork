@@ -6,7 +6,6 @@
  * new announcement is still pending so the two never stack.
  */
 import { useEffect, useState } from "react";
-import { useNavigate } from "react-router-dom";
 
 import { FeatureAnnouncementModal } from "@/react-app/design-system/modals/feature-announcement-modal";
 import { isDesktopRuntime, isOfficeAddinRuntime } from "@/app/utils";
@@ -32,8 +31,7 @@ function markSeen(): void {
   }
 }
 
-export function TranscriptionIntroDialog(props: { workspacesReady: boolean }) {
-  const navigate = useNavigate();
+export function TranscriptionIntroDialog(props: { workspacesReady: boolean; onOpenRecorder: () => void }) {
   const [open, setOpen] = useState(false);
 
   useEffect(() => {
@@ -54,7 +52,9 @@ export function TranscriptionIntroDialog(props: { workspacesReady: boolean }) {
 
   const setUp = () => {
     dismiss();
-    navigate("/settings/recorder");
+    // Open the Recorder pane itself (not Settings) so the user lands where they
+    // record; the pane guides model download + permissions from there.
+    props.onOpenRecorder();
   };
 
   return (
