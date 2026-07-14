@@ -23,7 +23,11 @@ import { configureFakeMediaForTests, installMediaPermissionHandlers } from "./me
 import { registerMigrationIpc } from "./migration.mjs";
 import { createRuntimeManager, resolveLegalworkServerConfigPath } from "./runtime.mjs";
 import { buildSupportBundleText, defaultSupportBundleFileName } from "./support-bundle.mjs";
-import { registerUpdaterIpc } from "./updater.mjs";
+import {
+  ELECTRON_UPDATER_FALLBACK_FEEDS,
+  ELECTRON_UPDATER_FEEDS,
+  registerUpdaterIpc,
+} from "./updater.mjs";
 import {
   checkComputerUsePermissions,
   getComputerUseMcpCommand,
@@ -50,7 +54,14 @@ const APP_NAME =
 const APP_IDENTIFIER =
   process.env.LEGALWORK_ELECTRON_APP_IDENTIFIER?.trim() ||
   (isDevMode ? DEV_APP_IDENTIFIER : APP_BUNDLE_IDENTIFIER);
-const RELEASE_DOWNLOAD_BASE_URL = "https://github.com/eigenweltlabs/legalwork/releases/latest/download";
+// Our update feed mirrors GitHub's releases/latest/download file layout and
+// redirects to the GitHub assets (see eigenwelt-website
+// app/legalwork/update/[file]/route.ts). If it misbehaves, resolution falls
+// back to GitHub directly so the arch-mismatch download flow never depends on
+// our site being up. The URLs are defined once, in updater.mjs, so this flow
+// and the self-updater can never point at different feeds.
+const RELEASE_DOWNLOAD_BASE_URL = ELECTRON_UPDATER_FEEDS.stable;
+const RELEASE_DOWNLOAD_FALLBACK_BASE_URL = ELECTRON_UPDATER_FALLBACK_FEEDS.stable;
 const RELEASE_PAGE_URL = "https://github.com/eigenweltlabs/legalwork/releases/latest";
 
 async function showSupportLogsProgressWindow(parent) {
@@ -337,21 +348,28 @@ function selectDownloadFile(files, arch) {
 }
 
 async function resolveCorrectArchitectureDownloadUrl(arch) {
-  const manifestUrl = `${RELEASE_DOWNLOAD_BASE_URL}/${updaterManifestName(arch)}`;
-  try {
-    const response = await fetch(manifestUrl, {
-      headers: { Accept: "text/yaml, text/plain, */*" },
-    });
-    if (!response.ok) throw new Error(`HTTP ${response.status}`);
-    const selected = selectDownloadFile(parseUpdaterManifestFiles(await response.text()), arch);
-    if (!selected?.url) return null;
-    return /^https?:\/\//i.test(selected.url)
-      ? selected.url
-      : new URL(selected.url, `${RELEASE_DOWNLOAD_BASE_URL}/`).toString();
-  } catch (error) {
-    console.warn("[architecture] failed to resolve latest download URL", error);
-    return null;
+  for (const baseUrl of [RELEASE_DOWNLOAD_BASE_URL, RELEASE_DOWNLOAD_FALLBACK_BASE_URL]) {
+    try {
+      const response = await fetch(`${baseUrl}/${updaterManifestName(arch)}`, {
+        headers: { Accept: "text/yaml, text/plain, */*" },
+      });
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      const selected = selectDownloadFile(parseUpdaterManifestFiles(await response.text()), arch);
+      // No match is treated like an unreachable feed: a 200 with a
+      // non-manifest body (maintenance page, bot challenge) parses to nothing
+      // and must not short-circuit past the GitHub fallback.
+      if (!selected?.url) {
+        console.warn(`[architecture] no matching download in manifest via ${baseUrl}`);
+        continue;
+      }
+      return /^https?:\/\//i.test(selected.url)
+        ? selected.url
+        : new URL(selected.url, `${baseUrl}/`).toString();
+    } catch (error) {
+      console.warn(`[architecture] failed to resolve download URL via ${baseUrl}`, error);
+    }
   }
+  return null;
 }
 
 async function resolveArchitectureInfo() {
@@ -370,7 +388,9 @@ async function resolveArchitectureInfo() {
     mismatch: appArch !== systemArch && hasCorrectArchitectureDownload,
     platform: process.platform === "win32" ? "windows" : process.platform,
     version,
-    downloadUrl: latestDownloadUrl || `${RELEASE_DOWNLOAD_BASE_URL}/${assetName}`,
+    // Static fallback uses GitHub directly: if we reach this branch the
+    // tracked route did not answer, so handing out its URL would be dead too.
+    downloadUrl: latestDownloadUrl || `${RELEASE_DOWNLOAD_FALLBACK_BASE_URL}/${assetName}`,
     releaseUrl: RELEASE_PAGE_URL,
   };
 }

@@ -132,6 +132,12 @@ jobs:
               "- Electron builds use the attached latest-mac.yml updater feed."
           fi
 
+          # Download links go at the top of every release body so visitors
+          # grab the latest installers via the site.
+          printf -v RELEASE_BODY '%s\n\n%s' \
+            "**Download the latest version:** [macOS (Apple Silicon)](https://eigenweltlabs.com/legalwork/download/mac?src=release-notes) · [macOS (Intel)](https://eigenweltlabs.com/legalwork/download/mac-intel?src=release-notes) · [Windows](https://eigenweltlabs.com/legalwork/download/win?src=release-notes) · [Linux x64](https://eigenweltlabs.com/legalwork/download/linux?src=release-notes) · [Linux arm64](https://eigenweltlabs.com/legalwork/download/linux-arm64?src=release-notes)" \
+            "$RELEASE_BODY"
+
           draft="${INPUT_DRAFT:-}"
           if [ -z "$draft" ]; then
             if [ "${GITHUB_EVENT_NAME}" = "push" ]; then

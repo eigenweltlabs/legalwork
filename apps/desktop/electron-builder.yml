@@ -30,7 +30,9 @@ asarUnpack:
 npmRebuild: false
 afterPack: scripts/electron-after-pack.cjs
 afterSign: scripts/electron-after-sign.cjs
-# electron-updater feed target — LegalWork's GitHub releases.
+# Fallback electron-updater feed target (LegalWork's GitHub releases) and
+# channel-manifest generation. At runtime updater.mjs points the feed at
+# https://eigenweltlabs.com/legalwork/update via setFeedURL.
 publish:
   - provider: github
     owner: eigenweltlabs

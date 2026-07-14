@@ -1,0 +1,39 @@
+name: Download Stats
+
+# Snapshot GitHub release download counts and repo traffic (views, clones,
+# referrers) into PostHog. GitHub only exposes lifetime cumulative download
+# counts and deletes traffic data after 14 days — this preserves both as
+# time series.
+
+on:
+  schedule:
+    - cron: "23 */6 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  report:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+
+      - name: Report release download stats to PostHog
+        env:
+          # Traffic endpoints (views/clones/referrers) need push access, which
+          # the default Actions token may lack — set the LEGALWORK_STATS_TOKEN
+          # secret (classic PAT, repo scope) to enable them; release counters
+          # work either way (the script skips traffic on 403).
+          GITHUB_TOKEN: ${{ secrets.LEGALWORK_STATS_TOKEN || github.token }}
+          # Optional override; defaults to the LegalWork PostHog project key
+          # baked into the script (publishable, same as the app).
+          LEGALWORK_POSTHOG_KEY: ${{ vars.LEGALWORK_POSTHOG_KEY }}
+        run: node scripts/release/report-download-stats.mjs
