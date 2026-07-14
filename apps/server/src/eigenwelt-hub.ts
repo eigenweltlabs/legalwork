@@ -2,6 +2,7 @@ import { mkdir, readdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 
 import { ApiError } from "./errors.js";
+import { sanitizeIntegrationMcp } from "./hub-sanitize.js";
 import { resolveSkillDir } from "./skill-resources.js";
 import { validateMcpConfig, validateMcpName, validateSkillName } from "./validators.js";
 import { projectSkillsDir } from "./workspace-files.js";
@@ -28,6 +29,8 @@ export type EigenweltHubItem = {
   createdByUserId: string;
   version: number;
   updatedAt: string;
+  /** Platform-pinned items sort first in the hub list (optional; newer platform). */
+  pinned?: boolean;
 };
 
 export type EigenweltHubItemDetail = EigenweltHubItem & { payload: unknown };
@@ -198,12 +201,20 @@ export async function installWorkflowFiles(
 
 export type EigenweltIntegrationPayload = { mcp: Record<string, unknown>; key: string };
 
-/** Build an integration payload from a workspace MCP entry. */
+/**
+ * Build an integration payload from a workspace MCP entry. The MCP config is a
+ * SHARE TEMPLATE, so every credential (api keys, tokens, auth headers/env) is
+ * stripped first — the installer re-supplies their own auth. The platform also
+ * rejects payloads with secret-shaped keys, so the strip must be thorough.
+ */
 export function buildIntegrationPayload(name: string, config: Record<string, unknown>): EigenweltIntegrationPayload {
   const key = name.trim();
   validateMcpName(key);
-  validateMcpConfig(config);
-  return { mcp: config, key };
+  const mcp = sanitizeIntegrationMcp(config);
+  // Validate the sanitized shape — stripping never removes type/url/command, so
+  // a valid entry stays valid (and a secret-only "config" is caught here).
+  validateMcpConfig(mcp);
+  return { mcp, key };
 }
 
 /** Extract + validate the MCP entry from a shared integration payload. */

@@ -111,6 +111,12 @@ import {
   serializeWorkflowSkill,
   type EigenweltHubKind,
 } from "./eigenwelt-hub.js";
+import { sanitizePresetFragment } from "./hub-sanitize.js";
+import {
+  forgetHubInstall,
+  readHubInstalls,
+  recordHubInstall,
+} from "./eigenwelt-hub-installs-store.js";
 import pkg from "../package.json" with { type: "json" };
 import constants from "../../../constants.json" with { type: "json" };
 
@@ -2072,11 +2078,17 @@ function createRoutes(
     const body = await readJsonBody(ctx.request);
     const name = String(body.name ?? "").trim();
     if (!name) throw new ApiError(400, "invalid_hub_name", "A preset name is required");
-    if (body.payload === undefined || body.payload === null) {
+    if (!body.payload || typeof body.payload !== "object" || Array.isArray(body.payload)) {
       throw new ApiError(400, "invalid_preset", "A preset payload is required");
     }
+    // A preset is a SHARE TEMPLATE: keep only the safe opencode settings fragment
+    // (provider shape without keys, model, small_model) and strip every secret.
+    const payload = sanitizePresetFragment(body.payload as Record<string, unknown>);
+    if (Object.keys(payload).length === 0) {
+      throw new ApiError(400, "invalid_preset", "This preset has no shareable settings.");
+    }
     const description = typeof body.description === "string" ? body.description : undefined;
-    const result = await hubCreate(client, { kind: "preset", name, description, payload: body.payload });
+    const result = await hubCreate(client, { kind: "preset", name, description, payload });
     return jsonResponse({ ok: true, ...result });
   });
 
@@ -2092,23 +2104,49 @@ function createRoutes(
           ? (item.payload as { files?: unknown }).files
           : null;
       const result = await installWorkflowFiles(workspace.path, item.name, files);
+      // Record the pulled version so the Firm Hub can flag a future update.
+      await recordHubInstall(config, workspace.id, item.id, {
+        version: item.version,
+        kind: item.kind,
+        name: result.name,
+        installedAt: Date.now(),
+      });
       emitReloadEvent(ctx.reloadEvents, workspace, "skills", {
         type: "skill",
         name: result.name,
         action: "added",
         path: result.path,
       });
-      return jsonResponse({ ok: true, kind: item.kind, name: result.name, path: result.path, written: result.written });
+      return jsonResponse({
+        ok: true,
+        kind: item.kind,
+        name: result.name,
+        path: result.path,
+        written: result.written,
+        version: item.version,
+      });
     }
     if (item.kind === "integration") {
       const integration = parseIntegrationPayload(item.payload);
       const result = await addMcp(config, workspace.id, integration.key, integration.mcp);
+      await recordHubInstall(config, workspace.id, item.id, {
+        version: item.version,
+        kind: item.kind,
+        name: integration.key,
+        installedAt: Date.now(),
+      });
       emitReloadEvent(ctx.reloadEvents, workspace, "mcp", {
         type: "mcp",
         name: integration.key,
         action: result.action,
       });
-      return jsonResponse({ ok: true, kind: item.kind, name: integration.key, action: result.action });
+      return jsonResponse({
+        ok: true,
+        kind: item.kind,
+        name: integration.key,
+        action: result.action,
+        version: item.version,
+      });
     }
     // Presets are applied from settings via the config APIs, not installed here.
     throw new ApiError(400, "preset_install_unsupported", "Apply presets from settings, not the hub install action.");
@@ -2120,7 +2158,41 @@ function createRoutes(
     const workspace = await resolveWorkspace(config, ctx.params.id);
     const client = await resolveHubClient(workspace.id);
     await hubDelete(client, ctx.params.itemId);
+    // The item no longer exists in the firm — drop any local install record so
+    // it stops showing as installed/updatable.
+    await forgetHubInstall(config, workspace.id, ctx.params.itemId);
     return jsonResponse({ ok: true, id: ctx.params.itemId });
+  });
+
+  // Local record of installed hub items ({id: {version, kind, name}}) that backs
+  // "update available" detection. Never returns platform secrets.
+  addRoute(routes, "GET", "/workspace/:id/hub/installs", "client", async (ctx) => {
+    const workspace = await resolveWorkspace(config, ctx.params.id);
+    return jsonResponse({ installs: await readHubInstalls(config, workspace.id) });
+  });
+
+  // Presets are applied from settings (not via the install action), so the app
+  // records the pulled version here after a successful apply/update.
+  addRoute(routes, "POST", "/workspace/:id/hub/installs", "client", async (ctx) => {
+    ensureWritable(config);
+    requireClientScope(ctx, "collaborator");
+    const workspace = await resolveWorkspace(config, ctx.params.id);
+    const body = await readJsonBody(ctx.request);
+    const id = String(body.id ?? "").trim();
+    if (!id) throw new ApiError(400, "invalid_hub_id", "A hub item id is required.");
+    const version = typeof body.version === "number" ? body.version : Number(body.version);
+    if (!Number.isFinite(version)) {
+      throw new ApiError(400, "invalid_hub_version", "A numeric hub item version is required.");
+    }
+    const kind = parseHubKind(String(body.kind ?? "preset"));
+    const name = typeof body.name === "string" ? body.name : "";
+    const installs = await recordHubInstall(config, workspace.id, id, {
+      version,
+      kind,
+      name,
+      installedAt: Date.now(),
+    });
+    return jsonResponse({ ok: true, installs });
   });
 
   addRoute(routes, "GET", "/workspace/:id/audit", "client", async (ctx) => {
