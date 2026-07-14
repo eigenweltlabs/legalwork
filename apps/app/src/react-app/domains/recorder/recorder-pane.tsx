@@ -133,6 +133,14 @@ function recordingAudioSrc(recordingId: string): string {
   return `lw-recording://audio/${encodeURIComponent(recordingId)}`;
 }
 
+// Only one recording plays at a time: whichever <audio> starts pauses the
+// previously playing one (row buttons and the modal player all share this).
+let activeRecordingAudio: HTMLAudioElement | null = null;
+function claimRecordingAudio(el: HTMLAudioElement) {
+  if (activeRecordingAudio && activeRecordingAudio !== el) activeRecordingAudio.pause();
+  activeRecordingAudio = el;
+}
+
 /**
  * Play a finished recording in place. The <audio> element loads the
  * `lw-recording://` URL natively, so play() stays inside the click gesture
@@ -144,7 +152,15 @@ function RecordingPlayer(props: { recordingId: string; compact?: boolean }) {
   const src = recordingAudioSrc(props.recordingId);
 
   if (!props.compact) {
-    return <audio src={src} controls preload="metadata" className="h-9 w-full min-w-0" />;
+    return (
+      <audio
+        src={src}
+        controls
+        preload="metadata"
+        className="h-9 w-full min-w-0"
+        onPlay={(event) => claimRecordingAudio(event.currentTarget)}
+      />
+    );
   }
 
   return <RecordingPlayButton src={src} />;
@@ -180,7 +196,10 @@ function RecordingPlayButton(props: { src: string }) {
         src={props.src}
         preload="none"
         className="hidden"
-        onPlay={() => setPlaying(true)}
+        onPlay={(event) => {
+          claimRecordingAudio(event.currentTarget);
+          setPlaying(true);
+        }}
         onPause={() => setPlaying(false)}
         onEnded={() => setPlaying(false)}
       />
