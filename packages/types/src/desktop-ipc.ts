@@ -627,6 +627,11 @@ export type DesktopCommandMap = {
   audioRecordingCancel: { args: [recordingId: string]; result: unknown };
   audioRecordingsList: { args: []; result: AudioRecordingMeta[] };
   audioRecordingGet: { args: [recordingId: string]; result: AudioRecordingDetail | null };
+  /** Read a recording's audio file for in-app playback (rendered as a Blob URL). */
+  audioRecordingAudio: {
+    args: [recordingId: string];
+    result: { bytes: ArrayBuffer; mimeType: string } | null;
+  };
   audioRecordingDelete: { args: [recordingId: string]; result: AudioRecordingMeta[] };
   /** Rename a recording (active or on disk); returns the refreshed list. */
   audioRecordingRename: { args: [recordingId: string, title: string]; result: AudioRecordingMeta[] };

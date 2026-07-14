@@ -866,6 +866,26 @@ export class RecorderService {
     return { meta, segments };
   }
 
+  /**
+   * Read a finished recording's audio file (webm/opus) for in-app playback.
+   * Returns the raw bytes; the renderer wraps them in a Blob URL for an
+   * <audio> element. Null when the file is missing (e.g. mid-recording).
+   */
+  async readRecordingAudio(recordingId) {
+    const folderPath = path.join(this.recordingsDir, recordingId);
+    const meta = await readMeta(folderPath);
+    const audioPath = meta?.audioPath || path.join(folderPath, "audio.webm");
+    try {
+      const buf = await fsp.readFile(audioPath);
+      return {
+        bytes: buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength),
+        mimeType: "audio/webm",
+      };
+    } catch {
+      return null;
+    }
+  }
+
   async deleteRecording(recordingId) {
     await this.cancelRecording(recordingId).catch(() => {});
     await fsp.rm(path.join(this.recordingsDir, recordingId), { recursive: true, force: true });

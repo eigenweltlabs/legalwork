@@ -18,6 +18,7 @@ import {
   Loader2,
   Mic,
   MonitorSpeaker,
+  Pause,
   Pencil,
   Play,
   Settings2,
@@ -49,6 +50,7 @@ import { cn } from "@/lib/utils";
 import { t } from "@/i18n";
 import type { AudioRecordingMeta } from "@legalwork/types/audio";
 
+import { audioRecordingAudio } from "@/app/lib/desktop";
 import { formatBytes } from "../../../app/utils";
 import { ModelTierSelect } from "./model-tier-select";
 import { PermissionsPanel } from "./permissions-panel";
@@ -127,6 +129,77 @@ function SourceToggle(props: {
 }
 
 
+/**
+ * Play a finished recording in place. The audio bytes are fetched from the
+ * main process on first play and wrapped in a Blob URL for a native <audio>
+ * element. `compact` (list rows) shows just a play/pause button; otherwise the
+ * native controls (scrubber + time) appear once loaded (transcript modal).
+ */
+function RecordingPlayer(props: { recordingId: string; compact?: boolean }) {
+  const [url, setUrl] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [playing, setPlaying] = useState(false);
+  const [failed, setFailed] = useState(false);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+
+  useEffect(() => () => { if (url) URL.revokeObjectURL(url); }, [url]);
+
+  const toggle = async () => {
+    const el = audioRef.current;
+    if (el && !el.paused) {
+      el.pause();
+      return;
+    }
+    if (url) {
+      void el?.play().catch(() => setFailed(true));
+      return;
+    }
+    setLoading(true);
+    setFailed(false);
+    try {
+      const res = await audioRecordingAudio(props.recordingId);
+      if (!res?.bytes) {
+        setFailed(true);
+        return;
+      }
+      setUrl(URL.createObjectURL(new Blob([res.bytes], { type: res.mimeType || "audio/webm" })));
+      // Play once React applies the new src to the <audio> element.
+      requestAnimationFrame(() => void audioRef.current?.play().catch(() => setFailed(true)));
+    } catch {
+      setFailed(true);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <span className={cn("inline-flex items-center gap-2", !props.compact && url && "w-full")}>
+      <Button
+        variant="ghost"
+        size="icon-sm"
+        disabled={failed}
+        aria-label={playing ? t("recorder.pause") : t("recorder.play")}
+        title={failed ? t("recorder.play_failed") : playing ? t("recorder.pause") : t("recorder.play")}
+        onClick={(event) => {
+          event.stopPropagation();
+          void toggle();
+        }}
+      >
+        {loading ? <Loader2 className="animate-spin" /> : playing ? <Pause /> : <Play />}
+      </Button>
+      <audio
+        ref={audioRef}
+        src={url ?? undefined}
+        controls={!props.compact && Boolean(url)}
+        className={cn(!props.compact && url ? "h-9 min-w-0 flex-1" : "hidden")}
+        onPlay={() => setPlaying(true)}
+        onPause={() => setPlaying(false)}
+        onEnded={() => setPlaying(false)}
+      />
+    </span>
+  );
+}
+
 export type RecorderWorkspaceTarget = { id: string; name: string; path: string };
 
 function RecordingRow(props: {
@@ -192,6 +265,7 @@ function RecordingRow(props: {
         </button>
       )}
       <div className="flex shrink-0 items-center gap-1">
+        <RecordingPlayer recordingId={recording.id} compact />
         <Tooltip>
           <TooltipTrigger render={<span className="inline-flex" />}>
             <Button
@@ -675,10 +749,15 @@ export function RecorderPane(props: {
           if (!open) store.closeOpenedRecording();
         }}
       >
-        <DialogContent className="max-w-2xl">
+        <DialogContent className="max-w-3xl">
           <DialogHeader>
             <DialogTitle>{store.openedRecording?.meta.title}</DialogTitle>
           </DialogHeader>
+          {store.openedRecording ? (
+            <div className="flex items-center gap-2 rounded-xl border border-subtle bg-sunken/50 px-2.5 py-2">
+              <RecordingPlayer recordingId={store.openedRecording.meta.id} />
+            </div>
+          ) : null}
           <div className="max-h-[60vh] space-y-1.5 overflow-y-auto pr-1">
             {(store.openedRecording?.segments ?? []).length === 0 ? (
               <div className="py-6 text-center text-sm text-subtext">

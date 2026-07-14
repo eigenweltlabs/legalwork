@@ -2073,6 +2073,9 @@ const desktopCommandHandlers = {
   "audioRecordingGet": async (event, ...args) => {
       return recorderService().getRecording(String(args[0] ?? ""));
   },
+  "audioRecordingAudio": async (event, ...args) => {
+      return recorderService().readRecordingAudio(String(args[0] ?? ""));
+  },
   "audioRecordingDelete": async (event, ...args) => {
       return recorderService().deleteRecording(String(args[0] ?? ""));
   },

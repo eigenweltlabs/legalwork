@@ -216,6 +216,11 @@ test("recorder service records, transcribes, finalizes files", async () => {
   assert.equal(done.segmentCount, 1);
   assert.ok(done.sizeBytes > 0);
 
+  // Audio is readable back for in-app playback.
+  const audio = await service.readRecordingAudio(meta.id);
+  assert.ok(audio && audio.bytes.byteLength > 0, "recording audio reads back");
+  assert.equal(await service.readRecordingAudio("nope"), null);
+
   const transcript = JSON.parse(await fsp.readFile(path.join(done.folderPath, "transcript.json"), "utf8"));
   assert.equal(transcript.segments.length, 1);
   assert.match(transcript.segments[0].text, /Guten Tag/);
