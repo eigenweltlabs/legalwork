@@ -53,11 +53,11 @@ export function PremiumUpgradeDialog(props: {
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
-            <Icon className="size-4 text-primary" />
+            <Icon className="size-4 text-brand" />
             {device ? t("recorder.tier_device_title") : t("recorder.tier_premium_unlock")}
           </DialogTitle>
         </DialogHeader>
-        <p className="text-sm leading-relaxed text-muted-foreground">
+        <p className="text-sm leading-relaxed text-subtext">
           {device ? t("recorder.tier_device_hint") : t("recorder.tier_premium_unlock_hint")}
         </p>
         <div className="flex justify-end gap-2">
@@ -86,11 +86,11 @@ function TierRow(props: {
 }) {
   const { tier } = props;
   const store = useRecorderStore();
-  const entitled = isPremiumEntitled();
   const fastDevice = store.bootstrap?.device?.fastDevice ?? false;
+  const unlocked = isPremiumEntitled() || store.unlockedModels.includes(tier.modelId);
   const model = store.bootstrap?.models.find((entry) => entry.id === tier.modelId);
-  const premiumLocked = tier.premium && !entitled;
-  const deviceLocked = !!tier.requiresFastDevice && !fastDevice;
+  const premiumLocked = tier.premium && !unlocked;
+  const deviceLocked = !!tier.requiresFastDevice && !fastDevice && !unlocked;
   const locked = premiumLocked || deviceLocked;
   const installed = model?.state === "installed";
   const downloading = model?.state === "downloading";
@@ -101,43 +101,43 @@ function TierRow(props: {
       type="button"
       onClick={props.onSelect}
       className={cn(
-        "flex w-full items-start gap-3 rounded-lg px-2.5 py-2 text-left transition-colors hover:bg-muted",
-        props.selected && "bg-muted",
+        "flex w-full items-start gap-3 rounded-xl px-2.5 py-2 text-left transition-colors hover:bg-hover",
+        props.selected && "bg-sunken",
       )}
     >
       <span className="mt-0.5 w-4 shrink-0">
-        {props.selected ? <Check className="size-4 text-primary" /> : null}
+        {props.selected ? <Check className="size-4 text-brand" /> : null}
       </span>
       <div className="min-w-0 flex-1">
-        <div className="flex items-center gap-2">
-          <span className="text-sm font-medium text-foreground">{tierName(tier.key)}</span>
+        <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+          <span className="text-sm font-medium text-ink">{tierName(tier.key)}</span>
           {tier.premium ? (
-            <Badge className="gap-1 text-[10px]">
+            <Badge className="gap-1 text-2xs">
               <Sparkles className="size-2.5" />
               {t("recorder.tier_premium_locked")}
             </Badge>
           ) : null}
           {tier.requiresFastDevice ? (
-            <Badge variant="outline" className="gap-1 text-[10px]">
+            <Badge variant="outline" className="gap-1 text-2xs">
               <Cpu className="size-2.5" />
               {t("recorder.tier_device_badge")}
             </Badge>
           ) : null}
           {props.recommended ? (
-            <Badge variant="outline" className="text-[10px]">
+            <Badge variant="outline" className="text-2xs">
               {t("recorder.tier_recommended_device")}
             </Badge>
           ) : null}
         </div>
-        <div className="mt-0.5 text-xs text-muted-foreground">{tierTagline(tier.key)}</div>
+        <div className="mt-0.5 text-xs text-subtext">{tierTagline(tier.key)}</div>
       </div>
-      <span className="mt-0.5 flex shrink-0 items-center gap-1.5 text-[11px] text-muted-foreground">
+      <span className="mt-0.5 flex shrink-0 items-center gap-1.5 text-2xs text-subtext">
         {locked ? (
           <Lock className="size-3.5" />
         ) : downloading ? (
-          <Loader2 className="size-3.5 animate-spin" />
+          <Loader2 className="size-3.5 animate-spin text-brand" />
         ) : installed ? (
-          <span className="inline-flex items-center gap-1 text-green-11">
+          <span className="inline-flex items-center gap-1 text-success">
             <Check className="size-3" />
             {t("recorder.model_installed_short")}
           </span>
@@ -173,8 +173,9 @@ export function ModelTierSelect(props: { disabled?: boolean }) {
   };
 
   const pick = (tier: ModelTier) => {
-    const premiumLocked = tier.premium && !isPremiumEntitled();
-    const deviceLocked = !!tier.requiresFastDevice && !fastDevice;
+    const unlocked = isPremiumEntitled() || store.unlockedModels.includes(tier.modelId);
+    const premiumLocked = tier.premium && !unlocked;
+    const deviceLocked = !!tier.requiresFastDevice && !fastDevice && !unlocked;
     if (premiumLocked || deviceLocked) {
       setPendingTier(tier);
       setGateReason(premiumLocked ? "premium" : "device");
@@ -194,9 +195,9 @@ export function ModelTierSelect(props: { disabled?: boolean }) {
           render={
             <Button variant="outline" size="sm" className="h-8 min-w-[180px] justify-between">
               <span className="flex items-center gap-2">
-                <span className="font-medium">{tierName(currentTier.key)}</span>
+                <span className="font-medium text-ink">{tierName(currentTier.key)}</span>
                 {!currentInstalled ? (
-                  <span className="text-[11px] text-muted-foreground">
+                  <span className="text-2xs text-subtext">
                     {currentModel?.state === "downloading" ? "…" : t("recorder.model_download_short")}
                   </span>
                 ) : null}
@@ -205,8 +206,8 @@ export function ModelTierSelect(props: { disabled?: boolean }) {
             </Button>
           }
         />
-        <DropdownMenuContent align="start" className="w-[320px] p-1.5">
-          <div className="px-2 pb-1 pt-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+        <DropdownMenuContent align="start" className="w-[320px] rounded-2xl p-1.5">
+          <div className="px-2 pb-1 pt-1 text-2xs font-semibold uppercase tracking-wide text-tertiary">
             {t("recorder.model_select_label")}
           </div>
           {MODEL_TIERS.map((tier) => (
@@ -225,8 +226,10 @@ export function ModelTierSelect(props: { disabled?: boolean }) {
         onOpenChange={setUpgradeOpen}
         reason={gateReason}
         onConfirm={() => {
-          store.unlockPremium();
-          if (pendingTier) applyTier(pendingTier);
+          if (pendingTier) {
+            store.unlockModelForTesting(pendingTier.modelId);
+            applyTier(pendingTier);
+          }
           setPendingTier(null);
         }}
       />

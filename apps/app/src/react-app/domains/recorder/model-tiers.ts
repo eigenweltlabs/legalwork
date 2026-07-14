@@ -57,28 +57,17 @@ export function tierTagline(key: ModelTierKey): string {
 }
 
 /**
- * Session-only override that dismisses the premium lock for testing. Until auth
- * lands, {@link isPremiumEntitled} is always false, so the premium models can't
- * be exercised at all. Clicking "continue" in the gate dialog flips this so the
- * paid models stay testable. In-memory only, resets on reload.
- *
- * TODO(auth): delete this together with the placeholder in isPremiumEntitled.
- */
-let premiumTestOverride = false;
-
-export function setPremiumTestOverride(on: boolean): void {
-  premiumTestOverride = on;
-}
-
-/**
  * PLACEHOLDER premium entitlement. Parakeet and any future premium model stay
  * locked until this returns true. Auth is being built separately — when it
  * lands, wire this to the real entitlement (e.g. read from the auth/session
  * store). Kept a plain function so both React and the recorder store can call
- * it. Until then it is driven only by the testing override above.
+ * it. Until then it is always false, so the gate is exercised.
  *
- * TODO(auth): return the real premium entitlement here (dropping the override).
+ * A model can still be unlocked one at a time for testing without entitlement:
+ * see the recorder store's `unlockedModels` / `unlockModelForTesting`.
+ *
+ * TODO(auth): return the real premium entitlement here.
  */
 export function isPremiumEntitled(): boolean {
-  return premiumTestOverride;
+  return false;
 }

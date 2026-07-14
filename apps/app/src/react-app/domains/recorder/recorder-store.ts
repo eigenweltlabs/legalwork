@@ -60,7 +60,7 @@ import type {
   AudioTranscriptSegment,
 } from "@legalwork/types/audio";
 import { t } from "@/i18n";
-import { isPremiumEntitled, setPremiumTestOverride } from "./model-tiers";
+import { isPremiumEntitled } from "./model-tiers";
 
 import { decodeAudioFileToPcm16k, startCapture, type CaptureHandle, type CaptureLevels } from "./capture";
 
@@ -134,11 +134,11 @@ export type RecorderState = {
   /** A stopping recording is running its speaker pass. */
   diarizing: boolean;
   /**
-   * Testing-only: the premium/device gate was dismissed this session, so the
-   * paid models are usable before auth exists. Mirrors the module override in
-   * model-tiers; kept as state so the picker re-renders when it flips.
+   * Testing-only: model ids whose premium/device gate the user dismissed this
+   * session, so they can be exercised before auth exists. Per-model (not a
+   * global flag) so every gated model still prompts once. Resets on reload.
    */
-  premiumUnlocked: boolean;
+  unlockedModels: string[];
 };
 
 type RecorderActions = {
@@ -153,10 +153,10 @@ type RecorderActions = {
   dismissPermissionsPanel: () => void;
   setModelId: (modelId: string) => void;
   /**
-   * Testing-only escape hatch: dismiss the premium/device gate so the paid
-   * models can be selected and downloaded before auth is wired up.
+   * Testing-only escape hatch: dismiss the premium/device gate for one model so
+   * it can be selected and downloaded before auth is wired up.
    */
-  unlockPremium: () => void;
+  unlockModelForTesting: (modelId: string) => void;
   setLanguage: (language: AudioTranscribeLanguage) => void;
   prewarm: () => Promise<void>;
   toggleSource: (source: AudioCaptureSourceKind) => void;
@@ -592,7 +592,7 @@ export const useRecorderStore = create<RecorderState & RecorderActions>((set, ge
     language: readLanguagePref(),
     sources: readSourcesPref(),
     diarizing: false,
-    premiumUnlocked: false,
+    unlockedModels: [],
 
     init: async () => {
       if (!eventsSubscribed) {
@@ -759,19 +759,25 @@ export const useRecorderStore = create<RecorderState & RecorderActions>((set, ge
     },
 
     setModelId: (modelId) => {
-      // Never let a gated model become the active selection.
+      // Never let a still-gated premium model become the active selection.
       const model = get().bootstrap?.models.find((entry) => entry.id === modelId);
-      if (model?.plan === "premium" && !isPremiumEntitled()) return;
+      if (model?.plan === "premium" && !isPremiumEntitled() && !get().unlockedModels.includes(modelId)) {
+        return;
+      }
       writePref(MODEL_PREF_KEY, modelId);
       set({ modelId });
       void get().prewarm();
     },
 
-    unlockPremium: () => {
-      // Testing-only: flip the shared override so isPremiumEntitled() passes,
-      // and mirror it into state so the picker re-renders out of its locked UI.
-      setPremiumTestOverride(true);
-      set({ premiumUnlocked: true });
+    unlockModelForTesting: (modelId) => {
+      // Testing-only: mark this one model as gate-dismissed for the session so
+      // its guards pass and the picker re-renders out of its locked UI. Other
+      // gated models keep prompting.
+      set((state) =>
+        state.unlockedModels.includes(modelId)
+          ? state
+          : { unlockedModels: [...state.unlockedModels, modelId] },
+      );
     },
 
     setLanguage: (language) => {
@@ -812,10 +818,13 @@ export const useRecorderStore = create<RecorderState & RecorderActions>((set, ge
     },
 
     downloadModel: async (modelId) => {
-      // Premium models don't download until the user is entitled; the UI shows
-      // the locked/upgrade state, this guards the path itself.
+      // Premium models don't download until the user is entitled (or the gate
+      // was dismissed for testing); the UI shows the locked/upgrade state, this
+      // guards the path itself.
       const model = get().bootstrap?.models.find((entry) => entry.id === modelId);
-      if (model?.plan === "premium" && !isPremiumEntitled()) return;
+      if (model?.plan === "premium" && !isPremiumEntitled() && !get().unlockedModels.includes(modelId)) {
+        return;
+      }
       try {
         await audioModelDownload(modelId);
         await get().refreshBootstrap();
@@ -998,8 +1007,15 @@ export const useRecorderStore = create<RecorderState & RecorderActions>((set, ge
           levels: {},
           diarizing: false,
           error: dictationError,
+          // System dictation is ephemeral: it must never enter the recordings
+          // list. When the delete/retain round-trip gives us the authoritative
+          // post-dictation list, use it; otherwise fall back to simply dropping
+          // the dictation (never prepend it). Normal recordings are prepended.
           recordings:
-            recordingsAfterDictation ?? [meta, ...state.recordings.filter((item) => item.id !== meta.id)],
+            recordingsAfterDictation ??
+            (isSystemDictation
+              ? state.recordings.filter((item) => item.id !== meta.id)
+              : [meta, ...state.recordings.filter((item) => item.id !== meta.id)]),
         }));
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);

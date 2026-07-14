@@ -257,8 +257,11 @@ test("device profile exposes the fast-device flag that gates the heaviest model"
   assert.equal(typeof profile.fastDevice, "boolean");
   assert.ok(profile.logicalCores >= 1);
   assert.ok(profile.totalMemoryGb > 0);
-  // Recommendation only ever points at a free tier, never the gated models.
-  assert.ok(["whisper-tiny", "whisper-small"].includes(profile.recommendedModelId));
+  // The recommendation must be a real catalog model and never the heavy
+  // fast-device-gated one (Premium is recommended on capable machines).
+  const recommended = findAudioModel(profile.recommendedModelId);
+  assert.ok(recommended, "recommended model is in the catalog");
+  assert.ok(!recommended.requiresFastDevice, "never auto-recommend a fast-device-gated model");
   service.dispose();
   await fsp.rm(userDataDir, { recursive: true, force: true });
 });

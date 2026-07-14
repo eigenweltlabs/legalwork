@@ -283,10 +283,11 @@ export class RecorderService {
   }
 
   /**
-   * Rough device tier for the "recommended for your device" hint. sherpa-onnx
-   * runs CPU-only here, so Apple Silicon and roomy machines get the Standard
-   * model; small/old machines get Basic. Premium (Parakeet) is always offered
-   * when entitled and is comfortable on ~8 GB+.
+   * Rough device tier for the "recommended for your device" hint. Premium
+   * (Parakeet) is the default recommendation on any capable machine: it is
+   * fast, multilingual, and comfortable on ~8 GB+. Weak/old machines fall back
+   * to the free Basic (Whisper small) model. We never auto-recommend the
+   * Maximum model (see `fastDevice`).
    *
    * `fastDevice` is a stricter bar than `strong`: the Maximum (Whisper
    * large-v3) model is ~1.7 GB and slow on CPU, so it only makes sense on
@@ -304,7 +305,7 @@ export class RecorderService {
       logicalCores,
       appleSilicon,
       fastDevice,
-      recommendedModelId: strong ? "whisper-small" : "whisper-tiny",
+      recommendedModelId: strong ? "parakeet-tdt-0.6b-v3" : "whisper-small",
     };
   }
 

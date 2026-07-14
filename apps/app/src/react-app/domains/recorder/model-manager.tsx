@@ -29,13 +29,14 @@ function ModelRow(props: { model: AudioModelState; recommended: boolean; selecte
   const store = useRecorderStore();
   const [upgradeOpen, setUpgradeOpen] = useState(false);
   const fastDevice = store.bootstrap?.device?.fastDevice ?? false;
+  const unlocked = isPremiumEntitled() || store.unlockedModels.includes(model.id);
   const tier = tierForModelId(model.id);
   const name = tier ? tierName(tier.key) : model.label;
   const tagline = tier ? tierTagline(tier.key) : model.description;
   const isPremium = model.plan === "premium";
   const requiresFastDevice = !!model.requiresFastDevice;
-  const premiumLocked = isPremium && !isPremiumEntitled();
-  const deviceLocked = requiresFastDevice && !fastDevice;
+  const premiumLocked = isPremium && !unlocked;
+  const deviceLocked = requiresFastDevice && !fastDevice && !unlocked;
   const locked = premiumLocked || deviceLocked;
   const gateReason: "premium" | "device" = premiumLocked ? "premium" : "device";
   const progress =
@@ -57,51 +58,51 @@ function ModelRow(props: { model: AudioModelState; recommended: boolean; selecte
   return (
     <div
       className={cn(
-        "rounded-xl border bg-card/60 px-3.5 py-3 transition-colors",
-        props.selected ? "border-primary/60 ring-1 ring-primary/20" : "border-border",
+        "rounded-2xl border bg-surface px-3.5 py-3 shadow-xs transition-colors",
+        props.selected ? "border-brand ring-1 ring-brand/20" : "border-subtle",
       )}
     >
       <div className="flex items-start gap-3">
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2">
-            <span className="text-sm font-semibold text-foreground">{name}</span>
+            <span className="text-sm font-semibold text-ink">{name}</span>
             {isPremium ? (
-              <Badge className="gap-1 text-[10px]">
+              <Badge className="gap-1 text-2xs">
                 <Sparkles className="size-2.5" />
                 {t("recorder.tier_premium_locked")}
               </Badge>
             ) : null}
             {requiresFastDevice ? (
-              <Badge variant="outline" className="gap-1 text-[10px]">
+              <Badge variant="outline" className="gap-1 text-2xs">
                 <Cpu className="size-2.5" />
                 {t("recorder.tier_device_badge")}
               </Badge>
             ) : null}
             {props.recommended ? (
-              <Badge variant="outline" className="text-[10px]">{t("recorder.tier_recommended_device")}</Badge>
+              <Badge variant="outline" className="text-2xs">{t("recorder.tier_recommended_device")}</Badge>
             ) : null}
             {props.selected ? (
-              <Badge variant="outline" className="gap-1 text-[10px] text-primary">
+              <Badge variant="outline" className="gap-1 text-2xs text-brand">
                 <Check className="size-3" />
                 {t("recorder.model_selected")}
               </Badge>
             ) : null}
           </div>
-          <div className="mt-0.5 text-xs text-muted-foreground">{tagline}</div>
+          <div className="mt-0.5 text-xs text-subtext">{tagline}</div>
           {model.state === "downloading" ? (
             <div className="mt-2 flex items-center gap-2">
               <Progress value={progress} className="h-1.5 flex-1" />
-              <span className="text-[11px] tabular-nums text-muted-foreground">
+              <span className="text-2xs tabular-nums text-subtext">
                 {formatBytes(model.downloadedBytes)} / {formatBytes(model.totalBytes || model.approxSizeBytes)}
               </span>
             </div>
           ) : null}
           {model.state === "error" && model.error ? (
-            <div className="mt-1 text-xs text-destructive">{model.error}</div>
+            <div className="mt-1 text-xs text-danger">{model.error}</div>
           ) : null}
         </div>
         <div className="flex shrink-0 flex-col items-end gap-1.5">
-          <span className="text-[11px] tabular-nums text-muted-foreground">
+          <span className="text-2xs tabular-nums text-subtext">
             {formatBytes(model.installedSizeBytes ?? model.approxSizeBytes)}
           </span>
           {locked ? (
@@ -143,7 +144,7 @@ function ModelRow(props: { model: AudioModelState; recommended: boolean; selecte
         onOpenChange={setUpgradeOpen}
         reason={gateReason}
         onConfirm={() => {
-          store.unlockPremium();
+          store.unlockModelForTesting(model.id);
           proceed();
         }}
       />
@@ -212,8 +213,8 @@ export function ModelManagerList() {
       ))}
 
       {diskCandidates.length > 0 ? (
-        <div className="rounded-xl border border-border bg-muted/30 px-3 py-2.5">
-          <div className="flex items-center gap-2 text-xs font-semibold text-foreground">
+        <div className="rounded-2xl border border-subtle bg-sunken/60 px-3 py-2.5">
+          <div className="flex items-center gap-2 text-xs font-semibold text-ink">
             <FolderSearch className="size-3.5" />
             {t("recorder.models_found_on_disk")}
           </div>
@@ -223,11 +224,11 @@ export function ModelManagerList() {
               return (
                 <div key={`${candidate.modelId}-${candidate.sourcePath}`} className="flex items-center gap-2">
                   <div className="min-w-0 flex-1">
-                    <span className="text-sm text-foreground">{entry?.label ?? candidate.modelId}</span>
-                    <span className="ml-2 text-xs tabular-nums text-muted-foreground">
+                    <span className="text-sm text-ink">{entry?.label ?? candidate.modelId}</span>
+                    <span className="ml-2 text-xs tabular-nums text-subtext">
                       {formatBytes(candidate.sizeBytes)}
                     </span>
-                    <div className="truncate text-[11px] text-muted-foreground">{candidate.sourcePath}</div>
+                    <div className="truncate text-2xs text-subtext">{candidate.sourcePath}</div>
                   </div>
                   <Button size="sm" variant="outline" disabled={importBusy} onClick={() => void useDiskCopy(candidate)}>
                     {importBusy ? <Loader2 data-icon="inline-start" className="animate-spin" /> : <Import data-icon="inline-start" />}
@@ -241,13 +242,13 @@ export function ModelManagerList() {
       ) : null}
 
       <div className="flex items-center justify-between gap-3 pt-1">
-        <span className="text-xs text-muted-foreground">{t("recorder.import_folder_hint")}</span>
+        <span className="text-xs text-subtext">{t("recorder.import_folder_hint")}</span>
         <Button size="sm" variant="outline" disabled={importBusy} onClick={() => void importFolder()}>
           <Import data-icon="inline-start" />
           {t("recorder.import_folder")}
         </Button>
       </div>
-      {importError ? <div className="text-xs text-destructive">{importError}</div> : null}
+      {importError ? <div className="text-xs text-danger">{importError}</div> : null}
     </div>
   );
 }

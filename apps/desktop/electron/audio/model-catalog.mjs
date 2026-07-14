@@ -38,8 +38,8 @@ function whisperFiles(name) {
 export const AUDIO_MODEL_CATALOG = [
   {
     id: "whisper-tiny",
-    label: "Basic",
-    description: "Fast and light. Runs on any computer, even older ones.",
+    label: "Super small",
+    description: "Only use this if your machine is very slow.",
     kind: "whisper",
     tier: "fastest",
     plan: "free",
@@ -49,8 +49,8 @@ export const AUDIO_MODEL_CATALOG = [
   },
   {
     id: "whisper-small",
-    label: "Standard",
-    description: "Balanced accuracy for English and German. For most modern computers.",
+    label: "Basic",
+    description: "Balanced accuracy.",
     kind: "whisper",
     tier: "balanced",
     plan: "free",
