@@ -55,6 +55,7 @@ import { createProviderAuthStore, useProviderAuthStoreSnapshot, type CustomProvi
 import ProviderAuthModal from "@/react-app/domains/connections/provider-auth/provider-auth-modal";
 import ConnectionsModals from "@/react-app/domains/connections/modals";
 import { AiSettingsView } from "@/react-app/domains/settings/pages/ai-view";
+import { FirmHubView } from "@/react-app/domains/settings/pages/firm-hub-view";
 import { FusionSettingsSection } from "@/react-app/domains/settings/pages/fusion-settings-section";
 import { BenchmarkView } from "@/react-app/domains/benchmark/benchmark-view";
 // Side-effect imports: register extension config components into the registry.
@@ -217,6 +218,7 @@ function parseSettingsPath(pathname: string): {
   switch (head) {
     case "general":
     case "ai":
+    case "firm-hub":
     case "preferences":
     case "permissions":
     case "safety":
@@ -1894,6 +1896,16 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
                 }}
               />
             }
+          />
+        );
+      case "firm-hub":
+        return (
+          <FirmHubView
+            legalworkClient={legalworkClient}
+            workspaceId={runtimeWorkspaceId ?? selectedWorkspaceId}
+            onConfigApplied={() => {
+              void reloadWorkspaceEngineFromUi();
+            }}
           />
         );
       case "benchmark":
