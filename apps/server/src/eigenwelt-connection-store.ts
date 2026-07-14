@@ -3,7 +3,7 @@ import { dirname, join, resolve } from "node:path";
 import { eq } from "drizzle-orm";
 import { integer, sqliteTable, text } from "drizzle-orm/sqlite-core";
 import type { EigenweltEntitlements } from "./eigenwelt-auth.js";
-import { parseEigenweltEntitlements } from "./eigenwelt-auth.js";
+import { eigenweltPlatformUrl, parseEigenweltEntitlements } from "./eigenwelt-auth.js";
 import type { ServerConfig } from "./types.js";
 import { ensureDir } from "./utils.js";
 
@@ -161,7 +161,11 @@ export async function readEigenweltEntitlementsView(
   workspaceId: string,
 ): Promise<EigenweltEntitlementsView> {
   const { entitlements, platformURL } = await readEigenweltConnection(config, workspaceId);
-  return { entitlements, platformURL };
+  // Fall back to the configured platform origin (EIGENWELT_PLATFORM_URL) so
+  // billing / members / pricing links always point at the instance the app is
+  // actually talking to — even before a connection is persisted — instead of
+  // the hard-coded production URL.
+  return { entitlements, platformURL: platformURL ?? eigenweltPlatformUrl() };
 }
 
 export type WriteEigenweltConnectionInput = {

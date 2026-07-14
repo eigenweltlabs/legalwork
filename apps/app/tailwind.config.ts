@@ -1,6 +1,14 @@
 import { radixColors, tailwindSafelist } from './src/styles/tailwind-colors';
 export default {
-  content: ["./index.html", "./src/**/*.{ts,tsx}"],
+  content: [
+    "./index.html",
+    "./src/**/*.{ts,tsx}",
+    // Scan the @legalwork/ui package so utility classes used only inside its
+    // components (e.g. text-primary-fg on <Button variant="primary">) actually
+    // get generated. Without this, those classes are no-ops and the component
+    // falls back to inherited colors (black-on-black buttons).
+    "../../packages/ui/src/**/*.{ts,tsx}",
+  ],
 darkMode: 'class',
 safelist: [
     tailwindSafelist
