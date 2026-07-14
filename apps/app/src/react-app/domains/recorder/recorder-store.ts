@@ -758,9 +758,17 @@ export const useRecorderStore = create<RecorderState & RecorderActions>((set, ge
     },
 
     setModelId: (modelId) => {
-      // Never let a still-gated premium model become the active selection.
+      // Never let a still-gated premium model become the active selection — but
+      // an already-installed model is on disk and always usable, even after the
+      // session unlock set has reset.
       const model = get().bootstrap?.models.find((entry) => entry.id === modelId);
-      if (model?.plan === "premium" && !isPremiumEntitled() && !get().unlockedModels.includes(modelId)) {
+      const installed = model?.state === "installed";
+      if (
+        model?.plan === "premium" &&
+        !installed &&
+        !isPremiumEntitled() &&
+        !get().unlockedModels.includes(modelId)
+      ) {
         return;
       }
       writePref(MODEL_PREF_KEY, modelId);

@@ -91,7 +91,7 @@ export function ExtensionsView(props: ExtensionsViewProps) {
   const activeTab = TABS.find((entry) => entry.id === tab) ?? TABS[0];
 
   return (
-    <section className="space-y-7 max-w-3xl w-full animate-in fade-in duration-300">
+    <section className="space-y-7 max-w-5xl w-full animate-in fade-in duration-300">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className={segmentedTrackClass}>
           {TABS.map(({ id, label, icon: Icon }) => {

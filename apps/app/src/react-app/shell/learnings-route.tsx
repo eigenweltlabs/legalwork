@@ -315,7 +315,7 @@ export function LearningsPane(props: LearningsPaneProps) {
       </div>
 
       <div className="relative z-10 flex min-h-full items-center justify-center px-6 py-10">
-        <div className="w-full max-w-3xl">
+        <div className="w-full max-w-5xl">
         {/* Header — left aligned */}
         <div className="text-left">
           <span className="lw-section-eyebrow">Learnings · Private preview</span>

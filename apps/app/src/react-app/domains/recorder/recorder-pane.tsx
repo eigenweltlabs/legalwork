@@ -396,7 +396,7 @@ export function RecorderPane(props: {
           </div>
         </div>
       ) : null}
-      <div className="relative z-10 mx-auto w-full max-w-3xl px-6 py-8">
+      <div className="relative z-10 mx-auto w-full max-w-5xl px-6 py-8">
         {/* Header */}
         <div className="flex flex-wrap items-end justify-between gap-4">
           <div>

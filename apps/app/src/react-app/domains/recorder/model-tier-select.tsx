@@ -1,12 +1,14 @@
 /** @jsxImportSource react */
 /**
- * Compact transcription-model picker for the Recorder pane. Shows the three
- * lawyer-facing tiers (Basic / Standard / Premium) instead of raw model ids,
- * with per-tier install state, a "recommended for your device" hint, and the
- * premium lock. Downloading and selecting happen right from the menu.
+ * Compact transcription-model picker for the Recorder pane. Shows the
+ * lawyer-facing tiers instead of raw model ids, with a "recommended for your
+ * device" hint. Only installed models are selectable inline; tiers that aren't
+ * downloaded yet are greyed and route to Settings > Recorder to install them
+ * (no silent download). The premium/device gate lives there too.
  */
 import { useState } from "react";
-import { Check, ChevronsUpDown, Cpu, Download, Loader2, Lock, Sparkles } from "lucide-react";
+import { useNavigate } from "react-router-dom";
+import { Check, ChevronsUpDown, Cpu, Download, Loader2, Sparkles } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -27,7 +29,6 @@ import { t } from "@/i18n";
 
 import {
   MODEL_TIERS,
-  isPremiumEntitled,
   tierForModelId,
   tierName,
   tierTagline,
@@ -86,12 +87,7 @@ function TierRow(props: {
 }) {
   const { tier } = props;
   const store = useRecorderStore();
-  const fastDevice = store.bootstrap?.device?.fastDevice ?? false;
-  const unlocked = isPremiumEntitled() || store.unlockedModels.includes(tier.modelId);
   const model = store.bootstrap?.models.find((entry) => entry.id === tier.modelId);
-  const premiumLocked = tier.premium && !unlocked;
-  const deviceLocked = !!tier.requiresFastDevice && !fastDevice && !unlocked;
-  const locked = premiumLocked || deviceLocked;
   const installed = model?.state === "installed";
   const downloading = model?.state === "downloading";
   const size = formatBytes(model?.installedSizeBytes ?? model?.approxSizeBytes ?? 0);
@@ -103,6 +99,9 @@ function TierRow(props: {
       className={cn(
         "flex w-full items-start gap-3 rounded-xl px-2.5 py-2 text-left transition-colors hover:bg-hover",
         props.selected && "bg-sunken",
+        // Not-yet-downloaded tiers read as unavailable; clicking one routes to
+        // Settings to install it rather than downloading inline.
+        !installed && !downloading && "opacity-55",
       )}
     >
       <span className="mt-0.5 w-4 shrink-0">
@@ -132,9 +131,7 @@ function TierRow(props: {
         <div className="mt-0.5 text-xs text-subtext">{tierTagline(tier.key)}</div>
       </div>
       <span className="mt-0.5 flex shrink-0 items-center gap-1.5 text-2xs text-subtext">
-        {locked ? (
-          <Lock className="size-3.5" />
-        ) : downloading ? (
+        {downloading ? (
           <Loader2 className="size-3.5 animate-spin text-brand" />
         ) : installed ? (
           <span className="inline-flex items-center gap-1 text-success">
@@ -154,42 +151,29 @@ function TierRow(props: {
 
 export function ModelTierSelect(props: { disabled?: boolean }) {
   const store = useRecorderStore();
+  const navigate = useNavigate();
   const [open, setOpen] = useState(false);
-  const [upgradeOpen, setUpgradeOpen] = useState(false);
-  const [gateReason, setGateReason] = useState<"premium" | "device">("premium");
-  const [pendingTier, setPendingTier] = useState<ModelTier | null>(null);
   const recommendedId = store.bootstrap?.device?.recommendedModelId;
-  const fastDevice = store.bootstrap?.device?.fastDevice ?? false;
   const currentTier = tierForModelId(store.modelId) ?? MODEL_TIERS[1];
   const currentModel = store.bootstrap?.models.find((entry) => entry.id === currentTier.modelId);
   const currentInstalled = currentModel?.state === "installed";
 
-  const applyTier = (tier: ModelTier) => {
-    store.setModelId(tier.modelId);
-    const model = store.bootstrap?.models.find((entry) => entry.id === tier.modelId);
-    if (model && model.state !== "installed" && model.state !== "downloading") {
-      void store.downloadModel(tier.modelId);
-    }
-  };
-
   const pick = (tier: ModelTier) => {
-    const unlocked = isPremiumEntitled() || store.unlockedModels.includes(tier.modelId);
-    const premiumLocked = tier.premium && !unlocked;
-    const deviceLocked = !!tier.requiresFastDevice && !fastDevice && !unlocked;
-    if (premiumLocked || deviceLocked) {
-      setPendingTier(tier);
-      setGateReason(premiumLocked ? "premium" : "device");
+    const model = store.bootstrap?.models.find((entry) => entry.id === tier.modelId);
+    // Only installed models switch inline. Anything not downloaded yet sends the
+    // user to Settings > Recorder to install it (and clear any gate) — never a
+    // silent background download from here.
+    if (model?.state !== "installed") {
       setOpen(false);
-      setUpgradeOpen(true);
+      navigate("/settings/recorder");
       return;
     }
-    applyTier(tier);
+    store.setModelId(tier.modelId);
     setOpen(false);
   };
 
   return (
-    <>
-      <DropdownMenu open={open} onOpenChange={setOpen}>
+    <DropdownMenu open={open} onOpenChange={setOpen}>
         <DropdownMenuTrigger
           disabled={props.disabled}
           render={
@@ -221,18 +205,5 @@ export function ModelTierSelect(props: { disabled?: boolean }) {
           ))}
         </DropdownMenuContent>
       </DropdownMenu>
-      <PremiumUpgradeDialog
-        open={upgradeOpen}
-        onOpenChange={setUpgradeOpen}
-        reason={gateReason}
-        onConfirm={() => {
-          if (pendingTier) {
-            store.unlockModelForTesting(pendingTier.modelId);
-            applyTier(pendingTier);
-          }
-          setPendingTier(null);
-        }}
-      />
-    </>
   );
 }

@@ -591,7 +591,7 @@ export function SkillsView(props: SkillsViewProps) {
   };
 
   return (
-    <section className="space-y-8 w-full max-w-3xl">
+    <section className="space-y-8 w-full max-w-5xl">
       <div className="space-y-7">
         <div className="flex flex-col gap-5 sm:flex-row sm:items-end sm:justify-between">
           <div className="min-w-0">
