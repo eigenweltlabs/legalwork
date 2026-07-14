@@ -294,6 +294,12 @@ let dictationHoldStartPending = false;
 let dictationHoldReleased = false;
 let dictationHoldStopPending = false;
 let dictationCancelPending = false;
+// When the last dictation settled (stopped or canceled). A brand-new dictation
+// that tries to start within a beat of the previous one ending is not a human
+// key press — it's a runaway restart (e.g. an empty "no speech" result looping
+// straight back into listening). We refuse it so the loop can't run away.
+let dictationSettleAt = 0;
+const DICTATION_RESTART_COOLDOWN_MS = 1000;
 // Bumped whenever the machine suspends. startRecording captures it on entry
 // and rolls back if it changed by the time capture is wired up — a recording
 // whose start straddled a sleep would otherwise latch on indefinitely (and
@@ -738,6 +744,14 @@ export const useRecorderStore = create<RecorderState & RecorderActions>((set, ge
     startSystemDictation: async () => {
       const { systemDictation, bootstrap, modelId, recording } = get();
       if (!systemDictation?.enabled || !systemDictation.registered) return;
+      // Guard against a runaway restart loop: a start that lands within a beat
+      // of the previous dictation ending isn't a real key press. Drop it and
+      // settle to idle so the HUD hides instead of re-arming forever.
+      if (Date.now() - dictationSettleAt < DICTATION_RESTART_COOLDOWN_MS) {
+        set({ dictationState: "idle" });
+        await audioSystemDictationSetState("idle").catch(() => {});
+        return;
+      }
       if (recording) {
         const message = "Stop the current Recorder session before starting system-wide dictation.";
         set({ error: message, dictationState: "error" });
@@ -1003,6 +1017,7 @@ export const useRecorderStore = create<RecorderState & RecorderActions>((set, ge
             dictationError ?? "",
           ).catch(() => {});
         }
+        if (isSystemDictation) dictationSettleAt = Date.now();
         set((state) => ({
           recording: null,
           recordingStartedAt: null,
@@ -1012,13 +1027,13 @@ export const useRecorderStore = create<RecorderState & RecorderActions>((set, ge
           levels: {},
           diarizing: false,
           error: dictationError,
-          // System dictation is ephemeral: it must never enter the recordings
-          // list. When the delete/retain round-trip gives us the authoritative
-          // post-dictation list, use it; otherwise fall back to simply dropping
-          // the dictation (never prepend it). Normal recordings are prepended.
+          // An ephemeral recording (system dictation) must NEVER enter the
+          // recordings list. Key off the recording's own flag, not the racy
+          // dictationRecordingId, so a loop or state race can't sneak it in.
+          // When delete gave us the authoritative post-dictation list, use it.
           recordings:
             recordingsAfterDictation ??
-            (isSystemDictation
+            (isSystemDictation || meta.ephemeral
               ? state.recordings.filter((item) => item.id !== meta.id)
               : [meta, ...state.recordings.filter((item) => item.id !== meta.id)]),
         }));
@@ -1033,7 +1048,10 @@ export const useRecorderStore = create<RecorderState & RecorderActions>((set, ge
           diarizing: false,
           error: message,
         });
-        if (isSystemDictation) await audioSystemDictationSetState("error", message).catch(() => {});
+        if (isSystemDictation) {
+          dictationSettleAt = Date.now();
+          await audioSystemDictationSetState("error", message).catch(() => {});
+        }
       }
       await get().refreshRecordings();
     },
@@ -1060,7 +1078,10 @@ export const useRecorderStore = create<RecorderState & RecorderActions>((set, ge
         levels: {},
         diarizing: false,
       });
-      if (isSystemDictation) await audioSystemDictationSetState("idle").catch(() => {});
+      if (isSystemDictation) {
+        dictationSettleAt = Date.now();
+        await audioSystemDictationSetState("idle").catch(() => {});
+      }
     },
 
     importAudioFile: async (file) => {
