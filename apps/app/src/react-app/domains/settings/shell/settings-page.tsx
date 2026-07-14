@@ -63,7 +63,7 @@ export function getSettingsTabIcon(tab: SettingsTab) {
   switch (tab) {
     case "ai":
       return Zap;
-    case "firm-hub":
+    case "account":
       return Building2;
     case "benchmark":
       return Gauge;
@@ -112,8 +112,8 @@ export function getSettingsTabLabel(tab: SettingsTab) {
   switch (tab) {
     case "ai":
       return "AI Providers";
-    case "firm-hub":
-      return t("settings.tab_firm_hub");
+    case "account":
+      return t("settings.tab_account");
     case "benchmark":
       return t("settings.tab_benchmark");
     case "preferences":
@@ -163,8 +163,8 @@ export function getSettingsTabDescription(tab: SettingsTab) {
   switch (tab) {
     case "ai":
       return "Connect services that provide AI models";
-    case "firm-hub":
-      return t("settings.tab_description_firm_hub");
+    case "account":
+      return t("settings.tab_description_account");
     case "benchmark":
       return t("settings.tab_description_benchmark");
     case "preferences":
@@ -222,7 +222,7 @@ export function getGlobalSettingsTabs(developerMode: boolean): SettingsTab[] {
   // "preferences" is the Privacy tab (usage-analytics opt-out toggle).
   // "benchmark" is not listed here: it lives on the Learnings page in the main
   // app shell (embedded singleView surface), not in the settings sidebar.
-  const tabs: SettingsTab[] = ["ai", "firm-hub", "safety", "shell", "environment", "preferences", "updates"];
+  const tabs: SettingsTab[] = ["ai", "account", "safety", "shell", "environment", "preferences", "updates"];
   // Office add-ins install into local desktop apps, so the tab is desktop-only.
   // Placed right after the first tab.
   if (isDesktopRuntime()) tabs.splice(1, 0, "office-addins");

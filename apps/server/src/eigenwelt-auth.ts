@@ -82,8 +82,12 @@ export type EigenweltSignInPayload = {
   models: EigenweltManifestModel[];
   /** Present only when the platform ships subscription data (parse tolerantly). */
   entitlements?: EigenweltEntitlements;
-  /** Bearer for the platform hub APIs; rotates on every sign-in. Secret. */
+  /** Short-lived Bearer for the platform hub APIs (~15 min). Secret. */
   platformToken?: string;
+  /** Epoch millis when `platformToken` expires; the server refreshes before then. */
+  accessTokenExpiresAt?: number;
+  /** Long-lived rotating refresh token (secret) — server-side only after sign-in. */
+  refreshToken?: string;
   /** Platform origin for hub/billing links, e.g. https://platform.eigenweltlabs.com. */
   platformURL?: string;
 };
@@ -235,6 +239,12 @@ export async function startEigenweltSignIn(): Promise<{ sessionId: string; autho
       if (entitlements) delivered.entitlements = entitlements;
       if (typeof payload.platformToken === "string" && payload.platformToken.trim()) {
         delivered.platformToken = payload.platformToken;
+      }
+      if (typeof payload.accessTokenExpiresAt === "number" && payload.accessTokenExpiresAt > 0) {
+        delivered.accessTokenExpiresAt = payload.accessTokenExpiresAt;
+      }
+      if (typeof payload.refreshToken === "string" && payload.refreshToken.trim()) {
+        delivered.refreshToken = payload.refreshToken;
       }
       if (typeof payload.platformURL === "string" && payload.platformURL.trim()) {
         delivered.platformURL = payload.platformURL.replace(/\/+$/, "");

@@ -52,8 +52,13 @@ export function useEigenweltEntitlements(input: {
     queryKey: eigenweltEntitlementsQueryKey(input.workspaceId ?? ""),
     enabled: Boolean(input.enabled !== false && input.client && input.workspaceId),
     staleTime: 60_000,
+    // Keep entitlements live: each read makes the server opportunistically
+    // refresh its access token (rotating) and pull the current plan/usage, so a
+    // plan change on the platform propagates without re-signing-in.
+    refetchOnWindowFocus: true,
+    refetchInterval: 5 * 60_000,
     queryFn: async (): Promise<EigenweltEntitlementsView> => {
-      if (!input.client || !input.workspaceId) return { entitlements: null, platformURL: null };
+      if (!input.client || !input.workspaceId) return { entitlements: null, platformURL: null, connected: false };
       return input.client.eigenweltEntitlements(input.workspaceId);
     },
   });

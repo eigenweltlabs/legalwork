@@ -51,14 +51,16 @@ import {
 } from "@/react-app/shell/route-workspaces";
 import { createConnectionsStore, useConnectionsStoreSnapshot } from "@/react-app/domains/connections/store";
 import { createLegalworkServerStore, useLegalworkServerStoreSnapshot } from "@/react-app/domains/connections/legalwork-server-store";
-import { createProviderAuthStore, useProviderAuthStoreSnapshot, type CustomProviderEditData } from "@/react-app/domains/connections/provider-auth/store";
+import { createProviderAuthStore, useProviderAuthStoreSnapshot, EIGENWELT_PROVIDER_ID, type CustomProviderEditData } from "@/react-app/domains/connections/provider-auth/store";
 import ProviderAuthModal from "@/react-app/domains/connections/provider-auth/provider-auth-modal";
 import ConnectionsModals from "@/react-app/domains/connections/modals";
 import { AiSettingsView } from "@/react-app/domains/settings/pages/ai-view";
-import { FirmHubView } from "@/react-app/domains/settings/pages/firm-hub-view";
+import { EigenweltAccountView } from "@/react-app/domains/settings/pages/eigenwelt-account-view";
+import { HubDownloadSection } from "@/react-app/domains/settings/pages/hub-download-section";
 import { SharePresetSection } from "@/react-app/domains/settings/pages/share-preset-section";
 import {
   hasEigenweltFeature,
+  invalidateEigenweltEntitlements,
   useEigenweltEntitlements,
 } from "@/react-app/domains/connections/eigenwelt-entitlements";
 import { FusionSettingsSection } from "@/react-app/domains/settings/pages/fusion-settings-section";
@@ -223,7 +225,7 @@ function parseSettingsPath(pathname: string): {
   switch (head) {
     case "general":
     case "ai":
-    case "firm-hub":
+    case "account":
     case "preferences":
     case "permissions":
     case "safety":
@@ -851,6 +853,41 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
     },
     [legalworkClient, hubWorkspaceId],
   );
+
+  // Eigenwelt is a first-party global account. Sign-out clears the connection
+  // AND the global provider manifest server-side (revoking the refresh-token
+  // family), then reloads the engine so the eigenwelt provider drops from every
+  // workspace. Errors propagate to the account view, which surfaces a toast.
+  const disconnectEigenwelt = useCallback(async () => {
+    setDisconnectingProviderId(EIGENWELT_PROVIDER_ID);
+    try {
+      if (legalworkClient && hubWorkspaceId) {
+        try {
+          await legalworkClient.eigenweltSaveConnection(hubWorkspaceId, { disconnect: true });
+        } catch {
+          // best-effort: still reset the local view + engine below.
+        }
+        invalidateEigenweltEntitlements(hubWorkspaceId);
+      }
+      // Await the reload so the provider list refetches WITHOUT eigenwelt before
+      // the account view re-renders — otherwise it briefly stays "connected".
+      await reloadWorkspaceEngineFromUi();
+      if (hubWorkspaceId) await firmEntitlementsQuery.refetch();
+    } finally {
+      setDisconnectingProviderId(null);
+    }
+  }, [legalworkClient, hubWorkspaceId, firmEntitlementsQuery, reloadWorkspaceEngineFromUi]);
+
+  // "Refresh models": the server re-pulls the gateway manifest into the GLOBAL
+  // eigenwelt manifest and rebuilds the engine config; reload so the new models
+  // appear in the picker across every workspace.
+  const refreshEigenweltModels = useCallback(async (): Promise<{ modelCount: number; changed: boolean }> => {
+    if (!legalworkClient || !hubWorkspaceId) return { modelCount: 0, changed: false };
+    const result = await legalworkClient.eigenweltRefreshModels(hubWorkspaceId);
+    await providerAuthStore.refreshProviders({ dispose: true });
+    void reloadWorkspaceEngineFromUi();
+    return result;
+  }, [legalworkClient, hubWorkspaceId, providerAuthStore, reloadWorkspaceEngineFromUi]);
 
   const opencodeClient = useMemo(() => {
     if (!selectedWorkspaceEndpoint || !selectedWorkspaceEndpoint.token) return null;
@@ -1532,7 +1569,25 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
     ? t("status.providers_connected", { count: providerConnectedIds.length })
     : t("settings.no_providers_connected");
   const providerConnectedIdSet = new Set(providerConnectedIds);
+  // Eigenwelt is managed from its own "Eigenwelt" account tab, not as a model
+  // provider — hide it from the AI providers list (a footnote points there).
+  // "Connected" means signed in with an Eigenwelt account OR a model provider
+  // block exists — so login shows even when the platform serves zero models and
+  // no provider block was written. We accept the server's explicit `connected`
+  // flag AND the mere presence of stored entitlements (older servers don't send
+  // `connected`, but a stored plan is itself proof of a persisted sign-in).
+  const eigenweltAccount = firmEntitlementsQuery.data;
+  const eigenweltConnected =
+    providerConnectedIdSet.has(EIGENWELT_PROVIDER_ID) ||
+    Boolean(eigenweltAccount?.connected) ||
+    Boolean(eigenweltAccount?.entitlements);
+  // How many models the connected Eigenwelt account currently serves (may be 0
+  // if the platform/LiteLLM hasn't provisioned any yet — login still works).
+  const eigenweltModelCount = Object.keys(
+    providers.find((item) => item.id === EIGENWELT_PROVIDER_ID)?.models ?? {},
+  ).length;
   const connectedProviders = providers.flatMap((provider) => {
+    if (provider.id === EIGENWELT_PROVIDER_ID) return [];
     if (!providerConnectedIdSet.has(provider.id)) return [];
     const providerOptions =
       provider.options && typeof provider.options === "object"
@@ -1926,6 +1981,7 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
             onDisconnectProvider={handleDisconnectProvider}
             onEditProvider={handleEditCustomProvider}
             canDisconnectProvider={(source) => source !== "env"}
+            eigenweltConnected={eigenweltConnected}
             fusionView={
               <FusionSettingsSection
                 fusionModels={local.prefs.fusionModels ?? []}
@@ -1943,15 +1999,35 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
               />
             }
             presetShareView={
-              <SharePresetSection client={legalworkClient} workspaceId={hubWorkspaceId} />
+              <>
+                <SharePresetSection client={legalworkClient} workspaceId={hubWorkspaceId} />
+                <HubDownloadSection
+                  legalworkClient={legalworkClient}
+                  workspaceId={hubWorkspaceId}
+                  kind="preset"
+                  onConfigApplied={() => {
+                    void reloadWorkspaceEngineFromUi();
+                  }}
+                />
+              </>
             }
           />
         );
-      case "firm-hub":
+      case "account":
         return (
-          <FirmHubView
+          <EigenweltAccountView
             legalworkClient={legalworkClient}
-            workspaceId={runtimeWorkspaceId ?? selectedWorkspaceId}
+            workspaceId={hubWorkspaceId}
+            connected={eigenweltConnected}
+            serverConnected={legalworkServerSnapshot.legalworkServerStatus === "connected"}
+            onStartSignIn={providerAuthStore.startEigenweltSignIn}
+            onWaitSignIn={providerAuthStore.completeEigenweltSignIn}
+            onSubmitApiKey={providerAuthStore.submitEigenweltApiKey}
+            onDisconnect={disconnectEigenwelt}
+            onRefreshModels={refreshEigenweltModels}
+            disconnecting={disconnectingProviderId === EIGENWELT_PROVIDER_ID}
+            hasModels={eigenweltModelCount > 0}
+            modelCount={eigenweltModelCount}
             onConfigApplied={() => {
               void reloadWorkspaceEngineFromUi();
             }}
@@ -2018,6 +2094,18 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
             extensions={extensionsStore}
             canShareWithFirm={canShareWithFirm}
             onShareWithFirm={shareWorkflowWithFirm}
+            firmDownloadView={
+              route.tab === "workflows" ? (
+                <HubDownloadSection
+                  legalworkClient={legalworkClient}
+                  workspaceId={hubWorkspaceId}
+                  kind="workflow"
+                  onConfigApplied={() => {
+                    void reloadWorkspaceEngineFromUi();
+                  }}
+                />
+              ) : undefined
+            }
             onOpenLink={(url) => platform.openLink(url)}
             createSessionAndOpen={async (_command?: string): Promise<string | undefined> => {
               props.onClose?.();
@@ -2113,6 +2201,16 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
                 showHeader={false}
                 canShareWithFirm={canShareWithFirm}
                 onShareWithFirm={shareIntegrationWithFirm}
+                firmDownloadView={
+                  <HubDownloadSection
+                    legalworkClient={legalworkClient}
+                    workspaceId={hubWorkspaceId}
+                    kind="integration"
+                    onConfigApplied={() => {
+                      void reloadWorkspaceEngineFromUi();
+                    }}
+                  />
+                }
               />
             }
             skillsView={
@@ -2290,9 +2388,6 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
         onSelect={providerAuthStore.startProviderAuth}
         onSubmitApiKey={providerAuthStore.submitProviderApiKey}
         onSubmitCustomProvider={providerAuthStore.submitCustomProvider}
-        onEigenweltSignIn={providerAuthStore.startEigenweltSignIn}
-        onEigenweltWait={providerAuthStore.completeEigenweltSignIn}
-        onSubmitEigenweltApiKey={providerAuthStore.submitEigenweltApiKey}
         customEdit={customProviderEdit}
         onSubmitOAuth={providerAuthStore.completeProviderAuthOAuth}
         onRefreshProviders={providerAuthStore.refreshProviders}

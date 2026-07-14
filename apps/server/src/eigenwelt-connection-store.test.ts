@@ -70,7 +70,51 @@ describe("eigenwelt-connection-store", () => {
     const view = await readEigenweltEntitlementsView(config, "ws_1");
     expect(view.entitlements).toEqual(ENTITLEMENTS);
     expect(view.platformURL).toBe("https://platform.eigenweltlabs.com");
+    expect(view.connected).toBe(true);
     expect("platformToken" in view).toBe(false);
+  });
+
+  test("connected is false with no stored account; true once a token is stored", async () => {
+    const config = await setup();
+    // Nothing stored yet — not signed in (and links fall back to the origin).
+    const before = await readEigenweltEntitlementsView(config, "ws_1");
+    expect(before.connected).toBe(false);
+    expect(before.entitlements).toBeNull();
+
+    // A sign-in with only a token (zero models / no entitlements) still counts
+    // as connected — login is independent of the served model list.
+    await writeEigenweltConnection(config, "ws_1", { platformToken: "plat_only" });
+    const after = await readEigenweltEntitlementsView(config, "ws_1");
+    expect(after.connected).toBe(true);
+  });
+
+  test("persists + reads back the refresh token and access-token expiry", async () => {
+    const config = await setup();
+    await writeEigenweltConnection(config, "ws_1", {
+      platformToken: "access_v1",
+      refreshToken: "refresh_v1",
+      accessTokenExpiresAt: 1_800_000,
+    });
+    const full = await readEigenweltConnection(config, "ws_1");
+    expect(full.platformToken).toBe("access_v1");
+    expect(full.refreshToken).toBe("refresh_v1");
+    expect(full.platformTokenExpiresAt).toBe(1_800_000);
+
+    // A refresh rotates access+refresh+expiry without touching entitlements.
+    await writeEigenweltConnection(config, "ws_1", {
+      platformToken: "access_v2",
+      refreshToken: "refresh_v2",
+      accessTokenExpiresAt: 3_600_000,
+    });
+    const rotated = await readEigenweltConnection(config, "ws_1");
+    expect(rotated.platformToken).toBe("access_v2");
+    expect(rotated.refreshToken).toBe("refresh_v2");
+    expect(rotated.platformTokenExpiresAt).toBe(3_600_000);
+
+    // Signed in via refresh token even with no access token yet.
+    await writeEigenweltConnection(config, "ws_1", { platformToken: null });
+    const view = await readEigenweltEntitlementsView(config, "ws_1");
+    expect(view.connected).toBe(true);
   });
 
   test("returns empty connection for an unknown workspace", async () => {
@@ -79,6 +123,8 @@ describe("eigenwelt-connection-store", () => {
       entitlements: null,
       platformURL: null,
       platformToken: null,
+      refreshToken: null,
+      platformTokenExpiresAt: null,
     });
   });
 

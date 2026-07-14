@@ -87,7 +87,10 @@ import {
   readLegalworkWorkspaceConfig,
   writeLegalworkWorkspaceConfig,
 } from "./legalwork-workspace-config-store.js";
-import { buildLegalworkRuntimeConfigObject } from "./legalwork-runtime-config.js";
+import {
+  buildLegalworkRuntimeConfigObject,
+  writeLegalworkRuntimeConfigFile,
+} from "./legalwork-runtime-config.js";
 import {
   fetchEigenweltManifest,
   parseEigenweltEntitlements,
@@ -95,10 +98,21 @@ import {
   waitForEigenweltSignIn,
 } from "./eigenwelt-auth.js";
 import {
+  clearCachedEigenweltPaidManifest,
+  parseManifestModels,
+  refreshEigenweltPaidManifest,
+  writeCachedEigenweltPaidManifest,
+} from "./eigenwelt-paid-manifest.js";
+import {
   readEigenweltConnection,
   readEigenweltEntitlementsView,
   writeEigenweltConnection,
 } from "./eigenwelt-connection-store.js";
+import {
+  ensureFreshPlatformToken,
+  readFreshEntitlementsView,
+  revokeEigenweltConnection,
+} from "./eigenwelt-refresh.js";
 import {
   buildIntegrationPayload,
   hubCreate,
@@ -1988,12 +2002,24 @@ function createRoutes(
   // connection (entitlements + platformURL + the secret platformToken) here
   // right after "Sign in with Eigenwelt" completes. The token is server-side
   // only (never returned to the app) and backs the hub proxy routes below.
-  const resolveHubClient = async (workspaceId: string) =>
-    requireHubClient(await readEigenweltConnection(config, workspaceId));
+  const resolveHubClient = async (workspaceId: string) => {
+    // Refresh the short-lived access token before every hub call so proxied
+    // requests never carry an expired token.
+    await ensureFreshPlatformToken(config, workspaceId);
+    return requireHubClient(await readEigenweltConnection(config, workspaceId));
+  };
 
   const parseHubKind = (value: string): EigenweltHubKind => {
     if (value === "workflow" || value === "integration" || value === "preset") return value;
     throw new ApiError(400, "invalid_hub_kind", "kind must be workflow, integration or preset.");
+  };
+
+  // Rebuild the engine-visible config file (a single file for the primary
+  // workspace, which the shared engine re-reads on every instance dispose) so a
+  // change to the GLOBAL eigenwelt manifest lands across all workspaces.
+  const rebuildEngineConfigFile = async () => {
+    const primary = config.workspaces?.[0]?.id;
+    if (primary) await writeLegalworkRuntimeConfigFile(config, primary).catch(() => undefined);
   };
 
   addRoute(routes, "PUT", "/workspace/:id/eigenwelt/connection", "client", async (ctx) => {
@@ -2011,13 +2037,68 @@ function createRoutes(
         : typeof body.platformToken === "string"
           ? body.platformToken
           : null;
-    const view = await writeEigenweltConnection(config, workspace.id, { entitlements, platformURL, platformToken });
+
+    // Sign-out (explicit): revoke the refresh-token family + clear the
+    // connection AND the global paid-provider manifest, so the eigenwelt
+    // provider drops out of every workspace's engine config.
+    if (body.disconnect === true) {
+      await revokeEigenweltConnection(config, workspace.id);
+      await clearCachedEigenweltPaidManifest(config);
+      await rebuildEngineConfigFile();
+      return jsonResponse(await readEigenweltEntitlementsView(config, workspace.id));
+    }
+
+    const refreshToken =
+      body.refreshToken === undefined
+        ? undefined
+        : typeof body.refreshToken === "string"
+          ? body.refreshToken
+          : null;
+    const accessTokenExpiresAt =
+      body.accessTokenExpiresAt === undefined
+        ? undefined
+        : typeof body.accessTokenExpiresAt === "number"
+          ? body.accessTokenExpiresAt
+          : null;
+    const view = await writeEigenweltConnection(config, workspace.id, {
+      entitlements,
+      platformURL,
+      platformToken,
+      refreshToken,
+      accessTokenExpiresAt,
+    });
+
+    // Sign-in: cache the GLOBAL paid manifest {baseURL, apiKey, models} and
+    // rebuild the engine config so the eigenwelt provider is injected into
+    // EVERY workspace (an account provider, not a per-workspace one).
+    if (typeof body.baseURL === "string" && body.baseURL && typeof body.apiKey === "string" && body.apiKey) {
+      await writeCachedEigenweltPaidManifest(config, {
+        baseURL: body.baseURL,
+        apiKey: body.apiKey,
+        models: parseManifestModels(body.models),
+      });
+      await rebuildEngineConfigFile();
+    }
     return jsonResponse(view);
   });
 
   addRoute(routes, "GET", "/workspace/:id/eigenwelt/entitlements", "client", async (ctx) => {
     const workspace = await resolveWorkspace(config, ctx.params.id);
-    return jsonResponse(await readEigenweltEntitlementsView(config, workspace.id));
+    // Opportunistically refresh (rotate the token + pull current entitlements)
+    // so the plan/usage the desktop shows stays live.
+    return jsonResponse(await readFreshEntitlementsView(config, workspace.id));
+  });
+
+  // Manual "Refresh models": re-pull the gateway manifest into the GLOBAL
+  // eigenwelt manifest (around the kept key) and rebuild the engine config so
+  // new models appear in every workspace — no re-authentication needed.
+  addRoute(routes, "POST", "/workspace/:id/eigenwelt/refresh-models", "client", async (ctx) => {
+    ensureWritable(config);
+    requireClientScope(ctx, "collaborator");
+    await resolveWorkspace(config, ctx.params.id);
+    const result = await refreshEigenweltPaidManifest(config);
+    if (result.changed) await rebuildEngineConfigFile();
+    return jsonResponse(result);
   });
 
   addRoute(routes, "GET", "/workspace/:id/hub", "client", async (ctx) => {

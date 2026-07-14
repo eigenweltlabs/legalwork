@@ -12,7 +12,7 @@ import { startServer, syncAllWorkspacesRuntimeMcpToEngine } from "./server.js";
 import { ensureWorkspaceFiles } from "./workspace-init.js";
 import { keepLegalworkRuntimeConfigFileFresh, writeLegalworkRuntimeConfigFile } from "./legalwork-runtime-config.js";
 import { readCachedEigenweltFreeManifest, refreshEigenweltFreeManifest } from "./eigenwelt-free.js";
-import { refreshEigenweltProviderModels } from "./eigenwelt-auth.js";
+import { refreshEigenweltPaidManifest } from "./eigenwelt-paid-manifest.js";
 import type { ServeResult } from "./serve-node.js";
 import type { ServerConfig } from "./types.js";
 
@@ -92,9 +92,12 @@ export async function startEmbeddedServer(options: EmbeddedServerOptions): Promi
       void freeManifestRefresh
         .then((changed) => (changed ? writeLegalworkRuntimeConfigFile(config, workspace.id) : undefined))
         .catch(() => undefined);
-      // Fire-and-forget: pick up models added on the Eigenwelt gateway since
-      // the provider was connected (no-op without a provider.eigenwelt block).
-      void refreshEigenweltProviderModels(config, workspace.id);
+      // Fire-and-forget: refresh the GLOBAL paid manifest's model list around
+      // the kept key (no-op when not signed in), then rewrite the engine config
+      // so newly-available models appear across every workspace.
+      void refreshEigenweltPaidManifest(config)
+        .then((r) => (r.changed ? writeLegalworkRuntimeConfigFile(config, workspace.id) : undefined))
+        .catch(() => undefined);
       const cwd = options.opencodeCwd
         || process.env.LEGALWORK_MANAGED_OPENCODE_CWD?.trim()
         || workspace.path;

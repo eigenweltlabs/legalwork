@@ -6,6 +6,7 @@ import {
   useReducer,
   useState,
   type KeyboardEvent as ReactKeyboardEvent,
+  type ReactNode,
   type SetStateAction,
 } from "react";
 import {
@@ -174,6 +175,8 @@ export type SkillsViewProps = {
   /** Firm Hub: share a skill/workflow folder org-wide (gated on admin_hub). */
   canShareWithFirm?: boolean;
   onShareWithFirm?: (skillName: string) => void | Promise<void>;
+  /** Firm Hub: "download workflows shared with your firm" section (self-gating). */
+  firmDownloadView?: ReactNode;
 };
 
 // Workflows are ordinary skills tagged with `kind: workflow` frontmatter (surfaced on the
@@ -725,6 +728,8 @@ export function SkillsView(props: SkillsViewProps) {
           </div>
         </div>
       </div>
+
+      {props.firmDownloadView}
 
       {props.accessHint ? (
         <div className="rounded-[20px] border border-dls-border bg-dls-hover px-5 py-4 text-[13px] text-dls-secondary">

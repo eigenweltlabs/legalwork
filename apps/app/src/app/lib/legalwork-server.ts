@@ -145,6 +145,8 @@ export type EigenweltFeature = "admin_hub" | "settings_presets" | "org_managemen
 export type EigenweltEntitlementsView = {
   entitlements: EigenweltEntitlements | null;
   platformURL: string | null;
+  /** Signed in with an Eigenwelt account — independent of the served model list. */
+  connected: boolean;
 };
 
 /** Payload delivered once "Sign in with Eigenwelt" completes in the browser. */
@@ -155,8 +157,12 @@ export type EigenweltSignInPayload = {
   orgName?: string;
   models: EigenweltManifestModel[];
   entitlements?: EigenweltEntitlements;
-  /** Bearer for the platform hub APIs; rotates on every sign-in. Secret. */
+  /** Short-lived Bearer for the platform hub APIs (~15 min). Secret. */
   platformToken?: string;
+  /** Epoch millis when `platformToken` expires; the server refreshes before then. */
+  accessTokenExpiresAt?: number;
+  /** Long-lived rotating refresh token (secret); persisted server-side only. */
+  refreshToken?: string;
   /** Platform origin for hub/billing links, e.g. https://platform.eigenweltlabs.com. */
   platformURL?: string;
 };
@@ -1679,10 +1685,24 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
         timeoutMs: timeouts.config,
       }),
     // Persist the connected firm's entitlements + platformURL + the secret
-    // platformToken (server-side only). Called right after a successful sign-in.
+    // access + refresh tokens (server-side only). Called right after a
+    // successful sign-in; passing platformToken:null signs out (revoke + clear).
     eigenweltSaveConnection: (
       workspaceId: string,
-      payload: { entitlements?: EigenweltEntitlements | null; platformURL?: string | null; platformToken?: string | null },
+      payload: {
+        entitlements?: EigenweltEntitlements | null;
+        platformURL?: string | null;
+        platformToken?: string | null;
+        refreshToken?: string | null;
+        accessTokenExpiresAt?: number | null;
+        // Sign-in only: the global gateway manifest. The server caches it and
+        // injects the `eigenwelt` provider into every workspace.
+        baseURL?: string;
+        apiKey?: string;
+        models?: EigenweltManifestModel[];
+        // Sign-out: clears the connection + the global manifest.
+        disconnect?: boolean;
+      },
     ) =>
       requestJson<EigenweltEntitlementsView>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/eigenwelt/connection`, {
         token,
@@ -1697,6 +1717,14 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
         hostToken,
         timeoutMs: timeouts.config,
       }),
+    // Manual model refresh: re-pull the gateway manifest and rewrite the
+    // eigenwelt provider's model list without re-authenticating.
+    eigenweltRefreshModels: (workspaceId: string) =>
+      requestJson<{ modelCount: number; changed: boolean }>(
+        baseUrl,
+        `/workspace/${encodeURIComponent(workspaceId)}/eigenwelt/refresh-models`,
+        { token, hostToken, method: "POST", timeoutMs: timeouts.config },
+      ),
     // Firm Hub: the server proxies these to the platform with the stored token.
     hubList: (workspaceId: string, kind?: EigenweltHubKind) => {
       const query = kind ? `?kind=${encodeURIComponent(kind)}` : "";

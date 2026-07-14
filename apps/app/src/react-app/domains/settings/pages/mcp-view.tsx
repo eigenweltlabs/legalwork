@@ -118,6 +118,8 @@ export type McpViewProps = {
   /** Firm Hub: share an MCP server entry org-wide (gated on admin_hub). */
   canShareWithFirm?: boolean;
   onShareWithFirm?: (mcpName: string) => void | Promise<void>;
+  /** Firm Hub: "download integrations shared with your firm" section (self-gating). */
+  firmDownloadView?: React.ReactNode;
 };
 
 const builtInExtensionDisabledReason = "Disabled by organization";
@@ -591,6 +593,8 @@ export function McpView(props: McpViewProps) {
           </div>
         </div>
       </div>
+
+      {props.firmDownloadView}
 
       {props.mcpStatus ? (
         <div className="whitespace-pre-wrap wrap-break-word rounded-[20px] border border-dls-border bg-dls-hover px-5 py-4 text-[13px] text-dls-secondary">

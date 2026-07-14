@@ -1157,6 +1157,8 @@ export function createProviderAuthStore(options: CreateProviderAuthStoreOptions)
     models: EigenweltManifestModel[];
     entitlements?: EigenweltEntitlements;
     platformToken?: string;
+    accessTokenExpiresAt?: number;
+    refreshToken?: string;
     platformURL?: string;
   }) => {
     const c = options.client();
@@ -1164,41 +1166,38 @@ export function createProviderAuthStore(options: CreateProviderAuthStoreOptions)
       throw new Error(t("providers.not_connected"));
     }
     const baseURL = payload.baseURL?.trim();
-    if (!baseURL) {
+    const models = Array.isArray(payload.models) ? payload.models : [];
+    // "Signed in with Eigenwelt" = the account connection (entitlements +
+    // rotating token), independent of the served model list. A bare API-key
+    // connect carries none of these.
+    const hasAccount = Boolean(
+      payload.entitlements || payload.platformToken || payload.refreshToken || payload.platformURL,
+    );
+    if (!(baseURL && payload.apiKey) && !hasAccount) {
       throw new Error("The Eigenwelt platform did not return a gateway URL.");
     }
-    if (!Array.isArray(payload.models) || payload.models.length === 0) {
-      throw new Error("The Eigenwelt platform did not return any models.");
-    }
 
-    const providerBlock = buildEigenweltProviderBlock(baseURL, payload.models);
-    const wrote = await writeCustomProviderConfig(EIGENWELT_PROVIDER_ID, providerBlock);
-    if (!wrote) {
-      throw new Error("Could not save the provider configuration for this workspace.");
-    }
-
-    // Keep the secret out of the config file: same auth-store write as
-    // submitProviderApiKey.
-    await c.auth.set({ providerID: EIGENWELT_PROVIDER_ID, auth: { type: "api", key: payload.apiKey } });
-
-    // Persist subscription entitlements + platformURL + the (secret, rotating)
-    // platformToken server-side so the app can gate features and the server can
-    // reach the platform hub. Best-effort: a legacy platform sends none of
-    // these, and a persistence failure must not fail the connection itself.
-    if (payload.entitlements || payload.platformToken || payload.platformURL) {
-      const { legalworkClient, legalworkWorkspaceId, canUseLegalworkServer } =
-        await resolveLegalworkConfigTarget("write");
-      if (canUseLegalworkServer && legalworkClient && legalworkWorkspaceId) {
-        try {
-          await legalworkClient.eigenweltSaveConnection(legalworkWorkspaceId, {
-            entitlements: payload.entitlements ?? null,
-            platformURL: payload.platformURL ?? null,
-            platformToken: payload.platformToken ?? null,
-          });
-          invalidateEigenweltEntitlements(legalworkWorkspaceId);
-        } catch {
-          // ignore: entitlements are a best-effort enhancement, not required to connect.
-        }
+    // Eigenwelt is a firm ACCOUNT, not a per-workspace provider — so we hand the
+    // account (entitlements + tokens) AND the gateway manifest ({baseURL, apiKey,
+    // models}) to the LegalWork server, which caches them globally and injects
+    // the `eigenwelt` provider into EVERY workspace's engine config (like the
+    // free tier). No per-workspace provider block is written here. Best-effort:
+    // a persistence failure must not fail the sign-in itself.
+    const { legalworkClient, legalworkWorkspaceId, canUseLegalworkServer } =
+      await resolveLegalworkConfigTarget("write");
+    if (canUseLegalworkServer && legalworkClient && legalworkWorkspaceId) {
+      try {
+        await legalworkClient.eigenweltSaveConnection(legalworkWorkspaceId, {
+          entitlements: payload.entitlements ?? null,
+          platformURL: payload.platformURL ?? null,
+          platformToken: payload.platformToken ?? null,
+          refreshToken: payload.refreshToken ?? null,
+          accessTokenExpiresAt: payload.accessTokenExpiresAt ?? null,
+          ...(baseURL && payload.apiKey ? { baseURL, apiKey: payload.apiKey, models } : {}),
+        });
+        invalidateEigenweltEntitlements(legalworkWorkspaceId);
+      } catch {
+        // ignore: best-effort — a persistence failure must not fail the sign-in.
       }
     }
 

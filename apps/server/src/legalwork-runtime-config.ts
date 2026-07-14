@@ -44,6 +44,11 @@ import {
   OPENCODE_ZEN_PROVIDER_ID,
   readCachedEigenweltFreeManifest,
 } from "./eigenwelt-free.js";
+import {
+  buildEigenweltPaidProviderBlock,
+  EIGENWELT_PROVIDER_ID,
+  readCachedEigenweltPaidManifest,
+} from "./eigenwelt-paid-manifest.js";
 
 const LEGALWORK_AGENT_PROMPT = `You are LegalWork — an AI agent that works alongside legal professionals inside a law firm.
 
@@ -112,6 +117,14 @@ export async function buildLegalworkRuntimeConfigObject(
   const freeProvider = freeManifest && freeManifest.models.length > 0
     ? buildEigenweltFreeProviderBlock(freeManifest)
     : null;
+  // Paid Eigenwelt Model API: a global firm account, so the provider is
+  // injected into EVERY workspace from one manifest cache (written on sign-in /
+  // Refresh models, cleared on sign-out). Key rides in the block's headers, so
+  // it works in every workspace without a per-workspace auth entry.
+  const paidManifest = config ? await readCachedEigenweltPaidManifest(config) : null;
+  const paidProvider = paidManifest && paidManifest.models.length > 0
+    ? buildEigenweltPaidProviderBlock(paidManifest)
+    : null;
   const disabledProviders = [
     ...runtimeDisabledProviderList(runtimeConfig),
     // Disable the engine's anonymous OpenCode Zen provider ONLY while our
@@ -122,6 +135,8 @@ export async function buildLegalworkRuntimeConfigObject(
   const providerMap = {
     ...(runtimeConfig.provider ?? {}),
     ...(freeProvider ? { [EIGENWELT_FREE_PROVIDER_ID]: freeProvider } : {}),
+    // Global injection wins over any stale per-workspace eigenwelt block.
+    ...(paidProvider ? { [EIGENWELT_PROVIDER_ID]: paidProvider } : {}),
   };
   return {
     ...runtimeConfig,

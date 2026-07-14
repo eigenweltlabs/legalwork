@@ -42,6 +42,8 @@ export type AiSettingsViewProps = {
   /** Edit a user-defined custom provider (only shown for `source === "custom"`). */
   onEditProvider?: (providerId: string) => void | Promise<void>;
   canDisconnectProvider: (source?: ConnectedProvider["source"]) => boolean;
+  /** When true, show a footnote that Eigenwelt is managed on its own tab. */
+  eigenweltConnected?: boolean;
   /** Set of local provider IDs that were imported from cloud. */
   cloudProviderIds?: Set<string>;
   cloudProvidersView?: ReactNode;
@@ -171,6 +173,9 @@ export function AiSettingsView(props: AiSettingsViewProps) {
           <SettingsNotice tone="error">{props.providerDisconnectError}</SettingsNotice>
         ) : null}
 
+        {props.eigenweltConnected ? (
+          <LayoutSectionItemFootnote>{t("account.managed_notice")}</LayoutSectionItemFootnote>
+        ) : null}
         <LayoutSectionItemFootnote>{t("settings.api_keys_info")}</LayoutSectionItemFootnote>
       </LayoutSection>
 
