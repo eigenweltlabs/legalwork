@@ -55,17 +55,17 @@ import { PermissionsPanel } from "./permissions-panel";
 import { revealRecording, useRecorderStore } from "./recorder-store";
 
 /**
- * Flat section card, same recipe as the Learnings page's PreviewCard: liquid
- * glass fill + hairline border, rounded 20, and an explicit inline
- * `boxShadow: none` — the global `[data-slot="card"]` frost rule puts
- * `!important` shadows + a hover lift on the shared Card component, so a
- * plain div is the only way to stay truly flat.
+ * Flat section card in the @legalwork/ui idiom: soft surface, hairline border,
+ * rounded, and a whisper-soft shadow — matches the grouped cards used across
+ * settings and the rest of the reskinned app.
  */
 function SectionCard(props: { className?: string; children: React.ReactNode }) {
   return (
     <div
-      className={cn("glass flex flex-col gap-4 rounded-[20px] p-4", props.className)}
-      style={{ boxShadow: "none" }}
+      className={cn(
+        "flex flex-col gap-4 rounded-2xl border border-subtle bg-surface p-4 shadow-xs",
+        props.className,
+      )}
     >
       {props.children}
     </div>
@@ -147,11 +147,11 @@ function RecordingRow(props: {
   };
 
   return (
-    <div className="flex items-center gap-3 rounded-xl border border-border bg-card/60 px-3 py-2.5">
+    <div className="flex items-center gap-3 rounded-xl border border-subtle bg-surface px-3 py-2.5">
       {editing ? (
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
-            <Play className="size-3.5 shrink-0 text-muted-foreground" />
+            <Play className="size-3.5 shrink-0 text-subtext" />
             <Input
               autoFocus
               value={draft}
@@ -173,10 +173,10 @@ function RecordingRow(props: {
       ) : (
         <button type="button" className="min-w-0 flex-1 text-left" onClick={props.onOpen}>
           <div className="flex items-center gap-2">
-            <Play className="size-3.5 shrink-0 text-muted-foreground" />
-            <span className="truncate text-sm font-medium text-foreground">{recording.title}</span>
+            <Play className="size-3.5 shrink-0 text-subtext" />
+            <span className="truncate text-sm font-medium text-ink">{recording.title}</span>
           </div>
-          <div className="mt-0.5 flex flex-wrap gap-x-3 text-xs text-muted-foreground">
+          <div className="mt-0.5 flex flex-wrap gap-x-3 text-xs text-subtext">
             <span>{new Date(recording.createdAt).toLocaleString()}</span>
             <span className="tabular-nums">{formatDuration(recording.durationMs)}</span>
             <span className="tabular-nums">{formatBytes(recording.sizeBytes)}</span>
@@ -185,7 +185,7 @@ function RecordingRow(props: {
             </span>
           </div>
           {savedTo ? (
-            <div className="mt-1 truncate text-xs text-green-11">
+            <div className="mt-1 truncate text-xs text-success">
               {t("recorder.saved_to_workspace")}: {savedTo}
             </div>
           ) : null}
@@ -229,7 +229,7 @@ function RecordingRow(props: {
                 >
                   <div className="min-w-0">
                     <div className="truncate text-sm">{target.name}</div>
-                    <div className="truncate text-xs text-muted-foreground">{target.path}</div>
+                    <div className="truncate text-xs text-subtext">{target.path}</div>
                   </div>
                 </DropdownMenuItem>
               ))}
@@ -354,8 +354,8 @@ export function RecorderPane(props: {
     return (
       <div className="flex h-full items-center justify-center px-6">
         <SectionCard className="max-w-md">
-          <h3 className="text-sm font-medium text-foreground">{t("recorder.desktop_required_title")}</h3>
-          <p className="text-sm text-muted-foreground">{t("recorder.desktop_required_body")}</p>
+          <h3 className="text-sm font-medium text-ink">{t("recorder.desktop_required_title")}</h3>
+          <p className="text-sm text-subtext">{t("recorder.desktop_required_body")}</p>
         </SectionCard>
       </div>
     );
@@ -389,22 +389,22 @@ export function RecorderPane(props: {
         }}
       />
       {dragActive ? (
-        <div className="pointer-events-none absolute inset-3 z-30 flex items-center justify-center rounded-[24px] border-2 border-dashed border-primary/60 bg-primary/5 backdrop-blur-[1px]">
-          <div className="flex flex-col items-center gap-2 text-primary">
+        <div className="pointer-events-none absolute inset-3 z-30 flex items-center justify-center rounded-2xl border-2 border-dashed border-brand/60 bg-brand/5 backdrop-blur-[1px]">
+          <div className="flex flex-col items-center gap-2 text-brand">
             <FileAudio className="size-8" />
             <span className="text-sm font-medium">{t("recorder.import_drop_hint")}</span>
           </div>
         </div>
       ) : null}
-      <div className="relative z-10 mx-auto w-full max-w-[1080px] px-6 py-8">
+      <div className="relative z-10 mx-auto w-full max-w-3xl px-6 py-8">
         {/* Header */}
         <div className="flex flex-wrap items-end justify-between gap-4">
           <div>
             <span className="lw-section-eyebrow">{t("recorder.eyebrow")}</span>
-            <h1 className="mt-2 text-3xl font-medium tracking-[-0.03em] text-foreground">
+            <h1 className="mt-2 text-3xl font-medium tracking-[-0.03em] text-ink">
               {t("recorder.title")}
             </h1>
-            <p className="mt-1 max-w-lg text-sm text-muted-foreground">{t("recorder.subtitle")}</p>
+            <p className="mt-1 max-w-lg text-sm text-subtext">{t("recorder.subtitle")}</p>
           </div>
           <div className="flex items-center gap-2">
             <Button
@@ -431,20 +431,20 @@ export function RecorderPane(props: {
 
         {importing ? (
           <SectionCard className="mt-4 flex-row items-center gap-3">
-            <Loader2 className="size-4 shrink-0 animate-spin text-primary" />
+            <Loader2 className="size-4 shrink-0 animate-spin text-brand" />
             <div className="min-w-0">
-              <div className="truncate text-sm font-medium text-foreground">
+              <div className="truncate text-sm font-medium text-ink">
                 {t("recorder.import_transcribing")} {importing.fileName}
               </div>
-              <div className="text-xs text-muted-foreground">{t("recorder.import_transcribing_hint")}</div>
+              <div className="text-xs text-subtext">{t("recorder.import_transcribing_hint")}</div>
             </div>
           </SectionCard>
         ) : null}
 
         {store.diarizing ? (
           <SectionCard className="mt-4 flex-row items-center gap-3">
-            <Loader2 className="size-4 shrink-0 animate-spin text-primary" />
-            <div className="truncate text-sm font-medium text-foreground">
+            <Loader2 className="size-4 shrink-0 animate-spin text-brand" />
+            <div className="truncate text-sm font-medium text-ink">
               {t("recorder.diarize_identifying")}
             </div>
           </SectionCard>
@@ -453,7 +453,7 @@ export function RecorderPane(props: {
         <PermissionsPanel />
 
         {store.error ? (
-          <div className="mt-4 flex items-start justify-between gap-3 rounded-xl border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+          <div className="mt-4 flex items-start justify-between gap-3 rounded-xl border border-danger/30 bg-danger-soft px-3 py-2 text-sm text-danger">
             <span className="whitespace-pre-wrap break-words">{store.error}</span>
             <Button variant="ghost" size="icon-sm" aria-label={t("recorder.dismiss")} onClick={store.clearError}>
               <X />
@@ -462,29 +462,29 @@ export function RecorderPane(props: {
         ) : null}
 
         {engine && !engine.available ? (
-          <div className="mt-4 rounded-xl border border-amber-6 bg-amber-2 px-3 py-2 text-sm text-amber-11">
+          <div className="mt-4 rounded-xl border border-warning/40 bg-warning-soft px-3 py-2 text-sm text-warning">
             {t("recorder.engine_unavailable")} {engine.error ?? ""}
           </div>
         ) : null}
 
         {store.transcriber.state === "error" && store.transcriber.error ? (
-          <div className="mt-4 rounded-xl border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+          <div className="mt-4 rounded-xl border border-danger/30 bg-danger-soft px-3 py-2 text-sm text-danger">
             {t("recorder.transcriber_error")} {store.transcriber.error}
           </div>
         ) : null}
 
         {showDictateInfo ? (
-          <div className="mt-6 flex flex-col gap-3 border-y border-border py-4 sm:flex-row sm:items-center sm:justify-between">
+          <div className="mt-6 flex flex-col gap-3 border-y border-subtle py-4 sm:flex-row sm:items-center sm:justify-between">
             <div className="flex min-w-0 items-start gap-3">
-              <Globe2 className="mt-0.5 size-5 shrink-0 text-primary" />
+              <Globe2 className="mt-0.5 size-5 shrink-0 text-brand" />
               <div className="min-w-0">
                 <div className="flex flex-wrap items-center gap-2">
-                  <h2 className="text-sm font-medium text-foreground">{t("recorder.dictation_title")}</h2>
-                  <span className="text-xs font-medium text-muted-foreground">
+                  <h2 className="text-sm font-medium text-ink">{t("recorder.dictation_title")}</h2>
+                  <span className="text-xs font-medium text-subtext">
                     {t("recorder.dictation_off")}
                   </span>
                 </div>
-                <p className="mt-1 max-w-2xl text-sm text-muted-foreground">
+                <p className="mt-1 max-w-2xl text-sm text-subtext">
                   {t("recorder.dictation_pane_description")}
                 </p>
               </div>
@@ -509,7 +509,7 @@ export function RecorderPane(props: {
 
         {/* Setup */}
         <SectionCard className="mt-4">
-          <h3 className="text-sm font-medium text-foreground">{t("recorder.setup_title")}</h3>
+          <h3 className="text-sm font-medium text-ink">{t("recorder.setup_title")}</h3>
           <div className="flex flex-wrap items-center gap-x-6 gap-y-3">
             <div className="flex items-center gap-2">
               <SourceToggle
@@ -529,7 +529,7 @@ export function RecorderPane(props: {
               />
             </div>
             <div className="flex items-center gap-2">
-              <Languages className="size-4 text-muted-foreground" />
+              <Languages className="size-4 text-subtext" />
               <Select
                 value={store.language}
                 onValueChange={(value) => {
@@ -548,7 +548,7 @@ export function RecorderPane(props: {
               </Select>
             </div>
             <div className="flex items-center gap-2">
-              <HardDrive className="size-4 text-muted-foreground" />
+              <HardDrive className="size-4 text-subtext" />
               <ModelTierSelect disabled={isRecording} />
               <Button variant="ghost" size="sm" onClick={() => navigate("/settings/recorder")}>
                 <Settings2 data-icon="inline-start" />
@@ -556,7 +556,7 @@ export function RecorderPane(props: {
               </Button>
             </div>
             <div className="flex min-w-[200px] flex-1 items-center gap-2">
-              <Pencil className="size-4 shrink-0 text-muted-foreground" />
+              <Pencil className="size-4 shrink-0 text-subtext" />
               <Input
                 value={title}
                 onChange={(event) => setTitle(event.currentTarget.value)}
@@ -574,18 +574,18 @@ export function RecorderPane(props: {
         {isRecording ? (
           <SectionCard className="mt-4">
             <div className="flex flex-row items-center justify-between">
-              <h3 className="flex items-center gap-2 text-sm font-medium text-foreground">
-                <span className="size-2 animate-pulse rounded-full bg-red-9" />
+              <h3 className="flex items-center gap-2 text-sm font-medium text-ink">
+                <span className="size-2 animate-pulse rounded-full bg-danger" />
                 {t("recorder.live_transcript")}
                 {store.transcriber.state === "loading" ? (
-                  <span className="flex items-center gap-1 text-xs font-normal text-muted-foreground">
+                  <span className="flex items-center gap-1 text-xs font-normal text-subtext">
                     <Loader2 className="size-3 animate-spin" />
                     {t("recorder.loading_model")}
                   </span>
                 ) : null}
               </h3>
               {store.recordingStartedAt ? (
-                <span className="text-sm tabular-nums text-muted-foreground">
+                <span className="text-sm tabular-nums text-subtext">
                   <RecordingTimer startedAt={store.recordingStartedAt} />
                 </span>
               ) : null}
@@ -597,20 +597,20 @@ export function RecorderPane(props: {
         <SectionCard className="mt-4">
           <div className="flex items-start justify-between gap-3">
             <div>
-              <h3 className="text-sm font-medium text-foreground">{t("recorder.recordings_title")}</h3>
-              <p className="mt-0.5 text-xs text-muted-foreground">
+              <h3 className="text-sm font-medium text-ink">{t("recorder.recordings_title")}</h3>
+              <p className="mt-0.5 text-xs text-subtext">
                 {t("recorder.recordings_subtitle")} {store.bootstrap?.recordingsDir ?? ""}
               </p>
             </div>
             {recordingsCount > 0 ? (
-              <span className="shrink-0 pt-0.5 text-xs tabular-nums text-muted-foreground">
+              <span className="shrink-0 pt-0.5 text-xs tabular-nums text-subtext">
                 {recordingsCount} {t("recorder.recordings_count_label")}
               </span>
             ) : null}
           </div>
           <div className="space-y-2">
             {recordingsCount === 0 ? (
-              <div className="py-4 text-center text-sm text-muted-foreground">
+              <div className="py-4 text-center text-sm text-subtext">
                 {t("recorder.recordings_empty")}
               </div>
             ) : (
@@ -635,7 +635,7 @@ export function RecorderPane(props: {
               >
                 <ChevronLeft />
               </Button>
-              <span className="text-xs tabular-nums text-muted-foreground">
+              <span className="text-xs tabular-nums text-subtext">
                 {recordingsCurrentPage + 1} / {recordingsPageCount}
               </span>
               <Button
@@ -665,18 +665,18 @@ export function RecorderPane(props: {
           </DialogHeader>
           <div className="max-h-[60vh] space-y-1.5 overflow-y-auto pr-1">
             {(store.openedRecording?.segments ?? []).length === 0 ? (
-              <div className="py-6 text-center text-sm text-muted-foreground">
+              <div className="py-6 text-center text-sm text-subtext">
                 {t("recorder.transcript_empty")}
               </div>
             ) : (
               (store.openedRecording?.segments ?? []).map((segment) => (
                 <div key={segment.id} className="flex gap-2 text-sm leading-relaxed">
-                  <span className="shrink-0 pt-px text-[11px] tabular-nums text-muted-foreground">
+                  <span className="shrink-0 pt-px text-[11px] tabular-nums text-subtext">
                     {formatDuration(segment.startMs)}
                   </span>
-                  <span className="text-foreground">
+                  <span className="text-ink">
                     {segment.speaker != null ? (
-                      <span className="mr-1.5 font-medium text-primary">
+                      <span className="mr-1.5 font-medium text-brand">
                         {t("recorder.speaker_label", { n: segment.speaker + 1 })}:
                       </span>
                     ) : null}

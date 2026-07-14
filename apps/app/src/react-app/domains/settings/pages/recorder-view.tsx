@@ -16,7 +16,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
-import { cn } from "@/lib/utils";
+import { SegmentedControl } from "@legalwork/ui/react";
 import { desktopLoginItemGet, desktopLoginItemSet } from "@/app/lib/desktop";
 import { t } from "../../../../i18n";
 import {
@@ -71,21 +71,15 @@ export function RecorderSettingsView() {
 
   return (
     <LayoutStack>
-      <div className="inline-flex w-fit items-center rounded-lg border border-border bg-muted/40 p-0.5">
-        {(["models", "dictation"] as const).map((key) => (
-          <button
-            key={key}
-            type="button"
-            onClick={() => setTab(key)}
-            className={cn(
-              "rounded-md px-3.5 py-1.5 text-sm font-medium transition-colors",
-              tab === key ? "bg-background text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground",
-            )}
-          >
-            {key === "models" ? t("recorder.models_tab") : t("recorder.dictation_tab")}
-          </button>
-        ))}
-      </div>
+      <SegmentedControl
+        aria-label={t("recorder.models_tab")}
+        value={tab}
+        onValueChange={(key) => setTab(key as "models" | "dictation")}
+        items={[
+          { value: "models", label: t("recorder.models_tab") },
+          { value: "dictation", label: t("recorder.dictation_tab") },
+        ]}
+      />
 
       {tab === "models" ? (
         <>
@@ -97,7 +91,7 @@ export function RecorderSettingsView() {
               </div>
               <LayoutSectionItemHeaderActions>
                 <div className="flex items-center gap-2">
-                  <Languages className="size-4 text-muted-foreground" />
+                  <Languages className="size-4 text-subtext" />
                   <Select
                     value={store.language}
                     onValueChange={(value) => {
@@ -117,7 +111,7 @@ export function RecorderSettingsView() {
               </LayoutSectionItemHeaderActions>
             </LayoutSectionItemHeader>
             {engine && !engine.available ? (
-              <div className="rounded-xl border border-amber-6 bg-amber-2 px-3 py-2 text-sm text-amber-11">
+              <div className="rounded-xl border border-warning/40 bg-warning-soft px-3 py-2 text-sm text-warning">
                 {t("recorder.engine_unavailable")} {engine.error ?? ""}
               </div>
             ) : null}
@@ -135,7 +129,7 @@ export function RecorderSettingsView() {
           </div>
           <LayoutSectionItemHeaderActions>
             <div className="flex items-center gap-3">
-              <span className="text-xs font-medium text-muted-foreground">
+              <span className="text-xs font-medium text-subtext">
                 {dictation?.enabled ? t("recorder.dictation_on") : t("recorder.dictation_off")}
               </span>
               <Switch
@@ -151,12 +145,12 @@ export function RecorderSettingsView() {
           </LayoutSectionItemHeaderActions>
         </LayoutSectionItemHeader>
 
-        <div className="flex flex-col gap-3 border-t border-border pt-4 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex flex-col gap-3 border-t border-subtle pt-4 sm:flex-row sm:items-center sm:justify-between">
           <div>
-            <div className="text-xs font-medium text-foreground">
+            <div className="text-xs font-medium text-ink">
               {t("recorder.dictation_shortcut_setting")}
             </div>
-            <div className="mt-1 flex items-center gap-2 text-sm text-muted-foreground">
+            <div className="mt-1 flex items-center gap-2 text-sm text-subtext">
               <Keyboard className="size-4" />
               {dictation ? formatDictationShortcut(dictation.accelerator, dictation.platform) : ""}
             </div>
@@ -174,12 +168,12 @@ export function RecorderSettingsView() {
         <DictationSetupDialog open={dictationSetupOpen} onOpenChange={setDictationSetupOpen} />
 
         {loginItem !== null ? (
-          <div className="flex flex-col gap-3 border-t border-border pt-4 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex flex-col gap-3 border-t border-subtle pt-4 sm:flex-row sm:items-center sm:justify-between">
             <div>
-              <div className="text-xs font-medium text-foreground">
+              <div className="text-xs font-medium text-ink">
                 {t("recorder.dictation_login_title")}
               </div>
-              <div className="mt-1 text-sm text-muted-foreground">
+              <div className="mt-1 text-sm text-subtext">
                 {loginItem.requiresApproval
                   ? t("recorder.dictation_login_requires_approval")
                   : t("recorder.dictation_login_description")}
@@ -194,20 +188,20 @@ export function RecorderSettingsView() {
           </div>
         ) : null}
 
-        <div className="grid gap-4 border-t border-border pt-4 md:grid-cols-[minmax(0,1fr)_auto]">
-          <ol className="space-y-3 text-sm text-foreground">
+        <div className="grid gap-4 border-t border-subtle pt-4 md:grid-cols-[minmax(0,1fr)_auto]">
+          <ol className="space-y-3 text-sm text-ink">
             <li className="flex gap-3">
-              <Languages className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
+              <Languages className="mt-0.5 size-4 shrink-0 text-subtext" />
               <span>
                 <strong className="font-medium">{t("recorder.dictation_step_model_title")}</strong>{" "}
-                <span className="text-muted-foreground">{t("recorder.dictation_step_model_body")}</span>
+                <span className="text-subtext">{t("recorder.dictation_step_model_body")}</span>
               </span>
             </li>
             <li className="flex gap-3">
-              <Mic className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
+              <Mic className="mt-0.5 size-4 shrink-0 text-subtext" />
               <span>
                 <strong className="font-medium">{t("recorder.dictation_step_permission_title")}</strong>{" "}
-                <span className="text-muted-foreground">
+                <span className="text-subtext">
                   {dictation?.platform === "darwin"
                     ? t("recorder.dictation_step_permission_mac")
                     : t("recorder.dictation_step_permission_windows")}
@@ -215,12 +209,12 @@ export function RecorderSettingsView() {
               </span>
             </li>
             <li className="flex gap-3">
-              <Keyboard className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
+              <Keyboard className="mt-0.5 size-4 shrink-0 text-subtext" />
               <span>
                 <strong className="font-medium">{t("recorder.dictation_step_use_title")}</strong>{" "}
-                <span className="text-muted-foreground">{t("recorder.dictation_step_use_body")}</span>{" "}
+                <span className="text-subtext">{t("recorder.dictation_step_use_body")}</span>{" "}
                 {dictation?.accelerator ? (
-                  <kbd className="whitespace-nowrap rounded border border-border bg-muted px-1.5 py-0.5 font-mono text-xs text-foreground">
+                  <kbd className="whitespace-nowrap rounded border border-subtle bg-sunken px-1.5 py-0.5 font-mono text-xs text-ink">
                     {formatDictationShortcut(dictation.accelerator, dictation.platform)}
                   </kbd>
                 ) : null}
@@ -239,7 +233,7 @@ export function RecorderSettingsView() {
                 {t("recorder.dictation_open_microphone")}
               </Button>
             ) : null}
-            <span className="text-xs text-muted-foreground">
+            <span className="text-xs text-subtext">
               {!selectedModelInstalled
                 ? t("recorder.dictation_model_required")
                 : dictation?.registered

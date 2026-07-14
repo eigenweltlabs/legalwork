@@ -36,18 +36,18 @@ function PermissionRow({ kind }: { kind: AudioPermissionKind }) {
         : t("recorder.perm_system_audio_instructions");
 
   return (
-    <div className="flex items-start gap-3 rounded-lg border border-border/60 bg-background/60 px-3 py-2.5">
-      <span className="mt-0.5 text-muted-foreground [&_svg]:size-4">{icon}</span>
+    <div className="flex items-start gap-3 rounded-lg border border-subtle bg-sunken/60 px-3 py-2.5">
+      <span className="mt-0.5 text-subtext [&_svg]:size-4">{icon}</span>
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-2">
           <span className="text-sm font-medium">{label}</span>
           {granted ? (
-            <span className="inline-flex items-center gap-1 rounded-full bg-green-3 px-2 py-0.5 text-xs text-green-11">
+            <span className="inline-flex items-center gap-1 rounded-full bg-success-soft px-2 py-0.5 text-xs text-success">
               <Check className="size-3" />
               {t("recorder.perm_status_granted")}
             </span>
           ) : (
-            <span className="inline-flex items-center gap-1 rounded-full bg-amber-2 px-2 py-0.5 text-xs text-amber-11">
+            <span className="inline-flex items-center gap-1 rounded-full bg-warning-soft px-2 py-0.5 text-xs text-warning">
               <ShieldAlert className="size-3" />
               {state === "denied" || state === "restricted"
                 ? t("recorder.perm_status_denied")
@@ -55,7 +55,7 @@ function PermissionRow({ kind }: { kind: AudioPermissionKind }) {
             </span>
           )}
         </div>
-        {!granted ? <p className="mt-1 text-xs text-muted-foreground">{instructions}</p> : null}
+        {!granted ? <p className="mt-1 text-xs text-subtext">{instructions}</p> : null}
       </div>
       {!granted ? (
         <div className="flex shrink-0 items-center gap-1.5">
@@ -93,14 +93,14 @@ export function PermissionsPanel() {
   const showDevHint = store.permissions?.platform === "darwin" && store.permissions.packaged === false;
 
   return (
-    <div className="mt-4 rounded-xl border border-amber-6 bg-amber-1 p-3">
+    <div className="mt-4 rounded-xl border border-warning/40 bg-warning-soft p-3">
       <div className="flex items-start justify-between gap-3">
         <div>
           <div className="flex items-center gap-2 text-sm font-medium">
-            <ShieldAlert className="size-4 text-amber-11" />
+            <ShieldAlert className="size-4 text-warning" />
             {t("recorder.perm_title")}
           </div>
-          <p className="mt-1 text-xs text-muted-foreground">{t("recorder.perm_intro")}</p>
+          <p className="mt-1 text-xs text-subtext">{t("recorder.perm_intro")}</p>
         </div>
         <Button
           variant="ghost"
@@ -116,13 +116,13 @@ export function PermissionsPanel() {
           <PermissionRow key={kind} kind={kind} />
         ))}
       </div>
-      {showDevHint ? <p className="mt-2 text-xs text-muted-foreground">{t("recorder.perm_dev_hint")}</p> : null}
+      {showDevHint ? <p className="mt-2 text-xs text-subtext">{t("recorder.perm_dev_hint")}</p> : null}
       <div className="mt-3 flex items-center gap-2">
         <Button size="sm" variant="outline" onClick={() => void store.refreshPermissions()}>
           <RefreshCw data-icon="inline-start" />
           {t("recorder.perm_check_again")}
         </Button>
-        <span className="text-xs text-muted-foreground">{t("recorder.perm_recheck_hint")}</span>
+        <span className="text-xs text-subtext">{t("recorder.perm_recheck_hint")}</span>
       </div>
     </div>
   );

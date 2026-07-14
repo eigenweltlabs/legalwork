@@ -34,7 +34,6 @@ import {
   audioRecordingDelete,
   audioRecordingGet,
   audioRecordingRename,
-  audioRecordingRetain,
   audioRecordingSaveToWorkspace,
   audioRecordingStart,
   audioRecordingStop,
@@ -987,12 +986,10 @@ export const useRecorderStore = create<RecorderState & RecorderActions>((set, ge
           } catch (error) {
             dictationError = error instanceof Error ? error.message : String(error);
           }
-          // Delete only after confirmed insertion. On failure the clipboard
-          // copy can be overwritten at any time, so the dictation is flipped
-          // to a retained recording — spoken text must never just vanish.
-          recordingsAfterDictation = dictationError === null
-            ? await audioRecordingDelete(meta.id).catch(() => null)
-            : await audioRecordingRetain(meta.id).catch(() => null);
+          // Dictation is ephemeral and must never appear in Recordings, even
+          // when the paste fails — on failure the text is still on the
+          // clipboard (copied), so nothing is silently lost. Always discard it.
+          recordingsAfterDictation = await audioRecordingDelete(meta.id).catch(() => null);
           await audioSystemDictationSetState(
             dictationError ? "error" : "idle",
             dictationError ?? "",

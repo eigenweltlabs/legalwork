@@ -89,17 +89,17 @@ export function DictationSetupDialog(props: {
           </DialogDescription>
         </DialogHeader>
 
-        <section className="border-y border-border px-8 py-6">
-          <div className="text-xs font-semibold uppercase text-muted-foreground">
+        <section className="border-y border-subtle px-8 py-6">
+          <div className="text-xs font-semibold uppercase text-subtext">
             {t("recorder.dictation_hotkey_label")}
           </div>
           <button
             type="button"
             disabled={!dictation || saving}
             className={cn(
-              "mt-4 flex min-h-40 w-full flex-col items-center justify-center gap-3 rounded-lg border border-border bg-background px-6 outline-none transition-colors",
-              "hover:bg-muted/40 focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/30",
-              capturing && "border-primary bg-primary/5",
+              "mt-4 flex min-h-40 w-full flex-col items-center justify-center gap-3 rounded-lg border border-subtle bg-surface px-6 outline-none transition-colors",
+              "hover:bg-sunken focus-visible:border-brand focus-visible:ring-2 focus-visible:ring-brand/20",
+              capturing && "border-brand bg-brand/5",
             )}
             onClick={() => {
               if (capturing) return;
@@ -126,10 +126,10 @@ export function DictationSetupDialog(props: {
                 .finally(() => setSaving(false));
             }}
           >
-            <span className="grid min-h-14 min-w-14 place-items-center rounded-md border border-border bg-muted px-3 font-mono text-lg font-medium text-foreground shadow-sm">
+            <span className="grid min-h-14 min-w-14 place-items-center rounded-md border border-subtle bg-sunken px-3 font-mono text-lg font-medium text-ink shadow-sm">
               {dictation ? formatDictationShortcut(dictation.accelerator, dictation.platform) : <Keyboard />}
             </span>
-            <span className="text-sm text-muted-foreground">
+            <span className="text-sm text-subtext">
               {saving
                 ? t("recorder.dictation_hotkey_saving")
                 : capturing
@@ -138,12 +138,12 @@ export function DictationSetupDialog(props: {
             </span>
           </button>
 
-          <div className="mt-6 flex items-center justify-between gap-4 border-t border-border pt-5">
+          <div className="mt-6 flex items-center justify-between gap-4 border-t border-subtle pt-5">
             <div>
-              <div className="text-xs font-semibold uppercase text-muted-foreground">
+              <div className="text-xs font-semibold uppercase text-subtext">
                 {t("recorder.dictation_mode_label")}
               </div>
-              <div className="mt-1 text-sm text-muted-foreground">
+              <div className="mt-1 text-sm text-subtext">
                 {dictation?.mode === "hold"
                   ? t("recorder.dictation_mode_hold_description")
                   : dictation && !dictation.supportsHold
@@ -151,13 +151,13 @@ export function DictationSetupDialog(props: {
                     : t("recorder.dictation_mode_tap_description")}
               </div>
             </div>
-            <div className="flex rounded-lg border border-border bg-background p-1">
+            <div className="flex rounded-xl bg-sunken p-0.5">
               <button
                 type="button"
                 aria-pressed={dictation?.mode === "tap"}
                 className={cn(
                   "flex h-8 items-center gap-1.5 rounded-md px-3 text-sm font-medium",
-                  dictation?.mode === "tap" ? "bg-muted text-foreground" : "text-muted-foreground",
+                  dictation?.mode === "tap" ? "bg-surface text-ink shadow-xs" : "text-subtext",
                 )}
                 onClick={() => void store.setSystemDictationMode("tap")}
               >
@@ -170,7 +170,7 @@ export function DictationSetupDialog(props: {
                 title={dictation?.supportsHold ? undefined : t("recorder.dictation_mode_hold_unavailable")}
                 className={cn(
                   "flex h-8 items-center gap-1.5 rounded-md px-3 text-sm font-medium",
-                  dictation?.mode === "hold" ? "bg-muted text-foreground" : "text-muted-foreground",
+                  dictation?.mode === "hold" ? "bg-surface text-ink shadow-xs" : "text-subtext",
                 )}
                 onClick={() => {
                   if (dictation?.supportsHold) void store.setSystemDictationMode("hold");
@@ -186,10 +186,10 @@ export function DictationSetupDialog(props: {
 
         <section className="px-8 py-6">
           <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
-            <span className="text-xs font-semibold uppercase text-muted-foreground">
+            <span className="text-xs font-semibold uppercase text-subtext">
               {t("recorder.dictation_test_label")}
             </span>
-            <span className="text-sm text-muted-foreground">
+            <span className="text-sm text-subtext">
               {dictation
                 ? t("recorder.dictation_test_shortcut", {
                     shortcut: formatDictationShortcut(dictation.accelerator, dictation.platform),
