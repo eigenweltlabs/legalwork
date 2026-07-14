@@ -416,10 +416,17 @@ export function RecorderPane(props: {
               {t("recorder.import_file")}
             </Button>
             {isRecording ? (
-              <Button variant="destructive" onClick={() => void store.stopRecording()}>
-                <Square data-icon="inline-start" />
-                {t("recorder.stop")}
-              </Button>
+              store.finalizing ? (
+                <Button variant="destructive" disabled>
+                  <Loader2 data-icon="inline-start" className="animate-spin" />
+                  {t("recorder.finishing")}
+                </Button>
+              ) : (
+                <Button variant="destructive" onClick={() => void store.stopRecording()}>
+                  <Square data-icon="inline-start" />
+                  {t("recorder.stop")}
+                </Button>
+              )
             ) : (
               <Button disabled={!canRecord} onClick={() => void store.startRecording(title || undefined)}>
                 <Mic data-icon="inline-start" />
@@ -575,16 +582,25 @@ export function RecorderPane(props: {
           <SectionCard className="mt-4">
             <div className="flex flex-row items-center justify-between">
               <h3 className="flex items-center gap-2 text-sm font-medium text-ink">
-                <span className="size-2 animate-pulse rounded-full bg-danger" />
-                {t("recorder.live_transcript")}
-                {store.transcriber.state === "loading" ? (
-                  <span className="flex items-center gap-1 text-xs font-normal text-subtext">
-                    <Loader2 className="size-3 animate-spin" />
-                    {t("recorder.loading_model")}
-                  </span>
-                ) : null}
+                {store.finalizing ? (
+                  <>
+                    <Loader2 className="size-3.5 animate-spin text-brand" />
+                    {t("recorder.finishing")}
+                  </>
+                ) : (
+                  <>
+                    <span className="size-2 animate-pulse rounded-full bg-danger" />
+                    {t("recorder.live_transcript")}
+                    {store.transcriber.state === "loading" ? (
+                      <span className="flex items-center gap-1 text-xs font-normal text-subtext">
+                        <Loader2 className="size-3 animate-spin" />
+                        {t("recorder.loading_model")}
+                      </span>
+                    ) : null}
+                  </>
+                )}
               </h3>
-              {store.recordingStartedAt ? (
+              {store.recordingStartedAt && !store.finalizing ? (
                 <span className="text-sm tabular-nums text-subtext">
                   <RecordingTimer startedAt={store.recordingStartedAt} />
                 </span>

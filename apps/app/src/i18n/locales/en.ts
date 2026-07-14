@@ -1938,6 +1938,7 @@ export default {
   "recorder.dictation_model_required": "Install the selected model to enable this setting.",
   "recorder.record": "Record",
   "recorder.stop": "Stop",
+  "recorder.finishing": "Finishing transcription…",
   "recorder.dismiss": "Dismiss",
   "recorder.overlay_show": "Call overlay",
   "recorder.overlay_hide": "Hide overlay",

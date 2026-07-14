@@ -133,6 +133,12 @@ export type RecorderState = {
   /** A stopping recording is running its speaker pass. */
   diarizing: boolean;
   /**
+   * Stop was pressed and the recording is finalizing — flushing capture and
+   * transcribing the tail of a long recording. Drives the "Finishing…" UI so a
+   * slow finalize never looks like a dead Stop button.
+   */
+  finalizing: boolean;
+  /**
    * Testing-only: model ids whose premium/device gate the user dismissed this
    * session, so they can be exercised before auth exists. Per-model (not a
    * global flag) so every gated model still prompts once. Resets on reload.
@@ -597,6 +603,7 @@ export const useRecorderStore = create<RecorderState & RecorderActions>((set, ge
     language: readLanguagePref(),
     sources: readSourcesPref(),
     diarizing: false,
+    finalizing: false,
     unlockedModels: [],
 
     init: async () => {
@@ -981,8 +988,12 @@ export const useRecorderStore = create<RecorderState & RecorderActions>((set, ge
 
     stopRecording: async () => {
       const recording = get().recording;
-      if (!recording) return;
+      if (!recording || get().finalizing) return;
       const isSystemDictation = get().dictationRecordingId === recording.id;
+      // Immediate feedback: the finalize round-trip (flush + transcribe the
+      // tail) can take seconds on a long recording, and the Stop button would
+      // otherwise sit there looking dead.
+      if (!isSystemDictation) set({ finalizing: true });
       if (levelTimer !== null) {
         window.clearInterval(levelTimer);
         levelTimer = null;
@@ -1026,6 +1037,7 @@ export const useRecorderStore = create<RecorderState & RecorderActions>((set, ge
           partial: null,
           levels: {},
           diarizing: false,
+          finalizing: false,
           error: dictationError,
           // An ephemeral recording (system dictation) must NEVER enter the
           // recordings list. Key off the recording's own flag, not the racy
@@ -1046,6 +1058,7 @@ export const useRecorderStore = create<RecorderState & RecorderActions>((set, ge
           dictationState: isSystemDictation ? "error" : get().dictationState,
           levels: {},
           diarizing: false,
+          finalizing: false,
           error: message,
         });
         if (isSystemDictation) {
@@ -1077,6 +1090,7 @@ export const useRecorderStore = create<RecorderState & RecorderActions>((set, ge
         segments: [],
         levels: {},
         diarizing: false,
+        finalizing: false,
       });
       if (isSystemDictation) {
         dictationSettleAt = Date.now();
