@@ -1,7 +1,8 @@
 import { execFileSync, spawn } from "node:child_process";
 import { createServer } from "node:http";
 import net from "node:net";
-import { existsSync, mkdirSync, writeFileSync } from "node:fs";
+import { createReadStream, existsSync, mkdirSync, statSync, writeFileSync } from "node:fs";
+import { Readable } from "node:stream";
 import {
   chmod,
   cp,
@@ -16,9 +17,9 @@ import {
 import { createRequire } from "node:module";
 import os from "node:os";
 import path from "node:path";
-import { fileURLToPath, pathToFileURL } from "node:url";
+import { fileURLToPath } from "node:url";
 
-import { app, BrowserWindow, clipboard, desktopCapturer, dialog, globalShortcut, ipcMain, nativeImage, nativeTheme, net as electronNet, powerMonitor, powerSaveBlocker, protocol, session, shell, systemPreferences } from "electron";
+import { app, BrowserWindow, clipboard, desktopCapturer, dialog, globalShortcut, ipcMain, nativeImage, nativeTheme, powerMonitor, powerSaveBlocker, protocol, session, shell, systemPreferences } from "electron";
 import { configureFakeMediaForTests, installMediaPermissionHandlers } from "./media-permissions.mjs";
 import { appendLoopbackFeatureFlags, disableLoopbackAudio, enableLoopbackAudio, isLoopbackCaptureArmed } from "./audio/loopback.mjs";
 import { captureAuthStatus, openCapturePermissionSettings, requestCapturePermission } from "./audio/capture-permissions.mjs";
@@ -2698,7 +2699,36 @@ if (!app.requestSingleInstanceLock()) {
         const id = decodeURIComponent(url.pathname.replace(/^\/+/, "")) || decodeURIComponent(url.hostname);
         const filePath = recorderService().recordingAudioFilePath(id);
         if (!filePath) return new Response(null, { status: 404 });
-        return electronNet.fetch(pathToFileURL(filePath).toString(), { headers: request.headers });
+        // Serve with byte-range support so <audio> can seek. Without a 206 +
+        // Accept-Ranges the media element treats the source as non-seekable.
+        const size = statSync(filePath).size;
+        const baseHeaders = {
+          "Content-Type": "audio/webm",
+          "Accept-Ranges": "bytes",
+          "Cache-Control": "no-store",
+        };
+        const rangeMatch = /bytes=(\d*)-(\d*)/.exec(request.headers.get("Range") ?? "");
+        if (rangeMatch) {
+          let start = rangeMatch[1] ? Number.parseInt(rangeMatch[1], 10) : 0;
+          let end = rangeMatch[2] ? Number.parseInt(rangeMatch[2], 10) : size - 1;
+          if (!Number.isFinite(start) || start < 0) start = 0;
+          if (!Number.isFinite(end) || end >= size) end = size - 1;
+          if (start > end) {
+            return new Response(null, { status: 416, headers: { "Content-Range": `bytes */${size}` } });
+          }
+          return new Response(Readable.toWeb(createReadStream(filePath, { start, end })), {
+            status: 206,
+            headers: {
+              ...baseHeaders,
+              "Content-Range": `bytes ${start}-${end}/${size}`,
+              "Content-Length": String(end - start + 1),
+            },
+          });
+        }
+        return new Response(Readable.toWeb(createReadStream(filePath)), {
+          status: 200,
+          headers: { ...baseHeaders, "Content-Length": String(size) },
+        });
       } catch {
         return new Response(null, { status: 404 });
       }
