@@ -142,6 +142,23 @@ function claimRecordingAudio(el: HTMLAudioElement) {
 }
 
 /**
+ * MediaRecorder writes the webm with no duration in its header (it's unknown
+ * while streaming), so <audio>.duration reads Infinity and the scrubber pins to
+ * the far right. Force the browser to compute the real duration by seeking past
+ * the end once, then snap back to the start.
+ */
+function fixInfiniteDuration(el: HTMLAudioElement) {
+  if (el.duration !== Infinity) return;
+  const onDurationChange = () => {
+    if (el.duration === Infinity || Number.isNaN(el.duration)) return;
+    el.removeEventListener("durationchange", onDurationChange);
+    el.currentTime = 0;
+  };
+  el.addEventListener("durationchange", onDurationChange);
+  el.currentTime = 1e101;
+}
+
+/**
  * Play a finished recording in place. The <audio> element loads the
  * `lw-recording://` URL natively, so play() stays inside the click gesture
  * (first play works) and the file streams with seeking. `compact` (list rows)
@@ -158,6 +175,7 @@ function RecordingPlayer(props: { recordingId: string; compact?: boolean }) {
         controls
         preload="metadata"
         className="h-9 w-full min-w-0"
+        onLoadedMetadata={(event) => fixInfiniteDuration(event.currentTarget)}
         onPlay={(event) => claimRecordingAudio(event.currentTarget)}
       />
     );
