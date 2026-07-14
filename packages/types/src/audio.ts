@@ -41,6 +41,12 @@ export type AudioModelCatalogEntry = {
   approxSizeBytes: number;
   files: AudioModelFile[];
   recommended?: boolean;
+  /**
+   * Large/slow models that only make sense on a capable machine. Gated behind
+   * {@link AudioDeviceProfile.fastDevice} in the picker: on weaker hardware the
+   * model is offered but flagged so the user can confirm before installing.
+   */
+  requiresFastDevice?: boolean;
 };
 
 /**
@@ -51,6 +57,12 @@ export type AudioDeviceProfile = {
   totalMemoryGb: number;
   logicalCores: number;
   appleSilicon: boolean;
+  /**
+   * True when the machine is powerful enough to comfortably run the heaviest
+   * models (see {@link AudioModelCatalogEntry.requiresFastDevice}). Apple
+   * Silicon, or a roomy multi-core machine.
+   */
+  fastDevice: boolean;
   /** The model id the app suggests for this machine (a free tier). */
   recommendedModelId: string;
 };

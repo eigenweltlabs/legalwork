@@ -48,6 +48,12 @@ test("model catalog entries are well formed", () => {
   // A resource-light free option and a gated premium option must both exist.
   assert.ok(AUDIO_MODEL_CATALOG.some((entry) => entry.tier === "fastest" && entry.plan === "free"));
   assert.ok(AUDIO_MODEL_CATALOG.some((entry) => entry.plan === "premium"));
+  // The heaviest tier is premium AND held back to capable machines.
+  assert.ok(
+    AUDIO_MODEL_CATALOG.some((entry) => entry.plan === "premium" && entry.requiresFastDevice),
+    "a fast-device-gated premium model exists",
+  );
+  assert.equal(findAudioModel("whisper-large-v3")?.tier, "best");
   assert.match(VAD_MODEL.url, /^https:\/\/huggingface\.co\/.+silero_vad\.onnx$/);
   assert.equal(findAudioModel("parakeet-tdt-0.6b-v3")?.kind, "nemo-transducer");
   assert.equal(findAudioModel("nope"), null);
@@ -241,6 +247,20 @@ test("recorder service records, transcribes, finalizes files", async () => {
   service.dispose();
   await fsp.rm(userDataDir, { recursive: true, force: true });
   await fsp.rm(workspaceDir, { recursive: true, force: true });
+});
+
+test("device profile exposes the fast-device flag that gates the heaviest model", async () => {
+  const userDataDir = await tempDir("lw-recorder-");
+  const service = new RecorderService({ userDataDir, forkWorker: () => new FakeWorker() });
+  service.broadcast = () => {};
+  const profile = service.deviceProfile();
+  assert.equal(typeof profile.fastDevice, "boolean");
+  assert.ok(profile.logicalCores >= 1);
+  assert.ok(profile.totalMemoryGb > 0);
+  // Recommendation only ever points at a free tier, never the gated models.
+  assert.ok(["whisper-tiny", "whisper-small"].includes(profile.recommendedModelId));
+  service.dispose();
+  await fsp.rm(userDataDir, { recursive: true, force: true });
 });
 
 test("recorder service surfaces missing model as error", async () => {

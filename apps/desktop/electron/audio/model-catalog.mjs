@@ -9,8 +9,9 @@
  * Model lineup mirrors what MacWhisper offers, from "tiny and cheap" to
  * "large and accurate", including NVIDIA Parakeet TDT 0.6b v3 (the fast
  * multilingual model MacWhisper Premium ships) which covers 25 European
- * languages including German. All Whisper entries here are the multilingual
- * variants, so English and German both work on every model.
+ * languages including German, and Whisper large-v3 as the top-accuracy option.
+ * All Whisper entries here are the multilingual variants, so English and German
+ * both work on every model.
  */
 
 const HF = "https://huggingface.co";
@@ -25,10 +26,12 @@ function whisperFiles(name) {
 }
 
 /**
- * Three lawyer-facing tiers (see apps/app/.../recorder/model-tiers.ts for the
+ * Four lawyer-facing tiers (see apps/app/.../recorder/model-tiers.ts for the
  * friendly names). The middle "standard" and "premium" models are both far
  * more accurate than Whisper Base/Turbo on CPU for German legal audio, so the
- * old Base/Turbo entries were dropped. `plan: "premium"` marks the gated tier.
+ * old Base/Turbo entries were dropped. `plan: "premium"` marks a gated tier;
+ * `requiresFastDevice` additionally holds the heaviest model back to capable
+ * machines.
  *
  * @type {import("@legalwork/types/audio").AudioModelCatalogEntry[]}
  */
@@ -84,6 +87,20 @@ export const AUDIO_MODEL_CATALOG = [
         url: `${HF}/csukuangfj/sherpa-onnx-nemo-parakeet-tdt-0.6b-v3-int8/resolve/main/tokens.txt`,
       },
     ],
+  },
+  {
+    id: "whisper-large-v3",
+    label: "Maximum",
+    description:
+      "Highest accuracy for demanding audio. Slower than Premium and needs a powerful, recent computer.",
+    kind: "whisper",
+    tier: "best",
+    plan: "premium",
+    languages: "multilingual",
+    // ~1.7 GB across encoder (731 MB) + decoder (961 MB) + tokens.
+    approxSizeBytes: 1694 * 1024 * 1024,
+    requiresFastDevice: true,
+    files: whisperFiles("large-v3"),
   },
 ];
 

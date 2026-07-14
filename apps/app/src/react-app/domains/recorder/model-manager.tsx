@@ -5,7 +5,7 @@
  * recorder event bus).
  */
 import { useEffect, useState } from "react";
-import { Check, Download, FolderSearch, HardDrive, Import, Loader2, Lock, Sparkles, Trash2, X } from "lucide-react";
+import { Check, Cpu, Download, FolderSearch, HardDrive, Import, Loader2, Lock, Sparkles, Trash2, X } from "lucide-react";
 
 import {
   audioModelImport,
@@ -28,21 +28,30 @@ function ModelRow(props: { model: AudioModelState; recommended: boolean; selecte
   const { model } = props;
   const store = useRecorderStore();
   const [upgradeOpen, setUpgradeOpen] = useState(false);
+  const fastDevice = store.bootstrap?.device?.fastDevice ?? false;
   const tier = tierForModelId(model.id);
   const name = tier ? tierName(tier.key) : model.label;
   const tagline = tier ? tierTagline(tier.key) : model.description;
   const isPremium = model.plan === "premium";
-  const locked = isPremium && !isPremiumEntitled();
+  const requiresFastDevice = !!model.requiresFastDevice;
+  const premiumLocked = isPremium && !isPremiumEntitled();
+  const deviceLocked = requiresFastDevice && !fastDevice;
+  const locked = premiumLocked || deviceLocked;
+  const gateReason: "premium" | "device" = premiumLocked ? "premium" : "device";
   const progress =
     model.totalBytes > 0 ? Math.round((model.downloadedBytes / model.totalBytes) * 100) : 0;
+
+  const proceed = () => {
+    store.setModelId(model.id);
+    if (model.state !== "installed" && model.state !== "downloading") void store.downloadModel(model.id);
+  };
 
   const select = () => {
     if (locked) {
       setUpgradeOpen(true);
       return;
     }
-    store.setModelId(model.id);
-    if (model.state !== "installed" && model.state !== "downloading") void store.downloadModel(model.id);
+    proceed();
   };
 
   return (
@@ -60,6 +69,12 @@ function ModelRow(props: { model: AudioModelState; recommended: boolean; selecte
               <Badge className="gap-1 text-[10px]">
                 <Sparkles className="size-2.5" />
                 {t("recorder.tier_premium_locked")}
+              </Badge>
+            ) : null}
+            {requiresFastDevice ? (
+              <Badge variant="outline" className="gap-1 text-[10px]">
+                <Cpu className="size-2.5" />
+                {t("recorder.tier_device_badge")}
               </Badge>
             ) : null}
             {props.recommended ? (
@@ -92,7 +107,7 @@ function ModelRow(props: { model: AudioModelState; recommended: boolean; selecte
           {locked ? (
             <Button variant="outline" size="sm" onClick={() => setUpgradeOpen(true)}>
               <Lock data-icon="inline-start" />
-              {t("recorder.tier_premium_locked")}
+              {premiumLocked ? t("recorder.tier_premium_locked") : t("recorder.tier_device_badge")}
             </Button>
           ) : model.state === "installed" ? (
             <div className="flex items-center gap-1.5">
@@ -123,7 +138,15 @@ function ModelRow(props: { model: AudioModelState; recommended: boolean; selecte
           )}
         </div>
       </div>
-      <PremiumUpgradeDialog open={upgradeOpen} onOpenChange={setUpgradeOpen} />
+      <PremiumUpgradeDialog
+        open={upgradeOpen}
+        onOpenChange={setUpgradeOpen}
+        reason={gateReason}
+        onConfirm={() => {
+          store.unlockPremium();
+          proceed();
+        }}
+      />
     </div>
   );
 }

@@ -6,7 +6,7 @@
  * premium lock. Downloading and selecting happen right from the menu.
  */
 import { useState } from "react";
-import { Check, ChevronsUpDown, Download, Loader2, Lock, Sparkles } from "lucide-react";
+import { Check, ChevronsUpDown, Cpu, Download, Loader2, Lock, Sparkles } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -35,21 +35,43 @@ import {
 } from "./model-tiers";
 import { useRecorderStore } from "./recorder-store";
 
-export function PremiumUpgradeDialog(props: { open: boolean; onOpenChange: (open: boolean) => void }) {
+/**
+ * Gate shown when a locked tier is picked. `reason` chooses the copy: "premium"
+ * (needs a paid plan) or "device" (needs a powerful machine). Until auth exists,
+ * confirming dismisses the gate so the model stays testable — see `onConfirm`.
+ */
+export function PremiumUpgradeDialog(props: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  reason?: "premium" | "device";
+  onConfirm?: () => void;
+}) {
+  const device = props.reason === "device";
+  const Icon = device ? Cpu : Sparkles;
   return (
     <Dialog open={props.open} onOpenChange={props.onOpenChange}>
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
-            <Sparkles className="size-4 text-primary" />
-            {t("recorder.tier_premium_unlock")}
+            <Icon className="size-4 text-primary" />
+            {device ? t("recorder.tier_device_title") : t("recorder.tier_premium_unlock")}
           </DialogTitle>
         </DialogHeader>
         <p className="text-sm leading-relaxed text-muted-foreground">
-          {t("recorder.tier_premium_unlock_hint")}
+          {device ? t("recorder.tier_device_hint") : t("recorder.tier_premium_unlock_hint")}
         </p>
-        <div className="flex justify-end">
-          <Button onClick={() => props.onOpenChange(false)}>{t("recorder.model_cancel")}</Button>
+        <div className="flex justify-end gap-2">
+          <Button variant="outline" onClick={() => props.onOpenChange(false)}>
+            {t("recorder.model_cancel")}
+          </Button>
+          <Button
+            onClick={() => {
+              props.onConfirm?.();
+              props.onOpenChange(false);
+            }}
+          >
+            {t("recorder.tier_test_continue")}
+          </Button>
         </div>
       </DialogContent>
     </Dialog>
@@ -65,8 +87,11 @@ function TierRow(props: {
   const { tier } = props;
   const store = useRecorderStore();
   const entitled = isPremiumEntitled();
+  const fastDevice = store.bootstrap?.device?.fastDevice ?? false;
   const model = store.bootstrap?.models.find((entry) => entry.id === tier.modelId);
-  const locked = tier.premium && !entitled;
+  const premiumLocked = tier.premium && !entitled;
+  const deviceLocked = !!tier.requiresFastDevice && !fastDevice;
+  const locked = premiumLocked || deviceLocked;
   const installed = model?.state === "installed";
   const downloading = model?.state === "downloading";
   const size = formatBytes(model?.installedSizeBytes ?? model?.approxSizeBytes ?? 0);
@@ -90,6 +115,12 @@ function TierRow(props: {
             <Badge className="gap-1 text-[10px]">
               <Sparkles className="size-2.5" />
               {t("recorder.tier_premium_locked")}
+            </Badge>
+          ) : null}
+          {tier.requiresFastDevice ? (
+            <Badge variant="outline" className="gap-1 text-[10px]">
+              <Cpu className="size-2.5" />
+              {t("recorder.tier_device_badge")}
             </Badge>
           ) : null}
           {props.recommended ? (
@@ -125,22 +156,33 @@ export function ModelTierSelect(props: { disabled?: boolean }) {
   const store = useRecorderStore();
   const [open, setOpen] = useState(false);
   const [upgradeOpen, setUpgradeOpen] = useState(false);
+  const [gateReason, setGateReason] = useState<"premium" | "device">("premium");
+  const [pendingTier, setPendingTier] = useState<ModelTier | null>(null);
   const recommendedId = store.bootstrap?.device?.recommendedModelId;
+  const fastDevice = store.bootstrap?.device?.fastDevice ?? false;
   const currentTier = tierForModelId(store.modelId) ?? MODEL_TIERS[1];
   const currentModel = store.bootstrap?.models.find((entry) => entry.id === currentTier.modelId);
   const currentInstalled = currentModel?.state === "installed";
 
-  const pick = (tier: ModelTier) => {
-    if (tier.premium && !isPremiumEntitled()) {
-      setOpen(false);
-      setUpgradeOpen(true);
-      return;
-    }
+  const applyTier = (tier: ModelTier) => {
     store.setModelId(tier.modelId);
     const model = store.bootstrap?.models.find((entry) => entry.id === tier.modelId);
     if (model && model.state !== "installed" && model.state !== "downloading") {
       void store.downloadModel(tier.modelId);
     }
+  };
+
+  const pick = (tier: ModelTier) => {
+    const premiumLocked = tier.premium && !isPremiumEntitled();
+    const deviceLocked = !!tier.requiresFastDevice && !fastDevice;
+    if (premiumLocked || deviceLocked) {
+      setPendingTier(tier);
+      setGateReason(premiumLocked ? "premium" : "device");
+      setOpen(false);
+      setUpgradeOpen(true);
+      return;
+    }
+    applyTier(tier);
     setOpen(false);
   };
 
@@ -178,7 +220,16 @@ export function ModelTierSelect(props: { disabled?: boolean }) {
           ))}
         </DropdownMenuContent>
       </DropdownMenu>
-      <PremiumUpgradeDialog open={upgradeOpen} onOpenChange={setUpgradeOpen} />
+      <PremiumUpgradeDialog
+        open={upgradeOpen}
+        onOpenChange={setUpgradeOpen}
+        reason={gateReason}
+        onConfirm={() => {
+          store.unlockPremium();
+          if (pendingTier) applyTier(pendingTier);
+          setPendingTier(null);
+        }}
+      />
     </>
   );
 }

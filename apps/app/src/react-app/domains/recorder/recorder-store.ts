@@ -60,7 +60,7 @@ import type {
   AudioTranscriptSegment,
 } from "@legalwork/types/audio";
 import { t } from "@/i18n";
-import { isPremiumEntitled } from "./model-tiers";
+import { isPremiumEntitled, setPremiumTestOverride } from "./model-tiers";
 
 import { decodeAudioFileToPcm16k, startCapture, type CaptureHandle, type CaptureLevels } from "./capture";
 
@@ -133,6 +133,12 @@ export type RecorderState = {
   sources: AudioCaptureSourceKind[];
   /** A stopping recording is running its speaker pass. */
   diarizing: boolean;
+  /**
+   * Testing-only: the premium/device gate was dismissed this session, so the
+   * paid models are usable before auth exists. Mirrors the module override in
+   * model-tiers; kept as state so the picker re-renders when it flips.
+   */
+  premiumUnlocked: boolean;
 };
 
 type RecorderActions = {
@@ -146,6 +152,11 @@ type RecorderActions = {
   openPermissionSettings: (kind: AudioPermissionKind) => Promise<void>;
   dismissPermissionsPanel: () => void;
   setModelId: (modelId: string) => void;
+  /**
+   * Testing-only escape hatch: dismiss the premium/device gate so the paid
+   * models can be selected and downloaded before auth is wired up.
+   */
+  unlockPremium: () => void;
   setLanguage: (language: AudioTranscribeLanguage) => void;
   prewarm: () => Promise<void>;
   toggleSource: (source: AudioCaptureSourceKind) => void;
@@ -581,6 +592,7 @@ export const useRecorderStore = create<RecorderState & RecorderActions>((set, ge
     language: readLanguagePref(),
     sources: readSourcesPref(),
     diarizing: false,
+    premiumUnlocked: false,
 
     init: async () => {
       if (!eventsSubscribed) {
@@ -753,6 +765,13 @@ export const useRecorderStore = create<RecorderState & RecorderActions>((set, ge
       writePref(MODEL_PREF_KEY, modelId);
       set({ modelId });
       void get().prewarm();
+    },
+
+    unlockPremium: () => {
+      // Testing-only: flip the shared override so isPremiumEntitled() passes,
+      // and mirror it into state so the picker re-renders out of its locked UI.
+      setPremiumTestOverride(true);
+      set({ premiumUnlocked: true });
     },
 
     setLanguage: (language) => {

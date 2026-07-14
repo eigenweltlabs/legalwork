@@ -287,6 +287,10 @@ export class RecorderService {
    * runs CPU-only here, so Apple Silicon and roomy machines get the Standard
    * model; small/old machines get Basic. Premium (Parakeet) is always offered
    * when entitled and is comfortable on ~8 GB+.
+   *
+   * `fastDevice` is a stricter bar than `strong`: the Maximum (Whisper
+   * large-v3) model is ~1.7 GB and slow on CPU, so it only makes sense on
+   * Apple Silicon or a roomy, many-core machine.
    * @returns {import("@legalwork/types/audio").AudioDeviceProfile}
    */
   deviceProfile() {
@@ -294,10 +298,12 @@ export class RecorderService {
     const logicalCores = os.cpus().length || 1;
     const appleSilicon = process.platform === "darwin" && process.arch === "arm64";
     const strong = appleSilicon || (totalMemoryGb >= 8 && logicalCores >= 4);
+    const fastDevice = appleSilicon || (totalMemoryGb >= 16 && logicalCores >= 8);
     return {
       totalMemoryGb: Math.round(totalMemoryGb * 10) / 10,
       logicalCores,
       appleSilicon,
+      fastDevice,
       recommendedModelId: strong ? "whisper-small" : "whisper-tiny",
     };
   }
