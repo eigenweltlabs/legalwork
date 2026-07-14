@@ -2716,7 +2716,9 @@ if (!app.requestSingleInstanceLock()) {
           if (start > end) {
             return new Response(null, { status: 416, headers: { "Content-Range": `bytes */${size}` } });
           }
-          return new Response(Readable.toWeb(createReadStream(filePath, { start, end })), {
+          // Node's web ReadableStream is structurally a valid Response body but
+          // nominally differs from the DOM type tsc sees here — cast past it.
+          return new Response(/** @type {any} */ (Readable.toWeb(createReadStream(filePath, { start, end }))), {
             status: 206,
             headers: {
               ...baseHeaders,
@@ -2725,7 +2727,7 @@ if (!app.requestSingleInstanceLock()) {
             },
           });
         }
-        return new Response(Readable.toWeb(createReadStream(filePath)), {
+        return new Response(/** @type {any} */ (Readable.toWeb(createReadStream(filePath))), {
           status: 200,
           headers: { ...baseHeaders, "Content-Length": String(size) },
         });
