@@ -179,9 +179,21 @@ export type EigenweltHubItem = {
   createdByUserId: string;
   version: number;
   updatedAt: string;
+  /** Platform-pinned items sort first (optional; only newer platforms send it). */
+  pinned?: boolean;
 };
 
 export type EigenweltHubItemDetail = EigenweltHubItem & { payload: unknown };
+
+/** Local record of an installed hub item — backs "update available" detection. */
+export type EigenweltHubInstall = {
+  version: number;
+  kind: EigenweltHubKind;
+  name: string;
+  installedAt: number;
+};
+
+export type EigenweltHubInstallMap = Record<string, EigenweltHubInstall>;
 
 // The shared WorkspaceWire contract now carries the opencode block; keep the
 // historical name as an alias for the many existing imports.
@@ -1719,10 +1731,27 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
         { token, hostToken, method: "POST", body: payload, timeoutMs: timeouts.config },
       ),
     hubInstall: (workspaceId: string, itemId: string) =>
-      requestJson<{ ok: boolean; kind: EigenweltHubKind; name: string }>(
+      requestJson<{ ok: boolean; kind: EigenweltHubKind; name: string; version?: number }>(
         baseUrl,
         `/workspace/${encodeURIComponent(workspaceId)}/hub/install/${encodeURIComponent(itemId)}`,
         { token, hostToken, method: "POST", timeoutMs: timeouts.workspaceImport },
+      ),
+    // Local install records ({id: {version, kind, name}}) that back the
+    // Firm Hub's "update available" comparison. Never carries platform secrets.
+    hubInstalls: (workspaceId: string) =>
+      requestJson<{ installs: EigenweltHubInstallMap }>(
+        baseUrl,
+        `/workspace/${encodeURIComponent(workspaceId)}/hub/installs`,
+        { token, hostToken, timeoutMs: timeouts.config },
+      ),
+    hubRecordInstall: (
+      workspaceId: string,
+      payload: { id: string; version: number; kind: EigenweltHubKind; name?: string },
+    ) =>
+      requestJson<{ ok: boolean; installs: EigenweltHubInstallMap }>(
+        baseUrl,
+        `/workspace/${encodeURIComponent(workspaceId)}/hub/installs`,
+        { token, hostToken, method: "POST", body: payload, timeoutMs: timeouts.config },
       ),
     hubDelete: (workspaceId: string, itemId: string) =>
       requestJson<{ ok: boolean; id: string }>(

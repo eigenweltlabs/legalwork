@@ -3,27 +3,37 @@ import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import {
   Blocks,
+  Check,
+  CheckCircle2,
   CreditCard,
   Download,
   ExternalLink,
   Loader2,
   Lock,
+  Pin,
   Plug,
+  RefreshCw,
+  Sparkles,
   Trash2,
   Upload,
   Users,
 } from "lucide-react";
-import { Alert, Badge, Button, Card, Divider, Input, Row, Spinner } from "@legalwork/ui/react";
+import { Badge, Button, Card, Divider, Row, Spinner } from "@legalwork/ui/react";
 
 import { toast } from "@/components/ui/sonner";
 import { t } from "@/i18n";
 import { openDesktopUrl } from "@/app/lib/desktop";
-import type { EigenweltHubItem, LegalworkServerClient } from "@/app/lib/legalwork-server";
+import type {
+  EigenweltHubInstall,
+  EigenweltHubItem,
+  LegalworkServerClient,
+} from "@/app/lib/legalwork-server";
 import {
   eigenweltBillingUrl,
   hasEigenweltFeature,
   useEigenweltEntitlements,
 } from "@/react-app/domains/connections/eigenwelt-entitlements";
+import { SharePresetControl } from "./share-preset-section";
 
 export type FirmHubViewProps = {
   legalworkClient: LegalworkServerClient | null;
@@ -36,13 +46,9 @@ function formatCents(cents: number): string {
   return `$${(cents / 100).toFixed(2)}`;
 }
 
-/** Keeps only the safe, shareable slice of a workspace's opencode config. */
-function buildPresetFragment(opencode: Record<string, unknown>): Record<string, unknown> {
-  const fragment: Record<string, unknown> = {};
-  for (const key of ["provider", "model", "small_model"] as const) {
-    if (opencode[key] !== undefined) fragment[key] = opencode[key];
-  }
-  return fragment;
+/** Pinned items first (the platform sorts too — this is defensive + stable). */
+function sortHubItems(items: EigenweltHubItem[]): EigenweltHubItem[] {
+  return [...items].sort((a, b) => (b.pinned ? 1 : 0) - (a.pinned ? 1 : 0));
 }
 
 export function FirmHubView({ legalworkClient, workspaceId, onConfigApplied }: FirmHubViewProps) {
@@ -65,21 +71,31 @@ export function FirmHubView({ legalworkClient, workspaceId, onConfigApplied }: F
     enabled: Boolean(legalworkClient && workspaceId && settingsPresets),
     queryFn: async () => (await legalworkClient!.hubList(workspaceId!, "preset")).items,
   });
+  const installsQuery = useQuery({
+    queryKey: ["eigenwelt-hub-installs", workspaceId],
+    enabled: Boolean(legalworkClient && workspaceId && (adminHub || settingsPresets)),
+    queryFn: async () => (await legalworkClient!.hubInstalls(workspaceId!)).installs,
+  });
+  const installs = installsQuery.data ?? {};
 
   const [busyId, setBusyId] = useState<string | null>(null);
-  const [presetName, setPresetName] = useState("");
-  const [sharingPreset, setSharingPreset] = useState(false);
 
-  const workflows = (hubQuery.data ?? []).filter((item) => item.kind === "workflow");
-  const integrations = (hubQuery.data ?? []).filter((item) => item.kind === "integration");
-  const presets = presetQuery.data ?? [];
+  const workflows = sortHubItems((hubQuery.data ?? []).filter((item) => item.kind === "workflow"));
+  const integrations = sortHubItems((hubQuery.data ?? []).filter((item) => item.kind === "integration"));
+  const presets = sortHubItems(presetQuery.data ?? []);
 
-  const runInstall = async (item: EigenweltHubItem) => {
+  const installStateFor = (item: EigenweltHubItem): { record?: EigenweltHubInstall; updateAvailable: boolean } => {
+    const record = installs[item.id];
+    return { record, updateAvailable: Boolean(record && record.version < item.version) };
+  };
+
+  const runInstall = async (item: EigenweltHubItem, wasInstalled: boolean) => {
     if (!legalworkClient || !workspaceId) return;
     setBusyId(item.id);
     try {
       const result = await legalworkClient.hubInstall(workspaceId, item.id);
-      toast.success(t("firm_hub.installed", { name: result.name }));
+      toast.success(t(wasInstalled ? "firm_hub.updated" : "firm_hub.installed", { name: result.name }));
+      await installsQuery.refetch();
       onConfigApplied?.();
     } catch (error) {
       toast.error(error instanceof Error ? error.message : t("firm_hub.install_failed"));
@@ -94,7 +110,7 @@ export function FirmHubView({ legalworkClient, workspaceId, onConfigApplied }: F
     try {
       await legalworkClient.hubDelete(workspaceId, item.id);
       toast.success(t("firm_hub.unshared", { name: item.name }));
-      await Promise.all([hubQuery.refetch(), presetQuery.refetch()]);
+      await Promise.all([hubQuery.refetch(), presetQuery.refetch(), installsQuery.refetch()]);
     } catch (error) {
       toast.error(error instanceof Error ? error.message : t("firm_hub.delete_failed"));
     } finally {
@@ -102,7 +118,7 @@ export function FirmHubView({ legalworkClient, workspaceId, onConfigApplied }: F
     }
   };
 
-  const applyPreset = async (item: EigenweltHubItem) => {
+  const applyPreset = async (item: EigenweltHubItem, wasInstalled: boolean) => {
     if (!legalworkClient || !workspaceId) return;
     setBusyId(item.id);
     try {
@@ -111,34 +127,21 @@ export function FirmHubView({ legalworkClient, workspaceId, onConfigApplied }: F
         throw new Error(t("firm_hub.preset_invalid"));
       }
       await legalworkClient.patchConfig(workspaceId, { opencode: detail.payload as Record<string, unknown> });
-      toast.success(t("firm_hub.preset_applied", { name: item.name }));
+      // Presets apply from settings (not the install route), so record the pulled
+      // version here to power "update available" on the next visit.
+      await legalworkClient.hubRecordInstall(workspaceId, {
+        id: item.id,
+        version: detail.version,
+        kind: "preset",
+        name: item.name,
+      });
+      toast.success(t(wasInstalled ? "firm_hub.updated" : "firm_hub.preset_applied", { name: item.name }));
+      await installsQuery.refetch();
       onConfigApplied?.();
     } catch (error) {
       toast.error(error instanceof Error ? error.message : t("firm_hub.preset_apply_failed"));
     } finally {
       setBusyId(null);
-    }
-  };
-
-  const shareCurrentAsPreset = async () => {
-    if (!legalworkClient || !workspaceId) return;
-    const name = presetName.trim();
-    if (!name) return;
-    setSharingPreset(true);
-    try {
-      const config = await legalworkClient.getConfig(workspaceId);
-      const fragment = buildPresetFragment(config.opencode ?? {});
-      if (Object.keys(fragment).length === 0) {
-        throw new Error(t("firm_hub.share_preset_empty"));
-      }
-      await legalworkClient.hubSharePreset(workspaceId, { name, payload: fragment });
-      toast.success(t("firm_hub.shared", { name }));
-      setPresetName("");
-      await presetQuery.refetch();
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : t("firm_hub.share_failed"));
-    } finally {
-      setSharingPreset(false);
     }
   };
 
@@ -159,10 +162,12 @@ export function FirmHubView({ legalworkClient, workspaceId, onConfigApplied }: F
         <Card padding="lg">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div className="flex items-center gap-2">
-              {planLabel ? <Badge tone="accent">{planLabel}</Badge> : <Badge tone="neutral">{t("firm_hub.free_plan")}</Badge>}
-              <span className="text-base text-subtext">
-                {t("firm_hub.seats", { seats: entitlements.seats })}
-              </span>
+              {planLabel ? (
+                <Badge tone="accent">{planLabel}</Badge>
+              ) : (
+                <Badge tone="neutral">{t("firm_hub.free_plan")}</Badge>
+              )}
+              <span className="text-base text-subtext">{t("firm_hub.seats", { seats: entitlements.seats })}</span>
             </div>
             <span className="text-base text-subtext">
               {t("firm_hub.usage_today", {
@@ -176,60 +181,63 @@ export function FirmHubView({ legalworkClient, workspaceId, onConfigApplied }: F
 
       {/* Feature gate: Firm Hub requires the admin_hub entitlement */}
       {!adminHub ? (
-        <Alert
-          tone="warning"
-          icon={<Lock className="size-4" />}
-          title={t("firm_hub.locked_title")}
-          action={
-            <Button variant="primary" size="sm" onClick={() => void openDesktopUrl(billingUrl)}>
-              <CreditCard className="size-4" /> {t("firm_hub.upgrade")}
-            </Button>
-          }
-        >
-          {t("firm_hub.locked_body")}
-        </Alert>
+        <FirmHubLocked billingUrl={billingUrl} platformURL={platformURL} />
       ) : (
         <>
           {/* Workflows */}
           <HubSection
             icon={<Blocks className="size-4" />}
             title={t("firm_hub.workflows")}
+            description={t("firm_hub.workflows_desc")}
             loading={hubQuery.isLoading}
             empty={workflows.length === 0}
             emptyLabel={t("firm_hub.empty_workflows")}
           >
-            {workflows.map((item) => (
-              <HubItemRow
-                key={item.id}
-                item={item}
-                busy={busyId === item.id}
-                actionIcon={<Download className="size-4" />}
-                actionLabel={t("firm_hub.install")}
-                onAction={() => void runInstall(item)}
-                onDelete={() => void runDelete(item)}
-              />
-            ))}
+            {workflows.map((item) => {
+              const { record, updateAvailable } = installStateFor(item);
+              return (
+                <HubItemRow
+                  key={item.id}
+                  item={item}
+                  busy={busyId === item.id}
+                  installed={Boolean(record)}
+                  updateAvailable={updateAvailable}
+                  actionIcon={<Download className="size-4" />}
+                  actionLabel={t("firm_hub.install")}
+                  reactionLabel={t("firm_hub.reinstall")}
+                  onAction={() => void runInstall(item, Boolean(record))}
+                  onDelete={() => void runDelete(item)}
+                />
+              );
+            })}
           </HubSection>
 
           {/* Integrations */}
           <HubSection
             icon={<Plug className="size-4" />}
             title={t("firm_hub.integrations")}
+            description={t("firm_hub.integrations_desc")}
             loading={hubQuery.isLoading}
             empty={integrations.length === 0}
             emptyLabel={t("firm_hub.empty_integrations")}
           >
-            {integrations.map((item) => (
-              <HubItemRow
-                key={item.id}
-                item={item}
-                busy={busyId === item.id}
-                actionIcon={<Download className="size-4" />}
-                actionLabel={t("firm_hub.install")}
-                onAction={() => void runInstall(item)}
-                onDelete={() => void runDelete(item)}
-              />
-            ))}
+            {integrations.map((item) => {
+              const { record, updateAvailable } = installStateFor(item);
+              return (
+                <HubItemRow
+                  key={item.id}
+                  item={item}
+                  busy={busyId === item.id}
+                  installed={Boolean(record)}
+                  updateAvailable={updateAvailable}
+                  actionIcon={<Download className="size-4" />}
+                  actionLabel={t("firm_hub.install")}
+                  reactionLabel={t("firm_hub.reinstall")}
+                  onAction={() => void runInstall(item, Boolean(record))}
+                  onDelete={() => void runDelete(item)}
+                />
+              );
+            })}
           </HubSection>
         </>
       )}
@@ -239,40 +247,40 @@ export function FirmHubView({ legalworkClient, workspaceId, onConfigApplied }: F
         <HubSection
           icon={<Upload className="size-4" />}
           title={t("firm_hub.presets")}
+          description={t("firm_hub.presets_desc")}
           loading={presetQuery.isLoading}
           empty={presets.length === 0}
           emptyLabel={t("firm_hub.empty_presets")}
           footer={
-            <div className="flex items-center gap-2 px-4 py-3">
-              <Input
-                value={presetName}
-                onChange={(event) => setPresetName(event.currentTarget.value)}
-                placeholder={t("firm_hub.share_preset_name_placeholder")}
-                className="flex-1"
-              />
-              <Button
-                variant="secondary"
-                size="sm"
-                disabled={sharingPreset || !presetName.trim()}
-                onClick={() => void shareCurrentAsPreset()}
-              >
-                {sharingPreset ? <Loader2 className="size-4 animate-spin" /> : <Upload className="size-4" />}
-                {t("firm_hub.share")}
-              </Button>
-            </div>
+            legalworkClient && workspaceId ? (
+              <div className="px-4 py-3">
+                <SharePresetControl
+                  client={legalworkClient}
+                  workspaceId={workspaceId}
+                  onShared={() => void presetQuery.refetch()}
+                />
+              </div>
+            ) : undefined
           }
         >
-          {presets.map((item) => (
-            <HubItemRow
-              key={item.id}
-              item={item}
-              busy={busyId === item.id}
-              actionIcon={<Download className="size-4" />}
-              actionLabel={t("firm_hub.apply")}
-              onAction={() => void applyPreset(item)}
-              onDelete={() => void runDelete(item)}
-            />
-          ))}
+          {presets.map((item) => {
+            const { record, updateAvailable } = installStateFor(item);
+            return (
+              <HubItemRow
+                key={item.id}
+                item={item}
+                busy={busyId === item.id}
+                installed={Boolean(record)}
+                updateAvailable={updateAvailable}
+                installedLabel={t("firm_hub.applied_badge")}
+                actionIcon={<Download className="size-4" />}
+                actionLabel={t("firm_hub.apply")}
+                reactionLabel={t("firm_hub.reapply")}
+                onAction={() => void applyPreset(item, Boolean(record))}
+                onDelete={() => void runDelete(item)}
+              />
+            );
+          })}
         </HubSection>
       ) : null}
 
@@ -285,7 +293,15 @@ export function FirmHubView({ legalworkClient, workspaceId, onConfigApplied }: F
             description={t("firm_hub.org_body")}
             trailing={
               <div className="flex items-center gap-2">
-                <Button variant="secondary" size="sm" onClick={() => void openDesktopUrl(`${(platformURL ?? "https://platform.eigenweltlabs.com").replace(/\/+$/, "")}/members`)}>
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  onClick={() =>
+                    void openDesktopUrl(
+                      `${(platformURL ?? "https://platform.eigenweltlabs.com").replace(/\/+$/, "")}/members`,
+                    )
+                  }
+                >
                   {t("firm_hub.members")} <ExternalLink className="size-3.5" />
                 </Button>
                 <Button variant="secondary" size="sm" onClick={() => void openDesktopUrl(billingUrl)}>
@@ -300,9 +316,59 @@ export function FirmHubView({ legalworkClient, workspaceId, onConfigApplied }: F
   );
 }
 
+/**
+ * Locked / upgrade state. Deliberately a full, on-brand card (surface + ink
+ * tokens that are legible in both themes) rather than a bare warning banner —
+ * the old warning-soft Alert rendered light-on-cream in dark mode and the CTA
+ * blended in. The primary Button carries its own foreground token, so contrast
+ * is guaranteed.
+ */
+function FirmHubLocked({ billingUrl, platformURL }: { billingUrl: string; platformURL: string | null }) {
+  const learnMoreUrl = `${(platformURL ?? "https://platform.eigenweltlabs.com").replace(/\/+$/, "")}/pricing`;
+  return (
+    <Card variant="elevated" padding="lg" className="space-y-5">
+      <div className="flex items-start gap-3">
+        <span className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-brand-soft text-brand">
+          <Lock className="size-5" />
+        </span>
+        <div className="min-w-0 space-y-1">
+          <div className="flex items-center gap-2 text-xs font-medium uppercase tracking-wide text-brand">
+            <Sparkles className="size-3.5" /> {t("firm_hub.locked_eyebrow")}
+          </div>
+          <h3 className="text-md font-semibold text-ink">{t("firm_hub.locked_title")}</h3>
+          <p className="text-sm text-subtext">{t("firm_hub.locked_body")}</p>
+        </div>
+      </div>
+
+      <ul className="space-y-2">
+        {[
+          t("firm_hub.locked_feature_workflows"),
+          t("firm_hub.locked_feature_integrations"),
+          t("firm_hub.locked_feature_presets"),
+        ].map((feature) => (
+          <li key={feature} className="flex items-start gap-2 text-sm text-subtext">
+            <CheckCircle2 className="mt-0.5 size-4 shrink-0 text-success" />
+            <span>{feature}</span>
+          </li>
+        ))}
+      </ul>
+
+      <div className="flex flex-wrap items-center gap-2">
+        <Button variant="primary" size="sm" onClick={() => void openDesktopUrl(billingUrl)}>
+          <CreditCard className="size-4" /> {t("firm_hub.upgrade")}
+        </Button>
+        <Button variant="secondary" size="sm" onClick={() => void openDesktopUrl(learnMoreUrl)}>
+          {t("firm_hub.learn_more")} <ExternalLink className="size-3.5" />
+        </Button>
+      </div>
+    </Card>
+  );
+}
+
 function HubSection(props: {
   icon: React.ReactNode;
   title: string;
+  description?: string;
   loading: boolean;
   empty: boolean;
   emptyLabel: string;
@@ -311,10 +377,13 @@ function HubSection(props: {
 }) {
   return (
     <div className="space-y-2">
-      <div className="flex items-center gap-2 text-subtext">
-        {props.icon}
-        <h3 className="text-md font-semibold text-ink">{props.title}</h3>
+      <div className="flex items-baseline gap-2 text-subtext">
+        <span className="flex items-center gap-2 text-ink">
+          {props.icon}
+          <h3 className="text-md font-semibold">{props.title}</h3>
+        </span>
       </div>
+      {props.description ? <p className="text-sm text-subtext">{props.description}</p> : null}
       <Card padding="none">
         {props.loading ? (
           <div className="flex items-center gap-2 px-4 py-6 text-subtext">
@@ -339,25 +408,70 @@ function HubSection(props: {
 function HubItemRow(props: {
   item: EigenweltHubItem;
   busy: boolean;
+  installed: boolean;
+  updateAvailable: boolean;
+  /** Badge shown when installed & current (default "Installed"). */
+  installedLabel?: string;
   actionIcon: React.ReactNode;
   actionLabel: string;
+  /** Low-emphasis label when already installed & current (Reinstall / Re-apply). */
+  reactionLabel: string;
   onAction: () => void;
   onDelete: () => void;
 }) {
+  const { item, busy, installed, updateAvailable } = props;
+  const spinner = <Loader2 className="size-4 animate-spin" />;
+
+  let mainButton: React.ReactNode;
+  if (updateAvailable) {
+    mainButton = (
+      <Button variant="primary" size="sm" disabled={busy} onClick={props.onAction}>
+        {busy ? spinner : <RefreshCw className="size-4" />} {t("firm_hub.update")}
+      </Button>
+    );
+  } else if (installed) {
+    mainButton = (
+      <Button variant="ghost" size="sm" disabled={busy} onClick={props.onAction}>
+        {busy ? spinner : <RefreshCw className="size-4" />} {props.reactionLabel}
+      </Button>
+    );
+  } else {
+    mainButton = (
+      <Button variant="secondary" size="sm" disabled={busy} onClick={props.onAction}>
+        {busy ? spinner : props.actionIcon} {props.actionLabel}
+      </Button>
+    );
+  }
+
   return (
     <Row
-      title={props.item.name}
-      description={props.item.description || undefined}
+      title={
+        <span className="flex items-center gap-2">
+          {item.name}
+          {item.pinned ? (
+            <Badge tone="accent" size="sm">
+              <Pin className="size-3" /> {t("firm_hub.pinned")}
+            </Badge>
+          ) : null}
+        </span>
+      }
+      description={item.description || undefined}
       trailing={
         <div className="flex items-center gap-1.5">
-          <Button variant="secondary" size="sm" disabled={props.busy} onClick={props.onAction}>
-            {props.busy ? <Loader2 className="size-4 animate-spin" /> : props.actionIcon}
-            {props.actionLabel}
-          </Button>
+          {updateAvailable ? (
+            <Badge tone="warning" size="sm">
+              {t("firm_hub.update_available")}
+            </Badge>
+          ) : installed ? (
+            <Badge tone="success" size="sm">
+              <Check className="size-3" /> {props.installedLabel ?? t("firm_hub.installed_badge")}
+            </Badge>
+          ) : null}
+          {mainButton}
           <Button
             variant="ghost"
             size="sm"
-            disabled={props.busy}
+            disabled={busy}
             onClick={props.onDelete}
             aria-label={t("firm_hub.unshare")}
             title={t("firm_hub.unshare")}
