@@ -16,9 +16,9 @@ import {
 import { createRequire } from "node:module";
 import os from "node:os";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
-import { app, BrowserWindow, clipboard, desktopCapturer, dialog, globalShortcut, ipcMain, nativeImage, nativeTheme, powerMonitor, powerSaveBlocker, session, shell, systemPreferences } from "electron";
+import { app, BrowserWindow, clipboard, desktopCapturer, dialog, globalShortcut, ipcMain, nativeImage, nativeTheme, net as electronNet, powerMonitor, powerSaveBlocker, protocol, session, shell, systemPreferences } from "electron";
 import { configureFakeMediaForTests, installMediaPermissionHandlers } from "./media-permissions.mjs";
 import { appendLoopbackFeatureFlags, disableLoopbackAudio, enableLoopbackAudio, isLoopbackCaptureArmed } from "./audio/loopback.mjs";
 import { captureAuthStatus, openCapturePermissionSettings, requestCapturePermission } from "./audio/capture-permissions.mjs";
@@ -50,6 +50,17 @@ import { createApplicationMenu } from "./app-menu.mjs";
 import { createBrowserPanel } from "./browser-panel.mjs";
 import { createWorkspaceStore } from "./workspace-store.mjs";
 import { exportSkillFolder, readSkillArchive } from "./workspace-archive.mjs";
+
+// Privileged scheme for in-app recording playback. Must be registered before
+// app "ready"; the handler is attached in whenReady. `stream` enables Range
+// requests so <audio> can seek without loading the whole file into memory.
+const RECORDING_AUDIO_SCHEME = "lw-recording";
+protocol.registerSchemesAsPrivileged([
+  {
+    scheme: RECORDING_AUDIO_SCHEME,
+    privileges: { standard: true, secure: true, supportFetchAPI: true, stream: true, bypassCSP: true },
+  },
+]);
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const require = createRequire(import.meta.url);
@@ -2073,9 +2084,6 @@ const desktopCommandHandlers = {
   "audioRecordingGet": async (event, ...args) => {
       return recorderService().getRecording(String(args[0] ?? ""));
   },
-  "audioRecordingAudio": async (event, ...args) => {
-      return recorderService().readRecordingAudio(String(args[0] ?? ""));
-  },
   "audioRecordingDelete": async (event, ...args) => {
       return recorderService().deleteRecording(String(args[0] ?? ""));
   },
@@ -2681,6 +2689,20 @@ if (!app.requestSingleInstanceLock()) {
   });
 
   app.whenReady().then(async () => {
+    // Serve recording audio to <audio> elements. The element loads this URL
+    // natively (no async JS between the click and play()), so first-play works
+    // within the user gesture, and Range requests stream the file for seeking.
+    protocol.handle(RECORDING_AUDIO_SCHEME, async (request) => {
+      try {
+        const url = new URL(request.url);
+        const id = decodeURIComponent(url.pathname.replace(/^\/+/, "")) || decodeURIComponent(url.hostname);
+        const filePath = recorderService().recordingAudioFilePath(id);
+        if (!filePath) return new Response(null, { status: 404 });
+        return electronNet.fetch(pathToFileURL(filePath).toString(), { headers: request.headers });
+      } catch {
+        return new Response(null, { status: 404 });
+      }
+    });
     if (process.platform === "darwin" && app.dock) {
       await app.dock.show();
       if (APP_ICON_IMAGE && !APP_ICON_IMAGE.isEmpty()) app.dock.setIcon(APP_ICON_IMAGE);

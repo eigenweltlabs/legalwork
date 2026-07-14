@@ -1941,7 +1941,6 @@ export default {
   "recorder.finishing": "Finishing transcription…",
   "recorder.play": "Play",
   "recorder.pause": "Pause",
-  "recorder.play_failed": "Couldn't play this recording",
   "recorder.dismiss": "Dismiss",
   "recorder.overlay_show": "Call overlay",
   "recorder.overlay_hide": "Hide overlay",

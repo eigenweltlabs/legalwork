@@ -216,10 +216,10 @@ test("recorder service records, transcribes, finalizes files", async () => {
   assert.equal(done.segmentCount, 1);
   assert.ok(done.sizeBytes > 0);
 
-  // Audio is readable back for in-app playback.
-  const audio = await service.readRecordingAudio(meta.id);
-  assert.ok(audio && audio.bytes.byteLength > 0, "recording audio reads back");
-  assert.equal(await service.readRecordingAudio("nope"), null);
+  // Audio file resolves for the playback protocol; bad ids are rejected.
+  assert.ok(service.recordingAudioFilePath(meta.id)?.endsWith("audio.webm"));
+  assert.equal(service.recordingAudioFilePath("nope"), null);
+  assert.equal(service.recordingAudioFilePath("../etc/passwd"), null);
 
   const transcript = JSON.parse(await fsp.readFile(path.join(done.folderPath, "transcript.json"), "utf8"));
   assert.equal(transcript.segments.length, 1);

@@ -867,23 +867,17 @@ export class RecorderService {
   }
 
   /**
-   * Read a finished recording's audio file (webm/opus) for in-app playback.
-   * Returns the raw bytes; the renderer wraps them in a Blob URL for an
-   * <audio> element. Null when the file is missing (e.g. mid-recording).
+   * Resolve a finished recording's audio file path, for the `lw-recording://`
+   * playback protocol. Returns null (rather than risking traversal) unless the
+   * id is a single, safe path segment that resolves inside the recordings dir
+   * and the file exists.
    */
-  async readRecordingAudio(recordingId) {
-    const folderPath = path.join(this.recordingsDir, recordingId);
-    const meta = await readMeta(folderPath);
-    const audioPath = meta?.audioPath || path.join(folderPath, "audio.webm");
-    try {
-      const buf = await fsp.readFile(audioPath);
-      return {
-        bytes: buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength),
-        mimeType: "audio/webm",
-      };
-    } catch {
-      return null;
-    }
+  recordingAudioFilePath(recordingId) {
+    const id = String(recordingId || "");
+    if (!id || id.includes("/") || id.includes("\\") || id.includes("..")) return null;
+    const audioPath = path.join(this.recordingsDir, id, "audio.webm");
+    if (!audioPath.startsWith(this.recordingsDir + path.sep)) return null;
+    return fs.existsSync(audioPath) ? audioPath : null;
   }
 
   async deleteRecording(recordingId) {
