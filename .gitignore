@@ -53,3 +53,6 @@ opencode.jsonc
 transcript-analysis
 
 .gstack/
+
+# native build outputs (Swift/audiotap artifacts from desktop dev builds)
+apps/desktop/native/

@@ -4,6 +4,7 @@ import { ArrowRightIcon, FlaskConicalIcon, LogInIcon, SearchIcon, TriangleAlertI
 
 import { Page, PageBackground, PageTitlebarRegion } from "@/components/page";
 import { ScrollArea, ScrollAreaViewport } from "@/components/ui/scroll-area";
+import { ProviderIcon } from "../../design-system/provider-icon";
 
 type ProviderSelectionStepProps = {
   // Pre-selects `providerId` and opens the real connect flow in the session.
@@ -13,9 +14,9 @@ type ProviderSelectionStepProps = {
 
 // What the dark panel reads (positioning, mirrors the intro page).
 const panelProviders = [
+  { title: "Eigenwelt Model API", desc: "Eigenwelt's own deployments — org credits, zero prompt retention." },
   { title: "AWS Bedrock", desc: "Claude, Llama, and more — inside your own AWS account." },
   { title: "Azure OpenAI", desc: "GPT models on your Azure tenant." },
-  { title: "Mistral", desc: "Open-weight models, EU-hosted or your own." },
   { title: "Your own endpoint", desc: "Any OpenAI-compatible URL — self-hosted or private." },
 ];
 
@@ -44,6 +45,25 @@ export function ProviderSelectionStep({ onConnect, onSkip }: ProviderSelectionSt
                       LegalWork runs on this machine. Your documents are only ever shared with the model you
                       connect, and nothing else.
                     </p>
+                  </div>
+
+                  {/* Featured — Eigenwelt Model API */}
+                  <div className="space-y-2.5">
+                    <span className="lw-section-eyebrow uppercase text-dls-secondary/80">Recommended</span>
+                    <button
+                      type="button"
+                      className={`${quickButtonClass} border-[rgba(var(--dls-accent-rgb),0.45)]`}
+                      onClick={() => onConnect("eigenwelt", "api")}
+                    >
+                      <ProviderIcon providerId="eigenwelt" size={16} className="shrink-0 text-dls-text" />
+                      <div className="min-w-0 flex-1">
+                        <div className="text-[14px] font-medium text-dls-text">Connect Eigenwelt Model API</div>
+                        <div className="text-[12px] text-dls-secondary">
+                          Eigenwelt&apos;s own model deployments — org credits, zero prompt retention.
+                        </div>
+                      </div>
+                      <ArrowRightIcon className="size-4 shrink-0 text-dls-secondary/60 transition-transform group-hover:translate-x-0.5" />
+                    </button>
                   </div>
 
                   {/* Quick connect — subscription sign-in */}

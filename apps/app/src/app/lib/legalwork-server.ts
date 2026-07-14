@@ -112,6 +112,31 @@ export type LegalworkServerSettings = {
   remoteAccessEnabled?: boolean;
 };
 
+/** One model from the Eigenwelt platform manifest / sign-in exchange. */
+export type EigenweltManifestModel = {
+  id: string;
+  name?: string;
+  contextLength?: number;
+  toolCall?: boolean;
+  reasoning?: boolean;
+};
+
+/** Payload delivered once "Sign in with Eigenwelt" completes in the browser. */
+export type EigenweltSignInPayload = {
+  apiKey: string;
+  baseURL: string;
+  orgId?: string;
+  orgName?: string;
+  models: EigenweltManifestModel[];
+};
+
+export type EigenweltSignInWaitResult = EigenweltSignInPayload | { pending: true };
+
+export type EigenweltManifest = {
+  baseURL: string;
+  models: EigenweltManifestModel[];
+};
+
 // The shared WorkspaceWire contract now carries the opencode block; keep the
 // historical name as an alias for the many existing imports.
 export type LegalworkWorkspaceInfo = WorkspaceInfo;
@@ -1571,6 +1596,29 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
         hostToken,
         method: "POST",
         body: { scope, content },
+      }),
+    // Eigenwelt platform connect: the server owns the OAuth loopback + code
+    // exchange; the app opens the authorize URL and long-polls for the payload.
+    eigenweltOauthStart: () =>
+      requestJson<{ sessionId: string; authorizeUrl: string }>(baseUrl, "/api/eigenwelt/oauth/start", {
+        token,
+        hostToken,
+        method: "POST",
+        timeoutMs: timeouts.config,
+      }),
+    eigenweltOauthWait: (sessionId: string) =>
+      // Long poll: the server holds the request up to ~120s before answering
+      // {pending:true}, so the HTTP timeout must comfortably exceed that.
+      requestJson<EigenweltSignInWaitResult>(
+        baseUrl,
+        `/api/eigenwelt/oauth/wait/${encodeURIComponent(sessionId)}`,
+        { token, hostToken, timeoutMs: 130_000 },
+      ),
+    eigenweltModels: () =>
+      requestJson<EigenweltManifest>(baseUrl, "/api/eigenwelt/models", {
+        token,
+        hostToken,
+        timeoutMs: timeouts.config,
       }),
     listReloadEvents: (workspaceId: string, options?: { since?: number }) => {
       const query = typeof options?.since === "number" ? `?since=${options.since}` : "";

@@ -36,9 +36,9 @@ export const sessionStatusSchema = z.discriminatedUnion("type", [
     attempt: z.number(),
     message: z.string(),
     next: z.number(),
-    // Engine-provided action block for actionable retries (e.g. re-auth or
-    // upgrade prompts). Must survive the snapshot path or the app's retry
-    // banner loses its button on reload.
+    // Engine-provided action block for actionable retries (e.g. re-auth,
+    // upgrade or top-up prompts). Must survive the snapshot path or the
+    // app's retry banner loses its button on reload.
     action: z
       .object({
         reason: z.string(),

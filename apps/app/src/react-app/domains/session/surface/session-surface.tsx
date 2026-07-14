@@ -15,6 +15,13 @@ import {
   markEigenweltFreeBudgetStop,
   shouldStopEigenweltFreeBudgetRetry,
 } from "@/app/lib/eigenwelt-free-budget";
+import {
+  EIGENWELT_BUDGET_EXCEEDED_ERROR_TEXT,
+  eigenweltBudgetRetryAction,
+  isEigenweltBudgetError,
+  markEigenweltBudgetStop,
+  shouldStopEigenweltBudgetRetry,
+} from "@/app/lib/eigenwelt-budget";
 import { createClient, unwrap } from "@/app/lib/opencode";
 import { abortSessionSafe } from "@/app/lib/opencode-session";
 import { isOfficeAddinRuntime } from "@/app/lib/runtime-env";
@@ -594,8 +601,8 @@ export function SessionSurface(props: SessionSurfaceProps) {
   const hydratedKeyRef = useRef<string | null>(null);
   const autoOpenedTargetRef = useRef<string | null>(null);
   const initializedAutoOpenSessionRef = useRef<string | null>(null);
-  // One daily-limit stop per failing run (re-armed by session switch, a new
-  // busy attempt, or a failed abort).
+  // One daily-limit / budget-exceeded stop per failing run (re-armed by
+  // session switch, a new busy attempt, or a failed abort).
   const budgetStopFiredRef = useRef(false);
   const snapshotQueryKey = useMemo(
     () => reactSnapshotKey(props.workspaceId, props.sessionId),
@@ -717,41 +724,54 @@ export function SessionSurface(props: SessionSurfaceProps) {
     return "ready";
   }, [liveStatus, sending]);
 
-  // --- Eigenwelt free-tier daily-limit retries -----------------------------
-  // Gateway budget errors (LiteLLM 429 "Budget has been exceeded" on the
-  // free key's daily budget) never resolve on their own, so the engine's
-  // endless retry/backoff loop is pointless. Policy: let it retry up to 3
-  // attempts (with an upgrade action on the banner), then abort the run and
-  // surface the friendly terminal limit card. Gated on the session's selected
-  // provider being `eigenwelt-free`; every other provider/error keeps the
-  // engine's default retry behavior.
-  const budgetRetryActive =
+  // --- Eigenwelt budget retries --------------------------------------------
+  // Gateway budget errors (LiteLLM 429 "Budget has been exceeded" — the free
+  // key's daily budget or the paid org budget) never resolve on their own, so
+  // the engine's endless retry/backoff loop is pointless. Policy: let it
+  // retry up to 3 attempts (with an upgrade / top-up action on the banner),
+  // then abort the run and surface the matching terminal card. Gated on the
+  // session's selected provider being `eigenwelt-free` (daily limit) or
+  // `eigenwelt` (org budget); every other provider/error keeps the engine's
+  // default retry behavior.
+  const freeBudgetRetryActive =
     liveStatus.type === "retry" &&
     isEigenweltFreeBudgetError(props.selectedModel.providerID, liveStatus.message);
+  const paidBudgetRetryActive =
+    liveStatus.type === "retry" &&
+    isEigenweltBudgetError(props.selectedModel.providerID, liveStatus.message);
   const retryStatusForDisplay = useMemo(() => {
     if (liveStatus.type !== "retry") return null;
-    if (!budgetRetryActive || liveStatus.action) return liveStatus;
-    return { ...liveStatus, action: eigenweltFreeBudgetRetryAction() };
-  }, [budgetRetryActive, liveStatus]);
+    if (liveStatus.action) return liveStatus;
+    if (freeBudgetRetryActive) return { ...liveStatus, action: eigenweltFreeBudgetRetryAction() };
+    if (paidBudgetRetryActive) return { ...liveStatus, action: eigenweltBudgetRetryAction() };
+    return liveStatus;
+  }, [freeBudgetRetryActive, paidBudgetRetryActive, liveStatus]);
   useEffect(() => {
     // A fresh attempt (busy) re-arms the guard so a later prompt that hits
-    // the daily limit again is stopped again.
+    // the limit / budget wall again is stopped again.
     if (liveStatus.type === "busy") budgetStopFiredRef.current = false;
   }, [liveStatus.type]);
   useEffect(() => {
     if (liveStatus.type !== "retry") return;
-    if (!shouldStopEigenweltFreeBudgetRetry(props.selectedModel.providerID, liveStatus.message, liveStatus.attempt)) return;
+    const stopFree = shouldStopEigenweltFreeBudgetRetry(props.selectedModel.providerID, liveStatus.message, liveStatus.attempt);
+    const stopPaid = !stopFree && shouldStopEigenweltBudgetRetry(props.selectedModel.providerID, liveStatus.message, liveStatus.attempt);
+    if (!stopFree && !stopPaid) return;
     if (budgetStopFiredRef.current) return;
     budgetStopFiredRef.current = true;
     const attempt = liveStatus.attempt;
     // Stop means stop (mirrors handleAbort): drop queued follow-ups so the
-    // queue-drain effect doesn't re-prompt straight into the same limit wall.
+    // queue-drain effect doesn't re-prompt straight into the same wall.
     clearQueuedDrafts(props.sessionId);
     // Render the terminal card immediately; the engine's abort error for the
     // same turn reconciles into this message (see session-sync's
     // budget-stop substitution).
-    injectSessionErrorMessage(props.workspaceId, props.sessionId, EIGENWELT_FREE_LIMIT_ERROR_TEXT);
-    markEigenweltFreeBudgetStop(props.sessionId);
+    injectSessionErrorMessage(
+      props.workspaceId,
+      props.sessionId,
+      stopFree ? EIGENWELT_FREE_LIMIT_ERROR_TEXT : EIGENWELT_BUDGET_EXCEEDED_ERROR_TEXT,
+    );
+    if (stopFree) markEigenweltFreeBudgetStop(props.sessionId);
+    else markEigenweltBudgetStop(props.sessionId);
     void (async () => {
       const aborted = await abortSessionSafe(
         opencodeClient,
@@ -764,7 +784,7 @@ export function SessionSurface(props: SessionSurfaceProps) {
         budgetStopFiredRef.current = false;
         return;
       }
-      captureAnalyticsEvent("task_run_free_limit_stopped", { attempts: attempt });
+      captureAnalyticsEvent(stopFree ? "task_run_free_limit_stopped" : "task_run_budget_stopped", { attempts: attempt });
       await snapshotQuery.refetch();
     })();
   }, [clearQueuedDrafts, liveStatus, opencodeClient, props.selectedModel.providerID, props.sessionId, props.workspaceId, props.workspaceRoot, snapshotQuery.refetch]);

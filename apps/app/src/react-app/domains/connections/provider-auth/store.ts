@@ -26,6 +26,11 @@ import {
 import { getReactQueryClient } from "../../../infra/query-client";
 import { ensureProviderListQuery } from "../../../infra/provider-list-query";
 import type { LegalworkServerStoreSnapshot } from "../legalwork-server-store";
+import type {
+  EigenweltManifest,
+  EigenweltManifestModel,
+  EigenweltSignInPayload,
+} from "../../../../app/lib/legalwork-server";
 
 /**
  * The slice of the legalwork-server store this store actually consumes.
@@ -93,6 +98,39 @@ export const CUSTOM_PROVIDER_NPM: Record<CustomProviderApiType, string> = {
   chat: "@ai-sdk/openai-compatible",
   responses: "@ai-sdk/openai",
 };
+
+/** Provider id of the first-party Eigenwelt Model API connection. */
+export const EIGENWELT_PROVIDER_ID = "eigenwelt";
+
+export type { EigenweltManifestModel } from "../../../../app/lib/legalwork-server";
+
+/**
+ * Build the runtime-config provider block for the Eigenwelt Model API from a
+ * platform manifest. Mirrors the server's buildEigenweltModelsMap — keep both
+ * in sync. NOTE: `limit` MUST carry BOTH context and output — the engine
+ * schema rejects the whole config otherwise (verified).
+ */
+export function buildEigenweltProviderBlock(
+  baseURL: string,
+  models: EigenweltManifestModel[],
+): Record<string, unknown> {
+  return {
+    npm: "@ai-sdk/openai-compatible",
+    name: "Eigenwelt Model API",
+    options: { baseURL },
+    models: Object.fromEntries(
+      models.map((model) => [
+        model.id,
+        {
+          name: model.name ?? model.id,
+          tool_call: model.toolCall ?? true,
+          reasoning: model.reasoning ?? false,
+          limit: { context: model.contextLength ?? 128000, output: 16384 },
+        },
+      ]),
+    ),
+  };
+}
 
 /**
  * Input for adding a user-defined provider that speaks the OpenAI API spec.
@@ -1093,6 +1131,130 @@ export function createProviderAuthStore(options: CreateProviderAuthStoreOptions)
     }
   }
 
+  /** The Eigenwelt flows run through the LegalWork server (it owns the OAuth
+   *  loopback + the platform manifest); require a connected server client. */
+  const requireEigenweltServerClient = () => {
+    const legalworkSnapshot = options.legalworkServer.getSnapshot();
+    const legalworkClient = legalworkSnapshot.legalworkServerClient;
+    if (legalworkSnapshot.legalworkServerStatus !== "connected" || !legalworkClient) {
+      throw new Error(t("providers.not_connected"));
+    }
+    return legalworkClient;
+  };
+
+  /**
+   * Persist an Eigenwelt connection: write the provider block (dynamic model
+   * list included) into the per-workspace runtime config via the same server
+   * patchConfig path used by removeCustomProviderFromConfig / custom-provider
+   * installs (with the project opencode.jsonc fallback for desktop-local
+   * workspaces), store the API key in the engine auth store, then reload.
+   */
+  const finalizeEigenweltConnect = async (payload: {
+    apiKey: string;
+    baseURL: string;
+    models: EigenweltManifestModel[];
+  }) => {
+    const c = options.client();
+    if (!c) {
+      throw new Error(t("providers.not_connected"));
+    }
+    const baseURL = payload.baseURL?.trim();
+    if (!baseURL) {
+      throw new Error("The Eigenwelt platform did not return a gateway URL.");
+    }
+    if (!Array.isArray(payload.models) || payload.models.length === 0) {
+      throw new Error("The Eigenwelt platform did not return any models.");
+    }
+
+    const providerBlock = buildEigenweltProviderBlock(baseURL, payload.models);
+    const wrote = await writeCustomProviderConfig(EIGENWELT_PROVIDER_ID, providerBlock);
+    if (!wrote) {
+      throw new Error("Could not save the provider configuration for this workspace.");
+    }
+
+    // Keep the secret out of the config file: same auth-store write as
+    // submitProviderApiKey.
+    await c.auth.set({ providerID: EIGENWELT_PROVIDER_ID, auth: { type: "api", key: payload.apiKey } });
+
+    options.markOpencodeConfigReloadRequired();
+    await refreshProviders({ dispose: true });
+  };
+
+  /** Start "Sign in with Eigenwelt": the LegalWork server binds the OAuth
+   *  loopback and returns the platform authorize URL for the app to open. */
+  async function startEigenweltSignIn(): Promise<{ authorizeUrl: string; sessionId: string }> {
+    setStateField("providerAuthError", null);
+    try {
+      const legalworkClient = requireEigenweltServerClient();
+      const started = await legalworkClient.eigenweltOauthStart();
+      return { authorizeUrl: started.authorizeUrl, sessionId: started.sessionId };
+    } catch (error) {
+      const message = describeProviderError(error, t("providers.connect_failed"));
+      setStateField("providerAuthError", message);
+      throw error instanceof Error ? error : new Error(message);
+    }
+  }
+
+  /**
+   * Long-poll the sign-in session until the browser flow delivers the
+   * exchange payload, then finalize the connection. The server holds each
+   * poll open (long-poll) and answers `{pending:true}` on its own timeout;
+   * we re-poll after ~2s up to a ~10 minute cap. `cancelled` lets the modal
+   * abort when it closes.
+   */
+  async function completeEigenweltSignIn(
+    sessionId: string,
+    opts?: { cancelled?: () => boolean },
+  ): Promise<{ connected: boolean; cancelled?: boolean; message?: string }> {
+    setStateField("providerAuthError", null);
+    try {
+      const legalworkClient = requireEigenweltServerClient();
+      const deadline = Date.now() + 10 * 60 * 1000;
+      while (Date.now() < deadline) {
+        if (opts?.cancelled?.()) return { connected: false, cancelled: true };
+        const result = await legalworkClient.eigenweltOauthWait(sessionId);
+        if ("pending" in result && result.pending) {
+          await new Promise((resolve) => setTimeout(resolve, 2000));
+          continue;
+        }
+        if (opts?.cancelled?.()) return { connected: false, cancelled: true };
+        await finalizeEigenweltConnect(result as EigenweltSignInPayload);
+        return { connected: true, message: `${t("status.connected")} Eigenwelt Model API` };
+      }
+      throw new Error("Eigenwelt sign-in timed out. Try again from the provider list.");
+    } catch (error) {
+      if (opts?.cancelled?.()) return { connected: false, cancelled: true };
+      const message = describeProviderError(error, t("providers.oauth_failed"));
+      setStateField("providerAuthError", message);
+      throw error instanceof Error ? error : new Error(message);
+    }
+  }
+
+  /** Connect Eigenwelt with a pasted API key: fetch the platform's public
+   *  model manifest for the baseURL + models, then finalize as usual. */
+  async function submitEigenweltApiKey(apiKey: string) {
+    setStateField("providerAuthError", null);
+    const trimmed = apiKey.trim();
+    if (!trimmed) {
+      throw new Error(t("providers.api_key_required"));
+    }
+    try {
+      const legalworkClient = requireEigenweltServerClient();
+      let manifest: EigenweltManifest;
+      try {
+        manifest = await legalworkClient.eigenweltModels();
+      } catch {
+        throw new Error("Could not reach the Eigenwelt platform. Check your connection and try again.");
+      }
+      await finalizeEigenweltConnect({ apiKey: trimmed, baseURL: manifest.baseURL, models: manifest.models });
+      return `${t("status.connected")} Eigenwelt Model API`;
+    } catch (error) {
+      const message = describeProviderError(error, t("providers.save_api_key_failed"));
+      setStateField("providerAuthError", message);
+      throw error instanceof Error ? error : new Error(message);
+    }
+  }
+
   async function disconnectProvider(providerId: string) {
     setStateField("providerAuthError", null);
     const c = options.client();
@@ -1235,6 +1397,9 @@ export function createProviderAuthStore(options: CreateProviderAuthStoreOptions)
     completeProviderAuthOAuth,
     submitProviderApiKey,
     submitCustomProvider,
+    startEigenweltSignIn,
+    completeEigenweltSignIn,
+    submitEigenweltApiKey,
     readCustomProviderForEdit,
     disconnectProvider,
     ensureProjectProviderDisabledState,

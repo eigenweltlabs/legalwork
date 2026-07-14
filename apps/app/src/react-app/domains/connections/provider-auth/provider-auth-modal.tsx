@@ -6,6 +6,7 @@ import {
   Loader2,
   Plus,
   Search,
+  TriangleAlert,
   X,
 } from "lucide-react";
 import { Switch } from "@/components/ui/switch";
@@ -42,6 +43,7 @@ const methodPillToneClass = (type: ProviderAuthMethod["type"]) => {
     return "border-[rgba(var(--dls-accent-rgb),0.22)] bg-[rgba(var(--dls-accent-rgb),0.07)] text-dls-accent";
   return "border-dls-border bg-dls-hover text-dls-secondary";
 };
+import type { ProviderAuthAuthorization } from "@opencode-ai/sdk/v2/client";
 import type {
   CustomProviderApiType,
   CustomProviderEditData,
@@ -128,6 +130,14 @@ const BRANDED_CUSTOM_PROVIDERS: BrandedCustomProvider[] = [
   },
 ];
 
+/**
+ * First-class Eigenwelt Model API entry. Unlike branded custom providers it
+ * never opens the custom form: sign-in and API-key connect both fetch the
+ * model list from the Eigenwelt platform (via the LegalWork server) and write
+ * the provider block into the workspace runtime config.
+ */
+const EIGENWELT_PROVIDER_ID = "eigenwelt";
+
 /** Synthetic list entry id for the user-defined OpenAI-compatible provider. */
 const CUSTOM_PROVIDER_ENTRY_ID = "__custom_openai_compatible__";
 
@@ -147,8 +157,40 @@ type ProviderOAuthSession = ProviderOAuthStartResult & {
   methodLabel: string;
 };
 
+function normalizeAuthorizationCode(input: string): string {
+  const trimmed = input.trim();
+  if (!trimmed) return "";
+
+  const parseCodeParams = (value: string) => {
+    const params = new URLSearchParams(value.replace(/^[?#]/, ""));
+    const code = params.get("code")?.trim();
+    if (!code) return null;
+    const state = params.get("state")?.trim();
+    return state && !code.includes("#") ? `${code}#${state}` : code;
+  };
+
+  try {
+    const url = new URL(trimmed);
+    const fromSearch = parseCodeParams(url.search);
+    if (fromSearch) return fromSearch;
+    const fromHash = parseCodeParams(url.hash);
+    if (fromHash) return fromHash;
+  } catch {
+    // Not a URL; fall through to query-string and raw-code handling.
+  }
+
+  if (trimmed.includes("code=")) {
+    const queryStart = trimmed.indexOf("code=");
+    const fromQuery = parseCodeParams(trimmed.slice(queryStart));
+    if (fromQuery) return fromQuery;
+  }
+
+  return trimmed.replace(/^authorization\s+code:\s*/i, "").trim();
+}
+
 const PROVIDER_LABELS: Record<string, string> = {
   legalwork: "LegalWork",
+  eigenwelt: "Eigenwelt Model API",
   opencode: "OpenCode Zen",
   openai: "OpenAI",
   anthropic: "Anthropic",
@@ -178,6 +220,15 @@ export type ProviderAuthModalProps = {
   onSelect: (providerId: string, methodIndex?: number) => Promise<ProviderOAuthStartResult>;
   onSubmitApiKey: (providerId: string, apiKey: string) => Promise<string | void>;
   onSubmitCustomProvider?: (input: CustomProviderInstallInput) => Promise<string | void>;
+  /** Starts the server-owned "Sign in with Eigenwelt" flow. */
+  onEigenweltSignIn?: () => Promise<{ authorizeUrl: string; sessionId: string }>;
+  /** Long-polls the Eigenwelt sign-in session until the connection is finalized. */
+  onEigenweltWait?: (
+    sessionId: string,
+    opts?: { cancelled?: () => boolean },
+  ) => Promise<{ connected: boolean; cancelled?: boolean; message?: string }>;
+  /** Connects Eigenwelt from a pasted API key (models come from the platform). */
+  onSubmitEigenweltApiKey?: (apiKey: string) => Promise<string | void>;
   /** When set, the modal opens straight into the custom form to edit this provider. */
   customEdit?: CustomProviderEditData | null;
   onSubmitOAuth: (
@@ -236,8 +287,17 @@ export default function ProviderAuthModal(props: ProviderAuthModalProps) {
   const providerPollRef = useRef<number | null>(null);
   const oauthAutoPollRef = useRef<number | null>(null);
   const oauthCodeCopiedResetRef = useRef<number | null>(null);
+  const pollingBusyRef = useRef(false);
+  const oauthSubmitBusyRef = useRef(false);
+  const oauthAutoBusyRef = useRef(false);
+  const oauthStartBusyRef = useRef(false);
   const autoOpenedPreferredProviderIdRef = useRef<string | null>(null);
   const customEditPrefilledRef = useRef<string | null>(null);
+  // Bumped when the modal closes / navigates back / restarts the flow so the
+  // store's Eigenwelt sign-in long-poll for a stale attempt stops instead of
+  // finalizing. Each attempt captures the token at start and cancels itself
+  // once the ref moves on.
+  const eigenweltWaitTokenRef = useRef(0);
 
   const isEditingCustomProvider = customEditMode;
   const activeBrandedProvider =
@@ -302,9 +362,12 @@ export default function ProviderAuthModal(props: ProviderAuthModalProps) {
     window.open(url, "_blank", "noopener,noreferrer");
   };
 
-  const isClaudeProMaxMethod = (method: ProviderAuthMethod) => {
+  // The "Claude Pro/Max" method signs in with a consumer Claude subscription
+  // rather than a Console API key. Anthropic's Consumer Terms restrict that
+  // OAuth to Claude Code / claude.ai, so we surface a warning before use.
+  const isClaudeSubscriptionMethod = (method: ProviderAuthMethod) => {
     const label = method.label.toLowerCase();
-    return method.type === "oauth" && (label.includes("pro/max") || label.includes("create an api key"));
+    return method.type === "oauth" && label.includes("pro/max");
   };
 
   const entries = useMemo<ProviderAuthEntry[]>(() => {
@@ -317,9 +380,6 @@ export default function ProviderAuthModal(props: ProviderAuthModalProps) {
       .flatMap((id) => {
         const provider = providersById.get(id);
         const entryMethods = (methods[id] ?? []).filter((method) => {
-          if (isAnthropicProvider(id, provider?.name) && isClaudeProMaxMethod(method)) {
-            return false;
-          }
           if (!isOpenAiProvider(id, provider?.name)) return true;
           if (method.type !== "oauth") return true;
           if (isRemoteWorker) return isOpenAiHeadlessMethod(method);
@@ -336,6 +396,30 @@ export default function ProviderAuthModal(props: ProviderAuthModalProps) {
       })
       .sort(compareProviders);
 
+    // First-class Eigenwelt entry: exactly a sign-in button and an API-key
+    // option — no base-URL field, no models fields, no custom-provider form.
+    if (
+      (props.onEigenweltSignIn || props.onSubmitEigenweltApiKey) &&
+      !nextEntries.some((entry) => entry.id === EIGENWELT_PROVIDER_ID)
+    ) {
+      nextEntries.push({
+        id: EIGENWELT_PROVIDER_ID,
+        name: "Eigenwelt Model API",
+        methods: [
+          ...(props.onEigenweltSignIn
+            ? [{ type: "oauth" as const, label: "Sign in with Eigenwelt" }]
+            : []),
+          ...(props.onSubmitEigenweltApiKey
+            ? [{ type: "api" as const, label: "Paste an API key" }]
+            : []),
+        ],
+        connected: connected.has(EIGENWELT_PROVIDER_ID),
+        env: [],
+      });
+      // PINNED_PROVIDER_ORDER pins eigenwelt first.
+      nextEntries.sort(compareProviders);
+    }
+
     if (props.onSubmitCustomProvider) {
       // First-class branded providers (e.g. Apertus) that open the custom form.
       // Skip any already surfaced via auth methods to avoid duplicate ids.
@@ -350,6 +434,9 @@ export default function ProviderAuthModal(props: ProviderAuthModalProps) {
           env: [],
         });
       }
+      // Re-sort so pinned providers keep their order; the synthetic
+      // Local/Custom entries below stay pinned at the bottom.
+      nextEntries.sort(compareProviders);
 
       // One consolidated "Local model" entry with per-runtime templates
       // (llama.cpp, vLLM, LocalAI, …). Ollama / LM Studio on the default host
@@ -379,6 +466,8 @@ export default function ProviderAuthModal(props: ProviderAuthModalProps) {
     props.connectedProviderIds,
     props.providers,
     props.onSubmitCustomProvider,
+    props.onEigenweltSignIn,
+    props.onSubmitEigenweltApiKey,
   ]);
 
   const selectedEntry = useMemo(
@@ -402,10 +491,15 @@ export default function ProviderAuthModal(props: ProviderAuthModalProps) {
   const isOpenAiHeadlessSession = Boolean(
     oauthSession && oauthSession.providerId === "openai" && oauthSession.methodLabel.toLowerCase().includes("headless"),
   );
+  // The Eigenwelt session is synthetic (server-owned flow, no engine OAuth
+  // method behind it): completion runs via onEigenweltWait, so the generic
+  // engine oauth.callback polling must not fire for it.
+  const isEigenweltOauthSession = oauthSession?.providerId === EIGENWELT_PROVIDER_ID;
   const shouldStartOauthAutoPolling =
     props.open &&
     resolvedView === "oauth-auto" &&
     oauthSession &&
+    !isEigenweltOauthSession &&
     (!isOpenAiHeadlessSession || oauthBrowserOpened);
 
   const oauthDisplayCode = useMemo(() => {
@@ -428,6 +522,7 @@ export default function ProviderAuthModal(props: ProviderAuthModalProps) {
       window.clearTimeout(oauthCodeCopiedResetRef.current);
       oauthCodeCopiedResetRef.current = null;
     }
+    eigenweltWaitTokenRef.current += 1;
     setView("list");
     setSelectedProviderId(null);
     setApiKeyInput("");
@@ -454,6 +549,12 @@ export default function ProviderAuthModal(props: ProviderAuthModalProps) {
     setCustomFetchedModels([]);
     setCustomFetching(false);
     setCustomBusy(false);
+    pollingBusyRef.current = false;
+    oauthSubmitBusyRef.current = false;
+    oauthAutoBusyRef.current = false;
+    oauthStartBusyRef.current = false;
+    setPollingBusy(false);
+    setOauthAutoBusy(false);
   };
 
   const stopProviderPolling = () => {
@@ -572,11 +673,13 @@ export default function ProviderAuthModal(props: ProviderAuthModalProps) {
 
   const pollProviders = async () => {
     const id = activeProviderId;
-    if (!id || pollingBusy) return;
+    if (!id || pollingBusyRef.current) return;
+    pollingBusyRef.current = true;
     setPollingBusy(true);
     try {
       await props.onRefreshProviders?.();
     } finally {
+      pollingBusyRef.current = false;
       setPollingBusy(false);
     }
     if ((props.connectedProviderIds ?? []).includes(id)) {
@@ -636,7 +739,12 @@ export default function ProviderAuthModal(props: ProviderAuthModalProps) {
   };
 
   const submitOauth = async (providerId: string, methodIndex: number, code?: string) => {
+    if (oauthSubmitBusyRef.current) {
+      return { connected: false, pending: true };
+    }
+
     const trimmedCode = code?.trim();
+    oauthSubmitBusyRef.current = true;
     setLocalError(null);
     try {
       return await props.onSubmitOAuth(providerId, methodIndex, trimmedCode || undefined);
@@ -644,12 +752,15 @@ export default function ProviderAuthModal(props: ProviderAuthModalProps) {
       const message = error instanceof Error ? error.message : "Failed to complete OAuth";
       setLocalError(message);
       throw error instanceof Error ? error : new Error(message);
+    } finally {
+      oauthSubmitBusyRef.current = false;
     }
   };
 
   const attemptOauthAutoCompletion = async () => {
     const session = oauthSession;
-    if (!session || oauthAutoBusy) return;
+    if (!session || oauthAutoBusyRef.current || oauthSubmitBusyRef.current) return;
+    oauthAutoBusyRef.current = true;
     setOauthAutoBusy(true);
     try {
       const result = await submitOauth(session.providerId, session.methodIndex);
@@ -657,6 +768,7 @@ export default function ProviderAuthModal(props: ProviderAuthModalProps) {
         stopOauthAutoPolling();
       }
     } finally {
+      oauthAutoBusyRef.current = false;
       setOauthAutoBusy(false);
     }
   };
@@ -679,11 +791,12 @@ export default function ProviderAuthModal(props: ProviderAuthModalProps) {
   }, [shouldStartOauthAutoPolling]);
 
   const startOauth = async (entry: ProviderAuthEntry, methodIndex?: number) => {
-    if (actionDisabled) return;
+    if (actionDisabled || oauthStartBusyRef.current) return;
     if (!Number.isInteger(methodIndex) || methodIndex === undefined) {
       setLocalError(`No OAuth flow available for ${entry.name}.`);
       return;
     }
+    oauthStartBusyRef.current = true;
     setLocalError(null);
     setOauthCodeInput("");
     setOauthSession(null);
@@ -717,12 +830,72 @@ export default function ProviderAuthModal(props: ProviderAuthModalProps) {
     } catch (error) {
       const message = error instanceof Error ? error.message : "Failed to start OAuth";
       setLocalError(message);
+    } finally {
+      oauthStartBusyRef.current = false;
+    }
+  };
+
+  /**
+   * "Sign in with Eigenwelt": the LegalWork server owns the OAuth loopback +
+   * code exchange. We open the authorize URL, show the standard oauth-auto
+   * waiting view with a synthetic session, and await the server long-poll.
+   * On success the provider flips connected and the existing provider polling
+   * closes the modal; on failure the error surfaces in the modal.
+   */
+  const startEigenweltOauth = async (entry: ProviderAuthEntry) => {
+    if (!props.onEigenweltSignIn || actionDisabled || oauthStartBusyRef.current) return;
+    oauthStartBusyRef.current = true;
+    setLocalError(null);
+    setOauthCodeInput("");
+    setOauthSession(null);
+    setOauthCodeCopied(false);
+    setOauthBrowserOpened(false);
+    const waitToken = ++eigenweltWaitTokenRef.current;
+    let sessionId: string;
+    try {
+      const started = await props.onEigenweltSignIn();
+      sessionId = started.sessionId;
+      setOauthSession({
+        providerId: entry.id,
+        // Synthetic session: there is no engine OAuth method behind it.
+        methodIndex: -1,
+        methodLabel: "Sign in with Eigenwelt",
+        authorization: { url: started.authorizeUrl, method: "auto" } as ProviderAuthAuthorization,
+      });
+      await openOauthUrl(started.authorizeUrl);
+      setView("oauth-auto");
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Failed to start OAuth";
+      setLocalError(message);
+      return;
+    } finally {
+      // Release before the (potentially minutes-long) wait so Back + retry —
+      // or connecting a different provider — is never blocked by this flow.
+      oauthStartBusyRef.current = false;
+    }
+    try {
+      await props.onEigenweltWait?.(sessionId, {
+        cancelled: () => eigenweltWaitTokenRef.current !== waitToken,
+      });
+      // Success: the provider flips connected; the oauth-view provider
+      // polling picks it up and closes the modal.
+    } catch (error) {
+      if (eigenweltWaitTokenRef.current === waitToken) {
+        setLocalError(
+          error instanceof Error ? error.message : "Failed to complete the Eigenwelt sign-in.",
+        );
+      }
     }
   };
 
   const handleMethodSelect = async (method: ProviderAuthMethod) => {
     if (!selectedEntry || actionDisabled) return;
     setLocalError(null);
+
+    if (selectedEntry.id === EIGENWELT_PROVIDER_ID && method.type === "oauth") {
+      await startEigenweltOauth(selectedEntry);
+      return;
+    }
 
     if (method.type === "oauth") {
       await startOauth(selectedEntry, method.methodIndex);
@@ -777,7 +950,13 @@ export default function ProviderAuthModal(props: ProviderAuthModalProps) {
 
     setLocalError(null);
     try {
-      await props.onSubmitApiKey(selectedEntry.id, trimmed);
+      if (selectedEntry.id === EIGENWELT_PROVIDER_ID && props.onSubmitEigenweltApiKey) {
+        // Eigenwelt key submission also writes the provider block (model list
+        // fetched from the platform), so it runs through its own handler.
+        await props.onSubmitEigenweltApiKey(trimmed);
+      } else {
+        await props.onSubmitApiKey(selectedEntry.id, trimmed);
+      }
       // Close the modal after a successful save
       props.onClose();
     } catch (error) {
@@ -971,7 +1150,7 @@ export default function ProviderAuthModal(props: ProviderAuthModalProps) {
   const handleOauthCodeSubmit = async () => {
     if (!selectedEntry || !oauthSession || actionDisabled) return;
 
-    const trimmed = oauthCodeInput.trim();
+    const trimmed = normalizeAuthorizationCode(oauthCodeInput);
     if (!trimmed) {
       setLocalError("Authorization code is required.");
       return;
@@ -982,6 +1161,7 @@ export default function ProviderAuthModal(props: ProviderAuthModalProps) {
 
   const handleBack = () => {
     if (resolvedView === "oauth-code" || resolvedView === "oauth-auto") {
+      eigenweltWaitTokenRef.current += 1;
       if ((selectedEntry?.methods.length ?? 0) > 1) {
         setView("method");
       } else {
@@ -1060,6 +1240,9 @@ export default function ProviderAuthModal(props: ProviderAuthModalProps) {
         ? "Use OpenAI's device flow for remote workers, where the browser callback may not resolve on your local machine."
         : "Use OpenAI's device flow when the local browser callback is unreliable.";
     }
+    if (isAnthropicProvider(entry.id, entry.name) && isClaudeSubscriptionMethod(method)) {
+      return "Sign in with your Claude Pro/Max subscription. See the warning above — third-party subscription use may violate Anthropic's terms.";
+    }
     if (method.type === "oauth") {
       return "Continue in the browser and let LegalWork finish the connection automatically.";
     }
@@ -1068,6 +1251,29 @@ export default function ProviderAuthModal(props: ProviderAuthModalProps) {
     }
     return "Paste a secret key that LegalWork stores locally on this device.";
   };
+
+  const anthropicSubscriptionWarning = (
+    <div className="flex items-start gap-2.5 rounded-xl border border-amber-6/40 bg-amber-2/30 px-3.5 py-3 text-[12px] leading-relaxed text-amber-11">
+      <TriangleAlert className="mt-0.5 size-4 shrink-0" />
+      <span>
+        Claude Pro/Max sign-in uses your personal Claude subscription. Anthropic&apos;s Consumer Terms
+        limit this OAuth to Claude Code and claude.ai, so third-party use may violate those terms and
+        can be blocked without notice. For reliable, permitted access, use &ldquo;Create an API Key&rdquo;
+        or enter an Anthropic API key instead.
+      </span>
+    </div>
+  );
+
+  const selectedEntryHasClaudeSubscription = Boolean(
+    selectedEntry &&
+      isAnthropicProvider(selectedEntry.id, selectedEntry.name) &&
+      selectedEntry.methods.some(isClaudeSubscriptionMethod),
+  );
+  const oauthSessionIsClaudeSubscription = Boolean(
+    oauthSession &&
+      isAnthropicProvider(oauthSession.providerId) &&
+      oauthSession.methodLabel.toLowerCase().includes("pro/max"),
+  );
 
   return (
     <Dialog
@@ -1198,6 +1404,7 @@ export default function ProviderAuthModal(props: ProviderAuthModalProps) {
                       Back
                     </Button>
                   </div>
+                  {selectedEntryHasClaudeSubscription ? anthropicSubscriptionWarning : null}
                   <div className="grid gap-2">
                     {selectedEntry.methods.map((method) => (
                       <button
@@ -1293,6 +1500,7 @@ export default function ProviderAuthModal(props: ProviderAuthModalProps) {
                   <div className="text-xs text-dls-secondary">
                     Complete sign-in in your browser, then paste the code here.
                   </div>
+                  {oauthSessionIsClaudeSubscription ? anthropicSubscriptionWarning : null}
                   {oauthInstructions ? (
                     <div className="break-all rounded-xl border border-dls-border bg-dls-hover px-3 py-2 font-mono text-[11px] text-dls-secondary">
                       {oauthInstructions}
@@ -1356,7 +1564,9 @@ export default function ProviderAuthModal(props: ProviderAuthModalProps) {
                     </div>
                   ) : (
                     <div className="text-xs text-dls-secondary">
-                      Sign in in the browser tab we just opened. We will complete the connection automatically.
+                      {isEigenweltOauthSession
+                        ? "Complete sign-in in your browser, choose your firm, and return here."
+                        : "Sign in in the browser tab we just opened. We will complete the connection automatically."}
                     </div>
                   )}
                   {oauthDisplayCode ? (

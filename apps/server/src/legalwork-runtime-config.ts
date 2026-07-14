@@ -138,6 +138,10 @@ export async function buildLegalworkRuntimeConfigObject(
     },
     plugin: [
       "opencode-chrome-devtools",
+      // Adds "Sign in with Anthropic" auth methods (Claude Pro/Max subscription
+      // OAuth + "Create an API Key" console OAuth) to the provider list. Without
+      // this plugin the engine only offers manual Anthropic API-key entry.
+      "opencode-anthropic-auth",
       legalworkExtensionsPreviewPluginPath(),
       legalworkCapabilitiesKnowledgePluginPath(),
       legalworkAnthropicAdaptiveThinkingPluginPath(),

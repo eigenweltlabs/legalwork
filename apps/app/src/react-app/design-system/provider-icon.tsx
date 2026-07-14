@@ -23,6 +23,7 @@ export function ProviderIcon(props: ProviderIconProps) {
   const isAnthropic = hasProviderFamily("anthropic");
   const isOpenAI = hasProviderFamily("openai");
   const isOpenCode = hasProviderFamily("opencode");
+  const isEigenwelt = hasProviderFamily("eigenwelt");
 
   const fallbackLetters = (() => {
     if (normalizedId === "openrouter") return "OR";
@@ -39,7 +40,20 @@ export function ProviderIcon(props: ProviderIconProps) {
       }`}
       style={{ width: `${size}px`, height: `${size}px` }}
     >
-      {isOpenAI ? (
+      {isEigenwelt ? (
+        // Eigenwelt "eigen-square" brand mark: three squares on a 96 grid.
+        <svg
+          role="img"
+          viewBox="0 0 96 96"
+          xmlns="http://www.w3.org/2000/svg"
+          width={size}
+          height={size}
+        >
+          <rect x="14" y="14" width="32" height="32" fill="#2352DE" />
+          <rect x="50" y="50" width="32" height="32" fill="#8669B9" />
+          <rect x="50" y="14" width="32" height="32" fill="currentColor" />
+        </svg>
+      ) : isOpenAI ? (
         <svg
           role="img"
           viewBox="0 0 24 24"

@@ -9,6 +9,7 @@ import { createClient } from "@/app/lib/opencode";
 import { normalizeEvent } from "@/app/utils";
 import { SYNTHETIC_SESSION_ERROR_MESSAGE_PREFIX, type OpencodeEvent, type PendingPermission, type PendingQuestion } from "@/app/types";
 import { consumeEigenweltFreeBudgetStop, EIGENWELT_FREE_LIMIT_ERROR_TEXT } from "@/app/lib/eigenwelt-free-budget";
+import { consumeEigenweltBudgetStop, EIGENWELT_BUDGET_EXCEEDED_ERROR_TEXT } from "@/app/lib/eigenwelt-budget";
 import { createSessionErrorUIMessage, describeOpencodeSessionError, snapshotToUIMessages } from "./usechat-adapter";
 import {
   parseDynamicToolUIPart,
@@ -654,13 +655,16 @@ function applyEvent(entry: SyncEntry, workspaceId: string, event: OpencodeEvent)
     const sessionId = sessionIdFromProperties(event.properties);
     if (sessionId) {
       const sessionError = sessionErrorFromProperties(event.properties);
-      // A daily-limit stop aborts the run from the app side, so the engine
-      // reports a generic MessageAbortedError here. Substitute the limit copy
-      // so the terminal chat message renders as the friendly limit card
-      // instead of "The message was interrupted".
+      // A daily-limit or budget-exceeded stop aborts the run from the app
+      // side, so the engine reports a generic MessageAbortedError here.
+      // Substitute the matching copy so the terminal chat message renders as
+      // the friendly limit / top-up card instead of "The message was
+      // interrupted".
       const errorText = consumeEigenweltFreeBudgetStop(sessionId)
         ? EIGENWELT_FREE_LIMIT_ERROR_TEXT
-        : describeOpencodeSessionError(sessionError);
+        : consumeEigenweltBudgetStop(sessionId)
+          ? EIGENWELT_BUDGET_EXCEEDED_ERROR_TEXT
+          : describeOpencodeSessionError(sessionError);
       const runStartedAt = takeTaskRunStart(sessionId);
       if (runStartedAt !== null) {
         captureAnalyticsEvent("task_run_errored", {
@@ -1221,8 +1225,8 @@ export function seedSessionState(workspaceId: string, snapshot: LegalworkSession
  * Uses the same per-turn keying as the live `session.error` handler (errored
  * assistant message id, session id fallback) so the injected message
  * reconciles with — instead of duplicating — the error the engine reports for
- * the same turn. Used by the free-tier daily-limit stop path, which knows the
- * run failed before the engine's abort error arrives.
+ * the same turn. Used by the free-tier daily-limit and budget-exceeded stop
+ * paths, which know the run failed before the engine's abort error arrives.
  */
 export function injectSessionErrorMessage(workspaceId: string, sessionId: string, text: string) {
   const queryClient = getReactQueryClient();

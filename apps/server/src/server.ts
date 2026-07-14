@@ -88,6 +88,7 @@ import {
   writeLegalworkWorkspaceConfig,
 } from "./legalwork-workspace-config-store.js";
 import { buildLegalworkRuntimeConfigObject } from "./legalwork-runtime-config.js";
+import { fetchEigenweltManifest, startEigenweltSignIn, waitForEigenweltSignIn } from "./eigenwelt-auth.js";
 import pkg from "../package.json" with { type: "json" };
 import constants from "../../../constants.json" with { type: "json" };
 
@@ -1913,6 +1914,46 @@ function createRoutes(
       stdout: `Wrote ${configPath}`,
       stderr: "",
     });
+  });
+
+  // Eigenwelt platform connect: the server owns the OAuth loopback + code
+  // exchange (see eigenwelt-auth.ts). The app opens the authorize URL,
+  // long-polls the wait endpoint for the exchange payload, and then writes
+  // the provider block itself via PATCH /workspace/:id/config.
+  addRoute(routes, "POST", "/api/eigenwelt/oauth/start", "client", async () => {
+    try {
+      return jsonResponse(await startEigenweltSignIn());
+    } catch (error) {
+      throw new ApiError(
+        409,
+        "eigenwelt_signin_unavailable",
+        error instanceof Error ? error.message : "Failed to start the Eigenwelt sign-in.",
+      );
+    }
+  });
+
+  addRoute(routes, "GET", "/api/eigenwelt/oauth/wait/:sessionId", "client", async (ctx) => {
+    try {
+      return jsonResponse(await waitForEigenweltSignIn(ctx.params.sessionId));
+    } catch (error) {
+      throw new ApiError(
+        410,
+        "eigenwelt_signin_failed",
+        error instanceof Error ? error.message : "Eigenwelt sign-in failed.",
+      );
+    }
+  });
+
+  addRoute(routes, "GET", "/api/eigenwelt/models", "client", async () => {
+    try {
+      return jsonResponse(await fetchEigenweltManifest());
+    } catch (error) {
+      throw new ApiError(
+        502,
+        "eigenwelt_platform_unreachable",
+        error instanceof Error ? error.message : "Could not reach the Eigenwelt platform.",
+      );
+    }
   });
 
   addRoute(routes, "GET", "/workspace/:id/audit", "client", async (ctx) => {
