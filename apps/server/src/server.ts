@@ -88,7 +88,29 @@ import {
   writeLegalworkWorkspaceConfig,
 } from "./legalwork-workspace-config-store.js";
 import { buildLegalworkRuntimeConfigObject } from "./legalwork-runtime-config.js";
-import { fetchEigenweltManifest, startEigenweltSignIn, waitForEigenweltSignIn } from "./eigenwelt-auth.js";
+import {
+  fetchEigenweltManifest,
+  parseEigenweltEntitlements,
+  startEigenweltSignIn,
+  waitForEigenweltSignIn,
+} from "./eigenwelt-auth.js";
+import {
+  readEigenweltConnection,
+  readEigenweltEntitlementsView,
+  writeEigenweltConnection,
+} from "./eigenwelt-connection-store.js";
+import {
+  buildIntegrationPayload,
+  hubCreate,
+  hubDelete,
+  hubGet,
+  hubList,
+  installWorkflowFiles,
+  parseIntegrationPayload,
+  requireHubClient,
+  serializeWorkflowSkill,
+  type EigenweltHubKind,
+} from "./eigenwelt-hub.js";
 import pkg from "../package.json" with { type: "json" };
 import constants from "../../../constants.json" with { type: "json" };
 
@@ -1954,6 +1976,151 @@ function createRoutes(
         error instanceof Error ? error.message : "Could not reach the Eigenwelt platform.",
       );
     }
+  });
+
+  // Eigenwelt subscription: entitlements + Firm Hub. The app persists the
+  // connection (entitlements + platformURL + the secret platformToken) here
+  // right after "Sign in with Eigenwelt" completes. The token is server-side
+  // only (never returned to the app) and backs the hub proxy routes below.
+  const resolveHubClient = async (workspaceId: string) =>
+    requireHubClient(await readEigenweltConnection(config, workspaceId));
+
+  const parseHubKind = (value: string): EigenweltHubKind => {
+    if (value === "workflow" || value === "integration" || value === "preset") return value;
+    throw new ApiError(400, "invalid_hub_kind", "kind must be workflow, integration or preset.");
+  };
+
+  addRoute(routes, "PUT", "/workspace/:id/eigenwelt/connection", "client", async (ctx) => {
+    ensureWritable(config);
+    requireClientScope(ctx, "collaborator");
+    const workspace = await resolveWorkspace(config, ctx.params.id);
+    const body = await readOptionalJsonBody(ctx.request);
+    const entitlements =
+      body.entitlements === undefined ? undefined : parseEigenweltEntitlements(body.entitlements) ?? null;
+    const platformURL =
+      body.platformURL === undefined ? undefined : typeof body.platformURL === "string" ? body.platformURL : null;
+    const platformToken =
+      body.platformToken === undefined
+        ? undefined
+        : typeof body.platformToken === "string"
+          ? body.platformToken
+          : null;
+    const view = await writeEigenweltConnection(config, workspace.id, { entitlements, platformURL, platformToken });
+    return jsonResponse(view);
+  });
+
+  addRoute(routes, "GET", "/workspace/:id/eigenwelt/entitlements", "client", async (ctx) => {
+    const workspace = await resolveWorkspace(config, ctx.params.id);
+    return jsonResponse(await readEigenweltEntitlementsView(config, workspace.id));
+  });
+
+  addRoute(routes, "GET", "/workspace/:id/hub", "client", async (ctx) => {
+    const workspace = await resolveWorkspace(config, ctx.params.id);
+    const client = await resolveHubClient(workspace.id);
+    const kindParam = ctx.url.searchParams.get("kind")?.trim();
+    const kinds: EigenweltHubKind[] = kindParam
+      ? [parseHubKind(kindParam)]
+      : ["workflow", "integration", "preset"];
+    const groups = await Promise.all(kinds.map((kind) => hubList(client, kind)));
+    return jsonResponse({ items: groups.flat() });
+  });
+
+  addRoute(routes, "GET", "/workspace/:id/hub/:itemId", "client", async (ctx) => {
+    const workspace = await resolveWorkspace(config, ctx.params.id);
+    const client = await resolveHubClient(workspace.id);
+    return jsonResponse(await hubGet(client, ctx.params.itemId));
+  });
+
+  addRoute(routes, "POST", "/workspace/:id/hub/share/workflow", "client", async (ctx) => {
+    ensureWritable(config);
+    requireClientScope(ctx, "collaborator");
+    const workspace = await resolveWorkspace(config, ctx.params.id);
+    const client = await resolveHubClient(workspace.id);
+    const body = await readJsonBody(ctx.request);
+    const skill = String(body.skill ?? "").trim();
+    if (!skill) throw new ApiError(400, "invalid_skill_name", "Skill name is required");
+    const name = typeof body.name === "string" && body.name.trim() ? body.name.trim() : skill;
+    const description = typeof body.description === "string" ? body.description : undefined;
+    const payload = await serializeWorkflowSkill(workspace.path, skill);
+    const result = await hubCreate(client, { kind: "workflow", name, description, payload });
+    return jsonResponse({ ok: true, ...result });
+  });
+
+  addRoute(routes, "POST", "/workspace/:id/hub/share/integration", "client", async (ctx) => {
+    ensureWritable(config);
+    requireClientScope(ctx, "collaborator");
+    const workspace = await resolveWorkspace(config, ctx.params.id);
+    const client = await resolveHubClient(workspace.id);
+    const body = await readJsonBody(ctx.request);
+    const mcpName = String(body.mcp ?? "").trim();
+    if (!mcpName) throw new ApiError(400, "invalid_mcp_name", "MCP name is required");
+    const items = await listMcp(config, workspace.id, workspace.path);
+    const entry = items.find((item) => item.name === mcpName);
+    if (!entry) throw new ApiError(404, "mcp_not_found", `MCP not found: ${mcpName}`);
+    const name = typeof body.name === "string" && body.name.trim() ? body.name.trim() : mcpName;
+    const description = typeof body.description === "string" ? body.description : undefined;
+    const payload = buildIntegrationPayload(entry.name, entry.config);
+    const result = await hubCreate(client, { kind: "integration", name, description, payload });
+    return jsonResponse({ ok: true, ...result });
+  });
+
+  addRoute(routes, "POST", "/workspace/:id/hub/share/preset", "client", async (ctx) => {
+    ensureWritable(config);
+    requireClientScope(ctx, "collaborator");
+    const workspace = await resolveWorkspace(config, ctx.params.id);
+    const client = await resolveHubClient(workspace.id);
+    const body = await readJsonBody(ctx.request);
+    const name = String(body.name ?? "").trim();
+    if (!name) throw new ApiError(400, "invalid_hub_name", "A preset name is required");
+    if (body.payload === undefined || body.payload === null) {
+      throw new ApiError(400, "invalid_preset", "A preset payload is required");
+    }
+    const description = typeof body.description === "string" ? body.description : undefined;
+    const result = await hubCreate(client, { kind: "preset", name, description, payload: body.payload });
+    return jsonResponse({ ok: true, ...result });
+  });
+
+  addRoute(routes, "POST", "/workspace/:id/hub/install/:itemId", "client", async (ctx) => {
+    ensureWritable(config);
+    requireClientScope(ctx, "collaborator");
+    const workspace = await resolveWorkspace(config, ctx.params.id);
+    const client = await resolveHubClient(workspace.id);
+    const item = await hubGet(client, ctx.params.itemId);
+    if (item.kind === "workflow") {
+      const files =
+        item.payload && typeof item.payload === "object"
+          ? (item.payload as { files?: unknown }).files
+          : null;
+      const result = await installWorkflowFiles(workspace.path, item.name, files);
+      emitReloadEvent(ctx.reloadEvents, workspace, "skills", {
+        type: "skill",
+        name: result.name,
+        action: "added",
+        path: result.path,
+      });
+      return jsonResponse({ ok: true, kind: item.kind, name: result.name, path: result.path, written: result.written });
+    }
+    if (item.kind === "integration") {
+      const integration = parseIntegrationPayload(item.payload);
+      const result = await addMcp(config, workspace.id, integration.key, integration.mcp);
+      emitReloadEvent(ctx.reloadEvents, workspace, "mcp", {
+        type: "mcp",
+        name: integration.key,
+        action: result.action,
+      });
+      return jsonResponse({ ok: true, kind: item.kind, name: integration.key, action: result.action });
+    }
+    // Presets are applied from settings via the config APIs, not installed here.
+    throw new ApiError(400, "preset_install_unsupported", "Apply presets from settings, not the hub install action.");
+  });
+
+  addRoute(routes, "DELETE", "/workspace/:id/hub/:itemId", "client", async (ctx) => {
+    ensureWritable(config);
+    requireClientScope(ctx, "collaborator");
+    const workspace = await resolveWorkspace(config, ctx.params.id);
+    const client = await resolveHubClient(workspace.id);
+    await hubDelete(client, ctx.params.itemId);
+    return jsonResponse({ ok: true, id: ctx.params.itemId });
   });
 
   addRoute(routes, "GET", "/workspace/:id/audit", "client", async (ctx) => {

@@ -53,12 +53,39 @@ export type EigenweltManifestModel = {
   reasoning?: boolean;
 };
 
+/** Per-firm daily usage snapshot from the platform (all amounts in cents). */
+export type EigenweltUsage = {
+  dailyAllowanceCents: number;
+  dailyRemainingCents: number;
+  extraUsageEnabled: boolean;
+  prepaidBalanceCents: number;
+};
+
+/**
+ * Subscription entitlements the platform attaches to the exchange payload.
+ * OPTIONAL end to end: an older platform omits it, so every consumer must
+ * treat "no entitlements" as the free/legacy tier and not break.
+ */
+export type EigenweltEntitlements = {
+  plan: "plus" | "pro" | null;
+  subscriptionStatus: string | null;
+  features: string[];
+  seats: number;
+  usage: EigenweltUsage;
+};
+
 export type EigenweltSignInPayload = {
   apiKey: string;
   baseURL: string;
   orgId?: string;
   orgName?: string;
   models: EigenweltManifestModel[];
+  /** Present only when the platform ships subscription data (parse tolerantly). */
+  entitlements?: EigenweltEntitlements;
+  /** Bearer for the platform hub APIs; rotates on every sign-in. Secret. */
+  platformToken?: string;
+  /** Platform origin for hub/billing links, e.g. https://platform.eigenweltlabs.com. */
+  platformURL?: string;
 };
 
 export type EigenweltManifest = {
@@ -86,6 +113,44 @@ const CALLBACK_HTML = `<!doctype html>
 <html><head><meta charset="utf-8"><title>Eigenwelt — connected</title>
 <style>body{font-family:system-ui,sans-serif;background:#fefefe;color:#0e0a07;display:grid;place-items:center;min-height:90vh}main{text-align:center}h1{font-weight:500;letter-spacing:-0.04em}p{color:rgba(14,10,7,.55)}</style>
 </head><body><main><h1>You're connected.</h1><p>Return to LegalWork — this tab can be closed.</p></main></body></html>`;
+
+const ENTITLEMENT_FEATURES = new Set([
+  "admin_hub",
+  "settings_presets",
+  "org_management",
+  "premium_models",
+]);
+
+function toFiniteNumber(value: unknown, fallback = 0): number {
+  return typeof value === "number" && Number.isFinite(value) ? value : fallback;
+}
+
+/**
+ * Defensively parse the OPTIONAL `entitlements` block from the exchange
+ * payload. Returns undefined when the field is absent or too malformed to
+ * trust — callers treat that as the free/legacy tier. Never throws.
+ */
+export function parseEigenweltEntitlements(value: unknown): EigenweltEntitlements | undefined {
+  if (!isRecord(value)) return undefined;
+  const plan = value.plan === "plus" || value.plan === "pro" ? value.plan : null;
+  const subscriptionStatus = typeof value.subscriptionStatus === "string" ? value.subscriptionStatus : null;
+  const features = Array.isArray(value.features)
+    ? [...new Set(value.features.filter((f): f is string => typeof f === "string" && ENTITLEMENT_FEATURES.has(f)))]
+    : [];
+  const usageRaw = isRecord(value.usage) ? value.usage : {};
+  return {
+    plan,
+    subscriptionStatus,
+    features,
+    seats: toFiniteNumber(value.seats),
+    usage: {
+      dailyAllowanceCents: toFiniteNumber(usageRaw.dailyAllowanceCents),
+      dailyRemainingCents: toFiniteNumber(usageRaw.dailyRemainingCents),
+      extraUsageEnabled: usageRaw.extraUsageEnabled === true,
+      prepaidBalanceCents: toFiniteNumber(usageRaw.prepaidBalanceCents),
+    },
+  };
+}
 
 async function bindLoopback(
   handler: (req: IncomingMessage, res: ServerResponse, port: number) => void,
@@ -156,7 +221,25 @@ export async function startEigenweltSignIn(): Promise<{ sessionId: string; autho
         settleErr(new Error("Eigenwelt sign-in failed: the platform returned an incomplete payload."));
         return;
       }
-      settleOk(payload as EigenweltSignInPayload);
+      // Reconstruct explicitly so a legacy payload (no entitlements/platform*)
+      // is delivered byte-for-byte, and the optional subscription fields are
+      // normalized (never partially-formed) when the platform does send them.
+      const delivered: EigenweltSignInPayload = {
+        apiKey: payload.apiKey,
+        baseURL: payload.baseURL,
+        models: payload.models,
+        ...(payload.orgId ? { orgId: payload.orgId } : {}),
+        ...(payload.orgName ? { orgName: payload.orgName } : {}),
+      };
+      const entitlements = parseEigenweltEntitlements(payload.entitlements);
+      if (entitlements) delivered.entitlements = entitlements;
+      if (typeof payload.platformToken === "string" && payload.platformToken.trim()) {
+        delivered.platformToken = payload.platformToken;
+      }
+      if (typeof payload.platformURL === "string" && payload.platformURL.trim()) {
+        delivered.platformURL = payload.platformURL.replace(/\/+$/, "");
+      }
+      settleOk(delivered);
     } catch {
       settleErr(new Error("Eigenwelt sign-in failed: could not reach the Eigenwelt platform for the code exchange."));
     } finally {
