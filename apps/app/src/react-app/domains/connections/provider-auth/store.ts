@@ -27,10 +27,12 @@ import { getReactQueryClient } from "../../../infra/query-client";
 import { ensureProviderListQuery } from "../../../infra/provider-list-query";
 import type { LegalworkServerStoreSnapshot } from "../legalwork-server-store";
 import type {
+  EigenweltEntitlements,
   EigenweltManifest,
   EigenweltManifestModel,
   EigenweltSignInPayload,
 } from "../../../../app/lib/legalwork-server";
+import { invalidateEigenweltEntitlements } from "../eigenwelt-entitlements";
 
 /**
  * The slice of the legalwork-server store this store actually consumes.
@@ -1153,6 +1155,9 @@ export function createProviderAuthStore(options: CreateProviderAuthStoreOptions)
     apiKey: string;
     baseURL: string;
     models: EigenweltManifestModel[];
+    entitlements?: EigenweltEntitlements;
+    platformToken?: string;
+    platformURL?: string;
   }) => {
     const c = options.client();
     if (!c) {
@@ -1175,6 +1180,27 @@ export function createProviderAuthStore(options: CreateProviderAuthStoreOptions)
     // Keep the secret out of the config file: same auth-store write as
     // submitProviderApiKey.
     await c.auth.set({ providerID: EIGENWELT_PROVIDER_ID, auth: { type: "api", key: payload.apiKey } });
+
+    // Persist subscription entitlements + platformURL + the (secret, rotating)
+    // platformToken server-side so the app can gate features and the server can
+    // reach the platform hub. Best-effort: a legacy platform sends none of
+    // these, and a persistence failure must not fail the connection itself.
+    if (payload.entitlements || payload.platformToken || payload.platformURL) {
+      const { legalworkClient, legalworkWorkspaceId, canUseLegalworkServer } =
+        await resolveLegalworkConfigTarget("write");
+      if (canUseLegalworkServer && legalworkClient && legalworkWorkspaceId) {
+        try {
+          await legalworkClient.eigenweltSaveConnection(legalworkWorkspaceId, {
+            entitlements: payload.entitlements ?? null,
+            platformURL: payload.platformURL ?? null,
+            platformToken: payload.platformToken ?? null,
+          });
+          invalidateEigenweltEntitlements(legalworkWorkspaceId);
+        } catch {
+          // ignore: entitlements are a best-effort enhancement, not required to connect.
+        }
+      }
+    }
 
     options.markOpencodeConfigReloadRequired();
     await refreshProviders({ dispose: true });

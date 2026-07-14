@@ -121,6 +121,32 @@ export type EigenweltManifestModel = {
   reasoning?: boolean;
 };
 
+/** Per-firm daily usage snapshot from the platform (all amounts in cents). */
+export type EigenweltUsage = {
+  dailyAllowanceCents: number;
+  dailyRemainingCents: number;
+  extraUsageEnabled: boolean;
+  prepaidBalanceCents: number;
+};
+
+/** Subscription entitlements. OPTIONAL — absent means the free/legacy tier. */
+export type EigenweltEntitlements = {
+  plan: "plus" | "pro" | null;
+  subscriptionStatus: string | null;
+  features: string[];
+  seats: number;
+  usage: EigenweltUsage;
+};
+
+/** Feature flags the platform may grant (subset the app gates surfaces on). */
+export type EigenweltFeature = "admin_hub" | "settings_presets" | "org_management" | "premium_models";
+
+/** App-safe connection view: entitlements + platformURL, never the secret token. */
+export type EigenweltEntitlementsView = {
+  entitlements: EigenweltEntitlements | null;
+  platformURL: string | null;
+};
+
 /** Payload delivered once "Sign in with Eigenwelt" completes in the browser. */
 export type EigenweltSignInPayload = {
   apiKey: string;
@@ -128,6 +154,11 @@ export type EigenweltSignInPayload = {
   orgId?: string;
   orgName?: string;
   models: EigenweltManifestModel[];
+  entitlements?: EigenweltEntitlements;
+  /** Bearer for the platform hub APIs; rotates on every sign-in. Secret. */
+  platformToken?: string;
+  /** Platform origin for hub/billing links, e.g. https://platform.eigenweltlabs.com. */
+  platformURL?: string;
 };
 
 export type EigenweltSignInWaitResult = EigenweltSignInPayload | { pending: true };
@@ -136,6 +167,21 @@ export type EigenweltManifest = {
   baseURL: string;
   models: EigenweltManifestModel[];
 };
+
+export type EigenweltHubKind = "workflow" | "integration" | "preset";
+
+/** One shared item in the firm hub (list view — no payload). */
+export type EigenweltHubItem = {
+  id: string;
+  kind: EigenweltHubKind;
+  name: string;
+  description: string;
+  createdByUserId: string;
+  version: number;
+  updatedAt: string;
+};
+
+export type EigenweltHubItemDetail = EigenweltHubItem & { payload: unknown };
 
 // The shared WorkspaceWire contract now carries the opencode block; keep the
 // historical name as an alias for the many existing imports.
@@ -1620,6 +1666,70 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
         hostToken,
         timeoutMs: timeouts.config,
       }),
+    // Persist the connected firm's entitlements + platformURL + the secret
+    // platformToken (server-side only). Called right after a successful sign-in.
+    eigenweltSaveConnection: (
+      workspaceId: string,
+      payload: { entitlements?: EigenweltEntitlements | null; platformURL?: string | null; platformToken?: string | null },
+    ) =>
+      requestJson<EigenweltEntitlementsView>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/eigenwelt/connection`, {
+        token,
+        hostToken,
+        method: "PUT",
+        body: payload,
+        timeoutMs: timeouts.config,
+      }),
+    eigenweltEntitlements: (workspaceId: string) =>
+      requestJson<EigenweltEntitlementsView>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/eigenwelt/entitlements`, {
+        token,
+        hostToken,
+        timeoutMs: timeouts.config,
+      }),
+    // Firm Hub: the server proxies these to the platform with the stored token.
+    hubList: (workspaceId: string, kind?: EigenweltHubKind) => {
+      const query = kind ? `?kind=${encodeURIComponent(kind)}` : "";
+      return requestJson<{ items: EigenweltHubItem[] }>(
+        baseUrl,
+        `/workspace/${encodeURIComponent(workspaceId)}/hub${query}`,
+        { token, hostToken, timeoutMs: timeouts.config },
+      );
+    },
+    hubGet: (workspaceId: string, itemId: string) =>
+      requestJson<EigenweltHubItemDetail>(
+        baseUrl,
+        `/workspace/${encodeURIComponent(workspaceId)}/hub/${encodeURIComponent(itemId)}`,
+        { token, hostToken, timeoutMs: timeouts.config },
+      ),
+    hubShareWorkflow: (workspaceId: string, payload: { skill: string; name?: string; description?: string }) =>
+      requestJson<{ ok: boolean; id: string; version: number }>(
+        baseUrl,
+        `/workspace/${encodeURIComponent(workspaceId)}/hub/share/workflow`,
+        { token, hostToken, method: "POST", body: payload, timeoutMs: timeouts.workspaceExport },
+      ),
+    hubShareIntegration: (workspaceId: string, payload: { mcp: string; name?: string; description?: string }) =>
+      requestJson<{ ok: boolean; id: string; version: number }>(
+        baseUrl,
+        `/workspace/${encodeURIComponent(workspaceId)}/hub/share/integration`,
+        { token, hostToken, method: "POST", body: payload, timeoutMs: timeouts.config },
+      ),
+    hubSharePreset: (workspaceId: string, payload: { name: string; description?: string; payload: unknown }) =>
+      requestJson<{ ok: boolean; id: string; version: number }>(
+        baseUrl,
+        `/workspace/${encodeURIComponent(workspaceId)}/hub/share/preset`,
+        { token, hostToken, method: "POST", body: payload, timeoutMs: timeouts.config },
+      ),
+    hubInstall: (workspaceId: string, itemId: string) =>
+      requestJson<{ ok: boolean; kind: EigenweltHubKind; name: string }>(
+        baseUrl,
+        `/workspace/${encodeURIComponent(workspaceId)}/hub/install/${encodeURIComponent(itemId)}`,
+        { token, hostToken, method: "POST", timeoutMs: timeouts.workspaceImport },
+      ),
+    hubDelete: (workspaceId: string, itemId: string) =>
+      requestJson<{ ok: boolean; id: string }>(
+        baseUrl,
+        `/workspace/${encodeURIComponent(workspaceId)}/hub/${encodeURIComponent(itemId)}`,
+        { token, hostToken, method: "DELETE", timeoutMs: timeouts.config },
+      ),
     listReloadEvents: (workspaceId: string, options?: { since?: number }) => {
       const query = typeof options?.since === "number" ? `?since=${options.since}` : "";
       return requestJson<{ items: LegalworkReloadEvent[]; cursor?: number }>(
