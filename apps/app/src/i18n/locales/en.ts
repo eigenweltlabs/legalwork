@@ -1990,7 +1990,7 @@ export default {
   "recorder.insert_into_composer": "Insert into session",
   "recorder.transcriber_error": "Transcription engine error:",
   "recorder.rename": "Rename",
-  "recorder.import_file": "Import file",
+  "recorder.import_file": "Import audio file",
   "recorder.import_drop_hint": "Drop an audio file to transcribe locally",
   "recorder.import_transcribing": "Transcribing",
   "recorder.import_transcribing_hint": "Decoding and transcribing on-device — long files can take a moment.",

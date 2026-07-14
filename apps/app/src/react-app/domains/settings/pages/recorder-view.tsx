@@ -5,7 +5,7 @@
  * lean — just record.
  */
 import { useEffect, useState } from "react";
-import { Keyboard, Languages, Mic, ShieldCheck } from "lucide-react";
+import { HardDrive, Keyboard, Languages, Mic, ShieldCheck } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -16,7 +16,6 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
-import { SegmentedControl } from "@legalwork/ui/react";
 import { desktopLoginItemGet, desktopLoginItemSet } from "@/app/lib/desktop";
 import { t } from "../../../../i18n";
 import {
@@ -30,6 +29,7 @@ import {
 import { ModelManagerList } from "../../recorder/model-manager";
 import { formatDictationShortcut } from "../../recorder/dictation-shortcut";
 import { useRecorderStore } from "../../recorder/recorder-store";
+import { HubTabs } from "../segmented-tabs";
 import { DictationSetupDialog } from "./dictation-setup-dialog";
 
 export function RecorderSettingsView() {
@@ -71,14 +71,12 @@ export function RecorderSettingsView() {
 
   return (
     <LayoutStack>
-      <SegmentedControl
-        className="w-fit"
-        aria-label={t("recorder.models_tab")}
+      <HubTabs
         value={tab}
-        onValueChange={(key) => setTab(key as "models" | "dictation")}
+        onChange={setTab}
         items={[
-          { value: "models", label: t("recorder.models_tab") },
-          { value: "dictation", label: t("recorder.dictation_tab") },
+          { id: "models", label: t("recorder.models_tab"), icon: HardDrive },
+          { id: "dictation", label: t("recorder.dictation_tab"), icon: Keyboard },
         ]}
       />
 

@@ -9,6 +9,7 @@ import { ClaudePluginImportModal } from "../../connections/modals/claude-plugin-
 import type { LegalworkClaudePluginPreview } from "../../../../app/lib/legalwork-server";
 import { PluginsView, type PluginsExtensionsStore } from "./plugins-view";
 import { BUNDLED_PLUGINS } from "../bundled-plugins";
+import { HubTabs } from "../segmented-tabs";
 
 export type ExtensionsSection = "all" | "mcp" | "skills" | "plugins";
 
@@ -66,11 +67,6 @@ const pageTitleClass = "text-[34px] font-medium leading-[1.04] tracking-[-0.035e
 
 // Neutral segmented control matching the reference: a soft gray track with a
 // white active pill (no accent fill). Shared by the tab switcher.
-const segmentedTrackClass = "flex w-fit gap-0.5 rounded-full bg-dls-hover p-1";
-const segmentedItemClass =
-  "inline-flex items-center gap-1.5 rounded-full px-3.5 py-1.5 text-[13px] font-medium transition-all duration-200";
-const segmentedActiveClass = "bg-dls-surface text-dls-text shadow-[0_1px_2px_rgba(8,23,79,0.08)]";
-const segmentedInactiveClass = "text-dls-secondary hover:text-dls-text";
 
 export function ExtensionsView(props: ExtensionsViewProps) {
   const initialTab: ExtensionsTab =
@@ -93,22 +89,7 @@ export function ExtensionsView(props: ExtensionsViewProps) {
   return (
     <section className="space-y-7 max-w-5xl w-full animate-in fade-in duration-300">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className={segmentedTrackClass}>
-          {TABS.map(({ id, label, icon: Icon }) => {
-            const active = tab === id;
-            return (
-              <button
-                key={id}
-                type="button"
-                onClick={() => selectTab(id)}
-                className={`${segmentedItemClass} ${active ? segmentedActiveClass : segmentedInactiveClass}`}
-              >
-                <Icon size={14} strokeWidth={1.75} />
-                {label}
-              </button>
-            );
-          })}
-        </div>
+        <HubTabs items={TABS} value={tab} onChange={selectTab} />
         <div className="flex items-center gap-2">
           {props.mcpConnectedAppsCount > 0 ? (
             <div className="hidden items-center gap-2 rounded-full bg-green-3 px-3 py-1 sm:inline-flex">
