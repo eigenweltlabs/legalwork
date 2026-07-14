@@ -69,19 +69,21 @@ function AuthorizedFolderItem(props: AuthorizedFolderItemProps) {
   const folderName = getFolderName(props.folder);
 
   return (
-    <li className="flex flex-row items-center justify-between gap-3 rounded-2xl border border-dls-border px-4 py-3">
-      <div className="flex min-w-0 gap-3">
-        <div className="min-w-0 flex flex-col gap-2">
+    <li className="group flex flex-row items-center justify-between gap-3 px-4 py-3 transition-colors hover:bg-hover">
+      <div className="flex min-w-0 items-center gap-3">
+        <span className="grid size-8 shrink-0 place-items-center rounded-lg bg-sunken text-tertiary">
+          <Folder size={16} />
+        </span>
+        <div className="min-w-0">
           <div className="flex items-center gap-2">
-            <Folder size={16} className="shrink-0 text-muted-foreground" />
-            <span className="truncate text-sm font-medium text-dls-text">{folderName}</span>
+            <span className="truncate text-base font-medium text-ink">{folderName}</span>
             {isWorkspaceRoot ? (
-              <span className="shrink-0 rounded-full border border-dls-border bg-dls-hover px-2 py-0.5 text-xs font-medium text-muted-foreground">
+              <span className="shrink-0 rounded-full bg-sunken px-2 py-0.5 text-2xs font-medium text-subtext">
                 {t("context_panel.workspace_root_badge")}
               </span>
             ) : null}
           </div>
-          <span className="truncate font-mono text-xs text-muted-foreground ps-6">{props.folder}</span>
+          <span className="mt-0.5 block truncate font-mono text-xs text-tertiary">{props.folder}</span>
         </div>
       </div>
       {!isWorkspaceRoot ? (
@@ -294,7 +296,7 @@ export function AuthorizedFoldersPanel(props: AuthorizedFoldersPanelProps) {
         <>
           {/* Folder list */}
           {visibleAuthorizedFolders.length > 0 ? (
-            <ul className="flex flex-col gap-2">
+            <ul className="divide-y divide-subtle overflow-hidden rounded-2xl border border-subtle bg-surface shadow-xs">
               {visibleAuthorizedFolders.map((folder) => (
                 <AuthorizedFolderItem
                   key={folder}

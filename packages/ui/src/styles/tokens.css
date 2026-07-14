@@ -1,0 +1,175 @@
+/*
+ * LegalWork Design System — design tokens
+ * ----------------------------------------
+ * Runtime CSS custom properties. These are the single source of truth for
+ * color, elevation and motion. `theme.css` maps them into Tailwind's theme so
+ * they are reachable as utilities (bg-surface, text-ink, border-subtle, ...).
+ *
+ * Identity: navy primary (premium, law-firm), a single restrained blue for
+ * interactive states (toggles, focus, send, selection). Near-white surfaces,
+ * hairline borders, generous whitespace — the "work app" idiom.
+ *
+ * Swap the values under `.dark` / [data-theme="dark"] to re-theme at runtime;
+ * the Tailwind mapping references these vars, so utilities follow automatically.
+ */
+
+:root {
+  color-scheme: light;
+
+  /* ---- Neutral ramp (warm-neutral gray) ---------------------------------- */
+  --lw-white: #ffffff;
+  --lw-gray-25: #fcfcfc;
+  --lw-gray-50: #f7f7f8;
+  --lw-gray-100: #f1f1f3;
+  --lw-gray-150: #ececee;
+  --lw-gray-200: #e4e4e7;
+  --lw-gray-300: #d6d6da;
+  --lw-gray-400: #b6b6bd;
+  --lw-gray-500: #8f8f98;
+  --lw-gray-600: #6c6c76;
+  --lw-gray-700: #52525a;
+  --lw-gray-800: #35353b;
+  --lw-gray-900: #1c1c20;
+  --lw-ink: #0d0d0f;
+
+  /* ---- Navy (brand primary) ---------------------------------------------- */
+  --lw-navy-50: #eef2f6;
+  --lw-navy-100: #d5e0eb;
+  --lw-navy-200: #adc2d5;
+  --lw-navy-300: #7d9bb8;
+  --lw-navy-500: #2e5c85;
+  --lw-navy-600: #163a5c;
+  --lw-navy-700: #0d2942;
+  --lw-navy-800: #071d30;
+  --lw-navy-900: #011627;
+
+  /* ---- Accent (interactive blue) — deep, premium ------------------------- */
+  --lw-accent: #0a58c2;
+  --lw-accent-hover: #094ea9;
+  --lw-accent-active: #073f8a;
+  --lw-accent-fg: #ffffff;
+  --lw-accent-soft: #e9f0fb;
+  --lw-accent-soft-hover: #d8e6f8;
+  --lw-accent-border: #a7c6ee;
+
+  /* ---- Semantic status --------------------------------------------------- */
+  --lw-success: #12a150;
+  --lw-success-soft: #e7f6ee;
+  --lw-warning: #e5920b;
+  --lw-warning-soft: #fdf3e2;
+  --lw-danger: #e5484d;
+  --lw-danger-hover: #d13c41;
+  --lw-danger-soft: #fdeaeb;
+
+  /* ---- Surfaces ---------------------------------------------------------- */
+  --lw-canvas: #ffffff;         /* main content background */
+  --lw-surface: #ffffff;        /* cards, popovers, inputs */
+  --lw-surface-hover: #f7f7f8;
+  --lw-sunken: #f7f7f8;         /* insets, segmented track, sunk wells */
+  --lw-sidebar: #f7f7f8;        /* left rail */
+  --lw-overlay: rgba(20, 22, 28, 0.28); /* modal scrim */
+
+  /* ---- Text -------------------------------------------------------------- */
+  --lw-text-primary: #0d0d0f;
+  --lw-text-secondary: #6c6c76;
+  --lw-text-tertiary: #8f8f98;
+  --lw-text-placeholder: #b6b6bd;
+  --lw-text-inverse: #ffffff;
+  --lw-text-on-navy: #ffffff;
+
+  /* ---- Primary (navy) fills ---------------------------------------------- */
+  --lw-primary: #011627;
+  --lw-primary-hover: #0a2233;
+  --lw-primary-active: #04182b;
+  --lw-primary-fg: #ffffff;
+
+  /* ---- Borders / lines --------------------------------------------------- */
+  --lw-border-subtle: rgba(13, 13, 15, 0.06);
+  --lw-border: rgba(13, 13, 15, 0.10);
+  --lw-border-strong: rgba(13, 13, 15, 0.16);
+  --lw-border-inverse: rgba(255, 255, 255, 0.14);
+
+  /* ---- Interaction states ------------------------------------------------ */
+  --lw-hover: rgba(13, 13, 15, 0.04);
+  --lw-active: rgba(13, 13, 15, 0.07);
+  --lw-selected: var(--lw-accent-soft);
+  --lw-focus-ring: rgba(10, 88, 194, 0.40);
+  --lw-focus-ring-navy: rgba(1, 22, 39, 0.28);
+
+  /* ---- Elevation --------------------------------------------------------- */
+  --lw-shadow-xs: 0 1px 2px rgba(16, 24, 40, 0.05);
+  --lw-shadow-sm: 0 1px 3px rgba(16, 24, 40, 0.07), 0 1px 2px rgba(16, 24, 40, 0.04);
+  --lw-shadow-md: 0 6px 16px rgba(16, 24, 40, 0.10), 0 2px 5px rgba(16, 24, 40, 0.05);
+  --lw-shadow-lg: 0 16px 40px rgba(16, 24, 40, 0.14), 0 4px 10px rgba(16, 24, 40, 0.06);
+  --lw-shadow-pop: 0 8px 28px rgba(16, 24, 40, 0.12);
+
+  /* ---- Radius ------------------------------------------------------------ */
+  --lw-radius-xs: 4px;
+  --lw-radius-sm: 6px;
+  --lw-radius-md: 8px;
+  --lw-radius-lg: 10px;
+  --lw-radius-xl: 12px;
+  --lw-radius-2xl: 16px;
+  --lw-radius-3xl: 20px;
+  --lw-radius-full: 9999px;
+
+  /* ---- Type -------------------------------------------------------------- */
+  --lw-font-sans: "Inter Variable", "Inter", -apple-system, BlinkMacSystemFont,
+    "SF Pro Text", "Segoe UI", system-ui, sans-serif;
+  --lw-font-serif: "IBM Plex Sans", var(--lw-font-sans);
+  --lw-font-mono: "Geist Mono", ui-monospace, "SF Mono", "SFMono-Regular",
+    Menlo, Consolas, monospace;
+
+  /* ---- Motion ------------------------------------------------------------ */
+  --lw-ease-standard: cubic-bezier(0.2, 0, 0, 1);
+  --lw-ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --lw-ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+  --lw-duration-fast: 120ms;
+  --lw-duration-base: 160ms;
+  --lw-duration-slow: 220ms;
+}
+
+.dark,
+[data-theme="dark"] {
+  color-scheme: dark;
+
+  --lw-canvas: #131316;
+  --lw-surface: #1b1b1f;
+  --lw-surface-hover: #242429;
+  --lw-sunken: #202024;
+  --lw-sidebar: #161619;
+  --lw-overlay: rgba(0, 0, 0, 0.55);
+
+  --lw-text-primary: #f4f4f5;
+  --lw-text-secondary: #a7a7b0;
+  --lw-text-tertiary: #7c7c85;
+  --lw-text-placeholder: #5a5a63;
+  --lw-text-inverse: #0d0d0f;
+
+  --lw-primary: #f4f4f5;
+  --lw-primary-hover: #ffffff;
+  --lw-primary-active: #e4e4e7;
+  --lw-primary-fg: #0d0d0f;
+
+  --lw-accent: #3b9bff;
+  --lw-accent-hover: #58aaff;
+  --lw-accent-active: #78bbff;
+  --lw-accent-soft: rgba(59, 155, 255, 0.16);
+  --lw-accent-soft-hover: rgba(59, 155, 255, 0.24);
+  --lw-accent-border: rgba(59, 155, 255, 0.35);
+
+  --lw-border-subtle: rgba(255, 255, 255, 0.07);
+  --lw-border: rgba(255, 255, 255, 0.11);
+  --lw-border-strong: rgba(255, 255, 255, 0.18);
+
+  --lw-hover: rgba(255, 255, 255, 0.05);
+  --lw-active: rgba(255, 255, 255, 0.09);
+  --lw-selected: rgba(59, 155, 255, 0.16);
+  --lw-focus-ring: rgba(59, 155, 255, 0.45);
+
+  --lw-shadow-xs: 0 1px 2px rgba(0, 0, 0, 0.4);
+  --lw-shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.45);
+  --lw-shadow-md: 0 6px 16px rgba(0, 0, 0, 0.5);
+  --lw-shadow-lg: 0 16px 40px rgba(0, 0, 0, 0.55);
+  --lw-shadow-pop: 0 8px 28px rgba(0, 0, 0, 0.5);
+}

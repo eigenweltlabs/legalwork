@@ -1,6 +1,6 @@
 /** @jsxImportSource react */
 import { PaperGrainGradient } from "@legalwork/ui/react";
-import { ArrowRightIcon, FlaskConicalIcon, SearchIcon, SparklesIcon, TriangleAlertIcon } from "lucide-react";
+import { ArrowRightIcon, FlaskConicalIcon, LogInIcon, SearchIcon, TriangleAlertIcon } from "lucide-react";
 
 import { Page, PageBackground, PageTitlebarRegion } from "@/components/page";
 import { ScrollArea, ScrollAreaViewport } from "@/components/ui/scroll-area";
@@ -50,7 +50,7 @@ export function ProviderSelectionStep({ onConnect, onSkip }: ProviderSelectionSt
                   <div className="space-y-2.5">
                     <span className="lw-section-eyebrow uppercase text-dls-secondary/80">Quick connect</span>
                     <button type="button" className={quickButtonClass} onClick={() => onConnect("openai", "oauth")}>
-                      <SparklesIcon className="size-4 shrink-0 text-dls-secondary" />
+                      <LogInIcon className="size-4 shrink-0 text-dls-secondary" />
                       <div className="min-w-0 flex-1">
                         <div className="text-[14px] font-medium text-dls-text">Sign in with OpenAI</div>
                         <div className="text-[12px] text-dls-secondary">Use your ChatGPT subscription — no API key.</div>
@@ -114,7 +114,7 @@ export function ProviderSelectionStep({ onConnect, onSkip }: ProviderSelectionSt
                       noise={0.16}
                       shape="corners"
                       frame={37706.748}
-                      colors={["#0a1633", "#18498B", "#2352DE", "#05080f"]}
+                      colors={["#0a1633", "#0a67c6", "#0a58c2", "#05080f"]}
                       colorBack="#05080f"
                     />
                   </div>
@@ -131,7 +131,7 @@ export function ProviderSelectionStep({ onConnect, onSkip }: ProviderSelectionSt
                     <div className="divide-y divide-white/10 border-y border-white/10">
                       {panelProviders.map((provider) => (
                         <div key={provider.title} className="flex items-baseline gap-4 py-3.5">
-                          <span className="mt-1 size-1.5 shrink-0 translate-y-1.5 rounded-full bg-[#2352DE]" />
+                          <span className="mt-1 size-1.5 shrink-0 translate-y-1.5 rounded-full bg-[#0a58c2]" />
                           <div className="min-w-0">
                             <div className="text-[14px] font-medium tracking-[-0.01em] text-white">{provider.title}</div>
                             <div className="mt-0.5 text-[12.5px] leading-snug text-white/55">{provider.desc}</div>

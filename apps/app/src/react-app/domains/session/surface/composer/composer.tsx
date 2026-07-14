@@ -1,7 +1,7 @@
 /** @jsxImportSource react */
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type { Agent } from "@opencode-ai/sdk/v2/client";
-import { AppWindowMac, ArrowUp, ChevronDown, ChevronRight, FileText, ListPlus, Paperclip, Plug, Settings, Sparkles, Square, Terminal, X, Zap } from "lucide-react";
+import { AppWindowMac, ArrowUp, Blend, ChevronDown, ChevronRight, FileText, ListPlus, Paperclip, Plug, Settings, Square, Terminal, X, Zap } from "lucide-react";
 import fuzzysort from "fuzzysort";
 import { toast } from "@/components/ui/sonner";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuShortcut, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
@@ -1142,7 +1142,7 @@ export function ReactSessionComposer(props: ComposerProps) {
 
           {dropzoneActive ? (
             <div className="pointer-events-none absolute inset-3 z-20 flex items-center justify-center rounded-[20px] border-2 border-dashed border-dls-accent bg-[color:color-mix(in_oklab,var(--dls-accent)_10%,transparent)]">
-              <div className="rounded-2xl border border-dls-border bg-dls-surface/95 px-5 py-4 text-center backdrop-blur-sm">
+              <div className="rounded-2xl border border-dls-border bg-dls-surface/95 px-5 py-4 text-center">
                 <div className="text-sm font-medium text-dls-text">{t("composer.attach_files")}</div>
                 <div className="mt-1 text-xs text-dls-secondary">{t("composer.any_file_type_supported")}</div>
               </div>
@@ -1508,7 +1508,7 @@ export function ReactSessionComposer(props: ComposerProps) {
                       }`}
                       title={props.fusionEnabled ? t("fusion.toggle_off") : t("fusion.toggle_on")}
                     >
-                      <Sparkles size={14} />
+                      <Blend size={14} />
                       <span>{t("fusion.toggle_label")}</span>
                     </button>
                     {fusionNewTooltipOpen ? (

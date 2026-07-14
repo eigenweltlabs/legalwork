@@ -15,9 +15,36 @@ interface LayoutSectionProps {
 }
 
 export function LayoutSection({ children }: LayoutSectionProps) {
+  // Group CONSECUTIVE setting rows (LayoutSectionItem) into a single card with
+  // hairline dividers — the reference "grouped settings" look. Headers,
+  // footnotes, notices and any other content render OUTSIDE the card (in place),
+  // so nothing gets clipped by the card's overflow.
+  const out: React.ReactNode[] = [];
+  let run: React.ReactNode[] = [];
+  const flush = (key: string) => {
+    if (run.length === 0) return;
+    out.push(
+      <div
+        key={key}
+        className="divide-y divide-subtle overflow-hidden rounded-2xl border border-subtle bg-surface shadow-xs"
+      >
+        {run}
+      </div>,
+    );
+    run = [];
+  };
+  React.Children.toArray(children).forEach((child, i) => {
+    if (React.isValidElement(child) && child.type === LayoutSectionItem) {
+      run.push(child);
+    } else {
+      flush(`grp-${i}`);
+      out.push(child);
+    }
+  });
+  flush("grp-end");
   return (
-    <div data-section className="group/section flex flex-col gap-6">
-      {children}
+    <div data-section className="group/section flex flex-col gap-3">
+      {out}
     </div>
   );
 }
@@ -80,7 +107,7 @@ interface LayoutSectionItemProps {
 
 export function LayoutSectionItem({ children, className }: LayoutSectionItemProps) {
   return (
-    <div className={cn("flex flex-col gap-3", className)}>
+    <div className={cn("flex flex-col gap-3 px-4 py-3.5", className)}>
       {children}
     </div>
   );

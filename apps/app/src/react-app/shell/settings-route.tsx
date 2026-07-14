@@ -2048,6 +2048,7 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
               <SkillsView
                 workspaceName={selectedWorkspaceName}
                 busy={busy}
+                showHeader={false}
                 canInstallSkillCreator={canWriteWorkspaceSkills}
                 canUseDesktopTools={!isRemoteWorkspace}
                 accessHint={skillsAccessHint}

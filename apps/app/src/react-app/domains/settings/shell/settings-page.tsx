@@ -11,12 +11,12 @@ import {
   FolderLock,
   Gauge,
   KeyRound,
+  Blocks,
   Languages,
   Layout,
   Puzzle,
   RefreshCcw,
   ShieldCheck,
-  Sparkles,
   Store,
   UserCircle,
   Wrench,
@@ -80,7 +80,7 @@ export function getSettingsTabIcon(tab: SettingsTab) {
     case "cloud-providers":
       return CloudCog;
     case "skills":
-      return Sparkles;
+      return Blocks;
     case "extensions":
       return Puzzle;
     case "environment":

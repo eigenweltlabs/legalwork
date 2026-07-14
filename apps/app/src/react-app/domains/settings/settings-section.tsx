@@ -84,7 +84,7 @@ interface SettingsInsetProps {
 
 export function SettingsInset({ children, className }: SettingsInsetProps) {
   return (
-    <div className={cn("border border-dls-border rounded-2xl p-4", className)}>
+    <div className={cn("rounded-2xl border border-subtle bg-surface p-4", className)}>
       {children}
     </div>
   );
@@ -99,7 +99,7 @@ export function SettingsPill({ children, className }: SettingsPillProps) {
   return (
     <span
       className={cn(
-        "inline-flex items-center gap-1.5 rounded-full border border-dls-border bg-dls-hover px-2.5 py-1 text-xs font-medium text-muted-foreground",
+        "inline-flex items-center gap-1.5 rounded-full border border-subtle bg-sunken px-2.5 py-1 text-xs font-medium text-muted-foreground",
         className,
       )}
     >
@@ -151,7 +151,7 @@ export function SettingsNotice({
   return (
     <div
       className={cn(
-        "rounded-xl border border-dls-border bg-dls-hover px-3 py-2 text-xs text-muted-foreground",
+        "rounded-xl border border-subtle bg-sunken px-3 py-2 text-xs text-muted-foreground",
         tone === "error" && "border-red-7/30 bg-red-1/40 text-red-11",
         tone === "warning" && "border-amber-7/30 bg-amber-1/40 text-amber-11",
         className,

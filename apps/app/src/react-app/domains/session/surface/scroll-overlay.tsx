@@ -80,7 +80,7 @@ export const SessionScrollOverlay = memo(function SessionScrollOverlay({
 
   return (
     <div className="pointer-events-none absolute bottom-2 left-1/2 z-30 flex -translate-x-1/2 justify-center">
-      <div className="pointer-events-auto flex items-center gap-2 rounded-full border border-dls-border bg-dls-surface/95 p-1 shadow-(--dls-card-shadow) backdrop-blur-md">
+      <div className="pointer-events-auto flex items-center gap-2 rounded-full border border-dls-border bg-dls-surface/95 p-1 shadow-(--dls-card-shadow)">
         {showJumpToStart ? (
           <JumpToStartButton onJumpToStartOfMessage={onJumpToStartOfMessage} />
         ) : null}

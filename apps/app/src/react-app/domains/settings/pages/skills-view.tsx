@@ -9,6 +9,8 @@ import {
   type SetStateAction,
 } from "react";
 import {
+  Blocks,
+  Bot,
   CheckCircle2,
   ChevronLeft,
   ChevronRight,
@@ -21,9 +23,9 @@ import {
   Plus,
   RefreshCw,
   Search,
-  Sparkles,
   Table2,
   Trash2,
+  Wand2,
   X,
 } from "lucide-react";
 import { toast } from "@/components/ui/sonner";
@@ -52,6 +54,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import { ConfirmModal } from "@/react-app/design-system/modals/confirm-modal";
+import { Spinner } from "../settings-section";
 import { syncAttachedFilesSection } from "@/app/utils/skill-resources";
 import {
   dismissTemplateWorkflowRun,
@@ -77,10 +80,8 @@ const sectionTitleClass = "text-[15px] font-medium tracking-[-0.2px] text-dls-te
 const panelCardClass =
   "rounded-[20px] border border-dls-border bg-dls-surface p-5 transition-all hover:border-dls-border hover:shadow-[0_2px_12px_-4px_rgba(0,0,0,0.06)]";
 
-// Editorial "ledger" styles for the Skills / Workflows index — hairline-ruled rows
-// instead of tiles, mono type tags, hover-revealed actions. (Eigenwelt design language.)
-const ledgerRowClass =
-  "group relative flex cursor-pointer items-start gap-4 py-4 pl-5 pr-3 transition-colors hover:bg-dls-hover/60 focus-visible:bg-dls-hover/60 focus:outline-none";
+// Card styles for the Skills / Workflows index — soft-bordered tiles in a
+// 2-column grid, mono type tags, hover-revealed actions. (Eigenwelt design language.)
 const typeTagClass = "shrink-0 font-mono text-[10px] uppercase tracking-[0.14em] text-dls-secondary/70";
 const rowIconBtnClass =
   "inline-flex size-8 items-center justify-center rounded-lg text-dls-secondary transition-colors hover:bg-dls-hover hover:text-dls-text disabled:cursor-not-allowed disabled:opacity-40";
@@ -590,7 +591,7 @@ export function SkillsView(props: SkillsViewProps) {
   };
 
   return (
-    <section className={`space-y-8 w-full ${isWorkflowsView ? "max-w-4xl" : "max-w-3xl"}`}>
+    <section className="space-y-8 w-full max-w-4xl">
       <div className="space-y-7">
         <div className="flex flex-col gap-5 sm:flex-row sm:items-end sm:justify-between">
           <div className="min-w-0">
@@ -600,13 +601,13 @@ export function SkillsView(props: SkillsViewProps) {
                   {isWorkflowsView ? "Automation" : "Worker profile"}
                 </span>
                 <h2 className={`mt-3 ${pageTitleClass}`}>{isWorkflowsView ? "Workflows" : t("skills.title")}</h2>
+                <p className="mt-3 max-w-xl text-[14px] leading-[1.65] text-dls-secondary">
+                  {isWorkflowsView
+                    ? "Reusable templates for the firm's recurring legal tasks. Assistant workflows run like a skill; tabular workflows drive a review grid through the tabular-review skill."
+                    : t("skills.worker_profile_desc")}
+                </p>
               </>
             ) : null}
-            <p className={`max-w-xl text-[14px] leading-[1.65] text-dls-secondary ${props.showHeader !== false ? "mt-3" : ""}`}>
-              {isWorkflowsView
-                ? "Reusable templates for the firm's recurring legal tasks. Assistant workflows run like a skill; tabular workflows drive a review grid through the tabular-review skill."
-                : t("skills.worker_profile_desc")}
-            </p>
           </div>
 
           <div className="flex shrink-0 flex-wrap items-center gap-2">
@@ -640,7 +641,7 @@ export function SkillsView(props: SkillsViewProps) {
                       aria-hidden
                       className="pointer-events-none absolute inset-0 -translate-x-[110%] bg-gradient-to-r from-transparent via-white/30 to-transparent transition-transform duration-700 ease-out group-hover:translate-x-[110%]"
                     />
-                    {templateRunActive ? <Loader2 size={14} className="animate-spin" /> : <Sparkles size={14} />}
+                    {templateRunActive ? <Loader2 size={14} className="animate-spin" /> : <Wand2 size={14} />}
                     Generate from templates
                   </button>
                 ) : null}
@@ -765,14 +766,20 @@ export function SkillsView(props: SkillsViewProps) {
             <div className="rounded-[20px] border border-dashed border-dls-border py-16 text-center text-[14px] text-dls-secondary">
               {isWorkflowsView ? "No workflows yet — use “Add workflow” to create one." : t("skills.no_skills")}
             </div>
-          ) : isWorkflowsView ? (
+          ) : (
             <div className="space-y-5">
               <div className="grid gap-3 sm:grid-cols-2">
                 {pagedWorkflows.map((skill) => {
-                  const displayName = workflowDisplayName(skill.name);
-                  const workflowType = cardWorkflowType(skill);
-                  const typeLabel = workflowType === "tabular" ? "Tabular" : "Assistant";
-                  const TypeIcon = workflowType === "tabular" ? Table2 : Sparkles;
+                  const displayName = isWorkflowsView ? workflowDisplayName(skill.name) : skill.name;
+                  const workflowType = isWorkflowsView ? cardWorkflowType(skill) : null;
+                  const typeLabel = isWorkflowsView
+                    ? workflowType === "tabular"
+                      ? "Tabular"
+                      : "Assistant"
+                    : isLegalworkInjectedSkill(skill)
+                      ? "LegalWork"
+                      : null;
+                  const TypeIcon = isWorkflowsView ? (workflowType === "tabular" ? Table2 : Bot) : Blocks;
                   return (
                     <div
                       key={skill.path}
@@ -782,10 +789,6 @@ export function SkillsView(props: SkillsViewProps) {
                       onKeyDown={(event) => handleSkillCardKeyDown(event, skill)}
                       className="group relative flex cursor-pointer flex-col overflow-hidden rounded-[16px] border border-dls-border bg-dls-surface p-3.5 transition-all duration-200 hover:-translate-y-0.5 hover:border-[rgba(var(--dls-accent-rgb),0.3)] hover:shadow-[0_14px_34px_-18px_rgba(8,23,79,0.3)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[rgba(var(--dls-accent-rgb),0.25)]"
                     >
-                      <span
-                        aria-hidden
-                        className="pointer-events-none absolute inset-x-0 top-0 h-[2px] bg-dls-accent opacity-0 transition-opacity group-hover:opacity-100"
-                      />
                       <div className="flex items-start justify-between gap-3">
                         <div className="flex min-w-0 items-center gap-2">
                           <span className="inline-flex size-7 shrink-0 items-center justify-center rounded-[9px] border border-dls-border bg-dls-hover text-dls-accent transition-colors group-hover:border-[rgba(var(--dls-accent-rgb),0.25)]">
@@ -793,13 +796,13 @@ export function SkillsView(props: SkillsViewProps) {
                           </span>
                           <h4 className="truncate text-[14px] font-medium tracking-[-0.01em] text-dls-text">{displayName}</h4>
                         </div>
-                        <span className={typeTagClass}>{typeLabel}</span>
+                        {typeLabel ? <span className={typeTagClass}>{typeLabel}</span> : null}
                       </div>
-                      <p className="mt-2 line-clamp-2 text-[12.5px] leading-snug text-dls-secondary">
+                      <p className="mt-2 line-clamp-2 text-[13px] leading-relaxed text-dls-secondary">
                         {skill.description || t("skills.no_description")}
                       </p>
-                      {/* Actions overlay the bottom-right on hover so they never add card height. */}
-                      <div className="absolute bottom-2 right-2 flex items-center gap-0.5 rounded-lg bg-dls-surface/85 opacity-0 backdrop-blur-sm transition-opacity focus-within:opacity-100 group-hover:opacity-100">
+                      {/* Actions sit in their own reserved row so they never cover the description text. */}
+                      <div className="mt-2.5 flex items-center justify-end gap-0.5 opacity-0 transition-opacity focus-within:opacity-100 group-hover:opacity-100">
                         <button
                           type="button"
                           className={rowIconBtnClass}
@@ -881,82 +884,6 @@ export function SkillsView(props: SkillsViewProps) {
                 </div>
               ) : null}
             </div>
-          ) : (
-            <div className="divide-y divide-dls-border border-y border-dls-border">
-              {filteredSkills.map((skill) => {
-                const displayName = skill.name;
-                const typeLabel = isLegalworkInjectedSkill(skill) ? "LegalWork" : null;
-                return (
-                  <div
-                    key={skill.path}
-                    role="button"
-                    tabIndex={0}
-                    onClick={() => void openSkill(skill)}
-                    onKeyDown={(event) => handleSkillCardKeyDown(event, skill)}
-                    className={ledgerRowClass}
-                  >
-                    <span className="pointer-events-none absolute inset-y-0 left-0 w-[2px] bg-dls-accent opacity-0 transition-opacity group-hover:opacity-100" />
-                    <div className="min-w-0 flex-1">
-                      <div className="flex items-center gap-2.5">
-                        <h4 className="truncate text-[15px] font-medium tracking-[-0.01em] text-dls-text">{displayName}</h4>
-                        {typeLabel ? <span className={typeTagClass}>{typeLabel}</span> : null}
-                      </div>
-                      <p className="mt-1 truncate text-[13px] leading-relaxed text-dls-secondary">
-                        {skill.description || t("skills.no_description")}
-                      </p>
-                    </div>
-                    <div className="flex shrink-0 items-center gap-0.5 self-center opacity-0 transition-opacity focus-within:opacity-100 group-hover:opacity-100">
-                      <button
-                        type="button"
-                        className={rowIconBtnClass}
-                        onClick={(event) => {
-                          event.preventDefault();
-                          event.stopPropagation();
-                          void openSkill(skill);
-                        }}
-                        disabled={props.busy}
-                        title={t("common.edit")}
-                        aria-label={t("common.edit")}
-                      >
-                        <Edit2 size={15} />
-                      </button>
-                      <button
-                        type="button"
-                        className={rowIconBtnClass}
-                        onClick={(event) => {
-                          event.preventDefault();
-                          event.stopPropagation();
-                          void exportSkill(skill);
-                        }}
-                        disabled={props.busy || !props.canUseDesktopTools}
-                        title={t("skill_export.action")}
-                        aria-label={t("skill_export.action")}
-                      >
-                        <Download size={15} />
-                      </button>
-                      <button
-                        type="button"
-                        className={rowIconBtnClass}
-                        onClick={(event) => {
-                          event.preventDefault();
-                          event.stopPropagation();
-                          if (props.busy || !props.canUseDesktopTools) {
-                            if (!props.canUseDesktopTools) toast.warning(t("skills.desktop_required"));
-                            return;
-                          }
-                          setUninstallTarget(skill);
-                        }}
-                        disabled={props.busy || !props.canUseDesktopTools}
-                        title={t("skills.uninstall")}
-                        aria-label={t("skills.uninstall")}
-                      >
-                        <Trash2 size={15} />
-                      </button>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
           )}
         </div>
       ) : null}
@@ -1001,7 +928,7 @@ export function SkillsView(props: SkillsViewProps) {
                       type="button"
                       onClick={() => selectHubRepo(repo)}
                       className={`px-3 py-1.5 text-[12px] font-medium transition-colors ${
-                        active ? "bg-dls-accent text-[var(--dls-accent-fg)]" : "text-dls-secondary hover:bg-dls-hover hover:text-dls-text"
+                        active ? "bg-dls-active text-dls-text" : "text-dls-secondary hover:bg-dls-hover hover:text-dls-text"
                       }`}
                       disabled={props.busy}
                     >
@@ -1087,37 +1014,46 @@ export function SkillsView(props: SkillsViewProps) {
           }
         }}
       >
-        <DialogContent className="flex max-h-[90vh] min-h-0 w-full max-w-4xl flex-col overflow-hidden sm:max-w-4xl">
-            <DialogHeader>
-              <div className="flex min-w-0 items-center gap-3">
-                <DialogTitle className="min-w-0 flex-1 truncate">{selectedSkill?.name}</DialogTitle>
-                <div className="flex items-center gap-2">
-                  <Button
-                    type="button"
-                    disabled={!selectedDirty || props.busy}
-                    onClick={() => void saveSelectedSkill()}
-                  >
-                    {t("common.save")}
-                  </Button>
-                </div>
+        <DialogContent className="flex max-h-[88vh] min-h-0 w-full max-w-3xl flex-col gap-0 overflow-hidden p-0 sm:max-w-3xl">
+            <DialogHeader className="flex-row items-start justify-between gap-4 border-b border-subtle py-4 pl-6 pr-14 space-y-0">
+              <div className="min-w-0 space-y-1">
+                <span className="lw-section-eyebrow">{selectedSkill?.name?.startsWith("workflow") ? "Automation" : "Skill"}</span>
+                <DialogTitle className="min-w-0 truncate text-lg font-semibold text-ink">{selectedSkill?.name}</DialogTitle>
+                {selectedSkill?.description ? (
+                  <p className="line-clamp-1 text-sm text-subtext">{selectedSkill.description}</p>
+                ) : null}
               </div>
+              <Button
+                type="button"
+                variant="default"
+                disabled={!selectedDirty || props.busy}
+                onClick={() => void saveSelectedSkill()}
+              >
+                {t("common.save")}
+              </Button>
             </DialogHeader>
 
-            <div className="min-h-0 flex-1 overflow-y-auto">
-              {selectedError ? <div className="mb-3 rounded-xl border border-red-7/20 bg-red-1/40 px-4 py-3 text-xs text-red-12">{selectedError}</div> : null}
+            <div className="min-h-0 flex-1 space-y-5 overflow-y-auto px-6 py-5">
+              {selectedError ? <div className="rounded-xl border border-danger/25 bg-danger-soft px-4 py-3 text-sm text-danger">{selectedError}</div> : null}
               {selectedLoading ? (
-                <div className="text-xs text-dls-secondary">{t("skills.loading")}</div>
+                <div className="flex items-center gap-2 text-sm text-subtext"><Spinner className="size-4" /> {t("skills.loading")}</div>
               ) : (
                 <>
-                  <textarea
-                    value={selectedContent}
-                    onChange={(event) => {
-                      setSelectedContent(event.currentTarget.value);
-                      setSelectedDirty(true);
-                    }}
-                    className="min-h-[420px] w-full rounded-xl border border-dls-border bg-dls-hover px-4 py-3 text-xs font-mono text-dls-text focus:outline-none focus:ring-2 focus:ring-[rgba(var(--dls-accent-rgb),0.25)]"
-                    spellCheck={false}
-                  />
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between">
+                      <span className="text-2xs font-semibold uppercase tracking-wide text-tertiary">Definition</span>
+                      <span className="text-2xs text-tertiary">Markdown</span>
+                    </div>
+                    <textarea
+                      value={selectedContent}
+                      onChange={(event) => {
+                        setSelectedContent(event.currentTarget.value);
+                        setSelectedDirty(true);
+                      }}
+                      className="min-h-[380px] w-full resize-none rounded-2xl border border-subtle bg-sunken px-4 py-3.5 text-[13px] font-mono leading-relaxed text-ink transition-[border-color,box-shadow] focus:border-brand focus:outline-none focus:ring-2 focus:ring-[var(--lw-focus-ring)]"
+                      spellCheck={false}
+                    />
+                  </div>
                   {/* Firm templates/playbooks packaged inside this skill's own folder. */}
                   {selectedSkill ? (
                     <SkillResourcesPanel
@@ -1465,7 +1401,7 @@ function TemplateGenerationRow(props: {
       ) : props.status === "done" ? (
         <CheckCircle2 size={18} className="shrink-0 text-dls-accent" />
       ) : (
-        <Sparkles size={18} className="shrink-0 text-red-500" />
+        <Wand2 size={18} className="shrink-0 text-red-500" />
       )}
       <div className="min-w-0 flex-1">
         <h4 className="truncate text-[14px] font-medium tracking-[-0.01em] text-dls-text">{title}</h4>
@@ -1624,7 +1560,7 @@ function WorkflowCreatorButton(props: {
                   onClick={() => setType("assistant")}
                   className="flex flex-col gap-2 rounded-2xl border border-dls-border bg-dls-hover p-4 text-left transition-colors hover:border-[rgba(var(--dls-accent-rgb),0.5)]"
                 >
-                  <Sparkles size={20} className="text-dls-secondary" />
+                  <Bot size={20} className="text-dls-secondary" />
                   <span className="text-sm font-semibold text-dls-text">Assistant</span>
                   <span className="text-[12px] leading-relaxed text-dls-secondary">
                     A normal skill — step-by-step instructions for a legal task.
@@ -1635,7 +1571,7 @@ function WorkflowCreatorButton(props: {
               <>
                 <div className="flex items-center justify-between">
                   <span className="inline-flex items-center gap-2 text-xs font-medium text-dls-text">
-                    {type === "tabular" ? <Package size={14} /> : <Sparkles size={14} />}
+                    {type === "tabular" ? <Package size={14} /> : <Bot size={14} />}
                     {type === "tabular" ? "Tabular workflow" : "Assistant workflow"}
                   </span>
                   <button type="button" onClick={() => setType(null)} className="text-[11px] text-dls-secondary underline">

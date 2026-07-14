@@ -21,7 +21,16 @@ export interface SettingsListProps {
 }
 
 export function SettingsList({ children, className }: SettingsListProps) {
-  return <div className={cn("flex flex-col gap-y-2", className)}>{children}</div>;
+  return (
+    <div
+      className={cn(
+        "divide-y divide-subtle overflow-hidden rounded-2xl border border-subtle bg-surface shadow-xs",
+        className,
+      )}
+    >
+      {children}
+    </div>
+  );
 }
 
 interface SettingsListEmptyStateProps {
@@ -63,7 +72,7 @@ export function SettingsListItem({ children, className }: SettingsListItemProps)
   return (
     <div
       className={cn(
-        "flex items-center justify-between rounded-xl px-3 py-2 text-left text-sm transition-colors hover:bg-muted/10 hover:border-border border border-transparent",
+        "flex items-center justify-between px-4 py-3 text-left text-sm transition-colors hover:bg-hover",
         className,
       )}
     >

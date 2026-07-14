@@ -118,11 +118,12 @@ export type McpViewProps = {
 
 const builtInExtensionDisabledReason = "Disabled by organization";
 
-// Editorial "ledger" design language shared with the Skills / Workflows index —
-// hairline-ruled rows instead of tiles, mono type tags, quiet secondary text.
+// Reference-style connector cards: soft-bordered tiles in a 2-column grid with
+// mono type tags and quiet secondary text — shares the surface language with the
+// Workflows card grid (no accent bars).
 const pageTitleClass = "text-[34px] font-medium leading-[1.04] tracking-[-0.035em] text-dls-text";
-const ledgerRowClass =
-  "group relative flex cursor-pointer items-start gap-4 py-4 pl-5 pr-3 transition-colors hover:bg-dls-hover/60 focus-visible:bg-dls-hover/60 focus:outline-none";
+const quickCardClass =
+  "group relative flex cursor-pointer flex-col text-left rounded-[16px] border border-dls-border bg-dls-surface p-4 transition-all duration-200 hover:-translate-y-0.5 hover:border-[rgba(var(--dls-accent-rgb),0.25)] hover:shadow-[0_14px_34px_-18px_rgba(8,23,79,0.28)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[rgba(var(--dls-accent-rgb),0.2)]";
 const typeTagClass = "shrink-0 font-mono text-[10px] uppercase tracking-[0.14em] text-dls-secondary/70";
 const rowIconBtnClass =
   "inline-flex size-8 items-center justify-center rounded-lg text-dls-secondary transition-colors hover:bg-dls-hover hover:text-dls-text disabled:cursor-not-allowed disabled:opacity-40";
@@ -547,17 +548,17 @@ export function McpView(props: McpViewProps) {
         </div>
 
         {/* Search + filter */}
-        <div className="flex flex-col gap-3 border-t border-dls-border pt-5 sm:flex-row sm:items-center sm:justify-between">
-          <div className="relative w-full sm:max-w-[300px]">
-            <Search size={15} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-dls-secondary" />
+        <div className="space-y-3 border-t border-dls-border pt-5">
+          <div className="relative w-full">
+            <Search size={16} className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-dls-secondary" />
             <input
-              className="w-full rounded-lg border border-dls-border bg-transparent py-2 pl-9 pr-3 text-[13px] text-dls-text placeholder:text-dls-secondary focus:border-[rgba(var(--dls-accent-rgb),0.4)] focus:outline-none"
-              placeholder="Search extensions..."
+              className="w-full rounded-[14px] border border-dls-border bg-transparent py-2.5 pl-10 pr-3 text-[14px] text-dls-text placeholder:text-dls-secondary focus:border-[rgba(var(--dls-accent-rgb),0.4)] focus:outline-none"
+              placeholder="Search connectors..."
               value={search}
               onChange={(e) => setSearch(e.currentTarget.value)}
             />
           </div>
-          <div className="flex items-center gap-4 text-[13px]">
+          <div className="flex items-center justify-end gap-4 text-[13px]">
             {(["all", "mcp", "skill"] as const).map((f) => (
               <button
                 key={f}
@@ -927,7 +928,7 @@ function McpQuickConnectSection(props: {
           <div className="mt-1 text-[13px] text-dls-secondary/60">Try a different search, filter, or open Marketplace to add one.</div>
         </div>
       ) : (
-        <div className="divide-y divide-dls-border border-y border-dls-border">
+        <div className="grid gap-3 grid-cols-[repeat(auto-fill,minmax(min(100%,19rem),1fr))]">
           {/* MCP entries */}
           {props.entries.map((entry) => {
             const configured = props.isConfigured(entry);
@@ -959,19 +960,31 @@ function McpQuickConnectSection(props: {
                   event.preventDefault();
                   if (!props.busy) props.onDetail(entry);
                 }}
-                className={`${ledgerRowClass} ${hidden ? "opacity-70" : ""} ${props.busy ? "pointer-events-none opacity-60" : ""}`}
+                className={`${quickCardClass} ${hidden ? "opacity-70" : ""} ${props.busy ? "pointer-events-none opacity-60" : ""}`}
               >
-                <span className="pointer-events-none absolute inset-y-0 left-0 w-[2px] bg-dls-accent opacity-0 transition-opacity group-hover:opacity-100" />
-                <LedgerBrandIcon
-                  name={entry.name}
-                  iconSlug={entry.iconSlug}
-                  iconSrc={entry.iconSrc}
-                  kind={kind}
-                  connecting={connecting}
-                />
-                <div className="min-w-0 flex-1">
-                  <div className="flex flex-wrap items-center gap-2.5">
+                <div className="flex items-start justify-between gap-2">
+                  <div className="flex min-w-0 items-center gap-2.5">
+                    <LedgerBrandIcon
+                      name={entry.name}
+                      iconSlug={entry.iconSlug}
+                      iconSrc={entry.iconSrc}
+                      kind={kind}
+                      connecting={connecting}
+                    />
                     <h4 className="truncate text-[15px] font-medium tracking-[-0.01em] text-dls-text">{entry.name}</h4>
+                  </div>
+                  {configured ? (
+                    <CheckCircle2 size={16} className="mt-1 shrink-0 text-green-9" />
+                  ) : someMet ? (
+                    <CircleAlert size={16} className="mt-1 shrink-0 text-amber-9" />
+                  ) : null}
+                </div>
+                <p className="mt-2 line-clamp-2 text-[13px] leading-relaxed text-dls-secondary">{entry.description}</p>
+                {disabledReason ? (
+                  <p className="mt-1.5 text-[12px] font-medium text-amber-11">{disabledReason}</p>
+                ) : null}
+                <div className="mt-3 flex items-center justify-between gap-2">
+                  <div className="flex flex-wrap items-center gap-2">
                     {configured ? (
                       <span className={typeTagClass}>Connected</span>
                     ) : someMet ? (
@@ -983,19 +996,8 @@ function McpQuickConnectSection(props: {
                     {entry.preview ? <span className={typeTagClass}>Preview</span> : null}
                     {disabledReason ? <span className={typeTagClass}>Disabled</span> : null}
                   </div>
-                  <p className="mt-1 truncate text-[13px] leading-relaxed text-dls-secondary">{entry.description}</p>
-                  {disabledReason ? (
-                    <p className="mt-1 text-[12px] font-medium text-amber-11">{disabledReason}</p>
-                  ) : null}
-                </div>
-                <div className="flex shrink-0 items-center gap-2 self-center">
-                  {configured ? (
-                    <CheckCircle2 size={16} className="text-green-9" />
-                  ) : someMet ? (
-                    <CircleAlert size={16} className="text-amber-9" />
-                  ) : null}
                   {!disabledReason && !connecting ? (
-                    <span className="text-[13px] font-medium text-dls-secondary transition-colors group-hover:text-dls-text">
+                    <span className="shrink-0 text-[12px] font-medium text-dls-secondary transition-colors group-hover:text-dls-text">
                       {actionLabel}
                     </span>
                   ) : null}
@@ -1018,20 +1020,19 @@ function McpQuickConnectSection(props: {
                   event.preventDefault();
                   props.onSkillDetail?.(skill);
                 }}
-                className={`${ledgerRowClass} ${hidden ? "opacity-70" : ""}`}
+                className={`${quickCardClass} ${hidden ? "opacity-70" : ""}`}
               >
-                <span className="pointer-events-none absolute inset-y-0 left-0 w-[2px] bg-dls-accent opacity-0 transition-opacity group-hover:opacity-100" />
-                <LedgerBrandIcon name={skill.name} kind="skill" />
-                <div className="min-w-0 flex-1">
-                  <div className="flex flex-wrap items-center gap-2.5">
-                    <h4 className="truncate text-[15px] font-medium tracking-[-0.01em] text-dls-text">{skill.name}</h4>
+                <div className="flex min-w-0 items-center gap-2.5">
+                  <LedgerBrandIcon name={skill.name} kind="skill" />
+                  <h4 className="truncate text-[15px] font-medium tracking-[-0.01em] text-dls-text">{skill.name}</h4>
+                </div>
+                <p className="mt-2 line-clamp-2 text-[13px] leading-relaxed text-dls-secondary">{skill.description ?? "Installed skill"}</p>
+                <div className="mt-3 flex items-center justify-between gap-2">
+                  <div className="flex items-center gap-2">
                     <span className={typeTagClass}>Skill</span>
                     {hidden ? <span className={typeTagClass}>Hidden</span> : null}
                   </div>
-                  <p className="mt-1 truncate text-[13px] leading-relaxed text-dls-secondary">{skill.description ?? "Installed skill"}</p>
-                </div>
-                <div className="flex shrink-0 items-center gap-2 self-center">
-                  <span className="text-[13px] font-medium text-dls-secondary transition-colors group-hover:text-dls-text">View details</span>
+                  <span className="shrink-0 text-[12px] font-medium text-dls-secondary transition-colors group-hover:text-dls-text">View details</span>
                 </div>
               </div>
             );
@@ -1052,22 +1053,21 @@ function McpQuickConnectSection(props: {
                   event.preventDefault();
                   props.onPluginDetail?.(plugin);
                 }}
-                className={`${ledgerRowClass} ${hidden ? "opacity-70" : ""}`}
+                className={`${quickCardClass} ${hidden ? "opacity-70" : ""}`}
               >
-                <span className="pointer-events-none absolute inset-y-0 left-0 w-[2px] bg-dls-accent opacity-0 transition-opacity group-hover:opacity-100" />
-                <LedgerBrandIcon name={plugin.name} kind="extension" />
-                <div className="min-w-0 flex-1">
-                  <div className="flex flex-wrap items-center gap-2.5">
-                    <h4 className="truncate text-[15px] font-medium tracking-[-0.01em] text-dls-text">{plugin.name}</h4>
+                <div className="flex min-w-0 items-center gap-2.5">
+                  <LedgerBrandIcon name={plugin.name} kind="extension" />
+                  <h4 className="truncate text-[15px] font-medium tracking-[-0.01em] text-dls-text">{plugin.name}</h4>
+                </div>
+                <p className="mt-2 line-clamp-2 text-[13px] leading-relaxed text-dls-secondary">
+                  {plugin.description ?? `Marketplace extension with ${fileCount} installed file${fileCount === 1 ? "" : "s"}.`}
+                </p>
+                <div className="mt-3 flex items-center justify-between gap-2">
+                  <div className="flex items-center gap-2">
                     <span className={typeTagClass}>Extension</span>
                     {hidden ? <span className={typeTagClass}>Hidden</span> : null}
                   </div>
-                  <p className="mt-1 truncate text-[13px] leading-relaxed text-dls-secondary">
-                    {plugin.description ?? `Marketplace extension with ${fileCount} installed file${fileCount === 1 ? "" : "s"}.`}
-                  </p>
-                </div>
-                <div className="flex shrink-0 items-center gap-2 self-center">
-                  <span className="text-[13px] font-medium text-dls-secondary transition-colors group-hover:text-dls-text">View details</span>
+                  <span className="shrink-0 text-[12px] font-medium text-dls-secondary transition-colors group-hover:text-dls-text">View details</span>
                 </div>
               </div>
             );
@@ -1174,11 +1174,6 @@ function McpConfiguredServerRow(props: {
   const Icon = serviceIcon(props.entry.name);
   return (
     <div className={`group relative transition-colors ${props.selected ? "bg-dls-hover/40" : "hover:bg-dls-hover/60"}`}>
-      <span
-        className={`pointer-events-none absolute inset-y-0 left-0 w-[2px] bg-dls-accent transition-opacity ${
-          props.selected ? "opacity-100" : "opacity-0 group-hover:opacity-100"
-        }`}
-      />
       <button type="button" className="w-full py-4 pl-5 pr-3 text-left" onClick={() => props.onSelect(props.selected ? null : props.entry.name)}>
         <div className="flex items-center gap-4">
           <div className={`flex size-9 shrink-0 items-center justify-center rounded-lg border ${props.status === "connected" ? "border-green-6 bg-green-3" : serviceIconBg(props.entry.name)}`}>

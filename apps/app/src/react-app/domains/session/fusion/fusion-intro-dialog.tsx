@@ -1,5 +1,5 @@
 /** @jsxImportSource react */
-import { GitMerge, MessagesSquare, Sparkles, Workflow } from "lucide-react";
+import { Bot, GitMerge, MessagesSquare, Workflow } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
@@ -14,7 +14,7 @@ const entries = [
     bodyKey: "fusion.intro_main_body",
   },
   {
-    icon: Sparkles,
+    icon: Bot,
     titleKey: "fusion.intro_subagents_title",
     bodyKey: "fusion.intro_subagents_body",
   },

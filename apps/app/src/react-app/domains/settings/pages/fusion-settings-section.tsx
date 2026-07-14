@@ -1,5 +1,5 @@
 /** @jsxImportSource react */
-import { Sparkles, X } from "lucide-react";
+import { Blend, X } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { t } from "@/i18n";
@@ -29,15 +29,15 @@ function ModelSlotRow(props: {
   onClear: () => void;
 }) {
   return (
-    <LayoutSectionItem className="flex-row flex-wrap items-center justify-between gap-3 rounded-2xl border border-dls-border px-4 py-3">
+    <LayoutSectionItem className="flex-row flex-wrap items-center justify-between gap-3">
       <div className="flex min-w-0 items-center gap-3">
         {props.model ? (
           <ProviderIcon providerId={props.model.providerID} size={20} className="text-dls-text" />
         ) : (
-          <Sparkles size={20} className="text-gray-9" />
+          <Blend size={20} className="text-gray-9" />
         )}
         <div className="min-w-0">
-          <div className="truncate text-sm font-medium text-dls-text">
+          <div className="truncate text-base font-medium text-ink">
             {props.model ? resolveModelDisplayName(props.model.modelID) : t("fusion.settings_no_model")}
           </div>
           <div className="truncate font-mono text-xs text-muted-foreground">

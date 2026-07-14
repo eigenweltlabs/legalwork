@@ -483,9 +483,10 @@ function isSessionActivityStatus(status: string | undefined): status is SessionA
 }
 
 // Primary nav rows (Learning / Workflows / Integrations): smooth color fade on
-// hover/active plus a slim accent bar that slides in on the active row.
+// hover/active. The active row uses the default subtle gray fill from
+// SidebarMenuButton (data-active:bg-sidebar-accent) — no accent bar.
 const NAV_ITEM_CLASS =
-  "gap-4 text-sidebar-foreground/80 transition-colors duration-150 data-active:text-sidebar-accent-foreground before:absolute before:left-0 before:top-1/2 before:h-4 before:w-[3px] before:-translate-y-1/2 before:rounded-full before:bg-dls-accent before:opacity-0 before:transition-opacity before:duration-150 data-active:before:opacity-100";
+  "gap-4 text-sidebar-foreground/80 transition-colors duration-150 data-active:text-sidebar-accent-foreground";
 
 export function AppSidebar(props: AppSidebarProps) {
   const { config: shellConfig } = useShellConfig();

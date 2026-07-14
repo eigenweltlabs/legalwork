@@ -1,0 +1,178 @@
+/*
+ * LegalWork Design System — Tailwind v4 theme mapping
+ * ---------------------------------------------------
+ * Exposes the design tokens as Tailwind utilities. Import order matters:
+ *
+ *   @import "tailwindcss";
+ *   @import "@legalwork/ui/styles/tokens.css";
+ *   @import "@legalwork/ui/styles/theme.css";
+ *
+ * Colors reference the runtime vars from tokens.css, so `bg-surface`,
+ * `text-ink`, `border-subtle`, `bg-accent` etc. all follow light/dark at
+ * runtime. Semantic names only — never reach past these into raw hexes.
+ */
+
+@theme {
+  /* fonts */
+  --font-sans: var(--lw-font-sans);
+  --font-serif: var(--lw-font-serif);
+  --font-mono: var(--lw-font-mono);
+
+  /* surfaces */
+  --color-canvas: var(--lw-canvas);
+  --color-surface: var(--lw-surface);
+  --color-surface-hover: var(--lw-surface-hover);
+  --color-sunken: var(--lw-sunken);
+  --color-sidebar: var(--lw-sidebar);
+  --color-overlay: var(--lw-overlay);
+
+  /* text (as color utilities: text-ink, text-secondary, ...) */
+  --color-ink: var(--lw-text-primary);
+  --color-subtext: var(--lw-text-secondary);
+  --color-tertiary: var(--lw-text-tertiary);
+  --color-placeholder: var(--lw-text-placeholder);
+  --color-inverse: var(--lw-text-inverse);
+
+  /* brand + interactive */
+  --color-primary: var(--lw-primary);
+  --color-primary-hover: var(--lw-primary-hover);
+  --color-primary-fg: var(--lw-primary-fg);
+  --color-brand: var(--lw-accent);
+  --color-brand-hover: var(--lw-accent-hover);
+  --color-brand-active: var(--lw-accent-active);
+  --color-brand-fg: var(--lw-accent-fg);
+  --color-brand-soft: var(--lw-accent-soft);
+  --color-brand-soft-hover: var(--lw-accent-soft-hover);
+  --color-brand-border: var(--lw-accent-border);
+  --color-navy: var(--lw-navy-900);
+
+  /* status */
+  --color-success: var(--lw-success);
+  --color-success-soft: var(--lw-success-soft);
+  --color-warning: var(--lw-warning);
+  --color-warning-soft: var(--lw-warning-soft);
+  --color-danger: var(--lw-danger);
+  --color-danger-hover: var(--lw-danger-hover);
+  --color-danger-soft: var(--lw-danger-soft);
+
+  /* borders (as color utilities: border-subtle, border-line, border-strong) */
+  --color-subtle: var(--lw-border-subtle);
+  --color-line: var(--lw-border);
+  --color-strong: var(--lw-border-strong);
+
+  /* interaction fills */
+  --color-hover: var(--lw-hover);
+  --color-active: var(--lw-active);
+  --color-selected: var(--lw-selected);
+
+  /* neutral ramp (escape hatch — prefer semantic names above) */
+  --color-gray-25: var(--lw-gray-25);
+  --color-gray-50: var(--lw-gray-50);
+  --color-gray-100: var(--lw-gray-100);
+  --color-gray-150: var(--lw-gray-150);
+  --color-gray-200: var(--lw-gray-200);
+  --color-gray-300: var(--lw-gray-300);
+  --color-gray-400: var(--lw-gray-400);
+  --color-gray-500: var(--lw-gray-500);
+  --color-gray-600: var(--lw-gray-600);
+  --color-gray-700: var(--lw-gray-700);
+  --color-gray-800: var(--lw-gray-800);
+  --color-gray-900: var(--lw-gray-900);
+
+  /* radius */
+  --radius-xs: var(--lw-radius-xs);
+  --radius-sm: var(--lw-radius-sm);
+  --radius-md: var(--lw-radius-md);
+  --radius-lg: var(--lw-radius-lg);
+  --radius-xl: var(--lw-radius-xl);
+  --radius-2xl: var(--lw-radius-2xl);
+  --radius-3xl: var(--lw-radius-3xl);
+
+  /* elevation */
+  --shadow-xs: var(--lw-shadow-xs);
+  --shadow-sm: var(--lw-shadow-sm);
+  --shadow-md: var(--lw-shadow-md);
+  --shadow-lg: var(--lw-shadow-lg);
+  --shadow-pop: var(--lw-shadow-pop);
+
+  /* type scale (font-size + paired line-height) */
+  --text-2xs: 0.6875rem;      /* 11 */
+  --text-2xs--line-height: 0.875rem;
+  --text-xs: 0.75rem;          /* 12 */
+  --text-xs--line-height: 1rem;
+  --text-sm: 0.8125rem;        /* 13 */
+  --text-sm--line-height: 1.125rem;
+  --text-base: 0.875rem;       /* 14 */
+  --text-base--line-height: 1.25rem;
+  --text-md: 0.9375rem;        /* 15 */
+  --text-md--line-height: 1.375rem;
+  --text-lg: 1rem;             /* 16 */
+  --text-lg--line-height: 1.5rem;
+  --text-xl: 1.125rem;         /* 18 */
+  --text-xl--line-height: 1.625rem;
+  --text-2xl: 1.375rem;        /* 22 */
+  --text-2xl--line-height: 1.875rem;
+  --text-3xl: 1.75rem;         /* 28 */
+  --text-3xl--line-height: 2.25rem;
+  --text-4xl: 2.125rem;        /* 34 */
+  --text-4xl--line-height: 2.625rem;
+
+  /* easings (as ease-* utilities) */
+  --ease-standard: var(--lw-ease-standard);
+  --ease-out-soft: var(--lw-ease-out);
+  --ease-spring: var(--lw-ease-spring);
+}
+
+/* Base layer: sensible app defaults that match the "work app" idiom. */
+@layer base {
+  :where(html) {
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
+  }
+  :where(body) {
+    font-family: var(--lw-font-sans);
+    font-size: var(--text-base);
+    line-height: var(--text-base--line-height);
+    color: var(--lw-text-primary);
+    background-color: var(--lw-canvas);
+    font-feature-settings: "cv01", "ss01";
+  }
+  ::selection {
+    background: var(--lw-accent-soft);
+  }
+}
+
+/* Popover / menu entrance */
+@keyframes lw-menu-in {
+  from {
+    opacity: 0;
+    transform: scale(0.97) translateY(-2px);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+
+@keyframes lw-fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes lw-scale-in {
+  from { opacity: 0; transform: scale(0.96); }
+  to { opacity: 1; transform: scale(1); }
+}
+
+/* animated gradient fill for the reasoning slider */
+@keyframes lw-aurora {
+  from { background-position: 0% 50%; }
+  to { background-position: 200% 50%; }
+}
+
+/* toast slide-in */
+@keyframes lw-toast-in {
+  from { opacity: 0; transform: translateY(8px) scale(0.98); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}

@@ -1,6 +1,6 @@
 /** @jsxImportSource react */
 import { useMemo, useState, type ReactNode } from "react";
-import { Cpu, Download, Package, Plug, Sparkles, type LucideIcon } from "lucide-react";
+import { Blocks, Cpu, Download, Package, Plug, type LucideIcon } from "lucide-react";
 
 import { t } from "../../../../i18n";
 import { Button } from "@/components/ui/button";
@@ -56,11 +56,21 @@ export type ExtensionsViewProps = {
 };
 
 // The Integrations page covers connectors (MCP), skills, and plugins.
-const TABS: Array<{ id: ExtensionsTab; label: string; icon: LucideIcon }> = [
-  { id: "connectors", label: "Connectors", icon: Plug },
-  { id: "skills", label: "Skills", icon: Sparkles },
-  { id: "plugins", label: "Plugins", icon: Package },
+const TABS: Array<{ id: ExtensionsTab; label: string; icon: LucideIcon; subtitle: string }> = [
+  { id: "connectors", label: "Connectors", icon: Plug, subtitle: "Connect your favorite tools so LegalWork can use them on your behalf." },
+  { id: "skills", label: "Skills", icon: Blocks, subtitle: "Reusable abilities this worker can call on. Add from a repo or create your own." },
+  { id: "plugins", label: "Plugins", icon: Package, subtitle: "Bundled capabilities that pair a skill, an agent, and a command, ready to use in chat." },
 ];
+
+const pageTitleClass = "text-[34px] font-medium leading-[1.04] tracking-[-0.035em] text-dls-text";
+
+// Neutral segmented control matching the reference: a soft gray track with a
+// white active pill (no accent fill). Shared by the tab switcher.
+const segmentedTrackClass = "flex w-fit gap-0.5 rounded-full bg-dls-hover p-1";
+const segmentedItemClass =
+  "inline-flex items-center gap-1.5 rounded-full px-3.5 py-1.5 text-[13px] font-medium transition-all duration-200";
+const segmentedActiveClass = "bg-dls-surface text-dls-text shadow-[0_1px_2px_rgba(8,23,79,0.08)]";
+const segmentedInactiveClass = "text-dls-secondary hover:text-dls-text";
 
 export function ExtensionsView(props: ExtensionsViewProps) {
   const initialTab: ExtensionsTab =
@@ -78,10 +88,12 @@ export function ExtensionsView(props: ExtensionsViewProps) {
     props.setSectionRoute?.(next === "connectors" ? "mcp" : next);
   };
 
+  const activeTab = TABS.find((entry) => entry.id === tab) ?? TABS[0];
+
   return (
-    <section className="space-y-6 max-w-3xl w-full animate-in fade-in duration-300">
+    <section className="space-y-7 max-w-3xl w-full animate-in fade-in duration-300">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="flex w-fit gap-0.5 rounded-full border border-dls-border bg-dls-surface p-1 shadow-[0_1px_2px_rgba(8,23,79,0.04)]">
+        <div className={segmentedTrackClass}>
           {TABS.map(({ id, label, icon: Icon }) => {
             const active = tab === id;
             return (
@@ -89,11 +101,7 @@ export function ExtensionsView(props: ExtensionsViewProps) {
                 key={id}
                 type="button"
                 onClick={() => selectTab(id)}
-                className={`inline-flex items-center gap-1.5 rounded-full px-3.5 py-1.5 text-[13px] font-medium transition-all duration-200 ${
-                  active
-                    ? "bg-dls-accent text-[var(--dls-accent-fg)] shadow-[0_2px_8px_-2px_rgba(var(--dls-accent-rgb),0.5)]"
-                    : "text-dls-secondary hover:bg-dls-hover hover:text-dls-text"
-                }`}
+                className={`${segmentedItemClass} ${active ? segmentedActiveClass : segmentedInactiveClass}`}
               >
                 <Icon size={14} strokeWidth={1.75} />
                 {label}
@@ -116,16 +124,26 @@ export function ExtensionsView(props: ExtensionsViewProps) {
         </div>
       </div>
 
+      {props.showHeader !== false ? (
+        <div className="space-y-3">
+          <span className="lw-section-eyebrow uppercase text-dls-secondary">Integrations</span>
+          <h2 className={pageTitleClass}>{activeTab.label}</h2>
+          <p className="max-w-xl text-[14px] leading-[1.65] text-dls-secondary">{activeTab.subtitle}</p>
+        </div>
+      ) : null}
+
       {tab === "connectors" ? props.mcpView : null}
 
       {tab === "skills" ? props.skillsView : null}
 
       {tab === "plugins" ? (
         <div className="space-y-6">
-          <div className="flex flex-wrap items-start justify-between gap-3">
-            <p className="max-w-prose text-sm text-dls-secondary">
-              Plugins bundle a skill, an agent, and a command into one capability. These ship with the app and are ready to use in chat.
-            </p>
+          <div className={`flex flex-wrap items-start gap-3 ${props.showHeader !== false ? "justify-end" : "justify-between"}`}>
+            {props.showHeader === false ? (
+              <p className="max-w-prose text-sm text-dls-secondary">
+                Plugins bundle a skill, an agent, and a command into one capability. These ship with the app and are ready to use in chat.
+              </p>
+            ) : null}
             {props.previewClaudePlugin && props.installClaudePlugin ? (
               <Button variant="outline" onClick={() => setImportOpen(true)}>
                 <Download size={14} />

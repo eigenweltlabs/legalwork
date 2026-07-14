@@ -41,11 +41,11 @@ export function FeatureAnnouncementModal(props: FeatureAnnouncementModalProps) {
         <div className="relative overflow-hidden bg-[#05080f] px-7 pb-8 pt-7">
           <div
             aria-hidden
-            className="absolute inset-0 bg-[radial-gradient(120%_120%_at_85%_-10%,rgba(35,82,222,0.55),transparent_55%),radial-gradient(90%_90%_at_0%_110%,rgba(24,73,139,0.45),transparent_55%)]"
+            className="absolute inset-0 bg-[radial-gradient(120%_120%_at_85%_-10%,rgba(11, 132, 254,0.55),transparent_55%),radial-gradient(90%_90%_at_0%_110%,rgba(10, 103, 198,0.45),transparent_55%)]"
           />
           <div className="relative">
             <span className="inline-flex items-center gap-2 text-[10px] font-bold uppercase tracking-[0.14em] text-white/60">
-              <span className="size-[7px] rounded-[1.5px] bg-[#2352DE] shadow-[0_0_0_3px_rgba(35,82,222,0.25)]" />
+              <span className="size-[7px] rounded-[1.5px] bg-[#0a58c2] shadow-[0_0_0_3px_rgba(11, 132, 254,0.25)]" />
               {props.eyebrow}
             </span>
             <DialogTitle className="mt-3 text-[26px] font-medium leading-[1.08] tracking-[-0.03em] text-white">

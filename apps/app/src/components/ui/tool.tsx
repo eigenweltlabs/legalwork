@@ -8,6 +8,7 @@ import {
 import { getToolActivityLabel, isToolPartInFlight } from "@/lib/tool-activity"
 import { cn } from "@/lib/utils"
 import {
+  Blocks,
   Bot,
   ChevronDown,
   CircleAlert,
@@ -17,7 +18,6 @@ import {
   LoaderCircle,
   MessageCircleQuestion,
   Search,
-  Sparkles,
   SquareCode,
   Wrench,
 } from "lucide-react"
@@ -36,7 +36,7 @@ function toolIcon(part: ToolPart) {
     case "lsp":
       return SquareCode
     case "skill":
-      return Sparkles
+      return Blocks
     case "todowrite":
       return ListTodo
     case "question":
