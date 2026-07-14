@@ -7,8 +7,8 @@ import {
   Layout,
   RefreshCcw,
   ShieldCheck,
-  Sparkles,
   Zap,
+  type LucideIcon,
 } from "lucide-react";
 
 import { t } from "../../../../i18n";
@@ -20,7 +20,7 @@ export type GeneralSettingsViewProps = {
   developerMode: boolean;
 };
 
-type SettingsItem = { tab: SettingsTab; icon: typeof Sparkles; title: string; desc: string };
+type SettingsItem = { tab: SettingsTab; icon: LucideIcon; title: string; desc: string };
 
 const workspaceItems: SettingsItem[] = [
   { tab: "permissions", icon: FolderLock, title: "Permissions", desc: "Authorized folders and file access." },
@@ -50,23 +50,23 @@ function resolveGlobalItems(): SettingsItem[] {
   return [globalItems[0], officeAddinsItem, ...globalItems.slice(1)];
 }
 
-function SettingsRow(props: { icon: typeof Sparkles; title: string; desc: string; onClick: () => void }) {
+function SettingsRow(props: { icon: LucideIcon; title: string; desc: string; onClick: () => void }) {
   return (
     <button
       type="button"
       onClick={props.onClick}
-      className="group flex w-full items-center gap-4 px-4 py-3.5 text-left transition-colors hover:bg-[rgba(35,82,222,0.055)]"
+      className="group flex w-full items-center gap-3.5 px-4 py-3 text-left transition-colors first:rounded-t-2xl last:rounded-b-2xl hover:bg-hover"
     >
-      <div className="flex size-9 shrink-0 items-center justify-center rounded-[11px] border border-[rgba(35,82,222,0.22)] bg-[rgba(35,82,222,0.09)] shadow-[inset_0_1px_0_rgba(255,255,255,0.7)]">
-        <props.icon size={16} className="text-[#2352DE]" />
+      <div className="grid size-9 shrink-0 place-items-center rounded-[10px] bg-sunken text-ink">
+        <props.icon size={17} />
       </div>
       <div className="min-w-0 flex-1">
-        <div className="text-[13.5px] font-medium tracking-[-0.01em] text-foreground">{props.title}</div>
-        <div className="text-[11.5px] leading-snug text-muted-foreground">{props.desc}</div>
+        <div className="text-base font-medium text-ink">{props.title}</div>
+        <div className="mt-0.5 text-sm leading-snug text-subtext">{props.desc}</div>
       </div>
       <ArrowRight
-        size={15}
-        className="shrink-0 text-muted-foreground/45 transition-all group-hover:translate-x-0.5 group-hover:text-[#2352DE]"
+        size={16}
+        className="shrink-0 text-tertiary transition-transform group-hover:translate-x-0.5 group-hover:text-ink"
       />
     </button>
   );
@@ -74,9 +74,9 @@ function SettingsRow(props: { icon: typeof Sparkles; title: string; desc: string
 
 function SettingsGroup(props: { label: string; items: SettingsItem[]; onNavigateTab: (tab: SettingsTab) => void }) {
   return (
-    <section className="space-y-3">
+    <section className="space-y-2.5">
       <div className="lw-section-eyebrow px-1">{props.label}</div>
-      <div className="lw-glass-panel divide-y divide-[color:var(--glass-border)] overflow-hidden rounded-[20px]">
+      <div className="divide-y divide-subtle overflow-hidden rounded-2xl border border-subtle bg-surface shadow-xs">
         {props.items.map((item) => (
           <SettingsRow
             key={item.tab}
@@ -93,7 +93,7 @@ function SettingsGroup(props: { label: string; items: SettingsItem[]; onNavigate
 
 export function GeneralSettingsView(props: GeneralSettingsViewProps) {
   return (
-    <div className="w-full max-w-2xl space-y-9">
+    <div className="w-full max-w-3xl space-y-9">
       <SettingsGroup label="Workspace" items={workspaceItems} onNavigateTab={props.onNavigateTab} />
       <SettingsGroup label="Global" items={resolveGlobalItems()} onNavigateTab={props.onNavigateTab} />
       <p className="px-1 text-[11px] text-muted-foreground/70">

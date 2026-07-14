@@ -138,7 +138,7 @@ export function TemplateWorkflowsStep({ onStart, onSkip }: TemplateWorkflowsStep
                       noise={0.16}
                       shape="corners"
                       frame={37706.748}
-                      colors={["#0a1633", "#18498B", "#2352DE", "#05080f"]}
+                      colors={["#0a1633", "#0a67c6", "#0a58c2", "#05080f"]}
                       colorBack="#05080f"
                     />
                   </div>
@@ -157,7 +157,7 @@ export function TemplateWorkflowsStep({ onStart, onSkip }: TemplateWorkflowsStep
                     <div className="divide-y divide-white/10 border-y border-white/10">
                       {panelPoints.map((point) => (
                         <div key={point.title} className="flex items-baseline gap-4 py-3.5">
-                          <span className="mt-1 size-1.5 shrink-0 translate-y-1.5 rounded-full bg-[#2352DE]" />
+                          <span className="mt-1 size-1.5 shrink-0 translate-y-1.5 rounded-full bg-[#0a58c2]" />
                           <div className="min-w-0">
                             <div className="text-[14px] font-medium tracking-[-0.01em] text-white">{point.title}</div>
                             <div className="mt-0.5 text-[12.5px] leading-snug text-white/55">{point.desc}</div>

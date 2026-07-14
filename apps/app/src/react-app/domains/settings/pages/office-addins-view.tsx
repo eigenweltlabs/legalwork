@@ -19,6 +19,7 @@ import { toast } from "@/components/ui/sonner";
 import { t } from "@/i18n";
 import { captureAnalyticsEvent } from "@/app/lib/analytics";
 import {
+  LayoutSection,
   LayoutSectionItem,
   LayoutSectionItemDescription,
   LayoutSectionItemHeader,
@@ -179,7 +180,9 @@ export function OfficeAddinsView() {
         </Alert>
       ) : null}
 
-      {detectedApps.map((app) => (
+      {detectedApps.length > 0 ? (
+        <LayoutSection>
+          {detectedApps.map((app) => (
         <LayoutSectionItem key={app.id}>
           <LayoutSectionItemHeader>
             <LayoutSectionItemTitle>Microsoft {app.label}</LayoutSectionItemTitle>
@@ -220,19 +223,23 @@ export function OfficeAddinsView() {
             </LayoutSectionItemHeaderActions>
           </LayoutSectionItemHeader>
         </LayoutSectionItem>
-      ))}
+          ))}
+        </LayoutSection>
+      ) : null}
 
       {status && status.enabled ? (
-        <LayoutSectionItem>
-          <LayoutSectionItemHeader>
-            <LayoutSectionItemTitle>{t("office_addins.shared_title")}</LayoutSectionItemTitle>
-            <LayoutSectionItemDescription>{t("office_addins.shared_desc")}</LayoutSectionItemDescription>
-          </LayoutSectionItemHeader>
-          <div className="flex flex-col gap-1.5">
-            <StatusRow ok={status.certTrusted} label={t("office_addins.cert_trusted")} />
-            <StatusRow ok={status.enabled} label={t("office_addins.listener_running", { port: status.port })} />
-          </div>
-        </LayoutSectionItem>
+        <LayoutSection>
+          <LayoutSectionItem>
+            <LayoutSectionItemHeader>
+              <LayoutSectionItemTitle>{t("office_addins.shared_title")}</LayoutSectionItemTitle>
+              <LayoutSectionItemDescription>{t("office_addins.shared_desc")}</LayoutSectionItemDescription>
+            </LayoutSectionItemHeader>
+            <div className="flex flex-col gap-1.5">
+              <StatusRow ok={status.certTrusted} label={t("office_addins.cert_trusted")} />
+              <StatusRow ok={status.enabled} label={t("office_addins.listener_running", { port: status.port })} />
+            </div>
+          </LayoutSectionItem>
+        </LayoutSection>
       ) : null}
 
       {!status?.enabled ? (

@@ -3,13 +3,25 @@
 
 @import "../styles/colors.css";
 
+@import "@legalwork/ui/styles/tokens.css";
+
 @import "tw-animate-css";
 
 @import "shadcn/tailwind.css";
 
+@import "@fontsource-variable/inter";
+
 @import "@fontsource-variable/geist";
 
 @import "@fontsource-variable/ibm-plex-sans";
+
+/* ============================================================================
+   LegalWork app theme — unified on @legalwork/ui.
+   Every semantic token (shadcn --background/--card/--primary/... and the legacy
+   --dls-*) derives from the design system's --lw-* tokens (imported above),
+   so light/dark flips once at the token layer. Flat, clean surfaces; navy
+   primary; one interactive blue. The old "Deep Current" glass theme is gone.
+   ============================================================================ */
 
 @custom-variant dark (&:is(.dark, .dark *, [data-theme="dark"], [data-theme="dark"] *));
 @custom-variant electron {
@@ -37,480 +49,123 @@
   app-region: drag;
   user-select: none;
 }
-
 @utility titlebar-no-drag {
   app-region: no-drag;
 }
-
 @utility no-scrollbar {
   scrollbar-width: none;
   -ms-overflow-style: none;
-
   &::-webkit-scrollbar {
     display: none;
   }
 }
 
+/* ---------------------------------------------------------------------------
+   Semantic token layer — shadcn + dls, sourced from --lw-*.
+   Dark mode needs no separate block here: the --lw-* vars flip under .dark /
+   [data-theme="dark"] (in tokens.css), and these indirections resolve at use.
+   --------------------------------------------------------------------------- */
 :root {
-  color-scheme: light;
-  --dls-surface: var(--slate-1);
-  --dls-sidebar: var(--slate-2);
-  --dls-app-bg: var(--slate-1);
-  --dls-background: var(--slate-1);
-  --dls-canvas: var(--slate-2);
-  --dls-surface-muted: var(--slate-3);
-  --dls-border: #f3f4f6;
-  --dls-accent: #011627;
-  --dls-accent-hover: #000000;
-  --dls-accent-fg: #ffffff;
-  --dls-accent-rgb: 1 22 39;
-  --dls-secondary-rgb: 96 100 108;
-  --dls-text-primary: var(--slate-12);
-  --dls-text-secondary: var(--slate-11);
-  --dls-hover: var(--slate-3);
-  --dls-active: var(--slate-5);
-  --dls-radius: 16px;
-  --dls-radius-lg: 24px;
-  --dls-shell-shadow: 0 10px 30px rgba(15, 23, 42, 0.06);
-  --dls-card-shadow: 0 8px 24px rgba(15, 23, 42, 0.05);
-  --background: var(--slate-1);
-  --foreground: var(--slate-12);
-  --card: var(--slate-1);
-  --card-foreground: var(--slate-12);
-  --popover: var(--slate-1);
-  --popover-foreground: var(--slate-12);
-  --popover-border: var(--slate-5);
-  --primary: var(--blue-9);
-  --primary-foreground: white;
-  --secondary: var(--slate-3);
-  --secondary-foreground: var(--slate-12);
-  --muted: var(--slate-3);
-  --muted-foreground: var(--slate-11);
-  --accent: var(--slate-3);
-  --accent-foreground: var(--slate-12);
-  --destructive: var(--red-9);
-  --warning: var(--amber-11);
-  --border: var(--slate-5);
-  --input: var(--slate-6);
-  --ring: var(--slate-8);
+  /* shadcn semantic tokens */
+  --background: var(--lw-canvas);
+  --foreground: var(--lw-text-primary);
+  --card: var(--lw-surface);
+  --card-foreground: var(--lw-text-primary);
+  --popover: var(--lw-surface);
+  --popover-foreground: var(--lw-text-primary);
+  --popover-border: var(--lw-border);
+  --primary: var(--lw-primary);
+  --primary-foreground: var(--lw-primary-fg);
+  --secondary: var(--lw-sunken);
+  --secondary-foreground: var(--lw-text-primary);
+  --muted: var(--lw-sunken);
+  --muted-foreground: var(--lw-text-secondary);
+  --accent: var(--lw-hover);
+  --accent-foreground: var(--lw-text-primary);
+  --destructive: var(--lw-danger);
+  --warning: var(--lw-warning);
+  --border: var(--lw-border);
+  --input: var(--lw-border);
+  --ring: var(--lw-accent);
+  --radius: 0.625rem;
+
   --chart-1: var(--sky-9);
   --chart-2: var(--blue-9);
   --chart-3: var(--indigo-9);
   --chart-4: var(--violet-9);
   --chart-5: var(--purple-9);
-  --radius: 0.45rem;
-  --sidebar: var(--slate-2);
-  --sidebar-foreground: var(--slate-12);
-  --sidebar-primary: var(--blue-9);
-  --sidebar-primary-foreground: white;
-  --sidebar-accent: var(--slate-3);
-  --sidebar-accent-foreground: var(--slate-12);
-  --sidebar-border: var(--slate-6);
-  --sidebar-ring: var(--slate-8);
+
+  --sidebar: var(--lw-sidebar);
+  --sidebar-foreground: var(--lw-text-primary);
+  --sidebar-primary: var(--lw-primary);
+  --sidebar-primary-foreground: var(--lw-primary-fg);
+  --sidebar-accent: var(--lw-hover);
+  --sidebar-accent-foreground: var(--lw-text-primary);
+  --sidebar-border: var(--lw-border);
+  --sidebar-ring: var(--lw-accent);
+
+  /* opaque fill for modals / popovers */
+  --overlay-fill: var(--lw-surface);
+
+  /* legacy DLS layer (drives .ow-*, dot-ticker) — clean flat */
+  --dls-surface: var(--lw-surface);
+  --dls-sidebar: var(--lw-sidebar);
+  --dls-app-bg: var(--lw-canvas);
+  --dls-background: var(--lw-canvas);
+  --dls-canvas: var(--lw-sunken);
+  --dls-surface-muted: var(--lw-sunken);
+  --dls-border: var(--lw-border);
+  --dls-accent: var(--lw-accent);
+  --dls-accent-hover: var(--lw-accent-hover);
+  --dls-accent-fg: var(--lw-accent-fg);
+  --dls-accent-rgb: 10 88 194;
+  --dls-secondary-rgb: 108 108 118;
+  --dls-text-primary: var(--lw-text-primary);
+  --dls-text-secondary: var(--lw-text-secondary);
+  --dls-hover: var(--lw-hover);
+  --dls-active: var(--lw-active);
+  --dls-radius: 12px;
+  --dls-radius-lg: 16px;
+  --dls-shell-shadow: var(--lw-shadow-md);
+  --dls-card-shadow: var(--lw-shadow-sm);
+
+  /* brand ink for eyebrows / signals */
+  --lw-blue: var(--lw-accent);
+  --lw-blue-2: var(--lw-accent);
+  --lw-violet: #8e6fc9;
+  --lw-live: var(--lw-success);
+
+  /* Back-compat aliases for the retired "Deep Current" glass vars → flat clean
+     values, so any lingering var(--glass-*) reference resolves to the new look
+     instead of falling back to currentColor (which rendered as black borders). */
+  --glass-border: var(--lw-border-subtle);
+  --glass-border-dark: var(--lw-border-subtle);
+  --glass-fill: var(--lw-surface);
+  --glass-fill-strong: var(--lw-surface);
+  --glass-fill-dark: var(--lw-surface);
+  --shadow-glass: var(--lw-shadow-sm);
+  --shadow-glass-lg: var(--lw-shadow-md);
+  --blur-glass: none;
+  --blur-glass-lg: none;
+  --ease-soft: var(--lw-ease-standard);
+
+  --font-sans: var(--lw-font-sans);
+  --font-heading: var(--lw-font-sans);
 }
 
-[data-theme="dark"] {
-  color-scheme: dark;
-  --dls-surface: var(--slate-1);
-  --dls-sidebar: var(--slate-2);
-  --dls-app-bg: var(--slate-1);
-  --dls-background: var(--slate-1);
-  --dls-canvas: var(--slate-2);
-  --dls-surface-muted: var(--slate-3);
-  --dls-border: #262626;
-  --dls-accent: #011627;
-  --dls-accent-hover: #0a2540;
-  --dls-accent-fg: #ffffff;
-  --dls-accent-rgb: 1 22 39;
-  --dls-secondary-rgb: 176 180 186;
-  --dls-text-primary: var(--slate-12);
-  --dls-text-secondary: var(--slate-11);
-  --dls-hover: var(--slate-3);
-  --dls-active: var(--slate-5);
-  --dls-shell-shadow: 0 18px 48px rgba(0, 0, 0, 0.32);
-  --dls-card-shadow: 0 14px 36px rgba(0, 0, 0, 0.24);
-}
-
-html,
-body {
-  height: 100%;
-  overflow: hidden;
-}
-
-#root {
-  height: 100%;
-  overflow: hidden;
-}
-
-html {
-  font-size: var(--legalwork-font-size, 16px);
-}
-
-body {
-  margin: 0;
-  font-family:
-    "IBM Plex Sans",
-    Geist,
-    "Avenir Next",
-    Inter,
-    ui-sans-serif,
-    system-ui,
-    -apple-system,
-    BlinkMacSystemFont,
-    "Segoe UI",
-    Roboto,
-    "Helvetica Neue",
-    Arial,
-    "Noto Sans",
-    "Apple Color Emoji",
-    "Segoe UI Emoji";
-  font-size: 0.875rem;
-  line-height: 1.5;
-  color: var(--dls-text-primary);
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
-}
-
-.ow-soft-shell {
-  border: 1px solid var(--dls-border);
-  background: var(--dls-surface);
-  border-radius: 2rem;
-  box-shadow: var(--dls-shell-shadow);
-}
-
-.ow-soft-card {
-  border: 1px solid var(--dls-border);
-  background: var(--dls-surface);
-  border-radius: 1.5rem;
-  box-shadow: var(--dls-card-shadow);
-}
-
-.ow-soft-card-quiet {
-  border: 1px solid var(--dls-border);
-  background: var(--dls-sidebar);
-  border-radius: 1.5rem;
-}
-
-.ow-button-primary {
-  display: inline-flex;
-  min-height: 48px;
-  align-items: center;
-  justify-content: center;
-  border-radius: 9999px;
-  background: var(--dls-accent);
-  color: white;
-  box-shadow: 0 8px 20px -16px rgba(var(--dls-accent-rgb), 0.45);
-}
-
-.ow-button-primary:hover:not(:disabled) {
-  background: var(--dls-accent-hover);
-}
-
-.ow-button-secondary {
-  display: inline-flex;
-  min-height: 48px;
-  align-items: center;
-  justify-content: center;
-  border-radius: 9999px;
-  border: 1px solid var(--dls-border);
-  background: var(--dls-surface);
-  color: var(--dls-text-primary);
-  box-shadow: var(--dls-card-shadow);
-}
-
-.ow-button-secondary:hover:not(:disabled) {
-  background: var(--dls-hover);
-}
-
-.ow-button-primary,
-.ow-button-secondary {
-  padding: 0.75rem 1.25rem;
-  font-size: 13px;
-  font-weight: 500;
-  transition: background-color 150ms ease, color 150ms ease, transform 150ms ease, opacity 150ms ease;
-}
-
-.ow-button-primary:active:not(:disabled),
-.ow-button-secondary:active:not(:disabled) {
-  transform: scale(0.99);
-}
-
-.ow-button-primary:disabled,
-.ow-button-secondary:disabled {
-  opacity: 0.5;
-}
-
-.ow-status-pill {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  border-radius: 9999px;
-  padding: 0.25rem 0.625rem;
-  font-size: 10px;
-  font-weight: 700;
-  letter-spacing: 0.18em;
-  text-transform: uppercase;
-}
-
-.ow-status-pill-positive {
-  border: 1px solid var(--green-a6);
-  background: var(--green-3);
-  color: var(--green-11);
-}
-
-.ow-status-pill-warning {
-  border: 1px solid var(--amber-a6);
-  background: var(--amber-3);
-  color: var(--amber-11);
-}
-
-.ow-status-pill-neutral {
-  border: 1px solid var(--slate-6);
-  background: var(--slate-2);
-  color: var(--slate-11);
-}
-
-.ow-icon-tile {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  border-radius: 0.85rem;
-  background: var(--slate-3);
-  color: var(--slate-12);
-}
-
-.ow-icon-tile-muted {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  border-radius: 0.85rem;
-  background: var(--slate-3);
-  color: var(--slate-11);
-}
-
-.ow-input {
-  appearance: none;
-  width: 100%;
-  border: 0;
-  border-radius: 0.9rem;
-  background: var(--slate-1);
-  box-shadow: inset 0 0 0 1px var(--slate-6);
-  color: var(--dls-text-primary);
-}
-
-.ow-input::placeholder {
-  color: var(--slate-11);
-}
-
-.ow-input:focus {
-  outline: none;
-  box-shadow: inset 0 0 0 1px rgba(var(--dls-accent-rgb), 0.28), 0 0 0 3px rgba(var(--dls-accent-rgb), 0.08);
-}
-
-/* Global clickable elements pointer */
-button,
-[role="button"],
-a,
-input[type="submit"],
-input[type="button"],
-input[type="checkbox"],
-input[type="radio"],
-select {
-  cursor: pointer;
-}
-
-button:disabled,
-[role="button"][aria-disabled="true"],
-input:disabled,
-select:disabled {
-  cursor: not-allowed;
-}
-
-@utility animate-spin-slow {
-  animation: spin 3s linear infinite;
-}
-
-@keyframes soft-pulse {
-  0%,
-  100% {
-    transform: scale(1);
-    opacity: 0.4;
-  }
-  50% {
-    transform: scale(1.15);
-    opacity: 1;
-  }
-}
-
-@utility animate-soft-pulse {
-  animation: soft-pulse 1.5s cubic-bezier(0.4, 0, 0.6, 1) infinite;
-}
-
-/* Highlight animation for just-saved command */
-@keyframes command-highlight {
-  0% {
-    box-shadow: 0 0 0 0 var(--indigo-a9);
-    border-color: var(--indigo-a9);
-  }
-  50% {
-    box-shadow: 0 0 0 8px var(--indigo-a1);
-    border-color: var(--indigo-a7);
-  }
-  100% {
-    box-shadow: 0 0 0 0 var(--indigo-a1);
-    border-color: var(--slate-a3);
-  }
-}
-
-.command-just-saved {
-  animation: command-highlight 2s ease-out;
-  border-color: var(--indigo-a9);
-}
-
-/* Fusion mode: animated rainbow ring around the composer panel. The gradient
-   is painted on an inset pseudo-element and masked down to the border ring so
-   the panel background and content stay untouched. */
-@keyframes fusion-rainbow-slide {
-  to {
-    background-position: 400% 50%;
-  }
-}
-
-.fusion-rainbow-border::before {
-  content: "";
-  position: absolute;
-  inset: -1px;
-  z-index: 1;
-  border-radius: inherit;
-  padding: 2px;
-  background: linear-gradient(
-    90deg,
-    #ff5f6d,
-    #ffc371,
-    #f9f871,
-    #3ec97e,
-    #38b6ff,
-    #8b5cf6,
-    #ff5f6d
-  );
-  background-size: 400% 100%;
-  animation: fusion-rainbow-slide 6s linear infinite;
-  -webkit-mask:
-    linear-gradient(#fff 0 0) content-box,
-    linear-gradient(#fff 0 0);
-  -webkit-mask-composite: xor;
-  mask:
-    linear-gradient(#fff 0 0) content-box,
-    linear-gradient(#fff 0 0);
-  mask-composite: exclude;
-  pointer-events: none;
-}
-
-.fusion-rainbow-text {
-  background: linear-gradient(
-    90deg,
-    #ff5f6d,
-    #ffc371,
-    #3ec97e,
-    #38b6ff,
-    #8b5cf6,
-    #ff5f6d
-  );
-  background-size: 400% 100%;
-  animation: fusion-rainbow-slide 6s linear infinite;
-  -webkit-background-clip: text;
-  background-clip: text;
-  color: transparent;
-}
-
-.fusion-rainbow-text svg {
-  color: #8b5cf6;
-}
-
-@keyframes progress-shimmer {
-  0% {
-    transform: translateX(-100%);
-  }
-  100% {
-    transform: translateX(200%);
-  }
-}
-
-@utility animate-progress-shimmer {
-  animation: progress-shimmer 2s infinite linear;
-}
-
-/* Quiet, small dot ticker (`:: :: ::`). Each dot pulses briefly in sequence,
-   illuminating left-to-right like a subtle running light. Used for boot,
-   "awaiting first token", and any idle-but-alive hint. */
-@keyframes ow-dot-ticker {
-  0% {
-    background-color: rgba(var(--dls-secondary-rgb, 120, 120, 120), 0.22);
-    box-shadow: 0 0 0 rgba(var(--dls-accent-rgb), 0);
-  }
-  20% {
-    background-color: rgba(var(--dls-accent-rgb), 0.95);
-    box-shadow: 0 0 8px rgba(var(--dls-accent-rgb), 0.45);
-  }
-  55%,
-  100% {
-    background-color: rgba(var(--dls-secondary-rgb, 120, 120, 120), 0.22);
-    box-shadow: 0 0 0 rgba(var(--dls-accent-rgb), 0);
-  }
-}
-
-.ow-dot-ticker {
-  animation: ow-dot-ticker 1.4s cubic-bezier(0.4, 0, 0.2, 1) infinite;
-  background-color: rgba(var(--dls-secondary-rgb, 120, 120, 120), 0.22);
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .ow-dot-ticker {
-    animation: none;
-    background-color: rgba(var(--dls-accent-rgb), 0.6);
-  }
-}
-
-.dark,
-[data-theme="dark"] {
-  --background: var(--slate-1);
-  --foreground: var(--slate-12);
-  --card: var(--slate-2);
-  --card-foreground: var(--slate-12);
-  --popover: var(--slate-2);
-  --popover-foreground: var(--slate-12);
-  --popover-border: var(--slate-5);
-  --primary: var(--blue-10);
-  --primary-foreground: var(--slate-12);
-  --secondary: var(--slate-3);
-  --secondary-foreground: var(--slate-12);
-  --muted: var(--slate-3);
-  --muted-foreground: var(--slate-10);
-  --accent: var(--slate-3);
-  --accent-foreground: var(--slate-12);
-  --destructive: var(--red-9);
-  --warning: var(--amber-11);
-  --border: var(--slate-3);
-  --input: var(--slate-6);
-  --ring: var(--slate-8);
-  --chart-1: var(--sky-9);
-  --chart-2: var(--blue-9);
-  --chart-3: var(--indigo-9);
-  --chart-4: var(--violet-9);
-  --chart-5: var(--purple-9);
-  --sidebar: var(--slate-2);
-  --sidebar-foreground: var(--slate-12);
-  --sidebar-primary: var(--blue-9);
-  --sidebar-primary-foreground: var(--slate-12);
-  --sidebar-accent: var(--slate-3);
-  --sidebar-accent-foreground: var(--slate-12);
-  --sidebar-border: var(--slate-6);
-  --sidebar-ring: var(--slate-8);
-}
-
+/* ---------------------------------------------------------------------------
+   Tailwind theme mapping. Keeps the shadcn --color-* utilities AND adds the
+   @legalwork/ui semantic utilities (surface/ink/brand/subtext/…) so DS
+   components render in the app. accent(shadcn hover) and secondary(shadcn
+   surface) keep their meaning; the DS's blue is `brand`, its muted text
+   `subtext` — no collisions.
+   --------------------------------------------------------------------------- */
 @theme inline {
-  --font-sans: 'Geist Variable', sans-serif;
-  --font-heading: 'IBM Plex Sans Variable', sans-serif;
+  --font-sans: var(--lw-font-sans);
+  --font-heading: var(--lw-font-sans);
+  --font-mono: var(--lw-font-mono);
+
+  /* shadcn */
   --color-sidebar-ring: var(--sidebar-ring);
   --color-sidebar-border: var(--sidebar-border);
   --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
@@ -544,13 +199,97 @@ select:disabled {
   --color-card: var(--card);
   --color-foreground: var(--foreground);
   --color-background: var(--background);
+
+  /* @legalwork/ui semantic utilities */
+  --color-canvas: var(--lw-canvas);
+  --color-surface: var(--lw-surface);
+  --color-surface-hover: var(--lw-surface-hover);
+  --color-sunken: var(--lw-sunken);
+  --color-overlay: var(--lw-overlay);
+  --color-ink: var(--lw-text-primary);
+  --color-subtext: var(--lw-text-secondary);
+  --color-tertiary: var(--lw-text-tertiary);
+  --color-placeholder: var(--lw-text-placeholder);
+  --color-inverse: var(--lw-text-inverse);
+  --color-primary-fg: var(--lw-primary-fg);
+  --color-brand: var(--lw-accent);
+  --color-brand-hover: var(--lw-accent-hover);
+  --color-brand-active: var(--lw-accent-active);
+  --color-brand-fg: var(--lw-accent-fg);
+  --color-brand-soft: var(--lw-accent-soft);
+  --color-brand-soft-hover: var(--lw-accent-soft-hover);
+  --color-brand-border: var(--lw-accent-border);
+  --color-navy: var(--lw-navy-900);
+  --color-success: var(--lw-success);
+  --color-success-soft: var(--lw-success-soft);
+  --color-warning-soft: var(--lw-warning-soft);
+  --color-danger: var(--lw-danger);
+  --color-danger-hover: var(--lw-danger-hover);
+  --color-danger-soft: var(--lw-danger-soft);
+  --color-subtle: var(--lw-border-subtle);
+  --color-line: var(--lw-border);
+  --color-strong: var(--lw-border-strong);
+  --color-hover: var(--lw-hover);
+  --color-active: var(--lw-active);
+  --color-selected: var(--lw-selected);
+
+  /* radius scale (from --radius) */
   --radius-sm: calc(var(--radius) * 0.6);
-  --radius-md: calc(var(--radius) * 0.8);
+  --radius-md: calc(var(--radius) * 0.85);
   --radius-lg: var(--radius);
-  --radius-xl: calc(var(--radius) * 1.4);
-  --radius-2xl: calc(var(--radius) * 1.8);
-  --radius-3xl: calc(var(--radius) * 2.2);
+  --radius-xl: calc(var(--radius) * 1.3);
+  --radius-2xl: calc(var(--radius) * 1.7);
+  --radius-3xl: calc(var(--radius) * 2.1);
   --radius-4xl: calc(var(--radius) * 2.6);
+
+  /* extra type sizes the DS uses */
+  --text-2xs: 0.6875rem;
+  --text-2xs--line-height: 0.875rem;
+  --text-md: 0.9375rem;
+  --text-md--line-height: 1.375rem;
+
+  /* elevation */
+  --shadow-xs: var(--lw-shadow-xs);
+  --shadow-sm: var(--lw-shadow-sm);
+  --shadow-md: var(--lw-shadow-md);
+  --shadow-lg: var(--lw-shadow-lg);
+  --shadow-pop: var(--lw-shadow-pop);
+
+  /* easings */
+  --ease-standard: var(--lw-ease-standard);
+  --ease-out-soft: var(--lw-ease-out);
+  --ease-spring: var(--lw-ease-spring);
+}
+
+/* ---------------------------------------------------------------------------
+   Base
+   --------------------------------------------------------------------------- */
+html,
+body {
+  height: 100%;
+  overflow: hidden;
+}
+#root {
+  height: 100%;
+  overflow: hidden;
+}
+html {
+  font-size: var(--legalwork-font-size, 16px);
+  background: var(--lw-canvas);
+}
+body {
+  margin: 0;
+  font-family: var(--lw-font-sans);
+  font-size: 0.875rem;
+  line-height: 1.5;
+  letter-spacing: -0.011em;
+  color: var(--lw-text-primary);
+  background: var(--lw-canvas);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+:where(h1, h2, h3, h4) {
+  letter-spacing: -0.022em;
 }
 
 @layer base {
@@ -563,480 +302,337 @@ select:disabled {
   html {
     @apply font-sans;
   }
+  ::selection {
+    background: var(--lw-accent-soft);
+  }
 }
 
-/* ============================================================================
-   LegalWork × Eigenwelt — "Deep Current" theme
-   Warm-ink-on-paper, a single ultramarine signal, Geist type, and the
-   signature liquid-glass chrome. Appended last & unlayered, so it wins the
-   cascade over the base token layer above without touching it.
-   ============================================================================ */
-:root {
-  /* ----- Deep Current palette ----- */
-  --lw-ink:       #0E0A07;   /* warm near-black — text */
-  --lw-paper:     #FEFEFE;   /* surface */
-  --lw-paper-2:   #F3F5F8;   /* sunken canvas */
-  --lw-paper-3:   #EAEEF4;   /* deeper sunken */
-  --lw-blue:      #18498B;   /* ultramarine — primary signal */
-  --lw-blue-2:    #2352DE;   /* electric — accents, links, focus */
-  --lw-navy:      #0B1B3A;   /* dark slab */
-  --lw-violet:    #8669B9;
-  --lw-live:      #4BA884;
-
-  /* ----- Liquid-glass recipe (the brand signature) ----- */
-  --glass-fill:        linear-gradient(180deg, rgba(255,255,255,.62), rgba(255,255,255,.24));
-  --glass-fill-strong: linear-gradient(180deg, rgba(255,255,255,.80), rgba(255,255,255,.46));
-  --glass-fill-dark:   linear-gradient(180deg, rgba(255,255,255,.16), rgba(255,255,255,.06));
-  --glass-border:      rgba(22,34,56,.10);
-  --glass-border-dark: rgba(255,255,255,.22);
-  --blur-glass:        blur(18px) saturate(140%);
-  --blur-glass-lg:     blur(24px) saturate(150%);
-  --shadow-glass:      0 8px 22px rgba(22,34,56,.10), inset 0 1px 0 rgba(255,255,255,.85), inset 0 -1px 0 rgba(22,34,56,.04);
-  --shadow-glass-lg:   0 18px 46px -10px rgba(8,23,79,.20), inset 0 1px 0 rgba(255,255,255,.92), inset 0 -1px 0 rgba(22,34,56,.05);
-  --ease-soft:         cubic-bezier(0.22,0.61,0.36,1);
-
-  /* ----- Remap app semantic tokens → Deep Current (light) ----- */
-  --background:           var(--lw-paper-2);
-  --foreground:           var(--lw-ink);
-  --card:                 var(--lw-paper);
-  --card-foreground:      var(--lw-ink);
-  --popover:              rgba(254,254,254,.82);
-  --popover-foreground:   var(--lw-ink);
-  --popover-border:       rgba(22,34,56,.10);
-  --primary:              var(--lw-blue);
-  --primary-foreground:   #FEFEFE;
-  --secondary:            var(--lw-paper-2);
-  --secondary-foreground: var(--lw-ink);
-  --muted:                var(--lw-paper-2);
-  --muted-foreground:     rgba(14,10,7,.55);
-  --accent:               rgba(35,82,222,.06);
-  --accent-foreground:    var(--lw-blue);
-  --border:               rgba(14,10,7,.09);
-  --input:                rgba(14,10,7,.12);
-  --ring:                 var(--lw-blue-2);
-  --radius:               0.7rem;
-
-  /* sidebar — clearly differentiated, faintly cooler, glassy */
-  --sidebar:                   rgba(243,245,248,.70);
-  --sidebar-foreground:        var(--lw-ink);
-  --sidebar-primary:           var(--lw-blue);
-  --sidebar-primary-foreground:#FEFEFE;
-  --sidebar-accent:            rgba(35,82,222,.07);
-  --sidebar-accent-foreground: var(--lw-blue);
-  --sidebar-border:            rgba(14,10,7,.06);
-  --sidebar-ring:              var(--lw-blue-2);
-
-  /* DLS layer drives .ow-soft-*, .ow-button-primary, dot-ticker, inputs */
-  --dls-surface:        var(--lw-paper);
-  --dls-sidebar:        var(--lw-paper-2);
-  --dls-app-bg:         var(--lw-paper-2);
-  --dls-background:     var(--lw-paper-2);
-  --dls-canvas:         var(--lw-paper-2);
-  --dls-surface-muted:  var(--lw-paper-3);
-  --dls-border:         rgba(14,10,7,.08);
-  --dls-accent:         var(--lw-blue);
-  --dls-accent-hover:   var(--lw-blue-2);
-  --dls-accent-fg:      #FEFEFE;
-  --dls-accent-rgb:     24 73 139;
-  --dls-secondary-rgb:  96 100 108;
-  --dls-text-primary:   var(--lw-ink);
-  --dls-text-secondary: rgba(14,10,7,.55);
-  --dls-hover:          rgba(14,10,7,.04);
-  --dls-active:         rgba(35,82,222,.10);
-  --dls-radius:         16px;
-  --dls-radius-lg:      22px;
-  --dls-shell-shadow:   0 18px 40px -24px rgba(8,23,79,.22);
-  --dls-card-shadow:    0 10px 30px -20px rgba(8,23,79,.16);
-
-  /* Geist everywhere (house rule) */
-  --font-sans:    'Geist Variable', 'Geist', ui-sans-serif, system-ui, sans-serif;
-  --font-heading: 'Geist Variable', 'Geist', ui-sans-serif, system-ui, sans-serif;
+/* Global clickable cursor */
+button,
+[role="button"],
+a,
+input[type="submit"],
+input[type="button"],
+input[type="checkbox"],
+input[type="radio"],
+select {
+  cursor: pointer;
+}
+button:disabled,
+[role="button"][aria-disabled="true"],
+input:disabled,
+select:disabled {
+  cursor: not-allowed;
 }
 
-[data-theme="dark"],
-.dark {
-  --lw-paper:   #0B0F17;
-  --lw-paper-2: #0B0F17;
-  --background:           #090C12;
-  --foreground:           #F4F6FA;
-  --card:                 #11161F;
-  --card-foreground:      #F4F6FA;
-  --popover:              rgba(17,22,31,.72);
-  --popover-foreground:   #F4F6FA;
-  --popover-border:       rgba(255,255,255,.10);
-  --primary:              var(--lw-blue-2);
-  --primary-foreground:   #FEFEFE;
-  --muted-foreground:     rgba(244,246,250,.55);
-  --accent:               rgba(35,82,222,.18);
-  --accent-foreground:    #C9D6FF;
-  --border:               rgba(255,255,255,.08);
-  --input:                rgba(255,255,255,.12);
-  --ring:                 var(--lw-blue-2);
-  --sidebar:              rgba(13,18,27,.66);
-  --sidebar-foreground:   #F4F6FA;
-  --sidebar-border:       rgba(255,255,255,.06);
-  --glass-fill:           var(--glass-fill-dark);
-  /* Opaque fill for modals/popovers — frosted look without see-through. */
-  --overlay-fill:         linear-gradient(180deg, #161C29, #0F141D);
-  --glass-border:         var(--glass-border-dark);
-  --shadow-glass:         0 18px 44px rgba(2,8,28,.5), inset 0 1px 0 rgba(255,255,255,.14), inset 0 -1px 0 rgba(255,255,255,.05);
-  --dls-surface:          #11161F;
-  --dls-sidebar:          #0D121B;
-  --dls-app-bg:           #090C12;
-  --dls-border:           rgba(255,255,255,.08);
-  --dls-text-primary:     #F4F6FA;
-  --dls-text-secondary:   rgba(244,246,250,.55);
-  --dls-hover:            rgba(255,255,255,.05);
-}
-
-/* Geist as the running face, with the brand's gentle negative tracking.
-   A faint "Deep Current" light field gives the frosted chrome something to
-   refract — kept low-alpha so the palette stays subtle. Opaque surfaces sit
-   on top; translucent panes (sidebar, mac titlebar/surface) catch the wash. */
-body {
-  font-family: var(--font-sans);
-  letter-spacing: -0.012em;
-  background:
-    radial-gradient(115% 80% at -6% -12%, rgba(35, 82, 222, 0.13), transparent 52%),
-    radial-gradient(95% 75% at 106% 112%, rgba(206, 151, 96, 0.07), transparent 54%),
-    radial-gradient(85% 95% at 50% -20%, rgba(24, 73, 139, 0.07), transparent 56%),
-    var(--lw-paper-2) !important;
-  background-attachment: fixed;
-}
-
-[data-theme="dark"] body,
-.dark body {
-  background:
-    radial-gradient(115% 80% at -6% -12%, rgba(35, 82, 222, 0.22), transparent 50%),
-    radial-gradient(95% 75% at 106% 112%, rgba(120, 90, 200, 0.10), transparent 54%),
-    var(--background) !important;
-}
-:where(h1, h2, h3, h4) {
-  letter-spacing: -0.028em;
-}
-
-/* ----- Liquid-glass helpers ----- */
-.glass {
-  background: var(--glass-fill);
-  border: 1px solid var(--glass-border);
-  -webkit-backdrop-filter: var(--blur-glass);
-  backdrop-filter: var(--blur-glass);
-  box-shadow: var(--shadow-glass);
-}
-.glass-strong {
-  background: var(--glass-fill-strong);
-  border: 1px solid rgba(22,34,56,.12);
-  -webkit-backdrop-filter: var(--blur-glass-lg);
-  backdrop-filter: var(--blur-glass-lg);
-  box-shadow: var(--shadow-glass-lg);
-}
-.glass-dark {
-  background: var(--glass-fill-dark);
-  border: 1px solid var(--glass-border-dark);
-  -webkit-backdrop-filter: blur(22px) saturate(125%);
-  backdrop-filter: blur(22px) saturate(125%);
-  box-shadow: 0 18px 44px rgba(5,18,79,.18), inset 0 1px 0 rgba(255,255,255,.20), inset 0 -1px 0 rgba(255,255,255,.10);
-  color: #FEFEFE;
-}
-
-/* Promote the app's primary soft surfaces to liquid glass. */
+/* ---------------------------------------------------------------------------
+   Legacy .ow-* helpers — flat clean equivalents (most are unused now, kept
+   for the few that remain; no glass).
+   --------------------------------------------------------------------------- */
 .ow-soft-shell {
-  background: var(--glass-fill-strong);
-  border: 1px solid rgba(22,34,56,.10);
-  -webkit-backdrop-filter: var(--blur-glass-lg);
-  backdrop-filter: var(--blur-glass-lg);
-  box-shadow: var(--shadow-glass-lg);
+  border: 1px solid var(--lw-border);
+  background: var(--lw-surface);
+  border-radius: 1.25rem;
+  box-shadow: var(--lw-shadow-md);
 }
 .ow-soft-card {
-  background: var(--glass-fill);
-  border: 1px solid var(--glass-border);
-  -webkit-backdrop-filter: var(--blur-glass);
-  backdrop-filter: var(--blur-glass);
-  box-shadow: var(--shadow-glass);
+  border: 1px solid var(--lw-border-subtle);
+  background: var(--lw-surface);
+  border-radius: 1rem;
+  box-shadow: var(--lw-shadow-sm);
+}
+.ow-soft-card-quiet {
+  border: 1px solid var(--lw-border-subtle);
+  background: var(--lw-sunken);
+  border-radius: 1rem;
+}
+.glass,
+.glass-strong,
+.lw-glass-panel {
+  border: 1px solid var(--lw-border-subtle);
+  background: var(--lw-surface);
+  box-shadow: var(--lw-shadow-md);
+  border-radius: 1rem;
 }
 
-/* Ultramarine primary buttons get the house inner-glow + layered blue shadow. */
+.ow-button-primary,
+.ow-button-secondary {
+  display: inline-flex;
+  min-height: 40px;
+  align-items: center;
+  justify-content: center;
+  border-radius: 9999px;
+  padding: 0.625rem 1.15rem;
+  font-size: 13px;
+  font-weight: 500;
+  transition: background-color 150ms var(--lw-ease-standard), color 150ms, transform 150ms, opacity 150ms;
+}
 .ow-button-primary {
-  background: linear-gradient(180deg, var(--lw-blue-2), var(--lw-blue));
-  box-shadow:
-    inset 0 1px 0 rgba(255,255,255,.22),
-    0 2px 5px rgba(24,73,139,.22),
-    0 10px 20px -8px rgba(24,73,139,.45);
-  border: 1px solid rgba(255,255,255,.18);
-  transition: transform var(--dur-fast,160ms) var(--ease-soft), box-shadow var(--dur-fast,160ms) var(--ease-soft);
+  background: var(--lw-primary);
+  color: var(--lw-primary-fg);
+  box-shadow: var(--lw-shadow-xs);
 }
 .ow-button-primary:hover:not(:disabled) {
-  background: linear-gradient(180deg, var(--lw-blue-2), var(--lw-blue-2));
-  transform: translateY(-1px);
+  background: var(--lw-primary-hover);
+}
+.ow-button-secondary {
+  border: 1px solid var(--lw-border);
+  background: var(--lw-surface);
+  color: var(--lw-text-primary);
+  box-shadow: var(--lw-shadow-xs);
+}
+.ow-button-secondary:hover:not(:disabled) {
+  background: var(--lw-surface-hover);
+}
+.ow-button-primary:active:not(:disabled),
+.ow-button-secondary:active:not(:disabled) {
+  transform: scale(0.99);
+}
+.ow-button-primary:disabled,
+.ow-button-secondary:disabled {
+  opacity: 0.5;
 }
 
-/* A tiny ultramarine square cue for UPPERCASE eyebrows (house signature). */
-.lw-eyebrow {
+.ow-input {
+  appearance: none;
+  width: 100%;
+  border: 1px solid var(--lw-border);
+  border-radius: 0.625rem;
+  background: var(--lw-surface);
+  color: var(--lw-text-primary);
+}
+.ow-input::placeholder {
+  color: var(--lw-text-placeholder);
+}
+.ow-input:focus {
+  outline: none;
+  border-color: var(--lw-accent);
+  box-shadow: 0 0 0 3px var(--lw-focus-ring);
+}
+
+.ow-status-pill {
   display: inline-flex;
   align-items: center;
-  gap: .5em;
+  justify-content: center;
+  border-radius: 9999px;
+  padding: 0.2rem 0.55rem;
   font-size: 10px;
-  font-weight: 700;
-  letter-spacing: .12em;
+  font-weight: 600;
+  letter-spacing: 0.06em;
   text-transform: uppercase;
-  color: var(--lw-blue);
 }
-.lw-eyebrow::before {
-  content: "";
-  width: 7px;
-  height: 7px;
-  border-radius: 1.5px;
-  background: var(--lw-blue-2);
+.ow-status-pill-positive {
+  background: var(--lw-success-soft);
+  color: var(--lw-success);
 }
-
-/* Mono numerals for stats/data (Geist Mono if present, else tabular). */
-.lw-num { font-variant-numeric: tabular-nums; letter-spacing: -0.02em; }
-
-/* ============================================================================
-   Deep Current v2 — turn the glass UP. A present luminous field, deeper frost,
-   pronounced bevels, floating panes. Light-only (no dark panels with body text).
-   ============================================================================ */
-:root {
-  --radius: 0.95rem;
-  --blur-glass:    blur(26px) saturate(168%);
-  --blur-glass-lg: blur(34px) saturate(185%);
-  --shadow-glass:    0 12px 32px -10px rgba(8, 23, 79, 0.18), inset 0 1px 0 rgba(255, 255, 255, 0.95), inset 0 -1px 0 rgba(22, 34, 56, 0.05);
-  --shadow-glass-lg: 0 28px 64px -18px rgba(8, 23, 79, 0.30), inset 0 1px 0 rgba(255, 255, 255, 1), inset 0 -1px 0 rgba(22, 34, 56, 0.06);
-  --glass-fill:        linear-gradient(180deg, rgba(255, 255, 255, 0.66), rgba(255, 255, 255, 0.32));
-  --glass-fill-strong: linear-gradient(180deg, rgba(255, 255, 255, 0.88), rgba(255, 255, 255, 0.58));
+.ow-status-pill-warning {
+  background: var(--lw-warning-soft);
+  color: var(--lw-warning);
 }
-
-/* Translucent surfaces so panes frost over the field — light theme only. */
-:root:not([data-theme="dark"]):not(.dark) {
-  --card:        rgba(255, 255, 255, 0.62);
-  --popover:     rgba(255, 255, 255, 0.74);
-  /* Opaque fill for modals/popovers — frosted look without see-through. */
-  --overlay-fill: linear-gradient(180deg, #FFFFFF, #F3F5F8);
-  --secondary:   rgba(255, 255, 255, 0.52);
-  --muted:       rgba(255, 255, 255, 0.45);
-  --sidebar:     rgba(248, 250, 253, 0.50);
-  --dls-surface: rgba(255, 255, 255, 0.62);
-  --dls-sidebar: rgba(248, 250, 253, 0.50);
+.ow-status-pill-neutral {
+  background: var(--lw-sunken);
+  color: var(--lw-text-secondary);
+}
+.ow-icon-tile,
+.ow-icon-tile-muted {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 0.75rem;
+  background: var(--lw-sunken);
+  color: var(--lw-text-primary);
+}
+.ow-icon-tile-muted {
+  color: var(--lw-text-secondary);
 }
 
-/* The Deep Current environment — luminous, present, still light. */
-:root:not([data-theme="dark"]):not(.dark) body {
-  background:
-    radial-gradient(58% 48% at 6% -2%, rgba(35, 82, 222, 0.22), transparent 60%),
-    radial-gradient(50% 42% at 102% 6%, rgba(51, 114, 217, 0.16), transparent 60%),
-    radial-gradient(70% 62% at 102% 104%, rgba(212, 150, 96, 0.13), transparent 62%),
-    radial-gradient(60% 70% at 26% 106%, rgba(134, 105, 185, 0.12), transparent 62%),
-    linear-gradient(176deg, #E9F0FA 0%, #F1F4F8 46%, #F6F2EB 100%) !important;
-  background-attachment: fixed !important;
-}
-
-/* Frost every card + soft surface into a floating, light-catching pane. */
-[data-slot="card"],
-.ow-soft-card,
-.ow-soft-shell {
-  background: var(--glass-fill-strong) !important;
-  border: 1px solid rgba(22, 34, 56, 0.10) !important;
-  -webkit-backdrop-filter: var(--blur-glass);
-  backdrop-filter: var(--blur-glass);
-  box-shadow: var(--shadow-glass) !important;
-  border-radius: 18px;
-  transition: box-shadow 240ms var(--ease-soft, ease), transform 240ms var(--ease-soft, ease);
-}
-[data-slot="card"]:hover {
-  box-shadow: var(--shadow-glass-lg) !important;
-  transform: translateY(-2px);
-}
-
-/* Sidebar rail: deep frost, crisp top highlight, hairline edge. */
-[data-slot="sidebar-inner"] {
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.52), rgba(244, 247, 251, 0.38)) !important;
-  -webkit-backdrop-filter: var(--blur-glass-lg);
-  backdrop-filter: var(--blur-glass-lg);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.92), 1px 0 0 rgba(22, 34, 56, 0.06);
-}
-
-/* Overlays → an opaque frosted surface instead of a live backdrop-filter. A
-   live blur on an element that also fade/zoom-animates on open/close forces the
-   compositor to re-rasterize the blurred region every frame (and re-sample the
-   backdrop-filtered cards behind it), which made modals flicker and feel
-   sluggish. We use a solid, OPAQUE fill (not the translucent glass fill, which
-   without the blur just looked see-through) and keep the brand blue as the
-   primary color for anything inside the modal.
-
-   Shadow: keep it small-radius. The big `--shadow-glass-lg` (64px blur, 28px
-   offset) has to be re-rasterized as the modal zoom/fade-animates on open, which
-   reads as a laggy shadow lurching in behind the modal. Upstream uses the
-   component's plain `shadow-xl`; we match that radius with a brand-tinted tone. */
-[data-slot="dialog-content"],
-[data-slot="popover-content"],
-[data-slot="command-dialog-popup"] {
-  background: var(--overlay-fill) !important;
-  box-shadow:
-    0 20px 25px -5px rgba(8, 23, 79, 0.10),
-    0 8px 10px -6px rgba(8, 23, 79, 0.08) !important;
-  border: 1px solid var(--popover-border) !important;
-  --primary: var(--lw-blue);
-  --primary-foreground: #FEFEFE;
-}
-
-/* Primary surfaces (titlebar / session surface) frost over the field on mac. */
-.ow-soft-card-quiet {
-  background: rgba(255, 255, 255, 0.40) !important;
-  -webkit-backdrop-filter: var(--blur-glass);
-  backdrop-filter: var(--blur-glass);
-  border: 1px solid rgba(22, 34, 56, 0.08) !important;
-}
-
-/* Section eyebrow with the brand blue-square cue, for headers. */
+/* Section eyebrow with the brand blue-square cue (used across screens). */
+.lw-eyebrow,
 .lw-section-eyebrow {
   display: inline-flex;
   align-items: center;
   gap: 0.5em;
   font-size: 10px;
-  font-weight: 700;
-  letter-spacing: 0.14em;
+  font-weight: 600;
+  letter-spacing: 0.12em;
   text-transform: uppercase;
-  color: rgba(14, 10, 7, 0.5);
+  color: var(--lw-text-tertiary);
 }
+.lw-eyebrow::before,
 .lw-section-eyebrow::before {
   content: "";
   width: 7px;
   height: 7px;
   border-radius: 1.5px;
-  background: var(--lw-blue-2, #2352DE);
-  box-shadow: 0 0 0 3px rgba(35, 82, 222, 0.12);
+  background: var(--lw-accent);
+}
+.lw-num {
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.02em;
 }
 
-/* ============================================================================
-   v3 — MAKE THE FIELD VISIBLE. The opaque canvas was hiding everything, so the
-   frosted panes had nothing to refract → "no glass". Field now lives on <html>
-   (bottom layer); body is transparent; the surface tokens become a light veil
-   so the field shows through and every frosted pane (sidebar, panels, overlays)
-   actually catches light.
-   ============================================================================ */
-html {
-  background:
-    radial-gradient(52% 44% at 2% -2%, rgba(35, 82, 222, 0.28), transparent 60%),
-    radial-gradient(48% 40% at 100% 2%, rgba(51, 114, 217, 0.22), transparent 60%),
-    radial-gradient(64% 58% at 100% 102%, rgba(214, 150, 96, 0.17), transparent 62%),
-    radial-gradient(58% 66% at 20% 104%, rgba(134, 105, 185, 0.17), transparent 62%),
-    linear-gradient(176deg, #E4ECFA 0%, #EEF3F9 48%, #F6F1E8 100%);
-  background-attachment: fixed;
-}
-[data-theme="dark"] html,
-.dark html {
-  background: #090C12;
+/* ---------------------------------------------------------------------------
+   Animations
+   --------------------------------------------------------------------------- */
+@utility animate-spin-slow {
+  animation: spin 3s linear infinite;
 }
 
-:root:not([data-theme="dark"]):not(.dark) body {
-  background: transparent !important;
+@keyframes soft-pulse {
+  0%,
+  100% {
+    transform: scale(1);
+    opacity: 0.4;
+  }
+  50% {
+    transform: scale(1.15);
+    opacity: 1;
+  }
+}
+@utility animate-soft-pulse {
+  animation: soft-pulse 1.5s cubic-bezier(0.4, 0, 0.6, 1) infinite;
 }
 
-/* Surface canvas → light veil so the field reads through the shell. */
-:root:not([data-theme="dark"]):not(.dark) {
-  --background:     rgba(247, 249, 253, 0.42);
-  --dls-app-bg:     rgba(247, 249, 253, 0.42);
-  --dls-background: rgba(247, 249, 253, 0.42);
-  --dls-canvas:     rgba(247, 249, 253, 0.28);
+@keyframes command-highlight {
+  0% {
+    box-shadow: 0 0 0 0 var(--indigo-a9);
+    border-color: var(--indigo-a9);
+  }
+  50% {
+    box-shadow: 0 0 0 8px var(--indigo-a1);
+    border-color: var(--indigo-a7);
+  }
+  100% {
+    box-shadow: 0 0 0 0 var(--indigo-a1);
+    border-color: var(--slate-a3);
+  }
+}
+.command-just-saved {
+  animation: command-highlight 2s ease-out;
+  border-color: var(--indigo-a9);
 }
 
-/* ============================================================================
-   v4 — legibility + dark mode + more color.
-   Model: GLASS on chrome/panels/overlays; SOLID on content/inputs. Content
-   surfaces were see-through (composer tools illegible) — make them opaque.
-   Full dark parity, and a more saturated Deep Current field that reads as
-   LegalWork's own.
-   ============================================================================ */
-
-/* More colorful field (light). */
-html {
-  background:
-    radial-gradient(46% 40% at -2% -4%, rgba(35, 82, 222, 0.40), transparent 58%),
-    radial-gradient(42% 36% at 100% 0%, rgba(51, 114, 217, 0.32), transparent 58%),
-    radial-gradient(60% 54% at 102% 104%, rgba(214, 150, 96, 0.22), transparent 60%),
-    radial-gradient(54% 60% at 14% 106%, rgba(134, 105, 185, 0.30), transparent 60%),
-    linear-gradient(176deg, #DBE7FB 0%, #E9F0F8 46%, #F5EFE5 100%);
-  background-attachment: fixed;
+/* Fusion mode: animated rainbow ring around the composer panel. */
+@keyframes fusion-rainbow-slide {
+  to {
+    background-position: 400% 50%;
+  }
+}
+.fusion-rainbow-border::before {
+  content: "";
+  position: absolute;
+  inset: -1px;
+  z-index: 1;
+  border-radius: inherit;
+  padding: 2px;
+  background: linear-gradient(90deg, #ff5f6d, #ffc371, #f9f871, #3ec97e, #38b6ff, #8b5cf6, #ff5f6d);
+  background-size: 400% 100%;
+  animation: fusion-rainbow-slide 6s linear infinite;
+  -webkit-mask:
+    linear-gradient(#fff 0 0) content-box,
+    linear-gradient(#fff 0 0);
+  -webkit-mask-composite: xor;
+  mask:
+    linear-gradient(#fff 0 0) content-box,
+    linear-gradient(#fff 0 0);
+  mask-composite: exclude;
+  pointer-events: none;
+}
+.fusion-rainbow-text {
+  background: linear-gradient(90deg, #ff5f6d, #ffc371, #3ec97e, #38b6ff, #8b5cf6, #ff5f6d);
+  background-size: 400% 100%;
+  animation: fusion-rainbow-slide 6s linear infinite;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+.fusion-rainbow-text svg {
+  color: #8b5cf6;
 }
 
-/* LIGHT: legible content + opaque inputs; glass stays on chrome. */
-:root:not([data-theme="dark"]):not(.dark) {
-  --background:     rgba(248, 250, 254, 0.55);
-  --dls-app-bg:     rgba(248, 250, 254, 0.55);
-  --dls-background: rgba(248, 250, 254, 0.55);
-  --dls-canvas:     rgba(248, 250, 254, 0.42);
-  --dls-surface:    rgba(255, 255, 255, 0.97);   /* composer / content: SOLID */
-  --card:           rgba(255, 255, 255, 0.80);
-  --popover:        rgba(255, 255, 255, 0.82);
-  --sidebar:        rgba(255, 255, 255, 0.40);
+@keyframes progress-shimmer {
+  0% {
+    transform: translateX(-100%);
+  }
+  100% {
+    transform: translateX(200%);
+  }
+}
+@utility animate-progress-shimmer {
+  animation: progress-shimmer 2s infinite linear;
 }
 
-/* DARK: real Deep Current night + glass parity. */
-[data-theme="dark"] html,
-.dark html {
-  background:
-    radial-gradient(48% 42% at -2% -4%, rgba(35, 82, 222, 0.36), transparent 60%),
-    radial-gradient(44% 38% at 100% 0%, rgba(96, 70, 190, 0.32), transparent 60%),
-    radial-gradient(60% 56% at 100% 104%, rgba(24, 73, 139, 0.34), transparent 62%),
-    linear-gradient(176deg, #060A12 0%, #0A0F1A 50%, #0B0E16 100%);
-  background-attachment: fixed;
+/* Quiet dot ticker (boot / awaiting-token). */
+@keyframes ow-dot-ticker {
+  0% {
+    background-color: rgba(var(--dls-secondary-rgb, 120, 120, 120), 0.22);
+    box-shadow: 0 0 0 rgba(var(--dls-accent-rgb), 0);
+  }
+  20% {
+    background-color: rgba(var(--dls-accent-rgb), 0.95);
+    box-shadow: 0 0 8px rgba(var(--dls-accent-rgb), 0.45);
+  }
+  55%,
+  100% {
+    background-color: rgba(var(--dls-secondary-rgb, 120, 120, 120), 0.22);
+    box-shadow: 0 0 0 rgba(var(--dls-accent-rgb), 0);
+  }
 }
-[data-theme="dark"],
-.dark {
-  --glass-fill:        linear-gradient(180deg, rgba(38, 48, 70, 0.66), rgba(20, 26, 40, 0.48));
-  --glass-fill-strong: linear-gradient(180deg, rgba(32, 41, 60, 0.85), rgba(18, 24, 38, 0.68));
-  --glass-border:      rgba(255, 255, 255, 0.10);
-  --shadow-glass-lg:   0 28px 64px -18px rgba(0, 0, 0, 0.6), inset 0 1px 0 rgba(255, 255, 255, 0.10), inset 0 -1px 0 rgba(0, 0, 0, 0.3);
-  --background:     rgba(11, 15, 23, 0.55);
-  --dls-app-bg:     rgba(11, 15, 23, 0.55);
-  --dls-background: rgba(11, 15, 23, 0.55);
-  --dls-surface:    rgba(21, 27, 40, 0.96);   /* composer / content: SOLID */
-  --card:           rgba(28, 36, 52, 0.72);
-  --popover:        rgba(24, 31, 46, 0.85);
-  --sidebar:        rgba(13, 18, 28, 0.40);
-  --border:         rgba(255, 255, 255, 0.09);
-  --dls-border:     rgba(255, 255, 255, 0.09);
-  --dls-text-primary:   #EEF2F8;
-  --dls-text-secondary: rgba(238, 242, 248, 0.58);
-  --dls-hover:      rgba(255, 255, 255, 0.06);
+.ow-dot-ticker {
+  animation: ow-dot-ticker 1.4s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+  background-color: rgba(var(--dls-secondary-rgb, 120, 120, 120), 0.22);
+}
+@media (prefers-reduced-motion: reduce) {
+  .ow-dot-ticker {
+    animation: none;
+    background-color: rgba(var(--dls-accent-rgb), 0.6);
+  }
 }
 
-/* Sidebar rail — dark-aware frosted glass. */
-:root:not([data-theme="dark"]):not(.dark) [data-slot="sidebar-inner"] {
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.44), rgba(244, 247, 251, 0.28)) !important;
+/* @legalwork/ui component animations (Menu / Modal / Toast / Slider). */
+@keyframes lw-menu-in {
+  from {
+    opacity: 0;
+    transform: scale(0.97) translateY(-2px);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
 }
-[data-theme="dark"] [data-slot="sidebar-inner"],
-.dark [data-slot="sidebar-inner"] {
-  background: linear-gradient(180deg, rgba(23, 30, 45, 0.52), rgba(12, 16, 26, 0.36)) !important;
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06), 1px 0 0 rgba(255, 255, 255, 0.05) !important;
+@keyframes lw-fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
 }
-
-/* Reusable dark-aware glass panel (settings groups, feature panels). */
-.lw-glass-panel {
-  background: var(--glass-fill-strong);
-  border: 1px solid var(--glass-border);
-  -webkit-backdrop-filter: var(--blur-glass-lg);
-  backdrop-filter: var(--blur-glass-lg);
-  box-shadow: var(--shadow-glass-lg);
+@keyframes lw-scale-in {
+  from {
+    opacity: 0;
+    transform: scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
 }
-
-/* ============================================================================
-   v5 — LIGHT MODE: dial the color WAY back. "Just a bit more color", not a
-   saturated field. A whisper of ultramarine on near-white paper. Dark mode
-   keeps its richer field (unchanged).
-   ============================================================================ */
-html:not([data-theme="dark"]):not(.dark) {
-  background:
-    radial-gradient(55% 48% at -2% -6%, rgba(35, 82, 222, 0.075), transparent 62%),
-    radial-gradient(46% 40% at 100% 0%, rgba(51, 114, 217, 0.05), transparent 62%),
-    radial-gradient(58% 54% at 102% 106%, rgba(214, 150, 96, 0.045), transparent 64%),
-    linear-gradient(176deg, #EFF3F9 0%, #F4F6FA 55%, #F7F4EE 100%) !important;
-  background-attachment: fixed;
+@keyframes lw-aurora {
+  from {
+    background-position: 0% 50%;
+  }
+  to {
+    background-position: 200% 50%;
+  }
 }
-/* Lighten the content veil so the subtle field stays calm/clean. */
-:root:not([data-theme="dark"]):not(.dark) {
-  --background:     rgba(249, 251, 254, 0.72);
-  --dls-app-bg:     rgba(249, 251, 254, 0.72);
-  --dls-background: rgba(249, 251, 254, 0.72);
-  --dls-canvas:     rgba(249, 251, 254, 0.58);
+@keyframes lw-toast-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
 }

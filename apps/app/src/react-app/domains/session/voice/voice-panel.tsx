@@ -1,6 +1,6 @@
 /** @jsxImportSource react */
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
-import { ChevronDown, ChevronRight, Loader2, Mic2, MicOff, Radio, SendHorizontal, Sparkles, Square, X } from "lucide-react";
+import { ChevronDown, ChevronRight, Keyboard, Loader2, Mic2, MicOff, Radio, SendHorizontal, Square, X } from "lucide-react";
 import { PaperGrainGradient } from "@legalwork/ui/react";
 
 import { desktopFetch } from "@/app/lib/desktop";
@@ -903,7 +903,7 @@ export function VoicePanel(props: VoicePanelProps) {
           <Card variant="outline" size="sm">
             <CardHeader>
               <CardTitle className="flex items-center gap-2 text-sm">
-                <Sparkles className="text-primary" />
+                <Keyboard className="text-primary" />
                 Typed voice command
               </CardTitle>
             </CardHeader>

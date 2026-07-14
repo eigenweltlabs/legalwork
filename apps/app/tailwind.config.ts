@@ -11,6 +11,7 @@ safelist: [
       ...radixColors,
       dls: {
         surface: "var(--dls-surface)",
+        card: "var(--dls-surface)",
         background: "var(--dls-background)",
         canvas: "var(--dls-canvas)",
         "surface-muted": "var(--dls-surface-muted)",

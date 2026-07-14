@@ -20,6 +20,7 @@ import { t } from "../../../../i18n";
 import type { ReleaseChannel } from "../../../../app/types";
 import type { SettingsUpdateStatus } from "../state/electron-updater-state";
 import {
+  LayoutSection,
   LayoutSectionItem,
   LayoutSectionItemDescription,
   LayoutSectionItemHeader,
@@ -27,7 +28,6 @@ import {
   LayoutSectionItemTitle,
   LayoutStack,
 } from "../settings-layout";
-import { Separator } from "@/components/ui/separator";
 import { Spinner } from "../settings-section";
 
 const RELEASE_CHANNEL_OPTIONS: { label: string; value: ReleaseChannel }[] = [
@@ -107,6 +107,7 @@ export function UpdatesView(props: UpdatesViewProps) {
 
   return (
     <LayoutStack>
+      <LayoutSection>
       {props.appVersion ? (
         <LayoutSectionItem>
           <LayoutSectionItemHeader>
@@ -210,11 +211,12 @@ export function UpdatesView(props: UpdatesViewProps) {
                 onCancel={() => setConfirmRestartOpen(false)}
               />
             </LayoutSectionItem>
+      </LayoutSection>
 
             {updateState === "available" && updateNotes ? (
-              <LayoutSectionItem className="max-h-40 overflow-auto whitespace-pre-wrap text-xs text-muted-foreground">
+              <p className="max-h-40 overflow-auto whitespace-pre-wrap px-1 text-xs text-muted-foreground">
                 {updateNotes}
-              </LayoutSectionItem>
+              </p>
             ) : null}
 
       {props.webDeployment ? (
@@ -226,8 +228,7 @@ export function UpdatesView(props: UpdatesViewProps) {
           <AlertDescription>{props.updateEnv.reason ?? t("settings.updates_not_supported")}</AlertDescription>
         </Alert>
       ) : (
-        <>
-        <Separator />
+        <LayoutSection>
           {props.alphaChannelSupported && props.releaseChannel ? (
             <LayoutSectionItem>
               <LayoutSectionItemHeader>
@@ -291,9 +292,7 @@ export function UpdatesView(props: UpdatesViewProps) {
                 </LayoutSectionItemHeaderActions>
               </LayoutSectionItemHeader>
             </LayoutSectionItem>
-
-
-          </>
+        </LayoutSection>
       )}
     </LayoutStack>
   );

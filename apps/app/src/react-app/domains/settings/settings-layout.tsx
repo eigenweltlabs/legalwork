@@ -14,10 +14,54 @@ interface LayoutSectionProps {
   children: React.ReactNode;
 }
 
+// Flatten children INCLUDING any Fragments (pages often wrap a mapped list of
+// rows in a fragment / conditional), so consecutive setting rows are detected
+// even across fragment boundaries. React.Children.toArray does not reliably
+// flatten Fragments, which left mapped rows ungrouped ("no structure").
+function flattenSectionChildren(children: React.ReactNode): React.ReactNode[] {
+  const out: React.ReactNode[] = [];
+  React.Children.forEach(children, (child) => {
+    if (React.isValidElement(child) && child.type === React.Fragment) {
+      out.push(...flattenSectionChildren((child.props as { children?: React.ReactNode }).children));
+    } else if (child !== null && child !== undefined && child !== false) {
+      out.push(child);
+    }
+  });
+  return out;
+}
+
 export function LayoutSection({ children }: LayoutSectionProps) {
+  // Group CONSECUTIVE setting rows (LayoutSectionItem) into a single card with
+  // hairline dividers — the reference "grouped settings" look. Headers,
+  // footnotes, notices and any other content render OUTSIDE the card (in place),
+  // so nothing gets clipped by the card's overflow.
+  const out: React.ReactNode[] = [];
+  let run: React.ReactNode[] = [];
+  let runKey = 0;
+  const flush = () => {
+    if (run.length === 0) return;
+    out.push(
+      <div
+        key={`grp-${runKey++}`}
+        className="divide-y divide-subtle overflow-hidden rounded-2xl border border-subtle bg-surface shadow-xs"
+      >
+        {run}
+      </div>,
+    );
+    run = [];
+  };
+  flattenSectionChildren(children).forEach((child, i) => {
+    if (React.isValidElement(child) && child.type === LayoutSectionItem) {
+      run.push(React.isValidElement(child) && child.key == null ? React.cloneElement(child, { key: `row-${i}` }) : child);
+    } else {
+      flush();
+      out.push(React.isValidElement(child) && child.key == null ? React.cloneElement(child, { key: `out-${i}` }) : child);
+    }
+  });
+  flush();
   return (
-    <div data-section className="group/section flex flex-col gap-6">
-      {children}
+    <div data-section className="group/section flex flex-col gap-3">
+      {out}
     </div>
   );
 }
@@ -80,7 +124,7 @@ interface LayoutSectionItemProps {
 
 export function LayoutSectionItem({ children, className }: LayoutSectionItemProps) {
   return (
-    <div className={cn("flex flex-col gap-3", className)}>
+    <div className={cn("flex flex-col gap-3 px-4 py-3.5", className)}>
       {children}
     </div>
   );

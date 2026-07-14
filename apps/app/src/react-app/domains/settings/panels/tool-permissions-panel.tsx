@@ -161,12 +161,21 @@ type PermissionRowProps = {
 
 function PermissionRow(props: PermissionRowProps) {
   return (
-    <div className="flex flex-row items-center justify-between gap-3 rounded-2xl border border-dls-border px-4 py-3">
-      <div className="min-w-0 flex flex-col gap-1">
-        <span className="text-sm font-medium text-dls-text">{props.title}</span>
-        <span className="text-xs text-muted-foreground">{props.description}</span>
+    <div className="flex flex-row items-center justify-between gap-4 px-4 py-3.5">
+      <div className="min-w-0 flex flex-col gap-0.5">
+        <span className="text-base font-medium text-ink">{props.title}</span>
+        <span className="text-sm text-subtext">{props.description}</span>
       </div>
       {props.children}
+    </div>
+  );
+}
+
+// Grouped-card wrapper for a set of rows (hairline dividers between them).
+function PermissionGroup({ children }: { children: ReactNode }) {
+  return (
+    <div className="divide-y divide-subtle overflow-hidden rounded-2xl border border-subtle bg-surface shadow-xs">
+      {children}
     </div>
   );
 }
@@ -327,7 +336,7 @@ export function ToolPermissionsPanel(props: ToolPermissionsPanelProps) {
       ) : (
         <>
           {/* Quick safety toggles */}
-          <div className="flex flex-col gap-2">
+          <PermissionGroup>
             {QUICK_TOGGLES.map((toggle) => (
               <PermissionRow
                 key={toggle}
@@ -345,72 +354,78 @@ export function ToolPermissionsPanel(props: ToolPermissionsPanelProps) {
                 />
               </PermissionRow>
             ))}
-          </div>
+          </PermissionGroup>
 
           {/* Per-tool actions */}
-          <div className="flex flex-col gap-2">
-            <div className="flex flex-col gap-1">
-              <span className="text-sm font-medium text-dls-text">
+          <div className="flex flex-col gap-2.5">
+            <div className="flex flex-col gap-0.5 px-1">
+              <span className="text-base font-medium text-ink">
                 {t("tool_permissions.advanced_title")}
               </span>
-              <span className="text-xs text-muted-foreground">
+              <span className="text-sm text-subtext">
                 {t("tool_permissions.advanced_desc")}
               </span>
             </div>
-            {MANAGED_PERMISSION_TOOLS.map((tool) => (
-              <PermissionRow
-                key={tool}
-                title={toolLabels(tool).title}
-                description={toolLabels(tool).description}
-              >
-                <ActionSelect
-                  value={state.model[tool].action}
-                  ariaLabel={toolLabels(tool).title}
-                  disabled={busy || !canWriteConfig}
-                  onChange={(action) => setToolAction(tool, action)}
-                />
-              </PermissionRow>
-            ))}
+            <PermissionGroup>
+              {MANAGED_PERMISSION_TOOLS.map((tool) => (
+                <PermissionRow
+                  key={tool}
+                  title={toolLabels(tool).title}
+                  description={toolLabels(tool).description}
+                >
+                  <ActionSelect
+                    value={state.model[tool].action}
+                    ariaLabel={toolLabels(tool).title}
+                    disabled={busy || !canWriteConfig}
+                    onChange={(action) => setToolAction(tool, action)}
+                  />
+                </PermissionRow>
+              ))}
+            </PermissionGroup>
           </div>
 
           {/* Shell command pattern rules */}
-          <div className="flex flex-col gap-2">
-            <div className="flex flex-col gap-1">
-              <span className="text-sm font-medium text-dls-text">
+          <div className="flex flex-col gap-2.5">
+            <div className="flex flex-col gap-0.5 px-1">
+              <span className="text-base font-medium text-ink">
                 {t("tool_permissions.bash_rules_title")}
               </span>
-              <span className="text-xs text-muted-foreground">
+              <span className="text-sm text-subtext">
                 {t("tool_permissions.bash_rules_desc")}
               </span>
             </div>
-            {state.model.bash.rules.map((rule) => (
-              <div
-                key={rule.pattern}
-                className="flex flex-row items-center justify-between gap-3 rounded-2xl border border-dls-border px-4 py-3"
-              >
-                <span className="min-w-0 truncate font-mono text-xs text-dls-text">
-                  {rule.pattern}
-                </span>
-                <div className="flex shrink-0 items-center gap-2">
-                  <ActionSelect
-                    value={rule.action}
-                    ariaLabel={t("tool_permissions.rule_action_label", undefined, { pattern: rule.pattern })}
-                    disabled={busy || !canWriteConfig}
-                    onChange={(action) => setBashRuleAction(rule.pattern, action)}
-                  />
-                  <Button
-                    variant="ghost"
-                    size="icon-sm"
-                    className="shrink-0 text-muted-foreground hover:text-destructive"
-                    onClick={() => removeBashRule(rule.pattern)}
-                    disabled={busy || !canWriteConfig}
-                    aria-label={t("tool_permissions.remove_rule", undefined, { pattern: rule.pattern })}
+            {state.model.bash.rules.length > 0 ? (
+              <PermissionGroup>
+                {state.model.bash.rules.map((rule) => (
+                  <div
+                    key={rule.pattern}
+                    className="flex flex-row items-center justify-between gap-3 px-4 py-3.5"
                   >
-                    <X size={14} />
-                  </Button>
-                </div>
-              </div>
-            ))}
+                    <span className="min-w-0 truncate font-mono text-sm text-ink">
+                      {rule.pattern}
+                    </span>
+                    <div className="flex shrink-0 items-center gap-2">
+                      <ActionSelect
+                        value={rule.action}
+                        ariaLabel={t("tool_permissions.rule_action_label", undefined, { pattern: rule.pattern })}
+                        disabled={busy || !canWriteConfig}
+                        onChange={(action) => setBashRuleAction(rule.pattern, action)}
+                      />
+                      <Button
+                        variant="ghost"
+                        size="icon-sm"
+                        className="shrink-0 text-muted-foreground hover:text-destructive"
+                        onClick={() => removeBashRule(rule.pattern)}
+                        disabled={busy || !canWriteConfig}
+                        aria-label={t("tool_permissions.remove_rule", undefined, { pattern: rule.pattern })}
+                      >
+                        <X size={14} />
+                      </Button>
+                    </div>
+                  </div>
+                ))}
+              </PermissionGroup>
+            ) : null}
             <div className="flex flex-row items-center gap-2">
               <Input
                 value={rulePatternDraft}

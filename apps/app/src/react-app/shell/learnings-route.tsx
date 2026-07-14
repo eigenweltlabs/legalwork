@@ -71,7 +71,7 @@ function DataStructuringViz() {
           <div
             key={f.label}
             className="flex items-center justify-between gap-2 rounded-md px-2 py-1"
-            style={{ background: "rgba(35,82,222,.06)", border: "1px solid rgba(35,82,222,.14)" }}
+            style={{ background: "rgba(11, 132, 254,.06)", border: "1px solid rgba(11, 132, 254,.14)" }}
           >
             <span className="flex items-center gap-1.5">
               <Folder className="size-3" style={{ color: "var(--lw-blue-2)" }} />
@@ -131,7 +131,7 @@ function ContinualLearningViz() {
             <div className="flex flex-col items-center gap-1">
               <span
                 className="flex size-7 items-center justify-center rounded-lg"
-                style={{ background: "rgba(35,82,222,.08)", border: "1px solid rgba(35,82,222,.16)" }}
+                style={{ background: "rgba(11, 132, 254,.08)", border: "1px solid rgba(11, 132, 254,.16)" }}
               >
                 <s.icon className="size-3.5" style={{ color: "var(--lw-blue-2)" }} />
               </span>
@@ -174,7 +174,7 @@ function PreviewCard({
   return (
     <div
       className={`glass flex flex-col gap-4 rounded-[20px] p-4 ${
-        onClick ? "cursor-pointer transition-shadow hover:shadow-[0_0_0_1.5px_rgba(35,82,222,0.35)]" : ""
+        onClick ? "cursor-pointer transition-shadow hover:shadow-[0_0_0_1.5px_rgba(11, 132, 254,0.35)]" : ""
       }`}
       style={{ boxShadow: "none" }}
       role={onClick ? "button" : undefined}
@@ -210,7 +210,7 @@ function TalkWithResearcherLink() {
       target="_blank"
       rel="noopener noreferrer"
       onClick={(event) => event.stopPropagation()}
-      className="inline-flex h-8 items-center justify-center gap-1.5 rounded-full border border-[rgba(35,82,222,0.22)] px-3 text-[12px] font-medium text-[#2352DE] transition-colors hover:bg-[rgba(35,82,222,0.08)]"
+      className="inline-flex h-8 items-center justify-center gap-1.5 rounded-full border border-[rgba(11, 132, 254,0.22)] px-3 text-[12px] font-medium text-[#0a58c2] transition-colors hover:bg-[rgba(11, 132, 254,0.08)]"
     >
       Talk with Researcher
       <ArrowUpRight className="size-3.5" />
@@ -310,12 +310,12 @@ export function LearningsPane(props: LearningsPaneProps) {
     <div className="relative h-full w-full overflow-y-auto">
       {/* Brand radial wash (kept from the original placeholder). */}
       <div className="pointer-events-none absolute inset-0">
-        <div className="absolute -left-[12%] -top-[20%] h-[60%] w-[60%] rounded-full bg-[radial-gradient(ellipse,rgba(35,82,222,0.07),transparent_70%)] blur-3xl" />
+        <div className="absolute -left-[12%] -top-[20%] h-[60%] w-[60%] rounded-full bg-[radial-gradient(ellipse,rgba(11, 132, 254,0.07),transparent_70%)] blur-3xl" />
         <div className="absolute -bottom-[18%] -right-[8%] h-[50%] w-[50%] rounded-full bg-[radial-gradient(ellipse,rgba(134,105,185,0.06),transparent_70%)] blur-3xl" />
       </div>
 
       <div className="relative z-10 flex min-h-full items-center justify-center px-6 py-10">
-        <div className="w-full max-w-[1080px]">
+        <div className="w-full max-w-3xl">
         {/* Header — left aligned */}
         <div className="text-left">
           <span className="lw-section-eyebrow">Learnings · Private preview</span>

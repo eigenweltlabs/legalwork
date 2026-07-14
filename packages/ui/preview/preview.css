@@ -1,0 +1,21 @@
+@import "tailwindcss";
+@import "../src/styles/tokens.css";
+@import "../src/styles/theme.css";
+
+/* Inter variable font (bundled, self-hosted; primary UI face) */
+@import "@fontsource-variable/inter";
+/* Geist variable font (retained fallback) */
+@import "@fontsource-variable/geist";
+
+/* Scan the library source so its utility classes are generated. */
+@source "../src/react";
+@source "./";
+
+html,
+body,
+#root {
+  height: 100%;
+}
+body {
+  margin: 0;
+}

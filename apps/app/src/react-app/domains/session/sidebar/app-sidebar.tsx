@@ -484,6 +484,12 @@ function isSessionActivityStatus(status: string | undefined): status is SessionA
   return status === "idle" || status === "thinking" || status === "responding" || status === "error" || status === "compacting" || status === "waiting";
 }
 
+// Primary nav rows (Learning / Workflows / Integrations): smooth color fade on
+// hover/active. The active row uses the default subtle gray fill from
+// SidebarMenuButton (data-active:bg-sidebar-accent) — no accent bar.
+const NAV_ITEM_CLASS =
+  "gap-4 text-sidebar-foreground/80 transition-colors duration-150 data-active:text-sidebar-accent-foreground";
+
 export function AppSidebar(props: AppSidebarProps) {
   const { config: shellConfig } = useShellConfig();
   const navigate = useNavigate();
@@ -655,7 +661,7 @@ export function AppSidebar(props: AppSidebarProps) {
             <DropdownMenu>
               <DropdownMenuTrigger
                 render={
-                  <SidebarMenuButton className="gap-4 text-sidebar-foreground/80 [&_svg]:size-[18px]">
+                  <SidebarMenuButton className="gap-4 text-sidebar-foreground/80 transition-colors duration-150 [&_svg]:size-[18px]">
                     <PenLine className="size-[18px]" strokeWidth={1.5} />
                     <span>New Task</span>
                   </SidebarMenuButton>
@@ -682,7 +688,7 @@ export function AppSidebar(props: AppSidebarProps) {
           </SidebarMenuItem>
           <SidebarMenuItem>
             <SidebarMenuButton
-              className="gap-4 text-sidebar-foreground/80 [&_svg]:size-[19px]"
+              className={cn(NAV_ITEM_CLASS, "[&_svg]:size-[19px]")}
               isActive={props.activeNav === "learnings"}
               onClick={() => props.onShowLearnings?.()}
             >
@@ -692,7 +698,7 @@ export function AppSidebar(props: AppSidebarProps) {
           </SidebarMenuItem>
           <SidebarMenuItem>
             <SidebarMenuButton
-              className="gap-4 text-sidebar-foreground/80 [&_svg]:size-[18px]"
+              className={cn(NAV_ITEM_CLASS, "[&_svg]:size-[18px]")}
               isActive={props.activeNav === "workflows"}
               onClick={() => (props.onShowWorkflows ? props.onShowWorkflows() : goSettings("general"))}
             >
@@ -702,7 +708,7 @@ export function AppSidebar(props: AppSidebarProps) {
           </SidebarMenuItem>
           <SidebarMenuItem>
             <SidebarMenuButton
-              className="gap-4 text-sidebar-foreground/80 [&_svg]:size-[18px]"
+              className={cn(NAV_ITEM_CLASS, "[&_svg]:size-[18px]")}
               isActive={props.activeNav === "extensions"}
               onClick={() => (props.onShowExtensions ? props.onShowExtensions() : goSettings("extensions/mcp"))}
             >

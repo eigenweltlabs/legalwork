@@ -1,19 +1,11 @@
 /** @jsxImportSource react */
-import { Sparkles, X } from "lucide-react";
+import { Blend, X } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { t } from "@/i18n";
 import type { ModelRef } from "@/app/types";
 import { resolveModelDisplayName } from "@/app/utils";
 import { ProviderIcon } from "../../../design-system/provider-icon";
-import {
-  LayoutSection,
-  LayoutSectionDescription,
-  LayoutSectionHeader,
-  LayoutSectionItem,
-  LayoutSectionItemFootnote,
-  LayoutSectionTitle,
-} from "../settings-layout";
 
 export type FusionSettingsSectionProps = {
   fusionModels: ModelRef[];
@@ -29,15 +21,15 @@ function ModelSlotRow(props: {
   onClear: () => void;
 }) {
   return (
-    <LayoutSectionItem className="flex-row flex-wrap items-center justify-between gap-3 rounded-2xl border border-dls-border px-4 py-3">
+    <div className="flex flex-row flex-wrap items-center justify-between gap-4 px-4 py-3.5">
       <div className="flex min-w-0 items-center gap-3">
         {props.model ? (
           <ProviderIcon providerId={props.model.providerID} size={20} className="text-dls-text" />
         ) : (
-          <Sparkles size={20} className="text-gray-9" />
+          <Blend size={20} className="text-gray-9" />
         )}
         <div className="min-w-0">
-          <div className="truncate text-sm font-medium text-dls-text">
+          <div className="truncate text-base font-medium text-ink">
             {props.model ? resolveModelDisplayName(props.model.modelID) : t("fusion.settings_no_model")}
           </div>
           <div className="truncate font-mono text-xs text-muted-foreground">
@@ -55,29 +47,31 @@ function ModelSlotRow(props: {
           </Button>
         ) : null}
       </div>
-    </LayoutSectionItem>
+    </div>
   );
 }
 
 export function FusionSettingsSection(props: FusionSettingsSectionProps) {
   return (
-    <LayoutSection>
-      <LayoutSectionHeader>
-        <LayoutSectionTitle>{t("fusion.settings_title")}</LayoutSectionTitle>
-        <LayoutSectionDescription>{t("fusion.settings_desc")}</LayoutSectionDescription>
-      </LayoutSectionHeader>
+    <section className="flex flex-col gap-3">
+      <div className="flex flex-col gap-1">
+        <h3 className="text-base font-medium text-ink">{t("fusion.settings_title")}</h3>
+        <p className="text-sm text-subtext">{t("fusion.settings_desc")}</p>
+      </div>
 
-      {[0, 1, 2].map((slot) => (
-        <ModelSlotRow
-          key={slot}
-          label={t("fusion.settings_model_slot", { index: slot + 1 })}
-          model={props.fusionModels[slot] ?? null}
-          onPick={() => props.onPickModel(slot)}
-          onClear={() => props.onClearModel(slot)}
-        />
-      ))}
+      <div className="divide-y divide-subtle overflow-hidden rounded-2xl border border-subtle bg-surface shadow-xs">
+        {[0, 1, 2].map((slot) => (
+          <ModelSlotRow
+            key={slot}
+            label={t("fusion.settings_model_slot", { index: slot + 1 })}
+            model={props.fusionModels[slot] ?? null}
+            onPick={() => props.onPickModel(slot)}
+            onClear={() => props.onClearModel(slot)}
+          />
+        ))}
+      </div>
 
-      <LayoutSectionItemFootnote>{t("fusion.settings_footnote")}</LayoutSectionItemFootnote>
-    </LayoutSection>
+      <p className="px-1 text-xs text-subtext">{t("fusion.settings_footnote")}</p>
+    </section>
   );
 }

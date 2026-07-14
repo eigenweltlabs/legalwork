@@ -96,17 +96,17 @@ export function AiSettingsView(props: AiSettingsViewProps) {
         </LayoutSectionItem>
 
         {props.connectedProviders.length > 0 ? (
-          <div className="space-y-2">
+          <>
             {props.connectedProviders.map((provider) => (
               <LayoutSectionItem
                 key={provider.id}
-                className="flex-row flex-wrap items-center justify-between gap-3 rounded-2xl border border-dls-border px-4 py-3"
+                className="flex-row flex-wrap items-center justify-between gap-3"
               >
                 <div className="flex min-w-0 items-center gap-3">
                   <ProviderIcon providerId={provider.id} size={20} className="text-dls-text" />
                   <div className="min-w-0">
                     <div className="flex items-center gap-2">
-                      <span className="truncate text-sm font-medium text-dls-text">{provider.name}</span>
+                      <span className="truncate text-base font-medium text-ink">{provider.name}</span>
                       {props.cloudProviderIds?.has(provider.id) ? (
                         <span className="shrink-0 rounded-full border border-blue-6 bg-blue-2 px-2 py-0.5 text-[10px] font-medium text-blue-11">
                           Cloud
@@ -156,7 +156,7 @@ export function AiSettingsView(props: AiSettingsViewProps) {
                 ) : null}
               </LayoutSectionItem>
             ))}
-          </div>
+          </>
         ) : null}
 
         {props.providerConnectError ? (
