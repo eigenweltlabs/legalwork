@@ -14,6 +14,22 @@ interface LayoutSectionProps {
   children: React.ReactNode;
 }
 
+// Flatten children INCLUDING any Fragments (pages often wrap a mapped list of
+// rows in a fragment / conditional), so consecutive setting rows are detected
+// even across fragment boundaries. React.Children.toArray does not reliably
+// flatten Fragments, which left mapped rows ungrouped ("no structure").
+function flattenSectionChildren(children: React.ReactNode): React.ReactNode[] {
+  const out: React.ReactNode[] = [];
+  React.Children.forEach(children, (child) => {
+    if (React.isValidElement(child) && child.type === React.Fragment) {
+      out.push(...flattenSectionChildren((child.props as { children?: React.ReactNode }).children));
+    } else if (child !== null && child !== undefined && child !== false) {
+      out.push(child);
+    }
+  });
+  return out;
+}
+
 export function LayoutSection({ children }: LayoutSectionProps) {
   // Group CONSECUTIVE setting rows (LayoutSectionItem) into a single card with
   // hairline dividers — the reference "grouped settings" look. Headers,
@@ -21,11 +37,12 @@ export function LayoutSection({ children }: LayoutSectionProps) {
   // so nothing gets clipped by the card's overflow.
   const out: React.ReactNode[] = [];
   let run: React.ReactNode[] = [];
-  const flush = (key: string) => {
+  let runKey = 0;
+  const flush = () => {
     if (run.length === 0) return;
     out.push(
       <div
-        key={key}
+        key={`grp-${runKey++}`}
         className="divide-y divide-subtle overflow-hidden rounded-2xl border border-subtle bg-surface shadow-xs"
       >
         {run}
@@ -33,15 +50,15 @@ export function LayoutSection({ children }: LayoutSectionProps) {
     );
     run = [];
   };
-  React.Children.toArray(children).forEach((child, i) => {
+  flattenSectionChildren(children).forEach((child, i) => {
     if (React.isValidElement(child) && child.type === LayoutSectionItem) {
-      run.push(child);
+      run.push(React.isValidElement(child) && child.key == null ? React.cloneElement(child, { key: `row-${i}` }) : child);
     } else {
-      flush(`grp-${i}`);
-      out.push(child);
+      flush();
+      out.push(React.isValidElement(child) && child.key == null ? React.cloneElement(child, { key: `out-${i}` }) : child);
     }
   });
-  flush("grp-end");
+  flush();
   return (
     <div data-section className="group/section flex flex-col gap-3">
       {out}
