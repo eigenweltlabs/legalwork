@@ -121,10 +121,12 @@ export type EigenweltManifestModel = {
   reasoning?: boolean;
 };
 
-/** Per-firm daily usage snapshot from the platform (all amounts in cents). */
+/** Per-firm daily usage snapshot from the platform (cents, plus a percentage). */
 export type EigenweltUsage = {
   dailyAllowanceCents: number;
   dailyRemainingCents: number;
+  /** Share of today's allowance consumed, 0–100 (server-computed). */
+  dailyUsedPercent: number;
   extraUsageEnabled: boolean;
   prepaidBalanceCents: number;
 };

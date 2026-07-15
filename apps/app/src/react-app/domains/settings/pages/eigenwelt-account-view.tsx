@@ -56,10 +56,6 @@ export type EigenweltAccountViewProps = {
   onConfigApplied?: () => void;
 };
 
-function formatCents(cents: number): string {
-  return `$${(cents / 100).toFixed(2)}`;
-}
-
 export function EigenweltAccountView({
   legalworkClient,
   workspaceId,
@@ -243,8 +239,7 @@ export function EigenweltAccountView({
               <span>{t("firm_hub.usage_label")}</span>
               <span>
                 {t("firm_hub.usage_today", {
-                  remaining: formatCents(entitlements.usage.dailyRemainingCents),
-                  allowance: formatCents(entitlements.usage.dailyAllowanceCents),
+                  percent: String(entitlements.usage.dailyUsedPercent),
                 })}
               </span>
             </div>

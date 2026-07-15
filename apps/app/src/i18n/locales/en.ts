@@ -1499,7 +1499,7 @@ export default {
   "firm_hub.loading": "Loading…",
   "firm_hub.free_plan": "Free",
   "firm_hub.seats": "{seats} seats",
-  "firm_hub.usage_today": "{remaining} of {allowance} left today",
+  "firm_hub.usage_today": "{percent}% used today",
   "firm_hub.locked_title": "Firm sharing is part of your Eigenwelt subscription",
   "firm_hub.locked_body":
     "Upgrade your firm's plan to share workflows, integrations and settings presets across everyone at your firm.",

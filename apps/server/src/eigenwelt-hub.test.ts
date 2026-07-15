@@ -182,6 +182,7 @@ describe("parseEigenweltEntitlements", () => {
       usage: {
         dailyAllowanceCents: 5000,
         dailyRemainingCents: 1200,
+        dailyUsedPercent: 76,
         extraUsageEnabled: true,
         prepaidBalanceCents: 900,
       },
@@ -194,10 +195,20 @@ describe("parseEigenweltEntitlements", () => {
       usage: {
         dailyAllowanceCents: 5000,
         dailyRemainingCents: 1200,
+        dailyUsedPercent: 76,
         extraUsageEnabled: true,
         prepaidBalanceCents: 900,
       },
     });
+  });
+
+  test("derives dailyUsedPercent from cents when a legacy platform omits it", () => {
+    const parsed = parseEigenweltEntitlements({
+      plan: "pro",
+      usage: { dailyAllowanceCents: 5000, dailyRemainingCents: 1200 },
+    });
+    // (5000 - 1200) / 5000 = 76%
+    expect(parsed?.usage.dailyUsedPercent).toBe(76);
   });
 
   test("defaults malformed numeric / plan fields safely", () => {
@@ -210,6 +221,7 @@ describe("parseEigenweltEntitlements", () => {
       usage: {
         dailyAllowanceCents: 0,
         dailyRemainingCents: 0,
+        dailyUsedPercent: 0,
         extraUsageEnabled: false,
         prepaidBalanceCents: 0,
       },
