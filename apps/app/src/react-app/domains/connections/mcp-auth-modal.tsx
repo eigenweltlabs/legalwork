@@ -39,6 +39,23 @@ function isDynamicClientRegistrationError(message: string | undefined): boolean 
   return normalized.includes("dynamic client registration") && normalized.includes("does not support");
 }
 
+// Providers that use Dynamic Client Registration (e.g. Notion's hosted MCP)
+// mint a fresh client_id on every registration. When a stale/orphaned
+// registration lingers from an earlier attempt, the token exchange fails with
+// "OAuth completion failed: Client ID mismatch" (or an "invalid_client" from
+// the provider). Detect that class of failure so we can drop the stale
+// registration and retry with a clean one.
+function isClientRegistrationMismatchError(message: string | undefined): boolean {
+  const normalized = message?.toLowerCase() ?? "";
+  if (!normalized) return false;
+  return (
+    (normalized.includes("client id") && normalized.includes("mismatch")) ||
+    (normalized.includes("client_id") && normalized.includes("mismatch")) ||
+    normalized.includes("invalid_client") ||
+    normalized.includes("invalid client")
+  );
+}
+
 export type McpAuthModalProps = {
   open: boolean;
   onClose: () => void;
@@ -167,6 +184,37 @@ export function McpAuthModal(props: McpAuthModalProps) {
   const resolveSlug = (name: string) =>
     validateMcpServerName(name).toLowerCase().replace(/[^a-z0-9]+/g, "-");
 
+  // Drop any stored OAuth registration/tokens for this server. Best-effort:
+  // used to recover from a stale Dynamic Client Registration that would
+  // otherwise fail the token exchange with a "Client ID mismatch".
+  const clearStoredAuth = async (slug: string, directory: string) => {
+    if (!props.client) return;
+    try {
+      await props.client.mcp.auth.remove({ directory, name: slug });
+    } catch {
+      // Clearing is a recovery step, not a hard requirement — ignore failures.
+    }
+  };
+
+  // Run the engine's one-shot authenticate. If the provider rejects the token
+  // exchange because of a stale DCR client_id ("Client ID mismatch"), clear the
+  // orphaned registration once and retry a clean registration + authorize.
+  const runLocalAuthenticate = async (
+    slug: string,
+    directory: string,
+    allowMismatchRetry: boolean,
+  ): Promise<McpStatusEntry> => {
+    const result = await props.client!.mcp.auth.authenticate({ name: slug, directory });
+    const status = unwrap(result) as McpStatusEntry;
+
+    if (allowMismatchRetry && status.status === "failed" && isClientRegistrationMismatchError(status.error)) {
+      await clearStoredAuth(slug, directory);
+      return runLocalAuthenticate(slug, directory, false);
+    }
+
+    return status;
+  };
+
   const waitForMcpAvailability = async (slug: string) => {
     const startedAt = Date.now();
     while (Date.now() - startedAt < MCP_AUTH_DISCOVERY_TIMEOUT_MS) {
@@ -254,11 +302,7 @@ export function McpAuthModal(props: McpAuthModalProps) {
       }
 
       if (!props.isRemoteWorkspace) {
-        const result = await props.client.mcp.auth.authenticate({
-          name: slug,
-          directory,
-        });
-        const status = unwrap(result) as McpStatusEntry;
+        const status = await runLocalAuthenticate(slug, directory, true);
 
         if (status.status === "connected") {
           setAlreadyConnected(true);
@@ -560,6 +604,12 @@ export function McpAuthModal(props: McpAuthModalProps) {
       } else if (status.status === "disabled") {
         setError(t("mcp.auth.server_disabled"));
       } else if (status.status === "failed") {
+        // A stale DCR client_id ("Client ID mismatch") won't recover by
+        // re-submitting the same code. Drop the orphaned registration so the
+        // next Retry starts a clean registration + authorize.
+        if (isClientRegistrationMismatchError(status.error)) {
+          await clearStoredAuth(slug, directory);
+        }
         setError(status.error ?? t("mcp.auth.oauth_failed"));
       } else {
         setError(t("mcp.auth.authorization_still_required"));
