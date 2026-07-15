@@ -1,6 +1,6 @@
 /** @jsxImportSource react */
 import { PaperGrainGradient } from "@legalwork/ui/react";
-import { ArrowRightIcon, FlaskConicalIcon, LogInIcon, SearchIcon, TriangleAlertIcon } from "lucide-react";
+import { ArrowRightIcon, FlaskConicalIcon, SearchIcon, TriangleAlertIcon } from "lucide-react";
 
 import { Page, PageBackground, PageTitlebarRegion } from "@/components/page";
 import { ScrollArea, ScrollAreaViewport } from "@/components/ui/scroll-area";
@@ -12,12 +12,13 @@ type ProviderSelectionStepProps = {
   onSkip: () => void;
 };
 
-// What the dark panel reads (positioning, mirrors the intro page).
+// What the dark panel reads (positioning, mirrors the intro page). Only
+// Eigenwelt is named; everything else is described generically.
 const panelProviders = [
   { title: "Eigenwelt Model API", desc: "Eigenwelt's own deployments — org credits, zero prompt retention." },
-  { title: "AWS Bedrock", desc: "Claude, Llama, and more — inside your own AWS account." },
-  { title: "Azure OpenAI", desc: "GPT models on your Azure tenant." },
-  { title: "Your own endpoint", desc: "Any OpenAI-compatible URL — self-hosted or private." },
+  { title: "Your own cloud", desc: "Run frontier models inside the cloud account you already operate." },
+  { title: "Any OpenAI-compatible endpoint", desc: "Self-hosted or private — point LegalWork at any URL." },
+  { title: "Your own API keys", desc: "Bring a key from any supported provider. Nothing routes through us." },
 ];
 
 const quickButtonClass =
@@ -47,41 +48,27 @@ export function ProviderSelectionStep({ onConnect, onSkip }: ProviderSelectionSt
                     </p>
                   </div>
 
-                  {/* Featured — Eigenwelt Model API */}
+                  {/* Eigenwelt — sign in / up, then included free models */}
                   <div className="space-y-2.5">
                     <span className="lw-section-eyebrow uppercase text-dls-secondary/80">Recommended</span>
+
+                    {/* Sign in / create an Eigenwelt account (server-owned OAuth) */}
                     <button
                       type="button"
                       className={`${quickButtonClass} border-[rgba(var(--dls-accent-rgb),0.45)]`}
-                      onClick={() => onConnect("eigenwelt", "api")}
+                      onClick={() => onConnect("eigenwelt", "oauth")}
                     >
                       <ProviderIcon providerId="eigenwelt" size={16} className="shrink-0 text-dls-text" />
                       <div className="min-w-0 flex-1">
-                        <div className="text-[14px] font-medium text-dls-text">Connect Eigenwelt Model API</div>
+                        <div className="text-[14px] font-medium text-dls-text">Sign in with Eigenwelt</div>
                         <div className="text-[12px] text-dls-secondary">
-                          Eigenwelt&apos;s own model deployments — org credits, zero prompt retention.
+                          Create or connect your firm account — org credits, premium models, zero prompt retention.
                         </div>
                       </div>
                       <ArrowRightIcon className="size-4 shrink-0 text-dls-secondary/60 transition-transform group-hover:translate-x-0.5" />
                     </button>
-                  </div>
 
-                  {/* Quick connect — subscription sign-in */}
-                  <div className="space-y-2.5">
-                    <span className="lw-section-eyebrow uppercase text-dls-secondary/80">Quick connect</span>
-                    <button type="button" className={quickButtonClass} onClick={() => onConnect("openai", "oauth")}>
-                      <LogInIcon className="size-4 shrink-0 text-dls-secondary" />
-                      <div className="min-w-0 flex-1">
-                        <div className="text-[14px] font-medium text-dls-text">Sign in with OpenAI</div>
-                        <div className="text-[12px] text-dls-secondary">Use your ChatGPT subscription — no API key.</div>
-                      </div>
-                      <ArrowRightIcon className="size-4 shrink-0 text-dls-secondary/60 transition-transform group-hover:translate-x-0.5" />
-                    </button>
-                  </div>
-
-                  {/* For testing — included free models (same path as skipping) */}
-                  <div className="space-y-2.5">
-                    <span className="lw-section-eyebrow uppercase text-dls-secondary/80">For testing</span>
+                    {/* Included free models (same path as skipping) */}
                     <button type="button" className={quickButtonClass} onClick={onSkip}>
                       <FlaskConicalIcon className="size-4 shrink-0 text-dls-secondary" />
                       <div className="min-w-0 flex-1">
@@ -97,19 +84,21 @@ export function ProviderSelectionStep({ onConnect, onSkip }: ProviderSelectionSt
                     <p className="text-[12px] leading-relaxed text-amber-11">
                       Free models are included to try LegalWork. Usage data is
                       logged, so please keep privileged, client, and matter data out. For real
-                      work, connect your own model.
+                      work, sign in or connect your own model.
                     </p>
                   </div>
 
-                  {/* Enterprise / private — searchable list of every provider */}
+                  {/* Divider — us above, everything else below */}
+                  <div className="h-px w-full bg-dls-border" />
+
+                  {/* Any other provider — searchable list of every supported provider */}
                   <div className="space-y-2.5">
-                    <span className="lw-section-eyebrow uppercase text-dls-secondary/80">Enterprise &amp; private</span>
                     <button type="button" className={quickButtonClass} onClick={() => onConnect("")}>
                       <SearchIcon className="size-4 shrink-0 text-dls-secondary" />
                       <div className="min-w-0 flex-1">
-                        <div className="text-[14px] font-medium text-dls-text">Browse all providers</div>
+                        <div className="text-[14px] font-medium text-dls-text">Use any other provider</div>
                         <div className="text-[12px] text-dls-secondary">
-                          Search AWS Bedrock, Azure, Mistral — every supported provider.
+                          Bring your own key or endpoint — every supported provider, connected directly.
                         </div>
                       </div>
                       <ArrowRightIcon className="size-4 shrink-0 text-dls-secondary/60 transition-transform group-hover:translate-x-0.5" />

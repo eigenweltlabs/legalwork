@@ -119,6 +119,7 @@ import {
   type WorkspaceInfo,
   type WorkspaceList,
   revealDesktopItemInDir,
+  openDesktopUrl,
 } from "@/app/lib/desktop";
 import {
   isDesktopRuntime,
@@ -2547,6 +2548,16 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
         client={legalworkClient}
         workspaceId={hubWorkspaceId}
         onPremiumActivated={refreshEigenweltModels}
+        onSignIn={async () => {
+          try {
+            const { authorizeUrl, sessionId } = await providerAuthStore.startEigenweltSignIn();
+            await openDesktopUrl(authorizeUrl);
+            const result = await providerAuthStore.completeEigenweltSignIn(sessionId);
+            return result.connected;
+          } catch {
+            return false;
+          }
+        }}
       />
       {/* Multi-select "Share with your firm" dialog (opened from the Team pills). */}
       <HubShareDialog

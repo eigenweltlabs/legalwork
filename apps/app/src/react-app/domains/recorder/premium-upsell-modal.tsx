@@ -54,6 +54,13 @@ export function PremiumUpsellModal(props: {
   phase: PremiumUpsellPhase;
   /** False when the client/workspace isn't ready — hides the polling promise. */
   canPoll: boolean;
+  /** Whether the desktop is signed in with an Eigenwelt firm. */
+  connected: boolean;
+  /** Whether a sign-in handler is available. */
+  canSignIn: boolean;
+  /** Sign-in is in progress. */
+  signingIn: boolean;
+  onSignIn: () => void;
   onUpgrade: () => void;
   onClose: () => void;
 }) {
@@ -71,21 +78,20 @@ export function PremiumUpsellModal(props: {
     }
   };
 
-  // Pitch: the standard feature-announcement layout with the upgrade CTA.
+  // Pitch: the standard feature-announcement layout. When the desktop isn't
+  // signed in with Eigenwelt, the CTA is "Sign in with Eigenwelt" first — you
+  // can only subscribe a firm you belong to. Once connected it becomes "Upgrade
+  // to Plus" (checkout + success poll).
   if (props.phase === "pitch") {
-    return (
-      <FeatureAnnouncementModal
-        open={props.open}
-        eyebrow={t("premium_upsell.eyebrow")}
-        headline={t("premium_upsell.headline")}
-        intro={t("premium_upsell.intro")}
-        heroOverlay={<PremiumHero />}
-        entries={[
-          { title: t("premium_upsell.audio_title"), body: t("premium_upsell.audio_body") },
-          { title: t("premium_upsell.eu_title"), body: t("premium_upsell.eu_body") },
-          { title: t("premium_upsell.share_title"), body: t("premium_upsell.share_body") },
-        ]}
-        primaryAction={{
+    const needsSignIn = props.canSignIn && !props.connected;
+    const primaryAction = needsSignIn
+      ? {
+          label: props.signingIn ? t("premium_upsell.signing_in") : t("premium_upsell.sign_in"),
+          onClick: () => {
+            if (!props.signingIn) props.onSignIn();
+          },
+        }
+      : {
           label: t("premium_upsell.cta"),
           onClick: () => {
             // Open Stripe checkout in the browser, then hand off to the provider's
@@ -94,7 +100,20 @@ export function PremiumUpsellModal(props: {
             if (props.canPoll) props.onUpgrade();
             else props.onClose();
           },
-        }}
+        };
+    return (
+      <FeatureAnnouncementModal
+        open={props.open}
+        eyebrow={t("premium_upsell.eyebrow")}
+        headline={t("premium_upsell.headline")}
+        intro={needsSignIn ? t("premium_upsell.intro_signin") : t("premium_upsell.intro")}
+        heroOverlay={<PremiumHero />}
+        entries={[
+          { title: t("premium_upsell.audio_title"), body: t("premium_upsell.audio_body") },
+          { title: t("premium_upsell.eu_title"), body: t("premium_upsell.eu_body") },
+          { title: t("premium_upsell.share_title"), body: t("premium_upsell.share_body") },
+        ]}
+        primaryAction={primaryAction}
         dismissLabel={t("premium_upsell.dismiss")}
         onDismiss={props.onClose}
       />

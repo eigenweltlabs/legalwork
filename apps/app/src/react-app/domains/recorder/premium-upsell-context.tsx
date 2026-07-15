@@ -56,8 +56,14 @@ export function PremiumUpsellHost(props: {
    * provider refresh, which needs its route-scoped provider store).
    */
   onPremiumActivated?: () => unknown | Promise<unknown>;
+  /**
+   * Start the "Sign in with Eigenwelt" flow. You can only subscribe a firm you
+   * belong to, so when the desktop isn't connected the upsell routes through
+   * sign-in first. Resolves true once connected.
+   */
+  onSignIn?: () => Promise<boolean>;
 }) {
-  const { client, workspaceId, onPremiumActivated } = props;
+  const { client, workspaceId, onPremiumActivated, onSignIn } = props;
   const open = useUpsellOpen((s) => s.open);
   const setOpen = useUpsellOpen((s) => s.setOpen);
   const [phase, setPhase] = useState<PremiumUpsellPhase>("pitch");
@@ -93,6 +99,21 @@ export function PremiumUpsellHost(props: {
     stopPolling();
     setOpen(false);
   }, [stopPolling, setOpen]);
+
+  // Whether the desktop is signed in with an Eigenwelt firm — a subscription is
+  // per-firm, so without a connection there is nothing to poll.
+  const connected = view?.connected ?? false;
+  const [signingIn, setSigningIn] = useState(false);
+  const handleSignIn = useCallback(async () => {
+    if (!onSignIn) return;
+    setSigningIn(true);
+    try {
+      const ok = await onSignIn();
+      if (ok) await entitlementsQuery.refetch(); // refresh `connected` -> show Upgrade
+    } finally {
+      setSigningIn(false);
+    }
+  }, [onSignIn, entitlementsQuery]);
 
   const startWaiting = useCallback(() => {
     if (!client || !workspaceId) return;
@@ -138,6 +159,10 @@ export function PremiumUpsellHost(props: {
       open={open}
       phase={phase}
       canPoll={Boolean(client && workspaceId)}
+      connected={connected}
+      canSignIn={Boolean(onSignIn)}
+      signingIn={signingIn}
+      onSignIn={handleSignIn}
       onUpgrade={startWaiting}
       onClose={closeUpsell}
     />

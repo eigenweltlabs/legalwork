@@ -48,6 +48,7 @@ import {
   workspaceForget,
   workspaceSetRuntimeActive,
   workspaceSetSelected,
+  openDesktopUrl,
   type LegalworkServerInfo,
   type WorkspaceInfo,
   type WorkspaceList,
@@ -2023,6 +2024,16 @@ export function SessionRoute() {
       client={client}
       workspaceId={selectedWorkspaceId}
       onPremiumActivated={handleEigenweltPremiumActivated}
+      onSignIn={async () => {
+        try {
+          const { authorizeUrl, sessionId } = await sessionProviderAuthStore.startEigenweltSignIn();
+          await openDesktopUrl(authorizeUrl);
+          const result = await sessionProviderAuthStore.completeEigenweltSignIn(sessionId);
+          return result.connected;
+        } catch {
+          return false;
+        }
+      }}
     />
     <SessionSearchDialog
       open={sessionSearchOpen}
