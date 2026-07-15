@@ -3,7 +3,7 @@
  *
  * The Eigenwelt gateway (LiteLLM) answers HTTP 429 with error type
  * `budget_exceeded` and a message containing "Budget has been exceeded" once a
- * firm's credits are used up. The engine treats that like any transient
+ * seat's daily usage is used up. The engine treats that like any transient
  * provider error and retries with backoff forever. These helpers implement the
  * LegalWork policy on top of the engine's retry loop:
  *
@@ -12,7 +12,7 @@
  *   behavior),
  * - the engine gets at most {@link EIGENWELT_BUDGET_MAX_RETRY_ATTEMPTS}
  *   attempts, after which the app aborts the run and renders a terminal
- *   "credits used up" card pointing at the platform's top-up page.
+ *   "daily usage used up" card pointing at the platform's billing page.
  *
  * Everything in here is pure/registry state so it can be unit tested without
  * React or the engine.
@@ -20,22 +20,27 @@
 
 export const EIGENWELT_PROVIDER_ID = "eigenwelt";
 
-/** Production platform top-up page, opened externally via `openDesktopUrl`. */
-export const EIGENWELT_CREDITS_URL = "https://platform.eigenweltlabs.com/credits";
+/**
+ * Prod fallback for the platform billing/upgrade page. The live URL is derived
+ * from the *connected* platform origin at the render sites via
+ * `eigenweltBillingUrl(eigenweltPremiumPlatformUrl())`; this default is only
+ * used when no firm is connected yet (and by unit tests, which run headless).
+ */
+export const EIGENWELT_BILLING_URL_DEFAULT = "https://platform.eigenweltlabs.com/billing";
 
 /** Stop the engine's retry loop after this many budget-exceeded attempts. */
 export const EIGENWELT_BUDGET_MAX_RETRY_ATTEMPTS = 3;
 
-export const EIGENWELT_BUDGET_EXCEEDED_TITLE = "Your firm's credits are used up";
+export const EIGENWELT_BUDGET_EXCEEDED_TITLE = "Your seat's daily usage has been used up";
 export const EIGENWELT_BUDGET_EXCEEDED_BODY =
-  "Top up your firm's balance to continue — usage resumes immediately.";
-export const EIGENWELT_BUDGET_TOP_UP_LABEL = "Top up credits";
+  "Upgrade to premium for higher limits, or come back tomorrow.";
+export const EIGENWELT_BUDGET_UPGRADE_LABEL = "Upgrade to premium";
 
 /**
  * Text of the synthetic terminal error message injected into the transcript
  * when the app stops a budget-exceeded retry loop. The chat renderer detects
  * this exact copy (via {@link isEigenweltBudgetExceededErrorText}) and swaps
- * the plain error block for the dedicated top-up card, so only stops the app
+ * the plain error block for the dedicated upgrade card, so only stops the app
  * itself gated on the eigenwelt provider ever render the card.
  */
 export const EIGENWELT_BUDGET_EXCEEDED_ERROR_TEXT =
@@ -79,10 +84,14 @@ export function isEigenweltBudgetExceededErrorText(text: string | null | undefin
 
 /**
  * Action block attached to the retry banner while the (up to 3) budget
- * retries are still running, so the top-up button is available before the
+ * retries are still running, so the upgrade button is available before the
  * run is stopped. Shape mirrors the engine's `SessionStatus` retry action.
+ *
+ * `billingUrl` is passed in by the (React) caller, resolved against the
+ * connected platform origin; it falls back to the prod default so this pure
+ * module stays free of React/connection imports.
  */
-export function eigenweltBudgetRetryAction(): {
+export function eigenweltBudgetRetryAction(billingUrl: string = EIGENWELT_BILLING_URL_DEFAULT): {
   reason: string;
   provider: string;
   title: string;
@@ -93,10 +102,10 @@ export function eigenweltBudgetRetryAction(): {
   return {
     reason: "budget_exceeded",
     provider: EIGENWELT_PROVIDER_ID,
-    title: "Out of credits?",
+    title: "Out of daily usage?",
     message: EIGENWELT_BUDGET_EXCEEDED_BODY,
-    label: EIGENWELT_BUDGET_TOP_UP_LABEL,
-    link: EIGENWELT_CREDITS_URL,
+    label: EIGENWELT_BUDGET_UPGRADE_LABEL,
+    link: billingUrl,
   };
 }
 

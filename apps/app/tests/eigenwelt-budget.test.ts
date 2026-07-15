@@ -65,11 +65,16 @@ describe("terminal error text", () => {
 });
 
 describe("retry banner action", () => {
-  test("points at the platform credits page", () => {
+  test("defaults to the prod billing page when no platform is connected", () => {
     const action = eigenweltBudgetRetryAction();
-    expect(action.link).toBe("https://platform.eigenweltlabs.com/credits");
+    expect(action.link).toBe("https://platform.eigenweltlabs.com/billing");
     expect(action.provider).toBe("eigenwelt");
     expect(action.label.length).toBeGreaterThan(0);
+  });
+
+  test("uses the connected platform's billing URL when provided", () => {
+    const action = eigenweltBudgetRetryAction("https://acme.example.com/billing");
+    expect(action.link).toBe("https://acme.example.com/billing");
   });
 });
 

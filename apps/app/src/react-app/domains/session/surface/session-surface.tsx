@@ -22,6 +22,8 @@ import {
   markEigenweltBudgetStop,
   shouldStopEigenweltBudgetRetry,
 } from "@/app/lib/eigenwelt-budget";
+import { eigenweltBillingUrl } from "@/react-app/domains/connections/eigenwelt-entitlements";
+import { eigenweltPremiumPlatformUrl } from "@/react-app/domains/recorder/model-tiers";
 import { createClient, unwrap } from "@/app/lib/opencode";
 import { abortSessionSafe } from "@/app/lib/opencode-session";
 import { isOfficeAddinRuntime } from "@/app/lib/runtime-env";
@@ -743,7 +745,11 @@ export function SessionSurface(props: SessionSurfaceProps) {
     if (liveStatus.type !== "retry") return null;
     if (liveStatus.action) return liveStatus;
     if (freeBudgetRetryActive) return { ...liveStatus, action: eigenweltFreeBudgetRetryAction() };
-    if (paidBudgetRetryActive) return { ...liveStatus, action: eigenweltBudgetRetryAction() };
+    if (paidBudgetRetryActive)
+      return {
+        ...liveStatus,
+        action: eigenweltBudgetRetryAction(eigenweltBillingUrl(eigenweltPremiumPlatformUrl())),
+      };
     return liveStatus;
   }, [freeBudgetRetryActive, paidBudgetRetryActive, liveStatus]);
   useEffect(() => {

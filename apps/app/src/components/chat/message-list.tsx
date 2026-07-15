@@ -31,10 +31,11 @@ import {
 import {
   EIGENWELT_BUDGET_EXCEEDED_BODY,
   EIGENWELT_BUDGET_EXCEEDED_TITLE,
-  EIGENWELT_BUDGET_TOP_UP_LABEL,
-  EIGENWELT_CREDITS_URL,
+  EIGENWELT_BUDGET_UPGRADE_LABEL,
   isEigenweltBudgetExceededErrorText,
 } from "@/app/lib/eigenwelt-budget"
+import { eigenweltBillingUrl } from "@/react-app/domains/connections/eigenwelt-entitlements"
+import { eigenweltPremiumPlatformUrl } from "@/react-app/domains/recorder/model-tiers"
 import { SYNTHETIC_SESSION_ERROR_MESSAGE_PREFIX } from "@/app/types"
 import { ApplyPatchTool } from "@/components/tools/apply-patch"
 import { BashTool } from "@/components/tools/bash"
@@ -670,7 +671,7 @@ function FreeLimitReachedMessage() {
 /**
  * Terminal card for an Eigenwelt budget stop (the app aborts the run after
  * the allowed retries — see app/lib/eigenwelt-budget). Flat, lined border;
- * the one action that actually resolves the state is topping up.
+ * the one action that actually resolves the state is upgrading to premium.
  */
 function BudgetExceededMessage() {
   return (
@@ -689,9 +690,9 @@ function BudgetExceededMessage() {
           <Button
             size="sm"
             className="h-7 text-xs"
-            onClick={() => void openDesktopUrl(EIGENWELT_CREDITS_URL)}
+            onClick={() => void openDesktopUrl(eigenweltBillingUrl(eigenweltPremiumPlatformUrl()))}
           >
-            {EIGENWELT_BUDGET_TOP_UP_LABEL}
+            {EIGENWELT_BUDGET_UPGRADE_LABEL}
           </Button>
         </div>
       </div>
