@@ -57,6 +57,7 @@ import ConnectionsModals from "@/react-app/domains/connections/modals";
 import { AiSettingsView } from "@/react-app/domains/settings/pages/ai-view";
 import { EigenweltAccountView } from "@/react-app/domains/settings/pages/eigenwelt-account-view";
 import { HubDownloadSection } from "@/react-app/domains/settings/pages/hub-download-section";
+import { HubShareDialog } from "@/react-app/domains/settings/pages/hub-share-dialog";
 import { SharePresetSection } from "@/react-app/domains/settings/pages/share-preset-section";
 import {
   hasEigenweltFeature,
@@ -822,6 +823,12 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
     workspaceId: hubWorkspaceId,
   });
   const canShareWithFirm = hasEigenweltFeature(firmEntitlementsQuery.data?.entitlements, "admin_hub");
+  // Multi-select "Share with your firm" dialog, opened from the Team scope pills.
+  const [teamShareOpen, setTeamShareOpen] = useState(false);
+  const [teamShareInitial, setTeamShareInitial] = useState<{
+    kind: "skill" | "mcp" | "plugin";
+    ref: string;
+  } | null>(null);
   // The recorder's premium gate + upsell challenge for the Settings surface (the
   // model-manager download list) is owned by <PremiumUpsellHost/>, mounted in the
   // JSX below with the same client + workspace.
@@ -832,12 +839,8 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
         toast.error(t("app.error_connect_first"));
         return;
       }
-      try {
-        await legalworkClient.hubShareWorkflow(hubWorkspaceId, { skill: skillName });
-        toast.success(t("firm_hub.share_workflow_success", { name: skillName }));
-      } catch (error) {
-        toast.error(error instanceof Error ? error.message : t("firm_hub.share_workflow_failed"));
-      }
+      setTeamShareInitial({ kind: "skill", ref: skillName });
+      setTeamShareOpen(true);
     },
     [legalworkClient, hubWorkspaceId],
   );
@@ -848,12 +851,8 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
         toast.error(t("app.error_connect_first"));
         return;
       }
-      try {
-        await legalworkClient.hubShareIntegration(hubWorkspaceId, { mcp: mcpName });
-        toast.success(t("firm_hub.share_integration_success", { name: mcpName }));
-      } catch (error) {
-        toast.error(error instanceof Error ? error.message : t("firm_hub.share_integration_failed"));
-      }
+      setTeamShareInitial({ kind: "mcp", ref: mcpName });
+      setTeamShareOpen(true);
     },
     [legalworkClient, hubWorkspaceId],
   );
@@ -2105,6 +2104,10 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
             extensions={extensionsStore}
             canShareWithFirm={canShareWithFirm}
             onShareWithFirm={shareWorkflowWithFirm}
+            onOpenTeamShare={canShareWithFirm ? () => {
+              setTeamShareInitial(null);
+              setTeamShareOpen(true);
+            } : undefined}
             firmDownloadView={
               route.tab === "workflows" ? (
                 <HubDownloadSection
@@ -2112,6 +2115,7 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
                   workspaceId={hubWorkspaceId}
                   kind="workflow"
                   onConfigApplied={() => {
+                    void extensionsStore.refreshSkills({ force: true });
                     void reloadWorkspaceEngineFromUi();
                   }}
                 />
@@ -2212,12 +2216,18 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
                 showHeader={false}
                 canShareWithFirm={canShareWithFirm}
                 onShareWithFirm={shareIntegrationWithFirm}
+                onOpenTeamShare={canShareWithFirm ? () => {
+                  setTeamShareInitial(null);
+                  setTeamShareOpen(true);
+                } : undefined}
                 firmDownloadView={
                   <HubDownloadSection
                     legalworkClient={legalworkClient}
                     workspaceId={hubWorkspaceId}
-                    kind="integration"
+                    kind="mcp"
                     onConfigApplied={() => {
+                      void extensionsStore.refreshSkills({ force: true });
+                      void extensionsStore.refreshPlugins();
                       void reloadWorkspaceEngineFromUi();
                     }}
                   />
@@ -2235,11 +2245,38 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
                 extensions={extensionsStore}
                 canShareWithFirm={canShareWithFirm}
                 onShareWithFirm={shareWorkflowWithFirm}
+                firmDownloadView={
+                  <HubDownloadSection
+                    legalworkClient={legalworkClient}
+                    workspaceId={hubWorkspaceId}
+                    kind="skill"
+                    onConfigApplied={() => {
+                      void extensionsStore.refreshSkills({ force: true });
+                      void reloadWorkspaceEngineFromUi();
+                    }}
+                  />
+                }
                 onOpenLink={(url) => platform.openLink(url)}
                 createSessionAndOpen={async (_command?: string): Promise<string | undefined> => {
                   props.onClose?.();
                   navigate(selectedWorkspaceId ? workspaceSessionRoute(selectedWorkspaceId) : "/session");
                   return undefined;
+                }}
+              />
+            }
+            hasTeamHub={Boolean(hubWorkspaceId)}
+            onOpenTeamShare={canShareWithFirm ? () => {
+              setTeamShareInitial(null);
+              setTeamShareOpen(true);
+            } : undefined}
+            pluginsFirmView={
+              <HubDownloadSection
+                legalworkClient={legalworkClient}
+                workspaceId={hubWorkspaceId}
+                kind="plugin"
+                onConfigApplied={() => {
+                  void extensionsStore.refreshPlugins();
+                  void reloadWorkspaceEngineFromUi();
                 }}
               />
             }
@@ -2496,6 +2533,20 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
         client={legalworkClient}
         workspaceId={hubWorkspaceId}
         onPremiumActivated={refreshEigenweltModels}
+      />
+      {/* Multi-select "Share with your firm" dialog (opened from the Team pills). */}
+      <HubShareDialog
+        client={legalworkClient}
+        workspaceId={hubWorkspaceId}
+        open={teamShareOpen}
+        initialSelection={teamShareInitial}
+        onOpenChange={(open) => {
+          setTeamShareOpen(open);
+          if (!open) setTeamShareInitial(null);
+        }}
+        onShared={() => {
+          void getReactQueryClient().invalidateQueries({ queryKey: ["eigenwelt-hub"] });
+        }}
       />
     </>
   );

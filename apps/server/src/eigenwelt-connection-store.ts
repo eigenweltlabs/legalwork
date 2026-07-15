@@ -3,7 +3,11 @@ import { dirname, join, resolve } from "node:path";
 import { eq } from "drizzle-orm";
 import { integer, sqliteTable, text } from "drizzle-orm/sqlite-core";
 import type { EigenweltEntitlements } from "./eigenwelt-auth.js";
-import { eigenweltPlatformUrl, parseEigenweltEntitlements } from "./eigenwelt-auth.js";
+import {
+  eigenweltPlatformUrl,
+  parseEigenweltEntitlements,
+  validateEigenweltPlatformUrl,
+} from "./eigenwelt-auth.js";
 import type { ServerConfig } from "./types.js";
 import { ensureDir } from "./utils.js";
 
@@ -229,9 +233,18 @@ export async function readEigenweltEntitlementsView(
   // actually talking to — even before a connection is persisted — instead of
   // the hard-coded production URL. `connected` reflects the stored account, not
   // the model list: a token (access OR refresh) OR entitlements means signed in.
+  let safePlatformURL = eigenweltPlatformUrl();
+  if (platformURL) {
+    try {
+      safePlatformURL = validateEigenweltPlatformUrl(platformURL);
+    } catch {
+      // Ignore a legacy/tampered stored URL. Server-side traffic and public
+      // billing/member links both remain pinned to the configured origin.
+    }
+  }
   return {
     entitlements,
-    platformURL: platformURL ?? eigenweltPlatformUrl(),
+    platformURL: safePlatformURL,
     connected: Boolean(platformToken) || Boolean(refreshToken) || entitlements !== null,
   };
 }
@@ -268,7 +281,7 @@ export async function writeEigenweltConnection(
     input.platformURL === undefined
       ? current?.platformUrl ?? null
       : input.platformURL
-        ? input.platformURL.replace(/\/+$/, "")
+        ? validateEigenweltPlatformUrl(input.platformURL)
         : null;
   const nextPlatformToken =
     input.platformToken === undefined

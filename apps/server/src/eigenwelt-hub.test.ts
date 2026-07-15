@@ -1,5 +1,5 @@
 import { describe, expect, test, afterEach } from "bun:test";
-import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -16,8 +16,11 @@ import { parseEigenweltEntitlements } from "./eigenwelt-auth.js";
 import { ApiError } from "./errors.js";
 
 const cleanups: Array<() => Promise<void> | void> = [];
+const originalConfigHome = process.env.XDG_CONFIG_HOME;
 afterEach(async () => {
   while (cleanups.length) await cleanups.pop()?.();
+  if (originalConfigHome === undefined) delete process.env.XDG_CONFIG_HOME;
+  else process.env.XDG_CONFIG_HOME = originalConfigHome;
 });
 
 async function makeWorkspace(): Promise<string> {
@@ -33,6 +36,12 @@ async function writeSkill(root: string, name: string, files: Record<string, stri
     await mkdir(join(path, ".."), { recursive: true });
     await writeFile(path, content, "utf8");
   }
+}
+
+function useIsolatedConfigHome(root: string): string {
+  const configHome = join(root, "xdg-config");
+  process.env.XDG_CONFIG_HOME = configHome;
+  return join(configHome, "opencode", "skills");
 }
 
 describe("validateHubFilePath", () => {
@@ -95,9 +104,9 @@ describe("serializeWorkflowSkill", () => {
     await expect(serializeWorkflowSkill(root, "empty-one")).rejects.toThrow(ApiError);
   });
 
-  test("rejects a workflow whose JSON payload exceeds 2MB", async () => {
+  test("rejects a workflow whose JSON payload exceeds 20 MiB", async () => {
     const root = await makeWorkspace();
-    const big = "x".repeat(EIGENWELT_HUB_MAX_PAYLOAD_BYTES); // base64 inflates ~4/3 → > 2MB
+    const big = "x".repeat(EIGENWELT_HUB_MAX_PAYLOAD_BYTES); // base64 inflates ~4/3 → > 20 MiB
     await writeSkill(root, "huge", {
       "SKILL.md": "---\nname: huge\ndescription: Big\n---\n",
       "resources/big.bin": big,
@@ -107,31 +116,34 @@ describe("serializeWorkflowSkill", () => {
 });
 
 describe("installWorkflowFiles", () => {
-  test("writes a workflow folder into the workspace skills dir", async () => {
+  test("writes a workflow folder into the global skills dir", async () => {
     const root = await makeWorkspace();
+    const skillsDir = useIsolatedConfigHome(root);
     const result = await installWorkflowFiles(root, "shared-flow", [
       { path: "SKILL.md", contentBase64: Buffer.from("---\nname: shared-flow\ndescription: d\n---\n").toString("base64") },
       { path: "resources/tpl.md", contentBase64: Buffer.from("hello").toString("base64") },
     ]);
     expect(result.written).toBe(2);
-    const written = await readFile(join(root, ".opencode", "skills", "shared-flow", "resources", "tpl.md"), "utf8");
+    const written = await readFile(join(skillsDir, "shared-flow", "resources", "tpl.md"), "utf8");
     expect(written).toBe("hello");
   });
 
   test("rejects a payload with a traversal path before writing anything", async () => {
     const root = await makeWorkspace();
+    useIsolatedConfigHome(root);
     await expect(
       installWorkflowFiles(root, "evil", [
         { path: "SKILL.md", contentBase64: Buffer.from("x").toString("base64") },
         { path: "../../escape.md", contentBase64: Buffer.from("pwn").toString("base64") },
       ]),
     ).rejects.toThrow(ApiError);
-    // The bad path is refused, so no partial write escapes the workspace.
+    // The bad path is refused, so no partial write escapes the install root.
     await expect(readFile(join(root, "..", "escape.md"), "utf8")).rejects.toBeDefined();
   });
 
   test("rejects an absolute path", async () => {
     const root = await makeWorkspace();
+    useIsolatedConfigHome(root);
     await expect(
       installWorkflowFiles(root, "evil2", [
         { path: "SKILL.md", contentBase64: Buffer.from("x").toString("base64") },
@@ -142,11 +154,50 @@ describe("installWorkflowFiles", () => {
 
   test("rejects files without SKILL.md", async () => {
     const root = await makeWorkspace();
+    useIsolatedConfigHome(root);
     await expect(
       installWorkflowFiles(root, "noskill", [
         { path: "resources/x.md", contentBase64: Buffer.from("x").toString("base64") },
       ]),
     ).rejects.toThrow(ApiError);
+  });
+
+  test("rejects duplicate paths and malformed base64 before writing", async () => {
+    const root = await makeWorkspace();
+    useIsolatedConfigHome(root);
+    await expect(installWorkflowFiles(root, "duplicates", [
+      { path: "SKILL.md", contentBase64: "eA==" },
+      { path: "SKILL.md", contentBase64: "eQ==" },
+    ])).rejects.toThrow(ApiError);
+    await expect(installWorkflowFiles(root, "bad-base64", [
+      { path: "SKILL.md", contentBase64: "not base64!" },
+    ])).rejects.toThrow(ApiError);
+  });
+
+  test("refuses a symlinked workflow destination", async () => {
+    const root = await makeWorkspace();
+    const outside = await makeWorkspace();
+    const skillsDir = useIsolatedConfigHome(root);
+    await mkdir(skillsDir, { recursive: true });
+    await symlink(outside, join(skillsDir, "linked"));
+    await expect(installWorkflowFiles(root, "linked", [
+      { path: "SKILL.md", contentBase64: "eA==" },
+    ])).rejects.toThrow(ApiError);
+  });
+
+  test("rejects nested symlinks before creating directories or writing files", async () => {
+    const root = await makeWorkspace();
+    const outside = await makeWorkspace();
+    const skillsDir = useIsolatedConfigHome(root);
+    const installRoot = join(skillsDir, "nested-link");
+    await mkdir(installRoot, { recursive: true });
+    await symlink(outside, join(installRoot, "resources"));
+    await expect(installWorkflowFiles(root, "nested-link", [
+      { path: "SKILL.md", contentBase64: "eA==" },
+      { path: "resources/created-outside/x.md", contentBase64: "eA==" },
+    ])).rejects.toThrow(ApiError);
+    await expect(readFile(join(installRoot, "SKILL.md"), "utf8")).rejects.toBeDefined();
+    await expect(readFile(join(outside, "created-outside", "x.md"), "utf8")).rejects.toBeDefined();
   });
 });
 
