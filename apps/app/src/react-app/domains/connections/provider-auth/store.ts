@@ -28,7 +28,6 @@ import { ensureProviderListQuery } from "../../../infra/provider-list-query";
 import type { LegalworkServerStoreSnapshot } from "../legalwork-server-store";
 import type {
   EigenweltEntitlements,
-  EigenweltManifest,
   EigenweltManifestModel,
   EigenweltSignInPayload,
 } from "../../../../app/lib/legalwork-server";
@@ -1255,31 +1254,6 @@ export function createProviderAuthStore(options: CreateProviderAuthStoreOptions)
     }
   }
 
-  /** Connect Eigenwelt with a pasted API key: fetch the platform's public
-   *  model manifest for the baseURL + models, then finalize as usual. */
-  async function submitEigenweltApiKey(apiKey: string) {
-    setStateField("providerAuthError", null);
-    const trimmed = apiKey.trim();
-    if (!trimmed) {
-      throw new Error(t("providers.api_key_required"));
-    }
-    try {
-      const legalworkClient = requireEigenweltServerClient();
-      let manifest: EigenweltManifest;
-      try {
-        manifest = await legalworkClient.eigenweltModels();
-      } catch {
-        throw new Error("Could not reach the Eigenwelt platform. Check your connection and try again.");
-      }
-      await finalizeEigenweltConnect({ apiKey: trimmed, baseURL: manifest.baseURL, models: manifest.models });
-      return `${t("status.connected")} Eigenwelt Model API`;
-    } catch (error) {
-      const message = describeProviderError(error, t("providers.save_api_key_failed"));
-      setStateField("providerAuthError", message);
-      throw error instanceof Error ? error : new Error(message);
-    }
-  }
-
   async function disconnectProvider(providerId: string) {
     setStateField("providerAuthError", null);
     const c = options.client();
@@ -1424,7 +1398,6 @@ export function createProviderAuthStore(options: CreateProviderAuthStoreOptions)
     submitCustomProvider,
     startEigenweltSignIn,
     completeEigenweltSignIn,
-    submitEigenweltApiKey,
     readCustomProviderForEdit,
     disconnectProvider,
     ensureProjectProviderDisabledState,

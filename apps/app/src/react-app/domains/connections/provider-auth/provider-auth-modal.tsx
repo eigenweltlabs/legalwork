@@ -227,8 +227,6 @@ export type ProviderAuthModalProps = {
     sessionId: string,
     opts?: { cancelled?: () => boolean },
   ) => Promise<{ connected: boolean; cancelled?: boolean; message?: string }>;
-  /** Connects Eigenwelt from a pasted API key (models come from the platform). */
-  onSubmitEigenweltApiKey?: (apiKey: string) => Promise<string | void>;
   /** When set, the modal opens straight into the custom form to edit this provider. */
   customEdit?: CustomProviderEditData | null;
   onSubmitOAuth: (
@@ -396,23 +394,16 @@ export default function ProviderAuthModal(props: ProviderAuthModalProps) {
       })
       .sort(compareProviders);
 
-    // First-class Eigenwelt entry: exactly a sign-in button and an API-key
-    // option — no base-URL field, no models fields, no custom-provider form.
+    // First-class Eigenwelt entry: exactly a sign-in button — OAuth only, no
+    // API-key option, no base-URL field, no models fields, no custom form.
     if (
-      (props.onEigenweltSignIn || props.onSubmitEigenweltApiKey) &&
+      props.onEigenweltSignIn &&
       !nextEntries.some((entry) => entry.id === EIGENWELT_PROVIDER_ID)
     ) {
       nextEntries.push({
         id: EIGENWELT_PROVIDER_ID,
         name: "Eigenwelt Model API",
-        methods: [
-          ...(props.onEigenweltSignIn
-            ? [{ type: "oauth" as const, label: "Sign in with Eigenwelt" }]
-            : []),
-          ...(props.onSubmitEigenweltApiKey
-            ? [{ type: "api" as const, label: "Paste an API key" }]
-            : []),
-        ],
+        methods: [{ type: "oauth" as const, label: "Sign in with Eigenwelt" }],
         connected: connected.has(EIGENWELT_PROVIDER_ID),
         env: [],
       });
@@ -467,7 +458,6 @@ export default function ProviderAuthModal(props: ProviderAuthModalProps) {
     props.providers,
     props.onSubmitCustomProvider,
     props.onEigenweltSignIn,
-    props.onSubmitEigenweltApiKey,
   ]);
 
   const selectedEntry = useMemo(
@@ -950,13 +940,7 @@ export default function ProviderAuthModal(props: ProviderAuthModalProps) {
 
     setLocalError(null);
     try {
-      if (selectedEntry.id === EIGENWELT_PROVIDER_ID && props.onSubmitEigenweltApiKey) {
-        // Eigenwelt key submission also writes the provider block (model list
-        // fetched from the platform), so it runs through its own handler.
-        await props.onSubmitEigenweltApiKey(trimmed);
-      } else {
-        await props.onSubmitApiKey(selectedEntry.id, trimmed);
-      }
+      await props.onSubmitApiKey(selectedEntry.id, trimmed);
       // Close the modal after a successful save
       props.onClose();
     } catch (error) {

@@ -873,14 +873,21 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
         }
         invalidateEigenweltEntitlements(hubWorkspaceId);
       }
-      // Await the reload so the provider list refetches WITHOUT eigenwelt before
-      // the account view re-renders — otherwise it briefly stays "connected".
-      await reloadWorkspaceEngineFromUi();
+      // Await a FULL provider refresh (dispose → re-read the now-eigenwelt-free
+      // engine config → setProviders / setProviderConnectedIds) so the account
+      // view's providers-derived state (model count + connected id set) drops
+      // eigenwelt before it re-renders. reloadWorkspaceEngineFromUi alone only
+      // invalidates the React Query provider-list cache — it never re-applies
+      // the local `providers` useState, so the tab stayed "Connected / 1 models"
+      // after sign-out. refreshProviders({ dispose: true }) is what the working
+      // "Refresh models" path already uses.
+      await providerAuthStore.refreshProviders({ dispose: true });
+      void reloadWorkspaceEngineFromUi();
       if (hubWorkspaceId) await firmEntitlementsQuery.refetch();
     } finally {
       setDisconnectingProviderId(null);
     }
-  }, [legalworkClient, hubWorkspaceId, firmEntitlementsQuery, reloadWorkspaceEngineFromUi]);
+  }, [legalworkClient, hubWorkspaceId, firmEntitlementsQuery, providerAuthStore, reloadWorkspaceEngineFromUi]);
 
   // "Refresh models": the server re-pulls the gateway manifest into the GLOBAL
   // eigenwelt manifest and rebuilds the engine config; reload so the new models
@@ -1575,16 +1582,17 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
   const providerConnectedIdSet = new Set(providerConnectedIds);
   // Eigenwelt is managed from its own "Eigenwelt" account tab, not as a model
   // provider — hide it from the AI providers list (a footnote points there).
-  // "Connected" means signed in with an Eigenwelt account OR a model provider
-  // block exists — so login shows even when the platform serves zero models and
-  // no provider block was written. We accept the server's explicit `connected`
-  // flag AND the mere presence of stored entitlements (older servers don't send
-  // `connected`, but a stored plan is itself proof of a persisted sign-in).
+  //
+  // Connecting is OAuth-only (the bare API-key path was removed), so a signed-in
+  // account ALWAYS carries a rotating token and the server reports
+  // `connected: true`. "Connected" is therefore a pure ACCOUNT fact and never
+  // reads the model list: the account can be signed in while the platform serves
+  // zero models, and a stale or orphaned model-provider block must never make a
+  // signed-out account look connected. Model presence is surfaced separately via
+  // eigenweltModelCount below.
   const eigenweltAccount = firmEntitlementsQuery.data;
   const eigenweltConnected =
-    providerConnectedIdSet.has(EIGENWELT_PROVIDER_ID) ||
-    Boolean(eigenweltAccount?.connected) ||
-    Boolean(eigenweltAccount?.entitlements);
+    Boolean(eigenweltAccount?.connected) || Boolean(eigenweltAccount?.entitlements);
   // How many models the connected Eigenwelt account currently serves (may be 0
   // if the platform/LiteLLM hasn't provisioned any yet — login still works).
   const eigenweltModelCount = Object.keys(
@@ -2026,7 +2034,6 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
             serverConnected={legalworkServerSnapshot.legalworkServerStatus === "connected"}
             onStartSignIn={providerAuthStore.startEigenweltSignIn}
             onWaitSignIn={providerAuthStore.completeEigenweltSignIn}
-            onSubmitApiKey={providerAuthStore.submitEigenweltApiKey}
             onDisconnect={disconnectEigenwelt}
             onRefreshModels={refreshEigenweltModels}
             disconnecting={disconnectingProviderId === EIGENWELT_PROVIDER_ID}

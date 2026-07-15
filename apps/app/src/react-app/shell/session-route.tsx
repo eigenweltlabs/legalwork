@@ -1712,13 +1712,6 @@ export function SessionRoute() {
         onSubmitCustomProvider: sessionProviderAuthStore.submitCustomProvider,
         onEigenweltSignIn: sessionProviderAuthStore.startEigenweltSignIn,
         onEigenweltWait: sessionProviderAuthStore.completeEigenweltSignIn,
-        onSubmitEigenweltApiKey: async (apiKey) => {
-          const result = await sessionProviderAuthStore.submitEigenweltApiKey(apiKey);
-          modelPicker.setRecentProviderIds(new Set(["eigenwelt"]));
-          modelPicker.setQuery("");
-          modelPicker.setOpen(true);
-          return result;
-        },
         onSubmitOAuth: sessionProviderAuthStore.completeProviderAuthOAuth,
         onRefreshProviders: sessionProviderAuthStore.refreshProviders,
         onClose: () => sessionProviderAuthStore.closeProviderAuthModal(),

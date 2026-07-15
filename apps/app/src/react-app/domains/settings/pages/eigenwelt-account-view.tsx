@@ -6,14 +6,13 @@ import {
   CheckCircle2,
   CreditCard,
   ExternalLink,
-  KeyRound,
   Loader2,
   LogOut,
   RefreshCw,
   Sparkles,
   Users,
 } from "lucide-react";
-import { Badge, Button, Card, Divider, Input, Row, Spinner } from "@legalwork/ui/react";
+import { Badge, Button, Card, Divider, Row, Spinner } from "@legalwork/ui/react";
 
 import { toast } from "@/components/ui/sonner";
 import { t } from "@/i18n";
@@ -45,7 +44,6 @@ export type EigenweltAccountViewProps = {
     sessionId: string,
     opts?: { cancelled?: () => boolean },
   ) => Promise<{ connected: boolean; cancelled?: boolean; message?: string }>;
-  onSubmitApiKey: (apiKey: string) => Promise<string>;
   onDisconnect: () => Promise<void>;
   /** Re-pull the gateway model list into the provider (no re-auth). */
   onRefreshModels?: () => Promise<{ modelCount: number; changed: boolean }>;
@@ -69,7 +67,6 @@ export function EigenweltAccountView({
   serverConnected,
   onStartSignIn,
   onWaitSignIn,
-  onSubmitApiKey,
   onDisconnect,
   onRefreshModels,
   disconnecting,
@@ -91,9 +88,6 @@ export function EigenweltAccountView({
   const orgManagement = hasEigenweltFeature(entitlements, "org_management");
 
   const [connecting, setConnecting] = useState(false);
-  const [showApiKey, setShowApiKey] = useState(false);
-  const [apiKey, setApiKey] = useState("");
-  const [submittingKey, setSubmittingKey] = useState(false);
   // Bumping this token cancels an in-flight sign-in wait (e.g. on unmount).
   const waitTokenRef = useRef(0);
   useEffect(() => () => void ++waitTokenRef.current, []);
@@ -122,24 +116,6 @@ export function EigenweltAccountView({
       }
     } finally {
       if (waitTokenRef.current === token) setConnecting(false);
-    }
-  };
-
-  const submitKey = async () => {
-    const trimmed = apiKey.trim();
-    if (!trimmed) return;
-    setSubmittingKey(true);
-    try {
-      const message = await onSubmitApiKey(trimmed);
-      toast.success(message);
-      setApiKey("");
-      setShowApiKey(false);
-      await entitlementsQuery.refetch();
-      onConfigApplied?.();
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : t("providers.save_api_key_failed"));
-    } finally {
-      setSubmittingKey(false);
     }
   };
 
@@ -212,9 +188,6 @@ export function EigenweltAccountView({
               {connecting ? <Loader2 className="size-4 animate-spin" /> : <ProviderIcon providerId="eigenwelt" size={16} />}
               {connecting ? t("account.connecting") : t("account.sign_in")}
             </Button>
-            <Button variant="secondary" size="sm" onClick={() => setShowApiKey((prev) => !prev)}>
-              <KeyRound className="size-4" /> {t("account.use_api_key")}
-            </Button>
             <Button variant="ghost" size="sm" onClick={() => void openDesktopUrl(learnMoreUrl)}>
               {t("firm_hub.learn_more")} <ExternalLink className="size-3.5" />
             </Button>
@@ -222,33 +195,6 @@ export function EigenweltAccountView({
 
           {!serverConnected ? (
             <p className="text-xs text-subtext">{t("account.server_required")}</p>
-          ) : null}
-
-          {showApiKey ? (
-            <>
-              <Divider />
-              <div className="space-y-2">
-                <p className="text-sm text-subtext">{t("account.api_key_hint")}</p>
-                <div className="flex items-center gap-2">
-                  <Input
-                    type="password"
-                    value={apiKey}
-                    onChange={(event) => setApiKey(event.currentTarget.value)}
-                    placeholder={t("account.api_key_placeholder")}
-                    className="flex-1"
-                  />
-                  <Button
-                    variant="secondary"
-                    size="sm"
-                    disabled={submittingKey || !apiKey.trim()}
-                    onClick={() => void submitKey()}
-                  >
-                    {submittingKey ? <Loader2 className="size-4 animate-spin" /> : <Check className="size-4" />}
-                    {t("account.connect")}
-                  </Button>
-                </div>
-              </div>
-            </>
           ) : null}
         </Card>
       </section>
