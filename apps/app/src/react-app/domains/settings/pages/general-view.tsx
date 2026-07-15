@@ -1,10 +1,12 @@
 /** @jsxImportSource react */
 import {
   ArrowRight,
+  Building2,
   FileStack,
   FolderLock,
   KeyRound,
   Layout,
+  Mic,
   RefreshCcw,
   ShieldCheck,
   Zap,
@@ -28,6 +30,12 @@ const workspaceItems: SettingsItem[] = [
 
 const globalItems: SettingsItem[] = [
   { tab: "ai", icon: Zap, title: "AI Providers", desc: "Connect services that provide AI models." },
+  {
+    tab: "account",
+    icon: Building2,
+    title: t("settings.tab_account"),
+    desc: t("settings.tab_description_account"),
+  },
   { tab: "safety", icon: ShieldCheck, title: "Tool Permissions", desc: "Decide what LegalWork can do on its own across all workspaces." },
   { tab: "shell", icon: Layout, title: "Customization", desc: "Branding and task suggestions." },
   { tab: "environment", icon: KeyRound, title: "Secrets", desc: "Store API keys and passwords for connected services." },
@@ -35,10 +43,16 @@ const globalItems: SettingsItem[] = [
   { tab: "updates", icon: RefreshCcw, title: "Updates", desc: "App version and update channel." },
 ];
 
-// Office add-ins install into local desktop apps, so this entry is desktop-only —
-// mirrors getGlobalSettingsTabs, which slots it right after AI Providers.
+// Recorder and Office add-ins depend on local desktop capabilities, mirroring
+// their placement in getGlobalSettingsTabs.
 function resolveGlobalItems(): SettingsItem[] {
   if (!isDesktopRuntime()) return globalItems;
+  const recorderItem: SettingsItem = {
+    tab: "recorder",
+    icon: Mic,
+    title: t("recorder.settings_tab_label"),
+    desc: `${t("recorder.settings_tab_description")}.`,
+  };
   const officeAddinsItem: SettingsItem = {
     tab: "office-addins",
     icon: FileStack,
@@ -47,7 +61,7 @@ function resolveGlobalItems(): SettingsItem[] {
     // omits it because the settings-page tab header uses no trailing period.
     desc: `${t("office_addins.tab_description")}.`,
   };
-  return [globalItems[0], officeAddinsItem, ...globalItems.slice(1)];
+  return [globalItems[0], recorderItem, officeAddinsItem, ...globalItems.slice(1)];
 }
 
 function SettingsRow(props: { icon: LucideIcon; title: string; desc: string; onClick: () => void }) {

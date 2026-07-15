@@ -1,5 +1,6 @@
 /** @jsxImportSource react */
 import { useEffect, useRef, useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import {
   Building2,
   Check,
@@ -21,6 +22,7 @@ import type { LegalworkServerClient } from "@/app/lib/legalwork-server";
 import { ProviderIcon } from "@/react-app/design-system/provider-icon";
 import {
   eigenweltBillingUrl,
+  eigenweltEntitlementsQueryKey,
   hasEigenweltFeature,
   useEigenweltEntitlements,
 } from "@/react-app/domains/connections/eigenwelt-entitlements";
@@ -70,6 +72,7 @@ export function EigenweltAccountView({
   modelCount = 0,
   onConfigApplied,
 }: EigenweltAccountViewProps) {
+  const queryClient = useQueryClient();
   const entitlementsQuery = useEigenweltEntitlements({
     client: legalworkClient,
     workspaceId,
@@ -126,25 +129,39 @@ export function EigenweltAccountView({
     }
   };
 
-  const [refreshingModels, setRefreshingModels] = useState(false);
-  const refreshModels = async () => {
-    if (!onRefreshModels) return;
-    setRefreshingModels(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const refreshAccount = async () => {
+    if (!onRefreshModels || !legalworkClient || !workspaceId) return;
+    setRefreshing(true);
     try {
-      const { modelCount: count, changed } = await onRefreshModels();
-      if (count === 0) toast(t("account.refresh_models_none"));
-      else if (changed) toast.success(t("account.refresh_models_loaded", { count: String(count) }));
-      else toast.success(t("account.refresh_models_uptodate", { count: String(count) }));
+      const [entitlementsResult, modelsResult] = await Promise.allSettled([
+        legalworkClient.eigenweltEntitlements(workspaceId, { refresh: true }),
+        onRefreshModels(),
+      ]);
+
+      if (entitlementsResult.status === "fulfilled") {
+        queryClient.setQueryData(
+          eigenweltEntitlementsQueryKey(workspaceId),
+          entitlementsResult.value,
+        );
+      }
+      if (entitlementsResult.status === "rejected") throw entitlementsResult.reason;
+      if (modelsResult.status === "rejected") throw modelsResult.reason;
+
+      const { modelCount: count, changed } = modelsResult.value;
+      if (count === 0) toast(t("account.refresh_none"));
+      else if (changed) toast.success(t("account.refresh_loaded", { count: String(count) }));
+      else toast.success(t("account.refresh_uptodate", { count: String(count) }));
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : t("account.refresh_models_failed"));
+      toast.error(error instanceof Error ? error.message : t("account.refresh_failed"));
     } finally {
-      setRefreshingModels(false);
+      setRefreshing(false);
     }
   };
-  const refreshModelsButton = onRefreshModels ? (
-    <Button variant="secondary" size="sm" disabled={refreshingModels} onClick={() => void refreshModels()}>
-      {refreshingModels ? <Loader2 className="size-4 animate-spin" /> : <RefreshCw className="size-4" />}
-      {t("account.refresh_models")}
+  const refreshButton = onRefreshModels ? (
+    <Button variant="secondary" size="sm" disabled={refreshing} onClick={() => void refreshAccount()}>
+      {refreshing ? <Loader2 className="size-4 animate-spin" /> : <RefreshCw className="size-4" />}
+      {t("account.refresh")}
     </Button>
   ) : null;
 
@@ -224,7 +241,7 @@ export function EigenweltAccountView({
             </div>
           </div>
           <div className="flex flex-wrap items-center gap-2">
-            {refreshModelsButton}
+            {refreshButton}
             <Button variant="secondary" size="sm" disabled={disconnecting} onClick={() => void disconnect()}>
               {disconnecting ? <Loader2 className="size-4 animate-spin" /> : <LogOut className="size-4" />}
               {t("account.sign_out")}
@@ -253,7 +270,7 @@ export function EigenweltAccountView({
             <Sparkles className="mt-0.5 size-4 shrink-0 text-brand" />
             <p className="text-sm text-subtext">{t("account.no_models")}</p>
           </div>
-          {refreshModelsButton}
+          {refreshButton}
         </Card>
       ) : null}
 
