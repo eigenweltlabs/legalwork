@@ -453,6 +453,20 @@ export const MCP_QUICK_CONNECT: McpDirectoryInfo[] = [
     kind: "mcp",
   },
   {
+    get name() { return t("mcp.quick_connect_ruly_title"); },
+    serverName: "ruly",
+    get description() { return t("mcp.quick_connect_ruly_desc"); },
+    // Jurisdiction-specific court rules, local rules, and procedural statutes.
+    // One-click: OAuth 2.1 + PKCE with dynamic client registration; the desktop
+    // loopback redirect is permitted on any port, so no firm-admin step. Each
+    // user needs their own Ruly account with an MCP-enabled subscription (the
+    // server returns 403 not_entitled until it's activated).
+    url: "https://mcp.askruly.com/mcp",
+    type: "remote",
+    oauth: true,
+    kind: "mcp",
+  },
+  {
     get name() { return t("mcp.quick_connect_taxgraph_title"); },
     serverName: "taxgraph",
     get description() { return t("mcp.quick_connect_taxgraph_desc"); },
