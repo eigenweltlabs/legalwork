@@ -63,6 +63,31 @@ protocol.registerSchemesAsPrivileged([
   },
 ]);
 
+// Live recordings are always webm, but imported files keep their original
+// container (mp3, m4a, wav, …). Serve each with a matching Content-Type so the
+// <audio> element can decode it — a webm type on an mp3 makes playback fail.
+const RECORDING_AUDIO_MIME_BY_EXT = {
+  ".webm": "audio/webm",
+  ".mp3": "audio/mpeg",
+  ".m4a": "audio/mp4",
+  ".mp4": "video/mp4",
+  ".aac": "audio/aac",
+  ".wav": "audio/wav",
+  ".flac": "audio/flac",
+  ".ogg": "audio/ogg",
+  ".oga": "audio/ogg",
+  ".opus": "audio/ogg",
+  ".caf": "audio/x-caf",
+  ".aif": "audio/aiff",
+  ".aiff": "audio/aiff",
+  ".mov": "video/quicktime",
+  ".wma": "audio/x-ms-wma",
+  ".3gp": "audio/3gpp",
+};
+function recordingAudioContentType(filePath) {
+  return RECORDING_AUDIO_MIME_BY_EXT[path.extname(filePath).toLowerCase()] ?? "application/octet-stream";
+}
+
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const require = createRequire(import.meta.url);
 const pty = require(["node", "pty"].join("-"));
@@ -2703,7 +2728,7 @@ if (!app.requestSingleInstanceLock()) {
         // Accept-Ranges the media element treats the source as non-seekable.
         const size = statSync(filePath).size;
         const baseHeaders = {
-          "Content-Type": "audio/webm",
+          "Content-Type": recordingAudioContentType(filePath),
           "Accept-Ranges": "bytes",
           "Cache-Control": "no-store",
         };
