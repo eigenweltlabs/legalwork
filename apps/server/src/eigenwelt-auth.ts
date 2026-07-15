@@ -8,7 +8,7 @@
  *   1. startEigenweltSignIn() binds a loopback port from a fixed,
  *      pre-registered list, generates PKCE verifier+challenge and a random
  *      `state`, and returns the platform interstitial URL
- *      (https://platform.eigenwelt.ai/desktop/connect) for the app to open.
+ *      (https://platform.eigenweltlabs.com/desktop/connect) for the app to open.
  *   2. The interstitial runs under the user's normal web session: sign-in if
  *      needed, firm (organization) picker, then redirect to Clerk's
  *      /oauth/authorize with our challenge and redirect_uri
@@ -42,7 +42,7 @@ const SIGN_IN_TIMEOUT_MS = 10 * 60 * 1000;
 const DEFAULT_WAIT_TIMEOUT_MS = 120_000;
 
 export function eigenweltPlatformUrl(): string {
-  return (process.env.EIGENWELT_PLATFORM_URL ?? "https://platform.eigenwelt.ai").replace(/\/+$/, "");
+  return (process.env.EIGENWELT_PLATFORM_URL ?? "https://platform.eigenweltlabs.com").replace(/\/+$/, "");
 }
 
 /**
