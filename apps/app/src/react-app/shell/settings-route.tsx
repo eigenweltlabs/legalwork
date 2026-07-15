@@ -857,6 +857,18 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
     [legalworkClient, hubWorkspaceId],
   );
 
+  const sharePluginWithFirm = useCallback(
+    async (pluginRef: string) => {
+      if (!legalworkClient || !hubWorkspaceId) {
+        toast.error(t("app.error_connect_first"));
+        return;
+      }
+      setTeamShareInitial({ kind: "plugin", ref: pluginRef });
+      setTeamShareOpen(true);
+    },
+    [legalworkClient, hubWorkspaceId],
+  );
+
   // Eigenwelt is a first-party global account. Sign-out clears the connection
   // AND the global provider manifest server-side (revoking the refresh-token
   // family), then reloads the engine so the eigenwelt provider drops from every
@@ -2265,6 +2277,8 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
               />
             }
             hasTeamHub={Boolean(hubWorkspaceId)}
+            canShareWithFirm={canShareWithFirm}
+            onSharePluginWithFirm={sharePluginWithFirm}
             onOpenTeamShare={canShareWithFirm ? () => {
               setTeamShareInitial(null);
               setTeamShareOpen(true);

@@ -115,7 +115,9 @@ export function HubShareDialog(props: {
         const [s, m, p] = await Promise.all([
           loadSkills ? client.listSkills(workspaceId) : Promise.resolve(null),
           loadMcps ? client.listMcp(workspaceId) : Promise.resolve(null),
-          loadPlugins ? client.listPlugins(workspaceId) : Promise.resolve(null),
+          loadPlugins
+            ? client.listPlugins(workspaceId, { includeGlobal: initialSelection?.kind === "plugin" })
+            : Promise.resolve(null),
         ]);
         if (cancelled) return;
         setSkills(s ? s.items.filter((it) => !initialSelection || it.name === initialSelection.ref).map((it) => {

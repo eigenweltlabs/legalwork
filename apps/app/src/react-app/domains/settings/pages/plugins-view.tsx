@@ -1,5 +1,5 @@
 /** @jsxImportSource react */
-import { Cpu } from "lucide-react";
+import { Cpu, Share2 } from "lucide-react";
 
 import { t } from "../../../../i18n";
 import { Button } from "@/components/ui/button";
@@ -55,6 +55,8 @@ export type PluginsViewProps = {
   canUseGlobalScope: boolean;
   accessHint?: string | null;
   suggestedPlugins: SuggestedPlugin[];
+  canShareWithFirm?: boolean;
+  onShareWithFirm?: (pluginRef: string) => void | Promise<void>;
 };
 
 export function PluginsView(props: PluginsViewProps) {
@@ -264,6 +266,17 @@ export function PluginsView(props: PluginsViewProps) {
                   <div className="text-[10px] uppercase tracking-wide text-gray-10">
                     {plugin.removable ? t("plugins.enabled") : t("settings.cap_read_only")}
                   </div>
+                  {props.canShareWithFirm && props.onShareWithFirm ? (
+                    <Button
+                      variant="outline"
+                      size="xs"
+                      onClick={() => void props.onShareWithFirm?.(plugin.name)}
+                      title={t("firm_hub.share_with_firm")}
+                    >
+                      <Share2 size={13} />
+                      Share
+                    </Button>
+                  ) : null}
                   {plugin.removable ? (
                     <Button
                       variant="destructive"

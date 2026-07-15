@@ -53,6 +53,9 @@ export type ExtensionsViewProps = {
   hasTeamHub?: boolean;
   /** Opens the multi-select "Share with your firm" dialog. */
   onOpenTeamShare?: () => void;
+  /** Shares one installed OpenCode plugin with the firm. */
+  canShareWithFirm?: boolean;
+  onSharePluginWithFirm?: (pluginRef: string) => void | Promise<void>;
   /** Preview a Claude Code plugin bundle from a GitHub URL. */
   previewClaudePlugin?: (url: string) => Promise<LegalworkClaudePluginPreview>;
   /** Install a Claude Code plugin bundle from a GitHub URL. */
@@ -187,6 +190,9 @@ export function ExtensionsView(props: ExtensionsViewProps) {
                 <div className="mt-3 inline-flex items-center rounded-lg bg-dls-hover px-2 py-1 font-mono text-[11px] text-dls-text">
                   {plugin.command}
                 </div>
+                <p className="mt-3 text-[11px] text-dls-secondary/70">
+                  Built into every LegalWork installation — no sharing needed.
+                </p>
               </div>
             ))}
           </div>
@@ -207,6 +213,8 @@ export function ExtensionsView(props: ExtensionsViewProps) {
                 canUseGlobalScope={props.canUseGlobalScope}
                 accessHint={props.accessHint}
                 suggestedPlugins={props.suggestedPlugins}
+                canShareWithFirm={props.canShareWithFirm}
+                onShareWithFirm={props.onSharePluginWithFirm}
               />
             </div>
           </details>

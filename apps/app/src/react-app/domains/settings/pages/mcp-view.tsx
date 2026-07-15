@@ -691,6 +691,12 @@ export function McpView(props: McpViewProps) {
         statusForEntry={quickConnectStatus}
         onConnect={props.connectMcp}
         onDetail={setDetailEntry}
+        shareRefForEntry={
+          props.canShareWithFirm && props.onShareWithFirm
+            ? (entry) => props.mcpServers.find((server) => server.name === getMcpIdentityKey(entry))?.name ?? null
+            : undefined
+        }
+        onShareMcp={props.onShareWithFirm}
         onSkillDetail={(skill) => {
           setDetailSkill(skill);
           setDetailSkillContent(null);
@@ -945,6 +951,8 @@ function McpQuickConnectSection(props: {
   statusForEntry: (entry: McpDirectoryInfo) => { status: ReactMcpStatus } | undefined;
   onConnect: (entry: McpDirectoryInfo) => void;
   onDetail: (entry: McpDirectoryInfo) => void;
+  shareRefForEntry?: (entry: McpDirectoryInfo) => string | null;
+  onShareMcp?: (mcpName: string) => void | Promise<void>;
   onSkillDetail?: (skill: SkillItem) => void;
   onPluginDetail?: (plugin: ImportedPlugin) => void;
 }) {
@@ -980,6 +988,7 @@ function McpQuickConnectSection(props: {
             const hidden = props.isEntryHidden(entry);
             const disabledReason = props.disabledReasonForEntry(entry);
             const kind = entry.kind ?? "mcp";
+            const shareRef = props.shareRefForEntry?.(entry) ?? null;
             const typeLabel = kind === "skill" ? "Skill" : kind === "extension" ? "Extension" : "MCP";
             const actionLabel = configured
               ? "View details"
@@ -1036,7 +1045,22 @@ function McpQuickConnectSection(props: {
                     {entry.preview ? <span className={typeTagClass}>Preview</span> : null}
                     {disabledReason ? <span className={typeTagClass}>Disabled</span> : null}
                   </div>
-                  {!disabledReason && !connecting ? (
+                  {shareRef && props.onShareMcp ? (
+                    <button
+                      type="button"
+                      className="inline-flex shrink-0 items-center gap-1.5 rounded-full px-2.5 py-1.5 text-[12px] font-medium text-dls-secondary transition-colors hover:bg-dls-hover hover:text-dls-text"
+                      onClick={(event) => {
+                        event.preventDefault();
+                        event.stopPropagation();
+                        void props.onShareMcp?.(shareRef);
+                      }}
+                      title={t("firm_hub.share_with_firm")}
+                      aria-label={`${t("firm_hub.share_with_firm")}: ${entry.name}`}
+                    >
+                      <Share2 size={13} />
+                      Share
+                    </button>
+                  ) : !disabledReason && !connecting ? (
                     <span className="shrink-0 text-[12px] font-medium text-dls-secondary transition-colors group-hover:text-dls-text">
                       {actionLabel}
                     </span>
@@ -1220,7 +1244,19 @@ function McpConfiguredServerRow(props: {
   const Icon = serviceIcon(props.entry.name);
   return (
     <div className={`group relative transition-colors ${props.selected ? "bg-dls-hover/40" : "hover:bg-dls-hover/60"}`}>
-      <button type="button" className="w-full py-4 pl-5 pr-3 text-left" onClick={() => props.onSelect(props.selected ? null : props.entry.name)}>
+      <div
+        role="button"
+        tabIndex={0}
+        aria-expanded={props.selected}
+        className="w-full py-4 pl-5 pr-3 text-left"
+        onClick={() => props.onSelect(props.selected ? null : props.entry.name)}
+        onKeyDown={(event) => {
+          if (event.target !== event.currentTarget) return;
+          if (event.key !== "Enter" && event.key !== " ") return;
+          event.preventDefault();
+          props.onSelect(props.selected ? null : props.entry.name);
+        }}
+      >
         <div className="flex items-center gap-4">
           <div className={`flex size-9 shrink-0 items-center justify-center rounded-lg border ${props.status === "connected" ? "border-green-6 bg-green-3" : serviceIconBg(props.entry.name)}`}>
             <Icon size={16} className={props.status === "connected" ? "text-green-11" : serviceColor(props.entry.name)} />
@@ -1228,6 +1264,21 @@ function McpConfiguredServerRow(props: {
           <div className="min-w-0 flex-1">
             <div className="truncate text-[15px] font-medium tracking-[-0.01em] text-dls-text">{props.displayName(props.entry.name)}</div>
           </div>
+          {props.canShareWithFirm && props.onShareWithFirm ? (
+            <Button
+              variant="ghost"
+              size="sm"
+              disabled={props.busy}
+              onClick={(event) => {
+                event.stopPropagation();
+                void props.onShareWithFirm?.(props.entry.name);
+              }}
+              title={t("firm_hub.share_with_firm")}
+            >
+              <Share2 size={13} />
+              Share
+            </Button>
+          ) : null}
           <div className="flex shrink-0 items-center gap-2">
             <div className={`size-1.5 rounded-full ${statusDot(props.status)}`} />
             <span className="font-mono text-[10px] uppercase tracking-[0.14em] text-dls-secondary/70">{friendlyStatus(props.status)}</span>
@@ -1236,7 +1287,7 @@ function McpConfiguredServerRow(props: {
             <ChevronDown size={14} className="text-dls-secondary/40" />
           </div>
         </div>
-      </button>
+      </div>
 
       {props.selected ? <McpConfiguredServerDetails {...props} /> : null}
     </div>
@@ -1273,20 +1324,6 @@ function McpConfiguredServerDetails(props: Parameters<typeof McpConfiguredServer
       </details>
       <McpConfiguredServerAuthActions {...props} />
       <div className="flex justify-end gap-2 pt-1">
-        {props.canShareWithFirm && props.onShareWithFirm ? (
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={(event) => {
-              event.stopPropagation();
-              void props.onShareWithFirm?.(props.entry.name);
-            }}
-            title={t("firm_hub.share_with_firm")}
-          >
-            <Share2 size={13} />
-            {t("firm_hub.share_with_firm")}
-          </Button>
-        ) : null}
         {props.onToggleEnabled && props.entry.source !== "config.global" ? (
           <Button
             variant="outline"
