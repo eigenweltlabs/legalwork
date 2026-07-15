@@ -174,7 +174,13 @@ export type EigenweltManifest = {
   models: EigenweltManifestModel[];
 };
 
-export type EigenweltHubKind = "workflow" | "integration" | "preset";
+export type EigenweltHubKind =
+  | "skill"
+  | "workflow"
+  | "mcp"
+  | "plugin"
+  | "integration"
+  | "preset";
 
 /** One shared item in the firm hub (list view — no payload). */
 export type EigenweltHubItem = {
@@ -187,6 +193,28 @@ export type EigenweltHubItem = {
   updatedAt: string;
   /** Platform-pinned items sort first (optional; only newer platforms send it). */
   pinned?: boolean;
+  /** Sharer identity (for "filter by team member"). */
+  createdByName?: string | null;
+  createdByEmail?: string | null;
+  /** An encrypted key is attached and this caller may copy it. */
+  hasSecret?: boolean;
+  canAccessSecret?: boolean;
+};
+
+/** One item to push in a batch share. `ref` is the LOCAL identifier
+ * (skill name, MCP name, or plugin spec/path). */
+export type EigenweltHubShareItem = {
+  kind: EigenweltHubKind;
+  ref: string;
+  description?: string;
+  /** MCP only: include the configured key (encrypted, allow-scoped). */
+  includeSecret?: boolean;
+  /** Who may copy the key: "all" or a list of clerk user ids. */
+  allow?: "all" | string[];
+};
+
+export type EigenweltHubBatchResult = {
+  results: Array<{ ref?: string; id?: string; kind?: string; ok: boolean; error?: string; keyIncluded?: boolean }>;
 };
 
 export type EigenweltHubItemDetail = EigenweltHubItem & { payload: unknown };
@@ -1731,13 +1759,38 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
       ),
     // Firm Hub: the server proxies these to the platform with the stored token.
     hubList: (workspaceId: string, kind?: EigenweltHubKind) => {
-      const query = kind ? `?kind=${encodeURIComponent(kind)}` : "";
+      // No kind → every team category at once (with sharer identity + key flags).
+      const query = kind ? `?kind=${encodeURIComponent(kind)}` : "?all=1";
       return requestJson<{ items: EigenweltHubItem[] }>(
         baseUrl,
         `/workspace/${encodeURIComponent(workspaceId)}/hub${query}`,
         { token, hostToken, timeoutMs: timeouts.config },
       );
     },
+    hubShareBatch: (workspaceId: string, items: EigenweltHubShareItem[]) =>
+      requestJson<EigenweltHubBatchResult>(
+        baseUrl,
+        `/workspace/${encodeURIComponent(workspaceId)}/hub/share/batch`,
+        {
+          token,
+          hostToken,
+          method: "POST",
+          body: { items, acknowledgeSharingRisk: true },
+          timeoutMs: timeouts.workspaceExport,
+        },
+      ),
+    hubInstallBatch: (workspaceId: string, itemIds: string[], options: { allowOverwrite: boolean }) =>
+      requestJson<EigenweltHubBatchResult>(
+        baseUrl,
+        `/workspace/${encodeURIComponent(workspaceId)}/hub/install/batch`,
+        {
+          token,
+          hostToken,
+          method: "POST",
+          body: { itemIds, acknowledgeExecutableRisk: true, allowOverwrite: options.allowOverwrite },
+          timeoutMs: timeouts.workspaceImport,
+        },
+      ),
     hubGet: (workspaceId: string, itemId: string) =>
       requestJson<EigenweltHubItemDetail>(
         baseUrl,
@@ -1762,11 +1815,17 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
         `/workspace/${encodeURIComponent(workspaceId)}/hub/share/preset`,
         { token, hostToken, method: "POST", body: payload, timeoutMs: timeouts.config },
       ),
-    hubInstall: (workspaceId: string, itemId: string) =>
+    hubInstall: (workspaceId: string, itemId: string, options: { allowOverwrite: boolean }) =>
       requestJson<{ ok: boolean; kind: EigenweltHubKind; name: string; version?: number }>(
         baseUrl,
         `/workspace/${encodeURIComponent(workspaceId)}/hub/install/${encodeURIComponent(itemId)}`,
-        { token, hostToken, method: "POST", timeoutMs: timeouts.workspaceImport },
+        {
+          token,
+          hostToken,
+          method: "POST",
+          body: { acknowledgeExecutableRisk: true, allowOverwrite: options.allowOverwrite },
+          timeoutMs: timeouts.workspaceImport,
+        },
       ),
     // Local install records ({id: {version, kind, name}}) that back the
     // Firm Hub's "update available" comparison. Never carries platform secrets.

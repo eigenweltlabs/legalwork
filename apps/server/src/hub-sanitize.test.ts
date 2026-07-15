@@ -57,8 +57,6 @@ describe("sanitizeIntegrationMcp", () => {
     expect(clean).toEqual({
       type: "remote",
       url: "https://acme.example.com/mcp",
-      headers: { "X-Tenant": "acme" },
-      options: { timeoutMs: 5000 },
     });
     expect(containsSecretKey(clean)).toBe(false);
   });
@@ -68,9 +66,8 @@ describe("sanitizeIntegrationMcp", () => {
       type: "remote",
       url: "https://x.dev/mcp",
       headers: { "X-Custom": "Bearer sneaky-token", "X-Region": "eu" },
-    }) as { headers: Record<string, string> };
-    expect(clean.headers["X-Custom"]).toBe("");
-    expect(clean.headers["X-Region"]).toBe("eu");
+    });
+    expect(clean).toEqual({ type: "remote", url: "https://x.dev/mcp" });
   });
 
   test("strips secret-named env keys from a local server", () => {
@@ -78,9 +75,23 @@ describe("sanitizeIntegrationMcp", () => {
       type: "local",
       command: ["node", "server.js"],
       env: { GITHUB_TOKEN: "ghp_xxx", MY_SECRET: "s", NODE_ENV: "production", PORT: "8080" },
-    }) as { env: Record<string, string> };
-    expect(clean.env).toEqual({ NODE_ENV: "production", PORT: "8080" });
+    });
+    expect(clean).toEqual({ type: "local", command: ["node", "server.js"] });
     expect(containsSecretKey(clean)).toBe(false);
+  });
+
+  test("removes credentials embedded in generic keys, URLs, and command arguments", () => {
+    expect(sanitizeIntegrationMcp({
+      type: "remote",
+      url: "https://user:pass@example.com/mcp?api_key=secret&tenant=acme",
+      key: "opaque-secret",
+    })).toEqual({ type: "remote", url: "https://example.com/mcp?tenant=acme" });
+
+    expect(sanitizeIntegrationMcp({
+      type: "local",
+      command: ["server", "--token", "secret", "--region", "eu", "sk-live-12345678"],
+      key: "opaque-secret",
+    })).toEqual({ type: "local", command: ["server", "--region", "eu"] });
   });
 });
 

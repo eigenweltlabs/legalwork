@@ -60,6 +60,7 @@ import {
   type ConfigScope,
   type McpViewLocalState,
 } from "./mcp-view-state";
+import { HubScopeToggle, useHubScope } from "./hub-scope-context";
 
 export type ReactMcpStatus =
   | "connected"
@@ -120,6 +121,8 @@ export type McpViewProps = {
   onShareWithFirm?: (mcpName: string) => void | Promise<void>;
   /** Firm Hub: "download integrations shared with your firm" section (self-gating). */
   firmDownloadView?: React.ReactNode;
+  /** Opens the multi-select "Share with your firm" dialog (Team scope only). */
+  onOpenTeamShare?: () => void;
 };
 
 const builtInExtensionDisabledReason = "Disabled by organization";
@@ -288,6 +291,16 @@ export function McpView(props: McpViewProps) {
   const [computerUseMcpCommand, setComputerUseMcpCommand] = useState<string[] | null>(null);
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState<ExtensionFilter>("all");
+  // Local | Team toggle (see skills-view). Only meaningful with a Team view.
+  const [hubScope, setHubScope] = useState<"local" | "team">("local");
+  // A page-level owner (Integrations page) may control the scope via context; if
+  // so, follow it and hide our own toggle. Standalone use keeps the local toggle.
+  const externalScope = useHubScope();
+  const scope = externalScope ?? hubScope;
+  const hasTeamView = Boolean(props.firmDownloadView);
+  const showInternalToggle = hasTeamView && externalScope === null;
+  const showLocal = !hasTeamView || scope === "local";
+  const showTeam = hasTeamView && scope === "team";
   const [showHidden, setShowHidden] = useState(false);
   const [, setExtensionStateVersion] = useState(0);
 
@@ -553,7 +566,19 @@ export function McpView(props: McpViewProps) {
           </div>
         </div>
 
+        {showInternalToggle ? (
+          <div className="flex items-center justify-between gap-3">
+            <HubScopeToggle scope={hubScope} onChange={setHubScope} />
+            {hubScope === "team" && props.onOpenTeamShare ? (
+              <Button variant="outline" size="sm" onClick={props.onOpenTeamShare}>
+                <Share2 className="size-4" /> Share with firm
+              </Button>
+            ) : null}
+          </div>
+        ) : null}
+
         {/* Search + filter */}
+        {showLocal ? (
         <div className="space-y-3 border-t border-dls-border pt-5">
           <div className="relative w-full">
             <Search size={16} className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-dls-secondary" />
@@ -592,10 +617,13 @@ export function McpView(props: McpViewProps) {
             </button>
           </div>
         </div>
+        ) : null}
       </div>
 
-      {props.firmDownloadView}
+      {showTeam ? props.firmDownloadView : null}
 
+      {showLocal ? (
+      <>
       {props.mcpStatus ? (
         <div className="whitespace-pre-wrap wrap-break-word rounded-[20px] border border-dls-border bg-dls-hover px-5 py-4 text-[13px] text-dls-secondary">
           {props.mcpStatus}
@@ -701,6 +729,8 @@ export function McpView(props: McpViewProps) {
         canShareWithFirm={props.canShareWithFirm}
         onShareWithFirm={props.onShareWithFirm}
       />
+      </>
+      ) : null}
 
       <ConfirmModal
         open={logoutOpen}

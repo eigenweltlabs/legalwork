@@ -10,6 +10,7 @@ import type { LegalworkClaudePluginPreview } from "../../../../app/lib/legalwork
 import { PluginsView, type PluginsExtensionsStore } from "./plugins-view";
 import { BUNDLED_PLUGINS } from "../bundled-plugins";
 import { HubTabs } from "../segmented-tabs";
+import { HubScopeContext, HubScopeToggle, type HubScope } from "./hub-scope-context";
 
 export type ExtensionsSection = "all" | "mcp" | "skills" | "plugins";
 
@@ -46,6 +47,12 @@ export type ExtensionsViewProps = {
   mcpView: ReactNode;
   /** Skills tab — bundled + installed skills, with add/import. */
   skillsView: ReactNode;
+  /** Team ("shared with your firm") view for the Plugins tab. */
+  pluginsFirmView?: ReactNode;
+  /** Whether the firm is connected + entitled (shows the Local/Team toggle). */
+  hasTeamHub?: boolean;
+  /** Opens the multi-select "Share with your firm" dialog. */
+  onOpenTeamShare?: () => void;
   /** Preview a Claude Code plugin bundle from a GitHub URL. */
   previewClaudePlugin?: (url: string) => Promise<LegalworkClaudePluginPreview>;
   /** Install a Claude Code plugin bundle from a GitHub URL. */
@@ -77,6 +84,11 @@ export function ExtensionsView(props: ExtensionsViewProps) {
         : "connectors";
   const [tab, setTab] = useState<ExtensionsTab>(initialTab);
   const [importOpen, setImportOpen] = useState(false);
+  // Local | Team is the OUTER toggle for the whole Integrations page; the
+  // Connectors/Skills/Plugins tabs sit inside it. The sub-views follow this
+  // scope via HubScopeContext.
+  const [hubScope, setHubScope] = useState<HubScope>("local");
+  const teamHub = props.hasTeamHub === true;
   const pluginCount = useMemo(() => props.extensions.pluginList().length, [props.extensions]);
 
   const selectTab = (next: ExtensionsTab) => {
@@ -88,6 +100,18 @@ export function ExtensionsView(props: ExtensionsViewProps) {
 
   return (
     <section className="space-y-7 max-w-5xl w-full animate-in fade-in duration-300">
+      {/* Local | Team is the page-level toggle; Connectors/Skills/Plugins sit inside it. */}
+      {teamHub ? (
+        <div className="flex items-center justify-between gap-3">
+          <HubScopeToggle scope={hubScope} onChange={setHubScope} />
+          {hubScope === "team" && props.onOpenTeamShare ? (
+            <Button variant="outline" onClick={props.onOpenTeamShare}>
+              Share with firm
+            </Button>
+          ) : null}
+        </div>
+      ) : null}
+
       <div className="flex flex-wrap items-center justify-between gap-3">
         <HubTabs items={TABS} value={tab} onChange={selectTab} />
         <div className="flex items-center gap-2">
@@ -113,11 +137,15 @@ export function ExtensionsView(props: ExtensionsViewProps) {
         </div>
       ) : null}
 
+      <HubScopeContext.Provider value={hubScope}>
       {tab === "connectors" ? props.mcpView : null}
 
       {tab === "skills" ? props.skillsView : null}
 
       {tab === "plugins" ? (
+        hubScope === "team" ? (
+          props.pluginsFirmView ?? null
+        ) : (
         <div className="space-y-6">
           <div className={`flex flex-wrap items-start gap-3 ${props.showHeader !== false ? "justify-end" : "justify-between"}`}>
             {props.showHeader === false ? (
@@ -183,7 +211,9 @@ export function ExtensionsView(props: ExtensionsViewProps) {
             </div>
           </details>
         </div>
+        )
       ) : null}
+      </HubScopeContext.Provider>
 
       {props.previewClaudePlugin && props.installClaudePlugin ? (
         <ClaudePluginImportModal

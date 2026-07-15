@@ -29,6 +29,7 @@ export function isSecretKey(key: string): boolean {
 
 /** Auth-scheme values we blank out even when the key name looks innocuous. */
 const AUTH_VALUE_REGEX = /^\s*(?:bearer|basic|token|apikey|api-key)\s+\S/i;
+const SECRET_VALUE_REGEX = /(?:\bBearer\s+\S+|\b(?:ghp|gho|github_pat|xox[baprs]|sk|rk|AKIA|ASIA|AIza)[-_A-Za-z0-9]{8,}\b|\beyJ[A-Za-z0-9_-]+\.[A-Za-z0-9._-]+\.[A-Za-z0-9._-]+\b)/;
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -68,6 +69,54 @@ export function stripSecrets(value: unknown, valueIsAuthMap = false): unknown {
  * `headers`, `env`, nested options) so only the connection shape survives.
  */
 export function sanitizeIntegrationMcp(config: Record<string, unknown>): Record<string, unknown> {
+  const enabled = typeof config.enabled === "boolean" ? config.enabled : undefined;
+  if (config.type === "remote" && typeof config.url === "string") {
+    const url = new URL(config.url);
+    url.username = "";
+    url.password = "";
+    for (const key of [...url.searchParams.keys()]) {
+      if (isSecretKey(key) || /^key$/i.test(key)) url.searchParams.delete(key);
+    }
+    return {
+      type: "remote",
+      url: url.toString(),
+      ...(enabled === undefined ? {} : { enabled }),
+    };
+  }
+  if (config.type === "local" && Array.isArray(config.command)) {
+    const command: string[] = [];
+    let dropNext = false;
+    for (const raw of config.command) {
+      if (typeof raw !== "string") continue;
+      if (dropNext) {
+        dropNext = false;
+        continue;
+      }
+      const [flag = ""] = raw.replace(/^--?/, "").split("=", 1);
+      const isSecretFlag = raw.startsWith("-") && (isSecretKey(flag) || /^key$/i.test(flag));
+      if (isSecretFlag) {
+        dropNext = !raw.includes("=");
+        continue;
+      }
+      if (SECRET_VALUE_REGEX.test(raw)) continue;
+      if (/^https?:\/\//i.test(raw)) {
+        const url = new URL(raw);
+        url.username = "";
+        url.password = "";
+        for (const key of [...url.searchParams.keys()]) {
+          if (isSecretKey(key) || /^key$/i.test(key)) url.searchParams.delete(key);
+        }
+        command.push(url.toString());
+      } else {
+        command.push(raw);
+      }
+    }
+    return {
+      type: "local",
+      command,
+      ...(enabled === undefined ? {} : { enabled }),
+    };
+  }
   return stripSecrets(config) as Record<string, unknown>;
 }
 

@@ -43,6 +43,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { t } from "@/i18n";
+import { HubScopeToggle, useHubScope } from "./hub-scope-context";
 import type {
   HubSkillCard,
   HubSkillRepo,
@@ -177,6 +178,8 @@ export type SkillsViewProps = {
   onShareWithFirm?: (skillName: string) => void | Promise<void>;
   /** Firm Hub: "download workflows shared with your firm" section (self-gating). */
   firmDownloadView?: ReactNode;
+  /** Opens the multi-select "Share with your firm" dialog (Team scope only). */
+  onOpenTeamShare?: () => void;
 };
 
 // Workflows are ordinary skills tagged with `kind: workflow` frontmatter (surfaced on the
@@ -312,6 +315,18 @@ export function SkillsView(props: SkillsViewProps) {
 
 
   const isWorkflowsView = props.kind === "workflows";
+  // Local | Team toggle: "Local" shows this workspace's installed items; "Team"
+  // shows what the firm shared (firmDownloadView). Only meaningful when a Team
+  // view is provided (firm-connected + entitled).
+  const [hubScope, setHubScope] = useState<"local" | "team">("local");
+  // A page-level owner (Integrations page) may control the scope via context; if
+  // so, follow it and hide our own toggle. Standalone (Workflows page) keeps it.
+  const externalScope = useHubScope();
+  const scope = externalScope ?? hubScope;
+  const hasTeamView = Boolean(props.firmDownloadView);
+  const showInternalToggle = hasTeamView && externalScope === null;
+  const showLocal = !hasTeamView || scope === "local";
+  const showTeam = hasTeamView && scope === "team";
   // Template-to-workflow generation run (module store shared with onboarding).
   const templateRun = useTemplateWorkflowRun();
   const templateRunActive = templateRun?.status === "running";
@@ -392,8 +407,8 @@ export function SkillsView(props: SkillsViewProps) {
 
   // Workflows are local-authored only — no Hub/Cloud catalogs.
   const effectiveActiveFilter = !SKILLS_HUB_UI_ENABLED && activeFilter === "hub" ? "all" : activeFilter;
-  const showInstalledSection = effectiveActiveFilter === "all" || effectiveActiveFilter === "installed";
-  const showHubSection = SKILLS_HUB_UI_ENABLED && !isWorkflowsView && (effectiveActiveFilter === "all" || effectiveActiveFilter === "hub");
+  const showInstalledSection = showLocal && (effectiveActiveFilter === "all" || effectiveActiveFilter === "installed");
+  const showHubSection = showLocal && SKILLS_HUB_UI_ENABLED && !isWorkflowsView && (effectiveActiveFilter === "all" || effectiveActiveFilter === "hub");
   const canCreateInChat = !props.busy && (props.canInstallSkillCreator || props.canUseDesktopTools);
 
 
@@ -682,6 +697,18 @@ export function SkillsView(props: SkillsViewProps) {
           </div>
         </div>
 
+        {showInternalToggle ? (
+          <div className="flex items-center justify-between gap-3">
+            <HubScopeToggle scope={hubScope} onChange={setHubScope} />
+            {hubScope === "team" && props.onOpenTeamShare ? (
+              <Button variant="outline" size="sm" onClick={props.onOpenTeamShare}>
+                <Share2 className="size-4" /> Share with firm
+              </Button>
+            ) : null}
+          </div>
+        ) : null}
+
+        {showLocal ? (
         <div className="flex flex-col gap-3 border-t border-dls-border pt-5 sm:flex-row sm:items-center sm:justify-between">
           <div className="relative w-full sm:max-w-[300px]">
             <Search size={15} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-dls-secondary" />
@@ -727,9 +754,10 @@ export function SkillsView(props: SkillsViewProps) {
             </button>
           </div>
         </div>
+        ) : null}
       </div>
 
-      {props.firmDownloadView}
+      {showTeam ? props.firmDownloadView : null}
 
       {props.accessHint ? (
         <div className="rounded-[20px] border border-dls-border bg-dls-hover px-5 py-4 text-[13px] text-dls-secondary">

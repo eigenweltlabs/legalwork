@@ -11,12 +11,15 @@ import {
 import type { ServerConfig } from "./types.js";
 
 const previousRuntimeDb = process.env.LEGALWORK_RUNTIME_DB;
+const previousPlatformUrl = process.env.EIGENWELT_PLATFORM_URL;
 const cleanups: Array<() => Promise<void> | void> = [];
 
 afterEach(async () => {
   while (cleanups.length) await cleanups.pop()?.();
   if (previousRuntimeDb === undefined) delete process.env.LEGALWORK_RUNTIME_DB;
   else process.env.LEGALWORK_RUNTIME_DB = previousRuntimeDb;
+  if (previousPlatformUrl === undefined) delete process.env.EIGENWELT_PLATFORM_URL;
+  else process.env.EIGENWELT_PLATFORM_URL = previousPlatformUrl;
 });
 
 function serverConfig(root: string): ServerConfig {
@@ -42,6 +45,7 @@ async function setup(): Promise<ServerConfig> {
   const root = await mkdtemp(join(tmpdir(), "legalwork-eigenwelt-conn-"));
   cleanups.push(() => rm(root, { recursive: true, force: true }));
   process.env.LEGALWORK_RUNTIME_DB = join(root, "runtime.sqlite");
+  process.env.EIGENWELT_PLATFORM_URL = "https://platform.eigenweltlabs.com";
   return serverConfig(root);
 }
 
@@ -72,6 +76,14 @@ describe("eigenwelt-connection-store", () => {
     expect(view.platformURL).toBe("https://platform.eigenweltlabs.com");
     expect(view.connected).toBe(true);
     expect("platformToken" in view).toBe(false);
+  });
+
+  test("rejects a platform URL outside the configured trusted origin", async () => {
+    const config = await setup();
+    await expect(writeEigenweltConnection(config, "ws_1", {
+      platformURL: "http://127.0.0.1:8080/internal",
+      platformToken: "attacker-controlled",
+    })).rejects.toThrow("does not match");
   });
 
   test("connected is false with no stored account; true once a token is stored", async () => {

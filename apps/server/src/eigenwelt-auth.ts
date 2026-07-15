@@ -45,6 +45,36 @@ export function eigenweltPlatformUrl(): string {
   return (process.env.EIGENWELT_PLATFORM_URL ?? "https://platform.eigenwelt.ai").replace(/\/+$/, "");
 }
 
+/**
+ * Accept only the configured Eigenwelt platform origin. The OAuth payload is
+ * relayed through the app before persistence, so treating its URL as arbitrary
+ * would turn later server-side hub calls into an SSRF primitive.
+ */
+export function validateEigenweltPlatformUrl(value: string): string {
+  const configured = eigenweltPlatformUrl();
+  let expected: URL;
+  let candidate: URL;
+  try {
+    expected = new URL(configured);
+    candidate = new URL(value.trim());
+  } catch {
+    throw new Error("Invalid Eigenwelt platform URL.");
+  }
+  const expectedPath = expected.pathname.replace(/\/+$/, "") || "/";
+  const candidatePath = candidate.pathname.replace(/\/+$/, "") || "/";
+  if (
+    candidate.origin !== expected.origin ||
+    candidatePath !== expectedPath ||
+    candidate.username ||
+    candidate.password ||
+    candidate.search ||
+    candidate.hash
+  ) {
+    throw new Error("The Eigenwelt platform URL does not match this LegalWork installation.");
+  }
+  return configured;
+}
+
 export type EigenweltManifestModel = {
   id: string;
   name?: string;

@@ -1558,6 +1558,12 @@ export default {
   "firm_hub.shared_by_you": "Shared by you",
   // Share-with-firm actions (skills / MCP / preset)
   "firm_hub.share_with_firm": "Share with firm",
+  "firm_hub.scope_local": "Local",
+  "firm_hub.scope_team": "Team",
+  "firm_hub.filter_by_member": "Filter by member:",
+  "firm_hub.all_members": "All team members",
+  "firm_hub.upsell_title": "Team sharing is part of Plus",
+  "firm_hub.upsell_body": "Upgrade to install skills, workflows and integrations your firm shares. Click to see plans.",
   "firm_hub.sharing": "Sharing…",
   "firm_hub.share_workflow_success": "Shared \"{name}\" as a firm workflow.",
   "firm_hub.share_workflow_failed": "Could not share this workflow.",
