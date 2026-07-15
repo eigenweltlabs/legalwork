@@ -528,10 +528,10 @@ export function RecorderPane(props: {
               <Button
                 disabled={!canRecord}
                 onClick={() => void store.startRecording(title || undefined)}
-                className="gap-2"
+                className="gap-2 bg-danger text-white hover:bg-danger/90"
               >
-                <span className="size-2.5 shrink-0 rounded-full bg-danger" aria-hidden />
-                <Mic className="size-4 text-danger" />
+                <span className="size-2.5 shrink-0 rounded-full bg-white" aria-hidden />
+                <Mic className="size-4 text-white" />
                 {t("recorder.record")}
               </Button>
             )}

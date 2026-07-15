@@ -74,6 +74,18 @@ export type EigenweltEntitlements = {
   usage: EigenweltUsage;
 };
 
+/**
+ * Active-subscription check. The platform emits the `premium_models` feature
+ * ONLY when the org isEntitled (plan plus/pro with an active/trialing/past_due
+ * status), so this is the authoritative "has an active sub" signal — stricter
+ * than merely being signed in. Used to gate the paid Eigenwelt provider.
+ */
+export function eigenweltHasPremiumModels(
+  entitlements: EigenweltEntitlements | null | undefined,
+): boolean {
+  return entitlements?.features.includes("premium_models") ?? false;
+}
+
 export type EigenweltSignInPayload = {
   apiKey: string;
   baseURL: string;

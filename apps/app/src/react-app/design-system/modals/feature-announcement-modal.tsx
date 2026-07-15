@@ -26,6 +26,12 @@ export type FeatureAnnouncementModalProps = {
   dismissLabel?: string;
   /** Fired on Esc, backdrop click, or the dismiss link. */
   onDismiss: () => void;
+  /**
+   * Optional hero background layer (absolutely positioned, behind the text).
+   * Replaces the default radial-gradient wash — e.g. the onboarding's grained
+   * blue. Rendered inside the same deep-navy hero, so it composites on top.
+   */
+  heroOverlay?: React.ReactNode;
 };
 
 export function FeatureAnnouncementModal(props: FeatureAnnouncementModalProps) {
@@ -39,11 +45,17 @@ export function FeatureAnnouncementModal(props: FeatureAnnouncementModalProps) {
       <DialogContent className="gap-0 overflow-hidden p-0 sm:max-w-lg" showCloseButton={false}>
         {/* Hero: the welcome page's deep-navy paper gradient, dialog-sized. */}
         <div className="relative overflow-hidden bg-[#05080f] px-7 pb-8 pt-7">
-          <div
-            aria-hidden
-            className="absolute inset-0 bg-[radial-gradient(120%_120%_at_85%_-10%,rgba(11, 132, 254,0.55),transparent_55%),radial-gradient(90%_90%_at_0%_110%,rgba(10, 103, 198,0.45),transparent_55%)]"
-          />
-          <div className="relative">
+          {props.heroOverlay ? (
+            <div aria-hidden className="absolute inset-0 z-0">
+              {props.heroOverlay}
+            </div>
+          ) : (
+            <div
+              aria-hidden
+              className="absolute inset-0 bg-[radial-gradient(120%_120%_at_85%_-10%,rgba(11, 132, 254,0.55),transparent_55%),radial-gradient(90%_90%_at_0%_110%,rgba(10, 103, 198,0.45),transparent_55%)]"
+            />
+          )}
+          <div className="relative z-10">
             <span className="inline-flex items-center gap-2 text-[10px] font-bold uppercase tracking-[0.14em] text-white/60">
               <span className="size-[7px] rounded-[1.5px] bg-[#0a58c2] shadow-[0_0_0_3px_rgba(11, 132, 254,0.25)]" />
               {props.eyebrow}
