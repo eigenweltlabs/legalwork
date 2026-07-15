@@ -27,6 +27,7 @@ import { getReactQueryClient } from "../../../infra/query-client";
 import { ensureProviderListQuery } from "../../../infra/provider-list-query";
 import type { LegalworkServerStoreSnapshot } from "../legalwork-server-store";
 import type {
+  EigenweltAccountIdentity,
   EigenweltEntitlements,
   EigenweltManifestModel,
   EigenweltSignInPayload,
@@ -1154,6 +1155,7 @@ export function createProviderAuthStore(options: CreateProviderAuthStoreOptions)
     apiKey: string;
     baseURL: string;
     models: EigenweltManifestModel[];
+    account?: EigenweltAccountIdentity;
     entitlements?: EigenweltEntitlements;
     platformToken?: string;
     accessTokenExpiresAt?: number;
@@ -1187,6 +1189,7 @@ export function createProviderAuthStore(options: CreateProviderAuthStoreOptions)
     if (canUseLegalworkServer && legalworkClient && legalworkWorkspaceId) {
       try {
         await legalworkClient.eigenweltSaveConnection(legalworkWorkspaceId, {
+          account: payload.account ?? null,
           entitlements: payload.entitlements ?? null,
           platformURL: payload.platformURL ?? null,
           platformToken: payload.platformToken ?? null,

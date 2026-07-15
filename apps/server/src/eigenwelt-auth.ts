@@ -106,6 +106,14 @@ export type EigenweltEntitlements = {
   usage: EigenweltUsage;
 };
 
+export type EigenweltAccountIdentity = {
+  userId: string;
+  userName: string | null;
+  userEmail: string | null;
+  orgId: string;
+  orgName: string;
+};
+
 /**
  * Active-subscription check. The platform emits the `premium_models` feature
  * ONLY when the org isEntitled (plan plus/pro with an active/trialing/past_due
@@ -123,6 +131,7 @@ export type EigenweltSignInPayload = {
   baseURL: string;
   orgId?: string;
   orgName?: string;
+  account?: EigenweltAccountIdentity;
   models: EigenweltManifestModel[];
   /** Present only when the platform ships subscription data (parse tolerantly). */
   entitlements?: EigenweltEntitlements;
@@ -213,6 +222,21 @@ export function parseEigenweltEntitlements(value: unknown): EigenweltEntitlement
   };
 }
 
+export function parseEigenweltAccountIdentity(value: unknown): EigenweltAccountIdentity | undefined {
+  if (!isRecord(value)) return undefined;
+  const userId = typeof value.userId === "string" ? value.userId.trim() : "";
+  const orgId = typeof value.orgId === "string" ? value.orgId.trim() : "";
+  const orgName = typeof value.orgName === "string" ? value.orgName.trim() : "";
+  if (!userId || !orgId || !orgName) return undefined;
+  return {
+    userId,
+    userName: typeof value.userName === "string" && value.userName.trim() ? value.userName.trim() : null,
+    userEmail: typeof value.userEmail === "string" && value.userEmail.trim() ? value.userEmail.trim() : null,
+    orgId,
+    orgName,
+  };
+}
+
 async function bindLoopback(
   handler: (req: IncomingMessage, res: ServerResponse, port: number) => void,
 ): Promise<{ server: Server; port: number }> {
@@ -294,6 +318,8 @@ export async function startEigenweltSignIn(): Promise<{ sessionId: string; autho
       };
       const entitlements = parseEigenweltEntitlements(payload.entitlements);
       if (entitlements) delivered.entitlements = entitlements;
+      const account = parseEigenweltAccountIdentity(payload.account);
+      if (account) delivered.account = account;
       if (typeof payload.platformToken === "string" && payload.platformToken.trim()) {
         delivered.platformToken = payload.platformToken;
       }

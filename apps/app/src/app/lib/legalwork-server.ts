@@ -140,12 +140,21 @@ export type EigenweltEntitlements = {
   usage: EigenweltUsage;
 };
 
+export type EigenweltAccountIdentity = {
+  userId: string;
+  userName: string | null;
+  userEmail: string | null;
+  orgId: string;
+  orgName: string;
+};
+
 /** Feature flags the platform may grant (subset the app gates surfaces on). */
 export type EigenweltFeature = "admin_hub" | "settings_presets" | "org_management" | "premium_models";
 
 /** App-safe connection view: entitlements + platformURL, never the secret token. */
 export type EigenweltEntitlementsView = {
   entitlements: EigenweltEntitlements | null;
+  account: EigenweltAccountIdentity | null;
   platformURL: string | null;
   /** Signed in with an Eigenwelt account — independent of the served model list. */
   connected: boolean;
@@ -157,6 +166,7 @@ export type EigenweltSignInPayload = {
   baseURL: string;
   orgId?: string;
   orgName?: string;
+  account?: EigenweltAccountIdentity;
   models: EigenweltManifestModel[];
   entitlements?: EigenweltEntitlements;
   /** Short-lived Bearer for the platform hub APIs (~15 min). Secret. */
@@ -1723,6 +1733,7 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
       workspaceId: string,
       payload: {
         entitlements?: EigenweltEntitlements | null;
+        account?: EigenweltAccountIdentity | null;
         platformURL?: string | null;
         platformToken?: string | null;
         refreshToken?: string | null;

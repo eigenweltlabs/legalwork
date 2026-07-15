@@ -2,9 +2,10 @@ import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { eq } from "drizzle-orm";
 import { integer, sqliteTable, text } from "drizzle-orm/sqlite-core";
-import type { EigenweltEntitlements } from "./eigenwelt-auth.js";
+import type { EigenweltAccountIdentity, EigenweltEntitlements } from "./eigenwelt-auth.js";
 import {
   eigenweltPlatformUrl,
+  parseEigenweltAccountIdentity,
   parseEigenweltEntitlements,
   validateEigenweltPlatformUrl,
 } from "./eigenwelt-auth.js";
@@ -22,6 +23,7 @@ import { ensureDir } from "./utils.js";
 const eigenweltConnections = sqliteTable("eigenwelt_connections", {
   workspaceId: text("workspace_id").primaryKey(),
   entitlementsJson: text("entitlements_json"),
+  accountJson: text("account_json"),
   platformUrl: text("platform_url"),
   platformToken: text("platform_token"),
   refreshToken: text("refresh_token"),
@@ -31,6 +33,7 @@ const eigenweltConnections = sqliteTable("eigenwelt_connections", {
 
 type EigenweltConnectionRow = {
   entitlementsJson: string | null;
+  accountJson: string | null;
   platformUrl: string | null;
   platformToken: string | null;
   refreshToken: string | null;
@@ -40,6 +43,7 @@ type EigenweltConnectionRow = {
 type UpsertValue = {
   workspaceId: string;
   entitlementsJson: string | null;
+  accountJson: string | null;
   platformUrl: string | null;
   platformToken: string | null;
   refreshToken: string | null;
@@ -54,6 +58,7 @@ type EigenweltConnectionDb = {
 
 export type EigenweltConnection = {
   entitlements: EigenweltEntitlements | null;
+  account: EigenweltAccountIdentity | null;
   platformURL: string | null;
   platformToken: string | null;
   refreshToken: string | null;
@@ -63,6 +68,7 @@ export type EigenweltConnection = {
 /** App-safe view of a connection: entitlements + platformURL, never a token. */
 export type EigenweltEntitlementsView = {
   entitlements: EigenweltEntitlements | null;
+  account: EigenweltAccountIdentity | null;
   platformURL: string | null;
   /**
    * Whether the firm is signed in with an Eigenwelt account — true when a
@@ -78,7 +84,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 const CREATE_TABLE_SQL =
-  "CREATE TABLE IF NOT EXISTS eigenwelt_connections (workspace_id TEXT PRIMARY KEY NOT NULL, entitlements_json TEXT, platform_url TEXT, platform_token TEXT, refresh_token TEXT, platform_token_expires_at INTEGER, updated_at INTEGER NOT NULL)";
+  "CREATE TABLE IF NOT EXISTS eigenwelt_connections (workspace_id TEXT PRIMARY KEY NOT NULL, entitlements_json TEXT, account_json TEXT, platform_url TEXT, platform_token TEXT, refresh_token TEXT, platform_token_expires_at INTEGER, updated_at INTEGER NOT NULL)";
 
 // Columns added after the table's first release. SQLite has no ADD COLUMN IF
 // NOT EXISTS, so each ALTER runs best-effort (throws "duplicate column" once the
@@ -86,6 +92,7 @@ const CREATE_TABLE_SQL =
 const MIGRATION_COLUMNS = [
   "ALTER TABLE eigenwelt_connections ADD COLUMN refresh_token TEXT",
   "ALTER TABLE eigenwelt_connections ADD COLUMN platform_token_expires_at INTEGER",
+  "ALTER TABLE eigenwelt_connections ADD COLUMN account_json TEXT",
 ];
 
 function runtimeDbPath(config: ServerConfig): string {
@@ -142,10 +149,10 @@ async function openDb(path: string): Promise<EigenweltConnectionDb> {
     }
   }
   const get = sqlite.prepare(
-    "SELECT entitlements_json AS entitlementsJson, platform_url AS platformUrl, platform_token AS platformToken, refresh_token AS refreshToken, platform_token_expires_at AS platformTokenExpiresAt FROM eigenwelt_connections WHERE workspace_id = ?",
+    "SELECT entitlements_json AS entitlementsJson, account_json AS accountJson, platform_url AS platformUrl, platform_token AS platformToken, refresh_token AS refreshToken, platform_token_expires_at AS platformTokenExpiresAt FROM eigenwelt_connections WHERE workspace_id = ?",
   );
   const upsert = sqlite.prepare(
-    "INSERT INTO eigenwelt_connections (workspace_id, entitlements_json, platform_url, platform_token, refresh_token, platform_token_expires_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?) ON CONFLICT(workspace_id) DO UPDATE SET entitlements_json = excluded.entitlements_json, platform_url = excluded.platform_url, platform_token = excluded.platform_token, refresh_token = excluded.refresh_token, platform_token_expires_at = excluded.platform_token_expires_at, updated_at = excluded.updated_at",
+    "INSERT INTO eigenwelt_connections (workspace_id, entitlements_json, account_json, platform_url, platform_token, refresh_token, platform_token_expires_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(workspace_id) DO UPDATE SET entitlements_json = excluded.entitlements_json, account_json = excluded.account_json, platform_url = excluded.platform_url, platform_token = excluded.platform_token, refresh_token = excluded.refresh_token, platform_token_expires_at = excluded.platform_token_expires_at, updated_at = excluded.updated_at",
   );
   return {
     get: (workspaceId) => {
@@ -153,6 +160,7 @@ async function openDb(path: string): Promise<EigenweltConnectionDb> {
       if (!isRecord(row)) return undefined;
       return {
         entitlementsJson: typeof row.entitlementsJson === "string" ? row.entitlementsJson : null,
+        accountJson: typeof row.accountJson === "string" ? row.accountJson : null,
         platformUrl: typeof row.platformUrl === "string" ? row.platformUrl : null,
         platformToken: typeof row.platformToken === "string" ? row.platformToken : null,
         refreshToken: typeof row.refreshToken === "string" ? row.refreshToken : null,
@@ -164,6 +172,7 @@ async function openDb(path: string): Promise<EigenweltConnectionDb> {
       upsert.run(
         value.workspaceId,
         value.entitlementsJson,
+        value.accountJson,
         value.platformUrl,
         value.platformToken,
         value.refreshToken,
@@ -194,6 +203,15 @@ function decodeEntitlements(json: string | null): EigenweltEntitlements | null {
   }
 }
 
+function decodeAccount(json: string | null): EigenweltAccountIdentity | null {
+  if (!json) return null;
+  try {
+    return parseEigenweltAccountIdentity(JSON.parse(json)) ?? null;
+  } catch {
+    return null;
+  }
+}
+
 /** Full connection incl. the secret tokens — server-side callers only. */
 export async function readEigenweltConnection(
   config: ServerConfig,
@@ -204,6 +222,7 @@ export async function readEigenweltConnection(
   if (!row) {
     return {
       entitlements: null,
+      account: null,
       platformURL: null,
       platformToken: null,
       refreshToken: null,
@@ -212,6 +231,7 @@ export async function readEigenweltConnection(
   }
   return {
     entitlements: decodeEntitlements(row.entitlementsJson),
+    account: decodeAccount(row.accountJson),
     platformURL: row.platformUrl,
     platformToken: row.platformToken,
     refreshToken: row.refreshToken,
@@ -224,7 +244,7 @@ export async function readEigenweltEntitlementsView(
   config: ServerConfig,
   workspaceId: string,
 ): Promise<EigenweltEntitlementsView> {
-  const { entitlements, platformURL, platformToken, refreshToken } = await readEigenweltConnection(
+  const { entitlements, account, platformURL, platformToken, refreshToken } = await readEigenweltConnection(
     config,
     workspaceId,
   );
@@ -244,6 +264,7 @@ export async function readEigenweltEntitlementsView(
   }
   return {
     entitlements,
+    account,
     platformURL: safePlatformURL,
     connected: Boolean(platformToken) || Boolean(refreshToken) || entitlements !== null,
   };
@@ -251,6 +272,7 @@ export async function readEigenweltEntitlementsView(
 
 export type WriteEigenweltConnectionInput = {
   entitlements?: EigenweltEntitlements | null;
+  account?: EigenweltAccountIdentity | null;
   platformURL?: string | null;
   platformToken?: string | null;
   refreshToken?: string | null;
@@ -277,6 +299,12 @@ export async function writeEigenweltConnection(
       : input.entitlements === null
         ? null
         : JSON.stringify(input.entitlements);
+  const nextAccountJson =
+    input.account === undefined
+      ? current?.accountJson ?? null
+      : input.account === null
+        ? null
+        : JSON.stringify(input.account);
   const nextPlatformUrl =
     input.platformURL === undefined
       ? current?.platformUrl ?? null
@@ -299,6 +327,7 @@ export async function writeEigenweltConnection(
   db.upsert({
     workspaceId,
     entitlementsJson: nextEntitlementsJson,
+    accountJson: nextAccountJson,
     platformUrl: nextPlatformUrl,
     platformToken: nextPlatformToken,
     refreshToken: nextRefreshToken,
@@ -307,8 +336,10 @@ export async function writeEigenweltConnection(
   });
 
   const nextEntitlements = decodeEntitlements(nextEntitlementsJson);
+  const nextAccount = decodeAccount(nextAccountJson);
   return {
     entitlements: nextEntitlements,
+    account: nextAccount,
     platformURL: nextPlatformUrl,
     connected: Boolean(nextPlatformToken) || Boolean(nextRefreshToken) || nextEntitlements !== null,
   };
