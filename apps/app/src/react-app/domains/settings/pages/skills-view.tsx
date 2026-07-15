@@ -175,7 +175,7 @@ export type SkillsViewProps = {
   onOpenTemplateGenerationSession?: () => void;
   /** Firm Hub: share a skill/workflow folder org-wide (gated on admin_hub). */
   canShareWithFirm?: boolean;
-  onShareWithFirm?: (skillName: string) => void | Promise<void>;
+  onShareWithFirm?: (skillName: string, kind: "skill" | "workflow") => void | Promise<void>;
   /** Firm Hub: "download workflows shared with your firm" section (self-gating). */
   firmDownloadView?: ReactNode;
   /** Opens the multi-select "Share with your firm" dialog (Team scope only). */
@@ -875,7 +875,10 @@ export function SkillsView(props: SkillsViewProps) {
                             onClick={(event) => {
                               event.preventDefault();
                               event.stopPropagation();
-                              void props.onShareWithFirm?.(skill.name);
+                              void props.onShareWithFirm?.(
+                                skill.name,
+                                isWorkflowCard(skill) ? "workflow" : "skill",
+                              );
                             }}
                             disabled={props.busy}
                             title={t("firm_hub.share_with_firm")}

@@ -292,6 +292,8 @@ export type LegalworkSkillItem = {
   description: string;
   scope: "project" | "global";
   trigger?: string;
+  kind?: "workflow";
+  workflowType?: "tabular" | "assistant";
 };
 
 export type LegalworkSkillContent = {

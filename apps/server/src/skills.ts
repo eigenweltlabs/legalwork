@@ -50,6 +50,17 @@ const extractTriggerFromBody = (body: string) => {
   return "";
 };
 
+export function resolveHubSkillKind(
+  skill: SkillItem | undefined,
+  requestedKind: "skill" | "workflow",
+  ref: string,
+): "skill" | "workflow" {
+  if (requestedKind === "workflow" || skill?.kind === "workflow" || ref.startsWith("workflow-")) {
+    return "workflow";
+  }
+  return "skill";
+}
+
 async function parseSkillEntry(
   skillPath: string,
   entryName: string,
@@ -59,6 +70,10 @@ async function parseSkillEntry(
   const { data, body } = parseFrontmatter(content);
   const name = typeof data.name === "string" ? data.name : entryName;
   const description = typeof data.description === "string" ? data.description : "";
+  const kind = data.kind === "workflow" ? "workflow" : undefined;
+  const workflowType = data.workflow_type === "tabular" || data.workflow_type === "assistant"
+    ? data.workflow_type
+    : undefined;
   const trigger =
     typeof data.trigger === "string"
       ? data.trigger
@@ -78,6 +93,8 @@ async function parseSkillEntry(
     path: skillPath,
     scope,
     trigger: trigger.trim() || undefined,
+    ...(kind ? { kind } : {}),
+    ...(workflowType ? { workflowType } : {}),
   };
 }
 

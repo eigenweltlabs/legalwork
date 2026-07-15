@@ -31,7 +31,7 @@ import type {
 type Selectable = {
   ref: string;
   label: string;
-  kind: "skill" | "mcp" | "plugin";
+  kind: "skill" | "workflow" | "mcp" | "plugin";
   hasSecret?: boolean;
 };
 
@@ -79,6 +79,7 @@ export function HubShareDialog(props: {
   onShared?: () => void;
 }) {
   const { client, workspaceId } = props;
+  const initialSelection = props.initialSelection;
   const [loading, setLoading] = useState(false);
   const [busy, setBusy] = useState(false);
   const [skills, setSkills] = useState<Selectable[]>([]);
@@ -100,18 +101,40 @@ export function HubShareDialog(props: {
     );
     setIncludeKey(new Set());
     setAcknowledged(false);
+    setSkills([]);
+    setMcps([]);
+    setPlugins([]);
     setLoading(true);
     void (async () => {
       try {
+        const loadSkills = !initialSelection
+          || initialSelection.kind === "skill"
+          || initialSelection.kind === "workflow";
+        const loadMcps = !initialSelection || initialSelection.kind === "mcp";
+        const loadPlugins = !initialSelection || initialSelection.kind === "plugin";
         const [s, m, p] = await Promise.all([
-          client.listSkills(workspaceId),
-          client.listMcp(workspaceId),
-          client.listPlugins(workspaceId),
+          loadSkills ? client.listSkills(workspaceId) : Promise.resolve(null),
+          loadMcps ? client.listMcp(workspaceId) : Promise.resolve(null),
+          loadPlugins ? client.listPlugins(workspaceId) : Promise.resolve(null),
         ]);
         if (cancelled) return;
-        setSkills(s.items.map((it) => ({ ref: it.name, label: it.name, kind: "skill" as const })));
-        setMcps(m.items.map((it) => ({ ref: it.name, label: it.name, kind: "mcp" as const, hasSecret: mcpHasSecret(it.config) })));
-        setPlugins(p.items.map((it) => ({ ref: it.spec, label: it.path ?? it.spec, kind: "plugin" as const })));
+        setSkills(s ? s.items.filter((it) => !initialSelection || it.name === initialSelection.ref).map((it) => {
+          const initialKind = initialSelection?.ref === it.name
+            && (initialSelection.kind === "skill" || initialSelection.kind === "workflow")
+            ? initialSelection.kind
+            : undefined;
+          return {
+            ref: it.name,
+            label: it.name,
+            kind: initialKind ?? (it.kind === "workflow" ? "workflow" as const : "skill" as const),
+          };
+        }) : []);
+        setMcps(m ? m.items
+          .filter((it) => !initialSelection || it.name === initialSelection.ref)
+          .map((it) => ({ ref: it.name, label: it.name, kind: "mcp" as const, hasSecret: mcpHasSecret(it.config) })) : []);
+        setPlugins(p ? p.items
+          .filter((it) => !initialSelection || it.spec === initialSelection.ref || it.path === initialSelection.ref)
+          .map((it) => ({ ref: it.spec, label: it.path ?? it.spec, kind: "plugin" as const })) : []);
       } catch (err) {
         toast.error(err instanceof Error ? err.message : "Could not load local items.");
       } finally {
@@ -121,10 +144,15 @@ export function HubShareDialog(props: {
     return () => {
       cancelled = true;
     };
-  }, [props.open, props.initialSelection, client, workspaceId]);
+  }, [props.open, initialSelection, client, workspaceId]);
 
   const all = useMemo(() => [...skills, ...mcps, ...plugins], [skills, mcps, plugins]);
   const key = (it: Selectable) => `${it.kind}:${it.ref}`;
+  const singleItem = initialSelection
+    ? all.find((it) => key(it) === `${initialSelection.kind}:${initialSelection.ref}`)
+    : undefined;
+  const candidates = initialSelection ? (singleItem ? [singleItem] : []) : all;
+  const selectedItems = candidates.filter((it) => selected.has(key(it)));
 
   const toggle = (it: Selectable) =>
     setSelected((prev) => {
@@ -140,13 +168,11 @@ export function HubShareDialog(props: {
 
   const share = async () => {
     if (!client || !workspaceId) return;
-    const items: EigenweltHubShareItem[] = all
-      .filter((it) => selected.has(key(it)))
-      .map((it) => ({
-        kind: it.kind,
-        ref: it.ref,
-        ...(it.kind === "mcp" && includeKey.has(key(it)) ? { includeSecret: true, allow: "all" as const } : {}),
-      }));
+    const items: EigenweltHubShareItem[] = selectedItems.map((it) => ({
+      kind: it.kind,
+      ref: it.ref,
+      ...(it.kind === "mcp" && includeKey.has(key(it)) ? { includeSecret: true, allow: "all" as const } : {}),
+    }));
     if (items.length === 0) return;
     setBusy(true);
     try {
@@ -205,15 +231,59 @@ export function HubShareDialog(props: {
         <DialogHeader>
           <DialogTitle>Share with your firm</DialogTitle>
           <DialogDescription>
-            Shared skills can contain instructions and plugins can execute code. Review the selected items and remove client data or credentials before publishing.
+            {initialSelection
+              ? "Review this item and remove client data or credentials before publishing."
+              : "Shared skills can contain instructions and plugins can execute code. Review the selected items and remove client data or credentials before publishing."}
           </DialogDescription>
         </DialogHeader>
         {loading ? (
           <div className="flex items-center gap-2 py-8 text-subtext">
             <Loader2 className="size-4 animate-spin" /> Loading your local items…
           </div>
+        ) : initialSelection && !singleItem ? (
+          <div className="py-8 text-center text-sm text-subtext">This item is no longer available.</div>
         ) : all.length === 0 ? (
           <div className="py-8 text-center text-sm text-subtext">Nothing local to share yet.</div>
+        ) : singleItem ? (
+          <div className="space-y-4">
+            <div className="flex items-center gap-3 rounded-lg border border-dls-border p-3">
+              <span className="min-w-0 flex-1 truncate text-sm font-medium text-ink">{singleItem.label}</span>
+              <Badge variant="outline">
+                {singleItem.kind === "workflow"
+                  ? "Workflow"
+                  : singleItem.kind === "mcp"
+                    ? "MCP server"
+                    : singleItem.kind === "plugin"
+                      ? "Plugin"
+                      : "Skill"}
+              </Badge>
+              {singleItem.kind === "mcp" && singleItem.hasSecret ? (
+                <span className="flex items-center gap-1.5 text-2xs text-subtext">
+                  Include key
+                  <Switch
+                    checked={includeKey.has(key(singleItem))}
+                    onCheckedChange={(on) =>
+                      setIncludeKey((prev) => {
+                        const next = new Set(prev);
+                        if (on) next.add(key(singleItem));
+                        else next.delete(key(singleItem));
+                        return next;
+                      })
+                    }
+                  />
+                </span>
+              ) : null}
+            </div>
+            <label className="flex items-start gap-2 rounded-lg border border-dls-border p-3 text-xs text-subtext">
+              <Checkbox
+                checked={acknowledged}
+                onCheckedChange={(checked) => setAcknowledged(checked === true)}
+              />
+              <span>
+                I reviewed this item. Included MCP keys will be encrypted but can be copied by every authorized firm member.
+              </span>
+            </label>
+          </div>
         ) : (
           <div className="max-h-[50vh] space-y-4 overflow-y-auto pr-1">
             <div className="flex items-center justify-between">
@@ -240,9 +310,9 @@ export function HubShareDialog(props: {
           <Button variant="outline" onClick={() => props.onOpenChange(false)}>
             Cancel
           </Button>
-          <Button disabled={busy || selected.size === 0 || !acknowledged} onClick={() => void share()}>
+          <Button disabled={busy || selectedItems.length === 0 || !acknowledged} onClick={() => void share()}>
             {busy ? <Loader2 className="size-4 animate-spin" /> : null}
-            Share {selected.size > 0 ? `(${selected.size})` : ""}
+            {initialSelection ? "Share" : `Share${selectedItems.length > 0 ? ` (${selectedItems.length})` : ""}`}
           </Button>
         </DialogFooter>
       </DialogContent>

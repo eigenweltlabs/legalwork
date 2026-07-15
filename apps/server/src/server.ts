@@ -9,7 +9,7 @@ import { ApprovalService } from "./approvals.js";
 import { addPlugin, listPlugins, normalizePluginSpec, removePlugin } from "./plugins.js";
 import { sanitizePortableOpencodeConfig } from "./portable-opencode.js";
 import { addMcp, listMcp, removeMcp, setMcpEnabled } from "./mcp.js";
-import { deleteSkill, listSkills, upsertSkill } from "./skills.js";
+import { deleteSkill, listSkills, resolveHubSkillKind, upsertSkill } from "./skills.js";
 import {
   deleteSkillResource,
   listSkillResources,
@@ -2397,9 +2397,12 @@ function createRoutes(
         }
         if (!ref) throw new ApiError(400, "invalid_ref", "Each item needs a local ref.");
         if (kind === "skill" || kind === "workflow") {
+          const localSkills = await listSkills(workspace.path, false);
+          const localSkill = localSkills.find((skill) => skill.name === ref);
+          const publishedKind = resolveHubSkillKind(localSkill, kind, ref);
           const payload = await serializeWorkflowSkill(workspace.path, ref);
-          const res = await hubCreate(client, { kind, name: ref, description, payload });
-          results.push({ ref, kind, ok: true, id: res.id, version: res.version });
+          const res = await hubCreate(client, { kind: publishedKind, name: ref, description, payload });
+          results.push({ ref, kind: publishedKind, ok: true, id: res.id, version: res.version });
         } else if (kind === "mcp") {
           const mcps = await listMcp(config, workspace.id, workspace.path);
           const mcp = mcps.find((m) => m.name === ref);

@@ -826,7 +826,7 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
   // Multi-select "Share with your firm" dialog, opened from the Team scope pills.
   const [teamShareOpen, setTeamShareOpen] = useState(false);
   const [teamShareInitial, setTeamShareInitial] = useState<{
-    kind: "skill" | "mcp" | "plugin";
+    kind: "skill" | "workflow" | "mcp" | "plugin";
     ref: string;
   } | null>(null);
   // The recorder's premium gate + upsell challenge for the Settings surface (the
@@ -834,12 +834,12 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
   // JSX below with the same client + workspace.
 
   const shareWorkflowWithFirm = useCallback(
-    async (skillName: string) => {
+    async (skillName: string, kind: "skill" | "workflow") => {
       if (!legalworkClient || !hubWorkspaceId) {
         toast.error(t("app.error_connect_first"));
         return;
       }
-      setTeamShareInitial({ kind: "skill", ref: skillName });
+      setTeamShareInitial({ kind, ref: skillName });
       setTeamShareOpen(true);
     },
     [legalworkClient, hubWorkspaceId],

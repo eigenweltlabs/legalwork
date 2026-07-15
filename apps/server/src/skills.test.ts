@@ -2,14 +2,14 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { deleteSkill, listSkills } from "./skills.js";
+import { deleteSkill, listSkills, resolveHubSkillKind } from "./skills.js";
 import { exists } from "./utils.js";
 
 let workspace: string;
 
-async function writeSkill(dir: string, name: string) {
+async function writeSkill(dir: string, name: string, metadata = "") {
   await mkdir(dir, { recursive: true });
-  await writeFile(join(dir, "SKILL.md"), `---\nname: ${name}\ndescription: Test skill ${name}\n---\n\nBody\n`, "utf8");
+  await writeFile(join(dir, "SKILL.md"), `---\nname: ${name}\ndescription: Test skill ${name}\n${metadata}---\n\nBody\n`, "utf8");
 }
 
 beforeEach(async () => {
@@ -43,5 +43,39 @@ describe("deleteSkill", () => {
 
   test("404s for unknown skills", async () => {
     await expect(deleteSkill(workspace, "does-not-exist")).rejects.toThrow("Skill not found");
+  });
+});
+
+describe("listSkills", () => {
+  test("preserves workflow metadata used by firm Hub sharing", async () => {
+    await writeSkill(
+      join(workspace, ".opencode", "skills", "asset-review"),
+      "asset-review",
+      "kind: workflow\nworkflow_type: assistant\n",
+    );
+
+    const [workflow] = await listSkills(workspace, false);
+
+    expect(workflow).toMatchObject({
+      name: "asset-review",
+      kind: "workflow",
+      workflowType: "assistant",
+    });
+  });
+
+  test("classifies workflow metadata even when an older client requests skill", () => {
+    expect(resolveHubSkillKind(
+      {
+        name: "asset-review",
+        path: "/skills/asset-review/SKILL.md",
+        description: "Review assets",
+        scope: "project",
+        kind: "workflow",
+      },
+      "skill",
+      "asset-review",
+    )).toBe("workflow");
+    expect(resolveHubSkillKind(undefined, "skill", "workflow-legacy-review")).toBe("workflow");
+    expect(resolveHubSkillKind(undefined, "skill", "ordinary-skill")).toBe("skill");
   });
 });

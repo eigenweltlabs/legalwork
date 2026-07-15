@@ -229,6 +229,8 @@ export interface SkillItem {
   description: string;
   scope: "project" | "global";
   trigger?: string;
+  kind?: "workflow";
+  workflowType?: "tabular" | "assistant";
 }
 
 export interface HubSkillItem {
