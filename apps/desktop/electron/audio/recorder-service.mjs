@@ -870,12 +870,31 @@ export class RecorderService {
    * playback protocol. Returns null (rather than risking traversal) unless the
    * id is a single, safe path segment that resolves inside the recordings dir
    * and the file exists.
+   *
+   * Live recordings write `audio.webm`; imported files are stored verbatim
+   * under their original name + extension (e.g. `recording.mp3`), so the webm
+   * fast path misses them — fall back to the source file recorded in meta.json.
    */
   recordingAudioFilePath(recordingId) {
     const id = String(recordingId || "");
     if (!id || id.includes("/") || id.includes("\\") || id.includes("..")) return null;
-    const audioPath = path.join(this.recordingsDir, id, "audio.webm");
-    if (!audioPath.startsWith(this.recordingsDir + path.sep)) return null;
+    const folder = path.join(this.recordingsDir, id);
+    if (!folder.startsWith(this.recordingsDir + path.sep)) return null;
+    const webmPath = path.join(folder, "audio.webm");
+    if (fs.existsSync(webmPath)) return webmPath;
+    // Imported audio keeps its original extension; the file name lives in
+    // meta.audioPath. Resolve only its basename inside the folder so a
+    // tampered meta can never point playback outside the recordings dir.
+    let audioName = "";
+    try {
+      const meta = JSON.parse(fs.readFileSync(path.join(folder, "meta.json"), "utf8"));
+      if (meta?.audioPath) audioName = path.basename(String(meta.audioPath));
+    } catch {
+      return null;
+    }
+    if (!audioName || audioName === "meta.json") return null;
+    const audioPath = path.join(folder, audioName);
+    if (!audioPath.startsWith(folder + path.sep)) return null;
     return fs.existsSync(audioPath) ? audioPath : null;
   }
 

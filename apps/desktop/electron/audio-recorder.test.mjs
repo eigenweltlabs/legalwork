@@ -254,6 +254,37 @@ test("recorder service records, transcribes, finalizes files", async () => {
   await fsp.rm(workspaceDir, { recursive: true, force: true });
 });
 
+test("imported files resolve for playback under their original extension", async () => {
+  const userDataDir = await tempDir("lw-recorder-");
+  const service = new RecorderService({ userDataDir, forkWorker: () => new FakeWorker() });
+  await installFakeModel(service, "whisper-tiny");
+  await service.startTranscriber({ modelId: "whisper-tiny", language: "de" });
+  await new Promise((resolve) => setTimeout(resolve, 10));
+
+  // Import stores the original container (mp3), not audio.webm.
+  const meta = await service.importFileStart({
+    title: "Client meeting",
+    fileName: "client-meeting.mp3",
+    language: "de",
+    modelId: "whisper-tiny",
+  });
+  await service.importFileSource(meta.id, new TextEncoder().encode("mp3-bytes").buffer);
+  service.feedPcm(meta.id, new Float32Array(1600).buffer);
+  await new Promise((resolve) => setTimeout(resolve, 10));
+  const done = await service.importFileFinish(meta.id, 1200);
+  assert.equal(done.status, "complete");
+
+  // The playback protocol must find the imported file even though it is not
+  // named audio.webm — this is the bug the play button hit for imports.
+  const playbackPath = service.recordingAudioFilePath(meta.id);
+  assert.ok(playbackPath, "imported file resolves for playback");
+  assert.ok(playbackPath.endsWith("client-meeting.mp3"));
+  assert.equal(service.recordingAudioFilePath("../etc/passwd"), null);
+
+  service.dispose();
+  await fsp.rm(userDataDir, { recursive: true, force: true });
+});
+
 test("device profile exposes the fast-device flag that gates the heaviest model", async () => {
   const userDataDir = await tempDir("lw-recorder-");
   const service = new RecorderService({ userDataDir, forkWorker: () => new FakeWorker() });
