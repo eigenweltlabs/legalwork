@@ -29,11 +29,13 @@ import { t } from "@/i18n";
 
 import {
   MODEL_TIERS,
+  isPremiumEntitled,
   tierForModelId,
   tierName,
   tierTagline,
   type ModelTier,
 } from "./model-tiers";
+import { usePremiumUpsell } from "./premium-upsell-context";
 import { useRecorderStore } from "./recorder-store";
 
 /**
@@ -122,11 +124,6 @@ function TierRow(props: {
               {t("recorder.tier_device_badge")}
             </Badge>
           ) : null}
-          {props.recommended ? (
-            <Badge variant="outline" className="text-2xs">
-              {t("recorder.tier_recommended_device")}
-            </Badge>
-          ) : null}
         </div>
         <div className="mt-0.5 text-xs text-subtext">{tierTagline(tier.key)}</div>
       </div>
@@ -152,6 +149,7 @@ function TierRow(props: {
 export function ModelTierSelect(props: { disabled?: boolean }) {
   const store = useRecorderStore();
   const navigate = useNavigate();
+  const upsell = usePremiumUpsell();
   const [open, setOpen] = useState(false);
   const recommendedId = store.bootstrap?.device?.recommendedModelId;
   // null when the user hasn't picked a model yet — the trigger shows a
@@ -164,6 +162,13 @@ export function ModelTierSelect(props: { disabled?: boolean }) {
 
   const pick = (tier: ModelTier) => {
     const model = store.bootstrap?.models.find((entry) => entry.id === tier.modelId);
+    // Premium tiers need an active subscription — picking one without a sub
+    // (and no test-unlock) opens the upsell instead of selecting/installing.
+    if (tier.premium && !isPremiumEntitled() && !store.unlockedModels.includes(tier.modelId)) {
+      setOpen(false);
+      upsell.open();
+      return;
+    }
     // Only installed models switch inline. Anything not downloaded yet sends the
     // user to Settings > Recorder to install it (and clear any gate) — never a
     // silent background download from here.

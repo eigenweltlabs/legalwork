@@ -57,17 +57,44 @@ export function tierTagline(key: ModelTierKey): string {
 }
 
 /**
- * PLACEHOLDER premium entitlement. Parakeet and any future premium model stay
- * locked until this returns true. Auth is being built separately — when it
- * lands, wire this to the real entitlement (e.g. read from the auth/session
- * store). Kept a plain function so both React and the recorder store can call
- * it. Until then it is always false, so the gate is exercised.
+ * Real premium entitlement, driven by the connected Eigenwelt firm's active
+ * subscription (the platform emits the `premium_models` feature only when the
+ * org isEntitled — plan plus/pro with an active/trialing/past_due status).
  *
- * A model can still be unlocked one at a time for testing without entitlement:
- * see the recorder store's `unlockedModels` / `unlockModelForTesting`.
+ * Kept a plain synchronous function (no args) so both React components AND the
+ * non-React recorder store can call the same gate. The value is a module-level
+ * cache written by <EigenweltPremiumSync/>, which reads the entitlements query
+ * and calls `setEigenweltPremiumEntitled` whenever the plan changes — so a sub
+ * going active or lapsing flips every premium gate live.
  *
- * TODO(auth): return the real premium entitlement here.
+ * A model can still be unlocked one at a time for testing without a sub: see
+ * the recorder store's `unlockedModels` / `unlockModelForTesting`.
  */
+let premiumEntitledState = false;
+let premiumEntitlementKnown = false;
+let premiumPlatformUrl: string | null = null;
+
 export function isPremiumEntitled(): boolean {
-  return false;
+  return premiumEntitledState;
+}
+
+/**
+ * Whether the sub state has actually been resolved yet. Guards the recorder's
+ * fallback so a cold start (entitlements not fetched) doesn't wrongly demote a
+ * subscriber's premium model before we know their plan.
+ */
+export function isPremiumEntitlementKnown(): boolean {
+  return premiumEntitlementKnown;
+}
+
+/** Called by the entitlement sync once the firm's plan/status is known. */
+export function setEigenweltPremiumEntitled(entitled: boolean, platformUrl?: string | null): void {
+  premiumEntitledState = entitled;
+  premiumEntitlementKnown = true;
+  if (platformUrl !== undefined) premiumPlatformUrl = platformUrl;
+}
+
+/** Platform origin for the upsell modal's billing/upgrade CTA (null → default). */
+export function eigenweltPremiumPlatformUrl(): string | null {
+  return premiumPlatformUrl;
 }

@@ -63,6 +63,7 @@ import {
   invalidateEigenweltEntitlements,
   useEigenweltEntitlements,
 } from "@/react-app/domains/connections/eigenwelt-entitlements";
+import { PremiumUpsellHost } from "@/react-app/domains/recorder/premium-upsell-context";
 import { FusionSettingsSection } from "@/react-app/domains/settings/pages/fusion-settings-section";
 import { BenchmarkView } from "@/react-app/domains/benchmark/benchmark-view";
 // Side-effect imports: register extension config components into the registry.
@@ -821,6 +822,9 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
     workspaceId: hubWorkspaceId,
   });
   const canShareWithFirm = hasEigenweltFeature(firmEntitlementsQuery.data?.entitlements, "admin_hub");
+  // The recorder's premium gate + upsell challenge for the Settings surface (the
+  // model-manager download list) is owned by <PremiumUpsellHost/>, mounted in the
+  // JSX below with the same client + workspace.
 
   const shareWorkflowWithFirm = useCallback(
     async (skillName: string) => {
@@ -2479,6 +2483,12 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
           setFusionPickerSlot(null);
           modelPicker.setOpen(false);
         }}
+      />
+      {/* Premium upsell challenge + recorder gate sync for the Settings surface. */}
+      <PremiumUpsellHost
+        client={legalworkClient}
+        workspaceId={hubWorkspaceId}
+        onPremiumActivated={refreshEigenweltModels}
       />
     </>
   );

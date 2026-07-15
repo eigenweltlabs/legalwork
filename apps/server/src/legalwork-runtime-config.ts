@@ -49,6 +49,8 @@ import {
   EIGENWELT_PROVIDER_ID,
   readCachedEigenweltPaidManifest,
 } from "./eigenwelt-paid-manifest.js";
+import { eigenweltHasPremiumModels } from "./eigenwelt-auth.js";
+import { readEigenweltConnection } from "./eigenwelt-connection-store.js";
 
 const LEGALWORK_AGENT_PROMPT = `You are LegalWork — an AI agent that works alongside legal professionals inside a law firm.
 
@@ -122,7 +124,16 @@ export async function buildLegalworkRuntimeConfigObject(
   // Refresh models, cleared on sign-out). Key rides in the block's headers, so
   // it works in every workspace without a per-workspace auth entry.
   const paidManifest = config ? await readCachedEigenweltPaidManifest(config) : null;
-  const paidProvider = paidManifest && paidManifest.models.length > 0
+  // Premium (paid Eigenwelt) models require an ACTIVE subscription, not merely a
+  // signed-in account. Without one we leave the provider out entirely so the
+  // engine falls back to the free tier — the same rule the recorder applies to
+  // premium audio models. A lapse propagates on the next config rebuild (the
+  // entitlements poll triggers one when the plan flips).
+  const paidEntitled =
+    config && workspaceId
+      ? eigenweltHasPremiumModels((await readEigenweltConnection(config, workspaceId)).entitlements)
+      : false;
+  const paidProvider = paidEntitled && paidManifest && paidManifest.models.length > 0
     ? buildEigenweltPaidProviderBlock(paidManifest)
     : null;
   const disabledProviders = [

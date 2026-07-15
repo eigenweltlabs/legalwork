@@ -41,13 +41,19 @@ const inFlight = new Map<string, Promise<string | null>>();
 export async function ensureFreshPlatformToken(
   config: ServerConfig,
   workspaceId: string,
+  options?: { force?: boolean },
 ): Promise<string | null> {
   const conn = await readEigenweltConnection(config, workspaceId);
   // Legacy sign-in with no refresh token: use whatever access token we have.
   if (!conn.refreshToken) return conn.platformToken;
-  const expiresAt = conn.platformTokenExpiresAt ?? 0;
-  if (conn.platformToken && expiresAt - Date.now() > REFRESH_SKEW_MS) {
-    return conn.platformToken;
+  // `force` bypasses the skew short-circuit to re-pull entitlements from the
+  // platform on demand (the post-checkout poll) — otherwise a still-valid
+  // access token would keep serving the pre-purchase (stale) entitlements.
+  if (!options?.force) {
+    const expiresAt = conn.platformTokenExpiresAt ?? 0;
+    if (conn.platformToken && expiresAt - Date.now() > REFRESH_SKEW_MS) {
+      return conn.platformToken;
+    }
   }
   return refreshOnce(config, workspaceId);
 }
@@ -130,8 +136,9 @@ async function doRefresh(config: ServerConfig, workspaceId: string): Promise<str
 export async function readFreshEntitlementsView(
   config: ServerConfig,
   workspaceId: string,
+  options?: { force?: boolean },
 ): Promise<EigenweltEntitlementsView> {
-  await ensureFreshPlatformToken(config, workspaceId);
+  await ensureFreshPlatformToken(config, workspaceId, options);
   return readEigenweltEntitlementsView(config, workspaceId);
 }
 

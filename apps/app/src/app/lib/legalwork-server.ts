@@ -1711,12 +1711,16 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
         body: payload,
         timeoutMs: timeouts.config,
       }),
-    eigenweltEntitlements: (workspaceId: string) =>
-      requestJson<EigenweltEntitlementsView>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/eigenwelt/entitlements`, {
-        token,
-        hostToken,
-        timeoutMs: timeouts.config,
-      }),
+    // `refresh: true` forces the server to re-pull entitlements from the
+    // platform NOW (bypassing the access-token skew short-circuit) — used by the
+    // post-checkout "waiting for your subscription" poll so a fresh sub shows up
+    // within seconds instead of on the next lazy token refresh.
+    eigenweltEntitlements: (workspaceId: string, opts?: { refresh?: boolean }) =>
+      requestJson<EigenweltEntitlementsView>(
+        baseUrl,
+        `/workspace/${encodeURIComponent(workspaceId)}/eigenwelt/entitlements${opts?.refresh ? "?refresh=1" : ""}`,
+        { token, hostToken, timeoutMs: timeouts.config },
+      ),
     // Manual model refresh: re-pull the gateway manifest and rewrite the
     // eigenwelt provider's model list without re-authenticating.
     eigenweltRefreshModels: (workspaceId: string) =>

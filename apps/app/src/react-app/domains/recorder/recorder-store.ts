@@ -59,7 +59,7 @@ import type {
   AudioTranscriptSegment,
 } from "@legalwork/types/audio";
 import { t } from "@/i18n";
-import { isPremiumEntitled } from "./model-tiers";
+import { MODEL_TIERS, isPremiumEntitled, isPremiumEntitlementKnown, tierForModelId } from "./model-tiers";
 
 import { decodeAudioFileToPcm16k, startCapture, type CaptureHandle, type CaptureLevels } from "./capture";
 
@@ -162,6 +162,14 @@ type RecorderActions = {
    * it can be selected and downloaded before auth is wired up.
    */
   unlockModelForTesting: (modelId: string) => void;
+  /**
+   * Re-assert the premium gate against the CURRENT subscription: if the active
+   * model is a premium tier and the firm no longer has an active sub (and it
+   * wasn't test-unlocked), fall back to the best installed free tier so
+   * transcription keeps working even though a premium model is already on disk.
+   * Called by the entitlement sync on every plan change and after bootstrap.
+   */
+  enforcePremiumGate: () => void;
   setLanguage: (language: AudioTranscribeLanguage) => void;
   prewarm: () => Promise<void>;
   toggleSource: (source: AudioCaptureSourceKind) => void;
@@ -664,6 +672,10 @@ export const useRecorderStore = create<RecorderState & RecorderActions>((set, ge
         if (chosen && !bootstrap.models.some((model) => model.id === chosen)) {
           set({ modelId: "" });
         }
+        // A premium model may have been downloaded under a sub that has since
+        // lapsed — fall back to a free tier now that bootstrap knows what's
+        // installed.
+        get().enforcePremiumGate();
       } catch (error) {
         set({ error: error instanceof Error ? error.message : String(error) });
       }
@@ -792,14 +804,14 @@ export const useRecorderStore = create<RecorderState & RecorderActions>((set, ge
     },
 
     setModelId: (modelId) => {
-      // Never let a still-gated premium model become the active selection — but
-      // an already-installed model is on disk and always usable, even after the
-      // session unlock set has reset.
+      // A premium tier requires an ACTIVE subscription — not just being signed
+      // in, and not merely having the model already downloaded. Without an
+      // active sub (and no test-unlock) the selection is refused so the gate /
+      // upsell surfaces instead. `enforcePremiumGate` handles the case where a
+      // premium model was already selected when the sub lapsed.
       const model = get().bootstrap?.models.find((entry) => entry.id === modelId);
-      const installed = model?.state === "installed";
       if (
         model?.plan === "premium" &&
-        !installed &&
         !isPremiumEntitled() &&
         !get().unlockedModels.includes(modelId)
       ) {
@@ -807,6 +819,32 @@ export const useRecorderStore = create<RecorderState & RecorderActions>((set, ge
       }
       writePref(MODEL_PREF_KEY, modelId);
       set({ modelId });
+      void get().prewarm();
+    },
+
+    enforcePremiumGate: () => {
+      // Don't demote anything until we actually know the sub state — otherwise a
+      // cold start (entitlements not fetched yet) would strip a subscriber's
+      // premium model before their plan loads.
+      if (!isPremiumEntitlementKnown()) return;
+      const { modelId, bootstrap, unlockedModels } = get();
+      const tier = tierForModelId(modelId);
+      // Only premium tiers are gated; free tiers and test-unlocked models stay.
+      if (!tier?.premium || isPremiumEntitled() || unlockedModels.includes(modelId)) return;
+      // Fall back to the best INSTALLED free tier (Standard, then Basic, then any
+      // installed non-premium model). The premium weights stay on disk for when
+      // the sub comes back — we just stop using them.
+      const freeFallback =
+        [...MODEL_TIERS]
+          .filter((entry) => !entry.premium)
+          .reverse()
+          .map((entry) => bootstrap?.models.find((m) => m.id === entry.modelId))
+          .find((m) => m?.state === "installed")?.id ??
+        bootstrap?.models.find((m) => m.plan !== "premium" && m.state === "installed")?.id ??
+        "";
+      if (freeFallback === modelId) return;
+      writePref(MODEL_PREF_KEY, freeFallback);
+      set({ modelId: freeFallback });
       void get().prewarm();
     },
 

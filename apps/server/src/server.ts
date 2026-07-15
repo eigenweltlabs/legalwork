@@ -92,6 +92,7 @@ import {
   writeLegalworkRuntimeConfigFile,
 } from "./legalwork-runtime-config.js";
 import {
+  eigenweltHasPremiumModels,
   fetchEigenweltManifest,
   parseEigenweltEntitlements,
   startEigenweltSignIn,
@@ -2022,6 +2023,11 @@ function createRoutes(
     if (primary) await writeLegalworkRuntimeConfigFile(config, primary).catch(() => undefined);
   };
 
+  // Last-applied active-sub state. When an entitlements poll flips it (a sub
+  // activated or lapsed) we rebuild the engine config once so the paid provider
+  // is added or dropped live — the same fallback the recorder does for audio.
+  let lastPaidEntitled: boolean | undefined;
+
   addRoute(routes, "PUT", "/workspace/:id/eigenwelt/connection", "client", async (ctx) => {
     ensureWritable(config);
     requireClientScope(ctx, "collaborator");
@@ -2085,8 +2091,18 @@ function createRoutes(
   addRoute(routes, "GET", "/workspace/:id/eigenwelt/entitlements", "client", async (ctx) => {
     const workspace = await resolveWorkspace(config, ctx.params.id);
     // Opportunistically refresh (rotate the token + pull current entitlements)
-    // so the plan/usage the desktop shows stays live.
-    return jsonResponse(await readFreshEntitlementsView(config, workspace.id));
+    // so the plan/usage the desktop shows stays live. `?refresh=1` forces the
+    // pull now (the post-checkout "waiting for your subscription" poll).
+    const force = ctx.url.searchParams.get("refresh") === "1";
+    const view = await readFreshEntitlementsView(config, workspace.id, { force });
+    // A flip in active-sub state adds/drops the paid provider — rebuild the
+    // engine config once so premium API access follows the subscription live.
+    const paidEntitled = eigenweltHasPremiumModels(view.entitlements);
+    if (paidEntitled !== lastPaidEntitled) {
+      lastPaidEntitled = paidEntitled;
+      await rebuildEngineConfigFile();
+    }
+    return jsonResponse(view);
   });
 
   // Manual "Refresh models": re-pull the gateway manifest into the GLOBAL

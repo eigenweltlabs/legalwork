@@ -10,7 +10,6 @@ import { Check, Cpu, Download, FolderSearch, HardDrive, Import, Loader2, Lock, S
 import {
   audioModelImport,
   audioModelsScanExisting,
-  pickDirectory,
 } from "@/app/lib/desktop";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -22,11 +21,13 @@ import type { AudioModelDiskCandidate, AudioModelState } from "@legalwork/types/
 
 import { isPremiumEntitled, tierForModelId, tierName, tierTagline } from "./model-tiers";
 import { PremiumUpgradeDialog } from "./model-tier-select";
+import { usePremiumUpsell } from "./premium-upsell-context";
 import { useRecorderStore } from "./recorder-store";
 
 function ModelRow(props: { model: AudioModelState; recommended: boolean; selected: boolean }) {
   const { model } = props;
   const store = useRecorderStore();
+  const upsell = usePremiumUpsell();
   const [upgradeOpen, setUpgradeOpen] = useState(false);
   const fastDevice = store.bootstrap?.device?.fastDevice ?? false;
   const unlocked = isPremiumEntitled() || store.unlockedModels.includes(model.id);
@@ -48,7 +49,13 @@ function ModelRow(props: { model: AudioModelState; recommended: boolean; selecte
   };
 
   const select = () => {
-    if (locked) {
+    // Subscription lock → the shared upsell challenge. Device (hardware) lock →
+    // the local testable dialog.
+    if (premiumLocked) {
+      upsell.open();
+      return;
+    }
+    if (deviceLocked) {
       setUpgradeOpen(true);
       return;
     }
@@ -77,9 +84,6 @@ function ModelRow(props: { model: AudioModelState; recommended: boolean; selecte
                 <Cpu className="size-2.5" />
                 {t("recorder.tier_device_badge")}
               </Badge>
-            ) : null}
-            {props.recommended ? (
-              <Badge variant="outline" className="text-2xs">{t("recorder.tier_recommended_device")}</Badge>
             ) : null}
             {props.selected ? (
               <Badge variant="outline" className="gap-1 text-2xs text-brand">
@@ -139,15 +143,19 @@ function ModelRow(props: { model: AudioModelState; recommended: boolean; selecte
           )}
         </div>
       </div>
-      <PremiumUpgradeDialog
-        open={upgradeOpen}
-        onOpenChange={setUpgradeOpen}
-        reason={gateReason}
-        onConfirm={() => {
-          store.unlockModelForTesting(model.id);
-          proceed();
-        }}
-      />
+      {/* Hardware warning (needs a powerful machine) → testable dialog. The
+          subscription lock uses the shared upsell challenge (see `select`). */}
+      {deviceLocked ? (
+        <PremiumUpgradeDialog
+          open={upgradeOpen}
+          onOpenChange={setUpgradeOpen}
+          reason="device"
+          onConfirm={() => {
+            store.unlockModelForTesting(model.id);
+            proceed();
+          }}
+        />
+      ) : null}
     </div>
   );
 }
@@ -177,21 +185,6 @@ export function ModelManagerList() {
     setImportBusy(true);
     setImportError(null);
     const result = await audioModelImport(candidate.sourcePath, candidate.modelId);
-    setImportBusy(false);
-    if (!result.ok) {
-      setImportError(result.error);
-      return;
-    }
-    await Promise.all([store.refreshBootstrap(), rescan()]);
-  };
-
-  const importFolder = async () => {
-    const picked = await pickDirectory({ title: t("recorder.import_folder_title") });
-    const folder = Array.isArray(picked) ? picked[0] : picked;
-    if (!folder) return;
-    setImportBusy(true);
-    setImportError(null);
-    const result = await audioModelImport(folder);
     setImportBusy(false);
     if (!result.ok) {
       setImportError(result.error);
@@ -241,13 +234,6 @@ export function ModelManagerList() {
         </div>
       ) : null}
 
-      <div className="flex items-center justify-between gap-3 pt-1">
-        <span className="text-xs text-subtext">{t("recorder.import_folder_hint")}</span>
-        <Button size="sm" variant="outline" disabled={importBusy} onClick={() => void importFolder()}>
-          <Import data-icon="inline-start" />
-          {t("recorder.import_folder")}
-        </Button>
-      </div>
       {importError ? <div className="text-xs text-danger">{importError}</div> : null}
     </div>
   );
