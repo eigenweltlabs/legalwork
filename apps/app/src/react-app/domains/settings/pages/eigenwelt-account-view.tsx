@@ -13,7 +13,7 @@ import {
   Sparkles,
   Users,
 } from "lucide-react";
-import { Badge, Button, Card, Divider, Row, Spinner } from "@legalwork/ui/react";
+import { Badge, Button, Card, Divider, Row } from "@legalwork/ui/react";
 
 import { toast } from "@/components/ui/sonner";
 import { t } from "@/i18n";
@@ -78,6 +78,7 @@ export function EigenweltAccountView({
     workspaceId,
     enabled: connected,
   });
+  const account = entitlementsQuery.data?.account ?? null;
   const entitlements = entitlementsQuery.data?.entitlements ?? null;
   const platformURL = entitlementsQuery.data?.platformURL ?? null;
   const billingUrl = eigenweltBillingUrl(platformURL);
@@ -248,6 +249,21 @@ export function EigenweltAccountView({
             </Button>
           </div>
         </div>
+
+        {account ? (
+          <>
+            <Divider />
+            <div className="flex min-w-0 items-center gap-3 rounded-lg bg-sunken px-3 py-2.5">
+              <Building2 className="size-4 shrink-0 text-subtext" />
+              <div className="min-w-0">
+                <div className="text-xs font-medium uppercase tracking-wide text-subtext">
+                  {t("account.organization")}
+                </div>
+                <div className="truncate text-sm font-medium text-ink">{account.orgName}</div>
+              </div>
+            </div>
+          </>
+        ) : null}
 
         {entitlements ? (
           <>

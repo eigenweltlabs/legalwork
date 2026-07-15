@@ -58,7 +58,9 @@ export function useEigenweltEntitlements(input: {
     refetchOnWindowFocus: true,
     refetchInterval: 5 * 60_000,
     queryFn: async (): Promise<EigenweltEntitlementsView> => {
-      if (!input.client || !input.workspaceId) return { entitlements: null, platformURL: null, connected: false };
+      if (!input.client || !input.workspaceId) {
+        return { entitlements: null, account: null, platformURL: null, connected: false };
+      }
       return input.client.eigenweltEntitlements(input.workspaceId);
     },
   });

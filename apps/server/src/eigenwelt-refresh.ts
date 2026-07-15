@@ -10,6 +10,7 @@
  */
 import {
   eigenweltPlatformUrl,
+  parseEigenweltAccountIdentity,
   parseEigenweltEntitlements,
 } from "./eigenwelt-auth.js";
 import {
@@ -89,6 +90,7 @@ async function doRefresh(config: ServerConfig, workspaceId: string): Promise<str
     // Refresh token revoked / expired / reuse-detected → sign out cleanly.
     await writeEigenweltConnection(config, workspaceId, {
       entitlements: null,
+      account: null,
       platformToken: null,
       refreshToken: null,
       accessTokenExpiresAt: null,
@@ -110,6 +112,7 @@ async function doRefresh(config: ServerConfig, workspaceId: string): Promise<str
   }
 
   const entitlements = parseEigenweltEntitlements(payload.entitlements);
+  const account = parseEigenweltAccountIdentity(payload.account);
   const expiresAt =
     typeof payload.accessTokenExpiresAt === "number" ? payload.accessTokenExpiresAt : null;
   const platformURL =
@@ -124,6 +127,7 @@ async function doRefresh(config: ServerConfig, workspaceId: string): Promise<str
     // Only overwrite entitlements when the platform sent a well-formed block;
     // never clear a good snapshot because a refresh omitted it.
     ...(entitlements ? { entitlements } : {}),
+    ...(account ? { account } : {}),
     ...(platformURL ? { platformURL } : {}),
   });
   return payload.platformToken;
@@ -164,6 +168,7 @@ export async function revokeEigenweltConnection(
   }
   await writeEigenweltConnection(config, workspaceId, {
     entitlements: null,
+    account: null,
     platformURL: null,
     platformToken: null,
     refreshToken: null,

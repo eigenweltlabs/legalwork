@@ -53,10 +53,19 @@ const ENTITLEMENTS = {
   usage: { dailyAllowanceCents: 5000, dailyRemainingCents: 4000, dailyUsedPercent: 20, extraUsageEnabled: false, prepaidBalanceCents: 0 },
 };
 
+const ACCOUNT = {
+  userId: "user_123",
+  userName: "Ada Lovelace",
+  userEmail: "ada@example.com",
+  orgId: "org_123",
+  orgName: "Analytical Engine LLP",
+};
+
 describe("eigenwelt-connection-store", () => {
   test("persists entitlements + platformURL + secret token; the public view omits the token", async () => {
     const config = await setup();
     await writeEigenweltConnection(config, "ws_1", {
+      account: ACCOUNT,
       entitlements: ENTITLEMENTS,
       platformURL: "https://platform.eigenweltlabs.com/",
       platformToken: "plat_secret_123",
@@ -66,9 +75,11 @@ describe("eigenwelt-connection-store", () => {
     expect(full.platformToken).toBe("plat_secret_123");
     expect(full.platformURL).toBe("https://platform.eigenweltlabs.com"); // trailing slash trimmed
     expect(full.entitlements).toEqual(ENTITLEMENTS);
+    expect(full.account).toEqual(ACCOUNT);
 
     const view = await readEigenweltEntitlementsView(config, "ws_1");
     expect(view.entitlements).toEqual(ENTITLEMENTS);
+    expect(view.account).toEqual(ACCOUNT);
     expect(view.platformURL).toBe("https://platform.eigenweltlabs.com");
     expect(view.connected).toBe(true);
     expect("platformToken" in view).toBe(false);
@@ -121,6 +132,7 @@ describe("eigenwelt-connection-store", () => {
     const config = await setup();
     expect(await readEigenweltConnection(config, "nope")).toEqual({
       entitlements: null,
+      account: null,
       platformURL: null,
       platformToken: null,
       refreshToken: null,
@@ -131,6 +143,7 @@ describe("eigenwelt-connection-store", () => {
   test("partial writes preserve untouched fields; a rotated token overwrites", async () => {
     const config = await setup();
     await writeEigenweltConnection(config, "ws_1", {
+      account: ACCOUNT,
       entitlements: ENTITLEMENTS,
       platformURL: "https://platform.eigenweltlabs.com",
       platformToken: "token_v1",
@@ -142,5 +155,6 @@ describe("eigenwelt-connection-store", () => {
     expect(full.platformToken).toBe("token_v2");
     expect(full.platformURL).toBe("https://platform.eigenweltlabs.com");
     expect(full.entitlements).toEqual(ENTITLEMENTS);
+    expect(full.account).toEqual(ACCOUNT);
   });
 });

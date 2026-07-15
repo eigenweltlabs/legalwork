@@ -12,7 +12,7 @@ import {
   validateHubName,
   EIGENWELT_HUB_MAX_PAYLOAD_BYTES,
 } from "./eigenwelt-hub.js";
-import { parseEigenweltEntitlements } from "./eigenwelt-auth.js";
+import { parseEigenweltAccountIdentity, parseEigenweltEntitlements } from "./eigenwelt-auth.js";
 import { ApiError } from "./errors.js";
 
 const cleanups: Array<() => Promise<void> | void> = [];
@@ -225,6 +225,44 @@ describe("parseEigenweltEntitlements", () => {
         extraUsageEnabled: false,
         prepaidBalanceCents: 0,
       },
+    });
+  });
+});
+
+describe("parseEigenweltAccountIdentity", () => {
+  test("normalizes safe account fields", () => {
+    expect(
+      parseEigenweltAccountIdentity({
+        userId: " user_123 ",
+        userName: " Ada Lovelace ",
+        userEmail: " ada@example.com ",
+        orgId: " org_123 ",
+        orgName: " Analytical Engine LLP ",
+      }),
+    ).toEqual({
+      userId: "user_123",
+      userName: "Ada Lovelace",
+      userEmail: "ada@example.com",
+      orgId: "org_123",
+      orgName: "Analytical Engine LLP",
+    });
+  });
+
+  test("rejects incomplete identity and normalizes optional user fields", () => {
+    expect(parseEigenweltAccountIdentity({ userId: "user_123", orgId: "org_123" })).toBeUndefined();
+    expect(
+      parseEigenweltAccountIdentity({
+        userId: "user_123",
+        userName: " ",
+        orgId: "org_123",
+        orgName: "Firm",
+      }),
+    ).toEqual({
+      userId: "user_123",
+      userName: null,
+      userEmail: null,
+      orgId: "org_123",
+      orgName: "Firm",
     });
   });
 });

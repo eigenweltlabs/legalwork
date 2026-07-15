@@ -94,6 +94,7 @@ import {
 import {
   eigenweltHasPremiumModels,
   fetchEigenweltManifest,
+  parseEigenweltAccountIdentity,
   parseEigenweltEntitlements,
   startEigenweltSignIn,
   waitForEigenweltSignIn,
@@ -2035,6 +2036,8 @@ function createRoutes(
     const body = await readOptionalJsonBody(ctx.request);
     const entitlements =
       body.entitlements === undefined ? undefined : parseEigenweltEntitlements(body.entitlements) ?? null;
+    const account =
+      body.account === undefined ? undefined : parseEigenweltAccountIdentity(body.account) ?? null;
     const platformURL =
       body.platformURL === undefined ? undefined : typeof body.platformURL === "string" ? body.platformURL : null;
     const platformToken =
@@ -2068,6 +2071,7 @@ function createRoutes(
           : null;
     const view = await writeEigenweltConnection(config, workspace.id, {
       entitlements,
+      account,
       platformURL,
       platformToken,
       refreshToken,
