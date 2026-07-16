@@ -17,12 +17,16 @@ import {
 } from "@/app/lib/eigenwelt-free-budget";
 import {
   EIGENWELT_BUDGET_EXCEEDED_ERROR_TEXT,
+  eigenweltBudgetLimitDisplay,
   eigenweltBudgetRetryAction,
   isEigenweltBudgetError,
   markEigenweltBudgetStop,
   shouldStopEigenweltBudgetRetry,
 } from "@/app/lib/eigenwelt-budget";
-import { eigenweltBillingUrl } from "@/react-app/domains/connections/eigenwelt-entitlements";
+import {
+  eigenweltBillingUrl,
+  useEigenweltEntitlements,
+} from "@/react-app/domains/connections/eigenwelt-entitlements";
 import { eigenweltPremiumPlatformUrl } from "@/react-app/domains/recorder/model-tiers";
 import { createClient, unwrap } from "@/app/lib/opencode";
 import { abortSessionSafe } from "@/app/lib/opencode-session";
@@ -443,6 +447,12 @@ function mergeDrafts(drafts: ComposerDraft[]): ComposerDraft | null {
 export function SessionSurface(props: SessionSurfaceProps) {
   const local = useLocal();
   const { config: shellConfig } = useShellConfig();
+  const eigenweltEntitlementsQuery = useEigenweltEntitlements({
+    client: props.client,
+    workspaceId: props.workspaceId,
+    enabled: props.selectedModel.providerID === "eigenwelt",
+  });
+  const eigenweltPlan = eigenweltEntitlementsQuery.data?.entitlements?.plan ?? null;
   const showThinking = local.prefs.showThinking;
   const sessionActivityStatus = useSessionActivityStore(
     (state) => state.statusesByWorkspaceId[props.workspaceId]?.[props.sessionId] ?? "idle",
@@ -743,15 +753,23 @@ export function SessionSurface(props: SessionSurfaceProps) {
     isEigenweltBudgetError(props.selectedModel.providerID, liveStatus.message);
   const retryStatusForDisplay = useMemo(() => {
     if (liveStatus.type !== "retry") return null;
+    if (paidBudgetRetryActive && eigenweltPlan === "pro") {
+      return {
+        ...liveStatus,
+        message: eigenweltBudgetLimitDisplay(eigenweltPlan).title,
+        action: undefined,
+      };
+    }
     if (liveStatus.action) return liveStatus;
     if (freeBudgetRetryActive) return { ...liveStatus, action: eigenweltFreeBudgetRetryAction() };
-    if (paidBudgetRetryActive)
+    if (paidBudgetRetryActive) {
       return {
         ...liveStatus,
         action: eigenweltBudgetRetryAction(eigenweltBillingUrl(eigenweltPremiumPlatformUrl())),
       };
+    }
     return liveStatus;
-  }, [freeBudgetRetryActive, paidBudgetRetryActive, liveStatus]);
+  }, [eigenweltPlan, freeBudgetRetryActive, paidBudgetRetryActive, liveStatus]);
   useEffect(() => {
     // A fresh attempt (busy) re-arms the guard so a later prompt that hits
     // the limit / budget wall again is stopped again.
@@ -1549,6 +1567,7 @@ export function SessionSurface(props: SessionSurfaceProps) {
                       onEditUserMessage={handleEditUserMessage}
                     >
                       <MessageList
+                        eigenweltPlan={eigenweltPlan}
                         messages={renderedMessages}
                         status={status}
                         retryStatus={retryStatusForDisplay}

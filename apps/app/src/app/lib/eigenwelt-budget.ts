@@ -35,6 +35,30 @@ export const EIGENWELT_BUDGET_EXCEEDED_TITLE = "Your seat's daily usage has been
 export const EIGENWELT_BUDGET_EXCEEDED_BODY =
   "Upgrade to Pro for higher limits, or come back tomorrow.";
 export const EIGENWELT_BUDGET_UPGRADE_LABEL = "Upgrade to Pro";
+export const EIGENWELT_PRO_LIMIT_TITLE = "Daily usage limit reached";
+export const EIGENWELT_PRO_LIMIT_BODY = "You've used today's Pro allowance. Come back tomorrow.";
+
+export type EigenweltBudgetPlan = "plus" | "pro" | null;
+
+/** Plan-aware terminal-card copy. Pro is already the highest usage tier. */
+export function eigenweltBudgetLimitDisplay(plan: EigenweltBudgetPlan): {
+  title: string;
+  body: string;
+  upgradeLabel: string | null;
+} {
+  if (plan === "pro") {
+    return {
+      title: EIGENWELT_PRO_LIMIT_TITLE,
+      body: EIGENWELT_PRO_LIMIT_BODY,
+      upgradeLabel: null,
+    };
+  }
+  return {
+    title: EIGENWELT_BUDGET_EXCEEDED_TITLE,
+    body: EIGENWELT_BUDGET_EXCEEDED_BODY,
+    upgradeLabel: EIGENWELT_BUDGET_UPGRADE_LABEL,
+  };
+}
 
 /**
  * Text of the synthetic terminal error message injected into the transcript

@@ -29,10 +29,9 @@ import {
   isEigenweltFreeLimitErrorText,
 } from "@/app/lib/eigenwelt-free-budget"
 import {
-  EIGENWELT_BUDGET_EXCEEDED_BODY,
-  EIGENWELT_BUDGET_EXCEEDED_TITLE,
-  EIGENWELT_BUDGET_UPGRADE_LABEL,
+  eigenweltBudgetLimitDisplay,
   isEigenweltBudgetExceededErrorText,
+  type EigenweltBudgetPlan,
 } from "@/app/lib/eigenwelt-budget"
 import { eigenweltBillingUrl } from "@/react-app/domains/connections/eigenwelt-entitlements"
 import { eigenweltPremiumPlatformUrl } from "@/react-app/domains/recorder/model-tiers"
@@ -212,6 +211,7 @@ const ToolMessageInner = ({ part }: ToolMessageProps) => {
 const isEmptyMessage = (message: UIMessage): boolean => message.parts.length === 0
 
 type RetryStatus = Extract<SessionStatus, { type: "retry" }>
+const EigenweltBudgetPlanContext = React.createContext<EigenweltBudgetPlan>(null)
 
 function isSessionErrorMessage(message: UIMessage) {
   return message.id.startsWith(SYNTHETIC_SESSION_ERROR_MESSAGE_PREFIX)
@@ -617,11 +617,12 @@ interface ErrorMessageProps {
 }
 
 function ErrorMessage({ error }: ErrorMessageProps) {
+  const eigenweltPlan = React.useContext(EigenweltBudgetPlanContext)
   if (isEigenweltFreeLimitErrorText(error)) {
     return <FreeLimitReachedMessage />
   }
   if (isEigenweltBudgetExceededErrorText(error)) {
-    return <BudgetExceededMessage />
+    return <BudgetExceededMessage plan={eigenweltPlan} />
   }
   return (
     <Message className="not-prose mx-auto flex w-full max-w-3xl flex-col items-start gap-2 px-0 md:px-10">
@@ -670,10 +671,11 @@ function FreeLimitReachedMessage() {
 
 /**
  * Terminal card for an Eigenwelt budget stop (the app aborts the run after
- * the allowed retries — see app/lib/eigenwelt-budget). Flat, lined border;
- * the one action that actually resolves the state is upgrading to Pro.
+ * the allowed retries — see app/lib/eigenwelt-budget). Plus can upgrade to
+ * Pro; Pro sees the reached limit without another upsell.
  */
-function BudgetExceededMessage() {
+function BudgetExceededMessage({ plan }: { plan: EigenweltBudgetPlan }) {
+  const display = eigenweltBudgetLimitDisplay(plan)
   return (
     <Message className="not-prose mx-auto flex w-full max-w-3xl flex-col items-start gap-2 px-0 md:px-10">
       <div className="flex w-full min-w-0 flex-col gap-2 rounded-lg border border-dls-border bg-dls-surface px-4 py-3">
@@ -681,20 +683,22 @@ function BudgetExceededMessage() {
           <AlertTriangle size={16} className="mt-0.5 shrink-0 text-amber-700" />
           <div className="min-w-0 space-y-1">
             <p className="text-sm font-medium text-foreground">
-              {EIGENWELT_BUDGET_EXCEEDED_TITLE}
+              {display.title}
             </p>
-            <p className="text-sm text-muted-foreground">{EIGENWELT_BUDGET_EXCEEDED_BODY}</p>
+            <p className="text-sm text-muted-foreground">{display.body}</p>
           </div>
         </div>
-        <div className="ml-6">
-          <Button
-            size="sm"
-            className="h-7 text-xs"
-            onClick={() => void openDesktopUrl(eigenweltBillingUrl(eigenweltPremiumPlatformUrl()))}
-          >
-            {EIGENWELT_BUDGET_UPGRADE_LABEL}
-          </Button>
-        </div>
+        {display.upgradeLabel ? (
+          <div className="ml-6">
+            <Button
+              size="sm"
+              className="h-7 text-xs"
+              onClick={() => void openDesktopUrl(eigenweltBillingUrl(eigenweltPremiumPlatformUrl()))}
+            >
+              {display.upgradeLabel}
+            </Button>
+          </div>
+        ) : null}
       </div>
     </Message>
   )
@@ -895,12 +899,13 @@ function MessageGroup({
 }
 
 interface MessageListProps {
+  eigenweltPlan?: EigenweltBudgetPlan
   messages: UIMessage[]
   status: ThreadStatus
   retryStatus?: RetryStatus | null
 }
 
-export function MessageList({ messages, status, retryStatus }: MessageListProps) {
+export function MessageList({ eigenweltPlan = null, messages, status, retryStatus }: MessageListProps) {
   const isStreaming = status === "streaming" || status === "retrying"
   const items = React.useMemo(() => groupMessages(messages, status), [messages, status]);
   const error = useSessionErrorMessage();
@@ -910,6 +915,7 @@ export function MessageList({ messages, status, retryStatus }: MessageListProps)
     : null
 
   return (
+    <EigenweltBudgetPlanContext.Provider value={eigenweltPlan}>
     <div className={cn("flex flex-col gap-2 @container/message-list")}>
       {messages.length === 0 && <TaskSuggestions className="mx-auto w-full max-w-3xl shrink-0 px-3 pb-3 md:px-5 md:pb-5 grow" />}
 
@@ -947,5 +953,6 @@ export function MessageList({ messages, status, retryStatus }: MessageListProps)
       {retryStatus ? <RetryMessage status={retryStatus} /> : null}
       {error && !hasSessionErrorMessage ? <ErrorMessage error={error} /> : null}
     </div>
+    </EigenweltBudgetPlanContext.Provider>
   )
 }

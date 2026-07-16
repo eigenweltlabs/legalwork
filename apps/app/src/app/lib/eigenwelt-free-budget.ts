@@ -25,8 +25,8 @@
 
 export const EIGENWELT_FREE_PROVIDER_ID = "eigenwelt-free";
 
-/** Upgrade/contact page, opened externally via `openDesktopUrl`. */
-export const EIGENWELT_FREE_UPGRADE_URL = "https://eigenweltlabs.com/contact";
+/** Self-serve platform billing page, opened externally via `openDesktopUrl`. */
+export const EIGENWELT_FREE_UPGRADE_URL = "https://platform.eigenweltlabs.com/billing";
 
 /** Stop the engine's retry loop after this many budget-exceeded attempts. */
 export const EIGENWELT_FREE_BUDGET_MAX_RETRY_ATTEMPTS = 3;

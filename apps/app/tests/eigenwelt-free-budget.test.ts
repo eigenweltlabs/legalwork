@@ -66,9 +66,9 @@ describe("terminal error text", () => {
 });
 
 describe("retry banner action", () => {
-  test("points at the upgrade/contact page", () => {
+  test("points at the self-serve platform billing page", () => {
     const action = eigenweltFreeBudgetRetryAction();
-    expect(action.link).toBe("https://eigenweltlabs.com/contact");
+    expect(action.link).toBe("https://platform.eigenweltlabs.com/billing");
     expect(action.provider).toBe("eigenwelt-free");
     expect(action.title).toBe("Out of free usage?");
     expect(action.label).toBe("Upgrade");

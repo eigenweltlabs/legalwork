@@ -4,6 +4,7 @@ import {
   EIGENWELT_BUDGET_EXCEEDED_ERROR_TEXT,
   EIGENWELT_BUDGET_MAX_RETRY_ATTEMPTS,
   consumeEigenweltBudgetStop,
+  eigenweltBudgetLimitDisplay,
   eigenweltBudgetRetryAction,
   isEigenweltBudgetError,
   isEigenweltBudgetExceededErrorText,
@@ -76,6 +77,24 @@ describe("retry banner action", () => {
   test("uses the connected platform's billing URL when provided", () => {
     const action = eigenweltBudgetRetryAction("https://acme.example.com/billing");
     expect(action.link).toBe("https://acme.example.com/billing");
+  });
+});
+
+describe("plan-aware limit display", () => {
+  test("offers Plus users an upgrade to Pro", () => {
+    expect(eigenweltBudgetLimitDisplay("plus")).toEqual({
+      title: "Your seat's daily usage has been used up",
+      body: "Upgrade to Pro for higher limits, or come back tomorrow.",
+      upgradeLabel: "Upgrade to Pro",
+    });
+  });
+
+  test("shows Pro users the reached limit without an upgrade", () => {
+    expect(eigenweltBudgetLimitDisplay("pro")).toEqual({
+      title: "Daily usage limit reached",
+      body: "You've used today's Pro allowance. Come back tomorrow.",
+      upgradeLabel: null,
+    });
   });
 });
 
