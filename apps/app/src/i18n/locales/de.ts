@@ -430,6 +430,26 @@ const de: Record<string, string> = {
   "recorder.engine_unavailable":
     "Die lokale Transkriptions-Engine ist auf dieser Plattform nicht verfügbar.",
   "recorder.setup_title": "Quellen, Sprache & Modell",
+  "recorder.setup_title_flow": "Rekorder einrichten",
+  "recorder.setup_subtitle_flow":
+    "Nehmen Sie Besprechungen und Anrufe auf und erhalten Sie ein Live-Transkript von einem lokalen Modell. Erledigen Sie diese einmaligen Schritte, um loszulegen.",
+  "recorder.setup_mic_title": "Mikrofonzugriff erlauben",
+  "recorder.setup_mic_body": "Nimmt Ihre Seite des Gesprächs auf. Sie werden einmalig um Erlaubnis gebeten.",
+  "recorder.setup_mic_cta": "Mikrofon erlauben",
+  "recorder.setup_sys_title": "Systemaudio-Aufnahme aktivieren",
+  "recorder.setup_sys_body":
+    "Nimmt die anderen Teilnehmer von Anrufen und Besprechungen auf. macOS zeigt hierfür keinen Dialog an: Aktivieren Sie LegalWork unter Bildschirm- & Systemaudioaufnahme und kehren Sie danach hierher zurück.",
+  "recorder.setup_sys_waiting": "Warten auf die Systemeinstellungen. Dieser Schritt wird automatisch abgeschlossen, sobald Sie zurückkehren.",
+  "recorder.setup_sys_skip": "Vorerst überspringen, nur das Mikrofon aufnehmen",
+  "recorder.setup_skipped": "Übersprungen",
+  "recorder.setup_model_title": "Transkriptionsmodell herunterladen",
+  "recorder.setup_model_body":
+    "Transkripte entstehen durch ein Modell auf diesem Computer, nicht in der Cloud. Wählen Sie das Modell, das zu Ihrem Gerät passt.",
+  "recorder.setup_privacy_note": "Alles bleibt lokal: Audio und Transkripte verlassen diesen Computer nie.",
+  "recorder.setup_done_title": "Alles bereit",
+  "recorder.setup_done_subtitle": "Starten Sie eine Aufnahme, wann immer Sie bereit sind. Aufnahmen und Transkripte bleiben auf diesem Gerät.",
+  "recorder.setup_done_cta": "Fertig",
+  "recorder.setup_skip_all": "Später einrichten",
   "recorder.source_microphone": "Mikrofon",
   "recorder.source_system": "Systemaudio",
   "recorder.source_app": "App-Audio",

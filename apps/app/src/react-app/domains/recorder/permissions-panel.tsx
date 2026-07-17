@@ -12,7 +12,7 @@
  * System Settings collapses satisfied rows without any clicking around.
  */
 import { useEffect } from "react";
-import { Check, ExternalLink, Mic, MonitorSpeaker, RefreshCw, ShieldAlert, X } from "lucide-react";
+import { Check, ExternalLink, Mic, MonitorSpeaker, RefreshCw, ShieldCheck, X } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { t } from "@/i18n";
@@ -46,12 +46,13 @@ function PermissionRow({ kind }: { kind: AudioPermissionKind }) {
               <Check className="size-3" />
               {t("recorder.perm_status_granted")}
             </span>
+          ) : state === "denied" || state === "restricted" ? (
+            <span className="inline-flex items-center gap-1 rounded-full bg-danger-soft px-2 py-0.5 text-xs text-danger">
+              {t("recorder.perm_status_denied")}
+            </span>
           ) : (
-            <span className="inline-flex items-center gap-1 rounded-full bg-warning-soft px-2 py-0.5 text-xs text-warning">
-              <ShieldAlert className="size-3" />
-              {state === "denied" || state === "restricted"
-                ? t("recorder.perm_status_denied")
-                : t("recorder.perm_status_not_determined")}
+            <span className="inline-flex items-center gap-1 rounded-full bg-sunken px-2 py-0.5 text-xs text-subtext">
+              {t("recorder.perm_status_not_determined")}
             </span>
           )}
         </div>
@@ -93,11 +94,11 @@ export function PermissionsPanel() {
   const showDevHint = store.permissions?.platform === "darwin" && store.permissions.packaged === false;
 
   return (
-    <div className="mt-4 rounded-xl border border-warning/40 bg-warning-soft p-3">
+    <div className="mt-4 rounded-2xl border border-subtle bg-surface p-3 shadow-xs">
       <div className="flex items-start justify-between gap-3">
         <div>
-          <div className="flex items-center gap-2 text-sm font-medium">
-            <ShieldAlert className="size-4 text-warning" />
+          <div className="flex items-center gap-2 text-sm font-medium text-ink">
+            <ShieldCheck className="size-4 text-brand" />
             {t("recorder.perm_title")}
           </div>
           <p className="mt-1 text-xs text-subtext">{t("recorder.perm_intro")}</p>

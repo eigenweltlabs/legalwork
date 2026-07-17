@@ -53,6 +53,13 @@ import type { AudioRecordingMeta } from "@legalwork/types/audio";
 import { formatBytes } from "../../../app/utils";
 import { ModelTierSelect } from "./model-tier-select";
 import { PermissionsPanel } from "./permissions-panel";
+import {
+  RecorderSetup,
+  markRecorderSetupDismissed,
+  recorderSetupDemoEnabled,
+  recorderSetupDismissed,
+  recorderSetupStatus,
+} from "./recorder-setup";
 import { revealRecording, useRecorderStore } from "./recorder-store";
 
 /**
@@ -377,6 +384,8 @@ export function RecorderPane(props: {
       return false;
     }
   });
+  const [setupDismissed, setSetupDismissed] = useState(() => recorderSetupDismissed());
+  const [setupDemo, setSetupDemo] = useState(() => recorderSetupDemoEnabled());
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const navigate = useNavigate();
 
@@ -403,6 +412,18 @@ export function RecorderPane(props: {
   const canRecord = !isRecording && selectedInstalled && engine?.available !== false;
   const isDesktop = Boolean(window.__LEGALWORK_ELECTRON__?.invokeDesktop);
   const showDictateInfo = store.systemDictation?.enabled === false && !dictateInfoDismissed;
+
+  // First-run guided setup: permissions + model, in order. Once everything is
+  // already satisfied, persist the dismissal so future opens never even flash
+  // the loading gate.
+  const setupStatus = recorderSetupStatus(store.permissions, store.bootstrap);
+  useEffect(() => {
+    if (!setupDismissed && setupStatus === "done" && !setupDemo) {
+      markRecorderSetupDismissed();
+      setSetupDismissed(true);
+    }
+  }, [setupStatus, setupDismissed, setupDemo]);
+  const showSetup = isDesktop && !isRecording && (setupDemo || (!setupDismissed && setupStatus !== "done"));
 
   // Save targets: every local workspace (selected first, provided by the
   // shell); older callers that only pass workspacePath still get one target.
@@ -454,6 +475,22 @@ export function RecorderPane(props: {
           <h3 className="text-sm font-medium text-ink">{t("recorder.desktop_required_title")}</h3>
           <p className="text-sm text-subtext">{t("recorder.desktop_required_body")}</p>
         </SectionCard>
+      </div>
+    );
+  }
+
+  if (showSetup) {
+    return (
+      <div className="h-full w-full overflow-y-auto">
+        {setupStatus === "loading" && !setupDemo ? null : (
+          <RecorderSetup
+            demo={setupDemo}
+            onFinished={() => {
+              setSetupDismissed(true);
+              setSetupDemo(false);
+            }}
+          />
+        )}
       </div>
     );
   }
@@ -676,8 +713,8 @@ export function RecorderPane(props: {
             </div>
           </div>
           {!selectedInstalled && !isRecording ? (
-            <div className="flex flex-wrap items-center gap-2 rounded-xl border border-warning/40 bg-warning-soft px-3 py-2 text-sm text-ink">
-              <HardDrive className="size-4 shrink-0 text-warning" />
+            <div className="flex flex-wrap items-center gap-2 rounded-xl border border-subtle bg-sunken/60 px-3 py-2 text-sm text-ink">
+              <HardDrive className="size-4 shrink-0 text-brand" />
               <span className="min-w-0 flex-1">{t("recorder.model_required_hint")}</span>
               <Button variant="outline" size="sm" onClick={() => navigate("/settings/recorder")}>
                 {t("recorder.model_required_cta")}

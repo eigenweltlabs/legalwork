@@ -2071,6 +2071,26 @@ export default {
   "recorder.engine_unavailable":
     "The local transcription engine is not available on this platform/build.",
   "recorder.setup_title": "Sources, language & model",
+  "recorder.setup_title_flow": "Set up the recorder",
+  "recorder.setup_subtitle_flow":
+    "Record meetings and calls and get a live transcript from a local model. Finish these one-time steps to start recording.",
+  "recorder.setup_mic_title": "Allow microphone access",
+  "recorder.setup_mic_body": "Captures your side of the conversation. You will be asked for permission once.",
+  "recorder.setup_mic_cta": "Allow microphone",
+  "recorder.setup_sys_title": "Turn on system audio capture",
+  "recorder.setup_sys_body":
+    "Captures the other participants in calls and meetings. macOS shows no pop-up for this one: switch on LegalWork under Screen & System Audio Recording, then come back here.",
+  "recorder.setup_sys_waiting": "Waiting for System Settings. This step completes automatically when you come back.",
+  "recorder.setup_sys_skip": "Skip for now, record the microphone only",
+  "recorder.setup_skipped": "Skipped",
+  "recorder.setup_model_title": "Download a transcription model",
+  "recorder.setup_model_body":
+    "Transcripts are produced by a model on this computer, not in the cloud. Pick the model that fits your machine.",
+  "recorder.setup_privacy_note": "Everything stays local: audio and transcripts never leave this computer.",
+  "recorder.setup_done_title": "You're all set",
+  "recorder.setup_done_subtitle": "Hit Record whenever you're ready. Recordings and transcripts stay on this device.",
+  "recorder.setup_done_cta": "Done",
+  "recorder.setup_skip_all": "Set up later",
   "recorder.model_required_hint": "Recording needs a transcription model. Choose one and download it first.",
   "recorder.model_required_cta": "Download a model",
   "recorder.source_microphone": "Microphone",
