@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { existsSync, mkdirSync, mkdtempSync, rmSync } from "node:fs";
+import { platform, tmpdir } from "node:os";
 import { join } from "node:path";
 
 import {
@@ -25,6 +25,27 @@ test("generates a localhost leaf that validates against the CA", { skip: !openss
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test(
+  "macOS LibreSSL keeps its serial file inside a dotted certificate path",
+  { skip: platform() !== "darwin" || !existsSync("/usr/bin/openssl") },
+  async () => {
+    const previousOpenssl = process.env.LEGALWORK_OPENSSL_BIN;
+    const root = mkdtempSync("/tmp/lw-cert-root-");
+    const dir = join(root, "user.name", "office-addin-certs");
+    mkdirSync(dir, { recursive: true });
+    process.env.LEGALWORK_OPENSSL_BIN = "/usr/bin/openssl";
+    try {
+      const { caCertPath, leafCertPath } = await ensureLocalCert(dir);
+      assert.ok(leafCertValid(leafCertPath, caCertPath));
+      assert.equal(existsSync(join(root, "user.srl")), false);
+    } finally {
+      if (previousOpenssl === undefined) delete process.env.LEGALWORK_OPENSSL_BIN;
+      else process.env.LEGALWORK_OPENSSL_BIN = previousOpenssl;
+      rmSync(root, { recursive: true, force: true });
+    }
+  },
+);
 
 test("name constraint rejects a non-localhost certificate", { skip: !opensslAvailable }, async () => {
   const dir = mkdtempSync(join(tmpdir(), "lw-cert-evil-"));

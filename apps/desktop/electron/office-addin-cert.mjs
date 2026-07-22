@@ -102,6 +102,7 @@ export async function ensureLocalCert(dir, { force = false } = {}) {
   const caCertPath = join(dir, "legalwork-local-ca.crt");
   const leafKeyPath = join(dir, "localhost.key");
   const leafCertPath = join(dir, "localhost.crt");
+  const caSerialPath = join(dir, "legalwork-local-ca.srl");
   const extPath = join(dir, "openssl-ext.cnf");
 
   const complete =
@@ -130,18 +131,21 @@ export async function ensureLocalCert(dir, { force = false } = {}) {
 
     // Leaf: localhost, signed by the CA. Pass -config here too so the CSR
     // step never depends on the system openssl.cnf being present/compatible.
+    // Pass -CAserial explicitly because macOS LibreSSL otherwise truncates
+    // dotted paths such as /Users/user.name to /Users/user.srl.
     runOpenssl(["genrsa", "-out", leafKeyPath, "2048"]);
     const csr = runOpenssl(["req", "-new", "-key", leafKeyPath, "-subj", LEAF_SUBJECT, "-config", extPath]).stdout;
     runOpenssl([
       "x509", "-req",
-      "-CA", caCertPath, "-CAkey", caKeyPath, "-CAcreateserial",
+      "-CA", caCertPath, "-CAkey", caKeyPath,
+      "-CAserial", caSerialPath, "-CAcreateserial",
       "-sha256", "-days", String(LEAF_VALID_DAYS),
       "-extensions", "leaf", "-extfile", extPath,
       "-out", leafCertPath,
     ], csr);
   } finally {
     rmSync(extPath, { force: true });
-    rmSync(join(dir, "legalwork-local-ca.srl"), { force: true });
+    rmSync(caSerialPath, { force: true });
   }
 
   return { caCertPath, caKeyPath, leafCertPath, leafKeyPath };
@@ -206,6 +210,7 @@ export function signLeafForTest(dir, altNames, subject = "/CN=test") {
   const caCertPath = join(dir, "legalwork-local-ca.crt");
   const keyPath = join(dir, "test-leaf.key");
   const certPath = join(dir, "test-leaf.crt");
+  const caSerialPath = join(dir, "legalwork-local-ca.srl");
   const extPath = join(dir, "test-ext.cnf");
   writeFileSync(extPath, `${REQ_SHIM}\n${leafExtensions(altNames)}`, "utf8");
   try {
@@ -213,14 +218,15 @@ export function signLeafForTest(dir, altNames, subject = "/CN=test") {
     const csr = runOpenssl(["req", "-new", "-key", keyPath, "-subj", subject, "-config", extPath]).stdout;
     runOpenssl([
       "x509", "-req",
-      "-CA", caCertPath, "-CAkey", caKeyPath, "-CAcreateserial",
+      "-CA", caCertPath, "-CAkey", caKeyPath,
+      "-CAserial", caSerialPath, "-CAcreateserial",
       "-sha256", "-days", "30",
       "-extensions", "leaf", "-extfile", extPath,
       "-out", certPath,
     ], csr);
   } finally {
     rmSync(extPath, { force: true });
-    rmSync(join(dir, "legalwork-local-ca.srl"), { force: true });
+    rmSync(caSerialPath, { force: true });
   }
   return certPath;
 }
