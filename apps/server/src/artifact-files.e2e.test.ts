@@ -105,8 +105,12 @@ describe("artifact file routes", () => {
     });
     expect(xlsxWrite.status).toBe(200);
 
-    const xlsxDownload = await fetch(`${base}/workspace/ws_1/files/raw?path=${encodeURIComponent("reports/artifact-eval.xlsx")}`, { headers: auth(token) });
+    const xlsxDownload = await fetch(`${base}/workspace/ws_1/files/raw?path=${encodeURIComponent("reports/artifact-eval.xlsx")}`, {
+      headers: { ...auth(token), Origin: "http://localhost:5173" },
+    });
     expect(xlsxDownload.status).toBe(200);
+    expect(Number(xlsxDownload.headers.get("x-legalwork-updated-at"))).toBeGreaterThan(0);
+    expect(xlsxDownload.headers.get("access-control-expose-headers")).toContain("X-LegalWork-Updated-At");
     expect(Array.from(new Uint8Array(await xlsxDownload.arrayBuffer()))).toEqual([80, 75, 9, 9]);
   });
 

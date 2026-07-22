@@ -943,6 +943,10 @@ function applyEvent(entry: SyncEntry, workspaceId: string, event: OpencodeEvent)
   if (event.type === "session.idle") {
     const props = (event.properties ?? {}) as { sessionID?: string };
     if (!props.sessionID) return;
+    // Agent tools may have changed a file that is already open in the artifact
+    // panel. Mark workspace previews stale so active files reload immediately
+    // and closed files fetch fresh bytes the next time they are opened.
+    void queryClient.invalidateQueries({ queryKey: ["artifact-panel", workspaceId] });
     // Only emits for runs this client instrumented (markTaskRunStart in the
     // send path); also dedupes idle events from multiple workspace syncs.
     const runStartedAt = takeTaskRunStart(props.sessionID);

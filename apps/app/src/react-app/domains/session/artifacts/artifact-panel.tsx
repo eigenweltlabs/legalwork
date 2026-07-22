@@ -48,9 +48,17 @@ type ArtifactPanelViewProps = {
 
 type ArtifactQueryState =
   | (TextData & { updatedAt: number | null })
-  | (BinaryData & { contentType: string | null; updatedAt: number | null });
+  | (BinaryData & { contentType: string | null; updatedAt: number | null; revision: number });
 
 type SaveArtifactInput = Data & { baseUpdatedAt: number | null };
+
+let fallbackBinaryRevision = 0;
+
+function nextBinaryRevision(updatedAt: number | null) {
+  if (updatedAt !== null) return updatedAt;
+  fallbackBinaryRevision += 1;
+  return fallbackBinaryRevision;
+}
 
 function absoluteWorkspacePath(root: string, path: string) {
   const cleanRoot = root.trim().replace(/[/\\]+$/, "");
@@ -130,9 +138,17 @@ function ArtifactPanelView({ client, workspaceId, workspaceRoot, isRemoteWorkspa
       }
 
       const result = await client.downloadWorkspaceFile(workspaceId, target.value);
+      const updatedAt = result.updatedAt ?? target.updatedAt ?? null;
 
-      return { kind: "binary", data: result.data, contentType: result.contentType, updatedAt: target.updatedAt ?? null };
+      return {
+        kind: "binary",
+        data: result.data,
+        contentType: result.contentType,
+        updatedAt,
+        revision: nextBinaryRevision(result.updatedAt),
+      };
     },
+    refetchOnMount: "always",
     refetchOnReconnect: false,
     refetchOnWindowFocus: false,
     staleTime: Infinity,
@@ -218,7 +234,13 @@ function ArtifactPanelView({ client, workspaceId, workspaceRoot, isRemoteWorkspa
         ["artifact-panel", workspaceId, target.id] as const,
         input.kind === "text"
           ? { kind: "text", data: input.data, updatedAt: result.updatedAt ?? null }
-          : { kind: "binary", data: input.data, contentType: data?.kind === "binary" ? data.contentType : null, updatedAt: result.updatedAt ?? null },
+          : {
+              kind: "binary",
+              data: input.data,
+              contentType: data?.kind === "binary" ? data.contentType : null,
+              updatedAt: result.updatedAt ?? null,
+              revision: nextBinaryRevision(result.updatedAt),
+            },
       );
 
       if (input.kind === "text") {
@@ -449,7 +471,7 @@ function ArtifactPanelView({ client, workspaceId, workspaceRoot, isRemoteWorkspa
           />
         ) : target.preview === "word" && data?.kind === "binary" ? (
           <DocxView
-            key={target.id}
+            key={`${target.id}:${data.revision}`}
             name={target.name}
             content={data.data}
             readOnly={isRemoteWorkspace || target.kind !== "file"}

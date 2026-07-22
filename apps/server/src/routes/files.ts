@@ -1137,6 +1137,7 @@ export function registerFileRoutes(options: RegisterFileRoutesOptions): void {
     headers.set("Content-Type", contentTypeForPath(relativePath));
     headers.set("Content-Length", String(info.size));
     headers.set("Content-Disposition", `inline; filename="${basename(relativePath)}"`);
+    headers.set("X-LegalWork-Updated-At", String(info.mtimeMs));
     const stream = Readable.toWeb(createReadStream(absPath)) as unknown as ReadableStream;
     return new Response(stream, { status: 200, headers });
   });

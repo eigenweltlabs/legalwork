@@ -243,6 +243,27 @@ describe("session question sync", () => {
 });
 
 describe("session transcript sync", () => {
+  test("invalidates cached artifact previews when an agent run finishes", () => {
+    const syncInput = { workspaceId: "workspace-a", baseUrl: "http://127.0.0.1:1234", legalworkToken: "token" };
+    const cleanup = __createWorkspaceSessionSyncForTest(syncInput);
+    const queryClient = getReactQueryClient();
+    const artifactKey = ["artifact-panel", "workspace-a", "file:contract.docx"] as const;
+
+    queryClient.setQueryData(artifactKey, { kind: "binary" });
+    expect(queryClient.getQueryState(artifactKey)?.isInvalidated).toBe(false);
+
+    try {
+      __applySessionSyncEventForTest(syncInput, {
+        type: "session.idle",
+        properties: { sessionID: "session-a" },
+      });
+
+      expect(queryClient.getQueryState(artifactKey)?.isInvalidated).toBe(true);
+    } finally {
+      cleanup();
+    }
+  });
+
   test("coalesces token-sized deltas by transcript part", () => {
     const deltas = coalescePendingDeltas([
       { sessionId: "session-a", messageId: "msg-a", partId: "part-a", reasoning: false, delta: "hel" },

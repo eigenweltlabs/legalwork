@@ -1144,6 +1144,7 @@ function withCors(response: Response, request: Request, config: ServerConfig) {
     "Access-Control-Allow-Headers",
     "Authorization, Content-Type, X-LegalWork-Host-Token, X-LegalWork-Client-Id, X-OpenCode-Directory, X-Opencode-Directory, x-opencode-directory",
   );
+  headers.set("Access-Control-Expose-Headers", "X-LegalWork-Updated-At");
   headers.set("Access-Control-Allow-Methods", "GET,POST,PUT,PATCH,DELETE,OPTIONS");
   headers.set("Vary", "Origin");
   return new Response(response.body, { status: response.status, headers });

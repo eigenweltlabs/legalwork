@@ -1163,7 +1163,7 @@ async function requestBinary(
   baseUrl: string,
   path: string,
   options: { method?: string; token?: string; hostToken?: string; body?: unknown; timeoutMs?: number } = {},
-): Promise<{ data: ArrayBuffer; contentType: string | null; filename: string | null }>{
+): Promise<{ data: ArrayBuffer; contentType: string | null; filename: string | null; updatedAt: number | null }>{
   const url = `${baseUrl}${path}`;
   const fetchImpl = resolveFetch(url);
   const response = await fetchWithTimeout(
@@ -1197,8 +1197,11 @@ async function requestBinary(
   const filenameMatch = disposition.match(/filename\*=UTF-8''([^;]+)|filename="?([^";]+)"?/i);
   const filenameRaw = filenameMatch?.[1] ?? filenameMatch?.[2] ?? null;
   const filename = filenameRaw ? decodeURIComponent(filenameRaw) : null;
+  const updatedAtHeader = response.headers.get("x-legalwork-updated-at");
+  const parsedUpdatedAt = updatedAtHeader === null ? null : Number(updatedAtHeader);
+  const updatedAt = parsedUpdatedAt !== null && Number.isFinite(parsedUpdatedAt) ? parsedUpdatedAt : null;
   const data = await response.arrayBuffer();
-  return { data, contentType, filename };
+  return { data, contentType, filename, updatedAt };
 }
 
 export function createLegalworkServerClient(options: { baseUrl: string; token?: string; hostToken?: string }) {
