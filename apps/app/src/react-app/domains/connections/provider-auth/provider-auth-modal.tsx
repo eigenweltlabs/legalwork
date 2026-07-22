@@ -128,6 +128,14 @@ const BRANDED_CUSTOM_PROVIDERS: BrandedCustomProvider[] = [
     baseUrlPlaceholder: "https://<your-gateway>.apertus.ai/v1",
     description: "Connect your managed Apertus gateway — European open-source models, your own endpoint and key.",
   },
+  {
+    id: "aki",
+    name: "Aki Cloud",
+    apiType: "chat",
+    baseUrlPlaceholder: "https://api.aki.io/v1",
+    baseUrlDefault: "https://api.aki.io/v1",
+    description: "Connect Aki Cloud — EU-hosted, GDPR-compliant inference for open-source models. Add your API key and connect.",
+  },
 ];
 
 /**
@@ -198,6 +206,8 @@ const PROVIDER_LABELS: Record<string, string> = {
   openrouter: "OpenRouter",
   apertus: "Apertus AI",
   "apertus-ai": "Apertus AI",
+  aki: "Aki Cloud",
+  "aki-cloud": "Aki Cloud",
   ollama: "Ollama (local)",
   lmstudio: "LM Studio (local)",
   llamacpp: "llama.cpp (local)",
