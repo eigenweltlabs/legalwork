@@ -19,12 +19,14 @@ backends**, and your FIRST step is always to pick the right one:
 
 ## Step 0 — where are you running?
 
-- **LIVE backend (Word add-in).** The system prompt says you are working inside
-  Microsoft Word and `word_*` tools are available. The document the user means is the
-  one OPEN IN WORD → use LIVE mode below on it. (The FILE backend still applies to a
-  *different* `.docx` in the workspace that is not open in Word.)
-- **FILE backend (LegalWork app).** No Word pane is connected → use FILE mode below;
-  the user reviews the output in the in-app `.docx` viewer.
+1. Unless the user explicitly named a different workspace document, call
+   `word_read_document` once. The `word_*` tools are registered in every LegalWork
+   session, so do not infer that they are unavailable without trying the read.
+2. If the read succeeds and returns the document the user means, use the **LIVE backend**
+   below. The document OPEN IN WORD is the target. (The FILE backend still applies to a
+   *different* `.docx` in the workspace that is not open in Word.)
+3. Only when `word_read_document` reports that no Word pane is connected, use the
+   **FILE backend** below; the user reviews its output in the in-app `.docx` viewer.
 
 ## LIVE mode — edit the open document with word_* tools
 
