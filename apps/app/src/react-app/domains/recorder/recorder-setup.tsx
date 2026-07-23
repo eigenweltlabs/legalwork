@@ -103,7 +103,7 @@ export function recorderSetupStatus(
  * The tier step 3 offers: the device recommendation when it is free (or the
  * firm is entitled to it), otherwise the best free tier.
  */
-function recommendedTier(bootstrap: AudioRecorderBootstrap | null) {
+export function recommendedTier(bootstrap: AudioRecorderBootstrap | null) {
   const recommendedId = bootstrap?.device?.recommendedModelId;
   const tier = recommendedId ? tierForModelId(recommendedId) : null;
   if (tier && (!tier.premium || isPremiumEntitled())) return tier;
@@ -127,7 +127,7 @@ type StepView = {
   doneLabel: string;
 };
 
-function StepStatusBubble(props: { done: boolean; active: boolean; index: number }) {
+export function StepStatusBubble(props: { done: boolean; active: boolean; index: number }) {
   return (
     <span
       className={cn(
@@ -145,7 +145,7 @@ function StepStatusBubble(props: { done: boolean; active: boolean; index: number
   );
 }
 
-function SetupStep(props: {
+export function SetupStep(props: {
   index: number;
   done: boolean;
   active: boolean;

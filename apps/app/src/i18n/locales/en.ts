@@ -2034,6 +2034,29 @@ export default {
   "recorder.dictation_shortcut_reset": "Reset",
   "recorder.dictation_setup_title": "Dictation setup",
   "recorder.dictation_setup_description": "Configure how you trigger dictation",
+  "recorder.dictation_readiness_title": "Finish setting up dictation",
+  "recorder.dictation_readiness_subtitle":
+    "Dictation types what you say into any app. LegalWork checked this machine: a few things still need your OK.",
+  "recorder.dictation_readiness_done_title": "Ready to dictate",
+  "recorder.dictation_readiness_done_subtitle":
+    "Everything is allowed on this machine. Set up your hotkey next.",
+  "recorder.dictation_step_monitor_title": "Allow keyboard monitoring",
+  "recorder.dictation_step_monitor_body":
+    "Your dictation hotkey has to be heard while you work in other apps. macOS calls this Input Monitoring and asks once.",
+  "recorder.dictation_step_monitor_broken":
+    "macOS is blocking the hotkey listener even though LegalWork looks enabled. This can happen after an app update. In the pane, switch LegalWork off and back on. LegalWork reconnects on its own.",
+  "recorder.dictation_step_monitor_denied":
+    "Enable LegalWork under Input Monitoring, then come back here.",
+  "recorder.dictation_step_a11y_title": "Allow Accessibility",
+  "recorder.dictation_step_a11y_body":
+    "Pasting the transcript into the app you are dictating into uses a system keystroke. macOS gates this behind Accessibility.",
+  "recorder.dictation_step_automation_title": "Allow automation of System Events",
+  "recorder.dictation_step_automation_body":
+    "The paste keystroke is delivered through System Events. macOS asks for this once. If the prompt was dismissed earlier, dictations were copied but never pasted.",
+  "recorder.dictation_step_automation_denied":
+    "The request was declined earlier. Switch on System Events for LegalWork under Automation, then come back here.",
+  "recorder.dictation_step_waiting_prompt":
+    "Answer the system prompt. This step completes on its own.",
   "recorder.dictation_hotkey_label": "Hotkey",
   "recorder.dictation_hotkey_change": "Click to change",
   "recorder.dictation_hotkey_listening": "Press and release your new shortcut",

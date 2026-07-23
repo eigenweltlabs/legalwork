@@ -396,6 +396,29 @@ const de: Record<string, string> = {
   "recorder.dictation_shortcut_reset": "Zurücksetzen",
   "recorder.dictation_setup_title": "Diktat einrichten",
   "recorder.dictation_setup_description": "Legen Sie fest, wie Sie ein Diktat starten",
+  "recorder.dictation_readiness_title": "Diktat fertig einrichten",
+  "recorder.dictation_readiness_subtitle":
+    "Das Diktat tippt Gesprochenes in jede App. LegalWork hat diesen Rechner geprüft: Einige Freigaben fehlen noch.",
+  "recorder.dictation_readiness_done_title": "Bereit zum Diktieren",
+  "recorder.dictation_readiness_done_subtitle":
+    "Alle Freigaben sind erteilt. Richten Sie als Nächstes Ihr Tastenkürzel ein.",
+  "recorder.dictation_step_monitor_title": "Tastaturüberwachung erlauben",
+  "recorder.dictation_step_monitor_body":
+    "Ihr Diktat-Tastenkürzel muss auch in anderen Apps gehört werden. macOS nennt das Eingabeüberwachung und fragt einmalig nach.",
+  "recorder.dictation_step_monitor_broken":
+    "macOS blockiert die Tastenkürzel-Erkennung, obwohl LegalWork aktiviert aussieht. Das kann nach einem App-Update passieren. Schalten Sie LegalWork in der Einstellung aus und wieder ein. LegalWork verbindet sich automatisch neu.",
+  "recorder.dictation_step_monitor_denied":
+    "Aktivieren Sie LegalWork unter Eingabeüberwachung und kehren Sie danach hierher zurück.",
+  "recorder.dictation_step_a11y_title": "Bedienungshilfen erlauben",
+  "recorder.dictation_step_a11y_body":
+    "Das Einfügen des Diktats in die Ziel-App nutzt einen System-Tastendruck. macOS verlangt dafür die Freigabe unter Bedienungshilfen.",
+  "recorder.dictation_step_automation_title": "Automation für Systemereignisse erlauben",
+  "recorder.dictation_step_automation_body":
+    "Der Einfüge-Tastendruck läuft über Systemereignisse. macOS fragt einmalig nach. Wurde die Abfrage früher weggeklickt, wurden Diktate nur kopiert, aber nie eingefügt.",
+  "recorder.dictation_step_automation_denied":
+    "Die Anfrage wurde früher abgelehnt. Aktivieren Sie Systemereignisse für LegalWork unter Automation und kehren Sie danach hierher zurück.",
+  "recorder.dictation_step_waiting_prompt":
+    "Beantworten Sie die Systemabfrage. Dieser Schritt schließt sich automatisch ab.",
   "recorder.dictation_hotkey_label": "Tastenkürzel",
   "recorder.dictation_hotkey_change": "Zum Ändern klicken",
   "recorder.dictation_hotkey_listening": "Neues Tastenkürzel drücken und loslassen",

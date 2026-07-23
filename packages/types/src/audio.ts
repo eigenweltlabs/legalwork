@@ -230,6 +230,40 @@ export type AudioSystemDictationStatus = {
   error: string | null;
 };
 
+/**
+ * State of one OS permission dictation depends on. "broken" is macOS Input
+ * Monitoring's stale-grant state: the pane toggle looks on, but the OS
+ * refuses to enable the app's event tap (typically after an app update),
+ * so hotkeys silently do nothing until the user re-flips the toggle.
+ */
+export type AudioDictationPermissionState =
+  | "granted"
+  | "denied"
+  | "not-determined"
+  | "broken"
+  | "unavailable"
+  | "not-required";
+
+export type AudioDictationPermissionKind =
+  | "microphone"
+  | "inputMonitoring"
+  | "accessibility"
+  | "automation";
+
+/** Everything "Dictate anywhere" needs, checked end-to-end against the OS. */
+export type AudioDictationReadiness = {
+  platform: AudioSystemDictationPlatform;
+  /** False in dev, where macOS attributes permissions to the launching app. */
+  packaged: boolean;
+  microphone: AudioPermissionState;
+  /** Global hotkey listener (macOS Input Monitoring). */
+  inputMonitoring: AudioDictationPermissionState;
+  /** Synthetic Cmd+V paste into other apps. */
+  accessibility: AudioDictationPermissionState;
+  /** Apple Events consent for System Events (the paste keystroke). */
+  automation: AudioDictationPermissionState;
+};
+
 export type AudioSystemDictationRuntimeState =
   | "idle"
   | "listening"

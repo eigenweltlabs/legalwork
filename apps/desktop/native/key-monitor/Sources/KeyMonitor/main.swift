@@ -1,6 +1,150 @@
 import AppKit
 import ApplicationServices
 import Foundation
+import IOKit.hid
+
+// MARK: - Permission check/request modes
+//
+// Besides the default long-running monitor, the helper doubles as the app's
+// native probe for the two TCC permissions Electron cannot reach:
+//
+//   --check               Input Monitoring, without prompting. Emits JSON and
+//                         exits 0. `tapEnabled` is the end-to-end truth: a
+//                         stale grant (app updated while the pane toggle stays
+//                         on) still creates taps but the OS silently refuses
+//                         to enable them, so "created but not enabled" is the
+//                         broken state the settings UI must explain.
+//   --request             Trigger the Input Monitoring consent prompt (and
+//                         register the app in the pane). Emits JSON.
+//   --check-automation    Apple Events consent for System Events (the paste
+//                         keystroke path), without prompting.
+//   --request-automation  Trigger the Apple Events consent alert.
+//
+// The helper is spawned by the app, so macOS attributes every prompt and pane
+// entry to LegalWork (the responsible process), same as the monitor itself.
+
+private func emitJSON(_ pairs: [(String, String)]) {
+    let body = pairs.map { "\"\($0.0)\":\($0.1)" }.joined(separator: ",")
+    FileHandle.standardOutput.write(Data("{\(body)}\n".utf8))
+}
+
+/// Create a probe tap and report whether the OS actually lets it run.
+/// Enabling is asynchronous server-side, so give the run loop a moment
+/// before reading the enabled state back.
+private func probeTapHealth() -> (created: Bool, enabled: Bool) {
+    let mask = (1 << CGEventType.keyDown.rawValue)
+        | (1 << CGEventType.keyUp.rawValue)
+        | (1 << CGEventType.flagsChanged.rawValue)
+    guard let tap = CGEvent.tapCreate(
+        tap: .cgSessionEventTap,
+        place: .headInsertEventTap,
+        options: .listenOnly,
+        eventsOfInterest: CGEventMask(mask),
+        callback: { _, _, event, _ in Unmanaged.passUnretained(event) },
+        userInfo: nil
+    ) else {
+        return (false, false)
+    }
+    let source = CFMachPortCreateRunLoopSource(kCFAllocatorDefault, tap, 0)
+    CFRunLoopAddSource(CFRunLoopGetCurrent(), source, .commonModes)
+    CGEvent.tapEnable(tap: tap, enable: true)
+    CFRunLoopRunInMode(.defaultMode, 0.25, false)
+    let enabled = CGEvent.tapIsEnabled(tap: tap)
+    CGEvent.tapEnable(tap: tap, enable: false)
+    CFMachPortInvalidate(tap)
+    return (true, enabled)
+}
+
+private func runInputMonitoringCheck() -> Never {
+    let access = IOHIDCheckAccess(kIOHIDRequestTypeListenEvent)
+    let state: String
+    switch access {
+    case kIOHIDAccessTypeGranted: state = "granted"
+    case kIOHIDAccessTypeDenied: state = "denied"
+    default: state = "not-determined"
+    }
+    var created = false
+    var enabled = false
+    if access == kIOHIDAccessTypeGranted {
+        (created, enabled) = probeTapHealth()
+    }
+    emitJSON([
+        ("state", "\"\(state)\""),
+        ("tapCreated", created ? "true" : "false"),
+        ("tapEnabled", enabled ? "true" : "false"),
+    ])
+    exit(0)
+}
+
+private func runInputMonitoringRequest() -> Never {
+    // Shows the consent prompt when undetermined and registers the app in
+    // the Input Monitoring pane either way. Returns the resulting grant.
+    let granted = IOHIDRequestAccess(kIOHIDRequestTypeListenEvent)
+    emitJSON([("granted", granted ? "true" : "false")])
+    exit(0)
+}
+
+private let systemEventsBundleID = "com.apple.systemevents"
+
+private func automationPermissionStatus(askUser: Bool) -> String {
+    var address = AEAddressDesc()
+    let creation = systemEventsBundleID.utf8CString.withUnsafeBufferPointer { buffer in
+        AECreateDesc(
+            typeApplicationBundleID,
+            buffer.baseAddress,
+            buffer.count - 1,
+            &address
+        )
+    }
+    guard creation == noErr else { return "unavailable" }
+    defer { AEDisposeDesc(&address) }
+
+    var status = AEDeterminePermissionToAutomateTarget(
+        &address, typeWildCard, typeWildCard, askUser
+    )
+    if status == procNotFound {
+        // System Events is not running; consent cannot be determined against
+        // a dead target. Launch it (it is a faceless background app) and ask
+        // again once.
+        if let url = NSWorkspace.shared.urlForApplication(
+            withBundleIdentifier: systemEventsBundleID
+        ) {
+            let semaphore = DispatchSemaphore(value: 0)
+            NSWorkspace.shared.openApplication(
+                at: url,
+                configuration: NSWorkspace.OpenConfiguration()
+            ) { _, _ in semaphore.signal() }
+            _ = semaphore.wait(timeout: .now() + 3)
+            status = AEDeterminePermissionToAutomateTarget(
+                &address, typeWildCard, typeWildCard, askUser
+            )
+        }
+    }
+    switch status {
+    case noErr: return "granted"
+    case OSStatus(errAEEventNotPermitted): return "denied"
+    case OSStatus(errAEEventWouldRequireUserConsent): return "not-determined"
+    default: return "unavailable"
+    }
+}
+
+private func runAutomationMode(askUser: Bool) -> Never {
+    emitJSON([("state", "\"\(automationPermissionStatus(askUser: askUser))\"")])
+    exit(0)
+}
+
+private let modeArguments = CommandLine.arguments.dropFirst()
+if let mode = modeArguments.first {
+    switch mode {
+    case "--check": runInputMonitoringCheck()
+    case "--request": runInputMonitoringRequest()
+    case "--check-automation": runAutomationMode(askUser: false)
+    case "--request-automation": runAutomationMode(askUser: true)
+    default:
+        FileHandle.standardError.write(Data("Unknown mode: \(mode)\n".utf8))
+        exit(64)
+    }
+}
 
 private let keyNames: [CGKeyCode: String] = [
     0: "A", 1: "S", 2: "D", 3: "F", 4: "H", 5: "G", 6: "Z", 7: "X",

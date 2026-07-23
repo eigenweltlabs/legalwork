@@ -20,6 +20,8 @@ import {
   audioSystemDictationGet,
   audioSystemDictationOpenSettings,
   audioSystemDictationPaste,
+  audioSystemDictationReadiness,
+  audioSystemDictationRequestPermission,
   audioSystemDictationSetEnabled,
   audioSystemDictationSetMode,
   audioSystemDictationSetShortcut,
@@ -46,6 +48,8 @@ import type { Client } from "@/app/types";
 import type {
   AudioCapturePermissions,
   AudioCaptureSourceKind,
+  AudioDictationPermissionKind,
+  AudioDictationReadiness,
   AudioPermissionKind,
   AudioRecorderBootstrap,
   AudioRecorderEvent,
@@ -125,6 +129,8 @@ export type RecorderState = {
   liveTranscriptSessionId: string | null;
   error: string | null;
   systemDictation: AudioSystemDictationStatus | null;
+  /** Live OS permission readiness for "Dictate anywhere" (setup wizard). */
+  dictationReadiness: AudioDictationReadiness | null;
   dictationState: AudioSystemDictationRuntimeState;
   dictationRecordingId: string | null;
   modelId: string;
@@ -186,6 +192,10 @@ type RecorderActions = {
   stopRecording: () => Promise<void>;
   cancelRecording: () => Promise<void>;
   refreshSystemDictation: () => Promise<void>;
+  /** Probe all OS permissions dictation needs; may heal a dead hotkey monitor. */
+  refreshDictationReadiness: () => Promise<void>;
+  /** Strongest available re-prompt for one permission (prompt or pane link). */
+  requestDictationPermission: (kind: AudioDictationPermissionKind) => Promise<void>;
   setSystemDictationEnabled: (enabled: boolean) => Promise<void>;
   setSystemDictationMode: (mode: AudioSystemDictationMode) => Promise<void>;
   setSystemDictationShortcut: (accelerator: string) => Promise<boolean>;
@@ -615,6 +625,7 @@ export const useRecorderStore = create<RecorderState & RecorderActions>((set, ge
     liveTranscriptSessionId: null,
     error: null,
     systemDictation: null,
+    dictationReadiness: null,
     dictationState: "idle",
     dictationRecordingId: null,
     modelId: readPref(MODEL_PREF_KEY, ""),
@@ -724,6 +735,28 @@ export const useRecorderStore = create<RecorderState & RecorderActions>((set, ge
         set({ systemDictation: await audioSystemDictationGet() });
       } catch {
         // Plain web and older desktop builds do not expose this feature.
+      }
+    },
+
+    refreshDictationReadiness: async () => {
+      try {
+        const readiness = await audioSystemDictationReadiness();
+        set({ dictationReadiness: readiness });
+        // The probe may have healed (restarted) the hotkey monitor — pick up
+        // the refreshed registration state.
+        await get().refreshSystemDictation();
+      } catch {
+        // Plain web and older desktop builds do not expose this feature.
+      }
+    },
+
+    requestDictationPermission: async (kind) => {
+      try {
+        const readiness = await audioSystemDictationRequestPermission(kind);
+        set({ dictationReadiness: readiness });
+        await get().refreshSystemDictation();
+      } catch {
+        // Bridge unavailable — the wizard's settings links remain the manual path.
       }
     },
 

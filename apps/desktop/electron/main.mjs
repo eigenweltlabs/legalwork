@@ -23,6 +23,7 @@ import { app, BrowserWindow, clipboard, desktopCapturer, dialog, globalShortcut,
 import { configureFakeMediaForTests, installMediaPermissionHandlers } from "./media-permissions.mjs";
 import { appendLoopbackFeatureFlags, disableLoopbackAudio, enableLoopbackAudio, isLoopbackCaptureArmed } from "./audio/loopback.mjs";
 import { captureAuthStatus, openCapturePermissionSettings, requestCapturePermission } from "./audio/capture-permissions.mjs";
+import { DictationPermissions } from "./audio/dictation-permissions.mjs";
 import { AppAudioTap } from "./audio/app-audio.mjs";
 import { CallOverlay } from "./audio/call-overlay.mjs";
 import { DictationHud } from "./audio/dictation-hud.mjs";
@@ -731,6 +732,33 @@ const callOverlay = new CallOverlay({
 
 const dictationHud = new DictationHud();
 const systemKeyMonitor = new SystemKeyMonitor({ app, platform: process.platform });
+const dictationPermissions = new DictationPermissions({
+  app,
+  systemPreferences,
+  shell,
+  captureAuthStatus,
+  platform: process.platform,
+});
+
+/**
+ * A monitor started under a stale/denied Input Monitoring grant keeps its
+ * dead tap until respawned. Restart it the moment the grant becomes usable
+ * (or when dictation is on but the monitor never came up), so hold-to-talk
+ * and shortcut capture heal without an app restart.
+ */
+async function healDictationMonitor(readiness) {
+  const becameUsable = dictationPermissions.inputMonitoringBecameUsable(readiness);
+  const status = systemDictation.status();
+  // With dictation enabled, supportsHold reflects whether the monitor is live.
+  if (
+    status.enabled
+    && readiness.inputMonitoring === "granted"
+    && (becameUsable || !status.supportsHold)
+  ) {
+    await systemDictation.refreshAfterResume();
+  }
+  return readiness;
+}
 const systemDictation = new SystemDictationService({
   userDataDir: app.getPath("userData"),
   platform: process.platform,
@@ -2184,6 +2212,15 @@ const desktopCommandHandlers = {
         ? args[0]
         : "idle";
       return systemDictation.setRuntimeState(state, String(args[1] ?? ""));
+  },
+  "audioSystemDictationReadiness": async (event, ...args) => {
+      return healDictationMonitor(await dictationPermissions.readiness());
+  },
+  "audioSystemDictationRequestPermission": async (event, ...args) => {
+      const kind = ["microphone", "inputMonitoring", "accessibility", "automation"].includes(args[0])
+        ? args[0]
+        : "microphone";
+      return healDictationMonitor(await dictationPermissions.request(kind));
   },
   "audioSystemDictationPaste": async (event, ...args) => {
       // The recording's own power session ends at stop; the decode tail and

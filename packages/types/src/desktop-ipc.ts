@@ -16,6 +16,8 @@ import type { WorkspaceWire } from "./workspace.js";
 import type {
   AudioCapturePermissions,
   AudioDiarizationState,
+  AudioDictationPermissionKind,
+  AudioDictationReadiness,
   AudioModelDiskCandidate,
   AudioModelImportResult,
   AudioModelState,
@@ -691,6 +693,20 @@ export type DesktopCommandMap = {
   audioSystemDictationPaste: {
     args: [text: string];
     result: AudioSystemDictationPasteResult;
+  };
+  /**
+   * End-to-end permission readiness for "Dictate anywhere" (mic, input
+   * monitoring, accessibility, automation), probed live against the OS.
+   */
+  audioSystemDictationReadiness: { args: []; result: AudioDictationReadiness };
+  /**
+   * Fire the strongest available re-prompt for one dictation permission
+   * (native prompt where macOS still allows one, exact pane deep link
+   * otherwise) and report fresh readiness.
+   */
+  audioSystemDictationRequestPermission: {
+    args: [kind: AudioDictationPermissionKind];
+    result: AudioDictationReadiness;
   };
   /**
    * Launch-at-login for background dictation. On Windows the login item
