@@ -1,5 +1,6 @@
 import { homedir } from "node:os";
 import { join, relative } from "node:path";
+import { pathToFileURL } from "node:url";
 import { readdir } from "node:fs/promises";
 import type { PluginItem, ServerConfig } from "./types.js";
 import { readJsoncFile } from "./jsonc.js";
@@ -41,7 +42,10 @@ async function listPluginFiles(dir: string, scope: "project" | "global", workspa
     const absolutePath = join(dir, entry.name);
     const relativePath = workspaceRoot ? relative(workspaceRoot, absolutePath) : absolutePath;
     items.push({
-      spec: `file://${absolutePath}`,
+      // pathToFileURL yields a well-formed file:// URL on every platform
+      // (`file:///C:/…` on Windows); a bare `file://${absolutePath}` would
+      // produce the malformed `file://C:\…` that OpenCode's import() rejects.
+      spec: pathToFileURL(absolutePath).href,
       source: scope === "project" ? "dir.project" : "dir.global",
       scope,
       path: relativePath,
