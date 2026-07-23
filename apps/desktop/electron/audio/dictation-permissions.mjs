@@ -129,6 +129,7 @@ export class DictationPermissions {
    *   captureAuthStatus: (app: import("electron").App) => import("@legalwork/types/audio").AudioCapturePermissions,
    *   platform?: string,
    *   spawn?: typeof spawn,
+   *   execFile?: typeof execFile,
    * }} options
    */
   constructor(options) {
