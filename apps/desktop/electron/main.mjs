@@ -2222,6 +2222,12 @@ const desktopCommandHandlers = {
         : "microphone";
       return healDictationMonitor(await dictationPermissions.request(kind));
   },
+  "audioSystemDictationRepairPermission": async (event, ...args) => {
+      const kind = ["inputMonitoring", "accessibility", "automation"].includes(args[0])
+        ? args[0]
+        : "inputMonitoring";
+      return healDictationMonitor(await dictationPermissions.repair(kind));
+  },
   "audioSystemDictationPaste": async (event, ...args) => {
       // The recording's own power session ends at stop; the decode tail and
       // paste still need suspension protection (the sherpa decode has no

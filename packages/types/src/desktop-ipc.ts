@@ -709,6 +709,15 @@ export type DesktopCommandMap = {
     result: AudioDictationReadiness;
   };
   /**
+   * One-click fix for stale macOS grants: reset the app's own TCC entries
+   * for the service (wipes stale duplicate rows bound to older builds),
+   * then fire the fresh consent prompt. Packaged builds only.
+   */
+  audioSystemDictationRepairPermission: {
+    args: [kind: AudioDictationPermissionKind];
+    result: AudioDictationReadiness;
+  };
+  /**
    * Launch-at-login for background dictation. On Windows the login item
    * starts the app with --hidden (boots into the tray); on macOS 13+ the
    * entry appears under System Settings > General > Login Items and may

@@ -20,8 +20,9 @@
  * the app so macOS attributes prompts and pane entries to LegalWork.
  */
 
-import { spawn } from "node:child_process";
+import { execFile, spawn } from "node:child_process";
 import fs from "node:fs";
+import path from "node:path";
 
 import { resolveKeyMonitorPath } from "./system-key-monitor.mjs";
 
@@ -34,6 +35,13 @@ const MAC_PANE_URLS = {
   inputMonitoring: "x-apple.systempreferences:com.apple.preference.security?Privacy_ListenEvent",
   accessibility: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility",
   automation: "x-apple.systempreferences:com.apple.preference.security?Privacy_Automation",
+};
+
+/** tccutil service names, for resetting our own stale entries. */
+const TCC_SERVICE_NAMES = {
+  inputMonitoring: "ListenEvent",
+  accessibility: "Accessibility",
+  automation: "AppleEvents",
 };
 
 /** Spawn the helper in a one-shot mode and parse its single JSON line. */
@@ -130,8 +138,32 @@ export class DictationPermissions {
     this.captureAuthStatus = options.captureAuthStatus;
     this.platform = options.platform ?? process.platform;
     this.spawn = options.spawn ?? spawn;
+    this.execFile = options.execFile ?? execFile;
     /** Last observed hotkey-listener state, for grant-transition detection. */
     this.lastInputMonitoring = null;
+    /** @type {string | null} */
+    this.cachedBundleId = null;
+  }
+
+  /**
+   * The app's bundle identifier, read from the bundle on disk. Only
+   * meaningful when packaged; dev runs are attributed to the launching app
+   * and must never reset anyone's TCC entries.
+   */
+  async bundleIdentifier() {
+    if (this.cachedBundleId) return this.cachedBundleId;
+    if (this.platform !== "darwin" || !this.app.isPackaged) return null;
+    // process.execPath: <App>.app/Contents/MacOS/<binary>
+    const infoPlist = path.resolve(process.execPath, "..", "..", "Info");
+    const id = await new Promise((resolve) => {
+      this.execFile(
+        "/usr/bin/defaults",
+        ["read", infoPlist, "CFBundleIdentifier"],
+        (error, stdout) => resolve(error ? null : String(stdout).trim() || null),
+      );
+    });
+    this.cachedBundleId = id;
+    return id;
   }
 
   /** @returns {Promise<import("@legalwork/types/audio").AudioDictationReadiness>} */
@@ -218,5 +250,28 @@ export class DictationPermissions {
       }
     }
     return this.readiness();
+  }
+
+  /**
+   * One-click fix for stale grants: delete our own TCC entries for the
+   * service (tccutil scoped to the app's bundle id needs no privileges),
+   * then fire the fresh consent prompt via {@link request}.
+   *
+   * This is the programmatic version of the manual dance stale grants
+   * otherwise force on users: remove the pane row that "looks on" but is
+   * bound to an older build's signature, re-add, re-enable. Duplicate rows
+   * (old + current build) are wiped in one go, which matters because the
+   * stale twin is the one macOS keeps consulting.
+   * @param {import("@legalwork/types/audio").AudioDictationPermissionKind} kind
+   */
+  async repair(kind) {
+    const service = TCC_SERVICE_NAMES[kind];
+    const bundleId = await this.bundleIdentifier();
+    if (this.platform === "darwin" && service && bundleId) {
+      await new Promise((resolve) => {
+        this.execFile("/usr/bin/tccutil", ["reset", service, bundleId], () => resolve(undefined));
+      });
+    }
+    return this.request(kind);
   }
 }

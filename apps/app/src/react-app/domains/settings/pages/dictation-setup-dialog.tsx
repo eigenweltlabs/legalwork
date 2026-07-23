@@ -1,5 +1,5 @@
 /** @jsxImportSource react */
-import { useEffect, useMemo, useState, type KeyboardEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { AudioLines, Check, Keyboard, Loader2, MousePointerClick, ShieldCheck, X } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -19,6 +19,8 @@ import type {
   AudioSystemDictationPlatform,
 } from "@legalwork/types/audio";
 import { t } from "@/i18n";
+
+import { audioSystemDictationPaste } from "@/app/lib/desktop";
 
 import { formatBytes } from "../../../../app/utils";
 import { formatDictationShortcut } from "../../recorder/dictation-shortcut";
@@ -166,6 +168,11 @@ export function DictationSetupDialog(props: {
     void store.requestDictationPermission(kind).finally(() => setRequesting(null));
   };
 
+  const repairPermission = (kind: AudioDictationPermissionKind) => {
+    setRequesting(kind);
+    void store.repairDictationPermission(kind).finally(() => setRequesting(null));
+  };
+
   return (
     <Dialog
       open={props.open}
@@ -199,6 +206,7 @@ export function DictationSetupDialog(props: {
             activeIndex={activeIndex}
             requesting={requesting}
             onRequest={requestPermission}
+            onRepair={repairPermission}
             onSkip={() => setSetupSkipped(true)}
             onDone={() => setWizardEngaged(false)}
           />
@@ -335,6 +343,7 @@ function ReadinessWizard(props: {
   activeIndex: number;
   requesting: AudioDictationPermissionKind | null;
   onRequest: (kind: AudioDictationPermissionKind) => void;
+  onRepair: (kind: AudioDictationPermissionKind) => void;
   onSkip: () => void;
   onDone: () => void;
 }) {
@@ -343,6 +352,9 @@ function ReadinessWizard(props: {
   const allDone = props.activeIndex === -1;
   const mac = readiness?.platform === "darwin";
   const showDevHint = mac && readiness?.packaged === false;
+  // tccutil-based repair resets entries for OUR bundle id; dev runs are
+  // attributed to the launching terminal/IDE and must not offer it.
+  const repairAvailable = mac && readiness?.packaged === true;
 
   const recommended = recommendedTier(store.bootstrap);
   const recommendedModel = store.bootstrap?.models.find((model) => model.id === recommended.modelId);
@@ -351,40 +363,97 @@ function ReadinessWizard(props: {
   const downloadedBytes = recommendedModel?.downloadedBytes ?? 0;
   const pct = totalBytes > 0 ? Math.round((downloadedBytes / totalBytes) * 100) : 0;
 
+  // End-to-end paste self-test: runs the REAL pipeline (clipboard, the
+  // Accessibility-gated keystroke, System Events) into this dialog's own
+  // input, so "everything green" is proven by execution, not by reading
+  // permission state. A failure re-probes readiness to resurface the step
+  // that actually broke.
+  const [pasteTest, setPasteTest] = useState<"idle" | "running" | "ok" | "failed">("idle");
+  const [pasteError, setPasteError] = useState<string | null>(null);
+  const pasteInputRef = useRef<HTMLInputElement | null>(null);
+
+  const runPasteTest = () => {
+    const input = pasteInputRef.current;
+    if (!input) return;
+    input.value = "";
+    input.focus();
+    setPasteTest("running");
+    setPasteError(null);
+    void audioSystemDictationPaste(t("recorder.dictation_paste_test_sample"))
+      .then((result) => {
+        if (result.error) {
+          setPasteTest("failed");
+          setPasteError(result.error);
+          void store.refreshDictationReadiness();
+          return;
+        }
+        // The keystroke already landed (paste resolves after its restore
+        // delay); the input's content is the end-to-end proof.
+        window.setTimeout(() => {
+          setPasteTest(input.value.trim().length > 0 ? "ok" : "failed");
+        }, 350);
+      })
+      .catch(() => setPasteTest("failed"));
+  };
+
   const permissionStep = (
     step: ReadinessStep,
     index: number,
     kind: AudioDictationPermissionKind,
-    view: { title: string; body: string; blockedHint: string | null; cta: string },
-  ) => (
-    <SetupStep
-      key={step.id}
-      index={index}
-      done={step.done}
-      active={index === props.activeIndex}
-      title={view.title}
-      doneLabel={t("recorder.perm_status_granted")}
-    >
-      <p className="text-sm text-subtext">{view.blockedHint ?? view.body}</p>
-      {showDevHint ? (
-        <p className="mt-1.5 text-xs text-tertiary">{t("recorder.perm_dev_hint")}</p>
-      ) : null}
-      <div className="mt-3">
-        <Button size="sm" disabled={props.requesting !== null} onClick={() => props.onRequest(kind)}>
-          {props.requesting === kind ? (
-            <Loader2 data-icon="inline-start" className="animate-spin" />
+    view: {
+      title: string;
+      body: string;
+      blockedHint: string | null;
+      cta: string;
+      /** Stale or declined grant: offer the tccutil reset + fresh prompt. */
+      repairable?: boolean;
+    },
+  ) => {
+    const repair = view.repairable === true && repairAvailable && kind !== "microphone";
+    return (
+      <SetupStep
+        key={step.id}
+        index={index}
+        done={step.done}
+        active={index === props.activeIndex}
+        title={view.title}
+        doneLabel={t("recorder.perm_status_granted")}
+      >
+        <p className="text-sm text-subtext">{view.blockedHint ?? view.body}</p>
+        {showDevHint ? (
+          <p className="mt-1.5 text-xs text-tertiary">{t("recorder.perm_dev_hint")}</p>
+        ) : null}
+        <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-2">
+          <Button
+            size="sm"
+            disabled={props.requesting !== null}
+            onClick={() => (repair ? props.onRepair(kind) : props.onRequest(kind))}
+          >
+            {props.requesting === kind ? (
+              <Loader2 data-icon="inline-start" className="animate-spin" />
+            ) : null}
+            {repair ? t("recorder.dictation_repair_cta") : view.cta}
+          </Button>
+          {repair ? (
+            <button
+              type="button"
+              className="text-xs text-subtext underline-offset-2 hover:text-ink hover:underline"
+              disabled={props.requesting !== null}
+              onClick={() => props.onRequest(kind)}
+            >
+              {t("recorder.perm_open_settings")}
+            </button>
           ) : null}
-          {view.cta}
-        </Button>
-      </div>
-      {props.requesting === kind ? (
-        <p className="mt-2.5 flex items-center gap-1.5 text-xs text-subtext animate-in fade-in-0">
-          <Loader2 className="size-3 animate-spin text-brand" />
-          {t("recorder.dictation_step_waiting_prompt")}
-        </p>
-      ) : null}
-    </SetupStep>
-  );
+        </div>
+        {props.requesting === kind ? (
+          <p className="mt-2.5 flex items-center gap-1.5 text-xs text-subtext animate-in fade-in-0">
+            <Loader2 className="size-3 animate-spin text-brand" />
+            {t("recorder.dictation_step_waiting_prompt")}
+          </p>
+        ) : null}
+      </SetupStep>
+    );
+  };
 
   return (
     <div className="px-8 pb-8">
@@ -405,19 +474,23 @@ function ReadinessWizard(props: {
             });
           }
           if (step.id === "inputMonitoring") {
-            const broken = readiness?.inputMonitoring === "broken";
+            const state = readiness?.inputMonitoring;
             return permissionStep(step, index, "inputMonitoring", {
               title: t("recorder.dictation_step_monitor_title"),
               body: t("recorder.dictation_step_monitor_body"),
-              blockedHint: broken
-                ? t("recorder.dictation_step_monitor_broken")
-                : readiness?.inputMonitoring === "denied"
-                  ? t("recorder.dictation_step_monitor_denied")
-                  : null,
+              blockedHint:
+                state === "broken"
+                  ? t("recorder.dictation_step_monitor_broken")
+                  : state === "denied"
+                    ? t("recorder.dictation_step_monitor_denied")
+                    : null,
               cta:
-                readiness?.inputMonitoring === "not-determined"
+                state === "not-determined"
                   ? t("recorder.perm_allow")
                   : t("recorder.perm_open_settings"),
+              // A grant that looks on but is dead, or one declined earlier,
+              // is fixed by wiping our stale entries and prompting fresh.
+              repairable: state === "broken" || state === "denied",
             });
           }
           if (step.id === "accessibility") {
@@ -426,6 +499,9 @@ function ReadinessWizard(props: {
               body: t("recorder.dictation_step_a11y_body"),
               blockedHint: null,
               cta: t("recorder.perm_open_settings"),
+              // "denied" cannot distinguish never-granted from a stale row
+              // bound to an older build; the reset covers both.
+              repairable: readiness?.accessibility === "denied",
             });
           }
           if (step.id === "automation") {
@@ -440,6 +516,7 @@ function ReadinessWizard(props: {
                 readiness?.automation === "not-determined"
                   ? t("recorder.perm_allow")
                   : t("recorder.perm_open_settings"),
+              repairable: readiness?.automation === "denied",
             });
           }
           return (
@@ -487,6 +564,34 @@ function ReadinessWizard(props: {
           );
         })}
       </div>
+
+      {allDone ? (
+        <div className="mt-4 rounded-xl border border-subtle bg-surface px-4 py-3">
+          <div className="flex flex-wrap items-center gap-3">
+            <input
+              ref={pasteInputRef}
+              className="h-9 min-w-0 flex-1 rounded-md border border-subtle bg-sunken px-3 text-sm text-ink outline-none focus:border-brand"
+              placeholder={t("recorder.dictation_paste_test_placeholder")}
+            />
+            <Button size="sm" variant="outline" disabled={pasteTest === "running"} onClick={runPasteTest}>
+              {pasteTest === "running" ? (
+                <Loader2 data-icon="inline-start" className="animate-spin" />
+              ) : null}
+              {t("recorder.dictation_paste_test_cta")}
+            </Button>
+          </div>
+          {pasteTest === "ok" ? (
+            <p className="mt-2 flex items-center gap-1.5 text-xs text-success animate-in fade-in-0">
+              <Check className="size-3" />
+              {t("recorder.dictation_paste_test_ok")}
+            </p>
+          ) : pasteTest === "failed" ? (
+            <p className="mt-2 text-xs text-danger">
+              {pasteError ?? t("recorder.dictation_paste_test_failed")}
+            </p>
+          ) : null}
+        </div>
+      ) : null}
 
       <div className="mt-5 flex items-center justify-between gap-4">
         <p className="flex items-center gap-1.5 text-xs text-subtext">

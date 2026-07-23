@@ -2044,7 +2044,7 @@ export default {
   "recorder.dictation_step_monitor_body":
     "Your dictation hotkey has to be heard while you work in other apps. macOS calls this Input Monitoring and asks once.",
   "recorder.dictation_step_monitor_broken":
-    "macOS is blocking the hotkey listener even though LegalWork looks enabled. This can happen after an app update. In the pane, switch LegalWork off and back on. LegalWork reconnects on its own.",
+    "macOS is blocking the hotkey listener even though LegalWork looks enabled. This can happen after an app update. Reset and request again rebinds the permission to the current version, then LegalWork reconnects on its own.",
   "recorder.dictation_step_monitor_denied":
     "Enable LegalWork under Input Monitoring, then come back here.",
   "recorder.dictation_step_a11y_title": "Allow Accessibility",
@@ -2057,6 +2057,12 @@ export default {
     "The request was declined earlier. Switch on System Events for LegalWork under Automation, then come back here.",
   "recorder.dictation_step_waiting_prompt":
     "Answer the system prompt. This step completes on its own.",
+  "recorder.dictation_repair_cta": "Reset and request again",
+  "recorder.dictation_paste_test_cta": "Test paste",
+  "recorder.dictation_paste_test_placeholder": "The test pastes your text here",
+  "recorder.dictation_paste_test_sample": "Dictation is ready.",
+  "recorder.dictation_paste_test_ok": "Pasted. The whole pipeline works.",
+  "recorder.dictation_paste_test_failed": "Nothing arrived. Check the steps above and try again.",
   "recorder.dictation_hotkey_label": "Hotkey",
   "recorder.dictation_hotkey_change": "Click to change",
   "recorder.dictation_hotkey_listening": "Press and release your new shortcut",
