@@ -6,13 +6,43 @@ description: >-
   governing law"), check a value against a threshold, redline or comment on a clause,
   or accept/adopt or reject tracked changes. Reads the FULL document — including clauses
   laid out in tables — and writes tracked-change redlines + comments as reviewable
-  suggestions anywhere in the document. Self-contained; runs on the firm's own model and
-  infrastructure; pairs with the in-app .docx viewer.
+  suggestions anywhere in the document. Two backends: inside the Word add-in it edits
+  the OPEN document live via the word_* tools; otherwise it runs the self-contained
+  file pipeline on the firm's own model and infrastructure, paired with the in-app
+  .docx viewer.
 ---
 
 # Word (.docx) reading + editing
 
-This skill is how this firm reads and edits Word documents with AI. It is **self-contained**:
+This skill is how this firm reads and edits Word documents with AI. It has **two
+backends**, and your FIRST step is always to pick the right one:
+
+## Step 0 — where are you running?
+
+- **LIVE backend (Word add-in).** The system prompt says you are working inside
+  Microsoft Word and `word_*` tools are available. The document the user means is the
+  one OPEN IN WORD → use LIVE mode below on it. (The FILE backend still applies to a
+  *different* `.docx` in the workspace that is not open in Word.)
+- **FILE backend (LegalWork app).** No Word pane is connected → use FILE mode below;
+  the user reviews the output in the in-app `.docx` viewer.
+
+## LIVE mode — edit the open document with word_* tools
+
+- Read with `word_read_document` (and `word_search` to locate clauses) before editing,
+  so anchors are verbatim.
+- Edit with `word_replace_text` / `word_insert_text`: they apply native tracked changes
+  directly in the open document. Attach a short `word_add_comment` rationale to each
+  substantive edit. `word_run_code` covers formatting and anything the typed tools miss.
+- **Never write files in LIVE mode.** No `docx-agent.mjs`, no `.redlined.docx`, no copy
+  of the open document. The redlines are already in front of the user: they accept or
+  reject them in Word (Review ribbon). Do not tell them to open another file or the
+  LegalWork viewer.
+- Hand back: one or two short sentences on what you redlined and a reminder to review
+  the tracked changes in Word.
+
+## FILE mode — the self-contained file pipeline
+
+Everything below this point is the FILE backend. It is **self-contained**:
 `assets/docx-agent.mjs` imports a vendored copy of the OOXML engine
 (`assets/vendor/docx-engine.mjs`) — the same engine behind the in-app `.docx` viewer — so it
 runs in any workspace with no install. **Do not hand-parse the document's XML with python** —
@@ -87,7 +117,8 @@ the `index` from `inspect`** (the same index works for body paragraphs and table
    filename — this is what makes it appear as a clickable Word artifact in the panel, exactly like
    a `.md`/`.csv`/`.html` the firm produces; a name with spaces/parens will NOT surface). Tell the
    user to open it in the in-app `.docx` viewer to review — tracked changes + comments render
-   inline; they accept/reject there. Don't pass a `--out` with spaces/parens. Summarize what you
+   inline; they accept/reject there. (Inside the Word add-in there is no viewer: tell the user
+   to open the output file in Word instead.) Don't pass a `--out` with spaces/parens. Summarize what you
    changed and **flag any `errors`** (ops whose `search` didn't match verbatim) and retry those
    with corrected text rather than dropping them.
 
@@ -96,7 +127,8 @@ the `index` from `inspect`** (the same index works for body paragraphs and table
 - **Read with the tool, not python.** The vendored engine sees tables, tracked changes, and
   comments that hand-rolled XML parsing misses, and gives you the exact `index` to edit by.
 - **Non-destructive.** Edits are tracked-change suggestions; the human accepts/rejects in the
-  viewer. Default to a copy; overwrite in place only on request.
+  viewer (FILE mode) or directly in Word (LIVE mode). In FILE mode default to a copy;
+  overwrite in place only on request.
 - **Never fabricate** a value, party, number, or a "done." If `search` won't match or there are no
   changes to adopt, say so.
 - **Open models, firm-owned.** Don't hardcode a model; the `docx-redliner` subagent inherits the
