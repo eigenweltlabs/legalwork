@@ -420,11 +420,6 @@ const de: Record<string, string> = {
   "recorder.dictation_step_waiting_prompt":
     "Beantworten Sie die Systemabfrage. Dieser Schritt schließt sich automatisch ab.",
   "recorder.dictation_repair_cta": "Zurücksetzen und erneut anfragen",
-  "recorder.dictation_paste_test_cta": "Einfügen testen",
-  "recorder.dictation_paste_test_placeholder": "Der Test fügt Ihren Text hier ein",
-  "recorder.dictation_paste_test_sample": "Das Diktat ist bereit.",
-  "recorder.dictation_paste_test_ok": "Eingefügt. Die gesamte Kette funktioniert.",
-  "recorder.dictation_paste_test_failed": "Es kam nichts an. Prüfen Sie die Schritte oben und versuchen Sie es erneut.",
   "recorder.dictation_hotkey_label": "Tastenkürzel",
   "recorder.dictation_hotkey_change": "Zum Ändern klicken",
   "recorder.dictation_hotkey_listening": "Neues Tastenkürzel drücken und loslassen",
