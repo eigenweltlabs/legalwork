@@ -31,6 +31,7 @@ import { ModelManagerList } from "../../recorder/model-manager";
 import { formatDictationShortcut } from "../../recorder/dictation-shortcut";
 import { useRecorderStore } from "../../recorder/recorder-store";
 import { HubTabs } from "../segmented-tabs";
+import { DictationReadinessGate } from "./dictation-readiness";
 import { DictationSetupDialog } from "./dictation-setup-dialog";
 
 export function RecorderSettingsView() {
@@ -128,7 +129,8 @@ export function RecorderSettingsView() {
           </LayoutSectionItem>
         </>
       ) : (
-        <LayoutSectionItem>
+        <DictationReadinessGate>
+          <LayoutSectionItem>
         <LayoutSectionItemHeader>
           <div>
             <LayoutSectionItemTitle>{t("recorder.dictation_title")}</LayoutSectionItemTitle>
@@ -251,7 +253,8 @@ export function RecorderSettingsView() {
             </span>
           </div>
         </div>
-        </LayoutSectionItem>
+          </LayoutSectionItem>
+        </DictationReadinessGate>
       )}
     </LayoutStack>
   );
