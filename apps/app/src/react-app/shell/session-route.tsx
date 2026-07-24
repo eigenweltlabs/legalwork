@@ -912,6 +912,11 @@ export function SessionRoute() {
             sessionID: targetSessionId,
             command: draft.command.name,
             arguments: draft.command.arguments,
+            model: local.prefs.defaultModel
+              ? `${local.prefs.defaultModel.providerID}/${local.prefs.defaultModel.modelID}`
+              : undefined,
+            agent: selectedAgent ?? undefined,
+            variant: modelVariantValue ?? undefined,
           });
           if (result.error) {
             throw new Error(serializeSDKError(result.error));
