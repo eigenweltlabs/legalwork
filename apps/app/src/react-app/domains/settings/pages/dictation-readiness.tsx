@@ -1,12 +1,10 @@
 /** @jsxImportSource react */
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { Check, Keyboard, Loader2, ShieldCheck, X } from "lucide-react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { Check, Loader2, ShieldCheck, X } from "lucide-react";
 
-import { audioSystemDictationPaste } from "@/app/lib/desktop";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import { t } from "@/i18n";
-import { cn } from "@/lib/utils";
 import type {
   AudioDictationPermissionKind,
   AudioDictationReadiness,
@@ -123,15 +121,7 @@ export function DictationReadinessGate(props: { children: ReactNode }) {
   return (
     <div className="mx-auto w-full max-w-xl py-6">
       <div className="flex flex-col items-start">
-        <span
-          className={cn(
-            "flex size-11 items-center justify-center rounded-2xl transition-colors duration-300",
-            allDone ? "bg-success-soft text-success" : "bg-brand-soft text-brand",
-          )}
-        >
-          {allDone ? <Check className="size-5" /> : <Keyboard className="size-5" />}
-        </span>
-        <h1 className="mt-4 text-2xl font-medium tracking-[-0.02em] text-ink">
+        <h1 className="text-2xl font-medium tracking-[-0.02em] text-ink">
           {allDone
             ? t("recorder.dictation_readiness_done_title")
             : t("recorder.dictation_readiness_title")}
@@ -186,34 +176,6 @@ function DictationReadinessSetup(props: {
   const totalBytes = recommendedModel?.totalBytes || recommendedModel?.approxSizeBytes || 0;
   const downloadedBytes = recommendedModel?.downloadedBytes ?? 0;
   const pct = totalBytes > 0 ? Math.round((downloadedBytes / totalBytes) * 100) : 0;
-
-  // End-to-end paste self-test: runs the real clipboard, Accessibility
-  // keystroke, and System Events pipeline into this page's own input.
-  const [pasteTest, setPasteTest] = useState<"idle" | "running" | "ok" | "failed">("idle");
-  const [pasteError, setPasteError] = useState<string | null>(null);
-  const pasteInputRef = useRef<HTMLInputElement | null>(null);
-
-  const runPasteTest = () => {
-    const input = pasteInputRef.current;
-    if (!input) return;
-    input.value = "";
-    input.focus();
-    setPasteTest("running");
-    setPasteError(null);
-    void audioSystemDictationPaste(t("recorder.dictation_paste_test_sample"))
-      .then((result) => {
-        if (result.error) {
-          setPasteTest("failed");
-          setPasteError(result.error);
-          void store.refreshDictationReadiness();
-          return;
-        }
-        window.setTimeout(() => {
-          setPasteTest(input.value.trim().length > 0 ? "ok" : "failed");
-        }, 350);
-      })
-      .catch(() => setPasteTest("failed"));
-  };
 
   const permissionStep = (
     step: ReadinessStep,
@@ -379,34 +341,6 @@ function DictationReadinessSetup(props: {
           );
         })}
       </div>
-
-      {allDone ? (
-        <div className="mt-4 rounded-xl border border-subtle bg-surface px-4 py-3">
-          <div className="flex flex-wrap items-center gap-3">
-            <input
-              ref={pasteInputRef}
-              className="h-9 min-w-0 flex-1 rounded-md border border-subtle bg-sunken px-3 text-sm text-ink outline-none focus:border-brand"
-              placeholder={t("recorder.dictation_paste_test_placeholder")}
-            />
-            <Button size="sm" variant="outline" disabled={pasteTest === "running"} onClick={runPasteTest}>
-              {pasteTest === "running" ? (
-                <Loader2 data-icon="inline-start" className="animate-spin" />
-              ) : null}
-              {t("recorder.dictation_paste_test_cta")}
-            </Button>
-          </div>
-          {pasteTest === "ok" ? (
-            <p className="mt-2 flex items-center gap-1.5 text-xs text-success animate-in fade-in-0">
-              <Check className="size-3" />
-              {t("recorder.dictation_paste_test_ok")}
-            </p>
-          ) : pasteTest === "failed" ? (
-            <p className="mt-2 text-xs text-danger">
-              {pasteError ?? t("recorder.dictation_paste_test_failed")}
-            </p>
-          ) : null}
-        </div>
-      ) : null}
 
       <div className="mt-5 flex items-center justify-between gap-4">
         <p className="flex items-center gap-1.5 text-xs text-subtext">

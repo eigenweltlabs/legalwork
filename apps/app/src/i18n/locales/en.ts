@@ -2058,11 +2058,6 @@ export default {
   "recorder.dictation_step_waiting_prompt":
     "Answer the system prompt. This step completes on its own.",
   "recorder.dictation_repair_cta": "Reset and request again",
-  "recorder.dictation_paste_test_cta": "Test paste",
-  "recorder.dictation_paste_test_placeholder": "The test pastes your text here",
-  "recorder.dictation_paste_test_sample": "Dictation is ready.",
-  "recorder.dictation_paste_test_ok": "Pasted. The whole pipeline works.",
-  "recorder.dictation_paste_test_failed": "Nothing arrived. Check the steps above and try again.",
   "recorder.dictation_hotkey_label": "Hotkey",
   "recorder.dictation_hotkey_change": "Click to change",
   "recorder.dictation_hotkey_listening": "Press and release your new shortcut",

@@ -29,6 +29,8 @@ const WORD_TOOL_RULES = `Rules for word_* tools:
 const WORD_TOOLS_INSTRUCTION = `## Microsoft Word document tools
 The user may work with the LegalWork pane open inside Microsoft Word. The word_* tools read and edit the document that is currently open in Word.
 
+Before using a file-based DOCX pipeline, call word_read_document once. If it succeeds and returns the document the user means, stay in LIVE mode and use only word_* tools. If it reports that no Word pane is connected, the FILE backend is available for workspace documents. Never infer that word_* tools are unavailable without trying word_read_document.
+
 ${WORD_TOOL_RULES}`;
 
 /** Injected when a Word pane is live: switch to document-first behavior. */
@@ -102,14 +104,57 @@ const runCodeArgs = z.object({
     ),
 });
 
-export const LegalWorkWordTools = async () => ({
+const FILE_BACKEND_MARKERS = ["docx-agent.mjs", "docx-redliner", ".redlined.docx"];
+
+function decodedDocumentUrl(documentUrl: string): string {
+  try {
+    return decodeURIComponent(documentUrl);
+  } catch {
+    return documentUrl;
+  }
+}
+
+function documentName(documentUrl: string): string {
+  const normalized = decodedDocumentUrl(documentUrl).replace(/\\/g, "/");
+  return normalized.split("/").pop()?.trim().toLowerCase() ?? "";
+}
+
+/** Prevent the FILE backend from touching the document currently open in Word. */
+export function isOpenWordFilePipelineCall(
+  tool: string,
+  args: Record<string, unknown>,
+  documentUrl: string | null,
+): boolean {
+  if (!documentUrl || (tool !== "bash" && tool !== "task")) return false;
+  const text = JSON.stringify(args).toLowerCase();
+  if (!FILE_BACKEND_MARKERS.some((marker) => text.includes(marker))) return false;
+
+  const decodedUrl = decodedDocumentUrl(documentUrl).toLowerCase();
+  const name = documentName(documentUrl);
+  return text.includes(documentUrl.toLowerCase()) || text.includes(decodedUrl) || Boolean(name && text.includes(name));
+}
+
+export const LegalWorkWordTools = async (pluginInput?: { directory?: string }) => ({
   "experimental.chat.system.transform": async (
     _input: unknown,
     output: { system: string[] },
   ) => {
-    const pane = await officePaneForHost("word");
+    const pane = await officePaneForHost("word", pluginInput?.directory);
     output.system.push(
-      pane ? wordModeInstruction(pane.documentUrl) + (await describeOtherOpenApps("word")) : WORD_TOOLS_INSTRUCTION,
+      pane
+        ? wordModeInstruction(pane.documentUrl) +
+          (await describeOtherOpenApps("word", pluginInput?.directory))
+        : WORD_TOOLS_INSTRUCTION,
+    );
+  },
+  "tool.execute.before": async (
+    input: { tool: string },
+    output: { args: Record<string, unknown> },
+  ) => {
+    const pane = await officePaneForHost("word", pluginInput?.directory);
+    if (!pane || !isOpenWordFilePipelineCall(input.tool, output.args, pane.documentUrl)) return;
+    throw new Error(
+      "The target document is open in Microsoft Word. The FILE DOCX pipeline is disabled for that document: use word_* tools for live tracked changes, or stop and retry if the Word relay is not ready.",
     );
   },
   tool: {

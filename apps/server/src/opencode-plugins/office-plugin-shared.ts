@@ -110,16 +110,25 @@ export type OfficePaneStatus = {
   hosts: OfficePaneInfo[];
 };
 
-let paneStatusCache: { at: number; status: OfficePaneStatus } | null = null;
+const paneStatusCache = new Map<string, { at: number; status: OfficePaneStatus }>();
 
 /**
  * Status of the connected Office panes, if any. Checked per chat turn (with
  * a short cache) so system prompts flip to document-first behavior as soon
  * as the user opens a pane in an Office host.
  */
-export async function officePaneStatus(): Promise<OfficePaneStatus> {
-  if (paneStatusCache && Date.now() - paneStatusCache.at < PANE_STATUS_CACHE_MS) {
-    return paneStatusCache.status;
+export async function officePaneStatus(directory?: string): Promise<OfficePaneStatus> {
+  const normalizedDirectory = directory?.trim() ?? "";
+  const cacheKey = normalizedDirectory || "*";
+  const cached = paneStatusCache.get(cacheKey);
+  // A disconnected result can become stale as soon as an Office pane starts
+  // polling. Cache only positive detection so a just-opened pane is visible to
+  // the next system transform or safety check immediately.
+  if (
+    cached?.status.connected &&
+    Date.now() - cached.at < PANE_STATUS_CACHE_MS
+  ) {
+    return cached.status;
   }
   let status: OfficePaneStatus = { connected: false, hosts: [] };
   try {
@@ -127,7 +136,14 @@ export async function officePaneStatus(): Promise<OfficePaneStatus> {
     const token = serverToken();
     if (url && token) {
       const items = await listWorkspaces();
-      for (const item of items.slice(0, 5)) {
+      const candidates = normalizedDirectory
+        ? items.filter(
+            (item) =>
+              item.path === normalizedDirectory ||
+              normalizedDirectory.startsWith(`${item.path}/`),
+          )
+        : items.slice(0, 5);
+      for (const item of candidates) {
         const response = await fetch(
           `${url}/workspace/${encodeURIComponent(item.id)}/office-tools/status`,
           { headers: { Authorization: `Bearer ${token}` }, signal: AbortSignal.timeout(3_000) },
@@ -156,13 +172,13 @@ export async function officePaneStatus(): Promise<OfficePaneStatus> {
   } catch {
     status = { connected: false, hosts: [] };
   }
-  paneStatusCache = { at: Date.now(), status };
+  paneStatusCache.set(cacheKey, { at: Date.now(), status });
   return status;
 }
 
 /** The connected pane for a specific host, if any. */
-export async function officePaneForHost(host: string): Promise<OfficePaneInfo | null> {
-  const status = await officePaneStatus();
+export async function officePaneForHost(host: string, directory?: string): Promise<OfficePaneInfo | null> {
+  const status = await officePaneStatus(directory);
   return status.hosts.find((entry) => entry.host === host) ?? null;
 }
 
@@ -182,8 +198,8 @@ const HOST_TOOL_PREFIX: Record<string, string> = {
  * host-specific mode prompt doesn't tunnel the agent into a single app. Empty
  * when this is the only pane. Appended to each live mode instruction.
  */
-export async function describeOtherOpenApps(currentHost: string): Promise<string> {
-  const status = await officePaneStatus();
+export async function describeOtherOpenApps(currentHost: string, directory?: string): Promise<string> {
+  const status = await officePaneStatus(directory);
   const others = status.hosts.filter((entry) => entry.host !== currentHost && HOST_LABELS[entry.host]);
   if (others.length === 0) return "";
   const list = others
