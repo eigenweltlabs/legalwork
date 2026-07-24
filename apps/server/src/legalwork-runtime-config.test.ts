@@ -82,6 +82,23 @@ describe("legalwork runtime config file", () => {
     expect(agents.reviewer?.model).toBe("opencode/big-pickle");
   });
 
+  test("bundled plugin specs are file:// URLs so import() works on Windows", async () => {
+    const { config } = await setup();
+    await writeLegalworkRuntimeConfigFile(config, "ws_1");
+
+    const parsed = await readConfigFile(config);
+    const plugins = parsed.plugin as string[];
+    const localPlugins = plugins.filter((spec) => /legalwork-[a-z-]+\.(?:js|ts)$/.test(spec));
+    // Every bundled plugin resolves to a file on disk, so each must be a
+    // file:// URL. A bare absolute path (esp. a Windows `C:\…` path) makes
+    // OpenCode's dynamic import() throw ERR_UNSUPPORTED_ESM_URL_SCHEME and
+    // fails the whole config load — no providers, no tasks.
+    expect(localPlugins.length).toBeGreaterThan(0);
+    for (const spec of localPlugins) {
+      expect(spec.startsWith("file://")).toBe(true);
+    }
+  });
+
   test("keepLegalworkRuntimeConfigFileFresh rewrites the file on runtime-DB writes", async () => {
     const { config } = await setup();
     await writeLegalworkRuntimeConfigFile(config, "ws_1");

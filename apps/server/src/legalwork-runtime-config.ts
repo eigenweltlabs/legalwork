@@ -14,6 +14,7 @@
  */
 import { mkdir, rename, writeFile } from "node:fs/promises";
 import { join } from "node:path";
+import { pathToFileURL } from "node:url";
 import { randomUUID } from "node:crypto";
 import {
   legalworkExtensionsPreviewPluginPath,
@@ -95,6 +96,18 @@ LegalWork can preview, edit, and download standard artifacts when you create or 
 - For websites or React/UI previews, start the dev server when useful and mention the http://localhost:<port> URL.
 - For spreadsheets, use .csv for simple tabular data and .xlsx when the user asks for Excel/XLS specifically.`;
 
+// The bundled plugins live at absolute paths on disk. OpenCode loads each
+// plugin spec with a dynamic import(), and Node only accepts a `file://` URL
+// for an absolute path: a bare Windows path like `C:\…\plugin.js` is read as a
+// URL with a `c:` scheme and throws ERR_UNSUPPORTED_ESM_URL_SCHEME, which fails
+// the whole config load (providers won't list, tasks won't start). POSIX
+// absolute paths happen to import cleanly, which is why this only bit Windows.
+// Emit `file://` URLs so import() works on every platform — the same
+// convention used for directory plugins in plugins.ts.
+function bundledPluginSpec(absolutePath: string): string {
+  return pathToFileURL(absolutePath).href;
+}
+
 export async function buildLegalworkRuntimeConfigObject(
   config?: ServerConfig,
   workspaceId?: string,
@@ -168,14 +181,14 @@ export async function buildLegalworkRuntimeConfigObject(
       // OAuth + "Create an API Key" console OAuth) to the provider list. Without
       // this plugin the engine only offers manual Anthropic API-key entry.
       "opencode-anthropic-auth",
-      legalworkExtensionsPreviewPluginPath(),
-      legalworkCapabilitiesKnowledgePluginPath(),
-      legalworkAnthropicAdaptiveThinkingPluginPath(),
-      legalworkAnthropicToolSchemaPluginPath(),
-      legalworkWordToolsPluginPath(),
-      legalworkExcelToolsPluginPath(),
-      legalworkPowerPointToolsPluginPath(),
-      legalworkBenchmarkToolsPluginPath(),
+      bundledPluginSpec(legalworkExtensionsPreviewPluginPath()),
+      bundledPluginSpec(legalworkCapabilitiesKnowledgePluginPath()),
+      bundledPluginSpec(legalworkAnthropicAdaptiveThinkingPluginPath()),
+      bundledPluginSpec(legalworkAnthropicToolSchemaPluginPath()),
+      bundledPluginSpec(legalworkWordToolsPluginPath()),
+      bundledPluginSpec(legalworkExcelToolsPluginPath()),
+      bundledPluginSpec(legalworkPowerPointToolsPluginPath()),
+      bundledPluginSpec(legalworkBenchmarkToolsPluginPath()),
       ...runtimePluginList(runtimeConfig),
     ],
     ...(disabledProviders.length ? { disabled_providers: disabledProviders } : {}),
