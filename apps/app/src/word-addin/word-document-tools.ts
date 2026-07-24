@@ -14,6 +14,7 @@
 import {
   getDocumentUrl,
   isWordApiSupported,
+  wordApiDiagnostic,
   readSelectionText,
   wordRun,
   type WordRange,
@@ -83,7 +84,7 @@ function pickAnchorRange(ranges: WordRange[], occurrence: number | undefined, an
 async function withTrackedChanges(context: WordRunContext, mutate: () => void): Promise<void> {
   if (!isWordApiSupported("1.4")) {
     throw new Error(
-      "This Word version does not support controlling tracked changes from add-ins (requires WordApi 1.4). Document edits are disabled for safety — the user can update Word/Microsoft 365 to enable them.",
+      `This Word version does not support controlling tracked changes from add-ins (requires WordApi 1.4). Document edits are disabled for safety — the user can update Word/Microsoft 365 to enable them. ${wordApiDiagnostic()}`,
     );
   }
   const document = context.document;
@@ -121,6 +122,7 @@ async function readDocument(args: Record<string, unknown>): Promise<unknown> {
       truncated: text.length > maxChars,
       changeTrackingMode: trackingSupported ? context.document.changeTrackingMode : "unsupported",
       editingSupported: trackingSupported,
+      ...(trackingSupported ? {} : { editingDisabledReason: `WordApi 1.4 not available. ${wordApiDiagnostic()}` }),
       text: text.slice(0, maxChars),
     };
   });
@@ -219,7 +221,9 @@ async function addComment(args: Record<string, unknown>): Promise<unknown> {
   const comment = stringArg(args, "comment")?.trim();
   if (!comment) throw new Error("comment is required.");
   if (!isWordApiSupported("1.4")) {
-    throw new Error("This Word version does not support inserting comments from add-ins (requires WordApi 1.4).");
+    throw new Error(
+      `This Word version does not support inserting comments from add-ins (requires WordApi 1.4). ${wordApiDiagnostic()}`,
+    );
   }
 
   return wordRun(async (context) => {

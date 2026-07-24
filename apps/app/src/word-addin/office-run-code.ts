@@ -13,7 +13,7 @@
  * In Word, change tracking is forced on around the batch so document
  * mutations stay reviewable redlines, mirroring the typed word_* tools.
  */
-import { isWordApiSupported, wordRun } from "./office";
+import { isWordApiSupported, wordApiDiagnostic, wordRun } from "./office";
 import { excelRun } from "./excel-api";
 import { powerPointRun } from "./powerpoint-api";
 
@@ -134,7 +134,7 @@ export async function runOfficeCode(host: RunHost, args: Record<string, unknown>
       result = await wordRun(async (context) => {
         if (!isWordApiSupported("1.4")) {
           throw new Error(
-            "This Word version does not support controlling tracked changes from add-ins (requires WordApi 1.4). word_run_code is disabled for safety.",
+            `This Word version does not support controlling tracked changes from add-ins (requires WordApi 1.4). word_run_code is disabled for safety. ${wordApiDiagnostic()}`,
           );
         }
         // Mirror withTrackedChanges in word-document-tools: every mutation

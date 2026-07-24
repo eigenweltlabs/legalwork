@@ -22,6 +22,7 @@ type OfficeNamespace = {
   onReady: (callback?: (info: OfficeHostInfo) => void) => Promise<OfficeHostInfo> | void;
   context?: {
     requirements?: { isSetSupported?: (name: string, version?: string) => boolean };
+    diagnostics?: { host?: unknown; platform?: unknown; version?: unknown };
     document?: OfficeDocumentContext;
     ui?: { openBrowserWindow?: (url: string) => void };
   };
@@ -168,6 +169,29 @@ export function isOfficeApiSupported(setName: string, version: string): boolean 
 /** Check a Word requirement set, e.g. isWordApiSupported("1.4") for tracking/comments. */
 export function isWordApiSupported(version: string): boolean {
   return isOfficeApiSupported("WordApi", version);
+}
+
+/** Highest WordApi requirement set the host reports (sets are cumulative), or null. */
+export function highestWordApiVersion(): string | null {
+  let highest: string | null = null;
+  for (let minor = 1; minor <= 9; minor++) {
+    const version = `1.${minor}`;
+    if (isWordApiSupported(version)) highest = version;
+  }
+  return highest;
+}
+
+/**
+ * One-line host description for unsupported-API errors, so support can see
+ * the customer's actual Office build and API level straight from the
+ * agent transcript instead of asking them for it.
+ */
+export function wordApiDiagnostic(): string {
+  const diagnostics = officeGlobals().office?.context?.diagnostics;
+  const build = typeof diagnostics?.version === "string" && diagnostics.version ? diagnostics.version : "unknown build";
+  const platform = diagnostics?.platform != null ? String(diagnostics.platform) : "unknown platform";
+  const highest = highestWordApiVersion();
+  return `Detected Office ${build} on ${platform}; highest supported WordApi is ${highest ?? "unknown"}.`;
 }
 
 /** URL/path of the open document, when the host exposes it. */
