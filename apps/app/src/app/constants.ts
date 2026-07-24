@@ -453,6 +453,20 @@ export const MCP_QUICK_CONNECT: McpDirectoryInfo[] = [
     kind: "mcp",
   },
   {
+    get name() { return t("mcp.quick_connect_dingduff_title"); },
+    serverName: "dingduff",
+    get description() { return t("mcp.quick_connect_dingduff_desc"); },
+    // Attorney-built legal research server (github.com/DingDuff/dingduff-public):
+    // court opinions, federal/state statutes and rules, and PACER dockets via
+    // plain-English search. One-click: standard MCP OAuth — a sign-in window
+    // opens on dingduff.com and returns automatically. Each user needs their
+    // own DingDuff account (free while in beta; licensed attorneys per ToS).
+    url: "https://app.dingduff.com/mcp",
+    type: "remote",
+    oauth: true,
+    kind: "mcp",
+  },
+  {
     get name() { return t("mcp.quick_connect_ruly_title"); },
     serverName: "ruly",
     get description() { return t("mcp.quick_connect_ruly_desc"); },
