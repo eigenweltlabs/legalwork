@@ -194,6 +194,19 @@ export function wordApiDiagnostic(): string {
   return `Detected Office ${build} on ${platform}; highest supported WordApi is ${highest ?? "unknown"}.`;
 }
 
+/**
+ * Warning attached to every edit made on a host without WordApi 1.4: the
+ * mutation went through, but tracking could not be forced (or even read),
+ * so unless the user has Track Changes on themselves the edit is untracked.
+ */
+export function untrackedEditWarning(): string {
+  return (
+    "Edit applied WITHOUT tracked changes: this Word version does not let add-ins control change tracking " +
+    "(requires WordApi 1.4). Tell the user exactly what you changed so they can review it (undo via Ctrl/Cmd+Z), " +
+    `and mention that updating Word/Microsoft 365 enables native redlines. ${wordApiDiagnostic()}`
+  );
+}
+
 /** URL/path of the open document, when the host exposes it. */
 export function getDocumentUrl(): string | null {
   const url = officeGlobals().office?.context?.document?.url;

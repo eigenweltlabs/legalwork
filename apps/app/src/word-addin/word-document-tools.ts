@@ -6,14 +6,18 @@
  *   document; character offsets would drift while the user types.
  * - Every mutation runs with Word change tracking forced to TrackAll, so
  *   agent edits are always reviewable redlines. If the host Word version
- *   cannot control tracking (WordApi < 1.4), edits are refused entirely --
- *   silent modifications are never acceptable for legal documents.
+ *   cannot control tracking (WordApi < 1.4), edits still apply but the
+ *   result flags trackedChange: false with a warning the agent must relay
+ *   -- the user gets told exactly what changed instead of a refusal.
+ *   Comments and tracking control genuinely do not exist below 1.4 and
+ *   keep failing with a diagnostic.
  * - Handlers throw Error with a model-readable message; the relay client
  *   converts that into { ok: false, error } for the tool result.
  */
 import {
   getDocumentUrl,
   isWordApiSupported,
+  untrackedEditWarning,
   wordApiDiagnostic,
   readSelectionText,
   wordRun,
@@ -79,13 +83,15 @@ function pickAnchorRange(ranges: WordRange[], occurrence: number | undefined, an
 
 /**
  * Run a mutation with change tracking forced on, restoring the user's
- * previous tracking mode afterwards (revisions persist once made).
+ * previous tracking mode afterwards (revisions persist once made). On hosts
+ * without WordApi 1.4 tracking cannot be controlled or read; the mutation
+ * still runs and the caller surfaces tracked: false to the agent.
  */
-async function withTrackedChanges(context: WordRunContext, mutate: () => void): Promise<void> {
+async function withTrackedChanges(context: WordRunContext, mutate: () => void): Promise<{ tracked: boolean }> {
   if (!isWordApiSupported("1.4")) {
-    throw new Error(
-      `This Word version does not support controlling tracked changes from add-ins (requires WordApi 1.4). Document edits are disabled for safety — the user can update Word/Microsoft 365 to enable them. ${wordApiDiagnostic()}`,
-    );
+    mutate();
+    await context.sync();
+    return { tracked: false };
   }
   const document = context.document;
   document.load("changeTrackingMode");
@@ -105,6 +111,7 @@ async function withTrackedChanges(context: WordRunContext, mutate: () => void): 
       await context.sync();
     }
   }
+  return { tracked: true };
 }
 
 async function readDocument(args: Record<string, unknown>): Promise<unknown> {
@@ -121,8 +128,15 @@ async function readDocument(args: Record<string, unknown>): Promise<unknown> {
       totalChars: text.length,
       truncated: text.length > maxChars,
       changeTrackingMode: trackingSupported ? context.document.changeTrackingMode : "unsupported",
-      editingSupported: trackingSupported,
-      ...(trackingSupported ? {} : { editingDisabledReason: `WordApi 1.4 not available. ${wordApiDiagnostic()}` }),
+      editingSupported: true,
+      trackedEditingSupported: trackingSupported,
+      ...(trackingSupported
+        ? {}
+        : {
+            warning:
+              "Edits on this Word version are applied WITHOUT tracked changes and comments are unavailable " +
+              `(requires WordApi 1.4). ${wordApiDiagnostic()}`,
+          }),
       text: text.slice(0, maxChars),
     };
   });
@@ -172,7 +186,7 @@ async function replaceText(args: Record<string, unknown>): Promise<unknown> {
   return wordRun(async (context) => {
     const ranges = await findAnchorRanges(context, anchor);
     const { range, index } = pickAnchorRange(ranges, occurrence, anchor);
-    await withTrackedChanges(context, () => {
+    const { tracked } = await withTrackedChanges(context, () => {
       if (replacement === "") {
         range.delete();
       } else {
@@ -181,7 +195,8 @@ async function replaceText(args: Record<string, unknown>): Promise<unknown> {
     });
     return {
       applied: true,
-      trackedChange: true,
+      trackedChange: tracked,
+      ...(tracked ? {} : { warning: untrackedEditWarning() }),
       action: replacement === "" ? "deleted" : "replaced",
       matches: ranges.length,
       occurrence: index + 1,
@@ -196,20 +211,27 @@ async function insertText(args: Record<string, unknown>): Promise<unknown> {
 
   return wordRun(async (context) => {
     if (location === "document_start" || location === "document_end") {
-      await withTrackedChanges(context, () => {
+      const { tracked } = await withTrackedChanges(context, () => {
         context.document.body.insertText(text, location === "document_start" ? "Start" : "End");
       });
-      return { applied: true, trackedChange: true, location };
+      return { applied: true, trackedChange: tracked, ...(tracked ? {} : { warning: untrackedEditWarning() }), location };
     }
 
     if (location === "before_anchor" || location === "after_anchor") {
       const anchor = requireAnchor(args);
       const ranges = await findAnchorRanges(context, anchor);
       const { range, index } = pickAnchorRange(ranges, numberArg(args, "occurrence"), anchor);
-      await withTrackedChanges(context, () => {
+      const { tracked } = await withTrackedChanges(context, () => {
         range.insertText(text, location === "before_anchor" ? "Before" : "After");
       });
-      return { applied: true, trackedChange: true, location, matches: ranges.length, occurrence: index + 1 };
+      return {
+        applied: true,
+        trackedChange: tracked,
+        ...(tracked ? {} : { warning: untrackedEditWarning() }),
+        location,
+        matches: ranges.length,
+        occurrence: index + 1,
+      };
     }
 
     throw new Error("location must be one of document_start, document_end, before_anchor, after_anchor.");
@@ -222,7 +244,8 @@ async function addComment(args: Record<string, unknown>): Promise<unknown> {
   if (!comment) throw new Error("comment is required.");
   if (!isWordApiSupported("1.4")) {
     throw new Error(
-      `This Word version does not support inserting comments from add-ins (requires WordApi 1.4). ${wordApiDiagnostic()}`,
+      "Comments are unavailable on this Word version (requires WordApi 1.4) — put the rationale in the chat reply " +
+        `instead. ${wordApiDiagnostic()}`,
     );
   }
 

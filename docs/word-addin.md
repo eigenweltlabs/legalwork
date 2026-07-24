@@ -183,9 +183,12 @@ through Office.js and posts the result back. Edits are anchor-based (exact
 text snippets, not offsets) and run with Word change tracking forced to
 `TrackAll`, so every agent edit is a native redline the user accepts or
 rejects in Word. On Word versions without WordApi 1.4 (change-tracking
-control), edits are refused rather than applied silently. When no pane is
-connected the tools return a clear error and the agent tells the user to
-open the pane.
+control), edits still apply but come back flagged `trackedChange: false`
+with a warning (including the detected Office build) that instructs the
+agent to spell out exactly what changed and to suggest updating Word;
+comments are unavailable there and fail with the same diagnostic. When no
+pane is connected the tools return a clear error and the agent tells the
+user to open the pane.
 
 ## Security notes
 

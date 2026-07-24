@@ -12,8 +12,10 @@
  *
  * In Word, change tracking is forced on around the batch so document
  * mutations stay reviewable redlines, mirroring the typed word_* tools.
+ * Hosts without WordApi 1.4 cannot control tracking; the batch still runs
+ * and the result carries trackedChanges: false plus a warning to relay.
  */
-import { isWordApiSupported, wordApiDiagnostic, wordRun } from "./office";
+import { isWordApiSupported, untrackedEditWarning, wordRun } from "./office";
 import { excelRun } from "./excel-api";
 import { powerPointRun } from "./powerpoint-api";
 
@@ -128,14 +130,16 @@ export async function runOfficeCode(host: RunHost, args: Record<string, unknown>
   const execute = (context: unknown): Promise<unknown> =>
     snippet(context, apis.Office, apis.Word, apis.Excel, apis.PowerPoint, consoleProxy);
 
+  const wordTracking = host === "word" ? isWordApiSupported("1.4") : false;
+
   try {
     let result: unknown;
     if (host === "word") {
       result = await wordRun(async (context) => {
-        if (!isWordApiSupported("1.4")) {
-          throw new Error(
-            `This Word version does not support controlling tracked changes from add-ins (requires WordApi 1.4). word_run_code is disabled for safety. ${wordApiDiagnostic()}`,
-          );
+        if (!wordTracking) {
+          const value = await execute(context);
+          await context.sync();
+          return value;
         }
         // Mirror withTrackedChanges in word-document-tools: every mutation
         // the snippet makes must land as a reviewable redline.
@@ -174,7 +178,9 @@ export async function runOfficeCode(host: RunHost, args: Record<string, unknown>
     return {
       result: serializeResult(result),
       ...(logs.length ? { logs } : {}),
-      ...(host === "word" ? { trackedChanges: true } : {}),
+      ...(host === "word"
+        ? { trackedChanges: wordTracking, ...(wordTracking ? {} : { warning: untrackedEditWarning() }) }
+        : {}),
     };
   } catch (error) {
     throw describeOfficeError(error);

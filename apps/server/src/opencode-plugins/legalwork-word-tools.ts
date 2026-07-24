@@ -14,13 +14,17 @@ import {
  * pane executes via Office.js (see office-plugin-shared.ts for the path).
  *
  * All mutating tools force Word's change tracking on, so every agent edit
- * shows up as a native tracked change the user can accept or reject.
+ * shows up as a native tracked change the user can accept or reject. On
+ * outdated Word versions that cannot control tracking (no WordApi 1.4),
+ * edits still apply but come back flagged trackedChange: false with a
+ * warning the agent must relay; comments are unavailable there.
  */
 
 const WORD_TOOL_RULES = `Rules for word_* tools:
 - Call word_read_document before editing so anchors are exact.
 - Anchors are short snippets (under 200 characters) copied VERBATIM from the document — including punctuation and casing. Prefer distinctive phrases; if an anchor matches several places, the tool reports the count and you must pass "occurrence".
-- Every edit is applied as a tracked change (redline). Never claim you changed text silently; the user reviews and accepts each change in Word.
+- Every edit is normally applied as a tracked change (redline). Never claim you changed text silently; the user reviews and accepts each change in Word.
+- On outdated Word versions (no WordApi 1.4) edit results say trackedChange: false with a warning: the edit WAS applied, just without tracked changes. Do not refuse to edit and do not claim the tools are unavailable — make the edits, then tell the user exactly what changed (they can undo with Ctrl/Cmd+Z) and that updating Word/Microsoft 365 restores native redlines. word_add_comment is unavailable there; put the rationale in the chat instead.
 - After substantive edits, add a short word_add_comment on the edited text explaining the reasoning, like a careful colleague would.
 - word_run_code executes raw Office.js for anything the typed tools cannot do (formatting, styles, tables, headers/footers, sections). Prefer the typed tools when they fit; keep snippets small and return a compact summary.
 - If a tool answers "No Office pane is connected", tell the user to open the LegalWork pane in Word and retry.`;
@@ -185,7 +189,7 @@ export const LegalWorkWordTools = async (pluginInput?: { directory?: string }) =
     },
     word_replace_text: {
       description:
-        "Replace exact text in the Word document as a tracked change (redline). The anchor must be copied verbatim from the document. If the anchor matches multiple places, the tool reports the count and you must pass occurrence. An empty replacement deletes the text.",
+        "Replace exact text in the Word document as a tracked change (redline). The anchor must be copied verbatim from the document. If the anchor matches multiple places, the tool reports the count and you must pass occurrence. An empty replacement deletes the text. On Word versions without WordApi 1.4 the edit still applies but untracked — the result flags trackedChange: false and you must tell the user what changed.",
       args: replaceArgs.shape,
       async execute(rawArgs: unknown, context: OpenCodeContext) {
         const args = replaceArgs.parse(rawArgs);
@@ -194,7 +198,7 @@ export const LegalWorkWordTools = async (pluginInput?: { directory?: string }) =
     },
     word_insert_text: {
       description:
-        "Insert text into the Word document as a tracked change — at the start/end of the document, or before/after an exact anchor text.",
+        "Insert text into the Word document as a tracked change — at the start/end of the document, or before/after an exact anchor text. On Word versions without WordApi 1.4 the insert still applies but untracked — the result flags trackedChange: false and you must tell the user what changed.",
       args: insertArgs.shape,
       async execute(rawArgs: unknown, context: OpenCodeContext) {
         const args = insertArgs.parse(rawArgs);
@@ -206,7 +210,7 @@ export const LegalWorkWordTools = async (pluginInput?: { directory?: string }) =
     },
     word_add_comment: {
       description:
-        "Attach a Word comment to exact text in the document, e.g. to explain the rationale for a tracked change you just made.",
+        "Attach a Word comment to exact text in the document, e.g. to explain the rationale for a tracked change you just made. Unavailable on Word versions without WordApi 1.4 — put the rationale in the chat reply instead.",
       args: commentArgs.shape,
       async execute(rawArgs: unknown, context: OpenCodeContext) {
         const args = commentArgs.parse(rawArgs);
@@ -215,7 +219,7 @@ export const LegalWorkWordTools = async (pluginInput?: { directory?: string }) =
     },
     word_run_code: {
       description:
-        "Escape hatch: run Office.js (Word JavaScript API) code against the open document for anything the typed word_* tools cannot do — character formatting (bold, fonts, colors, highlights), paragraph styles (headings, quotes), tables, headers/footers, sections, lists, page setup. Change tracking is forced on, so document edits appear as reviewable redlines. Errors return the Office.js debugInfo so you can fix the snippet and retry. Prefer the typed tools when they fit.",
+        "Escape hatch: run Office.js (Word JavaScript API) code against the open document for anything the typed word_* tools cannot do — character formatting (bold, fonts, colors, highlights), paragraph styles (headings, quotes), tables, headers/footers, sections, lists, page setup. Change tracking is forced on when the Word version supports it, so document edits appear as reviewable redlines; otherwise the result flags trackedChanges: false and you must tell the user what changed. Errors return the Office.js debugInfo so you can fix the snippet and retry. Prefer the typed tools when they fit.",
       args: runCodeArgs.shape,
       async execute(rawArgs: unknown, context: OpenCodeContext) {
         const args = runCodeArgs.parse(rawArgs);
