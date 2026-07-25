@@ -11,6 +11,7 @@ import { createManagedOpencodeServer, type ManagedOpencodeServer, type OpencodeE
 import { startServer, syncAllWorkspacesRuntimeMcpToEngine } from "./server.js";
 import { ensureWorkspaceFiles } from "./workspace-init.js";
 import { keepLegalworkRuntimeConfigFileFresh, writeLegalworkRuntimeConfigFile } from "./legalwork-runtime-config.js";
+import { prepareManagedOpencodeEngineDb } from "./managed-opencode-db.js";
 import { readCachedEigenweltFreeManifest, refreshEigenweltFreeManifest } from "./eigenwelt-free.js";
 import { refreshEigenweltPaidManifest } from "./eigenwelt-paid-manifest.js";
 import type { ServeResult } from "./serve-node.js";
@@ -103,6 +104,15 @@ export async function startEmbeddedServer(options: EmbeddedServerOptions): Promi
         || workspace.path;
       await mkdir(cwd, { recursive: true });
 
+      // Private engine DB: never share OpenCode's global opencode.db with a
+      // separately installed OpenCode — a newer install migrates it to a
+      // schema the pinned sidecar can't open, which kills provider listing,
+      // MCP connect, and session create (issue #62). Also exported to
+      // process.env so server-side direct DB access (opencode-db.ts) targets
+      // the same file the engine writes.
+      const managedDb = await prepareManagedOpencodeEngineDb(config);
+      if (managedDb) process.env.OPENCODE_DB = managedDb.path;
+
       managedOpencode = await createManagedOpencodeServer({
         bin: options.opencodeBin || process.env.LEGALWORK_OPENCODE_BIN,
         cwd,
@@ -114,6 +124,7 @@ export async function startEmbeddedServer(options: EmbeddedServerOptions): Promi
           LEGALWORK_SERVER_TOKEN: config.token,
           OPENCODE_CONFIG: runtimeConfigPath,
           OPENCODE_MODELS_URL: opencodeModelsUrl,
+          ...(managedDb ? { OPENCODE_DB: managedDb.path } : {}),
         },
       });
 
