@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { existsSync, mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -42,12 +42,24 @@ function testConfig(): ServerConfig {
 
 beforeEach(() => {
   root = mkdtempSync(join(tmpdir(), "legalwork-managed-db-"));
-  for (const key of ["OPENCODE_DB", "LEGALWORK_DEV_MODE", "XDG_DATA_HOME", "LEGALWORK_DATA_DIR"]) {
+  for (const key of [
+    "OPENCODE_DB",
+    "LEGALWORK_DEV_MODE",
+    "XDG_DATA_HOME",
+    "LEGALWORK_DATA_DIR",
+    "LEGALWORK_RUNTIME_DB",
+  ]) {
     savedEnv[key] = process.env[key];
     delete process.env[key];
   }
   // Point the shared-DB discovery at an isolated location.
   process.env.XDG_DATA_HOME = join(root, "xdg-data");
+  // runtimeStorageDir() prefers LEGALWORK_RUNTIME_DB over the config path, and
+  // sibling suites set it, so pin it inside this test's temp root. Without
+  // this the private DB lands in whatever directory leaked in — shared across
+  // these tests — and a DB written by one test makes the next one take the
+  // "private DB already exists" early return.
+  process.env.LEGALWORK_RUNTIME_DB = join(root, "config", "runtime.sqlite");
 });
 
 afterEach(() => {
@@ -64,8 +76,6 @@ function sharedDbPath(): string {
 }
 
 function ensureSharedDbDir(): void {
-  // mkdir -p for the shared dir
-  const { mkdirSync } = require("node:fs") as typeof import("node:fs");
   mkdirSync(join(root, "xdg-data", "opencode"), { recursive: true });
 }
 
