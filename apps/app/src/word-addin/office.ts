@@ -42,6 +42,7 @@ export type WordRange = {
   text: string;
   load: (properties: string) => void;
   insertText: (text: string, insertLocation: string) => WordRange;
+  insertOoxml: (ooxml: string, insertLocation: string) => WordRange;
   insertComment: (commentText: string) => unknown;
   delete: () => void;
   paragraphs: WordParagraphCollection;
@@ -62,6 +63,7 @@ export type WordBody = {
   text: string;
   load: (properties: string) => void;
   insertText: (text: string, insertLocation: string) => WordRange;
+  insertOoxml: (ooxml: string, insertLocation: string) => WordRange;
   search: (searchText: string, options?: WordSearchOptions) => WordRangeCollection;
 };
 
@@ -195,15 +197,17 @@ export function wordApiDiagnostic(): string {
 }
 
 /**
- * Warning attached to every edit made on a host without WordApi 1.4: the
- * mutation went through, but tracking could not be forced (or even read),
- * so unless the user has Track Changes on themselves the edit is untracked.
+ * Warning attached to an edit that went through untracked: the host cannot
+ * control change tracking (no WordApi 1.4) and the edit could not be
+ * expressed as revision markup either, so unless the user has Track Changes
+ * on themselves the edit is invisible as a change.
  */
 export function untrackedEditWarning(): string {
   return (
     "Edit applied WITHOUT tracked changes: this Word version does not let add-ins control change tracking " +
-    "(requires WordApi 1.4). Tell the user exactly what you changed so they can review it (undo via Ctrl/Cmd+Z), " +
-    `and mention that updating Word/Microsoft 365 enables native redlines. ${wordApiDiagnostic()}`
+    "(requires WordApi 1.4), and this edit could not be synthesized as revision markup. Tell the user exactly " +
+    "what you changed so they can review it (undo via Ctrl/Cmd+Z), and mention that updating Word/Microsoft 365 " +
+    `enables native redlines. ${wordApiDiagnostic()}`
   );
 }
 

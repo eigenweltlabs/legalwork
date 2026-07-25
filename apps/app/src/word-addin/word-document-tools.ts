@@ -6,11 +6,13 @@
  *   document; character offsets would drift while the user types.
  * - Every mutation runs with Word change tracking forced to TrackAll, so
  *   agent edits are always reviewable redlines. If the host Word version
- *   cannot control tracking (WordApi < 1.4), edits still apply but the
- *   result flags trackedChange: false with a warning the agent must relay
- *   -- the user gets told exactly what changed instead of a refusal.
- *   Comments and tracking control genuinely do not exist below 1.4 and
- *   keep failing with a diagnostic.
+ *   cannot control tracking (WordApi < 1.4), the redline is synthesized
+ *   instead: the edit is inserted as OOXML w:ins/w:del revision markup
+ *   (insertOoxml, WordApi 1.1), which Word treats as a normal tracked
+ *   change attributed to REVISION_AUTHOR. Only if the host rejects that
+ *   package does the edit apply untracked, flagged trackedChange: false
+ *   with a warning the agent must relay. Comments genuinely do not exist
+ *   below 1.4 and keep failing with a diagnostic.
  * - Handlers throw Error with a model-readable message; the relay client
  *   converts that into { ok: false, error } for the tool result.
  */
@@ -83,16 +85,11 @@ function pickAnchorRange(ranges: WordRange[], occurrence: number | undefined, an
 
 /**
  * Run a mutation with change tracking forced on, restoring the user's
- * previous tracking mode afterwards (revisions persist once made). On hosts
- * without WordApi 1.4 tracking cannot be controlled or read; the mutation
- * still runs and the caller surfaces tracked: false to the agent.
+ * previous tracking mode afterwards (revisions persist once made).
+ * Requires WordApi 1.4; callers below that go through applyTracked's
+ * revision-markup path instead.
  */
-async function withTrackedChanges(context: WordRunContext, mutate: () => void): Promise<{ tracked: boolean }> {
-  if (!isWordApiSupported("1.4")) {
-    mutate();
-    await context.sync();
-    return { tracked: false };
-  }
+async function withTrackedChanges(context: WordRunContext, mutate: () => void): Promise<void> {
   const document = context.document;
   document.load("changeTrackingMode");
   await context.sync();
@@ -111,7 +108,89 @@ async function withTrackedChanges(context: WordRunContext, mutate: () => void): 
       await context.sync();
     }
   }
-  return { tracked: true };
+}
+
+/** Author shown on synthesized revisions in Word's Review ribbon. */
+export const REVISION_AUTHOR = "LegalWork";
+
+let revisionIdCounter = 0;
+
+function xmlEscape(value: string): string {
+  return value.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+}
+
+/** A single run; newlines become w:br (anchors are single-paragraph by contract). */
+function revisionRun(text: string, kind: "ins" | "del"): string {
+  const tag = kind === "del" ? "w:delText" : "w:t";
+  const content = text
+    .split(/\r\n|\r|\n/)
+    .map((line) => `<${tag} xml:space="preserve">${xmlEscape(line)}</${tag}>`)
+    .join("<w:br/>");
+  return `<w:r>${content}</w:r>`;
+}
+
+/**
+ * Flat-OPC package holding one paragraph of w:ins/w:del revision runs.
+ * Range.insertOoxml (WordApi 1.1) splices a single-paragraph package into
+ * the target paragraph inline, and Word treats the markup as real tracked
+ * changes: they show up in the Review ribbon, attributable and
+ * accept/rejectable, no WordApi 1.4 needed.
+ */
+export function revisionOoxml(parts: Array<{ kind: "ins" | "del"; text: string }>): string {
+  const date = new Date().toISOString().replace(/\.\d{3}Z$/, "Z");
+  const revisions = parts
+    .filter((part) => part.text.length > 0)
+    .map(
+      (part) =>
+        `<w:${part.kind} w:id="${++revisionIdCounter}" w:author="${REVISION_AUTHOR}" w:date="${date}">` +
+        `${revisionRun(part.text, part.kind)}</w:${part.kind}>`,
+    )
+    .join("");
+  return (
+    `<pkg:package xmlns:pkg="http://schemas.microsoft.com/office/2006/xmlPackage">` +
+    `<pkg:part pkg:name="/_rels/.rels" pkg:contentType="application/vnd.openxmlformats-package.relationships+xml">` +
+    `<pkg:xmlData>` +
+    `<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">` +
+    `<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="/word/document.xml"/>` +
+    `</Relationships>` +
+    `</pkg:xmlData>` +
+    `</pkg:part>` +
+    `<pkg:part pkg:name="/word/document.xml" pkg:contentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml">` +
+    `<pkg:xmlData>` +
+    `<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">` +
+    `<w:body><w:p>${revisions}</w:p></w:body>` +
+    `</w:document>` +
+    `</pkg:xmlData>` +
+    `</pkg:part>` +
+    `</pkg:package>`
+  );
+}
+
+type EditOutcome = { trackedChange: boolean; method?: "revision-markup"; warning?: string };
+
+/**
+ * The tracked-edit ladder: native tracking (WordApi 1.4) -> synthesized
+ * w:ins/w:del revision markup -> plain untracked edit as last resort,
+ * flagged with a warning the agent relays to the user.
+ */
+async function applyTracked(
+  context: WordRunContext,
+  mutate: () => void,
+  insertRevision: () => void,
+): Promise<EditOutcome> {
+  if (isWordApiSupported("1.4")) {
+    await withTrackedChanges(context, mutate);
+    return { trackedChange: true };
+  }
+  try {
+    insertRevision();
+    await context.sync();
+    return { trackedChange: true, method: "revision-markup" };
+  } catch {
+    mutate();
+    await context.sync();
+    return { trackedChange: false, warning: untrackedEditWarning() };
+  }
 }
 
 async function readDocument(args: Record<string, unknown>): Promise<unknown> {
@@ -134,8 +213,8 @@ async function readDocument(args: Record<string, unknown>): Promise<unknown> {
         ? {}
         : {
             warning:
-              "Edits on this Word version are applied WITHOUT tracked changes and comments are unavailable " +
-              `(requires WordApi 1.4). ${wordApiDiagnostic()}`,
+              "This Word version lacks WordApi 1.4: edits become redlines via synthesized revision markup " +
+              `(author "${REVISION_AUTHOR}"), and comments are unavailable. ${wordApiDiagnostic()}`,
           }),
       text: text.slice(0, maxChars),
     };
@@ -186,17 +265,27 @@ async function replaceText(args: Record<string, unknown>): Promise<unknown> {
   return wordRun(async (context) => {
     const ranges = await findAnchorRanges(context, anchor);
     const { range, index } = pickAnchorRange(ranges, occurrence, anchor);
-    const { tracked } = await withTrackedChanges(context, () => {
-      if (replacement === "") {
-        range.delete();
-      } else {
-        range.insertText(replacement, "Replace");
-      }
-    });
+    const outcome = await applyTracked(
+      context,
+      () => {
+        if (replacement === "") {
+          range.delete();
+        } else {
+          range.insertText(replacement, "Replace");
+        }
+      },
+      () =>
+        range.insertOoxml(
+          revisionOoxml([
+            { kind: "del", text: range.text || anchor },
+            { kind: "ins", text: replacement },
+          ]),
+          "Replace",
+        ),
+    );
     return {
       applied: true,
-      trackedChange: tracked,
-      ...(tracked ? {} : { warning: untrackedEditWarning() }),
+      ...outcome,
       action: replacement === "" ? "deleted" : "replaced",
       matches: ranges.length,
       occurrence: index + 1,
@@ -211,23 +300,28 @@ async function insertText(args: Record<string, unknown>): Promise<unknown> {
 
   return wordRun(async (context) => {
     if (location === "document_start" || location === "document_end") {
-      const { tracked } = await withTrackedChanges(context, () => {
-        context.document.body.insertText(text, location === "document_start" ? "Start" : "End");
-      });
-      return { applied: true, trackedChange: tracked, ...(tracked ? {} : { warning: untrackedEditWarning() }), location };
+      const wordLocation = location === "document_start" ? "Start" : "End";
+      const outcome = await applyTracked(
+        context,
+        () => context.document.body.insertText(text, wordLocation),
+        () => context.document.body.insertOoxml(revisionOoxml([{ kind: "ins", text }]), wordLocation),
+      );
+      return { applied: true, ...outcome, location };
     }
 
     if (location === "before_anchor" || location === "after_anchor") {
       const anchor = requireAnchor(args);
       const ranges = await findAnchorRanges(context, anchor);
       const { range, index } = pickAnchorRange(ranges, numberArg(args, "occurrence"), anchor);
-      const { tracked } = await withTrackedChanges(context, () => {
-        range.insertText(text, location === "before_anchor" ? "Before" : "After");
-      });
+      const wordLocation = location === "before_anchor" ? "Before" : "After";
+      const outcome = await applyTracked(
+        context,
+        () => range.insertText(text, wordLocation),
+        () => range.insertOoxml(revisionOoxml([{ kind: "ins", text }]), wordLocation),
+      );
       return {
         applied: true,
-        trackedChange: tracked,
-        ...(tracked ? {} : { warning: untrackedEditWarning() }),
+        ...outcome,
         location,
         matches: ranges.length,
         occurrence: index + 1,

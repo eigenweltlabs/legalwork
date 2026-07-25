@@ -16,8 +16,10 @@ import {
  * All mutating tools force Word's change tracking on, so every agent edit
  * shows up as a native tracked change the user can accept or reject. On
  * outdated Word versions that cannot control tracking (no WordApi 1.4),
- * edits still apply but come back flagged trackedChange: false with a
- * warning the agent must relay; comments are unavailable there.
+ * typed edits are synthesized as OOXML revision markup (still real,
+ * accept/rejectable redlines); only if that fails does an edit apply
+ * untracked, flagged trackedChange: false with a warning the agent must
+ * relay. Comments are unavailable there.
  */
 
 const WORD_TOOL_RULES = `Rules for word_* tools:
@@ -188,7 +190,7 @@ export const LegalWorkWordTools = async (pluginInput?: { directory?: string }) =
     },
     word_replace_text: {
       description:
-        "Replace exact text in the Word document as a tracked change (redline). The anchor must be copied verbatim from the document. If the anchor matches multiple places, the tool reports the count and you must pass occurrence. An empty replacement deletes the text. On Word versions without WordApi 1.4 the edit applies untracked and the result says so.",
+        "Replace exact text in the Word document as a tracked change (redline). The anchor must be copied verbatim from the document. If the anchor matches multiple places, the tool reports the count and you must pass occurrence. An empty replacement deletes the text.",
       args: replaceArgs.shape,
       async execute(rawArgs: unknown, context: OpenCodeContext) {
         const args = replaceArgs.parse(rawArgs);
@@ -197,7 +199,7 @@ export const LegalWorkWordTools = async (pluginInput?: { directory?: string }) =
     },
     word_insert_text: {
       description:
-        "Insert text into the Word document as a tracked change — at the start/end of the document, or before/after an exact anchor text. On Word versions without WordApi 1.4 the insert applies untracked and the result says so.",
+        "Insert text into the Word document as a tracked change — at the start/end of the document, or before/after an exact anchor text.",
       args: insertArgs.shape,
       async execute(rawArgs: unknown, context: OpenCodeContext) {
         const args = insertArgs.parse(rawArgs);
