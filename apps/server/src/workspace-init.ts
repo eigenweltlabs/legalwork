@@ -7,6 +7,7 @@ import { ApiError } from "./errors.js";
 import { CORE_OPENCODE_FILES } from "./core-skills.js";
 import { legalworkConfigPath, opencodeConfigPath } from "./workspace-files.js";
 import { readJsoncFile } from "./jsonc.js";
+import { ensureOpencodeStateDir } from "./opencode-state-dir.js";
 import type { ReloadReason } from "./types.js";
 
 // One hash over all bundled-core file contents. Bumps whenever the app ships a new
@@ -107,6 +108,15 @@ export async function ensureWorkspaceFiles(workspaceRoot: string, presetInput: s
     throw new ApiError(400, "invalid_workspace_path", "workspace path is required");
   }
   await ensureDir(workspaceRoot);
+  // Before anything writes into .opencode: a stray file of that name makes the
+  // engine's instance bootstrap throw EEXIST, which 500s every route for this
+  // workspace (issue #62).
+  const stateDir = await ensureOpencodeStateDir(workspaceRoot);
+  if (stateDir.movedTo) {
+    console.warn(
+      `[workspace-init] ${stateDir.path} was a file, not a folder; moved it to ${stateDir.movedTo} so OpenCode can start.`,
+    );
+  }
   const reloadReasons = new Set<ReloadReason>();
   if (await ensureOpencodeConfig(workspaceRoot)) reloadReasons.add("config");
   const legalworkConfigChanged = await ensureWorkspaceLegalworkConfig(workspaceRoot, preset);
