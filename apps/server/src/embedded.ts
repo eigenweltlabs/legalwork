@@ -48,9 +48,12 @@ export async function startEmbeddedServer(options: EmbeddedServerOptions): Promi
   config.pickDirectory = options.pickDirectory ?? null;
   config.recorder = options.recorder ?? null;
   const serverUrl = `http://${config.host === "0.0.0.0" ? "127.0.0.1" : config.host}:${config.port}`;
+  // No trailing slash: the engine appends "/api.json" to this value, so a
+  // trailing slash produces the malformed "https://…com//api.json" seen in
+  // user-reported engine logs.
   const opencodeModelsUrl = process.env.LEGALWORK_DEV_MODE === "1"
     ? "http://localhost:8791/models"
-    : "https://models.eigenweltlabs.com/";
+    : "https://models.eigenweltlabs.com";
 
   // Spawn managed OpenCode if requested and no explicit base URL was provided.
   let managedOpencode: ManagedOpencodeServer | null = null;
