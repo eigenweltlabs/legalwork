@@ -94,6 +94,11 @@ export function resolveOpencodeDbPath(): string {
   return candidates[0] ?? join(homedir(), ".local", "share", "opencode", preferredDbNames()[0] ?? "opencode.db");
 }
 
+/** First existing OpenCode DB on this machine, or null when none exists yet. */
+export function findExistingOpencodeDbPath(): string | null {
+  return candidateOpencodeDbPaths().find((candidate) => existsSync(candidate)) ?? null;
+}
+
 function findOpencodeSessionDbPath(sessionId: string, inputPath?: string): string | null {
   const candidates = (inputPath ? [inputPath] : candidateOpencodeDbPaths()).filter((candidate) => existsSync(candidate));
   for (const dbPath of candidates) {

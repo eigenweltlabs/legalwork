@@ -8,6 +8,7 @@ import os from "node:os";
 import path from "node:path";
 
 import { legalworkWorkspaceDisplayName, selectLegalworkWorkspaceForConnection } from "./remote-workspace.mjs";
+import { ensureOpencodeStateDir } from "./opencode-state-dir.mjs";
 import { exportWorkspaceConfig, importWorkspaceConfig } from "./workspace-archive.mjs";
 
 const EMPTY_WORKSPACE_LIST = Object.freeze({
@@ -485,7 +486,9 @@ export function createWorkspaceStore({ app, defaultDenBaseUrl, defaultRequireSig
 
   async function writeWorkspaceLegalworkConfig(workspacePath, config) {
     const legalworkPath = path.join(workspacePath, ".opencode", "legalwork.json");
-    await mkdir(path.dirname(legalworkPath), { recursive: true });
+    // A stray file named .opencode makes this mkdir throw EEXIST (and breaks
+    // the engine the same way) — repair it rather than failing the write.
+    await ensureOpencodeStateDir(workspacePath);
     await writeFile(legalworkPath, `${JSON.stringify(config, null, 2)}\n`, "utf8");
     return execResult(true, `Wrote ${legalworkPath}`);
   }

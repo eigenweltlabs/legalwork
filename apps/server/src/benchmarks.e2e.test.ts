@@ -13,6 +13,10 @@ const roots: string[] = [];
 const ENV_KEYS = [
   "LEGALWORK_BENCHMARKS_DB",
   "LEGALWORK_BENCHMARKS_DIR",
+  // startLegalworkServer() sets this too; without it here the afterEach never
+  // restores it and every later test file inherits a runtime-DB path pointing
+  // into this suite's (already deleted) temp root.
+  "LEGALWORK_RUNTIME_DB",
   "LEGALWORK_GITHUB_API_BASE",
   "LEGALWORK_GITHUB_RAW_BASE",
   "LEGALWORK_BENCHMARK_POLL_MS",

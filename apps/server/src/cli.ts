@@ -7,6 +7,7 @@ import { createManagedOpencodeServer, type ManagedOpencodeServer } from "./manag
 import { createServerLogger, startServer, syncAllWorkspacesRuntimeMcpToEngine } from "./server.js";
 import { ensureWorkspaceFiles } from "./workspace-init.js";
 import { keepLegalworkRuntimeConfigFileFresh, writeLegalworkRuntimeConfigFile } from "./legalwork-runtime-config.js";
+import { prepareManagedOpencodeEngineDb } from "./managed-opencode-db.js";
 import { refreshEigenweltFreeManifest } from "./eigenwelt-free.js";
 import { refreshEigenweltProviderModels } from "./eigenwelt-auth.js";
 import pkg from "../package.json" with { type: "json" };
@@ -53,6 +54,11 @@ if (!config.opencodeBaseUrl && process.env.LEGALWORK_MANAGE_OPENCODE === "1") {
     void refreshEigenweltProviderModels(config, workspace.id);
     const managedOpencodeCwd = process.env.LEGALWORK_MANAGED_OPENCODE_CWD?.trim() || workspace.path;
     await mkdir(managedOpencodeCwd, { recursive: true });
+    // Private engine DB (see managed-opencode-db.ts): keep the managed engine
+    // off OpenCode's global opencode.db so a separately installed OpenCode
+    // can never migrate the engine's schema out from under it (issue #62).
+    const managedDb = await prepareManagedOpencodeEngineDb(config);
+    if (managedDb) process.env.OPENCODE_DB = managedDb.path;
     managedOpencode = await createManagedOpencodeServer({
       bin: process.env.LEGALWORK_OPENCODE_BIN,
       cwd: managedOpencodeCwd,
@@ -63,6 +69,7 @@ if (!config.opencodeBaseUrl && process.env.LEGALWORK_MANAGE_OPENCODE === "1") {
         LEGALWORK_SERVER_URL: serverUrl,
         LEGALWORK_SERVER_TOKEN: config.token,
         OPENCODE_CONFIG: runtimeConfigPath,
+        ...(managedDb ? { OPENCODE_DB: managedDb.path } : {}),
       },
     });
     config.opencodeBaseUrl = managedOpencode.url;

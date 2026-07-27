@@ -208,7 +208,14 @@ function showToast(type: ToastType, message: React.ReactNode, options?: ToastOpt
       />
     ),
     {
-      id: options?.id,
+      // Never pass an explicit `id: undefined`: sonner's custom() builds
+      // `{ jsx: jsx(generatedId), id: generatedId, ...data }`, so a literal
+      // undefined id in `data` clobbers the generated one and create() then
+      // mints a DIFFERENT id for the stored toast. The X button (and any
+      // toast.dismiss(returnedId)) would target the id the JSX captured,
+      // match nothing, and the toast becomes undismissable — invisible for
+      // auto-closing toasts, permanent for `duration: Infinity` error toasts.
+      ...(options?.id !== undefined ? { id: options.id } : {}),
       duration: options?.duration,
       description: undefined,
       action: undefined,
