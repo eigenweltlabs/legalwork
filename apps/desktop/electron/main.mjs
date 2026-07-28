@@ -125,9 +125,26 @@ public static class LegalWorkPaste {
     public InputUnion data;
   }
 
+  // MOUSEINPUT is the widest member of the real Win32 union and is what gives
+  // INPUT its size (40 bytes on x64, 28 on x86). Declaring only KEYBDINPUT
+  // marshals INPUT to 32 bytes, and SendInput rejects a cbSize that doesn't
+  // match its own sizeof(INPUT) with ERROR_INVALID_PARAMETER — returning 0
+  // events sent, so the paste silently fails on every 64-bit Windows machine.
+  // It is never written to; it exists purely to size the union correctly.
   [StructLayout(LayoutKind.Explicit)]
   private struct InputUnion {
+    [FieldOffset(0)] public MOUSEINPUT mouse;
     [FieldOffset(0)] public KEYBDINPUT keyboard;
+  }
+
+  [StructLayout(LayoutKind.Sequential)]
+  private struct MOUSEINPUT {
+    public int dx;
+    public int dy;
+    public uint mouseData;
+    public uint flags;
+    public uint time;
+    public UIntPtr extraInfo;
   }
 
   [StructLayout(LayoutKind.Sequential)]
