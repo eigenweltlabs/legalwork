@@ -190,6 +190,28 @@ async function postJson(path: string, body: ExtensionActionPayload): Promise<unk
   return payload;
 }
 
+/**
+ * Stamp the engine's own session identity onto a UI snapshot.
+ *
+ * The snapshot `route` is whatever the user has on screen, which is not
+ * necessarily this conversation. Asked for "the session id of this convo", an
+ * agent with no other source navigated to the session view and read the id out
+ * of the resulting URL — the session the UI happened to show, not the one it
+ * was running in — and reported it as fact. The id is right here in the tool
+ * context, so hand it over instead of leaving it to be inferred.
+ */
+function addSessionContext(payload: unknown, context: OpenCodeContext): object {
+  const session = {
+    id: context.sessionID ?? null,
+    agent: context.agent ?? null,
+    directory: context.directory ?? null,
+  };
+  if (typeof payload === "object" && payload !== null && !Array.isArray(payload)) {
+    return Object.assign({}, payload, { session });
+  }
+  return { payload, session };
+}
+
 function contextPayload(context: OpenCodeContext) {
   return {
     agent: context.agent,
@@ -236,11 +258,12 @@ export const LegalWorkExtensionsPreview = async () => ({
       },
     },
     legalwork_ui_snapshot: {
-      description: "Get a snapshot of the current LegalWork UI state: active route, narration, visible actions, and status. Use this to understand what the user sees before taking action.",
+      description:
+        "Get a snapshot of the current LegalWork UI state: active route, narration, visible actions, and status, plus `session` — the id of the session YOU are running in. Use this to understand what the user sees before taking action, and whenever you need this conversation's session id. Read that id from `session.id`, never from `route`: the route is whatever the user has on screen, which is often a different session.",
       args: {},
-      async execute() {
+      async execute(_rawArgs: unknown, context: OpenCodeContext) {
         const result = await uiBridgeRequest("/snapshot");
-        return JSON.stringify(result, null, 2);
+        return JSON.stringify(addSessionContext(result, context), null, 2);
       },
     },
     legalwork_ui_list_actions: {
