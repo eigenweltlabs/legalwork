@@ -93,6 +93,7 @@ import {
   getComposerQueuedDrafts,
   useComposerStateStore,
 } from "./composer-state-store";
+import { LEGALMEMORY_REF_EVENT } from "@/components/markdown/legalmemory-ref";
 import { MessageList } from "@/components/chat/message-list";
 import { MessageListProvider, type DispatchAction } from "@/components/chat/message-list-provider";
 import { FusionIntroDialog, markFusionIntroSeen, shouldShowFusionIntro } from "@/react-app/domains/session/fusion/fusion-intro-dialog";
@@ -1253,6 +1254,30 @@ export function SessionSurface(props: SessionSurfaceProps) {
     window.addEventListener("legalwork:voice-transcript", handleVoiceTranscript);
     return () => window.removeEventListener("legalwork:voice-transcript", handleVoiceTranscript);
   }, [attachments, buildDraft, props.onDraftChange, props.sessionId, props.workspaceId, typeComposerText]);
+
+  // A LegalMemory reference chip in the transcript was clicked: send the
+  // built fetch/preview prompt as its own turn (steering mid-run is fine —
+  // see sendDraft). If sending is impossible, leave the prompt in the
+  // composer so the click still visibly did something.
+  useEffect(() => {
+    const handleLegalMemoryRef = (event: Event) => {
+      if (!(event instanceof CustomEvent)) return;
+      const detail: unknown = event.detail;
+      if (!detail || typeof detail !== "object" || Array.isArray(detail) || !("prompt" in detail) || typeof detail.prompt !== "string") return;
+      const prompt = detail.prompt;
+      const seedComposer = async () => {
+        await typeComposerText(prompt);
+        props.onDraftChange(buildDraft(prompt, attachments));
+      };
+      if (props.modelUnavailable) {
+        void seedComposer();
+        return;
+      }
+      void sendDraft(buildDraft(prompt, []), []).catch(() => seedComposer());
+    };
+    window.addEventListener(LEGALMEMORY_REF_EVENT, handleLegalMemoryRef);
+    return () => window.removeEventListener(LEGALMEMORY_REF_EVENT, handleLegalMemoryRef);
+  }, [attachments, buildDraft, props.modelUnavailable, props.onDraftChange, sendDraft, typeComposerText]);
 
   const composerSetTextControlAction = useMemo<LegalworkControlAction>(() => ({
     id: "composer.set_text",

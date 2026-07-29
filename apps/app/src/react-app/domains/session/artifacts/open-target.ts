@@ -1,5 +1,7 @@
 import type { UIMessage } from "ai";
 
+import { LEGALMEMORY_URI_PATTERN } from "@/components/markdown/legalmemory-ref";
+
 type OpenTargetKind = "url" | "file";
 export type OpenTargetPreview = "browser" | "markdown" | "sheet" | "slides" | "word" | "image" | "pdf" | "html" | "text" | "external";
 
@@ -264,6 +266,9 @@ function scanText(
   for (const match of text.matchAll(MARKDOWN_LINK_PATTERN)) {
     const href = match[2];
     if (!href) continue;
+    // LegalMemory reference links are chips with their own click behavior,
+    // never workspace files or browser URLs.
+    if (LEGALMEMORY_URI_PATTERN.test(href)) continue;
     if (/^(?:https?|wss?):\/\//i.test(href)) {
       addTarget(map, targetFromUrl(href, confidence, reason));
     } else if (options.includeFiles) {

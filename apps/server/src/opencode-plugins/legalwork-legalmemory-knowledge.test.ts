@@ -22,6 +22,8 @@ describe("LegalWork LegalMemory knowledge plugin", () => {
     const system = output.system.join("\n");
     expect(system).toContain("LegalMemory is connected");
     expect(system).toContain("SEARCH LEGALMEMORY FIRST");
+    expect(system).toContain("legalmemory://document/<document_id>");
+    expect(system).toContain("legalmemory://matter/<matter_id>");
   });
 
   test("recognizes the appliance's own sample server name", async () => {

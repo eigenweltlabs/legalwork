@@ -23,6 +23,11 @@ import { resolvePathOpenTarget, type OpenTarget } from "@/react-app/domains/sess
 
 import { applyTextHighlights } from "./text-highlights";
 import { LinkActionMenu } from "./link-action-menu";
+import {
+  buildLegalMemoryRefPrompt,
+  LEGALMEMORY_REF_EVENT,
+  parseLegalMemoryRef,
+} from "./legalmemory-ref";
 
 function escapeHtml(value: string) {
   return value
@@ -179,6 +184,7 @@ function sanitizeMarkdownHtml(value: string) {
       "data-legalwork-image-preview",
       "data-legalwork-image-toggle",
       "data-legalwork-image-toggle-label",
+      "data-legalwork-legalmemory-ref",
       "data-legalwork-link-href",
       "data-legalwork-link-chevron",
       "data-legalwork-shiki",
@@ -255,6 +261,16 @@ const baseMarkedOptions = {
       const safe = escapeAttribute(safeHref(href));
       const originalHref = escapeAttribute(href);
       const titleAttr = title ? ` title="${escapeAttribute(title)}"` : "";
+
+      // LegalMemory reference chip: a sibling of the file-mention chip for
+      // legalmemory://document/<id> and legalmemory://matter/<id> links. The
+      // click handler turns it into an agent prompt (export into workspace /
+      // matter preview) — the app itself holds no appliance credentials.
+      if (parseLegalMemoryRef(href)) {
+        const memoryIcon = `<svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="shrink-0 text-indigo-10"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M3 5v14a9 3 0 0 0 18 0V5"/><path d="M3 12a9 3 0 0 0 18 0"/></svg>`;
+        return `<span class="inline-flex items-stretch overflow-hidden rounded-md border border-indigo-6/60 bg-indigo-2/40 text-xs font-medium text-foreground align-middle"><a href="#" data-legalwork-legalmemory-ref="${originalHref}"${titleAttr} class="inline-flex items-center gap-1 px-1.5 py-0.5 no-underline transition-colors hover:bg-indigo-3/50">${memoryIcon}${this.parser.parseInline(tokens)}</a></span>`;
+      }
+
       const isFilePath = !/^(https?|wss?|ftp|mailto|tel|file):/i.test(href);
 
       if (isFilePath) {
@@ -420,6 +436,22 @@ function MarkdownBlockInner({
 
     const handleClick = (event: MouseEvent) => {
       if (!(event.target instanceof Element)) return;
+
+      const memoryRefLink = event.target.closest("[data-legalwork-legalmemory-ref]");
+      if (memoryRefLink instanceof HTMLElement) {
+        event.preventDefault();
+        event.stopPropagation();
+        const ref = parseLegalMemoryRef(memoryRefLink.dataset.legalworkLegalmemoryRef ?? "");
+        if (ref) {
+          const label = memoryRefLink.textContent?.trim() ?? "";
+          window.dispatchEvent(
+            new CustomEvent(LEGALMEMORY_REF_EVENT, {
+              detail: { prompt: buildLegalMemoryRefPrompt(ref, label) },
+            }),
+          );
+        }
+        return;
+      }
 
       const chevron = event.target.closest("[data-legalwork-link-chevron]");
       if (chevron instanceof HTMLElement) {
