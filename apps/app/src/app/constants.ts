@@ -141,6 +141,24 @@ export const MCP_QUICK_CONNECT: McpDirectoryInfo[] = [
   // firm to substitute an instance/tenant segment in the URL before Connect
   // works (no dynamic client registration). See the connector catalog notes.
   {
+    get name() { return t("mcp.quick_connect_legalmemory_title"); },
+    serverName: "legalmemory",
+    get description() { return t("mcp.quick_connect_legalmemory_desc"); },
+    // First-party: LegalMemory (Knowledge Index) is Eigenwelt Labs' own on-prem
+    // knowledge appliance (github.com/eigenweltlabs/knowledge-index), so every
+    // firm has its own base URL — the {appliance} segment is filled in the setup
+    // form. Auth is standard MCP OAuth 2.1: the appliance serves RFC 9728
+    // resource metadata at /.well-known/oauth-protected-resource/mcp and sign-in
+    // runs authorization-code + PKCE against the firm's IdP (Keycloak), which
+    // allows loopback redirects and dynamic client registration. The MCP
+    // endpoint requires the trailing slash.
+    url: "https://{appliance}/mcp/",
+    type: "remote",
+    oauth: true,
+    kind: "mcp",
+    composerPrompt: "Search LegalMemory for ",
+  },
+  {
     get name() { return t("mcp.quick_connect_imanage_title"); },
     serverName: "imanage",
     get description() { return t("mcp.quick_connect_imanage_desc"); },

@@ -26,6 +26,7 @@ function extractPlaceholders(url: string | undefined): string[] {
 
 function labelFor(name: string): string {
   const map: Record<string, string> = {
+    appliance: "LegalMemory appliance address (host[:port])",
     instance: "HighQ instance (subdomain)",
     site: "Site / context name",
     tenant_id: "Microsoft tenant ID",

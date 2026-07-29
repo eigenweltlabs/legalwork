@@ -787,6 +787,8 @@ export default {
   "mcp.quick_connect_imanage_title": "iManage",
   "mcp.quick_connect_ironclad_desc": "Plain-language, permission-scoped search across the firm's Ironclad contracts. North America endpoint shown.",
   "mcp.quick_connect_ironclad_title": "Ironclad",
+  "mcp.quick_connect_legalmemory_desc": "The firm's own knowledge index from Eigenwelt Labs, the makers of LegalWork — search prior matters, precedent documents, decision records, entities, and billing on the firm's on-prem LegalMemory appliance, scoped to your permissions. Enter your appliance address, then sign in with your firm account.",
+  "mcp.quick_connect_legalmemory_title": "LegalMemory",
   "mcp.quick_connect_netdocuments_desc": "Search and retrieve documents from the firm's NetDocuments DMS. Sign in with your ndMAX Enterprise account.",
   "mcp.quick_connect_netdocuments_title": "NetDocuments",
   "mcp.quick_connect_notion_desc": "Pages, databases, and project docs in sync.",

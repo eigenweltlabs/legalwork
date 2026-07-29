@@ -19,6 +19,7 @@ import { randomUUID } from "node:crypto";
 import {
   legalworkExtensionsPreviewPluginPath,
   legalworkCapabilitiesKnowledgePluginPath,
+  legalworkLegalMemoryKnowledgePluginPath,
   legalworkAnthropicAdaptiveThinkingPluginPath,
   legalworkAnthropicToolSchemaPluginPath,
   legalworkWordToolsPluginPath,
@@ -183,6 +184,7 @@ export async function buildLegalworkRuntimeConfigObject(
       "opencode-anthropic-auth",
       bundledPluginSpec(legalworkExtensionsPreviewPluginPath()),
       bundledPluginSpec(legalworkCapabilitiesKnowledgePluginPath()),
+      bundledPluginSpec(legalworkLegalMemoryKnowledgePluginPath()),
       bundledPluginSpec(legalworkAnthropicAdaptiveThinkingPluginPath()),
       bundledPluginSpec(legalworkAnthropicToolSchemaPluginPath()),
       bundledPluginSpec(legalworkWordToolsPluginPath()),
