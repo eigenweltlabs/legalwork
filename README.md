@@ -50,3 +50,7 @@ Read `AGENTS.md` first. Run `pnpm install`, then verify with `pnpm typecheck` an
 ## License
 
 MIT — see `LICENSE`.
+
+## Acknowledgements
+
+We thank the teams at Different AI and Opencode for previous work.
