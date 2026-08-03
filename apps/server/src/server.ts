@@ -6,6 +6,7 @@ import { safeExportFilename } from "./legalmemory-export.js";
 import {
   engineAccessToken,
   fetchLegalMemoryDocument,
+  fetchLegalMemoryGraph,
   resolveLegalMemoryServer,
 } from "./legalmemory-fetch.js";
 import { fileURLToPath } from "node:url";
@@ -2213,6 +2214,29 @@ function createRoutes(
     const payload = await serializeWorkflowSkill(workspace.path, skill);
     const result = await hubCreate(client, { kind: "workflow", name, description, payload });
     return jsonResponse({ ok: true, ...result });
+  });
+
+  // The stored relations around a cited document, fetched by the app.
+  //
+  // The agent is asked to traverse before concluding and does not: on a real
+  // run, six searches and zero traversals. The engine exposes no way to force a
+  // tool call, and the graph is the part of this index a search cannot
+  // reproduce, so waiting for the model to ask means it never appears.
+  addRoute(routes, "POST", "/workspace/:id/legalmemory/graph", "client", async (ctx) => {
+    requireClientScope(ctx, "collaborator");
+    const workspace = await resolveWorkspace(config, ctx.params.id);
+    const body = await readJsonBodyLimited(ctx.request, 8 * 1024);
+    const documentId = typeof body.document_id === "string" ? body.document_id.trim() : "";
+    if (!documentId) throw new ApiError(400, "invalid_document_id", "A document_id is required");
+
+    const server = resolveLegalMemoryServer(await listMcp(config, workspace.id, workspace.path));
+    if (!server) throw new ApiError(409, "legalmemory_not_configured", "No LegalMemory server is configured");
+    try {
+      const graph = await fetchLegalMemoryGraph(server, documentId, await engineAccessToken(server.name));
+      return jsonResponse({ ok: true, graph });
+    } catch (error) {
+      throw new ApiError(502, "legalmemory_graph_failed", error instanceof Error ? error.message : "Traversal failed");
+    }
   });
 
   // Open a cited LegalMemory document. Called when the user clicks a source,

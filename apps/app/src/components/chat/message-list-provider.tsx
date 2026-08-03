@@ -2,8 +2,12 @@
 
 import { useSessionActivityStore } from "@/react-app/domains/session/status/session-activity-store"
 import * as React from "react"
+import type { LegalworkServerClient } from "@/app/lib/legalwork-server"
 
 interface MessageListContextValue {
+  /** For the few cards the app fetches itself rather than waiting for the
+   * agent, e.g. the matter graph. Null where no server is attached. */
+  legalworkClient: LegalworkServerClient | null
   workspaceId: string
   sessionId: string
   showThinking: boolean
@@ -21,6 +25,7 @@ const MessageListContext = React.createContext<MessageListContextValue | null>(n
 
 interface MessageListProviderProps {
   children: React.ReactNode
+  legalworkClient?: LegalworkServerClient | null
   workspaceId: string
   sessionId: string
   showThinking: boolean
@@ -42,6 +47,7 @@ export interface DispatchAction {
 
 export function MessageListProvider({
   children,
+  legalworkClient = null,
   workspaceId,
   sessionId,
   showThinking,
@@ -56,6 +62,7 @@ export function MessageListProvider({
 }: MessageListProviderProps) {
   const value = React.useMemo(
     () => ({
+      legalworkClient,
       workspaceId,
       sessionId,
       showThinking,
@@ -69,6 +76,7 @@ export function MessageListProvider({
       onEditUserMessage,
     }),
     [
+      legalworkClient,
       workspaceId,
       sessionId,
       showThinking,

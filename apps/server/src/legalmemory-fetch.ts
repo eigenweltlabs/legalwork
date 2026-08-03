@@ -225,3 +225,70 @@ export async function engineAccessToken(serverName: string): Promise<string | un
     return undefined;
   }
 }
+
+/**
+ * The stored relations around a document: what supersedes it, annexes it,
+ * references it.
+ *
+ * Called by the app, not by the agent. The instruction to traverse is in the
+ * agent's prompt and models simply do not follow it — measured on a real run,
+ * six searches and not one traversal — and the engine exposes no way to force a
+ * tool call. Since the graph is the part of this index a search cannot
+ * reproduce, waiting for the model to ask for it means it never appears. So the
+ * app asks, for the document the answer actually cited.
+ */
+export async function fetchLegalMemoryGraph(
+  server: LegalMemoryServer,
+  documentId: string,
+  bearer?: string,
+): Promise<unknown> {
+  const session: Session = {
+    url: server.url,
+    headers: {
+      ...JSON_RPC_HEADERS,
+      ...(server.headers ?? {}),
+      ...(bearer ? { Authorization: `Bearer ${bearer}` } : {}),
+    },
+  };
+  await rpc(session, "initialize", {
+    protocolVersion: "2025-06-18",
+    capabilities: {},
+    clientInfo: { name: "LegalWork", version: "1" },
+  }, 1);
+  await rpc(session, "notifications/initialized", {});
+  const result = await rpc(session, "tools/call", {
+    name: "find_related_documents",
+    arguments: { document_id: documentId },
+  }, 2);
+  const envelope = asRecord(result);
+  const error = asRecord(envelope?.error);
+  if (error) throw new Error(String(error.message ?? "LegalMemory refused the traversal"));
+  // The tool result carries the graph as JSON text; hand back whatever shape it
+  // used and let the client's parser decide.
+  return findStructured(envelope?.result ?? envelope);
+}
+
+/**
+ * Pull the graph payload out of an MCP tool result.
+ *
+ * The appliance returns it twice: as JSON inside a text content item and as
+ * structuredContent. The text item is the one that reliably carries
+ * root_document, so it is tried first and the result is only accepted once it
+ * looks like the graph rather than some other object that happened to parse.
+ */
+function findStructured(value: unknown): unknown {
+  const envelope = asRecord(value);
+  const content = envelope && Array.isArray(envelope.content) ? envelope.content : [];
+  for (const item of content) {
+    const record = asRecord(item);
+    if (typeof record?.text !== "string") continue;
+    try {
+      const parsed = asRecord(JSON.parse(record.text));
+      if (parsed && "root_document" in parsed) return parsed;
+    } catch {
+      // Not the payload; keep looking.
+    }
+  }
+  const structured = asRecord(envelope?.structuredContent);
+  return structured && "root_document" in structured ? structured : null;
+}

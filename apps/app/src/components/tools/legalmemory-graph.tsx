@@ -6,6 +6,7 @@ import type { LegalMemoryGraphToolPart } from "@/lib/build-in-tools"
 import {
   formatEdgeKind,
   parseLegalMemoryGraph,
+  type LegalMemoryGraph,
   type LegalMemoryGraphNode,
 } from "@/lib/legalmemory-graph"
 import { Tool } from "@/components/ui/tool"
@@ -37,12 +38,17 @@ export function LegalMemoryGraphTool({ part }: LegalMemoryGraphToolProps) {
   if (part.state !== "output-available") {
     return <Tool toolPart={part} />
   }
-
   const graph = parseLegalMemoryGraph(part.output)
   if (!graph || graph.relatedCount === 0) {
     return <Tool toolPart={part} />
   }
+  return <MatterGraph graph={graph} />
+}
 
+/** The card itself, fed a parsed graph. Separate from the tool renderer because
+ * the app fetches this graph itself rather than waiting for the agent to call
+ * the tool. */
+export function MatterGraph({ graph }: { graph: LegalMemoryGraph }) {
   const positions = new Map(graph.nodes.map((node) => [node.id, node]))
 
   return (

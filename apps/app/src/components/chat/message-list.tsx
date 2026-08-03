@@ -54,6 +54,7 @@ import { WebfetchTool } from "@/components/tools/webfetch"
 import { WebsearchTool } from "@/components/tools/websearch"
 import { useMessageList, useSessionErrorMessage } from "@/components/chat/message-list-provider"
 import { ArtifactList } from "@/components/chat/artifact"
+import { LegalMemoryMatterGraph } from "@/components/chat/legalmemory-matter-graph"
 import { LegalMemorySourcesCard } from "@/components/chat/legalmemory-sources-card"
 import { TaskSuggestions } from "@/components/chat/task-suggestions"
 import {
@@ -378,7 +379,15 @@ type AssistantMessageProps = {
 
 const AssistantMessage = React.memo(
   ({ message, isStreaming }: AssistantMessageProps) => {
-    const { showThinking } = useMessageList()
+    const { showThinking, legalworkClient, workspaceId } = useMessageList()
+    const assistantText = React.useMemo(
+      () =>
+        message.parts
+          .filter((part): part is { type: "text"; text: string } => part.type === "text")
+          .map((part) => part.text)
+          .join("\n"),
+      [message.parts],
+    )
     const assistantRenderGroups = React.useMemo(
       () => getAssistantRenderGroups(message.parts, showThinking),
       [message.parts, showThinking]
@@ -432,11 +441,14 @@ const AssistantMessage = React.memo(
               </div>
             )
           })}
+          <LegalMemoryMatterGraph
+            text={assistantText}
+            streaming={isStreaming}
+            client={legalworkClient}
+            workspaceId={workspaceId}
+          />
           <LegalMemorySourcesCard
-            text={message.parts
-              .filter((part): part is { type: "text"; text: string } => part.type === "text")
-              .map((part) => part.text)
-              .join("\n")}
+            text={assistantText}
             streaming={isStreaming}
           />
         </div>

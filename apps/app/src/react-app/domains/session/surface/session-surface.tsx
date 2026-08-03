@@ -1615,6 +1615,7 @@ export function SessionSurface(props: SessionSurfaceProps) {
                     onApplyChanges={props.onApplyEnvironmentChanges}
                   >
                     <MessageListProvider
+                      legalworkClient={props.client}
                       workspaceId={props.workspaceId}
                       sessionId={props.sessionId}
                       showThinking={showThinking}

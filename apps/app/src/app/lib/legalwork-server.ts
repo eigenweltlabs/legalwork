@@ -1821,6 +1821,14 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
         `/workspace/${encodeURIComponent(workspaceId)}/hub/share/workflow`,
         { token, hostToken, method: "POST", body: payload, timeoutMs: timeouts.workspaceExport },
       ),
+    /** Stored relations around a cited document, so the matter graph does not
+     * depend on the agent choosing to traverse. */
+    legalMemoryGraph: (workspaceId: string, payload: { document_id: string }) =>
+      requestJson<{ ok: boolean; graph: unknown }>(
+        baseUrl,
+        `/workspace/${encodeURIComponent(workspaceId)}/legalmemory/graph`,
+        { token, hostToken, method: "POST", body: payload, timeoutMs: timeouts.config },
+      ),
     /** Fetch a cited LegalMemory original into the workspace and return where it
      * landed. Takes the document id, never a URL: the server pulls the bytes
      * over MCP itself, so no agent turn and no download endpoint are involved. */
