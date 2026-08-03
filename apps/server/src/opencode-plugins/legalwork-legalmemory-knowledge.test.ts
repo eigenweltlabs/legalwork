@@ -22,11 +22,10 @@ describe("LegalWork LegalMemory knowledge plugin", () => {
     const system = output.system.join("\n");
     expect(system).toContain("LegalMemory is connected");
     expect(system).toContain("SEARCH LEGALMEMORY FIRST");
-    // The inert citation form, not a markdown link: it survives streaming and
-    // models emit it far more reliably than a custom URL scheme.
-    expect(system).toContain("[[doc:<document_id>|<document title or filename>]]");
+    // The markdown-link form, which is what the model measurably emits.
+    expect(system).toContain("[<document title>](legalmemory://document/<document_id>)");
     // The interface renders the Sources list, so the model must not write one.
-    expect(system).toContain("DO NOT write your own source list");
+    expect(system).toContain("DO NOT write your own \"Sources\"");
   });
 
   test("recognizes the appliance's own sample server name", async () => {

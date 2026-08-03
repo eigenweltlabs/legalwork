@@ -51,15 +51,18 @@ export function buildLegalMemoryRefPrompt(ref: LegalMemoryRef, label: string): s
 export const LEGALMEMORY_OPEN_EVENT = "legalwork:legalmemory-open";
 
 /**
- * Inline citations in an answer: `[[doc:<id>|<title>]]`.
+ * Inline citations in an answer.
  *
- * Deliberately inert rather than a markdown link. It survives streaming a token
- * at a time (a half-written one renders as plain text instead of a broken
- * link), it cannot collide with markdown the model meant literally, and models
- * emit it far more reliably than a custom URL scheme inside link syntax, which
- * is what the earlier `legalmemory://` form depended on.
+ * Two forms are accepted, and the markdown one is what the model actually
+ * writes. Measured from the session store: with the markdown-link instruction
+ * the model emitted citations reliably; after switching the instruction to an
+ * inert `[[doc:id|title]]` form it emitted none at all, and wrote "Source:" in
+ * bold prose instead. A syntax that survives streaming is worth nothing if the
+ * model will not produce it, so the instruction asks for the markdown link and
+ * the bracket form stays supported for anything already written.
  */
 export const LEGALMEMORY_CITATION = /\[\[doc:([^\]|\s]+)\|([^\]]+)\]\]/g;
+const LEGALMEMORY_MD_CITATION = /\[([^\]\n]+)\]\(legalmemory:\/{0,2}document\/([\w.:-]+)\/?\)/gi;
 
 export type CitedDocument = { documentId: string; title: string };
 
@@ -71,11 +74,16 @@ export type CitedDocument = { documentId: string; title: string };
  */
 export function citedDocuments(text: string): CitedDocument[] {
   const seen = new Map<string, CitedDocument>();
-  for (const match of text.matchAll(LEGALMEMORY_CITATION)) {
-    const documentId = match[1].trim();
-    const title = match[2].trim();
-    if (!documentId || seen.has(documentId)) continue;
-    seen.set(documentId, { documentId, title: title || documentId });
-  }
+  const add = (documentId: string, title: string) => {
+    const id = documentId.trim();
+    if (!id || seen.has(id)) return;
+    seen.set(id, { documentId: id, title: title.trim() || id });
+  };
+  // Scan in document order so the list matches the order of the prose.
+  const matches = [
+    ...[...text.matchAll(LEGALMEMORY_MD_CITATION)].map((m) => ({ index: m.index ?? 0, id: m[2], title: m[1] })),
+    ...[...text.matchAll(LEGALMEMORY_CITATION)].map((m) => ({ index: m.index ?? 0, id: m[1], title: m[2] })),
+  ].sort((a, b) => a.index - b.index);
+  for (const match of matches) add(match.id, match.title);
   return [...seen.values()];
 }
