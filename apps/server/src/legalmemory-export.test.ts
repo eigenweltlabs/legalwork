@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { safeExportFilename } from "./legalmemory-export.js";
+import { LEGALMEMORY_EXPORT_DIR, safeExportFilename } from "./legalmemory-export.js";
 
 describe("safeExportFilename", () => {
   test("keeps the punctuation real legal filenames carry", () => {
@@ -37,5 +37,15 @@ describe("safeExportFilename", () => {
 
   test("caps an absurdly long name", () => {
     expect(safeExportFilename(`${"a".repeat(400)}.docx`)?.length).toBe(200);
+  });
+});
+
+describe("LEGALMEMORY_EXPORT_DIR", () => {
+  test("is a workspace-relative folder of its own", () => {
+    expect(LEGALMEMORY_EXPORT_DIR).toBe(".legalmemory");
+    // Relative and single-segment: joined onto the workspace root, it cannot
+    // escape it.
+    expect(LEGALMEMORY_EXPORT_DIR.includes("/")).toBe(false);
+    expect(LEGALMEMORY_EXPORT_DIR.startsWith("/")).toBe(false);
   });
 });

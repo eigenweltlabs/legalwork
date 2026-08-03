@@ -484,6 +484,13 @@ export function SessionPage(props: SessionPageProps) {
       type: "artifact",
       label: target.name,
       preview: target.preview,
+      // Carry the path. The panel resolves a tab against targets derived from
+      // the transcript and falls back to tab.value when it finds none — and a
+      // file the app itself put in the workspace is never mentioned in the
+      // transcript, so without this it resolves to nothing and renders empty.
+      value: target.value,
+      size: target.size,
+      updatedAt: target.updatedAt,
     });
     preserveSidePanelOnPanelOpenRef.current = true;
     setCurrentSidePanel("panel");

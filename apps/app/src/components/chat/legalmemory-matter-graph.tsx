@@ -3,7 +3,6 @@
 import { useQuery } from "@tanstack/react-query"
 
 import { MatterGraph } from "@/components/tools/legalmemory-graph"
-import { citedDocuments } from "@/components/markdown/legalmemory-ref"
 import { parseLegalMemoryGraph } from "@/lib/legalmemory-graph"
 import type { LegalworkServerClient } from "@/app/lib/legalwork-server"
 
@@ -22,19 +21,19 @@ import type { LegalworkServerClient } from "@/app/lib/legalwork-server"
  * user asked for is the app's job, not a task handed to a model.
  */
 export function LegalMemoryMatterGraph({
-  text,
+  rootDocumentId,
   streaming,
   client,
   workspaceId,
 }: {
-  text: string
+  rootDocumentId: string | null
   streaming: boolean
   client: LegalworkServerClient | null
   workspaceId: string | null
 }) {
-  // The leading citation is the document the answer is built on; traversing
-  // every cited document would draw several graphs of mostly the same thing.
-  const rootId = streaming ? null : (citedDocuments(text)[0]?.documentId ?? null)
+  // The first document the turn retrieved is what the answer is built on;
+  // traversing every one would draw several graphs of mostly the same thing.
+  const rootId = streaming ? null : rootDocumentId
 
   const { data } = useQuery({
     queryKey: ["legalmemory-graph", workspaceId, rootId] as const,

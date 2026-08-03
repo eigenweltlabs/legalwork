@@ -65,24 +65,45 @@ function connectedServerNames(statusResult: unknown): Set<string> {
   return names;
 }
 
+/** How many servers the status result described, connected or not. Zero means
+ * the call told us nothing, not that nothing is configured. */
+function serverCount(statusResult: unknown): number {
+  if (!statusResult || typeof statusResult !== "object") return 0;
+  const data: unknown = "data" in statusResult ? statusResult.data : statusResult;
+  return data && typeof data === "object" ? Object.keys(data).length : 0;
+}
+
 export const LegalWorkLegalMemoryKnowledge = async (pluginInput?: {
   directory?: string;
   client?: McpStatusClient;
 }) => {
   let connectedCache: { at: number; connected: boolean } | null = null;
 
+  /**
+   * Is LegalMemory connected?
+   *
+   * Fails open. The gate exists so guidance does not dangle over tools that are
+   * not there, which is a cosmetic problem; staying silent when the appliance IS
+   * connected costs the entire feature, which is not. If the status call throws,
+   * returns nothing, or reports no servers at all, we cannot tell — and the
+   * expensive mistake in that situation is silence, so we speak.
+   *
+   * Only a status map that lists servers and does not list LegalMemory among the
+   * connected ones is treated as a real negative.
+   */
   const legalMemoryConnected = async (): Promise<boolean> => {
-    // Cache only positive detection (same policy as the Office pane check): a
-    // just-connected appliance must be visible to the very next turn, while a
-    // brief stale positive merely keeps guidance for tools that fail loudly.
     if (connectedCache?.connected && Date.now() - connectedCache.at < CONNECTED_CACHE_MS) return true;
-    let connected = false;
+    let connected = true;
     try {
       const status = await pluginInput?.client?.mcp?.status?.({ directory: pluginInput?.directory });
       const names = connectedServerNames(status);
-      connected = LEGALMEMORY_SERVER_NAMES.some((name) => names.has(name));
+      const knownServers = serverCount(status);
+      // A populated map that omits LegalMemory is the one case we can trust.
+      if (knownServers > 0) {
+        connected = LEGALMEMORY_SERVER_NAMES.some((name) => names.has(name));
+      }
     } catch {
-      connected = false;
+      connected = true;
     }
     connectedCache = { at: Date.now(), connected };
     return connected;

@@ -43,6 +43,10 @@ export type FetchedDocument = {
 
 const LEGALMEMORY_SERVER_NAME = /^(?:legal[_-]?memory|knowledge[_-]?index)$/i;
 
+function asString(value: unknown): string | undefined {
+  return typeof value === "string" && value.trim() ? value.trim() : undefined;
+}
+
 function asRecord(value: unknown): Record<string, unknown> | null {
   return value && typeof value === "object" && !Array.isArray(value)
     ? (value as Record<string, unknown>)
@@ -291,4 +295,58 @@ function findStructured(value: unknown): unknown {
   }
   const structured = asRecord(envelope?.structuredContent);
   return structured && "root_document" in structured ? structured : null;
+}
+
+/**
+ * Matter id to matter title.
+ *
+ * A search hit names the matter only by id, and the connector name that used to
+ * sit under a source title ("Index") says nothing a reader wants. The matter is
+ * the useful context, so it is resolved once per turn and cached client-side.
+ */
+export async function fetchLegalMemoryMatters(
+  server: LegalMemoryServer,
+  bearer?: string,
+): Promise<Record<string, string>> {
+  const session: Session = {
+    url: server.url,
+    headers: {
+      ...JSON_RPC_HEADERS,
+      ...(server.headers ?? {}),
+      ...(bearer ? { Authorization: `Bearer ${bearer}` } : {}),
+    },
+  };
+  await rpc(session, "initialize", {
+    protocolVersion: "2025-06-18",
+    capabilities: {},
+    clientInfo: { name: "LegalWork", version: "1" },
+  }, 1);
+  await rpc(session, "notifications/initialized", {});
+  const result = await rpc(session, "tools/call", {
+    name: "list_matters",
+    arguments: { limit: 250 },
+  }, 2);
+
+  const envelope = asRecord(result);
+  const content = asRecord(envelope?.result)?.content;
+  const matters: Record<string, string> = {};
+  if (!Array.isArray(content)) return matters;
+  for (const item of content) {
+    const text = asRecord(item)?.text;
+    if (typeof text !== "string") continue;
+    try {
+      const parsed: unknown = JSON.parse(text);
+      if (!Array.isArray(parsed)) continue;
+      for (const entry of parsed) {
+        const record = asRecord(entry);
+        const id = record ? asString(record.id) : undefined;
+        const title = record ? asString(record.title) : undefined;
+        if (id && title) matters[id] = title;
+      }
+      if (Object.keys(matters).length) return matters;
+    } catch {
+      // Not the payload; keep looking.
+    }
+  }
+  return matters;
 }

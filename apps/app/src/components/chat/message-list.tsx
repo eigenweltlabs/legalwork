@@ -1,6 +1,7 @@
 "use memo";
 
 import * as React from "react"
+import { useQuery } from "@tanstack/react-query"
 import {
   AlertTriangle,
   Check,
@@ -54,6 +55,7 @@ import { WebfetchTool } from "@/components/tools/webfetch"
 import { WebsearchTool } from "@/components/tools/websearch"
 import { useMessageList, useSessionErrorMessage } from "@/components/chat/message-list-provider"
 import { ArtifactList } from "@/components/chat/artifact"
+import { collectLegalMemoryDocuments } from "@/lib/legalmemory-documents"
 import { LegalMemoryMatterGraph } from "@/components/chat/legalmemory-matter-graph"
 import { LegalMemorySourcesCard } from "@/components/chat/legalmemory-sources-card"
 import { TaskSuggestions } from "@/components/chat/task-suggestions"
@@ -233,6 +235,8 @@ const ToolMessageInner = ({ part }: ToolMessageProps) => {
   return <Tool toolPart={part} />
 }
 
+const EMPTY_MATTERS: Record<string, string> = {}
+
 const isEmptyMessage = (message: UIMessage): boolean => message.parts.length === 0
 
 type RetryStatus = Extract<SessionStatus, { type: "retry" }>
@@ -378,16 +382,8 @@ type AssistantMessageProps = {
 }
 
 const AssistantMessage = React.memo(
-  ({ message, isStreaming }: AssistantMessageProps) => {
-    const { showThinking, legalworkClient, workspaceId } = useMessageList()
-    const assistantText = React.useMemo(
-      () =>
-        message.parts
-          .filter((part): part is { type: "text"; text: string } => part.type === "text")
-          .map((part) => part.text)
-          .join("\n"),
-      [message.parts],
-    )
+  ({ message }: AssistantMessageProps) => {
+    const { showThinking } = useMessageList()
     const assistantRenderGroups = React.useMemo(
       () => getAssistantRenderGroups(message.parts, showThinking),
       [message.parts, showThinking]
@@ -441,16 +437,6 @@ const AssistantMessage = React.memo(
               </div>
             )
           })}
-          <LegalMemoryMatterGraph
-            text={assistantText}
-            streaming={isStreaming}
-            client={legalworkClient}
-            workspaceId={workspaceId}
-          />
-          <LegalMemorySourcesCard
-            text={assistantText}
-            streaming={isStreaming}
-          />
         </div>
       </Message>
     )
@@ -838,8 +824,29 @@ function MessageGroup({
   messages,
   isStreaming,
 }: AssistantMessageGroupProps) {
-  const { onRevertToUserMessage, onForkAtMessage } = useMessageList()
+  const { onRevertToUserMessage, onForkAtMessage, legalworkClient, workspaceId } = useMessageList()
   const lastItem = items[items.length - 1]
+  // Every document this turn's LegalMemory calls returned, read from the tool
+  // results rather than from anything the model wrote.
+  const legalMemoryDocuments = React.useMemo(
+    () =>
+      collectLegalMemoryDocuments(
+        items.flatMap((item) =>
+          item.message.parts
+            .filter((part) => isLegalMemoryToolPart(part as never) && "output" in part)
+            .map((part) => (part as { output?: unknown }).output),
+        ),
+      ),
+    [items],
+  )
+  // Matter titles, resolved once and reused. A hit names its matter only by id.
+  const { data: legalMemoryMatters = EMPTY_MATTERS } = useQuery({
+    queryKey: ["legalmemory-matters", workspaceId] as const,
+    enabled: legalMemoryDocuments.length > 0 && Boolean(workspaceId && legalworkClient),
+    staleTime: 5 * 60 * 1000,
+    retry: false,
+    queryFn: async () => (await legalworkClient!.legalMemoryMatters(workspaceId)).matters,
+  })
   // Branch/revert must target a real server-side message id. Synthetic
   // client-side messages (e.g. session errors) don't exist on the server and
   // silently corrupt fork/revert boundaries.
@@ -903,6 +910,22 @@ function MessageGroup({
         </div>
       ) : null}
       {proseItems.map((item, groupIndex) => renderItem(item, stepItems.length + groupIndex))}
+      {/* The graph and the sources belong under the finished answer, not among
+          the retrieval steps. They are collected across the whole turn, since
+          the tool calls and the prose that follows them are separate messages. */}
+      <div className="mx-auto w-full max-w-3xl px-2 md:px-10">
+        <LegalMemoryMatterGraph
+          rootDocumentId={legalMemoryDocuments[0]?.documentId ?? null}
+          streaming={isStreaming}
+          client={legalworkClient}
+          workspaceId={workspaceId}
+        />
+        <LegalMemorySourcesCard
+          documents={legalMemoryDocuments}
+          matters={legalMemoryMatters}
+          streaming={isStreaming}
+        />
+      </div>
       {lastTextMessage && !isStreaming && (
         <div className="mx-auto flex w-full max-w-3xl flex-wrap items-center gap-2 px-2 opacity-0 transition-opacity duration-150 group-hover/message-group:opacity-100 md:px-8">
           <MessageActions className="flex gap-0">

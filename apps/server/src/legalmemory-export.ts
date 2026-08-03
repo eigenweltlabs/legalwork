@@ -25,3 +25,12 @@ export function safeExportFilename(name: string): string | null {
   if (base.startsWith(".")) return null;
   return base.length > 200 ? base.slice(0, 200) : base;
 }
+
+/**
+ * Where exported originals land, relative to the workspace root.
+ *
+ * A folder of its own, so a matter's own files are never mixed with copies
+ * pulled out of the index, and so this route can overwrite freely: everything
+ * here it put there itself.
+ */
+export const LEGALMEMORY_EXPORT_DIR = ".legalmemory";

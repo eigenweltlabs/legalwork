@@ -52,12 +52,26 @@ describe("LegalWork LegalMemory knowledge plugin", () => {
     expect(output.system).toEqual([]);
   });
 
-  test("stays silent when the status check is unavailable", async () => {
+  // Failing open is deliberate: guidance over absent tools is cosmetic, silence
+  // over a connected appliance costs the whole feature.
+  test("still speaks when the status check tells us nothing", async () => {
     const plugin = await LegalWorkLegalMemoryKnowledge({ directory: "/tmp/ws" });
     const output: { system: string[] } = { system: [] };
 
     await plugin["experimental.chat.system.transform"](null, output);
 
-    expect(output.system).toEqual([]);
+    expect(output.system.join("\n")).toContain("LegalMemory is connected");
+  });
+
+  test("still speaks when the status map is empty", async () => {
+    const plugin = await LegalWorkLegalMemoryKnowledge({
+      directory: "/tmp/ws",
+      client: statusClient({}),
+    });
+    const output: { system: string[] } = { system: [] };
+
+    await plugin["experimental.chat.system.transform"](null, output);
+
+    expect(output.system.join("\n")).toContain("LegalMemory is connected");
   });
 });

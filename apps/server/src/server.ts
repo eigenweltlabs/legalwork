@@ -1,12 +1,13 @@
 import { existsSync } from "node:fs";
-import { lstat, readFile, writeFile, rm } from "node:fs/promises";
+import { lstat, mkdir, readFile, writeFile, rm } from "node:fs/promises";
 import { homedir, hostname } from "node:os";
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
-import { safeExportFilename } from "./legalmemory-export.js";
+import { LEGALMEMORY_EXPORT_DIR, safeExportFilename } from "./legalmemory-export.js";
 import {
   engineAccessToken,
   fetchLegalMemoryDocument,
   fetchLegalMemoryGraph,
+  fetchLegalMemoryMatters,
   resolveLegalMemoryServer,
 } from "./legalmemory-fetch.js";
 import { fileURLToPath } from "node:url";
@@ -2216,6 +2217,20 @@ function createRoutes(
     return jsonResponse({ ok: true, ...result });
   });
 
+  // Matter id to title, so a source can say which matter it belongs to.
+  addRoute(routes, "POST", "/workspace/:id/legalmemory/matters", "client", async (ctx) => {
+    requireClientScope(ctx, "collaborator");
+    const workspace = await resolveWorkspace(config, ctx.params.id);
+    const server = resolveLegalMemoryServer(await listMcp(config, workspace.id, workspace.path));
+    if (!server) throw new ApiError(409, "legalmemory_not_configured", "No LegalMemory server is configured");
+    try {
+      return jsonResponse({ ok: true, matters: await fetchLegalMemoryMatters(server, await engineAccessToken(server.name)) });
+    } catch {
+      // A source without its matter is still a usable source.
+      return jsonResponse({ ok: true, matters: {} });
+    }
+  });
+
   // The stored relations around a cited document, fetched by the app.
   //
   // The agent is asked to traverse before concluding and does not: on a real
@@ -2270,10 +2285,15 @@ function createRoutes(
     const filename = safeExportFilename(document.filename);
     if (!filename) throw new ApiError(502, "legalmemory_bad_filename", "LegalMemory returned an unusable filename");
 
-    // Never overwrite something already in the matter folder; a same-named file
-    // is far more likely to be the firm's own work than a stale export.
-    const relativePath = await nextAvailableExportName(workspace.path, filename);
-    await writeFile(join(workspace.path, relativePath), document.bytes);
+    // Exports live in their own folder. That keeps them out of the matter's own
+    // files, and it is what makes overwriting safe: everything in here was put
+    // there by this route, so a same-named file is the same document fetched
+    // again rather than the firm's work. Suffixing copies instead would leave a
+    // trail of "Deed (2).docx" for repeat clicks on one source.
+    const exportDir = join(workspace.path, LEGALMEMORY_EXPORT_DIR);
+    await mkdir(exportDir, { recursive: true });
+    const relativePath = `${LEGALMEMORY_EXPORT_DIR}/${filename}`;
+    await writeFile(join(exportDir, filename), document.bytes);
     return jsonResponse({ ok: true, path: relativePath, bytes: document.bytes.byteLength, mimeType: document.mimeType });
   });
 
@@ -4243,18 +4263,3 @@ async function materializeBlueprintSessions(config: ServerConfig, workspace: Wor
   return { ok: true, created, existing: [], openSessionId };
 }
 
-/**
- * A workspace-relative name for an export that does not clobber an existing
- * file: "Deed.docx", then "Deed (2).docx", and so on.
- */
-async function nextAvailableExportName(workspaceRoot: string, filename: string): Promise<string> {
-  if (!existsSync(join(workspaceRoot, filename))) return filename;
-  const dot = filename.lastIndexOf(".");
-  const stem = dot > 0 ? filename.slice(0, dot) : filename;
-  const ext = dot > 0 ? filename.slice(dot) : "";
-  for (let n = 2; n < 1000; n += 1) {
-    const candidate = `${stem} (${n})${ext}`;
-    if (!existsSync(join(workspaceRoot, candidate))) return candidate;
-  }
-  throw new ApiError(409, "export_name_unavailable", `Too many existing copies of ${filename}`);
-}

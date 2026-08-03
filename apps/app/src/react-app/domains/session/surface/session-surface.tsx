@@ -1295,6 +1295,20 @@ export function SessionSurface(props: SessionSurfaceProps) {
       void (async () => {
         try {
           const result = await props.client.legalMemoryOpen(workspaceId, { document_id: documentId });
+          // The route has written the file, but the viewer reads it back
+          // through the workspace API and can get there first: it opens on a
+          // path the read layer does not see yet, renders empty, and caches
+          // that. Closing and reopening the tab then works, which is the
+          // signature of a race rather than a missing file. So wait until the
+          // file is actually readable before opening anything.
+          for (let attempt = 0; attempt < 12; attempt += 1) {
+            try {
+              await props.client.downloadWorkspaceFile(workspaceId, result.path);
+              break;
+            } catch {
+              await new Promise((resolve) => setTimeout(resolve, 150));
+            }
+          }
           const target = resolvePathOpenTarget(result.path, openTargets, "legalmemory");
           if (!target) return;
           // The viewer caches per target id. This path may have been opened

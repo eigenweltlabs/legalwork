@@ -2,10 +2,8 @@
 
 import { BookMarked } from "lucide-react"
 
-import {
-  citedDocuments,
-  LEGALMEMORY_OPEN_EVENT,
-} from "@/components/markdown/legalmemory-ref"
+import { LEGALMEMORY_OPEN_EVENT } from "@/components/markdown/legalmemory-ref"
+import { isAuthoritativeStatus, type LegalMemoryDocument } from "@/lib/legalmemory-documents"
 
 /**
  * The sources under an answer.
@@ -20,12 +18,18 @@ import {
  * results, so it cannot drift from the prose. A document that was retrieved but
  * never cited does not appear, which is correct: it supported nothing.
  */
-export function LegalMemorySourcesCard({ text, streaming }: { text: string; streaming: boolean }) {
+export function LegalMemorySourcesCard({
+  documents,
+  matters,
+  streaming,
+}: {
+  documents: LegalMemoryDocument[]
+  matters: Record<string, string>
+  streaming: boolean
+}) {
   // Rendering mid-stream would grow the card a row at a time underneath a
   // paragraph still being written, moving the text the reader is reading.
   if (streaming) return null
-
-  const documents = citedDocuments(text)
   if (!documents.length) return null
 
   return (
@@ -55,8 +59,26 @@ export function LegalMemorySourcesCard({ text, streaming }: { text: string; stre
               <span className="w-4 shrink-0 text-right text-xs tabular-nums text-[var(--lw-text-tertiary)]">
                 {index + 1}
               </span>
-              <span className="min-w-0 flex-1 truncate text-sm font-medium text-[var(--lw-accent)]">
-                {document.title}
+              <span className="min-w-0 flex-1">
+                <span className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                  <span className="truncate text-sm font-medium text-[var(--lw-accent)]">{document.title}</span>
+                  {document.versionStatus ? (
+                    <span
+                      className={
+                        isAuthoritativeStatus(document.versionStatus)
+                          ? "shrink-0 rounded-full bg-[var(--lw-success-soft)] px-1.5 py-px text-[10px] font-semibold uppercase tracking-wide text-[var(--lw-success)]"
+                          : "shrink-0 rounded-full border border-[var(--lw-border)] px-1.5 py-px text-[10px] font-semibold uppercase tracking-wide text-[var(--lw-text-tertiary)]"
+                      }
+                    >
+                      {document.versionStatus}
+                    </span>
+                  ) : null}
+                </span>
+                {document.matterId && matters[document.matterId] ? (
+                  <span className="mt-0.5 block truncate text-xs text-[var(--lw-text-secondary)]">
+                    {matters[document.matterId]}
+                  </span>
+                ) : null}
               </span>
             </button>
           </li>
