@@ -49,3 +49,33 @@ export function buildLegalMemoryRefPrompt(ref: LegalMemoryRef, label: string): s
  * server, which validates it against the firm's configured appliance origins
  * and drops the file into the workspace. */
 export const LEGALMEMORY_OPEN_EVENT = "legalwork:legalmemory-open";
+
+/**
+ * Inline citations in an answer: `[[doc:<id>|<title>]]`.
+ *
+ * Deliberately inert rather than a markdown link. It survives streaming a token
+ * at a time (a half-written one renders as plain text instead of a broken
+ * link), it cannot collide with markdown the model meant literally, and models
+ * emit it far more reliably than a custom URL scheme inside link syntax, which
+ * is what the earlier `legalmemory://` form depended on.
+ */
+export const LEGALMEMORY_CITATION = /\[\[doc:([^\]|\s]+)\|([^\]]+)\]\]/g;
+
+export type CitedDocument = { documentId: string; title: string };
+
+/**
+ * The documents an answer cited, in the order it cited them.
+ *
+ * Deduplicated by id: a claim supported twice is still one source. The first
+ * title wins, since that is the name the answer introduced the document under.
+ */
+export function citedDocuments(text: string): CitedDocument[] {
+  const seen = new Map<string, CitedDocument>();
+  for (const match of text.matchAll(LEGALMEMORY_CITATION)) {
+    const documentId = match[1].trim();
+    const title = match[2].trim();
+    if (!documentId || seen.has(documentId)) continue;
+    seen.set(documentId, { documentId, title: title || documentId });
+  }
+  return [...seen.values()];
+}

@@ -147,16 +147,20 @@ export const MCP_QUICK_CONNECT: McpDirectoryInfo[] = [
     get name() { return t("mcp.quick_connect_legalmemory_title"); },
     serverName: "legalmemory",
     get description() { return t("mcp.quick_connect_legalmemory_desc"); },
-    // First-party: LegalMemory (Knowledge Index) is Eigenwelt Labs' own on-prem
-    // knowledge appliance (github.com/eigenweltlabs/LegalMemory), so every
-    // firm has its own base URL — the {appliance} segment is filled in the setup
-    // form. Auth is standard MCP OAuth 2.1: the appliance serves RFC 9728
-    // resource metadata at /.well-known/oauth-protected-resource/mcp and sign-in
-    // runs authorization-code + PKCE against the firm's IdP (Keycloak), which
-    // allows loopback redirects and dynamic client registration. The MCP
-    // endpoint requires the trailing slash. The template carries no scheme:
-    // the appliance is the firm's own host, so the setup form defaults it to
-    // https but lets an internal deployment state http:// explicitly.
+    // First-party: LegalMemory (Knowledge Index) is Eigenwelt Labs' own
+    // knowledge appliance (github.com/eigenweltlabs/LegalMemory), so every firm
+    // has its own base URL — the {appliance} segment is filled in the setup
+    // form. The template carries no scheme: the appliance is the firm's own
+    // host, so the setup form defaults it to https but lets an internal
+    // deployment state http:// explicitly, and a pasted endpoint is used as-is.
+    //
+    // Auth is deliberately NOT declared. The same address can be an on-prem
+    // appliance behind Keycloak, the hosted demo behind Clerk, or an open
+    // endpoint, and which one it is can change under us. Declaring oauth here
+    // forced the sign-in flow against servers that needed none and produced an
+    // auth error for a server that was answering fine. Leaving it unset lets
+    // connectMcp use what the engine actually reports after probing the server,
+    // which is the only thing that knows.
     url: "{appliance}/mcp/",
     type: "remote",
     oauth: true,

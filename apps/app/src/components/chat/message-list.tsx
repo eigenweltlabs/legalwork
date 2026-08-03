@@ -46,7 +46,6 @@ import { GrepTool } from "@/components/tools/grep"
 import { LegalMemoryActivityTool } from "@/components/tools/legalmemory-activity"
 import { LegalMemoryDownloadTool } from "@/components/tools/legalmemory-download"
 import { LegalMemoryGraphTool } from "@/components/tools/legalmemory-graph"
-import { LegalMemorySourcesTool } from "@/components/tools/legalmemory-sources"
 import { LspTool } from "@/components/tools/lsp"
 import { QuestionTool } from "@/components/tools/question"
 import { SkillTool } from "@/components/tools/skill"
@@ -55,6 +54,7 @@ import { WebfetchTool } from "@/components/tools/webfetch"
 import { WebsearchTool } from "@/components/tools/websearch"
 import { useMessageList, useSessionErrorMessage } from "@/components/chat/message-list-provider"
 import { ArtifactList } from "@/components/chat/artifact"
+import { LegalMemorySourcesCard } from "@/components/chat/legalmemory-sources-card"
 import { TaskSuggestions } from "@/components/chat/task-suggestions"
 import {
   DescriptiveButtonContent,
@@ -87,7 +87,6 @@ import {
   isLegalMemoryDownloadToolPart,
   isLegalMemoryGraphToolPart,
   isLegalMemoryToolPart,
-  isLegalMemorySearchToolPart,
   isLspToolPart,
   isQuestionToolPart,
   isReadToolPart,
@@ -213,22 +212,21 @@ const ToolMessageInner = ({ part }: ToolMessageProps) => {
     return <EnvVarRequestTool part={part} />
   }
 
-  // A running LegalMemory call gets a line saying what it is doing; finished
-  // calls fall through to their own card, or to the generic one.
-  if (isLegalMemoryToolPart(part) && part.state !== "output-available" && part.state !== "output-error") {
-    return <LegalMemoryActivityTool part={part} />
-  }
-
-  if (isLegalMemoryDownloadToolPart(part)) {
-    return <LegalMemoryDownloadTool part={part} />
-  }
-
-  if (isLegalMemoryGraphToolPart(part)) {
+  // Every LegalMemory call is a one-line step, running or finished. Only a
+  // failure falls through to the generic card, where the error is readable.
+  // Order matters: the results worth a card are claimed first, then every other
+  // LegalMemory call collapses to a one-line step. Putting the catch-all first
+  // swallowed the graph.
+  if (isLegalMemoryGraphToolPart(part) && part.state === "output-available") {
     return <LegalMemoryGraphTool part={part} />
   }
 
-  if (isLegalMemorySearchToolPart(part)) {
-    return <LegalMemorySourcesTool part={part} />
+  if (isLegalMemoryDownloadToolPart(part) && part.state === "output-available") {
+    return <LegalMemoryDownloadTool part={part} />
+  }
+
+  if (isLegalMemoryToolPart(part) && part.state !== "output-error") {
+    return <LegalMemoryActivityTool part={part} />
   }
 
   return <Tool toolPart={part} />
@@ -379,7 +377,7 @@ type AssistantMessageProps = {
 }
 
 const AssistantMessage = React.memo(
-  ({ message }: AssistantMessageProps) => {
+  ({ message, isStreaming }: AssistantMessageProps) => {
     const { showThinking } = useMessageList()
     const assistantRenderGroups = React.useMemo(
       () => getAssistantRenderGroups(message.parts, showThinking),
@@ -434,6 +432,13 @@ const AssistantMessage = React.memo(
               </div>
             )
           })}
+          <LegalMemorySourcesCard
+            text={message.parts
+              .filter((part): part is { type: "text"; text: string } => part.type === "text")
+              .map((part) => part.text)
+              .join("\n")}
+            streaming={isStreaming}
+          />
         </div>
       </Message>
     )

@@ -11,8 +11,13 @@
 
 /** Server names under which firms connect the appliance: the LegalWork
  * quick-connect catalog uses "legalmemory"; the appliance's own admin UI
- * hands out a sample client config named "knowledge-index". */
-export const LEGALMEMORY_SERVER_NAMES = ["legalmemory", "knowledge-index"];
+ * hands out a sample client config named "knowledge-index".
+ *
+ * Deliberately NOT exported. The engine's plugin loader treats every export of
+ * a plugin module as a plugin factory and calls it, so exporting a value here
+ * fails the whole module with "Plugin export is not a function" and the
+ * guidance below silently never loads. */
+const LEGALMEMORY_SERVER_NAMES = ["legalmemory", "knowledge-index"];
 
 const CONNECTED_CACHE_MS = 30_000;
 
@@ -25,13 +30,16 @@ LegalMemory is this firm's institutional memory. Use it BY DEFAULT — the user 
 - Before drafting, reviewing, redlining, researching, or answering anything that could touch the firm's past work, SEARCH LEGALMEMORY FIRST (search_semantic and/or search_filter). Precedent documents, templates, prior matters, negotiated positions, and decision rationale usually already exist there — producing work from scratch without checking is a mistake.
 - Any mention of a matter, client, counterparty, or prior deal is a signal to consult it: list_matters, resolve_entity, and find_related_documents before assuming the local workspace folder is all there is.
 - ANSWER FROM THE CURRENT, CONTROLLING DOCUMENT, NOT THE FIRST HIT. The index holds every version — drafts, redlines, superseded originals. For any question about what a document actually says or obliges today, search with only_final=true (search_filter) so you see executed and effective versions, then run find_related_documents on the leading hit and follow the supersedes / annex_of / references / responds_to edges (traverse for exact stored edges) to find the amendment, supplemental deed, side letter, or annex that varies it. State which instrument controls and which one it displaced. Quoting a superseded clause as current is the single worst failure mode here.
-- Requests for related or linked files, "what belongs with this document", a document graph, or a matter map go to find_related_documents — it returns graph-ready edges plus shared-thread and shared-matter context. Do not approximate a graph with repeated semantic searches.
+- TRAVERSE BEFORE YOU CONCLUDE. Once you have read the documents you intend to rely on, call find_related_documents on the leading one. This is not optional and not only for when the user asks for "related files": a term sheet has a definitive agreement, a draft has a final, a brief has its exhibits, and those links are stored with the evidence that established them. A search cannot reproduce them, so an answer that skips this step is an answer from search alone. It matters most when you are about to say something is absent: "the agreement is not in the index" is a strong claim, and traversing what you did find is how you check it rather than assume it. LegalWork renders the result as the matter graph, which is the one card in the reply that is not foldable.
+- Do not approximate a graph with repeated semantic searches.
 - Narrow by the firm's own ontology rather than guessing keywords: list_taxonomies for the document-type and Area of Law facets, ontology_search / ontology_children to find a node id, then pass it as doc_type (search_filter/search_semantic) or practice_area (list_matters). Both match the node's whole subtree.
 - When drafting, retrieve the firm's closest precedent from LegalMemory and start from it rather than a generic template. When reviewing or negotiating, check search_decisions for the firm's previously accepted and rejected positions.
 - Questions about fees, invoices, or billed work go to billing_rollup and list_invoices.
 - Cite what you rely on: pull the source via get_document or download_document and name it, so the user can verify. Every evidence-bearing result carries a citations array — never make a factual claim from a result whose citations array is empty.
-- ALWAYS write LegalMemory documents and matters you mention as markdown reference links carrying their real id from the tool results: [<document title>](legalmemory://document/<document_id>) and [<matter name>](legalmemory://matter/<matter_id>). LegalWork renders these as clickable chips — clicking one asks you to export that document into the workspace or preview that matter — so a reply that names a source without its reference link leaves the user a dead end. Never invent ids; omit the link only when the id is not in any tool result.
-- When asked to export/download a LegalMemory document (including via a clicked reference chip), call download_document, run its save_command from the workspace root so the exact original lands in the workspace, then reply with the saved file as a workspace-relative markdown link.
+- CITE EVERY DOCUMENT YOU NAME, using this exact syntax: [[doc:<document_id>|<document title or filename>]]. Take document_id verbatim from citations[].document.id in a tool result; never invent, abbreviate or reformat it. LegalWork resolves these into chips that open the original, and builds the Sources list under your answer from them. A claim about a document without a citation is not an answer; if you cannot cite it, do not assert it.
+- Cite a document where you actually rely on it, not everywhere it might be relevant. The Sources list is built from these citations, so a document you cite once because it looked related puts a source under the answer that supports none of it.
+- DO NOT write your own source list, bibliography or "documents referenced" section. LegalWork renders one from your citations, and yours would sit directly above a duplicate of itself.
+- Do not download or copy a document just so the user can open it. Clicking a citation opens the original in LegalWork directly. Call download_document only when the task genuinely needs the file's bytes in the workspace, for example to edit or redline it.
 - Results are permission-scoped to the signed-in user. An empty result can mean "no access" rather than "the firm has nothing" — say so instead of overclaiming.
 - Skip LegalMemory only when the task verifiably cannot benefit from firm knowledge (pure computation, or editing text the user just pasted). When in doubt, search it.
 

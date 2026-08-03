@@ -1822,12 +1822,12 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
         { token, hostToken, method: "POST", body: payload, timeoutMs: timeouts.workspaceExport },
       ),
     /** Fetch a cited LegalMemory original into the workspace and return where it
-     * landed. The server validates the link against the firm's configured
-     * appliance origins; the app never fetches it directly. */
-    legalMemoryExport: (workspaceId: string, payload: { url: string }) =>
-      requestJson<{ ok: boolean; path: string; bytes: number }>(
+     * landed. Takes the document id, never a URL: the server pulls the bytes
+     * over MCP itself, so no agent turn and no download endpoint are involved. */
+    legalMemoryOpen: (workspaceId: string, payload: { document_id: string }) =>
+      requestJson<{ ok: boolean; path: string; bytes: number; mimeType: string }>(
         baseUrl,
-        `/workspace/${encodeURIComponent(workspaceId)}/legalmemory/export`,
+        `/workspace/${encodeURIComponent(workspaceId)}/legalmemory/open`,
         { token, hostToken, method: "POST", body: payload, timeoutMs: timeouts.workspaceExport },
       ),
     hubShareIntegration: (workspaceId: string, payload: { mcp: string; name?: string; description?: string }) =>

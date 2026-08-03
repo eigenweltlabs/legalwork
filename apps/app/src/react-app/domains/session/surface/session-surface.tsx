@@ -4,6 +4,7 @@ import type { UIMessage } from "ai";
 import { useQuery } from "@tanstack/react-query";
 import type { SessionStatus } from "@opencode-ai/sdk/v2/client";
 import { Check, Minimize2, TriangleAlert } from "lucide-react";
+import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "@/components/ui/sonner";
 
 import { analyticsSurface, captureAnalyticsEvent } from "@/app/lib/analytics";
@@ -817,6 +818,7 @@ export function SessionSurface(props: SessionSurfaceProps) {
     () => deriveRenderedSessionMessages({ transcriptState, snapshot }),
     [snapshot, transcriptState],
   );
+  const queryClient = useQueryClient();
   const openTargets = useMemo(() => deriveOpenTargets(renderedMessages), [renderedMessages]);
   const openTargetsFingerprint = useMemo(
     () => openTargets.map((target) => `${target.kind}:${target.value}:${target.confidence}`).join("|"),
@@ -1279,39 +1281,39 @@ export function SessionSurface(props: SessionSurfaceProps) {
     return () => window.removeEventListener(LEGALMEMORY_REF_EVENT, handleLegalMemoryRef);
   }, [attachments, buildDraft, props.modelUnavailable, props.onDraftChange, sendDraft, typeComposerText]);
 
-  // A LegalMemory download card was clicked. The app holds no appliance
-  // credentials, so the server fetches the original: it validates the link
-  // against the firm's configured appliance origins, saves it into the
-  // workspace, and we open whatever path it reports. A failure falls back to
-  // asking the agent, which can still export the file the long way.
+  // A LegalMemory source was clicked. The server pulls the original over MCP
+  // and drops it in the workspace, then we open it. The agent is not involved:
+  // fetching a file the user asked for is the app's job, not a task for a model.
   useEffect(() => {
     const handleLegalMemoryOpen = (event: Event) => {
       if (!(event instanceof CustomEvent)) return;
       const detail: unknown = event.detail;
-      if (!detail || typeof detail !== "object" || !("url" in detail) || typeof detail.url !== "string") return;
-      const url = detail.url;
+      if (!detail || typeof detail !== "object" || !("documentId" in detail) || typeof detail.documentId !== "string") return;
+      const documentId = detail.documentId;
       const workspaceId = props.workspaceId;
       if (!workspaceId) return;
       void (async () => {
         try {
-          const result = await props.client.legalMemoryExport(workspaceId, { url });
-          const target = resolvePathOpenTarget(result.path, openTargets, "legalmemory-export");
-          if (target) props.onOpenTarget?.(target);
-        } catch {
-          const filename = "filename" in detail && typeof detail.filename === "string" ? detail.filename : "the document";
-          void sendDraft(
-            buildDraft(
-              `Export ${filename} from LegalMemory into the workspace: call download_document, run its save_command from the workspace root, then reply with the saved file as a workspace-relative link.`,
-              [],
-            ),
-            [],
-          ).catch(() => undefined);
+          const result = await props.client.legalMemoryOpen(workspaceId, { document_id: documentId });
+          const target = resolvePathOpenTarget(result.path, openTargets, "legalmemory");
+          if (!target) return;
+          // The viewer caches per target id. This path may have been opened
+          // before the document existed (a failed export leaves the miss
+          // cached), so drop that entry or the pane renders the old result for
+          // a file we just wrote.
+          queryClient.removeQueries({ queryKey: ["artifact-panel", workspaceId, target.id] });
+          props.onOpenTarget?.(target);
+        } catch (error) {
+          const label = "label" in detail && typeof detail.label === "string" ? detail.label : "that document";
+          toast.error(`Could not open ${label}`, {
+            description: error instanceof Error ? error.message : "LegalMemory download failed",
+          });
         }
       })();
     };
     window.addEventListener(LEGALMEMORY_OPEN_EVENT, handleLegalMemoryOpen);
     return () => window.removeEventListener(LEGALMEMORY_OPEN_EVENT, handleLegalMemoryOpen);
-  }, [buildDraft, openTargets, props.client, props.onOpenTarget, props.workspaceId, sendDraft]);
+  }, [openTargets, props.client, props.onOpenTarget, props.workspaceId, queryClient]);
 
   const composerSetTextControlAction = useMemo<LegalworkControlAction>(() => ({
     id: "composer.set_text",

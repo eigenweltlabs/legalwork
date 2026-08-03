@@ -31,16 +31,53 @@ function extractPlaceholders(url: string | undefined): string[] {
  * (`https://{instance}.highq.com/...`), so those are untouched here. On-prem
  * connectors interpolate the whole address instead, because the firm owns it:
  * a LegalMemory appliance can be `ki.firm.internal`, `ki.firm.com:8443`, or a
- * plain-HTTP host behind an internal TLS-terminating proxy. So a value may
- * carry its own scheme, and a template may have none — default to https only
- * when the resolved URL doesn't already state one, and never let a pasted
- * trailing slash double up against the template's path.
+ * plain-HTTP host behind an internal TLS-terminating proxy.
+ *
+ * Two things people actually type have to survive that:
+ *
+ *   - the full endpoint, not the bare host. Asking for a "base URL" does not
+ *     stop anyone pasting the `…/mcp` address they already use elsewhere, and
+ *     appending the template's own `/mcp/` on top of it produced `/mcp/mcp/`:
+ *     a server that registers cleanly and then resolves to nothing.
+ *   - a loopback address, which is a local deployment and is therefore almost
+ *     never on TLS. Defaulting `localhost` to https produced a connector that
+ *     could only ever fail its handshake.
  */
 export function resolveConnectorUrl(template: string, values: Record<string, string>): string {
-  const url = template.replace(PLACEHOLDER_RE, (_, key: string) =>
-    (values[key] ?? "").trim().replace(/\/+$/, ""),
-  );
-  return /^[a-z][a-z0-9+.-]*:\/\//i.test(url) ? url : `https://${url}`;
+  // A single-placeholder template is the on-prem case, where the firm owns the
+  // whole address. If what they typed already carries a path, that IS the
+  // endpoint and it is used verbatim: someone who pastes a working URL must
+  // get that URL back, not a rewritten guess at one.
+  const onlyPlaceholder = /^\{([^}]+)\}(.*)$/.exec(template);
+  if (onlyPlaceholder) {
+    const typed = (values[onlyPlaceholder[1]] ?? "").trim();
+    if (hasPath(typed)) return withScheme(typed);
+    return withScheme(`${typed.replace(/\/+$/, "")}${onlyPlaceholder[2]}`);
+  }
+
+  // Vendor templates interpolate a subdomain into a URL they own; substitute
+  // and leave the rest alone.
+  return template.replace(PLACEHOLDER_RE, (_, key: string) => (values[key] ?? "").trim().replace(/\/+$/, ""));
+}
+
+/** Does the value name a path of its own, beyond the host[:port]? */
+function hasPath(value: string): boolean {
+  const afterScheme = value.replace(/^[a-z][a-z0-9+.-]*:\/\//i, "");
+  const slash = afterScheme.indexOf("/");
+  return slash !== -1 && afterScheme.slice(slash).replace(/\/+$/, "") !== "";
+}
+
+/** Keep an explicit scheme; otherwise loopback means a local deployment, which
+ * is almost never on TLS, and anything else defaults to https. */
+function withScheme(value: string): string {
+  if (/^[a-z][a-z0-9+.-]*:\/\//i.test(value)) return value;
+  return `${isLoopback(value) ? "http" : "https"}://${value}`;
+}
+
+/** localhost / 127.x / ::1, with or without a port. */
+function isLoopback(value: string): boolean {
+  const host = value.split("/")[0].replace(/:\d+$/, "").toLowerCase();
+  return host === "localhost" || host === "::1" || host === "[::1]" || /^127\./.test(host);
 }
 
 /**

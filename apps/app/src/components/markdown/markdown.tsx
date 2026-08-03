@@ -25,6 +25,8 @@ import { applyTextHighlights } from "./text-highlights";
 import { LinkActionMenu } from "./link-action-menu";
 import {
   buildLegalMemoryRefPrompt,
+  LEGALMEMORY_CITATION,
+  LEGALMEMORY_OPEN_EVENT,
   LEGALMEMORY_REF_EVENT,
   parseLegalMemoryRef,
 } from "./legalmemory-ref";
@@ -363,6 +365,23 @@ type MarkdownBlockInnerProps = {
   "ref" | "className" | "children" | "dangerouslySetInnerHTML"
 >;
 
+
+/**
+ * Rewrite `[[doc:<id>|<title>]]` citations into the same markdown link the
+ * chip renderer already handles.
+ *
+ * Done before parsing rather than after, so a citation inside a code span or a
+ * table cell goes through the markdown machinery that already knows about those
+ * boundaries. A partially streamed citation simply does not match and renders
+ * as the plain text it currently is.
+ */
+function rewriteLegalMemoryCitations(text: string): string {
+  return text.replace(LEGALMEMORY_CITATION, (_match, id: string, title: string) => {
+    const safeTitle = title.trim().replace(/[[\]]/g, "");
+    return `[${safeTitle}](legalmemory://document/${id.trim()})`;
+  });
+}
+
 function MarkdownBlockInner({
   className,
   text,
@@ -377,7 +396,7 @@ function MarkdownBlockInner({
     if (!text.trim()) {
       return "";
     }
-    return sanitizeMarkdownHtml(markdownParser.parse(text, { async: false }));
+    return sanitizeMarkdownHtml(markdownParser.parse(rewriteLegalMemoryCitations(text), { async: false }));
   }, [text]);
   const [highlightedHtml, setHighlightedHtml] = useState<{ text: string; html: string } | null>(null);
 
@@ -388,7 +407,7 @@ function MarkdownBlockInner({
     }
 
     let cancelled = false;
-    void highlightedMarkdownParser.parse(text, { async: true }).then((html) => {
+    void highlightedMarkdownParser.parse(rewriteLegalMemoryCitations(text), { async: true }).then((html) => {
       const sanitizedHtml = sanitizeMarkdownHtml(html);
 
       if (!cancelled && sanitizedHtml.trim()) {
@@ -444,10 +463,12 @@ function MarkdownBlockInner({
         const ref = parseLegalMemoryRef(memoryRefLink.dataset.legalworkLegalmemoryRef ?? "");
         if (ref) {
           const label = memoryRefLink.textContent?.trim() ?? "";
+          // A document opens directly. A matter has no file to fetch, so that
+          // one still goes to the agent for a preview.
           window.dispatchEvent(
-            new CustomEvent(LEGALMEMORY_REF_EVENT, {
-              detail: { prompt: buildLegalMemoryRefPrompt(ref, label) },
-            }),
+            ref.kind === "document"
+              ? new CustomEvent(LEGALMEMORY_OPEN_EVENT, { detail: { documentId: ref.id, label } })
+              : new CustomEvent(LEGALMEMORY_REF_EVENT, { detail: { prompt: buildLegalMemoryRefPrompt(ref, label) } }),
           );
         }
         return;

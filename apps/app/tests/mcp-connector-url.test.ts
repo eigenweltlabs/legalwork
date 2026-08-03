@@ -39,3 +39,54 @@ describe("resolveConnectorUrl", () => {
     );
   });
 });
+
+describe("resolveConnectorUrl: what people actually paste", () => {
+  // If you paste a working URL you get that URL back, not a rewritten guess.
+  test("uses a pasted endpoint verbatim", () => {
+    expect(resolveConnectorUrl("{appliance}/mcp/", { appliance: "http://localhost:3200/mcp/" })).toBe(
+      "http://localhost:3200/mcp/",
+    );
+    expect(resolveConnectorUrl("{appliance}/mcp/", { appliance: "http://localhost:3200/mcp" })).toBe(
+      "http://localhost:3200/mcp",
+    );
+    expect(resolveConnectorUrl("{appliance}/mcp/", { appliance: "https://ki.firm.com/api/mcp/" })).toBe(
+      "https://ki.firm.com/api/mcp/",
+    );
+  });
+
+  test("adds a scheme to a pasted path that omits one, without touching the path", () => {
+    expect(resolveConnectorUrl("{appliance}/mcp/", { appliance: "localhost:3200/mcp" })).toBe(
+      "http://localhost:3200/mcp",
+    );
+    expect(resolveConnectorUrl("{appliance}/mcp/", { appliance: "ki.firm.com/mcp/" })).toBe(
+      "https://ki.firm.com/mcp/",
+    );
+  });
+
+  test("appends the endpoint only when just a host was given", () => {
+    expect(resolveConnectorUrl("{appliance}/mcp/", { appliance: "ki.firm.com" })).toBe(
+      "https://ki.firm.com/mcp/",
+    );
+    expect(resolveConnectorUrl("{appliance}/mcp/", { appliance: "ki.firm.com:8443/" })).toBe(
+      "https://ki.firm.com:8443/mcp/",
+    );
+  });
+
+  test("defaults loopback to http, everything else to https", () => {
+    expect(resolveConnectorUrl("{appliance}/mcp/", { appliance: "localhost:8000" })).toBe(
+      "http://localhost:8000/mcp/",
+    );
+    expect(resolveConnectorUrl("{appliance}/mcp/", { appliance: "127.0.0.1:8000" })).toBe(
+      "http://127.0.0.1:8000/mcp/",
+    );
+    expect(resolveConnectorUrl("{appliance}/mcp/", { appliance: "ki.firm.internal" })).toBe(
+      "https://ki.firm.internal/mcp/",
+    );
+  });
+
+  test("an explicit scheme always wins", () => {
+    expect(resolveConnectorUrl("{appliance}/mcp/", { appliance: "https://localhost:8443" })).toBe(
+      "https://localhost:8443/mcp/",
+    );
+  });
+});
