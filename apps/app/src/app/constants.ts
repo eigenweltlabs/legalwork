@@ -67,6 +67,11 @@ export type McpDirectoryInfo = {
   /** Product page for a featured connector, opened from a "Learn more" link. */
   learnMoreUrl?: string;
   /**
+   * Render this connector's name as its own wordmark instead of plain text.
+   * Only for products with a real one; see `.lw-brand-wordmark`.
+   */
+  brandWordmark?: boolean;
+  /**
    * A prerequisite the firm must already have before Connect can succeed, shown
    * on its own line so it survives the description clamp. Self-hosted
    * connectors need this: without it, "Connect" looks like it should just work.
@@ -164,6 +169,7 @@ export const MCP_QUICK_CONNECT: McpDirectoryInfo[] = [
     learnMoreUrl: "https://eigenweltlabs.com/legalmemory",
     iconSrc: "/ext-legalmemory.svg",
     get setupNote() { return t("mcp.quick_connect_legalmemory_note"); },
+    brandWordmark: true,
   },
   {
     get name() { return t("mcp.quick_connect_notion_title"); },

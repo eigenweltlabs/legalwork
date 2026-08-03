@@ -636,3 +636,28 @@ select:disabled {
     transform: translateY(0) scale(1);
   }
 }
+
+/* LegalMemory wordmark.
+ *
+ * The product site sets its name in an expanded SF Pro cut at weight 900 in
+ * #E95700 (eigenwelt-website/app/legalmemory.css, .lm-wordmark). Reproduced
+ * here so the connector reads as the same product rather than as a row of
+ * plain text among third-party vendors.
+ *
+ * Geist, the app's own face, has no expanded cut, so the system stack carries
+ * the mark exactly as the site does and falls back to the nearest geometric.
+ *
+ * Size matters for more than emphasis: #E95700 on white is 3.6:1, which clears
+ * WCAG AA for large text (3:1) but not for body text (4.5:1). The rule below is
+ * only ever applied at 20px+ at weight 900, comfortably inside "large".
+ */
+.lw-brand-wordmark {
+  font-family: ".SF NS", -apple-system, BlinkMacSystemFont, "SF Pro Display", "Helvetica Neue", sans-serif;
+  font-weight: 900;
+  font-stretch: 200%;
+  font-variation-settings: "wdth" 200, "wght" 900, "opsz" 144;
+  letter-spacing: -0.035em;
+  line-height: 0.92;
+  white-space: nowrap;
+  color: #E95700;
+}

@@ -817,6 +817,7 @@ export function McpView(props: McpViewProps) {
             name={detailEntry.name}
             description={detailEntry.description}
             setupNote={detailEntry.setupNote}
+            brandWordmark={detailEntry.brandWordmark}
             learnMoreUrl={detailEntry.learnMoreUrl}
             iconSlug={detailEntry.iconSlug}
             iconSrc={detailEntry.iconSrc}
@@ -1026,7 +1027,11 @@ function McpQuickConnectSection(props: {
                       kind={kind}
                       connecting={connecting}
                     />
-                    <h4 className="truncate text-[15px] font-medium tracking-[-0.01em] text-dls-text">{entry.name}</h4>
+                    {entry.brandWordmark ? (
+                      <h4 className="lw-brand-wordmark truncate text-[21px]">{entry.name.toUpperCase()}</h4>
+                    ) : (
+                      <h4 className="truncate text-[15px] font-medium tracking-[-0.01em] text-dls-text">{entry.name}</h4>
+                    )}
                   </div>
                   {configured ? (
                     <CheckCircle2 size={16} className="mt-1 shrink-0 text-green-9" />

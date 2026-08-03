@@ -40,6 +40,8 @@ export type ExtensionDetailModalProps = {
   setupNote?: string;
   /** Product page, opened from a "Learn more" link under the description. */
   learnMoreUrl?: string;
+  /** Render the name as the product's own wordmark. */
+  brandWordmark?: boolean;
   iconSlug?: string;
   iconSrc?: string;
   fallbackIcon?: LucideIcon;
@@ -192,6 +194,7 @@ export function ExtensionDetailModal({
   description,
   setupNote,
   learnMoreUrl,
+  brandWordmark,
   iconSlug,
   iconSrc,
   kind = "mcp",
@@ -275,7 +278,9 @@ export function ExtensionDetailModal({
             </div>
 
             <div className="min-w-0 flex flex-col gap-1 justify-center self-stretch">
-              <DialogTitle>{name}</DialogTitle>
+              <DialogTitle className={brandWordmark ? "lw-brand-wordmark text-[26px]" : undefined}>
+                {brandWordmark ? name.toUpperCase() : name}
+              </DialogTitle>
               <DialogDescription className="flex flex-wrap items-center gap-2">
                 <span>{kindLabel[kind]}</span>
                 {preview ? (
