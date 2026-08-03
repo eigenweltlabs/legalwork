@@ -1,5 +1,7 @@
 import type { ToolUIPart, DynamicToolUIPart } from "ai";
 
+import { legalMemoryToolName } from "@/lib/legalmemory-activity";
+
 export interface ToolMetadata {
   truncated?: boolean;
   outputPath?: string;
@@ -404,6 +406,16 @@ export function isLegalMemoryGraphToolPart(
   part: ToolUIPart | DynamicToolUIPart,
 ): part is LegalMemoryGraphToolPart {
   return part.type === "dynamic-tool" && LEGALMEMORY_GRAPH_TOOL.test(part.toolName);
+}
+
+export type LegalMemoryToolPart = BuiltInDynamicToolPart<string, unknown, unknown>;
+
+/** Any tool the LegalMemory appliance registers, running or finished. Used for
+ * the in-flight activity line; see `legalMemoryToolName` for the roster. */
+export function isLegalMemoryToolPart(
+  part: ToolUIPart | DynamicToolUIPart,
+): part is LegalMemoryToolPart {
+  return part.type === "dynamic-tool" && legalMemoryToolName(part.toolName) !== null;
 }
 
 export type LegalMemorySearchInput = { query?: string; matter_id?: string; only_final?: boolean };

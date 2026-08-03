@@ -43,6 +43,7 @@ import { EnvVarRequestTool } from "@/components/tools/env-var-request"
 import { ReadFileTool, WriteFileTool } from "@/components/tools/file"
 import { GlobTool } from "@/components/tools/glob"
 import { GrepTool } from "@/components/tools/grep"
+import { LegalMemoryActivityTool } from "@/components/tools/legalmemory-activity"
 import { LegalMemoryGraphTool } from "@/components/tools/legalmemory-graph"
 import { LegalMemorySourcesTool } from "@/components/tools/legalmemory-sources"
 import { LspTool } from "@/components/tools/lsp"
@@ -83,6 +84,7 @@ import {
   isGlobToolPart,
   isGrepToolPart,
   isLegalMemoryGraphToolPart,
+  isLegalMemoryToolPart,
   isLegalMemorySearchToolPart,
   isLspToolPart,
   isQuestionToolPart,
@@ -207,6 +209,12 @@ const ToolMessageInner = ({ part }: ToolMessageProps) => {
 
   if (isEnvVarRequestToolPart(part)) {
     return <EnvVarRequestTool part={part} />
+  }
+
+  // A running LegalMemory call gets a line saying what it is doing; finished
+  // calls fall through to their own card, or to the generic one.
+  if (isLegalMemoryToolPart(part) && part.state !== "output-available" && part.state !== "output-error") {
+    return <LegalMemoryActivityTool part={part} />
   }
 
   if (isLegalMemoryGraphToolPart(part)) {
