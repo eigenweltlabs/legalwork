@@ -24,9 +24,28 @@ function extractPlaceholders(url: string | undefined): string[] {
   return out;
 }
 
+/**
+ * Substitute the firm's answers into a catalog URL template.
+ *
+ * Vendor connectors hardcode their scheme and interpolate a subdomain
+ * (`https://{instance}.highq.com/...`), so those are untouched here. On-prem
+ * connectors interpolate the whole address instead, because the firm owns it:
+ * a LegalMemory appliance can be `ki.firm.internal`, `ki.firm.com:8443`, or a
+ * plain-HTTP host behind an internal TLS-terminating proxy. So a value may
+ * carry its own scheme, and a template may have none — default to https only
+ * when the resolved URL doesn't already state one, and never let a pasted
+ * trailing slash double up against the template's path.
+ */
+export function resolveConnectorUrl(template: string, values: Record<string, string>): string {
+  const url = template.replace(PLACEHOLDER_RE, (_, key: string) =>
+    (values[key] ?? "").trim().replace(/\/+$/, ""),
+  );
+  return /^[a-z][a-z0-9+.-]*:\/\//i.test(url) ? url : `https://${url}`;
+}
+
 function labelFor(name: string): string {
   const map: Record<string, string> = {
-    appliance: "LegalMemory appliance address (host[:port])",
+    appliance: "LegalMemory appliance address (host[:port], or http://host if it isn't on TLS)",
     instance: "HighQ instance (subdomain)",
     site: "Site / context name",
     tenant_id: "Microsoft tenant ID",
@@ -87,13 +106,16 @@ export function McpConnectorSetupModal(props: McpConnectorSetupModalProps) {
   const tokenOk = !needsToken || token.trim().length > 0;
   const canSubmit = Boolean(entry) && allPlaceholdersFilled && credsOk && tokenOk;
 
-  const previewUrl = (entry?.url ?? "").replace(PLACEHOLDER_RE, (_, key: string) =>
-    (values[key]?.trim() ? values[key].trim() : `{${key}}`),
+  // The preview keeps unfilled placeholders visible, so it resolves against the
+  // typed values with each blank standing in for itself.
+  const previewUrl = resolveConnectorUrl(
+    entry?.url ?? "",
+    Object.fromEntries(placeholders.map((p) => [p, values[p]?.trim() ? values[p].trim() : `{${p}}`])),
   );
 
   const submit = () => {
     if (!entry || !canSubmit) return;
-    const url = (entry.url ?? "").replace(PLACEHOLDER_RE, (_, key: string) => (values[key] ?? "").trim());
+    const url = resolveConnectorUrl(entry.url ?? "", values);
     if (/[{}]/.test(url)) {
       setError("Fill in every field before connecting.");
       return;
