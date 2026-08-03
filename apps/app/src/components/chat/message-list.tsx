@@ -44,6 +44,7 @@ import { ReadFileTool, WriteFileTool } from "@/components/tools/file"
 import { GlobTool } from "@/components/tools/glob"
 import { GrepTool } from "@/components/tools/grep"
 import { LegalMemoryGraphTool } from "@/components/tools/legalmemory-graph"
+import { LegalMemorySourcesTool } from "@/components/tools/legalmemory-sources"
 import { LspTool } from "@/components/tools/lsp"
 import { QuestionTool } from "@/components/tools/question"
 import { SkillTool } from "@/components/tools/skill"
@@ -82,6 +83,7 @@ import {
   isGlobToolPart,
   isGrepToolPart,
   isLegalMemoryGraphToolPart,
+  isLegalMemorySearchToolPart,
   isLspToolPart,
   isQuestionToolPart,
   isReadToolPart,
@@ -209,6 +211,10 @@ const ToolMessageInner = ({ part }: ToolMessageProps) => {
 
   if (isLegalMemoryGraphToolPart(part)) {
     return <LegalMemoryGraphTool part={part} />
+  }
+
+  if (isLegalMemorySearchToolPart(part)) {
+    return <LegalMemorySourcesTool part={part} />
   }
 
   return <Tool toolPart={part} />

@@ -405,3 +405,17 @@ export function isLegalMemoryGraphToolPart(
 ): part is LegalMemoryGraphToolPart {
   return part.type === "dynamic-tool" && LEGALMEMORY_GRAPH_TOOL.test(part.toolName);
 }
+
+export type LegalMemorySearchInput = { query?: string; matter_id?: string; only_final?: boolean };
+export type LegalMemorySearchToolPart = BuiltInDynamicToolPart<string, LegalMemorySearchInput, unknown>;
+
+/** LegalMemory's two retrieval entry points. Both return ranked hits carrying
+ * the citations the source list is built from. Prefix handling as above. */
+const LEGALMEMORY_SEARCH_TOOL =
+  /^(?:(?:legal[_-]?memory|knowledge[_-]?index)[_-])?search[_-](?:semantic|filter)$/i;
+
+export function isLegalMemorySearchToolPart(
+  part: ToolUIPart | DynamicToolUIPart,
+): part is LegalMemorySearchToolPart {
+  return part.type === "dynamic-tool" && LEGALMEMORY_SEARCH_TOOL.test(part.toolName);
+}
