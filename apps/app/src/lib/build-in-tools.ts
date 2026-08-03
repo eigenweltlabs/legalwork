@@ -389,3 +389,19 @@ export type TaskToolPart = BuiltInDynamicToolPart<"task", TaskInput>;
 export function isTaskToolPart(part: ToolUIPart | DynamicToolUIPart): part is TaskToolPart {
   return part.type === "dynamic-tool" && part.toolName === "task";
 }
+
+export type LegalMemoryGraphInput = { document_id?: string; include_same_matter?: boolean };
+export type LegalMemoryGraphToolPart = BuiltInDynamicToolPart<string, LegalMemoryGraphInput, unknown>;
+
+/** LegalMemory's `find_related_documents` returns a document's matter graph.
+ * It arrives through MCP, so the tool name carries whichever server name the
+ * firm connected under — the quick-connect catalog uses "legalmemory", the
+ * appliance's own sample config says "knowledge-index" — and separators vary
+ * by engine version. Match the tool, not one spelling of the prefix. */
+const LEGALMEMORY_GRAPH_TOOL = /^(?:(?:legal[_-]?memory|knowledge[_-]?index)[_-])?find[_-]related[_-]documents$/i;
+
+export function isLegalMemoryGraphToolPart(
+  part: ToolUIPart | DynamicToolUIPart,
+): part is LegalMemoryGraphToolPart {
+  return part.type === "dynamic-tool" && LEGALMEMORY_GRAPH_TOOL.test(part.toolName);
+}

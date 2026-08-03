@@ -43,6 +43,7 @@ import { EnvVarRequestTool } from "@/components/tools/env-var-request"
 import { ReadFileTool, WriteFileTool } from "@/components/tools/file"
 import { GlobTool } from "@/components/tools/glob"
 import { GrepTool } from "@/components/tools/grep"
+import { LegalMemoryGraphTool } from "@/components/tools/legalmemory-graph"
 import { LspTool } from "@/components/tools/lsp"
 import { QuestionTool } from "@/components/tools/question"
 import { SkillTool } from "@/components/tools/skill"
@@ -80,6 +81,7 @@ import {
   isEnvVarRequestToolPart,
   isGlobToolPart,
   isGrepToolPart,
+  isLegalMemoryGraphToolPart,
   isLspToolPart,
   isQuestionToolPart,
   isReadToolPart,
@@ -203,6 +205,10 @@ const ToolMessageInner = ({ part }: ToolMessageProps) => {
 
   if (isEnvVarRequestToolPart(part)) {
     return <EnvVarRequestTool part={part} />
+  }
+
+  if (isLegalMemoryGraphToolPart(part)) {
+    return <LegalMemoryGraphTool part={part} />
   }
 
   return <Tool toolPart={part} />
