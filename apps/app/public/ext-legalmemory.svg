@@ -1,10 +1,10 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64" fill="none">
-  <path d="M32 8 49 18v20L32 48 15 38V18L32 8Z" stroke="#2352DE" stroke-width="3.1" />
-  <path d="m15 18 17 10 17-10M32 28v20M15 38l17-10 17 10" stroke="#2352DE" stroke-width="3.1" />
-  <circle cx="32" cy="8" r="3.6" fill="#2352DE" />
-  <circle cx="15" cy="18" r="3.6" fill="#2352DE" />
-  <circle cx="49" cy="18" r="3.6" fill="#2352DE" />
-  <circle cx="15" cy="38" r="3.6" fill="#2352DE" />
-  <circle cx="49" cy="38" r="3.6" fill="#2352DE" />
-  <circle cx="32" cy="48" r="3.6" fill="#2352DE" />
+  <path d="M32 8 49 18v20L32 48 15 38V18L32 8Z" stroke="#E95700" stroke-width="3.1" />
+  <path d="m15 18 17 10 17-10M32 28v20M15 38l17-10 17 10" stroke="#E95700" stroke-width="3.1" />
+  <circle cx="32" cy="8" r="3.6" fill="#E95700" />
+  <circle cx="15" cy="18" r="3.6" fill="#E95700" />
+  <circle cx="49" cy="18" r="3.6" fill="#E95700" />
+  <circle cx="15" cy="38" r="3.6" fill="#E95700" />
+  <circle cx="49" cy="38" r="3.6" fill="#E95700" />
+  <circle cx="32" cy="48" r="3.6" fill="#E95700" />
 </svg>
