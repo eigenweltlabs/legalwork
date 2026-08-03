@@ -74,7 +74,7 @@ import { getSessionActivityStatusLabel, useSessionActivityStore, type SessionAct
 import { PermissionApprovalPanel } from "@/react-app/domains/session/chat/permission-approval-modal";
 import { QuestionPanel } from "@/react-app/domains/session/modals/question-modal";
 import { QueuedMessagesPanel } from "@/react-app/domains/session/modals/queued-messages-panel";
-import { deriveOpenTargets, selectAutoOpenTarget, type OpenTarget } from "@/react-app/domains/session/artifacts/open-target";
+import { deriveOpenTargets, resolvePathOpenTarget, selectAutoOpenTarget, type OpenTarget } from "@/react-app/domains/session/artifacts/open-target";
 import { usePanelTabStore } from "@/react-app/domains/session/panel/panel-tab-store";
 import {
   injectSessionErrorMessage,
@@ -93,7 +93,7 @@ import {
   getComposerQueuedDrafts,
   useComposerStateStore,
 } from "./composer-state-store";
-import { LEGALMEMORY_REF_EVENT } from "@/components/markdown/legalmemory-ref";
+import { LEGALMEMORY_OPEN_EVENT, LEGALMEMORY_REF_EVENT } from "@/components/markdown/legalmemory-ref";
 import { MessageList } from "@/components/chat/message-list";
 import { MessageListProvider, type DispatchAction } from "@/components/chat/message-list-provider";
 import { FusionIntroDialog, markFusionIntroSeen, shouldShowFusionIntro } from "@/react-app/domains/session/fusion/fusion-intro-dialog";
@@ -1278,6 +1278,40 @@ export function SessionSurface(props: SessionSurfaceProps) {
     window.addEventListener(LEGALMEMORY_REF_EVENT, handleLegalMemoryRef);
     return () => window.removeEventListener(LEGALMEMORY_REF_EVENT, handleLegalMemoryRef);
   }, [attachments, buildDraft, props.modelUnavailable, props.onDraftChange, sendDraft, typeComposerText]);
+
+  // A LegalMemory download card was clicked. The app holds no appliance
+  // credentials, so the server fetches the original: it validates the link
+  // against the firm's configured appliance origins, saves it into the
+  // workspace, and we open whatever path it reports. A failure falls back to
+  // asking the agent, which can still export the file the long way.
+  useEffect(() => {
+    const handleLegalMemoryOpen = (event: Event) => {
+      if (!(event instanceof CustomEvent)) return;
+      const detail: unknown = event.detail;
+      if (!detail || typeof detail !== "object" || !("url" in detail) || typeof detail.url !== "string") return;
+      const url = detail.url;
+      const workspaceId = props.workspaceId;
+      if (!workspaceId) return;
+      void (async () => {
+        try {
+          const result = await props.client.legalMemoryExport(workspaceId, { url });
+          const target = resolvePathOpenTarget(result.path, openTargets, "legalmemory-export");
+          if (target) props.onOpenTarget?.(target);
+        } catch {
+          const filename = "filename" in detail && typeof detail.filename === "string" ? detail.filename : "the document";
+          void sendDraft(
+            buildDraft(
+              `Export ${filename} from LegalMemory into the workspace: call download_document, run its save_command from the workspace root, then reply with the saved file as a workspace-relative link.`,
+              [],
+            ),
+            [],
+          ).catch(() => undefined);
+        }
+      })();
+    };
+    window.addEventListener(LEGALMEMORY_OPEN_EVENT, handleLegalMemoryOpen);
+    return () => window.removeEventListener(LEGALMEMORY_OPEN_EVENT, handleLegalMemoryOpen);
+  }, [buildDraft, openTargets, props.client, props.onOpenTarget, props.workspaceId, sendDraft]);
 
   const composerSetTextControlAction = useMemo<LegalworkControlAction>(() => ({
     id: "composer.set_text",

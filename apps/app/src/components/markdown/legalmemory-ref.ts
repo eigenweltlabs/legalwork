@@ -43,3 +43,9 @@ export function buildLegalMemoryRefPrompt(ref: LegalMemoryRef, label: string): s
   }
   return `Pull up the LegalMemory matter ${name} (matter_id ${ref.id}): give me a compact preview — status, parties, key documents, and recent decision records — citing each document as a LegalMemory reference link.`;
 }
+
+/** A LegalMemory download card asked for its original to be opened. The app
+ * cannot fetch the appliance itself, so the surface hands the link to the
+ * server, which validates it against the firm's configured appliance origins
+ * and drops the file into the workspace. */
+export const LEGALMEMORY_OPEN_EVENT = "legalwork:legalmemory-open";

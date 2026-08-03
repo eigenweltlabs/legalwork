@@ -44,6 +44,7 @@ import { ReadFileTool, WriteFileTool } from "@/components/tools/file"
 import { GlobTool } from "@/components/tools/glob"
 import { GrepTool } from "@/components/tools/grep"
 import { LegalMemoryActivityTool } from "@/components/tools/legalmemory-activity"
+import { LegalMemoryDownloadTool } from "@/components/tools/legalmemory-download"
 import { LegalMemoryGraphTool } from "@/components/tools/legalmemory-graph"
 import { LegalMemorySourcesTool } from "@/components/tools/legalmemory-sources"
 import { LspTool } from "@/components/tools/lsp"
@@ -83,6 +84,7 @@ import {
   isEnvVarRequestToolPart,
   isGlobToolPart,
   isGrepToolPart,
+  isLegalMemoryDownloadToolPart,
   isLegalMemoryGraphToolPart,
   isLegalMemoryToolPart,
   isLegalMemorySearchToolPart,
@@ -215,6 +217,10 @@ const ToolMessageInner = ({ part }: ToolMessageProps) => {
   // calls fall through to their own card, or to the generic one.
   if (isLegalMemoryToolPart(part) && part.state !== "output-available" && part.state !== "output-error") {
     return <LegalMemoryActivityTool part={part} />
+  }
+
+  if (isLegalMemoryDownloadToolPart(part)) {
+    return <LegalMemoryDownloadTool part={part} />
   }
 
   if (isLegalMemoryGraphToolPart(part)) {

@@ -431,3 +431,13 @@ export function isLegalMemorySearchToolPart(
 ): part is LegalMemorySearchToolPart {
   return part.type === "dynamic-tool" && LEGALMEMORY_SEARCH_TOOL.test(part.toolName);
 }
+
+const LEGALMEMORY_DOWNLOAD_TOOL =
+  /^(?:(?:legal[_-]?memory|knowledge[_-]?index)[_-])?download[_-]document$/i;
+
+/** `download_document`, which returns a short-lived link to the exact original. */
+export function isLegalMemoryDownloadToolPart(
+  part: ToolUIPart | DynamicToolUIPart,
+): part is LegalMemoryToolPart {
+  return part.type === "dynamic-tool" && LEGALMEMORY_DOWNLOAD_TOOL.test(part.toolName);
+}

@@ -1821,6 +1821,15 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
         `/workspace/${encodeURIComponent(workspaceId)}/hub/share/workflow`,
         { token, hostToken, method: "POST", body: payload, timeoutMs: timeouts.workspaceExport },
       ),
+    /** Fetch a cited LegalMemory original into the workspace and return where it
+     * landed. The server validates the link against the firm's configured
+     * appliance origins; the app never fetches it directly. */
+    legalMemoryExport: (workspaceId: string, payload: { url: string }) =>
+      requestJson<{ ok: boolean; path: string; bytes: number }>(
+        baseUrl,
+        `/workspace/${encodeURIComponent(workspaceId)}/legalmemory/export`,
+        { token, hostToken, method: "POST", body: payload, timeoutMs: timeouts.workspaceExport },
+      ),
     hubShareIntegration: (workspaceId: string, payload: { mcp: string; name?: string; description?: string }) =>
       requestJson<{ ok: boolean; id: string; version: number }>(
         baseUrl,

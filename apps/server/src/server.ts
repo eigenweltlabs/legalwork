@@ -2,6 +2,12 @@ import { existsSync } from "node:fs";
 import { lstat, readFile, writeFile, rm } from "node:fs/promises";
 import { homedir, hostname } from "node:os";
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
+import {
+  exportSizeRejection,
+  legalMemoryOrigins,
+  LEGALMEMORY_MAX_EXPORT_BYTES,
+  validateDownloadUrl,
+} from "./legalmemory-export.js";
 import { fileURLToPath } from "node:url";
 import { createOpencodeClient } from "@opencode-ai/sdk/v2/client";
 import type { ApprovalRequest, Capabilities, ServerConfig, WorkspaceInfo, Actor, ReloadReason, ReloadTrigger, TokenScope } from "./types.js";
@@ -2209,6 +2215,54 @@ function createRoutes(
     return jsonResponse({ ok: true, ...result });
   });
 
+  // Export a cited LegalMemory document straight into the workspace.
+  //
+  // The appliance's download link carries a short-lived capability token that is
+  // itself the credential, so this needs no appliance login — which is exactly
+  // why the URL is checked rather than trusted. It arrives out of model output,
+  // and `legalMemoryOrigins` reads the permitted origins from the firm's own MCP
+  // config, so a link the model invented for somewhere else cannot be fetched.
+  addRoute(routes, "POST", "/workspace/:id/legalmemory/export", "client", async (ctx) => {
+    ensureWritable(config);
+    requireClientScope(ctx, "collaborator");
+    const workspace = await resolveWorkspace(config, ctx.params.id);
+    const body = await readJsonBodyLimited(ctx.request, 8 * 1024);
+
+    const origins = legalMemoryOrigins(await listMcp(config, workspace.id, workspace.path));
+    if (origins.size === 0) {
+      throw new ApiError(409, "legalmemory_not_configured", "No LegalMemory server is configured for this workspace");
+    }
+    const download = validateDownloadUrl(body.url, origins);
+    if (!download) {
+      throw new ApiError(400, "invalid_download_url", "Not a download link for a configured LegalMemory appliance");
+    }
+
+    let response: Response;
+    try {
+      response = await fetch(download.url, { redirect: "error" });
+    } catch {
+      throw new ApiError(502, "legalmemory_unreachable", "Could not reach the LegalMemory appliance");
+    }
+    if (!response.ok) {
+      // The appliance answers 404 for an expired or revoked capability too.
+      throw new ApiError(502, "legalmemory_download_failed", `The appliance refused the download link (${response.status})`);
+    }
+    const declaredTooLarge = exportSizeRejection(response.headers.get("content-length"));
+    if (declaredTooLarge) throw new ApiError(413, "document_too_large", declaredTooLarge);
+
+    const bytes = Buffer.from(await response.arrayBuffer());
+    // Re-check after buffering: content-length is advisory and may be absent.
+    if (bytes.byteLength > LEGALMEMORY_MAX_EXPORT_BYTES) {
+      throw new ApiError(413, "document_too_large", exportSizeRejection(String(bytes.byteLength)) ?? "document is too large to export");
+    }
+
+    // Never overwrite something already in the matter folder; a same-named file
+    // is far more likely to be the firm's own work than a stale export.
+    const relativePath = await nextAvailableExportName(workspace.path, download.filename);
+    await writeFile(join(workspace.path, relativePath), bytes);
+    return jsonResponse({ ok: true, path: relativePath, bytes: bytes.byteLength });
+  });
+
   addRoute(routes, "POST", "/workspace/:id/hub/share/integration", "client", async (ctx) => {
     ensureWritable(config);
     requireClientScope(ctx, "collaborator");
@@ -4173,4 +4227,20 @@ async function materializeBlueprintSessions(config: ServerConfig, workspace: Wor
     : created[0]?.sessionId ?? null;
 
   return { ok: true, created, existing: [], openSessionId };
+}
+
+/**
+ * A workspace-relative name for an export that does not clobber an existing
+ * file: "Deed.docx", then "Deed (2).docx", and so on.
+ */
+async function nextAvailableExportName(workspaceRoot: string, filename: string): Promise<string> {
+  if (!existsSync(join(workspaceRoot, filename))) return filename;
+  const dot = filename.lastIndexOf(".");
+  const stem = dot > 0 ? filename.slice(0, dot) : filename;
+  const ext = dot > 0 ? filename.slice(dot) : "";
+  for (let n = 2; n < 1000; n += 1) {
+    const candidate = `${stem} (${n})${ext}`;
+    if (!existsSync(join(workspaceRoot, candidate))) return candidate;
+  }
+  throw new ApiError(409, "export_name_unavailable", `Too many existing copies of ${filename}`);
 }
