@@ -816,6 +816,8 @@ export function McpView(props: McpViewProps) {
             onClose={() => setDetailEntry(null)}
             name={detailEntry.name}
             description={detailEntry.description}
+            setupNote={detailEntry.setupNote}
+            learnMoreUrl={detailEntry.learnMoreUrl}
             iconSlug={detailEntry.iconSlug}
             iconSrc={detailEntry.iconSrc}
             fallbackIcon={serviceIcon(detailEntry.name)}

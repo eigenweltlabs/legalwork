@@ -1,4 +1,5 @@
 /** @jsxImportSource react */
+import { openDesktopUrl } from "@/app/lib/desktop";
 import { CheckCircle2, ExternalLink, Loader2 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import {
@@ -35,6 +36,10 @@ export type ExtensionDetailModalProps = {
   onClose: () => void;
   name: string;
   description: string;
+  /** A prerequisite the firm must already have before Connect can succeed. */
+  setupNote?: string;
+  /** Product page, opened from a "Learn more" link under the description. */
+  learnMoreUrl?: string;
   iconSlug?: string;
   iconSrc?: string;
   fallbackIcon?: LucideIcon;
@@ -185,6 +190,8 @@ export function ExtensionDetailModal({
   onClose,
   name,
   description,
+  setupNote,
+  learnMoreUrl,
   iconSlug,
   iconSrc,
   kind = "mcp",
@@ -289,6 +296,20 @@ export function ExtensionDetailModal({
             <div className="text-sm leading-relaxed text-card-foreground">
               {description}
             </div>
+
+            {setupNote ? (
+              <div className="text-sm leading-relaxed text-muted-foreground">{setupNote}</div>
+            ) : null}
+
+            {learnMoreUrl ? (
+              <button
+                type="button"
+                className="text-sm font-medium text-dls-accent underline-offset-2 hover:underline"
+                onClick={() => { void openDesktopUrl(learnMoreUrl); }}
+              >
+                Learn more
+              </button>
+            ) : null}
 
             {setupInstructions ? (
               <Card variant="outline" size="sm">
