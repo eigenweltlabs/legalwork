@@ -179,7 +179,14 @@ export function McpConnectorSetupModal(props: McpConnectorSetupModalProps) {
               <span className="text-xs font-medium text-dls-text">{labelFor(p)}</span>
               <input
                 value={values[p] ?? ""}
-                onChange={(event) => setValues((prev) => ({ ...prev, [p]: event.currentTarget.value }))}
+                // Read the value here, not inside the updater: React nulls the
+                // synthetic event's currentTarget once the handler returns, and
+                // the functional form of setState runs after that, so deferring
+                // the read throws on the first keystroke.
+                onChange={(event) => {
+                  const value = event.currentTarget.value;
+                  setValues((prev) => ({ ...prev, [p]: value }));
+                }}
                 placeholder={`{${p}}`}
                 spellCheck={false}
                 className={inputClass}
