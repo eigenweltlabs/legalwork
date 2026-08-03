@@ -112,6 +112,8 @@ export function buildExtensionItems(input: ExtensionItemBuildInput) {
     // The MCP quick-connect surface ("Available apps · One-click connect")
     // needs unconfigured directory entries too — otherwise Notion, Linear,
     // etc. are undiscoverable.
+    // Featured first-party connectors lead, then built-ins, then the rest. The
+    // sort is stable, so everything else keeps its catalog order.
     quickConnectEntries: [
       // Built-in extensions (Google Workspace, Computer Use) always show in the
       // connectors grid so they're discoverable in standalone mode — not only
@@ -123,7 +125,7 @@ export function buildExtensionItems(input: ExtensionItemBuildInput) {
         const serverName = getMcpServerName(entry);
         return !input.mcpServers.some((server) => server.name === serverName);
       }),
-    ],
+    ].sort((a, b) => Number(b.featured ?? false) - Number(a.featured ?? false)),
     installedSkills: standaloneSkillItems.flatMap((item) => item.skill ? [item.skill] : []),
   };
 }

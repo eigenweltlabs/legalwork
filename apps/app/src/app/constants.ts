@@ -59,6 +59,20 @@ export type McpDirectoryInfo = {
   /** Whether this extension is still in preview. */
   preview?: boolean;
   /**
+   * First-party connector pinned to the front of the catalog and given a
+   * distinct card. Reserved for Eigenwelt's own products, which a firm has
+   * usually already bought before it opens this page.
+   */
+  featured?: boolean;
+  /** Product page for a featured connector, opened from a "Learn more" link. */
+  learnMoreUrl?: string;
+  /**
+   * A prerequisite the firm must already have before Connect can succeed, shown
+   * on its own line so it survives the description clamp. Self-hosted
+   * connectors need this: without it, "Connect" looks like it should just work.
+   */
+  setupNote?: string;
+  /**
    * Vendor partner/program URL for connectors that are gated to named AI
    * clients and cannot be self-connected from here yet. When set, the catalog
    * shows a "Request access" link instead of an OAuth connect flow.
@@ -125,22 +139,6 @@ export function getMcpServerName(entry: McpDirectoryInfo): string {
 
 export const MCP_QUICK_CONNECT: McpDirectoryInfo[] = [
   {
-    get name() { return t("mcp.quick_connect_notion_title"); },
-    serverName: "notion",
-    get description() { return t("mcp.quick_connect_notion_desc"); },
-    url: "https://mcp.notion.com/mcp",
-    type: "remote",
-    oauth: true,
-    kind: "mcp",
-    iconSlug: "notion",
-    iconSrc: "/ext-notion.svg",
-  },
-  // Law-firm document, eDiscovery, contract, and legal-research connectors.
-  // Endpoints verified against live vendor docs (mid-2026). Entries marked
-  // `preview` need a firm admin to enable the server vendor-side and/or the
-  // firm to substitute an instance/tenant segment in the URL before Connect
-  // works (no dynamic client registration). See the connector catalog notes.
-  {
     get name() { return t("mcp.quick_connect_legalmemory_title"); },
     serverName: "legalmemory",
     get description() { return t("mcp.quick_connect_legalmemory_desc"); },
@@ -159,7 +157,30 @@ export const MCP_QUICK_CONNECT: McpDirectoryInfo[] = [
     oauth: true,
     kind: "mcp",
     composerPrompt: "Search LegalMemory for ",
+    // Eigenwelt's own product, and the one a firm on this page is most likely
+    // to already run, so it leads the catalog rather than sitting alphabetically
+    // among third-party vendors.
+    featured: true,
+    learnMoreUrl: "https://eigenweltlabs.com/legalmemory",
+    iconSrc: "/ext-legalmemory.svg",
+    get setupNote() { return t("mcp.quick_connect_legalmemory_note"); },
   },
+  {
+    get name() { return t("mcp.quick_connect_notion_title"); },
+    serverName: "notion",
+    get description() { return t("mcp.quick_connect_notion_desc"); },
+    url: "https://mcp.notion.com/mcp",
+    type: "remote",
+    oauth: true,
+    kind: "mcp",
+    iconSlug: "notion",
+    iconSrc: "/ext-notion.svg",
+  },
+  // Law-firm document, eDiscovery, contract, and legal-research connectors.
+  // Endpoints verified against live vendor docs (mid-2026). Entries marked
+  // `preview` need a firm admin to enable the server vendor-side and/or the
+  // firm to substitute an instance/tenant segment in the URL before Connect
+  // works (no dynamic client registration). See the connector catalog notes.
   {
     get name() { return t("mcp.quick_connect_imanage_title"); },
     serverName: "imanage",

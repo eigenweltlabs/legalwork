@@ -43,9 +43,18 @@ export function resolveConnectorUrl(template: string, values: Record<string, str
   return /^[a-z][a-z0-9+.-]*:\/\//i.test(url) ? url : `https://${url}`;
 }
 
+/**
+ * A LegalMemory appliance is the firm's own deployment, so someone arriving
+ * here without one needs to be told that rather than left guessing at a URL.
+ */
+function hintFor(name: string): string | null {
+  if (name !== "appliance") return null;
+  return "Your firm's running LegalMemory deployment, for example ki.yourfirm.com. Ask whoever administers it, or see eigenweltlabs.com/legalmemory to deploy one.";
+}
+
 function labelFor(name: string): string {
   const map: Record<string, string> = {
-    appliance: "LegalMemory appliance address (host[:port], or http://host if it isn't on TLS)",
+    appliance: "LegalMemory base URL (host[:port], or http://host if it isn't on TLS)",
     instance: "HighQ instance (subdomain)",
     site: "Site / context name",
     tenant_id: "Microsoft tenant ID",
@@ -175,6 +184,9 @@ export function McpConnectorSetupModal(props: McpConnectorSetupModalProps) {
                 spellCheck={false}
                 className={inputClass}
               />
+              {hintFor(p) ? (
+                <span className="block text-[11px] leading-relaxed text-dls-secondary">{hintFor(p)}</span>
+              ) : null}
             </label>
           ))}
 

@@ -133,6 +133,10 @@ const builtInExtensionDisabledReason = "Disabled by organization";
 const pageTitleClass = "text-[34px] font-medium leading-[1.04] tracking-[-0.035em] text-dls-text";
 const quickCardClass =
   "group relative flex cursor-pointer flex-col text-left rounded-[16px] border border-dls-border bg-dls-surface p-4 transition-all duration-200 hover:-translate-y-0.5 hover:border-[rgba(var(--dls-accent-rgb),0.25)] hover:shadow-[0_14px_34px_-18px_rgba(8,23,79,0.28)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[rgba(var(--dls-accent-rgb),0.2)]";
+const quickCardFeaturedClass =
+  "border-[rgba(var(--dls-accent-rgb),0.55)] bg-[rgba(var(--dls-accent-rgb),0.06)] ring-1 ring-[rgba(var(--dls-accent-rgb),0.18)] shadow-[0_16px_38px_-22px_rgba(8,23,79,0.45)]";
+const featuredTagClass =
+  "shrink-0 rounded-full bg-[rgba(var(--dls-accent-rgb),0.12)] px-2 py-0.5 font-mono text-[10px] uppercase tracking-[0.14em] text-dls-accent";
 const typeTagClass = "shrink-0 font-mono text-[10px] uppercase tracking-[0.14em] text-dls-secondary/70";
 const rowIconBtnClass =
   "inline-flex size-8 items-center justify-center rounded-lg text-dls-secondary transition-colors hover:bg-dls-hover hover:text-dls-text disabled:cursor-not-allowed disabled:opacity-40";
@@ -1009,7 +1013,7 @@ function McpQuickConnectSection(props: {
                   event.preventDefault();
                   if (!props.busy) props.onDetail(entry);
                 }}
-                className={`${quickCardClass} ${hidden ? "opacity-70" : ""} ${props.busy ? "pointer-events-none opacity-60" : ""}`}
+                className={`${quickCardClass} ${entry.featured ? quickCardFeaturedClass : ""} ${hidden ? "opacity-70" : ""} ${props.busy ? "pointer-events-none opacity-60" : ""}`}
               >
                 <div className="flex items-start justify-between gap-2">
                   <div className="flex min-w-0 items-center gap-2.5">
@@ -1028,7 +1032,23 @@ function McpQuickConnectSection(props: {
                     <CircleAlert size={16} className="mt-1 shrink-0 text-amber-9" />
                   ) : null}
                 </div>
-                <p className="mt-2 line-clamp-2 text-[13px] leading-relaxed text-dls-secondary">{entry.description}</p>
+                <p className={`mt-2 text-[13px] leading-relaxed text-dls-secondary ${entry.featured ? "line-clamp-4" : "line-clamp-2"}`}>{entry.description}</p>
+                {entry.setupNote ? (
+                  <p className="mt-1.5 text-[12px] leading-relaxed text-dls-secondary/80">{entry.setupNote}</p>
+                ) : null}
+                {entry.learnMoreUrl ? (
+                  <button
+                    type="button"
+                    className="mt-2 self-start text-[12px] font-medium text-dls-accent underline-offset-2 hover:underline"
+                    onClick={(event) => {
+                      event.preventDefault();
+                      event.stopPropagation();
+                      void openDesktopUrl(entry.learnMoreUrl!);
+                    }}
+                  >
+                    {t("mcp.quick_connect_learn_more")}
+                  </button>
+                ) : null}
                 {disabledReason ? (
                   <p className="mt-1.5 text-[12px] font-medium text-amber-11">{disabledReason}</p>
                 ) : null}
@@ -1042,6 +1062,7 @@ function McpQuickConnectSection(props: {
                       <span className={typeTagClass}>{typeLabel}</span>
                     )}
                     {hidden ? <span className={typeTagClass}>Hidden</span> : null}
+                    {entry.featured ? <span className={featuredTagClass}>{t("mcp.quick_connect_featured")}</span> : null}
                     {entry.preview ? <span className={typeTagClass}>Preview</span> : null}
                     {disabledReason ? <span className={typeTagClass}>Disabled</span> : null}
                   </div>
