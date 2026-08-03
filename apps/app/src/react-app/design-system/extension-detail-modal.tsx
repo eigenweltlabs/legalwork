@@ -246,8 +246,8 @@ export function ExtensionDetailModal({
       >
         <DialogHeader>
           <div className="flex min-w-0 items-start gap-4">
-            {/* Icon */}
-            <div className="relative shrink-0">
+            {/* Icon. Omitted for a product whose name is already its mark. */}
+            <div className={cn("relative shrink-0", brandWordmark && "hidden")}>
               <div
                 className={cn(
                   "flex size-12 items-center justify-center rounded-xl border",

@@ -1019,14 +1019,24 @@ function McpQuickConnectSection(props: {
                 className={`${quickCardClass} ${entry.featured ? quickCardFeaturedClass : ""} ${hidden ? "opacity-70" : ""} ${props.busy ? "pointer-events-none opacity-60" : ""}`}
               >
                 <div className="flex items-start justify-between gap-2">
-                  <div className="flex min-w-0 items-center gap-2.5">
-                    <LedgerBrandIcon
-                      name={entry.name}
-                      iconSlug={entry.iconSlug}
-                      iconSrc={entry.iconSrc}
-                      kind={kind}
-                      connecting={connecting}
-                    />
+                  {/* Without a glyph the header row would collapse to the
+                      wordmark's own 0.92 line box, which reads as cramped and
+                      leaves this card's first row shorter than every other
+                      card's. Hold the icon's height and centre the lettering
+                      in it. */}
+                  <div className={`flex min-w-0 items-center gap-2.5 ${entry.brandWordmark ? "min-h-10" : ""}`}>
+                    {/* A product with its own wordmark needs no glyph beside it:
+                        the lettering is the mark, and a second one reads as
+                        clutter rather than as branding. */}
+                    {entry.brandWordmark ? null : (
+                      <LedgerBrandIcon
+                        name={entry.name}
+                        iconSlug={entry.iconSlug}
+                        iconSrc={entry.iconSrc}
+                        kind={kind}
+                        connecting={connecting}
+                      />
+                    )}
                     {entry.brandWordmark ? (
                       <h4 className="lw-brand-wordmark truncate text-[21px]">{entry.name.toUpperCase()}</h4>
                     ) : (
@@ -1039,7 +1049,7 @@ function McpQuickConnectSection(props: {
                     <CircleAlert size={16} className="mt-1 shrink-0 text-amber-9" />
                   ) : null}
                 </div>
-                <p className={`mt-2 text-[13px] leading-relaxed text-dls-secondary ${entry.featured ? "line-clamp-4" : "line-clamp-2"}`}>{entry.description}</p>
+                <p className={`text-[13px] leading-relaxed text-dls-secondary ${entry.brandWordmark ? "mt-3" : "mt-2"} ${entry.featured ? "line-clamp-4" : "line-clamp-2"}`}>{entry.description}</p>
                 {entry.setupNote ? (
                   <p className="mt-1.5 text-[12px] leading-relaxed text-dls-secondary/80">{entry.setupNote}</p>
                 ) : null}
