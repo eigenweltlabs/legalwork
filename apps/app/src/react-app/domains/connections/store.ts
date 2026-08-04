@@ -718,18 +718,40 @@ export function createConnectionsStore(options: {
 
         // The global file is not what the packaged engine reads. On a config
         // change it disposes the workspace instance and rebuilds it from
-        // LegalWork's runtime config plus the workspace's own files — the
-        // global opencode config is not among them. So a desktop connect wrote
+        // LegalWork's runtime config plus the workspace's OWN opencode files —
+        // the global config is not among them (verified from the engine log,
+        // which lists every path an instance loads). So a desktop connect wrote
         // the server somewhere the engine never looks, the hot-add survived
-        // only until that rebuild seconds later, and sign-in then failed with
-        // "MCP server not found". Register it with the runtime store too,
-        // which is the file the engine demonstrably loads.
+        // only until that rebuild seconds later, and sign-in failed with
+        // "MCP server not found". Persist the entry into the workspace's
+        // opencode config as well: that file is demonstrably on the engine's
+        // load list, in dev and packaged builds alike.
+        if (resolvedProjectDir) {
+          const projectFile = await readOpencodeConfig("project", resolvedProjectDir) as OpencodeConfigFile;
+          let projectRaw = projectFile.exists && projectFile.content ? projectFile.content : "{}";
+          const projectErrors: Array<{ error: number; offset: number; length: number }> = [];
+          parse(projectRaw, projectErrors, { allowTrailingComma: true });
+          // A malformed workspace config is the user's file; leave it alone and
+          // let the hot-add carry the session rather than clobbering it.
+          if (projectErrors.length === 0) {
+            projectRaw = applyEdits(
+              projectRaw,
+              modify(projectRaw, ["mcp", slug], mcpEntryConfig, { formattingOptions }),
+            );
+            await writeOpencodeConfig(
+              "project",
+              resolvedProjectDir,
+              projectRaw.endsWith("\n") ? projectRaw : `${projectRaw}\n`,
+            );
+          }
+        }
+        // And the runtime store, for setups where a LegalWork server manages
+        // the engine (remote/hosted); no server client exists on plain desktop.
         if (legalworkClient && legalworkWorkspaceId) {
           try {
             await legalworkClient.addMcp(legalworkWorkspaceId, { name: slug, config: mcpEntryConfig });
           } catch {
-            // The global write already succeeded; a failure here is not worse
-            // than the behaviour before this existed.
+            // The config writes above already succeeded.
           }
         }
       } else if (canUseLegalworkServer && legalworkClient && legalworkWorkspaceId) {
@@ -964,15 +986,31 @@ export function createConnectionsStore(options: {
         await resolveWritableLegalworkTarget();
 
       if (isDesktopRuntime()) {
+        const formattingOptions = { insertSpaces: true, tabSize: 2, eol: "\n" };
         // Remove from the GLOBAL opencode config (applies to every workspace).
         const configFile = await readOpencodeConfig("global", "") as OpencodeConfigFile;
         if (configFile.exists && configFile.content?.trim()) {
-          const formattingOptions = { insertSpaces: true, tabSize: 2, eol: "\n" };
           const updated = applyEdits(
             configFile.content,
             modify(configFile.content, ["mcp", name], undefined, { formattingOptions }),
           );
           await writeOpencodeConfig("global", "", updated.endsWith("\n") ? updated : `${updated}\n`);
+        }
+
+        // Connect persists into the workspace's own opencode config as well
+        // (the packaged engine reads only that plus the runtime file), so
+        // removal has to clean the same place or the server resurrects on the
+        // next instance rebuild.
+        const projectDir = options.projectDir().trim();
+        if (projectDir) {
+          const projectFile = await readOpencodeConfig("project", projectDir) as OpencodeConfigFile;
+          if (projectFile.exists && projectFile.content?.includes(name)) {
+            const updatedProject = applyEdits(
+              projectFile.content,
+              modify(projectFile.content, ["mcp", name], undefined, { formattingOptions }),
+            );
+            await writeOpencodeConfig("project", projectDir, updatedProject.endsWith("\n") ? updatedProject : `${updatedProject}\n`);
+          }
         }
       } else if (canUseLegalworkServer && legalworkClient && legalworkWorkspaceId) {
         await legalworkClient.removeMcp(legalworkWorkspaceId, name);
