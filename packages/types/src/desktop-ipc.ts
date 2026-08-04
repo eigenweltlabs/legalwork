@@ -567,6 +567,13 @@ export type DesktopCommandMap = {
     args: [scope: string, projectDir: string, content: string];
     result: ExecResult;
   };
+  /** Merge (config given) or delete (null) one MCP server in the runtime
+   * opencode config — the file the packaged engine loads for EVERY workspace
+   * instance, which makes a connector global across old and new workspaces. */
+  mergeRuntimeMcpServer: {
+    args: [name: string, config: Record<string, unknown> | null];
+    result: ExecResult;
+  };
   /**
    * The renderer passes its reset-modal mode, but the main process currently
    * IGNORES it and always removes workspace state + bootstrap config; only

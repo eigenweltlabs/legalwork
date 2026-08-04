@@ -14,6 +14,7 @@ import { captureAppError } from "../../../app/lib/app-error";
 import { createClient, unwrap } from "../../../app/lib/opencode";
 import { finishPerf, perfNow, recordPerfLog } from "../../../app/lib/perf-log";
 import {
+  mergeRuntimeMcpServer,
   readOpencodeConfig,
   writeOpencodeConfig,
   type OpencodeConfigFile,
@@ -717,33 +718,17 @@ export function createConnectionsStore(options: {
         }
 
         // The global file is not what the packaged engine reads. On a config
-        // change it disposes the workspace instance and rebuilds it from
-        // LegalWork's runtime config plus the workspace's OWN opencode files —
-        // the global config is not among them (verified from the engine log,
-        // which lists every path an instance loads). So a desktop connect wrote
-        // the server somewhere the engine never looks, the hot-add survived
-        // only until that rebuild seconds later, and sign-in failed with
-        // "MCP server not found". Persist the entry into the workspace's
-        // opencode config as well: that file is demonstrably on the engine's
-        // load list, in dev and packaged builds alike.
-        if (resolvedProjectDir) {
-          const projectFile = await readOpencodeConfig("project", resolvedProjectDir) as OpencodeConfigFile;
-          let projectRaw = projectFile.exists && projectFile.content ? projectFile.content : "{}";
-          const projectErrors: Array<{ error: number; offset: number; length: number }> = [];
-          parse(projectRaw, projectErrors, { allowTrailingComma: true });
-          // A malformed workspace config is the user's file; leave it alone and
-          // let the hot-add carry the session rather than clobbering it.
-          if (projectErrors.length === 0) {
-            projectRaw = applyEdits(
-              projectRaw,
-              modify(projectRaw, ["mcp", slug], mcpEntryConfig, { formattingOptions }),
-            );
-            await writeOpencodeConfig(
-              "project",
-              resolvedProjectDir,
-              projectRaw.endsWith("\n") ? projectRaw : `${projectRaw}\n`,
-            );
-          }
+        // change it disposes the workspace instance and rebuilds it from the
+        // runtime opencode config plus the workspace's own files — the global
+        // config is not among them (verified from the engine log, which lists
+        // every path an instance loads). Merging into the runtime config makes
+        // the connector global: every workspace, old and new, gets it on the
+        // next instance build.
+        try {
+          await mergeRuntimeMcpServer(slug, mcpEntryConfig);
+        } catch {
+          // The hot-add below still carries this session; the entry simply
+          // will not survive an instance rebuild.
         }
         // And the runtime store, for setups where a LegalWork server manages
         // the engine (remote/hosted); no server client exists on plain desktop.
@@ -997,20 +982,13 @@ export function createConnectionsStore(options: {
           await writeOpencodeConfig("global", "", updated.endsWith("\n") ? updated : `${updated}\n`);
         }
 
-        // Connect persists into the workspace's own opencode config as well
-        // (the packaged engine reads only that plus the runtime file), so
-        // removal has to clean the same place or the server resurrects on the
-        // next instance rebuild.
-        const projectDir = options.projectDir().trim();
-        if (projectDir) {
-          const projectFile = await readOpencodeConfig("project", projectDir) as OpencodeConfigFile;
-          if (projectFile.exists && projectFile.content?.includes(name)) {
-            const updatedProject = applyEdits(
-              projectFile.content,
-              modify(projectFile.content, ["mcp", name], undefined, { formattingOptions }),
-            );
-            await writeOpencodeConfig("project", projectDir, updatedProject.endsWith("\n") ? updatedProject : `${updatedProject}\n`);
-          }
+        // Connect merges into the runtime opencode config (the file the
+        // packaged engine reads for every workspace), so removal deletes from
+        // the same place or the server resurrects on the next instance build.
+        try {
+          await mergeRuntimeMcpServer(name, null);
+        } catch {
+          // Removal from the global config above already succeeded.
         }
       } else if (canUseLegalworkServer && legalworkClient && legalworkWorkspaceId) {
         await legalworkClient.removeMcp(legalworkWorkspaceId, name);
