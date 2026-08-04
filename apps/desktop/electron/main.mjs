@@ -2072,11 +2072,11 @@ const desktopCommandHandlers = {
       const mcp = typeof current.mcp === "object" && current.mcp !== null && !Array.isArray(current.mcp) ? current.mcp : {};
       if (config) mcp[name] = config;
       else delete mcp[name];
-      current.mcp = mcp;
+      const next = { ...current, mcp };
       await mkdir(dir, { recursive: true });
       // Atomic, so the engine never reads a partial file mid-rebuild.
       const tmp = `${file}.${Date.now()}.tmp`;
-      await writeFile(tmp, `${JSON.stringify(current, null, 2)}\n`, "utf8");
+      await writeFile(tmp, `${JSON.stringify(next, null, 2)}\n`, "utf8");
       await rename(tmp, file);
       return execResult(true, `Merged ${name} into ${file}`);
   },
