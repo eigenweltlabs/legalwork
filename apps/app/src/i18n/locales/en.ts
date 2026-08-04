@@ -708,6 +708,8 @@ export default {
   "mcp.auth.step2_title": "Authorize LegalWork",
   "mcp.auth.step3_description": "We'll finish connecting as soon as authorization completes.",
   "mcp.auth.step3_title": "Return here when you're done",
+  "mcp.auth.connect_failed_generic": "Could not finish connecting. Try again, and if it keeps failing, reload the engine from Settings.",
+  "mcp.auth.server_not_registered": "This app was saved but the engine has not picked it up yet. Reload the engine and connect again.",
   "mcp.auth.try_reload_engine": "{message}. Try reloading the engine first.",
   "mcp.auth.waiting_authorization": "Waiting for authorization to complete in your browser...",
   "mcp.auth.waiting_for_conversation_body": "We will redirect you to authenticate as soon as possible.",

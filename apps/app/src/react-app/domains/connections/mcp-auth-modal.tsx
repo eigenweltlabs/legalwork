@@ -181,7 +181,18 @@ export function McpAuthModal(props: McpAuthModalProps) {
     }
   };
 
-  const resolveSlug = (name: string) =>
+  /**
+ * Engine failures arrive as serialized payloads, e.g.
+ * {"_tag":"McpServerNotFoundError","name":"legalmemory",...}. That is a
+ * developer's artefact, not something to put in front of someone connecting an
+ * app, so anything that looks like one is replaced with plain language.
+ */
+const humanizeEngineError = (message: string): string => {
+  const looksLikePayload = /^\s*[{[]/.test(message) || message.includes('"_tag"');
+  return looksLikePayload ? t("mcp.auth.connect_failed_generic") : message;
+};
+
+const resolveSlug = (name: string) =>
     validateMcpServerName(name).toLowerCase().replace(/[^a-z0-9]+/g, "-");
 
   // Drop any stored OAuth registration/tokens for this server. Best-effort:
@@ -366,10 +377,20 @@ export function McpAuthModal(props: McpAuthModalProps) {
         }
         setNeedsReload(true);
       } else if (message.toLowerCase().includes("not found") || message.toLowerCase().includes("unknown")) {
+        // The engine has not picked the server up yet. Reload and retry rather
+        // than handing the user an engine error and asking them to do it: the
+        // app knows what is wrong and can fix it.
+        const canAutoReload =
+          allowAutoReload && !props.isRemoteWorkspace && !props.reloadBlocked && Boolean(props.onReloadEngine);
+        if (canAutoReload && props.onReloadEngine) {
+          await props.onReloadEngine();
+          await startAuth(true, false);
+          return;
+        }
         setNeedsReload(true);
-        setError(t("mcp.auth.try_reload_engine", { message }));
+        setError(t("mcp.auth.server_not_registered"));
       } else {
-        setError(message);
+        setError(humanizeEngineError(message));
       }
     } finally {
       setLoading(false);

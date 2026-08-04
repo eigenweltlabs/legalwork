@@ -715,6 +715,23 @@ export function createConnectionsStore(options: {
         if (!writeResult.ok) {
           throw new Error(writeResult.stderr || writeResult.stdout || "Failed to write global opencode.json");
         }
+
+        // The global file is not what the packaged engine reads. On a config
+        // change it disposes the workspace instance and rebuilds it from
+        // LegalWork's runtime config plus the workspace's own files — the
+        // global opencode config is not among them. So a desktop connect wrote
+        // the server somewhere the engine never looks, the hot-add survived
+        // only until that rebuild seconds later, and sign-in then failed with
+        // "MCP server not found". Register it with the runtime store too,
+        // which is the file the engine demonstrably loads.
+        if (legalworkClient && legalworkWorkspaceId) {
+          try {
+            await legalworkClient.addMcp(legalworkWorkspaceId, { name: slug, config: mcpEntryConfig });
+          } catch {
+            // The global write already succeeded; a failure here is not worse
+            // than the behaviour before this existed.
+          }
+        }
       } else if (canUseLegalworkServer && legalworkClient && legalworkWorkspaceId) {
         await legalworkClient.addMcp(legalworkWorkspaceId, {
           name: slug,
@@ -744,20 +761,39 @@ export function createConnectionsStore(options: {
                 enabled: true,
               };
 
-        try {
-          const status = unwrap(
-            await activeClient.mcp.add({
-              directory: resolvedProjectDir,
-              name: slug,
-              config: mcpAddConfig,
-            }),
-          );
-          setStateField("mcpStatuses", status as McpStatusMap);
-          // The engine now has the MCP registered live — no pre-sign-in worker
-          // reload is needed, which is the step that used to hang the OAuth flow.
-          engineHasMcp = true;
-        } catch {
-          // Best-effort live add; the global config write is the source of truth.
+        // Registering with the running engine is what makes the server usable
+        // now; the config write only matters at next start. A single silent
+        // failure here used to leave the engine without the server while the
+        // flow carried on into sign-in, which then failed with a raw
+        // McpServerNotFoundError. So retry, and confirm the engine really has
+        // it before anything downstream assumes so.
+        for (let attempt = 0; attempt < 3 && !engineHasMcp; attempt += 1) {
+          try {
+            const status = unwrap(
+              await activeClient.mcp.add({
+                directory: resolvedProjectDir,
+                name: slug,
+                config: mcpAddConfig,
+              }),
+            );
+            setStateField("mcpStatuses", status as McpStatusMap);
+            engineHasMcp = Object.prototype.hasOwnProperty.call(status ?? {}, slug);
+          } catch {
+            // Transient: the engine may still be starting for this workspace.
+          }
+          if (!engineHasMcp) {
+            try {
+              const status = unwrap(await activeClient.mcp.status({ directory: resolvedProjectDir }));
+              if (Object.prototype.hasOwnProperty.call(status ?? {}, slug)) {
+                setStateField("mcpStatuses", status as McpStatusMap);
+                engineHasMcp = true;
+                break;
+              }
+            } catch {
+              // Fall through to the next attempt.
+            }
+            await new Promise((resolve) => setTimeout(resolve, 400));
+          }
         }
       } else {
         setStateField("mcpStatuses", filterConfiguredStatuses(snapshot.mcpStatuses, snapshot.mcpServers));
