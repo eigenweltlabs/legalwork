@@ -336,8 +336,12 @@ export async function fetchLegalMemoryMatters(
     if (typeof text !== "string") continue;
     try {
       const parsed: unknown = JSON.parse(text);
-      if (!Array.isArray(parsed)) continue;
-      for (const entry of parsed) {
+      // Every list-shaped appliance tool returns {results, page}; older builds
+      // returned the bare array this was written against. Both are read, because
+      // the firm's appliance version is not ours to choose.
+      const rows = Array.isArray(parsed) ? parsed : asRecord(parsed)?.results;
+      if (!Array.isArray(rows)) continue;
+      for (const entry of rows) {
         const record = asRecord(entry);
         const id = record ? asString(record.id) : undefined;
         const title = record ? asString(record.title) : undefined;
