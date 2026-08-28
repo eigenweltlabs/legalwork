@@ -310,6 +310,11 @@ async function draftToParts(draft: ComposerDraft, workspaceRoot: string) {
 
 export function SessionRoute() {
   const navigate = useNavigate();
+  const location = useLocation();
+  const detached = useMemo(
+    () => new URLSearchParams(location.search).get("detached") === "1",
+    [location.search],
+  );
   const [showLearnings, setShowLearnings] = useState(false);
   // Top-level pages that live in the main shell (sidebar stays, main pane swaps),
   // same mechanism as Learnings. Mutually exclusive — only one main pane at a time.
@@ -1672,6 +1677,7 @@ export function SessionRoute() {
       <TranscriptionSetupStep onDone={finishOnboarding} />
     ) : null}
     <SessionPage
+      detached={detached}
       selectedSessionId={selectedSessionId}
       selectedWorkspaceId={selectedWorkspaceId}
       selectedWorkspaceDisplay={selectedWorkspace ? {

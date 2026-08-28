@@ -672,6 +672,7 @@ const IDLE_ROUTER_INFO = Object.freeze({
 });
 
 let mainWindow = null;
+const detachedSessionWindows = new Map();
 const pendingDeepLinks = [];
 
 // Relay a content-free error signal to the renderer, which turns it into an
@@ -704,6 +705,7 @@ process.on("unhandledRejection", (reason) => relayAppError("main_unhandledreject
 const browserPanel = createBrowserPanel({
   remoteDebugPort,
   getWindow: () => mainWindow,
+  getWindowForEvent: (event) => BrowserWindow.fromWebContents(event?.sender) ?? null,
 });
 
 const workspaceStore = createWorkspaceStore({
@@ -1506,7 +1508,121 @@ function applyNativeTheme(mode) {
 
   mainWindow?.setVibrancy(macosVibrancyForCurrentTheme());
   mainWindow?.setBackgroundColor("#00000001");
+  for (const window of detachedSessionWindows.values()) {
+    if (window.isDestroyed()) continue;
+    window.setVibrancy(macosVibrancyForCurrentTheme());
+    window.setBackgroundColor("#00000001");
+  }
 
+  return true;
+}
+
+function sessionWindowRoute(workspaceId, sessionId) {
+  return `/workspace/${encodeURIComponent(workspaceId)}/session/${encodeURIComponent(sessionId)}?detached=1`;
+}
+
+function detachedWindowTitle(value) {
+  const title = String(value ?? "").trim();
+  return title ? title.slice(0, 180) : APP_NAME;
+}
+
+async function openDetachedSessionWindow(event, input = {}) {
+  const workspaceId = String(input?.workspaceId ?? "").trim();
+  const sessionId = String(input?.sessionId ?? "").trim();
+  if (!workspaceId || !sessionId) {
+    throw new Error("A workspace and chat session are required to open a new window.");
+  }
+
+  const key = `${workspaceId}:${sessionId}`;
+  const existing = detachedSessionWindows.get(key);
+  if (existing && !existing.isDestroyed()) {
+    if (existing.isMinimized()) existing.restore();
+    existing.show();
+    existing.focus();
+    return true;
+  }
+
+  const preloadPath = path.join(__dirname, "preload.mjs");
+  const windowAppearanceOptions = {};
+  if (process.platform === "darwin") {
+    Object.assign(windowAppearanceOptions, {
+      backgroundColor: "#00000001",
+      titleBarStyle: "hiddenInset",
+      vibrancy: macosVibrancyForCurrentTheme(),
+      visualEffectState: "active",
+    });
+  }
+
+  const sessionWindow = new BrowserWindow({
+    width: 980,
+    height: 760,
+    minWidth: 640,
+    minHeight: 480,
+    title: detachedWindowTitle(input?.title),
+    show: false,
+    ...windowAppearanceOptions,
+    ...(APP_ICON_IMAGE && !APP_ICON_IMAGE.isEmpty() ? { icon: APP_ICON_IMAGE } : {}),
+    webPreferences: {
+      backgroundThrottling: false,
+      preload: preloadPath,
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: false,
+      plugins: true,
+    },
+  });
+  detachedSessionWindows.set(key, sessionWindow);
+  applicationMenu.applyVisibility(sessionWindow);
+  recorderServiceInstance?.subscribe(sessionWindow.webContents);
+
+  sessionWindow.on("page-title-updated", (pageTitleEvent, title) => {
+    pageTitleEvent.preventDefault();
+    sessionWindow.setTitle(detachedWindowTitle(title || input?.title));
+  });
+  sessionWindow.once("ready-to-show", () => {
+    sessionWindow.show();
+    sessionWindow.focus();
+  });
+  sessionWindow.on("closed", () => {
+    if (detachedSessionWindows.get(key) === sessionWindow) {
+      detachedSessionWindows.delete(key);
+    }
+  });
+
+  sessionWindow.webContents.setWindowOpenHandler(({ url }) => {
+    if (url.startsWith("file://")) {
+      try {
+        void shell.openPath(fileURLToPath(url));
+      } catch {
+        void shell.openExternal(url);
+      }
+      return { action: "deny" };
+    }
+    const local = url.startsWith("http://127.0.0.1") || url.startsWith("http://localhost");
+    if (!local) {
+      void shell.openExternal(url);
+      return { action: "deny" };
+    }
+    return { action: "allow" };
+  });
+  sessionWindow.webContents.on("will-navigate", (navigationEvent, url) => {
+    if (browserPanel.isMainWindowAllowedNavigation(url)) return;
+    navigationEvent.preventDefault();
+    browserPanel.routeBlockedMainWindowNavigation(url);
+  });
+  sessionWindow.webContents.on("did-start-navigation", (_navigationEvent, url, isInPlace, isMainFrame) => {
+    if (!isMainFrame || isInPlace || browserPanel.isMainWindowAllowedNavigation(url)) return;
+    try {
+      sessionWindow.webContents.stop();
+    } catch {
+      // Best effort — routing below still preserves the detached chat.
+    }
+    browserPanel.routeBlockedMainWindowNavigation(url);
+  });
+
+  const sourceUrl = event.sender.getURL();
+  const appDocumentUrl = sourceUrl.split("#", 1)[0];
+  await sessionWindow.loadURL(`${appDocumentUrl}#${sessionWindowRoute(workspaceId, sessionId)}`);
   return true;
 }
 
@@ -1519,6 +1635,9 @@ function applyNativeTheme(mode) {
 // typecheck:electron`.
 /** @type {import("@legalwork/types/desktop-ipc").DesktopCommandHandlers<import("electron").IpcMainInvokeEvent>} */
 const desktopCommandHandlers = {
+  "openSessionWindow": async (event, ...args) => {
+      return openDetachedSessionWindow(event, args[0] ?? {});
+  },
   "workspaceBootstrap": async (event, ...args) => {
       return workspaceStore.readWorkspaceState();
   },

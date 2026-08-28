@@ -16,7 +16,7 @@ import {
 import { materializeLegalMemoryFile } from "../../../../app/lib/legalmemory-file";
 import { getDisplaySessionTitle } from "../../../../app/lib/session-title";
 import type { BootPhase } from "../../../../app/lib/startup-boot";
-import { openDesktopPath, revealDesktopItemInDir, type WorkspaceInfo } from "../../../../app/lib/desktop";
+import { desktopBridge, openDesktopPath, revealDesktopItemInDir, type WorkspaceInfo } from "../../../../app/lib/desktop";
 import type {
   PendingPermission,
   PendingQuestion,
@@ -136,6 +136,8 @@ export type SessionPageSurfaceProps = Omit<
 >;
 
 export type SessionPageProps = {
+  /** Native secondary chat window: omit the primary navigation sidebar. */
+  detached?: boolean;
   selectedSessionId: string | null;
   selectedWorkspaceId: string;
   selectedWorkspaceDisplay: {
@@ -737,6 +739,10 @@ export function SessionPage(props: SessionPageProps) {
     [props.selectedSessionId, props.sidebar.workspaceSessionGroups],
   );
   useEffect(() => {
+    if (!props.detached) return;
+    document.title = selectedSessionTitle || t("session.default_title");
+  }, [props.detached, selectedSessionTitle]);
+  useEffect(() => {
     setSessionTabs((current) => {
       const currentWorkspaceTabs = current.filter((tab) => tab.workspaceId === props.selectedWorkspaceId);
       const next = props.selectedSessionId && !currentWorkspaceTabs.some((tab) => tab.sessionId === props.selectedSessionId)
@@ -832,6 +838,14 @@ export function SessionPage(props: SessionPageProps) {
     props.sidebar.onOpenSession(workspaceId, sessionId);
   }, [props.sidebar]);
 
+  const openSessionWindow = useCallback((workspaceId: string, sessionId: string) => {
+    if (!isElectronRuntime()) return;
+    const title = sessionTitleForId(props.sidebar.workspaceSessionGroups, sessionId);
+    void desktopBridge.openSessionWindow({ workspaceId, sessionId, title }).catch(() => {
+      toast.error("Could not open the chat in a new window.");
+    });
+  }, [props.sidebar.workspaceSessionGroups]);
+
   const closeSessionTab = useCallback((sessionId: string) => {
     setSessionTabs((current) => current.filter((tab) => tab.sessionId !== sessionId));
     setSplitSessionId((current) => current === sessionId ? null : current);
@@ -909,7 +923,7 @@ export function SessionPage(props: SessionPageProps) {
         )}
         style={sidebarProviderStyle}
       >
-        <AppSidebar
+        {!props.detached ? <AppSidebar
           workspaceSessionGroups={props.sidebar.workspaceSessionGroups}
           selectedWorkspaceId={props.sidebar.selectedWorkspaceId}
           developerMode={props.sidebar.developerMode}
@@ -922,6 +936,7 @@ export function SessionPage(props: SessionPageProps) {
           newTaskDisabled={props.sidebar.newTaskDisabled}
           onSelectWorkspace={props.sidebar.onSelectWorkspace}
           onOpenSession={openSessionTab}
+          onOpenSessionWindow={isElectronRuntime() ? openSessionWindow : undefined}
           onPrefetchSession={props.sidebar.onPrefetchSession}
           onCreateTaskInWorkspace={props.sidebar.onCreateTaskInWorkspace}
           onOpenRenameSession={props.onRenameSession ? openRenameModal : undefined}
@@ -951,8 +966,8 @@ export function SessionPage(props: SessionPageProps) {
           activeNav={props.sidebar.activeNav}
           onReorderWorkspaces={props.sidebar.onReorderWorkspaces}
           onStartResize={startLeftSidebarResize}
-        />
-        {driveOpen ? (
+        /> : null}
+        {!props.detached && driveOpen ? (
           <LegalMemoryFilesPanel
             key={props.runtimeWorkspaceId ?? "__no_workspace__"}
             client={props.legalworkServerClient}
@@ -1080,9 +1095,9 @@ export function SessionPage(props: SessionPageProps) {
           >
             <ResizablePanel minSize="360px" className="min-w-0">
               <main className="flex h-full min-w-0 flex-col overflow-hidden border-r border-border">
-          <header className="z-10 flex h-10 shrink-0 items-center justify-between border-b border-border px-4 md:px-6 mac:titlebar-drag  mac:backdrop-blur-2xl mac:backdrop-saturate-150 @container/titlebar">
+          <header className={cn("z-10 flex h-10 shrink-0 items-center justify-between border-b border-border px-4 md:px-6 mac:titlebar-drag mac:backdrop-blur-2xl mac:backdrop-saturate-150 @container/titlebar", props.detached && "mac:pl-20")}>
             <div className="flex min-w-0 items-center gap-3">
-              {shellConfig.sidebar ? (
+              {!props.detached && shellConfig.sidebar ? (
                 <SidebarTrigger className="mac:hidden" />
               ) : (
                 // Keeps the title clear of overlaid leading controls (e.g. the
@@ -1581,7 +1596,7 @@ export function SessionPage(props: SessionPageProps) {
           </div>
         </SidebarInset>
         )}
-        {shellConfig.sidebar ? <SidebarTrigger className="hidden mac:absolute mac:left-[64px] top-[3px] z-50 mac:flex titlebar-no-drag" /> : null}
+        {!props.detached && shellConfig.sidebar ? <SidebarTrigger className="hidden mac:absolute mac:left-[64px] top-[3px] z-50 mac:flex titlebar-no-drag" /> : null}
       </SidebarProvider>
 
       {props.providerAuthModal ? <ProviderAuthModal {...props.providerAuthModal} /> : null}
