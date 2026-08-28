@@ -4,6 +4,7 @@ import * as React from "react"
 import { useQuery } from "@tanstack/react-query"
 import {
   AlertTriangle,
+  ArrowUpRight,
   Check,
   Copy,
   FileIcon,
@@ -107,6 +108,7 @@ import {
 import { cn } from "@/lib/utils"
 import { useOpenTargets } from "@/lib/target-provider"
 import { resolveFilePartOpenTarget } from "@/react-app/domains/session/artifacts/open-target"
+import { LEGALMEMORY_OPEN_EVENT, parseLegalMemoryRef } from "@/components/markdown/legalmemory-ref"
 import { groupMessages, isMessageGroup, getLastTextPart, getAssistantRenderGroups, getFileTitle, getMediaBadge, getMessageCreated, formatMessageTimestamp, type UIMessageWithIndex, getMessagesText } from "./utils"
 
 function MessageTimestamp({ message, className }: { message: UIMessage; className?: string }) {
@@ -450,7 +452,15 @@ type UserMessageProps = {
   isStreaming: boolean
 }
 
-const USER_SKILL_TOKEN_RE = /(Load \[skill [^\]]+\] and follow its instructions\.|\[skill [^\]]+\])/
+const LEGACY_USER_MEMORY_INSTRUCTION_RE = /Read the downloaded LegalMemory copy at workspace path "[^"]+" before answering\. It is "([^"]+)" \((legalmemory:\/\/document\/[\w.:-]+), document_id [^)]+\)\. Use a document-capable tool appropriate for its format \(for example, extract or convert DOCX rather than reading it as plain text\)\. This is a local path reference, not a binary chat attachment\.\s*/g
+const USER_RICH_TOKEN_RE = /(Load \[skill [^\]]+\] and follow its instructions\.|\[skill [^\]]+\]|\[[^\]\n]+\]\(legalmemory:\/\/document\/[\w.:-]+\))/
+
+function cleanUserMessageText(text: string) {
+  return text.replace(
+    LEGACY_USER_MEMORY_INSTRUCTION_RE,
+    (_match, label: string, uri: string) => `[${label}](${uri}) `,
+  )
+}
 
 function UserSkillChip(props: { name: string }) {
   return (
@@ -460,14 +470,41 @@ function UserSkillChip(props: { name: string }) {
   )
 }
 
-function renderUserTextWithSkillChips(text: string) {
-  if (!USER_SKILL_TOKEN_RE.test(text)) return text
+function UserLegalMemoryChip(props: { label: string; documentId: string }) {
+  return (
+    <button
+      type="button"
+      className="mx-0.5 inline-flex max-w-72 items-center gap-1.5 rounded-full border border-indigo-6/60 bg-indigo-2/55 px-2.5 py-1 text-xs font-medium text-indigo-11 align-middle transition-colors hover:bg-indigo-3/70"
+      title={`Open ${props.label}`}
+      onClick={() => {
+        window.dispatchEvent(new CustomEvent(LEGALMEMORY_OPEN_EVENT, {
+          detail: { documentId: props.documentId, label: props.label },
+        }))
+      }}
+    >
+      <FileIcon className="size-3.5 shrink-0" />
+      <span className="truncate">{props.label}</span>
+      <ArrowUpRight className="size-3.5 shrink-0 opacity-70" />
+    </button>
+  )
+}
+
+function renderUserTextWithReferenceChips(rawText: string) {
+  const text = cleanUserMessageText(rawText)
+  if (!USER_RICH_TOKEN_RE.test(text)) return text
   let offset = 0
-  return text.split(USER_SKILL_TOKEN_RE).map((segment) => {
+  return text.split(USER_RICH_TOKEN_RE).map((segment) => {
     const key = `${offset}:${segment}`
     offset += segment.length
     const skillMatch = segment.match(/^(?:Load )?\[skill ([^\]]+)\](?: and follow its instructions\.)?$/)
     if (skillMatch?.[1]) return <UserSkillChip key={key} name={skillMatch[1]} />
+    const memoryMatch = segment.match(/^\[([^\]\n]+)\]\((legalmemory:\/\/document\/[\w.:-]+)\)$/)
+    if (memoryMatch?.[1] && memoryMatch[2]) {
+      const ref = parseLegalMemoryRef(memoryMatch[2])
+      if (ref?.kind === "document") {
+        return <UserLegalMemoryChip key={key} label={memoryMatch[1]} documentId={ref.id} />
+      }
+    }
     return <React.Fragment key={key}>{segment}</React.Fragment>
   })
 }
@@ -475,7 +512,7 @@ function renderUserTextWithSkillChips(text: string) {
 const UserMessage = React.memo(
   ({ message, isStreaming }: UserMessageProps) => {
     const { onRevertToUserMessage, onForkAtMessage, onEditUserMessage } = useMessageList()
-    const messageText = React.useMemo(() => getMessagesText([message]), [message])
+    const messageText = React.useMemo(() => cleanUserMessageText(getMessagesText([message])), [message])
 
     return (
       <Message
@@ -495,7 +532,7 @@ const UserMessage = React.memo(
                     layoutId={message.id}
                     className="bg-foreground/[0.06] text-foreground max-w-[85%] rounded-3xl px-5 py-2.5 whitespace-pre-wrap sm:max-w-[75%]"
                   >
-                    {renderUserTextWithSkillChips(message.parts.map((part) => (part.type === "text" ? part.text : "")).join(""))}
+                    {renderUserTextWithReferenceChips(message.parts.map((part) => (part.type === "text" ? part.text : "")).join(""))}
                   </MessageContent>
                 ) : null}
                 {!isStreaming && (

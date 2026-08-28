@@ -65,6 +65,7 @@ import {
   decodeComposerMentionValue,
   encodeComposerMentionValue,
   legalMemoryComposerInstruction,
+  legalMemoryComposerDisplayText,
   type ComposerMentionKind,
 } from "./composer/mention-encoding";
 import { desktopBridge } from "@/app/lib/desktop";
@@ -452,6 +453,10 @@ function mergeDrafts(drafts: ComposerDraft[]): ComposerDraft | null {
     attachments,
     text: texts.join("\n\n"),
     resolvedText: resolvedTexts.join("\n\n"),
+    modelContext: drafts
+      .map((draft) => draft.modelContext?.trim())
+      .filter((context): context is string => Boolean(context))
+      .join("\n\n") || undefined,
     command: undefined,
   };
 }
@@ -937,6 +942,7 @@ export function SessionSurface(props: SessionSurfaceProps) {
   });
 
   const buildDraft = useCallback((text: string, nextAttachments: ComposerAttachment[]): ComposerDraft => {
+    const modelContexts: string[] = [];
     const parts: ComposerPart[] = text.split(/(\[pasted text [^\]]+\]|\[skill [^\]]+\]|@[^\s@]+)/).flatMap((segment) => {
       if (!segment) return [] as ComposerDraft["parts"];
       const pasteMatch = segment.match(/^\[pasted text (.+)\]$/);
@@ -955,7 +961,10 @@ export function SessionSurface(props: SessionSurfaceProps) {
         const kind = mentions[value];
         if (kind === "agent") return [{ type: "agent", name: value } satisfies ComposerDraft["parts"][number]];
         if (kind === "file") return [{ type: "file", path: value, label: value } satisfies ComposerDraft["parts"][number]];
-        if (kind === "memory") return [{ type: "text", text: legalMemoryComposerInstruction(value) } satisfies ComposerDraft["parts"][number]];
+        if (kind === "memory") {
+          modelContexts.push(legalMemoryComposerInstruction(value));
+          return [{ type: "text", text: legalMemoryComposerDisplayText(value) } satisfies ComposerDraft["parts"][number]];
+        }
         if (kind === "app") return [{ type: "app", name: value } satisfies ComposerDraft["parts"][number]];
       }
       return [{ type: "text", text: segment } satisfies ComposerDraft["parts"][number]];
@@ -970,7 +979,7 @@ export function SessionSurface(props: SessionSurfaceProps) {
     for (const [value, kind] of Object.entries(mentions)) {
       resolved = resolved.replaceAll(
         `@${encodeComposerMentionValue(value)}`,
-        kind === "memory" ? legalMemoryComposerInstruction(value) : `@${value}`,
+        kind === "memory" ? legalMemoryComposerDisplayText(value) : `@${value}`,
       );
     }
     const slashCommand = parseSlashCommandInvocation(resolved);
@@ -980,6 +989,7 @@ export function SessionSurface(props: SessionSurfaceProps) {
       attachments: nextAttachments,
       text,
       resolvedText: resolved,
+      modelContext: [...new Set(modelContexts)].join("\n") || undefined,
       command: slashCommand ?? undefined,
     };
   }, [mentions, pasteParts]);
@@ -1221,17 +1231,27 @@ export function SessionSurface(props: SessionSurfaceProps) {
     }
   };
 
-  const handleDropLegalMemoryFile = (file: LegalMemoryFileDragItem) => {
-    const reference = createLegalMemoryComposerMention(file.document_id, file.name);
-    const composerState = useComposerStateStore.getState();
-    const currentDraft = getComposerDraft(composerState, props.sessionId);
-    const currentMentions = getComposerMentions(composerState, props.sessionId);
-    const separator = currentDraft && !/\s$/.test(currentDraft) ? " " : "";
-    setComposerDraft(
-      props.sessionId,
-      `${currentDraft}${separator}@${encodeComposerMentionValue(reference)} `,
-    );
-    setComposerMentions(props.sessionId, { ...currentMentions, [reference]: "memory" });
+  const handleDropLegalMemoryFile = async (file: LegalMemoryFileDragItem) => {
+    try {
+      // Materialize the authorized original before inserting the pill. Only its
+      // workspace path is sent to the agent; the binary is deliberately not
+      // added to ComposerDraft.attachments or emitted as a file part.
+      const result = await materializeLegalMemoryFile(props.client, props.workspaceId, file.document_id);
+      const reference = createLegalMemoryComposerMention(file.document_id, file.name, result.path);
+      const composerState = useComposerStateStore.getState();
+      const currentDraft = getComposerDraft(composerState, props.sessionId);
+      const currentMentions = getComposerMentions(composerState, props.sessionId);
+      const separator = currentDraft && !/\s$/.test(currentDraft) ? " " : "";
+      setComposerDraft(
+        props.sessionId,
+        `${currentDraft}${separator}@${encodeComposerMentionValue(reference)} `,
+      );
+      setComposerMentions(props.sessionId, { ...currentMentions, [reference]: "memory" });
+    } catch (error) {
+      toast.error(`Could not download ${file.name}`, {
+        description: error instanceof Error ? error.message : "LegalMemory download failed",
+      });
+    }
   };
 
   const handlePasteText = (text: string) => {

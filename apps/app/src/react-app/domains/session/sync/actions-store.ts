@@ -605,6 +605,7 @@ export function createSessionActionsStore(options: {
           agent: agent ?? undefined,
           variant: requestVariant,
           ...(promptOverrides ?? {}),
+          ...(resolvedDraft.modelContext?.trim() ? { system: resolvedDraft.modelContext.trim() } : {}),
           parts,
         });
         assertNoClientError(result);

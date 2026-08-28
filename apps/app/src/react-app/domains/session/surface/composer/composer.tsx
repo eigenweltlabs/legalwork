@@ -1157,10 +1157,10 @@ export function ReactSessionComposer(props: ComposerProps) {
             <div className="pointer-events-none absolute inset-3 z-20 flex items-center justify-center rounded-[20px] border-2 border-dashed border-dls-accent bg-[color:color-mix(in_oklab,var(--dls-accent)_10%,transparent)]">
               <div className="rounded-2xl border border-dls-border bg-dls-surface/95 px-5 py-4 text-center">
                 <div className="text-sm font-medium text-dls-text">
-                  {dropzoneKind === "memory" ? "Reference memory file" : t("composer.attach_files")}
+                  {dropzoneKind === "memory" ? "Download memory file" : t("composer.attach_files")}
                 </div>
                 <div className="mt-1 text-xs text-dls-secondary">
-                  {dropzoneKind === "memory" ? "The agent will fetch it from LegalMemory" : t("composer.any_file_type_supported")}
+                  {dropzoneKind === "memory" ? "A project copy will be referenced by path" : t("composer.any_file_type_supported")}
                 </div>
               </div>
             </div>

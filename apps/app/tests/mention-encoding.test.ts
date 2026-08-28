@@ -5,6 +5,7 @@ import {
   decodeComposerMentionValue,
   encodeComposerMentionValue,
   legalMemoryComposerInstruction,
+  legalMemoryComposerDisplayText,
   parseLegalMemoryComposerMention,
 } from "../src/react-app/domains/session/surface/composer/mention-encoding";
 
@@ -37,5 +38,26 @@ describe("mention-encoding", () => {
     expect(instruction).toContain('fetch and read "Member consent final.docx"');
     expect(instruction).toContain("legalmemory://document/doc-123");
     expect(instruction).toContain("not a local workspace file");
+  });
+
+  test("keeps a downloaded workspace path as memory metadata instead of an attachment", () => {
+    const value = createLegalMemoryComposerMention(
+      "doc-123",
+      "Member consent final.docx",
+      ".legalmemory/Member consent final.docx",
+    );
+    expect(parseLegalMemoryComposerMention(value)).toEqual({
+      documentId: "doc-123",
+      label: "Member consent final.docx",
+      localPath: ".legalmemory/Member consent final.docx",
+      uri: "legalmemory://document/doc-123",
+    });
+    const instruction = legalMemoryComposerInstruction(value);
+    expect(instruction).toContain('workspace path ".legalmemory/Member consent final.docx"');
+    expect(instruction).toContain("extract or convert DOCX");
+    expect(instruction).toContain("not a binary chat attachment");
+    expect(legalMemoryComposerDisplayText(value)).toBe(
+      "[Member consent final.docx](legalmemory://document/doc-123)",
+    );
   });
 });

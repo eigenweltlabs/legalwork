@@ -929,6 +929,9 @@ export function SessionRoute() {
           cacheKey: targetSessionId,
           runtimeKey: environmentRuntimeKey,
         });
+        const turnSystemContext = [envSystemContext, draft.modelContext]
+          .filter((context): context is string => Boolean(context?.trim()))
+          .join("\n\n");
 
         if (!isOfficeAddinRuntime() && isFusionEnabled(targetSessionId)) {
           const candidateModels = getFusionSelectedModels(targetSessionId);
@@ -951,7 +954,7 @@ export function SessionRoute() {
               mainModel: local.prefs.defaultModel ?? undefined,
               agent: selectedAgent ?? undefined,
               variant: modelVariantValue ?? undefined,
-              baseSystem: envSystemContext ?? undefined,
+              baseSystem: turnSystemContext || undefined,
             }).catch((error: unknown) => {
               const message = error instanceof Error ? error.message : String(error);
               toast.error(t("fusion.turn_failed"), { description: message });
@@ -967,7 +970,7 @@ export function SessionRoute() {
           model: local.prefs.defaultModel ?? undefined,
           agent: selectedAgent ?? undefined,
           ...(modelVariantValue ? { variant: modelVariantValue } : {}),
-          ...(envSystemContext ? { system: envSystemContext } : {}),
+          ...(turnSystemContext ? { system: turnSystemContext } : {}),
         });
         if (result.error) {
           throw new Error(serializeSDKError(result.error));
