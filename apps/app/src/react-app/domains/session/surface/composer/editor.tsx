@@ -84,12 +84,13 @@ type SerializedComposerSkillNode = Spread<
 
 const MENTION_PILL_CLASS: Record<ComposerMentionKind, string> = {
   file: "inline-flex items-center rounded-full border border-gray-6 bg-gray-3 px-2.5 py-1 text-xs font-medium text-gray-11",
+  memory: "inline-flex items-center rounded-full border border-indigo-6/60 bg-indigo-2/40 px-2.5 py-1 text-xs font-medium text-indigo-11",
   agent: "inline-flex items-center rounded-full border border-sky-6/35 bg-sky-3/20 px-2.5 py-1 text-xs font-medium text-sky-11",
   app: "inline-flex items-center rounded-full border border-cyan-6/35 bg-cyan-3/20 px-2.5 py-1 text-xs font-medium text-cyan-11",
 };
 
 function mentionPillText(value: string, kind: ComposerMentionKind) {
-  return `@${kind === "file" ? value.split(/[\\/]/).pop() || value : value}`;
+  return `@${kind === "file" || kind === "memory" ? value.split(/[\\/]/).pop() || value : value}`;
 }
 
 class ComposerMentionNode extends TextNode {

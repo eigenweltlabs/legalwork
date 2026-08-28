@@ -8,6 +8,9 @@ import {
   fetchLegalMemoryDocument,
   fetchLegalMemoryGraph,
   fetchLegalMemoryMatters,
+  fetchLegalMemoryTreeChildren,
+  fetchLegalMemoryTreeRoots,
+  fetchLegalMemoryTreeSearch,
   resolveLegalMemoryServer,
 } from "./legalmemory-fetch.js";
 import { fileURLToPath } from "node:url";
@@ -2231,6 +2234,68 @@ function createRoutes(
     }
   });
 
+  // The caller's LegalMemory estate as a lazy file tree. The LegalWork server
+  // owns the configured appliance URL and reuses the engine's MCP bearer, so
+  // the renderer sees neither while each listing keeps the caller's ACLs.
+  addRoute(routes, "POST", "/workspace/:id/legalmemory/tree/roots", "client", async (ctx) => {
+    requireClientScope(ctx, "collaborator");
+    const workspace = await resolveWorkspace(config, ctx.params.id);
+    const server = resolveLegalMemoryServer(await listMcp(config, workspace.id, workspace.path));
+    if (!server) throw new ApiError(409, "legalmemory_not_configured", "No LegalMemory server is configured");
+    try {
+      return jsonResponse(await fetchLegalMemoryTreeRoots(server, await engineAccessToken(server.name)));
+    } catch (error) {
+      throw new ApiError(502, "legalmemory_tree_failed", error instanceof Error ? error.message : "File tree failed");
+    }
+  });
+
+  addRoute(routes, "POST", "/workspace/:id/legalmemory/tree/children", "client", async (ctx) => {
+    requireClientScope(ctx, "collaborator");
+    const workspace = await resolveWorkspace(config, ctx.params.id);
+    const body = await readJsonBodyLimited(ctx.request, 16 * 1024);
+    const sourceId = typeof body.source_id === "string" ? body.source_id.trim() : "";
+    const path = typeof body.path === "string" ? body.path.trim() : "";
+    const offset = typeof body.offset === "number" && Number.isInteger(body.offset) ? Math.max(0, body.offset) : 0;
+    const limit = typeof body.limit === "number" && Number.isInteger(body.limit)
+      ? Math.min(250, Math.max(1, body.limit))
+      : 200;
+    if (!sourceId) throw new ApiError(400, "invalid_source_id", "A source_id is required");
+    if (path.length > 4096) throw new ApiError(400, "invalid_tree_path", "The folder path is too long");
+    const server = resolveLegalMemoryServer(await listMcp(config, workspace.id, workspace.path));
+    if (!server) throw new ApiError(409, "legalmemory_not_configured", "No LegalMemory server is configured");
+    try {
+      return jsonResponse(await fetchLegalMemoryTreeChildren(
+        server,
+        { sourceId, path: path || undefined, offset, limit },
+        await engineAccessToken(server.name),
+      ));
+    } catch (error) {
+      throw new ApiError(502, "legalmemory_tree_failed", error instanceof Error ? error.message : "Folder listing failed");
+    }
+  });
+
+  addRoute(routes, "POST", "/workspace/:id/legalmemory/tree/search", "client", async (ctx) => {
+    requireClientScope(ctx, "collaborator");
+    const workspace = await resolveWorkspace(config, ctx.params.id);
+    const body = await readJsonBodyLimited(ctx.request, 16 * 1024);
+    const query = typeof body.query === "string" ? body.query.trim() : "";
+    const limit = typeof body.limit === "number" && Number.isInteger(body.limit)
+      ? Math.min(100, Math.max(1, body.limit))
+      : 100;
+    if (!query) return jsonResponse({ files: [] });
+    const server = resolveLegalMemoryServer(await listMcp(config, workspace.id, workspace.path));
+    if (!server) throw new ApiError(409, "legalmemory_not_configured", "No LegalMemory server is configured");
+    try {
+      return jsonResponse(await fetchLegalMemoryTreeSearch(
+        server,
+        { query, limit },
+        await engineAccessToken(server.name),
+      ));
+    } catch (error) {
+      throw new ApiError(502, "legalmemory_tree_failed", error instanceof Error ? error.message : "File search failed");
+    }
+  });
+
   // The stored relations around a cited document, fetched by the app.
   //
   // The agent is asked to traverse before concluding and does not: on a real
@@ -4262,4 +4327,3 @@ async function materializeBlueprintSessions(config: ServerConfig, workspace: Wor
 
   return { ok: true, created, existing: [], openSessionId };
 }
-

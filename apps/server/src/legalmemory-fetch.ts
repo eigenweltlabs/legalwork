@@ -20,6 +20,7 @@
 import { readFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import { z } from "zod";
 
 const JSON_RPC_HEADERS = {
   "content-type": "application/json",
@@ -41,7 +42,82 @@ export type FetchedDocument = {
   bytes: Uint8Array;
 };
 
+const legalMemoryTreeRootSchema = z.object({
+  source_id: z.string(),
+  display_name: z.string(),
+  kind: z.string(),
+  project_id: z.string().nullable(),
+  status: z.string(),
+  files: z.number(),
+});
+
+const legalMemoryTreeFolderSchema = z.object({
+  name: z.string(),
+  path: z.string(),
+  files: z.number(),
+});
+
+const legalMemoryTreeFileSchema = z.object({
+  source_object_id: z.string(),
+  source_id: z.string(),
+  name: z.string(),
+  path: z.string(),
+  mime_type: z.string().nullable(),
+  size_bytes: z.number().nullable(),
+  mtime: z.string().nullable(),
+  document_id: z.string(),
+});
+
+const legalMemoryTreePageSchema = z.object({
+  source_id: z.string(),
+  path: z.string(),
+  folders: z.array(legalMemoryTreeFolderSchema),
+  files: z.array(legalMemoryTreeFileSchema),
+  pagination: z.object({
+    total: z.number(),
+    offset: z.number(),
+    limit: z.number(),
+    returned: z.number(),
+    has_more: z.boolean(),
+  }),
+});
+
+export type LegalMemoryTreeRoot = z.infer<typeof legalMemoryTreeRootSchema>;
+export type LegalMemoryTreePage = z.infer<typeof legalMemoryTreePageSchema>;
+export type LegalMemoryTreeFile = z.infer<typeof legalMemoryTreeFileSchema>;
+
 const LEGALMEMORY_SERVER_NAME = /^(?:legal[_-]?memory|knowledge[_-]?index)$/i;
+const LEGALMEMORY_MCP_TREE_SOURCE_PREFIX = "__legalmemory_mcp__:";
+const LEGALMEMORY_MCP_MATTER_PREFIX = "matter/";
+
+const legalMemoryMcpMatterSchema = z.object({
+  id: z.string(),
+  title: z.string().nullable().optional(),
+  visible_versions: z.number().optional(),
+});
+
+const legalMemoryMcpDocumentSchema = z.object({
+  document_id: z.string(),
+  version_id: z.string(),
+  title: z.string().nullable().optional(),
+  source_path: z.string(),
+  doc_date: z.string().nullable().optional(),
+});
+
+const legalMemoryMcpSearchResultSchema = z.object({
+  document_id: z.string(),
+  version_id: z.string(),
+  title: z.string().nullable().optional(),
+  source_paths: z.array(z.string()).optional(),
+  doc_date: z.string().nullable().optional(),
+});
+
+const legalMemoryMcpConnectorSchema = z.object({
+  id: z.string(),
+  project_id: z.string().nullable().optional(),
+  kind: z.string(),
+  display_name: z.string(),
+});
 
 function asString(value: unknown): string | undefined {
   return typeof value === "string" && value.trim() ? value.trim() : undefined;
@@ -76,6 +152,112 @@ export function resolveLegalMemoryServer(
   return null;
 }
 
+/**
+ * The tree is served by the same LegalMemory deployment as MCP and authorizes
+ * against the same bearer token. Keep the appliance URL and token on the
+ * LegalWork server: the renderer only talks to its workspace API.
+ */
+export function legalMemoryTreeApiUrl(serverUrl: string, path: string): string {
+  const url = new URL(serverUrl);
+  const normalizedPath = url.pathname.replace(/\/+$/, "");
+  const mcpSuffix = /\/mcp$/i;
+  if (!mcpSuffix.test(normalizedPath)) {
+    throw new Error("LegalMemory MCP URL must end in /mcp");
+  }
+  url.pathname = `${normalizedPath.replace(mcpSuffix, "")}${path.startsWith("/") ? path : `/${path}`}`;
+  url.search = "";
+  url.hash = "";
+  return url.toString();
+}
+
+/** The hosted demo exposes its appliance tree through one Clerk-protected
+ * proxy route. Raw appliances expose the four `/api/tree/*` routes directly. */
+export function legalMemoryTreeProxyUrl(serverUrl: string, operation: string): string {
+  const url = new URL(legalMemoryTreeApiUrl(serverUrl, "/api/tree"));
+  url.searchParams.set("op", operation);
+  return url.toString();
+}
+
+async function fetchLegalMemoryTreeResponse(
+  server: LegalMemoryServer,
+  url: URL,
+  bearer?: string,
+): Promise<Response> {
+  return fetch(url, {
+    headers: {
+      accept: "application/json",
+      ...(server.headers ?? {}),
+      ...(bearer ? { Authorization: `Bearer ${bearer}` } : {}),
+    },
+  });
+}
+
+async function fetchLegalMemoryTreeJson(
+  server: LegalMemoryServer,
+  path: string,
+  operation: string,
+  params: Record<string, string | number | undefined>,
+  bearer?: string,
+): Promise<unknown> {
+  const candidates = [
+    new URL(legalMemoryTreeProxyUrl(server.url, operation)),
+    new URL(legalMemoryTreeApiUrl(server.url, path)),
+  ];
+  let lastFailure = "LegalMemory file tree failed";
+  for (const url of candidates) {
+    for (const [name, value] of Object.entries(params)) {
+      if (value !== undefined && value !== "") url.searchParams.set(name, String(value));
+    }
+    const response = await fetchLegalMemoryTreeResponse(server, url, bearer);
+    if (response.ok) return response.json();
+    const detail = (await response.text().catch(() => "")).trim().slice(0, 300);
+    lastFailure = `LegalMemory file tree failed (${response.status})${detail ? `: ${detail}` : ""}`;
+  }
+  throw new Error(lastFailure);
+}
+
+export async function fetchLegalMemoryTreeRoots(
+  server: LegalMemoryServer,
+  bearer?: string,
+): Promise<{ roots: LegalMemoryTreeRoot[] }> {
+  try {
+    const body = await fetchLegalMemoryTreeJson(server, "/api/tree/roots", "roots", {}, bearer);
+    return z.object({ roots: z.array(legalMemoryTreeRootSchema) }).parse(body);
+  } catch {
+    return { roots: await fetchLegalMemoryMcpRoots(server, bearer) };
+  }
+}
+
+export async function fetchLegalMemoryTreeChildren(
+  server: LegalMemoryServer,
+  input: { sourceId: string; path?: string; offset: number; limit: number },
+  bearer?: string,
+): Promise<LegalMemoryTreePage> {
+  if (input.sourceId.startsWith(LEGALMEMORY_MCP_TREE_SOURCE_PREFIX)) {
+    return fetchLegalMemoryMcpChildren(server, input, bearer);
+  }
+  const body = await fetchLegalMemoryTreeJson(server, "/api/tree/children", "children", {
+    source_id: input.sourceId,
+    path: input.path,
+    offset: input.offset,
+    limit: input.limit,
+  }, bearer);
+  return legalMemoryTreePageSchema.parse(body);
+}
+
+export async function fetchLegalMemoryTreeSearch(
+  server: LegalMemoryServer,
+  input: { query: string; limit: number },
+  bearer?: string,
+): Promise<{ files: LegalMemoryTreeFile[] }> {
+  try {
+    const body = await fetchLegalMemoryTreeJson(server, "/api/tree/search", "search", input, bearer);
+    return z.object({ files: z.array(legalMemoryTreeFileSchema) }).parse(body);
+  } catch {
+    return { files: await fetchLegalMemoryMcpSearch(server, input, bearer) };
+  }
+}
+
 /** Parse one streamable-HTTP response body, which is either JSON or an SSE
  * frame carrying the JSON on a `data:` line. */
 function parseRpcBody(text: string): unknown {
@@ -103,6 +285,270 @@ async function rpc(session: Session, method: string, params: unknown, id?: numbe
     throw new Error(`LegalMemory ${method} failed (${response.status})`);
   }
   return parseRpcBody(await response.text());
+}
+
+function legalMemorySession(server: LegalMemoryServer, bearer?: string): Session {
+  return {
+    url: server.url,
+    headers: {
+      ...JSON_RPC_HEADERS,
+      ...(server.headers ?? {}),
+      ...(bearer ? { Authorization: `Bearer ${bearer}` } : {}),
+    },
+  };
+}
+
+function legalMemoryToolPayload(value: unknown): unknown {
+  const envelope = asRecord(value);
+  const error = asRecord(envelope?.error);
+  if (error) throw new Error(String(error.message ?? "LegalMemory tool call failed"));
+  const result = asRecord(envelope?.result ?? envelope);
+  if (!result) throw new Error("LegalMemory returned no tool result");
+  if (result.isError === true) throw new Error("LegalMemory tool call failed");
+  const structured = asRecord(result.structuredContent);
+  if (structured) return structured;
+  if (!Array.isArray(result.content)) throw new Error("LegalMemory returned no structured tool content");
+  for (const item of result.content) {
+    const text = asRecord(item)?.text;
+    if (typeof text !== "string") continue;
+    try {
+      return JSON.parse(text);
+    } catch {
+      // Tool cards may precede the JSON payload; keep looking.
+    }
+  }
+  throw new Error("LegalMemory returned no structured tool content");
+}
+
+async function callLegalMemoryTool(
+  server: LegalMemoryServer,
+  name: string,
+  args: Record<string, unknown>,
+  bearer?: string,
+): Promise<unknown> {
+  const session = legalMemorySession(server, bearer);
+  await rpc(session, "initialize", {
+    protocolVersion: "2025-06-18",
+    capabilities: {},
+    clientInfo: { name: "LegalWork", version: "1" },
+  }, 1);
+  await rpc(session, "notifications/initialized", {});
+  const result = await rpc(session, "tools/call", { name, arguments: args }, 2);
+  return legalMemoryToolPayload(result);
+}
+
+function normalizedSourcePath(value: string): string {
+  return value.replace(/\\/g, "/").split("/").filter(Boolean).join("/");
+}
+
+function mcpMatterPath(matterId: string, sourcePath = ""): string {
+  const base = `${LEGALMEMORY_MCP_MATTER_PREFIX}${encodeURIComponent(matterId)}`;
+  return sourcePath ? `${base}/${normalizedSourcePath(sourcePath)}` : base;
+}
+
+function parseMcpMatterPath(path: string): { matterId: string; sourcePath: string } {
+  if (!path.startsWith(LEGALMEMORY_MCP_MATTER_PREFIX)) {
+    throw new Error("LegalMemory returned an unknown MCP folder path");
+  }
+  const rest = path.slice(LEGALMEMORY_MCP_MATTER_PREFIX.length);
+  const separator = rest.indexOf("/");
+  const encodedMatterId = separator === -1 ? rest : rest.slice(0, separator);
+  const matterId = decodeURIComponent(encodedMatterId);
+  if (!matterId) throw new Error("LegalMemory returned an empty matter id");
+  return {
+    matterId,
+    sourcePath: separator === -1 ? "" : normalizedSourcePath(rest.slice(separator + 1)),
+  };
+}
+
+async function fetchLegalMemoryMcpMatters(
+  server: LegalMemoryServer,
+  bearer?: string,
+  input: { limit?: number; offset?: number } = {},
+): Promise<z.infer<typeof legalMemoryMcpMatterSchema>[]> {
+  const payload = await callLegalMemoryTool(server, "list_matters", {
+    limit: input.limit ?? 500,
+    offset: input.offset ?? 0,
+  }, bearer);
+  const body = z.object({ results: z.array(legalMemoryMcpMatterSchema) }).parse(payload);
+  return body.results;
+}
+
+function mcpTreeSourceId(connectorId: string): string {
+  return `${LEGALMEMORY_MCP_TREE_SOURCE_PREFIX}${encodeURIComponent(connectorId)}`;
+}
+
+function findLegalMemoryMcpConnectors(
+  value: unknown,
+  found = new Map<string, z.infer<typeof legalMemoryMcpConnectorSchema>>(),
+  depth = 0,
+): Map<string, z.infer<typeof legalMemoryMcpConnectorSchema>> {
+  if (depth > 8) return found;
+  const record = asRecord(value);
+  if (record) {
+    const connector = legalMemoryMcpConnectorSchema.safeParse(record.connector);
+    if (connector.success) found.set(connector.data.id, connector.data);
+    for (const nested of Object.values(record)) {
+      findLegalMemoryMcpConnectors(nested, found, depth + 1);
+    }
+    return found;
+  }
+  if (Array.isArray(value)) {
+    for (const nested of value) findLegalMemoryMcpConnectors(nested, found, depth + 1);
+  }
+  return found;
+}
+
+/**
+ * Hosted demo deployments currently expose the document tools publicly while
+ * their browser-only tree route sits behind the signed-in page. The MCP
+ * citation on an original carries the real connector identity, so use that as
+ * the compatibility root instead of inventing a "LegalMemory" folder above it.
+ * Appliances with the native tree API skip this path and return every connector
+ * directly.
+ */
+async function fetchLegalMemoryMcpRoots(
+  server: LegalMemoryServer,
+  bearer?: string,
+): Promise<LegalMemoryTreeRoot[]> {
+  const matters = await fetchLegalMemoryMcpMatters(server, bearer);
+  const matter = matters[0];
+  if (!matter) return [];
+  const documents = await fetchLegalMemoryMcpDocuments(server, matter.id, bearer);
+  const document = documents[0];
+  if (!document) return [];
+  const payload = await callLegalMemoryTool(server, "download_document", {
+    document_id: document.document_id,
+    version_id: document.version_id,
+    inline_blob: false,
+  }, bearer);
+  return Array.from(findLegalMemoryMcpConnectors(payload).values(), (connector) => ({
+    source_id: mcpTreeSourceId(connector.id),
+    display_name: connector.display_name,
+    kind: connector.kind,
+    project_id: connector.project_id ?? null,
+    status: "ready",
+    // The MCP matter listing omits unclassified documents and has no exact
+    // estate total. Native tree roots carry the authoritative count.
+    files: 0,
+  })).sort((left, right) => left.display_name.localeCompare(right.display_name));
+}
+
+async function fetchLegalMemoryMcpDocuments(
+  server: LegalMemoryServer,
+  matterId: string,
+  bearer?: string,
+): Promise<z.infer<typeof legalMemoryMcpDocumentSchema>[]> {
+  const payload = await callLegalMemoryTool(server, "list_matter_documents", { matter_id: matterId }, bearer);
+  const body = z.object({ results: z.array(legalMemoryMcpDocumentSchema) }).parse(payload);
+  return body.results;
+}
+
+async function fetchLegalMemoryMcpChildren(
+  server: LegalMemoryServer,
+  input: { sourceId: string; path?: string; offset: number; limit: number },
+  bearer?: string,
+): Promise<LegalMemoryTreePage> {
+  const path = input.path ?? "";
+  const treeSourceId = input.sourceId;
+  if (!path) {
+    const matters = await fetchLegalMemoryMcpMatters(server, bearer);
+    return {
+      source_id: treeSourceId,
+      path,
+      folders: matters.map((matter) => ({
+        name: matter.title?.trim() || matter.id,
+        path: mcpMatterPath(matter.id),
+        files: matter.visible_versions ?? 0,
+      })),
+      files: [],
+      pagination: { total: 0, offset: input.offset, limit: input.limit, returned: 0, has_more: false },
+    };
+  }
+
+  const location = parseMcpMatterPath(path);
+  const documents = await fetchLegalMemoryMcpDocuments(server, location.matterId, bearer);
+  const rawPaths = documents.map((document) => normalizedSourcePath(document.source_path));
+  const matterPrefix = rawPaths[0]?.split("/")[0] ?? "";
+  const folderCounts = new Map<string, number>();
+  const filesById = new Map<string, LegalMemoryTreeFile>();
+  for (const [index, document] of documents.entries()) {
+    const rawPath = rawPaths[index] ?? "";
+    const sourcePath = matterPrefix && rawPath.startsWith(`${matterPrefix}/`)
+      ? rawPath.slice(matterPrefix.length + 1)
+      : rawPath;
+    const relativePath = location.sourcePath
+      ? sourcePath.startsWith(`${location.sourcePath}/`)
+        ? sourcePath.slice(location.sourcePath.length + 1)
+        : ""
+      : sourcePath;
+    if (!relativePath) continue;
+    const segments = relativePath.split("/");
+    if (segments.length > 1) {
+      const name = segments[0];
+      if (name) folderCounts.set(name, (folderCounts.get(name) ?? 0) + 1);
+      continue;
+    }
+    const name = segments[0] || document.title?.trim() || document.document_id;
+    filesById.set(`${document.version_id}:${sourcePath}`, {
+      source_object_id: `${document.version_id}:${sourcePath}`,
+      source_id: treeSourceId,
+      name,
+      path: sourcePath,
+      mime_type: null,
+      size_bytes: null,
+      mtime: document.doc_date ?? null,
+      document_id: document.document_id,
+    });
+  }
+
+  const folders = Array.from(folderCounts, ([name, files]) => ({
+    name,
+    path: mcpMatterPath(location.matterId, [location.sourcePath, name].filter(Boolean).join("/")),
+    files,
+  })).sort((left, right) => left.name.localeCompare(right.name));
+  const allFiles = Array.from(filesById.values()).sort((left, right) => left.name.localeCompare(right.name));
+  const files = allFiles.slice(input.offset, input.offset + input.limit);
+  return {
+    source_id: treeSourceId,
+    path,
+    folders,
+    files,
+    pagination: {
+      total: allFiles.length,
+      offset: input.offset,
+      limit: input.limit,
+      returned: files.length,
+      has_more: input.offset + files.length < allFiles.length,
+    },
+  };
+}
+
+async function fetchLegalMemoryMcpSearch(
+  server: LegalMemoryServer,
+  input: { query: string; limit: number },
+  bearer?: string,
+): Promise<LegalMemoryTreeFile[]> {
+  const payload = await callLegalMemoryTool(server, "search_semantic", {
+    query: input.query,
+    limit: input.limit,
+    offset: 0,
+  }, bearer);
+  const body = z.object({ results: z.array(legalMemoryMcpSearchResultSchema) }).parse(payload);
+  return body.results.flatMap((result) => {
+    const sourcePath = normalizedSourcePath(result.source_paths?.[0] ?? result.title ?? "");
+    if (!sourcePath) return [];
+    return [{
+      source_object_id: `${result.version_id}:${sourcePath}`,
+      source_id: mcpTreeSourceId("search"),
+      name: sourcePath.split("/").pop() ?? result.title?.trim() ?? result.document_id,
+      path: sourcePath,
+      mime_type: null,
+      size_bytes: null,
+      mtime: result.doc_date ?? null,
+      document_id: result.document_id,
+    }];
+  });
 }
 
 /** Walk a tool result for the first base64 resource blob. */

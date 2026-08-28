@@ -34,6 +34,10 @@ import { abortSessionSafe } from "@/app/lib/opencode-session";
 import { isOfficeAddinRuntime } from "@/app/lib/runtime-env";
 import { t } from "@/i18n";
 import { readWorkspaceImports, type ImportedPlugin } from "@/app/lib/extension-imports";
+import {
+  materializeLegalMemoryFile,
+  type LegalMemoryFileDragItem,
+} from "@/app/lib/legalmemory-file";
 import type {
   LegalworkServerClient,
   LegalworkSessionSnapshot,
@@ -944,7 +948,7 @@ export function SessionSurface(props: SessionSurfaceProps) {
         const value = decodeComposerMentionValue(segment.slice(1));
         const kind = mentions[value];
         if (kind === "agent") return [{ type: "agent", name: value } satisfies ComposerDraft["parts"][number]];
-        if (kind === "file") return [{ type: "file", path: value, label: value } satisfies ComposerDraft["parts"][number]];
+        if (kind === "file" || kind === "memory") return [{ type: "file", path: value, label: value } satisfies ComposerDraft["parts"][number]];
         if (kind === "app") return [{ type: "app", name: value } satisfies ComposerDraft["parts"][number]];
       }
       return [{ type: "text", text: segment } satisfies ComposerDraft["parts"][number]];
@@ -1207,6 +1211,25 @@ export function SessionSurface(props: SessionSurfaceProps) {
     }
   };
 
+  const handleDropLegalMemoryFile = async (file: LegalMemoryFileDragItem) => {
+    try {
+      const result = await materializeLegalMemoryFile(props.client, props.workspaceId, file.document_id);
+      const composerState = useComposerStateStore.getState();
+      const currentDraft = getComposerDraft(composerState, props.sessionId);
+      const currentMentions = getComposerMentions(composerState, props.sessionId);
+      const separator = currentDraft && !/\s$/.test(currentDraft) ? " " : "";
+      setComposerDraft(
+        props.sessionId,
+        `${currentDraft}${separator}@${encodeComposerMentionValue(result.path)} `,
+      );
+      setComposerMentions(props.sessionId, { ...currentMentions, [result.path]: "memory" });
+    } catch (error) {
+      toast.error(`Could not add ${file.name}`, {
+        description: error instanceof Error ? error.message : "LegalMemory download failed",
+      });
+    }
+  };
+
   const handlePasteText = (text: string) => {
     const id = `paste-${Math.random().toString(36).slice(2)}`;
     const label = `${id.slice(-4)} · ${text.split(/\r?\n/).length} lines`;
@@ -1294,21 +1317,7 @@ export function SessionSurface(props: SessionSurfaceProps) {
       if (!workspaceId) return;
       void (async () => {
         try {
-          const result = await props.client.legalMemoryOpen(workspaceId, { document_id: documentId });
-          // The route has written the file, but the viewer reads it back
-          // through the workspace API and can get there first: it opens on a
-          // path the read layer does not see yet, renders empty, and caches
-          // that. Closing and reopening the tab then works, which is the
-          // signature of a race rather than a missing file. So wait until the
-          // file is actually readable before opening anything.
-          for (let attempt = 0; attempt < 12; attempt += 1) {
-            try {
-              await props.client.downloadWorkspaceFile(workspaceId, result.path);
-              break;
-            } catch {
-              await new Promise((resolve) => setTimeout(resolve, 150));
-            }
-          }
+          const result = await materializeLegalMemoryFile(props.client, workspaceId, documentId);
           const target = resolvePathOpenTarget(result.path, openTargets, "legalmemory");
           if (!target) return;
           // The viewer caches per target id. This path may have been opened
@@ -1730,6 +1739,7 @@ export function SessionSurface(props: SessionSurfaceProps) {
         recentFiles={props.recentFiles}
         searchFiles={props.searchFiles}
         onInsertMention={handleInsertMention}
+        onDropLegalMemoryFile={handleDropLegalMemoryFile}
         inputHistory={inputHistory}
         onPasteText={handlePasteText}
         onUnsupportedFileLinks={handleUnsupportedFileLinks}

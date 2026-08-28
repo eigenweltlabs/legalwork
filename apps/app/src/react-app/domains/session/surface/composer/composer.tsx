@@ -7,6 +7,11 @@ import { toast } from "@/components/ui/sonner";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuShortcut, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { LEGALWORK_EXTENSION_CATALOG, type McpDirectoryInfo } from "@/app/constants";
 import type { ImportedPlugin, ImportedPluginFile } from "@/app/lib/extension-imports";
+import {
+  hasLegalMemoryFileDrag,
+  readLegalMemoryFileDrag,
+  type LegalMemoryFileDragItem,
+} from "@/app/lib/legalmemory-file";
 import type { ComposerAttachment, McpServerEntry, McpStatusMap, ModelRef, SkillCard, SlashCommandOption } from "@/app/types";
 import { formatBytes, isMacPlatform } from "@/app/utils";
 import { t } from "@/i18n";
@@ -91,6 +96,7 @@ type ComposerProps = {
   inputHistory?: string[];
   onPasteText: (text: string) => void;
   onUnsupportedFileLinks: (links: string[]) => void;
+  onDropLegalMemoryFile: (file: LegalMemoryFileDragItem) => void | Promise<void>;
   pastedText: PastedTextChip[];
   onExpandPastedText: (id: string) => void;
   onRemovePastedText: (id: string) => void;
@@ -335,7 +341,7 @@ export function ReactSessionComposer(props: ComposerProps) {
   const [mcpLoaded, setMcpLoaded] = useState(Boolean(props.mcpServers));
   const [pluginsLoaded, setPluginsLoaded] = useState(Boolean(props.importedPlugins));
   const [, setExtensionStateVersion] = useState(0);
-  const [dropzoneActive, setDropzoneActive] = useState(false);
+  const [dropzoneKind, setDropzoneKind] = useState<"attachment" | "memory" | null>(null);
   const [fusionNewTooltipOpen, setFusionNewTooltipOpen] = useState(false);
   const toolMenuRef = useRef<HTMLDivElement | null>(null);
   const editorRef = useRef<LexicalPromptEditorHandle | null>(null);
@@ -1147,11 +1153,15 @@ export function ReactSessionComposer(props: ComposerProps) {
             removes it with backspace like any other inline token.
           */}
 
-          {dropzoneActive ? (
+          {dropzoneKind ? (
             <div className="pointer-events-none absolute inset-3 z-20 flex items-center justify-center rounded-[20px] border-2 border-dashed border-dls-accent bg-[color:color-mix(in_oklab,var(--dls-accent)_10%,transparent)]">
               <div className="rounded-2xl border border-dls-border bg-dls-surface/95 px-5 py-4 text-center">
-                <div className="text-sm font-medium text-dls-text">{t("composer.attach_files")}</div>
-                <div className="mt-1 text-xs text-dls-secondary">{t("composer.any_file_type_supported")}</div>
+                <div className="text-sm font-medium text-dls-text">
+                  {dropzoneKind === "memory" ? "Add memory file to prompt" : t("composer.attach_files")}
+                </div>
+                <div className="mt-1 text-xs text-dls-secondary">
+                  {dropzoneKind === "memory" ? "The file will be available as a workspace reference" : t("composer.any_file_type_supported")}
+                </div>
               </div>
             </div>
           ) : null}
@@ -1223,19 +1233,31 @@ export function ReactSessionComposer(props: ComposerProps) {
                 }
               }}
               onDragOver={(event) => {
+                if (event.dataTransfer && hasLegalMemoryFileDrag(event.dataTransfer)) {
+                  event.preventDefault();
+                  event.dataTransfer.dropEffect = "copy";
+                  if (dropzoneKind !== "memory") setDropzoneKind("memory");
+                  return;
+                }
                 if (event.dataTransfer?.files?.length) {
                   event.preventDefault();
-                  if (!dropzoneActive) setDropzoneActive(true);
+                  if (dropzoneKind !== "attachment") setDropzoneKind("attachment");
                 }
               }}
               onDragLeave={(event) => {
                 const nextTarget = event.relatedTarget;
                 if (nextTarget instanceof Node && event.currentTarget.contains(nextTarget)) return;
-                setDropzoneActive(false);
+                setDropzoneKind(null);
               }}
               onDrop={(event) => {
+                const memoryFile = event.dataTransfer ? readLegalMemoryFileDrag(event.dataTransfer) : null;
+                setDropzoneKind(null);
+                if (memoryFile) {
+                  event.preventDefault();
+                  void props.onDropLegalMemoryFile(memoryFile);
+                  return;
+                }
                 const files = Array.from(event.dataTransfer?.files ?? []);
-                setDropzoneActive(false);
                 if (!files.length) return;
                 event.preventDefault();
                 void addAttachments(files);

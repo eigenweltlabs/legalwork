@@ -7,6 +7,7 @@ import {
   Sprout,
   ChevronRight,
   FolderPlus,
+  HardDrive,
   Loader2,
   Mic,
   PenLine,
@@ -460,6 +461,8 @@ export type AppSidebarProps = {
   onForgetWorkspace: (workspaceId: string) => void;
   onOpenCreateWorkspace: () => void;
   onCreateTaskInNewWorkspace: () => void;
+  onToggleDrive?: () => void;
+  driveOpen?: boolean;
   onShowLearnings?: () => void;
   onShowWorkflows?: () => void;
   onShowExtensions?: () => void;
@@ -688,12 +691,12 @@ export function AppSidebar(props: AppSidebarProps) {
           </SidebarMenuItem>
           <SidebarMenuItem>
             <SidebarMenuButton
-              className={cn(NAV_ITEM_CLASS, "[&_svg]:size-[19px]")}
-              isActive={props.activeNav === "learnings"}
-              onClick={() => props.onShowLearnings?.()}
+              className={cn(NAV_ITEM_CLASS, "[&_svg]:size-[18px]")}
+              isActive={props.driveOpen}
+              onClick={() => props.onToggleDrive?.()}
             >
-              <Sprout className="size-[19px]" strokeWidth={1.5} />
-              <span>Learning</span>
+              <HardDrive className="size-[18px]" strokeWidth={1.5} />
+              <span>Drive</span>
             </SidebarMenuButton>
           </SidebarMenuItem>
           <SidebarMenuItem>
@@ -724,6 +727,16 @@ export function AppSidebar(props: AppSidebarProps) {
             >
               <Mic className="size-[18px]" strokeWidth={1.5} />
               <span>{t("recorder.nav_label")}</span>
+            </SidebarMenuButton>
+          </SidebarMenuItem>
+          <SidebarMenuItem>
+            <SidebarMenuButton
+              className={cn(NAV_ITEM_CLASS, "[&_svg]:size-[19px]")}
+              isActive={props.activeNav === "learnings"}
+              onClick={() => props.onShowLearnings?.()}
+            >
+              <Sprout className="size-[19px]" strokeWidth={1.5} />
+              <span>Learning</span>
             </SidebarMenuButton>
           </SidebarMenuItem>
         </SidebarMenu>
