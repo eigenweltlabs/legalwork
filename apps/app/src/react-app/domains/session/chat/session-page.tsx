@@ -3,7 +3,7 @@ import type { CSSProperties } from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { usePanelRef } from "react-resizable-panels";
-import { Columns2, FileText, Folder, Globe, Mic2, ScrollText, Settings2, SquarePen, X, Zap } from "lucide-react";
+import { AppWindowMac, Columns2, FileText, Folder, Globe, Mic2, ScrollText, Settings2, SquarePen, X, Zap } from "lucide-react";
 
 import { t } from "../../../../i18n";
 import { LEGALWORK_EXTENSION_CATALOG } from "../../../../app/constants";
@@ -80,6 +80,7 @@ const STARTUP_SKELETON_ROWS = [
 ];
 const GLOBAL_VOICE_SIDE_PANEL_KEY = "__legalwork_voice__";
 const EMPTY_TRANSCRIPT_TARGETS: OpenTarget[] = [];
+const NATIVE_MENU_OPEN_SESSION_WINDOW_EVENT = "legalwork:native-menu:open-session-window";
 
 export type OpenSessionTab = {
   workspaceId: string;
@@ -846,6 +847,16 @@ export function SessionPage(props: SessionPageProps) {
     });
   }, [props.sidebar.workspaceSessionGroups]);
 
+  useEffect(() => {
+    if (props.detached || !props.selectedSessionId || !isElectronRuntime()) return;
+    const selectedSessionId = props.selectedSessionId;
+    const handleNativeOpenSessionWindow = () => {
+      openSessionWindow(props.selectedWorkspaceId, selectedSessionId);
+    };
+    window.addEventListener(NATIVE_MENU_OPEN_SESSION_WINDOW_EVENT, handleNativeOpenSessionWindow);
+    return () => window.removeEventListener(NATIVE_MENU_OPEN_SESSION_WINDOW_EVENT, handleNativeOpenSessionWindow);
+  }, [openSessionWindow, props.detached, props.selectedSessionId, props.selectedWorkspaceId]);
+
   const closeSessionTab = useCallback((sessionId: string) => {
     setSessionTabs((current) => current.filter((tab) => tab.sessionId !== sessionId));
     setSplitSessionId((current) => current === sessionId ? null : current);
@@ -1126,6 +1137,17 @@ export function SessionPage(props: SessionPageProps) {
 
             <div className="flex items-center gap-1.5 text-gray-10 mac:titlebar-no-drag">
               {/* Revert/redo moved to per-message actions */}
+              {!props.detached && props.selectedSessionId && isElectronRuntime() ? (
+                <Button
+                  variant="ghost"
+                  size="icon-sm"
+                  onClick={() => openSessionWindow(props.selectedWorkspaceId, props.selectedSessionId!)}
+                  title="Open chat in new window"
+                  aria-label="Open chat in new window"
+                >
+                  <AppWindowMac size={16} />
+                </Button>
+              ) : null}
               <NotificationBell />
               {props.developerMode ? (
                 <Button

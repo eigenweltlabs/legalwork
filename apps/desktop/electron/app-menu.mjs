@@ -1,11 +1,13 @@
 // Native application menu: template installation, the macOS/system menu
-// actions that forward into the renderer (settings, updates, sidebar, zoom),
+// actions that forward into the renderer (chat windows, settings, updates,
+// sidebar, zoom),
 // and Windows/Linux menu-bar visibility. Extracted from main.mjs as a
 // factory (createRuntimeManager pattern); the NATIVE_MENU_* channels are
 // consumed by the preload bridge.
 import { BrowserWindow, Menu } from "electron";
 
 const NATIVE_MENU_OPEN_SETTINGS_EVENT = "legalwork:native-menu:open-settings";
+const NATIVE_MENU_OPEN_SESSION_WINDOW_EVENT = "legalwork:native-menu:open-session-window";
 const NATIVE_MENU_TOGGLE_SIDEBAR_EVENT = "legalwork:native-menu:toggle-sidebar";
 const NATIVE_MENU_CHECK_UPDATES_EVENT = "legalwork:native-menu:check-updates";
 const NATIVE_MENU_ZOOM_EVENT = "legalwork:native-menu:zoom";
@@ -19,6 +21,19 @@ export function createApplicationMenu({ appName, getWindow, collectSupportLogs }
     win.show();
     win.focus();
     win.webContents.send(NATIVE_MENU_OPEN_SETTINGS_EVENT);
+  }
+
+  async function openSessionWindowFromNativeMenu(targetWindow) {
+    const focusedWindow = targetWindow && !targetWindow.isDestroyed()
+      ? targetWindow
+      : BrowserWindow.getFocusedWindow();
+    const win = focusedWindow && !focusedWindow.isDestroyed()
+      ? focusedWindow
+      : await getWindow();
+    if (win.isMinimized()) win.restore();
+    win.show();
+    win.focus();
+    win.webContents.send(NATIVE_MENU_OPEN_SESSION_WINDOW_EVENT);
   }
 
   async function checkForUpdatesFromNativeMenu() {
@@ -81,6 +96,13 @@ export function createApplicationMenu({ appName, getWindow, collectSupportLogs }
       {
         label: "File",
         submenu: [
+          {
+            label: "Open Chat in New Window",
+            click: (_menuItem, targetWindow) => {
+              void openSessionWindowFromNativeMenu(targetWindow);
+            },
+          },
+          { type: "separator" },
           ...(isMac
             ? []
             : [
