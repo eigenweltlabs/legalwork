@@ -32,7 +32,12 @@ import {
   type NodeKey,
 } from "lexical";
 import type { InitialConfigType } from "@lexical/react/LexicalComposer.js";
-import { decodeComposerMentionValue, encodeComposerMentionValue, type ComposerMentionKind } from "./mention-encoding";
+import {
+  decodeComposerMentionValue,
+  encodeComposerMentionValue,
+  parseLegalMemoryComposerMention,
+  type ComposerMentionKind,
+} from "./mention-encoding";
 
 type EditorProps = {
   value: string;
@@ -90,6 +95,10 @@ const MENTION_PILL_CLASS: Record<ComposerMentionKind, string> = {
 };
 
 function mentionPillText(value: string, kind: ComposerMentionKind) {
+  if (kind === "memory") {
+    const memory = parseLegalMemoryComposerMention(value);
+    if (memory) return `@${memory.label}`;
+  }
   return `@${kind === "file" || kind === "memory" ? value.split(/[\\/]/).pop() || value : value}`;
 }
 

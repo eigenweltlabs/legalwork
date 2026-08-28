@@ -1,6 +1,12 @@
 import { describe, expect, test } from "bun:test";
 
-import { decodeComposerMentionValue, encodeComposerMentionValue } from "../src/react-app/domains/session/surface/composer/mention-encoding";
+import {
+  createLegalMemoryComposerMention,
+  decodeComposerMentionValue,
+  encodeComposerMentionValue,
+  legalMemoryComposerInstruction,
+  parseLegalMemoryComposerMention,
+} from "../src/react-app/domains/session/surface/composer/mention-encoding";
 
 describe("mention-encoding", () => {
   test("round-trips paths with spaces", () => {
@@ -18,5 +24,18 @@ describe("mention-encoding", () => {
   test("round-trips percent signs", () => {
     const value = "docs/100% done.md";
     expect(decodeComposerMentionValue(encodeComposerMentionValue(value))).toBe(value);
+  });
+
+  test("keeps a memory filename for the pill and a canonical URI for the agent", () => {
+    const value = createLegalMemoryComposerMention("doc-123", "Member consent final.docx");
+    expect(parseLegalMemoryComposerMention(value)).toEqual({
+      documentId: "doc-123",
+      label: "Member consent final.docx",
+      uri: "legalmemory://document/doc-123",
+    });
+    const instruction = legalMemoryComposerInstruction(value);
+    expect(instruction).toContain('fetch and read "Member consent final.docx"');
+    expect(instruction).toContain("legalmemory://document/doc-123");
+    expect(instruction).toContain("not a local workspace file");
   });
 });

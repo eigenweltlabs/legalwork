@@ -60,7 +60,13 @@ import {
 } from "@/app/lib/app-inspector";
 import { useControlAction, type LegalworkControlAction } from "@/react-app/shell/control/control-provider";
 import { ReactSessionComposer } from "./composer/composer";
-import { decodeComposerMentionValue, encodeComposerMentionValue, type ComposerMentionKind } from "./composer/mention-encoding";
+import {
+  createLegalMemoryComposerMention,
+  decodeComposerMentionValue,
+  encodeComposerMentionValue,
+  legalMemoryComposerInstruction,
+  type ComposerMentionKind,
+} from "./composer/mention-encoding";
 import { desktopBridge } from "@/app/lib/desktop";
 import { parseSlashCommandInvocation } from "./composer/slash-command";
 import { DevProfiler } from "@/react-app/shell/dev-profiler";
@@ -948,7 +954,8 @@ export function SessionSurface(props: SessionSurfaceProps) {
         const value = decodeComposerMentionValue(segment.slice(1));
         const kind = mentions[value];
         if (kind === "agent") return [{ type: "agent", name: value } satisfies ComposerDraft["parts"][number]];
-        if (kind === "file" || kind === "memory") return [{ type: "file", path: value, label: value } satisfies ComposerDraft["parts"][number]];
+        if (kind === "file") return [{ type: "file", path: value, label: value } satisfies ComposerDraft["parts"][number]];
+        if (kind === "memory") return [{ type: "text", text: legalMemoryComposerInstruction(value) } satisfies ComposerDraft["parts"][number]];
         if (kind === "app") return [{ type: "app", name: value } satisfies ComposerDraft["parts"][number]];
       }
       return [{ type: "text", text: segment } satisfies ComposerDraft["parts"][number]];
@@ -960,8 +967,11 @@ export function SessionSurface(props: SessionSurfaceProps) {
       resolved = resolved.replace(`[pasted text ${part.label}]`, part.text);
     }
     resolved = resolved.replace(/\[skill ([^\]]+)\]/g, (_match, name: string) => `the \"${name}\" skill`);
-    for (const value of Object.keys(mentions)) {
-      resolved = resolved.replaceAll(`@${encodeComposerMentionValue(value)}`, `@${value}`);
+    for (const [value, kind] of Object.entries(mentions)) {
+      resolved = resolved.replaceAll(
+        `@${encodeComposerMentionValue(value)}`,
+        kind === "memory" ? legalMemoryComposerInstruction(value) : `@${value}`,
+      );
     }
     const slashCommand = parseSlashCommandInvocation(resolved);
     return {
@@ -1211,23 +1221,17 @@ export function SessionSurface(props: SessionSurfaceProps) {
     }
   };
 
-  const handleDropLegalMemoryFile = async (file: LegalMemoryFileDragItem) => {
-    try {
-      const result = await materializeLegalMemoryFile(props.client, props.workspaceId, file.document_id);
-      const composerState = useComposerStateStore.getState();
-      const currentDraft = getComposerDraft(composerState, props.sessionId);
-      const currentMentions = getComposerMentions(composerState, props.sessionId);
-      const separator = currentDraft && !/\s$/.test(currentDraft) ? " " : "";
-      setComposerDraft(
-        props.sessionId,
-        `${currentDraft}${separator}@${encodeComposerMentionValue(result.path)} `,
-      );
-      setComposerMentions(props.sessionId, { ...currentMentions, [result.path]: "memory" });
-    } catch (error) {
-      toast.error(`Could not add ${file.name}`, {
-        description: error instanceof Error ? error.message : "LegalMemory download failed",
-      });
-    }
+  const handleDropLegalMemoryFile = (file: LegalMemoryFileDragItem) => {
+    const reference = createLegalMemoryComposerMention(file.document_id, file.name);
+    const composerState = useComposerStateStore.getState();
+    const currentDraft = getComposerDraft(composerState, props.sessionId);
+    const currentMentions = getComposerMentions(composerState, props.sessionId);
+    const separator = currentDraft && !/\s$/.test(currentDraft) ? " " : "";
+    setComposerDraft(
+      props.sessionId,
+      `${currentDraft}${separator}@${encodeComposerMentionValue(reference)} `,
+    );
+    setComposerMentions(props.sessionId, { ...currentMentions, [reference]: "memory" });
   };
 
   const handlePasteText = (text: string) => {

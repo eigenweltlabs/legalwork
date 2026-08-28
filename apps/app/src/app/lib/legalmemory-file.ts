@@ -25,7 +25,7 @@ export function writeLegalMemoryFileDrag(dataTransfer: DataTransfer, file: Legal
   };
   dataTransfer.effectAllowed = "copy";
   dataTransfer.setData(LEGALMEMORY_FILE_DRAG_TYPE, JSON.stringify(item));
-  dataTransfer.setData("text/plain", file.path);
+  dataTransfer.setData("text/plain", `legalmemory://document/${encodeURIComponent(file.document_id)}`);
 }
 
 export function readLegalMemoryFileDrag(dataTransfer: DataTransfer): LegalMemoryFileDragItem | null {
