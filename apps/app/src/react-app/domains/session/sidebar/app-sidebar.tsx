@@ -51,6 +51,7 @@ import {
   SidebarMenuSubButton,
   SidebarMenuSubItem,
   SidebarRail,
+  useSidebar,
 } from "@/components/ui/sidebar";
 import {
   Collapsible,
@@ -515,7 +516,12 @@ const NAV_ITEM_CLASS =
 
 export function AppSidebar(props: AppSidebarProps) {
   const { config: shellConfig } = useShellConfig();
+  const { isMobile, setOpenMobile } = useSidebar();
   const navigate = useNavigate();
+  const toggleDrive = React.useCallback(() => {
+    if (isMobile) setOpenMobile(false);
+    props.onToggleDrive?.();
+  }, [isMobile, props.onToggleDrive, setOpenMobile]);
   const goSettings = React.useCallback(
     (tab: string) => {
       const ws = props.selectedWorkspaceId.trim();
@@ -714,7 +720,7 @@ export function AppSidebar(props: AppSidebarProps) {
             <SidebarMenuButton
               className={cn(NAV_ITEM_CLASS, "[&_svg]:size-[18px]")}
               isActive={props.driveOpen}
-              onClick={() => props.onToggleDrive?.()}
+              onClick={toggleDrive}
             >
               <HardDrive className="size-[18px]" strokeWidth={1.5} />
               <span>Drive</span>
