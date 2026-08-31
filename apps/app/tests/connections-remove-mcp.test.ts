@@ -1,9 +1,19 @@
-import { describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, test } from "bun:test";
 
 import type { LegalworkServerClient } from "../src/app/lib/legalwork-server";
 import type { LegalworkServerStore } from "../src/react-app/domains/connections/legalwork-server-store";
 
 type DesktopCall = { command: string; args: unknown[] };
+
+const originalWindowDescriptor = Object.getOwnPropertyDescriptor(globalThis, "window");
+
+afterEach(() => {
+  if (originalWindowDescriptor) {
+    Object.defineProperty(globalThis, "window", originalWindowDescriptor);
+  } else {
+    Reflect.deleteProperty(globalThis, "window");
+  }
+});
 
 describe("desktop MCP removal", () => {
   test("also removes the LegalWork server runtime entry", async () => {
