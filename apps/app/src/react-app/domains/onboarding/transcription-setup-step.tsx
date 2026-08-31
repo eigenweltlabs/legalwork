@@ -1,13 +1,16 @@
 /** @jsxImportSource react */
 /**
- * Onboarding: the quick-setup cover — microphone access, Office add-ins
- * (per app, with the real install flow and its analytics), and an on-device
- * transcription model. Everything is skippable and reachable later in
- * Settings; this step exists so the app is genuinely usable the moment
- * onboarding ends.
+ * Onboarding: the setup cover, framed from the USER's side — three features
+ * to turn on (Office plugins, dictation, meeting recording), never a list of
+ * permissions or downloads. Clicking a feature triggers whatever that feature
+ * needs (cert trust, microphone prompt, model download) as a consequence of
+ * the user's choice. Dictation and meeting recording share one substrate
+ * (mic + on-device model): whichever is turned on first does the heavy
+ * lifting, the other becomes ready instantly. Everything is skippable and
+ * reachable later in Settings.
  */
-import { useEffect, useState } from "react";
-import { ArrowRight, Check, Download, FileText, Loader2, Mic } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import { ArrowRight, Check, FileText, Loader2, Mic, Sparkles } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
@@ -16,11 +19,12 @@ import { desktopBridge } from "@/app/lib/desktop";
 import type { OfficeAddinAppId } from "@legalwork/types/desktop-ipc";
 import { t } from "@/i18n";
 
+import { formatDictationShortcut } from "../recorder/dictation-shortcut";
 import { tierForModelId, tierName } from "../recorder/model-tiers";
 import { useRecorderStore } from "../recorder/recorder-store";
 import { OnboardingCover } from "./onboarding-cover";
 
-function SetupRow(props: {
+function FeatureCard(props: {
   icon: React.ReactNode;
   title: string;
   body: string;
@@ -42,46 +46,18 @@ function SetupRow(props: {
   );
 }
 
-function MicrophoneRow() {
-  const store = useRecorderStore();
-  const [busy, setBusy] = useState(false);
-  const state = store.permissions?.microphone ?? "unknown";
-  const granted = state === "granted";
-
-  const allow = () => {
-    if (state === "not-determined" || state === "unknown") {
-      setBusy(true);
-      void store
-        .requestPermission("microphone")
-        .then(() => captureAnalyticsEvent("onboarding_setup_mic_granted"))
-        .finally(() => setBusy(false));
-    } else {
-      void store.openPermissionSettings("microphone");
-    }
-  };
-
+function ReadyLine(props: { text: string }) {
   return (
-    <SetupRow
-      icon={<Mic className="size-[18px]" />}
-      title={t("onboarding_setup.mic_title")}
-      body={t("onboarding_setup.mic_body")}
-    >
-      {granted ? (
-        <span className="inline-flex items-center gap-1.5 text-[13px] font-medium text-green-11">
-          <Check className="size-4" />
-          {t("onboarding_setup.mic_granted")}
-        </span>
-      ) : (
-        <Button variant="outline" onClick={allow} disabled={busy}>
-          {busy ? <Loader2 data-icon="inline-start" className="animate-spin" /> : null}
-          {state === "denied" ? t("onboarding_setup.mic_open_settings") : t("onboarding_setup.mic_allow")}
-        </Button>
-      )}
-    </SetupRow>
+    <span className="inline-flex items-center gap-1.5 text-[13px] font-medium text-green-11">
+      <Check className="size-4" />
+      {props.text}
+    </span>
   );
 }
 
-function OfficeRow() {
+/** Office plugins: per-app one-click installs (the cert trust prompt and the
+ * restart note follow the click — real install flow, real analytics). */
+function OfficeCard() {
   const [apps, setApps] = useState<
     { id: OfficeAddinAppId; label: string; enabled: boolean; installed: boolean }[]
   >([]);
@@ -123,7 +99,7 @@ function OfficeRow() {
   const allEnabled = apps.length > 0 && pending.length === 0;
 
   return (
-    <SetupRow
+    <FeatureCard
       icon={<FileText className="size-[18px]" />}
       title={t("onboarding_setup.office_title")}
       body={t("onboarding_setup.office_body")}
@@ -135,10 +111,7 @@ function OfficeRow() {
       ) : (
         <div className="flex flex-col gap-2.5">
           {allEnabled ? (
-            <span className="inline-flex items-center gap-1.5 text-[13px] font-medium text-green-11">
-              <Check className="size-4" />
-              {t("onboarding_setup.office_installed")}
-            </span>
+            <ReadyLine text={t("onboarding_setup.office_installed")} />
           ) : (
             <div className="flex flex-wrap gap-2">
               {pending.map((app) => (
@@ -156,12 +129,6 @@ function OfficeRow() {
               ))}
             </div>
           )}
-          {/* First install prompts once for the local certificate trust. */}
-          {!allEnabled && !installedNow ? (
-            <p className="text-[12px] leading-relaxed text-dls-secondary">
-              {t("onboarding_setup.office_cert_note")}
-            </p>
-          ) : null}
           {installedNow ? (
             <p className="text-[12px] leading-relaxed text-dls-secondary">
               {t("onboarding_setup.office_restart_note")}
@@ -170,63 +137,128 @@ function OfficeRow() {
           {error ? <p className="text-[12px] text-red-11">{error}</p> : null}
         </div>
       )}
-    </SetupRow>
-  );
-}
-
-function ModelRow() {
-  const store = useRecorderStore();
-  const recommendedId = store.bootstrap?.device?.recommendedModelId ?? "whisper-small";
-  const model = store.bootstrap?.models.find((entry) => entry.id === recommendedId);
-  const tier = tierForModelId(recommendedId);
-  const progress =
-    model && model.totalBytes > 0 ? Math.round((model.downloadedBytes / model.totalBytes) * 100) : 0;
-  const sizeMb = model && model.totalBytes > 0 ? Math.round(model.totalBytes / 1_000_000) : null;
-
-  const installed = model?.state === "installed";
-  const downloading = model?.state === "downloading";
-
-  return (
-    <SetupRow
-      icon={<Download className="size-[18px]" />}
-      title={t("onboarding_setup.model_title")}
-      body={t("onboarding_setup.model_body")}
-    >
-      {installed ? (
-        <span className="inline-flex items-center gap-1.5 text-[13px] font-medium text-green-11">
-          <Check className="size-4" />
-          {t("onboarding_setup.model_installed", { tier: tier ? tierName(tier.key) : "" })}
-        </span>
-      ) : downloading ? (
-        <div className="flex items-center gap-3">
-          <Progress value={progress} className="h-1.5 w-40" />
-          <span className="text-[12px] tabular-nums text-dls-secondary">{progress}%</span>
-        </div>
-      ) : (
-        <Button
-          variant="outline"
-          onClick={() => {
-            captureAnalyticsEvent("onboarding_setup_model_download", { model: recommendedId });
-            void store.downloadModel(recommendedId);
-          }}
-          disabled={!model}
-        >
-          <Download data-icon="inline-start" />
-          {t("onboarding_setup.model_download", { tier: tier ? tierName(tier.key) : "" })}
-          {sizeMb ? <span className="text-dls-secondary"> · {sizeMb} MB</span> : null}
-        </Button>
-      )}
-    </SetupRow>
+    </FeatureCard>
   );
 }
 
 export function TranscriptionSetupStep(props: { onDone: (skipped: boolean) => void }) {
   const store = useRecorderStore();
+  const [wanted, setWanted] = useState<{ dictation: boolean; recording: boolean }>({
+    dictation: false,
+    recording: false,
+  });
+  const dictationEnableAttempted = useRef(false);
+
   useEffect(() => {
     captureAnalyticsEvent("onboarding_setup_viewed");
     void store.init();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Shared substrate for dictation + meeting recording: mic + local model.
+  const micState = store.permissions?.microphone ?? "unknown";
+  const micGranted = micState === "granted";
+  const recommendedId = store.bootstrap?.device?.recommendedModelId ?? "whisper-small";
+  const model = store.bootstrap?.models.find((entry) => entry.id === recommendedId);
+  const tier = tierForModelId(recommendedId);
+  const modelInstalled = model?.state === "installed";
+  const modelDownloading = model?.state === "downloading";
+  const progress =
+    model && model.totalBytes > 0 ? Math.round((model.downloadedBytes / model.totalBytes) * 100) : 0;
+  const sizeMb = model && model.totalBytes > 0 ? Math.round(model.totalBytes / 1_000_000) : null;
+  const substrateReady = micGranted && Boolean(modelInstalled);
+
+  const activate = (feature: "dictation" | "recording") => {
+    setWanted((current) => ({ ...current, [feature]: true }));
+    captureAnalyticsEvent("onboarding_setup_feature", { feature });
+    // The user chose the feature — NOW ask for what it needs.
+    if (!micGranted) {
+      if (micState === "not-determined" || micState === "unknown") {
+        void store.requestPermission("microphone");
+      } else {
+        void store.openPermissionSettings("microphone");
+      }
+    }
+    if (!modelInstalled && !modelDownloading && model) {
+      void store.downloadModel(recommendedId);
+    }
+  };
+
+  // Dictation was chosen and the substrate is ready: turn it on for real
+  // (spawns the key monitor; any follow-up OS prompt appears in context).
+  useEffect(() => {
+    if (!wanted.dictation || !substrateReady || dictationEnableAttempted.current) return;
+    dictationEnableAttempted.current = true;
+    void store.setSystemDictationEnabled(true).catch(() => undefined);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [wanted.dictation, substrateReady]);
+
+  const dictationShortcut = store.systemDictation
+    ? formatDictationShortcut(store.systemDictation.accelerator, store.systemDictation.platform)
+    : null;
+
+  const substrateProgress = (
+    <div className="flex flex-col gap-2">
+      {!micGranted ? (
+        micState === "denied" || micState === "restricted" ? (
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-[12px] text-dls-secondary">
+              {t("onboarding_setup.mic_denied")}
+            </span>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => void store.openPermissionSettings("microphone")}
+            >
+              {t("onboarding_setup.mic_open_settings")}
+            </Button>
+          </div>
+        ) : (
+          <span className="inline-flex items-center gap-2 text-[12px] text-dls-secondary">
+            <Loader2 className="size-3.5 animate-spin" />
+            {t("onboarding_setup.mic_waiting")}
+          </span>
+        )
+      ) : null}
+      {!modelInstalled ? (
+        <div className="flex items-center gap-3">
+          <Progress value={progress} className="h-1.5 w-40" />
+          <span className="text-[12px] tabular-nums text-dls-secondary">
+            {t("onboarding_setup.model_preparing", {
+              tier: tier ? tierName(tier.key) : "",
+              size: sizeMb ? String(sizeMb) : "…",
+            })}{" "}
+            {modelDownloading ? `${progress}%` : ""}
+          </span>
+        </div>
+      ) : null}
+    </div>
+  );
+
+  const featureBody = (feature: "dictation" | "recording") => {
+    if (!wanted[feature] && !substrateReady) {
+      return (
+        <Button variant="outline" onClick={() => activate(feature)}>
+          {feature === "dictation"
+            ? t("onboarding_setup.dictation_enable")
+            : t("onboarding_setup.recording_enable")}
+        </Button>
+      );
+    }
+    if (!substrateReady) return substrateProgress;
+    if (feature === "dictation") {
+      return (
+        <ReadyLine
+          text={
+            dictationShortcut
+              ? t("onboarding_setup.dictation_ready", { shortcut: dictationShortcut })
+              : t("onboarding_setup.dictation_ready_generic")
+          }
+        />
+      );
+    }
+    return <ReadyLine text={t("onboarding_setup.recording_ready")} />;
+  };
 
   return (
     <OnboardingCover
@@ -264,9 +296,21 @@ export function TranscriptionSetupStep(props: { onDone: (skipped: boolean) => vo
           </div>
 
           <div className="flex flex-col gap-3">
-            <MicrophoneRow />
-            <OfficeRow />
-            <ModelRow />
+            <OfficeCard />
+            <FeatureCard
+              icon={<Sparkles className="size-[18px]" />}
+              title={t("onboarding_setup.dictation_title")}
+              body={t("onboarding_setup.dictation_body")}
+            >
+              {featureBody("dictation")}
+            </FeatureCard>
+            <FeatureCard
+              icon={<Mic className="size-[18px]" />}
+              title={t("onboarding_setup.recording_title")}
+              body={t("onboarding_setup.recording_body")}
+            >
+              {featureBody("recording")}
+            </FeatureCard>
           </div>
         </div>
       </div>

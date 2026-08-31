@@ -618,32 +618,34 @@ const de: Record<string, string> = {
   "onboarding_ai.panel_footer": "7 Tage kostenlos testen · Jederzeit kündbar",
 
   // Onboarding: Einrichtungs-Schritt
-  "onboarding_setup.eyebrow": "Letzter Schritt · Einrichten",
-  "onboarding_setup.title": "In einer Minute startklar.",
+  "onboarding_setup.eyebrow": "Letzter Schritt · Deine Werkzeuge",
+  "onboarding_setup.title": "Was soll LegalWork für dich tun?",
   "onboarding_setup.subtitle":
-    "Mikrofon erlauben, LegalWork zu Office hinzufügen und ein Transkriptionsmodell für dieses Gerät laden. Alles optional und später in den Einstellungen verfügbar.",
-  "onboarding_setup.mic_title": "Mikrofonzugriff erlauben",
-  "onboarding_setup.mic_body":
-    "Nötig für Aufnahmen und Diktate. Audio wird auf diesem Gerät verarbeitet.",
-  "onboarding_setup.mic_allow": "Mikrofon erlauben",
-  "onboarding_setup.mic_open_settings": "Systemeinstellungen öffnen",
-  "onboarding_setup.mic_granted": "Mikrofon erlaubt",
-  "onboarding_setup.office_title": "Zu Word & Outlook hinzufügen",
+    "Schalte ein, was du wirklich nutzt — LegalWork fragt erst dann nach Berechtigungen oder Downloads. Alles bleibt später in den Einstellungen verfügbar.",
+  "onboarding_setup.office_title": "In Word & Outlook arbeiten",
   "onboarding_setup.office_body":
-    "Direkt in Microsoft Office entwerfen und redlinen — verbunden mit LegalWork.",
+    "Entwerfen, prüfen und redlinen mit dem Agenten direkt neben deinem Dokument — in Word als nachverfolgte Änderungen.",
   "onboarding_setup.office_install_one": "Zu {app} hinzufügen",
   "onboarding_setup.office_installed": "Zu Office hinzugefügt",
-  "onboarding_setup.office_cert_note":
-    "Die erste Installation fragt einmalig nach Vertrauen für ein lokales Zertifikat — darüber spricht das Add-in mit LegalWork auf diesem Rechner.",
   "onboarding_setup.office_restart_note":
     "Starte die Office-App neu, damit das Add-in im Menüband erscheint.",
   "onboarding_setup.office_none": "Auf diesem Computer wurden keine Microsoft-Office-Apps gefunden.",
   "onboarding_setup.office_unsupported": "Office-Add-ins sind auf diesem System nicht verfügbar.",
-  "onboarding_setup.model_title": "Transkriptionsmodell laden",
-  "onboarding_setup.model_body":
-    "Anrufe aufnehmen und auf dem Gerät diktieren. Für diesen Computer empfehlen wir das Modell „{tier}“.",
-  "onboarding_setup.model_download": "Modell „{tier}“ laden",
-  "onboarding_setup.model_installed": "Modell „{tier}“ bereit",
+  "onboarding_setup.dictation_title": "Überall diktieren",
+  "onboarding_setup.dictation_body":
+    "Sprechen statt tippen — in Word, Outlook oder jeder App. Auf diesem Gerät transkribiert und an deinem Cursor eingefügt.",
+  "onboarding_setup.dictation_enable": "Diktat einschalten",
+  "onboarding_setup.dictation_ready": "Bereit — drücke {shortcut} in jeder App",
+  "onboarding_setup.dictation_ready_generic": "Bereit — dein Diktat-Kurzbefehl funktioniert in jeder App",
+  "onboarding_setup.recording_title": "Meetings aufnehmen",
+  "onboarding_setup.recording_body":
+    "Anrufe und Meetings lokal aufnehmen — mit Transkript und automatisch beschrifteten Sprechern. Nichts wird hochgeladen.",
+  "onboarding_setup.recording_enable": "Meeting-Aufnahme einschalten",
+  "onboarding_setup.recording_ready": "Bereit — öffne den Rekorder, wenn dein Meeting startet",
+  "onboarding_setup.mic_waiting": "Erlaube den Mikrofonzugriff im System-Dialog…",
+  "onboarding_setup.mic_denied": "Der Mikrofonzugriff ist für LegalWork deaktiviert.",
+  "onboarding_setup.mic_open_settings": "Systemeinstellungen öffnen",
+  "onboarding_setup.model_preparing": "On-Device-Modell wird vorbereitet ({tier}, {size} MB)…",
   "onboarding_setup.skip": "Später erledigen",
   "onboarding_setup.continue": "Weiter",
   "onboarding_setup.panel_eyebrow": "Auf diesem Gerät",
