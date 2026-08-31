@@ -135,6 +135,12 @@ export type EigenweltUsage = {
 export type EigenweltEntitlements = {
   plan: "plus" | "pro" | null;
   subscriptionStatus: string | null;
+  /**
+   * ISO timestamp when the 7-day trial ends (or ended — compare against now);
+   * null when unknown. A trial is live only while `subscriptionStatus` is
+   * "trialing". Older servers omit the field entirely.
+   */
+  trialEndsAt?: string | null;
   features: string[];
   seats: number;
   usage: EigenweltUsage;

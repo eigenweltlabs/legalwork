@@ -101,6 +101,12 @@ export type EigenweltUsage = {
 export type EigenweltEntitlements = {
   plan: "plus" | "pro" | null;
   subscriptionStatus: string | null;
+  /**
+   * ISO timestamp when the 7-day trial ends (or ended — compare against now);
+   * null when the platform sent none or the value was malformed. Pair with
+   * `subscriptionStatus === "trialing"` to know a trial is still running.
+   */
+  trialEndsAt: string | null;
   features: string[];
   seats: number;
   usage: EigenweltUsage;
@@ -191,6 +197,10 @@ export function parseEigenweltEntitlements(value: unknown): EigenweltEntitlement
   if (!isRecord(value)) return undefined;
   const plan = value.plan === "plus" || value.plan === "pro" ? value.plan : null;
   const subscriptionStatus = typeof value.subscriptionStatus === "string" ? value.subscriptionStatus : null;
+  const trialEndsAt =
+    typeof value.trialEndsAt === "string" && Number.isFinite(Date.parse(value.trialEndsAt))
+      ? value.trialEndsAt
+      : null;
   const features = Array.isArray(value.features)
     ? [...new Set(value.features.filter((f): f is string => typeof f === "string" && ENTITLEMENT_FEATURES.has(f)))]
     : [];
@@ -210,6 +220,7 @@ export function parseEigenweltEntitlements(value: unknown): EigenweltEntitlement
   return {
     plan,
     subscriptionStatus,
+    trialEndsAt,
     features,
     seats: toFiniteNumber(value.seats),
     usage: {
