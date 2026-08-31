@@ -98,8 +98,13 @@ export function WhatsNewDialog(props: { hasWorkspaces: boolean; workspacesReady:
   const { hasWorkspaces, workspacesReady } = props;
   // Fresh-install detection must not rely on hasCompletedOnboarding alone:
   // profiles that predate the flag report false forever. Anyone with an
-  // existing workspace is an existing user.
-  const isFreshInstall = !local.prefs.hasCompletedOnboarding && !hasWorkspaces;
+  // existing workspace is an existing user. A profile still inside the
+  // onboarding covers (persisted stage) is fresh too — hasCompletedOnboarding
+  // flips at the folder pick, before the covers finish, and announcements
+  // must never stack on top of onboarding.
+  const isFreshInstall =
+    (!local.prefs.hasCompletedOnboarding && !hasWorkspaces) ||
+    local.prefs.onboardingStage !== "done";
 
   useEffect(() => {
     // Never in the Office task pane (it renders SessionRoute too): the

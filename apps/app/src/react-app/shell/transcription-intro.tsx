@@ -10,6 +10,7 @@ import { useEffect, useState } from "react";
 import { FeatureAnnouncementModal } from "@/react-app/design-system/modals/feature-announcement-modal";
 import { isDesktopRuntime, isOfficeAddinRuntime } from "@/app/utils";
 import { t } from "@/i18n";
+import { useLocal } from "@/react-app/kernel/local-provider";
 
 import { hasPendingWhatsNew } from "./whats-new";
 
@@ -32,16 +33,25 @@ function markSeen(): void {
 }
 
 export function TranscriptionIntroDialog(props: { workspacesReady: boolean; onOpenRecorder: () => void }) {
+  const local = useLocal();
   const [open, setOpen] = useState(false);
+  const onboardingStage = local.prefs.onboardingStage;
 
   useEffect(() => {
     if (!isDesktopRuntime() || isOfficeAddinRuntime()) return;
     if (!props.workspacesReady || alreadySeen()) return;
+    // A profile inside (or fresh out of) the onboarding covers never needs
+    // this announcement: the onboarding setup step covers transcription.
+    // Absorb it silently instead of stacking a modal on the covers.
+    if (onboardingStage !== "done") {
+      markSeen();
+      return;
+    }
     // Let "What's new" go first; this shows on a later launch instead.
     if (hasPendingWhatsNew()) return;
     const timer = window.setTimeout(() => setOpen(true), 1600);
     return () => window.clearTimeout(timer);
-  }, [props.workspacesReady]);
+  }, [onboardingStage, props.workspacesReady]);
 
   if (!open) return null;
 
