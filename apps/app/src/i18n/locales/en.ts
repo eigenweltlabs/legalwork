@@ -1509,6 +1509,8 @@ export default {
   "account.refresh_uptodate": "Account data and models are up to date ({count} models).",
   "account.refresh_none": "Account refreshed. The gateway is serving no models yet.",
   "account.refresh_failed": "Could not refresh the Eigenwelt account.",
+  // A connected account with a lapsed subscription (there is no free tier).
+  "account.plan_inactive": "Inactive",
   // 7-day free trial (card-upfront; converts automatically at trial end)
   "account.trial_ends_today": "Free trial — ends today",
   "account.trial_ends_in_one": "Free trial — 1 day left",

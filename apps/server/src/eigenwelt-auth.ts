@@ -307,8 +307,21 @@ export async function startEigenweltSignIn(): Promise<{ sessionId: string; autho
         body: JSON.stringify({ state, code, verifier, port }),
       });
       if (!response.ok) {
+        // Surface the platform's reason when it sends one (e.g. the
+        // subscription_required refusal for firms without an active trial/sub).
+        let detail = "";
+        try {
+          const body = (await response.json()) as { message?: unknown };
+          if (typeof body.message === "string" && body.message.trim()) {
+            detail = ` ${body.message.trim()}`;
+          }
+        } catch {
+          // Non-JSON error body — keep the generic message.
+        }
         settleErr(
-          new Error(`Eigenwelt sign-in failed: the platform rejected the code exchange (HTTP ${response.status}).`),
+          new Error(
+            `Eigenwelt sign-in failed: the platform rejected the code exchange (HTTP ${response.status}).${detail}`,
+          ),
         );
         return;
       }

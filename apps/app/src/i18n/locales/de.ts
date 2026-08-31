@@ -593,6 +593,7 @@ const de: Record<string, string> = {
   "recorder.app_picker_confirm": "Auswahl verwenden",
 
   // Eigenwelt-Konto: 7-tägige kostenlose Testphase
+  "account.plan_inactive": "Inaktiv",
   "account.trial_ends_today": "Kostenlose Testphase — endet heute",
   "account.trial_ends_in_one": "Kostenlose Testphase — noch 1 Tag",
   "account.trial_ends_in": "Kostenlose Testphase — noch {days} Tage",

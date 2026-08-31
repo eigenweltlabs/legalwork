@@ -241,7 +241,9 @@ export function EigenweltAccountView({
                 </Badge>
               </div>
               <div className="mt-0.5 flex flex-wrap items-center gap-2 text-sm text-subtext">
-                {planLabel ? <Badge tone="accent">{planLabel}</Badge> : <Badge tone="neutral">{t("firm_hub.free_plan")}</Badge>}
+                {/* No free tier exists: a connected account is either entitled
+                    (PLUS, possibly trialing) or its subscription lapsed. */}
+                {planLabel ? <Badge tone="accent">{planLabel}</Badge> : <Badge tone="neutral">{t("account.plan_inactive")}</Badge>}
                 {trial.kind === "active" ? (
                   <Badge tone="warning">
                     {trial.daysLeft === 0
