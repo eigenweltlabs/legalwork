@@ -18,7 +18,7 @@ import { Badge, Button, Card, Divider, Row } from "@legalwork/ui/react";
 import { toast } from "@/components/ui/sonner";
 import { t } from "@/i18n";
 import { openDesktopUrl } from "@/app/lib/desktop";
-import { eigenweltTrialState } from "@/app/lib/eigenwelt-trial";
+import { eigenweltTrialState, isEigenweltEntitledStatus } from "@/app/lib/eigenwelt-trial";
 import type { LegalworkServerClient } from "@/app/lib/legalwork-server";
 import { ProviderIcon } from "@/react-app/design-system/provider-icon";
 import {
@@ -217,7 +217,12 @@ export function EigenweltAccountView({
   }
 
   // ---- Connected: account summary ----------------------------------------
-  const planLabel = entitlements?.plan ? entitlements.plan.toUpperCase() : null;
+  // The platform keeps `plan` after cancellation (status gates access), so
+  // only show the plan badge while the subscription actually grants it.
+  const planLabel =
+    entitlements?.plan && isEigenweltEntitledStatus(entitlements.subscriptionStatus)
+      ? entitlements.plan.toUpperCase()
+      : null;
   const trial = eigenweltTrialState(entitlements);
 
   return (

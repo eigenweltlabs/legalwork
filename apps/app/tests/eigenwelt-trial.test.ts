@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
-import { eigenweltTrialState } from "../src/app/lib/eigenwelt-trial";
+import { eigenweltTrialState, isEigenweltEntitledStatus } from "../src/app/lib/eigenwelt-trial";
 
 const NOW = Date.parse("2026-08-31T12:00:00.000Z");
 const inDays = (days: number) => new Date(NOW + days * 86_400_000).toISOString();
@@ -43,6 +43,15 @@ describe("eigenweltTrialState", () => {
       expect(
         eigenweltTrialState({ subscriptionStatus: status, trialEndsAt: inDays(-3) }, NOW).kind,
       ).toBe("none");
+    }
+  });
+
+  test("entitled statuses gate plan displays; lapsed ones do not", () => {
+    for (const status of ["active", "trialing", "past_due"]) {
+      expect(isEigenweltEntitledStatus(status)).toBe(true);
+    }
+    for (const status of ["canceled", "unpaid", "incomplete_expired", null, undefined]) {
+      expect(isEigenweltEntitledStatus(status)).toBe(false);
     }
   });
 

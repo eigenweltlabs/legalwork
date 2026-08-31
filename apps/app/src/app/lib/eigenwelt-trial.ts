@@ -18,6 +18,15 @@
 /** Statuses that keep the org entitled — mirror of the platform's list. */
 const ENTITLED_STATUSES = new Set(["active", "trialing", "past_due"]);
 
+/**
+ * Whether a raw Stripe subscription status still grants the plan. The plan
+ * string itself survives cancellation on the platform, so plan displays must
+ * gate on this instead of showing a stale "PLUS" next to a lapsed account.
+ */
+export function isEigenweltEntitledStatus(status: string | null | undefined): boolean {
+  return status != null && ENTITLED_STATUSES.has(status);
+}
+
 export type EigenweltTrialState =
   | { kind: "none" }
   | { kind: "active"; endsAt: Date; daysLeft: number }
