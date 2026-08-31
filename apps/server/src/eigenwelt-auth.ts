@@ -177,6 +177,17 @@ const CALLBACK_HTML = `<!doctype html>
 <style>body{font-family:system-ui,sans-serif;background:#fefefe;color:#0e0a07;display:grid;place-items:center;min-height:90vh}main{text-align:center}h1{font-weight:500;letter-spacing:-0.04em}p{color:rgba(14,10,7,.55)}</style>
 </head><body><main><h1>You're connected.</h1><p>Return to LegalWork — this tab can be closed.</p></main></body></html>`;
 
+function callbackErrorHtml(message: string): string {
+  const safe = message
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
+  return `<!doctype html>
+<html><head><meta charset="utf-8"><title>Eigenwelt — sign-in failed</title>
+<style>body{font-family:system-ui,sans-serif;background:#fefefe;color:#0e0a07;display:grid;place-items:center;min-height:90vh}main{max-width:26rem;text-align:center;padding:0 1rem}h1{font-weight:500;letter-spacing:-0.04em}p{color:rgba(14,10,7,.55);line-height:1.5}</style>
+</head><body><main><h1>Sign-in didn&rsquo;t finish.</h1><p>${safe}</p></main></body></html>`;
+}
+
 const ENTITLEMENT_FEATURES = new Set([
   "admin_hub",
   "settings_presets",
@@ -299,7 +310,14 @@ export async function startEigenweltSignIn(): Promise<{ sessionId: string; autho
     rejectPayload(error);
   };
 
-  const exchange = async (code: string, port: number) => {
+  const exchange = async (
+    code: string,
+    port: number,
+  ): Promise<{ ok: true } | { ok: false; message: string }> => {
+    const fail = (message: string) => {
+      settleErr(new Error(message));
+      return { ok: false as const, message };
+    };
     try {
       const response = await fetch(`${platform}/api/desktop/exchange`, {
         method: "POST",
@@ -318,17 +336,13 @@ export async function startEigenweltSignIn(): Promise<{ sessionId: string; autho
         } catch {
           // Non-JSON error body — keep the generic message.
         }
-        settleErr(
-          new Error(
-            `Eigenwelt sign-in failed: the platform rejected the code exchange (HTTP ${response.status}).${detail}`,
-          ),
+        return fail(
+          `Eigenwelt sign-in failed: the platform rejected the code exchange (HTTP ${response.status}).${detail}`,
         );
-        return;
       }
       const payload = (await response.json()) as Partial<EigenweltSignInPayload>;
       if (!payload.apiKey || !payload.baseURL || !Array.isArray(payload.models)) {
-        settleErr(new Error("Eigenwelt sign-in failed: the platform returned an incomplete payload."));
-        return;
+        return fail("Eigenwelt sign-in failed: the platform returned an incomplete payload.");
       }
       // Reconstruct explicitly so a legacy payload (no entitlements/platform*)
       // is delivered byte-for-byte, and the optional subscription fields are
@@ -357,10 +371,9 @@ export async function startEigenweltSignIn(): Promise<{ sessionId: string; autho
         delivered.platformURL = payload.platformURL.replace(/\/+$/, "");
       }
       settleOk(delivered);
+      return { ok: true };
     } catch {
-      settleErr(new Error("Eigenwelt sign-in failed: could not reach the Eigenwelt platform for the code exchange."));
-    } finally {
-      teardown();
+      return fail("Eigenwelt sign-in failed: could not reach the Eigenwelt platform for the code exchange.");
     }
   };
 
@@ -376,8 +389,14 @@ export async function startEigenweltSignIn(): Promise<{ sessionId: string; autho
       res.writeHead(400, { "Content-Type": "text/plain" }).end("Invalid callback.");
       return;
     }
-    res.writeHead(200, { "Content-Type": "text/html" }).end(CALLBACK_HTML);
-    void exchange(code, boundPort);
+    // Answer the browser only once the exchange settled — the old
+    // "You're connected" page lied whenever the exchange then failed.
+    void (async () => {
+      const outcome = await exchange(code, boundPort);
+      const html = outcome.ok ? CALLBACK_HTML : callbackErrorHtml(outcome.message);
+      res.writeHead(200, { "Content-Type": "text/html" }).end(html);
+      teardown();
+    })();
   });
 
   const timeout = setTimeout(() => {
