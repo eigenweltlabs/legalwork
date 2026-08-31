@@ -16,7 +16,6 @@ import { createClient, unwrap } from "../../app/lib/opencode";
 import { useLocal } from "../kernel/local-provider";
 import { usePlatform } from "../kernel/platform";
 import { WelcomePage } from "../domains/onboarding/welcome-page";
-import { AttributionStep } from "../domains/onboarding/attribution-step";
 import { CreateWorkspaceModal } from "../domains/workspace/create-workspace-modal";
 import { resolveLegalworkConnection } from "./legalwork-connection";
 import { analyticsSurface, captureAnalyticsEvent, getStoredAnalyticsConsent } from "../../app/lib/analytics";
@@ -44,11 +43,6 @@ type WelcomeState = {
   createError: string | null;
   remoteBusy: boolean;
   remoteError: string | null;
-  providerStep: boolean;
-  attributionStep: boolean;
-  pendingRoute: string | null;
-  pendingWorkspaceId: string | null;
-  pendingSessionId: string | null;
 };
 
 type WelcomeAction =
@@ -59,9 +53,7 @@ type WelcomeAction =
   | { type: "create:finish" }
   | { type: "remote:start" }
   | { type: "remote:error"; error: string }
-  | { type: "remote:finish" }
-  | { type: "provider-step"; workspaceId: string; sessionId: string | null }
-  | { type: "attribution-step"; route: string };
+  | { type: "remote:finish" };
 
 const initialWelcomeState: WelcomeState = {
   modalOpen: false,
@@ -69,11 +61,6 @@ const initialWelcomeState: WelcomeState = {
   createError: null,
   remoteBusy: false,
   remoteError: null,
-  providerStep: false,
-  attributionStep: false,
-  pendingRoute: null,
-  pendingWorkspaceId: null,
-  pendingSessionId: null,
 };
 
 function welcomeReducer(state: WelcomeState, action: WelcomeAction): WelcomeState {
@@ -94,10 +81,6 @@ function welcomeReducer(state: WelcomeState, action: WelcomeAction): WelcomeStat
       return { ...state, remoteError: action.error };
     case "remote:finish":
       return { ...state, remoteBusy: false };
-    case "provider-step":
-      return { ...state, providerStep: true, pendingWorkspaceId: action.workspaceId, pendingSessionId: action.sessionId };
-    case "attribution-step":
-      return { ...state, providerStep: false, attributionStep: true, pendingRoute: action.route };
   }
 }
 
@@ -120,14 +103,13 @@ export function WelcomeRoute() {
   // choice so re-entering the screen never overrides an opt-out.
   const [analyticsOptIn, setAnalyticsOptIn] = useState(() => getStoredAnalyticsConsent() ?? true);
 
-  // If user already completed onboarding, redirect away immediately — but NOT while the
-  // provider step is showing (the workspace exists, yet the user still has to connect a
-  // model), otherwise we'd bounce straight into the app after the folder pick.
+  // If the user already completed the welcome step, redirect away immediately;
+  // the in-session covers (onboardingStage) carry the rest of onboarding.
   useEffect(() => {
-    if (local.prefs.hasCompletedOnboarding && !state.providerStep) {
+    if (local.prefs.hasCompletedOnboarding) {
       navigate("/session", { replace: true });
     }
-  }, [local.prefs.hasCompletedOnboarding, navigate, state.providerStep]);
+  }, [local.prefs.hasCompletedOnboarding, navigate]);
 
   const markOnboardingComplete = useCallback(() => {
     local.setPrefs((prev) => ({ ...prev, hasCompletedOnboarding: true }));
@@ -203,16 +185,20 @@ export function WelcomeRoute() {
           if (targetSessionId) writeLastSessionFor(targetWorkspaceId, targetSessionId);
         }
         dispatch({ type: "close" });
-        // Leaving the welcome screen — commit the analytics choice and mark
-        // onboarding complete (the connect cover only clears its own state).
-        local.setPrefs((prev) => ({ ...prev, analyticsEnabled: analyticsOptIn, hasCompletedOnboarding: true }));
-        // Hand off to the new session, which runs the remaining onboarding steps as
-        // full-screen covers (connect a model).
+        // Leaving the welcome screen — commit the analytics choice and start
+        // the PERSISTED in-session onboarding ("Your AI" → quick setup). The
+        // stage survives reloads; hasCompletedOnboarding only gates /welcome.
+        local.setPrefs((prev) => ({
+          ...prev,
+          analyticsEnabled: analyticsOptIn,
+          hasCompletedOnboarding: true,
+          onboardingStage: "ai",
+        }));
+        captureAnalyticsEvent("onboarding_started", { surface: analyticsSurface() });
         const target = targetWorkspaceId
           ? workspaceSessionRoute(targetWorkspaceId, targetSessionId)
           : "/session";
-        const sep = target.includes("?") ? "&" : "?";
-        navigate(`${target}${sep}onboarding=1`, { replace: true });
+        navigate(target, { replace: true });
       } catch (error) {
         captureAppError("workspace_create", error);
         dispatch({
@@ -307,25 +293,9 @@ export function WelcomeRoute() {
     await handleCreateWorkspace("starter", folder);
   }, [handleCreateWorkspace, manualFolder]);
 
-  const finishOnboarding = useCallback(() => {
-    navigate(state.pendingRoute ?? "/session", { replace: true });
-    if (state.pendingSessionId) focusPromptSoon();
-  }, [navigate, state.pendingRoute, state.pendingSessionId]);
-
-  // Attribution survey no longer reports analytics (events removed); it just
-  // advances onboarding.
-  const handleAttributionSubmit = useCallback(() => {
-    finishOnboarding();
-  }, [finishOnboarding]);
-
-  const handleAttributionSkip = useCallback(() => {
-    finishOnboarding();
-  }, [finishOnboarding]);
-
   return (
     <>
-      {!state.providerStep ? (
-        <WelcomePage
+      <WelcomePage
           onGetStarted={handleGetStarted}
           getStartedLabel={t("welcome.pick_folder")}
           busy={state.createBusy}
@@ -337,7 +307,6 @@ export function WelcomeRoute() {
           analyticsEnabled={analyticsOptIn}
           onAnalyticsChange={setAnalyticsOptIn}
         />
-      ) : null}
       <CreateWorkspaceModal
         open={state.modalOpen}
         onClose={() => dispatch({ type: "close" })}

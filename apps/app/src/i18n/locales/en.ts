@@ -2026,14 +2026,24 @@ export default {
   "transcription_intro.cta": "Set up transcription",
   "transcription_intro.dismiss": "Maybe later",
   "onboarding_setup.eyebrow": "Last step · Set up",
-  "onboarding_setup.title": "Two quick installs.",
+  "onboarding_setup.title": "Ready in a minute.",
   "onboarding_setup.subtitle":
-    "Add LegalWork to Word and Outlook, and download a transcription model that runs on this device. Both are optional and available later in Settings.",
+    "Allow the microphone, add LegalWork to Office, and download an on-device transcription model. Everything here is optional and available later in Settings.",
+  "onboarding_setup.mic_title": "Allow microphone access",
+  "onboarding_setup.mic_body":
+    "Needed for meeting recording and dictation. Audio is processed on this device.",
+  "onboarding_setup.mic_allow": "Allow microphone",
+  "onboarding_setup.mic_open_settings": "Open System Settings",
+  "onboarding_setup.mic_granted": "Microphone allowed",
   "onboarding_setup.office_title": "Add to Word & Outlook",
   "onboarding_setup.office_body":
     "Draft and redline right inside Microsoft Office, connected to LegalWork.",
-  "onboarding_setup.office_install": "Add to {apps}",
+  "onboarding_setup.office_install_one": "Add to {app}",
   "onboarding_setup.office_installed": "Added to Office",
+  "onboarding_setup.office_cert_note":
+    "The first install asks once to trust a local certificate — that's how the add-in talks to LegalWork on this machine.",
+  "onboarding_setup.office_restart_note":
+    "Restart the Office app to see the add-in in the ribbon.",
   "onboarding_setup.office_none": "No Microsoft Office apps were found on this computer.",
   "onboarding_setup.office_unsupported": "Office add-ins aren't available on this system.",
   "onboarding_setup.model_title": "Download a transcription model",
@@ -2046,6 +2056,30 @@ export default {
   "onboarding_setup.panel_eyebrow": "On this device",
   "onboarding_setup.panel_title": "Your documents and audio never leave this computer.",
   "onboarding_setup.panel_footer": "Runs locally · Private · Your data",
+  // Onboarding: the "Your AI" cover (Eigenwelt trial primary, small BYO link)
+  "onboarding_ai.eyebrow": "Step two · Your AI",
+  "onboarding_ai.title": "Add AI to LegalWork.",
+  "onboarding_ai.subtitle":
+    "LegalWork runs on this machine. Your documents are only ever shared with the model you connect — nothing else.",
+  "onboarding_ai.cta": "Start your 7-day free trial",
+  "onboarding_ai.cta_note":
+    "Sign in with Eigenwelt — premium models hosted in the EU, built for legal work. €69 per seat/month after the trial; cancel anytime before.",
+  "onboarding_ai.waiting_title": "Finish in your browser",
+  "onboarding_ai.waiting_body":
+    "Create your firm and start the trial — LegalWork connects automatically the moment you're done.",
+  "onboarding_ai.cancel": "Cancel sign-in",
+  "onboarding_ai.byo": "I'll use my own model or API key instead",
+  "onboarding_ai.panel_eyebrow": "Eigenwelt Plus",
+  "onboarding_ai.panel_title": "Built for confidential legal work.",
+  "onboarding_ai.panel_item1_title": "EU-only inference",
+  "onboarding_ai.panel_item1_body": "Model infrastructure stays in the European Union.",
+  "onboarding_ai.panel_item2_title": "Zero data retention",
+  "onboarding_ai.panel_item2_body": "Prompts, documents and outputs are not stored after the request.",
+  "onboarding_ai.panel_item3_title": "€50 of AI usage included",
+  "onboarding_ai.panel_item3_body": "Per seat, every month, on premium models.",
+  "onboarding_ai.panel_item4_title": "Your firm in one place",
+  "onboarding_ai.panel_item4_body": "Members, shared workflows and billing on the Eigenwelt platform.",
+  "onboarding_ai.panel_footer": "7-day free trial · Cancel anytime",
   "recorder.speaker_label": "Speaker {n}",
   "recorder.dictation_login_title": "Start at login",
   "recorder.dictation_login_description":

@@ -59,6 +59,14 @@ export type LocalPreferences = {
    */
   hasCompletedOnboarding: boolean;
   /**
+   * Where the in-session onboarding covers stand. PERSISTED so a reload or
+   * crash resumes the flow instead of silently ending it (the old hash-param
+   * approach lost the covers on any reload). "ai" = connect Eigenwelt / BYO,
+   * "setup" = mic + Office add-ins + transcription model, "done" = finished.
+   * The welcome route sets "ai" when the first workspace is created.
+   */
+  onboardingStage: "ai" | "setup" | "done";
+  /**
    * User preference committed from the welcome-screen toggle (nothing is
    * applied before then); switchable anytime in Settings -> Privacy.
    * `null` means the user has not made a choice yet — do not persist a
@@ -97,6 +105,7 @@ const INITIAL_PREFS: LocalPreferences = {
   releaseChannel: "stable",
   featureFlags: { microsandboxCreateSandbox: true },
   hasCompletedOnboarding: false,
+  onboardingStage: "done",
   // null until the user chooses on the welcome screen — persisting a concrete
   // value here would make getStoredAnalyticsConsent() report a choice that was
   // never made, defeating the welcome toggle's default.

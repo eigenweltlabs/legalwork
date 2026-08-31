@@ -364,27 +364,6 @@ const de: Record<string, string> = {
     "Audio, Transkripte und Modelle bleiben auf diesem Gerät. Nichts wird hochgeladen.",
   "transcription_intro.cta": "Transkription einrichten",
   "transcription_intro.dismiss": "Später",
-  "onboarding_setup.eyebrow": "Letzter Schritt · Einrichten",
-  "onboarding_setup.title": "Zwei schnelle Installationen.",
-  "onboarding_setup.subtitle":
-    "Fügen Sie LegalWork zu Word und Outlook hinzu und laden Sie ein Transkriptionsmodell, das auf diesem Gerät läuft. Beides ist optional und später in den Einstellungen verfügbar.",
-  "onboarding_setup.office_title": "Zu Word & Outlook hinzufügen",
-  "onboarding_setup.office_body":
-    "Entwerfen und redigieren Sie direkt in Microsoft Office, verbunden mit LegalWork.",
-  "onboarding_setup.office_install": "Zu {apps} hinzufügen",
-  "onboarding_setup.office_installed": "Zu Office hinzugefügt",
-  "onboarding_setup.office_none": "Auf diesem Computer wurden keine Microsoft-Office-Apps gefunden.",
-  "onboarding_setup.office_unsupported": "Office-Add-ins sind auf diesem System nicht verfügbar.",
-  "onboarding_setup.model_title": "Transkriptionsmodell herunterladen",
-  "onboarding_setup.model_body":
-    "Nehmen Sie Anrufe auf und diktieren Sie auf dem Gerät. Für diesen Computer empfehlen wir das {tier}-Modell.",
-  "onboarding_setup.model_download": "{tier}-Modell laden",
-  "onboarding_setup.model_installed": "{tier}-Modell bereit",
-  "onboarding_setup.skip": "Später",
-  "onboarding_setup.continue": "Weiter",
-  "onboarding_setup.panel_eyebrow": "Auf diesem Gerät",
-  "onboarding_setup.panel_title": "Ihre Dokumente und Audiodaten verlassen diesen Computer nie.",
-  "onboarding_setup.panel_footer": "Läuft lokal · Privat · Ihre Daten",
   "recorder.speaker_label": "Sprecher {n}",
   "recorder.dictation_login_title": "Beim Anmelden starten",
   "recorder.dictation_login_description":
@@ -591,6 +570,64 @@ const de: Record<string, string> = {
   "recorder.app_picker_all_system": "Gesamtes Systemaudio",
   "recorder.app_picker_loading": "Laufende Apps werden geladen…",
   "recorder.app_picker_confirm": "Auswahl verwenden",
+
+  // Onboarding: "Deine KI" (Eigenwelt-Testphase als Hauptweg, kleiner BYO-Link)
+  "onboarding_ai.eyebrow": "Schritt zwei · Deine KI",
+  "onboarding_ai.title": "KI für LegalWork.",
+  "onboarding_ai.subtitle":
+    "LegalWork läuft auf diesem Rechner. Deine Dokumente werden nur mit dem Modell geteilt, das du verbindest — sonst mit niemandem.",
+  "onboarding_ai.cta": "7 Tage kostenlos testen",
+  "onboarding_ai.cta_note":
+    "Mit Eigenwelt anmelden — Premium-Modelle, in der EU gehostet, gebaut für juristische Arbeit. Nach der Testphase 69 € pro Sitzplatz/Monat; jederzeit vorher kündbar.",
+  "onboarding_ai.waiting_title": "Im Browser abschließen",
+  "onboarding_ai.waiting_body":
+    "Kanzlei anlegen und Testphase starten — LegalWork verbindet sich automatisch, sobald du fertig bist.",
+  "onboarding_ai.cancel": "Anmeldung abbrechen",
+  "onboarding_ai.byo": "Ich nutze stattdessen mein eigenes Modell oder einen API-Key",
+  "onboarding_ai.panel_eyebrow": "Eigenwelt Plus",
+  "onboarding_ai.panel_title": "Gebaut für vertrauliche juristische Arbeit.",
+  "onboarding_ai.panel_item1_title": "Inferenz nur in der EU",
+  "onboarding_ai.panel_item1_body": "Die Modell-Infrastruktur bleibt in der Europäischen Union.",
+  "onboarding_ai.panel_item2_title": "Keine Datenspeicherung",
+  "onboarding_ai.panel_item2_body": "Prompts, Dokumente und Ausgaben werden nach der Anfrage nicht gespeichert.",
+  "onboarding_ai.panel_item3_title": "50 € KI-Nutzung inklusive",
+  "onboarding_ai.panel_item3_body": "Pro Sitzplatz, jeden Monat, auf Premium-Modellen.",
+  "onboarding_ai.panel_item4_title": "Deine Kanzlei an einem Ort",
+  "onboarding_ai.panel_item4_body": "Mitglieder, geteilte Workflows und Abrechnung auf der Eigenwelt-Plattform.",
+  "onboarding_ai.panel_footer": "7 Tage kostenlos testen · Jederzeit kündbar",
+
+  // Onboarding: Einrichtungs-Schritt
+  "onboarding_setup.eyebrow": "Letzter Schritt · Einrichten",
+  "onboarding_setup.title": "In einer Minute startklar.",
+  "onboarding_setup.subtitle":
+    "Mikrofon erlauben, LegalWork zu Office hinzufügen und ein Transkriptionsmodell für dieses Gerät laden. Alles optional und später in den Einstellungen verfügbar.",
+  "onboarding_setup.mic_title": "Mikrofonzugriff erlauben",
+  "onboarding_setup.mic_body":
+    "Nötig für Aufnahmen und Diktate. Audio wird auf diesem Gerät verarbeitet.",
+  "onboarding_setup.mic_allow": "Mikrofon erlauben",
+  "onboarding_setup.mic_open_settings": "Systemeinstellungen öffnen",
+  "onboarding_setup.mic_granted": "Mikrofon erlaubt",
+  "onboarding_setup.office_title": "Zu Word & Outlook hinzufügen",
+  "onboarding_setup.office_body":
+    "Direkt in Microsoft Office entwerfen und redlinen — verbunden mit LegalWork.",
+  "onboarding_setup.office_install_one": "Zu {app} hinzufügen",
+  "onboarding_setup.office_installed": "Zu Office hinzugefügt",
+  "onboarding_setup.office_cert_note":
+    "Die erste Installation fragt einmalig nach Vertrauen für ein lokales Zertifikat — darüber spricht das Add-in mit LegalWork auf diesem Rechner.",
+  "onboarding_setup.office_restart_note":
+    "Starte die Office-App neu, damit das Add-in im Menüband erscheint.",
+  "onboarding_setup.office_none": "Auf diesem Computer wurden keine Microsoft-Office-Apps gefunden.",
+  "onboarding_setup.office_unsupported": "Office-Add-ins sind auf diesem System nicht verfügbar.",
+  "onboarding_setup.model_title": "Transkriptionsmodell laden",
+  "onboarding_setup.model_body":
+    "Anrufe aufnehmen und auf dem Gerät diktieren. Für diesen Computer empfehlen wir das Modell „{tier}“.",
+  "onboarding_setup.model_download": "Modell „{tier}“ laden",
+  "onboarding_setup.model_installed": "Modell „{tier}“ bereit",
+  "onboarding_setup.skip": "Später erledigen",
+  "onboarding_setup.continue": "Weiter",
+  "onboarding_setup.panel_eyebrow": "Auf diesem Gerät",
+  "onboarding_setup.panel_title": "Deine Dokumente und Audios verlassen diesen Rechner nicht.",
+  "onboarding_setup.panel_footer": "Läuft lokal · Privat · Deine Daten",
 
   // Eigenwelt-Konto: 7-tägige kostenlose Testphase
   "account.plan_inactive": "Inaktiv",

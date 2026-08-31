@@ -112,12 +112,10 @@ import { useModelPicker } from "@/react-app/domains/session/modals/use-model-pic
 import { appMentionInstruction } from "@/react-app/domains/session/surface/composer/app-mentions";
 import { CreateWorkspaceModal } from "@/react-app/domains/workspace/create-workspace-modal";
 import { useSessionProviderAuth } from "@/react-app/domains/connections/provider-auth/use-session-provider-auth";
-import { ProviderSelectionStep } from "@/react-app/domains/onboarding/provider-selection-step";
-import { TemplateWorkflowsStep } from "@/react-app/domains/onboarding/template-workflows-step";
+import { AiStep } from "@/react-app/domains/onboarding/ai-step";
 import { TranscriptionSetupStep } from "@/react-app/domains/onboarding/transcription-setup-step";
 import {
   ensureTemplateWorkflowWatcher,
-  startTemplateWorkflowGeneration,
   useHiddenTemplateWorkspaceIds,
   useTemplateWorkflowRun,
 } from "@/react-app/domains/settings/state/template-workflow-generation";
@@ -636,7 +634,28 @@ export function SessionRoute() {
     opencodeClient && selectedWorkspaceId && !loading && !selectedWorkspaceError && !selectedModelUnavailable,
   );
 
-  const { store: sessionProviderAuthStore, snapshot: sessionProviderAuthSnapshot, onboardingStep, goToTemplates, goToSetup, finishOnboarding } =
+  // Persisted onboarding stage — survives reloads; "done" for existing installs.
+  const onboardingStage = local.prefs.onboardingStage;
+  const setOnboardingStage = useCallback(
+    (stage: "ai" | "setup" | "done") => {
+      local.setPrefs((previous) => ({
+        ...previous,
+        onboardingStage: stage,
+        ...(stage === "done" ? { hasCompletedOnboarding: true } : {}),
+      }));
+    },
+    [local],
+  );
+  const advanceFromAiStep = useCallback(() => {
+    // The setup step is desktop-only (mic, Office add-ins, model download).
+    if (isDesktopRuntime()) {
+      setOnboardingStage("setup");
+    } else {
+      captureAnalyticsEvent("onboarding_completed", { setup: "unavailable" });
+      setOnboardingStage("done");
+    }
+  }, [setOnboardingStage]);
+  const { store: sessionProviderAuthStore, snapshot: sessionProviderAuthSnapshot } =
     useSessionProviderAuth({
       opencodeClient,
       providers,
@@ -651,6 +670,11 @@ export function SessionRoute() {
       setProviderDefaults,
       setProviderConnectedIds,
       setDisabledProviderIds,
+      onboardingConnectActive: onboardingStage === "ai",
+      onOnboardingProviderConnected: () => {
+        captureAnalyticsEvent("onboarding_ai_completed", { method: "byo" });
+        advanceFromAiStep();
+      },
     });
   // On subscription activation (from the premium upsell challenge): re-pull the
   // paid Eigenwelt manifest and dispose+reload the engine/provider list so the
@@ -661,15 +685,6 @@ export function SessionRoute() {
     }
     await sessionProviderAuthStore.refreshProviders({ dispose: true }).catch(() => undefined);
   }, [client, selectedWorkspaceId, sessionProviderAuthStore]);
-  // The templates onboarding step needs the desktop runtime (folder picker,
-  // skill import IPC); anywhere else it finishes onboarding straight away
-  // (usage-analytics consent already lives on the welcome step).
-  // The start handler carries its own connection guard.
-  const templatesStepEligible = isDesktopRuntime();
-  useEffect(() => {
-    if (onboardingStep === "templates" && !templatesStepEligible) finishOnboarding();
-  }, [finishOnboarding, onboardingStep, templatesStepEligible]);
-
   // Resume the generation-completion watcher after a reload: a persisted
   // "running" run keeps its Workflows spinner honest only while someone polls.
   useEffect(() => {
@@ -691,28 +706,6 @@ export function SessionRoute() {
     templateRunRefreshAttemptedRef.current = workspaceId;
     void refreshRouteState();
   }, [refreshRouteState, templateWorkflowRun?.workspaceId, workspaces]);
-
-  const startTemplateWorkflowsFromOnboarding = async (): Promise<{ started: boolean; message?: string }> => {
-    const selection = await pickDirectory({ title: "Choose your templates folder" });
-    const folder = typeof selection === "string" ? selection : Array.isArray(selection) ? selection[0] : null;
-    if (!folder?.trim()) return { started: false };
-    if (!client || !baseUrl || !token) {
-      return { started: false, message: "Still connecting to the LegalWork server. Try again in a moment." };
-    }
-    const result = await startTemplateWorkflowGeneration({
-      environmentClient: client,
-      baseUrl,
-      token,
-      templatesDir: folder.trim(),
-      model: local.prefs.defaultModel,
-    });
-    if (!result.ok) return { started: false, message: result.message };
-    // The templates folder is a workspace now — pull it into the sidebar list.
-    void refreshRouteState();
-    // Templates → the final install step (Office add-ins + transcription model).
-    goToSetup();
-    return { started: true };
-  };
 
   const {
     activePermission,
@@ -1642,31 +1635,28 @@ export function SessionRoute() {
         onSessionUpdated={handleRuntimeSessionUpdated}
       />
     ) : null}
-    {onboardingStep === "connect" ? (
-      // Provider-selection cover: the real provider-selection design (z-40) with the
-      // searchable connect modal (z-50) on top. Usage-analytics consent lives on the
-      // welcome step; connecting or skipping here advances to the optional templates step.
-      <ProviderSelectionStep
-        onConnect={(providerId) =>
-          sessionProviderAuthStore.openProviderAuthModal({
-            preferredProviderId: providerId || undefined,
-            returnFocusTarget: "composer",
-          })
+    {onboardingStage === "ai" ? (
+      // "Your AI" cover: Eigenwelt sign-in (7-day trial via the platform
+      // funnel) is the one primary path; the small BYO link opens the
+      // searchable provider modal (z-50) on top of this cover.
+      <AiStep
+        onStartSignIn={sessionProviderAuthStore.startEigenweltSignIn}
+        onWaitSignIn={sessionProviderAuthStore.completeEigenweltSignIn}
+        onConnected={advanceFromAiStep}
+        onUseOwnModel={() =>
+          sessionProviderAuthStore.openProviderAuthModal({ returnFocusTarget: "composer" })
         }
-        onSkip={goToTemplates}
+        serverReady={Boolean(selectedWorkspaceEndpoint)}
       />
     ) : null}
-    {onboardingStep === "templates" && templatesStepEligible ? (
-      // Optional cover: point a local agent at the firm's templates folder;
-      // the generation run continues in the background while onboarding finishes.
-      <TemplateWorkflowsStep
-        onStart={startTemplateWorkflowsFromOnboarding}
-        onSkip={goToSetup}
+    {onboardingStage === "setup" ? (
+      // Quick-setup cover: microphone, Office add-ins, transcription model.
+      <TranscriptionSetupStep
+        onDone={(skipped) => {
+          captureAnalyticsEvent("onboarding_completed", { setup: skipped ? "skipped" : "done" });
+          setOnboardingStage("done");
+        }}
       />
-    ) : null}
-    {onboardingStep === "setup" ? (
-      // Final cover: one-tap installs — Office add-ins + a transcription model.
-      <TranscriptionSetupStep onDone={finishOnboarding} />
     ) : null}
     <SessionPage
       selectedSessionId={selectedSessionId}
