@@ -5,6 +5,7 @@ import { useVirtualizer } from "@tanstack/react-virtual";
 import { AlertCircle, ChevronRight, Folder, FolderOpen, HardDrive, Loader2, RotateCw, Search, X } from "lucide-react";
 
 import { writeLegalMemoryFileDrag } from "@/app/lib/legalmemory-file";
+import { LEGALMEMORY_CONNECTION_CHANGED_EVENT } from "@/app/lib/legalmemory-connection";
 import {
   LegalworkServerError,
   type LegalMemoryTreeFile,
@@ -67,6 +68,20 @@ export function LegalMemoryFilesPanel({
   foldersRef.current = folders;
   const openFoldersRef = React.useRef(openFolders);
   openFoldersRef.current = openFolders;
+
+  React.useEffect(() => {
+    const resetDisconnectedTree = () => {
+      setOpenFolders(new Set());
+      setFolders(new Map());
+      setQuery("");
+      setSearchQuery("");
+      setSelectedId(null);
+      setOpeningId(null);
+    };
+
+    window.addEventListener(LEGALMEMORY_CONNECTION_CHANGED_EVENT, resetDisconnectedTree);
+    return () => window.removeEventListener(LEGALMEMORY_CONNECTION_CHANGED_EVENT, resetDisconnectedTree);
+  }, []);
 
   const rootsQuery = useQuery({
     queryKey: ["legalmemory-tree-roots", workspaceId] as const,
