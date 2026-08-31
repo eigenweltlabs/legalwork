@@ -10,6 +10,38 @@ import { PaperGrainGradient } from "@legalwork/ui/react";
 import { Page, PageBackground, PageTitlebarRegion } from "@/components/page";
 import { ScrollArea, ScrollAreaViewport } from "@/components/ui/scroll-area";
 
+/** Tiny progress dots shown above a step's eyebrow — the active step is a
+ * wider pill so users always know where they are in the flow. */
+export function StepDots(props: { step: number; total: number }) {
+  return (
+    <div className="mb-6 flex items-center gap-1.5">
+      {Array.from({ length: props.total }, (_, index) => (
+        <span
+          key={index}
+          className={
+            index + 1 === props.step
+              ? "h-1.5 w-5 rounded-full bg-primary"
+              : index + 1 < props.step
+                ? "size-1.5 rounded-full bg-primary/40"
+                : "size-1.5 rounded-full bg-dls-border"
+          }
+        />
+      ))}
+    </div>
+  );
+}
+
+/** Dev/design affordance: localStorage["legalwork.onboardingDemo"] = "1"
+ * makes the tool steps simulate their states (detected Office apps, mic
+ * grant, model download) so every screen can be reviewed on any machine. */
+export function onboardingDemoActive(): boolean {
+  try {
+    return window.localStorage.getItem("legalwork.onboardingDemo") === "1";
+  } catch {
+    return false;
+  }
+}
+
 export function OnboardingCover(props: {
   /** Left column content (max-w constrained by the step itself). */
   children: ReactNode;

@@ -1,20 +1,19 @@
 /** @jsxImportSource react */
 /**
- * Onboarding: the "Your AI" step. One primary path — sign in with Eigenwelt,
- * which runs the platform funnel (create your firm, start the 7-day trial,
- * checkout) in the browser and connects the app the moment it finishes. The
- * only other exit is a deliberately small "use your own model" link that opens
- * the provider modal (bring-your-own key/endpoint). There is no free tier.
+ * Onboarding: the "Your AI" step. One action — sign in with Eigenwelt, which
+ * runs the platform funnel (create your firm, start the 7-day trial,
+ * checkout) in the browser and connects the app the moment it finishes.
+ * The only other exit is a plain Skip. There is no free tier.
  */
 import { useEffect, useRef, useState } from "react";
-import { ArrowRightIcon, Loader2 } from "lucide-react";
+import { Loader2 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { captureAnalyticsEvent } from "@/app/lib/analytics";
 import { openDesktopUrl } from "@/app/lib/desktop";
 import { t } from "@/i18n";
 import { ProviderIcon } from "../../design-system/provider-icon";
-import { OnboardingCover } from "./onboarding-cover";
+import { OnboardingCover, StepDots } from "./onboarding-cover";
 
 export type AiStepProps = {
   /** Bind the OAuth loopback and return the browser URL (provider-auth store). */
@@ -26,8 +25,8 @@ export type AiStepProps = {
   ) => Promise<{ connected: boolean; cancelled?: boolean; message?: string }>;
   /** Sign-in finished and the connection is live — advance the flow. */
   onConnected: () => void;
-  /** The small skip: open the searchable provider modal (BYO key/endpoint). */
-  onUseOwnModel: () => void;
+  /** The one way around the trial: a plain skip. */
+  onSkip: () => void;
   /** True while the LegalWork server connection is still coming up. */
   serverReady: boolean;
 };
@@ -82,6 +81,26 @@ export function AiStep(props: AiStepProps) {
     { title: t("onboarding_ai.panel_item4_title"), desc: t("onboarding_ai.panel_item4_body") },
   ];
 
+  // The panel shows the product doing legal work, not another bullet list.
+  const chatMock = (
+    <div className="mx-auto w-full max-w-[380px] rounded-xl border border-white/10 bg-[#0b1322]/90 p-4 shadow-[0_18px_50px_-18px_rgba(0,0,0,0.8)] backdrop-blur">
+      <div className="ml-auto w-fit max-w-[85%] rounded-lg rounded-tr-sm bg-white/10 px-3 py-2 text-[12.5px] leading-snug text-white/85">
+        {t("onboarding_ai.chat_user")}
+      </div>
+      <div className="mt-3 max-w-[92%] rounded-lg rounded-tl-sm bg-[#0a58c2]/25 px-3 py-2.5">
+        <p className="text-[12.5px] leading-snug text-white/85">{t("onboarding_ai.chat_answer")}</p>
+        <div className="mt-2.5 flex flex-wrap gap-1.5">
+          <span className="rounded border border-white/15 bg-white/5 px-1.5 py-0.5 text-[10px] text-white/60">
+            {t("onboarding_ai.chat_chip1")}
+          </span>
+          <span className="rounded border border-white/15 bg-white/5 px-1.5 py-0.5 text-[10px] text-white/60">
+            {t("onboarding_ai.chat_chip2")}
+          </span>
+        </div>
+      </div>
+    </div>
+  );
+
   return (
     <OnboardingCover
       panel={
@@ -94,14 +113,12 @@ export function AiStep(props: AiStepProps) {
               {t("onboarding_ai.panel_title")}
             </h2>
           </div>
-          <div className="divide-y divide-white/10 border-y border-white/10">
+          {chatMock}
+          <div className="grid grid-cols-2 gap-2.5">
             {panelItems.map((item) => (
-              <div key={item.title} className="flex items-baseline gap-4 py-3.5">
-                <span className="mt-1 size-1.5 shrink-0 translate-y-1.5 rounded-full bg-[#0a58c2]" />
-                <div className="min-w-0">
-                  <div className="text-[14px] font-medium tracking-[-0.01em] text-white">{item.title}</div>
-                  <div className="mt-0.5 text-[12.5px] leading-snug text-white/55">{item.desc}</div>
-                </div>
+              <div key={item.title} className="rounded-lg border border-white/10 bg-white/[0.03] p-3">
+                <div className="text-[12.5px] font-medium tracking-[-0.01em] text-white">{item.title}</div>
+                <div className="mt-1 text-[11px] leading-snug text-white/50">{item.desc}</div>
               </div>
             ))}
           </div>
@@ -113,10 +130,8 @@ export function AiStep(props: AiStepProps) {
     >
       <div className="flex w-full max-w-md flex-col gap-8">
         <div>
-          <span className="lw-section-eyebrow uppercase text-dls-secondary">
-            {t("onboarding_ai.eyebrow")}
-          </span>
-          <h1 className="mt-3 text-[36px] font-medium leading-[1.04] tracking-[-0.035em] text-dls-text">
+          <StepDots step={1} total={3} />
+          <h1 className="text-[36px] font-medium leading-[1.04] tracking-[-0.035em] text-dls-text">
             {t("onboarding_ai.title")}
           </h1>
           <p className="mt-3 max-w-sm text-[14px] leading-[1.6] text-dls-secondary">
@@ -165,18 +180,17 @@ export function AiStep(props: AiStepProps) {
           <p className="-mt-4 text-[12px] text-dls-secondary">{t("account.server_required")}</p>
         ) : null}
 
-        {/* The only path around Eigenwelt: deliberately small. */}
+        {/* The only way around the trial: a plain skip. */}
         <div className="border-t border-dls-border pt-5">
           <button
             type="button"
-            className="group inline-flex items-center gap-1 text-[13px] text-dls-secondary transition-colors hover:text-dls-text"
+            className="text-[13px] text-dls-secondary transition-colors hover:text-dls-text"
             onClick={() => {
-              captureAnalyticsEvent("onboarding_ai_byo_clicked");
-              props.onUseOwnModel();
+              captureAnalyticsEvent("onboarding_ai_skipped");
+              props.onSkip();
             }}
           >
-            {t("onboarding_ai.byo")}
-            <ArrowRightIcon className="size-3.5 transition-transform group-hover:translate-x-0.5" />
+            {t("onboarding.skip")}
           </button>
         </div>
       </div>

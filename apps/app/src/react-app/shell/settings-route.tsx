@@ -354,6 +354,16 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
   const local = useLocal();
   const platform = usePlatform();
   const reloadCoordinator = useReloadCoordinator();
+  // Onboarding holds the whole app: its covers live on the session route, so
+  // anything that lands here mid-flow (a dialog CTA, a deep link) would strand
+  // the user outside onboarding with no way back. Send them to the session,
+  // where the active cover resumes. Not for the embedded settings surface —
+  // that renders inside the session route, underneath the covers.
+  const onboardingStage = local.prefs.onboardingStage;
+  useEffect(() => {
+    if (props.embedded) return;
+    if (onboardingStage !== "done") navigate("/session", { replace: true });
+  }, [navigate, onboardingStage, props.embedded]);
   const [embeddedPath, setEmbeddedPath] = useState(props.initialPath ?? "general");
   const route = props.embedded ? parseSettingsPath(`/settings/${embeddedPath}`) : parseSettingsPath(location.pathname);
   const navigationWorkspaceId = readNavigationWorkspaceId(location.state);

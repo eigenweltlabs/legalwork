@@ -60,12 +60,13 @@ export type LocalPreferences = {
   hasCompletedOnboarding: boolean;
   /**
    * Where the in-session onboarding covers stand. PERSISTED so a reload or
-   * crash resumes the flow instead of silently ending it (the old hash-param
-   * approach lost the covers on any reload). "ai" = connect Eigenwelt / BYO,
-   * "setup" = mic + Office add-ins + transcription model, "done" = finished.
+   * crash resumes the flow instead of silently ending it. One action per
+   * step: "ai" (start the trial / skip) -> "office" (install the Word
+   * add-in) -> "audio" (turn on transcription & dictation) -> "done".
+   * "setup" is a legacy value from an interim build, treated as "office".
    * The welcome route sets "ai" when the first workspace is created.
    */
-  onboardingStage: "ai" | "setup" | "done";
+  onboardingStage: "ai" | "office" | "audio" | "setup" | "done";
   /**
    * User preference committed from the welcome-screen toggle (nothing is
    * applied before then); switchable anytime in Settings -> Privacy.

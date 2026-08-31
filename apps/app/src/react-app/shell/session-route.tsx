@@ -113,7 +113,8 @@ import { appMentionInstruction } from "@/react-app/domains/session/surface/compo
 import { CreateWorkspaceModal } from "@/react-app/domains/workspace/create-workspace-modal";
 import { useSessionProviderAuth } from "@/react-app/domains/connections/provider-auth/use-session-provider-auth";
 import { AiStep } from "@/react-app/domains/onboarding/ai-step";
-import { TranscriptionSetupStep } from "@/react-app/domains/onboarding/transcription-setup-step";
+import { AudioStep } from "@/react-app/domains/onboarding/audio-step";
+import { OfficeStep } from "@/react-app/domains/onboarding/office-step";
 import {
   ensureTemplateWorkflowWatcher,
   useHiddenTemplateWorkspaceIds,
@@ -619,10 +620,12 @@ export function SessionRoute() {
     opencodeClient && selectedWorkspaceId && !loading && !selectedWorkspaceError && !selectedModelUnavailable,
   );
 
-  // Persisted onboarding stage — survives reloads; "done" for existing installs.
-  const onboardingStage = local.prefs.onboardingStage;
+  // Persisted onboarding stage — survives reloads; "done" for existing
+  // installs. "setup" is a legacy interim value, shown as the office step.
+  const onboardingStage =
+    local.prefs.onboardingStage === "setup" ? "office" : local.prefs.onboardingStage;
   const setOnboardingStage = useCallback(
-    (stage: "ai" | "setup" | "done") => {
+    (stage: "ai" | "office" | "audio" | "done") => {
       local.setPrefs((previous) => ({
         ...previous,
         onboardingStage: stage,
@@ -632,11 +635,11 @@ export function SessionRoute() {
     [local],
   );
   const advanceFromAiStep = useCallback(() => {
-    // The setup step is desktop-only (mic, Office add-ins, model download).
+    // The tool steps are desktop-only (Office add-ins, mic, model download).
     if (isDesktopRuntime()) {
-      setOnboardingStage("setup");
+      setOnboardingStage("office");
     } else {
-      captureAnalyticsEvent("onboarding_completed", { setup: "unavailable" });
+      captureAnalyticsEvent("onboarding_completed", { tools: "unavailable" });
       setOnboardingStage("done");
     }
   }, [setOnboardingStage]);
@@ -655,11 +658,6 @@ export function SessionRoute() {
       setProviderDefaults,
       setProviderConnectedIds,
       setDisabledProviderIds,
-      onboardingConnectActive: onboardingStage === "ai",
-      onOnboardingProviderConnected: () => {
-        captureAnalyticsEvent("onboarding_ai_completed", { method: "byo" });
-        advanceFromAiStep();
-      },
     });
   // On subscription activation (from the premium upsell challenge): re-pull the
   // paid Eigenwelt manifest and dispose+reload the engine/provider list so the
@@ -1626,24 +1624,29 @@ export function SessionRoute() {
       />
     ) : null}
     {onboardingStage === "ai" ? (
-      // "Your AI" cover: Eigenwelt sign-in (7-day trial via the platform
-      // funnel) is the one primary path; the small BYO link opens the
-      // searchable provider modal (z-50) on top of this cover.
+      // One action per step: start the trial (browser funnel) or skip.
       <AiStep
         onStartSignIn={sessionProviderAuthStore.startEigenweltSignIn}
         onWaitSignIn={sessionProviderAuthStore.completeEigenweltSignIn}
         onConnected={advanceFromAiStep}
-        onUseOwnModel={() =>
-          sessionProviderAuthStore.openProviderAuthModal({ returnFocusTarget: "composer" })
-        }
+        onSkip={advanceFromAiStep}
         serverReady={Boolean(selectedWorkspaceEndpoint)}
       />
     ) : null}
-    {onboardingStage === "setup" ? (
-      // Quick-setup cover: microphone, Office add-ins, transcription model.
-      <TranscriptionSetupStep
-        onDone={(skipped) => {
-          captureAnalyticsEvent("onboarding_completed", { setup: skipped ? "skipped" : "done" });
+    {onboardingStage === "office" ? (
+      // One action: install the Word/Office add-in. Self-skips when absent.
+      <OfficeStep
+        onDone={(result) => {
+          captureAnalyticsEvent("onboarding_office_done", { result });
+          setOnboardingStage("audio");
+        }}
+      />
+    ) : null}
+    {onboardingStage === "audio" ? (
+      // One action: turn on transcription & dictation.
+      <AudioStep
+        onDone={(result) => {
+          captureAnalyticsEvent("onboarding_completed", { audio: result });
           setOnboardingStage("done");
         }}
       />

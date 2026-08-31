@@ -32,8 +32,8 @@ const capabilities = [
   { title: "Review & redline", desc: "Mark up contracts as tracked changes, right in Word." },
   { title: "Tabular review", desc: "Extract terms across many documents into a sourced review grid." },
   { title: "Draft documents", desc: "Briefs, memos, contracts, and engagement letters." },
-  { title: "Bring your own model", desc: "Connect AWS Bedrock, Azure OpenAI, or your own provider." },
-  { title: "Runs on this machine", desc: "The agent works locally — data is only shared with the model you choose." },
+  { title: "Meetings & dictation", desc: "Record, transcribe and dictate — processed on this device." },
+  { title: "Runs on this machine", desc: "Your documents stay in your folders, on this computer." },
 ];
 
 type WelcomePageProps = {
@@ -104,8 +104,7 @@ export function WelcomePage({
                   </Button>
                   {error ? <p className="text-center text-xs text-destructive">{error}</p> : null}
                   <p className="text-center text-[12px] leading-relaxed text-dls-secondary/80">
-                    Runs on this machine. Connect AWS, Azure, or your own model — your data is only shared with
-                    the model you choose.
+                    Your documents stay on this computer. Set-up takes about a minute.
                   </p>
 
                   {/* Usage analytics — opt-out toggle (on by default). */}
@@ -181,7 +180,7 @@ export function WelcomePage({
                   </div>
 
                   <p className="font-mono text-[10px] uppercase tracking-[0.16em] text-white/40">
-                    Runs locally · Your model · Your data
+                    Runs on this machine · Your data stays yours
                   </p>
                 </div>
               </div>
