@@ -37,12 +37,7 @@ type SettingsPanelHeadingProps = {
 };
 
 export function SettingsPanelHeading(props: SettingsPanelHeadingProps) {
-  return (
-    <div className={cn("flex flex-col gap-y-2", props.className)}>
-      <span className="lw-section-eyebrow">Settings</span>
-      {props.children}
-    </div>
-  );
+  return <div className={cn("flex flex-col gap-y-2", props.className)}>{props.children}</div>;
 }
 
 type SettingsPanelTitleProps = {
