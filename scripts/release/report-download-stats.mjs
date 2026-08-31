@@ -18,7 +18,12 @@
  * disabled — no person profiles are created.
  *
  * Env:
- *   GITHUB_TOKEN            optional; raises the API rate limit (set in CI)
+ *   GITHUB_TOKEN            optional; raises the API rate limit and, with
+ *                           push access, unlocks the traffic endpoints (set in CI)
+ *   GITHUB_FALLBACK_TOKEN   optional; retried with when GITHUB_TOKEN is
+ *                           rejected outright — CI passes github.token here
+ *   STATS_TOKEN_SOURCE      optional; names where GITHUB_TOKEN came from, so
+ *                           warnings can point at the right secret (set in CI)
  *   LEGALWORK_POSTHOG_KEY   override the default publishable project key
  *   LEGALWORK_POSTHOG_HOST  override the default EU ingestion host
  *
@@ -37,22 +42,58 @@ const POSTHOG_HOST = ((process.env.LEGALWORK_POSTHOG_HOST ?? "").trim() || "http
   "",
 );
 const GITHUB_TOKEN = (process.env.GITHUB_TOKEN ?? "").trim();
+const GITHUB_FALLBACK_TOKEN = (process.env.GITHUB_FALLBACK_TOKEN ?? "").trim();
+const TOKEN_SOURCE = (process.env.STATS_TOKEN_SOURCE ?? "").trim() || (GITHUB_TOKEN ? "GITHUB_TOKEN" : "none");
 const DRY_RUN = process.argv.includes("--dry-run");
 
 const EVENT_NAME = "release_download_snapshot";
 const DISTINCT_ID = `github-releases:${REPO}`;
 const MAX_BATCH = 50;
 
+/* console.warn plus, under Actions, a ::warning:: annotation on the run page —
+   a degraded snapshot must not be discoverable only by reading the full log. */
+function warn(title, message) {
+  console.warn(`WARNING [${title}] ${message}`);
+  if (process.env.GITHUB_ACTIONS === "true") {
+    const escaped = message.replaceAll("%", "%25").replaceAll("\r", "%0D").replaceAll("\n", "%0A");
+    console.log(`::warning title=${title}::${escaped}`);
+  }
+}
+
+let activeToken = GITHUB_TOKEN; // swapped at most twice if GitHub rejects it
+let tokenRejected = false; // the configured token came back 401
+
 async function githubGet(path) {
   const response = await fetch(`https://api.github.com/repos/${REPO}/${path}`, {
     headers: {
       Accept: "application/vnd.github+json",
       "X-GitHub-Api-Version": "2022-11-28",
-      ...(GITHUB_TOKEN ? { Authorization: `Bearer ${GITHUB_TOKEN}` } : {}),
+      ...(activeToken ? { Authorization: `Bearer ${activeToken}` } : {}),
     },
   });
+  if (response.status === 401 && activeToken) {
+    /* An expired LEGALWORK_STATS_TOKEN PAT lands here: the secret is still
+       non-empty, so the workflow's `|| github.token` fallback never engages
+       and every authed call gets 401. Retry with GITHUB_FALLBACK_TOKEN (the
+       runner's own always-valid token; unauthenticated calls share the
+       runner IP's rate limit, so they're a last resort) — the repo is
+       public, so release data still works; traffic (push access) fails
+       below and is reported loudly instead of taking the whole run down. */
+    tokenRejected = true;
+    const fallback = GITHUB_FALLBACK_TOKEN !== activeToken ? GITHUB_FALLBACK_TOKEN : "";
+    activeToken = fallback;
+    warn(
+      "GitHub token rejected",
+      `GitHub returned 401 Bad credentials for the provided token (source: ${TOKEN_SOURCE}) — ` +
+        `it has likely expired or been revoked. Rotate the LEGALWORK_STATS_TOKEN secret ` +
+        `(classic PAT with repo scope). Retrying ${fallback ? "with the fallback token" : "unauthenticated"}.`,
+    );
+    return githubGet(path);
+  }
   if (!response.ok) {
-    throw new Error(`GitHub API ${response.status} on ${path}: ${await response.text()}`);
+    const error = new Error(`GitHub API ${response.status} on ${path}: ${await response.text()}`);
+    error.status = response.status;
+    throw error;
   }
   return response.json();
 }
@@ -144,8 +185,11 @@ for (const release of releases) {
 
 /* Repo traffic: views/clones per day plus the 14-day referrer table. Needs
    push access — if the token lacks it (403), skip traffic rather than fail
-   the whole run. */
+   the whole run, but loudly: a warning annotation and a
+   repo_traffic_snapshot_skipped marker event, so the gap is visible in the
+   Actions UI and alertable in PostHog before the 14-day window ages out. */
 let trafficEvents = 0;
+let trafficSkipped = false;
 try {
   const [views, clones, referrers] = await Promise.all([
     githubGet("traffic/views"),
@@ -189,7 +233,29 @@ try {
     trafficEvents += 1;
   }
 } catch (error) {
-  console.warn(`Traffic API unavailable (needs push access) — skipping: ${error.message ?? error}`);
+  trafficSkipped = true;
+  const status = typeof error.status === "number" ? error.status : null;
+  warn(
+    "Repo traffic snapshot SKIPPED",
+    `Views/clones/referrers were NOT captured (HTTP ${status ?? "unknown"}). These endpoints need a ` +
+      `token with push access to ${REPO} (this run's token source: ${TOKEN_SOURCE}` +
+      `${tokenRejected ? ", which GitHub rejected as invalid" : ""}) — rotate or set the ` +
+      `LEGALWORK_STATS_TOKEN secret. GitHub deletes traffic data after a rolling 14 days, so every ` +
+      `day this stays broken loses view/clone/referrer history permanently. ${error.message ?? error}`,
+  );
+  events.push({
+    event: "repo_traffic_snapshot_skipped",
+    distinct_id: DISTINCT_ID,
+    timestamp,
+    properties: {
+      $process_person_profile: false,
+      repo: REPO,
+      http_status: status,
+      token_source: TOKEN_SOURCE,
+      token_rejected: tokenRejected,
+      error: String(error.message ?? error).slice(0, 300),
+    },
+  });
 }
 
 const installerTotals = new Map();
@@ -203,8 +269,10 @@ for (const event of events) {
   installerTotals.set(key, (installerTotals.get(key) ?? 0) + event.properties.cumulative_downloads);
 }
 
+const assetSnapshots = events.filter((event) => event.event === EVENT_NAME).length;
 console.log(
-  `${REPO}: ${releases.length} releases, ${events.length - trafficEvents} asset snapshots, ${trafficEvents} traffic snapshots @ ${timestamp}`,
+  `${REPO}: ${releases.length} releases, ${assetSnapshots} asset snapshots, ` +
+    `${trafficSkipped ? "traffic SKIPPED" : `${trafficEvents} traffic snapshots`} @ ${timestamp}`,
 );
 console.log(
   "Cumulative installer downloads by platform:",

@@ -31,8 +31,17 @@ jobs:
           # Traffic endpoints (views/clones/referrers) need push access, which
           # the default Actions token may lack — set the LEGALWORK_STATS_TOKEN
           # secret (classic PAT, repo scope) to enable them; release counters
-          # work either way (the script skips traffic on 403).
+          # work either way. Note an EXPIRED PAT is still a non-empty secret,
+          # so the || fallback below does not engage for it: the script
+          # detects the 401 itself, retries with GITHUB_FALLBACK_TOKEN, and
+          # reports the skipped traffic as a ::warning:: annotation plus a
+          # repo_traffic_snapshot_skipped PostHog event.
           GITHUB_TOKEN: ${{ secrets.LEGALWORK_STATS_TOKEN || github.token }}
+          # Retried with when GITHUB_TOKEN is rejected — always valid, so the
+          # release counters survive a dead PAT.
+          GITHUB_FALLBACK_TOKEN: ${{ github.token }}
+          # Which token GITHUB_TOKEN resolved to, named in those warnings.
+          STATS_TOKEN_SOURCE: ${{ secrets.LEGALWORK_STATS_TOKEN && 'LEGALWORK_STATS_TOKEN secret' || 'default github.token' }}
           # Optional override; defaults to the LegalWork PostHog project key
           # baked into the script (publishable, same as the app).
           LEGALWORK_POSTHOG_KEY: ${{ vars.LEGALWORK_POSTHOG_KEY }}
