@@ -13,7 +13,7 @@ import {
   Sparkles,
   Users,
 } from "lucide-react";
-import { Badge, Button, Card, Divider, Row } from "@legalwork/ui/react";
+import { Badge, Button, Card, Divider } from "@legalwork/ui/react";
 
 import { toast } from "@/components/ui/sonner";
 import { t } from "@/i18n";
@@ -296,6 +296,26 @@ export function EigenweltAccountView({
             </div>
           </>
         ) : null}
+
+        {!hasModels ? (
+          <p className="flex items-start gap-2 text-xs text-subtext">
+            <Sparkles className="mt-0.5 size-3.5 shrink-0 text-brand" />
+            <span>{t("account.no_models")}</span>
+          </p>
+        ) : null}
+
+        <Divider />
+        {/* Everything else about the firm lives on the platform — one row out. */}
+        <div className="flex flex-wrap items-center gap-2">
+          <Button variant="secondary" size="sm" onClick={() => void openDesktopUrl(billingUrl)}>
+            <CreditCard className="size-4" /> {t("firm_hub.billing")} <ExternalLink className="size-3.5" />
+          </Button>
+          {orgManagement ? (
+            <Button variant="secondary" size="sm" onClick={() => void openDesktopUrl(membersUrl)}>
+              <Users className="size-4" /> {t("firm_hub.members")} <ExternalLink className="size-3.5" />
+            </Button>
+          ) : null}
+        </div>
       </Card>
 
       {/* Trial lapsed: the paid models are gone until they subscribe. */}
@@ -308,52 +328,6 @@ export function EigenweltAccountView({
           <div>
             <Button variant="primary" size="sm" onClick={() => void openDesktopUrl(billingUrl)}>
               <CreditCard className="size-4" /> {t("account.trial_ended_cta")}
-            </Button>
-          </div>
-        </Card>
-      ) : null}
-
-      {!hasModels ? (
-        <Card padding="lg" className="space-y-3">
-          <div className="flex items-start gap-2">
-            <Sparkles className="mt-0.5 size-4 shrink-0 text-brand" />
-            <p className="text-sm text-subtext">{t("account.no_models")}</p>
-          </div>
-          {refreshButton}
-        </Card>
-      ) : null}
-
-      {/* Firm administration */}
-      <Card>
-        <Row
-          leading={<Users className="size-4" />}
-          title={t("firm_hub.org_title")}
-          description={t("firm_hub.org_body")}
-          trailing={
-            <div className="flex items-center gap-2">
-              {orgManagement ? (
-                <Button variant="secondary" size="sm" onClick={() => void openDesktopUrl(membersUrl)}>
-                  {t("firm_hub.members")} <ExternalLink className="size-3.5" />
-                </Button>
-              ) : null}
-              <Button variant="secondary" size="sm" onClick={() => void openDesktopUrl(billingUrl)}>
-                <CreditCard className="size-4" /> {t("firm_hub.billing")} <ExternalLink className="size-3.5" />
-              </Button>
-            </div>
-          }
-        />
-      </Card>
-
-      {/* Upgrade hint when connected on a plan without the firm-hub features */}
-      {!hasEigenweltFeature(entitlements, "admin_hub") ? (
-        <Card variant="elevated" padding="lg" className="space-y-3">
-          <div className="flex items-center gap-2 text-xs font-medium uppercase tracking-wide text-brand">
-            <Building2 className="size-3.5" /> {t("firm_hub.locked_eyebrow")}
-          </div>
-          <p className="text-sm text-subtext">{t("firm_hub.locked_body")}</p>
-          <div>
-            <Button variant="primary" size="sm" onClick={() => void openDesktopUrl(billingUrl)}>
-              <CreditCard className="size-4" /> {t("firm_hub.upgrade")}
             </Button>
           </div>
         </Card>
