@@ -723,7 +723,7 @@ export function AppSidebar(props: AppSidebarProps) {
               onClick={toggleDrive}
             >
               <HardDrive className="size-[18px]" strokeWidth={1.5} />
-              <span>Drive</span>
+              <span>Memory Drive</span>
             </SidebarMenuButton>
           </SidebarMenuItem>
           <SidebarMenuItem>

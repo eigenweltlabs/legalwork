@@ -281,18 +281,18 @@ export function LegalMemoryFilesPanel({
       <aside className="flex h-full w-[300px] min-w-[260px] max-w-[34vw] shrink-0 flex-col border-r border-border bg-background mac:bg-background/90 mac:backdrop-blur-2xl">
         <div className="flex h-10 shrink-0 items-center gap-2 border-b border-border px-3 mac:titlebar-no-drag">
           <FolderOpen className="size-4 shrink-0 text-indigo-10" />
-          <h2 className="min-w-0 flex-1 truncate text-sm font-medium text-foreground">Drive</h2>
+          <h2 className="min-w-0 flex-1 truncate text-sm font-medium text-foreground">Memory Drive</h2>
           {rootsQuery.data && totalsKnown ? (
             <span className="text-[10px] tabular-nums text-muted-foreground">{totalFiles.toLocaleString()}</span>
           ) : null}
           <Tooltip>
-            <TooltipTrigger render={<Button variant="ghost" size="icon-sm" onClick={refresh} aria-label="Refresh Drive" />}>
+            <TooltipTrigger render={<Button variant="ghost" size="icon-sm" onClick={refresh} aria-label="Refresh Memory Drive" />}>
               <RotateCw className={cn("size-3.5", (rootsQuery.isFetching || search.isFetching) && "animate-spin")} />
             </TooltipTrigger>
             <TooltipContent>Refresh</TooltipContent>
           </Tooltip>
           <Tooltip>
-            <TooltipTrigger render={<Button variant="ghost" size="icon-sm" onClick={onClose} aria-label="Close Drive" />}>
+            <TooltipTrigger render={<Button variant="ghost" size="icon-sm" onClick={onClose} aria-label="Close Memory Drive" />}>
               <X className="size-4" />
             </TooltipTrigger>
             <TooltipContent>Close</TooltipContent>
