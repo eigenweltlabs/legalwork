@@ -6,6 +6,7 @@ import { Page, PageBackground, PageTitlebarRegion } from "@/components/page";
 import { Button } from "@/components/ui/button";
 import { ScrollArea, ScrollAreaViewport } from "@/components/ui/scroll-area";
 import { Switch } from "@/components/ui/switch";
+import { StepDots } from "./onboarding-cover";
 import { cn } from "@/lib/utils";
 
 // The "how" — three plain-English steps.
@@ -70,6 +71,7 @@ export function WelcomePage({
             <div className="flex w-full flex-col justify-center px-8 py-16 lg:w-[46%] lg:px-16">
               <div className="flex w-full max-w-md flex-col gap-11">
                 <div>
+                  <StepDots step={1} total={4} />
                   <span className="lw-section-eyebrow uppercase text-dls-secondary">Local computer-use agent</span>
                   <h1 className="mt-4 text-[40px] font-medium leading-[1.02] tracking-[-0.04em] text-dls-text">
                     {t("welcome.title")}

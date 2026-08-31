@@ -291,7 +291,7 @@ export function AudioStep(props: {
     >
       <div className="flex w-full max-w-md flex-col gap-7">
         <div>
-          <StepDots step={3} total={3} />
+          <StepDots step={4} total={4} />
           <h1 className="text-[36px] font-medium leading-[1.04] tracking-[-0.035em] text-dls-text">
             {t("onboarding_audio.title")}
           </h1>
