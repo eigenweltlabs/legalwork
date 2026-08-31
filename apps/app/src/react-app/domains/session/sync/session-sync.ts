@@ -8,7 +8,6 @@ import { allowlistedErrorName } from "@/app/lib/app-error";
 import { createClient } from "@/app/lib/opencode";
 import { normalizeEvent } from "@/app/utils";
 import { SYNTHETIC_SESSION_ERROR_MESSAGE_PREFIX, type OpencodeEvent, type PendingPermission, type PendingQuestion } from "@/app/types";
-import { consumeEigenweltFreeBudgetStop, EIGENWELT_FREE_LIMIT_ERROR_TEXT } from "@/app/lib/eigenwelt-free-budget";
 import { consumeEigenweltBudgetStop, EIGENWELT_BUDGET_EXCEEDED_ERROR_TEXT } from "@/app/lib/eigenwelt-budget";
 import { createSessionErrorUIMessage, describeOpencodeSessionError, snapshotToUIMessages } from "./usechat-adapter";
 import {
@@ -660,11 +659,9 @@ function applyEvent(entry: SyncEntry, workspaceId: string, event: OpencodeEvent)
       // Substitute the matching copy so the terminal chat message renders as
       // the friendly limit / top-up card instead of "The message was
       // interrupted".
-      const errorText = consumeEigenweltFreeBudgetStop(sessionId)
-        ? EIGENWELT_FREE_LIMIT_ERROR_TEXT
-        : consumeEigenweltBudgetStop(sessionId)
-          ? EIGENWELT_BUDGET_EXCEEDED_ERROR_TEXT
-          : describeOpencodeSessionError(sessionError);
+      const errorText = consumeEigenweltBudgetStop(sessionId)
+        ? EIGENWELT_BUDGET_EXCEEDED_ERROR_TEXT
+        : describeOpencodeSessionError(sessionError);
       const runStartedAt = takeTaskRunStart(sessionId);
       if (runStartedAt !== null) {
         captureAnalyticsEvent("task_run_errored", {

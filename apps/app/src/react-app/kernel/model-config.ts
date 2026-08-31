@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 
 import {
-  DEFAULT_MODEL,
   MODEL_PREF_KEY,
   SESSION_MODEL_PREF_KEY,
   VARIANT_PREF_KEY,
@@ -122,14 +121,14 @@ export function serializeSessionChoiceOverrides(
 
 export function parseWorkspaceModelVariants(
   raw: string | null,
-  fallbackModel: ModelRef = DEFAULT_MODEL,
+  fallbackModel: ModelRef | null = null,
 ): Record<string, string> {
   if (!raw || !raw.trim()) return {};
   try {
     const parsed = JSON.parse(raw) as unknown;
     if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
       const normalized = normalizeModelBehaviorValue(raw);
-      return normalized ? { [formatModelRef(fallbackModel)]: normalized } : {};
+      return normalized && fallbackModel ? { [formatModelRef(fallbackModel)]: normalized } : {};
     }
     const next: Record<string, string> = {};
     for (const [key, value] of Object.entries(
@@ -141,17 +140,20 @@ export function parseWorkspaceModelVariants(
     return next;
   } catch {
     const normalized = normalizeModelBehaviorValue(raw);
-    return normalized ? { [formatModelRef(fallbackModel)]: normalized } : {};
+    return normalized && fallbackModel ? { [formatModelRef(fallbackModel)]: normalized } : {};
   }
 }
 
-export function readStoredDefaultModel(): ModelRef {
-  if (typeof window === "undefined") return DEFAULT_MODEL;
+/** The persisted default model, or null — there is no built-in fallback
+ *  model anymore (the free tier is retired); a null selection renders the
+ *  connect-AI state instead. */
+export function readStoredDefaultModel(): ModelRef | null {
+  if (typeof window === "undefined") return null;
   try {
     const stored = window.localStorage.getItem(MODEL_PREF_KEY);
-    return parseModelRef(stored) ?? DEFAULT_MODEL;
+    return parseModelRef(stored);
   } catch {
-    return DEFAULT_MODEL;
+    return null;
   }
 }
 
@@ -169,11 +171,11 @@ export function writeStoredDefaultModel(model: ModelRef): void {
  * session/workspace model overrides from context/model-config.ts will be
  * ported incrementally as the session and settings surfaces migrate.
  */
-export function useDefaultModel(): [ModelRef, (next: ModelRef) => void] {
-  const [model, setModel] = useState<ModelRef>(() => readStoredDefaultModel());
+export function useDefaultModel(): [ModelRef | null, (next: ModelRef) => void] {
+  const [model, setModel] = useState<ModelRef | null>(() => readStoredDefaultModel());
 
   useEffect(() => {
-    writeStoredDefaultModel(model);
+    if (model) writeStoredDefaultModel(model);
   }, [model]);
 
   const update = useCallback((next: ModelRef) => {

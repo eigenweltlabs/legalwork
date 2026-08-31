@@ -16,11 +16,6 @@ export const VARIANT_PREF_KEY = "legalwork.modelVariant";
 export { LANGUAGE_PREF_KEY } from "../i18n";
 export const HIDE_TITLEBAR_PREF_KEY = "legalwork.hideTitlebar";
 
-export const DEFAULT_MODEL: ModelRef = {
-  providerID: "opencode",
-  modelID: "big-pickle",
-};
-
 export const SUGGESTED_PLUGINS: SuggestedPlugin[] = [];
 
 export type ExtensionKind = "mcp" | "plugin" | "skill" | "ui-control" | "extension";

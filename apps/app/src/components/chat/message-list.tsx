@@ -23,13 +23,6 @@ import {
 import type { SessionStatus } from "@opencode-ai/sdk/v2/client"
 import { openDesktopUrl } from "@/app/lib/desktop"
 import {
-  EIGENWELT_FREE_LIMIT_BODY,
-  EIGENWELT_FREE_LIMIT_TITLE,
-  EIGENWELT_FREE_UPGRADE_LABEL,
-  EIGENWELT_FREE_UPGRADE_URL,
-  isEigenweltFreeLimitErrorText,
-} from "@/app/lib/eigenwelt-free-budget"
-import {
   eigenweltBudgetLimitDisplay,
   isEigenweltBudgetExceededErrorText,
   type EigenweltBudgetPlan,
@@ -647,9 +640,6 @@ interface ErrorMessageProps {
 
 function ErrorMessage({ error }: ErrorMessageProps) {
   const eigenweltPlan = React.useContext(EigenweltBudgetPlanContext)
-  if (isEigenweltFreeLimitErrorText(error)) {
-    return <FreeLimitReachedMessage />
-  }
   if (isEigenweltBudgetExceededErrorText(error)) {
     return <BudgetExceededMessage plan={eigenweltPlan} />
   }
@@ -659,39 +649,6 @@ function ErrorMessage({ error }: ErrorMessageProps) {
         <div className="text-foreground flex min-w-0 flex-1 flex-row items-start gap-2 rounded-lg border-2 border-red-300 bg-red-300/20 px-2 py-1">
           <AlertTriangle size={16} className="mt-0.5 shrink-0 text-destructive" />
           <p className="whitespace-pre-wrap text-destructive">{error}</p>
-        </div>
-      </div>
-    </Message>
-  )
-}
-
-/**
- * Terminal card for an Eigenwelt free-tier daily-limit stop (the app aborts
- * the run after the allowed retries — see app/lib/eigenwelt-free-budget).
- * Flat, lined border; friendly copy — the state resolves by upgrading or by
- * waiting for tomorrow's allowance.
- */
-function FreeLimitReachedMessage() {
-  return (
-    <Message className="not-prose mx-auto flex w-full max-w-3xl flex-col items-start gap-2 px-0 md:px-10">
-      <div className="flex w-full min-w-0 flex-col gap-2 rounded-lg border border-dls-border bg-dls-surface px-4 py-3">
-        <div className="flex items-start gap-2">
-          <AlertTriangle size={16} className="mt-0.5 shrink-0 text-amber-700" />
-          <div className="min-w-0 space-y-1">
-            <p className="text-sm font-medium text-foreground">
-              {EIGENWELT_FREE_LIMIT_TITLE}
-            </p>
-            <p className="text-sm text-muted-foreground">{EIGENWELT_FREE_LIMIT_BODY}</p>
-          </div>
-        </div>
-        <div className="ml-6">
-          <Button
-            size="sm"
-            className="h-7 text-xs"
-            onClick={() => void openDesktopUrl(EIGENWELT_FREE_UPGRADE_URL)}
-          >
-            {EIGENWELT_FREE_UPGRADE_LABEL}
-          </Button>
         </div>
       </div>
     </Message>

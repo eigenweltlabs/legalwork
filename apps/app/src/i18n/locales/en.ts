@@ -2056,6 +2056,13 @@ export default {
   "onboarding_setup.panel_eyebrow": "On this device",
   "onboarding_setup.panel_title": "Your documents and audio never leave this computer.",
   "onboarding_setup.panel_footer": "Runs locally · Private · Your data",
+  // Composer: no model connected (the free tier is retired)
+  "chat.no_model_title": "No AI connected.",
+  "chat.no_model_body": "Start your 7-day free trial with Eigenwelt, or connect your own model.",
+  "chat.no_model_trial": "Start free trial",
+  "chat.no_model_byo": "Connect a model",
+  "chat.free_retired_toast":
+    "Free models have been retired — start your 7-day free trial or connect your own model.",
   // Onboarding: the "Your AI" cover (Eigenwelt trial primary, small BYO link)
   "onboarding_ai.eyebrow": "Step two · Your AI",
   "onboarding_ai.title": "Add AI to LegalWork.",

@@ -10,13 +10,6 @@ import { toast } from "@/components/ui/sonner";
 import { analyticsSurface, captureAnalyticsEvent } from "@/app/lib/analytics";
 import { analyticsErrorService, analyticsErrorStatus } from "@/app/lib/analytics-error";
 import {
-  EIGENWELT_FREE_LIMIT_ERROR_TEXT,
-  eigenweltFreeBudgetRetryAction,
-  isEigenweltFreeBudgetError,
-  markEigenweltFreeBudgetStop,
-  shouldStopEigenweltFreeBudgetRetry,
-} from "@/app/lib/eigenwelt-free-budget";
-import {
   EIGENWELT_BUDGET_EXCEEDED_ERROR_TEXT,
   eigenweltBudgetLimitDisplay,
   eigenweltBudgetRetryAction,
@@ -136,7 +129,8 @@ export type SessionSurfaceProps = {
   modelUnavailable?: boolean;
   selectedModel: ModelRef;
   /** True when the active model is a free-tier model (no-key fallback). */
-  freeModelSelected?: boolean;
+  /** Open the connect-AI flow (true = preselect Eigenwelt / start trial). */
+  onConnectAi?: (preferEigenwelt: boolean) => void;
   onModelPickerOpenChange: (open: boolean) => void;
   onModelChange: (model: ModelRef) => void;
   onSendDraft: (draft: ComposerDraft, sessionId: string) => void;
@@ -316,20 +310,33 @@ function TodoPanel(props: { todos: TodoItem[] }) {
 }
 
 /**
- * Banner shown above the composer whenever the active model is a free model
- * (the no-key fallback, served by Eigenwelt's free gateway). Free-tier usage
- * data is logged, so free models are for testing only — never for
- * privileged, client, or matter data.
+ * Banner shown above the composer when NO model is connected (there is no
+ * free fallback tier). Offers the two real paths: the Eigenwelt trial, or
+ * bringing your own model/key.
  */
-function FreeModelNotice() {
+function NoModelNotice(props: { onConnect?: (preferEigenwelt: boolean) => void }) {
   return (
-    <div className="flex items-start gap-2.5 border-b border-dls-border bg-amber-2/40 px-4 py-3">
-      <TriangleAlert size={14} className="mt-0.5 shrink-0 text-amber-11" />
-      <p className="text-xs leading-relaxed text-amber-11">
-        <span className="font-medium">Free test model.</span>{" "}
-        Lower-quality, and zero data retention is not guaranteed. Don&apos;t use
-        it with client or matter data. Connect your own model for real work.
+    <div className="flex flex-wrap items-center gap-2.5 border-b border-dls-border bg-dls-surface px-4 py-3">
+      <p className="min-w-0 flex-1 text-xs leading-relaxed text-dls-secondary">
+        <span className="font-medium text-dls-text">{t("chat.no_model_title")}</span>{" "}
+        {t("chat.no_model_body")}
       </p>
+      <div className="flex shrink-0 items-center gap-2">
+        <button
+          type="button"
+          className="rounded-md bg-primary px-2.5 py-1 text-xs font-medium text-primary-fg transition-opacity hover:opacity-90"
+          onClick={() => props.onConnect?.(true)}
+        >
+          {t("chat.no_model_trial")}
+        </button>
+        <button
+          type="button"
+          className="rounded-md border border-dls-border px-2.5 py-1 text-xs font-medium text-dls-text transition-colors hover:bg-dls-hover"
+          onClick={() => props.onConnect?.(false)}
+        >
+          {t("chat.no_model_byo")}
+        </button>
+      </div>
     </div>
   );
 }
@@ -489,6 +496,8 @@ export function SessionSurface(props: SessionSurfaceProps) {
   const trialEndedNoticeVisible =
     props.selectedModel.providerID === "eigenwelt" && eigenweltTrial.kind === "ended";
   const trialBillingUrl = eigenweltBillingUrl(eigenweltEntitlementsQuery.data?.platformURL ?? null);
+  // No model connected at all (free tier retired): offer trial / BYO inline.
+  const noModelNoticeVisible = !props.selectedModel.providerID;
   const showThinking = local.prefs.showThinking;
   const sessionActivityStatus = useSessionActivityStore(
     (state) => state.statusesByWorkspaceId[props.workspaceId]?.[props.sessionId] ?? "idle",
@@ -778,12 +787,9 @@ export function SessionSurface(props: SessionSurfaceProps) {
   // the engine's endless retry/backoff loop is pointless. Policy: let it
   // retry up to 3 attempts (with an upgrade / top-up action on the banner),
   // then abort the run and surface the matching terminal card. Gated on the
-  // session's selected provider being `eigenwelt-free` (daily limit) or
-  // `eigenwelt` (org budget); every other provider/error keeps the engine's
+  // session's selected provider being `eigenwelt` (org budget); every
+  // other provider/error keeps the engine's
   // default retry behavior.
-  const freeBudgetRetryActive =
-    liveStatus.type === "retry" &&
-    isEigenweltFreeBudgetError(props.selectedModel.providerID, liveStatus.message);
   const paidBudgetRetryActive =
     liveStatus.type === "retry" &&
     isEigenweltBudgetError(props.selectedModel.providerID, liveStatus.message);
@@ -797,7 +803,6 @@ export function SessionSurface(props: SessionSurfaceProps) {
       };
     }
     if (liveStatus.action) return liveStatus;
-    if (freeBudgetRetryActive) return { ...liveStatus, action: eigenweltFreeBudgetRetryAction() };
     if (paidBudgetRetryActive) {
       return {
         ...liveStatus,
@@ -805,7 +810,7 @@ export function SessionSurface(props: SessionSurfaceProps) {
       };
     }
     return liveStatus;
-  }, [eigenweltPlan, freeBudgetRetryActive, paidBudgetRetryActive, liveStatus]);
+  }, [eigenweltPlan, paidBudgetRetryActive, liveStatus]);
   useEffect(() => {
     // A fresh attempt (busy) re-arms the guard so a later prompt that hits
     // the limit / budget wall again is stopped again.
@@ -813,9 +818,8 @@ export function SessionSurface(props: SessionSurfaceProps) {
   }, [liveStatus.type]);
   useEffect(() => {
     if (liveStatus.type !== "retry") return;
-    const stopFree = shouldStopEigenweltFreeBudgetRetry(props.selectedModel.providerID, liveStatus.message, liveStatus.attempt);
-    const stopPaid = !stopFree && shouldStopEigenweltBudgetRetry(props.selectedModel.providerID, liveStatus.message, liveStatus.attempt);
-    if (!stopFree && !stopPaid) return;
+    const stopPaid = shouldStopEigenweltBudgetRetry(props.selectedModel.providerID, liveStatus.message, liveStatus.attempt);
+    if (!stopPaid) return;
     if (budgetStopFiredRef.current) return;
     budgetStopFiredRef.current = true;
     const attempt = liveStatus.attempt;
@@ -828,10 +832,9 @@ export function SessionSurface(props: SessionSurfaceProps) {
     injectSessionErrorMessage(
       props.workspaceId,
       props.sessionId,
-      stopFree ? EIGENWELT_FREE_LIMIT_ERROR_TEXT : EIGENWELT_BUDGET_EXCEEDED_ERROR_TEXT,
+      EIGENWELT_BUDGET_EXCEEDED_ERROR_TEXT,
     );
-    if (stopFree) markEigenweltFreeBudgetStop(props.sessionId);
-    else markEigenweltBudgetStop(props.sessionId);
+    markEigenweltBudgetStop(props.sessionId);
     void (async () => {
       const aborted = await abortSessionSafe(
         opencodeClient,
@@ -844,7 +847,7 @@ export function SessionSurface(props: SessionSurfaceProps) {
         budgetStopFiredRef.current = false;
         return;
       }
-      captureAnalyticsEvent(stopFree ? "task_run_free_limit_stopped" : "task_run_budget_stopped", { attempts: attempt });
+      captureAnalyticsEvent("task_run_budget_stopped", { attempts: attempt });
       await snapshotQuery.refetch();
     })();
   }, [clearQueuedDrafts, liveStatus, opencodeClient, props.selectedModel.providerID, props.sessionId, props.workspaceId, props.workspaceRoot, snapshotQuery.refetch]);
@@ -1779,12 +1782,12 @@ export function SessionSurface(props: SessionSurfaceProps) {
           onToggleLiveTranscript={recorderActive ? handleToggleLiveTranscript : undefined}
           liveTranscriptActive={liveTranscriptActive}
           onUploadInboxFiles={props.onUploadInboxFiles ?? handleUploadInboxFiles}
-          compactTopSpacing={Boolean(trialEndedNoticeVisible || props.freeModelSelected || props.activeQuestion || (props.todos ?? []).some((todo) => todo.content.trim()) || props.activePermission || queuedMessages.length > 0)}
+          compactTopSpacing={Boolean(trialEndedNoticeVisible || noModelNoticeVisible || props.activeQuestion || (props.todos ?? []).some((todo) => todo.content.trim()) || props.activePermission || queuedMessages.length > 0)}
           topAccessory={
-            trialEndedNoticeVisible || props.freeModelSelected || props.activeQuestion || (props.todos ?? []).some((todo) => todo.content.trim()) || props.activePermission || queuedMessages.length > 0 ? (
+            trialEndedNoticeVisible || noModelNoticeVisible || props.activeQuestion || (props.todos ?? []).some((todo) => todo.content.trim()) || props.activePermission || queuedMessages.length > 0 ? (
               <div>
                 {trialEndedNoticeVisible ? <TrialEndedNotice billingUrl={trialBillingUrl} /> : null}
-                {props.freeModelSelected ? <FreeModelNotice /> : null}
+                {noModelNoticeVisible ? <NoModelNotice onConnect={props.onConnectAi} /> : null}
                 {queuedMessages.length > 0 ? (
                   <QueuedMessagesPanel messages={queuedMessages} onRemove={removeQueuedDraft} />
                 ) : null}

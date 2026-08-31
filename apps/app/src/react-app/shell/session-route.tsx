@@ -164,10 +164,9 @@ import { SettingsSurface } from "./settings-route";
 import {
   ensureProviderListQuery,
   getConnectedProviderItems,
-  isFreeOpencodeModel,
   isModelAvailableInConnectedProviders,
   refreshProviderListQueries,
-  remapZenSelectionToEigenweltFree,
+  RETIRED_FREE_PROVIDER_IDS,
   useProviderListQuery,
 } from "@/react-app/infra/provider-list-query";
 
@@ -606,30 +605,16 @@ export function SessionRoute() {
       !isModelAvailableInConnectedProviders(providerListQuery.data, local.prefs.defaultModel),
   );
   const hasUsableModel = Boolean(local.prefs.defaultModel && !selectedModelUnavailable);
-  // One-time free-tier migration for existing installs: a persisted default
-  // model on the engine's built-in Zen provider ("opencode") strands when the
-  // server injects the eigenwelt-free provider and disables zen. Auto-switch
-  // to the free provider's first model instead of leaving the user stuck on
-  // "model no longer available". Idempotent: after the switch (or any manual
-  // pick of a non-zen model) the remap returns null.
+  // Free-tier retirement: older installs persisted a selection on the retired
+  // free providers ("eigenwelt-free" / the built-in zen "opencode"). Clear it
+  // once so the composer shows the connect-AI state instead of a dead model.
   const { setPrefs } = local;
   useEffect(() => {
-    const replacement = remapZenSelectionToEigenweltFree(
-      providerListQuery.data,
-      local.prefs.defaultModel,
-    );
-    if (!replacement) return;
-    setPrefs((previous) => ({ ...previous, defaultModel: replacement, modelVariant: null }));
-    toast(`Free models are now served by Eigenwelt — switched to ${resolveModelDisplayName(replacement.modelID)}.`);
-  }, [providerListQuery.data, local.prefs.defaultModel, setPrefs]);
-  // Warn above the composer whenever the active model is a free-tier model
-  // (the no-key fallback — Eigenwelt free gateway, or OpenCode Zen when the
-  // platform is unreachable). Free models are for testing only (usage data
-  // is logged) — never for privileged, client, or matter data.
-  const freeModelSelected = useMemo(
-    () => isFreeOpencodeModel(providerListQuery.data, local.prefs.defaultModel),
-    [providerListQuery.data, local.prefs.defaultModel],
-  );
+    const providerId = local.prefs.defaultModel?.providerID?.trim().toLowerCase();
+    if (!providerId || !RETIRED_FREE_PROVIDER_IDS.has(providerId)) return;
+    setPrefs((previous) => ({ ...previous, defaultModel: null, modelVariant: null }));
+    toast(t("chat.free_retired_toast"));
+  }, [local.prefs.defaultModel, setPrefs]);
   const canCreateTask = Boolean(
     opencodeClient && selectedWorkspaceId && !loading && !selectedWorkspaceError && !selectedModelUnavailable,
   );
@@ -859,7 +844,12 @@ export function SessionRoute() {
       modelPickerOpen: modelPicker.compactOpen,
       modelUnavailable: selectedModelUnavailable,
       selectedModel: local.prefs.defaultModel ?? { providerID: "", modelID: "" },
-      freeModelSelected,
+      // The connect-AI empty state above the composer (no model selected).
+      onConnectAi: (preferEigenwelt: boolean) =>
+        sessionProviderAuthStore.openProviderAuthModal({
+          preferredProviderId: preferEigenwelt ? "eigenwelt" : undefined,
+          returnFocusTarget: "composer",
+        }),
       onModelPickerOpenChange: modelPicker.setCompactOpen,
       onModelChange: (model: ModelRef) => {
         local.setPrefs((previous) => ({
@@ -1054,7 +1044,7 @@ export function SessionRoute() {
     modelPicker.compactOpen,
     handleOpenSettings,
     hasUsableModel,
-    freeModelSelected,
+    sessionProviderAuthStore,
     handleApplyEnvironmentChanges,
     environmentRuntimeKey,
     local,

@@ -885,7 +885,7 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
         }
         invalidateEigenweltEntitlements(hubWorkspaceId);
       }
-      // Await a FULL provider refresh (dispose → re-read the now-eigenwelt-free
+      // Await a FULL provider refresh (dispose → re-read the rebuilt
       // engine config → setProviders / setProviderConnectedIds) so the account
       // view's providers-derived state (model count + connected id set) drops
       // eigenwelt before it re-renders. reloadWorkspaceEngineFromUi alone only

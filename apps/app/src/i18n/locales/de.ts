@@ -571,6 +571,13 @@ const de: Record<string, string> = {
   "recorder.app_picker_loading": "Laufende Apps werden geladen…",
   "recorder.app_picker_confirm": "Auswahl verwenden",
 
+  // Composer: kein Modell verbunden (kein kostenloses Kontingent mehr)
+  "chat.no_model_title": "Keine KI verbunden.",
+  "chat.no_model_body": "Starte deine 7-tägige kostenlose Testphase bei Eigenwelt oder verbinde dein eigenes Modell.",
+  "chat.no_model_trial": "Kostenlos testen",
+  "chat.no_model_byo": "Modell verbinden",
+  "chat.free_retired_toast":
+    "Die kostenlosen Modelle wurden eingestellt — starte deine 7-tägige Testphase oder verbinde dein eigenes Modell.",
   // Onboarding: "Deine KI" (Eigenwelt-Testphase als Hauptweg, kleiner BYO-Link)
   "onboarding_ai.eyebrow": "Schritt zwei · Deine KI",
   "onboarding_ai.title": "KI für LegalWork.",

@@ -8,7 +8,7 @@
  * writes the cache; "Refresh models" and background refresh update the model
  * list around the kept key; signing out clears it.
  *
- * Mirrors eigenwelt-free.ts. The key is carried in the provider block's
+ * The key is carried in the provider block's
  * Authorization header (opencode passes provider `options` verbatim to
  * createOpenAICompatible and ignores a bare `apiKey`), never in auth.json.
  */
@@ -119,7 +119,7 @@ export async function refreshEigenweltPaidManifest(
 /**
  * Engine provider block for the paid tier — injected into every workspace.
  * The key travels in the Authorization header (see file header); mirrors
- * buildEigenweltFreeProviderBlock.
+ * the standard OpenAI-compatible provider block shape.
  */
 export function buildEigenweltPaidProviderBlock(manifest: EigenweltPaidManifest): Record<string, unknown> {
   return {

@@ -8,7 +8,6 @@ import { createServerLogger, startServer, syncAllWorkspacesRuntimeMcpToEngine } 
 import { ensureWorkspaceFiles } from "./workspace-init.js";
 import { keepLegalworkRuntimeConfigFileFresh, writeLegalworkRuntimeConfigFile } from "./legalwork-runtime-config.js";
 import { prepareManagedOpencodeEngineDb } from "./managed-opencode-db.js";
-import { refreshEigenweltFreeManifest } from "./eigenwelt-free.js";
 import { refreshEigenweltProviderModels } from "./eigenwelt-auth.js";
 import pkg from "../package.json" with { type: "json" };
 
@@ -43,12 +42,6 @@ if (!config.opencodeBaseUrl && process.env.LEGALWORK_MANAGE_OPENCODE === "1") {
     // on every runtime-DB write — so disposes always pick up current state.
     const runtimeConfigPath = await writeLegalworkRuntimeConfigFile(config, workspace.id);
     keepLegalworkRuntimeConfigFileFresh(config, workspace.id);
-    // Fire-and-forget: refresh the free-tier manifest disk cache; on change,
-    // rewrite the engine config file so the free provider (and the zen
-    // disable that rides on it) update on the next instance rebuild.
-    void refreshEigenweltFreeManifest(config)
-      .then((changed) => (changed ? writeLegalworkRuntimeConfigFile(config, workspace.id) : undefined))
-      .catch(() => undefined);
     // Fire-and-forget: pick up models added on the Eigenwelt gateway since the
     // provider was connected (no-op unless provider.eigenwelt is configured).
     void refreshEigenweltProviderModels(config, workspace.id);
