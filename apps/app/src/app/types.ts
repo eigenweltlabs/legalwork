@@ -184,6 +184,7 @@ export const SETTINGS_TAB_VALUES = [
   "general",
   "ai",
   "account",
+  "personalisation",
   "benchmark",
   "preferences",
   "permissions",

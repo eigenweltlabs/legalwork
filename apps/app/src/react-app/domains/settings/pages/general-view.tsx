@@ -9,6 +9,7 @@ import {
   Mic,
   RefreshCcw,
   ShieldCheck,
+  Sparkles,
   Zap,
   type LucideIcon,
 } from "lucide-react";
@@ -35,6 +36,12 @@ const globalItems: SettingsItem[] = [
     icon: Building2,
     title: t("settings.tab_account"),
     desc: t("settings.tab_description_account"),
+  },
+  {
+    tab: "personalisation",
+    icon: Sparkles,
+    title: "Personalisation",
+    desc: "System prompt additions, local memory, and response personality.",
   },
   { tab: "safety", icon: ShieldCheck, title: "Tool Permissions", desc: "Decide what LegalWork can do on its own across all workspaces." },
   { tab: "shell", icon: Layout, title: "Customization", desc: "Branding and task suggestions." },

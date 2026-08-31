@@ -9,7 +9,11 @@ import {
   writeLegalworkRuntimeConfigFile,
 } from "./legalwork-runtime-config.js";
 import { eigenweltFreeManifestCachePath } from "./eigenwelt-free.js";
-import { GLOBAL_TOOL_PERMISSIONS_ID, writeRuntimeOpencodeConfig } from "./runtime-opencode-config-store.js";
+import {
+  GLOBAL_PERSONALIZATION_ID,
+  GLOBAL_TOOL_PERMISSIONS_ID,
+  writeRuntimeOpencodeConfig,
+} from "./runtime-opencode-config-store.js";
 import type { ServerConfig } from "./types.js";
 
 const roots: string[] = [];
@@ -161,6 +165,36 @@ describe("legalwork runtime config file", () => {
     // Global tool key + this workspace's own external_directory, merged.
     expect(permission.bash).toBe("ask");
     expect(permission.external_directory).toEqual({ "/tmp/shared/*": "allow" });
+  });
+
+  test("global personalisation rewrites the active workspace config", async () => {
+    const { config } = await setup();
+    await writeLegalworkRuntimeConfigFile(config, "ws_1");
+    cleanups.push(keepLegalworkRuntimeConfigFileFresh(config, "ws_1"));
+
+    await writeRuntimeOpencodeConfig(config, GLOBAL_PERSONALIZATION_ID, (current) => ({
+      ...current,
+      personalization: {
+        customInstructions: "Use concise issue-rule-analysis conclusions.",
+        localMemoriesEnabled: true,
+        allowToolAssistedMemory: false,
+        personality: "professional",
+      },
+    }));
+
+    let prompt = "";
+    let plugins: string[] = [];
+    for (let attempt = 0; attempt < 50; attempt += 1) {
+      const parsed = await readConfigFile(config);
+      const agents = parsed.agent as Record<string, Record<string, unknown>>;
+      prompt = typeof agents.legalwork?.prompt === "string" ? agents.legalwork.prompt : "";
+      plugins = Array.isArray(parsed.plugin) ? parsed.plugin.filter((item) => typeof item === "string") : [];
+      if (prompt.includes("issue-rule-analysis")) break;
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    }
+
+    expect(prompt).toContain("Use concise issue-rule-analysis conclusions.");
+    expect(plugins).toContain("opencode-agent-memory@0.2.0");
   });
 });
 

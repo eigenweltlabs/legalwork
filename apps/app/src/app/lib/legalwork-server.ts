@@ -112,6 +112,23 @@ export type LegalworkServerSettings = {
   remoteAccessEnabled?: boolean;
 };
 
+export const LEGALWORK_PERSONALITY_VALUES = [
+  "default",
+  "pragmatic",
+  "professional",
+  "friendly",
+  "candid",
+] as const;
+
+export type LegalworkPersonality = (typeof LEGALWORK_PERSONALITY_VALUES)[number];
+
+export type LegalworkPersonalizationSettings = {
+  customInstructions: string;
+  localMemoriesEnabled: boolean;
+  allowToolAssistedMemory: boolean;
+  personality: LegalworkPersonality;
+};
+
 /** One model from the Eigenwelt platform manifest / sign-in exchange. */
 export type EigenweltManifestModel = {
   id: string;
@@ -1283,6 +1300,28 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
         method: "PUT",
         body: payload,
         timeoutMs: timeouts.status,
+      }),
+    getPersonalization: () =>
+      requestJson<{ settings: LegalworkPersonalizationSettings }>(baseUrl, "/personalization", {
+        token,
+        hostToken,
+        timeoutMs: timeouts.config,
+      }),
+    setPersonalization: (settings: LegalworkPersonalizationSettings) =>
+      requestJson<{ settings: LegalworkPersonalizationSettings; updatedAt: number }>(baseUrl, "/personalization", {
+        token,
+        hostToken,
+        method: "PUT",
+        body: settings,
+        timeoutMs: timeouts.config,
+      }),
+    deleteLocalMemories: () =>
+      requestJson<{ ok: boolean; deletedDirectories: number }>(baseUrl, "/personalization/memories", {
+        token,
+        hostToken,
+        method: "DELETE",
+        body: { confirm: true },
+        timeoutMs: timeouts.config,
       }),
     capabilities: () => requestJson<LegalworkServerCapabilities>(baseUrl, "/capabilities", { token, hostToken, timeoutMs: timeouts.capabilities }),
     googleWorkspaceStatus: () => requestJson<GoogleWorkspaceAuthStatus>(baseUrl, "/experimental/google-workspace/status", { token, hostToken, timeoutMs: timeouts.status }),

@@ -85,15 +85,20 @@ import { registerSessionRoutes } from "./routes/sessions.js";
 import { registerWorkspaceRoutes } from "./routes/workspaces.js";
 import {
   applyGlobalToolPermissions,
+  GLOBAL_PERSONALIZATION_ID,
   GLOBAL_TOOL_PERMISSIONS_ID,
+  isPersonality,
+  MAX_CUSTOM_INSTRUCTIONS_LENGTH,
   mergeOpencodeConfigs,
   mergeRuntimeProviderPatch,
+  readGlobalPersonalizationSettings,
   readGlobalToolPermissions,
   readRuntimeOpencodeConfig,
   runtimeMcpMap,
   type RuntimeOpencodeConfig,
   writeRuntimeOpencodeConfig,
 } from "./runtime-opencode-config-store.js";
+import { deleteAllLocalMemories } from "./personalization.js";
 import {
   mergeLegalworkWorkspaceConfigs,
   readLegalworkWorkspaceConfig,
@@ -206,6 +211,37 @@ function readStringField(value: unknown, key: string): string {
   if (!isRecord(value)) return "";
   const field = value[key];
   return typeof field === "string" ? field.trim() : "";
+}
+
+function parsePersonalizationPayload(value: unknown) {
+  if (!isRecord(value)) {
+    throw new ApiError(400, "invalid_personalization", "Personalisation settings are required");
+  }
+  if (typeof value.customInstructions !== "string") {
+    throw new ApiError(400, "invalid_personalization", "customInstructions must be a string");
+  }
+  if (value.customInstructions.length > MAX_CUSTOM_INSTRUCTIONS_LENGTH) {
+    throw new ApiError(
+      400,
+      "invalid_personalization",
+      `customInstructions must be ${MAX_CUSTOM_INSTRUCTIONS_LENGTH} characters or fewer`,
+    );
+  }
+  if (typeof value.localMemoriesEnabled !== "boolean") {
+    throw new ApiError(400, "invalid_personalization", "localMemoriesEnabled must be a boolean");
+  }
+  if (typeof value.allowToolAssistedMemory !== "boolean") {
+    throw new ApiError(400, "invalid_personalization", "allowToolAssistedMemory must be a boolean");
+  }
+  if (!isPersonality(value.personality)) {
+    throw new ApiError(400, "invalid_personalization", "personality is not supported");
+  }
+  return {
+    customInstructions: value.customInstructions,
+    localMemoriesEnabled: value.localMemoriesEnabled,
+    allowToolAssistedMemory: value.allowToolAssistedMemory,
+    personality: value.personality,
+  };
 }
 
 function recordRecordMap(value: unknown): Record<string, Record<string, unknown>> | null {
@@ -1578,6 +1614,32 @@ function createRoutes(
     const body = await readJsonBody(ctx.request);
     setAnalyticsConsent({ analyticsEnabled: body.analyticsEnabled });
     return jsonResponse({ ok: true, distinctId: launchAnalyticsId() });
+  });
+
+  addRoute(routes, "GET", "/personalization", "client", async () => {
+    return jsonResponse({ settings: await readGlobalPersonalizationSettings(config) });
+  });
+
+  addRoute(routes, "PUT", "/personalization", "client", async (ctx) => {
+    ensureWritable(config);
+    requireClientScope(ctx, "collaborator");
+    const settings = parsePersonalizationPayload(await readJsonBody(ctx.request));
+    await writeRuntimeOpencodeConfig(config, GLOBAL_PERSONALIZATION_ID, (current) => ({
+      ...current,
+      personalization: settings,
+    }));
+    return jsonResponse({ settings, updatedAt: Date.now() });
+  });
+
+  addRoute(routes, "DELETE", "/personalization/memories", "client", async (ctx) => {
+    ensureWritable(config);
+    requireClientScope(ctx, "collaborator");
+    const body = await readJsonBody(ctx.request);
+    if (body.confirm !== true) {
+      throw new ApiError(400, "confirmation_required", "confirm must be true");
+    }
+    const deletedDirectories = await deleteAllLocalMemories(config);
+    return jsonResponse({ ok: true, deletedDirectories });
   });
 
   addRoute(routes, "GET", "/workspace/:id/config", "client", async (ctx) => {

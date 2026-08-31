@@ -74,6 +74,7 @@ import { useSettingsExtensionController } from "@/react-app/domains/settings/set
 import { buildExtensionItems } from "@/react-app/domains/settings/extension-items";
 import { isLegalWorkExtensionEnabled, LEGALWORK_EXTENSION_STATE_CHANGED, setLegalWorkExtensionEnabled } from "@/react-app/domains/settings/extension-state";
 import { PreferencesView } from "@/react-app/domains/settings/pages/preferences-view";
+import { PersonalisationView } from "@/react-app/domains/settings/pages/personalisation-view";
 import { ShellCustomizationView } from "@/react-app/domains/settings/pages/shell-view";
 import { GeneralSettingsView } from "@/react-app/domains/settings/pages/general-view";
 import { AuthorizedFoldersPanel } from "@/react-app/domains/settings/panels/authorized-folders-panel";
@@ -229,6 +230,7 @@ function parseSettingsPath(pathname: string): {
     case "general":
     case "ai":
     case "account":
+    case "personalisation":
     case "preferences":
     case "permissions":
     case "safety":
@@ -2054,6 +2056,20 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
             onConfigApplied={() => {
               void reloadWorkspaceEngineFromUi();
             }}
+          />
+        );
+      case "personalisation":
+        return (
+          <PersonalisationView
+            client={legalworkClient ?? legalworkServerSnapshot.legalworkServerClient}
+            onSettingsApplied={() => {
+              reloadCoordinator.markReloadRequired("config", {
+                type: "config",
+                name: "Personalisation",
+                action: "updated",
+              });
+            }}
+            onOpenLink={(url) => platform.openLink(url)}
           />
         );
       case "benchmark":
