@@ -1,11 +1,12 @@
 /** @jsxImportSource react */
 /**
- * Onboarding: the Word/Office step. One action — install the add-in — then
- * the next page. The certificate prompt is a consequence of the click; the
- * step skips itself entirely when no Office app is installed. The panel
- * SHOWS the result: a document with tracked changes and the agent beside it.
+ * Onboarding: the Office step. One row per detected app (Word, Excel,
+ * PowerPoint), each with its own install button — mirroring the settings
+ * screen. The certificate prompt is a consequence of the click; the step
+ * skips itself entirely when no Office app is installed. The panel SHOWS
+ * the result: a document with tracked changes and the agent beside it.
  */
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { Check, Loader2 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -14,7 +15,13 @@ import { desktopBridge } from "@/app/lib/desktop";
 import type { OfficeAddinAppId } from "@legalwork/types/desktop-ipc";
 import { t } from "@/i18n";
 
-import { OnboardingCover, StepDots, onboardingDemoActive } from "./onboarding-cover";
+import {
+  CoverBackButton,
+  CoverSkipButton,
+  OnboardingCover,
+  StepDots,
+  onboardingDemoActive,
+} from "./onboarding-cover";
 
 type OfficeApp = { id: OfficeAddinAppId; label: string; enabled: boolean; installed: boolean };
 
@@ -85,16 +92,20 @@ function DocumentMock() {
   );
 }
 
-export function OfficeStep(props: { onDone: (result: "installed" | "skipped" | "unavailable") => void }) {
+export function OfficeStep(props: {
+  onDone: (result: "installed" | "skipped" | "unavailable") => void;
+  onBack: () => void;
+  /** False when the user navigated back here: show the rows (all installed)
+   * instead of skipping forward again. Self-skip on missing Office stays. */
+  autoAdvance?: boolean;
+}) {
   const demo = onboardingDemoActive();
   const [apps, setApps] = useState<OfficeApp[] | null>(null);
-  const [busy, setBusy] = useState(false);
-  const [installed, setInstalled] = useState(false);
+  const [certTrusted, setCertTrusted] = useState(true);
+  const [busyApp, setBusyApp] = useState<OfficeAddinAppId | null>(null);
+  /** An app was enabled by a click on THIS screen — drives the restart note. */
+  const [installedHere, setInstalledHere] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const advanceTimer = useRef<number | null>(null);
-  useEffect(() => () => {
-    if (advanceTimer.current !== null) window.clearTimeout(advanceTimer.current);
-  }, []);
 
   useEffect(() => {
     captureAnalyticsEvent("onboarding_office_viewed");
@@ -102,7 +113,9 @@ export function OfficeStep(props: { onDone: (result: "installed" | "skipped" | "
       setApps([
         { id: "word" as OfficeAddinAppId, label: "Word", enabled: false, installed: true },
         { id: "excel" as OfficeAddinAppId, label: "Excel", enabled: false, installed: true },
+        { id: "powerpoint" as OfficeAddinAppId, label: "PowerPoint", enabled: false, installed: true },
       ]);
+      setCertTrusted(false);
       return;
     }
     void (async () => {
@@ -117,11 +130,12 @@ export function OfficeStep(props: { onDone: (result: "installed" | "skipped" | "
           props.onDone("unavailable");
           return;
         }
-        if (detected.every((app) => app.enabled)) {
+        if ((props.autoAdvance ?? true) && detected.every((app) => app.enabled)) {
           props.onDone("installed");
           return;
         }
         setApps(detected);
+        setCertTrusted(status.certTrusted);
       } catch {
         props.onDone("unavailable");
       }
@@ -129,33 +143,38 @@ export function OfficeStep(props: { onDone: (result: "installed" | "skipped" | "
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const pending = (apps ?? []).filter((app) => !app.enabled);
-  const wordOnly = pending.length === 1;
-
-  const install = async () => {
-    setBusy(true);
+  const install = async (app: OfficeApp) => {
+    setBusyApp(app.id);
     setError(null);
     try {
       if (demo) {
-        await new Promise((resolve) => setTimeout(resolve, 1200));
+        await new Promise((resolve) => setTimeout(resolve, 1100));
       } else {
-        for (const app of pending) {
-          await desktopBridge.officeAddinInstall(app.id);
-          captureAnalyticsEvent("office_addin_installed", { app: app.id, surface: "onboarding" });
+        const result = await desktopBridge.officeAddinInstall(app.id);
+        if (!result.ok) {
+          setError(result.error ?? t("office_addins.install_failed"));
+          return;
         }
+        setCertTrusted(result.status.certTrusted);
       }
-      setInstalled(true);
-      // One action, next page.
-      advanceTimer.current = window.setTimeout(() => props.onDone("installed"), 2000);
+      captureAnalyticsEvent("office_addin_installed", { app: app.id, surface: "onboarding" });
+      setApps(
+        (current) =>
+          current?.map((entry) => (entry.id === app.id ? { ...entry, enabled: true } : entry)) ??
+          current,
+      );
+      setInstalledHere(true);
     } catch (installError) {
       setError(installError instanceof Error ? installError.message : String(installError));
     } finally {
-      setBusy(false);
+      setBusyApp(null);
     }
   };
 
   // Status still loading (or the step is about to self-skip): render nothing.
   if (!apps) return null;
+
+  const anyInstalled = apps.some((app) => app.enabled);
 
   return (
     <OnboardingCover
@@ -175,6 +194,16 @@ export function OfficeStep(props: { onDone: (result: "installed" | "skipped" | "
           </p>
         </>
       }
+      footerLeft={<CoverBackButton label={t("onboarding.back")} onClick={props.onBack} />}
+      footerRight={
+        anyInstalled ? (
+          <Button size="sm" onClick={() => props.onDone("installed")}>
+            {t("onboarding.continue")}
+          </Button>
+        ) : (
+          <CoverSkipButton label={t("onboarding.skip")} onClick={() => props.onDone("skipped")} />
+        )
+      }
     >
       <div className="flex w-full max-w-md flex-col gap-8">
         <div>
@@ -187,37 +216,49 @@ export function OfficeStep(props: { onDone: (result: "installed" | "skipped" | "
           </p>
         </div>
 
-        {installed ? (
-          <div className="flex flex-col gap-2">
-            <span className="inline-flex items-center gap-1.5 text-[14px] font-medium text-green-11">
-              <Check className="size-4" />
-              {t("onboarding_office.done")}
-            </span>
-            <p className="text-[13px] text-dls-secondary">{t("onboarding_office.restart_note")}</p>
-          </div>
-        ) : (
-          <div className="flex flex-col gap-3">
-            <Button size="lg" className="w-full justify-center" disabled={busy} onClick={() => void install()}>
-              {busy ? <Loader2 data-icon="inline-start" className="animate-spin" /> : null}
-              {wordOnly
-                ? t("onboarding_office.install_one", { app: pending[0]?.label ?? "Word" })
-                : t("onboarding_office.install_all")}
-            </Button>
-            {error ? <p className="text-[12.5px] text-red-11">{error}</p> : null}
-          </div>
-        )}
-
-        {installed ? null : (
-          <div className="border-t border-dls-border pt-5">
-            <button
-              type="button"
-              className="text-[13px] text-dls-secondary transition-colors hover:text-dls-text"
-              onClick={() => props.onDone("skipped")}
+        {/* One row per detected Office app, like the settings screen. */}
+        <div className="flex flex-col">
+          {apps.map((app, index) => (
+            <div
+              key={app.id}
+              className={
+                "flex items-center justify-between gap-4 py-3" +
+                (index > 0 ? " border-t border-dls-border" : "")
+              }
             >
-              {t("onboarding.skip")}
-            </button>
-          </div>
-        )}
+              <span className="text-[14px] font-medium text-dls-text">Microsoft {app.label}</span>
+              {app.enabled ? (
+                <span className="inline-flex items-center gap-1.5 text-[13px] font-medium text-green-11">
+                  <Check className="size-4" />
+                  {t("onboarding_office.done")}
+                </span>
+              ) : (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={busyApp !== null}
+                  onClick={() => void install(app)}
+                >
+                  {busyApp === app.id ? (
+                    <Loader2 data-icon="inline-start" className="animate-spin" />
+                  ) : null}
+                  {t("office_addins.install")}
+                </Button>
+              )}
+            </div>
+          ))}
+        </div>
+
+        <div className="flex flex-col gap-1.5">
+          {error ? <p className="text-[12.5px] text-red-11">{error}</p> : null}
+          {installedHere ? (
+            <p className="text-[13px] text-dls-secondary">{t("onboarding_office.restart_note")}</p>
+          ) : !certTrusted ? (
+            <p className="text-[12.5px] leading-relaxed text-dls-secondary">
+              {t("onboarding_office.cert_hint")}
+            </p>
+          ) : null}
+        </div>
       </div>
     </OnboardingCover>
   );

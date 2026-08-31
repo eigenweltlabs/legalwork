@@ -13,7 +13,7 @@ import { captureAnalyticsEvent } from "@/app/lib/analytics";
 import { openDesktopUrl } from "@/app/lib/desktop";
 import { t } from "@/i18n";
 import { ProviderIcon } from "../../design-system/provider-icon";
-import { OnboardingCover, StepDots } from "./onboarding-cover";
+import { CoverSkipButton, OnboardingCover, StepDots } from "./onboarding-cover";
 
 export type AiStepProps = {
   /** Bind the OAuth loopback and return the browser URL (provider-auth store). */
@@ -127,6 +127,15 @@ export function AiStep(props: AiStepProps) {
           </p>
         </>
       }
+      footerRight={
+        <CoverSkipButton
+          label={t("onboarding.skip")}
+          onClick={() => {
+            captureAnalyticsEvent("onboarding_ai_skipped");
+            props.onSkip();
+          }}
+        />
+      }
     >
       <div className="flex w-full max-w-md flex-col gap-8">
         <div>
@@ -180,19 +189,6 @@ export function AiStep(props: AiStepProps) {
           <p className="-mt-4 text-[12px] text-dls-secondary">{t("account.server_required")}</p>
         ) : null}
 
-        {/* The only way around the trial: a plain skip. */}
-        <div className="border-t border-dls-border pt-5">
-          <button
-            type="button"
-            className="text-[13px] text-dls-secondary transition-colors hover:text-dls-text"
-            onClick={() => {
-              captureAnalyticsEvent("onboarding_ai_skipped");
-              props.onSkip();
-            }}
-          >
-            {t("onboarding.skip")}
-          </button>
-        </div>
       </div>
     </OnboardingCover>
   );

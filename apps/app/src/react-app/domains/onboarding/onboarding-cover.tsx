@@ -5,6 +5,7 @@
  * keep the chrome here and the steps down to their content.
  */
 import type { ReactNode } from "react";
+import { ArrowLeft } from "lucide-react";
 import { PaperGrainGradient } from "@legalwork/ui/react";
 
 import { Page, PageBackground, PageTitlebarRegion } from "@/components/page";
@@ -31,6 +32,33 @@ export function StepDots(props: { step: number; total: number }) {
   );
 }
 
+/** Wizard footer back button — bottom-left of the left column. */
+export function CoverBackButton(props: { label: string; onClick: () => void }) {
+  return (
+    <button
+      type="button"
+      className="inline-flex items-center gap-1.5 text-[13px] text-dls-secondary transition-colors hover:text-dls-text"
+      onClick={props.onClick}
+    >
+      <ArrowLeft className="size-3.5" />
+      {props.label}
+    </button>
+  );
+}
+
+/** Wizard footer skip/continue — bottom-right of the left column. */
+export function CoverSkipButton(props: { label: string; onClick: () => void }) {
+  return (
+    <button
+      type="button"
+      className="text-[13px] text-dls-secondary transition-colors hover:text-dls-text"
+      onClick={props.onClick}
+    >
+      {props.label}
+    </button>
+  );
+}
+
 /** Dev/design affordance: localStorage["legalwork.onboardingDemo"] = "1"
  * makes the tool steps simulate their states (detected Office apps, mic
  * grant, model download) so every screen can be reviewed on any machine. */
@@ -47,12 +75,17 @@ export function OnboardingCover(props: {
   children: ReactNode;
   /** Content inside the dark panel. */
   panel: ReactNode;
+  /** Bottom navigation of the left column: back at the left edge, skip or
+   * continue at the right edge. */
+  footerLeft?: ReactNode;
+  footerRight?: ReactNode;
   panelColors?: [string, string, string, string];
   /** Width split; defaults to the provider step's 46/54. */
   leftClassName?: string;
   rightClassName?: string;
 }) {
   const colors = props.panelColors ?? ["#0a1633", "#0a67c6", "#0a58c2", "#05080f"];
+  const hasFooter = Boolean(props.footerLeft || props.footerRight);
   return (
     <div className="fixed inset-0 z-40 bg-dls-surface">
       <Page className="min-h-screen bg-dls-surface">
@@ -63,11 +96,16 @@ export function OnboardingCover(props: {
             <div className="flex min-h-screen">
               <div
                 className={
-                  props.leftClassName ??
-                  "flex w-full flex-col justify-center px-8 py-16 lg:w-[46%] lg:px-16"
+                  props.leftClassName ?? "flex w-full flex-col px-8 pb-8 pt-16 lg:w-[46%] lg:px-16"
                 }
               >
-                {props.children}
+                <div className="flex flex-1 flex-col justify-center py-8">{props.children}</div>
+                {hasFooter ? (
+                  <div className="flex min-h-9 items-center justify-between gap-4">
+                    <div>{props.footerLeft}</div>
+                    <div>{props.footerRight}</div>
+                  </div>
+                ) : null}
               </div>
               <div
                 className={

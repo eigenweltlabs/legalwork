@@ -634,6 +634,9 @@ export function SessionRoute() {
     },
     [local],
   );
+  // Set when the user navigates backwards in the onboarding flow, so the
+  // office step shows its rows instead of auto-skipping forward again.
+  const onboardingWentBack = useRef(false);
   const advanceFromAiStep = useCallback(() => {
     // The tool steps are desktop-only (Office add-ins, mic, model download).
     if (isDesktopRuntime()) {
@@ -1636,6 +1639,11 @@ export function SessionRoute() {
     {onboardingStage === "office" ? (
       // One action: install the Word/Office add-in. Self-skips when absent.
       <OfficeStep
+        autoAdvance={!onboardingWentBack.current}
+        onBack={() => {
+          onboardingWentBack.current = true;
+          setOnboardingStage("ai");
+        }}
         onDone={(result) => {
           captureAnalyticsEvent("onboarding_office_done", { result });
           setOnboardingStage("audio");
@@ -1645,6 +1653,10 @@ export function SessionRoute() {
     {onboardingStage === "audio" ? (
       // One action: turn on transcription & dictation.
       <AudioStep
+        onBack={() => {
+          onboardingWentBack.current = true;
+          setOnboardingStage("office");
+        }}
         onDone={(result) => {
           captureAnalyticsEvent("onboarding_completed", { audio: result });
           setOnboardingStage("done");
