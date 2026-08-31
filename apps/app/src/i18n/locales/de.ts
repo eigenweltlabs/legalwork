@@ -571,6 +571,20 @@ const de: Record<string, string> = {
   "recorder.app_picker_loading": "Laufende Apps werden geladen…",
   "recorder.app_picker_confirm": "Auswahl verwenden",
 
+  // Premium-Upsell (Eigenwelt Plus Testphase)
+  "premium_upsell.eyebrow": "Eigenwelt Plus",
+  "premium_upsell.headline": "Teste Eigenwelt Plus 7 Tage kostenlos",
+  "premium_upsell.intro": "Nach der Testphase 69 € pro Sitzplatz/Monat — für jeden Sitzplatz deiner Kanzlei enthalten:",
+  "premium_upsell.audio_title": "Premium-Transkriptionsmodelle",
+  "premium_upsell.audio_body": "Die genauesten On-Device-Modelle für Aufnahmen und Diktate — laufen vollständig auf deinem Rechner.",
+  "premium_upsell.eu_title": "KI-Nutzung in der EU ohne Datenspeicherung",
+  "premium_upsell.eu_body": "50 € Eigenwelt-Model-API-Nutzung pro Sitzplatz und Monat inklusive — auf EU-Infrastruktur, die keine Prompts oder Ausgaben speichert.",
+  "premium_upsell.share_title": "Workflows & Integrationen im Team teilen",
+  "premium_upsell.share_body": "Veröffentliche Workflows und Integrationen für die ganze Kanzlei im gemeinsamen Hub.",
+  "premium_upsell.cta": "7 Tage kostenlos testen",
+  "premium_upsell.sign_in": "Mit Eigenwelt anmelden",
+  "premium_upsell.signing_in": "Anmeldung läuft…",
+
   // Composer: kein Modell verbunden (kein kostenloses Kontingent mehr)
   "chat.no_model_title": "Keine KI verbunden.",
   "chat.no_model_body": "Starte deine 7-tägige kostenlose Testphase bei Eigenwelt oder verbinde dein eigenes Modell.",

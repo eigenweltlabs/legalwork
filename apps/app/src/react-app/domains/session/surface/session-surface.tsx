@@ -795,13 +795,6 @@ export function SessionSurface(props: SessionSurfaceProps) {
     isEigenweltBudgetError(props.selectedModel.providerID, liveStatus.message);
   const retryStatusForDisplay = useMemo(() => {
     if (liveStatus.type !== "retry") return null;
-    if (paidBudgetRetryActive && eigenweltPlan === "pro") {
-      return {
-        ...liveStatus,
-        message: eigenweltBudgetLimitDisplay(eigenweltPlan).title,
-        action: undefined,
-      };
-    }
     if (liveStatus.action) return liveStatus;
     if (paidBudgetRetryActive) {
       return {

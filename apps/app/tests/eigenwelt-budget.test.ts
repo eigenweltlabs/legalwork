@@ -70,8 +70,8 @@ describe("retry banner action", () => {
     const action = eigenweltBudgetRetryAction();
     expect(action.link).toBe("https://platform.eigenweltlabs.com/billing");
     expect(action.provider).toBe("eigenwelt");
-    expect(action.label).toBe("Upgrade to Pro");
-    expect(action.message).toBe("Upgrade to Pro for higher limits, or come back tomorrow.");
+    expect(action.label).toBe("Open Billing");
+    expect(action.message).toBe("It resets tomorrow. Your firm's billing shows today's usage in detail.");
   });
 
   test("uses the connected platform's billing URL when provided", () => {
@@ -82,19 +82,15 @@ describe("retry banner action", () => {
 
 describe("plan-aware limit display", () => {
   test("offers Plus users an upgrade to Pro", () => {
-    expect(eigenweltBudgetLimitDisplay("plus")).toEqual({
-      title: "Your seat's daily usage has been used up",
-      body: "Upgrade to Pro for higher limits, or come back tomorrow.",
-      upgradeLabel: "Upgrade to Pro",
-    });
-  });
-
-  test("shows Pro users the reached limit without an upgrade", () => {
-    expect(eigenweltBudgetLimitDisplay("pro")).toEqual({
-      title: "Daily usage limit reached",
-      body: "You've used today's Pro allowance. Come back tomorrow.",
-      upgradeLabel: null,
-    });
+    const expected = {
+      title: "Your seat's included usage for today is used up",
+      body: "It resets tomorrow. Your firm's billing shows today's usage in detail.",
+      upgradeLabel: "Open Billing",
+    };
+    expect(eigenweltBudgetLimitDisplay("plus")).toEqual(expected);
+    // Single-plan world: legacy "pro" payloads see the same copy.
+    expect(eigenweltBudgetLimitDisplay("pro")).toEqual(expected);
+    expect(eigenweltBudgetLimitDisplay(null)).toEqual(expected);
   });
 });
 
