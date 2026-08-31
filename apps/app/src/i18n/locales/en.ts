@@ -1509,6 +1509,17 @@ export default {
   "account.refresh_uptodate": "Account data and models are up to date ({count} models).",
   "account.refresh_none": "Account refreshed. The gateway is serving no models yet.",
   "account.refresh_failed": "Could not refresh the Eigenwelt account.",
+  // 7-day free trial (card-upfront; converts automatically at trial end)
+  "account.trial_ends_today": "Free trial — ends today",
+  "account.trial_ends_in_one": "Free trial — 1 day left",
+  "account.trial_ends_in": "Free trial — {days} days left",
+  "account.trial_ended_eyebrow": "Free trial ended",
+  "account.trial_ended_body":
+    "Your firm's free trial has ended, so the EU-hosted Eigenwelt models are paused. Subscribe to continue — your data and settings are unchanged.",
+  "account.trial_ended_cta": "Subscribe",
+  "trial.notice_title": "Free trial ended.",
+  "trial.notice_body": "Eigenwelt models are paused until your firm subscribes — or switch to another model.",
+  "trial.notice_cta": "Subscribe",
   "firm_hub.loading": "Loading…",
   "firm_hub.free_plan": "Free",
   "firm_hub.seats": "{seats} seats",

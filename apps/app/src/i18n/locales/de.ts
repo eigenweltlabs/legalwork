@@ -591,6 +591,18 @@ const de: Record<string, string> = {
   "recorder.app_picker_all_system": "Gesamtes Systemaudio",
   "recorder.app_picker_loading": "Laufende Apps werden geladen…",
   "recorder.app_picker_confirm": "Auswahl verwenden",
+
+  // Eigenwelt-Konto: 7-tägige kostenlose Testphase
+  "account.trial_ends_today": "Kostenlose Testphase — endet heute",
+  "account.trial_ends_in_one": "Kostenlose Testphase — noch 1 Tag",
+  "account.trial_ends_in": "Kostenlose Testphase — noch {days} Tage",
+  "account.trial_ended_eyebrow": "Testphase beendet",
+  "account.trial_ended_body":
+    "Die kostenlose Testphase deiner Kanzlei ist abgelaufen, die EU-gehosteten Eigenwelt-Modelle sind pausiert. Abonniere, um weiterzuarbeiten — deine Daten und Einstellungen bleiben erhalten.",
+  "account.trial_ended_cta": "Abonnieren",
+  "trial.notice_title": "Testphase beendet.",
+  "trial.notice_body": "Die Eigenwelt-Modelle sind pausiert, bis deine Kanzlei abonniert — oder wähle ein anderes Modell.",
+  "trial.notice_cta": "Abonnieren",
 };
 
 export default de;

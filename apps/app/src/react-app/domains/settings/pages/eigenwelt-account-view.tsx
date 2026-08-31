@@ -18,6 +18,7 @@ import { Badge, Button, Card, Divider, Row } from "@legalwork/ui/react";
 import { toast } from "@/components/ui/sonner";
 import { t } from "@/i18n";
 import { openDesktopUrl } from "@/app/lib/desktop";
+import { eigenweltTrialState } from "@/app/lib/eigenwelt-trial";
 import type { LegalworkServerClient } from "@/app/lib/legalwork-server";
 import { ProviderIcon } from "@/react-app/design-system/provider-icon";
 import {
@@ -217,6 +218,7 @@ export function EigenweltAccountView({
 
   // ---- Connected: account summary ----------------------------------------
   const planLabel = entitlements?.plan ? entitlements.plan.toUpperCase() : null;
+  const trial = eigenweltTrialState(entitlements);
 
   return (
     <section className="w-full max-w-3xl space-y-6">
@@ -235,6 +237,15 @@ export function EigenweltAccountView({
               </div>
               <div className="mt-0.5 flex flex-wrap items-center gap-2 text-sm text-subtext">
                 {planLabel ? <Badge tone="accent">{planLabel}</Badge> : <Badge tone="neutral">{t("firm_hub.free_plan")}</Badge>}
+                {trial.kind === "active" ? (
+                  <Badge tone="warning">
+                    {trial.daysLeft === 0
+                      ? t("account.trial_ends_today")
+                      : trial.daysLeft === 1
+                        ? t("account.trial_ends_in_one")
+                        : t("account.trial_ends_in", { days: String(trial.daysLeft) })}
+                  </Badge>
+                ) : null}
                 {entitlements ? <span>{t("firm_hub.seats", { seats: entitlements.seats })}</span> : null}
                 <span>·</span>
                 <span>{t("account.models_count", { count: String(modelCount) })}</span>
@@ -279,6 +290,21 @@ export function EigenweltAccountView({
           </>
         ) : null}
       </Card>
+
+      {/* Trial lapsed: the paid models are gone until they subscribe. */}
+      {trial.kind === "ended" ? (
+        <Card variant="elevated" padding="lg" className="space-y-3">
+          <div className="flex items-center gap-2 text-xs font-medium uppercase tracking-wide text-warning">
+            <CreditCard className="size-3.5" /> {t("account.trial_ended_eyebrow")}
+          </div>
+          <p className="text-sm text-subtext">{t("account.trial_ended_body")}</p>
+          <div>
+            <Button variant="primary" size="sm" onClick={() => void openDesktopUrl(billingUrl)}>
+              <CreditCard className="size-4" /> {t("account.trial_ended_cta")}
+            </Button>
+          </div>
+        </Card>
+      ) : null}
 
       {!hasModels ? (
         <Card padding="lg" className="space-y-3">

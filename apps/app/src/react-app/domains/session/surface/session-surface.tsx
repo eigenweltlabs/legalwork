@@ -28,6 +28,8 @@ import {
   eigenweltBillingUrl,
   useEigenweltEntitlements,
 } from "@/react-app/domains/connections/eigenwelt-entitlements";
+import { eigenweltTrialState } from "@/app/lib/eigenwelt-trial";
+import { openDesktopUrl } from "@/app/lib/desktop";
 import { eigenweltPremiumPlatformUrl } from "@/react-app/domains/recorder/model-tiers";
 import { createClient, unwrap } from "@/app/lib/opencode";
 import { abortSessionSafe } from "@/app/lib/opencode-session";
@@ -332,6 +334,31 @@ function FreeModelNotice() {
   );
 }
 
+/**
+ * Banner shown above the composer when the selected model still points at the
+ * Eigenwelt provider but the firm's free trial has lapsed — the paid gateway
+ * is blocked, so sends would fail with a missing model. Offers the subscribe
+ * path; picking another model also clears it.
+ */
+function TrialEndedNotice(props: { billingUrl: string }) {
+  return (
+    <div className="flex items-center gap-2.5 border-b border-dls-border bg-amber-2/40 px-4 py-3">
+      <TriangleAlert size={14} className="shrink-0 text-amber-11" />
+      <p className="min-w-0 flex-1 text-xs leading-relaxed text-amber-11">
+        <span className="font-medium">{t("trial.notice_title")}</span>{" "}
+        {t("trial.notice_body")}
+      </p>
+      <button
+        type="button"
+        className="shrink-0 rounded-md border border-amber-11/30 px-2 py-1 text-xs font-medium text-amber-11 transition-colors hover:bg-amber-11/10"
+        onClick={() => void openDesktopUrl(props.billingUrl)}
+      >
+        {t("trial.notice_cta")}
+      </button>
+    </div>
+  );
+}
+
 function parseSessionError(thrown: unknown): SessionError {
   const raw = thrown instanceof Error ? thrown.message : String(thrown);
   // Try to detect ProviderModelNotFoundError from the SDK error shape.
@@ -455,6 +482,13 @@ export function SessionSurface(props: SessionSurfaceProps) {
     enabled: props.selectedModel.providerID === "eigenwelt",
   });
   const eigenweltPlan = eigenweltEntitlementsQuery.data?.entitlements?.plan ?? null;
+  // Trial lapsed while the selection still points at the Eigenwelt provider:
+  // the paid gateway is blocked, so surface the subscribe path instead of
+  // letting sends fail on a vanished model.
+  const eigenweltTrial = eigenweltTrialState(eigenweltEntitlementsQuery.data?.entitlements ?? null);
+  const trialEndedNoticeVisible =
+    props.selectedModel.providerID === "eigenwelt" && eigenweltTrial.kind === "ended";
+  const trialBillingUrl = eigenweltBillingUrl(eigenweltEntitlementsQuery.data?.platformURL ?? null);
   const showThinking = local.prefs.showThinking;
   const sessionActivityStatus = useSessionActivityStore(
     (state) => state.statusesByWorkspaceId[props.workspaceId]?.[props.sessionId] ?? "idle",
@@ -1745,10 +1779,11 @@ export function SessionSurface(props: SessionSurfaceProps) {
           onToggleLiveTranscript={recorderActive ? handleToggleLiveTranscript : undefined}
           liveTranscriptActive={liveTranscriptActive}
           onUploadInboxFiles={props.onUploadInboxFiles ?? handleUploadInboxFiles}
-          compactTopSpacing={Boolean(props.freeModelSelected || props.activeQuestion || (props.todos ?? []).some((todo) => todo.content.trim()) || props.activePermission || queuedMessages.length > 0)}
+          compactTopSpacing={Boolean(trialEndedNoticeVisible || props.freeModelSelected || props.activeQuestion || (props.todos ?? []).some((todo) => todo.content.trim()) || props.activePermission || queuedMessages.length > 0)}
           topAccessory={
-            props.freeModelSelected || props.activeQuestion || (props.todos ?? []).some((todo) => todo.content.trim()) || props.activePermission || queuedMessages.length > 0 ? (
+            trialEndedNoticeVisible || props.freeModelSelected || props.activeQuestion || (props.todos ?? []).some((todo) => todo.content.trim()) || props.activePermission || queuedMessages.length > 0 ? (
               <div>
+                {trialEndedNoticeVisible ? <TrialEndedNotice billingUrl={trialBillingUrl} /> : null}
                 {props.freeModelSelected ? <FreeModelNotice /> : null}
                 {queuedMessages.length > 0 ? (
                   <QueuedMessagesPanel messages={queuedMessages} onRemove={removeQueuedDraft} />
