@@ -129,7 +129,7 @@ export function WelcomePage({
             className="data-checked:bg-foreground data-checked:border-transparent"
           />
           <span className="text-[12px] leading-snug text-dls-secondary">
-            Share anonymous usage data — never your documents or prompts. Change anytime in
+            Share anonymous usage data. Never your documents or prompts. Change anytime in
             Settings.
           </span>
         </label>
