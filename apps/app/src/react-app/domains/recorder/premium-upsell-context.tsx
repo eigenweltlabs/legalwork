@@ -11,7 +11,7 @@
  * so there's never a duplicate modal.
  *
  * Flow, bank-challenge style:
- *   pitch   → €25 Plus benefits + "Upgrade to Plus"
+ *   pitch   → the €69 Plus benefits (7-day trial) + "Upgrade to Plus"
  *   waiting → checkout opens in the browser; poll entitlements every ~2.5s with a
  *             FORCE refresh until `premium_models` appears
  *   success → brief confirmation, then auto-close (the gate is already unlocked)

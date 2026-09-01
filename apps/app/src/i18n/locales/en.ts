@@ -1979,7 +1979,7 @@ export default {
   "recorder.tier_premium_unlock_hint": "This transcription model is part of the Plus plan. It will unlock automatically once your plan is active.",
   "premium_upsell.eyebrow": "Eigenwelt Plus",
   "premium_upsell.headline": "Try Eigenwelt Plus free for 7 days",
-  "premium_upsell.intro": "€69 per seat/month after the trial — included for every seat in your firm:",
+  "premium_upsell.intro": "€69 per seat/month after the trial. Included for every seat in your firm:",
   "premium_upsell.audio_title": "Premium audio transcription models",
   "premium_upsell.audio_body": "The most accurate on-device models for recordings and dictation, running fully on your machine.",
   "premium_upsell.eu_title": "AI usage in the EU with zero data retention",
