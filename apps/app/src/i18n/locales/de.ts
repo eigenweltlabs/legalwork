@@ -590,8 +590,20 @@ const de: Record<string, string> = {
   "chat.no_model_body": "Starte deine 7-tägige kostenlose Testphase bei Eigenwelt oder verbinde dein eigenes Modell.",
   "chat.no_model_trial": "Kostenlos testen",
   "chat.no_model_byo": "Modell verbinden",
-  "chat.free_retired_toast":
-    "Die kostenlosen Modelle wurden eingestellt — starte deine 7-tägige Testphase oder verbinde dein eigenes Modell.",
+  // Einmaliger Migrationsdialog nach dem Ende des kostenlosen Zugangs.
+  "free_retired.eyebrow": "Eigenwelt-Modelle",
+  "free_retired.headline": "Kostenlose Modelle wurden eingestellt.",
+  "free_retired.intro":
+    "Den kostenlosen Zugang gibt es nicht mehr. Starte deine 7-tägige kostenlose Testphase, um Eigenwelt-Modelle weiter zu nutzen.",
+  "free_retired.keep_title": "Deine Arbeit bleibt unberührt",
+  "free_retired.keep_body": "Workspaces, Sitzungen und Dokumente bleiben genau so auf diesem Computer.",
+  "free_retired.trial_title": "7 Tage kostenlos, voller Zugriff",
+  "free_retired.trial_body":
+    "Premium-Modelle, in der EU gehostet, ohne Datenspeicherung. Kündige während der Testphase und zahle nichts.",
+  "free_retired.byo_title": "Oder verbinde dein eigenes Modell",
+  "free_retired.byo_body": "Nutze stattdessen deinen eigenen API-Key oder ein lokales Modell. LegalWork selbst bleibt kostenlos.",
+  "free_retired.cta": "Kostenlose Testphase starten",
+  "free_retired.dismiss": "Nicht jetzt",
   // Onboarding: "Deine KI" (Eigenwelt-Testphase als Hauptweg, kleiner BYO-Link)
   "onboarding_ai.title": "KI für LegalWork.",
   "onboarding_ai.subtitle":

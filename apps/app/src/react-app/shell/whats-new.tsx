@@ -24,6 +24,8 @@ import { isDesktopRuntime, isOfficeAddinRuntime } from "@/app/utils";
 import { useLocal } from "@/react-app/kernel/local-provider";
 import { t } from "@/i18n";
 
+import { hasPendingFreeRetiredNotice } from "./free-retired-dialog";
+
 type WhatsNewEntry = {
   titleKey: string;
   bodyKey: string;
@@ -131,6 +133,10 @@ export function WhatsNewDialog(props: { hasWorkspaces: boolean; workspacesReady:
     // profile briefly looks like a fresh install (0 workspaces) and would
     // absorb its announcements by accident.
     if (!workspacesReady) return;
+
+    // The free-tier migration dialog outranks announcements: skip this
+    // start and show the announcement on a later launch instead.
+    if (hasPendingFreeRetiredNotice()) return;
 
     const seen = readSeenIds();
     const pending = WHATS_NEW_ANNOUNCEMENTS.filter(

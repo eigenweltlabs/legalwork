@@ -2057,8 +2057,20 @@ export default {
   "chat.no_model_body": "Start your 7-day free trial with Eigenwelt, or connect your own model.",
   "chat.no_model_trial": "Start free trial",
   "chat.no_model_byo": "Connect a model",
-  "chat.free_retired_toast":
-    "Free models have been retired — start your 7-day free trial or connect your own model.",
+  // One-time migration dialog after the free tier was retired.
+  "free_retired.eyebrow": "Eigenwelt models",
+  "free_retired.headline": "Free models have been retired.",
+  "free_retired.intro":
+    "The free tier is no longer available. Start your 7-day free trial to keep using Eigenwelt models.",
+  "free_retired.keep_title": "Your work is untouched",
+  "free_retired.keep_body": "Workspaces, sessions and documents stay on this computer, exactly as they are.",
+  "free_retired.trial_title": "7 days free, full access",
+  "free_retired.trial_body":
+    "Premium EU-hosted models with zero data retention. Cancel during the trial and pay nothing.",
+  "free_retired.byo_title": "Or connect your own model",
+  "free_retired.byo_body": "Use your own API key or a local model instead. LegalWork itself stays free.",
+  "free_retired.cta": "Start free trial",
+  "free_retired.dismiss": "Not now",
   // Onboarding: the "Your AI" cover (Eigenwelt trial primary, small BYO link)
   "onboarding_ai.title": "Add AI to LegalWork.",
   "onboarding_ai.subtitle":

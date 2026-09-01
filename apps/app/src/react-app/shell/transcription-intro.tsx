@@ -12,6 +12,7 @@ import { isDesktopRuntime, isOfficeAddinRuntime } from "@/app/utils";
 import { t } from "@/i18n";
 import { useLocal } from "@/react-app/kernel/local-provider";
 
+import { hasPendingFreeRetiredNotice } from "./free-retired-dialog";
 import { hasPendingWhatsNew } from "./whats-new";
 
 const SEEN_KEY = "legalwork.transcriptionIntroSeen";
@@ -47,8 +48,9 @@ export function TranscriptionIntroDialog(props: { workspacesReady: boolean; onOp
       markSeen();
       return;
     }
-    // Let "What's new" go first; this shows on a later launch instead.
-    if (hasPendingWhatsNew()) return;
+    // Let the free-tier migration dialog and "What's new" go first; this
+    // shows on a later launch instead.
+    if (hasPendingFreeRetiredNotice() || hasPendingWhatsNew()) return;
     const timer = window.setTimeout(() => setOpen(true), 1600);
     return () => window.clearTimeout(timer);
   }, [onboardingStage, props.workspacesReady]);

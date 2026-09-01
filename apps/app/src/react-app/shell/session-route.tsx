@@ -125,6 +125,7 @@ import { RenameWorkspaceModal } from "@/react-app/domains/workspace/rename-works
 import { ModelPickerModal } from "@/react-app/domains/session/modals/model-picker-modal";
 import { CommandPalette, type PaletteItem, type SessionGroupOption, type SessionOption as PaletteSessionOption } from "./command-palette";
 import { SessionSearchDialog } from "./session-search-dialog";
+import { FreeRetiredDialog, markFreeRetiredNoticePending } from "./free-retired-dialog";
 import { WhatsNewDialog } from "./whats-new";
 import { TranscriptionIntroDialog } from "./transcription-intro";
 import type { SessionMessageFetcher } from "@/react-app/domains/session/search/session-search";
@@ -608,13 +609,14 @@ export function SessionRoute() {
   const hasUsableModel = Boolean(local.prefs.defaultModel && !selectedModelUnavailable);
   // Free-tier retirement: older installs persisted a selection on the retired
   // free providers ("eigenwelt-free" / the built-in zen "opencode"). Clear it
-  // once so the composer shows the connect-AI state instead of a dead model.
+  // once and mark the migration dialog pending (marker first, so a crash in
+  // between re-runs this next boot instead of losing the notice).
   const { setPrefs } = local;
   useEffect(() => {
     const providerId = local.prefs.defaultModel?.providerID?.trim().toLowerCase();
     if (!providerId || !RETIRED_FREE_PROVIDER_IDS.has(providerId)) return;
+    markFreeRetiredNoticePending();
     setPrefs((previous) => ({ ...previous, defaultModel: null, modelVariant: null }));
-    toast(t("chat.free_retired_toast"));
   }, [local.prefs.defaultModel, setPrefs]);
   // Connected to Eigenwelt but no model selected (fresh installs default to
   // null): pick the gateway's default model automatically so the composer
@@ -681,6 +683,18 @@ export function SessionRoute() {
       setProviderConnectedIds,
       setDisabledProviderIds,
     });
+  // "Start free trial" CTAs (migration dialog, connect-AI bar): the choice is
+  // already made, so go straight to the Eigenwelt sign-in in the browser (the
+  // platform funnel continues to the trial) instead of the provider picker.
+  const startEigenweltTrial = useCallback(async () => {
+    try {
+      const { authorizeUrl, sessionId } = await sessionProviderAuthStore.startEigenweltSignIn();
+      await openDesktopUrl(authorizeUrl);
+      await sessionProviderAuthStore.completeEigenweltSignIn(sessionId);
+    } catch {
+      // Canceled or failed — the connect-AI bar keeps offering the path.
+    }
+  }, [sessionProviderAuthStore]);
   // On subscription activation (from the premium upsell challenge): re-pull the
   // paid Eigenwelt manifest and dispose+reload the engine/provider list so the
   // newly-entitled EU/ZDR models appear in the picker, not just the audio gate.
@@ -865,11 +879,15 @@ export function SessionRoute() {
       modelUnavailable: selectedModelUnavailable,
       selectedModel: local.prefs.defaultModel ?? { providerID: "", modelID: "" },
       // The connect-AI empty state above the composer (no model selected).
-      onConnectAi: (preferEigenwelt: boolean) =>
-        sessionProviderAuthStore.openProviderAuthModal({
-          preferredProviderId: preferEigenwelt ? "eigenwelt" : undefined,
-          returnFocusTarget: "composer",
-        }),
+      // "Start free trial" goes straight to the Eigenwelt sign-in; only the
+      // BYO path opens the provider picker.
+      onConnectAi: (preferEigenwelt: boolean) => {
+        if (preferEigenwelt) {
+          void startEigenweltTrial();
+          return;
+        }
+        void sessionProviderAuthStore.openProviderAuthModal({ returnFocusTarget: "composer" });
+      },
       onModelPickerOpenChange: modelPicker.setCompactOpen,
       onModelChange: (model: ModelRef) => {
         local.setPrefs((previous) => ({
@@ -1065,6 +1083,7 @@ export function SessionRoute() {
     handleOpenSettings,
     hasUsableModel,
     sessionProviderAuthStore,
+    startEigenweltTrial,
     handleApplyEnvironmentChanges,
     environmentRuntimeKey,
     local,
@@ -2036,6 +2055,7 @@ export function SessionRoute() {
       selectedAgent={selectedAgent}
       onSelectAgent={setSelectedAgent}
     />
+    <FreeRetiredDialog workspacesReady={!effectiveLoading} onStartTrial={() => void startEigenweltTrial()} />
     <WhatsNewDialog hasWorkspaces={workspaces.length > 0} workspacesReady={!effectiveLoading} />
     <TranscriptionIntroDialog workspacesReady={!effectiveLoading} onOpenRecorder={showRecorderPane} />
     {/* Premium upsell challenge + keeps the recorder gate synced to the sub. */}
