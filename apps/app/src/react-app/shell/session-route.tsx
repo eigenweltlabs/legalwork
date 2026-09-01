@@ -125,6 +125,7 @@ import { RenameWorkspaceModal } from "@/react-app/domains/workspace/rename-works
 import { ModelPickerModal } from "@/react-app/domains/session/modals/model-picker-modal";
 import { CommandPalette, type PaletteItem, type SessionGroupOption, type SessionOption as PaletteSessionOption } from "./command-palette";
 import { SessionSearchDialog } from "./session-search-dialog";
+import { invalidateEigenweltEntitlements } from "@/react-app/domains/connections/eigenwelt-entitlements";
 import { FreeRetiredDialog, markFreeRetiredNoticePending } from "./free-retired-dialog";
 import { WhatsNewDialog } from "./whats-new";
 import { TranscriptionIntroDialog } from "./transcription-intro";
@@ -1681,7 +1682,12 @@ export function SessionRoute() {
       <AiStep
         onStartSignIn={sessionProviderAuthStore.startEigenweltSignIn}
         onWaitSignIn={sessionProviderAuthStore.completeEigenweltSignIn}
-        onConnected={advanceFromAiStep}
+        onConnected={() => {
+          // The trial just activated: refetch entitlements now so the audio
+          // step already offers the premium transcription model.
+          invalidateEigenweltEntitlements(selectedWorkspaceId ?? undefined);
+          advanceFromAiStep();
+        }}
         onSkip={advanceFromAiStep}
         serverReady={Boolean(selectedWorkspaceEndpoint)}
       />
@@ -1703,6 +1709,8 @@ export function SessionRoute() {
     {onboardingStage === "audio" ? (
       // One action: turn on transcription & dictation.
       <AudioStep
+        legalworkClient={client}
+        workspaceId={selectedWorkspaceId}
         onBack={() => {
           onboardingWentBack.current = true;
           setOnboardingStage("office");

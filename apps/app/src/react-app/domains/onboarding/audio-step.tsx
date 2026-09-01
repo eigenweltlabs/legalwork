@@ -11,12 +11,17 @@ import { Check, ExternalLink, Loader2, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import { captureAnalyticsEvent } from "@/app/lib/analytics";
+import type { LegalworkServerClient } from "@/app/lib/legalwork-server";
 import { formatBytes } from "@/app/utils";
 import { t } from "@/i18n";
+import {
+  hasEigenweltFeature,
+  useEigenweltEntitlements,
+} from "@/react-app/domains/connections/eigenwelt-entitlements";
 import type { AudioPermissionState } from "@legalwork/types/audio";
 
 import { formatDictationShortcut } from "../recorder/dictation-shortcut";
-import { tierName } from "../recorder/model-tiers";
+import { MODEL_TIERS, tierName } from "../recorder/model-tiers";
 import { SetupStep, recommendedTier } from "../recorder/recorder-setup";
 import { useRecorderStore } from "../recorder/recorder-store";
 import {
@@ -84,6 +89,10 @@ type SimState = {
 export function AudioStep(props: {
   onDone: (result: "enabled" | "background" | "skipped") => void;
   onBack: () => void;
+  /** For the entitlement check — a firm with premium models gets the premium
+   *  transcription model offered instead of the free tier. */
+  legalworkClient: LegalworkServerClient | null;
+  workspaceId: string | null;
 }) {
   const store = useRecorderStore();
   const demo = onboardingDemoActive();
@@ -130,7 +139,21 @@ export function AudioStep(props: {
   const sysGranted = sysState === "granted" || (!demo && sysState === "unknown");
   const sysDone = sysGranted || sysSkipped;
 
-  const recommended = recommendedTier(bootstrap);
+  // A firm entitled to premium models (connected at the AI step) gets the
+  // premium transcription model; everyone else the device recommendation /
+  // best free tier. Live query, so the tier upgrades on this screen the
+  // moment the platform reports the fresh trial.
+  const entitlementsQuery = useEigenweltEntitlements({
+    client: props.legalworkClient,
+    workspaceId: props.workspaceId,
+  });
+  const premiumEntitled = hasEigenweltFeature(
+    entitlementsQuery.data?.entitlements ?? null,
+    "premium_models",
+  );
+  const premiumTier = MODEL_TIERS.find((tier) => tier.key === "premium");
+  const recommended =
+    premiumEntitled && premiumTier ? premiumTier : recommendedTier(bootstrap);
   const recommendedModel = bootstrap?.models.find((model) => model.id === recommended.modelId);
   const modelInstalled = demo
     ? sim.model === "installed"
