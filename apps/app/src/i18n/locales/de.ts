@@ -664,9 +664,11 @@ const de: Record<string, string> = {
 
   // Eigenwelt-Konto: 7-tägige kostenlose Testphase
   "account.plan_inactive": "Inaktiv",
-  "account.trial_ends_today": "Kostenlose Testphase — endet heute",
-  "account.trial_ends_in_one": "Kostenlose Testphase — noch 1 Tag",
-  "account.trial_ends_in": "Kostenlose Testphase — noch {days} Tage",
+  "account.plan_label": "Plan",
+  "account.models_label": "Modelle",
+  "account.trial_ends_today": "Kostenlose Testphase: endet heute",
+  "account.trial_ends_in_one": "Kostenlose Testphase: noch 1 Tag",
+  "account.trial_ends_in": "Kostenlose Testphase: noch {days} Tage",
   "account.trial_ended_eyebrow": "Testphase beendet",
   "account.trial_ended_body":
     "Die kostenlose Testphase deiner Kanzlei ist abgelaufen, die EU-gehosteten Eigenwelt-Modelle sind pausiert. Abonniere, um weiterzuarbeiten — deine Daten und Einstellungen bleiben erhalten.",

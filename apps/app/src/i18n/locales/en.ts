@@ -1485,7 +1485,7 @@ export default {
   "settings.environment.updated_at": "Updated {date}",
   "settings.tab_benchmark": "Benchmark",
   "settings.tab_description_benchmark": "Evaluate connected models on legal benchmark tasks.",
-  "settings.tab_account": "Eigenwelt",
+  "settings.tab_account": "Account",
   "settings.tab_description_account": "Your firm's Eigenwelt sign-in, plan, usage and billing.",
   // Eigenwelt account tab (the single source of truth for the OAuth connection)
   "account.eyebrow": "Eigenwelt account",
@@ -1503,7 +1503,8 @@ export default {
   "account.disconnect_failed": "Could not sign out.",
   "account.managed_notice": "Your Eigenwelt Model API is managed in the Eigenwelt tab.",
   "account.no_models": "You're signed in, but the Eigenwelt gateway is serving no models yet. Add models on the platform, then use Refresh — no need to sign in again.",
-  "account.models_count": "{count} models",
+  "account.models_count_one": "{count} model",
+  "account.models_count_other": "{count} models",
   "account.refresh": "Refresh",
   "account.refresh_loaded": "Account refreshed. Loaded {count} models.",
   "account.refresh_uptodate": "Account data and models are up to date ({count} models).",
@@ -1511,10 +1512,12 @@ export default {
   "account.refresh_failed": "Could not refresh the Eigenwelt account.",
   // A connected account with a lapsed subscription (there is no free tier).
   "account.plan_inactive": "Inactive",
+  "account.plan_label": "Plan",
+  "account.models_label": "Models",
   // 7-day free trial (card-upfront; converts automatically at trial end)
-  "account.trial_ends_today": "Free trial — ends today",
-  "account.trial_ends_in_one": "Free trial — 1 day left",
-  "account.trial_ends_in": "Free trial — {days} days left",
+  "account.trial_ends_today": "Free trial: ends today",
+  "account.trial_ends_in_one": "Free trial: 1 day left",
+  "account.trial_ends_in": "Free trial: {days} days left",
   "account.trial_ended_eyebrow": "Free trial ended",
   "account.trial_ended_body":
     "Your firm's free trial has ended, so the EU-hosted Eigenwelt models are paused. Subscribe to continue — your data and settings are unchanged.",

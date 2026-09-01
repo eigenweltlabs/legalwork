@@ -2,8 +2,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import {
-  Building2,
-  Check,
   CheckCircle2,
   CreditCard,
   ExternalLink,
@@ -13,7 +11,7 @@ import {
   Sparkles,
   Users,
 } from "lucide-react";
-import { Badge, Button, Card, Divider } from "@legalwork/ui/react";
+import { Button, Card } from "@legalwork/ui/react";
 
 import { toast } from "@/components/ui/sonner";
 import { t } from "@/i18n";
@@ -27,6 +25,16 @@ import {
   hasEigenweltFeature,
   useEigenweltEntitlements,
 } from "@/react-app/domains/connections/eigenwelt-entitlements";
+
+import {
+  LayoutSection,
+  LayoutSectionItem,
+  LayoutSectionItemDescription,
+  LayoutSectionItemHeader,
+  LayoutSectionItemHeaderActions,
+  LayoutSectionItemTitle,
+  LayoutStack,
+} from "../settings-layout";
 
 /**
  * The single source of truth for the Eigenweltlabs connection in the desktop
@@ -216,107 +224,123 @@ export function EigenweltAccountView({
     );
   }
 
-  // ---- Connected: account summary ----------------------------------------
+  // ---- Connected: grouped settings rows -----------------------------------
   // The platform keeps `plan` after cancellation (status gates access), so
-  // only show the plan badge while the subscription actually grants it.
-  const planLabel =
-    entitlements?.plan && isEigenweltEntitledStatus(entitlements.subscriptionStatus)
-      ? entitlements.plan.toUpperCase()
-      : null;
+  // only show the plan name while the subscription actually grants it.
+  const planActive = Boolean(
+    entitlements?.plan && isEigenweltEntitledStatus(entitlements.subscriptionStatus),
+  );
+  const planValue =
+    planActive && entitlements?.plan
+      ? entitlements.plan.charAt(0).toUpperCase() + entitlements.plan.slice(1)
+      : t("account.plan_inactive");
   const trial = eigenweltTrialState(entitlements);
+  const trialText =
+    trial.kind === "active"
+      ? trial.daysLeft === 0
+        ? t("account.trial_ends_today")
+        : trial.daysLeft === 1
+          ? t("account.trial_ends_in_one")
+          : t("account.trial_ends_in", { days: String(trial.daysLeft) })
+      : null;
 
   return (
-    <section className="w-full max-w-3xl space-y-6">
-      <Card padding="lg" className="space-y-4">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <div className="flex items-center gap-3">
-            <span className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-brand-soft text-brand">
-              <ProviderIcon providerId="eigenwelt" size={22} />
-            </span>
-            <div>
-              <div className="flex items-center gap-2">
-                <span className="text-md font-semibold text-ink">{t("account.connected_title")}</span>
-                <Badge tone="success" size="sm">
-                  <Check className="size-3" /> {t("status.connected")}
-                </Badge>
-              </div>
-              <div className="mt-0.5 flex flex-wrap items-center gap-2 text-sm text-subtext">
-                {/* No free tier exists: a connected account is either entitled
-                    (PLUS, possibly trialing) or its subscription lapsed. */}
-                {planLabel ? <Badge tone="accent">{planLabel}</Badge> : <Badge tone="neutral">{t("account.plan_inactive")}</Badge>}
-                {trial.kind === "active" ? (
-                  <Badge tone="warning">
-                    {trial.daysLeft === 0
-                      ? t("account.trial_ends_today")
-                      : trial.daysLeft === 1
-                        ? t("account.trial_ends_in_one")
-                        : t("account.trial_ends_in", { days: String(trial.daysLeft) })}
-                  </Badge>
-                ) : null}
-                {entitlements ? <span>{t("firm_hub.seats", { seats: entitlements.seats })}</span> : null}
-                <span>·</span>
-                <span>{t("account.models_count", { count: String(modelCount) })}</span>
-              </div>
-            </div>
-          </div>
-          <div className="flex flex-wrap items-center gap-2">
-            {refreshButton}
-            <Button variant="secondary" size="sm" disabled={disconnecting} onClick={() => void disconnect()}>
-              {disconnecting ? <Loader2 className="size-4 animate-spin" /> : <LogOut className="size-4" />}
-              {t("account.sign_out")}
-            </Button>
-          </div>
-        </div>
+    <LayoutStack>
+      <LayoutSection>
+        {/* Who is signed in. */}
+        <LayoutSectionItem>
+          <LayoutSectionItemHeader>
+            <LayoutSectionItemTitle>
+              <span className="flex size-7 shrink-0 items-center justify-center rounded-lg bg-brand-soft text-brand">
+                <ProviderIcon providerId="eigenwelt" size={15} />
+              </span>
+              <span className="truncate">
+                {account?.userName ?? account?.userEmail ?? t("account.connected_title")}
+              </span>
+            </LayoutSectionItemTitle>
+            {account?.userName && account.userEmail ? (
+              <LayoutSectionItemDescription>{account.userEmail}</LayoutSectionItemDescription>
+            ) : null}
+            <LayoutSectionItemHeaderActions>
+              <Button variant="secondary" size="sm" disabled={disconnecting} onClick={() => void disconnect()}>
+                {disconnecting ? <Loader2 className="size-4 animate-spin" /> : <LogOut className="size-4" />}
+                {t("account.sign_out")}
+              </Button>
+            </LayoutSectionItemHeaderActions>
+          </LayoutSectionItemHeader>
+        </LayoutSectionItem>
 
+        {/* The firm this sign-in belongs to. */}
         {account ? (
-          <>
-            <Divider />
-            <div className="flex min-w-0 items-center gap-3 rounded-lg bg-sunken px-3 py-2.5">
-              <Building2 className="size-4 shrink-0 text-subtext" />
-              <div className="min-w-0">
-                <div className="text-xs font-medium uppercase tracking-wide text-subtext">
-                  {t("account.organization")}
-                </div>
-                <div className="truncate text-sm font-medium text-ink">{account.orgName}</div>
-              </div>
-            </div>
-          </>
+          <LayoutSectionItem>
+            <LayoutSectionItemHeader>
+              <LayoutSectionItemTitle>
+                <span className="truncate">{account.orgName}</span>
+              </LayoutSectionItemTitle>
+              <LayoutSectionItemDescription>
+                {t("account.organization")}
+                {entitlements ? ` · ${t("firm_hub.seats", { seats: String(entitlements.seats) })}` : ""}
+              </LayoutSectionItemDescription>
+              {orgManagement ? (
+                <LayoutSectionItemHeaderActions>
+                  <Button variant="secondary" size="sm" onClick={() => void openDesktopUrl(membersUrl)}>
+                    <Users className="size-4" /> {t("firm_hub.members")} <ExternalLink className="size-3.5" />
+                  </Button>
+                </LayoutSectionItemHeaderActions>
+              ) : null}
+            </LayoutSectionItemHeader>
+          </LayoutSectionItem>
         ) : null}
+
+        <LayoutSectionItem>
+          <LayoutSectionItemHeader>
+            <LayoutSectionItemTitle>{t("account.plan_label")}</LayoutSectionItemTitle>
+            {trialText ? (
+              <LayoutSectionItemDescription>{trialText}</LayoutSectionItemDescription>
+            ) : null}
+            <LayoutSectionItemHeaderActions>
+              <span className={planActive ? "text-sm text-foreground" : "text-sm text-muted-foreground"}>
+                {planValue}
+              </span>
+              <Button variant="secondary" size="sm" onClick={() => void openDesktopUrl(billingUrl)}>
+                <CreditCard className="size-4" /> {t("firm_hub.billing")} <ExternalLink className="size-3.5" />
+              </Button>
+            </LayoutSectionItemHeaderActions>
+          </LayoutSectionItemHeader>
+        </LayoutSectionItem>
 
         {entitlements ? (
-          <>
-            <Divider />
-            <div className="flex flex-wrap items-center justify-between gap-3 text-sm text-subtext">
-              <span>{t("firm_hub.usage_label")}</span>
-              <span>
-                {t("firm_hub.usage_today", {
-                  percent: String(entitlements.usage.dailyUsedPercent),
-                })}
+          <LayoutSectionItem>
+            <LayoutSectionItemHeader>
+              <LayoutSectionItemTitle>{t("firm_hub.usage_label")}</LayoutSectionItemTitle>
+              <LayoutSectionItemHeaderActions>
+                <span className="text-sm text-muted-foreground">
+                  {t("firm_hub.usage_today", {
+                    percent: String(entitlements.usage.dailyUsedPercent),
+                  })}
+                </span>
+              </LayoutSectionItemHeaderActions>
+            </LayoutSectionItemHeader>
+          </LayoutSectionItem>
+        ) : null}
+
+        <LayoutSectionItem>
+          <LayoutSectionItemHeader>
+            <LayoutSectionItemTitle>{t("account.models_label")}</LayoutSectionItemTitle>
+            {!hasModels ? (
+              <LayoutSectionItemDescription>{t("account.no_models")}</LayoutSectionItemDescription>
+            ) : null}
+            <LayoutSectionItemHeaderActions>
+              <span className="text-sm text-muted-foreground">
+                {modelCount === 1
+                  ? t("account.models_count_one", { count: String(modelCount) })
+                  : t("account.models_count_other", { count: String(modelCount) })}
               </span>
-            </div>
-          </>
-        ) : null}
-
-        {!hasModels ? (
-          <p className="flex items-start gap-2 text-xs text-subtext">
-            <Sparkles className="mt-0.5 size-3.5 shrink-0 text-brand" />
-            <span>{t("account.no_models")}</span>
-          </p>
-        ) : null}
-
-        <Divider />
-        {/* Everything else about the firm lives on the platform — one row out. */}
-        <div className="flex flex-wrap items-center gap-2">
-          <Button variant="secondary" size="sm" onClick={() => void openDesktopUrl(billingUrl)}>
-            <CreditCard className="size-4" /> {t("firm_hub.billing")} <ExternalLink className="size-3.5" />
-          </Button>
-          {orgManagement ? (
-            <Button variant="secondary" size="sm" onClick={() => void openDesktopUrl(membersUrl)}>
-              <Users className="size-4" /> {t("firm_hub.members")} <ExternalLink className="size-3.5" />
-            </Button>
-          ) : null}
-        </div>
-      </Card>
+              {refreshButton}
+            </LayoutSectionItemHeaderActions>
+          </LayoutSectionItemHeader>
+        </LayoutSectionItem>
+      </LayoutSection>
 
       {/* Trial lapsed: the paid models are gone until they subscribe. */}
       {trial.kind === "ended" ? (
@@ -332,6 +356,6 @@ export function EigenweltAccountView({
           </div>
         </Card>
       ) : null}
-    </section>
+    </LayoutStack>
   );
 }
