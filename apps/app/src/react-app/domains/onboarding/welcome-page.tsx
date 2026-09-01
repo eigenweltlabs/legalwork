@@ -82,7 +82,7 @@ const capabilities = [
   { title: "Review & redline", desc: "Mark up contracts as tracked changes, right in Word." },
   { title: "Tabular review", desc: "Extract terms across many documents into a review grid." },
   { title: "Draft documents", desc: "Briefs, memos, contracts, and engagement letters." },
-  { title: "Meetings & dictation", desc: "Record, transcribe and dictate — on this device." },
+  { title: "Meetings & dictation", desc: "Record, transcribe and dictate on this device." },
 ];
 
 /** A mini LegalWork window — sidebar, a plain-English ask, a redline result. */
