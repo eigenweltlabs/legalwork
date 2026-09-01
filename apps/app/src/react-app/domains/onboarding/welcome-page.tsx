@@ -72,8 +72,7 @@ export function WelcomePage({
               <div className="flex w-full max-w-md flex-col gap-11">
                 <div>
                   <StepDots step={1} total={4} />
-                  <span className="lw-section-eyebrow uppercase text-dls-secondary">Local computer-use agent</span>
-                  <h1 className="mt-4 text-[40px] font-medium leading-[1.02] tracking-[-0.04em] text-dls-text">
+                  <h1 className="text-[40px] font-medium leading-[1.02] tracking-[-0.04em] text-dls-text">
                     {t("welcome.title")}
                   </h1>
                   <p className="mt-4 max-w-sm text-[15px] leading-[1.6] text-dls-secondary">
