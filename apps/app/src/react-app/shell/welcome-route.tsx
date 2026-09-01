@@ -111,6 +111,16 @@ export function WelcomeRoute() {
     }
   }, [local.prefs.hasCompletedOnboarding, navigate]);
 
+  // Funnel entry: the welcome screen was actually seen. Paired with
+  // onboarding_started (the folder pick) this measures the first drop-off.
+  // If the user opts out on this screen, the queued event is dropped unsent.
+  useEffect(() => {
+    if (local.prefs.hasCompletedOnboarding) return;
+    captureAnalyticsEvent("onboarding_welcome_viewed", { surface: analyticsSurface() });
+    // Mount-only by design: one view event per visit to the screen.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const markOnboardingComplete = useCallback(() => {
     local.setPrefs((prev) => ({ ...prev, hasCompletedOnboarding: true }));
   }, [local]);
@@ -200,6 +210,8 @@ export function WelcomeRoute() {
           onboardingStage: "ai",
         }));
         captureAnalyticsEvent("onboarding_started", { surface: analyticsSurface() });
+        // (welcome_viewed fired on mount — together these two measure the
+        // welcome screen's drop-off.)
         const target = targetWorkspaceId
           ? workspaceSessionRoute(targetWorkspaceId, targetSessionId)
           : "/session";
