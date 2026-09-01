@@ -629,25 +629,34 @@ export function SessionRoute() {
     markFreeRetiredNoticePending();
     setPrefs((previous) => ({ ...previous, defaultModel: null, modelVariant: null }));
   }, [local.prefs.defaultModel, setPrefs]);
-  // Connected to Eigenwelt but no model selected (fresh installs default to
-  // null): pick the gateway's default model automatically so the composer
-  // never claims "No AI connected" while the account is live.
+  // Connected to Eigenwelt but no USABLE model — either nothing is selected
+  // (fresh installs default to null) OR the selection points at a model the
+  // gateway no longer serves (the catalog changed under us, e.g. a model was
+  // swapped). Auto-pick the gateway's default/only model so the composer
+  // never sits on a dead model — critical now the picker is a plain label
+  // when a single model is served (there is no manual way out).
   useEffect(() => {
-    if (local.prefs.defaultModel) return;
     const list = providerListQuery.data;
     if (!list) return;
+    // A valid, still-available selection is left untouched.
+    if (local.prefs.defaultModel && !selectedModelUnavailable) return;
     const eigenwelt = getConnectedProviderItems(list).find((provider) => provider.id === "eigenwelt");
     if (!eigenwelt) return;
     const modelIds = Object.keys(eigenwelt.models ?? {});
     if (modelIds.length === 0) return;
     const preferred = list.default?.["eigenwelt"];
     const modelID = preferred && eigenwelt.models?.[preferred] ? preferred : modelIds[0];
-    setPrefs((previous) =>
-      previous.defaultModel
-        ? previous
-        : { ...previous, defaultModel: { providerID: "eigenwelt", modelID }, modelVariant: null },
-    );
-  }, [local.prefs.defaultModel, providerListQuery.data, setPrefs]);
+    setPrefs((previous) => {
+      // No-op when it already matches, so a stale selection can't render-loop.
+      if (
+        previous.defaultModel?.providerID === "eigenwelt" &&
+        previous.defaultModel?.modelID === modelID
+      ) {
+        return previous;
+      }
+      return { ...previous, defaultModel: { providerID: "eigenwelt", modelID }, modelVariant: null };
+    });
+  }, [local.prefs.defaultModel, selectedModelUnavailable, providerListQuery.data, setPrefs]);
   const canCreateTask = Boolean(
     opencodeClient && selectedWorkspaceId && !loading && !selectedWorkspaceError && !selectedModelUnavailable,
   );
@@ -715,6 +724,38 @@ export function SessionRoute() {
     }
     await sessionProviderAuthStore.refreshProviders({ dispose: true }).catch(() => undefined);
   }, [client, selectedWorkspaceId, sessionProviderAuthStore]);
+  // Keep the Eigenwelt model catalog fresh without a manual Settings refresh:
+  // once per workspace, re-pull the gateway manifest. The pull is cheap (no
+  // inference); the engine reload that makes new models appear in the picker
+  // runs ONLY when the model set actually changed AND no task is mid-run (a
+  // dispose would interrupt it — it re-syncs on the next mount instead). The
+  // auto-select effect above then moves a stale selection onto the new model.
+  const eigenweltManifestSyncedFor = useRef<string | null>(null);
+  useEffect(() => {
+    if (!client || !selectedWorkspaceId) return;
+    if (!providerConnectedIds.includes("eigenwelt")) return;
+    if (eigenweltManifestSyncedFor.current === selectedWorkspaceId) return;
+    if (activeReloadBlockingSessions.length > 0) return; // don't disrupt a running task
+    eigenweltManifestSyncedFor.current = selectedWorkspaceId;
+    void (async () => {
+      try {
+        const result = await client.eigenweltRefreshModels(selectedWorkspaceId);
+        if (result?.changed) {
+          await sessionProviderAuthStore.refreshProviders({ dispose: true }).catch(() => undefined);
+        }
+      } catch {
+        // Best effort — a manual Settings refresh still works, and the next
+        // mount retries.
+        eigenweltManifestSyncedFor.current = null;
+      }
+    })();
+  }, [
+    client,
+    selectedWorkspaceId,
+    providerConnectedIds,
+    activeReloadBlockingSessions.length,
+    sessionProviderAuthStore,
+  ]);
   // Resume the generation-completion watcher after a reload: a persisted
   // "running" run keeps its Workflows spinner honest only while someone polls.
   useEffect(() => {
