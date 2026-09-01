@@ -104,7 +104,7 @@ export function WelcomePage({
                   </Button>
                   {error ? <p className="text-center text-xs text-destructive">{error}</p> : null}
                   <p className="text-center text-[12px] leading-relaxed text-dls-secondary/80">
-                    Your documents stay on this computer. Set-up takes about a minute.
+                    Your documents stay on this computer.
                   </p>
 
                   {/* Usage analytics — opt-out toggle (on by default). */}
