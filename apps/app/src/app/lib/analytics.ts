@@ -13,8 +13,11 @@
  *   transformation in the PostHog project — keep it enabled after GeoIP);
  *   events are anonymous ($process_person_profile: false).
  * - Fire-and-forget: analytics must never break or slow the app.
- * - Opt-out (welcome toggle or Settings -> Privacy) takes effect immediately:
- *   captures stop and the send queue is purged.
+ * - Opt-OUT model: analytics is on by default (the welcome toggle shows the
+ *   default). Opting out (welcome toggle or Settings -> Privacy) takes effect
+ *   immediately: captures stop, the send queue is purged, and exactly one
+ *   anonymous `analytics_opted_out` marker is sent so opt-out rates are
+ *   measurable. After that marker, nothing is ever sent again.
  * - Every capture is mirrored into the local app inspector
  *   (`window.__legalwork.record("analytics.<event>")`) so coded evals can
  *   assert instrumentation without any analytics backend.
@@ -93,11 +96,10 @@ export function isAnalyticsEnabled(): boolean {
 }
 
 /**
- * Explicit opt-out. Distinct from "not enabled": while the choice is still
- * pending (null — the welcome screen), events may be QUEUED in memory, but
- * nothing is sent. The pending queue is transmitted only after an explicit
- * opt-in, dropped on opt-out, and lost with the process if neither happens —
- * so no event ever leaves the device without a stored "yes".
+ * Explicit opt-out. Distinct from "not enabled": a pending choice (null —
+ * the welcome screen, where the toggle shows on) counts as the default-on
+ * state, so events captured there are sent. Only a stored "no" silences —
+ * from that moment captures are discarded and the queue is purged.
  */
 function isAnalyticsRefused(): boolean {
   if (consentOverride !== null) return !consentOverride;
@@ -159,9 +161,9 @@ export function captureAnalyticsEvent(event: string, properties: AnalyticsProper
     // Inspector unavailable (non-browser context).
   }
 
-  // Refused = silence. A pending choice (welcome screen) still queues — the
-  // onboarding events fired before the choice persists would otherwise be
-  // lost — but flushAnalytics only ever sends after an explicit opt-in.
+  // Refused = silence. A pending choice (welcome screen) queues and sends
+  // under the default-on model; the onboarding events fired before the
+  // choice persists would otherwise be lost.
   if (!POSTHOG_KEY || isAnalyticsRefused()) return;
 
   queue.push({
@@ -174,6 +176,43 @@ export function captureAnalyticsEvent(event: string, properties: AnalyticsProper
   }
 }
 
+/**
+ * The single sanctioned send AFTER refusal: an anonymous `analytics_opted_out`
+ * marker fired at the moment the user opts out, so opt-out rates can be
+ * measured against `onboarding_welcome_viewed`. It bypasses the queue (which
+ * is purged here — nothing captured earlier rides along) and carries only the
+ * stage it happened at. Nothing else is ever sent afterwards.
+ */
+export function captureAnalyticsOptOut(stage: "onboarding" | "settings"): void {
+  try {
+    recordInspectorEvent("analytics.analytics_opted_out", { stage });
+  } catch {
+    // Inspector unavailable (non-browser context).
+  }
+
+  queue = [];
+  if (!POSTHOG_KEY) return;
+
+  void fetch(`${POSTHOG_HOST}/batch/`, {
+    method: "POST",
+    keepalive: true,
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      api_key: POSTHOG_KEY,
+      batch: [
+        {
+          event: "analytics_opted_out",
+          distinct_id: getAnalyticsDistinctId(),
+          timestamp: new Date().toISOString(),
+          properties: { ...baseProperties(), stage, $process_person_profile: false },
+        },
+      ],
+    }),
+  }).catch(() => {
+    // Fire-and-forget, like every other send.
+  });
+}
+
 export async function flushAnalytics(): Promise<void> {
   if (!POSTHOG_KEY) return;
   if (isAnalyticsRefused()) {
@@ -181,10 +220,6 @@ export async function flushAnalytics(): Promise<void> {
     queue = [];
     return;
   }
-  // Choice still pending: hold the queue in memory. It is sent once the user
-  // opts in, dropped if they opt out, and never persisted — quitting before
-  // choosing sends nothing.
-  if (!isAnalyticsEnabled()) return;
   if (queue.length === 0) return;
   const batch = queue.splice(0, MAX_BATCH);
   const distinctId = getAnalyticsDistinctId();

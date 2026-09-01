@@ -18,7 +18,13 @@ import { usePlatform } from "../kernel/platform";
 import { WelcomePage } from "../domains/onboarding/welcome-page";
 import { CreateWorkspaceModal } from "../domains/workspace/create-workspace-modal";
 import { resolveLegalworkConnection } from "./legalwork-connection";
-import { analyticsSurface, captureAnalyticsEvent, getStoredAnalyticsConsent } from "../../app/lib/analytics";
+import {
+  analyticsSurface,
+  captureAnalyticsEvent,
+  captureAnalyticsOptOut,
+  flushAnalytics,
+  getStoredAnalyticsConsent,
+} from "../../app/lib/analytics";
 import { captureAppError } from "../../app/lib/app-error";
 import { buildLegalworkWorkspaceBaseUrl, createLegalworkServerClient } from "../../app/lib/legalwork-server";
 import { writeActiveWorkspaceId, writeLastSessionFor } from "./session-memory";
@@ -111,12 +117,15 @@ export function WelcomeRoute() {
     }
   }, [local.prefs.hasCompletedOnboarding, navigate]);
 
-  // Funnel entry: the welcome screen was actually seen. Paired with
-  // onboarding_started (the folder pick) this measures the first drop-off.
-  // If the user opts out on this screen, the queued event is dropped unsent.
+  // Funnel entry: the welcome screen was actually seen. Sent under the
+  // default-on model (the toggle shows on), and flushed eagerly so even a
+  // quick opt-out or quit is counted — the opt-out itself then reports as a
+  // single analytics_opted_out marker, making the rate
+  // opted_out / welcome_viewed.
   useEffect(() => {
     if (local.prefs.hasCompletedOnboarding) return;
     captureAnalyticsEvent("onboarding_welcome_viewed", { surface: analyticsSurface() });
+    void flushAnalytics();
     // Mount-only by design: one view event per visit to the screen.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -210,8 +219,10 @@ export function WelcomeRoute() {
           onboardingStage: "ai",
         }));
         captureAnalyticsEvent("onboarding_started", { surface: analyticsSurface() });
-        // (welcome_viewed fired on mount — together these two measure the
-        // welcome screen's drop-off.)
+        // The consent choice just persisted: an opt-out sends its single
+        // anonymous marker (and purges everything queued, including the
+        // events captured above); staying opted in leaves the queue to flush.
+        if (!analyticsOptIn) captureAnalyticsOptOut("onboarding");
         const target = targetWorkspaceId
           ? workspaceSessionRoute(targetWorkspaceId, targetSessionId)
           : "/session";

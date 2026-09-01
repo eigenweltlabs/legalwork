@@ -81,7 +81,7 @@ import { ToolPermissionsPanel } from "@/react-app/domains/settings/panels/tool-p
 import { SettingsStack } from "@/react-app/domains/settings/settings-section";
 import { AdvancedView } from "@/react-app/domains/settings/pages/advanced-view";
 import { AppearanceView } from "@/react-app/domains/settings/pages/appearance-view";
-import { captureAnalyticsEvent } from "@/app/lib/analytics";
+import { captureAnalyticsEvent, captureAnalyticsOptOut } from "@/app/lib/analytics";
 import { DebugView } from "@/react-app/domains/settings/pages/debug-view";
 import { EnvironmentView } from "@/react-app/domains/settings/pages/environment-view";
 import { ExtensionsView } from "@/react-app/domains/settings/pages/extensions-view";
@@ -2103,7 +2103,11 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
             onToggleAutoCompactContext={toggleAutoCompactContext}
             analyticsEnabled={local.prefs.analyticsEnabled === true}
             onToggleAnalytics={() => {
+              // Turning OFF sends the one anonymous opted-out marker (and
+              // purges the queue) so opt-out rates stay measurable.
+              const turningOff = local.prefs.analyticsEnabled === true;
               local.setPrefs((previous) => ({ ...previous, analyticsEnabled: !previous.analyticsEnabled }));
+              if (turningOff) captureAnalyticsOptOut("settings");
             }}
             hideAppMode={local.prefs.hideAppMode}
             onChangeHideAppMode={(mode) => {
