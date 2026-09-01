@@ -616,6 +616,25 @@ export function SessionRoute() {
     setPrefs((previous) => ({ ...previous, defaultModel: null, modelVariant: null }));
     toast(t("chat.free_retired_toast"));
   }, [local.prefs.defaultModel, setPrefs]);
+  // Connected to Eigenwelt but no model selected (fresh installs default to
+  // null): pick the gateway's default model automatically so the composer
+  // never claims "No AI connected" while the account is live.
+  useEffect(() => {
+    if (local.prefs.defaultModel) return;
+    const list = providerListQuery.data;
+    if (!list) return;
+    const eigenwelt = getConnectedProviderItems(list).find((provider) => provider.id === "eigenwelt");
+    if (!eigenwelt) return;
+    const modelIds = Object.keys(eigenwelt.models ?? {});
+    if (modelIds.length === 0) return;
+    const preferred = list.default?.["eigenwelt"];
+    const modelID = preferred && eigenwelt.models?.[preferred] ? preferred : modelIds[0];
+    setPrefs((previous) =>
+      previous.defaultModel
+        ? previous
+        : { ...previous, defaultModel: { providerID: "eigenwelt", modelID }, modelVariant: null },
+    );
+  }, [local.prefs.defaultModel, providerListQuery.data, setPrefs]);
   const canCreateTask = Boolean(
     opencodeClient && selectedWorkspaceId && !loading && !selectedWorkspaceError && !selectedModelUnavailable,
   );
