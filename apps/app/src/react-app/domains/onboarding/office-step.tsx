@@ -25,6 +25,26 @@ import {
 
 type OfficeApp = { id: OfficeAddinAppId; label: string; enabled: boolean; installed: boolean };
 
+/** Microsoft-style app tiles: brand color + the app's letter glyph. */
+const OFFICE_APP_TILES: Record<string, { letter: string; color: string }> = {
+  word: { letter: "W", color: "#185ABD" },
+  excel: { letter: "X", color: "#107C41" },
+  powerpoint: { letter: "P", color: "#C43E1C" },
+};
+
+function OfficeAppIcon(props: { appId: OfficeAddinAppId }) {
+  const tile = OFFICE_APP_TILES[props.appId] ?? { letter: "?", color: "#6b7280" };
+  return (
+    <span
+      className="flex size-6 shrink-0 items-center justify-center rounded-[6px] text-[12px] font-semibold text-white"
+      style={{ backgroundColor: tile.color }}
+      aria-hidden
+    >
+      {tile.letter}
+    </span>
+  );
+}
+
 /** A Word page with a redline and the LegalWork pane beside it — the panel
  * shows what the user GETS, not another abstract gradient. */
 function DocumentMock() {
@@ -226,7 +246,12 @@ export function OfficeStep(props: {
                 (index > 0 ? " border-t border-dls-border" : "")
               }
             >
-              <span className="text-[14px] font-medium text-dls-text">Microsoft {app.label}</span>
+              <span className="flex min-w-0 items-center gap-2.5">
+                <OfficeAppIcon appId={app.id} />
+                <span className="truncate text-[14px] font-medium text-dls-text">
+                  Microsoft {app.label} Add-in
+                </span>
+              </span>
               {app.enabled ? (
                 <span className="inline-flex items-center gap-1.5 text-[13px] font-medium text-green-11">
                   <Check className="size-4" />

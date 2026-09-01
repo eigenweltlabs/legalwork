@@ -595,7 +595,7 @@ const de: Record<string, string> = {
   // Onboarding: "Deine KI" (Eigenwelt-Testphase als Hauptweg, kleiner BYO-Link)
   "onboarding_ai.title": "KI für LegalWork.",
   "onboarding_ai.subtitle":
-    "Premium-Modelle, gehostet in der EU, startklar mit einer Anmeldung. Deine Dokumente werden nur mit deiner KI geteilt — sonst mit niemandem.",
+    "Premium-Modelle, gehostet in der EU, startklar mit einer Anmeldung. Deine Dokumente werden nur mit deiner KI geteilt. Kein Server dazwischen.",
   "onboarding_ai.cta": "7 Tage kostenlos testen",
   "onboarding_ai.cta_note": "EU-gehostet · Keine Datenspeicherung · 69 €/Sitzplatz nach der Testphase",
   "onboarding_ai.login_prompt": "Du hast schon ein Konto?",

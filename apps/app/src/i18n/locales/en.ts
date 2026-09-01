@@ -2062,7 +2062,7 @@ export default {
   // Onboarding: the "Your AI" cover (Eigenwelt trial primary, small BYO link)
   "onboarding_ai.title": "Add AI to LegalWork.",
   "onboarding_ai.subtitle":
-    "Premium models, hosted in the EU, ready in one sign-in. Your documents are only ever shared with your AI — nothing else.",
+    "Premium models, hosted in the EU, ready in one sign-in. Your documents are only ever shared with your AI. No server in between.",
   "onboarding_ai.cta": "Start your 7-day free trial",
   "onboarding_ai.cta_note": "EU-hosted · Zero retention · €69/seat after the trial",
   "onboarding_ai.login_prompt": "Already have an account?",
