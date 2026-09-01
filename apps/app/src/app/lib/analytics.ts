@@ -92,6 +92,18 @@ export function isAnalyticsEnabled(): boolean {
   return getStoredAnalyticsConsent() === true;
 }
 
+/**
+ * Explicit opt-out. Distinct from "not enabled": while the choice is still
+ * pending (null — the welcome screen), events may be QUEUED in memory, but
+ * nothing is sent. The pending queue is transmitted only after an explicit
+ * opt-in, dropped on opt-out, and lost with the process if neither happens —
+ * so no event ever leaves the device without a stored "yes".
+ */
+function isAnalyticsRefused(): boolean {
+  if (consentOverride !== null) return !consentOverride;
+  return getStoredAnalyticsConsent() === false;
+}
+
 /** True when a capture would actually be sent — lets callers skip enrichment work. */
 export function isAnalyticsSending(): boolean {
   return Boolean(POSTHOG_KEY) && isAnalyticsEnabled();
@@ -147,7 +159,10 @@ export function captureAnalyticsEvent(event: string, properties: AnalyticsProper
     // Inspector unavailable (non-browser context).
   }
 
-  if (!POSTHOG_KEY || !isAnalyticsEnabled()) return;
+  // Refused = silence. A pending choice (welcome screen) still queues — the
+  // onboarding events fired before the choice persists would otherwise be
+  // lost — but flushAnalytics only ever sends after an explicit opt-in.
+  if (!POSTHOG_KEY || isAnalyticsRefused()) return;
 
   queue.push({
     event,
@@ -161,11 +176,15 @@ export function captureAnalyticsEvent(event: string, properties: AnalyticsProper
 
 export async function flushAnalytics(): Promise<void> {
   if (!POSTHOG_KEY) return;
-  if (!isAnalyticsEnabled()) {
+  if (isAnalyticsRefused()) {
     // Consent withdrawn — drop anything still queued.
     queue = [];
     return;
   }
+  // Choice still pending: hold the queue in memory. It is sent once the user
+  // opts in, dropped if they opt out, and never persisted — quitting before
+  // choosing sends nothing.
+  if (!isAnalyticsEnabled()) return;
   if (queue.length === 0) return;
   const batch = queue.splice(0, MAX_BATCH);
   const distinctId = getAnalyticsDistinctId();
