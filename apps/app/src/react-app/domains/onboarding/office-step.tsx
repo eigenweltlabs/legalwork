@@ -12,6 +12,9 @@ import { Check, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { captureAnalyticsEvent } from "@/app/lib/analytics";
 import { desktopBridge } from "@/app/lib/desktop";
+import excelIcon from "@/assets/office/excel.png";
+import powerpointIcon from "@/assets/office/powerpoint.png";
+import wordIcon from "@/assets/office/word.png";
 import type { OfficeAddinAppId } from "@legalwork/types/desktop-ipc";
 import { t } from "@/i18n";
 
@@ -25,24 +28,17 @@ import {
 
 type OfficeApp = { id: OfficeAddinAppId; label: string; enabled: boolean; installed: boolean };
 
-/** Microsoft-style app tiles: brand color + the app's letter glyph. */
-const OFFICE_APP_TILES: Record<string, { letter: string; color: string }> = {
-  word: { letter: "W", color: "#185ABD" },
-  excel: { letter: "X", color: "#107C41" },
-  powerpoint: { letter: "P", color: "#C43E1C" },
+/** The real app icons, extracted from the Office apps themselves. */
+const OFFICE_APP_ICONS: Record<string, string> = {
+  word: wordIcon,
+  excel: excelIcon,
+  powerpoint: powerpointIcon,
 };
 
 function OfficeAppIcon(props: { appId: OfficeAddinAppId }) {
-  const tile = OFFICE_APP_TILES[props.appId] ?? { letter: "?", color: "#6b7280" };
-  return (
-    <span
-      className="flex size-6 shrink-0 items-center justify-center rounded-[6px] text-[12px] font-semibold text-white"
-      style={{ backgroundColor: tile.color }}
-      aria-hidden
-    >
-      {tile.letter}
-    </span>
-  );
+  const icon = OFFICE_APP_ICONS[props.appId];
+  if (!icon) return null;
+  return <img src={icon} alt="" className="size-7 shrink-0" aria-hidden />;
 }
 
 /** A Word page with a redline and the LegalWork pane beside it — the panel
