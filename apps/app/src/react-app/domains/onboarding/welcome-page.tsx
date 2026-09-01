@@ -76,8 +76,7 @@ export function WelcomePage({
                     {t("welcome.title")}
                   </h1>
                   <p className="mt-4 max-w-sm text-[15px] leading-[1.6] text-dls-secondary">
-                    A computer-use agent that runs on this machine. Point it at a folder of documents and it
-                    reads, drafts, and redlines them for you — in plain English.
+                    A computer-use agent that runs on this machine.
                   </p>
                 </div>
 
