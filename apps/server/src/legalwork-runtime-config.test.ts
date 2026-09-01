@@ -216,7 +216,7 @@ describe("eigenwelt free provider injection", () => {
       provider: {
         eigenwelt: {
           npm: "@ai-sdk/openai-compatible",
-          name: "Eigenwelt Model API",
+          name: "Eigenwelt Subscription",
           options: { baseURL: "https://paid.gateway.test/v1" },
           models: { "ewl-pro": { name: "EWL Pro", limit: { context: 200000, output: 16384 } } },
         },
@@ -226,6 +226,6 @@ describe("eigenwelt free provider injection", () => {
     await writeLegalworkRuntimeConfigFile(config, "ws_1");
     const parsed = await readConfigFile(config);
     const providers = parsed.provider as Record<string, FreeProviderBlock>;
-    expect(providers.eigenwelt?.name).toBe("Eigenwelt Model API");
+    expect(providers.eigenwelt?.name).toBe("Eigenwelt Subscription");
   });
 });

@@ -124,7 +124,7 @@ export async function refreshEigenweltPaidManifest(
 export function buildEigenweltPaidProviderBlock(manifest: EigenweltPaidManifest): Record<string, unknown> {
   return {
     npm: "@ai-sdk/openai-compatible",
-    name: "Eigenwelt Model API",
+    name: "Eigenwelt Subscription",
     options: {
       baseURL: manifest.baseURL,
       headers: {

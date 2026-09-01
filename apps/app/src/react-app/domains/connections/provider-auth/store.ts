@@ -118,7 +118,7 @@ export function buildEigenweltProviderBlock(
 ): Record<string, unknown> {
   return {
     npm: "@ai-sdk/openai-compatible",
-    name: "Eigenwelt Model API",
+    name: "Eigenwelt Subscription",
     options: { baseURL },
     models: Object.fromEntries(
       models.map((model) => [
@@ -1246,7 +1246,7 @@ export function createProviderAuthStore(options: CreateProviderAuthStoreOptions)
         }
         if (opts?.cancelled?.()) return { connected: false, cancelled: true };
         await finalizeEigenweltConnect(result as EigenweltSignInPayload);
-        return { connected: true, message: `${t("status.connected")} Eigenwelt Model API` };
+        return { connected: true, message: `${t("status.connected")} Eigenwelt Subscription` };
       }
       throw new Error("Eigenwelt sign-in timed out. Try again from the provider list.");
     } catch (error) {

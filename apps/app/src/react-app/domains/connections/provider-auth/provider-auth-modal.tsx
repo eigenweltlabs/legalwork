@@ -198,7 +198,7 @@ function normalizeAuthorizationCode(input: string): string {
 
 const PROVIDER_LABELS: Record<string, string> = {
   legalwork: "LegalWork",
-  eigenwelt: "Eigenwelt Model API",
+  eigenwelt: "Eigenwelt Subscription",
   opencode: "OpenCode Zen",
   openai: "OpenAI",
   anthropic: "Anthropic",
@@ -412,7 +412,7 @@ export default function ProviderAuthModal(props: ProviderAuthModalProps) {
     ) {
       nextEntries.push({
         id: EIGENWELT_PROVIDER_ID,
-        name: "Eigenwelt Model API",
+        name: "Eigenwelt Subscription",
         methods: [{ type: "oauth" as const, label: "Sign in with Eigenwelt" }],
         connected: connected.has(EIGENWELT_PROVIDER_ID),
         env: [],
