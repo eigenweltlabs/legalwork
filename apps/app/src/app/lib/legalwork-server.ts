@@ -1714,11 +1714,12 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
       }),
     // Eigenwelt platform connect: the server owns the OAuth loopback + code
     // exchange; the app opens the authorize URL and long-polls for the payload.
-    eigenweltOauthStart: () =>
+    eigenweltOauthStart: (opts?: { intent?: "sign-in" }) =>
       requestJson<{ sessionId: string; authorizeUrl: string }>(baseUrl, "/api/eigenwelt/oauth/start", {
         token,
         hostToken,
         method: "POST",
+        ...(opts?.intent ? { body: { intent: opts.intent } } : {}),
         timeoutMs: timeouts.config,
       }),
     eigenweltOauthWait: (sessionId: string) =>

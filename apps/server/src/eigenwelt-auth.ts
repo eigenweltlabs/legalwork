@@ -281,7 +281,11 @@ async function bindLoopback(
  * The session resolves once the browser callback lands and the platform
  * exchange succeeds; a 10-minute timeout tears down the loopback.
  */
-export async function startEigenweltSignIn(): Promise<{ sessionId: string; authorizeUrl: string }> {
+export async function startEigenweltSignIn(opts?: {
+  /** "sign-in" lands existing users on the platform's sign-in page; the
+   *  default lands on sign-up (most app-originated clicks are new users). */
+  intent?: "sign-in";
+}): Promise<{ sessionId: string; authorizeUrl: string }> {
   const platform = eigenweltPlatformUrl();
   const { verifier, challenge } = generatePkce();
   const state = base64url(randomBytes(24));
@@ -415,6 +419,10 @@ export async function startEigenweltSignIn(): Promise<{ sessionId: string; autho
   authorizeUrl.searchParams.set("state", state);
   authorizeUrl.searchParams.set("port", String(port));
   authorizeUrl.searchParams.set("code_challenge", challenge);
+  // The platform's middleware routes a signed-out handshake to sign-up by
+  // default; explicit sign-in intent (the "already have an account" link)
+  // lands on sign-in instead.
+  if (opts?.intent === "sign-in") authorizeUrl.searchParams.set("intent", "sign-in");
 
   return { sessionId, authorizeUrl: authorizeUrl.toString() };
 }

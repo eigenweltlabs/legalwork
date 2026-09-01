@@ -1983,9 +1983,11 @@ function createRoutes(
   // exchange (see eigenwelt-auth.ts). The app opens the authorize URL,
   // long-polls the wait endpoint for the exchange payload, and then writes
   // the provider block itself via PATCH /workspace/:id/config.
-  addRoute(routes, "POST", "/api/eigenwelt/oauth/start", "client", async () => {
+  addRoute(routes, "POST", "/api/eigenwelt/oauth/start", "client", async (ctx) => {
+    const body = await readOptionalJsonBody(ctx.request);
+    const intent = body.intent === "sign-in" ? ("sign-in" as const) : undefined;
     try {
-      return jsonResponse(await startEigenweltSignIn());
+      return jsonResponse(await startEigenweltSignIn(intent ? { intent } : undefined));
     } catch (error) {
       throw new ApiError(
         409,

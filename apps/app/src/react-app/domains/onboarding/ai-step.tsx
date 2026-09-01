@@ -16,8 +16,10 @@ import { ProviderIcon } from "../../design-system/provider-icon";
 import { CoverSkipButton, OnboardingCover, StepDots } from "./onboarding-cover";
 
 export type AiStepProps = {
-  /** Bind the OAuth loopback and return the browser URL (provider-auth store). */
-  onStartSignIn: () => Promise<{ authorizeUrl: string; sessionId: string }>;
+  /** Bind the OAuth loopback and return the browser URL (provider-auth store).
+   *  intent "sign-in" lands on the platform's sign-in page (existing users);
+   *  the default lands on sign-up. */
+  onStartSignIn: (opts?: { intent?: "sign-in" }) => Promise<{ authorizeUrl: string; sessionId: string }>;
   /** Long-poll until the browser flow completes. */
   onWaitSignIn: (
     sessionId: string,
@@ -42,13 +44,13 @@ export function AiStep(props: AiStepProps) {
     captureAnalyticsEvent("onboarding_ai_viewed");
   }, []);
 
-  const signIn = async () => {
+  const signIn = async (opts?: { intent?: "sign-in" }) => {
     setConnecting(true);
     setError(null);
     captureAnalyticsEvent("onboarding_ai_eigenwelt_started");
     const token = ++waitTokenRef.current;
     try {
-      const { authorizeUrl, sessionId } = await props.onStartSignIn();
+      const { authorizeUrl, sessionId } = await props.onStartSignIn(opts);
       await openDesktopUrl(authorizeUrl);
       const result = await props.onWaitSignIn(sessionId, {
         cancelled: () => waitTokenRef.current !== token,
@@ -188,7 +190,8 @@ export function AiStep(props: AiStepProps) {
                 className="font-medium text-dls-text underline underline-offset-2 transition-opacity hover:opacity-80"
                 onClick={() => {
                   captureAnalyticsEvent("onboarding_ai_login_clicked");
-                  void signIn();
+                  // Existing users: land on the platform's sign-in page.
+                  void signIn({ intent: "sign-in" });
                 }}
               >
                 {t("onboarding_ai.login_cta")}

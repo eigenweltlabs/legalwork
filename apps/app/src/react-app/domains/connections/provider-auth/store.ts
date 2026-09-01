@@ -1209,11 +1209,13 @@ export function createProviderAuthStore(options: CreateProviderAuthStoreOptions)
 
   /** Start "Sign in with Eigenwelt": the LegalWork server binds the OAuth
    *  loopback and returns the platform authorize URL for the app to open. */
-  async function startEigenweltSignIn(): Promise<{ authorizeUrl: string; sessionId: string }> {
+  async function startEigenweltSignIn(opts?: {
+    intent?: "sign-in";
+  }): Promise<{ authorizeUrl: string; sessionId: string }> {
     setStateField("providerAuthError", null);
     try {
       const legalworkClient = requireEigenweltServerClient();
-      const started = await legalworkClient.eigenweltOauthStart();
+      const started = await legalworkClient.eigenweltOauthStart(opts);
       return { authorizeUrl: started.authorizeUrl, sessionId: started.sessionId };
     } catch (error) {
       const message = describeProviderError(error, t("providers.connect_failed"));
