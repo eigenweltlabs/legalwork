@@ -127,6 +127,8 @@ export type SessionSurfaceProps = {
   onModelClick: () => void;
   modelPickerOpen: boolean;
   modelUnavailable?: boolean;
+  /** Single provider serving a single model: plain model label, no Fusion. */
+  modelSelectorLocked?: boolean;
   selectedModel: ModelRef;
   /** True when the active model is a free-tier model (no-key fallback). */
   /** Open the connect-AI flow (true = preselect Eigenwelt / start trial). */
@@ -519,7 +521,9 @@ export function SessionSurface(props: SessionSurfaceProps) {
   // session.
   const queuedDrafts = useComposerStateStore((state) => getComposerQueuedDrafts(state, props.sessionId));
   const officeAddinRuntime = isOfficeAddinRuntime();
-  const fusionAvailable = !officeAddinRuntime;
+  // No fusion in the Office pane, and none when there is only one model to
+  // fuse (single provider, single model) — the toggle would be meaningless.
+  const fusionAvailable = !officeAddinRuntime && !props.modelSelectorLocked;
   const storedFusionEnabled = useFusionStore((state) => Boolean(state.enabledSessionIds[props.sessionId]));
   const fusionEnabled = fusionAvailable && storedFusionEnabled;
   const fusionModels = useFusionStore((state) => state.selectedModelsBySessionId[props.sessionId]);
@@ -1758,6 +1762,7 @@ export function SessionSurface(props: SessionSurfaceProps) {
         onRemovePastedText={handleRemovePastedText}
         isRemoteWorkspace={props.isRemoteWorkspace}
           isSandboxWorkspace={props.isSandboxWorkspace}
+          modelLocked={props.modelSelectorLocked}
           fusionEnabled={fusionEnabled}
           onToggleFusion={fusionAvailable ? handleToggleFusion : undefined}
           fusionModels={fusionAvailable ? fusionModels ?? [] : []}

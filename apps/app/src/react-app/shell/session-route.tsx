@@ -606,6 +606,16 @@ export function SessionRoute() {
       providerListQuery.data &&
       !isModelAvailableInConnectedProviders(providerListQuery.data, local.prefs.defaultModel),
   );
+  // Eigenwelt is the only connected provider and serves exactly one model:
+  // there is nothing to pick and nothing to fuse, so the composer shows a
+  // plain model label and hides the Fusion toggle.
+  const soloEigenweltModel = useMemo(() => {
+    const list = providerListQuery.data;
+    if (!list) return false;
+    const connected = getConnectedProviderItems(list);
+    if (connected.length !== 1 || connected[0]?.id !== "eigenwelt") return false;
+    return Object.keys(connected[0]?.models ?? {}).length === 1;
+  }, [providerListQuery.data]);
   const hasUsableModel = Boolean(local.prefs.defaultModel && !selectedModelUnavailable);
   // Free-tier retirement: older installs persisted a selection on the retired
   // free providers ("eigenwelt-free" / the built-in zen "opencode"). Clear it
@@ -877,6 +887,7 @@ export function SessionRoute() {
       },
       modelPickerOpen: modelPicker.compactOpen,
       modelUnavailable: selectedModelUnavailable,
+      modelSelectorLocked: soloEigenweltModel,
       selectedModel: local.prefs.defaultModel ?? { providerID: "", modelID: "" },
       // The connect-AI empty state above the composer (no model selected).
       // "Start free trial" goes straight to the Eigenwelt sign-in; only the
@@ -1100,6 +1111,7 @@ export function SessionRoute() {
     selectedAgent,
     selectedSessionId,
     selectedModelUnavailable,
+    soloEigenweltModel,
     selectedWorkspace,
     selectedWorkspaceId,
     selectedWorkspaceRoot,

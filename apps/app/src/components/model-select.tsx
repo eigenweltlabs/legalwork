@@ -134,6 +134,9 @@ interface ModelSelectProps {
   onOpenChange: (open: boolean) => void;
   onChange: (model: ModelRef) => void;
   disabled?: boolean;
+  /** Render a plain label instead of a picker — for setups where there is
+   *  nothing to pick (a single provider serving a single model). */
+  locked?: boolean;
 }
 
 export function ModelSelect({
@@ -142,6 +145,7 @@ export function ModelSelect({
   onOpenChange,
   onChange,
   disabled = false,
+  locked = false,
 }: ModelSelectProps) {
   const [search, setSearch] = React.useState("");
   const searchInputRef = React.useRef<HTMLInputElement>(null);
@@ -185,6 +189,16 @@ export function ModelSelect({
     setSearch("");
     onOpenChange(false);
   };
+
+  if (locked) {
+    return (
+      <span className="flex items-center px-2.5 py-1.5 text-sm text-gray-10">
+        <span className="max-w-48 truncate">
+          {selectedOption?.title ?? value.modelID ?? "No model"}
+        </span>
+      </span>
+    );
+  }
 
   return (
     <Popover
