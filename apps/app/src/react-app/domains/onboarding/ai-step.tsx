@@ -181,6 +181,19 @@ export function AiStep(props: AiStepProps) {
             <p className="text-center text-[12px] leading-5 text-dls-secondary">
               {t("onboarding_ai.cta_note")}
             </p>
+            <p className="text-center text-[13px] text-dls-secondary">
+              {t("onboarding_ai.login_prompt")}{" "}
+              <button
+                type="button"
+                className="font-medium text-dls-text underline underline-offset-2 transition-opacity hover:opacity-80"
+                onClick={() => {
+                  captureAnalyticsEvent("onboarding_ai_login_clicked");
+                  void signIn();
+                }}
+              >
+                {t("onboarding_ai.login_cta")}
+              </button>
+            </p>
           </div>
         )}
 

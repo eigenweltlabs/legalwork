@@ -598,6 +598,8 @@ const de: Record<string, string> = {
     "Premium-Modelle, gehostet in der EU, startklar mit einer Anmeldung. Deine Dokumente werden nur mit deiner KI geteilt — sonst mit niemandem.",
   "onboarding_ai.cta": "7 Tage kostenlos testen",
   "onboarding_ai.cta_note": "EU-gehostet · Keine Datenspeicherung · 69 €/Sitzplatz nach der Testphase",
+  "onboarding_ai.login_prompt": "Du hast schon ein Konto?",
+  "onboarding_ai.login_cta": "Anmelden",
   "onboarding_ai.waiting_title": "Im Browser abschließen",
   "onboarding_ai.waiting_body":
     "Kanzlei anlegen und Testphase starten — LegalWork verbindet sich automatisch, sobald du fertig bist.",
@@ -623,7 +625,7 @@ const de: Record<string, string> = {
   "onboarding.skip": "Überspringen",
   "onboarding.back": "Zurück",
   "onboarding.continue": "Weiter",
-  "onboarding_office.title": "Direkt in Word arbeiten.",
+  "onboarding_office.title": "Direkt in Office arbeiten.",
   "onboarding_office.subtitle":
     "Entwerfen und redlinen als nachverfolgte Änderungen — direkt neben deinem Dokument.",
   "onboarding_office.done": "Installiert",

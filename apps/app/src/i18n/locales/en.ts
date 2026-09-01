@@ -2028,7 +2028,7 @@ export default {
   "onboarding.skip": "Skip",
   "onboarding.back": "Back",
   "onboarding.continue": "Continue",
-  "onboarding_office.title": "Work inside Word.",
+  "onboarding_office.title": "Work inside Office.",
   "onboarding_office.subtitle":
     "Draft and redline as tracked changes, right next to your document.",
   "onboarding_office.done": "Installed",
@@ -2065,6 +2065,8 @@ export default {
     "Premium models, hosted in the EU, ready in one sign-in. Your documents are only ever shared with your AI — nothing else.",
   "onboarding_ai.cta": "Start your 7-day free trial",
   "onboarding_ai.cta_note": "EU-hosted · Zero retention · €69/seat after the trial",
+  "onboarding_ai.login_prompt": "Already have an account?",
+  "onboarding_ai.login_cta": "Log in",
   "onboarding_ai.waiting_title": "Finish in your browser",
   "onboarding_ai.waiting_body":
     "Create your firm and start the trial — LegalWork connects automatically the moment you're done.",

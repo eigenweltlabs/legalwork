@@ -115,10 +115,13 @@ export function WelcomeRoute() {
     local.setPrefs((prev) => ({ ...prev, hasCompletedOnboarding: true }));
   }, [local]);
 
+  // Which creation phase the loading overlay shows (null = not creating).
+  const [createPhase, setCreatePhase] = useState<"workspace" | "engine" | "session" | null>(null);
   const handleCreateWorkspace = useCallback(
     async (_preset: string, folder: string | null) => {
       if (!folder) return;
       dispatch({ type: "create:start" });
+      setCreatePhase("workspace");
       try {
         const workspaceName = folderNameFromPath(folder);
         let list: WorkspaceList | null = null;
@@ -147,6 +150,7 @@ export function WelcomeRoute() {
         if (!list) {
           throw new Error("LegalWork server is unavailable. Start or reconnect the server before creating a workspace.");
         }
+        setCreatePhase("engine");
         const createdId =
           resolveWorkspaceListSelectedId(list) ||
           list.workspaces[list.workspaces.length - 1]?.id ||
@@ -166,6 +170,7 @@ export function WelcomeRoute() {
             allWorkspaces: list.workspaces,
           }).catch(() => undefined);
         }
+        setCreatePhase("session");
         if (targetWorkspaceId && serverBaseUrl && serverToken) {
           try {
             const workspacePath = targetWorkspace?.path?.trim() || folder;
@@ -207,6 +212,7 @@ export function WelcomeRoute() {
         });
       } finally {
         dispatch({ type: "create:finish" });
+        setCreatePhase(null);
       }
     },
     [navigate, local, analyticsOptIn],
@@ -299,6 +305,7 @@ export function WelcomeRoute() {
           onGetStarted={handleGetStarted}
           getStartedLabel={t("welcome.pick_folder")}
           busy={state.createBusy}
+          busyPhase={createPhase}
           error={state.createError}
           manualFolder={manualFolder}
           onManualFolderChange={setManualFolder}

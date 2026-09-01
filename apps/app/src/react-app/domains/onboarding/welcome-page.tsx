@@ -5,11 +5,78 @@
  * action, footer on the panel's bottom line. The panel SHOWS the product:
  * a mini app window running a redline task, plus a capability grid.
  */
+import { Check, Loader2 } from "lucide-react";
+
 import { t } from "../../../i18n";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 
 import { OnboardingCover, StepDots } from "./onboarding-cover";
+
+export type WorkspaceCreatePhase = "workspace" | "engine" | "session";
+
+const CREATE_STEPS: Array<{ id: WorkspaceCreatePhase; label: string }> = [
+  { id: "workspace", label: "Creating the workspace" },
+  { id: "engine", label: "Starting the local engine" },
+  { id: "session", label: "Preparing your first session" },
+];
+
+/** Modal overlay shown while the workspace is being created — the phases
+ * tick off as the route reports progress. Not dismissable: it ends by
+ * navigating into the app (or closing on error). */
+function WorkspaceCreationOverlay(props: { phase: WorkspaceCreatePhase }) {
+  const activeIndex = CREATE_STEPS.findIndex((step) => step.id === props.phase);
+  return (
+    <div
+      role="dialog"
+      aria-modal="true"
+      aria-busy="true"
+      aria-label="Setting up your workspace"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-6 backdrop-blur-[2px] duration-200 animate-in fade-in-0"
+    >
+      <div className="w-full max-w-[400px] rounded-2xl border border-dls-border bg-dls-surface p-6 shadow-[0_32px_80px_-24px_rgba(0,0,0,0.45)] duration-200 animate-in fade-in-0 zoom-in-95">
+        <h2 className="text-[16px] font-medium tracking-[-0.01em] text-dls-text">
+          Setting up your workspace
+        </h2>
+        <p className="mt-1 text-[13px] leading-relaxed text-dls-secondary">
+          This can take a moment on first launch.
+        </p>
+        <div className="mt-6 flex flex-col gap-3.5">
+          {CREATE_STEPS.map((step, index) => {
+            const done = index < activeIndex;
+            const active = index === activeIndex;
+            return (
+              <div key={step.id} className="flex items-center gap-3 transition-colors duration-200">
+                <span className="flex size-5 shrink-0 items-center justify-center">
+                  {done ? (
+                    <span className="flex size-5 items-center justify-center rounded-full bg-green-9 text-white">
+                      <Check className="size-3" />
+                    </span>
+                  ) : active ? (
+                    <Loader2 className="size-4 animate-spin text-dls-text" />
+                  ) : (
+                    <span className="size-1.5 rounded-full bg-dls-border" />
+                  )}
+                </span>
+                <span
+                  className={
+                    done
+                      ? "text-[13.5px] text-dls-text"
+                      : active
+                        ? "text-[13.5px] font-medium text-dls-text"
+                        : "text-[13.5px] text-dls-secondary/60"
+                  }
+                >
+                  {step.label}
+                </span>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    </div>
+  );
+}
 
 const capabilities = [
   { title: "Review & redline", desc: "Mark up contracts as tracked changes, right in Word." },
@@ -82,6 +149,8 @@ type WelcomePageProps = {
   // Anonymous usage analytics consent (opt-out: on by default).
   analyticsEnabled: boolean;
   onAnalyticsChange: (enabled: boolean) => void;
+  /** Creation progress; non-null shows the loading overlay. */
+  busyPhase?: WorkspaceCreatePhase | null;
 };
 
 export function WelcomePage({
@@ -91,7 +160,19 @@ export function WelcomePage({
   error,
   analyticsEnabled,
   onAnalyticsChange,
+  busyPhase,
 }: WelcomePageProps) {
+  // Dev/design affordance (like legalwork.onboardingDemo): preview the
+  // creation overlay without creating a workspace.
+  let overlayPhase = busyPhase ?? null;
+  if (import.meta.env.DEV && !overlayPhase) {
+    try {
+      const demo = window.localStorage.getItem("legalwork.createOverlayDemo");
+      if (demo === "workspace" || demo === "engine" || demo === "session") overlayPhase = demo;
+    } catch {
+      // storage unavailable
+    }
+  }
   return (
     <OnboardingCover
       panel={
@@ -156,6 +237,7 @@ export function WelcomePage({
           </p>
         </div>
       </div>
+      {overlayPhase ? <WorkspaceCreationOverlay phase={overlayPhase} /> : null}
     </OnboardingCover>
   );
 }
