@@ -96,16 +96,20 @@ export function OnboardingCover(props: {
             <div className="flex min-h-screen">
               <div
                 className={
-                  props.leftClassName ?? "flex w-full flex-col px-8 pb-8 pt-16 lg:w-[46%] lg:px-16"
+                  props.leftClassName ?? "flex w-full flex-col px-8 py-6 lg:w-[46%] lg:px-16"
                 }
               >
-                <div className="flex flex-1 flex-col justify-center py-8">{props.children}</div>
-                {hasFooter ? (
-                  <div className="flex min-h-9 items-center justify-between gap-4">
-                    <div>{props.footerLeft}</div>
-                    <div>{props.footerRight}</div>
-                  </div>
-                ) : null}
+                {/* Mirrors the right panel's geometry (max height, centered) so
+                    the footer row sits exactly on the panel's bottom edge. */}
+                <div className="my-auto flex w-full flex-col lg:h-full lg:max-h-[780px]">
+                  <div className="flex flex-1 flex-col justify-center py-8">{props.children}</div>
+                  {hasFooter ? (
+                    <div className="flex min-h-9 items-center justify-between gap-4">
+                      <div>{props.footerLeft}</div>
+                      <div>{props.footerRight}</div>
+                    </div>
+                  ) : null}
+                </div>
               </div>
               <div
                 className={
