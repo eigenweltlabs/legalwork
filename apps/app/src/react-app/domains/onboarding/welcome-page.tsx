@@ -1,41 +1,74 @@
 /** @jsxImportSource react */
-import { PaperGrainGradient } from "@legalwork/ui/react";
-
+/**
+ * Onboarding step 1: welcome + pick a workspace folder. Renders on the same
+ * OnboardingCover shell as the other steps — dots, centered left column, one
+ * action, footer on the panel's bottom line. The panel SHOWS the product:
+ * a mini app window running a redline task, plus a capability grid.
+ */
 import { t } from "../../../i18n";
-import { Page, PageBackground, PageTitlebarRegion } from "@/components/page";
 import { Button } from "@/components/ui/button";
-import { ScrollArea, ScrollAreaViewport } from "@/components/ui/scroll-area";
 import { Switch } from "@/components/ui/switch";
-import { StepDots } from "./onboarding-cover";
-import { cn } from "@/lib/utils";
 
-// The "how" — three plain-English steps.
-const steps = [
-  {
-    n: "01",
-    title: "Open a folder of documents",
-    desc: "Point LegalWork at any folder on this computer.",
-  },
-  {
-    n: "02",
-    title: "Ask in plain English",
-    desc: "“Redline this NDA for the buyer.” “Build a review grid across these contracts.”",
-  },
-  {
-    n: "03",
-    title: "Review, redline, iterate",
-    desc: "Accept tracked changes, refine, and save the result as a reusable workflow.",
-  },
-];
+import { OnboardingCover, StepDots } from "./onboarding-cover";
 
-// The "what" — capabilities, as an editorial ledger (not tiles).
 const capabilities = [
   { title: "Review & redline", desc: "Mark up contracts as tracked changes, right in Word." },
-  { title: "Tabular review", desc: "Extract terms across many documents into a sourced review grid." },
+  { title: "Tabular review", desc: "Extract terms across many documents into a review grid." },
   { title: "Draft documents", desc: "Briefs, memos, contracts, and engagement letters." },
-  { title: "Meetings & dictation", desc: "Record, transcribe and dictate — processed on this device." },
-  { title: "Runs on this machine", desc: "Your documents stay in your folders, on this computer." },
+  { title: "Meetings & dictation", desc: "Record, transcribe and dictate — on this device." },
 ];
+
+/** A mini LegalWork window — sidebar, a plain-English ask, a redline result. */
+function AppWindowMock() {
+  return (
+    <div className="mx-auto w-full max-w-[400px] overflow-hidden rounded-xl border border-white/10 bg-[#0b1322]/90 shadow-[0_18px_50px_-18px_rgba(0,0,0,0.8)] backdrop-blur">
+      {/* window chrome */}
+      <div className="flex items-center gap-1.5 border-b border-white/[0.08] px-3.5 py-2.5">
+        <span className="size-2 rounded-full bg-white/15" />
+        <span className="size-2 rounded-full bg-white/15" />
+        <span className="size-2 rounded-full bg-white/15" />
+        <span className="ml-2 h-1.5 w-24 rounded bg-white/15" />
+      </div>
+      <div className="flex">
+        {/* sidebar: folders */}
+        <div className="w-[108px] shrink-0 space-y-1.5 border-r border-white/[0.08] p-3">
+          <div className="mb-2 h-1.5 w-12 rounded bg-white/20" />
+          <div className="rounded bg-white/10 px-1.5 py-1.5">
+            <div className="h-1.5 w-14 rounded bg-white/55" />
+          </div>
+          <div className="px-1.5 py-1.5">
+            <div className="h-1.5 w-12 rounded bg-white/25" />
+          </div>
+          <div className="px-1.5 py-1.5">
+            <div className="h-1.5 w-16 rounded bg-white/25" />
+          </div>
+        </div>
+        {/* main: the task */}
+        <div className="flex-1 p-3.5">
+          <div className="ml-auto w-fit max-w-[90%] rounded-lg rounded-tr-sm bg-white/10 px-2.5 py-1.5 text-[11.5px] leading-snug text-white/85">
+            Redline this NDA for the buyer.
+          </div>
+          <div className="mt-2.5 max-w-[92%] rounded-lg rounded-tl-sm bg-[#0a58c2]/25 px-2.5 py-2">
+            <div className="h-1.5 w-full rounded bg-white/55" />
+            <div className="mt-1 h-1.5 w-[78%] rounded bg-white/55" />
+            {/* the redline: deletion + insertion */}
+            <div className="mt-2.5 flex items-center gap-1.5 rounded-md bg-white/[0.08] px-2 py-1.5">
+              <div className="relative h-1.5 w-[26%] rounded-sm bg-[#f3b4b4]/70">
+                <div className="absolute inset-x-0 top-1/2 h-px -translate-y-1/2 bg-[#e26d6d]" />
+              </div>
+              <div className="h-1.5 w-[38%] rounded-sm bg-[#8fd8a8]/80" />
+              <div className="h-1.5 w-[16%] rounded-sm bg-white/25" />
+            </div>
+          </div>
+          <div className="mt-2.5 flex items-center gap-1.5">
+            <span className="size-1 rounded-full bg-[#4ade80]" />
+            <span className="text-[10px] text-white/50">Tracked changes ready in Word</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 type WelcomePageProps = {
   onGetStarted: () => void;
@@ -60,134 +93,69 @@ export function WelcomePage({
   onAnalyticsChange,
 }: WelcomePageProps) {
   return (
-    <Page className="min-h-screen bg-background">
-      <PageBackground />
-      <PageTitlebarRegion />
-
-      <ScrollArea className="relative z-10">
-        <ScrollAreaViewport>
-          <div className="flex min-h-screen">
-            {/* ---- Left: the entry ---- */}
-            <div className="flex w-full flex-col justify-center px-8 py-16 lg:w-[46%] lg:px-16">
-              <div className="flex w-full max-w-md flex-col gap-11">
-                <div>
-                  <StepDots step={1} total={4} />
-                  <h1 className="text-[40px] font-medium leading-[1.02] tracking-[-0.04em] text-dls-text">
-                    {t("welcome.title")}
-                  </h1>
-                  <p className="mt-4 max-w-sm text-[15px] leading-[1.6] text-dls-secondary">
-                    A computer-use agent that runs on this machine.
-                  </p>
-                </div>
-
-                {/* Steps — editorial, hairline-separated, mono numbers */}
-                <div className="flex flex-col">
-                  {steps.map((step, index) => (
-                    <div
-                      key={step.n}
-                      className={cn("flex items-start gap-4 py-4", index > 0 && "border-t border-dls-border")}
-                    >
-                      <span className="pt-0.5 font-mono text-[12px] tabular-nums text-dls-secondary/70">
-                        {step.n}
-                      </span>
-                      <div className="min-w-0">
-                        <div className="text-[15px] font-medium tracking-[-0.01em] text-dls-text">{step.title}</div>
-                        <div className="mt-1 text-[13px] leading-relaxed text-dls-secondary">{step.desc}</div>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-
-                <div className="space-y-3">
-                  <Button size="lg" className="w-full" onClick={onGetStarted} disabled={busy}>
-                    {busy ? t("welcome.creating_workspace") : getStartedLabel || t("welcome.get_started")}
-                  </Button>
-                  {error ? <p className="text-center text-xs text-destructive">{error}</p> : null}
-                  <p className="text-center text-[12px] leading-relaxed text-dls-secondary/80">
-                    Your documents stay on this computer.
-                  </p>
-
-                  {/* Usage analytics — opt-out toggle (on by default). */}
-                  <div className="border-t border-dls-border pt-4">
-                    <div className="flex items-start justify-between gap-4 text-left">
-                      <div className="min-w-0">
-                        <div className="text-[13px] font-medium text-dls-text">
-                          Help us improve your experience
-                        </div>
-                        <p className="mt-1 text-[12px] leading-relaxed text-dls-secondary">
-                          Share anonymous usage data, like which features you use, errors, and
-                          performance, so we can make LegalWork better. Never your documents,
-                          prompts, or matter content. Change anytime in Settings.
-                        </p>
-                      </div>
-                      <div className="mt-0.5 shrink-0">
-                        <Switch
-                          aria-label="Share anonymous usage analytics"
-                          checked={analyticsEnabled}
-                          onCheckedChange={onAnalyticsChange}
-                          className="data-checked:bg-foreground data-checked:border-transparent"
-                        />
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            {/* ---- Right: the "lab" showcase — dark panel, Eigenwelt blue grain ---- */}
-            <div className="hidden lg:flex lg:w-[54%] lg:items-center lg:justify-center lg:p-6">
-              <div className="relative h-full max-h-[780px] w-full overflow-hidden rounded-[28px] bg-[#05080f] shadow-[0_30px_80px_-40px_rgba(5,12,40,0.6)]">
-                {/* Eigenwelt paper-grain gradient, deep navy → electric blue */}
-                <div className="absolute inset-0 z-0">
-                  <PaperGrainGradient
-                    className="size-full"
-                    speed={0}
-                    scale={1.1}
-                    rotation={0}
-                    offsetX={0}
-                    offsetY={0}
-                    softness={0.75}
-                    intensity={0.55}
-                    noise={0.16}
-                    shape="corners"
-                    frame={37706.748}
-                    colors={["#0a1633", "#0a67c6", "#0a58c2", "#05080f"]}
-                    colorBack="#05080f"
-                  />
-                </div>
-                {/* subtle inner ring */}
-                <div className="pointer-events-none absolute inset-0 z-10 rounded-[28px] ring-1 ring-inset ring-white/10" />
-
-                {/* Content */}
-                <div className="relative z-20 flex h-full flex-col justify-between gap-10 p-10">
-                  <div>
-                    <span className="font-mono text-[10px] uppercase tracking-[0.18em] text-white/45">What it does</span>
-                    <h2 className="mt-4 max-w-[16ch] text-[28px] font-medium leading-[1.08] tracking-[-0.035em] text-white">
-                      Built for your documents.
-                    </h2>
-                  </div>
-
-                  <div className="divide-y divide-white/10 border-y border-white/10">
-                    {capabilities.map((cap) => (
-                      <div key={cap.title} className="group flex items-baseline gap-4 py-3.5">
-                        <span className="mt-1 size-1.5 shrink-0 translate-y-1.5 rounded-full bg-[#0a58c2]" />
-                        <div className="min-w-0">
-                          <div className="text-[14px] font-medium tracking-[-0.01em] text-white">{cap.title}</div>
-                          <div className="mt-0.5 text-[12.5px] leading-snug text-white/55">{cap.desc}</div>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-
-                  <p className="font-mono text-[10px] uppercase tracking-[0.16em] text-white/40">
-                    Runs on this machine · Your data stays yours
-                  </p>
-                </div>
-              </div>
-            </div>
+    <OnboardingCover
+      panel={
+        <>
+          <div>
+            <span className="font-mono text-[10px] uppercase tracking-[0.18em] text-white/45">
+              What it does
+            </span>
+            <h2 className="mt-4 max-w-[16ch] text-[28px] font-medium leading-[1.08] tracking-[-0.035em] text-white">
+              Built for your documents.
+            </h2>
           </div>
-        </ScrollAreaViewport>
-      </ScrollArea>
-    </Page>
+          <AppWindowMock />
+          <div className="grid grid-cols-2 gap-2.5">
+            {capabilities.map((cap) => (
+              <div key={cap.title} className="rounded-lg border border-white/10 bg-white/[0.03] p-3">
+                <div className="text-[12.5px] font-medium tracking-[-0.01em] text-white">
+                  {cap.title}
+                </div>
+                <div className="mt-1 text-[11px] leading-snug text-white/50">{cap.desc}</div>
+              </div>
+            ))}
+          </div>
+          <p className="font-mono text-[10px] uppercase tracking-[0.16em] text-white/40">
+            Runs on this machine · Your data stays yours
+          </p>
+        </>
+      }
+      footerLeft={
+        <label className="flex cursor-pointer items-center gap-2.5">
+          <Switch
+            aria-label="Share anonymous usage analytics"
+            checked={analyticsEnabled}
+            onCheckedChange={onAnalyticsChange}
+            className="data-checked:bg-foreground data-checked:border-transparent"
+          />
+          <span className="text-[12px] leading-snug text-dls-secondary">
+            Share anonymous usage data — never your documents or prompts. Change anytime in
+            Settings.
+          </span>
+        </label>
+      }
+    >
+      <div className="flex w-full max-w-md flex-col gap-8">
+        <div>
+          <StepDots step={1} total={4} />
+          <h1 className="text-[36px] font-medium leading-[1.04] tracking-[-0.035em] text-dls-text">
+            {t("welcome.title")}
+          </h1>
+          <p className="mt-3 max-w-sm text-[14px] leading-[1.6] text-dls-secondary">
+            A computer-use agent that runs on this machine.
+          </p>
+        </div>
+
+        <div className="flex flex-col gap-3">
+          <Button size="lg" className="w-full justify-center" onClick={onGetStarted} disabled={busy}>
+            {busy ? t("welcome.creating_workspace") : getStartedLabel || t("welcome.get_started")}
+          </Button>
+          {error ? <p className="text-center text-xs text-destructive">{error}</p> : null}
+          <p className="text-center text-[12px] leading-5 text-dls-secondary">
+            Your documents stay on this computer.
+          </p>
+        </div>
+      </div>
+    </OnboardingCover>
   );
 }
