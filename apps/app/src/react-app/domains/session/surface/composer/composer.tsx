@@ -61,6 +61,8 @@ type ComposerProps = {
   queuedCount: number;
   disabled: boolean;
   modelUnavailable?: boolean;
+  /** The notice above the composer already explains the dead selection. */
+  modelUnavailableLabelHidden?: boolean;
   statusLabel: string;
   modelPickerOpen: boolean;
   selectedModel: ModelRef;
@@ -1511,7 +1513,7 @@ export function ReactSessionComposer(props: ComposerProps) {
                   disabled={props.busy}
                   locked={props.modelLocked}
                 />
-                {props.modelUnavailable ? (
+                {props.modelUnavailable && !props.modelUnavailableLabelHidden ? (
                   <span className="text-xs font-medium text-red-10">Model no longer available</span>
                 ) : null}
 

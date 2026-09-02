@@ -97,6 +97,7 @@ import {
 import { useLocal } from "@/react-app/kernel/local-provider";
 import { usePlatform } from "@/react-app/kernel/platform";
 import { SessionPage, type OpenSessionTab } from "@/react-app/domains/session/chat/session-page";
+import type { ConnectAiAction } from "@/react-app/domains/session/surface/session-surface";
 import { ReactSessionRuntime } from "@/react-app/domains/session/sync/runtime-sync";
 import { useSessionActivityStore } from "@/react-app/domains/session/status/session-activity-store";
 import { buildLegalworkEnvSystemContext } from "@/react-app/domains/session/sync/env-context";
@@ -720,6 +721,18 @@ export function SessionRoute() {
       // Canceled or failed — the connect-AI bar keeps offering the path.
     }
   }, [sessionProviderAuthStore]);
+  // "Log in" from the connect-AI bar: the same browser flow, but the platform
+  // lands on sign-in instead of sign-up (an existing account, e.g. after a
+  // sign-out or a revoked key).
+  const startEigenweltLogin = useCallback(async () => {
+    try {
+      const { authorizeUrl, sessionId } = await sessionProviderAuthStore.startEigenweltSignIn({ intent: "sign-in" });
+      await openDesktopUrl(authorizeUrl);
+      await sessionProviderAuthStore.completeEigenweltSignIn(sessionId);
+    } catch {
+      // Canceled or failed — the connect-AI bar keeps offering the path.
+    }
+  }, [sessionProviderAuthStore]);
   // On subscription activation (from the premium upsell challenge): re-pull the
   // paid Eigenwelt manifest and dispose+reload the engine/provider list so the
   // newly-entitled EU/ZDR models appear in the picker, not just the audio gate.
@@ -936,12 +949,16 @@ export function SessionRoute() {
       modelUnavailable: selectedModelUnavailable,
       modelSelectorLocked: soloEigenweltModel,
       selectedModel: local.prefs.defaultModel ?? { providerID: "", modelID: "" },
-      // The connect-AI empty state above the composer (no model selected).
-      // "Start free trial" goes straight to the Eigenwelt sign-in; only the
-      // BYO path opens the provider picker.
-      onConnectAi: (preferEigenwelt: boolean) => {
-        if (preferEigenwelt) {
+      // The connect-AI notice above the composer (no model selected, or signed
+      // out with nothing else connected). Trial and login go straight to the
+      // Eigenwelt sign-in in the browser; only the BYO path opens the picker.
+      onConnectAi: (action: ConnectAiAction) => {
+        if (action === "trial") {
           void startEigenweltTrial();
+          return;
+        }
+        if (action === "login") {
+          void startEigenweltLogin();
           return;
         }
         void sessionProviderAuthStore.openProviderAuthModal({ returnFocusTarget: "composer" });
