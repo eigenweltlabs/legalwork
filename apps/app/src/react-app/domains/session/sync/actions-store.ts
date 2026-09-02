@@ -8,6 +8,7 @@ import type {
 } from "@opencode-ai/sdk/v2/client";
 
 import { t } from "../../../../i18n";
+import { eigenweltSignInExpiredMessage, isEigenweltSignInExpiredError } from "./eigenwelt-provider-error";
 import { unwrap } from "../../../../app/lib/opencode";
 import {
   abortSession as abortSessionTyped,
@@ -298,7 +299,11 @@ export function createSessionActionsStore(options: {
       (typeof error === "string" ? readString(error) : null);
 
     const generic = raw && /^unknown\s+error$/i.test(raw);
+    // A dead Eigenwelt key (the sign-in on this device was replaced or
+    // revoked): the raw 401 body is noise, the fix is signing in again.
+    const signInExpired = isEigenweltSignInExpiredError({ status, provider, texts: [raw, response] });
     const heading = (() => {
+      if (signInExpired) return eigenweltSignInExpiredMessage();
       if (status === 401 || status === 403) return t("app.error_auth_failed");
       if (status === 429) return t("app.error_rate_limit");
       if (provider) return `Provider error (${provider})`;
@@ -306,11 +311,11 @@ export function createSessionActionsStore(options: {
     })();
 
     const lines = [heading];
-    if (raw && !generic && raw !== heading) lines.push(raw);
+    if (raw && !generic && !signInExpired && raw !== heading) lines.push(raw);
     if (status && !heading.includes(String(status))) lines.push(`Status: ${status}`);
     if (provider && !heading.includes(provider)) lines.push(`Provider: ${provider}`);
     if (code) lines.push(`Code: ${code}`);
-    if (response) lines.push(`Response: ${response}`);
+    if (response && !signInExpired) lines.push(`Response: ${response}`);
     if (lines.length > 1) return lines.join("\n");
 
     if (raw && !generic) return raw;

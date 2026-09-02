@@ -5,6 +5,7 @@ import type { FilePart, Part, ToolPart } from "@opencode-ai/sdk/v2/client";
 import type { LegalworkSessionSnapshot } from "../../../../app/lib/legalwork-server";
 import { safeStringify } from "../../../../app/utils";
 import { SYNTHETIC_SESSION_ERROR_MESSAGE_PREFIX } from "../../../../app/types";
+import { eigenweltSignInExpiredMessage, isEigenweltSignInExpiredError } from "./eigenwelt-provider-error";
 import {
   parseDynamicToolUIPart,
   parseStructuredOutputUIPart,
@@ -54,9 +55,16 @@ function withAttachmentRecoveryHint(text: string) {
   return `${text}\nAn attached file in this conversation uses a format the model can't read. Revert the conversation to before the attachment was sent, or start a new session.`;
 }
 
+function describeErrorText(text: string) {
+  if (isEigenweltSignInExpiredError({ status: null, provider: null, texts: [text] })) {
+    return eigenweltSignInExpiredMessage();
+  }
+  return withAttachmentRecoveryHint(text);
+}
+
 export function describeOpencodeSessionError(error: unknown, fallback = "Session failed") {
-  if (error instanceof Error) return withAttachmentRecoveryHint(error.message || fallback);
-  if (typeof error === "string") return withAttachmentRecoveryHint(error.trim() || fallback);
+  if (error instanceof Error) return describeErrorText(error.message || fallback);
+  if (typeof error === "string") return describeErrorText(error.trim() || fallback);
   if (!error || typeof error !== "object") return fallback;
 
   const data = recordValue(error, "data");
@@ -71,12 +79,21 @@ export function describeOpencodeSessionError(error: unknown, fallback = "Session
   const retries = firstNumberValue(records, ["retries", "retryCount"]);
   const responseBody = firstStringValue(records, ["responseBody", "body", "response"]);
 
-  const lines = [message ?? defaultErrorMessage(name, fallback)];
+  // A dead Eigenwelt key (the sign-in on this device was replaced or
+  // revoked): the raw 401 body is noise, the fix is signing in again.
+  const signInExpired = isEigenweltSignInExpiredError({
+    status,
+    provider,
+    texts: [message, responseBody],
+  });
+  const lines = [
+    signInExpired ? eigenweltSignInExpiredMessage() : (message ?? defaultErrorMessage(name, fallback)),
+  ];
   if (status && !lines[0]?.includes(String(status))) lines.push(`Status: ${status}`);
   if (provider && !lines[0]?.includes(provider)) lines.push(`Provider: ${provider}`);
   if (code) lines.push(`Code: ${code}`);
   if (retries !== null) lines.push(`Retries: ${retries}`);
-  if (responseBody && responseBody !== message) lines.push(`Response: ${responseBody}`);
+  if (responseBody && responseBody !== message && !signInExpired) lines.push(`Response: ${responseBody}`);
   if (lines.some((line) => line !== fallback)) return withAttachmentRecoveryHint(lines.join("\n"));
 
   const serialized = safeStringify(error);

@@ -65,6 +65,10 @@ const de: Record<string, string> = {
   "office_addins.install_hint":
     "Bei der Installation wird ein nur für localhost gültiges Zertifikat erzeugt und vom Betriebssystem als vertrauenswürdig eingestuft (eine einmalige Bestätigung); danach wird das Add-in zu deinen Office-Apps hinzugefügt.",
 
+  /* ---- App errors ---- */
+  "app.error_eigenwelt_signin_expired":
+    "Deine Eigenwelt-Anmeldung auf diesem Computer ist nicht mehr gültig. Öffne die Einstellungen, dann Konto, und melde dich erneut an.",
+
   /* ---- Common actions ---- */
   "common.add": "Hinzufügen",
   "common.back": "Zurück",
