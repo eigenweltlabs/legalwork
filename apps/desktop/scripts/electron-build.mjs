@@ -58,8 +58,8 @@ const serverDistDir = resolve(repoRoot, "apps", "server", "dist");
 const constantsSrc = resolve(repoRoot, "constants.json");
 copyFileSync(constantsSrc, resolve(serverDistDir, "constants.json"));
 // Every compiled module importing the repo-root constants.json needs the
-// same rewrite (server.js: opencodeVersion; eigenwelt-free.js: mint key).
-for (const jsFile of ["server.js", "eigenwelt-free.js"]) {
+// same rewrite (server.js: opencodeVersion).
+for (const jsFile of ["server.js"]) {
   const jsPath = resolve(serverDistDir, jsFile);
   const jsSrc = readFileSync(jsPath, "utf8");
   const patched = jsSrc.replace(
