@@ -2595,6 +2595,7 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
         workspaceId={hubWorkspaceId}
         open={teamShareOpen}
         initialSelection={teamShareInitial}
+        includeGlobalSkills={(selectedWorkspace?.workspaceType ?? "local") !== "remote"}
         onOpenChange={(open) => {
           setTeamShareOpen(open);
           if (!open) setTeamShareInitial(null);
