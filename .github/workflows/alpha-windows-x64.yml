@@ -137,18 +137,15 @@ jobs:
           node scripts/release/apply-version.mjs --version "$ALPHA_VERSION"
           pnpm install --lockfile-only --no-frozen-lockfile
 
-      - name: Bake Eigenwelt free-mint key
-        shell: bash
-        env:
-          EIGENWELT_FREE_MINT_KEY: ${{ secrets.EIGENWELT_FREE_MINT_KEY }}
-        run: node scripts/release/bake-mint-key.mjs
-
       - name: Build Electron alpha app
         shell: bash
         env:
           # TARGET tells prepare-sidecar.mjs which architecture's sidecars
           # to download.
           TARGET: x86_64-pc-windows-msvc
+          # Alpha builds report to the "LegalWork Dev & Alpha" PostHog project
+          # (publishable client token, baked at build time).
+          VITE_LEGALWORK_POSTHOG_KEY: phc_Bfnpz8tU5KkWcQ3uzqe99RPL74RuQXLJvHs9zPWZqRqJ
         run: pnpm --filter @legalwork/desktop build:electron
 
       - name: Package Electron alpha (Windows)

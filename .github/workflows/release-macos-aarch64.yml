@@ -385,18 +385,16 @@ jobs:
 
           echo "NOTARY_KEY_PATH=$NOTARY_KEY_PATH" >> "$GITHUB_ENV"
 
-      - name: Bake Eigenwelt free-mint key
-        shell: bash
-        env:
-          EIGENWELT_FREE_MINT_KEY: ${{ secrets.EIGENWELT_FREE_MINT_KEY }}
-        run: node scripts/release/bake-mint-key.mjs
-
       - name: Build Electron app
         shell: bash
         env:
           # TARGET tells prepare-sidecar.mjs which architecture's sidecars
           # to download (critical for cross-arch builds like x64 on arm64 mac).
           TARGET: ${{ matrix.target_triple }}
+          # Onboarding-funnel analytics (PostHog EU, LegalWork project). A
+          # publishable client token, baked into the renderer bundle at build
+          # time. Without it release builds send no analytics at all.
+          VITE_LEGALWORK_POSTHOG_KEY: phc_mvBQ5pbmKNZPmLn6c6bMZb9yXqEtf6bvSPZBa5vwRJfw
         run: pnpm --filter @legalwork/desktop build:electron
 
       - name: Package Electron (macOS, signed + notarized)
