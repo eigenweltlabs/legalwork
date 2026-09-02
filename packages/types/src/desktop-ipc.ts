@@ -374,6 +374,12 @@ export type OfficeAddinOpenAppResult = {
 // ---------------------------------------------------------------------------
 
 export type DesktopCommandMap = {
+  // Native windows
+  openSessionWindow: {
+    args: [input: { workspaceId: string; sessionId: string; title?: string }];
+    result: boolean;
+  };
+
   // Workspace state
   workspaceBootstrap: { args: []; result: WorkspaceList };
   workspaceSetSelected: { args: [workspaceId: string]; result: WorkspaceList };

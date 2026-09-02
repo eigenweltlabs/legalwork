@@ -29,6 +29,10 @@ import { abortSessionSafe } from "@/app/lib/opencode-session";
 import { isOfficeAddinRuntime } from "@/app/lib/runtime-env";
 import { t } from "@/i18n";
 import { readWorkspaceImports, type ImportedPlugin } from "@/app/lib/extension-imports";
+import {
+  materializeLegalMemoryFile,
+  type LegalMemoryFileDragItem,
+} from "@/app/lib/legalmemory-file";
 import type {
   LegalworkServerClient,
   LegalworkSessionSnapshot,
@@ -51,7 +55,14 @@ import {
 } from "@/app/lib/app-inspector";
 import { useControlAction, type LegalworkControlAction } from "@/react-app/shell/control/control-provider";
 import { ReactSessionComposer } from "./composer/composer";
-import { decodeComposerMentionValue, encodeComposerMentionValue, type ComposerMentionKind } from "./composer/mention-encoding";
+import {
+  createLegalMemoryComposerMention,
+  decodeComposerMentionValue,
+  encodeComposerMentionValue,
+  legalMemoryComposerInstruction,
+  legalMemoryComposerDisplayText,
+  type ComposerMentionKind,
+} from "./composer/mention-encoding";
 import { desktopBridge } from "@/app/lib/desktop";
 import { parseSlashCommandInvocation } from "./composer/slash-command";
 import { DevProfiler } from "@/react-app/shell/dev-profiler";
@@ -478,6 +489,10 @@ function mergeDrafts(drafts: ComposerDraft[]): ComposerDraft | null {
     attachments,
     text: texts.join("\n\n"),
     resolvedText: resolvedTexts.join("\n\n"),
+    modelContext: drafts
+      .map((draft) => draft.modelContext?.trim())
+      .filter((context): context is string => Boolean(context))
+      .join("\n\n") || undefined,
     command: undefined,
   };
 }
@@ -961,6 +976,7 @@ export function SessionSurface(props: SessionSurfaceProps) {
   });
 
   const buildDraft = useCallback((text: string, nextAttachments: ComposerAttachment[]): ComposerDraft => {
+    const modelContexts: string[] = [];
     const parts: ComposerPart[] = text.split(/(\[pasted text [^\]]+\]|\[skill [^\]]+\]|@[^\s@]+)/).flatMap((segment) => {
       if (!segment) return [] as ComposerDraft["parts"];
       const pasteMatch = segment.match(/^\[pasted text (.+)\]$/);
@@ -979,6 +995,10 @@ export function SessionSurface(props: SessionSurfaceProps) {
         const kind = mentions[value];
         if (kind === "agent") return [{ type: "agent", name: value } satisfies ComposerDraft["parts"][number]];
         if (kind === "file") return [{ type: "file", path: value, label: value } satisfies ComposerDraft["parts"][number]];
+        if (kind === "memory") {
+          modelContexts.push(legalMemoryComposerInstruction(value));
+          return [{ type: "text", text: legalMemoryComposerDisplayText(value) } satisfies ComposerDraft["parts"][number]];
+        }
         if (kind === "app") return [{ type: "app", name: value } satisfies ComposerDraft["parts"][number]];
       }
       return [{ type: "text", text: segment } satisfies ComposerDraft["parts"][number]];
@@ -990,8 +1010,11 @@ export function SessionSurface(props: SessionSurfaceProps) {
       resolved = resolved.replace(`[pasted text ${part.label}]`, part.text);
     }
     resolved = resolved.replace(/\[skill ([^\]]+)\]/g, (_match, name: string) => `the \"${name}\" skill`);
-    for (const value of Object.keys(mentions)) {
-      resolved = resolved.replaceAll(`@${encodeComposerMentionValue(value)}`, `@${value}`);
+    for (const [value, kind] of Object.entries(mentions)) {
+      resolved = resolved.replaceAll(
+        `@${encodeComposerMentionValue(value)}`,
+        kind === "memory" ? legalMemoryComposerDisplayText(value) : `@${value}`,
+      );
     }
     const slashCommand = parseSlashCommandInvocation(resolved);
     return {
@@ -1000,6 +1023,7 @@ export function SessionSurface(props: SessionSurfaceProps) {
       attachments: nextAttachments,
       text,
       resolvedText: resolved,
+      modelContext: [...new Set(modelContexts)].join("\n") || undefined,
       command: slashCommand ?? undefined,
     };
   }, [mentions, pasteParts]);
@@ -1241,6 +1265,29 @@ export function SessionSurface(props: SessionSurfaceProps) {
     }
   };
 
+  const handleDropLegalMemoryFile = async (file: LegalMemoryFileDragItem) => {
+    try {
+      // Materialize the authorized original before inserting the pill. Only its
+      // workspace path is sent to the agent; the binary is deliberately not
+      // added to ComposerDraft.attachments or emitted as a file part.
+      const result = await materializeLegalMemoryFile(props.client, props.workspaceId, file.document_id);
+      const reference = createLegalMemoryComposerMention(file.document_id, file.name, result.path);
+      const composerState = useComposerStateStore.getState();
+      const currentDraft = getComposerDraft(composerState, props.sessionId);
+      const currentMentions = getComposerMentions(composerState, props.sessionId);
+      const separator = currentDraft && !/\s$/.test(currentDraft) ? " " : "";
+      setComposerDraft(
+        props.sessionId,
+        `${currentDraft}${separator}@${encodeComposerMentionValue(reference)} `,
+      );
+      setComposerMentions(props.sessionId, { ...currentMentions, [reference]: "memory" });
+    } catch (error) {
+      toast.error(`Could not download ${file.name}`, {
+        description: error instanceof Error ? error.message : "LegalMemory download failed",
+      });
+    }
+  };
+
   const handlePasteText = (text: string) => {
     const id = `paste-${Math.random().toString(36).slice(2)}`;
     const label = `${id.slice(-4)} · ${text.split(/\r?\n/).length} lines`;
@@ -1328,21 +1375,7 @@ export function SessionSurface(props: SessionSurfaceProps) {
       if (!workspaceId) return;
       void (async () => {
         try {
-          const result = await props.client.legalMemoryOpen(workspaceId, { document_id: documentId });
-          // The route has written the file, but the viewer reads it back
-          // through the workspace API and can get there first: it opens on a
-          // path the read layer does not see yet, renders empty, and caches
-          // that. Closing and reopening the tab then works, which is the
-          // signature of a race rather than a missing file. So wait until the
-          // file is actually readable before opening anything.
-          for (let attempt = 0; attempt < 12; attempt += 1) {
-            try {
-              await props.client.downloadWorkspaceFile(workspaceId, result.path);
-              break;
-            } catch {
-              await new Promise((resolve) => setTimeout(resolve, 150));
-            }
-          }
+          const result = await materializeLegalMemoryFile(props.client, workspaceId, documentId);
           const target = resolvePathOpenTarget(result.path, openTargets, "legalmemory");
           if (!target) return;
           // The viewer caches per target id. This path may have been opened
@@ -1754,6 +1787,7 @@ export function SessionSurface(props: SessionSurfaceProps) {
         recentFiles={props.recentFiles}
         searchFiles={props.searchFiles}
         onInsertMention={handleInsertMention}
+        onDropLegalMemoryFile={handleDropLegalMemoryFile}
         inputHistory={inputHistory}
         onPasteText={handlePasteText}
         onUnsupportedFileLinks={handleUnsupportedFileLinks}

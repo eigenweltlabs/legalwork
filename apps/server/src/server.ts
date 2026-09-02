@@ -8,6 +8,9 @@ import {
   fetchLegalMemoryDocument,
   fetchLegalMemoryGraph,
   fetchLegalMemoryMatters,
+  fetchLegalMemoryTreeChildren,
+  fetchLegalMemoryTreeRoots,
+  fetchLegalMemoryTreeSearch,
   resolveLegalMemoryServer,
 } from "./legalmemory-fetch.js";
 import { fileURLToPath } from "node:url";
@@ -82,15 +85,20 @@ import { registerSessionRoutes } from "./routes/sessions.js";
 import { registerWorkspaceRoutes } from "./routes/workspaces.js";
 import {
   applyGlobalToolPermissions,
+  GLOBAL_PERSONALIZATION_ID,
   GLOBAL_TOOL_PERMISSIONS_ID,
+  isPersonality,
+  MAX_CUSTOM_INSTRUCTIONS_LENGTH,
   mergeOpencodeConfigs,
   mergeRuntimeProviderPatch,
+  readGlobalPersonalizationSettings,
   readGlobalToolPermissions,
   readRuntimeOpencodeConfig,
   runtimeMcpMap,
   type RuntimeOpencodeConfig,
   writeRuntimeOpencodeConfig,
 } from "./runtime-opencode-config-store.js";
+import { deleteAllLocalMemories } from "./personalization.js";
 import {
   mergeLegalworkWorkspaceConfigs,
   readLegalworkWorkspaceConfig,
@@ -203,6 +211,37 @@ function readStringField(value: unknown, key: string): string {
   if (!isRecord(value)) return "";
   const field = value[key];
   return typeof field === "string" ? field.trim() : "";
+}
+
+function parsePersonalizationPayload(value: unknown) {
+  if (!isRecord(value)) {
+    throw new ApiError(400, "invalid_personalization", "Personalisation settings are required");
+  }
+  if (typeof value.customInstructions !== "string") {
+    throw new ApiError(400, "invalid_personalization", "customInstructions must be a string");
+  }
+  if (value.customInstructions.length > MAX_CUSTOM_INSTRUCTIONS_LENGTH) {
+    throw new ApiError(
+      400,
+      "invalid_personalization",
+      `customInstructions must be ${MAX_CUSTOM_INSTRUCTIONS_LENGTH} characters or fewer`,
+    );
+  }
+  if (typeof value.localMemoriesEnabled !== "boolean") {
+    throw new ApiError(400, "invalid_personalization", "localMemoriesEnabled must be a boolean");
+  }
+  if (typeof value.allowToolAssistedMemory !== "boolean") {
+    throw new ApiError(400, "invalid_personalization", "allowToolAssistedMemory must be a boolean");
+  }
+  if (!isPersonality(value.personality)) {
+    throw new ApiError(400, "invalid_personalization", "personality is not supported");
+  }
+  return {
+    customInstructions: value.customInstructions,
+    localMemoriesEnabled: value.localMemoriesEnabled,
+    allowToolAssistedMemory: value.allowToolAssistedMemory,
+    personality: value.personality,
+  };
 }
 
 function recordRecordMap(value: unknown): Record<string, Record<string, unknown>> | null {
@@ -1577,6 +1616,32 @@ function createRoutes(
     return jsonResponse({ ok: true, distinctId: launchAnalyticsId() });
   });
 
+  addRoute(routes, "GET", "/personalization", "client", async () => {
+    return jsonResponse({ settings: await readGlobalPersonalizationSettings(config) });
+  });
+
+  addRoute(routes, "PUT", "/personalization", "client", async (ctx) => {
+    ensureWritable(config);
+    requireClientScope(ctx, "collaborator");
+    const settings = parsePersonalizationPayload(await readJsonBody(ctx.request));
+    await writeRuntimeOpencodeConfig(config, GLOBAL_PERSONALIZATION_ID, (current) => ({
+      ...current,
+      personalization: settings,
+    }));
+    return jsonResponse({ settings, updatedAt: Date.now() });
+  });
+
+  addRoute(routes, "DELETE", "/personalization/memories", "client", async (ctx) => {
+    ensureWritable(config);
+    requireClientScope(ctx, "collaborator");
+    const body = await readJsonBody(ctx.request);
+    if (body.confirm !== true) {
+      throw new ApiError(400, "confirmation_required", "confirm must be true");
+    }
+    const deletedDirectories = await deleteAllLocalMemories(config);
+    return jsonResponse({ ok: true, deletedDirectories });
+  });
+
   addRoute(routes, "GET", "/workspace/:id/config", "client", async (ctx) => {
     const workspace = await resolveWorkspace(config, ctx.params.id);
     const legalwork = mergeLegalworkWorkspaceConfigs(
@@ -2230,6 +2295,68 @@ function createRoutes(
     } catch {
       // A source without its matter is still a usable source.
       return jsonResponse({ ok: true, matters: {} });
+    }
+  });
+
+  // The caller's LegalMemory estate as a lazy file tree. The LegalWork server
+  // owns the configured appliance URL and reuses the engine's MCP bearer, so
+  // the renderer sees neither while each listing keeps the caller's ACLs.
+  addRoute(routes, "POST", "/workspace/:id/legalmemory/tree/roots", "client", async (ctx) => {
+    requireClientScope(ctx, "collaborator");
+    const workspace = await resolveWorkspace(config, ctx.params.id);
+    const server = resolveLegalMemoryServer(await listMcp(config, workspace.id, workspace.path));
+    if (!server) throw new ApiError(409, "legalmemory_not_configured", "No LegalMemory server is configured");
+    try {
+      return jsonResponse(await fetchLegalMemoryTreeRoots(server, await engineAccessToken(server.name)));
+    } catch (error) {
+      throw new ApiError(502, "legalmemory_tree_failed", error instanceof Error ? error.message : "File tree failed");
+    }
+  });
+
+  addRoute(routes, "POST", "/workspace/:id/legalmemory/tree/children", "client", async (ctx) => {
+    requireClientScope(ctx, "collaborator");
+    const workspace = await resolveWorkspace(config, ctx.params.id);
+    const body = await readJsonBodyLimited(ctx.request, 16 * 1024);
+    const sourceId = typeof body.source_id === "string" ? body.source_id.trim() : "";
+    const path = typeof body.path === "string" ? body.path.trim() : "";
+    const offset = typeof body.offset === "number" && Number.isInteger(body.offset) ? Math.max(0, body.offset) : 0;
+    const limit = typeof body.limit === "number" && Number.isInteger(body.limit)
+      ? Math.min(250, Math.max(1, body.limit))
+      : 200;
+    if (!sourceId) throw new ApiError(400, "invalid_source_id", "A source_id is required");
+    if (path.length > 4096) throw new ApiError(400, "invalid_tree_path", "The folder path is too long");
+    const server = resolveLegalMemoryServer(await listMcp(config, workspace.id, workspace.path));
+    if (!server) throw new ApiError(409, "legalmemory_not_configured", "No LegalMemory server is configured");
+    try {
+      return jsonResponse(await fetchLegalMemoryTreeChildren(
+        server,
+        { sourceId, path: path || undefined, offset, limit },
+        await engineAccessToken(server.name),
+      ));
+    } catch (error) {
+      throw new ApiError(502, "legalmemory_tree_failed", error instanceof Error ? error.message : "Folder listing failed");
+    }
+  });
+
+  addRoute(routes, "POST", "/workspace/:id/legalmemory/tree/search", "client", async (ctx) => {
+    requireClientScope(ctx, "collaborator");
+    const workspace = await resolveWorkspace(config, ctx.params.id);
+    const body = await readJsonBodyLimited(ctx.request, 16 * 1024);
+    const query = typeof body.query === "string" ? body.query.trim() : "";
+    const limit = typeof body.limit === "number" && Number.isInteger(body.limit)
+      ? Math.min(100, Math.max(1, body.limit))
+      : 100;
+    if (!query) return jsonResponse({ files: [] });
+    const server = resolveLegalMemoryServer(await listMcp(config, workspace.id, workspace.path));
+    if (!server) throw new ApiError(409, "legalmemory_not_configured", "No LegalMemory server is configured");
+    try {
+      return jsonResponse(await fetchLegalMemoryTreeSearch(
+        server,
+        { query, limit },
+        await engineAccessToken(server.name),
+      ));
+    } catch (error) {
+      throw new ApiError(502, "legalmemory_tree_failed", error instanceof Error ? error.message : "File search failed");
     }
   });
 
@@ -4264,4 +4391,3 @@ async function materializeBlueprintSessions(config: ServerConfig, workspace: Wor
 
   return { ok: true, created, existing: [], openSessionId };
 }
-

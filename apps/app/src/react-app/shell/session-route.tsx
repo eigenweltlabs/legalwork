@@ -310,6 +310,11 @@ async function draftToParts(draft: ComposerDraft, workspaceRoot: string) {
 
 export function SessionRoute() {
   const navigate = useNavigate();
+  const location = useLocation();
+  const detached = useMemo(
+    () => new URLSearchParams(location.search).get("detached") === "1",
+    [location.search],
+  );
   const [showLearnings, setShowLearnings] = useState(false);
   // Top-level pages that live in the main shell (sidebar stays, main pane swaps),
   // same mechanism as Learnings. Mutually exclusive — only one main pane at a time.
@@ -1003,6 +1008,9 @@ export function SessionRoute() {
           cacheKey: targetSessionId,
           runtimeKey: environmentRuntimeKey,
         });
+        const turnSystemContext = [envSystemContext, draft.modelContext]
+          .filter((context): context is string => Boolean(context?.trim()))
+          .join("\n\n");
 
         if (!isOfficeAddinRuntime() && isFusionEnabled(targetSessionId)) {
           const candidateModels = getFusionSelectedModels(targetSessionId);
@@ -1025,7 +1033,7 @@ export function SessionRoute() {
               mainModel: local.prefs.defaultModel ?? undefined,
               agent: selectedAgent ?? undefined,
               variant: modelVariantValue ?? undefined,
-              baseSystem: envSystemContext ?? undefined,
+              baseSystem: turnSystemContext || undefined,
             }).catch((error: unknown) => {
               const message = error instanceof Error ? error.message : String(error);
               toast.error(t("fusion.turn_failed"), { description: message });
@@ -1041,7 +1049,7 @@ export function SessionRoute() {
           model: local.prefs.defaultModel ?? undefined,
           agent: selectedAgent ?? undefined,
           ...(modelVariantValue ? { variant: modelVariantValue } : {}),
-          ...(envSystemContext ? { system: envSystemContext } : {}),
+          ...(turnSystemContext ? { system: turnSystemContext } : {}),
         });
         if (result.error) {
           throw new Error(serializeSDKError(result.error));
@@ -1763,6 +1771,7 @@ export function SessionRoute() {
       />
     ) : null}
     <SessionPage
+      detached={detached}
       selectedSessionId={selectedSessionId}
       selectedWorkspaceId={selectedWorkspaceId}
       selectedWorkspaceDisplay={selectedWorkspace ? {

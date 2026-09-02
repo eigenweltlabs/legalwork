@@ -1,8 +1,9 @@
 /** @jsxImportSource react */
 import type { CSSProperties } from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { usePanelRef } from "react-resizable-panels";
-import { Columns2, FileText, Folder, Globe, Mic2, ScrollText, Settings2, SquarePen, X, Zap } from "lucide-react";
+import { AppWindowMac, Columns2, FileText, Folder, Globe, Mic2, ScrollText, Settings2, SquarePen, X, Zap } from "lucide-react";
 
 import { t } from "../../../../i18n";
 import { LEGALWORK_EXTENSION_CATALOG } from "../../../../app/constants";
@@ -10,10 +11,12 @@ import {
   type LegalworkServerClient,
   type LegalworkServerStatus,
   type LegalworkWorkspaceDirectoryEntry,
+  type LegalMemoryTreeFile,
 } from "../../../../app/lib/legalwork-server";
+import { materializeLegalMemoryFile } from "../../../../app/lib/legalmemory-file";
 import { getDisplaySessionTitle } from "../../../../app/lib/session-title";
 import type { BootPhase } from "../../../../app/lib/startup-boot";
-import { openDesktopPath, revealDesktopItemInDir, type WorkspaceInfo } from "../../../../app/lib/desktop";
+import { desktopBridge, openDesktopPath, revealDesktopItemInDir, type WorkspaceInfo } from "../../../../app/lib/desktop";
 import type {
   PendingPermission,
   PendingQuestion,
@@ -23,6 +26,7 @@ import type {
   WorkspaceSessionGroup,
 } from "../../../../app/types";
 import { Button } from "@/components/ui/button";
+import { toast } from "@/components/ui/sonner";
 import {
   Dialog,
   DialogClose,
@@ -56,11 +60,12 @@ import { useShellConfig } from "../../../shell/shell-config";
 import { type SidePanelItem, useUiStateStore } from "../../../shell/ui-state-store";
 
 import { isElectronRuntime } from "../../../../app/utils";
-import { classifyOpenTarget, isCollectibleArtifactTarget, isLocalhostBrowserTarget, isOpenableFileTarget, type OpenTarget } from "../artifacts/open-target";
+import { classifyOpenTarget, isCollectibleArtifactTarget, isLocalhostBrowserTarget, isOpenableFileTarget, resolvePathOpenTarget, type OpenTarget } from "../artifacts/open-target";
 import type { OpenTargetOptions } from "@/lib/target-provider";
 import { VoicePanel } from "../voice/voice-panel";
 import { SidePanel } from "../panel/side-panel";
 import { WorkspaceFilesPanel } from "../panel/workspace-files-panel";
+import { LegalMemoryFilesPanel } from "../panel/legalmemory-files-panel";
 import { TerminalDock } from "../terminal/terminal-dock";
 import { LEARNINGS_PANEL_SESSION_ID, useActivePanelTab, usePanelTabStore, useSessionPanelState } from "../panel/panel-tab-store";
 import { useWorkspaceShellLayout } from "../../../shell/workspace-shell-layout";
@@ -75,6 +80,7 @@ const STARTUP_SKELETON_ROWS = [
 ];
 const GLOBAL_VOICE_SIDE_PANEL_KEY = "__legalwork_voice__";
 const EMPTY_TRANSCRIPT_TARGETS: OpenTarget[] = [];
+const NATIVE_MENU_OPEN_SESSION_WINDOW_EVENT = "legalwork:native-menu:open-session-window";
 
 export type OpenSessionTab = {
   workspaceId: string;
@@ -131,6 +137,8 @@ export type SessionPageSurfaceProps = Omit<
 >;
 
 export type SessionPageProps = {
+  /** Native secondary chat window: omit the primary navigation sidebar. */
+  detached?: boolean;
   selectedSessionId: string | null;
   selectedWorkspaceId: string;
   selectedWorkspaceDisplay: {
@@ -285,8 +293,10 @@ function controlStringArg(args: unknown, key: string) {
 
 export function SessionPage(props: SessionPageProps) {
   const { config: shellConfig } = useShellConfig();
+  const queryClient = useQueryClient();
   const sidebarOpen = useUiStateStore((state) => state.sidebarOpen);
   const setSidebarOpen = useUiStateStore((state) => state.setSidebarOpen);
+  const [driveOpen, setDriveOpen] = useState(false);
   // The side panel's open/close state is keyed per chat session. Top-level
   // mainView pages (Learnings / Benchmark) have no selected session, so they key
   // it on the synthetic LEARNINGS_PANEL_SESSION_ID instead. Without this the key
@@ -619,6 +629,26 @@ export function SessionPage(props: SessionPageProps) {
     preserveSidePanelOnPanelOpenRef.current = true;
     setCurrentSidePanel("panel");
   }, [downloadOpenTarget, openTab, props.selectedSessionId, props.selectedWorkspaceDisplay.workspaceType, props.selectedWorkspaceRoot, setCurrentSidePanel]);
+  const openLegalMemoryFile = useCallback(async (file: LegalMemoryTreeFile) => {
+    const client = props.legalworkServerClient;
+    const workspaceId = props.runtimeWorkspaceId;
+    if (!client || !workspaceId) {
+      toast.error("Could not open the memory file", { description: "Workspace is not connected." });
+      throw new Error("Workspace is not connected.");
+    }
+    try {
+      const result = await materializeLegalMemoryFile(client, workspaceId, file.document_id);
+      const target = resolvePathOpenTarget(result.path, accessibleTargets, "legalmemory");
+      if (!target) throw new Error("LegalMemory returned an unusable file path.");
+      queryClient.removeQueries({ queryKey: ["artifact-panel", workspaceId, target.id] });
+      openTarget(target, undefined, props.mainView ? LEARNINGS_PANEL_SESSION_ID : undefined);
+    } catch (error) {
+      toast.error(`Could not open ${file.name}`, {
+        description: error instanceof Error ? error.message : "LegalMemory download failed.",
+      });
+      throw error;
+    }
+  }, [accessibleTargets, openTarget, props.legalworkServerClient, props.mainView, props.runtimeWorkspaceId, queryClient]);
   const openExtensionsRailPane = useCallback(() => {
     toggleCurrentSidePanel("extensions");
   }, [toggleCurrentSidePanel]);
@@ -709,6 +739,10 @@ export function SessionPage(props: SessionPageProps) {
     () => sessionTitleForId(props.sidebar.workspaceSessionGroups, props.selectedSessionId),
     [props.selectedSessionId, props.sidebar.workspaceSessionGroups],
   );
+  useEffect(() => {
+    if (!props.detached) return;
+    document.title = selectedSessionTitle || t("session.default_title");
+  }, [props.detached, selectedSessionTitle]);
   useEffect(() => {
     setSessionTabs((current) => {
       const currentWorkspaceTabs = current.filter((tab) => tab.workspaceId === props.selectedWorkspaceId);
@@ -805,6 +839,24 @@ export function SessionPage(props: SessionPageProps) {
     props.sidebar.onOpenSession(workspaceId, sessionId);
   }, [props.sidebar]);
 
+  const openSessionWindow = useCallback((workspaceId: string, sessionId: string) => {
+    if (!isElectronRuntime()) return;
+    const title = sessionTitleForId(props.sidebar.workspaceSessionGroups, sessionId);
+    void desktopBridge.openSessionWindow({ workspaceId, sessionId, title }).catch(() => {
+      toast.error("Could not open the chat in a new window.");
+    });
+  }, [props.sidebar.workspaceSessionGroups]);
+
+  useEffect(() => {
+    if (props.detached || !props.selectedSessionId || !isElectronRuntime()) return;
+    const selectedSessionId = props.selectedSessionId;
+    const handleNativeOpenSessionWindow = () => {
+      openSessionWindow(props.selectedWorkspaceId, selectedSessionId);
+    };
+    window.addEventListener(NATIVE_MENU_OPEN_SESSION_WINDOW_EVENT, handleNativeOpenSessionWindow);
+    return () => window.removeEventListener(NATIVE_MENU_OPEN_SESSION_WINDOW_EVENT, handleNativeOpenSessionWindow);
+  }, [openSessionWindow, props.detached, props.selectedSessionId, props.selectedWorkspaceId]);
+
   const closeSessionTab = useCallback((sessionId: string) => {
     setSessionTabs((current) => current.filter((tab) => tab.sessionId !== sessionId));
     setSplitSessionId((current) => current === sessionId ? null : current);
@@ -882,7 +934,7 @@ export function SessionPage(props: SessionPageProps) {
         )}
         style={sidebarProviderStyle}
       >
-        <AppSidebar
+        {!props.detached ? <AppSidebar
           workspaceSessionGroups={props.sidebar.workspaceSessionGroups}
           selectedWorkspaceId={props.sidebar.selectedWorkspaceId}
           developerMode={props.sidebar.developerMode}
@@ -895,6 +947,7 @@ export function SessionPage(props: SessionPageProps) {
           newTaskDisabled={props.sidebar.newTaskDisabled}
           onSelectWorkspace={props.sidebar.onSelectWorkspace}
           onOpenSession={openSessionTab}
+          onOpenSessionWindow={isElectronRuntime() ? openSessionWindow : undefined}
           onPrefetchSession={props.sidebar.onPrefetchSession}
           onCreateTaskInWorkspace={props.sidebar.onCreateTaskInWorkspace}
           onOpenRenameSession={props.onRenameSession ? openRenameModal : undefined}
@@ -915,6 +968,8 @@ export function SessionPage(props: SessionPageProps) {
           onForgetWorkspace={props.sidebar.onForgetWorkspace}
           onOpenCreateWorkspace={props.sidebar.onOpenCreateWorkspace}
           onCreateTaskInNewWorkspace={props.sidebar.onCreateTaskInNewWorkspace}
+          onToggleDrive={() => setDriveOpen((open) => !open)}
+          driveOpen={driveOpen}
           onShowLearnings={props.sidebar.onShowLearnings}
           onShowWorkflows={props.sidebar.onShowWorkflows}
           onShowExtensions={props.sidebar.onShowExtensions}
@@ -922,7 +977,20 @@ export function SessionPage(props: SessionPageProps) {
           activeNav={props.sidebar.activeNav}
           onReorderWorkspaces={props.sidebar.onReorderWorkspaces}
           onStartResize={startLeftSidebarResize}
-        />
+        /> : null}
+        {!props.detached && driveOpen ? (
+          <LegalMemoryFilesPanel
+            key={props.runtimeWorkspaceId ?? "__no_workspace__"}
+            client={props.legalworkServerClient}
+            workspaceId={props.runtimeWorkspaceId}
+            onOpenFile={openLegalMemoryFile}
+            onConnectLegalMemory={() => {
+              setDriveOpen(false);
+              props.sidebar.onShowExtensions?.();
+            }}
+            onClose={() => setDriveOpen(false)}
+          />
+        ) : null}
         {props.mainView ? (
           // Top-level pages (Learnings / Skills / Integrations): keep the app chrome the
           // chat has — the draggable top header and the bottom StatusBar (with the
@@ -1038,9 +1106,9 @@ export function SessionPage(props: SessionPageProps) {
           >
             <ResizablePanel minSize="360px" className="min-w-0">
               <main className="flex h-full min-w-0 flex-col overflow-hidden border-r border-border">
-          <header className="z-10 flex h-10 shrink-0 items-center justify-between border-b border-border px-4 md:px-6 mac:titlebar-drag  mac:backdrop-blur-2xl mac:backdrop-saturate-150 @container/titlebar">
+          <header className={cn("z-10 flex h-10 shrink-0 items-center justify-between border-b border-border px-4 md:px-6 mac:titlebar-drag mac:backdrop-blur-2xl mac:backdrop-saturate-150 @container/titlebar", props.detached && "mac:pl-20")}>
             <div className="flex min-w-0 items-center gap-3">
-              {shellConfig.sidebar ? (
+              {!props.detached && shellConfig.sidebar ? (
                 <SidebarTrigger className="mac:hidden" />
               ) : (
                 // Keeps the title clear of overlaid leading controls (e.g. the
@@ -1069,6 +1137,17 @@ export function SessionPage(props: SessionPageProps) {
 
             <div className="flex items-center gap-1.5 text-gray-10 mac:titlebar-no-drag">
               {/* Revert/redo moved to per-message actions */}
+              {!props.detached && props.selectedSessionId && isElectronRuntime() ? (
+                <Button
+                  variant="ghost"
+                  size="icon-sm"
+                  onClick={() => openSessionWindow(props.selectedWorkspaceId, props.selectedSessionId!)}
+                  title="Open chat in new window"
+                  aria-label="Open chat in new window"
+                >
+                  <AppWindowMac size={16} />
+                </Button>
+              ) : null}
               <NotificationBell />
               {props.developerMode ? (
                 <Button
@@ -1539,7 +1618,7 @@ export function SessionPage(props: SessionPageProps) {
           </div>
         </SidebarInset>
         )}
-        {shellConfig.sidebar ? <SidebarTrigger className="hidden mac:absolute mac:left-[64px] top-[3px] z-50 mac:flex titlebar-no-drag" /> : null}
+        {!props.detached && shellConfig.sidebar ? <SidebarTrigger className="hidden mac:absolute mac:left-[64px] top-[3px] z-50 mac:flex titlebar-no-drag" /> : null}
       </SidebarProvider>
 
       {props.providerAuthModal ? <ProviderAuthModal {...props.providerAuthModal} /> : null}

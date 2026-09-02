@@ -18,6 +18,7 @@ import {
   Puzzle,
   RefreshCcw,
   ShieldCheck,
+  Sparkles,
   Store,
   UserCircle,
   Wrench,
@@ -64,6 +65,8 @@ export function getSettingsTabIcon(tab: SettingsTab) {
       return Zap;
     case "account":
       return UserCircle;
+    case "personalisation":
+      return Sparkles;
     case "benchmark":
       return Gauge;
     case "preferences":
@@ -113,6 +116,8 @@ export function getSettingsTabLabel(tab: SettingsTab) {
       return "AI Providers";
     case "account":
       return t("settings.tab_account");
+    case "personalisation":
+      return "Personalisation";
     case "benchmark":
       return t("settings.tab_benchmark");
     case "preferences":
@@ -164,6 +169,8 @@ export function getSettingsTabDescription(tab: SettingsTab) {
       return "Connect services that provide AI models";
     case "account":
       return t("settings.tab_description_account");
+    case "personalisation":
+      return "System prompt additions, local memory, and response personality";
     case "benchmark":
       return t("settings.tab_description_benchmark");
     case "preferences":
@@ -222,7 +229,7 @@ export function getGlobalSettingsTabs(developerMode: boolean): SettingsTab[] {
   // "benchmark" is not listed here: it lives on the Learnings page in the main
   // app shell (embedded singleView surface), not in the settings sidebar.
   // Account leads: it is the firm's sign-in, plan and billing home.
-  const tabs: SettingsTab[] = ["account", "ai", "safety", "shell", "environment", "preferences", "updates"];
+  const tabs: SettingsTab[] = ["account", "ai", "personalisation", "safety", "shell", "environment", "preferences", "updates"];
   // Office add-ins install into local desktop apps, so the tab is desktop-only.
   // Placed right after AI Providers.
   if (isDesktopRuntime()) tabs.splice(2, 0, "office-addins");

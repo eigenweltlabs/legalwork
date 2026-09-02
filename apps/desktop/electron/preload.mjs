@@ -2,6 +2,7 @@ import { contextBridge, ipcRenderer } from "electron";
 
 const NATIVE_DEEP_LINK_EVENT = "legalwork:deep-link-native";
 const NATIVE_MENU_OPEN_SETTINGS_EVENT = "legalwork:native-menu:open-settings";
+const NATIVE_MENU_OPEN_SESSION_WINDOW_EVENT = "legalwork:native-menu:open-session-window";
 const NATIVE_MENU_TOGGLE_SIDEBAR_EVENT = "legalwork:native-menu:toggle-sidebar";
 const NATIVE_MENU_CHECK_UPDATES_EVENT = "legalwork:native-menu:check-updates";
 const NATIVE_MENU_ZOOM_EVENT = "legalwork:native-menu:zoom";
@@ -209,6 +210,11 @@ ipcRenderer.on(NATIVE_DEEP_LINK_EVENT, (_event, urls) => {
 ipcRenderer.on(NATIVE_MENU_OPEN_SETTINGS_EVENT, () => {
   if (typeof window === "undefined") return;
   window.dispatchEvent(new Event(NATIVE_MENU_OPEN_SETTINGS_EVENT));
+});
+
+ipcRenderer.on(NATIVE_MENU_OPEN_SESSION_WINDOW_EVENT, () => {
+  if (typeof window === "undefined") return;
+  window.dispatchEvent(new Event(NATIVE_MENU_OPEN_SESSION_WINDOW_EVENT));
 });
 
 ipcRenderer.on(NATIVE_MENU_TOGGLE_SIDEBAR_EVENT, () => {

@@ -7,6 +7,7 @@ import {
   Sprout,
   ChevronRight,
   FolderPlus,
+  HardDrive,
   Loader2,
   Mic,
   PenLine,
@@ -19,6 +20,7 @@ import {
   Plus,
   Trash2,
   FolderOpen,
+  AppWindowMac,
   Tag,
 } from "lucide-react";
 import { LazyMotion, Reorder, domMax, m, useDragControls } from "motion/react";
@@ -49,6 +51,7 @@ import {
   SidebarMenuSubButton,
   SidebarMenuSubItem,
   SidebarRail,
+  useSidebar,
 } from "@/components/ui/sidebar";
 import {
   Collapsible,
@@ -186,6 +189,15 @@ function SessionMenuContent({ variant, sessionId, workspaceId, isPinned, isArchi
   if (variant === "dropdown") {
     return (
       <>
+        {ctx.onOpenSessionWindow ? (
+          <>
+            <DropdownMenuItem onClick={() => ctx.onOpenSessionWindow?.(workspaceId, sessionId)}>
+              <AppWindowMac className="size-4" />
+              Open in New Window
+            </DropdownMenuItem>
+            <DropdownMenuSeparator />
+          </>
+        ) : null}
         <DropdownMenuItem onClick={() => store.getState().togglePin(sessionId)}>
           {isPinned ? <PinOff className="size-4" /> : <Pin className="size-4" />}
           {isPinned ? t("session_management.unpin_session") : t("session_management.pin_session")}
@@ -259,6 +271,15 @@ function SessionMenuContent({ variant, sessionId, workspaceId, isPinned, isArchi
 
   return (
     <>
+      {ctx.onOpenSessionWindow ? (
+        <>
+          <ContextMenuItem onClick={() => ctx.onOpenSessionWindow?.(workspaceId, sessionId)}>
+            <AppWindowMac className="size-4" />
+            Open in New Window
+          </ContextMenuItem>
+          <ContextMenuSeparator />
+        </>
+      ) : null}
       <ContextMenuItem onClick={() => store.getState().togglePin(sessionId)}>
         {isPinned ? <PinOff className="size-4" /> : <Pin className="size-4" />}
         {isPinned ? t("session_management.unpin_session") : t("session_management.pin_session")}
@@ -449,6 +470,7 @@ export type AppSidebarProps = {
   newTaskDisabled: boolean;
   onSelectWorkspace: (workspaceId: string) => Promise<boolean> | boolean | void;
   onOpenSession: (workspaceId: string, sessionId: string) => void;
+  onOpenSessionWindow?: (workspaceId: string, sessionId: string) => void;
   onPrefetchSession?: (workspaceId: string, sessionId: string) => void;
   onCreateTaskInWorkspace: (workspaceId: string) => void;
   onOpenRenameSession?: (sessionId: string) => void;
@@ -460,6 +482,8 @@ export type AppSidebarProps = {
   onForgetWorkspace: (workspaceId: string) => void;
   onOpenCreateWorkspace: () => void;
   onCreateTaskInNewWorkspace: () => void;
+  onToggleDrive?: () => void;
+  driveOpen?: boolean;
   onShowLearnings?: () => void;
   onShowWorkflows?: () => void;
   onShowExtensions?: () => void;
@@ -492,7 +516,12 @@ const NAV_ITEM_CLASS =
 
 export function AppSidebar(props: AppSidebarProps) {
   const { config: shellConfig } = useShellConfig();
+  const { isMobile, setOpenMobile } = useSidebar();
   const navigate = useNavigate();
+  const toggleDrive = React.useCallback(() => {
+    if (isMobile) setOpenMobile(false);
+    props.onToggleDrive?.();
+  }, [isMobile, props.onToggleDrive, setOpenMobile]);
   const goSettings = React.useCallback(
     (tab: string) => {
       const ws = props.selectedWorkspaceId.trim();
@@ -612,6 +641,7 @@ export function AppSidebar(props: AppSidebarProps) {
     workspaceConnectionStateById: props.workspaceConnectionStateById,
     onSelectWorkspace: props.onSelectWorkspace,
     onOpenSession: props.onOpenSession,
+    onOpenSessionWindow: props.onOpenSessionWindow,
     onPrefetchSession: props.onPrefetchSession,
     onCreateTaskInWorkspace: props.onCreateTaskInWorkspace,
     onOpenRenameSession: props.onOpenRenameSession,
@@ -688,12 +718,12 @@ export function AppSidebar(props: AppSidebarProps) {
           </SidebarMenuItem>
           <SidebarMenuItem>
             <SidebarMenuButton
-              className={cn(NAV_ITEM_CLASS, "[&_svg]:size-[19px]")}
-              isActive={props.activeNav === "learnings"}
-              onClick={() => props.onShowLearnings?.()}
+              className={cn(NAV_ITEM_CLASS, "[&_svg]:size-[18px]")}
+              isActive={props.driveOpen}
+              onClick={toggleDrive}
             >
-              <Sprout className="size-[19px]" strokeWidth={1.5} />
-              <span>Learning</span>
+              <HardDrive className="size-[18px]" strokeWidth={1.5} />
+              <span>Memory Drive</span>
             </SidebarMenuButton>
           </SidebarMenuItem>
           <SidebarMenuItem>
@@ -724,6 +754,16 @@ export function AppSidebar(props: AppSidebarProps) {
             >
               <Mic className="size-[18px]" strokeWidth={1.5} />
               <span>{t("recorder.nav_label")}</span>
+            </SidebarMenuButton>
+          </SidebarMenuItem>
+          <SidebarMenuItem>
+            <SidebarMenuButton
+              className={cn(NAV_ITEM_CLASS, "[&_svg]:size-[19px]")}
+              isActive={props.activeNav === "learnings"}
+              onClick={() => props.onShowLearnings?.()}
+            >
+              <Sprout className="size-[19px]" strokeWidth={1.5} />
+              <span>Learning</span>
             </SidebarMenuButton>
           </SidebarMenuItem>
         </SidebarMenu>
@@ -1532,6 +1572,13 @@ function SessionMenuItem({
     ctx.onOpenSession(workspaceId, session.id);
   };
 
+  const openSessionWindow = (event: React.MouseEvent) => {
+    if (!ctx.onOpenSessionWindow) return;
+    event.preventDefault();
+    event.stopPropagation();
+    ctx.onOpenSessionWindow(workspaceId, session.id);
+  };
+
   const prefetchSession = () => {
     if (workspaceId !== ctx.selectedWorkspaceId) {
       return;
@@ -1562,6 +1609,7 @@ function SessionMenuItem({
                 className={cn("relative", depth > 0 && "ps-13")}
                 isActive={isSelected}
                 onClick={openSession}
+                onDoubleClick={openSessionWindow}
                 onPointerEnter={prefetchSession}
                 onFocus={prefetchSession}
               >
@@ -1595,6 +1643,7 @@ function SessionMenuItem({
         <SidebarMenuSubButton
           isActive={isSelected}
           onClick={openSession}
+          onDoubleClick={openSessionWindow}
           onPointerEnter={prefetchSession}
           onFocus={prefetchSession}
           className={cn("transition-[padding] duration-75 group-hover/menu-sub-item:pe-8 group-has-data-popup-open/menu-sub-item:pe-8", depth > 0 && "ps-13", isSessionStreaming || isSessionActive && "pe-8")}

@@ -30,9 +30,11 @@ import {
 import type { ServerConfig } from "./types.js";
 import {
   applyGlobalToolPermissions,
+  GLOBAL_PERSONALIZATION_ID,
   GLOBAL_TOOL_PERMISSIONS_ID,
   onRuntimeOpencodeConfigWrite,
   readGlobalToolPermissions,
+  readGlobalPersonalizationSettings,
   readRuntimeOpencodeConfig,
   runtimeDisabledProviderList,
   runtimeAgentMap,
@@ -40,6 +42,7 @@ import {
   runtimePluginList,
   runtimeStorageDir,
 } from "./runtime-opencode-config-store.js";
+import { AGENT_MEMORY_PLUGIN_SPEC, buildPersonalizedAgentPrompt } from "./personalization.js";
 // The engine's built-in anonymous provider — always disabled: the free tier
 // is retired, so no unauthenticated fallback models exist.
 const OPENCODE_ZEN_PROVIDER_ID = "opencode";
@@ -118,6 +121,9 @@ export async function buildLegalworkRuntimeConfigObject(
         await readGlobalToolPermissions(config),
       )
     : {};
+  const personalization = config
+    ? await readGlobalPersonalizationSettings(config)
+    : null;
   // Paid Eigenwelt Model API: a global firm account, so the provider is
   // injected into EVERY workspace from one manifest cache (written on sign-in /
   // Refresh models, cleared on sign-out). Key rides in the block's headers, so
@@ -156,7 +162,9 @@ export async function buildLegalworkRuntimeConfigObject(
         description: "LegalWork default agent",
         mode: "primary",
         temperature: 0.2,
-        prompt: LEGALWORK_AGENT_PROMPT,
+        prompt: personalization
+          ? buildPersonalizedAgentPrompt(LEGALWORK_AGENT_PROMPT, personalization)
+          : LEGALWORK_AGENT_PROMPT,
       },
     },
     plugin: [
@@ -174,8 +182,9 @@ export async function buildLegalworkRuntimeConfigObject(
       bundledPluginSpec(legalworkExcelToolsPluginPath()),
       bundledPluginSpec(legalworkPowerPointToolsPluginPath()),
       bundledPluginSpec(legalworkBenchmarkToolsPluginPath()),
+      ...(personalization?.localMemoriesEnabled ? [AGENT_MEMORY_PLUGIN_SPEC] : []),
       ...runtimePluginList(runtimeConfig),
-    ],
+    ].filter((item, index, list) => list.indexOf(item) === index),
     ...(disabledProviders.length ? { disabled_providers: disabledProviders } : {}),
     mcp: runtimeMcpMap(runtimeConfig),
   };
@@ -222,8 +231,13 @@ export async function writeLegalworkRuntimeConfigFile(config: ServerConfig, work
  */
 export function keepLegalworkRuntimeConfigFileFresh(config: ServerConfig, workspaceId: string): () => void {
   return onRuntimeOpencodeConfigWrite((writeConfig, writtenWorkspaceId) => {
-    // Global tool-permission writes affect every workspace's derived config.
-    if (writtenWorkspaceId !== workspaceId && writtenWorkspaceId !== GLOBAL_TOOL_PERMISSIONS_ID) return;
+    // Global tool-permission and personalisation writes affect every
+    // workspace's derived config.
+    if (
+      writtenWorkspaceId !== workspaceId &&
+      writtenWorkspaceId !== GLOBAL_TOOL_PERMISSIONS_ID &&
+      writtenWorkspaceId !== GLOBAL_PERSONALIZATION_ID
+    ) return;
     void writeLegalworkRuntimeConfigFile(writeConfig, workspaceId).catch(() => undefined);
   });
 }

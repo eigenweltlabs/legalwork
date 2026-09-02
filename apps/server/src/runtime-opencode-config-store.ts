@@ -16,7 +16,34 @@ export type RuntimeOpencodeConfig = {
   };
   provider?: Record<string, unknown>;
   agent?: Record<string, Record<string, unknown>>;
+  personalization?: PersonalizationSettings;
 };
+
+export const PERSONALITY_VALUES = [
+  "default",
+  "pragmatic",
+  "professional",
+  "friendly",
+  "candid",
+] as const;
+
+export type Personality = (typeof PERSONALITY_VALUES)[number];
+
+export type PersonalizationSettings = {
+  customInstructions: string;
+  localMemoriesEnabled: boolean;
+  allowToolAssistedMemory: boolean;
+  personality: Personality;
+};
+
+export const DEFAULT_PERSONALIZATION_SETTINGS: PersonalizationSettings = {
+  customInstructions: "",
+  localMemoriesEnabled: false,
+  allowToolAssistedMemory: true,
+  personality: "pragmatic",
+};
+
+export const MAX_CUSTOM_INSTRUCTIONS_LENGTH = 12_000;
 
 const runtimeOpencodeConfigs = sqliteTable("runtime_opencode_configs", {
   workspaceId: text("workspace_id").primaryKey(),
@@ -31,6 +58,31 @@ type RuntimeOpencodeDb = {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+export function isPersonality(value: unknown): value is Personality {
+  return typeof value === "string" && PERSONALITY_VALUES.some((item) => item === value);
+}
+
+export function normalizePersonalizationSettings(value: unknown): PersonalizationSettings {
+  if (!isRecord(value)) return { ...DEFAULT_PERSONALIZATION_SETTINGS };
+  return {
+    customInstructions:
+      typeof value.customInstructions === "string"
+        ? value.customInstructions.slice(0, MAX_CUSTOM_INSTRUCTIONS_LENGTH)
+        : DEFAULT_PERSONALIZATION_SETTINGS.customInstructions,
+    localMemoriesEnabled:
+      typeof value.localMemoriesEnabled === "boolean"
+        ? value.localMemoriesEnabled
+        : DEFAULT_PERSONALIZATION_SETTINGS.localMemoriesEnabled,
+    allowToolAssistedMemory:
+      typeof value.allowToolAssistedMemory === "boolean"
+        ? value.allowToolAssistedMemory
+        : DEFAULT_PERSONALIZATION_SETTINGS.allowToolAssistedMemory,
+    personality: isPersonality(value.personality)
+      ? value.personality
+      : DEFAULT_PERSONALIZATION_SETTINGS.personality,
+  };
 }
 
 function recordRecordMap(value: unknown): Record<string, Record<string, unknown>> | undefined {
@@ -53,6 +105,9 @@ function normalizeRuntimeOpencodeConfig(value: unknown): RuntimeOpencodeConfig {
   const permission = isRecord(value.permission) && Object.keys(value.permission).length ? value.permission : undefined;
   const provider = isRecord(value.provider) ? value.provider : undefined;
   const agent = recordRecordMap(value.agent);
+  const personalization = isRecord(value.personalization)
+    ? normalizePersonalizationSettings(value.personalization)
+    : undefined;
   return {
     ...(defaultAgent ? { default_agent: defaultAgent } : {}),
     ...(plugin ? { plugin } : {}),
@@ -61,6 +116,7 @@ function normalizeRuntimeOpencodeConfig(value: unknown): RuntimeOpencodeConfig {
     ...(permission ? { permission } : {}),
     ...(provider ? { provider } : {}),
     ...(agent ? { agent } : {}),
+    ...(personalization ? { personalization } : {}),
   };
 }
 
@@ -153,6 +209,16 @@ async function runtimeDb(config: ServerConfig): Promise<RuntimeOpencodeDb> {
  * `ws_<hash>`).
  */
 export const GLOBAL_TOOL_PERMISSIONS_ID = "__global_tool_permissions__";
+
+/** Host-wide personalisation shared by every workspace served on this device. */
+export const GLOBAL_PERSONALIZATION_ID = "__global_personalization__";
+
+export async function readGlobalPersonalizationSettings(
+  config: ServerConfig,
+): Promise<PersonalizationSettings> {
+  const globalConfig = await readRuntimeOpencodeConfig(config, GLOBAL_PERSONALIZATION_ID);
+  return normalizePersonalizationSettings(globalConfig.personalization);
+}
 
 /** Read the global tool-permission map (never contains external_directory). */
 export async function readGlobalToolPermissions(config: ServerConfig): Promise<Record<string, unknown>> {

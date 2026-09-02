@@ -132,6 +132,9 @@ export type ComposerDraft = {
    * this includes the full pasted text instead.
    */
   resolvedText?: string;
+  /** Internal per-turn context sent as model instructions, never as visible
+   * user-message content. */
+  modelContext?: string;
   /** When set, draft is a slash command invocation */
   command?: { name: string; arguments: string } | undefined;
 };
@@ -181,6 +184,7 @@ export const SETTINGS_TAB_VALUES = [
   "general",
   "ai",
   "account",
+  "personalisation",
   "benchmark",
   "preferences",
   "permissions",

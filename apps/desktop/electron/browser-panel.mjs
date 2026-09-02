@@ -19,7 +19,7 @@ const MENU_OVERLAY_WIDTH = 196;
 const MENU_OVERLAY_HEIGHT = 176;
 const MENU_OVERLAY_READY_TIMEOUT_MS = 2000;
 
-export function createBrowserPanel({ getWindow, remoteDebugPort }) {
+export function createBrowserPanel({ getWindow, getWindowForEvent, remoteDebugPort }) {
   const browserTabs = new Map();
   let browserTabOrder = [];
   let activeBrowserTabId = null;
@@ -35,9 +35,39 @@ export function createBrowserPanel({ getWindow, remoteDebugPort }) {
   let menuOverlayReady = false;
   let menuOverlayReadyResolvers = [];
   let menuOverlayShowSerial = 0;
+  let hostWindow = null;
 
   function window() {
+    if (hostWindow && !hostWindow.isDestroyed()) return hostWindow;
+    hostWindow = null;
     return getWindow?.() ?? null;
+  }
+
+  function selectHostWindow(event) {
+    const nextWindow = getWindowForEvent?.(event) ?? null;
+    if (!nextWindow || nextWindow.isDestroyed() || nextWindow === window()) return;
+    const previousWindow = window();
+    if (previousWindow && !previousWindow.isDestroyed()) {
+      for (const tab of browserTabs.values()) {
+        try {
+          if (previousWindow.contentView.children.includes(tab.view)) {
+            previousWindow.contentView.removeChildView(tab.view);
+          }
+        } catch {
+          // The previous host may be closing while a new window takes over.
+        }
+      }
+      if (menuOverlayView) {
+        try {
+          if (previousWindow.contentView.children.includes(menuOverlayView)) {
+            previousWindow.contentView.removeChildView(menuOverlayView);
+          }
+        } catch {
+          // Best effort while switching native hosts.
+        }
+      }
+    }
+    hostWindow = nextWindow;
   }
 
   function resetMenuOverlayReady({ resolvePending = false } = {}) {
@@ -724,44 +754,85 @@ export function createBrowserPanel({ getWindow, remoteDebugPort }) {
   }
 
   function registerIpc(ipcMain) {
-    ipcMain.handle("legalwork:browser:show", (_event, bounds) => attachBrowserView(bounds));
-    ipcMain.handle("legalwork:browser:hide", () => hideBrowserView());
-    ipcMain.handle("legalwork:browser:openUrl", (_event, url, provider) => openBrowserUrlForAutomation(url, provider));
-    ipcMain.handle("legalwork:browser:navigate", (_event, url) => {
+    ipcMain.handle("legalwork:browser:show", (event, bounds) => {
+      selectHostWindow(event);
+      return attachBrowserView(bounds);
+    });
+    ipcMain.handle("legalwork:browser:hide", (event) => {
+      selectHostWindow(event);
+      return hideBrowserView();
+    });
+    ipcMain.handle("legalwork:browser:openUrl", (event, url, provider) => {
+      selectHostWindow(event);
+      return openBrowserUrlForAutomation(url, provider);
+    });
+    ipcMain.handle("legalwork:browser:navigate", (event, url) => {
+      selectHostWindow(event);
       const view = getActiveBrowserView() ?? createBrowserTab("about:blank", { select: true }).view;
       view.webContents.loadURL(normalizeBrowserUrl(url));
     });
-    ipcMain.handle("legalwork:browser:back", () => {
+    ipcMain.handle("legalwork:browser:back", (event) => {
+      selectHostWindow(event);
       const webContents = getActiveWebContents();
       if (webContents?.canGoBack()) webContents.goBack();
     });
-    ipcMain.handle("legalwork:browser:forward", () => {
+    ipcMain.handle("legalwork:browser:forward", (event) => {
+      selectHostWindow(event);
       const webContents = getActiveWebContents();
       if (webContents?.canGoForward()) webContents.goForward();
     });
-    ipcMain.handle("legalwork:browser:reload", () => getActiveWebContents()?.reload());
-    ipcMain.handle("legalwork:browser:bounds", (_event, bounds) => {
+    ipcMain.handle("legalwork:browser:reload", (event) => {
+      selectHostWindow(event);
+      return getActiveWebContents()?.reload();
+    });
+    ipcMain.handle("legalwork:browser:bounds", (event, bounds) => {
+      selectHostWindow(event);
       lastBrowserBounds = bounds;
       const view = getActiveBrowserView();
       if (view && browserViewVisible && bounds.width > 0 && bounds.height > 0) {
         view.setBounds(scaleRendererBounds(bounds));
       }
     });
-    ipcMain.handle("legalwork:browser:state", () => browserStatePayload());
-    ipcMain.handle("legalwork:browser:createTab", (_event, url) => {
+    ipcMain.handle("legalwork:browser:state", (event) => {
+      selectHostWindow(event);
+      return browserStatePayload();
+    });
+    ipcMain.handle("legalwork:browser:createTab", (event, url) => {
+      selectHostWindow(event);
       const target = typeof url === "string" && url.trim() ? url : BROWSER_NEW_TAB_URL;
       const tab = createBrowserTab(target, { select: true });
       return { tabId: tab.tabId };
     });
-    ipcMain.handle("legalwork:browser:closeTab", (_event, tabId) => closeBrowserTab(tabId == null ? undefined : String(tabId)));
-    ipcMain.handle("legalwork:browser:closeAllTabs", () => closeAllBrowserTabs());
-    ipcMain.handle("legalwork:browser:selectTab", (_event, tabId) => selectBrowserTab(String(tabId ?? "")).tabId);
-    ipcMain.handle("legalwork:browser:reorderTabs", (_event, tabIds) => reorderBrowserTabs(tabIds));
-    ipcMain.handle("legalwork:browser:listTabs", () => listBrowserTabs());
+    ipcMain.handle("legalwork:browser:closeTab", (event, tabId) => {
+      selectHostWindow(event);
+      return closeBrowserTab(tabId == null ? undefined : String(tabId));
+    });
+    ipcMain.handle("legalwork:browser:closeAllTabs", (event) => {
+      selectHostWindow(event);
+      return closeAllBrowserTabs();
+    });
+    ipcMain.handle("legalwork:browser:selectTab", (event, tabId) => {
+      selectHostWindow(event);
+      return selectBrowserTab(String(tabId ?? "")).tabId;
+    });
+    ipcMain.handle("legalwork:browser:reorderTabs", (event, tabIds) => {
+      selectHostWindow(event);
+      return reorderBrowserTabs(tabIds);
+    });
+    ipcMain.handle("legalwork:browser:listTabs", (event) => {
+      selectHostWindow(event);
+      return listBrowserTabs();
+    });
     ipcMain.handle("legalwork:browser:setProxy", (_event, proxy) => setBrowserProxy(proxy));
     ipcMain.handle("legalwork:browser:getProxy", () => browserProxyState());
-    ipcMain.handle("legalwork:browser:tabContextMenu", (_event, tabId, point) => showBrowserTabContextMenu(tabId, point));
-    ipcMain.handle("legalwork:browser:destroy", () => destroyBrowserView());
+    ipcMain.handle("legalwork:browser:tabContextMenu", (event, tabId, point) => {
+      selectHostWindow(event);
+      return showBrowserTabContextMenu(tabId, point);
+    });
+    ipcMain.handle("legalwork:browser:destroy", (event) => {
+      selectHostWindow(event);
+      return destroyBrowserView();
+    });
     ipcMain.on("legalwork:menu-overlay:ready", (event) => {
       if (event.sender !== menuOverlayView?.webContents) return;
       markMenuOverlayReady(menuOverlayView);

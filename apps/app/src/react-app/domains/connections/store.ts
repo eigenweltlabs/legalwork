@@ -11,6 +11,10 @@ import {
 import { extensionResource } from "../../../app/extensions";
 import { captureAnalyticsEvent } from "../../../app/lib/analytics";
 import { captureAppError } from "../../../app/lib/app-error";
+import {
+  isLegalMemoryMcpName,
+  notifyLegalMemoryConnectionChanged,
+} from "../../../app/lib/legalmemory-connection";
 import { createClient, unwrap } from "../../../app/lib/opencode";
 import { detectReconnectWithoutAuth, type McpStatusSnapshot } from "../../../app/mcp-auth-state";
 import { finishPerf, perfNow, recordPerfLog } from "../../../app/lib/perf-log";
@@ -36,6 +40,7 @@ import type {
   ReloadTrigger,
 } from "../../../app/types";
 import { isDesktopRuntime, normalizeDirectoryPath, safeStringify } from "../../../app/utils";
+import { getReactQueryClient } from "../../infra/query-client";
 
 import type { LegalworkServerStore } from "./legalwork-server-store";
 
@@ -1020,6 +1025,14 @@ export function createConnectionsStore(options: {
         await resolveWritableLegalworkTarget();
 
       if (isDesktopRuntime()) {
+        // Desktop connect persists the same entry in both local config and the
+        // LegalWork server's runtime store. Removing only the local copies makes
+        // the integration look disconnected while server-owned features (such
+        // as LegalMemory Drive) can still use the surviving runtime entry.
+        if (legalworkClient && legalworkWorkspaceId) {
+          await legalworkClient.removeMcp(legalworkWorkspaceId, name);
+        }
+
         const formattingOptions = { insertSpaces: true, tabSize: 2, eol: "\n" };
         // Remove from the GLOBAL opencode config (applies to every workspace).
         const configFile = await readOpencodeConfig("global", "") as OpencodeConfigFile;
@@ -1034,10 +1047,22 @@ export function createConnectionsStore(options: {
         // Connect merges into the runtime opencode config (the file the
         // packaged engine reads for every workspace), so removal deletes from
         // the same place or the server resurrects on the next instance build.
-        try {
-          await mergeRuntimeMcpServer(name, null);
-        } catch {
-          // Removal from the global config above already succeeded.
+        const runtimeRemoval = await mergeRuntimeMcpServer(name, null);
+        if (!runtimeRemoval.ok) {
+          throw new Error(runtimeRemoval.stderr || runtimeRemoval.stdout || "Failed to remove the runtime MCP config");
+        }
+
+        // The server removal hot-disconnects its engine. Also disconnect the
+        // active desktop client directly for configurations that were sourced
+        // only from a local file and therefore had no server runtime row.
+        const activeClient = options.client();
+        const projectDir = options.projectDir().trim();
+        if (activeClient && projectDir) {
+          try {
+            await activeClient.mcp.disconnect({ directory: projectDir, name });
+          } catch {
+            // A missing/already-disconnected client is the desired end state.
+          }
         }
       } else if (canUseLegalworkServer && legalworkClient && legalworkWorkspaceId) {
         await legalworkClient.removeMcp(legalworkWorkspaceId, name);
@@ -1050,6 +1075,14 @@ export function createConnectionsStore(options: {
       await refreshMcpServers();
       if (snapshot.selectedMcp === name) {
         setStateField("selectedMcp", null);
+      }
+      if (isLegalMemoryMcpName(name)) {
+        const queryClient = getReactQueryClient();
+        await Promise.all([
+          queryClient.resetQueries({ queryKey: ["legalmemory-tree-roots"] }),
+          queryClient.resetQueries({ queryKey: ["legalmemory-tree-search"] }),
+        ]);
+        notifyLegalMemoryConnectionChanged(name);
       }
       setStateField("mcpStatus", null);
       captureAnalyticsEvent("integration_disconnected", {});

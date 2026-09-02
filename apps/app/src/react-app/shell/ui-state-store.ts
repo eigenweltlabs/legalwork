@@ -6,7 +6,7 @@ const LEGACY_WORKSPACE_LEFT_SIDEBAR_WIDTH_KEY = "legalwork.workspace-shell.left-
 const LEGACY_WORKSPACE_RIGHT_SIDEBAR_EXPANDED_KEY = "legalwork.workspace-shell.right-expanded.v3";
 const LEGACY_WORKSPACE_RIGHT_SIDEBAR_WIDTH_KEY = "legalwork.workspace-shell.right-width.v1";
 
-export const DEFAULT_WORKSPACE_LEFT_SIDEBAR_WIDTH = 260;
+export const DEFAULT_WORKSPACE_LEFT_SIDEBAR_WIDTH = 220;
 export const MIN_WORKSPACE_LEFT_SIDEBAR_WIDTH = 220;
 export const MAX_WORKSPACE_LEFT_SIDEBAR_WIDTH = 420;
 export const DEFAULT_WORKSPACE_RIGHT_SIDEBAR_COLLAPSED_WIDTH = 72;

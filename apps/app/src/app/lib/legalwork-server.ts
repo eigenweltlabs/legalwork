@@ -112,6 +112,23 @@ export type LegalworkServerSettings = {
   remoteAccessEnabled?: boolean;
 };
 
+export const LEGALWORK_PERSONALITY_VALUES = [
+  "default",
+  "pragmatic",
+  "professional",
+  "friendly",
+  "candid",
+] as const;
+
+export type LegalworkPersonality = (typeof LEGALWORK_PERSONALITY_VALUES)[number];
+
+export type LegalworkPersonalizationSettings = {
+  customInstructions: string;
+  localMemoriesEnabled: boolean;
+  allowToolAssistedMemory: boolean;
+  personality: LegalworkPersonality;
+};
+
 /** One model from the Eigenwelt platform manifest / sign-in exchange. */
 export type EigenweltManifestModel = {
   id: string;
@@ -624,6 +641,46 @@ export type LegalworkWorkspaceDirectoryList = {
   path: string;
   entries: LegalworkWorkspaceDirectoryEntry[];
   truncated: boolean;
+};
+
+export type LegalMemoryTreeRoot = {
+  source_id: string;
+  display_name: string;
+  kind: string;
+  project_id: string | null;
+  status: string;
+  files: number;
+};
+
+export type LegalMemoryTreeFolder = {
+  name: string;
+  path: string;
+  files: number;
+};
+
+export type LegalMemoryTreeFile = {
+  source_object_id: string;
+  source_id: string;
+  name: string;
+  path: string;
+  mime_type: string | null;
+  size_bytes: number | null;
+  mtime: string | null;
+  document_id: string;
+};
+
+export type LegalMemoryTreePage = {
+  source_id: string;
+  path: string;
+  folders: LegalMemoryTreeFolder[];
+  files: LegalMemoryTreeFile[];
+  pagination: {
+    total: number;
+    offset: number;
+    limit: number;
+    returned: number;
+    has_more: boolean;
+  };
 };
 
 export type LegalworkInboxItem = {
@@ -1250,6 +1307,28 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
         body: payload,
         timeoutMs: timeouts.status,
       }),
+    getPersonalization: () =>
+      requestJson<{ settings: LegalworkPersonalizationSettings }>(baseUrl, "/personalization", {
+        token,
+        hostToken,
+        timeoutMs: timeouts.config,
+      }),
+    setPersonalization: (settings: LegalworkPersonalizationSettings) =>
+      requestJson<{ settings: LegalworkPersonalizationSettings; updatedAt: number }>(baseUrl, "/personalization", {
+        token,
+        hostToken,
+        method: "PUT",
+        body: settings,
+        timeoutMs: timeouts.config,
+      }),
+    deleteLocalMemories: () =>
+      requestJson<{ ok: boolean; deletedDirectories: number }>(baseUrl, "/personalization/memories", {
+        token,
+        hostToken,
+        method: "DELETE",
+        body: { confirm: true },
+        timeoutMs: timeouts.config,
+      }),
     capabilities: () => requestJson<LegalworkServerCapabilities>(baseUrl, "/capabilities", { token, hostToken, timeoutMs: timeouts.capabilities }),
     googleWorkspaceStatus: () => requestJson<GoogleWorkspaceAuthStatus>(baseUrl, "/experimental/google-workspace/status", { token, hostToken, timeoutMs: timeouts.status }),
     googleWorkspaceConnectStart: (options?: { gmailRead?: boolean; features?: string[] }) => requestJson<GoogleWorkspaceConnectStart>(baseUrl, "/experimental/google-workspace/connect/start", { token, hostToken, method: "POST", body: { gmailRead: options?.gmailRead === true, features: options?.features ?? [] }, timeoutMs: timeouts.status }),
@@ -1834,6 +1913,27 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
         baseUrl,
         `/workspace/${encodeURIComponent(workspaceId)}/legalmemory/matters`,
         { token, hostToken, method: "POST", body: {}, timeoutMs: timeouts.config },
+      ),
+    legalMemoryTreeRoots: (workspaceId: string) =>
+      requestJson<{ roots: LegalMemoryTreeRoot[] }>(
+        baseUrl,
+        `/workspace/${encodeURIComponent(workspaceId)}/legalmemory/tree/roots`,
+        { token, hostToken, method: "POST", body: {}, timeoutMs: timeouts.config },
+      ),
+    legalMemoryTreeChildren: (
+      workspaceId: string,
+      payload: { source_id: string; path?: string; offset?: number; limit?: number },
+    ) =>
+      requestJson<LegalMemoryTreePage>(
+        baseUrl,
+        `/workspace/${encodeURIComponent(workspaceId)}/legalmemory/tree/children`,
+        { token, hostToken, method: "POST", body: payload, timeoutMs: timeouts.config },
+      ),
+    legalMemoryTreeSearch: (workspaceId: string, payload: { query: string; limit?: number }) =>
+      requestJson<{ files: LegalMemoryTreeFile[] }>(
+        baseUrl,
+        `/workspace/${encodeURIComponent(workspaceId)}/legalmemory/tree/search`,
+        { token, hostToken, method: "POST", body: payload, timeoutMs: timeouts.config },
       ),
     /** Stored relations around a cited document, so the matter graph does not
      * depend on the agent choosing to traverse. */
