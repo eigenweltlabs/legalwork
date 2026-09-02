@@ -52,6 +52,7 @@ async function setup(): Promise<ServerConfig> {
 const ENTITLEMENTS = {
   plan: "pro" as const,
   subscriptionStatus: "active",
+  trialEndsAt: null,
   features: ["admin_hub", "settings_presets"],
   seats: 5,
   usage: { dailyAllowanceCents: 5000, dailyRemainingCents: 4000, dailyUsedPercent: 20, extraUsageEnabled: false, prepaidBalanceCents: 0 },

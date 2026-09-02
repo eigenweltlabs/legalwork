@@ -43,12 +43,9 @@ import {
   runtimeStorageDir,
 } from "./runtime-opencode-config-store.js";
 import { AGENT_MEMORY_PLUGIN_SPEC, buildPersonalizedAgentPrompt } from "./personalization.js";
-import {
-  buildEigenweltFreeProviderBlock,
-  EIGENWELT_FREE_PROVIDER_ID,
-  OPENCODE_ZEN_PROVIDER_ID,
-  readCachedEigenweltFreeManifest,
-} from "./eigenwelt-free.js";
+// The engine's built-in anonymous provider — always disabled: the free tier
+// is retired, so no unauthenticated fallback models exist.
+const OPENCODE_ZEN_PROVIDER_ID = "opencode";
 import {
   buildEigenweltPaidProviderBlock,
   EIGENWELT_PROVIDER_ID,
@@ -127,28 +124,16 @@ export async function buildLegalworkRuntimeConfigObject(
   const personalization = config
     ? await readGlobalPersonalizationSettings(config)
     : null;
-  // Free Eigenwelt tier: served from the DISK CACHE only — config building
-  // must never block on the network. refreshEigenweltFreeManifest (cli.ts /
-  // embedded.ts) keeps the cache fresh out-of-band (minting this device's
-  // key once, then only refreshing models) and triggers a rewrite of this
-  // file when it changes. Config-defined providers are always reported
-  // "connected" by the engine, which is exactly the desired no-login behavior
-  // for the free tier. Injected only when the cache holds a key AND at least
-  // one model.
-  const freeManifest = config ? await readCachedEigenweltFreeManifest(config) : null;
-  const freeProvider = freeManifest && freeManifest.models.length > 0
-    ? buildEigenweltFreeProviderBlock(freeManifest)
-    : null;
   // Paid Eigenwelt Model API: a global firm account, so the provider is
   // injected into EVERY workspace from one manifest cache (written on sign-in /
   // Refresh models, cleared on sign-out). Key rides in the block's headers, so
   // it works in every workspace without a per-workspace auth entry.
   const paidManifest = config ? await readCachedEigenweltPaidManifest(config) : null;
-  // Premium (paid Eigenwelt) models require an ACTIVE subscription, not merely a
-  // signed-in account. Without one we leave the provider out entirely so the
-  // engine falls back to the free tier — the same rule the recorder applies to
-  // premium audio models. A lapse propagates on the next config rebuild (the
-  // entitlements poll triggers one when the plan flips).
+  // Premium (paid Eigenwelt) models require an ACTIVE subscription (the 7-day
+  // trial counts), not merely a signed-in account. Without one the provider is
+  // left out entirely — there is no free fallback tier; the composer shows the
+  // connect-AI state instead. A lapse propagates on the next config rebuild
+  // (the entitlements poll triggers one when the plan flips).
   const paidEntitled =
     config && workspaceId
       ? eigenweltHasPremiumModels((await readEigenweltConnection(config, workspaceId)).entitlements)
@@ -158,14 +143,12 @@ export async function buildLegalworkRuntimeConfigObject(
     : null;
   const disabledProviders = [
     ...runtimeDisabledProviderList(runtimeConfig),
-    // Disable the engine's anonymous OpenCode Zen provider ONLY while our
-    // free provider is actually available — otherwise a first launch with
-    // the platform down would lose free models entirely.
-    ...(freeProvider ? [OPENCODE_ZEN_PROVIDER_ID] : []),
+    // The free tier is retired: the engine's anonymous OpenCode Zen provider
+    // is always disabled so no unauthenticated fallback models exist.
+    OPENCODE_ZEN_PROVIDER_ID,
   ].filter((item, index, list) => list.indexOf(item) === index);
   const providerMap = {
     ...(runtimeConfig.provider ?? {}),
-    ...(freeProvider ? { [EIGENWELT_FREE_PROVIDER_ID]: freeProvider } : {}),
     // Global injection wins over any stale per-workspace eigenwelt block.
     ...(paidProvider ? { [EIGENWELT_PROVIDER_ID]: paidProvider } : {}),
   };

@@ -12,7 +12,6 @@ import {
   Gauge,
   KeyRound,
   Blocks,
-  Building2,
   Languages,
   Layout,
   Mic,
@@ -65,7 +64,7 @@ export function getSettingsTabIcon(tab: SettingsTab) {
     case "ai":
       return Zap;
     case "account":
-      return Building2;
+      return UserCircle;
     case "personalisation":
       return Sparkles;
     case "benchmark":
@@ -229,12 +228,13 @@ export function getGlobalSettingsTabs(developerMode: boolean): SettingsTab[] {
   // "preferences" is the Privacy tab (usage-analytics opt-out toggle).
   // "benchmark" is not listed here: it lives on the Learnings page in the main
   // app shell (embedded singleView surface), not in the settings sidebar.
-  const tabs: SettingsTab[] = ["ai", "account", "personalisation", "safety", "shell", "environment", "preferences", "updates"];
+  // Account leads: it is the firm's sign-in, plan and billing home.
+  const tabs: SettingsTab[] = ["account", "ai", "personalisation", "safety", "shell", "environment", "preferences", "updates"];
   // Office add-ins install into local desktop apps, so the tab is desktop-only.
-  // Placed right after the first tab.
-  if (isDesktopRuntime()) tabs.splice(1, 0, "office-addins");
+  // Placed right after AI Providers.
+  if (isDesktopRuntime()) tabs.splice(2, 0, "office-addins");
   // Recorder models/settings are desktop-only (local transcription engine).
-  if (isDesktopRuntime()) tabs.splice(1, 0, "recorder");
+  if (isDesktopRuntime()) tabs.splice(2, 0, "recorder");
   if (developerMode) tabs.push("debug");
   return tabs;
 }

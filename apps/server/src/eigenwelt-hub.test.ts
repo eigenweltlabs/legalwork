@@ -228,6 +228,7 @@ describe("parseEigenweltEntitlements", () => {
     const parsed = parseEigenweltEntitlements({
       plan: "pro",
       subscriptionStatus: "active",
+      trialEndsAt: "2026-09-07T12:00:00.000Z",
       features: ["admin_hub", "settings_presets", "not_a_feature", "org_management", "premium_models"],
       seats: 12,
       usage: {
@@ -241,6 +242,7 @@ describe("parseEigenweltEntitlements", () => {
     expect(parsed).toEqual({
       plan: "pro",
       subscriptionStatus: "active",
+      trialEndsAt: "2026-09-07T12:00:00.000Z",
       features: ["admin_hub", "settings_presets", "org_management", "premium_models"],
       seats: 12,
       usage: {
@@ -251,6 +253,11 @@ describe("parseEigenweltEntitlements", () => {
         prepaidBalanceCents: 900,
       },
     });
+  });
+
+  test("drops a malformed trialEndsAt and accepts its absence (older platforms)", () => {
+    expect(parseEigenweltEntitlements({ plan: "plus", trialEndsAt: "not-a-date" })?.trialEndsAt).toBeNull();
+    expect(parseEigenweltEntitlements({ plan: "plus" })?.trialEndsAt).toBeNull();
   });
 
   test("derives dailyUsedPercent from cents when a legacy platform omits it", () => {
@@ -267,6 +274,7 @@ describe("parseEigenweltEntitlements", () => {
     expect(parsed).toEqual({
       plan: null,
       subscriptionStatus: null,
+      trialEndsAt: null,
       features: [],
       seats: 0,
       usage: {

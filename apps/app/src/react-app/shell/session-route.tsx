@@ -112,12 +112,11 @@ import { useModelPicker } from "@/react-app/domains/session/modals/use-model-pic
 import { appMentionInstruction } from "@/react-app/domains/session/surface/composer/app-mentions";
 import { CreateWorkspaceModal } from "@/react-app/domains/workspace/create-workspace-modal";
 import { useSessionProviderAuth } from "@/react-app/domains/connections/provider-auth/use-session-provider-auth";
-import { ProviderSelectionStep } from "@/react-app/domains/onboarding/provider-selection-step";
-import { TemplateWorkflowsStep } from "@/react-app/domains/onboarding/template-workflows-step";
-import { TranscriptionSetupStep } from "@/react-app/domains/onboarding/transcription-setup-step";
+import { AiStep } from "@/react-app/domains/onboarding/ai-step";
+import { AudioStep } from "@/react-app/domains/onboarding/audio-step";
+import { OfficeStep } from "@/react-app/domains/onboarding/office-step";
 import {
   ensureTemplateWorkflowWatcher,
-  startTemplateWorkflowGeneration,
   useHiddenTemplateWorkspaceIds,
   useTemplateWorkflowRun,
 } from "@/react-app/domains/settings/state/template-workflow-generation";
@@ -126,6 +125,8 @@ import { RenameWorkspaceModal } from "@/react-app/domains/workspace/rename-works
 import { ModelPickerModal } from "@/react-app/domains/session/modals/model-picker-modal";
 import { CommandPalette, type PaletteItem, type SessionGroupOption, type SessionOption as PaletteSessionOption } from "./command-palette";
 import { SessionSearchDialog } from "./session-search-dialog";
+import { invalidateEigenweltEntitlements } from "@/react-app/domains/connections/eigenwelt-entitlements";
+import { FreeRetiredDialog, markFreeRetiredNoticePending } from "./free-retired-dialog";
 import { WhatsNewDialog } from "./whats-new";
 import { TranscriptionIntroDialog } from "./transcription-intro";
 import type { SessionMessageFetcher } from "@/react-app/domains/session/search/session-search";
@@ -166,10 +167,9 @@ import { SettingsSurface } from "./settings-route";
 import {
   ensureProviderListQuery,
   getConnectedProviderItems,
-  isFreeOpencodeModel,
   isModelAvailableInConnectedProviders,
   refreshProviderListQueries,
-  remapZenSelectionToEigenweltFree,
+  RETIRED_FREE_PROVIDER_IDS,
   useProviderListQuery,
 } from "@/react-app/infra/provider-list-query";
 
@@ -612,36 +612,87 @@ export function SessionRoute() {
       providerListQuery.data &&
       !isModelAvailableInConnectedProviders(providerListQuery.data, local.prefs.defaultModel),
   );
+  // Eigenwelt is the only connected provider and serves exactly one model:
+  // there is nothing to pick and nothing to fuse, so the composer shows a
+  // plain model label and hides the Fusion toggle.
+  const soloEigenweltModel = useMemo(() => {
+    const list = providerListQuery.data;
+    if (!list) return false;
+    const connected = getConnectedProviderItems(list);
+    if (connected.length !== 1 || connected[0]?.id !== "eigenwelt") return false;
+    return Object.keys(connected[0]?.models ?? {}).length === 1;
+  }, [providerListQuery.data]);
   const hasUsableModel = Boolean(local.prefs.defaultModel && !selectedModelUnavailable);
-  // One-time free-tier migration for existing installs: a persisted default
-  // model on the engine's built-in Zen provider ("opencode") strands when the
-  // server injects the eigenwelt-free provider and disables zen. Auto-switch
-  // to the free provider's first model instead of leaving the user stuck on
-  // "model no longer available". Idempotent: after the switch (or any manual
-  // pick of a non-zen model) the remap returns null.
+  // Free-tier retirement: older installs persisted a selection on the retired
+  // free providers ("eigenwelt-free" / the built-in zen "opencode"). Clear it
+  // once and mark the migration dialog pending (marker first, so a crash in
+  // between re-runs this next boot instead of losing the notice).
   const { setPrefs } = local;
   useEffect(() => {
-    const replacement = remapZenSelectionToEigenweltFree(
-      providerListQuery.data,
-      local.prefs.defaultModel,
-    );
-    if (!replacement) return;
-    setPrefs((previous) => ({ ...previous, defaultModel: replacement, modelVariant: null }));
-    toast(`Free models are now served by Eigenwelt — switched to ${resolveModelDisplayName(replacement.modelID)}.`);
-  }, [providerListQuery.data, local.prefs.defaultModel, setPrefs]);
-  // Warn above the composer whenever the active model is a free-tier model
-  // (the no-key fallback — Eigenwelt free gateway, or OpenCode Zen when the
-  // platform is unreachable). Free models are for testing only (usage data
-  // is logged) — never for privileged, client, or matter data.
-  const freeModelSelected = useMemo(
-    () => isFreeOpencodeModel(providerListQuery.data, local.prefs.defaultModel),
-    [providerListQuery.data, local.prefs.defaultModel],
-  );
+    const providerId = local.prefs.defaultModel?.providerID?.trim().toLowerCase();
+    if (!providerId || !RETIRED_FREE_PROVIDER_IDS.has(providerId)) return;
+    markFreeRetiredNoticePending();
+    setPrefs((previous) => ({ ...previous, defaultModel: null, modelVariant: null }));
+  }, [local.prefs.defaultModel, setPrefs]);
+  // Connected to Eigenwelt but no USABLE model — either nothing is selected
+  // (fresh installs default to null) OR the selection points at a model the
+  // gateway no longer serves (the catalog changed under us, e.g. a model was
+  // swapped). Auto-pick the gateway's default/only model so the composer
+  // never sits on a dead model — critical now the picker is a plain label
+  // when a single model is served (there is no manual way out).
+  useEffect(() => {
+    const list = providerListQuery.data;
+    if (!list) return;
+    // A valid, still-available selection is left untouched.
+    if (local.prefs.defaultModel && !selectedModelUnavailable) return;
+    const eigenwelt = getConnectedProviderItems(list).find((provider) => provider.id === "eigenwelt");
+    if (!eigenwelt) return;
+    const modelIds = Object.keys(eigenwelt.models ?? {});
+    if (modelIds.length === 0) return;
+    const preferred = list.default?.["eigenwelt"];
+    const modelID = preferred && eigenwelt.models?.[preferred] ? preferred : modelIds[0];
+    setPrefs((previous) => {
+      // No-op when it already matches, so a stale selection can't render-loop.
+      if (
+        previous.defaultModel?.providerID === "eigenwelt" &&
+        previous.defaultModel?.modelID === modelID
+      ) {
+        return previous;
+      }
+      return { ...previous, defaultModel: { providerID: "eigenwelt", modelID }, modelVariant: null };
+    });
+  }, [local.prefs.defaultModel, selectedModelUnavailable, providerListQuery.data, setPrefs]);
   const canCreateTask = Boolean(
     opencodeClient && selectedWorkspaceId && !loading && !selectedWorkspaceError && !selectedModelUnavailable,
   );
 
-  const { store: sessionProviderAuthStore, snapshot: sessionProviderAuthSnapshot, onboardingStep, goToTemplates, goToSetup, finishOnboarding } =
+  // Persisted onboarding stage — survives reloads; "done" for existing
+  // installs. "setup" is a legacy interim value, shown as the office step.
+  const onboardingStage =
+    local.prefs.onboardingStage === "setup" ? "office" : local.prefs.onboardingStage;
+  const setOnboardingStage = useCallback(
+    (stage: "ai" | "office" | "audio" | "done") => {
+      local.setPrefs((previous) => ({
+        ...previous,
+        onboardingStage: stage,
+        ...(stage === "done" ? { hasCompletedOnboarding: true } : {}),
+      }));
+    },
+    [local],
+  );
+  // Set when the user navigates backwards in the onboarding flow, so the
+  // office step shows its rows instead of auto-skipping forward again.
+  const onboardingWentBack = useRef(false);
+  const advanceFromAiStep = useCallback(() => {
+    // The tool steps are desktop-only (Office add-ins, mic, model download).
+    if (isDesktopRuntime()) {
+      setOnboardingStage("office");
+    } else {
+      captureAnalyticsEvent("onboarding_completed", { tools: "unavailable" });
+      setOnboardingStage("done");
+    }
+  }, [setOnboardingStage]);
+  const { store: sessionProviderAuthStore, snapshot: sessionProviderAuthSnapshot } =
     useSessionProviderAuth({
       opencodeClient,
       providers,
@@ -657,6 +708,18 @@ export function SessionRoute() {
       setProviderConnectedIds,
       setDisabledProviderIds,
     });
+  // "Start free trial" CTAs (migration dialog, connect-AI bar): the choice is
+  // already made, so go straight to the Eigenwelt sign-in in the browser (the
+  // platform funnel continues to the trial) instead of the provider picker.
+  const startEigenweltTrial = useCallback(async () => {
+    try {
+      const { authorizeUrl, sessionId } = await sessionProviderAuthStore.startEigenweltSignIn();
+      await openDesktopUrl(authorizeUrl);
+      await sessionProviderAuthStore.completeEigenweltSignIn(sessionId);
+    } catch {
+      // Canceled or failed — the connect-AI bar keeps offering the path.
+    }
+  }, [sessionProviderAuthStore]);
   // On subscription activation (from the premium upsell challenge): re-pull the
   // paid Eigenwelt manifest and dispose+reload the engine/provider list so the
   // newly-entitled EU/ZDR models appear in the picker, not just the audio gate.
@@ -666,15 +729,38 @@ export function SessionRoute() {
     }
     await sessionProviderAuthStore.refreshProviders({ dispose: true }).catch(() => undefined);
   }, [client, selectedWorkspaceId, sessionProviderAuthStore]);
-  // The templates onboarding step needs the desktop runtime (folder picker,
-  // skill import IPC); anywhere else it finishes onboarding straight away
-  // (usage-analytics consent already lives on the welcome step).
-  // The start handler carries its own connection guard.
-  const templatesStepEligible = isDesktopRuntime();
+  // Keep the Eigenwelt model catalog fresh without a manual Settings refresh:
+  // once per workspace, re-pull the gateway manifest. The pull is cheap (no
+  // inference); the engine reload that makes new models appear in the picker
+  // runs ONLY when the model set actually changed AND no task is mid-run (a
+  // dispose would interrupt it — it re-syncs on the next mount instead). The
+  // auto-select effect above then moves a stale selection onto the new model.
+  const eigenweltManifestSyncedFor = useRef<string | null>(null);
   useEffect(() => {
-    if (onboardingStep === "templates" && !templatesStepEligible) finishOnboarding();
-  }, [finishOnboarding, onboardingStep, templatesStepEligible]);
-
+    if (!client || !selectedWorkspaceId) return;
+    if (!providerConnectedIds.includes("eigenwelt")) return;
+    if (eigenweltManifestSyncedFor.current === selectedWorkspaceId) return;
+    if (activeReloadBlockingSessions.length > 0) return; // don't disrupt a running task
+    eigenweltManifestSyncedFor.current = selectedWorkspaceId;
+    void (async () => {
+      try {
+        const result = await client.eigenweltRefreshModels(selectedWorkspaceId);
+        if (result?.changed) {
+          await sessionProviderAuthStore.refreshProviders({ dispose: true }).catch(() => undefined);
+        }
+      } catch {
+        // Best effort — a manual Settings refresh still works, and the next
+        // mount retries.
+        eigenweltManifestSyncedFor.current = null;
+      }
+    })();
+  }, [
+    client,
+    selectedWorkspaceId,
+    providerConnectedIds,
+    activeReloadBlockingSessions.length,
+    sessionProviderAuthStore,
+  ]);
   // Resume the generation-completion watcher after a reload: a persisted
   // "running" run keeps its Workflows spinner honest only while someone polls.
   useEffect(() => {
@@ -696,28 +782,6 @@ export function SessionRoute() {
     templateRunRefreshAttemptedRef.current = workspaceId;
     void refreshRouteState();
   }, [refreshRouteState, templateWorkflowRun?.workspaceId, workspaces]);
-
-  const startTemplateWorkflowsFromOnboarding = async (): Promise<{ started: boolean; message?: string }> => {
-    const selection = await pickDirectory({ title: "Choose your templates folder" });
-    const folder = typeof selection === "string" ? selection : Array.isArray(selection) ? selection[0] : null;
-    if (!folder?.trim()) return { started: false };
-    if (!client || !baseUrl || !token) {
-      return { started: false, message: "Still connecting to the LegalWork server. Try again in a moment." };
-    }
-    const result = await startTemplateWorkflowGeneration({
-      environmentClient: client,
-      baseUrl,
-      token,
-      templatesDir: folder.trim(),
-      model: local.prefs.defaultModel,
-    });
-    if (!result.ok) return { started: false, message: result.message };
-    // The templates folder is a workspace now — pull it into the sidebar list.
-    void refreshRouteState();
-    // Templates → the final install step (Office add-ins + transcription model).
-    goToSetup();
-    return { started: true };
-  };
 
   const {
     activePermission,
@@ -870,8 +934,18 @@ export function SessionRoute() {
       },
       modelPickerOpen: modelPicker.compactOpen,
       modelUnavailable: selectedModelUnavailable,
+      modelSelectorLocked: soloEigenweltModel,
       selectedModel: local.prefs.defaultModel ?? { providerID: "", modelID: "" },
-      freeModelSelected,
+      // The connect-AI empty state above the composer (no model selected).
+      // "Start free trial" goes straight to the Eigenwelt sign-in; only the
+      // BYO path opens the provider picker.
+      onConnectAi: (preferEigenwelt: boolean) => {
+        if (preferEigenwelt) {
+          void startEigenweltTrial();
+          return;
+        }
+        void sessionProviderAuthStore.openProviderAuthModal({ returnFocusTarget: "composer" });
+      },
       onModelPickerOpenChange: modelPicker.setCompactOpen,
       onModelChange: (model: ModelRef) => {
         local.setPrefs((previous) => ({
@@ -1069,7 +1143,8 @@ export function SessionRoute() {
     modelPicker.compactOpen,
     handleOpenSettings,
     hasUsableModel,
-    freeModelSelected,
+    sessionProviderAuthStore,
+    startEigenweltTrial,
     handleApplyEnvironmentChanges,
     environmentRuntimeKey,
     local,
@@ -1086,6 +1161,7 @@ export function SessionRoute() {
     selectedAgent,
     selectedSessionId,
     selectedModelUnavailable,
+    soloEigenweltModel,
     selectedWorkspace,
     selectedWorkspaceId,
     selectedWorkspaceRoot,
@@ -1650,31 +1726,49 @@ export function SessionRoute() {
         onSessionUpdated={handleRuntimeSessionUpdated}
       />
     ) : null}
-    {onboardingStep === "connect" ? (
-      // Provider-selection cover: the real provider-selection design (z-40) with the
-      // searchable connect modal (z-50) on top. Usage-analytics consent lives on the
-      // welcome step; connecting or skipping here advances to the optional templates step.
-      <ProviderSelectionStep
-        onConnect={(providerId) =>
-          sessionProviderAuthStore.openProviderAuthModal({
-            preferredProviderId: providerId || undefined,
-            returnFocusTarget: "composer",
-          })
-        }
-        onSkip={goToTemplates}
+    {onboardingStage === "ai" ? (
+      // One action per step: start the trial (browser funnel) or skip.
+      <AiStep
+        onStartSignIn={sessionProviderAuthStore.startEigenweltSignIn}
+        onWaitSignIn={sessionProviderAuthStore.completeEigenweltSignIn}
+        onConnected={() => {
+          // The trial just activated: refetch entitlements now so the audio
+          // step already offers the premium transcription model.
+          invalidateEigenweltEntitlements(selectedWorkspaceId ?? undefined);
+          advanceFromAiStep();
+        }}
+        onSkip={advanceFromAiStep}
+        serverReady={Boolean(selectedWorkspaceEndpoint)}
       />
     ) : null}
-    {onboardingStep === "templates" && templatesStepEligible ? (
-      // Optional cover: point a local agent at the firm's templates folder;
-      // the generation run continues in the background while onboarding finishes.
-      <TemplateWorkflowsStep
-        onStart={startTemplateWorkflowsFromOnboarding}
-        onSkip={goToSetup}
+    {onboardingStage === "office" ? (
+      // One action: install the Word/Office add-in. Self-skips when absent.
+      <OfficeStep
+        autoAdvance={!onboardingWentBack.current}
+        onBack={() => {
+          onboardingWentBack.current = true;
+          setOnboardingStage("ai");
+        }}
+        onDone={(result) => {
+          captureAnalyticsEvent("onboarding_office_done", { result });
+          setOnboardingStage("audio");
+        }}
       />
     ) : null}
-    {onboardingStep === "setup" ? (
-      // Final cover: one-tap installs — Office add-ins + a transcription model.
-      <TranscriptionSetupStep onDone={finishOnboarding} />
+    {onboardingStage === "audio" ? (
+      // One action: turn on transcription & dictation.
+      <AudioStep
+        legalworkClient={client}
+        workspaceId={selectedWorkspaceId}
+        onBack={() => {
+          onboardingWentBack.current = true;
+          setOnboardingStage("office");
+        }}
+        onDone={(result) => {
+          captureAnalyticsEvent("onboarding_completed", { audio: result });
+          setOnboardingStage("done");
+        }}
+      />
     ) : null}
     <SessionPage
       detached={detached}
@@ -2031,6 +2125,7 @@ export function SessionRoute() {
       selectedAgent={selectedAgent}
       onSelectAgent={setSelectedAgent}
     />
+    <FreeRetiredDialog workspacesReady={!effectiveLoading} onStartTrial={() => void startEigenweltTrial()} />
     <WhatsNewDialog hasWorkspaces={workspaces.length > 0} workspacesReady={!effectiveLoading} />
     <TranscriptionIntroDialog workspacesReady={!effectiveLoading} onOpenRecorder={showRecorderPane} />
     {/* Premium upsell challenge + keeps the recorder gate synced to the sub. */}

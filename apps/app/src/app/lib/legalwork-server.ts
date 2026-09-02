@@ -152,6 +152,12 @@ export type EigenweltUsage = {
 export type EigenweltEntitlements = {
   plan: "plus" | "pro" | null;
   subscriptionStatus: string | null;
+  /**
+   * ISO timestamp when the 7-day trial ends (or ended — compare against now);
+   * null when unknown. A trial is live only while `subscriptionStatus` is
+   * "trialing". Older servers omit the field entirely.
+   */
+  trialEndsAt?: string | null;
   features: string[];
   seats: number;
   usage: EigenweltUsage;
@@ -1787,11 +1793,12 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
       }),
     // Eigenwelt platform connect: the server owns the OAuth loopback + code
     // exchange; the app opens the authorize URL and long-polls for the payload.
-    eigenweltOauthStart: () =>
+    eigenweltOauthStart: (opts?: { intent?: "sign-in" }) =>
       requestJson<{ sessionId: string; authorizeUrl: string }>(baseUrl, "/api/eigenwelt/oauth/start", {
         token,
         hostToken,
         method: "POST",
+        ...(opts?.intent ? { body: { intent: opts.intent } } : {}),
         timeoutMs: timeouts.config,
       }),
     eigenweltOauthWait: (sessionId: string) =>

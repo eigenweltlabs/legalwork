@@ -1,7 +1,6 @@
 /** @jsxImportSource react */
 import {
   ArrowRight,
-  Building2,
   FileStack,
   FolderLock,
   KeyRound,
@@ -10,6 +9,7 @@ import {
   RefreshCcw,
   ShieldCheck,
   Sparkles,
+  UserCircle,
   Zap,
   type LucideIcon,
 } from "lucide-react";
@@ -30,13 +30,14 @@ const workspaceItems: SettingsItem[] = [
 ];
 
 const globalItems: SettingsItem[] = [
-  { tab: "ai", icon: Zap, title: "AI Providers", desc: "Connect services that provide AI models." },
+  // Account leads, mirroring getGlobalSettingsTabs.
   {
     tab: "account",
-    icon: Building2,
+    icon: UserCircle,
     title: t("settings.tab_account"),
     desc: t("settings.tab_description_account"),
   },
+  { tab: "ai", icon: Zap, title: "AI Providers", desc: "Connect services that provide AI models." },
   {
     tab: "personalisation",
     icon: Sparkles,
@@ -68,7 +69,8 @@ function resolveGlobalItems(): SettingsItem[] {
     // omits it because the settings-page tab header uses no trailing period.
     desc: `${t("office_addins.tab_description")}.`,
   };
-  return [globalItems[0], recorderItem, officeAddinsItem, ...globalItems.slice(1)];
+  // After Account and AI Providers, mirroring getGlobalSettingsTabs.
+  return [...globalItems.slice(0, 2), recorderItem, officeAddinsItem, ...globalItems.slice(2)];
 }
 
 function SettingsRow(props: { icon: LucideIcon; title: string; desc: string; onClick: () => void }) {

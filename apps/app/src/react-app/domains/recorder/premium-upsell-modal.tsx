@@ -2,14 +2,14 @@
 /**
  * The premium upsell "challenge" modal. Three phases, driven by
  * PremiumUpsellProvider:
- *   pitch   → the €25 Plus benefits + "Upgrade to Plus" CTA (reuses the app's
+ *   pitch   → the Plus benefits (7-day trial, €69/seat) + "Upgrade to Plus" CTA (reuses the app's
  *             feature-announcement shell so it matches the what's-new modals).
  *   waiting → checkout is open in the browser; a spinner + "Continue in your
  *             browser" while the provider polls for the subscription.
  *   success → a checkmark confirmation before the provider auto-closes.
  *   timeout → the poll gave up; it still unlocks on its own once active.
  *
- * The three benefits are exactly what the $/€25 Plus plan unlocks: premium audio
+ * The three benefits are exactly what the €69 Plus plan (7-day free trial) unlocks: premium audio
  * transcription models, included EU/ZDR AI usage, and firm-wide sharing of
  * workflows & integrations.
  */

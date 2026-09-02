@@ -24,6 +24,8 @@ import { isDesktopRuntime, isOfficeAddinRuntime } from "@/app/utils";
 import { useLocal } from "@/react-app/kernel/local-provider";
 import { t } from "@/i18n";
 
+import { hasPendingFreeRetiredNotice } from "./free-retired-dialog";
+
 type WhatsNewEntry = {
   titleKey: string;
   bodyKey: string;
@@ -98,8 +100,13 @@ export function WhatsNewDialog(props: { hasWorkspaces: boolean; workspacesReady:
   const { hasWorkspaces, workspacesReady } = props;
   // Fresh-install detection must not rely on hasCompletedOnboarding alone:
   // profiles that predate the flag report false forever. Anyone with an
-  // existing workspace is an existing user.
-  const isFreshInstall = !local.prefs.hasCompletedOnboarding && !hasWorkspaces;
+  // existing workspace is an existing user. A profile still inside the
+  // onboarding covers (persisted stage) is fresh too — hasCompletedOnboarding
+  // flips at the folder pick, before the covers finish, and announcements
+  // must never stack on top of onboarding.
+  const isFreshInstall =
+    (!local.prefs.hasCompletedOnboarding && !hasWorkspaces) ||
+    local.prefs.onboardingStage !== "done";
 
   useEffect(() => {
     // Never in the Office task pane (it renders SessionRoute too): the
@@ -126,6 +133,10 @@ export function WhatsNewDialog(props: { hasWorkspaces: boolean; workspacesReady:
     // profile briefly looks like a fresh install (0 workspaces) and would
     // absorb its announcements by accident.
     if (!workspacesReady) return;
+
+    // The free-tier migration dialog outranks announcements: skip this
+    // start and show the announcement on a later launch instead.
+    if (hasPendingFreeRetiredNotice()) return;
 
     const seen = readSeenIds();
     const pending = WHATS_NEW_ANNOUNCEMENTS.filter(

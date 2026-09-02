@@ -235,7 +235,7 @@ describe("eigenwelt manifest", () => {
 describe("refreshEigenweltProviderModels", () => {
   const staleProvider = {
     npm: "@ai-sdk/openai-compatible",
-    name: "Eigenwelt Model API",
+    name: "Eigenwelt Subscription",
     options: { baseURL: "https://gateway.test/v1" },
     models: {
       "stale-model": {

@@ -118,7 +118,7 @@ export function buildEigenweltProviderBlock(
 ): Record<string, unknown> {
   return {
     npm: "@ai-sdk/openai-compatible",
-    name: "Eigenwelt Model API",
+    name: "Eigenwelt Subscription",
     options: { baseURL },
     models: Object.fromEntries(
       models.map((model) => [
@@ -1209,11 +1209,13 @@ export function createProviderAuthStore(options: CreateProviderAuthStoreOptions)
 
   /** Start "Sign in with Eigenwelt": the LegalWork server binds the OAuth
    *  loopback and returns the platform authorize URL for the app to open. */
-  async function startEigenweltSignIn(): Promise<{ authorizeUrl: string; sessionId: string }> {
+  async function startEigenweltSignIn(opts?: {
+    intent?: "sign-in";
+  }): Promise<{ authorizeUrl: string; sessionId: string }> {
     setStateField("providerAuthError", null);
     try {
       const legalworkClient = requireEigenweltServerClient();
-      const started = await legalworkClient.eigenweltOauthStart();
+      const started = await legalworkClient.eigenweltOauthStart(opts);
       return { authorizeUrl: started.authorizeUrl, sessionId: started.sessionId };
     } catch (error) {
       const message = describeProviderError(error, t("providers.connect_failed"));
@@ -1246,7 +1248,7 @@ export function createProviderAuthStore(options: CreateProviderAuthStoreOptions)
         }
         if (opts?.cancelled?.()) return { connected: false, cancelled: true };
         await finalizeEigenweltConnect(result as EigenweltSignInPayload);
-        return { connected: true, message: `${t("status.connected")} Eigenwelt Model API` };
+        return { connected: true, message: `${t("status.connected")} Eigenwelt Subscription` };
       }
       throw new Error("Eigenwelt sign-in timed out. Try again from the provider list.");
     } catch (error) {

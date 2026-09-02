@@ -59,6 +59,15 @@ export type LocalPreferences = {
    */
   hasCompletedOnboarding: boolean;
   /**
+   * Where the in-session onboarding covers stand. PERSISTED so a reload or
+   * crash resumes the flow instead of silently ending it. One action per
+   * step: "ai" (start the trial / skip) -> "office" (install the Word
+   * add-in) -> "audio" (turn on transcription & dictation) -> "done".
+   * "setup" is a legacy value from an interim build, treated as "office".
+   * The welcome route sets "ai" when the first workspace is created.
+   */
+  onboardingStage: "ai" | "office" | "audio" | "setup" | "done";
+  /**
    * User preference committed from the welcome-screen toggle (nothing is
    * applied before then); switchable anytime in Settings -> Privacy.
    * `null` means the user has not made a choice yet — do not persist a
@@ -97,6 +106,7 @@ const INITIAL_PREFS: LocalPreferences = {
   releaseChannel: "stable",
   featureFlags: { microsandboxCreateSandbox: true },
   hasCompletedOnboarding: false,
+  onboardingStage: "done",
   // null until the user chooses on the welcome screen — persisting a concrete
   // value here would make getStoredAnalyticsConsent() report a choice that was
   // never made, defeating the welcome toggle's default.

@@ -2,7 +2,7 @@
 // fed by a latest-values ref, lifecycle (start/dispose), Zen-restriction sync,
 // workspace-change resync, the post-onboarding auto-open latch, and cloud
 // provider auto-sync. Extracted verbatim from session-route.tsx.
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef } from "react";
 
 import type { Client, ProviderListItem, WorkspaceDisplay } from "@/app/types";
 import type { ResolvedWorkspaceEndpoint } from "@/app/lib/workspace-endpoint";
@@ -32,6 +32,13 @@ export type UseSessionProviderAuthInput = {
   setProviderDefaults: (value: Record<string, string>) => void;
   setProviderConnectedIds: (value: string[]) => void;
   setDisabledProviderIds: (value: string[]) => void;
+  /**
+   * While the onboarding "Your AI" cover is up: fires when the provider modal
+   * closes AND a provider actually connected while it was open — the caller
+   * advances the (persisted) onboarding stage.
+   */
+  onboardingConnectActive?: boolean;
+  onOnboardingProviderConnected?: () => void;
 };
 
 export function useSessionProviderAuth(input: UseSessionProviderAuthInput) {
@@ -51,14 +58,9 @@ export function useSessionProviderAuth(input: UseSessionProviderAuthInput) {
     setDisabledProviderIds,
   } = input;
   const reloadCoordinator = useReloadCoordinator();
-  // Onboarding runs through the session as full-screen covers: "connect" (the provider
-  // selection step with the searchable modal on top) and "templates" (optional firm-template
-  // workflow generation). Usage-analytics consent is a toggle on the welcome step, so there
-  // is no longer a separate analytics cover. null = not onboarding. The welcome route lands
-  // here with ?onboarding=1.
-  const [onboardingStep, setOnboardingStep] = useState<"connect" | "templates" | "setup" | null>(() =>
-    typeof window !== "undefined" && window.location.hash.includes("onboarding=1") ? "connect" : null,
-  );
+  // The onboarding stage itself is PERSISTED preferences state owned by the
+  // session route; this hook only detects "a provider connected while the
+  // modal was open" for the BYO path of the "Your AI" cover.
   const connectedAtModalOpenRef = useRef<number | null>(null);
 
   const stateRef = useRef({
@@ -143,8 +145,7 @@ export function useSessionProviderAuth(input: UseSessionProviderAuthInput) {
     store,
   ]);
 
-  // Strip the onboarding param so a reload doesn't re-enter the onboarding covers.
-  // The covers themselves are driven by the `onboardingStep` state captured at mount.
+  // Legacy hash param from pre-persisted onboarding: strip it once.
   useEffect(() => {
     const hash = window.location.hash;
     if (!hash.includes("onboarding=1")) return;
@@ -153,12 +154,13 @@ export function useSessionProviderAuth(input: UseSessionProviderAuthInput) {
 
   const snapshot = useProviderAuthStoreSnapshot(store);
 
-  // Advance to the templates step only when a provider connects *during the connect
-  // modal*. Baseline the connected count when the modal opens (not at mount): the
-  // existing provider list streams in asynchronously after mount, and counting that
-  // as a new connection is what made onboarding skip straight past the connect step.
+  // Advance onboarding only when a provider connects *during the connect
+  // modal*. Baseline the connected count when the modal opens (not at mount):
+  // the existing provider list streams in asynchronously after mount, and
+  // counting that as a new connection would skip the "Your AI" cover.
+  const { onboardingConnectActive, onOnboardingProviderConnected } = input;
   useEffect(() => {
-    if (onboardingStep !== "connect") return;
+    if (!onboardingConnectActive) return;
     if (snapshot.providerAuthModalOpen) {
       if (connectedAtModalOpenRef.current === null) {
         connectedAtModalOpenRef.current = providerConnectedIds.length;
@@ -168,16 +170,14 @@ export function useSessionProviderAuth(input: UseSessionProviderAuthInput) {
     if (connectedAtModalOpenRef.current !== null) {
       const connectedSomething = providerConnectedIds.length > connectedAtModalOpenRef.current;
       connectedAtModalOpenRef.current = null;
-      if (connectedSomething) setOnboardingStep("templates");
+      if (connectedSomething) onOnboardingProviderConnected?.();
     }
-  }, [onboardingStep, providerConnectedIds.length, snapshot.providerAuthModalOpen]);
+  }, [
+    onboardingConnectActive,
+    onOnboardingProviderConnected,
+    providerConnectedIds.length,
+    snapshot.providerAuthModalOpen,
+  ]);
 
-  return {
-    store,
-    snapshot,
-    onboardingStep,
-    goToTemplates: () => setOnboardingStep("templates"),
-    goToSetup: () => setOnboardingStep("setup"),
-    finishOnboarding: () => setOnboardingStep(null),
-  };
+  return { store, snapshot };
 }

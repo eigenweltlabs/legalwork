@@ -64,6 +64,8 @@ type ComposerProps = {
   statusLabel: string;
   modelPickerOpen: boolean;
   selectedModel: ModelRef;
+  /** Single provider, single model: show a plain label, no picker. */
+  modelLocked?: boolean;
   onModelPickerOpenChange: (open: boolean) => void;
   onModelChange: (model: ModelRef) => void;
   attachments: ComposerAttachment[];
@@ -1507,6 +1509,7 @@ export function ReactSessionComposer(props: ComposerProps) {
                   onOpenChange={props.onModelPickerOpenChange}
                   onChange={props.onModelChange}
                   disabled={props.busy}
+                  locked={props.modelLocked}
                 />
                 {props.modelUnavailable ? (
                   <span className="text-xs font-medium text-red-10">Model no longer available</span>

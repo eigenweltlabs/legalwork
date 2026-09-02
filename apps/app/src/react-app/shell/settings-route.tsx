@@ -82,7 +82,7 @@ import { ToolPermissionsPanel } from "@/react-app/domains/settings/panels/tool-p
 import { SettingsStack } from "@/react-app/domains/settings/settings-section";
 import { AdvancedView } from "@/react-app/domains/settings/pages/advanced-view";
 import { AppearanceView } from "@/react-app/domains/settings/pages/appearance-view";
-import { captureAnalyticsEvent } from "@/app/lib/analytics";
+import { captureAnalyticsEvent, captureAnalyticsOptOut } from "@/app/lib/analytics";
 import { DebugView } from "@/react-app/domains/settings/pages/debug-view";
 import { EnvironmentView } from "@/react-app/domains/settings/pages/environment-view";
 import { ExtensionsView } from "@/react-app/domains/settings/pages/extensions-view";
@@ -356,6 +356,16 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
   const local = useLocal();
   const platform = usePlatform();
   const reloadCoordinator = useReloadCoordinator();
+  // Onboarding holds the whole app: its covers live on the session route, so
+  // anything that lands here mid-flow (a dialog CTA, a deep link) would strand
+  // the user outside onboarding with no way back. Send them to the session,
+  // where the active cover resumes. Not for the embedded settings surface —
+  // that renders inside the session route, underneath the covers.
+  const onboardingStage = local.prefs.onboardingStage;
+  useEffect(() => {
+    if (props.embedded) return;
+    if (onboardingStage !== "done") navigate("/session", { replace: true });
+  }, [navigate, onboardingStage, props.embedded]);
   const [embeddedPath, setEmbeddedPath] = useState(props.initialPath ?? "general");
   const route = props.embedded ? parseSettingsPath(`/settings/${embeddedPath}`) : parseSettingsPath(location.pathname);
   const navigationWorkspaceId = readNavigationWorkspaceId(location.state);
@@ -887,7 +897,7 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
         }
         invalidateEigenweltEntitlements(hubWorkspaceId);
       }
-      // Await a FULL provider refresh (dispose → re-read the now-eigenwelt-free
+      // Await a FULL provider refresh (dispose → re-read the rebuilt
       // engine config → setProviders / setProviderConnectedIds) so the account
       // view's providers-derived state (model count + connected id set) drops
       // eigenwelt before it re-renders. reloadWorkspaceEngineFromUi alone only
@@ -2109,7 +2119,11 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
             onToggleAutoCompactContext={toggleAutoCompactContext}
             analyticsEnabled={local.prefs.analyticsEnabled === true}
             onToggleAnalytics={() => {
+              // Turning OFF sends the one anonymous opted-out marker (and
+              // purges the queue) so opt-out rates stay measurable.
+              const turningOff = local.prefs.analyticsEnabled === true;
               local.setPrefs((previous) => ({ ...previous, analyticsEnabled: !previous.analyticsEnabled }));
+              if (turningOff) captureAnalyticsOptOut("settings");
             }}
             hideAppMode={local.prefs.hideAppMode}
             onChangeHideAppMode={(mode) => {

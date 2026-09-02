@@ -16,10 +16,15 @@ import { createClient, unwrap } from "../../app/lib/opencode";
 import { useLocal } from "../kernel/local-provider";
 import { usePlatform } from "../kernel/platform";
 import { WelcomePage } from "../domains/onboarding/welcome-page";
-import { AttributionStep } from "../domains/onboarding/attribution-step";
 import { CreateWorkspaceModal } from "../domains/workspace/create-workspace-modal";
 import { resolveLegalworkConnection } from "./legalwork-connection";
-import { analyticsSurface, captureAnalyticsEvent, getStoredAnalyticsConsent } from "../../app/lib/analytics";
+import {
+  analyticsSurface,
+  captureAnalyticsEvent,
+  captureAnalyticsOptOut,
+  flushAnalytics,
+  getStoredAnalyticsConsent,
+} from "../../app/lib/analytics";
 import { captureAppError } from "../../app/lib/app-error";
 import { buildLegalworkWorkspaceBaseUrl, createLegalworkServerClient } from "../../app/lib/legalwork-server";
 import { writeActiveWorkspaceId, writeLastSessionFor } from "./session-memory";
@@ -44,11 +49,6 @@ type WelcomeState = {
   createError: string | null;
   remoteBusy: boolean;
   remoteError: string | null;
-  providerStep: boolean;
-  attributionStep: boolean;
-  pendingRoute: string | null;
-  pendingWorkspaceId: string | null;
-  pendingSessionId: string | null;
 };
 
 type WelcomeAction =
@@ -59,9 +59,7 @@ type WelcomeAction =
   | { type: "create:finish" }
   | { type: "remote:start" }
   | { type: "remote:error"; error: string }
-  | { type: "remote:finish" }
-  | { type: "provider-step"; workspaceId: string; sessionId: string | null }
-  | { type: "attribution-step"; route: string };
+  | { type: "remote:finish" };
 
 const initialWelcomeState: WelcomeState = {
   modalOpen: false,
@@ -69,11 +67,6 @@ const initialWelcomeState: WelcomeState = {
   createError: null,
   remoteBusy: false,
   remoteError: null,
-  providerStep: false,
-  attributionStep: false,
-  pendingRoute: null,
-  pendingWorkspaceId: null,
-  pendingSessionId: null,
 };
 
 function welcomeReducer(state: WelcomeState, action: WelcomeAction): WelcomeState {
@@ -94,10 +87,6 @@ function welcomeReducer(state: WelcomeState, action: WelcomeAction): WelcomeStat
       return { ...state, remoteError: action.error };
     case "remote:finish":
       return { ...state, remoteBusy: false };
-    case "provider-step":
-      return { ...state, providerStep: true, pendingWorkspaceId: action.workspaceId, pendingSessionId: action.sessionId };
-    case "attribution-step":
-      return { ...state, providerStep: false, attributionStep: true, pendingRoute: action.route };
   }
 }
 
@@ -120,23 +109,38 @@ export function WelcomeRoute() {
   // choice so re-entering the screen never overrides an opt-out.
   const [analyticsOptIn, setAnalyticsOptIn] = useState(() => getStoredAnalyticsConsent() ?? true);
 
-  // If user already completed onboarding, redirect away immediately — but NOT while the
-  // provider step is showing (the workspace exists, yet the user still has to connect a
-  // model), otherwise we'd bounce straight into the app after the folder pick.
+  // If the user already completed the welcome step, redirect away immediately;
+  // the in-session covers (onboardingStage) carry the rest of onboarding.
   useEffect(() => {
-    if (local.prefs.hasCompletedOnboarding && !state.providerStep) {
+    if (local.prefs.hasCompletedOnboarding) {
       navigate("/session", { replace: true });
     }
-  }, [local.prefs.hasCompletedOnboarding, navigate, state.providerStep]);
+  }, [local.prefs.hasCompletedOnboarding, navigate]);
+
+  // Funnel entry: the welcome screen was actually seen. Sent under the
+  // default-on model (the toggle shows on), and flushed eagerly so even a
+  // quick opt-out or quit is counted — the opt-out itself then reports as a
+  // single analytics_opted_out marker, making the rate
+  // opted_out / welcome_viewed.
+  useEffect(() => {
+    if (local.prefs.hasCompletedOnboarding) return;
+    captureAnalyticsEvent("onboarding_welcome_viewed", { surface: analyticsSurface() });
+    void flushAnalytics();
+    // Mount-only by design: one view event per visit to the screen.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const markOnboardingComplete = useCallback(() => {
     local.setPrefs((prev) => ({ ...prev, hasCompletedOnboarding: true }));
   }, [local]);
 
+  // Which creation phase the loading overlay shows (null = not creating).
+  const [createPhase, setCreatePhase] = useState<"workspace" | "engine" | "session" | null>(null);
   const handleCreateWorkspace = useCallback(
     async (_preset: string, folder: string | null) => {
       if (!folder) return;
       dispatch({ type: "create:start" });
+      setCreatePhase("workspace");
       try {
         const workspaceName = folderNameFromPath(folder);
         let list: WorkspaceList | null = null;
@@ -165,6 +169,7 @@ export function WelcomeRoute() {
         if (!list) {
           throw new Error("LegalWork server is unavailable. Start or reconnect the server before creating a workspace.");
         }
+        setCreatePhase("engine");
         const createdId =
           resolveWorkspaceListSelectedId(list) ||
           list.workspaces[list.workspaces.length - 1]?.id ||
@@ -184,6 +189,7 @@ export function WelcomeRoute() {
             allWorkspaces: list.workspaces,
           }).catch(() => undefined);
         }
+        setCreatePhase("session");
         if (targetWorkspaceId && serverBaseUrl && serverToken) {
           try {
             const workspacePath = targetWorkspace?.path?.trim() || folder;
@@ -203,16 +209,24 @@ export function WelcomeRoute() {
           if (targetSessionId) writeLastSessionFor(targetWorkspaceId, targetSessionId);
         }
         dispatch({ type: "close" });
-        // Leaving the welcome screen — commit the analytics choice and mark
-        // onboarding complete (the connect cover only clears its own state).
-        local.setPrefs((prev) => ({ ...prev, analyticsEnabled: analyticsOptIn, hasCompletedOnboarding: true }));
-        // Hand off to the new session, which runs the remaining onboarding steps as
-        // full-screen covers (connect a model).
+        // Leaving the welcome screen — commit the analytics choice and start
+        // the PERSISTED in-session onboarding ("Your AI" → quick setup). The
+        // stage survives reloads; hasCompletedOnboarding only gates /welcome.
+        local.setPrefs((prev) => ({
+          ...prev,
+          analyticsEnabled: analyticsOptIn,
+          hasCompletedOnboarding: true,
+          onboardingStage: "ai",
+        }));
+        captureAnalyticsEvent("onboarding_started", { surface: analyticsSurface() });
+        // The consent choice just persisted: an opt-out sends its single
+        // anonymous marker (and purges everything queued, including the
+        // events captured above); staying opted in leaves the queue to flush.
+        if (!analyticsOptIn) captureAnalyticsOptOut("onboarding");
         const target = targetWorkspaceId
           ? workspaceSessionRoute(targetWorkspaceId, targetSessionId)
           : "/session";
-        const sep = target.includes("?") ? "&" : "?";
-        navigate(`${target}${sep}onboarding=1`, { replace: true });
+        navigate(target, { replace: true });
       } catch (error) {
         captureAppError("workspace_create", error);
         dispatch({
@@ -221,6 +235,7 @@ export function WelcomeRoute() {
         });
       } finally {
         dispatch({ type: "create:finish" });
+        setCreatePhase(null);
       }
     },
     [navigate, local, analyticsOptIn],
@@ -307,28 +322,13 @@ export function WelcomeRoute() {
     await handleCreateWorkspace("starter", folder);
   }, [handleCreateWorkspace, manualFolder]);
 
-  const finishOnboarding = useCallback(() => {
-    navigate(state.pendingRoute ?? "/session", { replace: true });
-    if (state.pendingSessionId) focusPromptSoon();
-  }, [navigate, state.pendingRoute, state.pendingSessionId]);
-
-  // Attribution survey no longer reports analytics (events removed); it just
-  // advances onboarding.
-  const handleAttributionSubmit = useCallback(() => {
-    finishOnboarding();
-  }, [finishOnboarding]);
-
-  const handleAttributionSkip = useCallback(() => {
-    finishOnboarding();
-  }, [finishOnboarding]);
-
   return (
     <>
-      {!state.providerStep ? (
-        <WelcomePage
+      <WelcomePage
           onGetStarted={handleGetStarted}
           getStartedLabel={t("welcome.pick_folder")}
           busy={state.createBusy}
+          busyPhase={createPhase}
           error={state.createError}
           manualFolder={manualFolder}
           onManualFolderChange={setManualFolder}
@@ -337,7 +337,6 @@ export function WelcomeRoute() {
           analyticsEnabled={analyticsOptIn}
           onAnalyticsChange={setAnalyticsOptIn}
         />
-      ) : null}
       <CreateWorkspaceModal
         open={state.modalOpen}
         onClose={() => dispatch({ type: "close" })}

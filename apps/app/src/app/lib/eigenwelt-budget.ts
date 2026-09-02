@@ -31,28 +31,21 @@ export const EIGENWELT_BILLING_URL_DEFAULT = "https://platform.eigenweltlabs.com
 /** Stop the engine's retry loop after this many budget-exceeded attempts. */
 export const EIGENWELT_BUDGET_MAX_RETRY_ATTEMPTS = 3;
 
-export const EIGENWELT_BUDGET_EXCEEDED_TITLE = "Your seat's daily usage has been used up";
+export const EIGENWELT_BUDGET_EXCEEDED_TITLE = "Your seat's included usage for today is used up";
 export const EIGENWELT_BUDGET_EXCEEDED_BODY =
-  "Upgrade to Pro for higher limits, or come back tomorrow.";
-export const EIGENWELT_BUDGET_UPGRADE_LABEL = "Upgrade to Pro";
-export const EIGENWELT_PRO_LIMIT_TITLE = "Daily usage limit reached";
-export const EIGENWELT_PRO_LIMIT_BODY = "You've used today's Pro allowance. Come back tomorrow.";
+  "It resets tomorrow. Your firm's billing shows today's usage in detail.";
+export const EIGENWELT_BUDGET_UPGRADE_LABEL = "Open Billing";
 
+/** Kept for wire compatibility with older payloads; only "plus" ships. */
 export type EigenweltBudgetPlan = "plus" | "pro" | null;
 
-/** Plan-aware terminal-card copy. Pro is already the highest usage tier. */
-export function eigenweltBudgetLimitDisplay(plan: EigenweltBudgetPlan): {
+/** Terminal-card copy for the single Plus plan (plan param retained for
+ *  compatibility; every plan sees the same copy now that Pro is retired). */
+export function eigenweltBudgetLimitDisplay(_plan: EigenweltBudgetPlan): {
   title: string;
   body: string;
   upgradeLabel: string | null;
 } {
-  if (plan === "pro") {
-    return {
-      title: EIGENWELT_PRO_LIMIT_TITLE,
-      body: EIGENWELT_PRO_LIMIT_BODY,
-      upgradeLabel: null,
-    };
-  }
   return {
     title: EIGENWELT_BUDGET_EXCEEDED_TITLE,
     body: EIGENWELT_BUDGET_EXCEEDED_BODY,

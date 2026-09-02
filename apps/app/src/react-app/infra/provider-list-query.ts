@@ -86,72 +86,13 @@ export function isModelAvailableInConnectedProviders(
   );
 }
 
-/** The built-in OpenCode Zen provider id (its free tier works without a key). */
+/** The built-in OpenCode Zen provider id. Retired as a fallback: the server
+ * always disables it — no unauthenticated free models exist anymore. */
 export const OPENCODE_ZEN_PROVIDER_ID = "opencode";
 
-/** The Eigenwelt free-tier provider the server injects when the platform's
- * free-models manifest is available (no login). Zen is disabled while it is. */
-export const EIGENWELT_FREE_PROVIDER_ID = "eigenwelt-free";
-
-/**
- * True when `model` is a *free-tier* model — the no-key models the app falls
- * back to when no paid provider is configured. Usage data is logged for
- * free-tier requests (Eigenwelt free gateway) or may be retained (OpenCode
- * Zen, the fallback when the Eigenwelt platform is unreachable), so the UI
- * warns before they're used with privileged, client, or matter data.
- *
- * Every model on the `eigenwelt-free` provider is free by definition. For the
- * built-in `opencode` provider only zero-cost models count, so genuinely-
- * private zero-cost models (local Ollama / LM Studio endpoints) are NOT
- * mistaken for free-tier models and paid Zen models are excluded too.
- */
-export function isFreeOpencodeModel(
-  value: ProviderListResponse | null | undefined,
-  model: ModelRef | null | undefined,
-): boolean {
-  if (!model?.providerID || !model.modelID) return false;
-  const providerId = model.providerID.trim().toLowerCase();
-  if (providerId === EIGENWELT_FREE_PROVIDER_ID) return true;
-  if (providerId !== OPENCODE_ZEN_PROVIDER_ID) return false;
-  const provider = getConnectedProviderItems(value).find((entry) => entry.id === model.providerID);
-  const cost = provider?.models?.[model.modelID]?.cost;
-  if (!cost) return false;
-  return (cost.input ?? 0) === 0 && (cost.output ?? 0) === 0;
-}
-
-/**
- * One-time free-tier migration for existing installs. Older installs
- * persisted their selected/default model on the engine's built-in OpenCode
- * Zen provider (`opencode`). When the server starts injecting the
- * `eigenwelt-free` provider it also disables zen, which would strand that
- * persisted selection behind a permanent "model no longer available" state.
- *
- * Returns the replacement ModelRef — the free provider's first model — when
- * ALL of these hold, and null otherwise:
- *  - the persisted model sits on the zen provider,
- *  - zen no longer serves it (disabled providers drop out of `connected`),
- *  - `eigenwelt-free` is connected and has at least one model.
- *
- * Null on an unloaded provider list, so callers can run it on every
- * provider-list load: once the selection is remapped (or the user picks any
- * non-zen model) the first condition fails and this is a no-op — idempotent
- * by construction.
- */
-export function remapZenSelectionToEigenweltFree(
-  value: ProviderListResponse | null | undefined,
-  model: ModelRef | null | undefined,
-): ModelRef | null {
-  if (!value) return null;
-  if (!model?.providerID || !model.modelID) return null;
-  if (model.providerID.trim().toLowerCase() !== OPENCODE_ZEN_PROVIDER_ID) return null;
-  if (isModelAvailableInConnectedProviders(value, model)) return null;
-  const free = getConnectedProviderItems(value).find(
-    (provider) => provider.id === EIGENWELT_FREE_PROVIDER_ID,
-  );
-  const firstModelId = Object.keys(free?.models ?? {})[0];
-  if (!firstModelId) return null;
-  return { providerID: EIGENWELT_FREE_PROVIDER_ID, modelID: firstModelId };
-}
+/** Retired free-tier provider id — kept only so old persisted selections can
+ * be recognized and cleared (see the retirement migration in session-route). */
+export const RETIRED_FREE_PROVIDER_IDS = new Set(["eigenwelt-free", OPENCODE_ZEN_PROVIDER_ID]);
 
 export function getConnectedProviderSnapshotChange(input: {
   baseUrl?: string | null;

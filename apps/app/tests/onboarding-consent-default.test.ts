@@ -61,7 +61,7 @@ describe("onboarding consent default", () => {
     });
   });
 
-  test("fresh install (no stored prefs): toggle defaults on, nothing sends", () => {
+  test("fresh install (no stored prefs): toggle defaults on, no explicit consent recorded", () => {
     expect(getStoredAnalyticsConsent()).toBeNull();
     expect(welcomeToggleDefault()).toBe(true);
     expect(isAnalyticsEnabled()).toBe(false);

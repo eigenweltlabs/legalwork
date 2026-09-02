@@ -101,6 +101,12 @@ export type EigenweltUsage = {
 export type EigenweltEntitlements = {
   plan: "plus" | "pro" | null;
   subscriptionStatus: string | null;
+  /**
+   * ISO timestamp when the 7-day trial ends (or ended — compare against now);
+   * null when the platform sent none or the value was malformed. Pair with
+   * `subscriptionStatus === "trialing"` to know a trial is still running.
+   */
+  trialEndsAt: string | null;
   features: string[];
   seats: number;
   usage: EigenweltUsage;
@@ -171,6 +177,17 @@ const CALLBACK_HTML = `<!doctype html>
 <style>body{font-family:system-ui,sans-serif;background:#fefefe;color:#0e0a07;display:grid;place-items:center;min-height:90vh}main{text-align:center}h1{font-weight:500;letter-spacing:-0.04em}p{color:rgba(14,10,7,.55)}</style>
 </head><body><main><h1>You're connected.</h1><p>Return to LegalWork — this tab can be closed.</p></main></body></html>`;
 
+function callbackErrorHtml(message: string): string {
+  const safe = message
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
+  return `<!doctype html>
+<html><head><meta charset="utf-8"><title>Eigenwelt — sign-in failed</title>
+<style>body{font-family:system-ui,sans-serif;background:#fefefe;color:#0e0a07;display:grid;place-items:center;min-height:90vh}main{max-width:26rem;text-align:center;padding:0 1rem}h1{font-weight:500;letter-spacing:-0.04em}p{color:rgba(14,10,7,.55);line-height:1.5}</style>
+</head><body><main><h1>Sign-in didn&rsquo;t finish.</h1><p>${safe}</p></main></body></html>`;
+}
+
 const ENTITLEMENT_FEATURES = new Set([
   "admin_hub",
   "settings_presets",
@@ -191,6 +208,10 @@ export function parseEigenweltEntitlements(value: unknown): EigenweltEntitlement
   if (!isRecord(value)) return undefined;
   const plan = value.plan === "plus" || value.plan === "pro" ? value.plan : null;
   const subscriptionStatus = typeof value.subscriptionStatus === "string" ? value.subscriptionStatus : null;
+  const trialEndsAt =
+    typeof value.trialEndsAt === "string" && Number.isFinite(Date.parse(value.trialEndsAt))
+      ? value.trialEndsAt
+      : null;
   const features = Array.isArray(value.features)
     ? [...new Set(value.features.filter((f): f is string => typeof f === "string" && ENTITLEMENT_FEATURES.has(f)))]
     : [];
@@ -210,6 +231,7 @@ export function parseEigenweltEntitlements(value: unknown): EigenweltEntitlement
   return {
     plan,
     subscriptionStatus,
+    trialEndsAt,
     features,
     seats: toFiniteNumber(value.seats),
     usage: {
@@ -259,7 +281,11 @@ async function bindLoopback(
  * The session resolves once the browser callback lands and the platform
  * exchange succeeds; a 10-minute timeout tears down the loopback.
  */
-export async function startEigenweltSignIn(): Promise<{ sessionId: string; authorizeUrl: string }> {
+export async function startEigenweltSignIn(opts?: {
+  /** "sign-in" lands existing users on the platform's sign-in page; the
+   *  default lands on sign-up (most app-originated clicks are new users). */
+  intent?: "sign-in";
+}): Promise<{ sessionId: string; authorizeUrl: string }> {
   const platform = eigenweltPlatformUrl();
   const { verifier, challenge } = generatePkce();
   const state = base64url(randomBytes(24));
@@ -288,7 +314,14 @@ export async function startEigenweltSignIn(): Promise<{ sessionId: string; autho
     rejectPayload(error);
   };
 
-  const exchange = async (code: string, port: number) => {
+  const exchange = async (
+    code: string,
+    port: number,
+  ): Promise<{ ok: true } | { ok: false; message: string }> => {
+    const fail = (message: string) => {
+      settleErr(new Error(message));
+      return { ok: false as const, message };
+    };
     try {
       const response = await fetch(`${platform}/api/desktop/exchange`, {
         method: "POST",
@@ -296,15 +329,24 @@ export async function startEigenweltSignIn(): Promise<{ sessionId: string; autho
         body: JSON.stringify({ state, code, verifier, port }),
       });
       if (!response.ok) {
-        settleErr(
-          new Error(`Eigenwelt sign-in failed: the platform rejected the code exchange (HTTP ${response.status}).`),
+        // Surface the platform's reason when it sends one (e.g. the
+        // subscription_required refusal for firms without an active trial/sub).
+        let detail = "";
+        try {
+          const body = (await response.json()) as { message?: unknown };
+          if (typeof body.message === "string" && body.message.trim()) {
+            detail = ` ${body.message.trim()}`;
+          }
+        } catch {
+          // Non-JSON error body — keep the generic message.
+        }
+        return fail(
+          `Eigenwelt sign-in failed: the platform rejected the code exchange (HTTP ${response.status}).${detail}`,
         );
-        return;
       }
       const payload = (await response.json()) as Partial<EigenweltSignInPayload>;
       if (!payload.apiKey || !payload.baseURL || !Array.isArray(payload.models)) {
-        settleErr(new Error("Eigenwelt sign-in failed: the platform returned an incomplete payload."));
-        return;
+        return fail("Eigenwelt sign-in failed: the platform returned an incomplete payload.");
       }
       // Reconstruct explicitly so a legacy payload (no entitlements/platform*)
       // is delivered byte-for-byte, and the optional subscription fields are
@@ -333,10 +375,9 @@ export async function startEigenweltSignIn(): Promise<{ sessionId: string; autho
         delivered.platformURL = payload.platformURL.replace(/\/+$/, "");
       }
       settleOk(delivered);
+      return { ok: true };
     } catch {
-      settleErr(new Error("Eigenwelt sign-in failed: could not reach the Eigenwelt platform for the code exchange."));
-    } finally {
-      teardown();
+      return fail("Eigenwelt sign-in failed: could not reach the Eigenwelt platform for the code exchange.");
     }
   };
 
@@ -352,8 +393,14 @@ export async function startEigenweltSignIn(): Promise<{ sessionId: string; autho
       res.writeHead(400, { "Content-Type": "text/plain" }).end("Invalid callback.");
       return;
     }
-    res.writeHead(200, { "Content-Type": "text/html" }).end(CALLBACK_HTML);
-    void exchange(code, boundPort);
+    // Answer the browser only once the exchange settled — the old
+    // "You're connected" page lied whenever the exchange then failed.
+    void (async () => {
+      const outcome = await exchange(code, boundPort);
+      const html = outcome.ok ? CALLBACK_HTML : callbackErrorHtml(outcome.message);
+      res.writeHead(200, { "Content-Type": "text/html" }).end(html);
+      teardown();
+    })();
   });
 
   const timeout = setTimeout(() => {
@@ -372,6 +419,10 @@ export async function startEigenweltSignIn(): Promise<{ sessionId: string; autho
   authorizeUrl.searchParams.set("state", state);
   authorizeUrl.searchParams.set("port", String(port));
   authorizeUrl.searchParams.set("code_challenge", challenge);
+  // The platform's middleware routes a signed-out handshake to sign-up by
+  // default; explicit sign-in intent (the "already have an account" link)
+  // lands on sign-in instead.
+  if (opts?.intent === "sign-in") authorizeUrl.searchParams.set("intent", "sign-in");
 
   return { sessionId, authorizeUrl: authorizeUrl.toString() };
 }
