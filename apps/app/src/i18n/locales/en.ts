@@ -2061,7 +2061,11 @@ export default {
   "chat.no_model_title": "No AI connected.",
   "chat.no_model_body": "Start your 7-day free trial with Eigenwelt, or connect your own model.",
   "chat.no_model_trial": "Start free trial",
+  "chat.no_model_login": "Log in",
   "chat.no_model_byo": "Connect a model",
+  // Composer: signed out of Eigenwelt (or access revoked) with nothing else connected
+  "chat.signed_out_title": "Signed out of Eigenwelt.",
+  "chat.signed_out_body": "Log in to keep using Eigenwelt models, start your 7-day free trial, or connect your own model.",
   // One-time migration dialog after the free tier was retired.
   "free_retired.eyebrow": "Eigenwelt models",
   "free_retired.headline": "Free models have been retired.",

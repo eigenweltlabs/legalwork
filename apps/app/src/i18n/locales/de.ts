@@ -593,7 +593,11 @@ const de: Record<string, string> = {
   "chat.no_model_title": "Keine KI verbunden.",
   "chat.no_model_body": "Starte deine 7-tägige kostenlose Testphase bei Eigenwelt oder verbinde dein eigenes Modell.",
   "chat.no_model_trial": "Kostenlos testen",
+  "chat.no_model_login": "Anmelden",
   "chat.no_model_byo": "Modell verbinden",
+  // Composer: von Eigenwelt abgemeldet (oder Zugang entzogen), sonst nichts verbunden
+  "chat.signed_out_title": "Von Eigenwelt abgemeldet.",
+  "chat.signed_out_body": "Melde dich an, um die Eigenwelt-Modelle weiter zu nutzen, starte deine 7-tägige kostenlose Testphase oder verbinde dein eigenes Modell.",
   // Einmaliger Migrationsdialog nach dem Ende des kostenlosen Zugangs.
   "free_retired.eyebrow": "Eigenwelt-Modelle",
   "free_retired.headline": "Kostenlose Modelle wurden eingestellt.",

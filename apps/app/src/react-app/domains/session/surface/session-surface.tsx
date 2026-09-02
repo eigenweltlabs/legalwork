@@ -141,9 +141,8 @@ export type SessionSurfaceProps = {
   /** Single provider serving a single model: plain model label, no Fusion. */
   modelSelectorLocked?: boolean;
   selectedModel: ModelRef;
-  /** True when the active model is a free-tier model (no-key fallback). */
-  /** Open the connect-AI flow (true = preselect Eigenwelt / start trial). */
-  onConnectAi?: (preferEigenwelt: boolean) => void;
+  /** Open the connect-AI flow from the notice above the composer. */
+  onConnectAi?: (action: ConnectAiAction) => void;
   onModelPickerOpenChange: (open: boolean) => void;
   onModelChange: (model: ModelRef) => void;
   onSendDraft: (draft: ComposerDraft, sessionId: string) => void;
@@ -322,31 +321,43 @@ function TodoPanel(props: { todos: TodoItem[] }) {
   );
 }
 
+/** The ways out of "no usable model": trial sign-up, sign-in, or bring your own. */
+export type ConnectAiAction = "trial" | "login" | "byo";
+
 /**
- * Banner shown above the composer when NO model is connected (there is no
- * free fallback tier). Offers the two real paths: the Eigenwelt trial, or
- * bringing your own model/key.
+ * Banner shown above the composer when there is no usable model (there is no
+ * free fallback tier): nothing selected yet, or the selection points at a
+ * provider that is no longer connected (signed out of Eigenwelt, access
+ * revoked) with nothing else to switch to. Offers the three real paths: the
+ * Eigenwelt trial, signing in to an existing account, or bringing your own
+ * model/key.
  */
-function NoModelNotice(props: { onConnect?: (preferEigenwelt: boolean) => void }) {
+function NoModelNotice(props: {
+  variant: "none" | "signed-out";
+  onConnect?: (action: ConnectAiAction) => void;
+}) {
+  const secondaryButtonClass =
+    "rounded-md border border-dls-border px-2.5 py-1 text-xs font-medium text-dls-text transition-colors hover:bg-dls-hover";
   return (
     <div className="flex flex-wrap items-center gap-2.5 border-b border-dls-border bg-dls-surface px-4 py-3">
       <p className="min-w-0 flex-1 text-xs leading-relaxed text-dls-secondary">
-        <span className="font-medium text-dls-text">{t("chat.no_model_title")}</span>{" "}
-        {t("chat.no_model_body")}
+        <span className="font-medium text-dls-text">
+          {props.variant === "signed-out" ? t("chat.signed_out_title") : t("chat.no_model_title")}
+        </span>{" "}
+        {props.variant === "signed-out" ? t("chat.signed_out_body") : t("chat.no_model_body")}
       </p>
       <div className="flex shrink-0 items-center gap-2">
         <button
           type="button"
           className="rounded-md bg-primary px-2.5 py-1 text-xs font-medium text-primary-fg transition-opacity hover:opacity-90"
-          onClick={() => props.onConnect?.(true)}
+          onClick={() => props.onConnect?.("trial")}
         >
           {t("chat.no_model_trial")}
         </button>
-        <button
-          type="button"
-          className="rounded-md border border-dls-border px-2.5 py-1 text-xs font-medium text-dls-text transition-colors hover:bg-dls-hover"
-          onClick={() => props.onConnect?.(false)}
-        >
+        <button type="button" className={secondaryButtonClass} onClick={() => props.onConnect?.("login")}>
+          {t("chat.no_model_login")}
+        </button>
+        <button type="button" className={secondaryButtonClass} onClick={() => props.onConnect?.("byo")}>
           {t("chat.no_model_byo")}
         </button>
       </div>
@@ -515,6 +526,18 @@ export function SessionSurface(props: SessionSurfaceProps) {
   const trialBillingUrl = eigenweltBillingUrl(eigenweltEntitlementsQuery.data?.platformURL ?? null);
   // No model connected at all (free tier retired): offer trial / BYO inline.
   const noModelNoticeVisible = !props.selectedModel.providerID;
+  // Locked out: the selection points at a provider that is no longer
+  // connected (signed out of Eigenwelt, access revoked, provider removed) and
+  // nothing else is connected, so there is no model to switch to. Same ways
+  // out as "no model"; a lapsed trial keeps its own subscribe notice.
+  const lockedOutNoticeVisible =
+    !noModelNoticeVisible &&
+    !trialEndedNoticeVisible &&
+    Boolean(props.modelUnavailable) &&
+    (props.providerConnectedCount ?? 0) === 0;
+  const connectNoticeVisible = noModelNoticeVisible || lockedOutNoticeVisible;
+  const connectNoticeVariant =
+    lockedOutNoticeVisible && props.selectedModel.providerID === "eigenwelt" ? "signed-out" : "none";
   const showThinking = local.prefs.showThinking;
   const sessionActivityStatus = useSessionActivityStore(
     (state) => state.statusesByWorkspaceId[props.workspaceId]?.[props.sessionId] ?? "idle",
@@ -1756,6 +1779,7 @@ export function SessionSurface(props: SessionSurfaceProps) {
         queuedCount={queuedMessages.length}
         disabled={model.transitionState !== "idle" || Boolean(props.modelUnavailable)}
         modelUnavailable={Boolean(props.modelUnavailable)}
+        modelUnavailableLabelHidden={lockedOutNoticeVisible}
         statusLabel={statusLabel(snapshot ?? undefined, chatStreaming)}
         modelPickerOpen={props.modelPickerOpen}
         selectedModel={props.selectedModel}
@@ -1804,12 +1828,14 @@ export function SessionSurface(props: SessionSurfaceProps) {
           onToggleLiveTranscript={recorderActive ? handleToggleLiveTranscript : undefined}
           liveTranscriptActive={liveTranscriptActive}
           onUploadInboxFiles={props.onUploadInboxFiles ?? handleUploadInboxFiles}
-          compactTopSpacing={Boolean(trialEndedNoticeVisible || noModelNoticeVisible || props.activeQuestion || (props.todos ?? []).some((todo) => todo.content.trim()) || props.activePermission || queuedMessages.length > 0)}
+          compactTopSpacing={Boolean(trialEndedNoticeVisible || connectNoticeVisible || props.activeQuestion || (props.todos ?? []).some((todo) => todo.content.trim()) || props.activePermission || queuedMessages.length > 0)}
           topAccessory={
-            trialEndedNoticeVisible || noModelNoticeVisible || props.activeQuestion || (props.todos ?? []).some((todo) => todo.content.trim()) || props.activePermission || queuedMessages.length > 0 ? (
+            trialEndedNoticeVisible || connectNoticeVisible || props.activeQuestion || (props.todos ?? []).some((todo) => todo.content.trim()) || props.activePermission || queuedMessages.length > 0 ? (
               <div>
                 {trialEndedNoticeVisible ? <TrialEndedNotice billingUrl={trialBillingUrl} /> : null}
-                {noModelNoticeVisible ? <NoModelNotice onConnect={props.onConnectAi} /> : null}
+                {connectNoticeVisible ? (
+                  <NoModelNotice variant={connectNoticeVariant} onConnect={props.onConnectAi} />
+                ) : null}
                 {queuedMessages.length > 0 ? (
                   <QueuedMessagesPanel messages={queuedMessages} onRemove={removeQueuedDraft} />
                 ) : null}
