@@ -2112,7 +2112,11 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
             busy={busy}
             showThinking={local.prefs.showThinking}
             onToggleShowThinking={() => {
-              local.setPrefs((previous) => ({ ...previous, showThinking: !previous.showThinking }));
+              local.setPrefs((previous) => ({
+                ...previous,
+                showThinking: !previous.showThinking,
+                showThinkingChosen: true,
+              }));
             }}
             autoCompactContext={autoCompactContext}
             autoCompactContextBusy={autoCompactContextBusy}

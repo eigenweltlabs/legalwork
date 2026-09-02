@@ -32,7 +32,20 @@ export type LocalUIState = {
 export type HideAppMode = "never" | "recording" | "always";
 
 export type LocalPreferences = {
+  /** Show the model's reasoning in the chat. Off unless the user turns it on. */
   showThinking: boolean;
+  /**
+   * True once the user flipped the reasoning toggle themselves. The stored
+   * value alone cannot tell a choice from a persisted default, so this is what
+   * lets a later change of the default reach everyone who never chose.
+   */
+  showThinkingChosen: boolean;
+  /**
+   * The DEFAULT_SHOW_THINKING generation this store was last aligned with
+   * (see applyShowThinkingDefault). Stores from before the field existed read
+   * as 0 and get the current default applied once.
+   */
+  showThinkingDefaultVersion: number;
   /** When to exclude the window from screen shares / recordings. */
   hideAppMode: HideAppMode;
   modelVariant: string | null;
@@ -94,11 +107,21 @@ const LocalContext = createContext<LocalContextValue | undefined>(undefined);
 
 const UI_STORAGE_KEY = "legalwork.ui";
 const PREFS_STORAGE_KEY = "legalwork.preferences";
-export const DEFAULT_SHOW_THINKING = true;
+export const DEFAULT_SHOW_THINKING = false;
+/**
+ * Bump whenever DEFAULT_SHOW_THINKING changes. Version 1 was the original
+ * "on" default; 2 turned it off. Every store below the current version gets
+ * the new default unless the user chose a value themselves.
+ */
+export const SHOW_THINKING_DEFAULT_VERSION = 2;
 
 const INITIAL_UI: LocalUIState = { view: "settings", tab: "general" };
 const INITIAL_PREFS: LocalPreferences = {
   showThinking: DEFAULT_SHOW_THINKING,
+  showThinkingChosen: false,
+  // 0, not the current version: readPersisted fills missing fields from here,
+  // so an older store must still look "behind" for applyShowThinkingDefault.
+  showThinkingDefaultVersion: 0,
   hideAppMode: "recording",
   modelVariant: null,
   defaultModel: null,
@@ -129,6 +152,20 @@ function readPersisted<T>(key: string, fallback: T): T {
   }
 }
 
+/**
+ * Align a loaded store with the current reasoning default: a store from an
+ * older default generation keeps the user's own choice, but a value that was
+ * only ever the old persisted default is replaced by the current default.
+ */
+export function applyShowThinkingDefault(prefs: LocalPreferences): LocalPreferences {
+  if (prefs.showThinkingDefaultVersion >= SHOW_THINKING_DEFAULT_VERSION) return prefs;
+  return {
+    ...prefs,
+    showThinking: prefs.showThinkingChosen ? prefs.showThinking : DEFAULT_SHOW_THINKING,
+    showThinkingDefaultVersion: SHOW_THINKING_DEFAULT_VERSION,
+  };
+}
+
 function writePersisted(key: string, value: unknown) {
   if (typeof window === "undefined") return;
   try {
@@ -147,7 +184,7 @@ export function LocalProvider({ children }: LocalProviderProps) {
     readPersisted(UI_STORAGE_KEY, INITIAL_UI),
   );
   const [prefs, setPrefsRaw] = useState<LocalPreferences>(() => {
-    const persisted = readPersisted(PREFS_STORAGE_KEY, INITIAL_PREFS);
+    const persisted = applyShowThinkingDefault(readPersisted(PREFS_STORAGE_KEY, INITIAL_PREFS));
     if (persisted.defaultModel) {
       return persisted;
     }
@@ -209,7 +246,8 @@ export function LocalProvider({ children }: LocalProviderProps) {
     try {
       const parsed = JSON.parse(raw);
       if (typeof parsed === "boolean") {
-        setPrefsRaw((previous) => ({ ...previous, showThinking: parsed }));
+        // The legacy key was only ever written by the toggle: a real choice.
+        setPrefsRaw((previous) => ({ ...previous, showThinking: parsed, showThinkingChosen: true }));
       }
     } catch {
       // ignore invalid legacy values

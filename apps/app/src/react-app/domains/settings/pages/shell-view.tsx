@@ -236,7 +236,7 @@ export function ShellCustomizationView() {
                 aria-label={t("settings.show_model_reasoning")}
                 checked={local.prefs.showThinking}
                 onCheckedChange={(value) =>
-                  local.setPrefs((previous) => ({ ...previous, showThinking: value }))
+                  local.setPrefs((previous) => ({ ...previous, showThinking: value, showThinkingChosen: true }))
                 }
               />
             </LayoutSectionItemHeaderActions>

@@ -13,6 +13,7 @@ export function useSessionDisplayPreferences() {
         ...previous,
         showThinking:
           typeof value === "function" ? value(previous.showThinking) : value,
+        showThinkingChosen: true,
       }));
     },
     [setPrefs],
@@ -23,8 +24,13 @@ export function useSessionDisplayPreferences() {
   }, [setShowThinking]);
 
   const resetSessionDisplayPreferences = useCallback(() => {
-    setShowThinking(DEFAULT_SHOW_THINKING);
-  }, [setShowThinking]);
+    // Back to "never chose": future default changes apply again.
+    setPrefs((previous) => ({
+      ...previous,
+      showThinking: DEFAULT_SHOW_THINKING,
+      showThinkingChosen: false,
+    }));
+  }, [setPrefs]);
 
   return {
     showThinking: prefs.showThinking,
