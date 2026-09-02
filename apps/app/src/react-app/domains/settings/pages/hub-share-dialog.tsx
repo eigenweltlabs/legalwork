@@ -1,8 +1,10 @@
 /** @jsxImportSource react */
 /**
  * Multi-select "Share with your firm" dialog. Lists this workspace's local
- * skills, MCP servers and plugins with checkboxes (+ select-all) and pushes the
- * selected items to the team hub in one batch. MCP servers that carry a key get
+ * skills (plus the user's global skill library on local workspaces, where
+ * generated workflows live), MCP servers and plugins with checkboxes
+ * (+ select-all) and pushes the selected items to the team hub in one batch.
+ * MCP servers that carry a key get
  * an "Include key" switch — when on, the fully-configured entry is shared
  * (encrypted, any firm member may copy); otherwise a secret-free template is
  * shared and installers add their own key.
@@ -76,9 +78,16 @@ export function HubShareDialog(props: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   initialSelection?: { kind: Selectable["kind"]; ref: string } | null;
+  /**
+   * Also offer the user's global skill library (~/.config/opencode/skills).
+   * Must match what the Skills/Workflows pages list, or an item shown there
+   * comes up as "no longer available" here: generated workflows are imported
+   * into the global library, not into the workspace.
+   */
+  includeGlobalSkills?: boolean;
   onShared?: () => void;
 }) {
-  const { client, workspaceId } = props;
+  const { client, workspaceId, includeGlobalSkills = false } = props;
   const initialSelection = props.initialSelection;
   const [loading, setLoading] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -113,7 +122,9 @@ export function HubShareDialog(props: {
         const loadMcps = !initialSelection || initialSelection.kind === "mcp";
         const loadPlugins = !initialSelection || initialSelection.kind === "plugin";
         const [s, m, p] = await Promise.all([
-          loadSkills ? client.listSkills(workspaceId) : Promise.resolve(null),
+          loadSkills
+            ? client.listSkills(workspaceId, { includeGlobal: includeGlobalSkills })
+            : Promise.resolve(null),
           loadMcps ? client.listMcp(workspaceId) : Promise.resolve(null),
           loadPlugins
             ? client.listPlugins(workspaceId, { includeGlobal: initialSelection?.kind === "plugin" })
@@ -146,7 +157,7 @@ export function HubShareDialog(props: {
     return () => {
       cancelled = true;
     };
-  }, [props.open, initialSelection, client, workspaceId]);
+  }, [props.open, initialSelection, client, workspaceId, includeGlobalSkills]);
 
   const all = useMemo(() => [...skills, ...mcps, ...plugins], [skills, mcps, plugins]);
   const key = (it: Selectable) => `${it.kind}:${it.ref}`;

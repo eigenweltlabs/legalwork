@@ -2619,7 +2619,9 @@ function createRoutes(
         }
         if (!ref) throw new ApiError(400, "invalid_ref", "Each item needs a local ref.");
         if (kind === "skill" || kind === "workflow") {
-          const localSkills = await listSkills(workspace.path, false);
+          // Generated workflows live in the global skill library, so resolve
+          // the kind against the same list the Workflows page shows.
+          const localSkills = await listSkills(workspace.path, true);
           const localSkill = localSkills.find((skill) => skill.name === ref);
           const publishedKind = resolveHubSkillKind(localSkill, kind, ref);
           const payload = await serializeWorkflowSkill(workspace.path, ref);
