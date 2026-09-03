@@ -1981,7 +1981,7 @@ export default {
   "recorder.tier_premium_unlock_hint": "This transcription model is part of the Plus plan. It will unlock automatically once your plan is active.",
   "premium_upsell.eyebrow": "Eigenwelt Plus",
   "premium_upsell.headline": "Try Eigenwelt Plus free for 7 days",
-  "premium_upsell.intro": "€69 per seat/month after the trial. Included for every seat in your firm:",
+  "premium_upsell.intro": "From €69 per seat/month after the trial (billed yearly; €99 billed monthly). Included for every seat in your firm:",
   "premium_upsell.audio_title": "Premium audio transcription models",
   "premium_upsell.audio_body": "The most accurate on-device models for recordings and dictation, running fully on your machine.",
   "premium_upsell.eu_title": "AI usage in the EU with zero data retention",
@@ -2085,7 +2085,7 @@ export default {
   "onboarding_ai.subtitle":
     "Premium models, hosted in the EU, ready in one sign-in. Your documents are only ever shared with your AI. No server in between.",
   "onboarding_ai.cta": "Start your 7-day free trial",
-  "onboarding_ai.cta_note": "EU-hosted · Zero retention · €69/seat after the trial",
+  "onboarding_ai.cta_note": "EU-hosted · Zero retention · From €69/seat/month after the trial",
   "onboarding_ai.login_prompt": "Already have an account?",
   "onboarding_ai.login_cta": "Log in",
   "onboarding_ai.waiting_title": "Finish in your browser",
