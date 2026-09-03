@@ -578,7 +578,7 @@ const de: Record<string, string> = {
   // Premium-Upsell (Eigenwelt Plus Testphase)
   "premium_upsell.eyebrow": "Eigenwelt Plus",
   "premium_upsell.headline": "Teste Eigenwelt Plus 7 Tage kostenlos",
-  "premium_upsell.intro": "Nach der Testphase 69 € pro Sitzplatz/Monat. Für jeden Sitzplatz deiner Kanzlei enthalten:",
+  "premium_upsell.intro": "Nach der Testphase ab 69 € pro Sitzplatz/Monat (bei jährlicher Zahlung; 99 € bei monatlicher Zahlung). Für jeden Sitzplatz deiner Kanzlei enthalten:",
   "premium_upsell.audio_title": "Premium-Transkriptionsmodelle",
   "premium_upsell.audio_body": "Die genauesten On-Device-Modelle für Aufnahmen und Diktate, vollständig auf deinem Rechner.",
   "premium_upsell.eu_title": "KI-Nutzung in der EU ohne Datenspeicherung",
@@ -617,7 +617,7 @@ const de: Record<string, string> = {
   "onboarding_ai.subtitle":
     "Premium-Modelle, gehostet in der EU, startklar mit einer Anmeldung. Deine Dokumente werden nur mit deiner KI geteilt. Kein Server dazwischen.",
   "onboarding_ai.cta": "7 Tage kostenlos testen",
-  "onboarding_ai.cta_note": "EU-gehostet · Keine Datenspeicherung · 69 €/Sitzplatz nach der Testphase",
+  "onboarding_ai.cta_note": "EU-gehostet · Keine Datenspeicherung · Ab 69 €/Sitzplatz/Monat nach der Testphase",
   "onboarding_ai.login_prompt": "Du hast schon ein Konto?",
   "onboarding_ai.login_cta": "Anmelden",
   "onboarding_ai.waiting_title": "Im Browser abschließen",
