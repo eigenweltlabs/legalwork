@@ -20,7 +20,7 @@ import { ApprovalService } from "./approvals.js";
 import { addPlugin, listPlugins, normalizePluginSpec, removePlugin } from "./plugins.js";
 import { sanitizePortableOpencodeConfig } from "./portable-opencode.js";
 import { addMcp, listMcp, removeMcp, setMcpEnabled } from "./mcp.js";
-import { deleteSkill, listSkills, resolveHubSkillKind, upsertSkill } from "./skills.js";
+import { deleteSkill, listSkills, resolveHubSkillKind, skillsDirForScope, upsertSkill } from "./skills.js";
 import {
   deleteSkillResource,
   listSkillResources,
@@ -3195,13 +3195,16 @@ function createRoutes(
     const name = String(body.name ?? "");
     const content = String(body.content ?? "");
     const description = body.description ? String(body.description) : undefined;
+    // "global" writes into the shared library the desktop Skills/Workflows
+    // screens list; the default stays project-scoped for existing callers.
+    const scope = body.scope === "global" ? "global" : "project";
     await requireApproval(ctx, {
       workspaceId: workspace.id,
       action: "skills.upsert",
       summary: `Upsert skill ${name}`,
-      paths: [join(workspace.path, ".opencode", "skills", name, "SKILL.md")],
+      paths: [join(skillsDirForScope(workspace.path, scope), name, "SKILL.md")],
     });
-    const result = await upsertSkill(workspace.path, { name, content, description });
+    const result = await upsertSkill(workspace.path, { name, content, description, scope });
     await recordAudit(workspace.path, {
       id: shortId(),
       workspaceId: workspace.id,
@@ -3217,7 +3220,7 @@ function createRoutes(
       action: result.action,
       path: result.path,
     });
-    return jsonResponse({ name, path: result.path, description: description ?? "", scope: "project" });
+    return jsonResponse({ name, path: result.path, description: description ?? "", scope: result.scope });
   });
 
   addRoute(routes, "DELETE", "/workspace/:id/skills/:name", "client", async (ctx) => {

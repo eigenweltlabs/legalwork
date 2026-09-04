@@ -13,9 +13,11 @@ A skill is a folder under `.opencode/skills/<skill-name>/` or `.claude/skills/<s
 
 ## LegalWork behavior
 
-- In LegalWork, prefer creating the skill at `.opencode/skills/<skill-name>/SKILL.md`.
-- Use a file mutation tool (`write`, `edit`, or `apply_patch`) on the real skill path instead of pasting the whole skill into chat.
-- Writing the skill file lets LegalWork show the reload banner above the conversation so the user can activate the new skill immediately.
+- In LegalWork, create the skill with the `legalwork_skill_create` tool — never by writing a `SKILL.md` with `write`/`edit`/`apply_patch`. The tool installs it into the firm's shared library, which is what Settings > Skills and Settings > Workflows list and what the engine loads in every workspace; a hand-written file under `.opencode/skills/` stays a loose file the app never shows.
+- Pass `kind: "workflow"` for a legal task the user runs on documents (drafting from a template, a review pass) so it lands in Settings > Workflows; leave it as a skill for knowledge the assistant should pick up on its own.
+- Ship the firm's template with the workflow by passing `resourcePaths` — the files are copied into the skill's `resources/` folder and listed in its "Attached resources" section.
+- Use `legalwork_skill_list` first to check whether something equivalent already exists.
+- Installing through the tool lets LegalWork show the reload banner above the conversation so the user can activate the new skill immediately.
 
 ## Design goals
 

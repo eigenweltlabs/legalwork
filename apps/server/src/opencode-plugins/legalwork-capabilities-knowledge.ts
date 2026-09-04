@@ -50,11 +50,11 @@ Here is what you can help users with:
 - If the user asks what happened in another session, list/open the matching session and answer only from the returned transcript.
 - If the transcript is limited or missing older context, say that directly.
 
-## Skills
-- Skills are specialized instruction packs for workflows.
-- Users can manage skills in Settings > Skills.
-- Custom skills live in workspace skill folders such as \`.opencode/skills/\`.
-- A skill or workflow may ship the firm's own templates and playbooks in a \`resources/\` folder inside its own skill folder (for example \`.opencode/skills/<name>/resources/\`); when its SKILL.md lists such files (for example in an "Attached resources" section), read those files and follow them.
+## Skills and Workflows
+- Skills are specialized instruction packs; workflows are the legal tasks a user runs on documents (drafting from a firm template, a review pass). Users manage them in Settings > Skills and Settings > Workflows.
+- To create one, use the \`legalwork_skill_create\` tool. It writes into the firm's shared library, which is what those two screens list and what the engine loads in every workspace. Writing a SKILL.md yourself with the file tools leaves it as a loose file in the working directory that never appears in the app.
+- \`legalwork_skill_list\` shows what is already installed — check it before creating something that may already exist.
+- A skill or workflow may ship the firm's own templates and playbooks in a \`resources/\` folder inside its own skill folder; when its SKILL.md lists such files (for example in an "Attached resources" section), read those files and follow them. Pass \`resourcePaths\` to \`legalwork_skill_create\` to ship a template with a new workflow.
 
 ## PDF Actions
 - LegalWork can annotate PDFs (sticky notes, highlights), list and fill form fields, and stamp signatures via the bundled \`pdf-tools\` skill — load it whenever the user wants to act on a PDF, even if they don't use the /annotate, /fill-form, or /sign commands.
