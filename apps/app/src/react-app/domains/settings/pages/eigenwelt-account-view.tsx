@@ -14,7 +14,7 @@ import {
 import { Button, Card } from "@legalwork/ui/react";
 
 import { toast } from "@/components/ui/sonner";
-import { t } from "@/i18n";
+import { currentLocale, t } from "@/i18n";
 import { openDesktopUrl } from "@/app/lib/desktop";
 import {
   eigenweltPlanWithoutModels,
@@ -70,6 +70,22 @@ export type EigenweltAccountViewProps = {
   /** Called after connect/disconnect so the host can reload the engine. */
   onConfigApplied?: () => void;
 };
+
+/** The reset day of the included usage in the app's language, or null when unknown. */
+function formatUsageResetDate(iso: string | null | undefined): string | null {
+  if (!iso) return null;
+  const at = Date.parse(iso);
+  if (!Number.isFinite(at)) return null;
+  try {
+    return new Intl.DateTimeFormat(currentLocale(), {
+      weekday: "short",
+      day: "numeric",
+      month: "short",
+    }).format(new Date(at));
+  } catch {
+    return new Date(at).toDateString();
+  }
+}
 
 export function EigenweltAccountView({
   legalworkClient,
@@ -243,6 +259,9 @@ export function EigenweltAccountView({
   // The Knowledge Hub plan has no Eigenwelt models: no usage to show, and the
   // models row explains the upgrade instead of "no models yet".
   const modelsIncluded = hasEigenweltFeature(entitlements, "premium_models");
+  // When the seat's included usage resets, e.g. "Mon, Sep 7" (platforms that
+  // send no reset time show the percentage alone).
+  const usageResetsOn = formatUsageResetDate(entitlements?.usage.resetsAt);
   const planWithoutModels = eigenweltPlanWithoutModels(entitlements);
   const trial = eigenweltTrialState(entitlements);
   const trialText =
@@ -322,12 +341,24 @@ export function EigenweltAccountView({
         {entitlements && modelsIncluded ? (
           <LayoutSectionItem>
             <LayoutSectionItemHeader>
-              <LayoutSectionItemTitle>{t("firm_hub.usage_label")}</LayoutSectionItemTitle>
+              <LayoutSectionItemTitle>
+                {entitlements.usage.window === "week"
+                  ? t("firm_hub.usage_label_week")
+                  : t("firm_hub.usage_label")}
+              </LayoutSectionItemTitle>
+              {usageResetsOn ? (
+                <LayoutSectionItemDescription>
+                  {t("firm_hub.usage_resets", { date: usageResetsOn })}
+                </LayoutSectionItemDescription>
+              ) : null}
               <LayoutSectionItemHeaderActions>
                 <span className="text-sm text-muted-foreground">
-                  {t("firm_hub.usage_today", {
-                    percent: String(entitlements.usage.dailyUsedPercent),
-                  })}
+                  {t(
+                    entitlements.usage.window === "week"
+                      ? "firm_hub.usage_this_week"
+                      : "firm_hub.usage_today",
+                    { percent: String(entitlements.usage.usedPercent) },
+                  )}
                 </span>
               </LayoutSectionItemHeaderActions>
             </LayoutSectionItemHeader>

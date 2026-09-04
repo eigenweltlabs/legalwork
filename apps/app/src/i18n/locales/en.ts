@@ -1533,6 +1533,8 @@ export default {
   "firm_hub.free_plan": "Free",
   "firm_hub.seats": "{seats} seats",
   "firm_hub.usage_today": "{percent}% used today",
+  "firm_hub.usage_this_week": "{percent}% used this week",
+  "firm_hub.usage_resets": "Resets {date}",
   "firm_hub.locked_title": "Firm sharing is part of your Eigenwelt subscription",
   "firm_hub.locked_body":
     "Upgrade your firm's plan to share workflows, integrations and settings presets across everyone at your firm.",
@@ -1571,6 +1573,7 @@ export default {
   // Subscription summary
   "firm_hub.subscription_title": "Firm subscription",
   "firm_hub.usage_label": "Daily usage",
+  "firm_hub.usage_label_week": "Weekly usage",
   // Section descriptions
   "firm_hub.workflows_desc": "Skill folders your firm shares. Install to add them to this workspace.",
   "firm_hub.integrations_desc": "MCP servers your firm shares. Credentials are stripped — sign in after installing.",

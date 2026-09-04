@@ -83,11 +83,20 @@ export type EigenweltManifestModel = {
   reasoning?: boolean;
 };
 
-/** Per-firm daily usage snapshot from the platform (cents, plus a percentage). */
+/** The signed-in seat's included usage for the current window (cents, plus a percentage). */
 export type EigenweltUsage = {
+  /** The window the included allowance applies to: a week on current
+   *  platforms, a day on platforms from before the weekly allowance. */
+  window: "day" | "week";
+  allowanceCents: number;
+  remainingCents: number;
+  /** Share of this window's allowance consumed, 0–100 (server-computed). */
+  usedPercent: number;
+  /** ISO timestamp when the allowance resets; null when unknown or without an allowance. */
+  resetsAt: string | null;
+  /** @deprecated The same numbers under the pre-weekly names; read the fields above. */
   dailyAllowanceCents: number;
   dailyRemainingCents: number;
-  /** Share of today's allowance consumed, 0–100 (server-computed). */
   dailyUsedPercent: number;
   extraUsageEnabled: boolean;
   prepaidBalanceCents: number;
@@ -219,18 +228,37 @@ export function parseEigenweltEntitlements(value: unknown): EigenweltEntitlement
     ? [...new Set(value.features.filter((f): f is string => typeof f === "string" && ENTITLEMENT_FEATURES.has(f)))]
     : [];
   const usageRaw = isRecord(value.usage) ? value.usage : {};
-  const dailyAllowanceCents = toFiniteNumber(usageRaw.dailyAllowanceCents);
-  const dailyRemainingCents = toFiniteNumber(usageRaw.dailyRemainingCents);
-  // Prefer the server-computed percentage; derive it from cents as a fallback
-  // for older platforms that don't send `dailyUsedPercent` yet.
-  const derivedUsedPercent =
-    dailyAllowanceCents === 0
-      ? 0
-      : ((dailyAllowanceCents - dailyRemainingCents) / dailyAllowanceCents) * 100;
-  const dailyUsedPercent = Math.max(
-    0,
-    Math.min(100, Math.round(toFiniteNumber(usageRaw.dailyUsedPercent, derivedUsedPercent))),
+  // Current platforms send the window plus generic names; older ones only the
+  // daily names (and enforced a daily allowance).
+  const window = usageRaw.window === "week" ? "week" : "day";
+  const allowanceCents = toFiniteNumber(
+    usageRaw.allowanceCents,
+    toFiniteNumber(usageRaw.dailyAllowanceCents),
   );
+  const remainingCents = toFiniteNumber(
+    usageRaw.remainingCents,
+    toFiniteNumber(usageRaw.dailyRemainingCents),
+  );
+  // Prefer the server-computed percentage; derive it from cents as a fallback
+  // for platforms that don't send one.
+  const derivedUsedPercent =
+    allowanceCents === 0 ? 0 : ((allowanceCents - remainingCents) / allowanceCents) * 100;
+  const usedPercent = Math.max(
+    0,
+    Math.min(
+      100,
+      Math.round(
+        toFiniteNumber(
+          usageRaw.usedPercent,
+          toFiniteNumber(usageRaw.dailyUsedPercent, derivedUsedPercent),
+        ),
+      ),
+    ),
+  );
+  const resetsAt =
+    typeof usageRaw.resetsAt === "string" && Number.isFinite(Date.parse(usageRaw.resetsAt))
+      ? usageRaw.resetsAt
+      : null;
   return {
     plan,
     subscriptionStatus,
@@ -238,9 +266,14 @@ export function parseEigenweltEntitlements(value: unknown): EigenweltEntitlement
     features,
     seats: toFiniteNumber(value.seats),
     usage: {
-      dailyAllowanceCents,
-      dailyRemainingCents,
-      dailyUsedPercent,
+      window,
+      allowanceCents,
+      remainingCents,
+      usedPercent,
+      resetsAt,
+      dailyAllowanceCents: allowanceCents,
+      dailyRemainingCents: remainingCents,
+      dailyUsedPercent: usedPercent,
       extraUsageEnabled: usageRaw.extraUsageEnabled === true,
       prepaidBalanceCents: toFiniteNumber(usageRaw.prepaidBalanceCents),
     },

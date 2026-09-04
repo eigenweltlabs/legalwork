@@ -138,11 +138,19 @@ export type EigenweltManifestModel = {
   reasoning?: boolean;
 };
 
-/** Per-firm daily usage snapshot from the platform (cents, plus a percentage). */
+/** The signed-in seat's included usage for the current window (cents, plus a percentage). */
 export type EigenweltUsage = {
+  /** A week on current platforms, a day on platforms from before the weekly allowance. */
+  window: "day" | "week";
+  allowanceCents: number;
+  remainingCents: number;
+  /** Share of this window's allowance consumed, 0–100 (server-computed). */
+  usedPercent: number;
+  /** ISO timestamp when the allowance resets; null when unknown or without an allowance. */
+  resetsAt: string | null;
+  /** @deprecated The same numbers under the pre-weekly names; read the fields above. */
   dailyAllowanceCents: number;
   dailyRemainingCents: number;
-  /** Share of today's allowance consumed, 0–100 (server-computed). */
   dailyUsedPercent: number;
   extraUsageEnabled: boolean;
   prepaidBalanceCents: number;
