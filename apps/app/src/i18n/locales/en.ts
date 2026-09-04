@@ -1515,6 +1515,8 @@ export default {
   // A connected account with a lapsed subscription (there is no free tier).
   "account.plan_inactive": "Inactive",
   "account.plan_label": "Plan",
+  "account.plan_hub": "Knowledge Hub",
+  "account.models_not_in_plan": "Not included in the Knowledge Hub plan. Upgrade to Plus for the Eigenwelt models.",
   "account.models_label": "Models",
   // 7-day free trial (card-upfront; converts automatically at trial end)
   "account.trial_ends_today": "Free trial: ends today",
@@ -1989,6 +1991,9 @@ export default {
   "premium_upsell.share_title": "Share workflows & integrations with your team",
   "premium_upsell.share_body": "Publish workflows and integrations to your whole firm from the shared hub.",
   "premium_upsell.cta": "Start 7-day free trial",
+  "premium_upsell.headline_upgrade": "Upgrade to Eigenwelt Plus",
+  "premium_upsell.intro_upgrade": "€69 per seat/month billed yearly, €99 monthly. Included for every seat in your firm:",
+  "premium_upsell.cta_upgrade": "Upgrade to Plus",
   "premium_upsell.sign_in": "Sign in with Eigenwelt",
   "premium_upsell.signing_in": "Signing in…",
   "premium_upsell.intro_signin": "Sign in with Eigenwelt to connect your firm, then upgrade to Plus:",
@@ -2064,6 +2069,9 @@ export default {
   "chat.no_model_login": "Log in",
   "chat.no_model_byo": "Connect a model",
   // Composer: signed out of Eigenwelt (or access revoked) with nothing else connected
+  "chat.no_ai_plan_title": "Your plan does not include AI models.",
+  "chat.no_ai_plan_body": "The Knowledge Hub covers sharing across your firm. Upgrade to Plus for the Eigenwelt models, or connect your own model.",
+  "chat.no_ai_plan_upgrade": "Upgrade to Plus",
   "chat.signed_out_title": "Signed out of Eigenwelt.",
   "chat.signed_out_body": "Log in to keep using Eigenwelt models, start your 7-day free trial, or connect your own model.",
   // One-time migration dialog after the free tier was retired.

@@ -21,6 +21,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { create } from "zustand";
 
+import { eigenweltPlanWithoutModels } from "@/app/lib/eigenwelt-trial";
 import type { LegalworkServerClient } from "@/app/lib/legalwork-server";
 import {
   hasEigenweltFeature,
@@ -103,6 +104,8 @@ export function PremiumUpsellHost(props: {
   // Whether the desktop is signed in with an Eigenwelt firm — a subscription is
   // per-firm, so without a connection there is nothing to poll.
   const connected = view?.connected ?? false;
+  // A Knowledge Hub firm upgrades instead of starting a trial.
+  const planWithoutModels = connected && eigenweltPlanWithoutModels(view?.entitlements ?? null);
   const [signingIn, setSigningIn] = useState(false);
   const handleSignIn = useCallback(async () => {
     if (!onSignIn) return;
@@ -160,6 +163,7 @@ export function PremiumUpsellHost(props: {
       phase={phase}
       canPoll={Boolean(client && workspaceId)}
       connected={connected}
+      planWithoutModels={planWithoutModels}
       canSignIn={Boolean(onSignIn)}
       signingIn={signingIn}
       onSignIn={handleSignIn}
