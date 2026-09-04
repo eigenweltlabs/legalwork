@@ -166,6 +166,7 @@ import { WorkspaceProvider } from "./workspace-provider";
 import type { OpenTarget } from "@/react-app/domains/session/artifacts/open-target";
 import { SettingsSurface } from "./settings-route";
 import {
+  countConnectedProviders,
   ensureProviderListQuery,
   getConnectedProviderItems,
   isModelAvailableInConnectedProviders,
@@ -624,6 +625,21 @@ export function SessionRoute() {
     return Object.keys(connected[0]?.models ?? {}).length === 1;
   }, [providerListQuery.data]);
   const hasUsableModel = Boolean(local.prefs.defaultModel && !selectedModelUnavailable);
+  // How many providers are actually connected, read from the SAME provider
+  // list that decides `selectedModelUnavailable`. The composer's red "model
+  // no longer available" label is hidden in favour of the connect-AI bar only
+  // when nothing is connected, so both must flip in one render — deriving the
+  // count from the separately-refreshed `providerConnectedIds` state made
+  // signing out of Eigenwelt flash the red label first (the query had already
+  // dropped the provider while that state still listed it). Falls back to the
+  // state only before the query has resolved.
+  const usableProviderCount = useMemo(() => {
+    // A usable selection guarantees a connected provider even before the query
+    // resolves on a cold start.
+    if (hasUsableModel) return 1;
+    if (!providerListQuery.data) return providerConnectedIds.length;
+    return countConnectedProviders(providerListQuery.data, disabledProviderIds);
+  }, [disabledProviderIds, hasUsableModel, providerConnectedIds, providerListQuery.data]);
   // Free-tier retirement: older installs persisted a selection on the retired
   // free providers ("eigenwelt-free" / the built-in zen "opencode"). Clear it
   // once and mark the migration dialog pending (marker first, so a crash in
@@ -663,8 +679,12 @@ export function SessionRoute() {
       return { ...previous, defaultModel: { providerID: "eigenwelt", modelID }, modelVariant: null };
     });
   }, [local.prefs.defaultModel, selectedModelUnavailable, providerListQuery.data, setPrefs]);
+  // Creating a task only needs a reachable workspace — `session.create` never
+  // touches a model. A missing or dead model selection must NOT block it: the
+  // new chat opens with the connect-AI bar above the composer, which is where
+  // the ways out (trial / log in / bring your own) live.
   const canCreateTask = Boolean(
-    opencodeClient && selectedWorkspaceId && !loading && !selectedWorkspaceError && !selectedModelUnavailable,
+    opencodeClient && selectedWorkspaceId && !loading && !selectedWorkspaceError,
   );
 
   // Persisted onboarding stage — survives reloads; "done" for existing
@@ -974,7 +994,7 @@ export function SessionRoute() {
         }));
         modelPicker.setCompactOpen(false);
       },
-      providerConnectedCount: hasUsableModel ? 1 : providerConnectedIds.length,
+      providerConnectedCount: usableProviderCount,
       onOpenSettingsSection: (section: "commands" | "skills" | "mcps" | "plugins" | "providers") => {
         handleOpenSettings(section === "skills" ? "/settings/extensions/skills" : section === "mcps" ? "/settings/extensions/mcp" : section === "plugins" ? "/settings/extensions/plugins" : section === "providers" ? "/settings/ai" : "/settings/general");
       },
@@ -1159,7 +1179,7 @@ export function SessionRoute() {
     client,
     modelPicker.compactOpen,
     handleOpenSettings,
-    hasUsableModel,
+    usableProviderCount,
     sessionProviderAuthStore,
     startEigenweltTrial,
     handleApplyEnvironmentChanges,
@@ -1174,7 +1194,6 @@ export function SessionRoute() {
     navigate,
     opencodeBaseUrl,
     opencodeClient,
-    providerConnectedIds,
     selectedAgent,
     selectedSessionId,
     selectedModelUnavailable,
@@ -1812,7 +1831,7 @@ export function SessionRoute() {
       busyHint={effectiveLoading ? t("session.loading_detail") : null}
       startupPhase={effectiveLoading ? "nativeInit" : "ready"}
       providerConnectedIds={providerConnectedIds}
-      hasUsableModel={hasUsableModel}
+      providerConnectedCount={usableProviderCount}
       providers={providers}
       mcpConnectedCount={mcpConnectedCount}
       onOpenSettings={() => handleOpenSettings("/settings/general")}

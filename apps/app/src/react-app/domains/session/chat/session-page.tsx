@@ -167,7 +167,8 @@ export type SessionPageProps = {
   busyHint: string | null;
   startupPhase: BootPhase;
   providerConnectedIds: string[];
-  hasUsableModel?: boolean;
+  /** Connected providers that can actually serve a model right now. */
+  providerConnectedCount?: number;
   providers?: ProviderListItem[];
   mcpConnectedCount: number;
   onOpenSettings: () => void;
@@ -776,7 +777,7 @@ export function SessionPage(props: SessionPageProps) {
     props.selectedWorkspaceDisplay.displayName?.trim() ||
     props.selectedWorkspaceDisplay.name?.trim() ||
     t("session.workspace_fallback");
-  const providerCount = props.hasUsableModel ? 1 : props.providerConnectedIds.length;
+  const providerCount = props.providerConnectedCount ?? props.providerConnectedIds.length;
   const messageCountVisible = props.selectedSessionId ? 1 : 0;
   const showWorkspaceSetupEmptyState = props.workspaces.length === 0 && !props.selectedSessionId;
   const showStartupSkeleton =
