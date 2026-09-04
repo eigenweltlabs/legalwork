@@ -34,8 +34,16 @@ type FakePlatform = {
   url: string;
   exchangeCalls: Array<Record<string, unknown>>;
   modelsCalls: number;
+  /** Authorization headers seen on /api/desktop/models (the firm's list). */
+  desktopModelsAuth: Array<string | undefined>;
   close: () => Promise<void>;
   failModels: boolean;
+};
+
+/** The firm's own list: the admin turned "ewl-small" off on the platform. */
+const FIRM_MANIFEST_PAYLOAD = {
+  baseURL: MANIFEST_PAYLOAD.baseURL,
+  models: [{ ...MANIFEST_PAYLOAD.models[0], region: "EU", hostedIn: "Europe", upstreamModel: "DeepSeek V4 Flash" }],
 };
 
 /** Throwaway local HTTP server standing in for the Eigenwelt platform. */
@@ -45,6 +53,7 @@ async function startFakePlatform(): Promise<FakePlatform> {
     url: "",
     exchangeCalls,
     modelsCalls: 0,
+    desktopModelsAuth: [],
     close: async () => {},
     failModels: false,
   };
@@ -60,6 +69,17 @@ async function startFakePlatform(): Promise<FakePlatform> {
         res.writeHead(200, { "Content-Type": "application/json" });
         res.end(JSON.stringify(EXCHANGE_PAYLOAD));
       });
+      return;
+    }
+    if (req.method === "GET" && req.url === "/api/desktop/models") {
+      platform.desktopModelsAuth.push(req.headers.authorization);
+      if (req.headers.authorization !== "Bearer desktop-token") {
+        res.writeHead(401, { "Content-Type": "text/plain" });
+        res.end("unauthorized");
+        return;
+      }
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify(FIRM_MANIFEST_PAYLOAD));
       return;
     }
     if (req.method === "GET" && req.url === "/api/public/models") {
@@ -229,6 +249,38 @@ describe("eigenwelt manifest", () => {
     const platform = await setupPlatform();
     await platform.close();
     await expect(fetchEigenweltManifest()).rejects.toThrow(/Could not reach the Eigenwelt platform/);
+  });
+
+  test("with the firm's access token it fetches the FIRM's list (admin on/off applied) and its facts", async () => {
+    const platform = await setupPlatform();
+    const manifest = await fetchEigenweltManifest({ platformToken: "desktop-token" });
+    expect(platform.desktopModelsAuth).toEqual(["Bearer desktop-token"]);
+    expect(platform.modelsCalls).toBe(0); // never the public catalog
+    expect(manifest.models).toEqual([
+      {
+        id: "deepseek-v4-flash",
+        name: "DeepSeek V4 Flash",
+        contextLength: 200000,
+        region: "EU",
+        hostedIn: "Europe",
+        upstreamModel: "DeepSeek V4 Flash",
+      },
+    ]);
+  });
+
+  test("a rejected token says to sign in again instead of falling back to the public catalog", async () => {
+    const platform = await setupPlatform();
+    await expect(fetchEigenweltManifest({ platformToken: "stale-token" })).rejects.toThrow(
+      /sign in again/i,
+    );
+    expect(platform.modelsCalls).toBe(0);
+  });
+
+  test("an empty token means the public catalog (paste-a-key path)", async () => {
+    const platform = await setupPlatform();
+    const manifest = await fetchEigenweltManifest({ platformToken: null });
+    expect(platform.modelsCalls).toBe(1);
+    expect(manifest.models).toHaveLength(2);
   });
 });
 

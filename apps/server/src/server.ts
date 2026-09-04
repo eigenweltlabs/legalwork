@@ -119,7 +119,9 @@ import {
 } from "./eigenwelt-auth.js";
 import {
   clearCachedEigenweltPaidManifest,
+  eigenweltPaidManifestRevision,
   parseManifestModels,
+  readCachedEigenweltPaidManifest,
   refreshEigenweltPaidManifest,
   writeCachedEigenweltPaidManifest,
 } from "./eigenwelt-paid-manifest.js";
@@ -2142,6 +2144,28 @@ function createRoutes(
   // is added or dropped live — the same fallback the recorder does for audio.
   let lastPaidEntitled: boolean | undefined;
 
+  // The firm's model list follows the platform (admins turn models on and off
+  // there): every entitlements poll re-pulls it with the firm's access token,
+  // at most every 20 s unless forced. The engine config is rebuilt when the
+  // list's revision moves, and the revision is reported to the app so it
+  // reloads the engine's provider list only then.
+  const MODELS_SYNC_THROTTLE_MS = 20_000;
+  let lastModelsSyncAt = 0;
+  let lastModelsRevision: string | null | undefined;
+  const syncEigenweltModels = async (workspaceId: string, force: boolean) => {
+    const now = Date.now();
+    if (!force && now - lastModelsSyncAt < MODELS_SYNC_THROTTLE_MS) return;
+    lastModelsSyncAt = now;
+    try {
+      const platformToken = await ensureFreshPlatformToken(config, workspaceId);
+      await refreshEigenweltPaidManifest(config, { platformToken });
+    } catch (error) {
+      console.debug(
+        `eigenwelt model sync skipped: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+  };
+
   addRoute(routes, "PUT", "/workspace/:id/eigenwelt/connection", "client", async (ctx) => {
     ensureWritable(config);
     requireClientScope(ctx, "collaborator");
@@ -2228,14 +2252,22 @@ function createRoutes(
     // pull now (the post-checkout "waiting for your subscription" poll).
     const force = ctx.url.searchParams.get("refresh") === "1";
     const view = await readFreshEntitlementsView(config, workspace.id, { force });
-    // A flip in active-sub state adds/drops the paid provider — rebuild the
-    // engine config once so premium API access follows the subscription live.
+    if (view.connected) await syncEigenweltModels(workspace.id, force);
+    const cachedManifest = await readCachedEigenweltPaidManifest(config);
+    const modelsRevision = eigenweltPaidManifestRevision(cachedManifest);
+    // What the engine config now serves; the app compares it with the engine's
+    // live provider list and reloads the engine when they differ.
+    const servedModelIds = cachedManifest?.models.map((model) => model.id) ?? [];
+    // A flip in active-sub state adds/drops the paid provider, and a changed
+    // model list adds/drops models — rebuild the engine config once so both
+    // follow the platform live.
     const paidEntitled = eigenweltHasPremiumModels(view.entitlements);
-    if (paidEntitled !== lastPaidEntitled) {
+    if (paidEntitled !== lastPaidEntitled || modelsRevision !== lastModelsRevision) {
       lastPaidEntitled = paidEntitled;
+      lastModelsRevision = modelsRevision;
       await rebuildEngineConfigFile();
     }
-    return jsonResponse(view);
+    return jsonResponse({ ...view, modelsRevision, servedModelIds });
   });
 
   // Manual "Refresh models": re-pull the gateway manifest into the GLOBAL
@@ -2244,9 +2276,15 @@ function createRoutes(
   addRoute(routes, "POST", "/workspace/:id/eigenwelt/refresh-models", "client", async (ctx) => {
     ensureWritable(config);
     requireClientScope(ctx, "collaborator");
-    await resolveWorkspace(config, ctx.params.id);
-    const result = await refreshEigenweltPaidManifest(config);
-    if (result.changed) await rebuildEngineConfigFile();
+    const workspace = await resolveWorkspace(config, ctx.params.id);
+    // With the firm's access token the pull is the firm's own list (admin
+    // on/off applied); a legacy sign-in without tokens gets the public catalog.
+    const platformToken = await ensureFreshPlatformToken(config, workspace.id);
+    const result = await refreshEigenweltPaidManifest(config, { platformToken });
+    if (result.changed) {
+      lastModelsRevision = eigenweltPaidManifestRevision(await readCachedEigenweltPaidManifest(config));
+      await rebuildEngineConfigFile();
+    }
     return jsonResponse(result);
   });
 

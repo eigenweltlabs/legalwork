@@ -133,9 +133,16 @@ export type LegalworkPersonalizationSettings = {
 export type EigenweltManifestModel = {
   id: string;
   name?: string;
+  description?: string;
   contextLength?: number;
   toolCall?: boolean;
   reasoning?: boolean;
+  /** Where the deployment runs: "EU" or an ISO 3166 alpha-2 code ("US"). */
+  region?: string;
+  /** Plain-English hosting label, e.g. "Europe". */
+  hostedIn?: string;
+  /** The model behind the Eigenwelt name, e.g. "DeepSeek V4 Flash". */
+  upstreamModel?: string;
 };
 
 /** The signed-in seat's included usage for the current window (cents, plus a percentage). */
@@ -190,6 +197,14 @@ export type EigenweltEntitlementsView = {
   platformURL: string | null;
   /** Signed in with an Eigenwelt account — independent of the served model list. */
   connected: boolean;
+  /**
+   * Fingerprint of the model list the server currently serves (admins turn
+   * models on and off on the platform); null when not connected. Only the
+   * entitlements read sends it; older servers omit it.
+   */
+  modelsRevision?: string | null;
+  /** The ids of the models the server's engine config serves right now. */
+  servedModelIds?: string[];
 };
 
 /** Payload delivered once "Sign in with Eigenwelt" completes in the browser. */

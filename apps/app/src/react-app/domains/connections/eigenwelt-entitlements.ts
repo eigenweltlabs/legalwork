@@ -51,10 +51,12 @@ export function useEigenweltEntitlements(input: {
   return useQuery({
     queryKey: eigenweltEntitlementsQueryKey(input.workspaceId ?? ""),
     enabled: Boolean(input.enabled !== false && input.client && input.workspaceId),
-    staleTime: 60_000,
+    staleTime: 20_000,
     // Keep entitlements live: each read makes the server opportunistically
-    // refresh its access token (rotating) and pull the current plan/usage, so a
-    // plan change on the platform propagates without re-signing-in.
+    // refresh its access token (rotating) and pull the current plan/usage AND
+    // the firm's model list, so a plan change or a model an admin turned on or
+    // off on the platform propagates without re-signing-in. Short staleness so
+    // switching back to the app after a change on the platform picks it up.
     refetchOnWindowFocus: true,
     refetchInterval: 5 * 60_000,
     queryFn: async (): Promise<EigenweltEntitlementsView> => {
