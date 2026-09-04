@@ -14,7 +14,7 @@
  */
 import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { join } from "node:path";
 
 import {
@@ -40,14 +40,26 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
+function optionalText(value: unknown): string | undefined {
+  return typeof value === "string" && value.trim() ? value.trim() : undefined;
+}
+
 function parseManifestModel(value: unknown): EigenweltManifestModel | null {
   if (!isRecord(value) || typeof value.id !== "string" || !value.id) return null;
+  const description = optionalText(value.description);
+  const region = optionalText(value.region);
+  const hostedIn = optionalText(value.hostedIn);
+  const upstreamModel = optionalText(value.upstreamModel);
   return {
     id: value.id,
     ...(typeof value.name === "string" ? { name: value.name } : {}),
+    ...(description ? { description } : {}),
     ...(typeof value.contextLength === "number" ? { contextLength: value.contextLength } : {}),
     ...(typeof value.toolCall === "boolean" ? { toolCall: value.toolCall } : {}),
     ...(typeof value.reasoning === "boolean" ? { reasoning: value.reasoning } : {}),
+    ...(region ? { region } : {}),
+    ...(hostedIn ? { hostedIn } : {}),
+    ...(upstreamModel ? { upstreamModel } : {}),
   };
 }
 
@@ -99,21 +111,51 @@ export async function clearCachedEigenweltPaidManifest(config: ServerConfig): Pr
 /**
  * Refresh the model list around the kept key (the manual "Refresh models"
  * button + background refresh). No-op when there is no cached manifest (not
- * connected — nothing to refresh). Returns the model count and whether the
- * cache changed; the caller rebuilds the engine config file when it changed.
- * The fetch failure (unreachable gateway) is surfaced to the caller.
+ * connected — nothing to refresh). With the firm's desktop access token the
+ * list is the firm's own (admin on/off applied); without one it is the
+ * public catalog. Returns the model count and whether the cache changed; the
+ * caller rebuilds the engine config file when it changed. The fetch failure
+ * (unreachable gateway, dead token) is surfaced to the caller.
  */
 export async function refreshEigenweltPaidManifest(
   config: ServerConfig,
+  options?: { platformToken?: string | null },
 ): Promise<{ modelCount: number; changed: boolean }> {
   const cached = await readCachedEigenweltPaidManifest(config);
   if (!cached) return { modelCount: 0, changed: false };
 
-  const { baseURL, models } = await fetchEigenweltManifest(); // throws on unreachable
+  const { baseURL, models } = await fetchEigenweltManifest(options); // throws on unreachable
   const next: EigenweltPaidManifest = { ...cached, baseURL, models };
   const changed = JSON.stringify(cached) !== JSON.stringify(next);
   if (changed) await writeCachedEigenweltPaidManifest(config, next);
   return { modelCount: next.models.length, changed };
+}
+
+/**
+ * Replace the cached model list with one the platform delivered on its own
+ * (the token refresh payload carries the firm's current list). No-op when
+ * not connected. Returns whether the cache changed.
+ */
+export async function applyEigenweltPaidManifestModels(
+  config: ServerConfig,
+  models: EigenweltManifestModel[],
+): Promise<boolean> {
+  const cached = await readCachedEigenweltPaidManifest(config);
+  if (!cached) return false;
+  if (JSON.stringify(cached.models) === JSON.stringify(models)) return false;
+  await writeCachedEigenweltPaidManifest(config, { ...cached, models });
+  return true;
+}
+
+/**
+ * Fingerprint of the served model list, so the app can tell a poll that
+ * changed the models (reload the engine's providers) from one that did not.
+ * Order-independent; null when not connected.
+ */
+export function eigenweltPaidManifestRevision(manifest: EigenweltPaidManifest | null): string | null {
+  if (!manifest) return null;
+  const models = [...manifest.models].sort((a, b) => a.id.localeCompare(b.id));
+  return createHash("sha1").update(JSON.stringify(models)).digest("hex").slice(0, 16);
 }
 
 /**
