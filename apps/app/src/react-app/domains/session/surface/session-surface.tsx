@@ -559,13 +559,21 @@ export function SessionSurface(props: SessionSurfaceProps) {
   // nothing else is connected, so there is no model to switch to. Same ways
   // out as "no model"; a lapsed trial keeps its own subscribe notice.
   const lockedOutNoticeVisible = lockedOutCandidate && !trialEndedNoticeVisible;
-  const connectNoticeVisible = noModelNoticeVisible || lockedOutNoticeVisible;
   // Signed in to a firm on the Knowledge Hub plan: subscribed, but the plan
   // has no Eigenwelt models, so neither "start a trial" nor "log in" applies.
+  // Also shown while the selection still points at the Eigenwelt provider
+  // (a firm moved down from Plus keeps the model in the picker until the
+  // engine config is rebuilt; the gateway already rejects it).
   const planWithoutModels =
     (eigenweltEntitlementsQuery.data?.connected ?? false) &&
     eigenweltPlanWithoutModels(eigenweltEntitlementsQuery.data?.entitlements ?? null);
-  const connectNoticeVariant = planWithoutModels
+  const noAiPlanNoticeVisible =
+    planWithoutModels &&
+    !trialEndedNoticeVisible &&
+    (noModelNoticeVisible || lockedOutCandidate || props.selectedModel.providerID === "eigenwelt");
+  const connectNoticeVisible =
+    noModelNoticeVisible || lockedOutNoticeVisible || noAiPlanNoticeVisible;
+  const connectNoticeVariant = noAiPlanNoticeVisible
     ? "no-ai-plan"
     : lockedOutNoticeVisible && props.selectedModel.providerID === "eigenwelt"
       ? "signed-out"
