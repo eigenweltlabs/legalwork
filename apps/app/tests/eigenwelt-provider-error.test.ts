@@ -6,10 +6,38 @@
 import { describe, expect, test } from "bun:test";
 
 import {
+  eigenweltModelDisabledMessage,
   eigenweltSignInExpiredMessage,
+  isEigenweltModelDisabledError,
   isEigenweltSignInExpiredError,
 } from "../src/react-app/domains/session/sync/eigenwelt-provider-error";
 import { describeOpencodeSessionError } from "../src/react-app/domains/session/sync/usechat-adapter";
+
+const LITELLM_MODEL_OFF_BODY =
+  '{"error":{"message":"team not allowed to access model. This team can only access models=[\'Eigenwelt Europe\']. Tried to access Eigenwelt US","type":"team_model_access_denied","param":"model","code":"403"}}';
+
+describe("isEigenweltModelDisabledError", () => {
+  test("recognizes the gateway's team_model_access_denied body", () => {
+    expect(isEigenweltModelDisabledError({ texts: [LITELLM_MODEL_OFF_BODY] })).toBe(true);
+    expect(isEigenweltModelDisabledError({ texts: [null, "key not allowed to access model"] })).toBe(true);
+    expect(isEigenweltModelDisabledError({ texts: [LITELLM_DEAD_KEY_BODY, undefined] })).toBe(false);
+  });
+
+  test("a 403 for a model the firm turned off reads as such, not as an expired sign-in", () => {
+    const text = describeOpencodeSessionError({
+      name: "APIError",
+      message: LITELLM_MODEL_OFF_BODY,
+      statusCode: 403,
+      providerID: "eigenwelt",
+    });
+    expect(text.startsWith(eigenweltModelDisabledMessage())).toBe(true);
+    expect(text).not.toContain(eigenweltSignInExpiredMessage());
+    expect(text).not.toContain("team_model_access_denied");
+    expect(describeOpencodeSessionError(new Error(LITELLM_MODEL_OFF_BODY))).toBe(
+      eigenweltModelDisabledMessage(),
+    );
+  });
+});
 
 const LITELLM_DEAD_KEY_BODY =
   '{"error":{"message":"Authentication Error, Invalid proxy server token passed. Received API Key = sk-...qrtQ, Key Hash (Token) =bfc5. Unable to find token in cache or `LiteLLM_VerificationTokenTable`","type":"token_not_found_in_db","param":"key","code":"401"}}';

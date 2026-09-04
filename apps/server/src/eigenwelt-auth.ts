@@ -78,9 +78,16 @@ export function validateEigenweltPlatformUrl(value: string): string {
 export type EigenweltManifestModel = {
   id: string;
   name?: string;
+  description?: string;
   contextLength?: number;
   toolCall?: boolean;
   reasoning?: boolean;
+  /** Where the deployment runs: "EU" or an ISO 3166 alpha-2 code ("US"). */
+  region?: string;
+  /** Plain-English hosting label, e.g. "Europe". */
+  hostedIn?: string;
+  /** The model behind the Eigenwelt name, e.g. "DeepSeek V4 Flash". */
+  upstreamModel?: string;
 };
 
 /** The signed-in seat's included usage for the current window (cents, plus a percentage). */
@@ -500,16 +507,34 @@ export async function waitForEigenweltSignIn(
 }
 
 /**
- * Fetch the platform's public model manifest (gateway baseURL + model list).
- * Backs the "Paste an API key" path, where no exchange delivers the models.
+ * Fetch the platform's model manifest (gateway baseURL + model list).
+ *
+ * With a desktop access token this is the FIRM's list from the authenticated
+ * endpoint: models an org admin turned off on the platform are left out, so
+ * a refresh never re-adds one. Without a token (the "Paste an API key" path,
+ * or a legacy sign-in without tokens) it is the whole public catalog.
  */
-export async function fetchEigenweltManifest(): Promise<EigenweltManifest> {
+export async function fetchEigenweltManifest(options?: {
+  platformToken?: string | null;
+}): Promise<EigenweltManifest> {
   const platform = eigenweltPlatformUrl();
+  const token = options?.platformToken?.trim() || null;
+  const url = token ? `${platform}/api/desktop/models` : `${platform}/api/public/models`;
   let response: Response;
   try {
-    response = await fetch(`${platform}/api/public/models`, { headers: { Accept: "application/json" } });
+    response = await fetch(url, {
+      headers: {
+        Accept: "application/json",
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
+    });
   } catch {
     throw new Error("Could not reach the Eigenwelt platform.");
+  }
+  if (token && (response.status === 401 || response.status === 403)) {
+    throw new Error(
+      "Your Eigenwelt sign-in on this computer is no longer valid. Sign in again to refresh the models.",
+    );
   }
   if (!response.ok) {
     throw new Error(`Could not reach the Eigenwelt platform (HTTP ${response.status}).`);

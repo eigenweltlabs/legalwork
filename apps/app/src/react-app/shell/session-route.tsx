@@ -126,7 +126,11 @@ import { RenameWorkspaceModal } from "@/react-app/domains/workspace/rename-works
 import { ModelPickerModal } from "@/react-app/domains/session/modals/model-picker-modal";
 import { CommandPalette, type PaletteItem, type SessionGroupOption, type SessionOption as PaletteSessionOption } from "./command-palette";
 import { SessionSearchDialog } from "./session-search-dialog";
-import { invalidateEigenweltEntitlements } from "@/react-app/domains/connections/eigenwelt-entitlements";
+import {
+  hasEigenweltFeature,
+  invalidateEigenweltEntitlements,
+  useEigenweltEntitlements,
+} from "@/react-app/domains/connections/eigenwelt-entitlements";
 import { FreeRetiredDialog, markFreeRetiredNoticePending } from "./free-retired-dialog";
 import { WhatsNewDialog } from "./whats-new";
 import { TranscriptionIntroDialog } from "./transcription-intro";
@@ -771,6 +775,44 @@ export function SessionRoute() {
     client,
     selectedWorkspaceId,
     providerConnectedIds,
+    activeReloadBlockingSessions.length,
+    sessionProviderAuthStore,
+  ]);
+  // Live model list: on the Eigenwelt platform an admin turns models on and
+  // off for the whole firm. Every entitlements poll (every few minutes and
+  // when the window regains focus) makes the server re-pull the firm's list
+  // and rebuild the engine config; the response says which model ids that
+  // config now serves. When the engine's live provider list differs, reload
+  // it once per served list, so the picker gains or loses the model and a
+  // selection on a model that went off is moved by the auto-select above.
+  // Skipped while a task runs (a dispose would interrupt it); the next poll
+  // retries.
+  const eigenweltEntitlementsQuery = useEigenweltEntitlements({ client, workspaceId: selectedWorkspaceId });
+  const servedModelIds = eigenweltEntitlementsQuery.data?.servedModelIds;
+  const eigenweltModelsIncluded = hasEigenweltFeature(
+    eigenweltEntitlementsQuery.data?.entitlements,
+    "premium_models",
+  );
+  const engineEigenweltModelIds = useMemo(() => {
+    const list = providerListQuery.data;
+    if (!list) return null;
+    const eigenwelt = getConnectedProviderItems(list).find((provider) => provider.id === "eigenwelt");
+    return Object.keys(eigenwelt?.models ?? {});
+  }, [providerListQuery.data]);
+  const reloadedForServedModels = useRef<string | null>(null);
+  useEffect(() => {
+    if (!servedModelIds || !engineEigenweltModelIds || !eigenweltModelsIncluded) return;
+    const servedKey = [...servedModelIds].sort().join("\u0000");
+    const engineKey = [...engineEigenweltModelIds].sort().join("\u0000");
+    if (servedKey === engineKey) return;
+    if (reloadedForServedModels.current === servedKey) return; // one reload per change
+    if (activeReloadBlockingSessions.length > 0) return; // don't disrupt a running task
+    reloadedForServedModels.current = servedKey;
+    void sessionProviderAuthStore.refreshProviders({ dispose: true }).catch(() => undefined);
+  }, [
+    servedModelIds,
+    engineEigenweltModelIds,
+    eigenweltModelsIncluded,
     activeReloadBlockingSessions.length,
     sessionProviderAuthStore,
   ]);

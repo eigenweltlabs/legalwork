@@ -8,7 +8,12 @@ import type {
 } from "@opencode-ai/sdk/v2/client";
 
 import { t } from "../../../../i18n";
-import { eigenweltSignInExpiredMessage, isEigenweltSignInExpiredError } from "./eigenwelt-provider-error";
+import {
+  eigenweltModelDisabledMessage,
+  eigenweltSignInExpiredMessage,
+  isEigenweltModelDisabledError,
+  isEigenweltSignInExpiredError,
+} from "./eigenwelt-provider-error";
 import { unwrap } from "../../../../app/lib/opencode";
 import {
   abortSession as abortSessionTyped,
@@ -299,10 +304,16 @@ export function createSessionActionsStore(options: {
       (typeof error === "string" ? readString(error) : null);
 
     const generic = raw && /^unknown\s+error$/i.test(raw);
+    // A model the firm's admin turned off on the platform (403 from the
+    // gateway): checked first, since a 403 from the eigenwelt provider would
+    // otherwise read as an expired sign-in.
+    const modelOff = isEigenweltModelDisabledError({ texts: [raw, response] });
     // A dead Eigenwelt key (the sign-in on this device was replaced or
     // revoked): the raw 401 body is noise, the fix is signing in again.
-    const signInExpired = isEigenweltSignInExpiredError({ status, provider, texts: [raw, response] });
+    const signInExpired =
+      !modelOff && isEigenweltSignInExpiredError({ status, provider, texts: [raw, response] });
     const heading = (() => {
+      if (modelOff) return eigenweltModelDisabledMessage();
       if (signInExpired) return eigenweltSignInExpiredMessage();
       if (status === 401 || status === 403) return t("app.error_auth_failed");
       if (status === 429) return t("app.error_rate_limit");
@@ -311,7 +322,7 @@ export function createSessionActionsStore(options: {
     })();
 
     const lines = [heading];
-    if (raw && !generic && !signInExpired && raw !== heading) lines.push(raw);
+    if (raw && !generic && !signInExpired && !modelOff && raw !== heading) lines.push(raw);
     if (status && !heading.includes(String(status))) lines.push(`Status: ${status}`);
     if (provider && !heading.includes(provider)) lines.push(`Provider: ${provider}`);
     if (code) lines.push(`Code: ${code}`);

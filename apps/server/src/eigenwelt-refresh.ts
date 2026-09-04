@@ -19,6 +19,7 @@ import {
   type EigenweltEntitlementsView,
 } from "./eigenwelt-connection-store.js";
 import { readEigenweltEntitlementsView } from "./eigenwelt-connection-store.js";
+import { applyEigenweltPaidManifestModels, parseManifestModels } from "./eigenwelt-paid-manifest.js";
 import type { ServerConfig } from "./types.js";
 
 /** Refresh once fewer than this many ms of access-token life remain. */
@@ -130,6 +131,15 @@ async function doRefresh(config: ServerConfig, workspaceId: string): Promise<str
     ...(account ? { account } : {}),
     ...(platformURL ? { platformURL } : {}),
   });
+  // The firm's current model list rides on the refresh (admins turn models on
+  // and off on the platform). Replace the cached list when it differs; the
+  // entitlements poll notices the new revision and rebuilds the engine config.
+  // A platform that omits it (older, or its gateway was down) keeps the cache.
+  if (Array.isArray(payload.models)) {
+    await applyEigenweltPaidManifestModels(config, parseManifestModels(payload.models)).catch(
+      () => undefined,
+    );
+  }
   return payload.platformToken;
 }
 

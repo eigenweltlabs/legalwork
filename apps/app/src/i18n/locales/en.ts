@@ -68,6 +68,8 @@ export default {
   "app.error_connect_first": "Connect to this worker before applying runtime changes.",
   "app.error_eigenwelt_signin_expired":
     "Your Eigenwelt sign-in on this computer is no longer valid. Open Settings, then Account, and sign in again.",
+  "app.error_eigenwelt_model_off":
+    "Your firm turned this model off on the Eigenwelt platform. Choose another model in the model picker.",
   "app.error_not_connected": "Not connected to a server",
   "app.error_rate_limit": "Rate limit exceeded",
   "app.error_remote_access": "Failed to update remote access.",

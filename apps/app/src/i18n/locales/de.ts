@@ -68,6 +68,8 @@ const de: Record<string, string> = {
   /* ---- App errors ---- */
   "app.error_eigenwelt_signin_expired":
     "Deine Eigenwelt-Anmeldung auf diesem Computer ist nicht mehr gültig. Öffne die Einstellungen, dann Konto, und melde dich erneut an.",
+  "app.error_eigenwelt_model_off":
+    "Deine Kanzlei hat dieses Modell auf der Eigenwelt-Plattform ausgeschaltet. Wähle im Modellwähler ein anderes Modell.",
 
   /* ---- Common actions ---- */
   "common.add": "Hinzufügen",

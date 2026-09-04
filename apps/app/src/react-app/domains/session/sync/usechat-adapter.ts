@@ -5,7 +5,12 @@ import type { FilePart, Part, ToolPart } from "@opencode-ai/sdk/v2/client";
 import type { LegalworkSessionSnapshot } from "../../../../app/lib/legalwork-server";
 import { safeStringify } from "../../../../app/utils";
 import { SYNTHETIC_SESSION_ERROR_MESSAGE_PREFIX } from "../../../../app/types";
-import { eigenweltSignInExpiredMessage, isEigenweltSignInExpiredError } from "./eigenwelt-provider-error";
+import {
+  eigenweltModelDisabledMessage,
+  eigenweltSignInExpiredMessage,
+  isEigenweltModelDisabledError,
+  isEigenweltSignInExpiredError,
+} from "./eigenwelt-provider-error";
 import {
   parseDynamicToolUIPart,
   parseStructuredOutputUIPart,
@@ -56,6 +61,7 @@ function withAttachmentRecoveryHint(text: string) {
 }
 
 function describeErrorText(text: string) {
+  if (isEigenweltModelDisabledError({ texts: [text] })) return eigenweltModelDisabledMessage();
   if (isEigenweltSignInExpiredError({ status: null, provider: null, texts: [text] })) {
     return eigenweltSignInExpiredMessage();
   }
@@ -79,15 +85,25 @@ export function describeOpencodeSessionError(error: unknown, fallback = "Session
   const retries = firstNumberValue(records, ["retries", "retryCount"]);
   const responseBody = firstStringValue(records, ["responseBody", "body", "response"]);
 
+  // A model the firm's admin turned off (403 from the gateway): say so
+  // instead of echoing the allowlist. Checked first, since a 403 from the
+  // eigenwelt provider otherwise reads as an expired sign-in.
+  const modelOff = isEigenweltModelDisabledError({ texts: [message, responseBody] });
   // A dead Eigenwelt key (the sign-in on this device was replaced or
   // revoked): the raw 401 body is noise, the fix is signing in again.
-  const signInExpired = isEigenweltSignInExpiredError({
-    status,
-    provider,
-    texts: [message, responseBody],
-  });
+  const signInExpired =
+    !modelOff &&
+    isEigenweltSignInExpiredError({
+      status,
+      provider,
+      texts: [message, responseBody],
+    });
   const lines = [
-    signInExpired ? eigenweltSignInExpiredMessage() : (message ?? defaultErrorMessage(name, fallback)),
+    modelOff
+      ? eigenweltModelDisabledMessage()
+      : signInExpired
+        ? eigenweltSignInExpiredMessage()
+        : (message ?? defaultErrorMessage(name, fallback)),
   ];
   if (status && !lines[0]?.includes(String(status))) lines.push(`Status: ${status}`);
   if (provider && !lines[0]?.includes(provider)) lines.push(`Provider: ${provider}`);
