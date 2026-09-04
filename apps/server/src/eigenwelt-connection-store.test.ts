@@ -60,6 +60,7 @@ const ENTITLEMENTS = {
     allowanceCents: 5000,
     remainingCents: 4000,
     usedPercent: 20,
+    resetsAt: null,
     dailyAllowanceCents: 5000,
     dailyRemainingCents: 4000,
     dailyUsedPercent: 20,

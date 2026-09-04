@@ -92,6 +92,8 @@ export type EigenweltUsage = {
   remainingCents: number;
   /** Share of this window's allowance consumed, 0–100 (server-computed). */
   usedPercent: number;
+  /** ISO timestamp when the allowance resets; null when unknown or without an allowance. */
+  resetsAt: string | null;
   /** @deprecated The same numbers under the pre-weekly names; read the fields above. */
   dailyAllowanceCents: number;
   dailyRemainingCents: number;
@@ -253,6 +255,10 @@ export function parseEigenweltEntitlements(value: unknown): EigenweltEntitlement
       ),
     ),
   );
+  const resetsAt =
+    typeof usageRaw.resetsAt === "string" && Number.isFinite(Date.parse(usageRaw.resetsAt))
+      ? usageRaw.resetsAt
+      : null;
   return {
     plan,
     subscriptionStatus,
@@ -264,6 +270,7 @@ export function parseEigenweltEntitlements(value: unknown): EigenweltEntitlement
       allowanceCents,
       remainingCents,
       usedPercent,
+      resetsAt,
       dailyAllowanceCents: allowanceCents,
       dailyRemainingCents: remainingCents,
       dailyUsedPercent: usedPercent,
