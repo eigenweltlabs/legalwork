@@ -308,6 +308,13 @@ export function SkillsView(props: SkillsViewProps) {
     if (SKILLS_HUB_UI_ENABLED) void extensions.ensureHubSkillsFresh();
   }, [extensions]);
 
+  // The library changes behind this view's back — the assistant installs skills
+  // and workflows mid-conversation — so re-read it whenever the view is opened
+  // rather than trusting whatever the store loaded when the workspace changed.
+  useEffect(() => {
+    void extensions.refreshSkills({ force: true });
+  }, [extensions]);
+
   useEffect(() => {
     if (!SKILLS_HUB_UI_ENABLED && activeFilter === "hub") setActiveFilter("all");
   }, [activeFilter]);
