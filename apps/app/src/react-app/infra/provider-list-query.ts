@@ -3,6 +3,7 @@ import { useQuery, type QueryClient } from "@tanstack/react-query";
 import type { Client, ModelRef, ProviderListItem } from "../../app/types";
 import { unwrap } from "../../app/lib/opencode";
 import { dispatchNewProviders } from "../../app/lib/provider-events";
+import { filterProviderList } from "../../app/utils/providers";
 import type { ProviderListResponse } from "@opencode-ai/sdk/v2/client";
 
 export const PROVIDER_LIST_CACHE_MS = 5 * 60 * 1000;
@@ -84,6 +85,25 @@ export function isModelAvailableInConnectedProviders(
   return getConnectedProviderItems(value).some(
     (provider) => provider.id === model.providerID && Boolean(provider.models?.[model.modelID]),
   );
+}
+
+/**
+ * How many providers can serve a model right now, counted from the SAME list
+ * `isModelAvailableInConnectedProviders` reads.
+ *
+ * The composer decides between a red "model no longer available" label and the
+ * connect-AI bar (trial / log in / bring your own) from those two answers
+ * together, so they must come from one read. Counting a separately-refreshed
+ * copy of the connected ids instead made signing out of Eigenwelt flash the
+ * label first, while that copy still listed the provider the list had already
+ * dropped.
+ */
+export function countConnectedProviders(
+  value: ProviderListResponse | null | undefined,
+  disabledProviderIds: string[] = [],
+) {
+  if (!value) return 0;
+  return getConnectedProviderItems(filterProviderList(value, disabledProviderIds)).length;
 }
 
 /** The built-in OpenCode Zen provider id. Retired as a fallback: the server
