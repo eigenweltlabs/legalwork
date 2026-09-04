@@ -27,6 +27,23 @@ export function isEigenweltEntitledStatus(status: string | null | undefined): bo
   return status != null && ENTITLED_STATUSES.has(status);
 }
 
+/**
+ * The firm is subscribed, but on a plan without the Eigenwelt models (the
+ * Knowledge Hub): the platform grants the hub features and omits
+ * `premium_models`. Such a firm never sees the trial or sign-in prompts; it
+ * needs "upgrade or bring your own model".
+ */
+export function eigenweltPlanWithoutModels(
+  entitlements:
+    | { subscriptionStatus: string | null; features?: string[] | null }
+    | null
+    | undefined,
+): boolean {
+  if (!entitlements) return false;
+  if (!isEigenweltEntitledStatus(entitlements.subscriptionStatus)) return false;
+  return !(entitlements.features ?? []).includes("premium_models");
+}
+
 export type EigenweltTrialState =
   | { kind: "none" }
   | { kind: "active"; endsAt: Date; daysLeft: number }

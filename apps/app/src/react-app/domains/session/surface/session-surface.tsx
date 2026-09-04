@@ -21,7 +21,7 @@ import {
   eigenweltBillingUrl,
   useEigenweltEntitlements,
 } from "@/react-app/domains/connections/eigenwelt-entitlements";
-import { eigenweltTrialState } from "@/app/lib/eigenwelt-trial";
+import { eigenweltPlanWithoutModels, eigenweltTrialState } from "@/app/lib/eigenwelt-trial";
 import { openDesktopUrl } from "@/app/lib/desktop";
 import { eigenweltPremiumPlatformUrl } from "@/react-app/domains/recorder/model-tiers";
 import { createClient, unwrap } from "@/app/lib/opencode";
@@ -321,8 +321,11 @@ function TodoPanel(props: { todos: TodoItem[] }) {
   );
 }
 
-/** The ways out of "no usable model": trial sign-up, sign-in, or bring your own. */
-export type ConnectAiAction = "trial" | "login" | "byo";
+/**
+ * The ways out of "no usable model": trial sign-up, sign-in, bring your own,
+ * or (a firm on the Knowledge Hub plan) upgrading to Plus.
+ */
+export type ConnectAiAction = "trial" | "login" | "byo" | "upgrade";
 
 /**
  * Banner shown above the composer when there is no usable model (there is no
@@ -330,33 +333,49 @@ export type ConnectAiAction = "trial" | "login" | "byo";
  * provider that is no longer connected (signed out of Eigenwelt, access
  * revoked) with nothing else to switch to. Offers the three real paths: the
  * Eigenwelt trial, signing in to an existing account, or bringing your own
- * model/key.
+ * model/key. A firm subscribed to the Knowledge Hub (no AI in the plan) gets
+ * "upgrade or bring your own" instead: it is signed in and paying already.
  */
 function NoModelNotice(props: {
-  variant: "none" | "signed-out";
+  variant: "none" | "signed-out" | "no-ai-plan";
   onConnect?: (action: ConnectAiAction) => void;
 }) {
+  const primaryButtonClass =
+    "rounded-md bg-primary px-2.5 py-1 text-xs font-medium text-primary-fg transition-opacity hover:opacity-90";
   const secondaryButtonClass =
     "rounded-md border border-dls-border px-2.5 py-1 text-xs font-medium text-dls-text transition-colors hover:bg-dls-hover";
+  const title =
+    props.variant === "no-ai-plan"
+      ? t("chat.no_ai_plan_title")
+      : props.variant === "signed-out"
+        ? t("chat.signed_out_title")
+        : t("chat.no_model_title");
+  const body =
+    props.variant === "no-ai-plan"
+      ? t("chat.no_ai_plan_body")
+      : props.variant === "signed-out"
+        ? t("chat.signed_out_body")
+        : t("chat.no_model_body");
   return (
     <div className="flex flex-wrap items-center gap-2.5 border-b border-dls-border bg-dls-surface px-4 py-3">
       <p className="min-w-0 flex-1 text-xs leading-relaxed text-dls-secondary">
-        <span className="font-medium text-dls-text">
-          {props.variant === "signed-out" ? t("chat.signed_out_title") : t("chat.no_model_title")}
-        </span>{" "}
-        {props.variant === "signed-out" ? t("chat.signed_out_body") : t("chat.no_model_body")}
+        <span className="font-medium text-dls-text">{title}</span> {body}
       </p>
       <div className="flex shrink-0 items-center gap-2">
-        <button
-          type="button"
-          className="rounded-md bg-primary px-2.5 py-1 text-xs font-medium text-primary-fg transition-opacity hover:opacity-90"
-          onClick={() => props.onConnect?.("trial")}
-        >
-          {t("chat.no_model_trial")}
-        </button>
-        <button type="button" className={secondaryButtonClass} onClick={() => props.onConnect?.("login")}>
-          {t("chat.no_model_login")}
-        </button>
+        {props.variant === "no-ai-plan" ? (
+          <button type="button" className={primaryButtonClass} onClick={() => props.onConnect?.("upgrade")}>
+            {t("chat.no_ai_plan_upgrade")}
+          </button>
+        ) : (
+          <>
+            <button type="button" className={primaryButtonClass} onClick={() => props.onConnect?.("trial")}>
+              {t("chat.no_model_trial")}
+            </button>
+            <button type="button" className={secondaryButtonClass} onClick={() => props.onConnect?.("login")}>
+              {t("chat.no_model_login")}
+            </button>
+          </>
+        )}
         <button type="button" className={secondaryButtonClass} onClick={() => props.onConnect?.("byo")}>
           {t("chat.no_model_byo")}
         </button>
@@ -511,10 +530,21 @@ function mergeDrafts(drafts: ComposerDraft[]): ComposerDraft | null {
 export function SessionSurface(props: SessionSurfaceProps) {
   const local = useLocal();
   const { config: shellConfig } = useShellConfig();
+  // No model connected at all (free tier retired): offer trial / BYO inline.
+  const noModelNoticeVisible = !props.selectedModel.providerID;
+  // The selection points at a provider that is no longer connected and
+  // nothing else is; refined below once the trial state is known.
+  const lockedOutCandidate =
+    !noModelNoticeVisible &&
+    Boolean(props.modelUnavailable) &&
+    (props.providerConnectedCount ?? 0) === 0;
   const eigenweltEntitlementsQuery = useEigenweltEntitlements({
     client: props.client,
     workspaceId: props.workspaceId,
-    enabled: props.selectedModel.providerID === "eigenwelt",
+    // Also needed while a connect notice may show: a firm on the Knowledge
+    // Hub plan is signed in with no model and gets its own wording.
+    enabled:
+      props.selectedModel.providerID === "eigenwelt" || noModelNoticeVisible || lockedOutCandidate,
   });
   const eigenweltPlan = eigenweltEntitlementsQuery.data?.entitlements?.plan ?? null;
   // Trial lapsed while the selection still points at the Eigenwelt provider:
@@ -524,20 +554,31 @@ export function SessionSurface(props: SessionSurfaceProps) {
   const trialEndedNoticeVisible =
     props.selectedModel.providerID === "eigenwelt" && eigenweltTrial.kind === "ended";
   const trialBillingUrl = eigenweltBillingUrl(eigenweltEntitlementsQuery.data?.platformURL ?? null);
-  // No model connected at all (free tier retired): offer trial / BYO inline.
-  const noModelNoticeVisible = !props.selectedModel.providerID;
   // Locked out: the selection points at a provider that is no longer
   // connected (signed out of Eigenwelt, access revoked, provider removed) and
   // nothing else is connected, so there is no model to switch to. Same ways
   // out as "no model"; a lapsed trial keeps its own subscribe notice.
-  const lockedOutNoticeVisible =
-    !noModelNoticeVisible &&
-    !trialEndedNoticeVisible &&
-    Boolean(props.modelUnavailable) &&
-    (props.providerConnectedCount ?? 0) === 0;
+  const lockedOutNoticeVisible = lockedOutCandidate && !trialEndedNoticeVisible;
   const connectNoticeVisible = noModelNoticeVisible || lockedOutNoticeVisible;
-  const connectNoticeVariant =
-    lockedOutNoticeVisible && props.selectedModel.providerID === "eigenwelt" ? "signed-out" : "none";
+  // Signed in to a firm on the Knowledge Hub plan: subscribed, but the plan
+  // has no Eigenwelt models, so neither "start a trial" nor "log in" applies.
+  const planWithoutModels =
+    (eigenweltEntitlementsQuery.data?.connected ?? false) &&
+    eigenweltPlanWithoutModels(eigenweltEntitlementsQuery.data?.entitlements ?? null);
+  const connectNoticeVariant = planWithoutModels
+    ? "no-ai-plan"
+    : lockedOutNoticeVisible && props.selectedModel.providerID === "eigenwelt"
+      ? "signed-out"
+      : "none";
+  // "Upgrade to Plus" opens the firm's billing page; everything else is the
+  // route's business (sign-in flows, the provider picker).
+  const onConnectAi = (action: ConnectAiAction) => {
+    if (action === "upgrade") {
+      void openDesktopUrl(trialBillingUrl);
+      return;
+    }
+    props.onConnectAi?.(action);
+  };
   const showThinking = local.prefs.showThinking;
   const sessionActivityStatus = useSessionActivityStore(
     (state) => state.statusesByWorkspaceId[props.workspaceId]?.[props.sessionId] ?? "idle",
@@ -1834,7 +1875,7 @@ export function SessionSurface(props: SessionSurfaceProps) {
               <div>
                 {trialEndedNoticeVisible ? <TrialEndedNotice billingUrl={trialBillingUrl} /> : null}
                 {connectNoticeVisible ? (
-                  <NoModelNotice variant={connectNoticeVariant} onConnect={props.onConnectAi} />
+                  <NoModelNotice variant={connectNoticeVariant} onConnect={onConnectAi} />
                 ) : null}
                 {queuedMessages.length > 0 ? (
                   <QueuedMessagesPanel messages={queuedMessages} onRemove={removeQueuedDraft} />

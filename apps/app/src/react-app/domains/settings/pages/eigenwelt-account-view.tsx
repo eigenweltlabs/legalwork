@@ -16,7 +16,11 @@ import { Button, Card } from "@legalwork/ui/react";
 import { toast } from "@/components/ui/sonner";
 import { t } from "@/i18n";
 import { openDesktopUrl } from "@/app/lib/desktop";
-import { eigenweltTrialState, isEigenweltEntitledStatus } from "@/app/lib/eigenwelt-trial";
+import {
+  eigenweltPlanWithoutModels,
+  eigenweltTrialState,
+  isEigenweltEntitledStatus,
+} from "@/app/lib/eigenwelt-trial";
 import type { LegalworkServerClient } from "@/app/lib/legalwork-server";
 import { ProviderIcon } from "@/react-app/design-system/provider-icon";
 import {
@@ -232,8 +236,14 @@ export function EigenweltAccountView({
   );
   const planValue =
     planActive && entitlements?.plan
-      ? entitlements.plan.charAt(0).toUpperCase() + entitlements.plan.slice(1)
+      ? entitlements.plan === "hub"
+        ? t("account.plan_hub")
+        : entitlements.plan.charAt(0).toUpperCase() + entitlements.plan.slice(1)
       : t("account.plan_inactive");
+  // The Knowledge Hub plan has no Eigenwelt models: no usage to show, and the
+  // models row explains the upgrade instead of "no models yet".
+  const modelsIncluded = hasEigenweltFeature(entitlements, "premium_models");
+  const planWithoutModels = eigenweltPlanWithoutModels(entitlements);
   const trial = eigenweltTrialState(entitlements);
   const trialText =
     trial.kind === "active"
@@ -309,7 +319,7 @@ export function EigenweltAccountView({
           </LayoutSectionItemHeader>
         </LayoutSectionItem>
 
-        {entitlements ? (
+        {entitlements && modelsIncluded ? (
           <LayoutSectionItem>
             <LayoutSectionItemHeader>
               <LayoutSectionItemTitle>{t("firm_hub.usage_label")}</LayoutSectionItemTitle>
@@ -327,7 +337,9 @@ export function EigenweltAccountView({
         <LayoutSectionItem>
           <LayoutSectionItemHeader>
             <LayoutSectionItemTitle>{t("account.models_label")}</LayoutSectionItemTitle>
-            {!hasModels ? (
+            {planWithoutModels ? (
+              <LayoutSectionItemDescription>{t("account.models_not_in_plan")}</LayoutSectionItemDescription>
+            ) : !hasModels ? (
               <LayoutSectionItemDescription>{t("account.no_models")}</LayoutSectionItemDescription>
             ) : null}
             <LayoutSectionItemHeaderActions>

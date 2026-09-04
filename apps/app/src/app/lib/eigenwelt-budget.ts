@@ -36,8 +36,8 @@ export const EIGENWELT_BUDGET_EXCEEDED_BODY =
   "It resets tomorrow. Your firm's billing shows today's usage in detail.";
 export const EIGENWELT_BUDGET_UPGRADE_LABEL = "Open Billing";
 
-/** Kept for wire compatibility with older payloads; only "plus" ships. */
-export type EigenweltBudgetPlan = "plus" | "pro" | null;
+/** Kept for wire compatibility with older payloads; "hub" has no gateway budget at all. */
+export type EigenweltBudgetPlan = "plus" | "pro" | "hub" | null;
 
 /** Terminal-card copy for the single Plus plan (plan param retained for
  *  compatibility; every plan sees the same copy now that Pro is retired). */
