@@ -322,12 +322,19 @@ export function EigenweltAccountView({
         {entitlements && modelsIncluded ? (
           <LayoutSectionItem>
             <LayoutSectionItemHeader>
-              <LayoutSectionItemTitle>{t("firm_hub.usage_label")}</LayoutSectionItemTitle>
+              <LayoutSectionItemTitle>
+                {entitlements.usage.window === "week"
+                  ? t("firm_hub.usage_label_week")
+                  : t("firm_hub.usage_label")}
+              </LayoutSectionItemTitle>
               <LayoutSectionItemHeaderActions>
                 <span className="text-sm text-muted-foreground">
-                  {t("firm_hub.usage_today", {
-                    percent: String(entitlements.usage.dailyUsedPercent),
-                  })}
+                  {t(
+                    entitlements.usage.window === "week"
+                      ? "firm_hub.usage_this_week"
+                      : "firm_hub.usage_today",
+                    { percent: String(entitlements.usage.usedPercent) },
+                  )}
                 </span>
               </LayoutSectionItemHeaderActions>
             </LayoutSectionItemHeader>

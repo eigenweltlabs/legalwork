@@ -71,7 +71,9 @@ describe("retry banner action", () => {
     expect(action.link).toBe("https://platform.eigenweltlabs.com/billing");
     expect(action.provider).toBe("eigenwelt");
     expect(action.label).toBe("Open Billing");
-    expect(action.message).toBe("It resets tomorrow. Your firm's billing shows today's usage in detail.");
+    expect(action.message).toBe(
+      "It resets next week. Your firm's billing shows this week's usage in detail.",
+    );
   });
 
   test("uses the connected platform's billing URL when provided", () => {
@@ -83,8 +85,8 @@ describe("retry banner action", () => {
 describe("plan-aware limit display", () => {
   test("offers Plus users an upgrade to Pro", () => {
     const expected = {
-      title: "Your seat's included usage for today is used up",
-      body: "It resets tomorrow. Your firm's billing shows today's usage in detail.",
+      title: "Your seat's included usage for this week is used up",
+      body: "It resets next week. Your firm's billing shows this week's usage in detail.",
       upgradeLabel: "Open Billing",
     };
     expect(eigenweltBudgetLimitDisplay("plus")).toEqual(expected);
