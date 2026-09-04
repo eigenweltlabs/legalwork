@@ -1,12 +1,11 @@
 /** @jsxImportSource react */
 import type { CSSProperties } from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { usePanelRef } from "react-resizable-panels";
-import { AppWindowMac, Columns2, FileText, Folder, Globe, Mic2, ScrollText, Settings2, SquarePen, X, Zap } from "lucide-react";
+import { AppWindowMac, Columns2, FileText, Folder, Globe, ScrollText, Settings2, SquarePen, X, Zap } from "lucide-react";
 
 import { t } from "../../../../i18n";
-import { LEGALWORK_EXTENSION_CATALOG } from "../../../../app/constants";
 import {
   type LegalworkServerClient,
   type LegalworkServerStatus,
@@ -62,7 +61,6 @@ import { type SidePanelItem, useUiStateStore } from "../../../shell/ui-state-sto
 import { isElectronRuntime } from "../../../../app/utils";
 import { classifyOpenTarget, isCollectibleArtifactTarget, isLocalhostBrowserTarget, isOpenableFileTarget, resolvePathOpenTarget, type OpenTarget } from "../artifacts/open-target";
 import type { OpenTargetOptions } from "@/lib/target-provider";
-import { VoicePanel } from "../voice/voice-panel";
 import { SidePanel } from "../panel/side-panel";
 import { WorkspaceFilesPanel } from "../panel/workspace-files-panel";
 import { LegalMemoryFilesPanel } from "../panel/legalmemory-files-panel";
@@ -70,7 +68,6 @@ import { TerminalDock } from "../terminal/terminal-dock";
 import { LEARNINGS_PANEL_SESSION_ID, useActivePanelTab, usePanelTabStore, useSessionPanelState } from "../panel/panel-tab-store";
 import { useWorkspaceShellLayout } from "../../../shell/workspace-shell-layout";
 import { useControlAction, type LegalworkControlAction } from "../../../shell/control/control-provider";
-import { getExtensionId, isLegalWorkExtensionEnabled, LEGALWORK_EXTENSION_STATE_CHANGED } from "../../settings/extension-state";
 import { cn } from "@/lib/utils";
 
 const STARTUP_SKELETON_ROWS = [
@@ -318,7 +315,6 @@ export function SessionPage(props: SessionPageProps) {
   const sessionPanelState = useSessionPanelState(props.selectedSessionId ?? "");
   const activePanelTab = useActivePanelTab(props.selectedSessionId ?? "");
   const [hiddenTargetRevision, setHiddenTargetRevision] = useState(0);
-  const [, setExtensionStateVersion] = useState(0);
   const hiddenAccessibleTargetIds = useMemo(
     () => readHiddenAccessibleTargetIds(props.selectedWorkspaceId, props.selectedSessionId),
     [props.selectedSessionId, props.selectedWorkspaceId, hiddenTargetRevision],
@@ -330,21 +326,25 @@ export function SessionPage(props: SessionPageProps) {
   const artifactFileTargets = useMemo(() => accessibleTargets.filter(isCollectibleArtifactTarget), [accessibleTargets]);
   const artifactTargetCount = artifactFileTargets.length;
   const hasArtifactTargets = artifactTargetCount > 0;
-  const activeSidePanel = voiceSidePanelOpen ? "voice" : sessionSidePanel;
+  const activeSidePanel = sessionSidePanel;
   const sidePanelOpen = activeSidePanel !== null;
   const panelRailActive = activeSidePanel === "panel";
   const filesRailActive = activeSidePanel === "files";
   const extensionsRailActive = activeSidePanel === "extensions";
-  const voiceRailActive = activeSidePanel === "voice";
   // Artifact targets registered by mainView pages (Learnings / Benchmark documents).
   const learningsArtifactCount = usePanelTabStore(
     (state) => state.transcriptArtifactTargets[LEARNINGS_PANEL_SESSION_ID]?.length ?? 0,
   );
-  const voiceExtension = useMemo(
-    () => LEGALWORK_EXTENSION_CATALOG.find((entry) => getExtensionId(entry) === "legalwork-voice") ?? null,
-    [],
-  );
-  const voiceExtensionEnabled = voiceExtension ? isLegalWorkExtensionEnabled(voiceExtension) : false;
+  const openAiProviderConnected = props.providerConnectedIds.includes("openai");
+  const voiceCapabilityQuery = useQuery({
+    queryKey: ["voice-realtime-capability", props.runtimeWorkspaceId, props.providerConnectedIds.join("|")],
+    queryFn: () => props.legalworkServerClient!.getVoiceRealtimeCapability(),
+    enabled: Boolean(props.legalworkServerClient && props.runtimeWorkspaceId && props.selectedSessionId && openAiProviderConnected),
+    retry: false,
+    staleTime: 30_000,
+    refetchInterval: voiceSidePanelOpen ? 5_000 : false,
+  });
+  const realtimeVoiceSupported = openAiProviderConnected && voiceCapabilityQuery.data?.supported === true;
 
   useReactRenderWatchdog("SessionPage", {
     selectedSessionId: props.selectedSessionId,
@@ -370,19 +370,24 @@ export function SessionPage(props: SessionPageProps) {
   const preserveSidePanelOnPanelOpenRef = useRef(false);
 
   const setCurrentSidePanel = useCallback((panel: SidePanelItem | null) => {
-    setSidePanelState(GLOBAL_VOICE_SIDE_PANEL_KEY, panel === "voice" ? "voice" : null);
-    if (panel === "voice") return;
+    if (panel === "voice") {
+      setSidePanelState(GLOBAL_VOICE_SIDE_PANEL_KEY, "voice");
+      return;
+    }
     setSidePanelState(panelStateSessionId, panel);
   }, [panelStateSessionId, setSidePanelState]);
+
+  const closeVoicePanel = useCallback(() => {
+    setSidePanelState(GLOBAL_VOICE_SIDE_PANEL_KEY, null);
+  }, [setSidePanelState]);
 
   const toggleCurrentSidePanel = useCallback((panel: SidePanelItem) => {
     if (panel === "voice") {
       toggleSidePanelState(GLOBAL_VOICE_SIDE_PANEL_KEY, "voice");
       return;
     }
-    setSidePanelState(GLOBAL_VOICE_SIDE_PANEL_KEY, null);
     toggleSidePanelState(panelStateSessionId, panel);
-  }, [panelStateSessionId, setSidePanelState, toggleSidePanelState]);
+  }, [panelStateSessionId, toggleSidePanelState]);
 
   // When the agent calls a built-in browser tool, the main process opens
   // the WebContentsView and sends panel-opened; when hide_browser is called
@@ -652,9 +657,6 @@ export function SessionPage(props: SessionPageProps) {
   const openExtensionsRailPane = useCallback(() => {
     toggleCurrentSidePanel("extensions");
   }, [toggleCurrentSidePanel]);
-  const openVoiceRailPane = useCallback(() => {
-    toggleCurrentSidePanel("voice");
-  }, [toggleCurrentSidePanel]);
   const removeAccessibleTarget = useCallback((target: OpenTarget) => {
     const nextHiddenIds = new Set(hiddenAccessibleTargetIds);
     nextHiddenIds.add(target.id);
@@ -692,46 +694,36 @@ export function SessionPage(props: SessionPageProps) {
     return () => window.removeEventListener("legalwork-close-right-pane", handler);
   }, [setCurrentSidePanel]);
   useEffect(() => {
-    const refresh = () => setExtensionStateVersion((value) => value + 1);
-    window.addEventListener(LEGALWORK_EXTENSION_STATE_CHANGED, refresh);
-    window.addEventListener("storage", refresh);
-    return () => {
-      window.removeEventListener(LEGALWORK_EXTENSION_STATE_CHANGED, refresh);
-      window.removeEventListener("storage", refresh);
-    };
-  }, []);
-  useEffect(() => {
-    if (activeSidePanel === "voice" && !voiceExtensionEnabled) {
-      setCurrentSidePanel(null);
+    if (voiceSidePanelOpen && !realtimeVoiceSupported) {
+      closeVoicePanel();
     }
-  }, [activeSidePanel, setCurrentSidePanel, voiceExtensionEnabled]);
-
+  }, [closeVoicePanel, realtimeVoiceSupported, voiceSidePanelOpen]);
   const openVoicePanelControlAction = useMemo<LegalworkControlAction | null>(() => (
-    voiceExtensionEnabled ? {
+    realtimeVoiceSupported ? {
       id: "voice.panel.open",
       label: "Open Voice Mode",
-      description: "Open the sticky Voice Mode right-side panel.",
+      description: "Open immersive Voice Mode for the current session.",
       sideEffect: "none",
       execute: () => {
         setCurrentSidePanel("voice");
         return { open: true };
       },
     } : null
-  ), [setCurrentSidePanel, voiceExtensionEnabled]);
+  ), [realtimeVoiceSupported, setCurrentSidePanel]);
   useControlAction(openVoicePanelControlAction);
 
   const closeVoicePanelControlAction = useMemo<LegalworkControlAction | null>(() => (
-    voiceExtensionEnabled && activeSidePanel === "voice" ? {
+    realtimeVoiceSupported && voiceSidePanelOpen ? {
       id: "voice.panel.close",
       label: "Close Voice Mode",
-      description: "Close the Voice Mode right-side panel.",
+      description: "Close immersive Voice Mode.",
       sideEffect: "none",
       execute: () => {
-        setCurrentSidePanel(null);
+        closeVoicePanel();
         return { open: false };
       },
     } : null
-  ), [activeSidePanel, setCurrentSidePanel, voiceExtensionEnabled]);
+  ), [closeVoicePanel, realtimeVoiceSupported, voiceSidePanelOpen]);
   useControlAction(closeVoicePanelControlAction);
   const [showDelayedSessionLoadingState, setShowDelayedSessionLoadingState] = useState(false);
 
@@ -1290,6 +1282,15 @@ export function SessionPage(props: SessionPageProps) {
                         respondQuestion={props.respondQuestion}
                         safeStringify={props.safeStringify}
                         onOpenTarget={openTarget}
+                        realtimeVoiceSupported={realtimeVoiceSupported}
+                        realtimeVoiceActive={voiceSidePanelOpen}
+                        onRealtimeVoiceActiveChange={(active) => {
+                          if (active) {
+                            setCurrentSidePanel("voice");
+                            return;
+                          }
+                          closeVoicePanel();
+                        }}
                       />
                     </div>
                     {canRenderSplitSurface ? (
@@ -1304,6 +1305,8 @@ export function SessionPage(props: SessionPageProps) {
                           legalworkToken={reactSessionToken}
                           todos={[]}
                           onOpenTarget={openTarget}
+                          realtimeVoiceSupported={false}
+                          realtimeVoiceActive={false}
                         />
                       </div>
                     ) : null}
@@ -1500,13 +1503,6 @@ export function SessionPage(props: SessionPageProps) {
                     <div className="flex h-full min-h-0 flex-col overflow-y-auto bg-background">
                       {props.settingsSlot}
                     </div>
-                  ) : activeSidePanel === "voice" ? (
-                    <VoicePanel
-                      client={props.legalworkServerClient}
-                      workspaceId={props.runtimeWorkspaceId}
-                      sessionId={props.selectedSessionId}
-                      onClose={closeRightPane}
-                    />
                   ) : activeSidePanel === "files" ? (
                     <WorkspaceFilesPanel
                       key={props.runtimeWorkspaceId ?? "__no_workspace__"}
@@ -1546,22 +1542,6 @@ export function SessionPage(props: SessionPageProps) {
                 aria-pressed={panelRailActive}
               >
                 <Globe size={17} />
-              </Button>
-            ) : null}
-            {voiceExtensionEnabled ? (
-              <Button
-                variant="ghost"
-                size="icon-sm"
-                className={cn(
-                  "rounded-xl transition-colors hover:bg-muted hover:text-foreground",
-                  voiceRailActive && "bg-primary/10 text-primary hover:bg-primary/15 hover:text-primary",
-                )}
-                onClick={openVoiceRailPane}
-                title="Voice Mode"
-                aria-label="Voice Mode"
-                aria-pressed={voiceRailActive}
-              >
-                <Mic2 size={17} />
               </Button>
             ) : null}
             <Button

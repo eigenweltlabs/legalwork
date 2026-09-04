@@ -10,6 +10,7 @@ import { Button } from "@/components/ui/button";
 import { toast } from "@/components/ui/sonner";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { formatFileSize } from "@/lib/utils";
+import { useControlAction, useControlSurface, type LegalworkControlAction, type LegalworkControlSurface } from "@/react-app/shell/control/control-provider";
 import type { DocxEditorApi } from "./artifact-docx-editor";
 import { type ArtifactPanelTab, usePanelTabStore } from "../panel/panel-tab-store";
 import { isCollectibleArtifactTarget, type BinaryData, type Data, type OpenTarget, type TextData } from "./open-target";
@@ -38,6 +39,7 @@ type ArtifactPanelProps = {
 };
 
 type ArtifactPanelViewProps = {
+  sessionId: string;
   client: LegalworkServerClient;
   workspaceId: string;
   workspaceRoot: string;
@@ -95,6 +97,7 @@ export function ArtifactPanel({ sessionId, tab, client, workspaceId, workspaceRo
 
   return (
     <ArtifactPanelView
+      sessionId={sessionId}
       client={client}
       workspaceId={workspaceId}
       workspaceRoot={workspaceRoot}
@@ -105,7 +108,16 @@ export function ArtifactPanel({ sessionId, tab, client, workspaceId, workspaceRo
   );
 }
 
-function ArtifactPanelView({ client, workspaceId, workspaceRoot, isRemoteWorkspace = false, target, onClose }: ArtifactPanelViewProps) {
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function stringProperty(value: Record<string, unknown>, key: string) {
+  const property = value[key];
+  return typeof property === "string" ? property : "";
+}
+
+function ArtifactPanelView({ sessionId, client, workspaceId, workspaceRoot, isRemoteWorkspace = false, target, onClose }: ArtifactPanelViewProps) {
   const queryClient = useQueryClient();
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState("");
@@ -324,6 +336,57 @@ function ArtifactPanelView({ client, workspaceId, workspaceRoot, isRemoteWorkspa
   };
 
   const docxApi = useRef<DocxEditorApi | null>(null);
+  const docxSurface = useMemo<LegalworkControlSurface | null>(() => (
+    target.preview === "word"
+      ? {
+          id: `${sessionId}:${target.id}`,
+          kind: "document",
+          format: "docx",
+          sessionId,
+          workspaceId,
+          name: target.name,
+          path: target.value,
+          editable: !isRemoteWorkspace && target.kind === "file",
+          agentEditsTracked: true,
+        }
+      : null
+  ), [isRemoteWorkspace, sessionId, target.id, target.kind, target.name, target.preview, target.value, workspaceId]);
+  useControlSurface(docxSurface);
+
+  const docxAgentControlAction = useMemo<LegalworkControlAction | null>(() => (
+    docxSurface?.editable ? {
+      id: "document.agent_tool",
+      label: `Work on ${target.name}`,
+      description: `Read or edit the open in-app Word document ${target.value}. Agent edits are tracked changes and save automatically.`,
+      sideEffect: "mutation",
+      requiresArgs: true,
+      args: [
+        { name: "sessionId", type: "string", required: true, description: "The OpenCode session requesting access." },
+        { name: "toolName", type: "string", required: true, description: "Editor tool name." },
+        { name: "args", type: "object", description: "Arguments for the editor tool." },
+      ],
+      execute: async (rawArgs) => {
+        if (!isRecord(rawArgs)) return { ok: false, error: "Document tool arguments are required." };
+        if (stringProperty(rawArgs, "sessionId") !== sessionId) {
+          return { ok: false, error: "No in-app Word document is open for this session." };
+        }
+        const toolName = stringProperty(rawArgs, "toolName");
+        const toolArgs = isRecord(rawArgs.args) ? rawArgs.args : {};
+        const api = docxApi.current;
+        if (!api) return { ok: false, error: "The in-app Word editor is still loading." };
+        const result = await api.executeAgentTool(toolName, toolArgs);
+        if (!result.success) return { ok: false, error: result.error || `Could not run ${toolName}.` };
+        return {
+          ok: true,
+          document: { name: target.name, path: target.value, trackChanges: true },
+          data: result.data,
+          saved: result.saved === true,
+        };
+      },
+    } : null
+  ), [docxSurface?.editable, sessionId, target.name, target.value]);
+  useControlAction(docxAgentControlAction);
+
   const [docxSaving, setDocxSaving] = useState(false);
   const saveDocx = async () => {
     setDocxSaving(true);
@@ -471,7 +534,7 @@ function ArtifactPanelView({ client, workspaceId, workspaceRoot, isRemoteWorkspa
           />
         ) : target.preview === "word" && data?.kind === "binary" ? (
           <DocxView
-            key={`${target.id}:${data.revision}`}
+            key={target.id}
             name={target.name}
             content={data.data}
             readOnly={isRemoteWorkspace || target.kind !== "file"}

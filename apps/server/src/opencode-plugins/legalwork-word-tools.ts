@@ -32,9 +32,9 @@ const WORD_TOOL_RULES = `Rules for word_* tools:
 
 /** Injected when no pane is connected: the tools exist but may be offline. */
 const WORD_TOOLS_INSTRUCTION = `## Microsoft Word document tools
-The user may work with the LegalWork pane open inside Microsoft Word. The word_* tools read and edit the document that is currently open in Word.
+The user may have a Word document open either in LegalWork's in-app right sidebar or in the LegalWork pane inside Microsoft Word.
 
-Before using a file-based DOCX pipeline, call word_read_document once. If it succeeds and returns the document the user means, stay in LIVE mode and use only word_* tools. If it reports that no Word pane is connected, the FILE backend is available for workspace documents. Never infer that word_* tools are unavailable without trying word_read_document.
+For an open/current document, try inapp_docx_read_document first. If it succeeds, stay in IN-APP LIVE mode and use only inapp_docx_* tools for that document. If it reports no matching in-app document, call word_read_document once. If that succeeds, stay in WORD LIVE mode and use only word_* tools. Only when both live surfaces are unavailable may you use the FILE backend for a workspace document. Never start with bash or the file pipeline for an unqualified request about the open document.
 
 ${WORD_TOOL_RULES}`;
 

@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -17,6 +17,7 @@ const dirs: string[] = [];
 const priorEnvStore = process.env.LEGALWORK_ENV_STORE;
 const priorTokenStore = process.env.LEGALWORK_TOKEN_STORE;
 const priorOpenAiApiKey = process.env.OPENAI_API_KEY;
+const priorXdgDataHome = process.env.XDG_DATA_HOME;
 const priorLegalWorkApiKey = process.env.LEGALWORK_API_KEY;
 const priorLegalWorkInferenceBaseUrl = process.env.LEGALWORK_INFERENCE_BASE_URL;
 const nativeFetch = globalThis.fetch;
@@ -60,6 +61,7 @@ beforeEach(() => {
   // touches the developer's real ~/.config/legalwork/env.json.
   process.env.LEGALWORK_ENV_STORE = join(dir, "env.json");
   process.env.LEGALWORK_TOKEN_STORE = join(dir, "tokens.json");
+  process.env.XDG_DATA_HOME = join(dir, "xdg-data");
 });
 
 afterEach(async () => {
@@ -83,6 +85,11 @@ afterEach(async () => {
     delete process.env.OPENAI_API_KEY;
   } else {
     process.env.OPENAI_API_KEY = priorOpenAiApiKey;
+  }
+  if (priorXdgDataHome === undefined) {
+    delete process.env.XDG_DATA_HOME;
+  } else {
+    process.env.XDG_DATA_HOME = priorXdgDataHome;
   }
   if (priorLegalWorkApiKey === undefined) {
     delete process.env.LEGALWORK_API_KEY;
@@ -331,15 +338,102 @@ describe("env routes", () => {
     expect(del.status).toBe(404);
   });
 
-  test("voice realtime session accepts owner bearer token", async () => {
-    process.env.OPENAI_API_KEY = "sk-test";
-    globalThis.fetch = ((input, init) => {
-      const url = String(input);
-      if (url === "https://api.openai.com/v1/realtime/client_secrets") {
-        expect(init?.headers).toMatchObject({ Authorization: "Bearer sk-test" });
-        return Promise.resolve(new Response(JSON.stringify({ client_secret: { value: "rt-secret", expires_at: 123 } }), {
+  test("voice realtime capability is unavailable without standard OpenAI credentials", async () => {
+    delete process.env.OPENAI_API_KEY;
+    const { base } = await boot();
+    const response = await fetch(`${base}/voice/realtime/capability`, { headers: hostAuth() });
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({
+      supported: false,
+      providerId: null,
+      model: null,
+      reason: "openai_credentials_unavailable",
+    });
+  });
+
+  test("voice realtime capability reads the standard OpenCode OpenAI API credential", async () => {
+    delete process.env.OPENAI_API_KEY;
+    const authDir = join(process.env.XDG_DATA_HOME!, "opencode");
+    mkdirSync(authDir, { recursive: true });
+    writeFileSync(join(authDir, "auth.json"), JSON.stringify({
+      openai: { type: "api", key: "sk-provider-test" },
+    }));
+
+    const { base } = await boot();
+    const response = await fetch(`${base}/voice/realtime/capability`, { headers: hostAuth() });
+    expect(await response.json()).toMatchObject({
+      supported: true,
+      providerId: "openai",
+      model: "gpt-realtime-2.1",
+    });
+  });
+
+  test("voice realtime prefers a locally saved OpenAI key over the inherited environment key", async () => {
+    process.env.OPENAI_API_KEY = "sk-env-test";
+    const authDir = join(process.env.XDG_DATA_HOME!, "opencode");
+    mkdirSync(authDir, { recursive: true });
+    writeFileSync(join(authDir, "auth.json"), JSON.stringify({
+      openai: { type: "api", key: "sk-saved-test" },
+    }));
+
+    globalThis.fetch = (async (input, init) => {
+      const request = new Request(input, init);
+      if (request.url === "https://api.openai.com/v1/realtime/calls") {
+        expect(request.headers.get("authorization")).toBe("Bearer sk-saved-test");
+        return Promise.resolve(new Response("v=0\r\no=answer", {
           status: 200,
-          headers: { "content-type": "application/json" },
+          headers: { "content-type": "application/sdp" },
+        }));
+      }
+      return nativeFetch(input, init);
+    }) as typeof fetch;
+
+    const { base } = await boot();
+    const response = await fetch(`${base}/voice/realtime/call`, {
+      method: "POST",
+      headers: { ...hostAuth(), "content-type": "application/json" },
+      body: JSON.stringify({ sdp: "v=0\r\no=offer\r\n" }),
+    });
+
+    expect(response.status).toBe(200);
+  });
+
+  test("voice realtime call uses the unified WebRTC endpoint and exact semantic VAD contract", async () => {
+    process.env.OPENAI_API_KEY = "sk-test";
+    let realtimeInstructions = "";
+    globalThis.fetch = (async (input, init) => {
+      const request = new Request(input, init);
+      if (request.url === "https://api.openai.com/v1/realtime/calls") {
+        expect(request.headers.get("authorization")).toBe("Bearer sk-test");
+        const form = await request.formData();
+        const sdpPart = form.get("sdp");
+        expect(sdpPart).toBeInstanceOf(Blob);
+        expect(await (sdpPart as Blob).text()).toBe("v=0\\r\\no=offer\\r\\n");
+        const rawSession = form.get("session");
+        expect(rawSession).toBeInstanceOf(Blob);
+        const session = JSON.parse(await (rawSession as Blob).text()) as {
+          model: string;
+          instructions: string;
+          audio: { input: { transcription?: unknown; turn_detection: Record<string, unknown> } };
+          tool_choice: string;
+          tools: Array<{ name: string; parameters: { required?: string[] } }>;
+        };
+        expect(session.model).toBe("gpt-realtime-2.1");
+        realtimeInstructions = session.instructions;
+        expect(session.audio.input.transcription).toBeUndefined();
+        expect(session.audio.input.turn_detection).toEqual({
+          type: "semantic_vad",
+          eagerness: "auto",
+          create_response: true,
+          interrupt_response: true,
+        });
+        expect(session.tool_choice).toBe("required");
+        expect(session.tools.map((tool) => tool.name)).toEqual(["continue_work", "answer_in_voice"]);
+        expect(session.tools.find((tool) => tool.name === "answer_in_voice")?.parameters.required).toEqual(["intent"]);
+        return Promise.resolve(new Response("v=0\\r\\no=answer", {
+          status: 200,
+          headers: { "content-type": "application/sdp" },
         }));
       }
       return nativeFetch(input, init);
@@ -353,224 +447,68 @@ describe("env routes", () => {
     });
     const tokenBody = (await issued.json()) as { token: string };
 
-    const response = await fetch(`${base}/voice/realtime/session`, {
-      method: "POST",
-      headers: { authorization: `Bearer ${tokenBody.token}`, "content-type": "application/json" },
-      body: JSON.stringify({}),
+    const capability = await fetch(`${base}/voice/realtime/capability`, {
+      headers: { authorization: `Bearer ${tokenBody.token}` },
+    });
+    expect(await capability.json()).toMatchObject({
+      supported: true,
+      providerId: "openai",
+      model: "gpt-realtime-2.1",
     });
 
-    expect(response.status).toBe(200);
-    expect(await response.json()).toMatchObject({
+    const response = await fetch(`${base}/voice/realtime/call`, {
+      method: "POST",
+      headers: { authorization: `Bearer ${tokenBody.token}`, "content-type": "application/json" },
+      body: JSON.stringify({ sdp: "v=0\\r\\no=offer\\r\\n", sessionContext: "Recent canonical chat." }),
+    });
+
+    const failureText = response.status === 200 ? "" : await response.clone().text();
+    expect({ status: response.status, failureText }).toEqual({ status: 200, failureText: "" });
+    expect(realtimeInstructions).toContain("You are LegalWork. You have one continuous identity across text and voice.");
+    expect(realtimeInstructions).toContain("Before speaking after any user turn, choose exactly one route");
+    expect(realtimeInstructions).toContain("ask one concise clarification before starting work");
+    expect(realtimeInstructions).toContain("Never answer an actionable new substantive request from general knowledge in voice");
+    expect(realtimeInstructions).toContain("Do not expand it into a plan");
+    expect(realtimeInstructions).toContain("Live progress, blockers, and completed results");
+    expect(realtimeInstructions).toContain("never evidence of a finding or result");
+    expect(realtimeInstructions).toContain("two-to-four-sentence spoken summary");
+    expect(realtimeInstructions).toContain("Recent canonical chat.");
+    expect(realtimeInstructions).not.toContain("OpenCode");
+    expect(await response.json()).toEqual({
       ok: true,
-      clientSecret: "rt-secret",
-      expiresAt: 123,
+      sdp: "v=0\\r\\no=answer",
+      model: "gpt-realtime-2.1",
+      providerId: "openai",
+      tools: ["continue_work", "answer_in_voice"],
     });
   });
 
-  test("voice realtime session prefers LegalWork Models broker when configured", async () => {
-    process.env.OPENAI_API_KEY = "sk-should-not-be-used";
-    const { base } = await boot();
-
-    const envPut = await fetch(`${base}/env`, {
-      method: "PUT",
-      headers: hostAuth(),
-      body: JSON.stringify({
-        entries: [
-          { key: "LEGALWORK_API_KEY", value: "ow_inf_test" },
-          { key: "LEGALWORK_INFERENCE_BASE_URL", value: "https://inference.example.test" },
-        ],
-      }),
-    });
-    expect(envPut.status).toBe(200);
-
+  test("voice realtime call does not expose a credential when OpenAI rejects the model", async () => {
+    process.env.OPENAI_API_KEY = "sk-test";
     globalThis.fetch = ((input, init) => {
-      const url = String(input);
-      if (url === "https://inference.example.test/voice/realtime/session") {
-        expect(init?.headers).toMatchObject({ Authorization: "Bearer ow_inf_test" });
+      const request = new Request(input, init);
+      if (request.url === "https://api.openai.com/v1/realtime/calls") {
+        expect(request.headers.get("authorization")).toBe("Bearer sk-test");
         return Promise.resolve(new Response(JSON.stringify({
-          ok: true,
-          clientSecret: "managed-rt-secret",
-          expiresAt: 456,
-          model: "gpt-realtime-2",
-          transcriptionModel: "gpt-4o-transcribe",
-          tools: ["legalwork_snapshot"],
-          source: "legalwork-models",
-        }), {
-          status: 200,
-          headers: { "content-type": "application/json" },
-        }));
-      }
-      if (url === "https://api.openai.com/v1/realtime/client_secrets") {
-        return Promise.resolve(new Response("direct OpenAI should not be called", { status: 500 }));
+          error: { message: "Model is not available for this project." },
+        }), { status: 403, headers: { "content-type": "application/json" } }));
       }
       return nativeFetch(input, init);
     }) as typeof fetch;
 
-    const issued = await fetch(`${base}/tokens`, {
-      method: "POST",
-      headers: hostAuth(),
-      body: JSON.stringify({ scope: "owner", label: "managed voice owner" }),
-    });
-    const tokenBody = (await issued.json()) as { token: string };
-
-    const response = await fetch(`${base}/voice/realtime/session`, {
-      method: "POST",
-      headers: { authorization: `Bearer ${tokenBody.token}`, "content-type": "application/json" },
-      body: JSON.stringify({}),
-    });
-
-    expect(response.status).toBe(200);
-    expect(await response.json()).toMatchObject({
-      ok: true,
-      clientSecret: "managed-rt-secret",
-      expiresAt: 456,
-      source: "legalwork-models",
-    });
-  });
-
-  test("voice realtime session falls back to direct OpenAI when broker returns 503", async () => {
-    process.env.OPENAI_API_KEY = "sk-direct-fallback";
     const { base } = await boot();
-
-    await fetch(`${base}/env`, {
-      method: "PUT",
-      headers: hostAuth(),
-      body: JSON.stringify({
-        entries: [
-          { key: "LEGALWORK_API_KEY", value: "ow_inf_test" },
-          { key: "LEGALWORK_INFERENCE_BASE_URL", value: "https://inference.example.test" },
-        ],
-      }),
-    });
-
-    globalThis.fetch = ((input, init) => {
-      const url = String(input);
-      if (url === "https://inference.example.test/voice/realtime/session") {
-        return Promise.resolve(new Response(JSON.stringify({
-          error: { message: "Managed voice is not configured.", code: "openai_realtime_key_missing" },
-        }), { status: 503, headers: { "content-type": "application/json" } }));
-      }
-      if (url === "https://api.openai.com/v1/realtime/client_secrets") {
-        expect(init?.headers).toMatchObject({ Authorization: "Bearer sk-direct-fallback" });
-        return Promise.resolve(new Response(JSON.stringify({
-          client_secret: { value: "direct-fallback-secret", expires_at: 789 },
-        }), { status: 200, headers: { "content-type": "application/json" } }));
-      }
-      return nativeFetch(input, init);
-    }) as typeof fetch;
-
-    const issued = await fetch(`${base}/tokens`, {
+    const response = await fetch(`${base}/voice/realtime/call`, {
       method: "POST",
       headers: hostAuth(),
-      body: JSON.stringify({ scope: "owner", label: "fallback voice owner" }),
-    });
-    const tokenBody = (await issued.json()) as { token: string };
-
-    const response = await fetch(`${base}/voice/realtime/session`, {
-      method: "POST",
-      headers: { authorization: `Bearer ${tokenBody.token}`, "content-type": "application/json" },
-      body: JSON.stringify({}),
+      body: JSON.stringify({ sdp: "v=0\\r\\no=offer" }),
     });
 
-    expect(response.status).toBe(200);
-    expect(await response.json()).toMatchObject({
-      ok: true,
-      clientSecret: "direct-fallback-secret",
-    });
-  });
-
-  test("voice realtime session shows clear error when broker 503 and no local key", async () => {
-    delete process.env.OPENAI_API_KEY;
-    delete process.env.OPENAI_REALTIME_API_KEY;
-    delete process.env.LEGALWORK_OPENAI_REALTIME_API_KEY;
-    const { base } = await boot();
-
-    await fetch(`${base}/env`, {
-      method: "PUT",
-      headers: hostAuth(),
-      body: JSON.stringify({
-        entries: [
-          { key: "LEGALWORK_API_KEY", value: "ow_inf_test" },
-          { key: "LEGALWORK_INFERENCE_BASE_URL", value: "https://inference.example.test" },
-        ],
-      }),
-    });
-
-    globalThis.fetch = ((input, init) => {
-      const url = String(input);
-      if (url === "https://inference.example.test/voice/realtime/session") {
-        return Promise.resolve(new Response(JSON.stringify({
-          error: { message: "Managed voice is not configured.", code: "openai_realtime_key_missing" },
-        }), { status: 503, headers: { "content-type": "application/json" } }));
-      }
-      return nativeFetch(input, init);
-    }) as typeof fetch;
-
-    const issued = await fetch(`${base}/tokens`, {
-      method: "POST",
-      headers: hostAuth(),
-      body: JSON.stringify({ scope: "owner", label: "no key voice owner" }),
-    });
-    const tokenBody = (await issued.json()) as { token: string };
-
-    const response = await fetch(`${base}/voice/realtime/session`, {
-      method: "POST",
-      headers: { authorization: `Bearer ${tokenBody.token}`, "content-type": "application/json" },
-      body: JSON.stringify({}),
-    });
-
-    expect(response.status).toBe(503);
+    expect(response.status).toBe(403);
     const body = (await response.json()) as { code: string; message: string };
-    expect(body.code).toBe("legalwork_models_voice_unavailable");
-    expect(body.message).toContain("not fully configured");
+    expect(body.code).toBe("openai_realtime_failed");
+    expect(body.message).toContain("Model is not available");
+    expect(JSON.stringify(body)).not.toContain("sk-test");
   });
-
-  test("voice realtime session does not fall back on non-503 broker errors", async () => {
-    process.env.OPENAI_API_KEY = "sk-should-not-be-used";
-    const { base } = await boot();
-
-    await fetch(`${base}/env`, {
-      method: "PUT",
-      headers: hostAuth(),
-      body: JSON.stringify({
-        entries: [
-          { key: "LEGALWORK_API_KEY", value: "ow_inf_test" },
-          { key: "LEGALWORK_INFERENCE_BASE_URL", value: "https://inference.example.test" },
-        ],
-      }),
-    });
-
-    globalThis.fetch = ((input, init) => {
-      const url = String(input);
-      if (url === "https://inference.example.test/voice/realtime/session") {
-        return Promise.resolve(new Response(JSON.stringify({
-          error: { message: "Rate limit exceeded", code: "rate_limit_exceeded" },
-        }), { status: 429, headers: { "content-type": "application/json" } }));
-      }
-      if (url === "https://api.openai.com/v1/realtime/client_secrets") {
-        return Promise.resolve(new Response("should not fall back on 429", { status: 500 }));
-      }
-      return nativeFetch(input, init);
-    }) as typeof fetch;
-
-    const issued = await fetch(`${base}/tokens`, {
-      method: "POST",
-      headers: hostAuth(),
-      body: JSON.stringify({ scope: "owner", label: "rate limited voice owner" }),
-    });
-    const tokenBody = (await issued.json()) as { token: string };
-
-    const response = await fetch(`${base}/voice/realtime/session`, {
-      method: "POST",
-      headers: { authorization: `Bearer ${tokenBody.token}`, "content-type": "application/json" },
-      body: JSON.stringify({}),
-    });
-
-    expect(response.status).toBe(429);
-    const body = (await response.json()) as { code: string };
-    expect(body.code).toBe("legalwork_models_voice_failed");
-  });
-
   test("values persist across server restart", async () => {
     const first = await boot();
     await fetch(`${first.base}/env`, {

@@ -81,6 +81,24 @@ describe("reload event API", () => {
     expect(await readEvents(base, token)).toEqual([]);
   });
 
+  test("does not repeatedly reconcile bundled files during one server lifetime", async () => {
+    const root = await createWorkspaceRoot();
+    const { base, token } = await startLegalworkServer(root);
+
+    const firstResponse = await fetch(`${base}/workspace/ws_1/config`, { headers: auth(token) });
+    expect(firstResponse.status).toBe(200);
+
+    const stampPath = join(root, ".opencode", ".legalwork-core");
+    const commandPath = join(root, ".opencode", "commands", "edit-docx.md");
+    await writeFile(stampPath, "another-installed-version\n", "utf8");
+    await writeFile(commandPath, "OTHER INSTALLED VERSION\n", "utf8");
+
+    const secondResponse = await fetch(`${base}/workspace/ws_1/config`, { headers: auth(token) });
+    expect(secondResponse.status).toBe(200);
+    expect(await readFile(stampPath, "utf8")).toBe("another-installed-version\n");
+    expect(await readFile(commandPath, "utf8")).toBe("OTHER INSTALLED VERSION\n");
+  });
+
   test("does not expose same-content rewrites as reload events", async () => {
     const root = await createWorkspaceRoot();
     const configPath = join(root, "opencode.jsonc");

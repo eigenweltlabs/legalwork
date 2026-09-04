@@ -39,6 +39,8 @@ export type AiSettingsViewProps = {
   providerDisconnectError: string | null;
   onOpenProviderAuth: () => void | Promise<void>;
   onDisconnectProvider: (providerId: string) => void | Promise<void>;
+  /** Save a local credential that takes precedence over an inherited env key. */
+  onReplaceProviderKey?: (providerId: string) => void | Promise<void>;
   /** Edit a user-defined custom provider (only shown for `source === "custom"`). */
   onEditProvider?: (providerId: string) => void | Promise<void>;
   canDisconnectProvider: (source?: ConnectedProvider["source"]) => boolean;
@@ -127,6 +129,19 @@ export function AiSettingsView(props: AiSettingsViewProps) {
                 </div>
                 {!props.cloudProviderIds?.has(provider.id) ? (
                   <div className="flex items-center gap-2">
+                    {provider.source === "env" && props.onReplaceProviderKey ? (
+                      <Button
+                        variant="outline"
+                        onClick={() => void props.onReplaceProviderKey?.(provider.id)}
+                        disabled={
+                          props.busy ||
+                          props.providerAuthBusy ||
+                          props.disconnectingProviderId !== null
+                        }
+                      >
+                        {t("settings.replace_key")}
+                      </Button>
+                    ) : null}
                     {provider.editableAsCustom && props.onEditProvider ? (
                       <Button
                         variant="outline"
@@ -176,7 +191,13 @@ export function AiSettingsView(props: AiSettingsViewProps) {
         {props.eigenweltConnected ? (
           <LayoutSectionItemFootnote>{t("account.managed_notice")}</LayoutSectionItemFootnote>
         ) : null}
-        <LayoutSectionItemFootnote>{t("settings.api_keys_info")}</LayoutSectionItemFootnote>
+        {props.connectedProviders.some((provider) => provider.source === "env") ? (
+          <LayoutSectionItemFootnote>
+            {t("settings.env_key_override_info")}
+          </LayoutSectionItemFootnote>
+        ) : (
+          <LayoutSectionItemFootnote>{t("settings.api_keys_info")}</LayoutSectionItemFootnote>
+        )}
       </LayoutSection>
 
       {props.cloudProvidersView}

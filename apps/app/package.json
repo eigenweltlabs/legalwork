@@ -42,6 +42,7 @@
     "@codemirror/state": "^6.5.2",
     "@codemirror/view": "^6.38.0",
     "@eigenpal/docx-editor-agents": "^1.8.3",
+    "@eigenpal/docx-editor-core": "^1.8.3",
     "@eigenpal/docx-editor-react": "^1.8.3",
     "@fontsource-variable/geist": "^5.2.8",
     "@fontsource-variable/ibm-plex-sans": "^5.2.8",
