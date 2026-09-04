@@ -99,7 +99,8 @@ export type EigenweltUsage = {
  * treat "no entitlements" as the free/legacy tier and not break.
  */
 export type EigenweltEntitlements = {
-  plan: "plus" | "pro" | null;
+  /** "hub" = the Knowledge Hub plan without AI (no `premium_models`). */
+  plan: "plus" | "pro" | "hub" | null;
   subscriptionStatus: string | null;
   /**
    * ISO timestamp when the 7-day trial ends (or ended — compare against now);
@@ -121,10 +122,11 @@ export type EigenweltAccountIdentity = {
 };
 
 /**
- * Active-subscription check. The platform emits the `premium_models` feature
- * ONLY when the org isEntitled (plan plus/pro with an active/trialing/past_due
- * status), so this is the authoritative "has an active sub" signal — stricter
- * than merely being signed in. Used to gate the paid Eigenwelt provider.
+ * Paid-models check. The platform emits the `premium_models` feature ONLY when
+ * the org isEntitled (an active/trialing/past_due status) on a plan that
+ * includes the Eigenwelt models (Plus; the Knowledge Hub plan does not), so
+ * this is the authoritative signal — stricter than merely being signed in or
+ * subscribed. Used to gate the paid Eigenwelt provider.
  */
 export function eigenweltHasPremiumModels(
   entitlements: EigenweltEntitlements | null | undefined,
@@ -206,7 +208,8 @@ function toFiniteNumber(value: unknown, fallback = 0): number {
  */
 export function parseEigenweltEntitlements(value: unknown): EigenweltEntitlements | undefined {
   if (!isRecord(value)) return undefined;
-  const plan = value.plan === "plus" || value.plan === "pro" ? value.plan : null;
+  const plan =
+    value.plan === "plus" || value.plan === "pro" || value.plan === "hub" ? value.plan : null;
   const subscriptionStatus = typeof value.subscriptionStatus === "string" ? value.subscriptionStatus : null;
   const trialEndsAt =
     typeof value.trialEndsAt === "string" && Number.isFinite(Date.parse(value.trialEndsAt))

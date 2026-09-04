@@ -586,6 +586,9 @@ const de: Record<string, string> = {
   "premium_upsell.share_title": "Workflows & Integrationen im Team teilen",
   "premium_upsell.share_body": "Veröffentliche Workflows und Integrationen für die ganze Kanzlei im gemeinsamen Hub.",
   "premium_upsell.cta": "7 Tage kostenlos testen",
+  "premium_upsell.headline_upgrade": "Wechsle zu Eigenwelt Plus",
+  "premium_upsell.intro_upgrade": "69 € pro Sitzplatz/Monat bei jährlicher Zahlung, 99 € monatlich. Für jeden Sitzplatz deiner Kanzlei enthalten:",
+  "premium_upsell.cta_upgrade": "Zu Plus wechseln",
   "premium_upsell.sign_in": "Mit Eigenwelt anmelden",
   "premium_upsell.signing_in": "Anmeldung läuft…",
 
@@ -596,6 +599,9 @@ const de: Record<string, string> = {
   "chat.no_model_login": "Anmelden",
   "chat.no_model_byo": "Modell verbinden",
   // Composer: von Eigenwelt abgemeldet (oder Zugang entzogen), sonst nichts verbunden
+  "chat.no_ai_plan_title": "Dein Plan enthält keine KI-Modelle.",
+  "chat.no_ai_plan_body": "Der Knowledge Hub deckt das Teilen in deiner Kanzlei ab. Wechsle zu Plus für die Eigenwelt-Modelle oder verbinde dein eigenes Modell.",
+  "chat.no_ai_plan_upgrade": "Zu Plus wechseln",
   "chat.signed_out_title": "Von Eigenwelt abgemeldet.",
   "chat.signed_out_body": "Melde dich an, um die Eigenwelt-Modelle weiter zu nutzen, starte deine 7-tägige kostenlose Testphase oder verbinde dein eigenes Modell.",
   // Einmaliger Migrationsdialog nach dem Ende des kostenlosen Zugangs.
@@ -673,6 +679,8 @@ const de: Record<string, string> = {
   // Eigenwelt-Konto: 7-tägige kostenlose Testphase
   "account.plan_inactive": "Inaktiv",
   "account.plan_label": "Plan",
+  "account.plan_hub": "Knowledge Hub",
+  "account.models_not_in_plan": "Nicht im Knowledge-Hub-Plan enthalten. Mit Plus bekommst du die Eigenwelt-Modelle.",
   "account.models_label": "Modelle",
   "account.trial_ends_today": "Kostenlose Testphase: endet heute",
   "account.trial_ends_in_one": "Kostenlose Testphase: noch 1 Tag",
