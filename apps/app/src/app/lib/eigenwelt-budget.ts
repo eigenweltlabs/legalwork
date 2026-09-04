@@ -3,7 +3,7 @@
  *
  * The Eigenwelt gateway (LiteLLM) answers HTTP 429 with error type
  * `budget_exceeded` and a message containing "Budget has been exceeded" once a
- * seat's daily usage is used up. The engine treats that like any transient
+ * seat's weekly usage is used up. The engine treats that like any transient
  * provider error and retries with backoff forever. These helpers implement the
  * LegalWork policy on top of the engine's retry loop:
  *
@@ -12,7 +12,7 @@
  *   behavior),
  * - the engine gets at most {@link EIGENWELT_BUDGET_MAX_RETRY_ATTEMPTS}
  *   attempts, after which the app aborts the run and renders a terminal
- *   "daily usage used up" card pointing at the platform's billing page.
+ *   "weekly usage used up" card pointing at the platform's billing page.
  *
  * Everything in here is pure/registry state so it can be unit tested without
  * React or the engine.
@@ -31,9 +31,9 @@ export const EIGENWELT_BILLING_URL_DEFAULT = "https://platform.eigenweltlabs.com
 /** Stop the engine's retry loop after this many budget-exceeded attempts. */
 export const EIGENWELT_BUDGET_MAX_RETRY_ATTEMPTS = 3;
 
-export const EIGENWELT_BUDGET_EXCEEDED_TITLE = "Your seat's included usage for today is used up";
+export const EIGENWELT_BUDGET_EXCEEDED_TITLE = "Your seat's included usage for this week is used up";
 export const EIGENWELT_BUDGET_EXCEEDED_BODY =
-  "It resets tomorrow. Your firm's billing shows today's usage in detail.";
+  "It resets next week. Your firm's billing shows this week's usage in detail.";
 export const EIGENWELT_BUDGET_UPGRADE_LABEL = "Open Billing";
 
 /** Kept for wire compatibility with older payloads; "hub" has no gateway budget at all. */
@@ -119,7 +119,7 @@ export function eigenweltBudgetRetryAction(billingUrl: string = EIGENWELT_BILLIN
   return {
     reason: "budget_exceeded",
     provider: EIGENWELT_PROVIDER_ID,
-    title: "Out of daily usage?",
+    title: "Out of usage for this week?",
     message: EIGENWELT_BUDGET_EXCEEDED_BODY,
     label: EIGENWELT_BUDGET_UPGRADE_LABEL,
     link: billingUrl,
