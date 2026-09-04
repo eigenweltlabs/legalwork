@@ -1,6 +1,28 @@
 import { existsSync } from "node:fs";
-import { lstat, mkdir, rename } from "node:fs/promises";
+import { lstat, mkdir, rename, stat } from "node:fs/promises";
 import path from "node:path";
+
+/**
+ * Whether `target` leads to a directory, following whatever the entry is.
+ *
+ * Tie-breaker for the lstat check below. On Windows a workspace on a
+ * cloud-synced drive (OneDrive Files On-Demand, Dropbox, Google Drive) is made
+ * of *placeholders*: every synced file and folder carries a reparse point,
+ * which lstat reports as a symbolic link rather than a directory
+ * (nodejs/node#12737). Trusting lstat alone there would move a real, populated
+ * `.opencode` aside on every launch, or fail the launch outright when the sync
+ * client holds the folder open and the rename cannot go through.
+ *
+ * stat follows the reparse point and still answers "no" for the cases the
+ * repair exists for: a stray file, a symlink to a file, and a broken symlink.
+ */
+async function resolvesToDirectory(target) {
+  try {
+    return (await stat(target)).isDirectory();
+  } catch {
+    return false;
+  }
+}
 
 /**
  * Guarantee `<workspace>/.opencode` is a usable directory before the engine
@@ -33,7 +55,7 @@ export async function ensureOpencodeStateDir(workspaceRoot, now = Date.now()) {
     entry = null;
   }
 
-  if (entry && !entry.isDirectory()) {
+  if (entry && !entry.isDirectory() && !(await resolvesToDirectory(statePath))) {
     const base = `${statePath}.invalid-${now}`;
     for (let attempt = 0; attempt < 50; attempt += 1) {
       const candidate = attempt === 0 ? base : `${base}-${attempt}`;

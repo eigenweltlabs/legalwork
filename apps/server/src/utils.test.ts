@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import { hashToken, shortId, parseList, ensureDir, exists } from "./utils.js";
+import { hashToken, shortId, parseList, ensureDir, exists, renameWithRetry } from "./utils.js";
+import { mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -61,5 +62,28 @@ describe("ensureDir + exists", () => {
     expect(await exists(nested)).toBe(false);
     await ensureDir(nested);
     expect(await exists(nested)).toBe(true);
+  });
+});
+
+describe("renameWithRetry", () => {
+  test("moves the file into place", async () => {
+    const root = await mkdtemp(join(tmpdir(), "legalwork-rename-"));
+    await writeFile(join(root, "src.tmp"), "payload\n", "utf8");
+
+    await renameWithRetry(join(root, "src.tmp"), join(root, "dest.json"));
+
+    expect(await readFile(join(root, "dest.json"), "utf8")).toBe("payload\n");
+    expect(await exists(join(root, "src.tmp"))).toBe(false);
+  });
+
+  test("propagates an error that is not a transient lock", async () => {
+    // Only EPERM/EACCES/EBUSY are worth waiting out; everything else must
+    // surface immediately rather than after the whole backoff.
+    const root = await mkdtemp(join(tmpdir(), "legalwork-rename-"));
+    const started = Date.now();
+
+    await expect(renameWithRetry(join(root, "missing.tmp"), join(root, "dest.json"))).rejects.toThrow();
+
+    expect(Date.now() - started).toBeLessThan(500);
   });
 });

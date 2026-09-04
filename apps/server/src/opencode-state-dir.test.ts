@@ -56,6 +56,34 @@ describe("ensureOpencodeStateDir", () => {
     expect((await lstat(result.path)).isDirectory()).toBe(true);
   });
 
+  test("leaves a .opencode that resolves to a directory alone (cloud-synced drives)", async () => {
+    // A OneDrive/Dropbox placeholder folder carries a reparse point, which lstat
+    // reports as a symbolic link rather than a directory (nodejs/node#12737).
+    // A symlink to a real directory is that same shape: lstat says "not a
+    // directory", stat says otherwise, and stat is right. Moving it aside would
+    // take the user's skills and MCP config with it.
+    const root = await workspace();
+    const real = join(root, "state");
+    await mkdir(real, { recursive: true });
+    await writeFile(join(real, "legalwork.json"), '{"keep":true}\n', "utf8");
+    await symlink(real, join(root, ".opencode"));
+
+    const result = await ensureOpencodeStateDir(root, 1700000000000);
+
+    expect(result.movedTo).toBeNull();
+    expect(await readFile(join(root, ".opencode", "legalwork.json"), "utf8")).toBe('{"keep":true}\n');
+  });
+
+  test("still moves a .opencode symlink that resolves to nothing", async () => {
+    const root = await workspace();
+    await symlink(join(root, "missing"), join(root, ".opencode"));
+
+    const result = await ensureOpencodeStateDir(root, 1700000000000);
+
+    expect(result.movedTo).toBe(join(root, ".opencode.invalid-1700000000000"));
+    expect((await lstat(result.path)).isDirectory()).toBe(true);
+  });
+
   test("does not overwrite an existing backup from a previous repair", async () => {
     const root = await workspace();
     await writeFile(join(root, ".opencode"), "second\n", "utf8");

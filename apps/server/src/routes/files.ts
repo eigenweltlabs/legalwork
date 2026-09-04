@@ -1,12 +1,12 @@
 import { createReadStream } from "node:fs";
-import { readFile, readdir, rename, rm, stat, writeFile } from "node:fs/promises";
+import { readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { Readable } from "node:stream";
 import { recordAudit } from "../audit.js";
 import { ApiError } from "../errors.js";
 import { FileSessionStore } from "../file-sessions.js";
 import type { ApprovalRequest, ServerConfig, TokenScope, WorkspaceInfo } from "../types.js";
-import { ensureDir, exists, shortId } from "../utils.js";
+import { ensureDir, exists, renameWithRetry, shortId } from "../utils.js";
 import { addRoute, type RequestContext, type Route } from "./registry.js";
 
 const FILE_SESSION_DEFAULT_TTL_MS = 15 * 60 * 1000;
@@ -615,7 +615,7 @@ export function registerFileRoutes(options: RegisterFileRoutesOptions): void {
     const bytes = Buffer.from(await file.arrayBuffer());
     const tmp = `${dest}.tmp-${shortId()}`;
     await writeFile(tmp, bytes);
-    await rename(tmp, dest);
+    await renameWithRetry(tmp, dest);
 
     await recordAudit(workspace.path, {
       id: shortId(),
@@ -897,7 +897,7 @@ export function registerFileRoutes(options: RegisterFileRoutesOptions): void {
         await ensureDir(dirname(entry.absPath));
         const tmp = `${entry.absPath}.tmp-${shortId()}`;
         await writeFile(tmp, entry.bytes);
-        await rename(tmp, entry.absPath);
+        await renameWithRetry(tmp, entry.absPath);
         const after = await stat(entry.absPath);
         const revision = fileRevision(after);
 
@@ -1008,7 +1008,7 @@ export function registerFileRoutes(options: RegisterFileRoutesOptions): void {
             continue;
           }
           await ensureDir(dirname(toAbs));
-          await rename(fromAbs, toAbs);
+          await renameWithRetry(fromAbs, toAbs);
           recordWorkspaceFileEvent(workspace.id, { type: "rename", path: from, toPath: to });
           items.push({ ok: true, type, from, to });
           continue;
@@ -1187,7 +1187,7 @@ export function registerFileRoutes(options: RegisterFileRoutesOptions): void {
     await ensureDir(dirname(absPath));
     const tmp = `${absPath}.tmp-${shortId()}`;
     await writeFile(tmp, bytes);
-    await rename(tmp, absPath);
+    await renameWithRetry(tmp, absPath);
     const after = await stat(absPath);
     const revision = fileRevision(after);
     recordWorkspaceFileEvent(workspace.id, { type: "write", path: relativePath, revision });
@@ -1254,7 +1254,7 @@ export function registerFileRoutes(options: RegisterFileRoutesOptions): void {
     await ensureDir(dirname(absPath));
     const tmp = `${absPath}.tmp-${shortId()}`;
     await writeFile(tmp, content, "utf8");
-    await rename(tmp, absPath);
+    await renameWithRetry(tmp, absPath);
     const after = await stat(absPath);
     const revision = fileRevision(after);
 

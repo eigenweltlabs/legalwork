@@ -1,8 +1,8 @@
 import { homedir, platform } from "node:os";
-import { chmod, readFile, rename, rm, writeFile } from "node:fs/promises";
+import { chmod, readFile, rm, writeFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 
-import { ensureDir, exists } from "./utils.js";
+import { ensureDir, exists, renameWithRetry } from "./utils.js";
 
 // User-level environment variables, persisted so the desktop shell can inject
 // them into every spawned child (OpenCode, LegalWork server, opencode-router).
@@ -148,7 +148,7 @@ async function writeStore(path: string, variables: EnvRecord[]): Promise<void> {
     }
   }
   try {
-    await rename(tempPath, path);
+    await renameWithRetry(tempPath, path);
   } catch (error) {
     await rm(tempPath, { force: true }).catch(() => {});
     throw error;

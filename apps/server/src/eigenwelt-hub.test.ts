@@ -185,6 +185,72 @@ describe("installWorkflowFiles", () => {
     ])).rejects.toThrow(ApiError);
   });
 
+  test("installs through folders that lstat reports as links but resolve inside", async () => {
+    // The cloud-synced-drive shape: OneDrive/Dropbox store every synced folder
+    // as a placeholder backed by a reparse point, which lstat reports as a
+    // symbolic link (nodejs/node#12737). A link that resolves back inside the
+    // install folder is the same shape, and rejecting on the symlink bit alone
+    // refused every hub install into a synced workspace.
+    const root = await makeWorkspace();
+    const skillsDir = useIsolatedConfigHome(root);
+    const installRoot = join(skillsDir, "synced-flow");
+    await mkdir(join(installRoot, "real-resources"), { recursive: true });
+    await symlink(join(installRoot, "real-resources"), join(installRoot, "resources"));
+
+    const result = await installWorkflowFiles(root, "synced-flow", [
+      { path: "SKILL.md", contentBase64: Buffer.from("---\nname: synced-flow\ndescription: d\n---\n").toString("base64") },
+      { path: "resources/tpl.md", contentBase64: Buffer.from("hello").toString("base64") },
+    ]);
+
+    expect(result.written).toBe(2);
+    expect(await readFile(join(installRoot, "real-resources", "tpl.md"), "utf8")).toBe("hello");
+  });
+
+  test("refuses to write through a destination link that leaves the install folder", async () => {
+    const root = await makeWorkspace();
+    const outside = await makeWorkspace();
+    const skillsDir = useIsolatedConfigHome(root);
+    const installRoot = join(skillsDir, "escaping-dest");
+    await mkdir(installRoot, { recursive: true });
+    await writeFile(join(outside, "victim.md"), "original\n", "utf8");
+    await symlink(join(outside, "victim.md"), join(installRoot, "SKILL.md"));
+
+    await expect(installWorkflowFiles(root, "escaping-dest", [
+      { path: "SKILL.md", contentBase64: "eA==" },
+    ])).rejects.toThrow(ApiError);
+    expect(await readFile(join(outside, "victim.md"), "utf8")).toBe("original\n");
+  });
+
+  test("refuses to write through a destination link that resolves nowhere", async () => {
+    const root = await makeWorkspace();
+    const outside = await makeWorkspace();
+    const skillsDir = useIsolatedConfigHome(root);
+    const installRoot = join(skillsDir, "broken-dest");
+    await mkdir(installRoot, { recursive: true });
+    // Writing through a broken link creates the file at its target.
+    await symlink(join(outside, "not-yet.md"), join(installRoot, "SKILL.md"));
+
+    await expect(installWorkflowFiles(root, "broken-dest", [
+      { path: "SKILL.md", contentBase64: "eA==" },
+    ])).rejects.toThrow(ApiError);
+    await expect(readFile(join(outside, "not-yet.md"), "utf8")).rejects.toBeDefined();
+  });
+
+  test("refuses a parent segment that is a link resolving nowhere", async () => {
+    const root = await makeWorkspace();
+    const outside = await makeWorkspace();
+    const skillsDir = useIsolatedConfigHome(root);
+    const installRoot = join(skillsDir, "broken-parent");
+    await mkdir(installRoot, { recursive: true });
+    await symlink(join(outside, "gone"), join(installRoot, "resources"));
+
+    await expect(installWorkflowFiles(root, "broken-parent", [
+      { path: "SKILL.md", contentBase64: "eA==" },
+      { path: "resources/tpl.md", contentBase64: "eA==" },
+    ])).rejects.toThrow(ApiError);
+    await expect(readFile(join(outside, "gone", "tpl.md"), "utf8")).rejects.toBeDefined();
+  });
+
   test("rejects nested symlinks before creating directories or writing files", async () => {
     const root = await makeWorkspace();
     const outside = await makeWorkspace();

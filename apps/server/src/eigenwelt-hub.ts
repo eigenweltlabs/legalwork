@@ -1,4 +1,4 @@
-import { lstat, mkdir, readdir, readFile, realpath, writeFile } from "node:fs/promises";
+import { lstat, mkdir, readdir, readFile, realpath, stat, writeFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 
 import { ApiError } from "./errors.js";
@@ -230,12 +230,44 @@ function normalizeHubFiles(
   });
 }
 
+function isEnoent(error: unknown): boolean {
+  return error instanceof Error && "code" in error && error.code === "ENOENT";
+}
+
+/** Is `candidate` the trusted base itself, or something inside it? */
+function isWithin(trustedBase: string, candidate: string): boolean {
+  return candidate === trustedBase
+    || candidate.startsWith(trustedBase + "/")
+    || candidate.startsWith(trustedBase + "\\");
+}
+
+/**
+ * Where `path` really leads, or null when it leads nowhere (missing entry,
+ * broken symlink) — which callers must treat as unsafe, never as "fine".
+ */
+async function realpathOrNull(path: string): Promise<string | null> {
+  try {
+    return await realpath(path);
+  } catch {
+    return null;
+  }
+}
+
 async function writeHubFiles(baseDir: string, files: EigenweltHubFile[]): Promise<void> {
   await mkdir(baseDir, { recursive: true });
-  if ((await lstat(baseDir)).isSymbolicLink()) {
+  // Containment is decided by resolved paths, never by the "is this a symlink?"
+  // bit. On Windows a cloud-synced drive (OneDrive Files On-Demand, Dropbox,
+  // Google Drive) stores every synced file and folder as a placeholder backed
+  // by a reparse point, and lstat reports those as symbolic links
+  // (nodejs/node#12737) — rejecting on that bit refused every install into a
+  // synced workspace, while a placeholder resolves to itself and so passes the
+  // check that actually matters.
+  const trustedBase = await realpath(baseDir);
+  // The install folder must sit where the caller put it: a symlink planted at
+  // that name would redirect the whole install somewhere else on disk.
+  if (!isWithin(await realpath(dirname(baseDir)), trustedBase)) {
     throw new ApiError(400, "invalid_hub_path", "Refusing to install through a symlinked destination.");
   }
-  const trustedBase = await realpath(baseDir);
   const destinations: Array<{ dest: string; file: EigenweltHubFile }> = [];
   for (const file of files) {
     const dest = resolveSafeChild(baseDir, file.path);
@@ -243,30 +275,45 @@ async function writeHubFiles(baseDir: string, files: EigenweltHubFile[]): Promis
     const parentSegments = dirname(file.path).split("/").filter((segment) => segment !== ".");
     for (const segment of parentSegments) {
       parent = join(parent, segment);
-      try {
-        const entry = await lstat(parent);
-        if (entry.isSymbolicLink() || !entry.isDirectory()) {
-          throw new ApiError(400, "invalid_hub_path", `Unsafe shared file parent: ${file.path}`);
-        }
-      } catch (error) {
-        if (error instanceof ApiError) throw error;
-        if (!(error instanceof Error) || !("code" in error) || error.code !== "ENOENT") throw error;
+      // stat, not lstat: it follows the entry, so a placeholder directory reads
+      // as the directory it is and a link to a file still reads as a file.
+      const entry = await stat(parent).catch(() => null);
+      if (entry && !entry.isDirectory()) {
+        throw new ApiError(400, "invalid_hub_path", `Unsafe shared file parent: ${file.path}`);
+      }
+      if (!entry) {
         // Create one segment at a time only after its parent was verified. A
         // recursive mkdir could follow an existing nested symlink first.
-        await mkdir(parent);
+        try {
+          await mkdir(parent);
+        } catch (error) {
+          // EEXIST after stat found nothing means something is at that name
+          // that stat could not follow — a broken link, typically. Refuse it
+          // rather than let a later write go through it.
+          if (error instanceof Error && "code" in error && error.code === "EEXIST") {
+            throw new ApiError(400, "invalid_hub_path", `Unsafe shared file parent: ${file.path}`);
+          }
+          throw error;
+        }
       }
-      const trustedParent = await realpath(parent);
-      if (trustedParent !== trustedBase && !trustedParent.startsWith(trustedBase + "/") && !trustedParent.startsWith(trustedBase + "\\")) {
+      const trustedParent = await realpathOrNull(parent);
+      if (!trustedParent || !isWithin(trustedBase, trustedParent)) {
         throw new ApiError(400, "invalid_hub_path", `Shared file parent escapes through a symlink: ${file.path}`);
       }
     }
-    try {
-      if ((await lstat(dest)).isSymbolicLink()) {
+    // An existing destination may be a link; writing through it would land
+    // outside the install folder. Where it resolves to decides: a placeholder
+    // resolves to itself, a link out of the base is refused, and a broken link
+    // — which resolves nowhere — is refused too, since writing through it
+    // would create the file at its target. Only a genuinely absent path is
+    // allowed to skip the check (lstat failing for any other reason means
+    // something is there that we could not read).
+    const present = await lstat(dest).then(() => true, (error) => !isEnoent(error));
+    if (present) {
+      const trustedDest = await realpathOrNull(dest);
+      if (!trustedDest || !isWithin(trustedBase, trustedDest)) {
         throw new ApiError(400, "invalid_hub_path", `Refusing to overwrite a symlink: ${file.path}`);
       }
-    } catch (error) {
-      if (error instanceof ApiError) throw error;
-      if (!(error instanceof Error) || !("code" in error) || error.code !== "ENOENT") throw error;
     }
     destinations.push({ dest, file });
   }

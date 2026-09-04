@@ -1,10 +1,10 @@
-import { readFile, rename, rm, writeFile } from "node:fs/promises";
+import { readFile, rm, writeFile } from "node:fs/promises";
 import { basename, dirname, resolve } from "node:path";
 import { recordAudit } from "../audit.js";
 import { ApiError } from "../errors.js";
 import { inheritWorkspaceOpencodeConnection, resolveWorkspaceOpencodeConnection } from "../opencode-connection.js";
 import type { ServerConfig, WorkspaceInfo } from "../types.js";
-import { ensureDir, exists, shortId } from "../utils.js";
+import { ensureDir, exists, renameWithRetry, shortId } from "../utils.js";
 import { ensureWorkspaceFiles } from "../workspace-init.js";
 import { workspaceIdForPath, workspaceIdForRemote } from "../workspaces.js";
 import { addRoute, type Route } from "./registry.js";
@@ -221,7 +221,7 @@ async function persistServerWorkspaceState(config: ServerConfig): Promise<boolea
   const tmpPath = `${configPath}.tmp.${shortId()}`;
   try {
     await writeFile(tmpPath, `${JSON.stringify(next, null, 2)}\n`, "utf8");
-    await rename(tmpPath, configPath);
+    await renameWithRetry(tmpPath, configPath);
     return true;
   } finally {
     try {

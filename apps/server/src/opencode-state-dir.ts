@@ -24,7 +24,7 @@
  * the Electron main process (separate package, no shared module) — keep the
  * two in sync.
  */
-import { lstat, mkdir, rename } from "node:fs/promises";
+import { lstat, mkdir, rename, stat } from "node:fs/promises";
 import { join } from "node:path";
 
 export const OPENCODE_STATE_DIR_NAME = ".opencode";
@@ -35,6 +35,30 @@ export type OpencodeStateDirRepair = {
   /** Where a stray non-directory entry was moved, when one was found. */
   movedTo: string | null;
 };
+
+/**
+ * Whether `path` leads to a directory, following whatever the entry is.
+ *
+ * This is the tie-breaker for the lstat check below. On Windows a workspace on
+ * a cloud-synced drive (OneDrive Files On-Demand, Dropbox, Google Drive) is
+ * made of *placeholders*: every synced file and folder carries a reparse point,
+ * which lstat reports as a symbolic link rather than a directory
+ * (nodejs/node#12737). Trusting lstat alone there would move a real, populated
+ * `.opencode` aside on every launch — deleting the user's skills and MCP config
+ * from LegalWork's view — or fail the launch outright when the sync client
+ * holds the folder open and the rename cannot go through.
+ *
+ * stat follows the reparse point and answers truthfully, and it still answers
+ * "no" for the cases the repair exists for: a stray file, a symlink to a file,
+ * and a broken symlink.
+ */
+async function resolvesToDirectory(path: string): Promise<boolean> {
+  try {
+    return (await stat(path)).isDirectory();
+  } catch {
+    return false;
+  }
+}
 
 /** `<root>/.opencode.invalid-<timestamp>`, with a numeric suffix on collision. */
 async function reserveBackupPath(statePath: string, now: number): Promise<string> {
@@ -73,7 +97,7 @@ export async function ensureOpencodeStateDir(
     entry = null;
   }
 
-  if (entry && !entry.isDirectory()) {
+  if (entry && !entry.isDirectory() && !(await resolvesToDirectory(statePath))) {
     movedTo = await reserveBackupPath(statePath, now);
     try {
       await rename(statePath, movedTo);
