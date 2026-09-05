@@ -14,6 +14,31 @@
   container-type: inline-size;
 }
 
+/* Keep the selected native card readable and anchored to its rendered revision.
+   Its ancestors are scaled with the page, so the host supplies an inverse scale. */
+.docx-host .docx-unified-sidebar [data-docx-review-anchor] {
+  position: absolute !important;
+  top: var(--docx-review-top) !important;
+  left: var(--docx-review-left) !important;
+  right: auto !important;
+  width: var(--docx-review-width) !important;
+  max-height: var(--docx-review-max-height);
+  overflow-y: auto;
+  border-radius: 8px;
+  box-shadow: 0 2px 10px var(--doc-shadow-strong);
+  transform: scale(var(--docx-review-scale));
+  transform-origin: top left;
+  transition: none !important;
+  visibility: var(--docx-review-visibility) !important;
+  opacity: 1 !important;
+  z-index: 100;
+}
+
+/* A selected card follows its text instead of participating in the stacked list. */
+.docx-host .docx-unified-sidebar:has([data-docx-review-anchor]) > div > div:not([data-docx-review-anchor]) {
+  visibility: hidden;
+}
+
 /* In a side pane, annotations open over the page when their inline mark is
    selected. Reserve a separate review rail only when there is room for it. */
 @container (max-width: 899px) {

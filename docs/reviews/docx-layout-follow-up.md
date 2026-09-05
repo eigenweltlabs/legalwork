@@ -18,11 +18,15 @@ Validation on the production components in the synthetic DOCX harness:
 
 Screenshots use only the synthetic fixture: [narrow panel](docx-narrow-layout.png), [expanded macOS-style view](docx-expanded-mac-layout.png). The title-bar check uses the app's macOS CSS classes in the browser harness; native window controls are not rendered in that screenshot.
 
-## Tracked-change card regression
+## Selected review cards
 
-The stack merge omitted the voice branch's handler that kept a clicked native review card expanded. In the narrow layout, the editor's deferred caret update could collapse the card, making it disappear. The host now remembers the clicked revision ID and restores that native card after rendering. It resolves the ID against the current document each time, including both halves of replacements and coalesced revisions. Clicking elsewhere or interacting with the card returns control to the editor.
+The stack merge omitted the voice branch's handler that kept a clicked native review card expanded. The host now remembers the clicked revision ID and restores that native card after rendering, resolving both halves of replacements and coalesced revisions against the current document.
 
-The browser regression uses the production editor with the synthetic fixture. It checks deletion and insertion clicks, persistence through the delayed caret update, dismissal, 620px and 420px panels, expansion, Accept and Reject, and save/reopen. Revision replies remain independent paragraph comments, as documented in the hardening review, and survive rejection. It passes without resetting zoom or replacing the native review controls.
+Selected cards are positioned from the clicked text's rendered rectangle, independently of the sidebar's collision stack. They follow scrolling, resizing and page zoom, remain readable at 340px where space permits, stay inside the editor viewport, and move below/above the text when there is no room beside it. A card hides while its anchor is offscreen. Other cards are hidden during this focused selection so they cannot overlap it; native actions and replies remain available.
+
+The interaction regression uses the production editor with the original synthetic fixture. It checks deletion and insertion clicks, delayed caret updates, dismissal, 620px and 420px panels, expansion, Accept and Reject, and save/reopen. Revision replies remain independent paragraph comments and survive rejection.
+
+The positioning regression uses a three-page synthetic document with 13 revisions, including 12 adjacent table replacements on page two. It verifies the correct card, a vertical gap of at most 13px from the selected text, viewport containment, no overlap with the selected text, and readable card width. Cases cover scrolling offscreen and back, placement near the bottom edge, replying, accepting another revision, 420px/620px panels, expansion, and manual zoom.
 
 Reproduce from the repository root with `PORT=5174 pnpm dev:ui`, then:
 
@@ -31,8 +35,13 @@ mkdir -p output/playwright
 pnpm dlx @playwright/cli --session docx-card open http://localhost:5174/docx-review.html
 pnpm dlx @playwright/cli --session docx-card run-code --filename=apps/app/scripts/docx-review-cards.js
 pnpm dlx @playwright/cli --session docx-card close
+pnpm dlx @playwright/cli --session docx-position open 'http://localhost:5174/docx-review.html?fixture=positions'
+pnpm dlx @playwright/cli --session docx-position run-code --filename=apps/app/scripts/docx-review-position.js
+pnpm dlx @playwright/cli --session docx-position close
 ```
 
-Also passed: `pnpm typecheck`, `pnpm build:ui`, `git diff --check`, and `node --experimental-strip-types --test apps/app/tests/docx-document-state.test.ts apps/app/tests/docx-roundtrip.test.ts` (10 tests). The browser logs the existing fixture favicon 404, dependency externalization warning, and Eigenpal controlled-input warnings during review/reopen; these did not prevent the interaction and persistence checks. This uses sample data in the browser harness, not a client's document.
+Both browser checks passed, together with `pnpm typecheck`, `pnpm build:ui`, `git diff --check`, and `node --experimental-strip-types --test apps/app/tests/docx-document-state.test.ts apps/app/tests/docx-roundtrip.test.ts` (10 tests). The browser logs the existing fixture favicon 404, dependency externalization warning, and Eigenpal controlled-input warnings during review/reopen; these did not prevent the interaction and persistence checks. This uses sample data in the browser harness, not a client's document.
 
 [Selected revision in a narrow panel](tracked-card-620.png) · [Selected revision in the expanded editor](tracked-card-expanded.png)
+
+[Table revision in a narrow panel](table-card-620.png) · [Table revision in the expanded editor](table-card-expanded.png)
