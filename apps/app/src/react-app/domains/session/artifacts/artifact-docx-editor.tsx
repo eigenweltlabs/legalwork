@@ -2,6 +2,9 @@
 import { type RefObject, useCallback, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from "react";
 import { DocxEditor, type DocxEditorRef, type EditorMode } from "@eigenpal/docx-editor-react";
 import { DocxReviewer } from "@eigenpal/docx-editor-agents";
+import { useDocxAgentTools } from "@eigenpal/docx-editor-agents/react";
+import { acceptChangeById, rejectChangeById } from "@eigenpal/docx-editor-core/prosemirror/commands";
+import { extractTrackedChanges } from "@eigenpal/docx-editor-core/prosemirror/utils/extractTrackedChanges";
 import "@eigenpal/docx-editor-react/styles.css";
 
 import { getInitialThemeMode, subscribeToTheme, type ThemeMode } from "@/app/theme";
@@ -17,7 +20,15 @@ export type DocxEditorApi = {
   save: () => Promise<boolean>;
   /** Serialize the live draft without writing to the workspace or clearing its dirty state. */
   getBuffer: () => Promise<ArrayBuffer | null>;
+  executeAgentTool: (toolName: string, args: Record<string, unknown>) => Promise<DocxEditorToolResult>;
   discardRecovery: () => void;
+};
+
+export type DocxEditorToolResult = {
+  success: boolean;
+  data?: unknown;
+  error?: string;
+  saved?: boolean;
 };
 
 type ArtifactDocxEditorProps = {
@@ -39,6 +50,53 @@ let documentInstance = 0;
 // Eigenpal's File > Save exports a download, even when onSave is supplied.
 // Name that action accurately; the panel Save button / Cmd+S persist to the workspace.
 const EDITOR_LABELS = { toolbar: { save: "Download copy", saveShortcut: "" } };
+
+const REVIEW_TOOL_NAMES = new Set(["accept_changes", "reject_changes"]);
+
+function requestedChangeIds(args: Record<string, unknown>): number[] | null {
+  if (!Array.isArray(args.changeIds)) return null;
+  const ids = args.changeIds.filter(
+    (value): value is number => typeof value === "number" && Number.isInteger(value) && value >= 0,
+  );
+  return ids.length === args.changeIds.length && ids.length > 0 ? [...new Set(ids)] : null;
+}
+
+function decideTrackedChanges(
+  editor: DocxEditorRef | null,
+  decision: "accept" | "reject",
+  requestedIds: number[],
+): DocxEditorToolResult {
+  const view = editor?.getEditorRef()?.getView();
+  if (!view) return { success: false, error: "The document editor is not ready." };
+
+  const { entries } = extractTrackedChanges(view.state);
+  const ids = new Set<number>();
+  for (const requestedId of requestedIds) {
+    const entry = entries.find((candidate) => (
+      Number(candidate.revisionId) === requestedId
+      || Number(candidate.insertionRevisionId) === requestedId
+      || candidate.coalescedRevisionIds?.some((id) => Number(id) === requestedId)
+    ));
+    if (!entry) {
+      ids.add(requestedId);
+      continue;
+    }
+    ids.add(Number(entry.revisionId));
+    if (entry.insertionRevisionId !== undefined) ids.add(Number(entry.insertionRevisionId));
+    entry.coalescedRevisionIds?.forEach((id) => ids.add(Number(id)));
+  }
+
+  const command = decision === "accept" ? acceptChangeById : rejectChangeById;
+  let applied = 0;
+  for (const id of ids) {
+    if (command(id)(view.state, view.dispatch)) applied += 1;
+  }
+  if (applied === 0) {
+    return { success: false, error: "None of those tracked-change IDs exist in the open document." };
+  }
+  const verb = decision === "accept" ? "Accepted" : "Rejected";
+  return { success: true, data: `${verb} ${applied} tracked-change revision${applied === 1 ? "" : "s"}.` };
+}
 
 function useThemeColorMode(): ThemeMode {
   return useSyncExternalStore(subscribeToTheme, getInitialThemeMode, getInitialThemeMode);
@@ -94,6 +152,7 @@ function LiveDocxEditor({ name, content, author, readOnly = false, onSave, onDir
     try { return window.localStorage.getItem(AUTHOR_KEY) ?? ""; } catch { return ""; }
   });
   const editorRef = useRef<DocxEditorRef>(null);
+  const { executeToolCall } = useDocxAgentTools({ editorRef, author: "LegalWork AI" });
   const revision = useRef(0);
   const ready = useRef(false);
   const pendingSave = useRef<Promise<boolean> | null>(null);
@@ -185,13 +244,40 @@ function LiveDocxEditor({ name, content, author, readOnly = false, onSave, onDir
 
   useEffect(() => {
     if (!apiRef) return;
-    apiRef.current = { save, getBuffer, discardRecovery: () => {
+    apiRef.current = { save, getBuffer,
+      executeAgentTool: async (toolName, args) => {
+        if (readOnly) return { success: false, error: "This document is read-only." };
+        if (!ready.current) return { success: false, error: "The document editor is not ready." };
+        const isReviewDecision = REVIEW_TOOL_NAMES.has(toolName);
+        let result: DocxEditorToolResult;
+        if (isReviewDecision) {
+          const changeIds = requestedChangeIds(args);
+          if (!changeIds) {
+            return { success: false, error: "changeIds must be a non-empty array of tracked-change IDs." };
+          }
+          result = decideTrackedChanges(
+            editorRef.current,
+            toolName === "accept_changes" ? "accept" : "reject",
+            changeIds,
+          );
+        } else {
+          result = executeToolCall(toolName, args);
+        }
+        if (!result.success) return result;
+        const mutatesDocument = toolName === "suggest_change" || toolName === "add_comment" || isReviewDecision;
+        if (!mutatesDocument) return result;
+        markDirty();
+        const saved = await save();
+        if (!saved) return { success: false, error: "The document changed in the editor but could not be saved." };
+        return { ...result, saved: true };
+      },
+    discardRecovery: () => {
       dirty.current = false;
       onDirtyChange?.(false);
       if (recoveryKey) void removeDocxRecovery(recoveryKey).catch(() => toast.error("The old recovery copy could not be cleared."));
     } };
     return () => { apiRef.current = null; };
-  }, [apiRef, save, getBuffer, onDirtyChange, recoveryKey]);
+  }, [apiRef, save, getBuffer, onDirtyChange, recoveryKey, executeToolCall, markDirty, readOnly]);
 
   useControlActions([
     {

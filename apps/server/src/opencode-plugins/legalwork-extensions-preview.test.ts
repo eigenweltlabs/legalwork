@@ -18,7 +18,7 @@ afterEach(async () => {
 });
 
 /** Point the plugin at a fake UI bridge that serves one snapshot payload. */
-async function withBridge(snapshot: unknown) {
+async function withBridge(snapshot: unknown, execute?: (body: unknown) => unknown) {
   const root = await mkdtemp(join(tmpdir(), "legalwork-ui-bridge-"));
   roots.push(root);
   const discovery = join(root, "legalwork-ui-control.json");
@@ -28,9 +28,13 @@ async function withBridge(snapshot: unknown) {
 
   originalFetch = globalThis.fetch;
   globalThis.fetch = Object.assign(
-    async (input: Parameters<typeof fetch>[0]) => {
+    async (input: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]) => {
       const url = input instanceof Request ? input.url : input.toString();
       if (url.endsWith("/snapshot")) return Response.json(snapshot);
+      if (url.endsWith("/execute") && execute) {
+        const body = typeof init?.body === "string" ? JSON.parse(init.body) : null;
+        return Response.json(execute(body));
+      }
       return new Response("Not found", { status: 404 });
     },
     { preconnect: originalFetch.preconnect },
@@ -84,5 +88,110 @@ describe("legalwork_ui_snapshot session identity", () => {
     const plugin = await LegalWorkExtensionsPreview();
     expect(plugin.tool.legalwork_ui_snapshot.description).toContain("session.id");
     expect(plugin.tool.legalwork_ui_snapshot.description).toContain("never from `route`");
+  });
+});
+
+describe("in-app Word document routing", () => {
+  const activeDocumentSnapshot = {
+    ok: true,
+    route: "/workspace/ws_matter/session/ses_open",
+    activeSurface: {
+      id: "ses_open:file:compensation-memo.docx",
+      kind: "document",
+      format: "docx",
+      sessionId: "ses_open",
+      workspaceId: "ws_matter",
+      name: "compensation-memo.docx",
+      path: "compensation-memo.docx",
+      editable: true,
+      agentEditsTracked: true,
+    },
+    actions: [],
+  };
+
+  test("injects the active document and live tracked-edit route for the matching session", async () => {
+    await withBridge(activeDocumentSnapshot);
+    const plugin = await LegalWorkExtensionsPreview();
+    const output: { system: string[] } = { system: [] };
+
+    await plugin["experimental.chat.system.transform"]({ sessionID: "ses_open" }, output);
+
+    const system = output.system.join("\n");
+    expect(system).toContain("compensation-memo.docx");
+    expect(system).toContain("inapp_docx_suggest_change");
+    expect(system).toContain("inapp_docx_reject_changes");
+    expect(system).toContain("save automatically");
+    expect(system).toContain("Do not search LegalMemory merely");
+  });
+
+  test("does not claim a document open in a different session", async () => {
+    await withBridge(activeDocumentSnapshot);
+    const plugin = await LegalWorkExtensionsPreview();
+    const output: { system: string[] } = { system: [] };
+
+    await plugin["experimental.chat.system.transform"]({ sessionID: "ses_other" }, output);
+
+    expect(output.system.join("\n")).not.toContain("The active right-hand document");
+  });
+
+  test("blocks Bash from reading the document that is open in the editor", async () => {
+    await withBridge(activeDocumentSnapshot);
+    const plugin = await LegalWorkExtensionsPreview();
+
+    await expect(plugin["tool.execute.before"](
+      { tool: "bash", sessionID: "ses_open", callID: "call_1" },
+      { args: { command: 'node docx-agent.mjs inspect "compensation-memo.docx"' } },
+    )).rejects.toThrow("use inapp_docx_* tools");
+  });
+
+  test("routes in-app document tools to the matching session-scoped editor action", async () => {
+    let request: unknown;
+    await withBridge(activeDocumentSnapshot, (body) => {
+      request = body;
+      return {
+        ok: true,
+        actionId: "document.agent_tool",
+        result: { ok: true, data: "[P1] Compensation", saved: false },
+      };
+    });
+    const plugin = await LegalWorkExtensionsPreview();
+
+    const raw = await plugin.tool.inapp_docx_read_document.execute(
+      { fromIndex: 0, toIndex: 5 },
+      { sessionID: "ses_open" },
+    );
+
+    expect(request).toEqual({
+      actionId: "document.agent_tool",
+      args: {
+        sessionId: "ses_open",
+        toolName: "read_document",
+        args: { fromIndex: 0, toIndex: 5 },
+      },
+    });
+    expect(JSON.parse(raw)).toMatchObject({ ok: true, result: { data: "[P1] Compensation" } });
+  });
+
+  test("routes targeted tracked-change rejection to the live editor", async () => {
+    let request: unknown;
+    await withBridge(activeDocumentSnapshot, (body) => {
+      request = body;
+      return { ok: true, actionId: "document.agent_tool", result: { ok: true, saved: true } };
+    });
+    const plugin = await LegalWorkExtensionsPreview();
+
+    await plugin.tool.inapp_docx_reject_changes.execute(
+      { changeIds: [11, 12] },
+      { sessionID: "ses_open" },
+    );
+
+    expect(request).toEqual({
+      actionId: "document.agent_tool",
+      args: {
+        sessionId: "ses_open",
+        toolName: "reject_changes",
+        args: { changeIds: [11, 12] },
+      },
+    });
   });
 });

@@ -6,6 +6,7 @@ import type { SessionStatus } from "@opencode-ai/sdk/v2/client";
 import { Check, Minimize2, TriangleAlert } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "@/components/ui/sonner";
+import { cn } from "@/lib/utils";
 
 import { analyticsSurface, captureAnalyticsEvent } from "@/app/lib/analytics";
 import { analyticsErrorService, analyticsErrorStatus } from "@/app/lib/analytics-error";
@@ -55,6 +56,11 @@ import {
 } from "@/app/lib/app-inspector";
 import { useControlAction, type LegalworkControlAction } from "@/react-app/shell/control/control-provider";
 import { ReactSessionComposer } from "./composer/composer";
+import {
+  VoicePanel,
+  type VoiceOpenCodeJobSnapshot,
+} from "@/react-app/domains/session/voice/voice-panel";
+import { collectVoiceActivity } from "@/react-app/domains/session/voice/voice-activity";
 import {
   createLegalMemoryComposerMention,
   decodeComposerMentionValue,
@@ -115,6 +121,7 @@ import {
 const EMPTY_TRANSCRIPT: UIMessage[] = [];
 const IDLE_STATUS: SessionStatus = { type: "idle" };
 const DEFAULT_COMPOSER_CONTROL_TEXT = "Help me outline the next LegalWork task.";
+const VOICE_JOB_COMPLETION_SETTLE_MS = 3_000;
 
 type SessionError = {
   message: string;
@@ -179,6 +186,9 @@ export type SessionSurfaceProps = {
   onOpenTarget?: (target: OpenTarget, options?: OpenTargetOptions, sessionId?: string) => void;
   environmentRuntimeKey?: string | null;
   onApplyEnvironmentChanges?: () => Promise<ApplyEnvironmentChangesResult>;
+  realtimeVoiceSupported?: boolean;
+  realtimeVoiceActive?: boolean;
+  onRealtimeVoiceActiveChange?: (active: boolean) => void;
 };
 
 function messageToReadableText(message: UIMessage) {
@@ -205,6 +215,20 @@ function transcriptToText(messages: UIMessage[]) {
       return text ? [text] : [];
     })
     .join("\n\n---\n\n");
+}
+
+function assistantCanonicalText(message: UIMessage) {
+  if (message.role !== "assistant") return "";
+  return message.parts
+    .flatMap((part) => part.type === "text" ? [part.text] : [])
+    .join("\n\n")
+    .trim();
+}
+
+function messagesHaveRunningTool(messages: UIMessage[]) {
+  return messages.some((message) => message.parts.some((part) => (
+    part.type === "dynamic-tool" && part.state !== "output-available" && part.state !== "output-error"
+  )));
 }
 
 function statusLabel(snapshot: LegalworkSessionSnapshot | undefined, busy: boolean) {
@@ -542,6 +566,9 @@ export function SessionSurface(props: SessionSurfaceProps) {
   const sessionActivityStatus = useSessionActivityStore(
     (state) => state.statusesByWorkspaceId[props.workspaceId]?.[props.sessionId] ?? "idle",
   );
+  const sessionActivityError = useSessionActivityStore(
+    (state) => state.recordsByWorkspaceId[props.workspaceId]?.[props.sessionId]?.errorMessage ?? null,
+  );
   const draft = useComposerStateStore((state) => getComposerDraft(state, props.sessionId));
   const attachments = useComposerStateStore((state) => getComposerAttachments(state, props.sessionId));
   const mentions = useComposerStateStore((state) => getComposerMentions(state, props.sessionId));
@@ -689,6 +716,13 @@ export function SessionSurface(props: SessionSurfaceProps) {
   const [sending, setSending] = useState(false);
   const [showDelayedLoading, setShowDelayedLoading] = useState(false);
   const [awaitingAssistantBaseline, setAwaitingAssistantBaseline] = useState<number | null>(null);
+  const [voiceJob, setVoiceJob] = useState<(VoiceOpenCodeJobSnapshot & {
+    workspaceId: string;
+    sessionId: string;
+    baseline: number;
+    observedRun: boolean;
+  }) | null>(null);
+  const voiceJobRef = useRef(voiceJob);
   const [rendered, setRendered] = useState<{ sessionId: string; snapshot: LegalworkSessionSnapshot } | null>(null);
   const [toolSkills, setToolSkills] = useState<SkillCard[]>([]);
   const [toolMcpServers, setToolMcpServers] = useState<McpServerEntry[]>([]);
@@ -1168,6 +1202,140 @@ export function SessionSurface(props: SessionSurfaceProps) {
     });
     await snapshotQuery.refetch();
   }, [chatStreaming, clearQueuedDrafts, opencodeClient, props.sessionId, props.workspaceRoot, snapshotQuery.refetch]);
+
+  const startVoiceJob = useCallback(async (request: string) => {
+    const text = request.trim();
+    if (!text) throw new Error("The request is empty.");
+    const current = voiceJobRef.current;
+    if (current && !["completed", "cancelled", "error"].includes(current.status)) {
+      unwrap(await opencodeClient.session.promptAsync({
+        sessionID: props.sessionId,
+        directory: props.workspaceRoot.trim() || undefined,
+        model: props.selectedModel,
+        agent: props.selectedAgent ?? undefined,
+        parts: [{ type: "text", text }],
+      }));
+      return { jobId: current.id };
+    }
+    if (chatStreaming) {
+      throw new Error("I’m still working on the current request. Please wait a moment.");
+    }
+
+    const jobId = `voice_${crypto.randomUUID()}`;
+    const job = {
+      id: jobId,
+      status: "queued" as const,
+      workspaceId: props.workspaceId,
+      sessionId: props.sessionId,
+      baseline: renderedMessages.length,
+      observedRun: false,
+    };
+    voiceJobRef.current = job;
+    setVoiceJob(job);
+    setAwaitingAssistantBaseline(renderedMessages.length);
+    useSessionActivityStore.getState().setRunStatus(props.workspaceId, props.sessionId, { type: "busy" });
+
+    // Work selected by the voice conversation enters the same canonical
+    // session and follows its normal event and transcript path.
+    void (async () => {
+      try {
+        unwrap(await opencodeClient.session.promptAsync({
+          sessionID: props.sessionId,
+          directory: props.workspaceRoot.trim() || undefined,
+          model: props.selectedModel,
+          agent: props.selectedAgent ?? undefined,
+          parts: [{ type: "text", text }],
+        }));
+      } catch (jobError) {
+        const message = jobError instanceof Error ? jobError.message : String(jobError);
+        setVoiceJob((activeJob) => {
+          if (!activeJob || activeJob.id !== jobId) return activeJob;
+          const failed = { ...activeJob, status: "error" as const, error: message };
+          voiceJobRef.current = failed;
+          return failed;
+        });
+        useSessionActivityStore.getState().setError(props.workspaceId, props.sessionId, message);
+      }
+    })();
+
+    return { jobId };
+  }, [chatStreaming, opencodeClient, props.selectedAgent, props.selectedModel, props.sessionId, props.workspaceId, props.workspaceRoot, renderedMessages.length]);
+
+  useEffect(() => {
+    voiceJobRef.current = voiceJob;
+  }, [voiceJob]);
+
+  useEffect(() => {
+    setVoiceJob((current) => {
+      if (!current || (current.workspaceId === props.workspaceId && current.sessionId === props.sessionId)) return current;
+      voiceJobRef.current = null;
+      return null;
+    });
+  }, [props.sessionId, props.workspaceId]);
+
+  useEffect(() => {
+    setVoiceJob((current) => {
+      if (!current || ["completed", "cancelled", "error"].includes(current.status)) return current;
+      if (sessionActivityStatus === "error") {
+        const failed = { ...current, status: "error" as const, error: sessionActivityError || "I couldn’t complete that request." };
+        voiceJobRef.current = failed;
+        return failed;
+      }
+
+      const jobMessages = renderedMessages.slice(current.baseline);
+      const observedRun = current.observedRun || effectiveActivityStatus !== "idle" || jobMessages.length > 0;
+
+      let status: VoiceOpenCodeJobSnapshot["status"] = current.status;
+      if (effectiveActivityStatus === "waiting") status = "waiting_approval";
+      else if (messagesHaveRunningTool(jobMessages)) status = "tool_use";
+      else if (effectiveActivityStatus !== "idle") status = "thinking";
+
+      if (status === current.status && observedRun === current.observedRun) {
+        return current;
+      }
+      const next = {
+        ...current,
+        status,
+        observedRun,
+      };
+      voiceJobRef.current = next;
+      return next;
+    });
+  }, [effectiveActivityStatus, renderedMessages, sessionActivityError, sessionActivityStatus]);
+
+  useEffect(() => {
+    const current = voiceJobRef.current;
+    if (
+      !current
+      || ["completed", "cancelled", "error"].includes(current.status)
+      || !current.observedRun
+      || effectiveActivityStatus !== "idle"
+    ) return;
+    const jobMessages = renderedMessages.slice(current.baseline);
+    if (messagesHaveRunningTool(jobMessages)) return;
+    const canonicalResult = jobMessages
+      .map(assistantCanonicalText)
+      .filter(Boolean)
+      .at(-1) ?? "";
+    if (!canonicalResult) return;
+
+    const jobId = current.id;
+    const timer = window.setTimeout(() => {
+      setVoiceJob((activeJob) => {
+        if (!activeJob || activeJob.id !== jobId || ["completed", "cancelled", "error"].includes(activeJob.status)) {
+          return activeJob;
+        }
+        const completed = { ...activeJob, status: "completed" as const, result: canonicalResult };
+        voiceJobRef.current = completed;
+        return completed;
+      });
+    }, VOICE_JOB_COMPLETION_SETTLE_MS);
+    return () => window.clearTimeout(timer);
+  }, [effectiveActivityStatus, renderedMessages]);
+
+  const voiceActivity = useMemo(() => (
+    voiceJob ? collectVoiceActivity(renderedMessages.slice(voiceJob.baseline)) : []
+  ), [renderedMessages, voiceJob]);
 
   const handleDismissError = useCallback(() => {
     setError(null);
@@ -1656,6 +1824,7 @@ export function SessionSurface(props: SessionSurfaceProps) {
       <div className="relative min-h-0 flex-1">
         <div
           ref={scrollRef}
+          aria-hidden={props.realtimeVoiceActive || undefined}
           onWheel={(event) => {
             sessionScroll.markScrollGesture(event.target);
           }}
@@ -1670,7 +1839,10 @@ export function SessionSurface(props: SessionSurfaceProps) {
             sessionScroll.markScrollGesture(event.currentTarget);
           }}
           onScroll={sessionScroll.handleScroll}
-          className="absolute inset-0 overflow-x-hidden overflow-y-auto overscroll-y-contain px-3 py-4 sm:px-5"
+          className={cn(
+            "absolute inset-0 overflow-x-hidden overflow-y-auto overscroll-y-contain px-3 py-4 sm:px-5",
+            props.realtimeVoiceActive && "pointer-events-none",
+          )}
         >
           {/* Chat column: tighter than the composer (800px) so messages
                keep a comfortable reading width and don't feel "too big". */}
@@ -1745,12 +1917,25 @@ export function SessionSurface(props: SessionSurfaceProps) {
             )}
           </div>
         </div>
-        <SessionScrollOverlay
-          sessionId={props.sessionId}
-          isStreaming={chatStreaming}
-          onJumpToLatest={sessionScroll.jumpToLatest}
-          onJumpToStartOfMessage={sessionScroll.jumpToStartOfMessage}
-        />
+        {props.realtimeVoiceActive && props.realtimeVoiceSupported ? (
+          <VoicePanel
+            client={props.client}
+            workspaceId={props.workspaceId}
+            sessionId={props.sessionId}
+            sessionContext={transcriptToText(renderedMessages)}
+            job={voiceJob}
+            activity={voiceActivity}
+            onStartJob={startVoiceJob}
+            onClose={() => props.onRealtimeVoiceActiveChange?.(false)}
+          />
+        ) : (
+          <SessionScrollOverlay
+            sessionId={props.sessionId}
+            isStreaming={chatStreaming}
+            onJumpToLatest={sessionScroll.jumpToLatest}
+            onJumpToStartOfMessage={sessionScroll.jumpToStartOfMessage}
+          />
+        )}
       </div>
 
       <div ref={composerShellRef} className="shrink-0 px-0 pb-2 pt-2">
@@ -1827,6 +2012,9 @@ export function SessionSurface(props: SessionSurfaceProps) {
           onFusionModelsChange={fusionAvailable ? handleFusionModelsChange : undefined}
           onToggleLiveTranscript={recorderActive ? handleToggleLiveTranscript : undefined}
           liveTranscriptActive={liveTranscriptActive}
+          realtimeVoiceSupported={props.realtimeVoiceSupported}
+          realtimeVoiceActive={props.realtimeVoiceActive}
+          onToggleRealtimeVoice={() => props.onRealtimeVoiceActiveChange?.(!props.realtimeVoiceActive)}
           onUploadInboxFiles={props.onUploadInboxFiles ?? handleUploadInboxFiles}
           compactTopSpacing={Boolean(trialEndedNoticeVisible || connectNoticeVisible || props.activeQuestion || (props.todos ?? []).some((todo) => todo.content.trim()) || props.activePermission || queuedMessages.length > 0)}
           topAccessory={

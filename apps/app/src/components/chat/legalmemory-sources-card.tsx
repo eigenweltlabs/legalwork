@@ -1,9 +1,12 @@
 "use client"
 
-import { BookMarked } from "lucide-react"
+import { useState } from "react"
+import { BookMarked, ChevronLeft, ChevronRight } from "lucide-react"
 
 import { LEGALMEMORY_OPEN_EVENT } from "@/components/markdown/legalmemory-ref"
 import { isAuthoritativeStatus, type LegalMemoryDocument } from "@/lib/legalmemory-documents"
+
+const SOURCES_PER_PAGE = 5
 
 /**
  * The sources under an answer.
@@ -27,6 +30,12 @@ export function LegalMemorySourcesCard({
   matters: Record<string, string>
   streaming: boolean
 }) {
+  const [page, setPage] = useState(0)
+  const pageCount = Math.max(1, Math.ceil(documents.length / SOURCES_PER_PAGE))
+  const currentPage = Math.min(page, pageCount - 1)
+  const pageStart = currentPage * SOURCES_PER_PAGE
+  const pagedDocuments = documents.slice(pageStart, pageStart + SOURCES_PER_PAGE)
+
   // Rendering mid-stream would grow the card a row at a time underneath a
   // paragraph still being written, moving the text the reader is reading.
   if (streaming) return null
@@ -42,7 +51,7 @@ export function LegalMemorySourcesCard({
         </span>
       </div>
       <ul className="divide-y divide-[var(--lw-border-subtle)]">
-        {documents.map((document, index) => (
+        {pagedDocuments.map((document, index) => (
           <li key={document.documentId}>
             <button
               type="button"
@@ -57,7 +66,7 @@ export function LegalMemorySourcesCard({
               className="flex w-full items-center gap-2.5 px-3 py-2 text-left transition-colors hover:bg-[var(--lw-surface-hover)]"
             >
               <span className="w-4 shrink-0 text-right text-xs tabular-nums text-[var(--lw-text-tertiary)]">
-                {index + 1}
+                {pageStart + index + 1}
               </span>
               <span className="min-w-0 flex-1">
                 <span className="flex flex-wrap items-center gap-x-2 gap-y-1">
@@ -84,6 +93,36 @@ export function LegalMemorySourcesCard({
           </li>
         ))}
       </ul>
+      {pageCount > 1 ? (
+        <nav
+          aria-label="Sources pagination"
+          className="flex items-center justify-end gap-2 border-t border-[var(--lw-border-subtle)] px-3 py-2"
+        >
+          <button
+            type="button"
+            onClick={() => setPage(Math.max(0, currentPage - 1))}
+            disabled={currentPage === 0}
+            aria-label="Previous sources page"
+            title="Previous page"
+            className="grid size-7 place-items-center rounded-md text-[var(--lw-text-secondary)] transition-colors hover:bg-[var(--lw-surface-hover)] hover:text-[var(--lw-text)] disabled:pointer-events-none disabled:opacity-35"
+          >
+            <ChevronLeft className="size-4" />
+          </button>
+          <span className="min-w-20 text-center text-xs tabular-nums text-[var(--lw-text-secondary)]">
+            Page {currentPage + 1} of {pageCount}
+          </span>
+          <button
+            type="button"
+            onClick={() => setPage(Math.min(pageCount - 1, currentPage + 1))}
+            disabled={currentPage === pageCount - 1}
+            aria-label="Next sources page"
+            title="Next page"
+            className="grid size-7 place-items-center rounded-md text-[var(--lw-text-secondary)] transition-colors hover:bg-[var(--lw-surface-hover)] hover:text-[var(--lw-text)] disabled:pointer-events-none disabled:opacity-35"
+          >
+            <ChevronRight className="size-4" />
+          </button>
+        </nav>
+      ) : null}
     </section>
   )
 }

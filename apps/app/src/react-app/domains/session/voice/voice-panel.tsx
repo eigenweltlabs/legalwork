@@ -1,104 +1,77 @@
 /** @jsxImportSource react */
-import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
-import { ChevronDown, ChevronRight, Keyboard, Loader2, Mic2, MicOff, Radio, SendHorizontal, Square, X } from "lucide-react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Loader2, Mic2, MicOff, Volume2, VolumeX } from "lucide-react";
 import { PaperGrainGradient } from "@legalwork/ui/react";
 
-import { desktopFetch } from "@/app/lib/desktop";
-import type { LegalworkServerClient, LegalworkSessionMessage } from "@/app/lib/legalwork-server";
-import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { InputGroup, InputGroupAddon, InputGroupButton, InputGroupTextarea } from "@/components/ui/input-group";
-import { ScrollArea, ScrollAreaViewport } from "@/components/ui/scroll-area";
+import type { LegalworkServerClient } from "@/app/lib/legalwork-server";
 import { cn } from "@/lib/utils";
-import { publishInspectorSlice, recordInspectorEvent } from "@/app/lib/app-inspector";
 import { useControlAction, type LegalworkControlAction } from "../../../shell/control/control-provider";
+import type { VoiceActivityItem } from "./voice-activity";
+import {
+  updateVoiceCompletionDelivery,
+  type VoiceCompletionDeliveryAttempt,
+} from "./voice-completion-delivery";
 
-type VoiceStatus = "idle" | "connecting" | "listening" | "muted" | "speaking" | "error";
+export type VoiceOpenCodeJobStatus =
+  | "queued"
+  | "thinking"
+  | "tool_use"
+  | "waiting_approval"
+  | "completed"
+  | "cancelled"
+  | "error";
 
-type VoiceTimelineEntry = {
+export type VoiceOpenCodeJobSnapshot = {
   id: string;
-  role: "user" | "assistant" | "tool" | "system";
-  text: string;
-  toolName?: string;
-  error?: boolean;
-  at: number;
+  status: VoiceOpenCodeJobStatus;
+  result?: string;
+  error?: string;
 };
 
-type VoiceRuntimeSnapshot = {
-  status: VoiceStatus;
-  statusText: string;
-  micMuted: boolean;
-  micDiagnostics: string;
-  realtimeDiagnostics: string;
-  entries: VoiceTimelineEntry[];
-  latestUserTranscript: string;
-  assistantPreview: string;
-};
+type VoiceStatus =
+  | "connecting"
+  | "listening"
+  | "thinking"
+  | "tool_use"
+  | "waiting_approval"
+  | "speaking"
+  | "error";
 
 type VoicePanelProps = {
-  client: LegalworkServerClient | null;
-  workspaceId: string | null;
-  sessionId: string | null;
+  client: LegalworkServerClient;
+  workspaceId: string;
+  sessionId: string;
+  sessionContext: string;
+  job: VoiceOpenCodeJobSnapshot | null;
+  activity: VoiceActivityItem[];
+  onStartJob: (request: string) => Promise<{ jobId: string }>;
   onClose: () => void;
 };
 
-const DEFAULT_TEXT_COMMAND = "Summarize the current LegalWork session and put the next step in the composer.";
-const VOICE_SUGGESTIONS = [
-  "Read the latest message in this session",
-  "Put a concise next step in the composer",
-  "Open extension settings",
-  "Send the current composer prompt",
-];
-const TOOL_LABELS: Record<string, string> = {
-  legalwork_snapshot: "Checking LegalWork",
-  legalwork_list_actions: "Listing controls",
-  legalwork_execute_action: "Running UI action",
+type RealtimeEvent = Record<string, unknown> & { type?: string };
+
+type VoiceRuntime = {
+  peer: RTCPeerConnection | null;
+  channel: RTCDataChannel | null;
+  stream: MediaStream | null;
+  remoteAudio: HTMLAudioElement | null;
 };
 
-const initialVoiceRuntimeSnapshot: VoiceRuntimeSnapshot = {
-  status: "idle",
-  statusText: "Ready for voice control.",
-  micMuted: false,
-  micDiagnostics: "Microphone has not started yet.",
-  realtimeDiagnostics: "Realtime is not connected.",
-  entries: [],
-  latestUserTranscript: "",
-  assistantPreview: "",
-};
+type VoiceResponsePurpose = "completion" | "progress" | null;
 
-const voiceRealtime = {
-  peer: null as RTCPeerConnection | null,
-  channel: null as RTCDataChannel | null,
-  stream: null as MediaStream | null,
-  remoteAudio: null as HTMLAudioElement | null,
-  assistantBuffer: "",
-  responseInProgress: false,
-  pendingResponse: false,
-  micMuted: false,
-};
+const ACTIVE_JOB_STATUSES = new Set<VoiceOpenCodeJobStatus>([
+  "queued",
+  "thinking",
+  "tool_use",
+  "waiting_approval",
+]);
 
-let voiceRuntimeSnapshot: VoiceRuntimeSnapshot = initialVoiceRuntimeSnapshot;
-const voiceRuntimeListeners = new Set<() => void>();
-
-function getVoiceRuntimeSnapshot() {
-  return voiceRuntimeSnapshot;
-}
-
-function subscribeVoiceRuntime(listener: () => void) {
-  voiceRuntimeListeners.add(listener);
-  return () => {
-    voiceRuntimeListeners.delete(listener);
-  };
-}
-
-function setVoiceRuntimeSnapshot(update: (current: VoiceRuntimeSnapshot) => VoiceRuntimeSnapshot) {
-  voiceRuntimeSnapshot = update(voiceRuntimeSnapshot);
-  voiceRuntimeListeners.forEach((listener) => listener());
-}
-
-function useVoiceRuntimeSnapshot() {
-  return useSyncExternalStore(subscribeVoiceRuntime, getVoiceRuntimeSnapshot, getVoiceRuntimeSnapshot);
-}
+const VOICE_PROGRESS_UPDATE_INTERVAL_MS = 30_000;
+const VOICE_FIRST_PROGRESS_DELAY_MS = 30_000;
+const VOICE_PROGRESS_POLL_INTERVAL_MS = 750;
+const VOICE_MAX_PROGRESS_UPDATES_PER_JOB = 1;
+const VOICE_COMPLETION_MAX_ATTEMPTS = 3;
+const VOICE_INPUT_RESPONSE_GRACE_MS = 2_500;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -110,659 +83,735 @@ function readString(value: unknown, key: string) {
   return typeof field === "string" ? field : "";
 }
 
-function readRecord(value: unknown, key: string): Record<string, unknown> {
-  if (!isRecord(value)) return {};
-  const field = value[key];
-  return isRecord(field) ? field : {};
-}
-
-function parseJsonRecord(value: string): Record<string, unknown> {
+function parseJsonRecord(value: string) {
   try {
-    const parsed = JSON.parse(value);
-    return isRecord(parsed) ? parsed : {};
+    const parsed: unknown = JSON.parse(value);
+    return isRecord(parsed) ? parsed : null;
   } catch {
-    return {};
+    return null;
   }
 }
 
-function safeJson(value: unknown) {
-  try {
-    return JSON.stringify(value);
-  } catch {
-    return JSON.stringify({ ok: false, error: "Could not serialize tool result" });
+function activityEventKey(activity: VoiceActivityItem) {
+  return `${activity.id}:${activity.state}`;
+}
+
+function activitySpeechKey(activity: VoiceActivityItem) {
+  return activity.label.toLocaleLowerCase().replaceAll(/\d+/g, "#").replaceAll(/\s+/g, " ").trim();
+}
+
+function voiceTextArgument(value: unknown) {
+  return readString(value, "text").trim();
+}
+
+function describeError(error: unknown) {
+  if (error instanceof DOMException && error.name === "NotAllowedError") {
+    return "Microphone access was denied. Allow microphone access for LegalWork, then try again.";
   }
-}
-
-function humanToolLabel(toolName?: string) {
-  if (!toolName) return "LegalWork action";
-  return TOOL_LABELS[toolName] ?? toolName.replace(/_/g, " ");
-}
-
-function relativeTime(at: number) {
-  const seconds = Math.max(0, Math.round((Date.now() - at) / 1000));
-  if (seconds < 5) return "now";
-  if (seconds < 60) return `${seconds}s`;
-  const minutes = Math.round(seconds / 60);
-  return `${minutes}m`;
-}
-
-function isMeaningfulTranscript(value: string) {
-  return /[\p{Letter}\p{Number}]/u.test(value);
-}
-
-function voiceTextArgument(args: unknown) {
-  if (typeof args === "string") return args.trim();
-  if (isRecord(args) && typeof args.text === "string") return args.text.trim();
-  return DEFAULT_TEXT_COMMAND;
-}
-
-function voiceAudioArgument(args: unknown) {
-  if (!isRecord(args)) return "";
-  return typeof args.pcm16Base64 === "string" ? args.pcm16Base64.trim() : "";
-}
-
-function messageText(message: LegalworkSessionMessage) {
-  return message.parts
-    .flatMap((part) => {
-      if (part.type !== "text") return [];
-      if (part.synthetic || part.ignored) return [];
-      const text = part.text.trim();
-      return text ? [text] : [];
-    })
-    .join("\n")
-    .trim();
-}
-
-function buildVoiceSessionContext(messages: LegalworkSessionMessage[]) {
-  const transcript = messages.flatMap((message, index) => {
-    const role = message.info.role;
-    if (role !== "user" && role !== "assistant") return [];
-    const text = messageText(message);
-    return text ? [{ index, role, text }] : [];
-  });
-
-  const included = new Set<number>();
-  let assistantCount = 0;
-  for (let index = transcript.length - 1; index >= 0 && assistantCount < 3; index -= 1) {
-    const item = transcript[index];
-    if (!item || item.role !== "assistant") continue;
-    included.add(item.index);
-    assistantCount += 1;
-    const previous = transcript[index - 1];
-    if (previous?.role === "user") included.add(previous.index);
-  }
-
-  const entries = transcript.filter((item) => included.has(item.index));
-  if (!entries.length) return "";
-  return entries
-    .map((item) => `${item.role === "assistant" ? "Assistant" : "User"}: ${item.text}`)
-    .join("\n\n")
-    .slice(0, 6_000);
-}
-
-async function loadVoiceSessionContext(client: LegalworkServerClient, workspaceId: string | null, sessionId: string | null) {
-  if (!workspaceId || !sessionId) return "";
-  try {
-    const response = await client.getSessionMessages(workspaceId, sessionId, { limit: 40 });
-    return buildVoiceSessionContext(response.items);
-  } catch {
-    return "";
-  }
-}
-
-function waitForDataChannelOpen(channel: RTCDataChannel) {
-  if (channel.readyState === "open") return Promise.resolve();
-  return new Promise<void>((resolve, reject) => {
-    const cleanup = () => {
-      window.clearTimeout(timeout);
-      channel.removeEventListener("open", handleOpen);
-      channel.removeEventListener("close", handleClose);
-      channel.removeEventListener("error", handleError);
-    };
-    const timeout = window.setTimeout(() => {
-      cleanup();
-      reject(new Error("Realtime data channel did not open in time."));
-    }, 10_000);
-    const handleOpen = () => { cleanup(); resolve(); };
-    const handleClose = () => { cleanup(); reject(new Error("Realtime data channel closed before opening.")); };
-    const handleError = () => { cleanup(); reject(new Error("Realtime data channel failed.")); };
-    channel.addEventListener("open", handleOpen);
-    channel.addEventListener("close", handleClose);
-    channel.addEventListener("error", handleError);
-  });
-}
-
-function describeAudioTrack(track: MediaStreamTrack | undefined) {
-  if (!track) return "No microphone track is attached.";
-  const muted = track.muted ? "muted by the system" : "not muted by the system";
-  const enabled = track.enabled ? "enabled" : "disabled";
-  return `Microphone track is ${track.readyState}, ${enabled}, and ${muted}.`;
-}
-
-function setMicDiagnostics(stream: MediaStream | null) {
-  const track = stream?.getAudioTracks()[0];
-  setVoiceRuntimeSnapshot((current) => ({ ...current, micDiagnostics: describeAudioTrack(track) }));
-}
-
-function setRealtimeDiagnostics(text: string) {
-  setVoiceRuntimeSnapshot((current) => ({ ...current, realtimeDiagnostics: text }));
+  return error instanceof Error ? error.message : String(error);
 }
 
 async function requestMacMicrophoneAccess() {
   const ask = window.__LEGALWORK_ELECTRON__?.system?.askMicrophoneAccess;
   if (!ask) return true;
-  const result = await ask();
-  if (result.platform !== "darwin") return true;
-  const status = result.after ?? result.before ?? result.status ?? "unknown";
-  setVoiceRuntimeSnapshot((current) => ({ ...current, micDiagnostics: `macOS microphone permission is ${status}.` }));
-  return result.granted;
+  return await ask();
 }
 
-async function executeLegalWorkTool(name: string, args: Record<string, unknown>) {
-  const control = window.__legalworkControl;
-  if (!control) return { ok: false, error: "LegalWork control surface is not available." };
-
-  if (name === "legalwork_snapshot") return { ok: true, snapshot: control.snapshot() };
-  if (name === "legalwork_list_actions") return { ok: true, actions: control.listActions() };
-  if (name === "legalwork_execute_action") {
-    const actionId = typeof args.actionId === "string" ? args.actionId.trim() : "";
-    if (!actionId) return { ok: false, error: "Missing actionId." };
-    const actionArgs = isRecord(args.args) ? args.args : {};
-    return control.execute(actionId, actionArgs);
-  }
-
-  return { ok: false, error: `Unknown LegalWork voice tool: ${name}` };
+function statusFromJob(job: VoiceOpenCodeJobSnapshot | null): VoiceStatus {
+  if (!job) return "listening";
+  if (job.status === "queued" || job.status === "thinking") return "thinking";
+  if (job.status === "tool_use") return "tool_use";
+  if (job.status === "waiting_approval") return "waiting_approval";
+  if (job.status === "error") return "error";
+  return "listening";
 }
 
-function VoiceOrb(props: { status: VoiceStatus; muted: boolean }) {
-  const active = props.status === "listening" || props.status === "speaking";
-  const colors = props.status === "speaking"
-    ? ["#fb7185", "#fbbf24", "#818cf8", "#111827"]
-    : props.muted
-      ? ["#94a3b8", "#475569", "#cbd5e1", "#0f172a"]
-      : ["#8ddde7", "#4f8b7b", "#bfdfa4", "#102b24"];
+function statusCopy(
+  status: VoiceStatus,
+  error: string | null,
+  microphoneMuted: boolean,
+  latestActivity: VoiceActivityItem | undefined,
+) {
+  if (status === "connecting") return "Connecting securely…";
+  if (status === "listening") return microphoneMuted ? "Microphone muted" : "Listening";
+  if (status === "thinking" || status === "tool_use") return latestActivity?.label || "Working on it…";
+  if (status === "waiting_approval") return "I need your approval in the app";
+  if (status === "speaking") return "Speaking";
+  return error || "Voice mode encountered an error";
+}
+
+function VoiceOrb(props: { status: VoiceStatus }) {
+  const active = props.status !== "error";
+  const fast = props.status === "speaking" || props.status === "tool_use";
+  const colors = props.status === "error"
+    ? ["#f87171", "#fb7185", "#ef4444", "#fecaca"]
+    : props.status === "waiting_approval"
+      ? ["#fbbf24", "#fde68a", "#fb7185", "#f59e0b"]
+      : ["#818cf8", "#fb7185", "#fbbf24", "#34d399"];
 
   return (
-    <div className="relative mx-auto flex size-34 items-center justify-center rounded-full border border-border bg-card shadow-[0_24px_80px_rgba(0,0,0,0.24)]">
-      <div className="absolute inset-2 overflow-hidden rounded-full">
-        <PaperGrainGradient
-          speed={props.status === "speaking" ? 18 : active ? 12 : 4}
-          softness={0.16}
-          intensity={1}
-          noise={0.06}
-          shape="sphere"
-          colors={colors}
-          colorBack="#ffffff00"
-          style={{ width: "100%", height: "100%", borderRadius: "9999px" }}
-        />
-      </div>
-      <div className="absolute inset-0 rounded-full bg-[radial-gradient(circle_at_32%_20%,rgba(255,255,255,0.55),transparent_26%)]" />
-      <div className={cn(
-        "absolute -bottom-2 rounded-full border border-border bg-background px-3 py-1 text-[11px] font-medium text-muted-foreground shadow-sm",
-        active && "text-foreground",
-      )}>
-        {props.status === "speaking" ? "Speaking" : props.muted ? "Muted" : active ? "Listening" : "Ready"}
-      </div>
+    <div
+      data-testid="voice-orb"
+      data-voice-state={props.status}
+      className={cn(
+        "relative size-24 overflow-hidden rounded-full border border-white/60 shadow-[0_18px_55px_rgba(15,23,42,0.14)] transition-all duration-500",
+        active && "scale-105",
+        props.status === "speaking" && "shadow-[0_20px_70px_rgba(15,23,42,0.22)]",
+      )}
+      aria-label={`Voice status: ${props.status.replaceAll("_", " ")}`}
+    >
+      <PaperGrainGradient
+        speed={fast ? 28 : 12}
+        softness={0.1}
+        intensity={1}
+        noise={0.05}
+        shape="sphere"
+        colors={colors}
+        colorBack="#ffffff00"
+        style={{ backgroundColor: colors[0], width: "100%", height: "100%", borderRadius: "50%" }}
+      />
+      {props.status === "connecting" ? (
+        <div className="absolute inset-0 grid place-items-center bg-white/10">
+          <Loader2 className="size-5 animate-spin text-white drop-shadow" />
+        </div>
+      ) : null}
     </div>
   );
 }
 
-function VoiceTimelineRow(props: {
-  entry: VoiceTimelineEntry;
-  expanded: boolean;
-  onToggle: () => void;
-}) {
-  const { entry } = props;
-  const isAction = entry.role === "tool" || entry.role === "system";
-  const canExpand = isAction && entry.text.length > 72;
-  const copy = canExpand && !props.expanded ? `${entry.text.slice(0, 72)}...` : entry.text;
-
-  if (entry.role === "user") {
-    return (
-      <article className="ml-8 rounded-2xl border border-primary/20 bg-primary/10 px-3 py-2 text-sm leading-relaxed text-foreground">
-        {entry.text}
-      </article>
-    );
-  }
-
-  if (entry.role === "assistant") {
-    return (
-      <article className="mr-8 rounded-2xl border border-border bg-card px-3 py-2 text-sm leading-relaxed text-card-foreground shadow-sm">
-        {entry.error ? <div className="mb-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-destructive">Error</div> : null}
-        <div className="whitespace-pre-wrap break-words">{entry.text}</div>
-      </article>
-    );
-  }
-
-  return (
-    <button
-      type="button"
-      className={cn(
-        "group flex w-full items-start gap-2 rounded-xl border bg-muted/40 px-2.5 py-2 text-left text-xs text-muted-foreground transition-colors hover:bg-muted",
-        entry.error && "border-destructive/35 bg-destructive/10 text-destructive hover:bg-destructive/15",
-      )}
-      onClick={canExpand ? props.onToggle : undefined}
-    >
-      {canExpand ? (
-        props.expanded ? <ChevronDown className="mt-0.5 shrink-0" /> : <ChevronRight className="mt-0.5 shrink-0" />
-      ) : (
-        <span className="mt-1.5 size-1.5 shrink-0 rounded-full bg-current opacity-60" />
-      )}
-      <span className="min-w-0 flex-1">
-        <span className="font-medium text-foreground/80">
-          {entry.toolName ? humanToolLabel(entry.toolName) : entry.error ? "Voice error" : "Voice note"}
-        </span>
-        <span className="ml-2 text-[10px] opacity-70">{relativeTime(entry.at)}</span>
-        {copy ? <span className="mt-1 block whitespace-pre-wrap break-words">{copy}</span> : null}
-      </span>
-    </button>
-  );
-}
-
 export function VoicePanel(props: VoicePanelProps) {
-  const panelRef = useRef<HTMLDivElement>(null);
-  const timelineEndRef = useRef<HTMLDivElement>(null);
-  const [textCommand, setTextCommand] = useState("");
-  const [expandedEntries, setExpandedEntries] = useState<Set<string>>(() => new Set());
-  const { status, statusText, micMuted, micDiagnostics, realtimeDiagnostics, entries, latestUserTranscript, assistantPreview } = useVoiceRuntimeSnapshot();
-  const connected = status === "listening" || status === "speaking" || status === "muted";
-
-  const addEntry = useCallback((role: VoiceTimelineEntry["role"], text: string, options: { toolName?: string; error?: boolean } = {}) => {
-    const trimmed = text.trim();
-    if ((role === "user" || role === "assistant") && !trimmed) return;
-    setVoiceRuntimeSnapshot((current) => ({
-      ...current,
-      entries: [
-        ...current.entries,
-        {
-          id: `voice-${Date.now()}-${current.entries.length}`,
-          role,
-          text: trimmed || options.toolName || "Tool call",
-          toolName: options.toolName,
-          error: options.error,
-          at: Date.now(),
-        },
-      ].slice(-120),
-    }));
-  }, []);
-
-  const setRuntimeStatus = useCallback((nextStatus: VoiceStatus, text?: string) => {
-    setVoiceRuntimeSnapshot((current) => ({
-      ...current,
-      status: nextStatus,
-      statusText: text ?? (
-        nextStatus === "connecting" ? "Connecting to OpenAI Realtime..." :
-          nextStatus === "listening" ? "Listening. Ask LegalWork to act." :
-            nextStatus === "speaking" ? "LegalWork is speaking..." :
-              nextStatus === "muted" ? "Connected, microphone muted." :
-                nextStatus === "error" ? "Voice Mode needs attention." :
-                  "Ready for voice control."
-      ),
-    }));
-  }, []);
-
-  const disconnectRealtime = useCallback((silent = false) => {
-    try { voiceRealtime.stream?.getTracks().forEach((track) => track.stop()); } catch {}
-    voiceRealtime.stream = null;
-    try { voiceRealtime.channel?.close(); } catch {}
-    voiceRealtime.channel = null;
-    try { voiceRealtime.peer?.close(); } catch {}
-    voiceRealtime.peer = null;
-    try { voiceRealtime.remoteAudio?.remove(); } catch {}
-    voiceRealtime.remoteAudio = null;
-    voiceRealtime.assistantBuffer = "";
-    voiceRealtime.responseInProgress = false;
-    voiceRealtime.pendingResponse = false;
-    voiceRealtime.micMuted = false;
-    setVoiceRuntimeSnapshot((current) => ({
-      ...current,
-      micMuted: false,
-      micDiagnostics: "Microphone has not started yet.",
-      realtimeDiagnostics: "Realtime is not connected.",
-      assistantPreview: "",
-    }));
-    setRuntimeStatus("idle");
-    if (!silent) addEntry("system", "Voice session stopped.");
-    recordInspectorEvent("voice.disconnected", { sessionId: props.sessionId });
-  }, [addEntry, props.sessionId, setRuntimeStatus]);
+  const rootRef = useRef<HTMLDivElement>(null);
+  const runtimeRef = useRef<VoiceRuntime>({ peer: null, channel: null, stream: null, remoteAudio: null });
+  const jobRef = useRef(props.job);
+  const startJobRef = useRef(props.onStartJob);
+  const announcedCompletionsRef = useRef(new Set<string>());
+  const completionAttemptsRef = useRef(new Map<string, number>());
+  const completionDeliveryRef = useRef<VoiceCompletionDeliveryAttempt | null>(null);
+  const announcedActivityLabelsRef = useRef(new Set<string>());
+  const syncedActivityIdsRef = useRef(new Set<string>());
+  const latestActivityRef = useRef<VoiceActivityItem | undefined>(props.activity.at(-1));
+  const handledCallIdsRef = useRef(new Set<string>());
+  const pendingFunctionResponseRef = useRef<string | null>(null);
+  const progressJobIdRef = useRef<string | null>(null);
+  const spokenProgressCountRef = useRef(0);
+  const lastProgressUpdateAtRef = useRef(0);
+  const responseActiveRef = useRef(false);
+  const responsePurposeRef = useRef<VoiceResponsePurpose>(null);
+  const inputResponsePendingRef = useRef(false);
+  const inputResponseGraceTimerRef = useRef<number | null>(null);
+  const inputActiveRef = useRef(false);
+  const outputAudioActiveRef = useRef(false);
+  const microphoneMutedRef = useRef(false);
+  const outputMutedRef = useRef(false);
+  const didStartRef = useRef(false);
+  const statusRef = useRef<VoiceStatus>("connecting");
+  const [status, setStatus] = useState<VoiceStatus>("connecting");
+  const [connected, setConnected] = useState(false);
+  const [microphoneMuted, setMicrophoneMuted] = useState(false);
+  const [outputMuted, setOutputMuted] = useState(false);
+  const [responseSettledRevision, setResponseSettledRevision] = useState(0);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    timelineEndRef.current?.scrollIntoView({ block: "end", behavior: "smooth" });
-  }, [entries.length, assistantPreview]);
+    jobRef.current = props.job;
+    startJobRef.current = props.onStartJob;
+  }, [props.job, props.onStartJob]);
 
-  const toggleEntryExpanded = useCallback((id: string) => {
-    setExpandedEntries((current) => {
-      const next = new Set(current);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
+  const updateStatus = useCallback((next: VoiceStatus) => {
+    statusRef.current = next;
+    setStatus(next);
   }, []);
 
-  const requestRealtimeResponse = useCallback((channel: RTCDataChannel, deferIfBusy = true) => {
-    if (voiceRealtime.responseInProgress) {
-      if (deferIfBusy) voiceRealtime.pendingResponse = true;
-      return false;
-    }
-    voiceRealtime.responseInProgress = true;
-    channel.send(JSON.stringify({ type: "response.create", response: { output_modalities: ["audio"] } }));
+  const sendEvent = useCallback((event: Record<string, unknown>) => {
+    const channel = runtimeRef.current.channel;
+    if (!channel || channel.readyState !== "open") return false;
+    channel.send(JSON.stringify(event));
     return true;
   }, []);
 
-  const handleRealtimeMessage = useCallback(async (raw: string) => {
-    let event: unknown = null;
-    try {
-      event = JSON.parse(raw);
-    } catch {
-      return;
+  const requestResponse = useCallback((response?: Record<string, unknown>, purpose: VoiceResponsePurpose = null) => {
+    const sent = sendEvent({ type: "response.create", ...(response ? { response } : {}) });
+    if (sent) {
+      responseActiveRef.current = true;
+      responsePurposeRef.current = purpose;
     }
-    const type = readString(event, "type");
+    return sent;
+  }, [sendEvent]);
 
+  const stopRuntime = useCallback(() => {
+    const runtime = runtimeRef.current;
+    runtime.channel?.close();
+    runtime.peer?.close();
+    runtime.stream?.getTracks().forEach((track) => track.stop());
+    if (runtime.remoteAudio) {
+      runtime.remoteAudio.pause();
+      runtime.remoteAudio.srcObject = null;
+    }
+    runtimeRef.current = { peer: null, channel: null, stream: null, remoteAudio: null };
+    responseActiveRef.current = false;
+    responsePurposeRef.current = null;
+    inputResponsePendingRef.current = false;
+    if (inputResponseGraceTimerRef.current !== null) {
+      window.clearTimeout(inputResponseGraceTimerRef.current);
+      inputResponseGraceTimerRef.current = null;
+    }
+    completionDeliveryRef.current = null;
+    pendingFunctionResponseRef.current = null;
+    inputActiveRef.current = false;
+    outputAudioActiveRef.current = false;
+    setConnected(false);
+  }, []);
+
+  const sendFunctionOutput = useCallback((
+    callId: string,
+    output: Record<string, unknown>,
+    responseInstructions: string,
+  ) => {
+    if (!sendEvent({
+      type: "conversation.item.create",
+      item: {
+        type: "function_call_output",
+        call_id: callId,
+        output: JSON.stringify(output),
+      },
+    })) return false;
+    if (responseActiveRef.current) {
+      pendingFunctionResponseRef.current = responseInstructions;
+      return true;
+    }
+    return requestResponse({
+      instructions: responseInstructions,
+      tool_choice: "none",
+      tools: [],
+    });
+  }, [requestResponse, sendEvent]);
+
+  const handleFunctionCall = useCallback(async (event: RealtimeEvent) => {
+    const callId = readString(event, "call_id").trim();
+    const name = readString(event, "name").trim();
+    if (
+      !callId
+      || (name !== "continue_work" && name !== "answer_in_voice")
+      || handledCallIdsRef.current.has(callId)
+    ) return;
+    handledCallIdsRef.current.add(callId);
+
+    if (name === "answer_in_voice") {
+      const args = parseJsonRecord(readString(event, "arguments"));
+      const intent = readString(args, "intent");
+      sendFunctionOutput(
+        callId,
+        { ready: true },
+        intent === "clarify"
+          ? "Ask exactly one concise question for the essential missing detail. Do not answer the request yet, do not start work, and do not mention routing, functions, tools, or another assistant."
+          : "Answer the user's last turn naturally using only the session and live context you already have. Do not mention routing, functions, tools, or another assistant.",
+      );
+      return;
+    }
+
+    const args = parseJsonRecord(readString(event, "arguments"));
+    const request = readString(args, "request").trim();
+    if (!request) {
+      sendFunctionOutput(
+        callId,
+        { accepted: false, error: "A work request is required." },
+        "Ask the user in one short sentence to repeat what they want you to do. Do not mention a function or tool.",
+      );
+      return;
+    }
+
+    updateStatus("thinking");
+    try {
+      await startJobRef.current(request);
+      sendFunctionOutput(
+        callId,
+        { accepted: true },
+        "Say exactly: ‘I’m on it.’ Do not say anything else.",
+      );
+    } catch (submitError) {
+      const message = describeError(submitError);
+      setError(message);
+      sendFunctionOutput(
+        callId,
+        { accepted: false, error: message },
+        "Briefly tell the user in the first person that you could not start the requested work and state the supplied error. Do not mention routing, a function, a tool, or another assistant.",
+      );
+      updateStatus("error");
+    }
+  }, [sendFunctionOutput, updateStatus]);
+
+  const handleRealtimeEvent = useCallback((event: RealtimeEvent) => {
+    const type = readString(event, "type");
     if (type === "input_audio_buffer.speech_started") {
-      setRuntimeStatus("listening", "Hearing you...");
-      return;
-    }
-    if (type === "response.created") {
-      voiceRealtime.responseInProgress = true;
-      voiceRealtime.pendingResponse = false;
-      return;
-    }
-    if (type === "conversation.item.input_audio_transcription.completed") {
-      const transcript = readString(event, "transcript").trim();
-      if (transcript && isMeaningfulTranscript(transcript)) {
-        setVoiceRuntimeSnapshot((current) => ({ ...current, latestUserTranscript: transcript }));
-        addEntry("user", transcript);
-        recordInspectorEvent("voice.transcript", { sessionId: props.sessionId, transcript });
+      // Semantic VAD owns interruption. Barge-in never cancels the task agent.
+      inputActiveRef.current = true;
+      inputResponsePendingRef.current = false;
+      if (inputResponseGraceTimerRef.current !== null) {
+        window.clearTimeout(inputResponseGraceTimerRef.current);
+        inputResponseGraceTimerRef.current = null;
       }
+      completionDeliveryRef.current = null;
+      updateStatus("listening");
       return;
     }
-    if (type === "response.output_text.delta" || type === "response.output_audio_transcript.delta" || type === "response.audio_transcript.delta") {
-      const delta = readString(event, "delta");
-      voiceRealtime.assistantBuffer += delta;
-      setVoiceRuntimeSnapshot((current) => ({ ...current, assistantPreview: voiceRealtime.assistantBuffer.trim() }));
-      setRuntimeStatus("speaking");
+    if (type === "input_audio_buffer.speech_stopped") {
+      inputActiveRef.current = false;
+      // Keep proactive speech out of the brief gap before response.created,
+      // but do not claim an active response indefinitely when VAD discards
+      // ambient audio without creating a turn.
+      inputResponsePendingRef.current = true;
+      if (inputResponseGraceTimerRef.current !== null) window.clearTimeout(inputResponseGraceTimerRef.current);
+      inputResponseGraceTimerRef.current = window.setTimeout(() => {
+        inputResponsePendingRef.current = false;
+        inputResponseGraceTimerRef.current = null;
+        setResponseSettledRevision((revision) => revision + 1);
+      }, VOICE_INPUT_RESPONSE_GRACE_MS);
+      setResponseSettledRevision((revision) => revision + 1);
+      updateStatus("thinking");
       return;
     }
     if (type === "response.function_call_arguments.done") {
-      const toolName = readString(event, "name") || "tool";
-      const callId = readString(event, "call_id");
-      const args = parseJsonRecord(readString(event, "arguments"));
-      addEntry("tool", toolName, { toolName });
-      const output = await executeLegalWorkTool(toolName, args);
-      if (isRecord(output) && output.ok === false) {
-        const error = typeof output.error === "string" ? output.error : "Tool failed.";
-        addEntry("tool", error, { toolName, error: true });
+      void handleFunctionCall(event);
+      return;
+    }
+    if (type === "response.created") {
+      inputResponsePendingRef.current = false;
+      if (inputResponseGraceTimerRef.current !== null) {
+        window.clearTimeout(inputResponseGraceTimerRef.current);
+        inputResponseGraceTimerRef.current = null;
       }
-      const channel = voiceRealtime.channel;
-      if (!callId || !channel || channel.readyState !== "open") return;
-      channel.send(JSON.stringify({
-        type: "conversation.item.create",
-        item: { type: "function_call_output", call_id: callId, output: safeJson(output) },
-      }));
-      requestRealtimeResponse(channel);
+      responseActiveRef.current = true;
+      return;
+    }
+    if (type === "output_audio_buffer.started") {
+      outputAudioActiveRef.current = true;
+      const delivery = updateVoiceCompletionDelivery(completionDeliveryRef.current, { type: "audio_started" });
+      completionDeliveryRef.current = delivery.attempt;
+      updateStatus("speaking");
+      return;
+    }
+    if (type === "response.audio.delta" || type === "response.output_audio.delta") {
+      outputAudioActiveRef.current = true;
+      const delivery = updateVoiceCompletionDelivery(completionDeliveryRef.current, { type: "audio_started" });
+      completionDeliveryRef.current = delivery.attempt;
+      updateStatus("speaking");
+      return;
+    }
+    if (type === "output_audio_buffer.stopped" || type === "output_audio_buffer.cleared") {
+      outputAudioActiveRef.current = false;
+      const delivery = updateVoiceCompletionDelivery(
+        completionDeliveryRef.current,
+        { type: type === "output_audio_buffer.cleared" ? "audio_cleared" : "audio_stopped" },
+      );
+      completionDeliveryRef.current = delivery.attempt;
+      if (delivery.deliveredJobId) announcedCompletionsRef.current.add(delivery.deliveredJobId);
+      setResponseSettledRevision((revision) => revision + 1);
+      updateStatus(statusFromJob(jobRef.current));
       return;
     }
     if (type === "response.done") {
-      const text = voiceRealtime.assistantBuffer.trim();
-      if (text) addEntry("assistant", text);
-      voiceRealtime.assistantBuffer = "";
-      setVoiceRuntimeSnapshot((current) => ({ ...current, assistantPreview: "" }));
-      voiceRealtime.responseInProgress = false;
-      const channel = voiceRealtime.channel;
-      if (voiceRealtime.pendingResponse && channel?.readyState === "open") {
-        voiceRealtime.pendingResponse = false;
-        requestRealtimeResponse(channel, false);
-      } else {
-        setRuntimeStatus(voiceRealtime.micMuted ? "muted" : "listening");
+      const purpose = responsePurposeRef.current;
+      const response = isRecord(event.response) ? event.response : null;
+      const responseStatus = response ? readString(response, "status") : "";
+      responseActiveRef.current = false;
+      responsePurposeRef.current = null;
+      inputResponsePendingRef.current = false;
+      if (inputResponseGraceTimerRef.current !== null) {
+        window.clearTimeout(inputResponseGraceTimerRef.current);
+        inputResponseGraceTimerRef.current = null;
       }
+      if (purpose === "completion") {
+        const delivery = updateVoiceCompletionDelivery(completionDeliveryRef.current, {
+          type: "response_done",
+          completed: !responseStatus || responseStatus === "completed",
+        });
+        completionDeliveryRef.current = delivery.attempt;
+        if (delivery.deliveredJobId) announcedCompletionsRef.current.add(delivery.deliveredJobId);
+      }
+      const pendingFunctionResponse = pendingFunctionResponseRef.current;
+      if (pendingFunctionResponse) {
+        pendingFunctionResponseRef.current = null;
+        requestResponse({
+          instructions: pendingFunctionResponse,
+          tool_choice: "none",
+          tools: [],
+        });
+      }
+      setResponseSettledRevision((revision) => revision + 1);
+      if (!outputAudioActiveRef.current) updateStatus(statusFromJob(jobRef.current));
       return;
     }
     if (type === "error") {
-      voiceRealtime.responseInProgress = false;
-      const error = readRecord(event, "error");
-      const message = typeof error.message === "string" ? error.message : "Realtime returned an error.";
-      addEntry("system", message, { error: true });
-      setRuntimeStatus("error", message);
-    }
-  }, [addEntry, props.sessionId, requestRealtimeResponse, setRuntimeStatus]);
-
-  const connectRealtime = useCallback(async (audioInput = true) => {
-    const client = props.client;
-    if (!client) throw new Error("LegalWork host connection is not ready.");
-    if (audioInput && !navigator.mediaDevices?.getUserMedia) throw new Error("Microphone capture is unavailable in this runtime.");
-
-    disconnectRealtime(true);
-    setRuntimeStatus("connecting", "Minting Realtime session...");
-    const sessionContext = await loadVoiceSessionContext(client, props.workspaceId, props.sessionId);
-    const realtimeSession = await client.createVoiceRealtimeSession({ sessionContext });
-
-    const peer = new RTCPeerConnection();
-    voiceRealtime.peer = peer;
-    if (audioInput) {
-      setRuntimeStatus("connecting", "Requesting microphone...");
-      const macPermissionGranted = await requestMacMicrophoneAccess();
-      if (!macPermissionGranted) throw new Error("macOS denied microphone access. Enable LegalWork in System Settings > Privacy & Security > Microphone, then restart LegalWork.");
-      const stream = await navigator.mediaDevices.getUserMedia({
-        audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
-      });
-      voiceRealtime.stream = stream;
-      setMicDiagnostics(stream);
-      for (const track of stream.getAudioTracks()) {
-        track.addEventListener("mute", () => setMicDiagnostics(stream));
-        track.addEventListener("unmute", () => setMicDiagnostics(stream));
-        track.addEventListener("ended", () => setMicDiagnostics(stream));
-        peer.addTrack(track, stream);
+      const eventError = isRecord(event.error) ? event.error : null;
+      const message = eventError && typeof eventError.message === "string" ? eventError.message : "The voice service reported an error.";
+      responseActiveRef.current = false;
+      responsePurposeRef.current = null;
+      inputResponsePendingRef.current = false;
+      if (inputResponseGraceTimerRef.current !== null) {
+        window.clearTimeout(inputResponseGraceTimerRef.current);
+        inputResponseGraceTimerRef.current = null;
       }
-    } else {
-      setVoiceRuntimeSnapshot((current) => ({ ...current, micDiagnostics: "Voice command is using typed or injected audio, not the microphone." }));
-      peer.addTransceiver("audio", { direction: "recvonly" });
+      completionDeliveryRef.current = null;
+      setError(message);
+      updateStatus("error");
     }
-
-    const audio = document.createElement("audio");
-    audio.autoplay = true;
-    audio.style.display = "none";
-    document.body.appendChild(audio);
-    voiceRealtime.remoteAudio = audio;
-    peer.ontrack = (event) => {
-      audio.srcObject = event.streams[0] ?? null;
-    };
-
-    const channel = peer.createDataChannel("oai-events");
-    voiceRealtime.channel = channel;
-    channel.addEventListener("message", (event) => void handleRealtimeMessage(String(event.data)));
-    channel.addEventListener("close", () => {
-      if (voiceRealtime.channel === channel) setRuntimeStatus("idle");
-    });
-
-    const offer = await peer.createOffer();
-    await peer.setLocalDescription(offer);
-    if (!offer.sdp) throw new Error("Realtime offer did not include SDP.");
-
-    setRuntimeStatus("connecting", "Opening voice channel...");
-    const sdpResponse = await desktopFetch("https://api.openai.com/v1/realtime/calls", {
-      method: "POST",
-      headers: { Authorization: `Bearer ${realtimeSession.clientSecret}`, "Content-Type": "application/sdp" },
-      body: offer.sdp,
-    });
-    if (!sdpResponse.ok) {
-      const detail = await sdpResponse.text().catch(() => "");
-      throw new Error(`OpenAI Realtime SDP failed: ${sdpResponse.status} ${detail}`.trim());
-    }
-    await peer.setRemoteDescription({ type: "answer", sdp: await sdpResponse.text() });
-    await waitForDataChannelOpen(channel);
-    setRealtimeDiagnostics("Realtime data channel is open.");
-    setRuntimeStatus("listening", audioInput ? undefined : "Connected. Send a typed voice command.");
-    addEntry("system", `Realtime connected with ${realtimeSession.model} and ${realtimeSession.tools.length} LegalWork tools.`);
-    recordInspectorEvent("voice.connected", { sessionId: props.sessionId, model: realtimeSession.model });
-  }, [addEntry, disconnectRealtime, handleRealtimeMessage, props.client, props.sessionId, props.workspaceId, setRuntimeStatus]);
+  }, [handleFunctionCall, requestResponse, updateStatus]);
 
   const startVoice = useCallback(async () => {
+    if (runtimeRef.current.peer) return { connected: true };
+    setError(null);
+    updateStatus("connecting");
     try {
-      await connectRealtime(true);
-      return true;
-    } catch (error) {
-      disconnectRealtime(true);
-      const message = error instanceof Error ? error.message : String(error);
-      setRealtimeDiagnostics(message);
-      setRuntimeStatus("error", message);
-      addEntry("system", message, { error: true });
-      return { ok: false, error: message };
-    }
-  }, [addEntry, connectRealtime, disconnectRealtime, setRuntimeStatus]);
-
-  const stopVoice = useCallback(() => {
-    disconnectRealtime();
-    return true;
-  }, [disconnectRealtime]);
-
-  const toggleMic = useCallback(() => {
-    const nextMuted = !voiceRealtime.micMuted;
-    voiceRealtime.micMuted = nextMuted;
-    setVoiceRuntimeSnapshot((current) => ({ ...current, micMuted: nextMuted }));
-    voiceRealtime.stream?.getAudioTracks().forEach((track) => {
-      track.enabled = !nextMuted;
-    });
-    setRuntimeStatus(nextMuted ? "muted" : "listening");
-    return { muted: nextMuted };
-  }, [setRuntimeStatus]);
-
-  const sendTextCommand = useCallback(async (text: string) => {
-    const value = text.trim();
-    if (!value) return { ok: false, error: "Text command required." };
-    if (!voiceRealtime.channel || voiceRealtime.channel.readyState !== "open") {
-      try {
-        await connectRealtime(false);
-      } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
-        setRuntimeStatus("error", message);
-        addEntry("system", message, { error: true });
-        return { ok: false, error: message };
+      if (!navigator.mediaDevices?.getUserMedia) throw new Error("Microphone capture is unavailable in this runtime.");
+      if (!(await requestMacMicrophoneAccess())) {
+        throw new Error("macOS denied microphone access. Enable LegalWork in System Settings > Privacy & Security > Microphone.");
       }
-    }
-    const channel = voiceRealtime.channel;
-    if (!channel || channel.readyState !== "open") return { ok: false, error: "Realtime channel is not open." };
-    addEntry("user", value);
-    channel.send(JSON.stringify({
-      type: "conversation.item.create",
-      item: { type: "message", role: "user", content: [{ type: "input_text", text: value }] },
-    }));
-    requestRealtimeResponse(channel);
-    return { ok: true, text: value };
-  }, [addEntry, connectRealtime, requestRealtimeResponse, setRuntimeStatus]);
 
-  const injectAudio = useCallback(async (args: unknown) => {
-    const audio = voiceAudioArgument(args);
-    if (!audio) return { ok: false, error: "pcm16Base64 audio is required." };
-    if (!voiceRealtime.channel || voiceRealtime.channel.readyState !== "open") {
-      const started = await startVoice();
-      if (isRecord(started) && started.ok === false) return started;
-    }
-    const channel = voiceRealtime.channel;
-    if (!channel || channel.readyState !== "open") return { ok: false, error: "Realtime channel is not open." };
-    addEntry("system", "Injected deterministic audio into the Realtime input buffer.");
-    channel.send(JSON.stringify({ type: "input_audio_buffer.append", audio }));
-    channel.send(JSON.stringify({ type: "input_audio_buffer.commit" }));
-    requestRealtimeResponse(channel);
-    return { ok: true, bytesBase64: audio.length };
-  }, [addEntry, requestRealtimeResponse, startVoice]);
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
+        video: false,
+      });
+      const peer = new RTCPeerConnection();
+      const remoteAudio = new Audio();
+      remoteAudio.autoplay = true;
+      remoteAudio.muted = outputMutedRef.current;
+      peer.ontrack = (event) => {
+        remoteAudio.srcObject = event.streams[0] ?? new MediaStream([event.track]);
+        void remoteAudio.play().catch(() => undefined);
+      };
+      stream.getAudioTracks().forEach((track) => { track.enabled = !microphoneMutedRef.current; });
+      stream.getTracks().forEach((track) => peer.addTrack(track, stream));
 
-  const injectTranscript = useCallback(async (args: unknown) => {
-    const text = voiceTextArgument(args);
-    setVoiceRuntimeSnapshot((current) => ({ ...current, latestUserTranscript: text }));
-    addEntry("user", text);
-    window.dispatchEvent(new CustomEvent("legalwork:voice-transcript", { detail: { text } }));
-    recordInspectorEvent("voice.inject_transcript", { sessionId: props.sessionId, text });
-    return { ok: true, transcript: text };
-  }, [addEntry, props.sessionId]);
+      const channel = peer.createDataChannel("oai-events");
+      channel.onopen = () => {
+        setConnected(true);
+        updateStatus(statusFromJob(jobRef.current));
+      };
+      channel.onmessage = (message) => {
+        try {
+          const parsed: unknown = JSON.parse(String(message.data));
+          if (isRecord(parsed)) handleRealtimeEvent(parsed);
+        } catch {
+          // Ignore malformed data-channel events; protocol errors arrive separately.
+        }
+      };
+      channel.onerror = () => {
+        setError("The Realtime data channel failed.");
+        updateStatus("error");
+      };
+      peer.onconnectionstatechange = () => {
+        if (peer.connectionState !== "failed") return;
+        setError("The Realtime WebRTC connection failed.");
+        updateStatus("error");
+        stopRuntime();
+      };
+      runtimeRef.current = { peer, channel, stream, remoteAudio };
+
+      const offer = await peer.createOffer();
+      await peer.setLocalDescription(offer);
+      const localSdp = peer.localDescription?.sdp || offer.sdp;
+      if (!localSdp) throw new Error("WebRTC did not create an SDP offer.");
+      const call = await props.client.createVoiceRealtimeCall({
+        sdp: localSdp,
+        sessionContext: props.sessionContext,
+      });
+      await peer.setRemoteDescription({ type: "answer", sdp: call.sdp });
+      return { connected: true, model: call.model, providerId: call.providerId };
+    } catch (startError) {
+      stopRuntime();
+      const message = describeError(startError);
+      setError(message);
+      updateStatus("error");
+      return { connected: false, error: message };
+    }
+  }, [handleRealtimeEvent, props.client, props.sessionContext, stopRuntime, updateStatus]);
 
   useEffect(() => {
-    const dispose = publishInspectorSlice("voice", () => ({
-      sessionId: props.sessionId,
-      status,
-      statusText,
-      connected,
-      micMuted,
-      latestUserTranscript,
-      assistantPreview,
-      textCommandLength: textCommand.length,
-      timeline: entries.slice(-12).map((entry) => ({
-        role: entry.role,
-        text: entry.text,
-        toolName: entry.toolName,
-        error: entry.error === true,
-        at: entry.at,
-      })),
-    }));
-    return dispose;
-  }, [assistantPreview, connected, entries, latestUserTranscript, micDiagnostics, micMuted, props.sessionId, realtimeDiagnostics, status, statusText, textCommand.length]);
+    if (didStartRef.current) return;
+    didStartRef.current = true;
+    void startVoice();
+  }, [startVoice]);
+
+  useEffect(() => stopRuntime, [stopRuntime]);
+
+  useEffect(() => {
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key !== "Escape" || event.repeat) return;
+      event.preventDefault();
+      event.stopPropagation();
+      props.onClose();
+    };
+    window.addEventListener("keydown", closeOnEscape, true);
+    return () => window.removeEventListener("keydown", closeOnEscape, true);
+  }, [props.onClose]);
+
+  useEffect(() => {
+    if (status === "speaking" || status === "connecting" || status === "error") return;
+    updateStatus(statusFromJob(props.job));
+  }, [props.job, status, updateStatus]);
+
+  useEffect(() => {
+    const job = props.job;
+    if (
+      !connected
+      || outputMuted
+      || inputActiveRef.current
+      || inputResponsePendingRef.current
+      || responseActiveRef.current
+      || outputAudioActiveRef.current
+      || status === "speaking"
+      || !job
+      || job.status !== "completed"
+      || !job.result
+      || announcedCompletionsRef.current.has(job.id)
+      || completionDeliveryRef.current?.jobId === job.id
+      || (completionAttemptsRef.current.get(job.id) ?? 0) >= VOICE_COMPLETION_MAX_ATTEMPTS
+    ) return;
+    if (!sendEvent({
+      type: "conversation.item.create",
+      item: {
+        type: "message",
+        role: "system",
+        content: [{
+          type: "input_text",
+          text: `Your current work is complete. Here is the full canonical result from your session:\n\n${job.result}\n\nTreat this result as your own work. Give a concise spoken summary; do not read the full answer verbatim.`,
+        }],
+      },
+    })) return;
+    completionDeliveryRef.current = {
+      jobId: job.id,
+      responseDone: false,
+      audioStarted: false,
+      audioStopped: false,
+    };
+    if (!requestResponse({
+      instructions: "Give a natural two-to-four-sentence spoken summary of the completed result. State the outcome, the most important detail, and a useful next step. Do not read headings, citations, or long lists aloud. Speak in the first person, and mention that the full details are visible only if helpful.",
+      tools: [],
+      tool_choice: "none",
+    }, "completion")) {
+      completionDeliveryRef.current = null;
+      return;
+    }
+    completionAttemptsRef.current.set(job.id, (completionAttemptsRef.current.get(job.id) ?? 0) + 1);
+  }, [connected, outputMuted, props.job, requestResponse, responseSettledRevision, sendEvent, status]);
+
+  useEffect(() => {
+    latestActivityRef.current = props.activity.at(-1);
+  }, [props.activity]);
+
+  useEffect(() => {
+    const job = props.job;
+    if (!job || !ACTIVE_JOB_STATUSES.has(job.status) || progressJobIdRef.current === job.id) return;
+    progressJobIdRef.current = job.id;
+    lastProgressUpdateAtRef.current = Date.now() - VOICE_PROGRESS_UPDATE_INTERVAL_MS + VOICE_FIRST_PROGRESS_DELAY_MS;
+    announcedActivityLabelsRef.current.clear();
+    syncedActivityIdsRef.current.clear();
+    spokenProgressCountRef.current = 0;
+  }, [props.job]);
+
+  useEffect(() => {
+    if (!connected) return;
+    for (const activity of props.activity) {
+      const eventKey = activityEventKey(activity);
+      if (syncedActivityIdsRef.current.has(eventKey)) continue;
+      if (!sendEvent({
+        type: "conversation.item.create",
+        item: {
+          type: "message",
+          role: "system",
+          content: [{
+            type: "input_text",
+            text: `Activity metadata from your current work: ${activity.label} (${activity.state}). This is not a result. Never infer findings, absence of findings, or completion from it.`,
+          }],
+        },
+      })) break;
+      syncedActivityIdsRef.current.add(eventKey);
+    }
+  }, [connected, props.activity, sendEvent]);
+
+  useEffect(() => {
+    if (!connected) return;
+    const maybeSpeakProgress = () => {
+      const job = jobRef.current;
+      const latestActivity = latestActivityRef.current;
+      if (
+        outputMutedRef.current
+        || inputActiveRef.current
+        || responseActiveRef.current
+        || outputAudioActiveRef.current
+        || statusRef.current === "speaking"
+        || !job
+        || !ACTIVE_JOB_STATUSES.has(job.status)
+        || !latestActivity
+        || latestActivity.state !== "active"
+        || spokenProgressCountRef.current >= VOICE_MAX_PROGRESS_UPDATES_PER_JOB
+        || announcedActivityLabelsRef.current.has(activitySpeechKey(latestActivity))
+        || Date.now() - lastProgressUpdateAtRef.current < VOICE_PROGRESS_UPDATE_INTERVAL_MS
+      ) return;
+
+      if (!requestResponse({
+        instructions: `Say only what you are currently doing based on this activity label: "${latestActivity.label}". Use one natural first-person sentence of at most twelve words. Do not state or imply any finding, result, absence of a result, uncertainty, completion, or next step. Do not mention a task, worker, handoff, system, or tool.`,
+        tools: [],
+        tool_choice: "none",
+      }, "progress")) return;
+      announcedActivityLabelsRef.current.add(activitySpeechKey(latestActivity));
+      spokenProgressCountRef.current += 1;
+      lastProgressUpdateAtRef.current = Date.now();
+    };
+
+    const interval = window.setInterval(maybeSpeakProgress, VOICE_PROGRESS_POLL_INTERVAL_MS);
+    return () => window.clearInterval(interval);
+  }, [connected, requestResponse]);
+
+  useEffect(() => {
+    const jobStatus = props.job?.status;
+    if (outputMuted || !connected || !jobStatus || !ACTIVE_JOB_STATUSES.has(jobStatus)) return;
+    const playProgressSound = () => {
+      if (statusRef.current === "speaking") return;
+      const context = new AudioContext();
+      const oscillator = context.createOscillator();
+      const gain = context.createGain();
+      oscillator.frequency.value = jobStatus === "tool_use" ? 510 : jobStatus === "waiting_approval" ? 390 : 440;
+      gain.gain.setValueAtTime(0.0001, context.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.025, context.currentTime + 0.015);
+      gain.gain.exponentialRampToValueAtTime(0.0001, context.currentTime + 0.16);
+      oscillator.connect(gain).connect(context.destination);
+      oscillator.start();
+      oscillator.stop(context.currentTime + 0.18);
+      oscillator.addEventListener("ended", () => void context.close());
+    };
+    const interval = window.setInterval(playProgressSound, jobStatus === "tool_use" ? 5_000 : 8_000);
+    return () => window.clearInterval(interval);
+  }, [connected, outputMuted, props.job?.status]);
+
+  const toggleMicrophone = useCallback(() => {
+    const next = !microphoneMuted;
+    microphoneMutedRef.current = next;
+    setMicrophoneMuted(next);
+    runtimeRef.current.stream?.getAudioTracks().forEach((track) => { track.enabled = !next; });
+    if (next) {
+      inputActiveRef.current = false;
+      inputResponsePendingRef.current = false;
+      if (inputResponseGraceTimerRef.current !== null) {
+        window.clearTimeout(inputResponseGraceTimerRef.current);
+        inputResponseGraceTimerRef.current = null;
+      }
+      setResponseSettledRevision((revision) => revision + 1);
+    }
+    return { microphoneMuted: next };
+  }, [microphoneMuted]);
+
+  const toggleOutput = useCallback(() => {
+    const next = !outputMuted;
+    outputMutedRef.current = next;
+    setOutputMuted(next);
+    if (runtimeRef.current.remoteAudio) runtimeRef.current.remoteAudio.muted = next;
+    return { outputMuted: next };
+  }, [outputMuted]);
+
+  const sendTextCommand = useCallback((text: string) => {
+    const command = text.trim();
+    if (!command) return { sent: false, error: "Text is required." };
+    if (!connected) return { sent: false, error: "Voice Mode is not connected." };
+    if (!sendEvent({
+      type: "conversation.item.create",
+      item: {
+        type: "message",
+        role: "user",
+        content: [{ type: "input_text", text: command }],
+      },
+    })) return { sent: false, error: "Voice Mode is not connected." };
+    updateStatus("thinking");
+    return requestResponse()
+      ? { sent: true }
+      : { sent: false, error: "Voice Mode could not start a response." };
+  }, [connected, requestResponse, sendEvent, updateStatus]);
+
+  const injectAudio = useCallback((args: unknown) => {
+    const pcm16Base64 = readString(args, "pcm16Base64").trim();
+    if (!pcm16Base64) return { sent: false, error: "pcm16Base64 is required." };
+    let sent = true;
+    for (let index = 0; index < pcm16Base64.length; index += 32_000) {
+      sent = sendEvent({ type: "input_audio_buffer.append", audio: pcm16Base64.slice(index, index + 32_000) }) && sent;
+    }
+    return sent ? { sent: true } : { sent: false, error: "Voice Mode is not connected." };
+  }, [sendEvent]);
 
   const startAction = useMemo<LegalworkControlAction>(() => ({
     id: "voice.start",
     label: "Start Voice Mode",
-    description: "Connect the Voice Mode panel to OpenAI Realtime and start listening.",
+    description: "Connect Voice Mode to OpenAI Realtime.",
     sideEffect: "external",
-    disabled: !props.client || connected || status === "connecting",
-    targetRef: panelRef,
+    disabled: connected || status === "connecting",
+    targetRef: rootRef,
     execute: startVoice,
-  }), [connected, props.client, startVoice, status]);
+  }), [connected, startVoice, status]);
   useControlAction(startAction);
 
   const stopAction = useMemo<LegalworkControlAction>(() => ({
     id: "voice.stop",
     label: "Stop Voice Mode",
-    description: "Disconnect the active Voice Mode Realtime session.",
+    description: "Close Voice Mode and release its media resources.",
     sideEffect: "external",
-    disabled: !connected,
-    targetRef: panelRef,
-    execute: stopVoice,
-  }), [connected, stopVoice]);
+    targetRef: rootRef,
+    execute: () => { props.onClose(); return { stopped: true }; },
+  }), [props.onClose]);
   useControlAction(stopAction);
 
   const muteAction = useMemo<LegalworkControlAction>(() => ({
     id: "voice.toggle_mute",
-    label: micMuted ? "Unmute Voice Mode" : "Mute Voice Mode",
-    description: "Toggle the microphone track without closing the Realtime session.",
+    label: microphoneMuted ? "Unmute microphone" : "Mute microphone",
+    description: "Mute or unmute microphone input without changing spoken replies.",
     sideEffect: "none",
     disabled: !connected,
-    targetRef: panelRef,
-    execute: toggleMic,
-  }), [connected, micMuted, toggleMic]);
+    targetRef: rootRef,
+    execute: toggleMicrophone,
+  }), [connected, microphoneMuted, toggleMicrophone]);
   useControlAction(muteAction);
 
-  const injectTranscriptAction = useMemo<LegalworkControlAction>(() => ({
-    id: "voice.inject_transcript",
-    label: "Inject a voice transcript",
-    description: "Deterministic eval hook: add a transcript to Voice Mode and place it in the composer.",
-    sideEffect: "mutation",
-    requiresArgs: true,
-    args: [{ name: "text", type: "string", required: true, description: "Transcript text to inject." }],
-    previewArgs: { text: DEFAULT_TEXT_COMMAND },
-    targetRef: panelRef,
-    execute: injectTranscript,
-  }), [injectTranscript]);
-  useControlAction(injectTranscriptAction);
+  const outputAction = useMemo<LegalworkControlAction>(() => ({
+    id: "voice.toggle_output",
+    label: outputMuted ? "Unmute voice" : "Mute voice",
+    description: "Mute or unmute spoken replies and progress sounds without changing the microphone.",
+    sideEffect: "none",
+    disabled: !connected,
+    targetRef: rootRef,
+    execute: toggleOutput,
+  }), [connected, outputMuted, toggleOutput]);
+  useControlAction(outputAction);
 
   const sendTextAction = useMemo<LegalworkControlAction>(() => ({
     id: "voice.send_text",
     label: "Send text through Voice Mode",
-    description: "Send a deterministic text command through the active OpenAI Realtime voice session.",
+    description: "Deterministic test hook for a spoken request.",
     sideEffect: "external",
     requiresArgs: true,
-    args: [{ name: "text", type: "string", required: true, description: "Text command to send through the Realtime model." }],
-    previewArgs: { text: DEFAULT_TEXT_COMMAND },
-    targetRef: panelRef,
+    args: [{ name: "text", type: "string", required: true }],
+    targetRef: rootRef,
     execute: (args) => sendTextCommand(voiceTextArgument(args)),
   }), [sendTextCommand]);
   useControlAction(sendTextAction);
 
+  const injectTranscriptAction = useMemo<LegalworkControlAction>(() => ({
+    id: "voice.inject_transcript",
+    label: "Inject a voice transcript",
+    description: "Deterministic test hook for a transcribed request.",
+    sideEffect: "external",
+    requiresArgs: true,
+    args: [{ name: "text", type: "string", required: true }],
+    targetRef: rootRef,
+    execute: (args) => sendTextCommand(voiceTextArgument(args)),
+  }), [sendTextCommand]);
+  useControlAction(injectTranscriptAction);
+
   const injectAudioAction = useMemo<LegalworkControlAction>(() => ({
     id: "voice.inject_audio",
     label: "Inject voice audio",
-    description: "Deterministic eval hook: send PCM16 audio through the active OpenAI Realtime input buffer.",
+    description: "Deterministic test hook for PCM16 audio through semantic VAD.",
     sideEffect: "external",
     requiresArgs: true,
-    args: [{ name: "pcm16Base64", type: "string", required: true, description: "Base64 encoded PCM16 mono audio." }],
-    targetRef: panelRef,
+    args: [{ name: "pcm16Base64", type: "string", required: true }],
+    targetRef: rootRef,
     execute: injectAudio,
   }), [injectAudio]);
   useControlAction(injectAudioAction);
@@ -770,196 +819,67 @@ export function VoicePanel(props: VoicePanelProps) {
   const statusAction = useMemo<LegalworkControlAction>(() => ({
     id: "voice.status",
     label: "Read Voice Mode status",
-    description: "Return the Voice Mode runtime state for tests and agents.",
+    description: "Return the voice connection and current conversation state.",
     sideEffect: "none",
-    execute: () => ({ status, statusText, connected, micMuted, micDiagnostics, realtimeDiagnostics, latestUserTranscript, assistantPreview }),
-  }), [assistantPreview, connected, latestUserTranscript, micDiagnostics, micMuted, realtimeDiagnostics, status, statusText]);
+    targetRef: rootRef,
+    execute: () => ({
+      connected,
+      status,
+      microphoneMuted,
+      outputMuted,
+      workspaceId: props.workspaceId,
+      sessionId: props.sessionId,
+      job: props.job,
+      activity: props.activity,
+      error,
+    }),
+  }), [connected, error, microphoneMuted, outputMuted, props.activity, props.job, props.sessionId, props.workspaceId, status]);
   useControlAction(statusAction);
 
+  const latestActivity = props.activity.at(-1);
+
   return (
-    <div ref={panelRef} className="flex h-full min-h-0 flex-col bg-background">
-      <div className="flex shrink-0 items-center justify-between border-b border-border px-4 py-3">
-        <div className="min-w-0">
-          <div className="flex items-center gap-2 text-sm font-semibold text-foreground">
-            <span
-              className={cn(
-                "size-2 rounded-full bg-muted-foreground",
-                status === "connecting" && "animate-pulse bg-amber-9",
-                (status === "listening" || status === "speaking") && "bg-green-9",
-                status === "error" && "bg-destructive",
-              )}
-            />
-            <Radio className="text-primary" />
-            Voice Mode
+    <div
+      ref={rootRef}
+      className="absolute inset-0 flex flex-col items-center justify-end overflow-hidden bg-gradient-to-b from-background/35 via-background/75 to-background pb-8"
+      data-testid="voice-mode"
+    >
+      <div className="relative flex w-80 max-w-[calc(100%_-_2rem)] flex-col items-center gap-4 rounded-[2rem] bg-background/72 px-8 py-6 shadow-[0_18px_70px_rgba(15,23,42,0.08)] backdrop-blur-md">
+        <VoiceOrb status={status} />
+        <div className="min-h-11 w-full text-center" aria-live="polite">
+          <div className={cn("text-sm font-medium text-dls-text", status === "error" && "text-red-11")}>
+            {statusCopy(status, error, microphoneMuted, latestActivity)}
           </div>
-          <div className="truncate text-xs text-muted-foreground">Realtime voice over LegalWork UI MCP controls</div>
         </div>
-        <Button variant="ghost" size="icon-sm" onClick={props.onClose} aria-label="Close Voice Mode">
-          <X />
-        </Button>
-      </div>
-
-      <ScrollArea className="min-h-0 flex-1">
-        <ScrollAreaViewport>
-          <div className="flex flex-col gap-5 px-4 py-5">
-          <VoiceOrb status={status} muted={micMuted} />
-
-          <div className="text-center">
-            <div className="text-sm font-medium text-foreground">{statusText}</div>
-            <div className="mt-1 text-xs text-muted-foreground">
-              Say things like "type a follow-up", "send it", or "read the latest session message".
-            </div>
-          </div>
-
-          {entries.length === 0 && !assistantPreview ? (
-            <div className="flex flex-wrap justify-center gap-1.5">
-              {VOICE_SUGGESTIONS.map((suggestion) => (
-                <Button
-                  key={suggestion}
-                  variant="outline"
-                  size="xs"
-                  className="rounded-full"
-                  onClick={() => setTextCommand(suggestion)}
-                >
-                  {suggestion}
-                </Button>
-              ))}
-            </div>
-          ) : null}
-
-          <div className="grid grid-cols-2 gap-2">
-            <Button onClick={() => void startVoice()} disabled={!props.client || connected || status === "connecting"}>
-              {status === "connecting" ? <Loader2 data-icon="inline-start" className="animate-spin" /> : <Mic2 data-icon="inline-start" />}
-              Start voice
-            </Button>
-            <Button variant="outline" onClick={stopVoice} disabled={!connected}>
-              <Square data-icon="inline-start" />
-              Stop
-            </Button>
-            <Button variant="outline" onClick={toggleMic} disabled={!connected} className="col-span-2">
-              {micMuted ? <Mic2 data-icon="inline-start" /> : <MicOff data-icon="inline-start" />}
-              {micMuted ? "Unmute microphone" : "Mute microphone"}
-            </Button>
-          </div>
-
-          {!props.client ? (
-            <Card variant="outline" size="sm">
-              <CardHeader>
-                <CardTitle>Host connection required</CardTitle>
-              </CardHeader>
-              <CardContent className="text-sm text-muted-foreground">
-                Voice Mode needs the local LegalWork server so it can mint short-lived Realtime client secrets without exposing your API key to the renderer.
-              </CardContent>
-            </Card>
-          ) : null}
-
-          {assistantPreview ? (
-            <Card variant="outline" size="sm" className="overflow-hidden">
-              <CardContent className="relative p-0">
-                <div className="absolute inset-x-0 top-0 h-1 overflow-hidden">
-                  <PaperGrainGradient
-                    speed={16}
-                    softness={0.14}
-                    intensity={1}
-                    noise={0.05}
-                    shape="wave"
-                    colors={["#818cf8", "#fb7185", "#fbbf24", "#34d399"]}
-                    colorBack="#ffffff00"
-                    style={{ width: "100%", height: "100%" }}
-                  />
-                </div>
-                <div className="flex flex-col gap-2 px-3 pb-3 pt-4">
-                  <div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">Rendering response</div>
-                  <div className="whitespace-pre-wrap break-words text-sm leading-relaxed text-card-foreground" aria-live="polite">
-                    {assistantPreview}
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-          ) : null}
-
-          <Card variant="outline" size="sm">
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2 text-sm">
-                <Radio className="text-primary" />
-                Voice diagnostics
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-2 text-xs text-muted-foreground">
-              <div>
-                <span className="font-medium text-foreground">Connection:</span> {realtimeDiagnostics}
-              </div>
-              <div>
-                <span className="font-medium text-foreground">Microphone:</span> {micDiagnostics}
-              </div>
-              {status === "error" ? (
-                <div className="rounded-lg border border-destructive/30 bg-destructive/10 px-2.5 py-2 text-destructive">
-                  {statusText}
-                </div>
-              ) : null}
-            </CardContent>
-          </Card>
-
-          <Card variant="outline" size="sm">
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2 text-sm">
-                <Keyboard className="text-primary" />
-                Typed voice command
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              <InputGroup>
-                <InputGroupTextarea
-                  value={textCommand}
-                  onChange={(event) => setTextCommand(event.currentTarget.value)}
-                  onKeyDown={(event) => {
-                    if (event.key !== "Enter" || event.shiftKey) return;
-                    event.preventDefault();
-                    const text = textCommand;
-                    setTextCommand("");
-                    void sendTextCommand(text);
-                  }}
-                  placeholder={DEFAULT_TEXT_COMMAND}
-                  rows={3}
-                />
-                <InputGroupAddon align="block-end" className="justify-between border-t border-border">
-                  <span className="text-xs text-muted-foreground">Enter to send, Shift+Enter for newline</span>
-                  <InputGroupButton
-                    variant="outline"
-                    onClick={() => {
-                      const text = textCommand;
-                      setTextCommand("");
-                      void sendTextCommand(text);
-                    }}
-                    disabled={!textCommand.trim() || status === "connecting"}
-                  >
-                    <SendHorizontal data-icon="inline-start" />
-                    Send
-                  </InputGroupButton>
-                </InputGroupAddon>
-              </InputGroup>
-            </CardContent>
-          </Card>
-
-          <div className="flex flex-col gap-2">
-            <div className="text-xs font-medium uppercase tracking-[0.15em] text-muted-foreground">Timeline</div>
-            {entries.length ? entries.map((entry) => (
-              <VoiceTimelineRow
-                key={entry.id}
-                entry={entry}
-                expanded={expandedEntries.has(entry.id)}
-                onToggle={() => toggleEntryExpanded(entry.id)}
-              />
-            )) : (
-              <div className="rounded-2xl border border-dashed border-border px-4 py-5 text-center text-sm text-muted-foreground">
-                Start voice or inject a transcript from UI MCP to see the voice timeline.
-              </div>
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={toggleMicrophone}
+            disabled={!connected}
+            className={cn(
+              "grid size-9 place-items-center rounded-full border border-dls-border bg-background/90 text-dls-secondary shadow-sm transition-colors hover:bg-dls-hover hover:text-dls-text disabled:opacity-40",
+              microphoneMuted && "bg-dls-hover text-dls-text",
             )}
-            <div ref={timelineEndRef} />
-          </div>
-          </div>
-        </ScrollAreaViewport>
-      </ScrollArea>
+            aria-label={microphoneMuted ? "Unmute microphone" : "Mute microphone"}
+            title={microphoneMuted ? "Unmute microphone" : "Mute microphone"}
+          >
+            {microphoneMuted ? <MicOff size={15} /> : <Mic2 size={15} />}
+          </button>
+          <button
+            type="button"
+            onClick={toggleOutput}
+            disabled={!connected}
+            className={cn(
+              "grid size-9 place-items-center rounded-full border border-dls-border bg-background/90 text-dls-secondary shadow-sm transition-colors hover:bg-dls-hover hover:text-dls-text disabled:opacity-40",
+              outputMuted && "bg-dls-hover text-dls-text",
+            )}
+            aria-label={outputMuted ? "Unmute voice" : "Mute voice"}
+            title={outputMuted ? "Unmute voice" : "Mute voice"}
+          >
+            {outputMuted ? <VolumeX size={15} /> : <Volume2 size={15} />}
+          </button>
+        </div>
+      </div>
     </div>
   );
 }

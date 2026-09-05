@@ -123,6 +123,9 @@ type ComposerProps = {
    */
   onToggleLiveTranscript?: () => void;
   liveTranscriptActive?: boolean;
+  realtimeVoiceSupported?: boolean;
+  realtimeVoiceActive?: boolean;
+  onToggleRealtimeVoice?: () => void;
 };
 
 const FLUSH_PROMPT_EVENT = "legalwork:flushPromptDraft";
@@ -1603,6 +1606,19 @@ export function ReactSessionComposer(props: ComposerProps) {
                   Escape arms a "Hit Escape again to stop the agent" prompt.
               */}
               <div className="ml-auto flex shrink-0 items-end gap-1.5">
+                {props.realtimeVoiceSupported && props.onToggleRealtimeVoice ? (
+                  <button
+                    type="button"
+                    onClick={props.onToggleRealtimeVoice}
+                    className="grid size-9 place-items-center rounded-full bg-gray-12 text-gray-1 shadow-sm transition-transform hover:scale-[1.04] hover:bg-black"
+                    title={props.realtimeVoiceActive ? "Close Voice Mode" : "Start Voice Mode"}
+                    aria-label={props.realtimeVoiceActive ? "Close Voice Mode" : "Start Voice Mode"}
+                    aria-pressed={props.realtimeVoiceActive}
+                    data-testid="voice-mode-toggle"
+                  >
+                    {props.realtimeVoiceActive ? <X size={16} /> : <AudioLines size={17} />}
+                  </button>
+                ) : null}
                 {props.busy ? (
                   <>
                     {escapeArmed ? (
