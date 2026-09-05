@@ -61,6 +61,7 @@ import { type SidePanelItem, useUiStateStore } from "../../../shell/ui-state-sto
 
 import { isElectronRuntime } from "../../../../app/utils";
 import { classifyOpenTarget, isCollectibleArtifactTarget, isLocalhostBrowserTarget, isOpenableFileTarget, resolvePathOpenTarget, type OpenTarget } from "../artifacts/open-target";
+import { confirmDiscardDocuments } from "../artifacts/docx-document-state";
 import type { OpenTargetOptions } from "@/lib/target-provider";
 import { VoicePanel } from "../voice/voice-panel";
 import { SidePanel } from "../panel/side-panel";
@@ -370,19 +371,21 @@ export function SessionPage(props: SessionPageProps) {
   const preserveSidePanelOnPanelOpenRef = useRef(false);
 
   const setCurrentSidePanel = useCallback((panel: SidePanelItem | null) => {
+    if (activeSidePanel === "panel" && panel !== "panel" && !confirmDiscardDocuments()) return;
     setSidePanelState(GLOBAL_VOICE_SIDE_PANEL_KEY, panel === "voice" ? "voice" : null);
     if (panel === "voice") return;
     setSidePanelState(panelStateSessionId, panel);
-  }, [panelStateSessionId, setSidePanelState]);
+  }, [activeSidePanel, panelStateSessionId, setSidePanelState]);
 
   const toggleCurrentSidePanel = useCallback((panel: SidePanelItem) => {
+    if (activeSidePanel === "panel" && !confirmDiscardDocuments()) return;
     if (panel === "voice") {
       toggleSidePanelState(GLOBAL_VOICE_SIDE_PANEL_KEY, "voice");
       return;
     }
     setSidePanelState(GLOBAL_VOICE_SIDE_PANEL_KEY, null);
     toggleSidePanelState(panelStateSessionId, panel);
-  }, [panelStateSessionId, setSidePanelState, toggleSidePanelState]);
+  }, [activeSidePanel, panelStateSessionId, setSidePanelState, toggleSidePanelState]);
 
   // When the agent calls a built-in browser tool, the main process opens
   // the WebContentsView and sends panel-opened; when hide_browser is called

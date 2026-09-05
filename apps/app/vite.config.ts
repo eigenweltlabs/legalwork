@@ -9,6 +9,7 @@ import tailwindcss from "@tailwindcss/vite";
 const portValue = Number.parseInt(process.env.PORT ?? "", 10);
 const devPort = Number.isFinite(portValue) && portValue > 0 ? portValue : 5173;
 const allowedHosts = new Set<string>();
+allowedHosts.add("terminal.local");
 const envAllowedHosts = process.env.VITE_ALLOWED_HOSTS ?? "";
 
 const addHost = (value?: string | null) => {
