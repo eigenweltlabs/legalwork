@@ -1,0 +1,35 @@
+name: DOCX interoperability
+on:
+  pull_request:
+    branches: [dev]
+    paths:
+      - 'apps/app/src/react-app/domains/session/artifacts/**'
+      - 'apps/app/tests/docx-*.test.ts'
+      - 'apps/app/scripts/docx-*'
+      - 'apps/app/scripts/fixtures/**'
+      - 'patches/@eigenpal*'
+      - 'pnpm-lock.yaml'
+      - '.github/workflows/ci-docx.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  docx:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.4.0
+      - run: pnpm install --frozen-lockfile --ignore-scripts
+      - run: node --experimental-strip-types --test apps/app/tests/docx-document-state.test.ts apps/app/tests/docx-roundtrip.test.ts
+      - run: sudo apt-get update && sudo apt-get install -y libreoffice-writer poppler-utils fonts-liberation
+      - run: pnpm --filter @legalwork/app exec node scripts/docx-interop.mjs
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: docx-interop-evidence
+          path: apps/app/docx-interop-output/

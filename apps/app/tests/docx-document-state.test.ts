@@ -49,6 +49,16 @@ describe("DOCX document lifetime", () => {
 });
 
 describe("DOCX close protection", () => {
+  test("recovery is discarded only after the user confirms leaving", () => {
+    let discarded = 0;
+    const unregister = registerUnsavedDocument("recovery", "Contract.docx", () => true, () => { discarded += 1; });
+    try {
+      assert.equal(confirmDiscardDocuments("recovery", () => false), false);
+      assert.equal(discarded, 0);
+      assert.equal(confirmDiscardDocuments("recovery", () => true), true);
+      assert.equal(discarded, 1);
+    } finally { unregister(); }
+  });
   test("only closing dirty documents prompts, and cancelling prevents close", () => {
     const key = artifactDocumentKey("workspace", "session", "contract.docx");
     let dirty = true;

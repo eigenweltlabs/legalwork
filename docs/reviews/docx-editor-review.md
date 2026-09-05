@@ -1,5 +1,7 @@
 # DOCX editor review: lawyer workflow
 
+Follow-up: [DOCX editor hardening](docx-editor-hardening.md) fixes the reproduced reply-loss bug and adds recovery, focused editing, versions, export safeguards and live-draft proposals. The remaining-priority list below records the original review; use the follow-up for current status.
+
 Reviewed 5 September 2026 against LegalWork `dev` (`21c6176`) and the installed Eigenpal React/agents **1.8.3** packages. This is a review of that exact integration, not a claim of Microsoft Word parity.
 
 ## Findings fixed in this PR

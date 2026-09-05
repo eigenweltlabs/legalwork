@@ -126,7 +126,7 @@ function ArtifactPanelView({ sessionId, client, workspaceId, workspaceRoot, isRe
 
   useEffect(() => {
     if (!isEditableDocx) return;
-    return registerUnsavedDocument(artifactDocumentKey(workspaceId, sessionId, target.id), target.name, () => docxDirtyRef.current);
+    return registerUnsavedDocument(artifactDocumentKey(workspaceId, sessionId, target.id), target.name, () => docxDirtyRef.current, () => docxApi.current?.discardRecovery());
   }, [isEditableDocx, sessionId, target.id, target.name, workspaceId]);
 
   useEffect(() => {
@@ -557,6 +557,12 @@ function ArtifactPanelView({ sessionId, client, workspaceId, workspaceRoot, isRe
             onSave={saveDocxContent}
             apiRef={docxApi}
             onDirtyChange={onDocxDirtyChange}
+            recoveryKey={isEditableDocx ? JSON.stringify([workspaceId, target.value]) : undefined}
+            baseUpdatedAt={docxSnapshot.updatedAt}
+            onRestore={(baseUpdatedAt) => {
+              onDocxDirtyChange(true);
+              setDocxSnapshot((current) => current ? { ...current, updatedAt: baseUpdatedAt } : current);
+            }}
           />
         ) : target.preview === "html" && data?.kind === "text" ? (
           <HTMLPreview type="text" title={target.name} content={data.data} />

@@ -29,7 +29,7 @@ function ReviewHarness({ initial }: { initial: ArrayBuffer }) {
     </div>
     <details><summary>Saved DOCX contents</summary><pre aria-label="Saved DOCX contents" style={{ maxHeight: 160, overflow: "auto" }}>{savedReport}</pre></details>
     <div style={{ width: narrow ? 620 : "100%", flex: 1, minHeight: 0 }}>
-      <ArtifactDocxEditor key={generation} name="legal-review.docx" content={content} apiRef={api} readOnly={readOnly} onDirtyChange={setDirty} onSave={async (buffer) => {
+      <ArtifactDocxEditor key={generation} name="legal-review.docx" content={content} apiRef={api} readOnly={readOnly} recoveryKey="synthetic-contract-qa" baseUpdatedAt={1} onDirtyChange={setDirty} onSave={async (buffer) => {
         await new Promise((resolve) => setTimeout(resolve, 600));
         if (failSave) throw new Error("Simulated workspace write failure");
         setSaved(buffer.slice(0));

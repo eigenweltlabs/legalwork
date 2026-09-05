@@ -24,14 +24,14 @@ export function savedDocxSnapshot(current: DocxSnapshot, data: ArrayBuffer, upda
   return { ...current, data, updatedAt };
 }
 
-const unsavedDocuments = new Map<string, { name: string; isDirty: () => boolean }>();
+const unsavedDocuments = new Map<string, { name: string; isDirty: () => boolean; discard?: () => void }>();
 
 export function artifactDocumentKey(workspaceId: string, sessionId: string, targetId: string) {
   return JSON.stringify([workspaceId, sessionId, targetId]);
 }
 
-export function registerUnsavedDocument(key: string, name: string, isDirty: () => boolean) {
-  const entry = { name, isDirty };
+export function registerUnsavedDocument(key: string, name: string, isDirty: () => boolean, discard?: () => void) {
+  const entry = { name, isDirty, discard };
   unsavedDocuments.set(key, entry);
   return () => {
     if (unsavedDocuments.get(key) === entry) unsavedDocuments.delete(key);
@@ -39,10 +39,11 @@ export function registerUnsavedDocument(key: string, name: string, isDirty: () =
 }
 
 export function confirmDiscardDocuments(key?: string, confirm?: (message: string) => boolean) {
-  const names = [...unsavedDocuments.entries()]
-    .filter(([id, entry]) => (!key || id === key) && entry.isDirty())
-    .map(([, entry]) => entry.name);
+  const entries = [...unsavedDocuments.entries()].filter(([id, entry]) => (!key || id === key) && entry.isDirty());
+  const names = entries.map(([, entry]) => entry.name);
   if (!names.length) return true;
   const ask = confirm ?? ((message: string) => window.confirm(message));
-  return ask(`Discard unsaved changes to ${names.join(", ")}? Save the document first to keep your changes.`);
+  if (!ask(`Discard unsaved changes to ${names.join(", ")}? Save the document first to keep your changes.`)) return false;
+  for (const [, entry] of entries) entry.discard?.();
+  return true;
 }
