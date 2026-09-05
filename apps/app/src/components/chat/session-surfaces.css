@@ -4,7 +4,6 @@
   }
 
   .lw-session-welcome-heading { margin-bottom: 38px; }
-  .lw-session-welcome-mark { margin-bottom: 24px; color: var(--lw-text-primary); }
   .lw-session-welcome-title {
     color: var(--lw-text-primary);
     font-size: clamp(27px, 3.2vw, 39px);
