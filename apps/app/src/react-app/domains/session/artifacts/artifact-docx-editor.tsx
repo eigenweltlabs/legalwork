@@ -12,6 +12,7 @@ import { Button } from "@/components/ui/button";
 import { toast } from "@/components/ui/sonner";
 import { keepDocxVersion, readDocxRecovery, removeDocxRecovery, writeDocxRecovery, type DocxRecovery } from "./docx-recovery";
 import { useDocxPageFit } from "./use-docx-page-fit";
+import { useDocxReviewCard } from "./use-docx-review-card";
 import "./docx-editor-layout.css";
 import { useControlActions } from "../../../shell/control/control-provider";
 
@@ -148,6 +149,7 @@ function LiveDocxEditor({ name, content, author, readOnly = false, onSave, onDir
   const containerRef = useRef<HTMLDivElement>(null);
   const [commentsOpen, setCommentsOpen] = useState(false);
   const fitPage = useDocxPageFit(containerRef, editorRef, commentsOpen);
+  const onReviewClick = useDocxReviewCard(containerRef, editorRef);
   const recoveryFailed = useRef(false);
   const { executeToolCall } = useDocxAgentTools({ editorRef, author: "LegalWork AI" });
   const revision = useRef(0);
@@ -312,7 +314,7 @@ function LiveDocxEditor({ name, content, author, readOnly = false, onSave, onDir
   ]);
 
   return (
-    <div ref={containerRef} className="docx-host flex h-full min-h-0 min-w-0 w-full flex-col overflow-hidden" onKeyDownCapture={(event) => {
+    <div ref={containerRef} className="docx-host flex h-full min-h-0 min-w-0 w-full flex-col overflow-hidden" onClickCapture={onReviewClick} onKeyDownCapture={(event) => {
       if (!(event.metaKey || event.ctrlKey) || event.key.toLowerCase() !== "s" || event.altKey) return;
       event.preventDefault();
       event.stopPropagation();
