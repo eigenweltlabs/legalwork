@@ -3534,7 +3534,7 @@ packages:
     resolution: {integrity: sha512-b8AmV3kfQaqWAuacbPuNbL6vahnOJflOhexLzMMNLga62+/nh0JzvJ0aO/5a5MVgUFGS7Hu1P9P03o3fJkDCyw==}
     engines: {node: '>=12'}
 
-  d3@7.8.0:
+  d3@7.9.0:
     resolution: {integrity: sha512-e1U46jVP+w7Iut8Jt8ri1YsPOvFpg46k+K8TpCb0P+zjCkjkPnV7WzfDJzMHy1LnA+wj5pLT1wjO901gLXeEhA==}
     engines: {node: '>=12'}
 
@@ -10116,7 +10116,7 @@ snapshots:
       d3-selection: 3.0.0
       d3-transition: 3.0.1(d3-selection@3.0.0)
 
-  d3@7.8.0:
+  d3@7.9.0:
     dependencies:
       d3-array: 3.2.4
       d3-axis: 3.0.0
@@ -10151,7 +10151,7 @@ snapshots:
 
   dagre-d3-es@7.0.14:
     dependencies:
-      d3: 7.8.0
+      d3: 7.9.0
       lodash-es: 4.18.1
 
   data-uri-to-buffer@4.0.1: {}
@@ -11694,7 +11694,7 @@ snapshots:
       cytoscape: 3.33.4
       cytoscape-cose-bilkent: 4.1.0(cytoscape@3.33.4)
       cytoscape-fcose: 2.2.0(cytoscape@3.33.4)
-      d3: 7.8.0
+      d3: 7.9.0
       d3-sankey: 0.12.3
       dagre-d3-es: 7.0.14
       dayjs: 1.11.20
