@@ -1,0 +1,41 @@
+/* Eigenpal reserves an unscaled page width even when zoomed out. Let its
+   scaled pages determine overflow instead of forcing a 100% document track. */
+.docx-host .docx-editor__scroll-container > div {
+  min-width: var(--docx-layout-width, 100%) !important;
+}
+
+.docx-host .docx-editor,
+.docx-host .paged-editor {
+  min-width: 0;
+  max-width: 100%;
+}
+
+.docx-host {
+  container-type: inline-size;
+}
+
+/* In a side pane, annotations open over the page when their inline mark is
+   selected. Reserve a separate review rail only when there is room for it. */
+@container (max-width: 899px) {
+  .docx-host .paged-editor > div {
+    /* Keep native zoom, without reserving space for a separate review rail. */
+    transform: scale(var(--docx-zoom, 1)) !important;
+  }
+
+  .docx-host .docx-unified-sidebar {
+    left: auto !important;
+    right: 12px !important;
+    width: min(340px, calc(100% - 24px)) !important;
+  }
+
+  .docx-host .docx-unified-sidebar > div > div:has(.docx-tracked-change-card),
+  .docx-host .docx-unified-sidebar > div > div:has(.docx-comment-card) {
+    display: none;
+  }
+
+  .docx-host .docx-unified-sidebar > div > div:has(.docx-tracked-change-card button),
+  .docx-host .docx-unified-sidebar > div > div:has(.docx-comment-card button),
+  .docx-host .docx-unified-sidebar > div > div:has(input, textarea) {
+    display: block;
+  }
+}

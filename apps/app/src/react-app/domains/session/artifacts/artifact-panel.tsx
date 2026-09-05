@@ -11,7 +11,7 @@ import { toast } from "@/components/ui/sonner";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { formatFileSize } from "@/lib/utils";
 import { useControlAction, useControlSurface, type LegalworkControlAction, type LegalworkControlSurface } from "@/react-app/shell/control/control-provider";
-import { PanelHeader } from "@/react-app/design-system/panel-chrome";
+import { ArtifactFrame } from "./artifact-frame";
 import { ArtifactIcon } from "./artifact-icon";
 import type { DocxEditorApi } from "./artifact-docx-editor";
 import { artifactDocumentKey, reconcileDocxSnapshot, registerUnsavedDocument, savedDocxSnapshot, type DocxSnapshot } from "./docx-document-state";
@@ -470,9 +470,8 @@ function ArtifactPanelView({ sessionId, client, workspaceId, workspaceRoot, isRe
   const docxChangedOnDisk = docxDirty && docxSnapshot && data?.kind === "binary" && data.updatedAt !== docxSnapshot.updatedAt;
 
   return (
-    <div className="flex h-full min-h-0 flex-col bg-background">
-      <PanelHeader
-        wrapActions
+    <ArtifactFrame
+        expandable={target.preview === "word"}
         title={target.name}
         icon={fileIcon ? <img src={fileIcon} alt="" className="size-5 shrink-0 object-contain" /> : <ArtifactIcon type={target.preview} className="size-5" />}
         meta={<>
@@ -483,7 +482,7 @@ function ArtifactPanelView({ sessionId, client, workspaceId, workspaceRoot, isRe
             </span>
           ) : null}
         </>}
-      >
+        actions={<>
           {isTextContent(target) && data?.kind === "text" ? (
             editing || isDirectTextEdit ? (
               <>
@@ -583,7 +582,8 @@ function ArtifactPanelView({ sessionId, client, workspaceId, workspaceRoot, isRe
             />
             <TooltipContent>Close artifact</TooltipContent>
           </Tooltip>
-      </PanelHeader>
+        </>}
+      >
       {docxChangedOnDisk ? (
         <div className="shrink-0 border-b border-border bg-muted px-4 py-2 text-xs" role="alert">
           This file changed in the workspace. Your edits are still here. Download a copy to keep them before reopening the latest version.
@@ -635,7 +635,7 @@ function ArtifactPanelView({ sessionId, client, workspaceId, workspaceRoot, isRe
           <PreviewUnavailable />
         )}
       </div>
-    </div>
+    </ArtifactFrame>
   );
 }
 

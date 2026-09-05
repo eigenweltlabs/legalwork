@@ -2,6 +2,7 @@ import { useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { DocxReviewer } from "@eigenpal/docx-editor-agents";
 import { ArtifactDocxEditor, type DocxEditorApi } from "../src/react-app/domains/session/artifacts/artifact-docx-editor";
+import { ArtifactFrame } from "../src/react-app/domains/session/artifacts/artifact-frame";
 import { TooltipProvider } from "../src/components/ui/tooltip";
 import { Toaster } from "../src/components/ui/sonner";
 import "../src/app/index.css";
@@ -28,7 +29,8 @@ function ReviewHarness({ initial }: { initial: ArrayBuffer }) {
       <output aria-label="Document status">{dirty ? "Unsaved changes" : "No unsaved changes"} · {status}</output>
     </div>
     <details><summary>Saved DOCX contents</summary><pre aria-label="Saved DOCX contents" style={{ maxHeight: 160, overflow: "auto" }}>{savedReport}</pre></details>
-    <div style={{ width: narrow ? 620 : "100%", flex: 1, minHeight: 0 }}>
+    <div style={{ width: narrow ? 620 : "100%", maxWidth: "100%", flex: 1, minHeight: 0 }}>
+      <ArtifactFrame title="legal-review.docx" meta={dirty ? "Unsaved changes" : "Saved"} expandable actions={<button onClick={() => void api.current?.save()}>Save</button>}>
       <ArtifactDocxEditor key={generation} name="legal-review.docx" content={content} apiRef={api} readOnly={readOnly} recoveryKey="synthetic-contract-qa" baseUpdatedAt={1} onDirtyChange={setDirty} onSave={async (buffer) => {
         await new Promise((resolve) => setTimeout(resolve, 600));
         if (failSave) throw new Error("Simulated workspace write failure");
@@ -37,6 +39,7 @@ function ReviewHarness({ initial }: { initial: ArrayBuffer }) {
         setSavedReport(JSON.stringify({ comments: reopened.getComments(), changes: reopened.getChanges(), text: reopened.getContentAsText() }, null, 2));
         setStatus("Saved to workspace");
       }} />
+      </ArtifactFrame>
     </div><Toaster />
   </div></TooltipProvider>;
 }

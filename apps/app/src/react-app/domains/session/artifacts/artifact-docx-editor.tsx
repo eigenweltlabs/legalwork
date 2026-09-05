@@ -8,11 +8,11 @@ import { extractTrackedChanges } from "@eigenpal/docx-editor-core/prosemirror/ut
 import "@eigenpal/docx-editor-react/styles.css";
 
 import { getInitialThemeMode, subscribeToTheme, type ThemeMode } from "@/app/theme";
-import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { toast } from "@/components/ui/sonner";
-import { keepDocxVersion, readDocxVersions, readDocxRecovery, removeDocxRecovery, writeDocxRecovery, type DocxRecovery, type DocxVersion } from "./docx-recovery";
-import { createCleanDocx, downloadDocx } from "./docx-export";
+import { keepDocxVersion, readDocxRecovery, removeDocxRecovery, writeDocxRecovery, type DocxRecovery } from "./docx-recovery";
+import { useDocxPageFit } from "./use-docx-page-fit";
+import "./docx-editor-layout.css";
 import { useControlActions } from "../../../shell/control/control-provider";
 
 export type DocxEditorApi = {
@@ -136,22 +136,19 @@ function LiveDocxEditor({ name, content, author, readOnly = false, onSave, onDir
   const [documentBuffer] = useState(() => content.slice(0));
   const [documentId] = useState(() => `${Date.now()}:${++documentInstance}`);
   const [mode, setMode] = useState<EditorMode>("editing");
-  const [focused, setFocused] = useState(false);
-  const [exporting, setExporting] = useState(false);
-  const [confirmClean, setConfirmClean] = useState(false);
-  const [versions, setVersions] = useState<DocxVersion[] | null>(null);
-  const [pendingVersion, setPendingVersion] = useState<DocxVersion | null>(null);
-  const [comparison, setComparison] = useState<{ before: string; after: string } | null>(null);
-  const [recoveryStatus, setRecoveryStatus] = useState("");
   const checkpointTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const dirty = useRef(recovered);
   const checkpoint = useRef<() => Promise<void>>(async () => {});
   const checkpointed = useRef<{ revision: number; base: number | null } | null>(null);
-  const [reviewer, setReviewer] = useState(() => {
+  const [reviewer] = useState(() => {
     if (author) return author;
     try { return window.localStorage.getItem(AUTHOR_KEY) ?? ""; } catch { return ""; }
   });
   const editorRef = useRef<DocxEditorRef>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [commentsOpen, setCommentsOpen] = useState(false);
+  const fitPage = useDocxPageFit(containerRef, editorRef, commentsOpen);
+  const recoveryFailed = useRef(false);
   const { executeToolCall } = useDocxAgentTools({ editorRef, author: "LegalWork AI" });
   const revision = useRef(0);
   const ready = useRef(false);
@@ -165,7 +162,6 @@ function LiveDocxEditor({ name, content, author, readOnly = false, onSave, onDir
     dirty.current = true;
     onDirtyChange?.(true);
     if (recoveryKey) {
-      setRecoveryStatus("Keeping draft…");
       if (checkpointTimer.current) clearTimeout(checkpointTimer.current);
       checkpointTimer.current = setTimeout(() => { void checkpoint.current(); }, 1000);
     }
@@ -203,8 +199,11 @@ function LiveDocxEditor({ name, content, author, readOnly = false, onSave, onDir
       if (!buffer || !dirty.current || checkpointRevision !== revision.current) return;
       await writeDocxRecovery({ key: recoveryKey, buffer, baseUpdatedAt, savedAt: Date.now() });
       checkpointed.current = { revision: checkpointRevision, base: baseUpdatedAt };
-      if (dirty.current && checkpointRevision === revision.current) setRecoveryStatus("Draft kept on this device");
-    } catch { setRecoveryStatus("Recovery unavailable — save your document"); }
+      recoveryFailed.current = false;
+    } catch {
+      if (!recoveryFailed.current) toast.error("Draft recovery is unavailable. Save your document to keep changes.");
+      recoveryFailed.current = true;
+    }
   };
 
   useLayoutEffect(() => {
@@ -233,7 +232,6 @@ function LiveDocxEditor({ name, content, author, readOnly = false, onSave, onDir
       if (revision.current === savingRevision) {
         dirty.current = false;
         onDirtyChange?.(false);
-        setRecoveryStatus("");
         if (recoveryKey) await removeDocxRecovery(recoveryKey).catch(() => toast.error("Saved, but the old recovery copy could not be cleared."));
       }
       return true;
@@ -314,7 +312,7 @@ function LiveDocxEditor({ name, content, author, readOnly = false, onSave, onDir
   ]);
 
   return (
-    <div className={focused ? "fixed inset-0 z-50 flex flex-col overflow-hidden bg-background" : "flex h-full min-h-0 w-full flex-col overflow-hidden"} onKeyDownCapture={(event) => {
+    <div ref={containerRef} className="docx-host flex h-full min-h-0 min-w-0 w-full flex-col overflow-hidden" onKeyDownCapture={(event) => {
       if (!(event.metaKey || event.ctrlKey) || event.key.toLowerCase() !== "s" || event.altKey) return;
       event.preventDefault();
       event.stopPropagation();
@@ -325,67 +323,7 @@ function LiveDocxEditor({ name, content, author, readOnly = false, onSave, onDir
         toast.error(error instanceof Error ? error.message : "The document could not be saved. Your draft is still open.");
       });
     }}>
-      <div className="flex shrink-0 flex-wrap items-center gap-2 border-b bg-background px-3 py-2 text-xs text-muted-foreground">
-      {!readOnly && <>
-        <label className="flex items-center gap-2">
-          Reviewer
-          <Input aria-label="Reviewer name" className="h-7 w-44 text-xs" placeholder="Your name" value={reviewer} onChange={(event) => {
-            setReviewer(event.target.value);
-            try { window.localStorage.setItem(AUTHOR_KEY, event.target.value); } catch { /* Device preference is optional. */ }
-          }} />
-        </label>
-        <span role="status">{recoveryStatus || "Used for new comments and tracked changes"}</span>
-      </>}
-        <div className="ml-auto flex gap-2">
-          {recoveryKey && <Button size="sm" variant="ghost" onClick={() => {
-            if (versions) { setVersions(null); setComparison(null); return; }
-            void readDocxVersions(recoveryKey).then(setVersions).catch(() => toast.error("Could not read local version history."));
-          }}>Version history</Button>}
-          <Button size="sm" variant="ghost" disabled={exporting} onClick={() => setConfirmClean(true)}>{exporting ? "Preparing copy…" : "Download clean copy"}</Button>
-          <Button size="sm" variant="ghost" onClick={() => editorRef.current?.openPrintPreview()}>Print / PDF</Button>
-          {focused && !readOnly && <Button size="sm" onClick={() => {
-            void save().then((saved) => saved ? toast.success("Saved") : toast.error("The document is still loading. Try again shortly.")).catch((error: unknown) => toast.error(error instanceof Error ? error.message : "Could not save your draft."));
-          }}>Save</Button>}
-          <Button size="sm" variant="outline" onClick={() => setFocused(!focused)}>{focused ? "Return to chat" : "Focus document"}</Button>
-        </div>
-      </div>
-      {confirmClean && <div className="flex shrink-0 flex-wrap items-center gap-3 border-b bg-muted/40 px-3 py-2 text-sm">
-        <p>Accept all tracked changes and remove comments in the downloaded copy. Your working draft keeps its markup.</p>
-        <Button size="sm" disabled={exporting} onClick={() => {
-          setExporting(true);
-          void getBuffer().then(async (buffer) => {
-            if (!buffer) throw new Error("The document is still loading.");
-            downloadDocx(await createCleanDocx(buffer), name.replace(/\.docx$/i, "") + "-clean.docx");
-            setConfirmClean(false);
-          }).catch((error: unknown) => toast.error(error instanceof Error ? error.message : "Could not create a clean copy.")).finally(() => setExporting(false));
-        }}>Create clean copy</Button>
-        <Button size="sm" variant="ghost" onClick={() => setConfirmClean(false)}>Cancel export</Button>
-      </div>}
-      {versions && <div className="max-h-[45vh] shrink-0 overflow-auto border-b p-3 text-sm">
-        <p className="mb-2 text-muted-foreground">Last five saves on this device. Workspace saves remain the authoritative file.</p>
-        {!versions.length && <p>No saved versions yet.</p>}
-        {versions.map((version) => <div key={version.savedAt} className="flex items-center gap-2 py-1">
-          <span>{new Date(version.savedAt).toLocaleString()}</span>
-          <Button size="sm" variant="ghost" onClick={() => downloadDocx(version.buffer, name.replace(/\.docx$/i, "") + `-${version.savedAt}.docx`)}>Download version</Button>
-          <Button size="sm" variant="ghost" onClick={() => {
-            void getBuffer().then(async (current) => {
-              if (!current) throw new Error("Document is still loading.");
-              const [before, after] = await Promise.all([DocxReviewer.fromBuffer(version.buffer), DocxReviewer.fromBuffer(current)]);
-              setComparison({ before: before.getContentAsText(), after: after.getContentAsText() });
-            }).catch(() => toast.error("Could not compare these documents."));
-          }}>Compare text</Button>
-          {!readOnly && <Button size="sm" variant="ghost" onClick={() => setPendingVersion(version)}>Restore as draft</Button>}
-        </div>)}
-        {pendingVersion && !readOnly && <div className="my-2 space-y-2 rounded-md border p-3">
-          <p>Replace the open draft with the version from {new Date(pendingVersion.savedAt).toLocaleString()}? Save or download current edits first. The workspace file will not change until you save.</p>
-          <Button size="sm" onClick={() => {
-            void editorRef.current?.loadDocumentBuffer(pendingVersion.buffer.slice(0)).then(() => { markDirty(); setVersions(null); setComparison(null); setPendingVersion(null); }).catch(() => toast.error("Could not restore this version."));
-          }}>Restore selected version</Button>
-          <Button size="sm" variant="ghost" onClick={() => setPendingVersion(null)}>Cancel restore</Button>
-        </div>}
-        {comparison && <><p className="my-2">Text comparison only; formatting, numbering and layout are not compared.</p><div className="grid grid-cols-2 gap-4"><div><h4>Saved version</h4><pre className="whitespace-pre-wrap text-xs">{comparison.before}</pre></div><div><h4>Current draft</h4><pre className="whitespace-pre-wrap text-xs">{comparison.after}</pre></div></div></>}
-      </div>}
-      <div className="min-h-0 flex-1">
+      <div className="min-h-0 min-w-0 flex-1">
         <DocxEditor
           ref={editorRef}
           documentBuffer={documentBuffer}
@@ -395,11 +333,14 @@ function LiveDocxEditor({ name, content, author, readOnly = false, onSave, onDir
           readOnly={readOnly}
           mode={readOnly ? "viewing" : mode}
           onModeChange={setMode}
+          commentsSidebarOpen={commentsOpen}
+          onCommentsSidebarOpenChange={setCommentsOpen}
+          onFontsLoaded={fitPage}
           colorMode={colorMode}
           showFileOpen={false}
           showHelpMenu
-          showOutlineButton
-          showRuler
+          showOutlineButton={false}
+          showRuler={false}
           rulerUnit="cm"
           i18n={EDITOR_LABELS}
           className="h-full"
@@ -407,9 +348,10 @@ function LiveDocxEditor({ name, content, author, readOnly = false, onSave, onDir
             // Initial import/normalization emits document and comment callbacks.
             // Establish the baseline after that first render, before accepting edits.
             requestAnimationFrame(() => {
+              if (ready.current) return;
               lastDocument.current = editorRef.current?.getDocument() ?? null;
               ready.current = true;
-              if (recovered) { dirty.current = true; onDirtyChange?.(true); setRecoveryStatus("Recovered draft — save to keep changes in the workspace"); }
+              if (recovered) { dirty.current = true; onDirtyChange?.(true); }
             });
           }}
           onChange={(document) => { lastDocument.current = document; markDirty(); }}
