@@ -52,7 +52,7 @@ import { ArtifactList } from "@/components/chat/artifact"
 import { collectLegalMemoryDocuments } from "@/lib/legalmemory-documents"
 import { LegalMemoryMatterGraph } from "@/components/chat/legalmemory-matter-graph"
 import { LegalMemorySourcesCard } from "@/components/chat/legalmemory-sources-card"
-import { TaskSuggestions } from "@/components/chat/task-suggestions"
+import { SessionWelcome } from "@/components/chat/session-welcome"
 import {
   DescriptiveButtonContent,
   DescriptiveButtonDescription,
@@ -977,7 +977,7 @@ export function MessageList({ eigenweltPlan = null, messages, status, retryStatu
   return (
     <EigenweltBudgetPlanContext.Provider value={eigenweltPlan}>
     <div className={cn("flex flex-col gap-2 @container/message-list")}>
-      {messages.length === 0 && <TaskSuggestions className="mx-auto w-full max-w-3xl shrink-0 px-3 pb-3 md:px-5 md:pb-5 grow" />}
+      {messages.length === 0 && <SessionWelcome />}
 
       {items.map((item) => {
         if (isMessageGroup(item)) {

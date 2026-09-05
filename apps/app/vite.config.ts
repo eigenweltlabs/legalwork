@@ -21,6 +21,7 @@ envAllowedHosts.split(",").forEach(addHost);
 addHost(process.env.LEGALWORK_PUBLIC_HOST ?? null);
 const hostname = os.hostname();
 addHost(hostname);
+addHost("terminal.local");
 const shortHostname = hostname.split(".")[0];
 if (shortHostname && shortHostname !== hostname) {
   addHost(shortHostname);
@@ -69,6 +70,9 @@ export default defineConfig({
     }),
   ],
   server: {
+    // Supervised visual fixtures stay stable if another preview restarts the host.
+    // Normal UI/Electron development retains hot reload.
+    ...(process.env.LEGALWORK_VISUAL_PREVIEW === "1" ? { hmr: false } : {}),
     port: devPort,
     strictPort: true,
     ...(allowedHosts.size > 0 ? { allowedHosts: Array.from(allowedHosts) } : {}),

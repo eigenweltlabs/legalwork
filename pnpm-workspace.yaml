@@ -31,3 +31,6 @@ allowBuilds:
   node-pty: true
   protobufjs: true
   sharp: true
+patchedDependencies:
+  '@eigenpal/docx-editor-core@1.8.3': patches/@eigenpal__docx-editor-core@1.8.3.patch
+  '@eigenpal/docx-editor-react@1.8.3': patches/@eigenpal__docx-editor-react@1.8.3.patch

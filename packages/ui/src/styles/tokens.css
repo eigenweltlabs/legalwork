@@ -5,9 +5,9 @@
  * color, elevation and motion. `theme.css` maps them into Tailwind's theme so
  * they are reachable as utilities (bg-surface, text-ink, border-subtle, ...).
  *
- * Identity: navy primary (premium, law-firm), a single restrained blue for
- * interactive states (toggles, focus, send, selection). Near-white surfaces,
- * hairline borders, generous whitespace — the "work app" idiom.
+ * Identity: white, glass and graphite. Hierarchy comes from precise type,
+ * quiet surface contrast, hairline borders and purposeful motion. Color is
+ * reserved for semantic status and user-selected or third-party identities.
  *
  * Swap the values under `.dark` / [data-theme="dark"] to re-theme at runtime;
  * the Tailwind mapping references these vars, so utilities follow automatically.
@@ -43,14 +43,14 @@
   --lw-navy-800: #071d30;
   --lw-navy-900: #011627;
 
-  /* ---- Accent (interactive blue) — deep, premium ------------------------- */
-  --lw-accent: #0a58c2;
-  --lw-accent-hover: #094ea9;
-  --lw-accent-active: #073f8a;
+  /* ---- Accent (graphite interaction) ------------------------- */
+  --lw-accent: #35353b;
+  --lw-accent-hover: #1c1c20;
+  --lw-accent-active: #0d0d0f;
   --lw-accent-fg: #ffffff;
-  --lw-accent-soft: #e9f0fb;
-  --lw-accent-soft-hover: #d8e6f8;
-  --lw-accent-border: #a7c6ee;
+  --lw-accent-soft: #efeff1;
+  --lw-accent-soft-hover: #e4e4e7;
+  --lw-accent-border: #b6b6bd;
 
   /* ---- Semantic status --------------------------------------------------- */
   --lw-success: #12a150;
@@ -69,18 +69,37 @@
   --lw-sidebar: #f7f7f8;        /* left rail */
   --lw-overlay: rgba(20, 22, 28, 0.28); /* modal scrim */
 
+  /* Glass belongs to chrome and floating controls, never document bodies. */
+  --lw-glass: rgba(255, 255, 255, 0.76);
+  --lw-glass-strong: rgba(255, 255, 255, 0.94);
+  --lw-glass-highlight: rgba(255, 255, 255, 0.90);
+  --lw-glass-blur: 16px;
+  --lw-asset-back: #d6d6da;
+  --lw-asset-front: #f7f7f8;
+  --lw-asset-edge: #b6b6bd;
+
+  /* Quiet file-type accents; the surrounding application surfaces stay neutral. */
+  --lw-folder-accent: #69afe4;
+  --lw-file-word: #397bd3;
+  --lw-file-slides: #cf7140;
+  --lw-file-sheet: #358365;
+  --lw-file-pdf: #c35f67;
+  --lw-file-image: #9271b6;
+  --lw-file-media: #7778b9;
+  --lw-file-code: #468d9d;
+
   /* ---- Text -------------------------------------------------------------- */
   --lw-text-primary: #0d0d0f;
   --lw-text-secondary: #6c6c76;
   --lw-text-tertiary: #8f8f98;
-  --lw-text-placeholder: #b6b6bd;
+  --lw-text-placeholder: #75757e;
   --lw-text-inverse: #ffffff;
   --lw-text-on-navy: #ffffff;
 
-  /* ---- Primary (navy) fills ---------------------------------------------- */
-  --lw-primary: #011627;
-  --lw-primary-hover: #0a2233;
-  --lw-primary-active: #04182b;
+  /* ---- Primary (graphite) fills ---------------------------------------------- */
+  --lw-primary: #252529;
+  --lw-primary-hover: #35353b;
+  --lw-primary-active: #151518;
   --lw-primary-fg: #ffffff;
 
   /* ---- Borders / lines --------------------------------------------------- */
@@ -93,8 +112,8 @@
   --lw-hover: rgba(13, 13, 15, 0.04);
   --lw-active: rgba(13, 13, 15, 0.07);
   --lw-selected: var(--lw-accent-soft);
-  --lw-focus-ring: rgba(10, 88, 194, 0.40);
-  --lw-focus-ring-navy: rgba(1, 22, 39, 0.28);
+  --lw-focus-ring: rgba(53, 53, 59, 0.24);
+  --lw-focus-ring-navy: var(--lw-focus-ring);
 
   /* ---- Elevation --------------------------------------------------------- */
   --lw-shadow-xs: 0 1px 2px rgba(16, 24, 40, 0.05);
@@ -124,14 +143,42 @@
   --lw-ease-standard: cubic-bezier(0.2, 0, 0, 1);
   --lw-ease-out: cubic-bezier(0.16, 1, 0.3, 1);
   --lw-ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
-  --lw-duration-fast: 120ms;
-  --lw-duration-base: 160ms;
-  --lw-duration-slow: 220ms;
+  --lw-duration-fast: 140ms;
+  --lw-duration-base: 180ms;
+  --lw-duration-slow: 240ms;
+  --lw-duration-enter: 420ms;
+
+  /* ---- Layout rhythm ----------------------------------------------------- */
+  --lw-space-1: 4px;
+  --lw-space-2: 8px;
+  --lw-space-3: 12px;
+  --lw-space-4: 16px;
+  --lw-space-5: 20px;
+  --lw-space-6: 24px;
+  --lw-space-8: 32px;
+  --lw-control-sm: 28px;
+  --lw-control-md: 36px;
+  --lw-control-lg: 44px;
 }
 
 .dark,
 [data-theme="dark"] {
   color-scheme: dark;
+  --lw-glass: rgba(27, 27, 31, 0.78);
+  --lw-glass-strong: rgba(27, 27, 31, 0.96);
+  --lw-glass-highlight: rgba(255, 255, 255, 0.06);
+  --lw-asset-back: #35353b;
+  --lw-asset-front: #52525a;
+  --lw-asset-edge: #6c6c76;
+  --lw-folder-accent: #80bde9;
+  --lw-file-word: #83b4f0;
+  --lw-file-slides: #e9a074;
+  --lw-file-sheet: #78bba0;
+  --lw-file-pdf: #e4939a;
+  --lw-file-image: #b79bd9;
+  --lw-file-media: #a9a6e1;
+  --lw-file-code: #7fbbc7;
+  --lw-accent-fg: #0d0d0f;
 
   --lw-canvas: #131316;
   --lw-surface: #1b1b1f;
@@ -143,7 +190,7 @@
   --lw-text-primary: #f4f4f5;
   --lw-text-secondary: #a7a7b0;
   --lw-text-tertiary: #7c7c85;
-  --lw-text-placeholder: #5a5a63;
+  --lw-text-placeholder: #9898a1;
   --lw-text-inverse: #0d0d0f;
 
   --lw-primary: #f4f4f5;
@@ -151,12 +198,12 @@
   --lw-primary-active: #e4e4e7;
   --lw-primary-fg: #0d0d0f;
 
-  --lw-accent: #3b9bff;
-  --lw-accent-hover: #58aaff;
-  --lw-accent-active: #78bbff;
-  --lw-accent-soft: rgba(59, 155, 255, 0.16);
-  --lw-accent-soft-hover: rgba(59, 155, 255, 0.24);
-  --lw-accent-border: rgba(59, 155, 255, 0.35);
+  --lw-accent: #d6d6da;
+  --lw-accent-hover: #f4f4f5;
+  --lw-accent-active: #ffffff;
+  --lw-accent-soft: rgba(255, 255, 255, 0.08);
+  --lw-accent-soft-hover: rgba(255, 255, 255, 0.12);
+  --lw-accent-border: rgba(255, 255, 255, 0.24);
 
   --lw-border-subtle: rgba(255, 255, 255, 0.07);
   --lw-border: rgba(255, 255, 255, 0.11);
@@ -164,8 +211,8 @@
 
   --lw-hover: rgba(255, 255, 255, 0.05);
   --lw-active: rgba(255, 255, 255, 0.09);
-  --lw-selected: rgba(59, 155, 255, 0.16);
-  --lw-focus-ring: rgba(59, 155, 255, 0.45);
+  --lw-selected: rgba(255, 255, 255, 0.08);
+  --lw-focus-ring: rgba(255, 255, 255, 0.32);
 
   --lw-shadow-xs: 0 1px 2px rgba(0, 0, 0, 0.4);
   --lw-shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.45);

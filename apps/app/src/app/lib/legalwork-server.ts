@@ -2483,20 +2483,30 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
         timeoutMs: timeouts.config,
       }),
 
-    createVoiceRealtimeSession: (payload?: { model?: string; sessionContext?: string }) =>
+    getVoiceRealtimeCapability: () =>
+      requestJson<{
+        supported: boolean;
+        providerId: "openai" | null;
+        model: "gpt-realtime-2.1" | null;
+        reason: string | null;
+      }>(baseUrl, "/voice/realtime/capability", {
+        token,
+        hostToken,
+        timeoutMs: timeouts.config,
+      }),
+
+    createVoiceRealtimeCall: (payload: { sdp: string; sessionContext?: string }) =>
       requestJson<{
         ok: true;
-        clientSecret: string;
-        expiresAt: number | null;
-        model: string;
-        transcriptionModel: string;
+        sdp: string;
+        model: "gpt-realtime-2.1";
+        providerId: "openai";
         tools: string[];
-        source?: string;
-      }>(baseUrl, "/voice/realtime/session", {
+      }>(baseUrl, "/voice/realtime/call", {
         token,
         hostToken,
         method: "POST",
-        body: payload ?? {},
+        body: payload,
         timeoutMs: timeouts.config,
       }),
   };

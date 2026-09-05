@@ -1,6 +1,8 @@
 /** @jsxImportSource react */
 import { useEffect, type ReactNode } from "react";
 
+import { MotionConfig } from "motion/react";
+
 import { Toaster } from "@/components/ui/sonner";
 
 import { isWebDeployment } from "@/app/lib/legalwork-deployment";
@@ -58,6 +60,7 @@ export function AppProviders({ children }: AppProvidersProps) {
 
   const defaultUrl = resolveDefaultServerUrl();
   return (
+    <MotionConfig reducedMotion="user">
     <BootStateProvider>
       <ServerProvider defaultUrl={defaultUrl}>
         <ArchitectureMismatchGate>
@@ -69,5 +72,6 @@ export function AppProviders({ children }: AppProvidersProps) {
         </ArchitectureMismatchGate>
       </ServerProvider>
     </BootStateProvider>
+    </MotionConfig>
   );
 }

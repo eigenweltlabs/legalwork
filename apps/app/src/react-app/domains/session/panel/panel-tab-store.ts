@@ -1,4 +1,5 @@
 import { create } from "zustand";
+import { confirmDiscardDocuments } from "../artifacts/docx-document-state";
 import { createJSONStorage, persist } from "zustand/middleware";
 
 import { isCollectibleArtifactTarget, type OpenTarget, type OpenTargetPreview } from "../artifacts/open-target";
@@ -224,6 +225,7 @@ export const usePanelTabStore = create<PanelTabStore>()(
       transcriptArtifactTargets: {},
       openTab: (sessionId, tab) => set((state) => {
         const session = getWritableSession(state, sessionId);
+        if (session.activeTabId !== tab.id && !confirmDiscardDocuments()) return state;
         const existingIndex = session.tabs.findIndex((entry) => entry.id === tab.id);
 
         if (existingIndex >= 0) {
@@ -248,6 +250,7 @@ export const usePanelTabStore = create<PanelTabStore>()(
           return state;
         }
 
+        if (session.activeTabId === tabId && !confirmDiscardDocuments()) return state;
         const tabs = session.tabs.filter((tab) => tab.id !== tabId);
         const activeTabId = session.activeTabId === tabId
           ? resolveActiveTabId(tabs, tabs[index]?.id ?? tabs[index - 1]?.id ?? null)
@@ -265,6 +268,7 @@ export const usePanelTabStore = create<PanelTabStore>()(
           return state;
         }
 
+        if (!confirmDiscardDocuments()) return state;
         return updateSession(state, sessionId, {
           ...session,
           activeTabId: tabId,

@@ -1,0 +1,7 @@
+.lw-voice-waveform {
+  width: 456px;
+  max-width: 100%;
+  aspect-ratio: 3 / 1;
+  flex: none;
+}
+.lw-voice-waveform canvas { display: block; width: 100%; height: 100%; }

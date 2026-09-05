@@ -1,0 +1,139 @@
+/* Shared material and interaction rules. Layout stays with the components;
+   values stay in @legalwork/ui/styles/tokens.css. */
+@layer components {
+  .lw-control,
+  .lw-field,
+  .lw-sidebar-item,
+  .lw-sidebar-session {
+    transition-property: background-color, border-color, color, box-shadow, opacity, transform;
+    transition-duration: var(--lw-duration-fast);
+    transition-timing-function: var(--lw-ease-standard);
+  }
+
+  .lw-control:not(:disabled):not([aria-disabled="true"]):active {
+    transform: translateY(0.5px);
+  }
+
+  .lw-field {
+    background-color: var(--lw-surface);
+    box-shadow: inset 0 1px 2px rgb(0 0 0 / 0.025);
+  }
+
+  .lw-field:hover:not(:disabled):not(:focus-within) {
+    border-color: var(--lw-border-strong);
+  }
+
+  .lw-panel {
+    background-color: var(--lw-surface);
+  }
+
+  .lw-panel[data-variant="glass"],
+  .lw-icon-tile[data-variant="glass"] {
+    background: var(--lw-glass);
+    backdrop-filter: blur(var(--lw-glass-blur));
+    box-shadow: inset 0 1px 0 var(--lw-glass-highlight);
+  }
+
+  .lw-panel[data-variant="inset"],
+  .lw-icon-tile[data-variant="inset"] {
+    background: var(--lw-sunken);
+  }
+
+  .lw-popover {
+    background: var(--lw-glass-strong);
+    backdrop-filter: blur(var(--lw-glass-blur));
+    box-shadow: var(--lw-shadow-pop), inset 0 1px 0 var(--lw-glass-highlight);
+    transition-timing-function: var(--lw-ease-out);
+  }
+
+  .lw-icon-tile {
+    background: linear-gradient(155deg, var(--lw-surface), var(--lw-sunken));
+    box-shadow: inset 0 1px 0 var(--lw-glass-highlight);
+  }
+
+  .lw-sidebar {
+    background: linear-gradient(180deg, var(--lw-surface-hover), var(--lw-sidebar));
+  }
+
+  .lw-sidebar-new-task {
+    background: var(--lw-glass-strong);
+    box-shadow: var(--lw-shadow-xs), inset 0 1px 0 var(--lw-glass-highlight);
+  }
+
+  .lw-sidebar-brand {
+    letter-spacing: -0.04em;
+  }
+
+  .lw-enter {
+    animation: lw-surface-enter var(--lw-duration-enter) var(--lw-ease-out) both;
+  }
+
+  .lw-fade-enter {
+    animation: lw-opacity-enter var(--lw-duration-slow) var(--lw-ease-out) both;
+  }
+}
+
+@keyframes lw-surface-enter {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes lw-opacity-enter {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+/* Large surfaces and decorative effects never move for reduced-motion users.
+   A near-zero duration retains existing animation/transition completion events. */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-delay: 0ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    transition-delay: 0ms !important;
+    scroll-behavior: auto !important;
+  }
+
+  .lw-control:active { transform: none !important; }
+}
+
+/* Glass always has a legible solid fallback. */
+@supports not (backdrop-filter: blur(1px)) {
+  .lw-popover, .lw-panel[data-variant="glass"], .lw-glass-panel {
+    background: var(--lw-surface);
+  }
+}
+
+@media (prefers-contrast: more) {
+  :root {
+    --lw-border: var(--lw-text-secondary);
+    --lw-border-subtle: var(--lw-text-tertiary);
+    --lw-glass: var(--lw-surface);
+    --lw-glass-strong: var(--lw-surface);
+  }
+}
+
+/* The shared folder/file assets carry color consistently across the sidebar,
+   attachments, file browsers and preview tabs. Shapes still identify file types. */
+.lw-folder-icon {
+  --lw-asset-back: color-mix(in srgb, var(--lw-folder-accent) 58%, var(--lw-surface));
+  --lw-asset-front: color-mix(in srgb, var(--lw-folder-accent) 32%, var(--lw-surface));
+  --lw-asset-edge: color-mix(in srgb, var(--lw-folder-accent) 82%, var(--lw-surface));
+}
+
+.lw-document-icon {
+  --lw-file-accent: var(--lw-text-secondary);
+  --lw-asset-back: color-mix(in srgb, var(--lw-file-accent) 22%, var(--lw-surface));
+  --lw-asset-front: color-mix(in srgb, var(--lw-file-accent) 9%, var(--lw-surface));
+  --lw-asset-edge: color-mix(in srgb, var(--lw-file-accent) 58%, var(--lw-surface));
+}
+.lw-document-icon[data-file-kind="word"] { --lw-file-accent: var(--lw-file-word); }
+.lw-document-icon[data-file-kind="slides"] { --lw-file-accent: var(--lw-file-slides); }
+.lw-document-icon[data-file-kind="sheet"] { --lw-file-accent: var(--lw-file-sheet); }
+.lw-document-icon[data-file-kind="pdf"] { --lw-file-accent: var(--lw-file-pdf); }
+.lw-document-icon[data-file-kind="image"] { --lw-file-accent: var(--lw-file-image); }
+.lw-document-icon[data-file-kind="audio"],
+.lw-document-icon[data-file-kind="video"] { --lw-file-accent: var(--lw-file-media); }
+.lw-document-icon[data-file-kind="html"],
+.lw-document-icon[data-file-kind="markdown"] { --lw-file-accent: var(--lw-file-code); }

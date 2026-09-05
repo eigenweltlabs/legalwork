@@ -13,6 +13,10 @@ catalogs:
       specifier: 19.2.4
       version: 19.2.4
 
+patchedDependencies:
+  '@eigenpal/docx-editor-core@1.8.3': 314cffe64a9034b561c3c1d0f4a4d50f066b88e90858f1b89c07058e0da63f4c
+  '@eigenpal/docx-editor-react@1.8.3': 540ff58dcf8eedc078c289dadfd99e0f5afd5b038b513932a423dd10169f48cf
+
 importers:
 
   .: {}
@@ -41,11 +45,14 @@ importers:
         specifier: ^6.38.0
         version: 6.39.14
       '@eigenpal/docx-editor-agents':
-        specifier: ^1.8.3
+        specifier: 1.8.3
         version: 1.8.3(ai@6.0.146(zod@4.3.6))(react@19.2.4)
+      '@eigenpal/docx-editor-core':
+        specifier: 1.8.3
+        version: 1.8.3(patch_hash=314cffe64a9034b561c3c1d0f4a4d50f066b88e90858f1b89c07058e0da63f4c)(prosemirror-commands@1.7.1)(prosemirror-dropcursor@1.8.2)(prosemirror-history@1.5.0)(prosemirror-keymap@1.2.3)(prosemirror-model@1.25.9)(prosemirror-state@1.4.4)(prosemirror-tables@1.8.5)(prosemirror-transform@1.12.0)(prosemirror-view@1.41.9)
       '@eigenpal/docx-editor-react':
-        specifier: ^1.8.3
-        version: 1.8.3(@types/react-dom@19.2.3(@types/react@19.2.14))(@types/react@19.2.14)(ai@6.0.146(zod@4.3.6))(prosemirror-commands@1.7.1)(prosemirror-dropcursor@1.8.2)(prosemirror-history@1.5.0)(prosemirror-keymap@1.2.3)(prosemirror-model@1.25.9)(prosemirror-state@1.4.4)(prosemirror-tables@1.8.5)(prosemirror-transform@1.12.0)(prosemirror-view@1.41.9)(react-dom@19.2.4(react@19.2.4))(react@19.2.4)
+        specifier: 1.8.3
+        version: 1.8.3(patch_hash=540ff58dcf8eedc078c289dadfd99e0f5afd5b038b513932a423dd10169f48cf)(@types/react-dom@19.2.3(@types/react@19.2.14))(@types/react@19.2.14)(ai@6.0.146(zod@4.3.6))(prosemirror-commands@1.7.1)(prosemirror-dropcursor@1.8.2)(prosemirror-history@1.5.0)(prosemirror-keymap@1.2.3)(prosemirror-model@1.25.9)(prosemirror-state@1.4.4)(prosemirror-tables@1.8.5)(prosemirror-transform@1.12.0)(prosemirror-view@1.41.9)(react-dom@19.2.4(react@19.2.4))(react@19.2.4)
       '@fontsource-variable/geist':
         specifier: ^5.2.8
         version: 5.2.8
@@ -121,6 +128,9 @@ importers:
       jsonc-parser:
         specifier: ^3.2.1
         version: 3.3.1
+      jszip:
+        specifier: 3.10.1
+        version: 3.10.1
       lexical:
         specifier: ^0.35.0
         version: 0.35.0
@@ -404,6 +414,9 @@ importers:
       minimatch:
         specifier: ^10.0.1
         version: 10.1.1
+      openai:
+        specifier: ^7.8.0
+        version: 7.8.0(zod@4.3.6)
       yaml:
         specifier: ^2.6.1
         version: 2.8.2
@@ -5292,6 +5305,30 @@ packages:
     resolution: {integrity: sha512-smsWv2LzFjP03xmvFoJ331ss6h+jixfA4UUV/Bsiyuu4YJPfN+FIQGOIiv4w9/+MoHkfkJ22UIaQWRVFRfH6Vw==}
     engines: {node: '>=20'}
 
+  openai@7.8.0:
+    resolution: {integrity: sha512-/2g9JzdnXNcjX1W/UlSNu+OdSFDAaAVt0n9Onom0kPenH54o59G2WrX/xjTnr26UHNSh6hxcAf58doGYRme2rw==}
+    engines: {node: '>=22.0.0'}
+    peerDependencies:
+      '@aws-sdk/credential-provider-node': '>=3.972.0 <4'
+      '@smithy/hash-node': '>=4.3.0 <5'
+      '@smithy/signature-v4': '>=5.4.0 <6'
+      undici: '>=5 <9'
+      ws: ^8.21.0
+      zod: ^3.25 || ^4.0
+    peerDependenciesMeta:
+      '@aws-sdk/credential-provider-node':
+        optional: true
+      '@smithy/hash-node':
+        optional: true
+      '@smithy/signature-v4':
+        optional: true
+      undici:
+        optional: true
+      ws:
+        optional: true
+      zod:
+        optional: true
+
   ora@5.4.1:
     resolution: {integrity: sha512-5b6Y85tPxZZ7QytO+BQzysW31HJku27cRIlkbAXaNx+BdcVi+LlRFmVXzeF6a7JCwJpyw5c4b+YSVImQIrBpuQ==}
     engines: {node: '>=10'}
@@ -7296,7 +7333,7 @@ snapshots:
       ai: 6.0.146(zod@4.3.6)
       react: 19.2.4
 
-  '@eigenpal/docx-editor-core@1.8.3(prosemirror-commands@1.7.1)(prosemirror-dropcursor@1.8.2)(prosemirror-history@1.5.0)(prosemirror-keymap@1.2.3)(prosemirror-model@1.25.9)(prosemirror-state@1.4.4)(prosemirror-tables@1.8.5)(prosemirror-transform@1.12.0)(prosemirror-view@1.41.9)':
+  '@eigenpal/docx-editor-core@1.8.3(patch_hash=314cffe64a9034b561c3c1d0f4a4d50f066b88e90858f1b89c07058e0da63f4c)(prosemirror-commands@1.7.1)(prosemirror-dropcursor@1.8.2)(prosemirror-history@1.5.0)(prosemirror-keymap@1.2.3)(prosemirror-model@1.25.9)(prosemirror-state@1.4.4)(prosemirror-tables@1.8.5)(prosemirror-transform@1.12.0)(prosemirror-view@1.41.9)':
     dependencies:
       docxtemplater: 3.69.0
       jszip: 3.10.1
@@ -7314,10 +7351,10 @@ snapshots:
 
   '@eigenpal/docx-editor-i18n@1.8.3': {}
 
-  '@eigenpal/docx-editor-react@1.8.3(@types/react-dom@19.2.3(@types/react@19.2.14))(@types/react@19.2.14)(ai@6.0.146(zod@4.3.6))(prosemirror-commands@1.7.1)(prosemirror-dropcursor@1.8.2)(prosemirror-history@1.5.0)(prosemirror-keymap@1.2.3)(prosemirror-model@1.25.9)(prosemirror-state@1.4.4)(prosemirror-tables@1.8.5)(prosemirror-transform@1.12.0)(prosemirror-view@1.41.9)(react-dom@19.2.4(react@19.2.4))(react@19.2.4)':
+  '@eigenpal/docx-editor-react@1.8.3(patch_hash=540ff58dcf8eedc078c289dadfd99e0f5afd5b038b513932a423dd10169f48cf)(@types/react-dom@19.2.3(@types/react@19.2.14))(@types/react@19.2.14)(ai@6.0.146(zod@4.3.6))(prosemirror-commands@1.7.1)(prosemirror-dropcursor@1.8.2)(prosemirror-history@1.5.0)(prosemirror-keymap@1.2.3)(prosemirror-model@1.25.9)(prosemirror-state@1.4.4)(prosemirror-tables@1.8.5)(prosemirror-transform@1.12.0)(prosemirror-view@1.41.9)(react-dom@19.2.4(react@19.2.4))(react@19.2.4)':
     dependencies:
       '@eigenpal/docx-editor-agents': 1.8.3(ai@6.0.146(zod@4.3.6))(react@19.2.4)
-      '@eigenpal/docx-editor-core': 1.8.3(prosemirror-commands@1.7.1)(prosemirror-dropcursor@1.8.2)(prosemirror-history@1.5.0)(prosemirror-keymap@1.2.3)(prosemirror-model@1.25.9)(prosemirror-state@1.4.4)(prosemirror-tables@1.8.5)(prosemirror-transform@1.12.0)(prosemirror-view@1.41.9)
+      '@eigenpal/docx-editor-core': 1.8.3(patch_hash=314cffe64a9034b561c3c1d0f4a4d50f066b88e90858f1b89c07058e0da63f4c)(prosemirror-commands@1.7.1)(prosemirror-dropcursor@1.8.2)(prosemirror-history@1.5.0)(prosemirror-keymap@1.2.3)(prosemirror-model@1.25.9)(prosemirror-state@1.4.4)(prosemirror-tables@1.8.5)(prosemirror-transform@1.12.0)(prosemirror-view@1.41.9)
       '@eigenpal/docx-editor-i18n': 1.8.3
       '@radix-ui/react-select': 2.3.1(@types/react-dom@19.2.3(@types/react@19.2.14))(@types/react@19.2.14)(react-dom@19.2.4(react@19.2.4))(react@19.2.4)
       clsx: 2.1.1
@@ -12148,6 +12185,10 @@ snapshots:
       is-inside-container: 1.0.0
       powershell-utils: 0.1.0
       wsl-utils: 0.3.1
+
+  openai@7.8.0(zod@4.3.6):
+    optionalDependencies:
+      zod: 4.3.6
 
   ora@5.4.1:
     dependencies:

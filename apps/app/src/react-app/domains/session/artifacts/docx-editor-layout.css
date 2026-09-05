@@ -1,0 +1,66 @@
+/* Eigenpal reserves an unscaled page width even when zoomed out. Let its
+   scaled pages determine overflow instead of forcing a 100% document track. */
+.docx-host .docx-editor__scroll-container > div {
+  min-width: var(--docx-layout-width, 100%) !important;
+}
+
+.docx-host .docx-editor,
+.docx-host .paged-editor {
+  min-width: 0;
+  max-width: 100%;
+}
+
+.docx-host {
+  container-type: inline-size;
+}
+
+/* Keep the selected native card readable and anchored to its rendered revision.
+   Its ancestors are scaled with the page, so the host supplies an inverse scale. */
+.docx-host .docx-unified-sidebar [data-docx-review-anchor] {
+  position: absolute !important;
+  top: var(--docx-review-top) !important;
+  left: var(--docx-review-left) !important;
+  right: auto !important;
+  width: var(--docx-review-width) !important;
+  max-height: var(--docx-review-max-height);
+  overflow-y: auto;
+  border-radius: 8px;
+  box-shadow: 0 2px 10px var(--doc-shadow-strong);
+  transform: scale(var(--docx-review-scale));
+  transform-origin: top left;
+  transition: none !important;
+  visibility: var(--docx-review-visibility) !important;
+  opacity: 1 !important;
+  z-index: 100;
+}
+
+/* A selected card follows its text instead of participating in the stacked list. */
+.docx-host .docx-unified-sidebar:has([data-docx-review-anchor]) > div > div:not([data-docx-review-anchor]) {
+  visibility: hidden;
+}
+
+/* In a side pane, annotations open over the page when their inline mark is
+   selected. Reserve a separate review rail only when there is room for it. */
+@container (max-width: 899px) {
+  .docx-host .paged-editor > div {
+    /* Keep native zoom, without reserving space for a separate review rail. */
+    transform: scale(var(--docx-zoom, 1)) !important;
+  }
+
+  .docx-host .docx-unified-sidebar {
+    left: auto !important;
+    right: 12px !important;
+    width: min(340px, calc(100% - 24px)) !important;
+  }
+
+  .docx-host .docx-unified-sidebar > div > div:has(.docx-tracked-change-card),
+  .docx-host .docx-unified-sidebar > div > div:has(.docx-comment-card) {
+    display: none;
+  }
+
+  .docx-host .docx-unified-sidebar > div > div:has(.docx-tracked-change-card button),
+  .docx-host .docx-unified-sidebar > div > div:has(.docx-comment-card button),
+  .docx-host .docx-unified-sidebar > div > div:has(input, textarea) {
+    display: block;
+  }
+}
