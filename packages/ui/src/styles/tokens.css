@@ -78,6 +78,16 @@
   --lw-asset-front: #f7f7f8;
   --lw-asset-edge: #b6b6bd;
 
+  /* Quiet file-type accents; the surrounding application surfaces stay neutral. */
+  --lw-folder-accent: #69afe4;
+  --lw-file-word: #397bd3;
+  --lw-file-slides: #cf7140;
+  --lw-file-sheet: #358365;
+  --lw-file-pdf: #c35f67;
+  --lw-file-image: #9271b6;
+  --lw-file-media: #7778b9;
+  --lw-file-code: #468d9d;
+
   /* ---- Text -------------------------------------------------------------- */
   --lw-text-primary: #0d0d0f;
   --lw-text-secondary: #6c6c76;
@@ -160,6 +170,14 @@
   --lw-asset-back: #35353b;
   --lw-asset-front: #52525a;
   --lw-asset-edge: #6c6c76;
+  --lw-folder-accent: #80bde9;
+  --lw-file-word: #83b4f0;
+  --lw-file-slides: #e9a074;
+  --lw-file-sheet: #78bba0;
+  --lw-file-pdf: #e4939a;
+  --lw-file-image: #b79bd9;
+  --lw-file-media: #a9a6e1;
+  --lw-file-code: #7fbbc7;
   --lw-accent-fg: #0d0d0f;
 
   --lw-canvas: #131316;

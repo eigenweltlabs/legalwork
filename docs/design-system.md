@@ -1,6 +1,6 @@
 # LegalWork design system
 
-LegalWork uses a white, glass, and graphite interface. Quality comes from consistent proportions, readable hierarchy, crisp assets, and motion that explains a change. This system is implemented in the application components, with a separate live reference for reviewing their states.
+LegalWork uses a white, glass, and graphite interface with restrained color in folder and file assets. Quality comes from consistent proportions, readable hierarchy, crisp assets, and motion that explains a change. This system is implemented in the application components, with a separate live reference for reviewing their states.
 
 ## Review the live reference
 
@@ -38,7 +38,7 @@ Open `http://localhost:4173/design-system.html` after preview starts. The output
 
 ## Principles
 
-1. **Keep the workspace quiet.** The canvas stays white. Sidebars use a slightly darker neutral. Text and selection use graphite. Status color is reserved for actual error, warning, and success meaning; it does not decorate navigation or distinguish ordinary file types.
+1. **Keep the workspace quiet.** The canvas stays white. Sidebars use a slightly darker neutral. Text and selection use graphite. Status colors convey error, warning, and success. Separate file-type accents make folders light blue, Word blue, PowerPoint orange, spreadsheets green, PDFs muted red, and media violet; surrounding chrome remains neutral.
 2. **Make structure legible.** Use a spacing rhythm, a small type hierarchy, and fine borders. A content panel should not need a heavy shadow to be understood. Reserve elevation for floating layers; keep document reading surfaces opaque.
 3. **Use glass selectively.** Glass belongs in chrome, icon tiles, composers, and transient surfaces where it adds a material cue. Strong glass remains legible over content, and CSS provides a solid fallback without backdrop filtering.
 4. **Keep density deliberate.** Compact navigation can be dense without tiny labels, uneven row heights, or crowded actions. Truncate long file/session names inside a flexible column while preserving the icon and action hit areas.
@@ -101,8 +101,8 @@ import { FolderIcon } from "@/react-app/design-system/folder-icon";
 - `IconTile`: `sm`, `md`, or `lg`; `default`, `glass`, or `inset`. Use it to give feature/action icons a consistent container, not around every dense file-tree glyph.
 - `PanelHeader` and `PanelEmptyState`: shared compact chrome and empty/loading/unavailable-state layout for file browsers and preview panes. Headers keep the title, metadata, and action areas aligned; empty states use the same icon tile and text measure.
 - `Button`: existing `default`, `outline`, `secondary`, `ghost`, `destructive`, and `link` variants. Use a real `disabled` state and `aria-busy` for busy actions. Icon-only actions need an accessible name. A tooltip supplements that name.
-- `FolderIcon`: layered neutral SVG with `open` state. `WorkspaceIcon` delegates to it. Each SVG has unique gradient IDs so multiple instances remain reliable.
-- `DocumentIcon`: one folded-paper asset family with content glyphs for documents, sheets, slides, media, PDF, and code. Existing `ArtifactIcon` adapts artifact types to this component.
+- `FolderIcon`: layered light-blue SVG with `open` state. `WorkspaceIcon` delegates to it. Each SVG has unique gradient IDs so multiple instances remain reliable.
+- `DocumentIcon`: one folded-paper asset family with subtle type-specific tints and content glyphs for documents, sheets, slides, media, PDF, and code. Existing `ArtifactIcon` adapts artifact types to this component.
 - Menus/dialogs/sheets: retain the Base UI wrappers. Use the trigger `render` API to compose the app button; avoid nested buttons. Keep destructive actions semantically distinct.
 
 ## Motion and accessibility

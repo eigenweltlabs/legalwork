@@ -448,7 +448,7 @@ select:disabled {
   color: var(--lw-text-secondary);
 }
 
-/* Section eyebrow with the brand blue-square cue (used across screens). */
+/* Compact section labels, without a decorative prefix. */
 .lw-eyebrow,
 .lw-section-eyebrow {
   display: inline-flex;
@@ -459,14 +459,6 @@ select:disabled {
   letter-spacing: 0.12em;
   text-transform: uppercase;
   color: var(--lw-text-tertiary);
-}
-.lw-eyebrow::before,
-.lw-section-eyebrow::before {
-  content: "";
-  width: 7px;
-  height: 7px;
-  border-radius: 1.5px;
-  background: var(--lw-accent);
 }
 .lw-num {
   font-variant-numeric: tabular-nums;

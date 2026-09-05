@@ -13,7 +13,7 @@
     line-height: 1.2;
     text-wrap: balance;
   }
-  .lw-session-welcome-title span { color: var(--lw-text-secondary); }
+  .lw-session-welcome-title span { color: color-mix(in srgb, var(--lw-file-word) 45%, var(--lw-text-secondary)); }
   .lw-session-welcome-description {
     margin-top: 14px;
     max-width: 470px;
@@ -117,3 +117,7 @@
     .lw-task-card:hover, .lw-task-card:hover .lw-task-card-arrow,
     .lw-composer-control:active:not(:disabled), .lw-composer-send:active:not(:disabled) { transform: none; }
   }
+
+  .lw-task-illustration { --lw-illustration-accent: var(--lw-file-word); }
+  .lw-task-illustration[data-illustration-kind="grid"] { --lw-illustration-accent: var(--lw-file-sheet); }
+  .lw-task-illustration[data-illustration-kind="summary"] { --lw-illustration-accent: var(--lw-file-image); }

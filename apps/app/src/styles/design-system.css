@@ -113,3 +113,27 @@
     --lw-glass-strong: var(--lw-surface);
   }
 }
+
+/* The shared folder/file assets carry color consistently across the sidebar,
+   attachments, file browsers and preview tabs. Shapes still identify file types. */
+.lw-folder-icon {
+  --lw-asset-back: color-mix(in srgb, var(--lw-folder-accent) 58%, var(--lw-surface));
+  --lw-asset-front: color-mix(in srgb, var(--lw-folder-accent) 32%, var(--lw-surface));
+  --lw-asset-edge: color-mix(in srgb, var(--lw-folder-accent) 82%, var(--lw-surface));
+}
+
+.lw-document-icon {
+  --lw-file-accent: var(--lw-text-secondary);
+  --lw-asset-back: color-mix(in srgb, var(--lw-file-accent) 22%, var(--lw-surface));
+  --lw-asset-front: color-mix(in srgb, var(--lw-file-accent) 9%, var(--lw-surface));
+  --lw-asset-edge: color-mix(in srgb, var(--lw-file-accent) 58%, var(--lw-surface));
+}
+.lw-document-icon[data-file-kind="word"] { --lw-file-accent: var(--lw-file-word); }
+.lw-document-icon[data-file-kind="slides"] { --lw-file-accent: var(--lw-file-slides); }
+.lw-document-icon[data-file-kind="sheet"] { --lw-file-accent: var(--lw-file-sheet); }
+.lw-document-icon[data-file-kind="pdf"] { --lw-file-accent: var(--lw-file-pdf); }
+.lw-document-icon[data-file-kind="image"] { --lw-file-accent: var(--lw-file-image); }
+.lw-document-icon[data-file-kind="audio"],
+.lw-document-icon[data-file-kind="video"] { --lw-file-accent: var(--lw-file-media); }
+.lw-document-icon[data-file-kind="html"],
+.lw-document-icon[data-file-kind="markdown"] { --lw-file-accent: var(--lw-file-code); }

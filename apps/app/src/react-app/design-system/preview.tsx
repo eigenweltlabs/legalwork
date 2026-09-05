@@ -256,7 +256,7 @@ function DesignSystemPreview() {
             </div>
           </PreviewSection>
 
-          <PreviewSection id="assets" title="03 / Assets and cards" description="Neutral, layered folder and document assets remain crisp at compact sidebar sizes.">
+          <PreviewSection id="assets" title="03 / Assets and cards" description="Light-blue folders and subtly tinted file icons stay crisp at compact sidebar sizes.">
             <Surface className="space-y-7 p-6">
               <div className="grid gap-6 sm:grid-cols-3">
                 <Specimen label="Folder / closed"><div className="flex items-end gap-5"><FolderIcon className="size-4" /><FolderIcon className="size-6" /><FolderIcon className="size-10" /><FolderIcon className="size-14" /></div></Specimen>

@@ -6,7 +6,7 @@ export type FolderIconProps = Omit<ComponentProps<"svg">, "children"> & {
   open?: boolean;
 };
 
-/** A neutral folder asset, drawn in layers so it stays crisp at any density. */
+/** A light-blue folder asset, drawn in layers so it stays crisp at any density. */
 export function FolderIcon({ open = false, className, ...props }: FolderIconProps) {
   const id = useId();
 
