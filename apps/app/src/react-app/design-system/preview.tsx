@@ -38,7 +38,7 @@ import { PanelEmptyState, PanelHeader } from "./panel-chrome";
 import { IconTile, SectionHeading, Surface } from "./surface";
 import { TextInput } from "./text-input";
 import { WorkspaceIcon } from "./workspace-icon";
-import { VoiceWaveform, type VoiceStatus } from "@/react-app/domains/session/voice/voice-waveform";
+import { VoiceCard, VoiceWaveform, type VoiceStatus } from "@/react-app/domains/session/voice/voice-waveform";
 import "@/app/index.css";
 import "./preview.css";
 
@@ -58,11 +58,13 @@ function VoiceWaveformPreview() {
   const [volume, setVolume] = useState(0.8);
   const states: VoiceStatus[] = ["connecting", "listening", "thinking", "tool_use", "waiting_approval", "speaking", "error"];
   return <Surface className="flex flex-col items-center gap-5 p-8" data-testid="voice-waveform-preview">
-    <VoiceWaveform status={status} sample={() => {
-      const t = performance.now() / 1000;
-      return { level: volume * (0.6 + 0.4 * Math.sin(t * 3.1)), bands: Array.from({ length: 6 }, (_, i) => 0.4 + 0.3 * Math.sin(t * 2 + i)) };
-    }} />
-    <p className="text-sm font-medium capitalize" aria-live="polite">{status.replaceAll("_", " ")}</p>
+    <VoiceCard>
+      <VoiceWaveform status={status} sample={() => {
+        const t = performance.now() / 1000;
+        return { level: volume * (0.6 + 0.4 * Math.sin(t * 3.1)), bands: Array.from({ length: 6 }, (_, i) => 0.4 + 0.3 * Math.sin(t * 2 + i)) };
+      }} />
+      <p className="text-sm font-medium capitalize" aria-live="polite">{status.replaceAll("_", " ")}</p>
+    </VoiceCard>
     <div className="flex flex-wrap justify-center gap-2" aria-label="Voice appearance states">
       {states.map((state) => <Button key={state} size="sm" variant={status === state ? "secondary" : "ghost"}
         aria-pressed={status === state} onClick={() => setStatus(state)}>{state.replaceAll("_", " ")}</Button>)}

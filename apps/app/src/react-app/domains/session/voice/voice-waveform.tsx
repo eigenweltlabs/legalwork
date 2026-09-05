@@ -1,4 +1,4 @@
-import { useEffect, useRef, useSyncExternalStore } from "react";
+import { useEffect, useRef, useSyncExternalStore, type ReactNode } from "react";
 import { SILENT_VOICE_AUDIO, type VoiceAudioFrame } from "./voice-audio-meter";
 import "./voice-waveform.css";
 
@@ -10,6 +10,10 @@ function subscribeMotionPreference(listener: () => void) {
   const media = window.matchMedia(motionQuery);
   media.addEventListener("change", listener);
   return () => media.removeEventListener("change", listener);
+}
+
+export function VoiceCard({ children }: { children: ReactNode }) {
+  return <div data-testid="voice-card" className="relative flex w-[520px] max-w-[calc(100%_-_2rem)] flex-col items-center gap-4 rounded-[2rem] bg-background/72 px-8 py-6 shadow-[0_18px_70px_rgba(15,23,42,0.08)] backdrop-blur-md">{children}</div>;
 }
 
 /** A flat, layered ribbon. Volume shapes its height; speech frequencies shape
@@ -44,46 +48,65 @@ export function VoiceWaveform({ status, sample }: { status: VoiceStatus; sample:
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
       ctx.clearRect(0, 0, width, height);
       const working = state === "thinking" || state === "tool_use";
-      const amplitude = height * (0.045 + level * 0.36 + (working ? 0.035 : 0));
-      const colors = state === "error" ? ["#eb9bab", "#c27094", "#bb83bb"]
-        : state === "waiting_approval" ? ["#e8c783", "#c19c5b", "#deaf94"]
-        : ["#3bc8d9", "#386cf1", "#9168db"];
-      const gradient = ctx.createLinearGradient(0, 0, width, 0);
-      gradient.addColorStop(0, `${colors[0]}00`);
-      gradient.addColorStop(0.14, colors[0]);
-      gradient.addColorStop(0.43, colors[1]);
-      gradient.addColorStop(0.75, colors[2]);
-      gradient.addColorStop(1, `${colors[2]}00`);
-      const y = (u: number, lane: number) => {
-        const envelope = Math.pow(Math.sin(Math.PI * u), 1.3);
+      const amplitude = height * (0.04 + level * 0.34 + (working ? 0.025 : 0));
+      const colors = state === "error" ? ["#fb7185", "#dc467f", "#e89ba8", "#b86ae1"]
+        : state === "waiting_approval" ? ["#ffb94f", "#f28b65", "#ffe39a", "#e77cb6"]
+        : ["#e94ff5", "#8748ff", "#26d8eb", "#5175ff"];
+      const y = (u: number, phase: number) => {
+        const envelope = Math.pow(Math.sin(Math.PI * u), 0.9);
         const index = Math.min(4, Math.floor(u * 5));
         const band = bands[index] + (bands[index + 1] - bands[index]) * (u * 5 - index);
-        const wave = Math.sin(u * Math.PI * 3.4 - time * 1.8 + lane * 1.1)
-          + 0.28 * Math.sin(u * Math.PI * 7.6 + time * 1.2 + lane * 0.8);
-        return height / 2 + envelope * amplitude * (wave * (0.65 + band * 0.35) + lane * 0.22);
+        const wave = Math.sin(u * Math.PI * 3.4 - time * 0.95 + phase)
+          + 0.18 * Math.sin(u * Math.PI * 6.2 + time * 0.7 + phase * 1.4);
+        return height / 2 + envelope * amplitude * wave * (0.8 + band * 0.2);
       };
-      ctx.fillStyle = gradient;
-      for (let lane = -1; lane < 1; lane += 0.4) {
+      // Two broad, crossing ribbons. Vertical color transitions give each lobe
+      // its own color while their translucent overlaps stay flat on the page.
+      for (let ribbon = 0; ribbon < 2; ribbon++) {
+        const phase = ribbon * 0.9;
         ctx.beginPath();
-        for (let x = 0; x <= width; x += 2) {
-          if (x === 0) ctx.moveTo(x, y(0, lane)); else ctx.lineTo(x, y(x / width, lane));
+        const steps = Math.ceil(width / 2);
+        for (let step = 0; step <= steps; step++) {
+          const u = step / steps;
+          if (step === 0) ctx.moveTo(0, y(0, phase)); else ctx.lineTo(u * width, y(u, phase));
         }
-        for (let x = width; x >= 0; x -= 2) ctx.lineTo(x, y(x / width, lane + 0.4));
+        for (let step = steps; step >= 0; step--) {
+          const u = step / steps;
+          ctx.lineTo(u * width, y(u, phase + 2.2));
+        }
         ctx.closePath();
-        ctx.globalAlpha = 0.12 + level * 0.12;
+        const gradient = ctx.createLinearGradient(0, height / 2 - amplitude, 0, height / 2 + amplitude);
+        gradient.addColorStop(0, `${colors[ribbon === 0 ? 0 : 2]}40`);
+        gradient.addColorStop(0.22, `${colors[ribbon === 0 ? 0 : 2]}e8`);
+        gradient.addColorStop(0.52, `${colors[ribbon === 0 ? 1 : 3]}a8`);
+        gradient.addColorStop(0.78, `${colors[ribbon === 0 ? 3 : 2]}d0`);
+        gradient.addColorStop(1, `${colors[ribbon === 0 ? 3 : 2]}30`);
+        ctx.fillStyle = gradient;
+        ctx.globalAlpha = ribbon === 0 ? 0.88 : 0.72;
         ctx.fill();
-      }
-      ctx.strokeStyle = gradient;
-      ctx.lineCap = "round";
-      ctx.lineJoin = "round";
-      for (let i = 0; i < 17; i++) {
-        const lane = (i - 8) / 8;
-        ctx.beginPath();
-        for (let x = 0; x <= width; x += 2) {
-          if (x === 0) ctx.moveTo(x, y(0, lane)); else ctx.lineTo(x, y(x / width, lane));
-        }
-        ctx.globalAlpha = 0.12 + (1 - Math.abs(lane)) * 0.4;
-        ctx.lineWidth = i === 8 ? 1.3 : 0.65;
+        // A narrow luminous rim and a soft reflection through the translucent
+        // body give the ribbons a glass finish without adding perspective.
+        ctx.save();
+        ctx.clip();
+        const sheen = ctx.createLinearGradient(0, height / 2 - amplitude, 0, height / 2 + amplitude);
+        sheen.addColorStop(0, "#ffffff00");
+        sheen.addColorStop(0.32, "#ffffff08");
+        sheen.addColorStop(0.46, "#ffffff80");
+        sheen.addColorStop(0.52, "#ffffff18");
+        sheen.addColorStop(1, "#ffffff00");
+        ctx.fillStyle = sheen;
+        ctx.fillRect(0, 0, width, height);
+        ctx.restore();
+        ctx.strokeStyle = gradient;
+        ctx.lineWidth = 1.2;
+        ctx.globalAlpha = 0.55;
+        ctx.shadowColor = colors[ribbon === 0 ? 1 : 2];
+        ctx.shadowBlur = 7;
+        ctx.stroke();
+        ctx.shadowBlur = 0;
+        ctx.strokeStyle = "#ffffff";
+        ctx.lineWidth = 0.65;
+        ctx.globalAlpha = 0.7;
         ctx.stroke();
       }
       ctx.globalAlpha = 1;

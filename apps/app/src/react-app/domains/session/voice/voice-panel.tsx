@@ -1,7 +1,7 @@
 /** @jsxImportSource react */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Mic2, MicOff, Volume2, VolumeX } from "lucide-react";
-import { VoiceWaveform, type VoiceStatus } from "./voice-waveform";
+import { VoiceCard, VoiceWaveform, type VoiceStatus } from "./voice-waveform";
 import { createVoiceAudioMeter, SILENT_VOICE_AUDIO } from "./voice-audio-meter";
 
 import type { LegalworkServerClient } from "@/app/lib/legalwork-server";
@@ -807,7 +807,7 @@ export function VoicePanel(props: VoicePanelProps) {
       className="absolute inset-0 flex flex-col items-center justify-end overflow-hidden bg-gradient-to-b from-background/35 via-background/75 to-background pb-8"
       data-testid="voice-mode"
     >
-      <div className="relative flex w-80 max-w-[calc(100%_-_2rem)] flex-col items-center gap-4 rounded-[2rem] bg-background/72 px-8 py-6 shadow-[0_18px_70px_rgba(15,23,42,0.08)] backdrop-blur-md">
+      <VoiceCard>
         <VoiceWaveform status={status} sample={sampleVoiceAudio} />
         <div className="min-h-11 w-full text-center" aria-live="polite">
           <div className={cn("text-sm font-medium text-dls-text", status === "error" && "text-red-11")}>
@@ -842,7 +842,7 @@ export function VoicePanel(props: VoicePanelProps) {
             {outputMuted ? <VolumeX size={15} /> : <Volume2 size={15} />}
           </button>
         </div>
-      </div>
+      </VoiceCard>
     </div>
   );
 }

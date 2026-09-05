@@ -1,10 +1,10 @@
 # Audio-reactive voice waveform
 
-Voice mode uses a flat ribbon of fine cyan, blue, and violet contours. Its height follows audio volume and its contours respond to six frequency bands, with quick attack and a softer release. Quiet audio settles to a thin ribbon; approval and error states use amber and rose accents.
+Voice mode uses two broad, flat glass ribbons with cyan, violet, and pink gradients, translucent overlaps, soft reflections, and luminous edges. The card is 520 px wide where space allows, and the waveform fills up to 456 px while keeping a 3:1 aspect ratio. The card and waveform shrink to fit narrow panels. Their height follows audio volume and their contours respond to six frequency bands, with quick attack and a softer release. Quiet audio settles to a thin ribbon; approval and error states use amber and rose accents.
 
 The meter reads the call's existing microphone and remote audio streams locally. Each mute control gates its corresponding visual input. It adds no recording, upload, or speaker connection, and disposing the meter leaves the call-owned audio tracks intact. Drawing runs outside React's render loop, pauses offscreen, and becomes static when reduced motion is enabled.
 
-[Nine-second preview recording](voice-waveform-demo.mp4) · [Light theme](voice-waveform-light.png) · [Dark theme](voice-waveform-dark.png)
+[Preview recording](voice-waveform-demo.mp4) · [Light theme](voice-waveform-light.png) · [Dark theme](voice-waveform-dark.png)
 
 The visual preview uses an explicitly labeled simulated volume control. The browser regression separately exercises the production audio meter with a silent Web Audio oscillator: silence, quiet/loud audio, frequency bands, both mute gates, remote audio input, and cleanup. It also checks rendered wave height, all seven status labels, and switching reduced motion on while mounted.
 
