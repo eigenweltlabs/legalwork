@@ -6,6 +6,7 @@ import {
   Globe,
   Loader2,
   Plus,
+  PanelsTopLeft,
   RotateCw,
   X,
 } from "lucide-react";
@@ -20,6 +21,7 @@ import {
   InputGroupInput,
 } from "@/components/ui/input-group";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+import { PanelEmptyState } from "@/react-app/design-system/panel-chrome";
 
 import { ArtifactIcon } from "../artifacts/artifact-icon";
 import { ArtifactPanel } from "../artifacts/artifact-panel";
@@ -291,7 +293,7 @@ function BrowserPanelContent({
 
   return (
     <>
-      <div className="flex h-10 shrink-0 items-center gap-1 border-b border-border bg-background px-2 mac:bg-background/80 mac:backdrop-blur-2xl mac:backdrop-saturate-150">
+      <div className="flex h-12 shrink-0 items-center gap-1 border-b border-border/70 bg-background/80 px-2 backdrop-blur-xl">
         {isAvailable ? (
           <>
             <Tooltip>
@@ -341,11 +343,11 @@ function BrowserPanelContent({
               />
               <TooltipContent>Reload</TooltipContent>
             </Tooltip>
-            <InputGroup className="mx-1 h-7 flex-1 rounded-md">
+            <InputGroup className="mx-1 h-8 flex-1 rounded-lg border-border/70 bg-muted/25">
               <InputGroupInput
                 ref={urlInputRef}
                 type="text"
-                className="h-7"
+                className="h-8 text-xs"
                 value={urlInput}
                 onChange={(event) => setUrlInput(event.target.value)}
                 onKeyDown={handleUrlKeyDown}
@@ -356,7 +358,8 @@ function BrowserPanelContent({
                 onBlur={() => {
                   urlFocusedRef.current = false;
                 }}
-                placeholder="Enter URL..."
+                placeholder="Enter a website address"
+                aria-label="Website address"
                 spellCheck={false}
                 autoComplete="off"
               />
@@ -366,9 +369,7 @@ function BrowserPanelContent({
             </InputGroup>
           </>
         ) : (
-          <p className="px-2 text-sm text-muted-foreground">
-            Browser panel is only available in the desktop app.
-          </p>
+          <p className="min-w-0 flex-1 truncate px-2 text-[13px] font-medium text-foreground">Browser</p>
         )}
         <Button
           variant="ghost"
@@ -381,7 +382,9 @@ function BrowserPanelContent({
         </Button>
       </div>
       <div className="min-h-0 flex-1 overflow-hidden">
-        {isAvailable ? <div ref={contentRef} className="h-full overflow-hidden" /> : null}
+        {isAvailable ? <div ref={contentRef} className="h-full overflow-hidden" /> : (
+          <PanelEmptyState icon={<Globe />} title="Browse in the desktop app" description="Open LegalWork on your desktop to browse websites alongside your conversation." />
+        )}
       </div>
     </>
   );
@@ -483,9 +486,9 @@ export function SidePanel({
 
   return (
     <TooltipProvider delay={1000}>
-      <div className="flex h-full flex-col">
-        <div className="shrink-0 border-b border-border bg-background mac:bg-background/80 mac:backdrop-blur-2xl mac:backdrop-saturate-150">
-          <div className="flex h-10 items-center gap-1 border-b border-border/60 px-2">
+      <div className="flex h-full min-h-0 flex-col bg-background/90">
+        <div className="shrink-0 border-b border-border/70 bg-muted/35 backdrop-blur-xl">
+          <div className="flex h-12 items-center gap-1 px-2">
             <div className="no-scrollbar min-w-0 flex-1 overflow-x-auto">
               <PanelTabList
                 values={tabs.map((tab) => tab.id)}
@@ -519,6 +522,11 @@ export function SidePanel({
                 <TooltipContent>New tab</TooltipContent>
               </Tooltip>
             ) : null}
+            {!activeTab ? (
+              <Button variant="ghost" size="icon-sm" onClick={onClose} aria-label="Close preview panel">
+                <X />
+              </Button>
+            ) : null}
           </div>
         </div>
         {!activeTab ? (
@@ -546,8 +554,6 @@ export function SidePanel({
 
 function PanelEmpty() {
   return (
-    <div className="flex h-full items-center justify-center p-4 text-center">
-      <p className="text-sm text-muted-foreground">Open an artifact or browser tab to get started.</p>
-    </div>
+    <PanelEmptyState icon={<PanelsTopLeft />} title="A closer look at your work" description="Open a file or a browser tab to view it alongside your conversation." />
   );
 }

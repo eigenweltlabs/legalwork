@@ -3,7 +3,7 @@ import type { CSSProperties } from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { usePanelRef } from "react-resizable-panels";
-import { AppWindowMac, Columns2, FileText, Folder, Globe, ScrollText, Settings2, SquarePen, X, Zap } from "lucide-react";
+import { AppWindowMac, Columns2, FileText, Folder, Globe, Settings2, X, Zap } from "lucide-react";
 
 import { t } from "../../../../i18n";
 import {
@@ -70,6 +70,9 @@ import { LEARNINGS_PANEL_SESSION_ID, useActivePanelTab, usePanelTabStore, useSes
 import { useWorkspaceShellLayout } from "../../../shell/workspace-shell-layout";
 import { useControlAction, type LegalworkControlAction } from "../../../shell/control/control-provider";
 import { cn } from "@/lib/utils";
+import "@/components/chat/session-surfaces.css";
+import { WelcomeSurface } from "@/components/chat/session-welcome";
+import { TaskSuggestionCards } from "@/components/chat/task-suggestions";
 
 const STARTUP_SKELETON_ROWS = [
   { id: "intro", titleWidth: "42%", bodyWidth: "88%" },
@@ -917,7 +920,7 @@ export function SessionPage(props: SessionPageProps) {
   };
 
   return (
-    <div className="flex h-full min-h-0 flex-col bg-[radial-gradient(circle_at_top,rgba(74,111,255,0.12),transparent_42%),var(--app-bg,#0b1020)] text-dls-text mac:bg-transparent">
+    <div className="flex h-full min-h-0 flex-col bg-[var(--lw-canvas)] text-dls-text mac:bg-transparent">
       <SidebarProvider
         open={sidebarOpen}
         onOpenChange={setSidebarOpen}
@@ -995,7 +998,7 @@ export function SessionPage(props: SessionPageProps) {
             <ResizablePanelGroup orientation="horizontal" className="min-h-0 flex-1">
               <ResizablePanel minSize="360px" className="min-w-0">
             <main className="flex h-full min-w-0 flex-1 flex-col overflow-hidden">
-              <header className="z-10 flex h-10 shrink-0 items-center justify-between border-b border-border px-4 md:px-6 mac:titlebar-drag mac:backdrop-blur-2xl mac:backdrop-saturate-150">
+              <header className="lw-session-header z-10 flex h-11 shrink-0 items-center justify-between border-b border-border px-4 md:px-6 mac:titlebar-drag mac:backdrop-blur-2xl mac:backdrop-saturate-150">
                 <div className="flex min-w-0 items-center gap-3">
                   {shellConfig.sidebar ? (
                 <SidebarTrigger className="mac:hidden" />
@@ -1053,13 +1056,13 @@ export function SessionPage(props: SessionPageProps) {
               ) : null}
             </ResizablePanelGroup>
             {/* Same right icon rail as the session view. */}
-            <aside className="flex w-11 shrink-0 flex-col items-center gap-1 border-l border-border bg-background/95 px-1 py-2 text-muted-foreground mac:titlebar-no-drag">
+            <aside aria-label="Workspace tools" className="lw-session-rail flex w-12 shrink-0 flex-col items-center gap-2 border-l border-border px-1.5 py-3 text-muted-foreground mac:titlebar-no-drag">
               <Button
                 variant="ghost"
                 size="icon-sm"
                 className={cn(
-                  "rounded-xl transition-colors hover:bg-muted hover:text-foreground",
-                  panelRailActive && "bg-primary/10 text-primary hover:bg-primary/15 hover:text-primary",
+                  "lw-session-rail-button hover:bg-muted hover:text-foreground",
+                  panelRailActive && "text-foreground",
                 )}
                 onClick={() => setCurrentSidePanel(panelRailActive ? null : "panel")}
                 title={learningsArtifactCount > 0 ? `Files (${learningsArtifactCount})` : "No files yet"}
@@ -1069,7 +1072,7 @@ export function SessionPage(props: SessionPageProps) {
               >
                 <FileText size={17} />
                 {learningsArtifactCount > 0 ? (
-                  <span className="absolute right-0 top-0 flex min-w-3.5 translate-x-1 -translate-y-1 items-center justify-center rounded-full bg-primary px-1 text-[9px] font-semibold leading-3 text-primary-foreground">
+                  <span className="absolute -right-1 -top-1 flex min-w-4 items-center justify-center rounded-full border-2 border-background bg-foreground px-0.5 text-[9px] font-semibold leading-3 text-background">
                     {learningsArtifactCount > 9 ? "9+" : learningsArtifactCount}
                   </span>
                 ) : null}
@@ -1078,8 +1081,8 @@ export function SessionPage(props: SessionPageProps) {
                 variant="ghost"
                 size="icon-sm"
                 className={cn(
-                  "rounded-xl transition-colors hover:bg-muted hover:text-foreground",
-                  extensionsRailActive && "bg-primary/10 text-primary hover:bg-primary/15 hover:text-primary",
+                  "lw-session-rail-button hover:bg-muted hover:text-foreground",
+                  extensionsRailActive && "text-foreground",
                 )}
                 onClick={props.settingsSlot ? openExtensionsRailPane : props.onOpenSettings}
                 title="Extensions"
@@ -1101,7 +1104,7 @@ export function SessionPage(props: SessionPageProps) {
           >
             <ResizablePanel minSize="360px" className="min-w-0">
               <main className="flex h-full min-w-0 flex-col overflow-hidden border-r border-border">
-          <header className={cn("z-10 flex h-10 shrink-0 items-center justify-between border-b border-border px-4 md:px-6 mac:titlebar-drag mac:backdrop-blur-2xl mac:backdrop-saturate-150 @container/titlebar", props.detached && "mac:pl-20")}>
+          <header className={cn("lw-session-header z-10 flex h-11 shrink-0 items-center justify-between border-b border-border px-4 md:px-6 mac:titlebar-drag mac:backdrop-blur-2xl mac:backdrop-saturate-150 @container/titlebar", props.detached && "mac:pl-20")}>
             <div className="flex min-w-0 items-center gap-3">
               {!props.detached && shellConfig.sidebar ? (
                 <SidebarTrigger className="mac:hidden" />
@@ -1110,12 +1113,12 @@ export function SessionPage(props: SessionPageProps) {
                 // Word pane back button) when the sidebar trigger is hidden.
                 <span aria-hidden className="w-6 shrink-0" />
               )}
-              <h1 className="truncate text-[15px] font-semibold text-dls-text">
+              <h1 className="truncate text-[13px] font-medium tracking-[-0.01em] text-dls-text">
                 {showWorkspaceSetupEmptyState
                   ? t("session.create_or_connect_workspace")
                   : selectedSessionTitle || t("session.default_title")}
               </h1>
-              <span className="hidden truncate text-[13px] text-dls-secondary lg:inline">
+              <span className="hidden truncate border-l border-dls-border pl-3 text-xs text-dls-secondary lg:inline">
                 {workspaceName}
               </span>
               {props.developerMode ? (
@@ -1318,7 +1321,7 @@ export function SessionPage(props: SessionPageProps) {
               ) : null}
 
               {!showDelayedSessionLoadingState && !canRenderReactSurface && !showStartupSkeleton ? (
-                <div className={`mx-auto max-w-[800px] px-6 ${showWorkspaceSetupEmptyState ? "pt-20" : "pt-10"}`}>
+                <div className={`mx-auto h-full max-w-[800px] overflow-y-auto px-6 pb-8 ${showWorkspaceSetupEmptyState ? "pt-20" : "pt-3"}`}>
                   {props.notFoundMessage ? (
                     <div className="px-6 py-16 text-center">
                       <div className="mx-auto max-w-md rounded-2xl border border-dls-border bg-dls-card px-5 py-6 shadow-[var(--dls-card-shadow)]">
@@ -1364,100 +1367,17 @@ export function SessionPage(props: SessionPageProps) {
                       {t("session.loading_detail")}
                     </div>
                   ) : (
-                    <div className="flex flex-1 items-center justify-center px-6 py-16">
-                      <div className="w-full max-w-md space-y-6">
-                        <div className="space-y-1 text-center">
-                          <h2 className="text-lg font-semibold text-dls-text">
-                            {providerCount === 0
-                              ? t("session.connect_model_to_start")
-                              : t("session.select_or_create_session")}
-                          </h2>
-                          <p className="text-xs text-dls-secondary">
-                            {providerCount === 0
-                              ? "Add an AI model provider so your tasks can run."
-                              : "Try one of these to get started:"}
-                          </p>
-                        </div>
-                        <div className="space-y-2">
-                          {providerCount === 0 ? (
-                            <button
-                              type="button"
-                              className="flex w-full items-start gap-3 rounded-xl border border-blue-7/50 bg-blue-2/40 p-3.5 text-left transition-colors hover:bg-blue-3/50"
-                              onClick={() => props.onOpenProviderAuth?.()}
-                            >
-                              <Zap className="mt-0.5 size-5 shrink-0 text-blue-10" />
-                              <div>
-                                <div className="text-[13px] font-medium text-dls-text">Connect a model provider</div>
-                                <div className="mt-0.5 text-[11px] text-dls-secondary">
-                                  Add an API key for Anthropic, OpenAI, Google, or other providers
-                                </div>
-                              </div>
-                            </button>
-                          ) : null}
-                          <button
-                            type="button"
-                            className="flex w-full items-start gap-3 rounded-xl border border-dls-border bg-dls-surface p-3.5 text-left transition-colors hover:bg-dls-hover"
-                            onClick={() => {
-                              props.sidebar.onCreateTaskWithPrompt?.(
-                                props.selectedWorkspaceId,
-                                "Review the contracts in this folder and build a review grid — one row per document, with columns for the parties, effective date, term, governing law, and assignment/change-of-control. Put a short value in each cell with a citation to the source document, and flag anything missing or unusual.",
-                              );
-                            }}
-                          >
-                            <Columns2 className="mt-0.5 size-5 shrink-0 text-dls-secondary" />
-                            <div>
-                              <div className="text-[13px] font-medium text-dls-text">Build a review grid</div>
-                              <div className="mt-0.5 text-[11px] text-dls-secondary">Extract key terms across many documents</div>
-                            </div>
-                          </button>
-                          <button
-                            type="button"
-                            className="flex w-full items-start gap-3 rounded-xl border border-dls-border bg-dls-surface p-3.5 text-left transition-colors hover:bg-dls-hover"
-                            onClick={() => {
-                              props.sidebar.onCreateTaskWithPrompt?.(
-                                props.selectedWorkspaceId,
-                                "Redline this contract: propose your changes as tracked redlines and give me a short rationale for each. If we have a standard template or playbook, mark it up against that.",
-                              );
-                            }}
-                          >
-                            <SquarePen className="mt-0.5 size-5 shrink-0 text-dls-secondary" />
-                            <div>
-                              <div className="text-[13px] font-medium text-dls-text">Redline a contract</div>
-                              <div className="mt-0.5 text-[11px] text-dls-secondary">Propose tracked changes with rationale</div>
-                            </div>
-                          </button>
-                          <button
-                            type="button"
-                            className="flex w-full items-start gap-3 rounded-xl border border-dls-border bg-dls-surface p-3.5 text-left transition-colors hover:bg-dls-hover"
-                            onClick={() => {
-                              props.sidebar.onCreateTaskWithPrompt?.(
-                                props.selectedWorkspaceId,
-                                "Summarize the contracts in this folder. For each one, note what it is in a sentence, then give me an overall summary of what this set covers and anything that stands out — citing the source file for the important points.",
-                              );
-                            }}
-                          >
-                            <ScrollText className="mt-0.5 size-5 shrink-0 text-dls-secondary" />
-                            <div>
-                              <div className="text-[13px] font-medium text-dls-text">Summarize documents</div>
-                              <div className="mt-0.5 text-[11px] text-dls-secondary">Get an overview of every file</div>
-                            </div>
-                          </button>
-                          <button
-                            type="button"
-                            className="flex w-full items-start gap-3 rounded-xl border border-dls-border bg-dls-surface p-3.5 text-left transition-colors hover:bg-dls-hover"
-                            onClick={() => {
-                              props.onOpenSettings?.();
-                            }}
-                          >
-                            <img src="https://cdn.simpleicons.org/hackthebox" alt="" width={20} height={20} className="mt-0.5 shrink-0" />
-                            <div>
-                              <div className="text-[13px] font-medium text-dls-text">Connect an extension</div>
-                              <div className="mt-0.5 text-[11px] text-dls-secondary">Add MCP servers, plugins, and integrations</div>
-                            </div>
-                          </button>
-                        </div>
-                      </div>
-                    </div>
+                    <WelcomeSurface replayKey={props.selectedWorkspaceId}>
+                      <TaskSuggestionCards
+                        providerConnectedCount={providerCount}
+                        onConnect={() => props.onOpenProviderAuth?.()}
+                        onSelect={(prompt) => props.sidebar.onCreateTaskWithPrompt?.(props.selectedWorkspaceId, prompt)}
+                      />
+                      <Button variant="ghost" size="sm" className="mt-4 gap-2" onClick={props.onOpenSettings}>
+                        <Settings2 size={14} aria-hidden="true" />
+                        Connect an extension
+                      </Button>
+                    </WelcomeSurface>
                   )}
                 </div>
               ) : null}
@@ -1530,14 +1450,14 @@ export function SessionPage(props: SessionPageProps) {
             ) : null}
           </ResizablePanelGroup>
           {shellConfig.panelRail ? (
-          <aside className="flex w-11 shrink-0 flex-col items-center gap-1 border-l border-border bg-background/95 px-1 py-2 text-muted-foreground mac:titlebar-no-drag">
+          <aside aria-label="Workspace tools" className="lw-session-rail flex w-12 shrink-0 flex-col items-center gap-2 border-l border-border px-1.5 py-3 text-muted-foreground mac:titlebar-no-drag">
             {isElectronRuntime() ? (
               <Button
                 variant="ghost"
                 size="icon-sm"
                 className={cn(
-                  "rounded-xl transition-colors hover:bg-muted hover:text-foreground",
-                  panelRailActive && "bg-primary/10 text-primary hover:bg-primary/15 hover:text-primary",
+                  "lw-session-rail-button hover:bg-muted hover:text-foreground",
+                  panelRailActive && "text-foreground",
                 )}
                 onClick={openBrowserRailPane}
                 title="Browser"
@@ -1551,8 +1471,8 @@ export function SessionPage(props: SessionPageProps) {
               variant="ghost"
               size="icon-sm"
               className={cn(
-                "rounded-xl transition-colors hover:bg-muted hover:text-foreground",
-                panelRailActive && "bg-primary/10 text-primary hover:bg-primary/15 hover:text-primary",
+                "lw-session-rail-button hover:bg-muted hover:text-foreground",
+                panelRailActive && "text-foreground",
               )}
               onClick={openArtifactRailPane}
               title={hasArtifactTargets ? `Artifacts (${artifactTargetCount})` : "No artifacts yet"}
@@ -1562,7 +1482,7 @@ export function SessionPage(props: SessionPageProps) {
             >
               <FileText size={17} />
               {artifactTargetCount > 0 ? (
-                <span className="absolute right-0 top-0 flex min-w-3.5 translate-x-1 -translate-y-1 items-center justify-center rounded-full bg-primary px-1 text-[9px] font-semibold leading-3 text-primary-foreground">
+                <span className="absolute -right-1 -top-1 flex min-w-4 items-center justify-center rounded-full border-2 border-background bg-foreground px-0.5 text-[9px] font-semibold leading-3 text-background">
                   {artifactTargetCount > 9 ? "9+" : artifactTargetCount}
                 </span>
               ) : null}
@@ -1571,8 +1491,8 @@ export function SessionPage(props: SessionPageProps) {
               variant="ghost"
               size="icon-sm"
               className={cn(
-                "rounded-xl transition-colors hover:bg-muted hover:text-foreground",
-                filesRailActive && "bg-primary/10 text-primary hover:bg-primary/15 hover:text-primary",
+                "lw-session-rail-button hover:bg-muted hover:text-foreground",
+                filesRailActive && "text-foreground",
               )}
               onClick={openFilesRailPane}
               title="Workspace files"
@@ -1586,8 +1506,8 @@ export function SessionPage(props: SessionPageProps) {
               variant="ghost"
               size="icon-sm"
               className={cn(
-                "rounded-xl transition-colors hover:bg-muted hover:text-foreground",
-                extensionsRailActive && "bg-primary/10 text-primary hover:bg-primary/15 hover:text-primary",
+                "lw-session-rail-button hover:bg-muted hover:text-foreground",
+                extensionsRailActive && "text-foreground",
               )}
               onClick={props.settingsSlot ? openExtensionsRailPane : props.onOpenSettings}
               title="Extensions"

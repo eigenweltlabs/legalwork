@@ -2,6 +2,7 @@
 import type * as React from "react";
 
 import { cn } from "@/lib/utils";
+import { Surface } from "@/react-app/design-system/surface";
 
 type TabsSidebarProps = {
   children: React.ReactNode;
@@ -19,9 +20,9 @@ type TabsGroupProps = {
 
 export function TabsGroup(props: TabsGroupProps) {
   return (
-    <div className={cn("rounded-[24px] border border-dls-border bg-dls-sidebar p-3")}>
+    <Surface variant="glass" className="p-2.5">
       {props.children}
-    </div>
+    </Surface>
   );
 }
 
@@ -31,7 +32,7 @@ type TabsGroupTitleProps = {
 
 export function TabsGroupTitle(props: TabsGroupTitleProps) {
   return (
-    <div className={cn("mb-2 px-2 text-[11px] font-medium uppercase tracking-[0.18em] text-gray-8")}>
+    <div className="mb-2 px-2 py-1 text-[11px] font-medium tracking-[0.02em] text-muted-foreground">
       {props.children}
     </div>
   );
@@ -56,10 +57,11 @@ export function TabsTrigger(props: TabsTriggerProps) {
     <button
       type="button"
       className={cn(
-        "flex w-full items-center justify-between rounded-xl px-3 py-2.5 text-left text-[13px] font-medium transition-colors text-gray-10 hover:bg-dls-surface/50 hover:text-dls-text",
+        "flex w-full items-center justify-between rounded-lg border border-transparent px-3 py-2.5 text-left text-[13px] font-medium text-muted-foreground transition-colors hover:bg-background/70 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40",
         props.active &&
-          "bg-dls-surface text-dls-text shadow-sm hover:bg-dls-surface hover:text-dls-text",
+          "border-border/70 bg-background text-foreground hover:bg-background hover:text-foreground",
       )}
+      aria-current={props.active ? "page" : undefined}
       onClick={props.onSelect}
     >
       <span>{props.children}</span>

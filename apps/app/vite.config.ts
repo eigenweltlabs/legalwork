@@ -9,7 +9,6 @@ import tailwindcss from "@tailwindcss/vite";
 const portValue = Number.parseInt(process.env.PORT ?? "", 10);
 const devPort = Number.isFinite(portValue) && portValue > 0 ? portValue : 5173;
 const allowedHosts = new Set<string>();
-allowedHosts.add("terminal.local");
 const envAllowedHosts = process.env.VITE_ALLOWED_HOSTS ?? "";
 
 const addHost = (value?: string | null) => {
@@ -22,6 +21,7 @@ envAllowedHosts.split(",").forEach(addHost);
 addHost(process.env.LEGALWORK_PUBLIC_HOST ?? null);
 const hostname = os.hostname();
 addHost(hostname);
+addHost("terminal.local");
 const shortHostname = hostname.split(".")[0];
 if (shortHostname && shortHostname !== hostname) {
   addHost(shortHostname);
@@ -70,6 +70,9 @@ export default defineConfig({
     }),
   ],
   server: {
+    // Supervised visual fixtures stay stable if another preview restarts the host.
+    // Normal UI/Electron development retains hot reload.
+    ...(process.env.LEGALWORK_VISUAL_PREVIEW === "1" ? { hmr: false } : {}),
     port: devPort,
     strictPort: true,
     ...(allowedHosts.size > 0 ? { allowedHosts: Array.from(allowedHosts) } : {}),

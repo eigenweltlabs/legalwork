@@ -269,12 +269,12 @@ export function SettingsSidebar(props: SettingsSidebarProps) {
   const globalTabs = getGlobalSettingsTabs(props.developerMode);
 
   return (
-    <Sidebar className="mac:**:data-[sidebar=sidebar]:bg-transparent">
+    <Sidebar aria-label="Settings navigation" className="mac:**:data-[sidebar=sidebar]:bg-transparent">
       <div className="hidden h-10 mac:block mac:titlebar-drag" />
-      <SidebarHeader>
+      <SidebarHeader className="gap-3 border-b border-sidebar-border/60 px-3 pb-4 pt-3">
         <SidebarMenu>
           <SidebarMenuItem>
-            <SidebarMenuButton type="button" onClick={props.onClose}>
+            <SidebarMenuButton type="button" onClick={props.onClose} className="mb-2 text-muted-foreground">
               <ArrowLeft size={14} />
               <span>{t("dashboard.back_to_app")}</span>
             </SidebarMenuButton>
@@ -283,10 +283,15 @@ export function SettingsSidebar(props: SettingsSidebarProps) {
             <DropdownMenu>
               <DropdownMenuTrigger
                 render={
-                  <SidebarMenuButton type="button">
-                    <WorkspaceIcon workspaceId={props.selectedWorkspaceId} sizeClass="size-4" />
-                    <span className="truncate">{props.selectedWorkspaceName}</span>
-                    <ChevronDown className="ml-auto" />
+                  <SidebarMenuButton type="button" className="h-12 border border-border/70 bg-background/65 px-2.5 hover:bg-background/90">
+                    <span className="flex size-7 shrink-0 items-center justify-center [&_svg]:size-5">
+                      <WorkspaceIcon workspaceId={props.selectedWorkspaceId} sizeClass="size-5" />
+                    </span>
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate text-[13px] font-medium">{props.selectedWorkspaceName}</span>
+                      <span className="block text-[10px] font-normal text-muted-foreground">{t("settings.group_workspace")}</span>
+                    </span>
+                    <ChevronDown className="ml-auto text-muted-foreground" />
                   </SidebarMenuButton>
                 }
               />
@@ -306,7 +311,7 @@ export function SettingsSidebar(props: SettingsSidebarProps) {
           </SidebarMenuItem>
         </SidebarMenu>
       </SidebarHeader>
-      <SidebarContent>
+      <SidebarContent className="gap-1 px-1 pb-4 pt-2">
         {/* Top-level hub entry */}
         <SidebarGroup>
           <SidebarGroupContent>
@@ -315,6 +320,7 @@ export function SettingsSidebar(props: SettingsSidebarProps) {
                 <SidebarMenuButton
                   type="button"
                   isActive={props.activeTab === "general"}
+                  aria-current={props.activeTab === "general" ? "page" : undefined}
                   onClick={() => props.onSelectTab("general")}
                 >
                   <Cog />
@@ -336,6 +342,7 @@ export function SettingsSidebar(props: SettingsSidebarProps) {
                     <SidebarMenuButton
                       type="button"
                       isActive={props.activeTab === tab}
+                      aria-current={props.activeTab === tab ? "page" : undefined}
                       onClick={() => props.onSelectTab(tab)}
                     >
                       <Icon />
@@ -359,6 +366,7 @@ export function SettingsSidebar(props: SettingsSidebarProps) {
                     <SidebarMenuButton
                       type="button"
                       isActive={props.activeTab === tab}
+                      aria-current={props.activeTab === tab ? "page" : undefined}
                       onClick={() => props.onSelectTab(tab)}
                     >
                       <Icon />
@@ -380,7 +388,7 @@ export function SettingsPage(props: SettingsPageProps) {
   const wide = props.activeTab === "benchmark";
   return (
     <SettingsContent>
-      <SettingsPanel className={wide ? "lg:max-w-6xl" : undefined}>
+      <SettingsPanel key={props.activeTab} className={wide ? "lw-enter lg:max-w-6xl" : "lw-enter"}>
         <SettingsPanelHeading>
           <SettingsPanelTitle>{getSettingsTabLabel(props.activeTab)}</SettingsPanelTitle>
           <SettingsPanelDescription>{getSettingsTabDescription(props.activeTab)}</SettingsPanelDescription>

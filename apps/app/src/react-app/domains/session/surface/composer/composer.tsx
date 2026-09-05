@@ -4,6 +4,8 @@ import type { Agent } from "@opencode-ai/sdk/v2/client";
 import { AppWindowMac, ArrowUp, AudioLines, Blend, ChevronDown, ChevronRight, FileText, ListPlus, Paperclip, Plug, Settings, Square, Terminal, X, Zap } from "lucide-react";
 import fuzzysort from "fuzzysort";
 import { toast } from "@/components/ui/sonner";
+import { IconTile } from "@/react-app/design-system/surface";
+import "@/components/chat/session-surfaces.css";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuShortcut, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { LEGALWORK_EXTENSION_CATALOG, type McpDirectoryInfo } from "@/app/constants";
 import type { ImportedPlugin, ImportedPluginFile } from "@/app/lib/extension-imports";
@@ -1111,7 +1113,7 @@ export function ReactSessionComposer(props: ComposerProps) {
       <div className="max-w-[800px] mx-auto">
         {/* Main composer panel */}
         <div
-          className={`relative overflow-visible rounded-[24px] border bg-dls-surface transition-all ${
+          className={`lw-composer relative overflow-visible rounded-[22px] border ${
             props.fusionEnabled ? "fusion-rainbow-border border-transparent" : "border-dls-border"
           } ${panelRoundedClass}`}
         >
@@ -1121,15 +1123,15 @@ export function ReactSessionComposer(props: ComposerProps) {
           {renderSlashMenu()}
 
           {props.attachments.length > 0 ? (
-            <div className="mx-5 mt-5 flex flex-wrap gap-2 md:mx-6">
+            <div className="mx-4 mt-4 flex flex-wrap gap-2 md:mx-5">
               {props.attachments.map((attachment) => (
-                <div key={attachment.id} className="flex items-center gap-2 rounded-2xl border border-gray-6 bg-gray-2 px-3 py-2 text-xs text-gray-10">
+                <div key={attachment.id} className="flex items-center gap-2.5 rounded-xl border border-dls-border bg-dls-surface px-2.5 py-2 text-xs text-dls-secondary">
                   {isImageAttachment(attachment) && attachment.previewUrl ? (
                     <div className="h-10 w-10 overflow-hidden rounded-xl border border-gray-6 bg-gray-1">
                       <img src={attachment.previewUrl} alt={attachment.name} decoding="async" className="h-full w-full object-cover" />
                     </div>
                   ) : (
-                    <FileText size={14} className="text-gray-9" />
+                    <IconTile size="sm" variant="inset"><FileText size={16} aria-hidden="true" /></IconTile>
                   )}
                   <div className="max-w-[160px] min-w-0">
                     <div className="truncate text-[12px] font-medium text-gray-11">{attachment.name}</div>
@@ -1141,9 +1143,10 @@ export function ReactSessionComposer(props: ComposerProps) {
                   </div>
                   <button
                     type="button"
-                    className="ml-1 inline-flex h-5 w-5 items-center justify-center rounded-full text-gray-10 transition-colors hover:bg-gray-3 hover:text-gray-12"
+                    className="lw-composer-control ml-1 inline-flex h-6 w-6 items-center justify-center text-gray-10 hover:bg-gray-3 hover:text-gray-12"
                     onClick={() => props.onRemoveAttachment(attachment.id)}
                     title={t("action.remove")}
+                    aria-label={`${t("action.remove")} ${attachment.name}`}
                   >
                     <X size={12} />
                   </button>
@@ -1173,7 +1176,7 @@ export function ReactSessionComposer(props: ComposerProps) {
             </div>
           ) : null}
 
-          <div className="px-4 pt-3 pb-2">
+          <div className="px-4 pt-4 pb-3 sm:px-5">
             {/* Editor */}
             <LexicalPromptEditor
               ref={editorRef}
@@ -1272,7 +1275,7 @@ export function ReactSessionComposer(props: ComposerProps) {
             />
 
             {/* Action row — attachments, quick actions, model controls, and send */}
-            <div className="mt-2 flex flex-wrap items-end justify-between gap-2">
+            <div className="mt-3 flex flex-wrap items-end justify-between gap-2 border-t border-[var(--lw-border-subtle)] pt-2">
               <div className="flex min-w-0 flex-1 flex-wrap items-center gap-1.5">
                 <input
                   ref={(element) => {
@@ -1289,7 +1292,7 @@ export function ReactSessionComposer(props: ComposerProps) {
                 />
                 <button
                   type="button"
-                  className={`inline-flex h-9 max-h-9 w-9 items-center justify-center rounded-md text-gray-10 transition-colors hover:bg-gray-3 ${
+                  className={`lw-composer-control inline-flex h-9 max-h-9 w-9 items-center justify-center text-gray-10 hover:bg-gray-3 ${
                     !props.attachmentsEnabled ? "cursor-not-allowed opacity-60" : ""
                   }`}
                   onClick={() => {
@@ -1298,6 +1301,7 @@ export function ReactSessionComposer(props: ComposerProps) {
                   }}
                   disabled={!props.attachmentsEnabled}
                   title={props.attachmentsDisabledReason ?? t("composer.attach_files")}
+                  aria-label={t("composer.attach_files")}
                 >
                   <Paperclip size={16} />
                 </button>
@@ -1311,7 +1315,7 @@ export function ReactSessionComposer(props: ComposerProps) {
                 >
                   <button
                     type="button"
-                    className={`inline-flex h-9 max-h-9 w-9 items-center justify-center rounded-md transition-colors ${toolMenuOpen ? "bg-gray-3 text-gray-12" : "text-gray-10 hover:bg-gray-3"}`}
+                    className={`lw-composer-control inline-flex h-9 max-h-9 w-9 items-center justify-center ${toolMenuOpen ? "bg-gray-3 text-gray-12" : "text-gray-10 hover:bg-gray-3"}`}
                     onClick={() => {
                       setMentionOpen(false);
                       setMentionItems([]);
@@ -1321,6 +1325,7 @@ export function ReactSessionComposer(props: ComposerProps) {
                     aria-expanded={toolMenuOpen}
                     aria-haspopup="dialog"
                     title={t("composer.tools_label")}
+                    aria-label={t("composer.tools_label")}
                   >
                     <Plug size={16} />
                   </button>
@@ -1538,7 +1543,7 @@ export function ReactSessionComposer(props: ComposerProps) {
                       }}
                       disabled={props.busy}
                       aria-pressed={props.fusionEnabled}
-                      className={`inline-flex h-9 max-h-9 items-center gap-1.5 rounded-md px-2.5 text-sm transition-colors disabled:pointer-events-none disabled:opacity-60 ${
+                      className={`lw-composer-control inline-flex h-9 max-h-9 items-center gap-1.5 px-2.5 text-[13px] disabled:pointer-events-none disabled:opacity-60 ${
                         props.fusionEnabled
                           ? "fusion-rainbow-text font-medium"
                           : "text-gray-10 hover:bg-gray-3 hover:text-gray-12"
@@ -1574,7 +1579,7 @@ export function ReactSessionComposer(props: ComposerProps) {
                     onClick={props.onToggleLiveTranscript}
                     disabled={props.busy}
                     aria-pressed={props.liveTranscriptActive}
-                    className={`inline-flex h-9 max-h-9 items-center gap-1.5 rounded-md px-2.5 text-sm transition-colors disabled:pointer-events-none disabled:opacity-60 ${
+                    className={`lw-composer-control inline-flex h-9 max-h-9 items-center gap-1.5 px-2.5 text-[13px] disabled:pointer-events-none disabled:opacity-60 ${
                       props.liveTranscriptActive
                         ? "bg-red-3 font-medium text-red-11 hover:bg-red-4"
                         : "text-gray-10 hover:bg-gray-3 hover:text-gray-12"
@@ -1583,7 +1588,7 @@ export function ReactSessionComposer(props: ComposerProps) {
                   >
                     {props.liveTranscriptActive ? (
                       <span className="relative flex size-2">
-                        <span className="absolute inline-flex size-full animate-ping rounded-full bg-red-9 opacity-75" />
+                        <span className="absolute inline-flex size-full motion-safe:animate-ping rounded-full bg-red-9 opacity-75" />
                         <span className="relative inline-flex size-2 rounded-full bg-red-9" />
                       </span>
                     ) : (
@@ -1640,7 +1645,7 @@ export function ReactSessionComposer(props: ComposerProps) {
                         type="button"
                         onClick={canSend ? props.onSteer : undefined}
                         disabled={!canSend}
-                        className={`inline-flex h-9 max-h-9 items-center gap-2 rounded-l-full pl-4 pr-3 text-[13px] font-medium transition-colors ${
+                        className={`lw-composer-send inline-flex h-9 max-h-9 items-center gap-2 rounded-l-xl pl-4 pr-3 text-[13px] font-medium ${
                           canSend
                             ? "bg-[var(--dls-accent)] text-[var(--dls-accent-fg)] hover:bg-[var(--dls-accent-hover)]"
                             : "bg-gray-4 text-gray-10"
@@ -1656,7 +1661,7 @@ export function ReactSessionComposer(props: ComposerProps) {
                             <button
                               type="button"
                               aria-label={t("composer.send_options")}
-                              className={`relative inline-flex h-9 max-h-9 items-center rounded-r-full border-l pl-1.5 pr-2.5 transition-colors ${
+                              className={`lw-composer-send relative inline-flex h-9 max-h-9 items-center rounded-r-xl border-l pl-1.5 pr-2.5 ${
                                 canSend
                                   ? "border-[color-mix(in_srgb,var(--dls-accent-fg)_25%,transparent)] bg-[var(--dls-accent)] text-[var(--dls-accent-fg)] hover:bg-[var(--dls-accent-hover)]"
                                   : "border-gray-6 bg-gray-4 text-gray-10"
@@ -1694,7 +1699,7 @@ export function ReactSessionComposer(props: ComposerProps) {
                     type="button"
                     onClick={canSend ? props.onSend : undefined}
                     disabled={props.disabled || !canSend}
-                    className={`inline-flex h-9 max-h-9 items-center gap-2 rounded-full px-4 text-[13px] font-medium transition-colors ${
+                    className={`lw-composer-send inline-flex h-9 max-h-9 items-center gap-2 rounded-xl px-4 text-[13px] font-medium ${
                       !canSend || props.disabled
                         ? "bg-gray-4 text-gray-10"
                         : "bg-[var(--dls-accent)] text-[var(--dls-accent-fg)] hover:bg-[var(--dls-accent-hover)]"

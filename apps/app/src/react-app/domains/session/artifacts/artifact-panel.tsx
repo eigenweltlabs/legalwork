@@ -11,6 +11,8 @@ import { toast } from "@/components/ui/sonner";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { formatFileSize } from "@/lib/utils";
 import { useControlAction, useControlSurface, type LegalworkControlAction, type LegalworkControlSurface } from "@/react-app/shell/control/control-provider";
+import { PanelHeader } from "@/react-app/design-system/panel-chrome";
+import { ArtifactIcon } from "./artifact-icon";
 import type { DocxEditorApi } from "./artifact-docx-editor";
 import { artifactDocumentKey, reconcileDocxSnapshot, registerUnsavedDocument, savedDocxSnapshot, type DocxSnapshot } from "./docx-document-state";
 import { type ArtifactPanelTab, usePanelTabStore } from "../panel/panel-tab-store";
@@ -469,24 +471,19 @@ function ArtifactPanelView({ sessionId, client, workspaceId, workspaceRoot, isRe
 
   return (
     <div className="flex h-full min-h-0 flex-col bg-background">
-      <div className="shrink-0 border-b border-border bg-background mac:bg-background/80 mac:backdrop-blur-2xl mac:backdrop-saturate-150">
-        <div className="flex h-10 items-center gap-2 pe-2 ps-4">
-          <div className="min-w-0 flex-1 flex items-center gap-1.5">
-            {fileIcon ? (
-              <img src={fileIcon} alt="" className="h-4 w-4 shrink-0 object-contain" />
-            ) : null}
-            <h3 className="text-sm font-medium text-foreground">
-              <span className="truncate">{target.name}</span>
-            </h3>
-            <span className="truncate text-xs text-muted-foreground">
-              {target.exists === false ? "missing" : target.size !== undefined ? `${formatFileSize(target.size)}` : ""}
+      <PanelHeader
+        wrapActions
+        title={target.name}
+        icon={fileIcon ? <img src={fileIcon} alt="" className="size-5 shrink-0 object-contain" /> : <ArtifactIcon type={target.preview} className="size-5" />}
+        meta={<>
+          {target.exists === false ? "missing" : target.size !== undefined ? formatFileSize(target.size) : null}
+          {isEditableDocx && docxSnapshot ? (
+            <span className="ms-2" role="status">
+              {docxSaving || isSaving ? "Saving…" : docxDirty ? "Unsaved changes" : "Saved"}
             </span>
-            {isEditableDocx && docxSnapshot ? (
-              <span className="shrink-0 text-xs text-muted-foreground" role="status">
-                {docxSaving || isSaving ? "Saving…" : docxDirty ? "Unsaved changes" : "Saved"}
-              </span>
-            ) : null}
-          </div>
+          ) : null}
+        </>}
+      >
           {isTextContent(target) && data?.kind === "text" ? (
             editing || isDirectTextEdit ? (
               <>
@@ -586,8 +583,7 @@ function ArtifactPanelView({ sessionId, client, workspaceId, workspaceRoot, isRe
             />
             <TooltipContent>Close artifact</TooltipContent>
           </Tooltip>
-        </div>
-      </div>
+      </PanelHeader>
       {docxChangedOnDisk ? (
         <div className="shrink-0 border-b border-border bg-muted px-4 py-2 text-xs" role="alert">
           This file changed in the workspace. Your edits are still here. Download a copy to keep them before reopening the latest version.

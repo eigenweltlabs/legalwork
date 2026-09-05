@@ -3,7 +3,7 @@
   "private": true,
   "version": "0.0.0",
   "scripts": {
-    "dev": "LEGALWORK_DEV_MODE=1 LEGALWORK_ELECTRON_REMOTE_DEBUG_PORT=${LEGALWORK_ELECTRON_REMOTE_DEBUG_PORT:-9823} node scripts/dev.mjs",
+    "dev": "node scripts/dev.mjs",
     "dev:electron": "LEGALWORK_DEV_MODE=1 pnpm --filter @legalwork/desktop dev:electron",
     "dev:electron:two": "LEGALWORK_DEV_MODE=1 node scripts/dev-two-electron-demo.mjs",
     "demo:electron": "LEGALWORK_DEV_MODE=1 node scripts/dev-two-electron-demo.mjs --reset",

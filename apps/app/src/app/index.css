@@ -4,6 +4,7 @@
 @import "../styles/colors.css";
 
 @import "@legalwork/ui/styles/tokens.css";
+@import "../styles/design-system.css";
 
 @import "tw-animate-css";
 
@@ -19,8 +20,8 @@
    LegalWork app theme — unified on @legalwork/ui.
    Every semantic token (shadcn --background/--card/--primary/... and the legacy
    --dls-*) derives from the design system's --lw-* tokens (imported above),
-   so light/dark flips once at the token layer. Flat, clean surfaces; navy
-   primary; one interactive blue. The old "Deep Current" glass theme is gone.
+   so light/dark flips once at the token layer. White surfaces, graphite interactions and restrained glass chrome.
+   The shared token package remains the single source of truth.
    ============================================================================ */
 
 @custom-variant dark (&:is(.dark, .dark *, [data-theme="dark"], [data-theme="dark"] *));
@@ -118,7 +119,7 @@
   --dls-accent: var(--lw-accent);
   --dls-accent-hover: var(--lw-accent-hover);
   --dls-accent-fg: var(--lw-accent-fg);
-  --dls-accent-rgb: 10 88 194;
+  --dls-accent-rgb: 53 53 59;
   --dls-secondary-rgb: 108 108 118;
   --dls-text-primary: var(--lw-text-primary);
   --dls-text-secondary: var(--lw-text-secondary);
@@ -140,13 +141,13 @@
      instead of falling back to currentColor (which rendered as black borders). */
   --glass-border: var(--lw-border-subtle);
   --glass-border-dark: var(--lw-border-subtle);
-  --glass-fill: var(--lw-surface);
-  --glass-fill-strong: var(--lw-surface);
+  --glass-fill: var(--lw-glass);
+  --glass-fill-strong: var(--lw-glass-strong);
   --glass-fill-dark: var(--lw-surface);
   --shadow-glass: var(--lw-shadow-sm);
   --shadow-glass-lg: var(--lw-shadow-md);
-  --blur-glass: none;
-  --blur-glass-lg: none;
+  --blur-glass: var(--lw-glass-blur);
+  --blur-glass-lg: var(--lw-glass-blur);
   --ease-soft: var(--lw-ease-standard);
 
   --font-sans: var(--lw-font-sans);
@@ -350,8 +351,9 @@ select:disabled {
 .glass-strong,
 .lw-glass-panel {
   border: 1px solid var(--lw-border-subtle);
-  background: var(--lw-surface);
-  box-shadow: var(--lw-shadow-md);
+  background: var(--lw-glass-strong);
+  backdrop-filter: blur(var(--lw-glass-blur));
+  box-shadow: var(--lw-shadow-sm);
   border-radius: 1rem;
 }
 
@@ -512,7 +514,7 @@ select:disabled {
   border-color: var(--indigo-a9);
 }
 
-/* Fusion mode: animated rainbow ring around the composer panel. */
+/* Fusion mode: a quiet moving graphite edge; legacy class names are stable. */
 @keyframes fusion-rainbow-slide {
   to {
     background-position: 400% 50%;
@@ -525,7 +527,7 @@ select:disabled {
   z-index: 1;
   border-radius: inherit;
   padding: 2px;
-  background: linear-gradient(90deg, #ff5f6d, #ffc371, #f9f871, #3ec97e, #38b6ff, #8b5cf6, #ff5f6d);
+  background: linear-gradient(90deg, var(--lw-border), var(--lw-text-tertiary), var(--lw-surface), var(--lw-text-tertiary), var(--lw-border));
   background-size: 400% 100%;
   animation: fusion-rainbow-slide 6s linear infinite;
   -webkit-mask:
@@ -539,7 +541,7 @@ select:disabled {
   pointer-events: none;
 }
 .fusion-rainbow-text {
-  background: linear-gradient(90deg, #ff5f6d, #ffc371, #3ec97e, #38b6ff, #8b5cf6, #ff5f6d);
+  background: linear-gradient(90deg, var(--lw-text-primary), var(--lw-text-secondary), var(--lw-text-primary));
   background-size: 400% 100%;
   animation: fusion-rainbow-slide 6s linear infinite;
   -webkit-background-clip: text;
@@ -547,7 +549,7 @@ select:disabled {
   color: transparent;
 }
 .fusion-rainbow-text svg {
-  color: #8b5cf6;
+  color: var(--lw-text-primary);
 }
 
 @keyframes progress-shimmer {
