@@ -108,6 +108,7 @@ const fixtureClient: LegalworkServerClient = {
     return { item };
   },
   getConfig: async () => ({ opencode: {}, legalwork: {} }),
+  getVoiceRealtimeCapability: async () => ({ supported: false, providerId: null, model: null, reason: "Voice is unavailable in the visual fixture." }),
   getUserEnvStatus: async () => ({ runtimeKey: "visual-fixture", pendingChanges: false }),
   listUserEnv: async () => ({ items: [] }),
   listSkills: async () => ({ items: [] }),
