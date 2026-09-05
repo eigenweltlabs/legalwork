@@ -13,6 +13,14 @@
     text-wrap: balance;
   }
   .lw-session-welcome-title span { color: color-mix(in srgb, var(--lw-file-word) 45%, var(--lw-text-secondary)); }
+  /* Full text reserves its final layout while each letter is revealed. */
+  .lw-session-welcome .lw-welcome-letter {
+    animation: lw-welcome-letter 40ms ease-out both;
+  }
+  @keyframes lw-welcome-letter {
+    from { opacity: 0; }
+    to { opacity: 1; }
+  }
   .lw-session-welcome-description {
     margin-top: 14px;
     max-width: 470px;
@@ -113,6 +121,7 @@
     .lw-task-card-arrow { display: none; }
   }
   @media (prefers-reduced-motion: reduce) {
+    .lw-session-welcome .lw-welcome-letter { animation: none; }
     .lw-task-card:hover, .lw-task-card:hover .lw-task-card-arrow,
     .lw-composer-control:active:not(:disabled), .lw-composer-send:active:not(:disabled) { transform: none; }
   }

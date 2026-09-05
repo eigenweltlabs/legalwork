@@ -15,7 +15,14 @@ export function WelcomeHeading() {
         visible: { opacity: 1, y: 0, transition: { duration: 0.42, ease: "easeOut" } },
       }}
     >
-      <h2 className="lw-session-welcome-title">Hello. <span>Let’s get to work.</span></h2>
+      <h2 className="lw-session-welcome-title">
+        Hello. <span className="sr-only">Let’s get to work.</span>
+        <span aria-hidden="true">
+          {Array.from("Let’s get to work.", (letter, index) => (
+            <span key={index} className="lw-welcome-letter" style={{ animationDelay: `${500 + index * 40}ms` }}>{letter}</span>
+          ))}
+        </span>
+      </h2>
       <p className="lw-session-welcome-description">
         Review a document, draft something new, or explore your files.
       </p>
