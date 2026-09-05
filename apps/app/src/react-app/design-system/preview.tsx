@@ -38,6 +38,7 @@ import { PanelEmptyState, PanelHeader } from "./panel-chrome";
 import { IconTile, SectionHeading, Surface } from "./surface";
 import { TextInput } from "./text-input";
 import { WorkspaceIcon } from "./workspace-icon";
+import { VoiceWaveform, type VoiceStatus } from "@/react-app/domains/session/voice/voice-waveform";
 import "@/app/index.css";
 import "./preview.css";
 
@@ -51,6 +52,27 @@ const buttonVariants: { value: ComponentProps<typeof Button>["variant"]; label: 
 ];
 
 const fileTypes: ArtifactType[] = ["document", "pdf", "sheet", "slides", "markdown", "image", "website", "html"];
+
+function VoiceWaveformPreview() {
+  const [status, setStatus] = useState<VoiceStatus>("speaking");
+  const [volume, setVolume] = useState(0.8);
+  const states: VoiceStatus[] = ["connecting", "listening", "thinking", "tool_use", "waiting_approval", "speaking", "error"];
+  return <Surface className="flex flex-col items-center gap-5 p-8" data-testid="voice-waveform-preview">
+    <VoiceWaveform status={status} sample={() => {
+      const t = performance.now() / 1000;
+      return { level: volume * (0.6 + 0.4 * Math.sin(t * 3.1)), bands: Array.from({ length: 6 }, (_, i) => 0.4 + 0.3 * Math.sin(t * 2 + i)) };
+    }} />
+    <p className="text-sm font-medium capitalize" aria-live="polite">{status.replaceAll("_", " ")}</p>
+    <div className="flex flex-wrap justify-center gap-2" aria-label="Voice appearance states">
+      {states.map((state) => <Button key={state} size="sm" variant={status === state ? "secondary" : "ghost"}
+        aria-pressed={status === state} onClick={() => setStatus(state)}>{state.replaceAll("_", " ")}</Button>)}
+    </div>
+    <label className="flex items-center gap-3 text-xs text-muted-foreground">Simulated audio
+      <input aria-label="Simulated audio volume" type="range" min="0" max="1" step="0.01" value={volume}
+        onChange={(event) => setVolume(Number(event.target.value))} />
+    </label>
+  </Surface>;
+}
 
 function Specimen({ label, children }: { label: string; children: ReactNode }) {
   return (
@@ -257,6 +279,7 @@ function DesignSystemPreview() {
           </PreviewSection>
 
           <PreviewSection id="assets" title="03 / Assets and cards" description="Light-blue folders and subtly tinted file icons stay crisp at compact sidebar sizes.">
+            <VoiceWaveformPreview />
             <Surface className="space-y-7 p-6">
               <div className="grid gap-6 sm:grid-cols-3">
                 <Specimen label="Folder / closed"><div className="flex items-end gap-5"><FolderIcon className="size-4" /><FolderIcon className="size-6" /><FolderIcon className="size-10" /><FolderIcon className="size-14" /></div></Specimen>

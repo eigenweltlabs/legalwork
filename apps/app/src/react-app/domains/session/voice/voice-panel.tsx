@@ -1,7 +1,8 @@
 /** @jsxImportSource react */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Loader2, Mic2, MicOff, Volume2, VolumeX } from "lucide-react";
-import { PaperGrainGradient } from "@legalwork/ui/react";
+import { Mic2, MicOff, Volume2, VolumeX } from "lucide-react";
+import { VoiceWaveform, type VoiceStatus } from "./voice-waveform";
+import { createVoiceAudioMeter, SILENT_VOICE_AUDIO } from "./voice-audio-meter";
 
 import type { LegalworkServerClient } from "@/app/lib/legalwork-server";
 import { cn } from "@/lib/utils";
@@ -27,15 +28,6 @@ export type VoiceOpenCodeJobSnapshot = {
   result?: string;
   error?: string;
 };
-
-type VoiceStatus =
-  | "connecting"
-  | "listening"
-  | "thinking"
-  | "tool_use"
-  | "waiting_approval"
-  | "speaking"
-  | "error";
 
 type VoicePanelProps = {
   client: LegalworkServerClient;
@@ -140,48 +132,10 @@ function statusCopy(
   return error || "Voice mode encountered an error";
 }
 
-function VoiceOrb(props: { status: VoiceStatus }) {
-  const active = props.status !== "error";
-  const fast = props.status === "speaking" || props.status === "tool_use";
-  const colors = props.status === "error"
-    ? ["#f87171", "#fb7185", "#ef4444", "#fecaca"]
-    : props.status === "waiting_approval"
-      ? ["#fbbf24", "#fde68a", "#fb7185", "#f59e0b"]
-      : ["#818cf8", "#fb7185", "#fbbf24", "#34d399"];
-
-  return (
-    <div
-      data-testid="voice-orb"
-      data-voice-state={props.status}
-      className={cn(
-        "relative size-24 overflow-hidden rounded-full border border-white/60 shadow-[0_18px_55px_rgba(15,23,42,0.14)] transition-all duration-500",
-        active && "scale-105",
-        props.status === "speaking" && "shadow-[0_20px_70px_rgba(15,23,42,0.22)]",
-      )}
-      aria-label={`Voice status: ${props.status.replaceAll("_", " ")}`}
-    >
-      <PaperGrainGradient
-        speed={fast ? 28 : 12}
-        softness={0.1}
-        intensity={1}
-        noise={0.05}
-        shape="sphere"
-        colors={colors}
-        colorBack="#ffffff00"
-        style={{ backgroundColor: colors[0], width: "100%", height: "100%", borderRadius: "50%" }}
-      />
-      {props.status === "connecting" ? (
-        <div className="absolute inset-0 grid place-items-center bg-white/10">
-          <Loader2 className="size-5 animate-spin text-white drop-shadow" />
-        </div>
-      ) : null}
-    </div>
-  );
-}
-
 export function VoicePanel(props: VoicePanelProps) {
   const rootRef = useRef<HTMLDivElement>(null);
   const runtimeRef = useRef<VoiceRuntime>({ peer: null, channel: null, stream: null, remoteAudio: null });
+  const audioMeterRef = useRef<ReturnType<typeof createVoiceAudioMeter>>(null);
   const jobRef = useRef(props.job);
   const startJobRef = useRef(props.onStartJob);
   const announcedCompletionsRef = useRef(new Set<string>());
@@ -239,6 +193,8 @@ export function VoicePanel(props: VoicePanelProps) {
   }, [sendEvent]);
 
   const stopRuntime = useCallback(() => {
+    audioMeterRef.current?.dispose();
+    audioMeterRef.current = null;
     const runtime = runtimeRef.current;
     runtime.channel?.close();
     runtime.peer?.close();
@@ -473,10 +429,14 @@ export function VoicePanel(props: VoicePanelProps) {
       });
       const peer = new RTCPeerConnection();
       const remoteAudio = new Audio();
+      audioMeterRef.current = createVoiceAudioMeter();
+      audioMeterRef.current?.setInputStream(stream);
       remoteAudio.autoplay = true;
       remoteAudio.muted = outputMutedRef.current;
       peer.ontrack = (event) => {
-        remoteAudio.srcObject = event.streams[0] ?? new MediaStream([event.track]);
+        const remoteStream = event.streams[0] ?? new MediaStream([event.track]);
+        remoteAudio.srcObject = remoteStream;
+        audioMeterRef.current?.setOutputStream(remoteStream);
         void remoteAudio.play().catch(() => undefined);
       };
       stream.getAudioTracks().forEach((track) => { track.enabled = !microphoneMutedRef.current; });
@@ -837,6 +797,9 @@ export function VoicePanel(props: VoicePanelProps) {
   useControlAction(statusAction);
 
   const latestActivity = props.activity.at(-1);
+  const sampleVoiceAudio = useCallback(() => audioMeterRef.current?.sample(
+    !microphoneMutedRef.current, !outputMutedRef.current,
+  ) ?? SILENT_VOICE_AUDIO, []);
 
   return (
     <div
@@ -845,7 +808,7 @@ export function VoicePanel(props: VoicePanelProps) {
       data-testid="voice-mode"
     >
       <div className="relative flex w-80 max-w-[calc(100%_-_2rem)] flex-col items-center gap-4 rounded-[2rem] bg-background/72 px-8 py-6 shadow-[0_18px_70px_rgba(15,23,42,0.08)] backdrop-blur-md">
-        <VoiceOrb status={status} />
+        <VoiceWaveform status={status} sample={sampleVoiceAudio} />
         <div className="min-h-11 w-full text-center" aria-live="polite">
           <div className={cn("text-sm font-medium text-dls-text", status === "error" && "text-red-11")}>
             {statusCopy(status, error, microphoneMuted, latestActivity)}
