@@ -70,6 +70,12 @@ contextBridge.exposeInMainWorld("__LEGALWORK_ELECTRON__", {
     },
   },
   system: {
+    getAppleFoundationModelsStatus() {
+      return ipcRenderer.invoke("legalwork:system:appleFoundationModels");
+    },
+    connectAppleFoundationModels() {
+      return ipcRenderer.invoke("legalwork:system:appleFoundationModelsConnect");
+    },
     getArchitectureInfo() {
       return ipcRenderer.invoke("legalwork:system:architecture");
     },

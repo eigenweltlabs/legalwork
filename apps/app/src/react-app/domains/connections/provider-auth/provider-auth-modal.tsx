@@ -120,6 +120,15 @@ type BrandedCustomProvider = {
   description: string;
 };
 
+const APPLE_FM_PROVIDER: BrandedCustomProvider = {
+  id: "apple-fm",
+  name: "Apple Intelligence (experimental)",
+  apiType: "chat",
+  baseUrlPlaceholder: "http://127.0.0.1:1976/v1",
+  baseUrlDefault: "http://127.0.0.1:1976/v1",
+  description: "Connect Apple’s on-device and Private Cloud Compute models through fm serve on this Mac.",
+};
+
 const BRANDED_CUSTOM_PROVIDERS: BrandedCustomProvider[] = [
   {
     id: "apertus",
@@ -251,10 +260,27 @@ export type ProviderAuthModalProps = {
 export default function ProviderAuthModal(props: ProviderAuthModalProps) {
   const workerType = props.workerType === "remote" ? "remote" : "local";
   const isRemoteWorker = workerType === "remote";
+  const appleConnectAttemptRef = useRef(0);
+  const [appleFmAvailable, setAppleFmAvailable] = useState(false);
+  useEffect(() => {
+    let cancelled = false;
+    setAppleFmAvailable(false);
+    setAppleConnecting(false);
+    appleConnectAttemptRef.current += 1;
+    if (!props.open || isRemoteWorker) return;
+    void window.__LEGALWORK_ELECTRON__?.system?.getAppleFoundationModelsStatus?.()
+      .then((status) => { if (!cancelled) setAppleFmAvailable(status.available); })
+      .catch(() => { /* Older desktop builds do not expose this experiment. */ });
+    return () => { cancelled = true; appleConnectAttemptRef.current += 1; };
+  }, [props.open, isRemoteWorker]);
+  const brandedProviders = useMemo(() => appleFmAvailable && !isRemoteWorker
+    ? [...BRANDED_CUSTOM_PROVIDERS, APPLE_FM_PROVIDER]
+    : BRANDED_CUSTOM_PROVIDERS, [appleFmAvailable, isRemoteWorker]);
 
   const [view, setView] = useState<
-    "list" | "method" | "api" | "oauth-code" | "oauth-auto" | "custom"
+    "list" | "method" | "api" | "oauth-code" | "oauth-auto" | "custom" | "apple"
   >("list");
+  const [appleConnecting, setAppleConnecting] = useState(false);
   const [selectedProviderId, setSelectedProviderId] = useState<string | null>(null);
   const [apiKeyInput, setApiKeyInput] = useState("");
   const [oauthCodeInput, setOauthCodeInput] = useState("");
@@ -310,7 +336,7 @@ export default function ProviderAuthModal(props: ProviderAuthModalProps) {
   const isEditingCustomProvider = customEditMode;
   const activeBrandedProvider =
     !customEditMode && customBrandName
-      ? BRANDED_CUSTOM_PROVIDERS.find((provider) => provider.id === customFixedProviderId) ?? null
+      ? brandedProviders.find((provider) => provider.id === customFixedProviderId) ?? null
       : null;
   const activeLocalTemplate = customShowLocalTemplates
     ? LOCAL_RUNTIME_TEMPLATES.find((template) => template.id === customTemplateId) ?? null
@@ -386,6 +412,7 @@ export default function ProviderAuthModal(props: ProviderAuthModalProps) {
     const providersById = new Map(providers.map((provider) => [provider.id, provider]));
     const nextEntries = Object.keys(methods)
       .flatMap((id) => {
+        if (id === APPLE_FM_PROVIDER.id && (!appleFmAvailable || isRemoteWorker)) return [];
         const provider = providersById.get(id);
         const entryMethods = (methods[id] ?? []).filter((method) => {
           if (!isOpenAiProvider(id, provider?.name)) return true;
@@ -425,12 +452,12 @@ export default function ProviderAuthModal(props: ProviderAuthModalProps) {
       // First-class branded providers (e.g. Apertus) that open the custom form.
       // Skip any already surfaced via auth methods to avoid duplicate ids.
       const existingIds = new Set(nextEntries.map((entry) => entry.id));
-      for (const branded of BRANDED_CUSTOM_PROVIDERS) {
+      for (const branded of brandedProviders) {
         if (existingIds.has(branded.id)) continue;
         nextEntries.push({
           id: branded.id,
           name: branded.name,
-          methods: [{ type: "api", label: "OpenAI-compatible" }],
+          methods: [{ type: "api", label: branded.id === APPLE_FM_PROVIDER.id ? "Private Cloud Compute" : "OpenAI-compatible" }],
           connected: connected.has(branded.id),
           env: [],
         });
@@ -463,6 +490,8 @@ export default function ProviderAuthModal(props: ProviderAuthModalProps) {
     return nextEntries;
   }, [
     isRemoteWorker,
+    brandedProviders,
+    appleFmAvailable,
     props.authMethods,
     props.connectedProviderIds,
     props.providers,
@@ -595,6 +624,11 @@ export default function ProviderAuthModal(props: ProviderAuthModalProps) {
     const edit = props.customEdit;
     if (!edit || customEditPrefilledRef.current === edit.providerId) return;
     customEditPrefilledRef.current = edit.providerId;
+    if (edit.providerId === APPLE_FM_PROVIDER.id) {
+      setSelectedProviderId(APPLE_FM_PROVIDER.id);
+      setView("apple");
+      return;
+    }
     setCustomEditMode(true);
     setCustomFixedProviderId(edit.providerId);
     setCustomBrandName(null);
@@ -905,6 +939,33 @@ export default function ProviderAuthModal(props: ProviderAuthModalProps) {
     setView("api");
   };
 
+  const connectApple = async () => {
+    const connect = window.__LEGALWORK_ELECTRON__?.system?.connectAppleFoundationModels;
+    if (appleConnecting || !appleFmAvailable || isRemoteWorker || !connect || !props.onSubmitCustomProvider) return;
+    const attempt = ++appleConnectAttemptRef.current;
+    setSelectedProviderId(APPLE_FM_PROVIDER.id);
+    setView("apple");
+    setAppleConnecting(true);
+    setLocalError(null);
+    try {
+      const result = await connect();
+      if (attempt !== appleConnectAttemptRef.current) return;
+      await props.onSubmitCustomProvider({
+        providerId: APPLE_FM_PROVIDER.id,
+        name: "Apple Intelligence",
+        baseURL: result.baseURL,
+        apiKey: "",
+        apiType: "chat",
+        models: [{ id: result.model, toolCall: true, reasoning: false, contextLimit: 32768 }],
+      });
+      props.onClose();
+    } catch (error) {
+      if (attempt === appleConnectAttemptRef.current) setLocalError(error instanceof Error ? error.message : "Could not connect to Apple Intelligence.");
+    } finally {
+      if (attempt === appleConnectAttemptRef.current) setAppleConnecting(false);
+    }
+  };
+
   const handleEntrySelect = (entry: ProviderAuthEntry) => {
     if (actionDisabled) return;
     setLocalError(null);
@@ -920,7 +981,12 @@ export default function ProviderAuthModal(props: ProviderAuthModalProps) {
       return;
     }
 
-    const branded = BRANDED_CUSTOM_PROVIDERS.find((provider) => provider.id === entry.id);
+    if (entry.id === APPLE_FM_PROVIDER.id) {
+      void connectApple();
+      return;
+    }
+
+    const branded = brandedProviders.find((provider) => provider.id === entry.id);
     if (branded) {
       startCustomProvider(branded);
       return;
@@ -1601,6 +1667,21 @@ export default function ProviderAuthModal(props: ProviderAuthModalProps) {
                       This window will close once the provider is connected.
                     </div>
                   </div>
+                </div>
+              ) : null}
+
+              {resolvedView === "apple" ? (
+                <div className={`${surfaceCardClass} space-y-4`}>
+                  <div className="text-sm font-medium text-dls-text">Apple Intelligence</div>
+                  {appleConnecting ? (
+                    <div role="status" className="flex items-center gap-3 text-sm text-dls-secondary">
+                      <Loader2 size={18} className="animate-spin shrink-0" />
+                      <span>Connecting to Apple and checking tool support…</span>
+                    </div>
+                  ) : (
+                    <Button onClick={() => void connectApple()} disabled={actionDisabled || !appleFmAvailable || isRemoteWorker}>Connect</Button>
+                  )}
+                  <p className="text-xs text-dls-secondary">Uses Private Cloud Compute through your Mac. Apple’s Terminal opens for the local service; keep it running while using this provider.</p>
                 </div>
               ) : null}
 

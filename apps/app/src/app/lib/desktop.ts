@@ -58,6 +58,16 @@ declare global {
         relaunch?: () => Promise<void>;
       };
       system?: {
+        getAppleFoundationModelsStatus?: () => Promise<{
+          available: boolean;
+          enabled: boolean;
+          supported: boolean;
+          hasCli: boolean;
+          systemVersion: string;
+          baseURL: string;
+          startCommand: string;
+        }>;
+        connectAppleFoundationModels?: () => Promise<{ baseURL: string; model: string }>;
         getArchitectureInfo?: () => Promise<{
           appArch: string;
           appArchLabel: string;
