@@ -100,7 +100,8 @@ import {
 } from "@/lib/tool-activity"
 import { cn } from "@/lib/utils"
 import { useOpenTargets } from "@/lib/target-provider"
-import { resolveFilePartOpenTarget } from "@/react-app/domains/session/artifacts/open-target"
+import { resolveFilePartOpenTarget, resolvePathOpenTarget } from "@/react-app/domains/session/artifacts/open-target"
+import { WORKSPACE_ATTACHMENT_LINK_SOURCE, parseWorkspaceAttachmentLink } from "@/react-app/domains/session/surface/composer/workspace-attachment"
 import { LEGALMEMORY_OPEN_EVENT, parseLegalMemoryRef } from "@/components/markdown/legalmemory-ref"
 import { groupMessages, isMessageGroup, getLastTextPart, getAssistantRenderGroups, getFileTitle, getMediaBadge, getMessageCreated, formatMessageTimestamp, type UIMessageWithIndex, getMessagesText } from "./utils"
 
@@ -446,7 +447,7 @@ type UserMessageProps = {
 }
 
 const LEGACY_USER_MEMORY_INSTRUCTION_RE = /Read the downloaded LegalMemory copy at workspace path "[^"]+" before answering\. It is "([^"]+)" \((legalmemory:\/\/document\/[\w.:-]+), document_id [^)]+\)\. Use a document-capable tool appropriate for its format \(for example, extract or convert DOCX rather than reading it as plain text\)\. This is a local path reference, not a binary chat attachment\.\s*/g
-const USER_RICH_TOKEN_RE = /(Load \[skill [^\]]+\] and follow its instructions\.|\[skill [^\]]+\]|\[[^\]\n]+\]\(legalmemory:\/\/document\/[\w.:-]+\))/
+const USER_RICH_TOKEN_RE = new RegExp(String.raw`(Load \[skill [^\]]+\] and follow its instructions\.|\[skill [^\]]+\]|\[[^\]\n]+\]\(legalmemory:\/\/document\/[\w.:-]+\)|${WORKSPACE_ATTACHMENT_LINK_SOURCE})`)
 
 function cleanUserMessageText(text: string) {
   return text.replace(
@@ -482,6 +483,25 @@ function UserLegalMemoryChip(props: { label: string; documentId: string }) {
   )
 }
 
+function UserWorkspaceAttachmentChip(props: { name: string; path: string }) {
+  const { openTargets, onOpenTarget } = useOpenTargets()
+  return (
+    <button
+      type="button"
+      className="mx-0.5 inline-flex max-w-72 items-center gap-1.5 rounded-full border border-gray-6 bg-gray-3 px-2.5 py-1 text-xs font-medium text-gray-11 align-middle transition-colors hover:bg-gray-4"
+      title={`Open ${props.name}`}
+      onClick={() => {
+        const target = resolvePathOpenTarget(props.path, openTargets, "attachment")
+        if (target) onOpenTarget?.(target)
+      }}
+    >
+      <FileIcon className="size-3.5 shrink-0" />
+      <span className="truncate">{props.name}</span>
+      <ArrowUpRight className="size-3.5 shrink-0 opacity-70" />
+    </button>
+  )
+}
+
 function renderUserTextWithReferenceChips(rawText: string) {
   const text = cleanUserMessageText(rawText)
   if (!USER_RICH_TOKEN_RE.test(text)) return text
@@ -489,6 +509,8 @@ function renderUserTextWithReferenceChips(rawText: string) {
   return text.split(USER_RICH_TOKEN_RE).map((segment) => {
     const key = `${offset}:${segment}`
     offset += segment.length
+    const attachment = parseWorkspaceAttachmentLink(segment)
+    if (attachment) return <UserWorkspaceAttachmentChip key={key} {...attachment} />
     const skillMatch = segment.match(/^(?:Load )?\[skill ([^\]]+)\](?: and follow its instructions\.)?$/)
     if (skillMatch?.[1]) return <UserSkillChip key={key} name={skillMatch[1]} />
     const memoryMatch = segment.match(/^\[([^\]\n]+)\]\((legalmemory:\/\/document\/[\w.:-]+)\)$/)

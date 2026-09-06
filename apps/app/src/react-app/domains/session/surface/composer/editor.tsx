@@ -1,3 +1,4 @@
+import { parseWorkspaceAttachmentMention } from "./workspace-attachment";
 /** @jsxImportSource react */
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, type ForwardedRef } from "react";
 import { LexicalComposer } from "@lexical/react/LexicalComposer.js";
@@ -88,6 +89,7 @@ type SerializedComposerSkillNode = Spread<
 >;
 
 const MENTION_PILL_CLASS: Record<ComposerMentionKind, string> = {
+  upload: "inline-flex items-center rounded-full border border-gray-6 bg-gray-3 px-2.5 py-1 text-xs font-medium text-gray-11",
   file: "inline-flex items-center rounded-full border border-gray-6 bg-gray-3 px-2.5 py-1 text-xs font-medium text-gray-11",
   memory: "inline-flex items-center rounded-full border border-indigo-6/60 bg-indigo-2/40 px-2.5 py-1 text-xs font-medium text-indigo-11",
   agent: "inline-flex items-center rounded-full border border-sky-6/35 bg-sky-3/20 px-2.5 py-1 text-xs font-medium text-sky-11",
@@ -95,6 +97,7 @@ const MENTION_PILL_CLASS: Record<ComposerMentionKind, string> = {
 };
 
 function mentionPillText(value: string, kind: ComposerMentionKind) {
+  if (kind === "upload") return parseWorkspaceAttachmentMention(value)?.name ?? value;
   if (kind === "memory") {
     const memory = parseLegalMemoryComposerMention(value);
     if (memory) return `@${memory.label}`;

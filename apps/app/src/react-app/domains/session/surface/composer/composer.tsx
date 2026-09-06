@@ -74,6 +74,7 @@ type ComposerProps = {
   onAttachFiles: (files: File[]) => void;
   onRemoveAttachment: (id: string) => void;
   attachmentsEnabled: boolean;
+  uploading?: boolean;
   attachmentsDisabledReason: string | null;
   modelVariantLabel: string;
   modelVariant: string | null;
@@ -129,9 +130,6 @@ const FLUSH_PROMPT_EVENT = "legalwork:flushPromptDraft";
 const FOCUS_PROMPT_EVENT = "legalwork:focusPrompt";
 const FUSION_NEW_TOOLTIP_STORAGE_KEY = "legalwork.fusionNewTooltipSeen";
 const MAX_ATTACHMENT_BYTES = 8 * 1024 * 1024;
-const IMAGE_COMPRESS_MAX_PX = 2048;
-const IMAGE_COMPRESS_QUALITY = 0.82;
-const IMAGE_COMPRESS_TARGET_BYTES = 1_500_000;
 const FILE_URL_RE = /^file:\/\//i;
 const HTTP_URL_RE = /^https?:\/\//i;
 
@@ -180,55 +178,6 @@ function parseClipboardUriList(clipboard: DataTransfer) {
 
 function isImageAttachment(attachment: ComposerAttachment) {
   return attachment.kind === "image" || attachment.mimeType.startsWith("image/");
-}
-
-async function compressImageFile(file: File): Promise<File> {
-  if (file.type === "image/gif" || file.size <= IMAGE_COMPRESS_TARGET_BYTES) {
-    return file;
-  }
-
-  const bitmap = await createImageBitmap(file);
-  const { width, height } = bitmap;
-  const maxDim = Math.max(width, height);
-  const scale = maxDim > IMAGE_COMPRESS_MAX_PX ? IMAGE_COMPRESS_MAX_PX / maxDim : 1;
-  const targetW = Math.round(width * scale);
-  const targetH = Math.round(height * scale);
-
-  let blob: Blob | null = null;
-
-  if (typeof OffscreenCanvas !== "undefined") {
-    const offscreen = new OffscreenCanvas(targetW, targetH);
-    const ctx = offscreen.getContext("2d");
-    if (ctx) {
-      ctx.drawImage(bitmap, 0, 0, targetW, targetH);
-      blob = await offscreen.convertToBlob({
-        type: "image/jpeg",
-        quality: IMAGE_COMPRESS_QUALITY,
-      });
-    }
-  }
-
-  if (!blob) {
-    const canvas = document.createElement("canvas");
-    canvas.width = targetW;
-    canvas.height = targetH;
-    const ctx = canvas.getContext("2d");
-    if (ctx) {
-      ctx.drawImage(bitmap, 0, 0, targetW, targetH);
-      blob = await new Promise<Blob | null>((resolve) =>
-        canvas.toBlob(resolve, "image/jpeg", IMAGE_COMPRESS_QUALITY),
-      );
-    }
-  }
-
-  bitmap.close();
-
-  if (!blob || blob.size >= file.size) {
-    return file;
-  }
-
-  const stem = file.name.replace(/\.[^.]+$/, "") || "image";
-  return new File([blob], `${stem}.jpg`, { type: "image/jpeg" });
 }
 
 function formatMcpStatusLabel(status: McpServerStatus | undefined) {
@@ -421,6 +370,7 @@ export function ReactSessionComposer(props: ComposerProps) {
   // Enter sends immediately (steer) and Cmd/Ctrl+Enter queues the
   // message to send once the agent finishes the current task.
   const handleEditorSubmit = useCallback((options: { queue: boolean }) => {
+    if (props.uploading) return;
     const hasContent = props.draft.trim().length > 0 || props.attachments.length > 0;
     if (!hasContent) return;
     if (props.busy) {
@@ -429,7 +379,7 @@ export function ReactSessionComposer(props: ComposerProps) {
       return;
     }
     void props.onSend();
-  }, [props.busy, props.draft, props.attachments, props.onSend, props.onSteer, props.onQueue]);
+  }, [props.busy, props.uploading, props.draft, props.attachments, props.onSend, props.onSteer, props.onQueue]);
 
   const slashCommandQuery = getSlashCommandQuery(props.draft);
   const slashOpenNext = slashCommandQuery !== null;
@@ -728,7 +678,7 @@ export function ReactSessionComposer(props: ComposerProps) {
   const composerExtensions = LEGALWORK_EXTENSION_CATALOG.filter((entry) =>
     !isLegalWorkExtensionHidden(entry) && isComposerExtensionAvailable(entry)
   );
-  const canSend = props.draft.trim().length > 0 || props.attachments.length > 0;
+  const canSend = !props.uploading && (props.draft.trim().length > 0 || props.attachments.length > 0);
 
   useEffect(() => {
     if (!toolMenuSection.startsWith("plugin:")) return;
@@ -956,13 +906,12 @@ export function ReactSessionComposer(props: ComposerProps) {
     const accepted: File[] = [];
     const oversize: string[] = [];
 
-    for (const original of inputFiles) {
-      const processed = original.type.startsWith("image/") ? await compressImageFile(original) : original;
-      if (processed.size > MAX_ATTACHMENT_BYTES) {
-        oversize.push(processed.name || original.name);
+    for (const file of inputFiles) {
+      if (file.size > MAX_ATTACHMENT_BYTES) {
+        oversize.push(file.name);
         continue;
       }
-      accepted.push(processed);
+      accepted.push(file);
     }
 
     if (accepted.length) {

@@ -73,7 +73,7 @@ import { SessionDebugPanel } from "./debug-panel";
 import { deriveRenderedSessionMessages, resolveRenderedSessionSnapshot } from "./session-render-state";
 import { useLocal } from "@/react-app/kernel/local-provider";
 import { useRecorderStore } from "@/react-app/domains/recorder/recorder-store";
-import { isModelReadableAttachment } from "@/react-app/domains/session/sync/attachment-support";
+import { uploadWorkspaceAttachment, workspaceAttachmentDisplayText, workspaceAttachmentInstruction } from "./composer/workspace-attachment";
 import { deriveSessionRenderModel } from "@/react-app/domains/session/sync/transition-controller";
 import { useSessionScrollController } from "./scroll-controller";
 import { SessionScrollOverlay } from "./scroll-overlay";
@@ -1018,6 +1018,10 @@ export function SessionSurface(props: SessionSurfaceProps) {
         const kind = mentions[value];
         if (kind === "agent") return [{ type: "agent", name: value } satisfies ComposerDraft["parts"][number]];
         if (kind === "file") return [{ type: "file", path: value, label: value } satisfies ComposerDraft["parts"][number]];
+        if (kind === "upload") {
+          modelContexts.push(workspaceAttachmentInstruction(value));
+          return [{ type: "text", text: workspaceAttachmentDisplayText(value) } satisfies ComposerDraft["parts"][number]];
+        }
         if (kind === "memory") {
           modelContexts.push(legalMemoryComposerInstruction(value));
           return [{ type: "text", text: legalMemoryComposerDisplayText(value) } satisfies ComposerDraft["parts"][number]];
@@ -1036,7 +1040,7 @@ export function SessionSurface(props: SessionSurfaceProps) {
     for (const [value, kind] of Object.entries(mentions)) {
       resolved = resolved.replaceAll(
         `@${encodeComposerMentionValue(value)}`,
-        kind === "memory" ? legalMemoryComposerDisplayText(value) : `@${value}`,
+        kind === "memory" ? legalMemoryComposerDisplayText(value) : kind === "upload" ? workspaceAttachmentDisplayText(value) : `@${value}`,
       );
     }
     const slashCommand = parseSlashCommandInvocation(resolved);
@@ -1209,7 +1213,9 @@ export function SessionSurface(props: SessionSurfaceProps) {
     props.onDraftChange(buildDraft(draft, attachments));
   }, [attachments, buildDraft, draft, props.onDraftChange]);
 
-  const handleAttachFiles = (files: File[]) => {
+  const [pendingAttachmentUploads, setPendingAttachmentUploads] = useState(0);
+
+  const handleAttachFiles = async (files: File[]) => {
     if (!props.attachmentsEnabled) {
       toast.warning(props.attachmentsDisabledReason ?? "Attachments are unavailable.");
       return;
@@ -1222,27 +1228,28 @@ export function SessionSurface(props: SessionSurfaceProps) {
         { description: "Files over 25 MB were skipped." },
       );
     }
-    const unreadable = sized.filter((file) => !isModelReadableAttachment(file.type));
-    const accepted = sized.filter((file) => isModelReadableAttachment(file.type));
-    if (unreadable.length) {
-      toast.warning(
-        unreadable.length === 1
-          ? `${unreadable[0]?.name ?? "File"} has a format the model can't read`
-          : `${unreadable.length} files have formats the model can't read`,
-        { description: "Convert to PDF, image, or plain text and attach again." },
-      );
+    setPendingAttachmentUploads((count) => count + sized.length);
+    for (const file of sized) {
+      const notification = toast.info(`Attaching ${file.name}…`, { duration: Infinity });
+      try {
+        const reference = await uploadWorkspaceAttachment(props.client, props.workspaceId, file);
+        const state = useComposerStateStore.getState();
+        const currentDraft = getComposerDraft(state, props.sessionId);
+        const currentMentions = getComposerMentions(state, props.sessionId);
+        const separator = currentDraft && !/\s$/.test(currentDraft) ? " " : "";
+        setComposerDraft(props.sessionId, `${currentDraft}${separator}@${encodeComposerMentionValue(reference)} `);
+        setComposerMentions(props.sessionId, { ...currentMentions, [reference]: "upload" });
+        void queryClient.invalidateQueries({ queryKey: ["workspace-files", props.workspaceId] });
+        toast.dismiss(notification);
+      } catch (error) {
+        toast.error(`Could not attach ${file.name}`, {
+          id: notification,
+          description: error instanceof Error ? error.message : "File upload failed",
+        });
+      } finally {
+        setPendingAttachmentUploads((count) => count - 1);
+      }
     }
-    if (!accepted.length) return;
-    const next = accepted.map((file) => ({
-      id: `${file.name}-${file.lastModified}-${Math.random().toString(36).slice(2)}`,
-      name: file.name,
-      mimeType: file.type || "application/octet-stream",
-      size: file.size,
-      kind: file.type.startsWith("image/") ? "image" as const : "file" as const,
-      file,
-      previewUrl: file.type.startsWith("image/") ? URL.createObjectURL(file) : undefined,
-    }));
-    setComposerAttachments(props.sessionId, [...attachments, ...next]);
   };
 
   const handleRemoveAttachment = (id: string) => {
@@ -1787,6 +1794,7 @@ export function SessionSurface(props: SessionSurfaceProps) {
         onModelChange={props.onModelChange}
         attachments={attachments}
         onAttachFiles={handleAttachFiles}
+        uploading={pendingAttachmentUploads > 0}
         onRemoveAttachment={handleRemoveAttachment}
         attachmentsEnabled={props.attachmentsEnabled}
         attachmentsDisabledReason={props.attachmentsDisabledReason}
