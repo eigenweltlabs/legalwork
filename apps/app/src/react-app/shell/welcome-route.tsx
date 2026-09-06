@@ -140,6 +140,14 @@ export function WelcomeRoute() {
     async (_preset: string, folder: string | null) => {
       if (!folder) return;
       dispatch({ type: "create:start" });
+      // Funnel intent: the user committed to creating a workspace. Fired here
+      // rather than after creation succeeds, so a failed create (reported as
+      // app_error{source:"workspace_create"}) stays distinguishable from a
+      // user who simply never started. Flushed eagerly for the same reason
+      // onboarding_welcome_viewed is: the consent choice commits below, and
+      // an opt-out there purges whatever is still queued.
+      captureAnalyticsEvent("onboarding_started", { surface: analyticsSurface() });
+      void flushAnalytics();
       setCreatePhase("workspace");
       try {
         const workspaceName = folderNameFromPath(folder);
@@ -218,7 +226,7 @@ export function WelcomeRoute() {
           hasCompletedOnboarding: true,
           onboardingStage: "ai",
         }));
-        captureAnalyticsEvent("onboarding_started", { surface: analyticsSurface() });
+        captureAnalyticsEvent("workspace_created", { source: "onboarding", surface: analyticsSurface() });
         // The consent choice just persisted: an opt-out sends its single
         // anonymous marker (and purges everything queued, including the
         // events captured above); staying opted in leaves the queue to flush.
