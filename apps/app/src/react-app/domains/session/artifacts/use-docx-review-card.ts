@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, type MouseEvent, type RefObject } from "react";
 import type { DocxEditorRef } from "@eigenpal/docx-editor-react";
+import type { Node } from "prosemirror-model";
 import { extractTrackedChanges } from "@eigenpal/docx-editor-core/prosemirror/utils/extractTrackedChanges";
 import { positionDocxReviewCard } from "./docx-review-card-position";
 
@@ -16,6 +17,7 @@ export function useDocxReviewCard(
   const positioned = useRef<HTMLElement | null>(null);
   const repairing = useRef(false);
   const frame = useRef(0);
+  const changes = useRef<{ doc: Node; entries: ReturnType<typeof extractTrackedChanges>["entries"] } | null>(null);
 
   const clearPosition = useCallback(() => {
     positioned.current?.removeAttribute("data-docx-review-anchor");
@@ -23,14 +25,20 @@ export function useDocxReviewCard(
   }, []);
 
   const restoreCard = useCallback(() => {
-    cancelAnimationFrame(frame.current);
+    if (!selected.current || frame.current) return;
     frame.current = requestAnimationFrame(() => {
+      frame.current = 0;
       const anchor = selected.current;
       const host = containerRef.current;
       const view = editorRef.current?.getEditorRef()?.getView();
       if (!anchor || !host || !view) return;
       const { revisionId } = anchor;
-      const index = extractTrackedChanges(view.state).entries.findIndex((entry) => (
+      // Scrolling, zooming and expanding a card do not change the document.
+      // Reuse its revisions instead of scanning the contract on every frame.
+      if (changes.current?.doc !== view.state.doc) {
+        changes.current = { doc: view.state.doc, entries: extractTrackedChanges(view.state).entries };
+      }
+      const index = changes.current.entries.findIndex((entry) => (
         Number(entry.revisionId) === revisionId
         || Number(entry.insertionRevisionId) === revisionId
         || entry.coalescedRevisionIds?.some((id) => Number(id) === revisionId)
@@ -84,18 +92,28 @@ export function useDocxReviewCard(
   useEffect(() => {
     const host = containerRef.current;
     if (!host) return;
-    const observer = new MutationObserver(() => {
-      if (selected.current) restoreCard();
+    const observer = new MutationObserver((records) => {
+      if (selected.current && records.some(({ target }) => target instanceof Element && target.closest(".docx-unified-sidebar"))) restoreCard();
     });
-    observer.observe(host, { childList: true, subtree: true, attributes: true, attributeFilter: ["style"] });
+    // Native card expansion changes its children. Ignore caret/position styles,
+    // especially our own card styles, which used to schedule another frame.
+    observer.observe(host, { childList: true, subtree: true });
+    const zoom = new MutationObserver(restoreCard);
+    zoom.observe(host, { attributes: true, attributeFilter: ["style"] });
     const resize = new ResizeObserver(restoreCard);
     resize.observe(host);
+    host.addEventListener("painter:painted", restoreCard);
+    host.addEventListener("transitionend", restoreCard);
     host.addEventListener("scroll", restoreCard, true);
     return () => {
       observer.disconnect();
+      zoom.disconnect();
       resize.disconnect();
+      host.removeEventListener("painter:painted", restoreCard);
+      host.removeEventListener("transitionend", restoreCard);
       host.removeEventListener("scroll", restoreCard, true);
       cancelAnimationFrame(frame.current);
+      frame.current = 0;
       clearPosition();
     };
   }, [containerRef, restoreCard, clearPosition]);

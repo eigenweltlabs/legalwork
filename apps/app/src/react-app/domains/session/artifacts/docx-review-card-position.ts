@@ -5,17 +5,20 @@ export function positionDocxReviewCard(host: HTMLElement, wrapper: HTMLElement, 
   const parent = wrapper.parentElement;
   const rects = mark.getClientRects();
   const anchor = rects[Math.min(fragment, rects.length - 1)];
-  if (!viewport || !parent || !anchor || !parent.offsetWidth) return;
+  if (!viewport || !parent || !anchor) return;
+  const parentWidth = parent.offsetWidth;
+  if (!parentWidth) return;
   const bounds = viewport.getBoundingClientRect();
   const origin = parent.getBoundingClientRect();
-  const scale = origin.width / parent.offsetWidth;
+  const pageRight = mark.closest(".layout-page")?.getBoundingClientRect().right ?? anchor.right;
+  const scale = origin.width / parentWidth;
   if (!scale) return;
   const gutter = 12;
   const width = Math.min(340, viewport.clientWidth - gutter * 2);
   const set = (name: string, value: string) => {
     if (wrapper.style.getPropertyValue(name) !== value) wrapper.style.setProperty(name, value);
   };
-  wrapper.dataset.docxReviewAnchor = "";
+  if (!wrapper.hasAttribute("data-docx-review-anchor")) wrapper.dataset.docxReviewAnchor = "";
   set("--docx-review-width", `${width}px`);
   set("--docx-review-scale", String(1 / scale));
   set("--docx-review-max-height", `${bounds.height - gutter * 2}px`);
@@ -24,7 +27,6 @@ export function positionDocxReviewCard(host: HTMLElement, wrapper: HTMLElement, 
   const maxLeft = bounds.left + viewport.clientWidth - gutter - width;
   const minTop = bounds.top + gutter;
   const maxTop = Math.max(minTop, bounds.bottom - gutter - height);
-  const pageRight = mark.closest(".layout-page")?.getBoundingClientRect().right ?? anchor.right;
   // Prefer the page's review rail, then the space beside the clicked text.
   let left = pageRight + gutter;
   if (left > maxLeft) left = anchor.right + gutter;
