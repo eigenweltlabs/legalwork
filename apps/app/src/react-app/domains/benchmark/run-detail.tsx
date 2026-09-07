@@ -164,7 +164,7 @@ export function RunDetail(props: RunDetailProps) {
           />
         ) : null}
 
-        {items.length > 0 && run ? <RunTagBreakdown items={items} models={run.models} /> : null}
+        {items.length > 0 && run ? <RunTagBreakdown items={items} models={matrixColumns} /> : null}
       </LayoutSection>
     </LayoutStack>
   );

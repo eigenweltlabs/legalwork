@@ -69,8 +69,13 @@ export function criteriaScoreTintClass(nPassed: number, nCriteria: number): stri
 export type TagRate = { rate: number | null; count: number };
 export type TagBreakdownRow = { tag: string; byModel: Record<string, TagRate> };
 
-function modelRefKey(ref: { providerID: string; modelID: string }): string {
-  return `${ref.providerID}/${ref.modelID}`;
+/**
+ * Columns are model×arm, not model. Under ablation the same model runs every
+ * task once per arm, so keying on the model alone averages an ablated result
+ * together with its baseline and reports one meaningless number for both.
+ */
+function modelRefKey(ref: { providerID: string; modelID: string; armId?: string }): string {
+  return `${ref.providerID}/${ref.modelID}/${ref.armId ?? "full"}`;
 }
 
 /**
@@ -80,7 +85,7 @@ function modelRefKey(ref: { providerID: string; modelID: string }): string {
  */
 export function aggregateByTag(
   items: BenchmarkRunItem[],
-  models: Array<{ providerID: string; modelID: string }>,
+  models: Array<{ providerID: string; modelID: string; armId?: string }>,
 ): TagBreakdownRow[] {
   const byTag = new Map<string, Map<string, { sum: number; n: number }>>();
   const tagTotals = new Map<string, number>();
