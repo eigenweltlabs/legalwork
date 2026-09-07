@@ -16,6 +16,14 @@ Recognized audio extensions: mp3, wav, m4a, aac, ogg, oga, opus, flac, weba, aif
 - Switching away from a playing video removed and paused the old media element. A malformed MP4 displayed the error state and disabled playback.
 - H.264 MP4 and MP3 fixtures also loaded successfully with decoded media ready and no media errors.
 
+## Fullscreen correction
+
+Fullscreen now uses explicit state-driven layout classes: the previous `fullscreen:` variants were not applied by the app stylesheet, and the video retained its 65vh limit. The player now occupies the entire display, with the video filling the space between its header and playback controls. A labeled Fullscreen / Exit fullscreen button appears above the video; double-clicking the video also toggles fullscreen.
+
+Verified in Electron at 1512 × 945 CSS pixels: fullscreen player 1512 × 945, video 1510 × 798, all playback controls within the viewport, no overflowing content. Entry, exit, and double-click toggling work. App typecheck passed again.
+
+![Video filling the fullscreen player](./media-video-fullscreen-electron.png)
+
 Screenshots are cropped from the actual Electron viewer, excluding the adjacent conversation.
 
 ![Audio player](./media-audio-electron.png)

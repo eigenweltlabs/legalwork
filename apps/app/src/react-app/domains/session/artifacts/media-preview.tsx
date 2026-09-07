@@ -1,5 +1,5 @@
-import { useRef, useState } from "react";
-import { AlertCircle, Headphones, Maximize, Pause, Play, Volume2, VolumeX } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import { AlertCircle, Headphones, Maximize, Minimize, Pause, Play, Volume2, VolumeX } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 
@@ -13,6 +13,18 @@ function timeLabel(seconds: number) {
 export function MediaPreview({ kind, src, title }: { kind: "audio" | "video"; src: string; title: string }) {
   const media = useRef<HTMLMediaElement | null>(null);
   const container = useRef<HTMLDivElement>(null);
+  const [fullscreen, setFullscreen] = useState(false);
+  useEffect(() => {
+    const syncFullscreen = () => setFullscreen(document.fullscreenElement === container.current);
+    document.addEventListener("fullscreenchange", syncFullscreen);
+    return () => document.removeEventListener("fullscreenchange", syncFullscreen);
+  }, []);
+
+  function toggleFullscreen() {
+    const action = document.fullscreenElement === container.current ? document.exitFullscreen() : container.current?.requestFullscreen();
+    void action?.catch(() => setNotice("Fullscreen is unavailable. Use the expand button above for a larger view."));
+  }
+
   const [playing, setPlaying] = useState(false);
   const [position, setPosition] = useState(0);
   const [duration, setDuration] = useState(0);
@@ -62,9 +74,16 @@ export function MediaPreview({ kind, src, title }: { kind: "audio" | "video"; sr
   return (
     <div className="h-full overflow-auto bg-muted/25 p-4 sm:p-6">
       <div className="flex min-h-full items-center justify-center">
-        <div ref={container} data-media-player={kind} className="w-full max-w-3xl overflow-hidden rounded-2xl border border-border bg-background shadow-sm fullscreen:flex fullscreen:flex-col fullscreen:justify-center fullscreen:rounded-none">
+        <div ref={container} data-media-player={kind} className={`w-full overflow-hidden border border-border bg-background shadow-sm ${fullscreen ? "flex h-full max-w-none flex-col rounded-none" : "max-w-3xl rounded-2xl"}`}>
+          {kind === "video" ? <div className="flex shrink-0 items-center justify-between gap-2 border-b border-border px-4 py-2">
+            <span className="text-xs font-medium text-muted-foreground">Video</span>
+            <Button variant="outline" size="sm" aria-label={fullscreen ? "Exit fullscreen" : "Fullscreen"} onClick={toggleFullscreen}>
+              {fullscreen ? <Minimize className="size-4" /> : <Maximize className="size-4" />}
+              {fullscreen ? "Exit fullscreen" : "Fullscreen"}
+            </Button>
+          </div> : null}
           {kind === "video" ? (
-            <video {...events} ref={(element) => { media.current = element; }} playsInline aria-label={title} className="max-h-[65vh] w-full bg-black object-contain" />
+            <video {...events} ref={(element) => { media.current = element; }} playsInline aria-label={title} onDoubleClick={toggleFullscreen} className={fullscreen ? "min-h-0 w-full flex-1 bg-black object-contain" : "max-h-[65vh] w-full bg-black object-contain"} />
           ) : (
             <div className="flex flex-col items-center gap-5 bg-gradient-to-br from-primary/10 via-muted/40 to-background px-6 py-12">
               <audio {...events} ref={(element) => { media.current = element; }} aria-label={title} />
@@ -77,7 +96,7 @@ export function MediaPreview({ kind, src, title }: { kind: "audio" | "video"; sr
               </div>
             </div>
           )}
-          <div className="space-y-3 p-4">
+          <div className="shrink-0 space-y-3 p-4">
             {error ? <p role="alert" className="flex gap-2 text-sm text-destructive"><AlertCircle className="mt-0.5 size-4 shrink-0" />{error}</p> : null}
             {notice && !error ? <p role="status" className="text-sm text-muted-foreground">{notice}</p> : null}
             <input type="range" aria-label="Seek" aria-valuetext={`${timeLabel(position)} of ${timeLabel(duration)}`} min={0} max={seekable ? duration : 0} step={0.1} value={seekable ? Math.min(position, duration) : 0} disabled={!seekable || !!error} onChange={(event) => {
@@ -106,10 +125,6 @@ export function MediaPreview({ kind, src, title }: { kind: "audio" | "video"; sr
               }} className="h-8 rounded-md border border-border bg-background px-1 text-xs">
                 {[0.5, 0.75, 1, 1.25, 1.5, 2].map((speed) => <option key={speed} value={speed}>{speed}×</option>)}
               </select>
-              {kind === "video" ? <Button variant="ghost" size="icon" aria-label="Toggle fullscreen" onClick={() => {
-                const action = document.fullscreenElement ? document.exitFullscreen() : container.current?.requestFullscreen();
-                void action?.catch(() => setNotice("Fullscreen is unavailable. Use the expand button above for a larger view."));
-              }}><Maximize className="size-4" /></Button> : null}
             </div>
           </div>
         </div>
