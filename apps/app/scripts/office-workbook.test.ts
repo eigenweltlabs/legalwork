@@ -71,3 +71,46 @@ test("calculated formula values and existing chart caches are updated together",
   const output = await JSZip.loadAsync(saved);
   expect(await output.file("xl/charts/chart1.xml")!.async("string")).toContain(">6300<");
 });
+
+test("column resize and row height round-trip without losing adjacent dimensions or objects", async () => {
+  const original = await JSZip.loadAsync(await fixture());
+  const xml = await original.file("xl/worksheets/sheet1.xml")!.async("string");
+  original.file("xl/worksheets/sheet1.xml", xml.replace(/<cols>[\s\S]*?<\/cols>/, '<cols><col min="1" max="4" width="20" customWidth="1" outlineLevel="1"/></cols>'));
+  const buffer = await original.generateAsync({ type: "arraybuffer" });
+  const adapter = await openWorkbook(buffer, "dimensions.xlsx");
+  const book = structuredClone(adapter.book), sheet = book.sheets["sheet-0"]!;
+  sheet.columnData![1]!.w = 300;
+  sheet.rowData![3] = { ...sheet.rowData![3], h: 48 };
+  const saved = await adapter.save(book), reopened = await openWorkbook(saved, "dimensions.xlsx");
+  expect(reopened.book.sheets["sheet-0"]!.columnData![1]!.w).toBeCloseTo(300);
+  expect(reopened.book.sheets["sheet-0"]!.columnData![0]!.w).toBe(145);
+  expect(reopened.book.sheets["sheet-0"]!.columnData![2]!.w).toBe(145);
+  expect(reopened.book.sheets["sheet-0"]!.rowData![3]!.h).toBe(48);
+  const output = await JSZip.loadAsync(saved);
+  expect(await output.file("xl/worksheets/sheet1.xml")!.async("string")).toContain('outlineLevel="1"');
+  expect(await output.file("xl/charts/chart1.xml")!.async("string")).toBe(await original.file("xl/charts/chart1.xml")!.async("string"));
+  expect(new Uint8Array(await reopened.save(reopened.book))).toEqual(new Uint8Array(saved));
+});
+
+test("dimension edits reject invalid sizes and still protect hidden columns", async () => {
+  const adapter = await openWorkbook(await fixture(), "dimensions.xlsx");
+  const book = structuredClone(adapter.book);
+  book.sheets["sheet-0"]!.columnData![0]!.w = NaN;
+  await expect(adapter.save(book)).rejects.toThrow("Invalid column width");
+  const hidden = structuredClone(adapter.book);
+  hidden.sheets["sheet-0"]!.columnData![0]!.hd = 1;
+  await expect(adapter.save(hidden)).rejects.toThrow("Column layout");
+});
+
+test("moving and clearing frozen panes persist without changing cells", async () => {
+  const adapter = await openWorkbook(await fixture(), "freeze.xlsx");
+  const book = structuredClone(adapter.book);
+  book.sheets["sheet-0"]!.freeze = { startRow: 2, startColumn: 2, xSplit: 2, ySplit: 2 };
+  const resized = await adapter.save(book), reopened = await openWorkbook(resized, "freeze.xlsx");
+  expect(reopened.book.sheets["sheet-0"]!.freeze).toEqual(book.sheets["sheet-0"]!.freeze);
+  reopened.book.sheets["sheet-0"]!.freeze = { startRow: -1, startColumn: -1, xSplit: 0, ySplit: 0 };
+  const cleared = await reopened.save(reopened.book);
+  const final = await openWorkbook(cleared, "freeze.xlsx");
+  expect(final.book.sheets["sheet-0"]!.freeze?.xSplit).toBe(0);
+  expect(final.book.sheets["sheet-0"]!.cellData![3]![3]!.f).toBe("=B4*C4");
+});

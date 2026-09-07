@@ -16,3 +16,21 @@
 @container office-slides (max-width: 960px) {
   .office-slides [data-pptx-inspector] { position: absolute; right: 0; top: 0; bottom: 0; z-index: 30; background: var(--background); box-shadow: -8px 0 24px #0001; }
 }
+
+/* The sheet strip scrolls horizontally; never shrink and center a long tab
+   underneath the fixed sheet-list button in a narrow document panel. */
+.office-sheets [data-u-comp="slide-tab-item"] { flex-shrink: 0; }
+.office-sheets { min-width: 0; overflow: hidden; }
+
+/* Univer's viewport breakpoints see the whole Electron window, not our panel.
+   Let the sheet strip own the available width and compact the zoom controls. */
+.office-sheets { container-type: inline-size; container-name: office-sheets; }
+.office-sheets footer [class~="univer-max-w-[calc(100%-112px)]"] { container-type: inline-size; flex: 1; min-width: 0; max-width: calc(100% - 96px); }
+.office-sheets [data-u-comp="slide-tab-item"] { max-width: min(240px, calc(100cqw - 12px)); }
+@container office-sheets (max-width: 700px) {
+  .office-sheets footer > section { padding-inline: 8px; }
+  .office-sheets footer div:has(> [role="track"]) { display: none !important; }
+}
+@container office-sheets (max-width: 450px) {
+  .office-sheets footer > section > div:has([data-u-command="sheet.command.toggle-gridlines"]) { display: none; }
+}

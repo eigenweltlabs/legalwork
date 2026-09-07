@@ -218,17 +218,63 @@ export async function openWorkbook(buffer: ArrayBuffer, name: string) {
       if (!sheet || sheet.name !== before.name || sheet.hidden !== before.hidden || JSON.stringify(sheet.mergeData) !== JSON.stringify(before.mergeData)) throw new Error("Sheet structure changes are not supported yet. Reopen the file to discard them.");
       for (const row of new Set([...Object.keys(before.rowData ?? {}), ...Object.keys(sheet.rowData ?? {})])) {
         const a = before.rowData?.[Number(row)]; const b = sheet.rowData?.[Number(row)];
-        if (JSON.stringify([a?.h ?? null, a?.hd ?? 0, a?.s ?? null]) !== JSON.stringify([b?.h ?? null, b?.hd ?? 0, b?.s ?? null])) throw new Error("Row layout changes must be made in Excel.");
+        if (JSON.stringify([a?.hd ?? 0, a?.s ?? null]) !== JSON.stringify([b?.hd ?? 0, b?.s ?? null])) throw new Error("Row layout changes must be made in Excel.");
       }
       for (const col of new Set([...Object.keys(before.columnData ?? {}), ...Object.keys(sheet.columnData ?? {})])) {
         const a = before.columnData?.[Number(col)]; const b = sheet.columnData?.[Number(col)];
-        if (JSON.stringify([a?.w ?? null, a?.hd ?? 0, a?.s ?? null]) !== JSON.stringify([b?.w ?? null, b?.hd ?? 0, b?.s ?? null])) throw new Error("Column layout changes must be made in Excel.");
+        if (JSON.stringify([a?.hd ?? 0, a?.s ?? null]) !== JSON.stringify([b?.hd ?? 0, b?.s ?? null])) throw new Error("Column layout changes must be made in Excel.");
       }
       const doc = parse(serialize(original.xml));
       const sheetData = all(doc, "sheetData")[0];
       if (!sheetData) throw new Error("Missing worksheet data.");
       const cells = new Map(all(doc, "c").map((cell) => [cell.getAttribute("r"), cell]));
       let sheetChanged = false;
+      if (JSON.stringify(sheet.freeze) !== JSON.stringify(before.freeze)) {
+        const freeze = sheet.freeze;
+        const x = freeze?.xSplit ?? 0, y = freeze?.ySplit ?? 0;
+        if (![x, y].every((n) => Number.isInteger(n) && n >= 0) || x >= (sheet.columnCount ?? 0) || y >= (sheet.rowCount ?? 0)) throw new Error("Invalid frozen panes.");
+        let views = all(doc, "sheetViews")[0];
+        if (!views) { views = make(doc, "sheetViews"); const following = Array.from(doc.documentElement!.childNodes).find((node) => node.nodeType === 1 && !["sheetPr", "dimension"].includes(node.localName ?? "")); doc.documentElement!.insertBefore(views, following ?? null); }
+        let view = first(views, "sheetView");
+        if (!view) { view = make(doc, "sheetView", { workbookViewId: 0 }); views.appendChild(view); }
+        const pane = first(view, "pane"); if (pane) view.removeChild(pane);
+        for (const selection of children(view, "selection")) selection.removeAttribute("pane");
+        if (x || y) view.insertBefore(make(doc, "pane", { xSplit: x, ySplit: y, topLeftCell: XLSX.utils.encode_cell({ r: Math.max(y, freeze?.startRow ?? y), c: Math.max(x, freeze?.startColumn ?? x) }), activePane: x && y ? "bottomRight" : x ? "topRight" : "bottomLeft", state: "frozen" }), view.firstChild);
+        sheetChanged = true;
+      }
+      // Width/height edits do not move cells or invalidate external references.
+      // Patch only changed dimensions, retaining grouped column metadata.
+      for (const key of new Set([...Object.keys(before.columnData ?? {}), ...Object.keys(sheet.columnData ?? {})])) {
+        const c = Number(key), width = sheet.columnData?.[c]?.w;
+        if (width === before.columnData?.[c]?.w) continue;
+        if (typeof width !== "number" || !Number.isFinite(width) || width <= 0 || width > 1790) throw new Error("Invalid column width.");
+        let cols = all(doc, "cols")[0];
+        if (!cols) { cols = make(doc, "cols"); doc.documentElement!.insertBefore(cols, sheetData); }
+        const existing = children(cols, "col").find((col) => number(col, "min") <= c + 1 && number(col, "max") >= c + 1);
+        const col = make(doc, "col");
+        if (existing) for (const attr of Array.from(existing.attributes)) col.setAttribute(attr.name, attr.value);
+        if (existing) {
+          if (number(existing, "min") < c + 1) { const left = make(doc, "col"); for (const attr of Array.from(existing.attributes)) left.setAttribute(attr.name, attr.value); left.setAttribute("max", String(c)); cols.insertBefore(left, existing); }
+          if (number(existing, "max") > c + 1) { const right = make(doc, "col"); for (const attr of Array.from(existing.attributes)) right.setAttribute(attr.name, attr.value); right.setAttribute("min", String(c + 2)); cols.insertBefore(right, existing.nextSibling); }
+          cols.replaceChild(col, existing);
+        } else {
+          cols.insertBefore(col, children(cols, "col").find((item) => number(item, "min") > c + 1) ?? null);
+        }
+        col.setAttribute("min", String(c + 1)); col.setAttribute("max", String(c + 1));
+        col.setAttribute("width", String(Math.max(0.1, (width - 5) / 7))); col.setAttribute("customWidth", "1"); col.removeAttribute("bestFit");
+        sheetChanged = true;
+      }
+      for (const key of new Set([...Object.keys(before.rowData ?? {}), ...Object.keys(sheet.rowData ?? {})])) {
+        const r = Number(key), a = before.rowData?.[r], b = sheet.rowData?.[r];
+        const height = b?.ia === 1 ? b.ah ?? b.h : b?.h;
+        const oldHeight = a?.ia === 1 ? a.ah ?? a.h : a?.h;
+        if (height === oldHeight) continue;
+        if (typeof height !== "number" || !Number.isFinite(height) || height <= 0 || height > 546) throw new Error("Invalid row height.");
+        let row = children(sheetData, "row").find((row) => number(row, "r") === r + 1);
+        if (!row) { row = make(doc, "row", { r: r + 1 }); sheetData.insertBefore(row, children(sheetData, "row").find((item) => number(item, "r") > r + 1) ?? null); }
+        row.setAttribute("ht", String(height * 3 / 4)); row.setAttribute("customHeight", "1");
+        sheetChanged = true;
+      }
       const rows = new Set([...Object.keys(before.cellData ?? {}), ...Object.keys(sheet.cellData ?? {})]);
       for (const rowKey of rows) {
         const r = Number(rowKey);

@@ -13,7 +13,7 @@ import "./office-editor.css";
 
 // Structural edits require rewriting references in charts, names, tables and
 // other retained parts. Block them at command execution, including shortcuts.
-const supported = new Set(["set-range-values", "set-bold", "set-italic", "set-font-family", "set-font-size", "set-text-color", "reset-text-color", "set-background-color", "reset-background-color", "set-horizontal-text-align", "set-vertical-text-align", "set-text-wrap", "set-style", "clear-selection-content", "auto-clear-content", "select-range", "set-worksheet-activate", "copy-down", "copy-right", "set-border", "set-border-basic", "set-border-color", "set-border-position", "set-border-style", "set-underline", "set-stroke", "text-to-number", "move-selection", "move-selection-enter-tab"]);
+const supported = new Set(["set-frozen", "cancel-frozen", "set-selection-frozen", "set-row-frozen", "set-col-frozen", "set-first-row-frozen", "set-first-column-frozen", "delta-column-width", "set-worksheet-col-width", "set-col-is-auto-width", "delta-row-height", "set-row-height", "set-row-is-auto-height", "set-range-values", "set-bold", "set-italic", "set-font-family", "set-font-size", "set-text-color", "reset-text-color", "set-background-color", "reset-background-color", "set-horizontal-text-align", "set-vertical-text-align", "set-text-wrap", "set-style", "clear-selection-content", "auto-clear-content", "select-range", "set-worksheet-activate", "copy-down", "copy-right", "set-border", "set-border-basic", "set-border-color", "set-border-position", "set-border-style", "set-underline", "set-stroke", "text-to-number", "move-selection", "move-selection-enter-tab"]);
 const hidden = ["add-range-protection-from-toolbar", "set-once-format-painter", "set-infinite-format-painter", "insert-sheet", "remove-sheet", "set-worksheet-name", "set-worksheet-order", "set-worksheet-hidden", "set-worksheet-show", "insert-row-before", "insert-row-after", "insert-col-before", "insert-col-after", "remove-row-by-range", "remove-col-by-range", "add-worksheet-merge", "add-worksheet-merge-all", "add-worksheet-merge-horizontal", "add-worksheet-merge-vertical", "remove-worksheet-merge", "set-overline", "set-text-rotation", "set-frozen", "cancel-frozen", "clear-selection-all", "clear-selection-format"];
 export function ArtifactXlsxEditor(props: OfficeEditorProps) {
   const [initial] = useState(props.content);
@@ -44,7 +44,7 @@ export function ArtifactXlsxEditor(props: OfficeEditorProps) {
         }
         if (props.readOnly && command.id.startsWith("sheet.mutation.") && !options?.onlyLocal && !options?.applyFormulaCalculationResult) throw new Error("This workbook is read only.");
       });
-      const listener = univerAPI.onCommandExecuted((command, options) => { if (!options?.onlyLocal && !options?.applyFormulaCalculationResult && (command.id === "sheet.mutation.set-range-values" || command.id.includes("mutation.set.numfmt"))) state.changed(); });
+      const listener = univerAPI.onCommandExecuted((command, options) => { if (!options?.onlyLocal && !options?.applyFormulaCalculationResult && (command.id === "sheet.mutation.set-range-values" || command.id === "sheet.mutation.set-frozen" || command.id.includes("mutation.set.numfmt") || /^sheet\.mutation\.set-worksheet-(col-width|row-height|row-is-auto-height|row-auto-height)$/.test(command.id))) state.changed(); });
       let preparing = false;
       const finishOpening = () => {
         if (preparing || univerAPI.getCurrentLifecycleStage() < LifecycleStages.Rendered) return;
@@ -99,6 +99,20 @@ export function ArtifactXlsxEditor(props: OfficeEditorProps) {
     }).catch((error: unknown) => { if (!disposed) state.setError(error instanceof Error ? error.message : "Could not open workbook."); });
     return () => { disposed = true; cleanup?.(); };
   }, [initial, workbookId, props.name, props.readOnly, state.changed, state.setError, state.serialize, state.agentTool]);
+  useEffect(() => {
+    if (!ready) return;
+    const strip = container.current?.querySelector('[data-u-comp="slide-tab-item"]')?.parentElement;
+    if (!strip) return;
+    const resize = new ResizeObserver(() => {
+      const active = strip.querySelector('[aria-selected="true"]');
+      if (!active) return;
+      const viewport = strip.getBoundingClientRect(), tab = active.getBoundingClientRect();
+      if (tab.left < viewport.left + 6) strip.scrollLeft += tab.left - viewport.left - 6;
+      else if (tab.right > viewport.right - 6) strip.scrollLeft += tab.right - viewport.right + 6;
+    });
+    resize.observe(strip);
+    return () => resize.disconnect();
+  }, [ready]);
   return <div ref={state.host} className="office-editor office-sheets relative flex h-full min-h-0 flex-col" aria-label="Workbook editor" aria-busy={state.saving}
     onBeforeInputCapture={(event) => { if (props.readOnly && !(event.target instanceof HTMLInputElement)) event.preventDefault(); }}
     onPasteCapture={(event) => { if (props.readOnly && !(event.target instanceof HTMLInputElement)) { event.preventDefault(); event.stopPropagation(); } }}
