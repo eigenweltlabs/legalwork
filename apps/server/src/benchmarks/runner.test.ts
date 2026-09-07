@@ -39,6 +39,8 @@ type FakeStats = {
   agentJudgeOverlap: number;
   abortedSessions: string[];
   deletedSessions: string[];
+  /** Every agent prompt the runner sent, for asserting ablation reached the engine. */
+  agentPrompts: Array<{ tools: Record<string, boolean> | undefined; text: string }>;
 };
 
 function createFake(behavior: FakeBehavior = {}) {
@@ -51,6 +53,7 @@ function createFake(behavior: FakeBehavior = {}) {
     agentJudgeOverlap: 0,
     abortedSessions: [],
     deletedSessions: [],
+    agentPrompts: [],
   };
   const sessions = new Map<string, { directory: string; state: "idle" | "busy"; aborted: boolean }>();
   let counter = 0;
@@ -63,6 +66,10 @@ function createFake(behavior: FakeBehavior = {}) {
         return { data: { id } };
       },
       promptAsync: async (params) => {
+        stats.agentPrompts.push({
+          tools: params.tools as Record<string, boolean> | undefined,
+          text: String((params.parts as Array<{ text?: string }> | undefined)?.[0]?.text ?? ""),
+        });
         if (behavior.promptAsyncUnsupported) {
           return { error: { status: 404, message: "prompt_async unsupported" } };
         }
@@ -487,5 +494,68 @@ describe("abort / resume / delete", () => {
     await waitFor(() => store.getRun(runId)?.status === "aborted");
     await runner.deleteRun(workspace, runId);
     expect(store.getRun(runId)).toBeNull();
+  });
+});
+
+describe("ablation arms", () => {
+  test("expands the grid by arm and sends each arm's ablation to the engine", async () => {
+    await seedCustomTask("ct-1");
+    const { client, stats } = createFake({ writeDeliverables: ["memo.docx"] });
+    const runner = makeRunner(client);
+    const created = await runner.createRun(workspace, {
+      tasks: ["ct-1"],
+      models: [{ providerID: "prov", modelID: "model-a" }],
+      arms: [
+        { label: "Full" },
+        { label: "No bash", config: { tools: { bash: false } } },
+        { label: "No skills", config: { skills: { mode: "none" } } },
+        { label: "No tabular", config: { skills: { mode: "deny", names: ["tabular-review"] } } },
+      ],
+      concurrency: 4,
+    });
+    await waitFor(() => store.getRun(created.id as string)?.status === "completed");
+
+    // 1 task × 1 model × 4 arms.
+    const detail = await runner.getRunDetail(workspace, created.id as string);
+    const items = detail.items as Array<{ armId: string; armLabel: string }>;
+    expect(items).toHaveLength(4);
+    expect(items.map((item) => item.armId).sort()).toEqual(["full", "no-bash", "no-skills", "no-tabular"]);
+
+    // Tool ablation rides the engine's native tools map...
+    const toolMaps = stats.agentPrompts.map((prompt) => prompt.tools);
+    expect(toolMaps).toContainEqual({ bash: false });
+    // ...and "no skills" collapses into it as the single skill tool.
+    expect(toolMaps).toContainEqual({ skill: false });
+    // Two arms send no tools override: the baseline (nothing ablated) and the
+    // named-skill arm, which the tools map cannot express — one `skill` tool
+    // gates every skill, so denying one by name is the plugin's job.
+    expect(toolMaps.filter((tools) => tools === undefined)).toHaveLength(2);
+    expect(toolMaps).not.toContainEqual({ skill: false, "tabular-review": false });
+
+    // The model is told what it lost, appended to the task prompt rather than
+    // replacing the system prompt.
+    const ablated = stats.agentPrompts.filter((prompt) => prompt.text.includes("ablation arm"));
+    expect(ablated).toHaveLength(3);
+    for (const prompt of ablated) expect(prompt.text).toContain("Write the memo");
+  });
+
+  test("a run without arms keeps the plain tasks × models shape", async () => {
+    await seedCustomTask("ct-1");
+    const { client, stats } = createFake({ writeDeliverables: ["memo.docx"] });
+    const runner = makeRunner(client);
+    const created = await runner.createRun(workspace, {
+      tasks: ["ct-1"],
+      models: [{ providerID: "prov", modelID: "model-a" }],
+    });
+    await waitFor(() => store.getRun(created.id as string)?.status === "completed");
+
+    const detail = await runner.getRunDetail(workspace, created.id as string);
+    expect(detail.items as unknown[]).toHaveLength(1);
+    expect((detail.run as { arms: Array<{ id: string }> }).arms).toEqual([
+      { id: "full", label: "Full", config: {} },
+    ]);
+    // No ablation means no tools override and no restriction note.
+    expect(stats.agentPrompts[0]?.tools).toBeUndefined();
+    expect(stats.agentPrompts[0]?.text).not.toContain("ablation arm");
   });
 });

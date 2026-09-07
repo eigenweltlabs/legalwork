@@ -1560,6 +1560,13 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
         `/workspace/${encodeURIComponent(workspaceId)}/benchmarks/runs`,
         { token, hostToken, method: "POST", body: payload, timeoutMs: timeouts.benchmarkCatalog },
       ),
+    /** Tool ids the engine exposes, for the ablation arm picker. */
+    benchmarkToolIds: (workspaceId: string) =>
+      requestJson<{ items: string[] }>(
+        baseUrl,
+        `/workspace/${encodeURIComponent(workspaceId)}/benchmarks/tool-ids`,
+        { token, hostToken, timeoutMs: timeouts.benchmarkCatalog },
+      ),
     benchmarkGetRun: (workspaceId: string, runId: string) =>
       requestJson<BenchmarkRunDetail>(
         baseUrl,

@@ -1,5 +1,5 @@
 /** @jsxImportSource react */
-import { useEffect } from "react";
+import { useEffect, useMemo } from "react";
 import { ArrowLeft, OctagonX, RotateCcw, Trash2 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -39,6 +39,25 @@ export function RunDetail(props: RunDetailProps) {
 
   const run = activeRun?.run;
   const items = activeRun?.items ?? [];
+
+  // One matrix column per model×arm. Derived from the items actually present so
+  // a partially-executed run only shows columns it has results for, and an
+  // unablated run collapses back to one column per model.
+  const matrixColumns = useMemo(() => {
+    const seen = new Map<string, { providerID: string; modelID: string; armId: string; armLabel: string }>();
+    for (const item of items) {
+      const key = `${item.providerID}/${item.modelID}/${item.armId}`;
+      if (!seen.has(key)) {
+        seen.set(key, {
+          providerID: item.providerID,
+          modelID: item.modelID,
+          armId: item.armId,
+          armLabel: item.armLabel,
+        });
+      }
+    }
+    return Array.from(seen.values());
+  }, [items]);
 
   return (
     <LayoutStack className="max-w-6xl">
@@ -128,7 +147,7 @@ export function RunDetail(props: RunDetailProps) {
             items={items}
             scoreByModel={run.scoreByModel}
             taskCount={run.taskCount}
-            models={run.models}
+            models={matrixColumns}
             selectedItemId={null}
             onSelectItem={(item) => props.onOpenItemSession?.(item.id)}
           />

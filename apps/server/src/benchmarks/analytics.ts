@@ -9,6 +9,9 @@ export type AnalyticsRow = {
   taskKey: string;
   providerID: string;
   modelID: string;
+  /** Ablation arm this result was measured under ('full' for unablated runs). */
+  armId: string;
+  armLabel: string;
   vertical: string;
   tags: string[];
   nPassed: number | null;
@@ -27,16 +30,21 @@ export type AnalyticsStat = {
 export type ModelAnalytics = {
   providerID: string;
   modelID: string;
+  /** One entry per model×arm: the same model appears once per arm it was run under. */
+  armId: string;
+  armLabel: string;
   overall: AnalyticsStat;
   /** Per-tag breakdown: a task contributes to every tag it carries. */
   byTag: Array<{ tag: string } & AnalyticsStat>;
 };
 
 export type BenchmarkAnalytics = {
-  /** Models ranked by overall mean rubric pass rate (best first). */
+  /** Model×arm rows ranked by overall mean rubric pass rate (best first). */
   models: ModelAnalytics[];
   /** All tags across judged results (unfiltered), for the tag filter. */
   tags: string[];
+  /** Arms present in the judged results, for the ablation comparison view. */
+  arms: Array<{ id: string; label: string }>;
 };
 
 type Acc = { rateSum: number; n: number; criteriaPassed: number; criteriaTotal: number };
@@ -71,16 +79,31 @@ export function aggregateModelAnalytics(rows: AnalyticsRow[], filterTags: string
   const wanted = new Set(filterTags.map((tag) => tag.trim()).filter(Boolean));
   const selected = wanted.size ? judged.filter((row) => row.tags.some((tag) => wanted.has(tag.trim()))) : judged;
 
-  const models = new Map<string, { providerID: string; modelID: string; all: Acc; byTag: Map<string, Acc> }>();
+  const models = new Map<
+    string,
+    { providerID: string; modelID: string; armId: string; armLabel: string; all: Acc; byTag: Map<string, Acc> }
+  >();
+  const arms = new Map<string, string>();
 
   for (const row of selected) {
     const passed = row.nPassed as number;
     const total = row.nCriteria as number;
     const rate = passed / total;
-    const modelKey = `${row.providerID}/${row.modelID}`;
+    const armId = row.armId || "full";
+    if (!arms.has(armId)) arms.set(armId, row.armLabel || armId);
+    // Keyed by arm as well as model: an ablated result is a separate measurement,
+    // never an extra sample of the same one.
+    const modelKey = `${row.providerID}/${row.modelID}/${armId}`;
     let model = models.get(modelKey);
     if (!model) {
-      model = { providerID: row.providerID, modelID: row.modelID, all: newAcc(), byTag: new Map() };
+      model = {
+        providerID: row.providerID,
+        modelID: row.modelID,
+        armId,
+        armLabel: row.armLabel || armId,
+        all: newAcc(),
+        byTag: new Map(),
+      };
       models.set(modelKey, model);
     }
     accumulate(model.all, rate, passed, total);
@@ -100,10 +123,16 @@ export function aggregateModelAnalytics(rows: AnalyticsRow[], filterTags: string
     .map((model) => ({
       providerID: model.providerID,
       modelID: model.modelID,
+      armId: model.armId,
+      armLabel: model.armLabel,
       overall: finalize(model.all),
       byTag: Array.from(model.byTag.entries()).map(([tag, acc]) => ({ tag, ...finalize(acc) })),
     }))
     .sort((a, b) => (b.overall.rate ?? -1) - (a.overall.rate ?? -1));
 
-  return { models: modelList, tags: Array.from(allTags).sort((a, b) => a.localeCompare(b)) };
+  return {
+    models: modelList,
+    tags: Array.from(allTags).sort((a, b) => a.localeCompare(b)),
+    arms: Array.from(arms.entries()).map(([id, label]) => ({ id, label })),
+  };
 }
