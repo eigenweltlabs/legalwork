@@ -34,6 +34,8 @@ const ArtifactDocxEditor = lazy(() =>
 const ArtifactPptxEditor = lazy(() => import("./artifact-pptx-editor").then((module) => ({ default: module.ArtifactPptxEditor })));
 const ArtifactXlsxEditor = lazy(() => import("./artifact-xlsx-editor").then((module) => ({ default: module.ArtifactXlsxEditor })));
 
+const ArtifactMarkdownPanel = lazy(() => import("./artifact-markdown-panel").then((module) => ({ default: module.ArtifactMarkdownPanel })));
+
 const EMPTY_TRANSCRIPT_TARGETS: OpenTarget[] = [];
 
 type ArtifactPanelProps = {
@@ -101,6 +103,12 @@ export function ArtifactPanel({ sessionId, tab, client, workspaceId, workspaceRo
 
   if (!target || !client || !workspaceId) {
     return null;
+  }
+
+  if (target.preview === "markdown") {
+    return <OfficeEditorBoundary key={`${workspaceId}:${target.id}`}><Suspense fallback={<PreviewLoading />}>
+      <ArtifactMarkdownPanel sessionId={sessionId} client={client} workspaceId={workspaceId} workspaceRoot={workspaceRoot} isRemoteWorkspace={isRemoteWorkspace} target={target} onClose={onClose} />
+    </Suspense></OfficeEditorBoundary>;
   }
 
   return (

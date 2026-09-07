@@ -271,3 +271,21 @@ test("live Office tool schemas are serializable for model tool calling", async (
     if (name.startsWith("inapp_")) expect(() => z.toJSONSchema(z.object(tool.args))).not.toThrow();
   }
 });
+
+describe("in-app Markdown routing", () => {
+  test("reads and edits the live draft with exact session/path routing", async () => {
+    const surface = { kind: "document", format: "md", sessionId: "ses_md", name: "Brief.md", path: "matter/Brief.md", editable: true, agentEditsTracked: false };
+    const calls: unknown[] = [];
+    await withBridge({ activeSurface: surface }, (body) => { calls.push(body); return { ok: true }; });
+    const plugin = await LegalWorkExtensionsPreview();
+    const output: { system: string[] } = { system: [] };
+    await plugin["experimental.chat.system.transform"]({ sessionID: "ses_md" }, output);
+    expect(output.system.join("\n")).toContain("inapp_md_replace_text");
+    const args = { path: surface.path, search: "draft", replacement: "final" };
+    await plugin.tool.inapp_md_replace_text.execute(args, { sessionID: "ses_md" });
+    expect(calls).toEqual([{ actionId: "markdown.agent_tool", args: { sessionId: "ses_md", path: surface.path, toolName: "replace_text", args } }]);
+    expect(JSON.parse(await plugin.tool.inapp_md_read.execute({ path: surface.path }, { sessionID: "other" })).ok).toBe(false);
+    expect(JSON.parse(await plugin.tool.inapp_md_read.execute({ path: "wrong.md" }, { sessionID: "ses_md" })).ok).toBe(false);
+    expect(calls).toHaveLength(1);
+  });
+});

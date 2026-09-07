@@ -51,6 +51,7 @@
     "@legalwork/types": "workspace:*",
     "@legalwork/ui": "workspace:*",
     "@lexical/react": "^0.35.0",
+    "@mdxeditor/editor": "4.2.3",
     "@opencode-ai/sdk": "^1.17.18",
     "@paper-design/shaders-react": "0.0.72",
     "@radix-ui/colors": "^3.0.0",

@@ -51,7 +51,7 @@ export type LegalworkOpenFile = { id: string; sessionId: string; name: string; p
 export type LegalworkControlSurface = {
   id: string;
   kind: "document";
-  format: "docx" | "xlsx" | "pptx";
+  format: "docx" | "xlsx" | "pptx" | "md";
   sessionId: string;
   workspaceId: string;
   name: string;
