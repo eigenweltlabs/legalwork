@@ -1388,16 +1388,8 @@ export function SessionSurface(props: SessionSurfaceProps) {
       toast.warning(props.attachmentsDisabledReason ?? "Attachments are unavailable.");
       return;
     }
-    const oversized = files.filter((file) => file.size > 25 * 1024 * 1024);
-    const sized = files.filter((file) => file.size <= 25 * 1024 * 1024);
-    if (oversized.length) {
-      toast.warning(
-        oversized.length === 1 ? `${oversized[0]?.name ?? "File"} is too large` : `${oversized.length} files are too large`,
-        { description: "Files over 25 MB were skipped." },
-      );
-    }
-    setPendingAttachmentUploads((count) => count + sized.length);
-    for (const file of sized) {
+    setPendingAttachmentUploads((count) => count + files.length);
+    for (const file of files) {
       const notification = toast.info(`Attaching ${file.name}…`, { duration: Infinity });
       try {
         const reference = await uploadWorkspaceAttachment(props.client, props.workspaceId, file);

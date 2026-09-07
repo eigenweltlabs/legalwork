@@ -83,6 +83,25 @@ describe("artifact file routes", () => {
       .toEqual(Buffer.from(await originals[0]!.arrayBuffer()));
   });
 
+  test("attachments larger than the former picker and upload limits round-trip intact", async () => {
+    const root = await createWorkspaceRoot();
+    const { base, token } = await startLegalworkServer(root);
+    const original = Buffer.alloc(26 * 1024 * 1024, 0xa5);
+    const path = ".legalwork/attachments/large-upload/large.bin";
+    const uploaded = await fetch(`${base}/workspace/ws_1/files/raw`, {
+      method: "POST", headers: auth(token),
+      body: JSON.stringify({ path, dataBase64: original.toString("base64") }),
+    });
+    expect(uploaded.status).toBe(200);
+    expect(await uploaded.json()).toMatchObject({ ok: true, path, bytes: original.length });
+    expect(await readFile(join(root, path))).toEqual(original);
+    const downloaded = await fetch(`${base}/workspace/ws_1/files/raw?path=${encodeURIComponent(path)}`, {
+      headers: auth(token),
+    });
+    expect(downloaded.status).toBe(200);
+    expect(Buffer.from(await downloaded.arrayBuffer())).toEqual(original);
+  });
+
   test("resolve, read, write, and download markdown/csv/xlsx/pptx/html artifacts", async () => {
     const root = await createWorkspaceRoot();
     const { base, token } = await startLegalworkServer(root);
