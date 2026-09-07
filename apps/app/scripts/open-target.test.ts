@@ -2,10 +2,24 @@ import { describe, expect, it } from "bun:test";
 import type { UIMessage } from "ai";
 
 import {
+  classifyOpenTarget,
   deriveOpenTargets,
   isCollectibleArtifactTarget,
   selectAutoOpenTarget,
 } from "../src/react-app/domains/session/artifacts/open-target";
+
+it("opens media files in players while keeping remote URLs in browser tabs", () => {
+  for (const extension of ["mp3", "wav", "m4a", "aac", "ogg", "oga", "opus", "flac", "weba", "aiff", "aif"]) {
+    expect(classifyOpenTarget(`recordings/Interview.${extension.toUpperCase()}`, "file")).toBe("audio");
+  }
+  for (const extension of ["mp4", "m4v", "webm", "mov", "ogv", "mkv", "avi"]) {
+    expect(classifyOpenTarget(`recordings/Interview.${extension}`, "file")).toBe("video");
+  }
+  expect(classifyOpenTarget("https://example.com/clip.mp4", "url")).toBe("browser");
+  const targets = deriveOpenTargets([message("media", "assistant", "Created recordings/interview.wav and recordings/review.webm.")]);
+  expect(targets).toHaveLength(2);
+  expect(targets.every((target) => isCollectibleArtifactTarget({ ...target, exists: true }))).toBe(true);
+});
 
 function message(id: string, role: "user" | "assistant", text: string): UIMessage {
   return { id, role, parts: [{ type: "text", text, state: "done" }] };

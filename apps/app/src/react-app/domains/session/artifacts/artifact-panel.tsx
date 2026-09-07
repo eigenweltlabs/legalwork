@@ -19,6 +19,7 @@ import type { DocxEditorApi } from "./artifact-docx-editor";
 import { artifactDocumentKey, reconcileDocxSnapshot, registerUnsavedDocument, savedDocxSnapshot, type DocxSnapshot } from "./docx-document-state";
 import { type ArtifactPanelTab, usePanelTabStore } from "../panel/panel-tab-store";
 import { isCollectibleArtifactTarget, type BinaryData, type Data, type OpenTarget, type TextData } from "./open-target";
+import { MediaPreview } from "./media-preview";
 import { HTMLPreview, ImagePreview, MarkdownPreview, PdfPreview, PlainText, PreviewError, PreviewLoading, PreviewUnavailable } from "./preview";
 
 const ArtifactTextEditor = lazy(() =>
@@ -489,7 +490,7 @@ function ArtifactPanelView({ sessionId, client, workspaceId, workspaceRoot, isRe
 
   return (
     <ArtifactFrame
-        expandable={isBinaryEditor}
+        expandable={isBinaryEditor || target.preview === "audio" || target.preview === "video"}
         title={target.name}
         icon={fileIcon ? <img src={fileIcon} alt="" className="size-5 shrink-0 object-contain" /> : <ArtifactIcon type={target.preview} className="size-5" />}
         meta={<>
@@ -651,6 +652,8 @@ function ArtifactPanelView({ sessionId, client, workspaceId, workspaceRoot, isRe
           />
         ) : target.preview === "html" && data?.kind === "text" ? (
           <HTMLPreview type="text" title={target.name} content={data.data} />
+        ) : (target.preview === "audio" || target.preview === "video") && data?.kind === "binary" && binaryObjectUrl ? (
+          <MediaPreview key={binaryObjectUrl} kind={target.preview} src={binaryObjectUrl} title={target.name} />
         ) : target.preview === "image" && data?.kind === "binary" && binaryObjectUrl ? (
           <ImagePreview src={binaryObjectUrl} alt={target.name} />
         ) : target.preview === "pdf" && data?.kind === "binary" && binaryObjectUrl ? (
