@@ -34,8 +34,19 @@ export function launchAnalyticsId(): string {
  * ignored in favour of a locally minted id.
  */
 export function adoptLaunchAnalyticsId(offered: string): string {
-  if (!launchId && isAdoptableLaunchAnalyticsId(offered)) launchId = offered;
-  return launchAnalyticsId();
+  launchId = resolveLaunchAnalyticsId(launchId, offered);
+  return launchId;
+}
+
+/**
+ * The id a launch should use, given what is already in force and what a
+ * client offered. Pure, so the precedence rules can be exercised without the
+ * process-global id — which anything else sharing the process may already
+ * have claimed.
+ */
+export function resolveLaunchAnalyticsId(inForce: string, offered: string): string {
+  if (inForce) return inForce;
+  return isAdoptableLaunchAnalyticsId(offered) ? offered : randomUUID();
 }
 
 /**
