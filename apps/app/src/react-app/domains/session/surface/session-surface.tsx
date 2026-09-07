@@ -586,15 +586,14 @@ export function SessionSurface(props: SessionSurfaceProps) {
   // session.
   const queuedDrafts = useComposerStateStore((state) => getComposerQueuedDrafts(state, props.sessionId));
   const officeAddinRuntime = isOfficeAddinRuntime();
-  // No fusion in the Office pane, and none when there is only one model to
-  // fuse (single provider, single model) — the toggle would be meaningless.
-  const fusionAvailable = !officeAddinRuntime && !props.modelSelectorLocked;
+  const fusionDefaultModels = local.prefs.fusionModels;
+  // Show Fusion only after candidate models have been configured in Settings.
+  const fusionAvailable = !officeAddinRuntime && !props.modelSelectorLocked && (fusionDefaultModels?.length ?? 0) > 0;
   const storedFusionEnabled = useFusionStore((state) => Boolean(state.enabledSessionIds[props.sessionId]));
   const fusionEnabled = fusionAvailable && storedFusionEnabled;
   const fusionModels = useFusionStore((state) => state.selectedModelsBySessionId[props.sessionId]);
   const setFusionEnabled = useFusionStore((state) => state.setEnabled);
   const setFusionModels = useFusionStore((state) => state.setSelectedModels);
-  const fusionDefaultModels = local.prefs.fusionModels;
   const [fusionIntroOpen, setFusionIntroOpen] = useState(false);
   useEffect(() => {
     if (!fusionAvailable && storedFusionEnabled) {
