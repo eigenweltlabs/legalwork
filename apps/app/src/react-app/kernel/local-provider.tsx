@@ -11,7 +11,7 @@ import {
 } from "react";
 
 import { THINKING_PREF_KEY } from "../../app/constants";
-import { setAnalyticsDistinctId } from "../../app/lib/analytics";
+import { getAnalyticsDistinctId, setAnalyticsDistinctId } from "../../app/lib/analytics";
 import { createLegalworkServerClient } from "../../app/lib/legalwork-server";
 import { coerceReleaseChannel } from "../../app/lib/release-channels";
 import { isDesktopRuntime } from "../../app/lib/runtime-env";
@@ -204,10 +204,15 @@ export function LocalProvider({ children }: LocalProviderProps) {
     writePersisted(PREFS_STORAGE_KEY, prefs);
   }, [prefs]);
 
-  // Sync analytics consent with the local server and adopt its per-launch
-  // distinct id in return. In-memory on both sides; retried briefly because
-  // the server may still be booting. Desktop only. Until the round-trip
-  // succeeds, analytics falls back to a locally minted id.
+  // Sync analytics consent and our per-launch distinct id to the local
+  // server, so the renderer, the server's gateway header and the Office pane
+  // all report one launch. We offer the id rather than asking for one:
+  // events fire (app open, welcome screen) before this round-trip can
+  // answer, and asking would strand those first events on a second id.
+  // In-memory on both sides; retried briefly because the server may still be
+  // booting. Desktop only. The answer is normally our own id echoed back —
+  // it differs only against a server that already had one (a shared or
+  // longer-lived server), where matching it keeps desktop and pane together.
   useEffect(() => {
     if (!isDesktopRuntime()) return;
     let cancelled = false;
@@ -220,7 +225,10 @@ export function LocalProvider({ children }: LocalProviderProps) {
               baseUrl: normalizedBaseUrl,
               token: resolvedToken || undefined,
               hostToken: resolvedHostToken || undefined,
-            }).setAnalyticsIdentity({ analyticsEnabled: prefs.analyticsEnabled === true });
+            }).setAnalyticsIdentity({
+              analyticsEnabled: prefs.analyticsEnabled === true,
+              distinctId: getAnalyticsDistinctId(),
+            });
             if (typeof result?.distinctId === "string") setAnalyticsDistinctId(result.distinctId);
             return;
           }

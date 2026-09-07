@@ -72,7 +72,7 @@ import {
   type WorkspaceExportSensitiveMode,
 } from "./workspace-export-safety.js";
 import { serve, type ServeResult } from "./serve-node.js";
-import { launchAnalyticsId } from "./launch-analytics-id.js";
+import { adoptLaunchAnalyticsId } from "./launch-analytics-id.js";
 import { handleWordAddinRequest, loadWordAddinTls, setAnalyticsConsent, WORD_ADDIN_PATH_PREFIX } from "./word-addin.js";
 import { OfficeToolRelay } from "./office-tools.js";
 import { registerOfficeToolRoutes } from "./routes/office-tools.js";
@@ -1512,13 +1512,14 @@ function createRoutes(
   });
 
   addRoute(routes, "PUT", "/analytics/identity", "client", async (ctx) => {
-    // Desktop pushes its analytics consent here and gets the per-launch
-    // distinct id back; the Office pane adopts it via the word-addin
-    // bootstrap. Held in memory only.
+    // Desktop pushes its analytics consent and its own per-launch distinct
+    // id here; the answer is the id now in force, which the Office pane also
+    // adopts via the word-addin bootstrap. Held in memory only.
     requireClientScope(ctx, "collaborator");
     const body = await readJsonBody(ctx.request);
     setAnalyticsConsent({ analyticsEnabled: body.analyticsEnabled });
-    return jsonResponse({ ok: true, distinctId: launchAnalyticsId() });
+    const offered = typeof body.distinctId === "string" ? body.distinctId : "";
+    return jsonResponse({ ok: true, distinctId: adoptLaunchAnalyticsId(offered) });
   });
 
   addRoute(routes, "GET", "/personalization", "client", async () => {

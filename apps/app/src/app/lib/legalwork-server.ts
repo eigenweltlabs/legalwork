@@ -1323,9 +1323,9 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
     runtimeVersions: () =>
       requestJson<LegalworkRuntimeSnapshot>(baseUrl, "/runtime/versions", { token, hostToken, timeoutMs: timeouts.status }),
     status: () => requestJson<LegalworkServerDiagnostics>(baseUrl, "/status", { token, hostToken, timeoutMs: timeouts.status }),
-    // Sync analytics consent; the server answers with the per-launch
-    // distinct id (in-memory) for the caller to adopt.
-    setAnalyticsIdentity: (payload: { analyticsEnabled: boolean }) =>
+    // Sync analytics consent and our per-launch distinct id; the server
+    // answers with the id now in force (in-memory) for the caller to adopt.
+    setAnalyticsIdentity: (payload: { analyticsEnabled: boolean; distinctId: string }) =>
       requestJson<{ ok: boolean; distinctId?: string }>(baseUrl, "/analytics/identity", {
         token,
         hostToken,
