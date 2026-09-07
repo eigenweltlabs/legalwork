@@ -66,7 +66,7 @@ import { SidePanel } from "../panel/side-panel";
 import { WorkspaceFilesPanel } from "../panel/workspace-files-panel";
 import { LegalMemoryFilesPanel } from "../panel/legalmemory-files-panel";
 import { TerminalDock } from "../terminal/terminal-dock";
-import { LEARNINGS_PANEL_SESSION_ID, useActivePanelTab, usePanelTabStore } from "../panel/panel-tab-store";
+import { EVALS_PANEL_SESSION_ID, useActivePanelTab, usePanelTabStore } from "../panel/panel-tab-store";
 import { useWorkspaceShellLayout } from "../../../shell/workspace-shell-layout";
 import { useControlAction, type LegalworkControlAction } from "../../../shell/control/control-provider";
 import { cn } from "@/lib/utils";
@@ -104,11 +104,11 @@ export type SessionPageHistoryControls = {
 };
 
 export type SessionPageSidebarProps = {
-  onShowLearnings?: () => void;
+  onShowEvals?: () => void;
   onShowWorkflows?: () => void;
   onShowExtensions?: () => void;
   onShowRecorder?: () => void;
-  activeNav?: "learnings" | "workflows" | "extensions" | "recorder" | null;
+  activeNav?: "evals" | "workflows" | "extensions" | "recorder" | null;
   workspaceSessionGroups: WorkspaceSessionGroup[];
   selectedWorkspaceId: string;
   selectedSessionId: string | null;
@@ -193,7 +193,7 @@ export type SessionPageProps = {
   onDeleteSession?: (sessionId: string) => Promise<void> | void;
   onArchiveSession?: (sessionId: string, archived: boolean) => Promise<void> | void;
   onAccessibleTargetsChange?: (targets: OpenTarget[]) => void;
-  /** When set, replaces the session main pane (keeps the sidebar). Used for the Learnings screen. */
+  /** When set, replaces the session main pane (keeps the sidebar). Used for the Evals screen. */
   mainView?: React.ReactNode;
   terminalOpen?: boolean;
   onTerminalOpenChange?: (open: boolean) => void;
@@ -298,11 +298,11 @@ export function SessionPage(props: SessionPageProps) {
   const setSidebarOpen = useUiStateStore((state) => state.setSidebarOpen);
   const [driveOpen, setDriveOpen] = useState(false);
   // The side panel's open/close state is keyed per chat session. Top-level
-  // mainView pages (Learnings / Benchmark) have no selected session, so they key
-  // it on the synthetic LEARNINGS_PANEL_SESSION_ID instead. Without this the key
+  // mainView pages (Evals / Benchmark) have no selected session, so they key
+  // it on the synthetic EVALS_PANEL_SESSION_ID instead. Without this the key
   // is null and the panel can never open (regressed as "opens only on the 2nd
   // click, and only after having visited a chat session first").
-  const panelStateSessionId = props.mainView ? LEARNINGS_PANEL_SESSION_ID : props.selectedSessionId ?? LEARNINGS_PANEL_SESSION_ID;
+  const panelStateSessionId = props.mainView ? EVALS_PANEL_SESSION_ID : props.selectedSessionId ?? EVALS_PANEL_SESSION_ID;
   const sessionSidePanel = useUiStateStore((state) => (
     panelStateSessionId ? state.sidePanelState[panelStateSessionId] ?? null : null
   ));
@@ -600,7 +600,7 @@ export function SessionPage(props: SessionPageProps) {
       const target = resolvePathOpenTarget(result.path, accessibleTargets, "legalmemory");
       if (!target) throw new Error("LegalMemory returned an unusable file path.");
       queryClient.removeQueries({ queryKey: ["artifact-panel", workspaceId, target.id] });
-      openTarget(target, undefined, props.mainView ? LEARNINGS_PANEL_SESSION_ID : undefined);
+      openTarget(target, undefined, props.mainView ? EVALS_PANEL_SESSION_ID : undefined);
     } catch (error) {
       toast.error(`Could not open ${file.name}`, {
         description: error instanceof Error ? error.message : "LegalMemory download failed.",
@@ -623,9 +623,9 @@ export function SessionPage(props: SessionPageProps) {
       const target = accessibleTargets.find((item) => item.id === requested?.id || item.value === requested?.value) ?? (
         requested?.kind && requested?.value ? requested : null
       );
-      // On mainView pages (Learnings / Benchmark) tabs live under the synthetic
+      // On mainView pages (Evals / Benchmark) tabs live under the synthetic
       // panel session so the side panel can render without a chat session.
-      if (target) openTarget(target, undefined, props.mainView ? LEARNINGS_PANEL_SESSION_ID : undefined);
+      if (target) openTarget(target, undefined, props.mainView ? EVALS_PANEL_SESSION_ID : undefined);
     };
     const hide = (event: Event) => {
       const requested = (event as CustomEvent<OpenTarget>).detail;
@@ -913,7 +913,7 @@ export function SessionPage(props: SessionPageProps) {
           onCreateTaskInNewWorkspace={props.sidebar.onCreateTaskInNewWorkspace}
           onToggleDrive={() => setDriveOpen((open) => !open)}
           driveOpen={driveOpen}
-          onShowLearnings={props.sidebar.onShowLearnings}
+          onShowEvals={props.sidebar.onShowEvals}
           onShowWorkflows={props.sidebar.onShowWorkflows}
           onShowExtensions={props.sidebar.onShowExtensions}
           onShowRecorder={props.sidebar.onShowRecorder}
@@ -935,7 +935,7 @@ export function SessionPage(props: SessionPageProps) {
           />
         ) : null}
         {props.mainView ? (
-          // Top-level pages (Learnings / Skills / Integrations): keep the app chrome the
+          // Top-level pages (Evals / Skills / Integrations): keep the app chrome the
           // chat has — the draggable top header and the bottom StatusBar (with the
           // settings gear) — and swap only the center content.
           <SidebarInset className="min-h-0 overflow-hidden bg-background mac:bg-background/80 mac:[&_.lw-session-header]:transition-[padding-left] mac:[&_.lw-session-header]:duration-200 mac:[&_.lw-session-header]:ease-linear mac:peer-data-[state=collapsed]:[&_.lw-session-header]:pl-28 mac:max-md:[&_.lw-session-header]:pl-28">
@@ -983,7 +983,7 @@ export function SessionPage(props: SessionPageProps) {
                     className="min-h-0 overflow-hidden lg:flex lg:flex-col"
                   >
                     <SidePanel
-                      sessionId={LEARNINGS_PANEL_SESSION_ID}
+                      sessionId={EVALS_PANEL_SESSION_ID}
                       client={props.legalworkServerClient}
                       workspaceId={props.runtimeWorkspaceId}
                       workspaceRoot={props.selectedWorkspaceRoot}

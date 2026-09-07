@@ -27,6 +27,8 @@ export type BenchmarkViewProps = {
   taskId: string | null;
   itemId: string | null;
   itemChat: boolean;
+  /** Page heading, for when the view is the whole page (the Eval tab) rather than a settings tab. */
+  showHeader?: boolean;
   onOpenRun: (runId: string) => void;
   onOpenTask: (taskId: string) => void;
   onOpenRunItem: (runId: string, itemId: string) => void;
@@ -79,6 +81,17 @@ export function BenchmarkView(props: BenchmarkViewProps) {
 
   return (
     <>
+      {props.showHeader ? (
+        <div className="w-full max-w-6xl space-y-3 pb-6">
+          <span className="lw-section-eyebrow uppercase text-dls-secondary">Evaluation</span>
+          <h2 className="text-[34px] font-medium leading-[1.04] tracking-[-0.035em] text-dls-text">
+            {t("settings.tab_benchmark")}
+          </h2>
+          <p className="max-w-xl text-[14px] leading-[1.65] text-dls-secondary">
+            {t("settings.tab_description_benchmark")}
+          </p>
+        </div>
+      ) : null}
       <Tabs value={tab} onValueChange={(value) => setTab(String(value))} className="flex w-full max-w-6xl flex-col">
         <TabsList className="self-start">
           <TabsTrigger value="tasks">{t("benchmark.tab_tasks")}</TabsTrigger>

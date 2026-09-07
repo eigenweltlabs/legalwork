@@ -36,30 +36,89 @@ let ghServer: ReturnType<typeof Bun.serve>;
 let requestLog: string[] = [];
 let dir: string;
 let store: BenchmarkStore;
-let sha = "shaaaaaa1111111111111111111111111111111a";
+const HEAD_SHA = "shaaaaaa1111111111111111111111111111111a";
+let sha = HEAD_SHA;
 
 const TREE_PATHS = [
-  "README.md",
-  "tasks/tax/draft-tax-memo/task.json",
-  "tasks/tax/draft-tax-memo/documents/input.docx",
-  "tasks/tax/draft-tax-memo/documents/nested/data.xlsx",
-  "tasks/contracts/analyze-nda/task.json",
-  "tasks/contracts/broken-task/task.json",
+  "tax/draft-tax-memo/task.json",
+  "tax/draft-tax-memo/documents/input.docx",
+  "tax/draft-tax-memo/documents/nested/data.xlsx",
+  "contracts/analyze-nda/task.json",
+  "contracts/broken-task/task.json",
 ];
+
+/** Verticals whose recursive tree listing the fake GitHub reports as truncated. */
+let truncatedShas = new Set<string>();
+
+const TASKS_SHA = "treeeeee2222222222222222222222222222222b";
+/** Vertical directory shas, keyed by the vertical name under `tasks/`. */
+const VERTICAL_SHAS: Record<string, string> = {
+  tax: "treeeeee3333333333333333333333333333333c",
+  contracts: "treeeeee4444444444444444444444444444444d",
+};
+
+/** Blobs under one subtree, as paths relative to it. */
+function blobsUnder(prefix: string): string[] {
+  if (!prefix) return TREE_PATHS;
+  return TREE_PATHS.filter((path) => path.startsWith(`${prefix}/`)).map((path) =>
+    path.slice(prefix.length + 1),
+  );
+}
+
+/** The direct children of one subtree, git-tree style (one level only). */
+function childrenOf(
+  prefix: string,
+  shas: Record<string, string>,
+): Array<{ path: string; type: string; sha: string; mode?: string }> {
+  const names = new Set(blobsUnder(prefix).map((path) => path.split("/")[0]!));
+  return Array.from(names).map((name) =>
+    shas[name]
+      ? { path: name, type: "tree", sha: shas[name]! }
+      : { path: name, type: "blob", sha: `blob-${prefix}-${name}`, mode: "100644" },
+  );
+}
 
 beforeAll(() => {
   ghServer = Bun.serve({
     port: 0,
     fetch(request) {
       const url = new URL(request.url);
-      requestLog.push(url.pathname);
+      requestLog.push(`${url.pathname}${url.search}`);
       if (url.pathname === "/repos/harveyai/harvey-labs/commits/main") {
         return Response.json({ sha });
       }
+      // Repo root: only the `tasks` tree is walked from here.
       if (url.pathname === `/repos/harveyai/harvey-labs/git/trees/${sha}`) {
         return Response.json({
           truncated: false,
-          tree: TREE_PATHS.map((path) => ({ path, type: "blob", mode: "100644" })),
+          tree: [
+            { path: "README.md", type: "blob", sha: "blob-readme", mode: "100644" },
+            { path: "tasks", type: "tree", sha: TASKS_SHA },
+          ],
+        });
+      }
+      if (url.pathname === `/repos/harveyai/harvey-labs/git/trees/${TASKS_SHA}`) {
+        const recursive = url.searchParams.get("recursive") === "1";
+        if (recursive && truncatedShas.has(TASKS_SHA)) {
+          return Response.json({ truncated: true, tree: [] });
+        }
+        return recursive
+          ? Response.json({
+              truncated: false,
+              tree: TREE_PATHS.map((path) => ({ path, type: "blob", sha: `blob-${path}`, mode: "100644" })),
+            })
+          : Response.json({ truncated: false, tree: childrenOf("", VERTICAL_SHAS) });
+      }
+      for (const [vertical, verticalSha] of Object.entries(VERTICAL_SHAS)) {
+        if (url.pathname !== `/repos/harveyai/harvey-labs/git/trees/${verticalSha}`) continue;
+        return Response.json({
+          truncated: false,
+          tree: blobsUnder(vertical).map((path) => ({
+            path,
+            type: "blob",
+            sha: `blob-${vertical}-${path}`,
+            mode: "100644",
+          })),
         });
       }
       if (url.pathname === `/harveyai/harvey-labs/${sha}/tasks/tax/draft-tax-memo/task.json`) {
@@ -95,6 +154,8 @@ beforeEach(async () => {
   dir = mkdtempSync(join(tmpdir(), "harvey-catalog-"));
   store = await BenchmarkStore.open(join(dir, "benchmarks.sqlite"));
   requestLog = [];
+  truncatedShas = new Set();
+  sha = HEAD_SHA;
 });
 
 afterEach(() => {
@@ -120,6 +181,35 @@ describe("loadHarveyIndex", () => {
     const again = await loadHarveyIndex(store);
     expect(again.ref).toBe(sha);
     expect(requestLog.length).toBe(apiCalls);
+  });
+
+  test("falls back to a level-by-level walk when GitHub truncates the recursive tree", async () => {
+    truncatedShas.add(TASKS_SHA);
+    const index = await loadHarveyIndex(store);
+    expect(index.entries.map((entry) => entry.key)).toEqual([
+      "tasks/contracts/analyze-nda",
+      "tasks/contracts/broken-task",
+      "tasks/tax/draft-tax-memo",
+    ]);
+    const memo = index.entries.find((entry) => entry.key === "tasks/tax/draft-tax-memo");
+    expect(memo?.documents.sort()).toEqual(["input.docx", "nested/data.xlsx"]);
+    // The truncated recursive listing is retried shallowly, then per vertical.
+    expect(requestLog).toContain(`/repos/harveyai/harvey-labs/git/trees/${TASKS_SHA}`);
+    expect(requestLog).toContain(`/repos/harveyai/harvey-labs/git/trees/${VERTICAL_SHAS.tax}?recursive=1`);
+  });
+
+  test("reuses cached subtree listings across commits when the tree sha is unchanged", async () => {
+    truncatedShas.add(TASKS_SHA);
+    await loadHarveyIndex(store);
+
+    // A new commit whose `tasks` tree is untouched: the walk hits the tree cache
+    // and never refetches a vertical.
+    sha = "shaaaaaa9999999999999999999999999999999z";
+    requestLog = [];
+    const index = await loadHarveyIndex(store, { refresh: true });
+    expect(index.ref).toBe(sha);
+    expect(index.entries).toHaveLength(3);
+    expect(requestLog.filter((path) => path.includes(VERTICAL_SHAS.tax!))).toEqual([]);
   });
 
   test("refresh re-resolves head but reuses the index when the sha is unchanged", async () => {

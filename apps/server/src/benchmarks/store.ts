@@ -242,6 +242,11 @@ CREATE TABLE IF NOT EXISTS benchmark_task_cache (
   fetched_at INTEGER NOT NULL,
   PRIMARY KEY (ref, task_key)
 );
+CREATE TABLE IF NOT EXISTS benchmark_tree_cache (
+  tree_sha TEXT PRIMARY KEY,      -- git tree sha; content-addressed, so it survives commits
+  paths_json TEXT NOT NULL,       -- every blob path under that tree, relative to it
+  fetched_at INTEGER NOT NULL
+);
 `;
 
 const RUN_COLUMNS = `id, workspace_id AS workspaceId, title, status,
@@ -668,6 +673,35 @@ export class BenchmarkStore {
          ON CONFLICT(ref) DO UPDATE SET fetched_at = excluded.fetched_at, index_json = excluded.index_json`,
       )
       .run(ref, fetchedAt, indexJson);
+  }
+
+  /**
+   * Blob paths under one git tree. Keyed by tree sha rather than commit sha:
+   * an unchanged directory keeps its sha across commits, so re-indexing after a
+   * benchmark-repo update only refetches the parts that actually moved — and a
+   * walk interrupted by a GitHub rate limit resumes from where it stopped.
+   */
+  getCachedTree(treeSha: string): string[] | null {
+    const row = this.db
+      .prepare("SELECT paths_json AS pathsJson FROM benchmark_tree_cache WHERE tree_sha = ?")
+      .get(treeSha);
+    const pathsJson = (row as { pathsJson: string } | undefined)?.pathsJson;
+    if (!pathsJson) return null;
+    try {
+      const parsed = JSON.parse(pathsJson);
+      return Array.isArray(parsed) ? (parsed as string[]) : null;
+    } catch {
+      return null;
+    }
+  }
+
+  setCachedTree(treeSha: string, paths: string[], fetchedAt: number): void {
+    this.db
+      .prepare(
+        `INSERT INTO benchmark_tree_cache (tree_sha, paths_json, fetched_at) VALUES (?, ?, ?)
+         ON CONFLICT(tree_sha) DO UPDATE SET paths_json = excluded.paths_json, fetched_at = excluded.fetched_at`,
+      )
+      .run(treeSha, JSON.stringify(paths), fetchedAt);
   }
 
   getCachedTask(ref: string, taskKey: string): string | null {

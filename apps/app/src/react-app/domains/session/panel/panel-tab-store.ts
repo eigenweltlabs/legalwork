@@ -8,9 +8,9 @@ export const PERSISTED_PANEL_TAB_STORE_KEY = "legalwork:panel-tabs:v1";
 
 /**
  * Synthetic session key for the right panel on top-level mainView pages
- * (Learnings / Benchmark): artifact tabs opened outside a chat session live here.
+ * (Eval / Benchmark): artifact tabs opened outside a chat session live here.
  */
-export const LEARNINGS_PANEL_SESSION_ID = "__learnings__";
+export const EVALS_PANEL_SESSION_ID = "__evals__";
 
 export type PanelTabType = "artifact" | "browser";
 

@@ -2047,6 +2047,7 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
             workspaceId={runtimeWorkspaceId ?? selectedWorkspaceId}
             providers={providers}
             providerConnectedIds={providerConnectedIds}
+            showHeader={props.singleView === true}
             runId={route.benchmarkRunId ?? null}
             taskId={route.benchmarkTaskId ?? null}
             itemId={route.benchmarkItemId ?? null}

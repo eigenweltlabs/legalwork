@@ -7,7 +7,7 @@ import {
   useState,
 } from "react";
 import { useLocation, useNavigate, useParams } from "react-router-dom";
-import { LearningsPane } from "./learnings-route";
+import { EvalsPane } from "./evals-route";
 import { RecorderPane } from "../domains/recorder/recorder-pane";
 import { PremiumUpsellHost } from "../domains/recorder/premium-upsell-context";
 import {
@@ -321,33 +321,33 @@ export function SessionRoute() {
     () => new URLSearchParams(location.search).get("detached") === "1",
     [location.search],
   );
-  const [showLearnings, setShowLearnings] = useState(false);
+  const [showEvals, setShowEvals] = useState(false);
   // Top-level pages that live in the main shell (sidebar stays, main pane swaps),
-  // same mechanism as Learnings. Mutually exclusive — only one main pane at a time.
+  // same mechanism as Eval. Mutually exclusive — only one main pane at a time.
   const [showWorkflows, setShowWorkflows] = useState(false);
   const [showExtensions, setShowExtensions] = useState(false);
   const [showRecorder, setShowRecorder] = useState(false);
-  const showLearningsPane = useCallback(() => {
-    setShowLearnings(true);
+  const showEvalsPane = useCallback(() => {
+    setShowEvals(true);
     setShowWorkflows(false);
     setShowExtensions(false);
     setShowRecorder(false);
   }, []);
   const showWorkflowsPane = useCallback(() => {
     setShowWorkflows(true);
-    setShowLearnings(false);
+    setShowEvals(false);
     setShowExtensions(false);
     setShowRecorder(false);
   }, []);
   const showExtensionsPane = useCallback(() => {
     setShowExtensions(true);
-    setShowLearnings(false);
+    setShowEvals(false);
     setShowWorkflows(false);
     setShowRecorder(false);
   }, []);
   const showRecorderPane = useCallback(() => {
     setShowRecorder(true);
-    setShowLearnings(false);
+    setShowEvals(false);
     setShowWorkflows(false);
     setShowExtensions(false);
   }, []);
@@ -1776,10 +1776,10 @@ export function SessionRoute() {
     await handleCreateWorkspace("starter", folder);
   }, [createWorkspaceBusy, handleCreateWorkspace]);
 
-  // Leaving a top-level pane (Learnings/Skills/Integrations): any session/workspace
+  // Leaving a top-level pane (Eval/Skills/Integrations): any session/workspace
   // navigation drops back to the session view.
   useEffect(() => {
-    setShowLearnings(false);
+    setShowEvals(false);
     setShowWorkflows(false);
     setShowExtensions(false);
   }, [selectedSessionId, selectedWorkspaceId]);
@@ -1921,8 +1921,8 @@ export function SessionRoute() {
           />
         ) : showExtensions ? (
           <SettingsSurface embedded singleView initialPath="extensions" workspaceId={selectedWorkspaceId} />
-        ) : showLearnings ? (
-          <LearningsPane workspaceId={selectedWorkspaceId} />
+        ) : showEvals ? (
+          <EvalsPane workspaceId={selectedWorkspaceId} />
         ) : showRecorder ? (
           <RecorderPane
             workspacePath={selectedWorkspaceRoot ?? null}
@@ -1953,11 +1953,11 @@ export function SessionRoute() {
         sessionTabNavRef.current = { ...sessionTabNavRef.current, options: tabs };
       }}
       sidebar={{
-        onShowLearnings: showLearningsPane,
+        onShowEvals: showEvalsPane,
         onShowWorkflows: showWorkflowsPane,
         onShowExtensions: showExtensionsPane,
         onShowRecorder: showRecorderPane,
-        activeNav: showWorkflows ? "workflows" : showExtensions ? "extensions" : showLearnings ? "learnings" : showRecorder ? "recorder" : null,
+        activeNav: showWorkflows ? "workflows" : showExtensions ? "extensions" : showEvals ? "evals" : showRecorder ? "recorder" : null,
         workspaceSessionGroups,
         selectedWorkspaceId,
         selectedSessionId,
@@ -2013,9 +2013,9 @@ export function SessionRoute() {
         },
         onOpenSession: (workspaceId, sessionId) => {
           // Opening a session returns to the chat view — drop any open top-level
-          // pane (Learnings/Workflows/Integrations) so it doesn't stay rendered
+          // pane (Eval/Workflows/Integrations) so it doesn't stay rendered
           // over the session.
-          setShowLearnings(false);
+          setShowEvals(false);
           setShowWorkflows(false);
           setShowExtensions(false);
           setShowRecorder(false);
@@ -2064,8 +2064,8 @@ export function SessionRoute() {
         onForgetWorkspace: (id) => void handleForgetWorkspace(id),
         onOpenCreateWorkspace: () => {
           // New Task returns to the session view — drop any open top-level pane
-          // (Learnings/Skills/Integrations) so it doesn't linger behind the modal.
-          setShowLearnings(false);
+          // (Eval/Skills/Integrations) so it doesn't linger behind the modal.
+          setShowEvals(false);
           setShowWorkflows(false);
           setShowExtensions(false);
           handleOpenCreateWorkspace();

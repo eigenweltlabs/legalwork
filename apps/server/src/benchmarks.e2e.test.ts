@@ -25,6 +25,7 @@ const ENV_KEYS = [
 const previousEnv = new Map(ENV_KEYS.map((key) => [key, process.env[key]] as const));
 
 const SHA = "e2e0000000000000000000000000000000000000";
+const TASKS_SHA = "e2e1111111111111111111111111111111111111";
 
 const HARVEY_TASK = {
   title: "Draft Tax Memo",
@@ -149,12 +150,19 @@ beforeAll(() => {
       if (url.pathname === "/repos/harveyai/harvey-labs/commits/main") {
         return Response.json({ sha: SHA });
       }
+      // Repo root, then the `tasks` subtree the catalog walk descends into.
       if (url.pathname === `/repos/harveyai/harvey-labs/git/trees/${SHA}`) {
         return Response.json({
           truncated: false,
+          tree: [{ path: "tasks", type: "tree", sha: TASKS_SHA }],
+        });
+      }
+      if (url.pathname === `/repos/harveyai/harvey-labs/git/trees/${TASKS_SHA}`) {
+        return Response.json({
+          truncated: false,
           tree: [
-            { path: "tasks/tax/draft-tax-memo/task.json", type: "blob", mode: "100644" },
-            { path: "tasks/tax/draft-tax-memo/documents/input.docx", type: "blob", mode: "100644" },
+            { path: "tax/draft-tax-memo/task.json", type: "blob", sha: "blob-task", mode: "100644" },
+            { path: "tax/draft-tax-memo/documents/input.docx", type: "blob", sha: "blob-doc", mode: "100644" },
           ],
         });
       }

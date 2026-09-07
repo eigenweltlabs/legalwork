@@ -180,7 +180,7 @@ function SessionPreview() {
             onOpenSession: (_workspaceId, id) => setSelectedSessionId(id), onCreateTaskInWorkspace: newTask,
             onOpenRenameWorkspace: previewNotice, onRevealWorkspace: previewNotice, onForgetWorkspace: previewNotice,
             onOpenCreateWorkspace: previewNotice, onCreateTaskInNewWorkspace: previewNotice,
-            onShowLearnings: previewNotice, onShowWorkflows: previewNotice, onShowExtensions: previewNotice, onShowRecorder: previewNotice,
+            onShowEvals: previewNotice, onShowWorkflows: previewNotice, onShowExtensions: previewNotice, onShowRecorder: previewNotice,
           }}
           surface={{
             workspaceRoot: workspace.path, developerMode: false, modelLabel: "Preview model", onModelClick: previewNotice,
