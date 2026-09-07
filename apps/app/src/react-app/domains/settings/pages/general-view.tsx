@@ -17,6 +17,7 @@ import {
 import { t } from "../../../../i18n";
 import { isDesktopRuntime } from "../../../../app/utils";
 import type { SettingsTab } from "../../../../app/types";
+import { IconTile, Surface } from "@/react-app/design-system/surface";
 
 export type GeneralSettingsViewProps = {
   onNavigateTab: (tab: SettingsTab) => void;
@@ -78,18 +79,18 @@ function SettingsRow(props: { icon: LucideIcon; title: string; desc: string; onC
     <button
       type="button"
       onClick={props.onClick}
-      className="group flex w-full items-center gap-3.5 px-4 py-3 text-left transition-colors first:rounded-t-2xl last:rounded-b-2xl hover:bg-hover"
+      className="group flex w-full items-center gap-3.5 px-5 py-3.5 text-left transition-colors first:rounded-t-2xl last:rounded-b-2xl hover:bg-muted/40 focus-visible:bg-muted/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/40"
     >
-      <div className="grid size-9 shrink-0 place-items-center rounded-[10px] bg-sunken text-ink">
+      <IconTile size="sm" variant="inset">
         <props.icon size={17} />
-      </div>
+      </IconTile>
       <div className="min-w-0 flex-1">
-        <div className="text-base font-medium text-ink">{props.title}</div>
-        <div className="mt-0.5 text-sm leading-snug text-subtext">{props.desc}</div>
+        <div className="text-[13px] font-medium text-foreground">{props.title}</div>
+        <div className="mt-0.5 text-[13px] leading-relaxed text-muted-foreground">{props.desc}</div>
       </div>
       <ArrowRight
         size={16}
-        className="shrink-0 text-tertiary transition-transform group-hover:translate-x-0.5 group-hover:text-ink"
+        className="shrink-0 text-muted-foreground/60 transition-transform group-hover:translate-x-0.5 group-hover:text-foreground group-focus-visible:translate-x-0.5 group-focus-visible:text-foreground motion-reduce:transform-none motion-reduce:transition-none"
       />
     </button>
   );
@@ -99,7 +100,7 @@ function SettingsGroup(props: { label: string; items: SettingsItem[]; onNavigate
   return (
     <section className="space-y-2.5">
       <div className="lw-section-eyebrow px-1">{props.label}</div>
-      <div className="divide-y divide-subtle overflow-hidden rounded-2xl border border-subtle bg-surface shadow-xs">
+      <Surface className="divide-y divide-border/70 overflow-hidden">
         {props.items.map((item) => (
           <SettingsRow
             key={item.tab}
@@ -109,7 +110,7 @@ function SettingsGroup(props: { label: string; items: SettingsItem[]; onNavigate
             onClick={() => props.onNavigateTab(item.tab)}
           />
         ))}
-      </div>
+      </Surface>
     </section>
   );
 }

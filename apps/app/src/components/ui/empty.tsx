@@ -3,11 +3,11 @@ import { cva, type VariantProps } from "class-variance-authority"
 import { cn } from "@/lib/utils"
 
 const emptyVariants = cva(
-  "flex w-full min-w-0 flex-1 flex-col items-center justify-center gap-4 rounded-2xl p-12 text-center text-balance",
+  "flex w-full min-w-0 flex-1 flex-col items-center justify-center gap-5 rounded-[var(--lw-radius-2xl)] p-8 sm:p-10 text-center text-balance",
   {
     variants: {
       variant: {
-        default: "border border-border",
+        default: "border border-border bg-muted/15",
         ghost: "",
       },
     },
@@ -48,7 +48,7 @@ const emptyMediaVariants = cva(
     variants: {
       variant: {
         default: "bg-transparent",
-        icon: "flex size-10 shrink-0 items-center justify-center rounded-xl bg-muted text-foreground [&_svg:not([class*='size-'])]:size-5",
+        icon: "lw-icon-tile flex size-12 shrink-0 items-center justify-center rounded-[var(--lw-radius-2xl)] border border-border bg-background text-muted-foreground [&_svg:not([class*='size-'])]:size-5",
       },
     },
     defaultVariants: {
@@ -77,7 +77,7 @@ function EmptyTitle({ className, ...props }: React.ComponentProps<"div">) {
     <div
       data-slot="empty-title"
       className={cn(
-        "font-heading text-base font-medium",
+        "font-heading text-base font-medium tracking-[-0.015em]",
         className
       )}
       {...props}
@@ -90,7 +90,7 @@ function EmptyDescription({ className, ...props }: React.ComponentProps<"p">) {
     <div
       data-slot="empty-description"
       className={cn(
-        "text-sm text-muted-foreground [&>a]:underline [&>a]:underline-offset-4 [&>a:hover]:text-primary",
+        "text-sm leading-relaxed text-muted-foreground [&>a]:underline [&>a]:underline-offset-4 [&>a:hover]:text-primary",
         className
       )}
       {...props}

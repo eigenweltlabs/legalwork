@@ -10,7 +10,7 @@ type SettingsContentProps = {
 };
 
 export function SettingsContent(props: SettingsContentProps) {
-  return <div className="min-w-0 min-h-0 flex-1 overflow-y-auto flex flex-col gap-6 p-4 md:gap-8 md:p-6 lg:p-8 items-center">{props.children}</div>;
+  return <div className="flex min-h-0 min-w-0 flex-1 flex-col items-center gap-7 overflow-y-auto px-5 py-7 md:gap-8 md:p-8">{props.children}</div>;
 }
 
 type SettingsPanelProps = {
@@ -46,7 +46,7 @@ type SettingsPanelTitleProps = {
 };
 
 export function SettingsPanelTitle(props: SettingsPanelTitleProps) {
-  return <h2 className={cn("text-[26px] font-medium leading-[1.04] tracking-[-0.03em] text-foreground", props.className)}>{props.children}</h2>;
+  return <h2 className={cn("text-[28px] font-medium leading-tight tracking-[-0.035em] text-foreground", props.className)}>{props.children}</h2>;
 }
 
 type SettingsPanelDescriptionProps = {
@@ -54,7 +54,7 @@ type SettingsPanelDescriptionProps = {
 };
 
 export function SettingsPanelDescription(props: SettingsPanelDescriptionProps) {
-  return <p className="text-sm text-muted-foreground">{props.children}</p>;
+  return <p className="max-w-xl text-[13px] leading-relaxed text-muted-foreground">{props.children}</p>;
 }
 
 type SettingsPanelToolbarProps = {
@@ -84,7 +84,7 @@ export function SettingsPanelToolbarStatus(props: SettingsPanelToolbarStatusProp
   return (
     <div
       className={cn(
-        "flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs shadow-sm",
+        "flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs",
         props.tone ?? "bg-gray-4/60 text-gray-11 border-gray-7/50",
       )}
       title={props.title}

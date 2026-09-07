@@ -1,5 +1,6 @@
 import * as React from "react";
 import { cn } from "@/lib/utils";
+import { Surface } from "@/react-app/design-system/surface";
 
 export interface LayoutStackProps {
   children: React.ReactNode;
@@ -41,12 +42,12 @@ export function LayoutSection({ children }: LayoutSectionProps) {
   const flush = () => {
     if (run.length === 0) return;
     out.push(
-      <div
+      <Surface
         key={`grp-${runKey++}`}
-        className="divide-y divide-subtle overflow-hidden rounded-2xl border border-subtle bg-surface shadow-xs"
+        className="divide-y divide-border/70 overflow-hidden"
       >
         {run}
-      </div>,
+      </Surface>,
     );
     run = [];
   };
@@ -85,7 +86,7 @@ interface LayoutSectionTitleProps {
 
 export function LayoutSectionTitle({ children, className }: LayoutSectionTitleProps) {
   return (
-    <h3 className={cn("flex items-center gap-2 text-base font-medium text-foreground", className)}>
+    <h3 className={cn("flex items-center gap-2 text-[13px] font-semibold tracking-[-0.01em] text-foreground", className)}>
       {children}
     </h3>
   );
@@ -124,7 +125,7 @@ interface LayoutSectionItemProps {
 
 export function LayoutSectionItem({ children, className }: LayoutSectionItemProps) {
   return (
-    <div className={cn("flex flex-col gap-3 px-4 py-3.5", className)}>
+    <div className={cn("flex flex-col gap-3 px-5 py-4", className)}>
       {children}
     </div>
   );
@@ -137,7 +138,7 @@ interface LayoutSectionItemHeaderProps {
 
 export function LayoutSectionItemHeader({ children, className }: LayoutSectionItemHeaderProps) {
   return (
-    <div className={cn("grid auto-rows-min items-start gap-y-1 gap-x-3 has-data-[slot=item-header-actions]:grid-cols-[1fr_auto]", className)}>
+    <div className={cn("grid auto-rows-min items-start gap-x-3 gap-y-1 @min-[560px]/settings:has-data-[slot=item-header-actions]:grid-cols-[1fr_auto]", className)}>
       {children}
     </div>
   );
@@ -163,7 +164,7 @@ interface LayoutSectionItemDescriptionProps {
 
 export function LayoutSectionItemDescription({ children, className }: LayoutSectionItemDescriptionProps) {
   return (
-    <p data-slot="item-description" className={cn("text-sm text-muted-foreground", className)}>
+    <p data-slot="item-description" className={cn("text-[13px] leading-relaxed text-muted-foreground", className)}>
       {children}
     </p>
   );
@@ -176,7 +177,7 @@ interface LayoutSectionItemHeaderActionsProps {
 
 export function LayoutSectionItemHeaderActions({ children, className }: LayoutSectionItemHeaderActionsProps) {
   return (
-    <div data-slot="item-header-actions" className={cn("col-start-2 row-span-2 row-start-1 flex flex-wrap items-center gap-2 self-start justify-self-end", className)}>
+    <div data-slot="item-header-actions" className={cn("mt-2 flex flex-wrap items-center gap-2 self-start justify-self-start @min-[560px]/settings:col-start-2 @min-[560px]/settings:row-span-2 @min-[560px]/settings:row-start-1 @min-[560px]/settings:mt-0 @min-[560px]/settings:justify-self-end", className)}>
       {children}
     </div>
   );

@@ -14,9 +14,13 @@ import {
 import { Button, Card } from "@legalwork/ui/react";
 
 import { toast } from "@/components/ui/sonner";
-import { t } from "@/i18n";
+import { currentLocale, t } from "@/i18n";
 import { openDesktopUrl } from "@/app/lib/desktop";
-import { eigenweltTrialState, isEigenweltEntitledStatus } from "@/app/lib/eigenwelt-trial";
+import {
+  eigenweltPlanWithoutModels,
+  eigenweltTrialState,
+  isEigenweltEntitledStatus,
+} from "@/app/lib/eigenwelt-trial";
 import type { LegalworkServerClient } from "@/app/lib/legalwork-server";
 import { ProviderIcon } from "@/react-app/design-system/provider-icon";
 import {
@@ -66,6 +70,22 @@ export type EigenweltAccountViewProps = {
   /** Called after connect/disconnect so the host can reload the engine. */
   onConfigApplied?: () => void;
 };
+
+/** The reset day of the included usage in the app's language, or null when unknown. */
+function formatUsageResetDate(iso: string | null | undefined): string | null {
+  if (!iso) return null;
+  const at = Date.parse(iso);
+  if (!Number.isFinite(at)) return null;
+  try {
+    return new Intl.DateTimeFormat(currentLocale(), {
+      weekday: "short",
+      day: "numeric",
+      month: "short",
+    }).format(new Date(at));
+  } catch {
+    return new Date(at).toDateString();
+  }
+}
 
 export function EigenweltAccountView({
   legalworkClient,
@@ -232,8 +252,17 @@ export function EigenweltAccountView({
   );
   const planValue =
     planActive && entitlements?.plan
-      ? entitlements.plan.charAt(0).toUpperCase() + entitlements.plan.slice(1)
+      ? entitlements.plan === "hub"
+        ? t("account.plan_hub")
+        : entitlements.plan.charAt(0).toUpperCase() + entitlements.plan.slice(1)
       : t("account.plan_inactive");
+  // The Knowledge Hub plan has no Eigenwelt models: no usage to show, and the
+  // models row explains the upgrade instead of "no models yet".
+  const modelsIncluded = hasEigenweltFeature(entitlements, "premium_models");
+  // When the seat's included usage resets, e.g. "Mon, Sep 7" (platforms that
+  // send no reset time show the percentage alone).
+  const usageResetsOn = formatUsageResetDate(entitlements?.usage.resetsAt);
+  const planWithoutModels = eigenweltPlanWithoutModels(entitlements);
   const trial = eigenweltTrialState(entitlements);
   const trialText =
     trial.kind === "active"
@@ -309,15 +338,27 @@ export function EigenweltAccountView({
           </LayoutSectionItemHeader>
         </LayoutSectionItem>
 
-        {entitlements ? (
+        {entitlements && modelsIncluded ? (
           <LayoutSectionItem>
             <LayoutSectionItemHeader>
-              <LayoutSectionItemTitle>{t("firm_hub.usage_label")}</LayoutSectionItemTitle>
+              <LayoutSectionItemTitle>
+                {entitlements.usage.window === "week"
+                  ? t("firm_hub.usage_label_week")
+                  : t("firm_hub.usage_label")}
+              </LayoutSectionItemTitle>
+              {usageResetsOn ? (
+                <LayoutSectionItemDescription>
+                  {t("firm_hub.usage_resets", { date: usageResetsOn })}
+                </LayoutSectionItemDescription>
+              ) : null}
               <LayoutSectionItemHeaderActions>
                 <span className="text-sm text-muted-foreground">
-                  {t("firm_hub.usage_today", {
-                    percent: String(entitlements.usage.dailyUsedPercent),
-                  })}
+                  {t(
+                    entitlements.usage.window === "week"
+                      ? "firm_hub.usage_this_week"
+                      : "firm_hub.usage_today",
+                    { percent: String(entitlements.usage.usedPercent) },
+                  )}
                 </span>
               </LayoutSectionItemHeaderActions>
             </LayoutSectionItemHeader>
@@ -327,7 +368,9 @@ export function EigenweltAccountView({
         <LayoutSectionItem>
           <LayoutSectionItemHeader>
             <LayoutSectionItemTitle>{t("account.models_label")}</LayoutSectionItemTitle>
-            {!hasModels ? (
+            {planWithoutModels ? (
+              <LayoutSectionItemDescription>{t("account.models_not_in_plan")}</LayoutSectionItemDescription>
+            ) : !hasModels ? (
               <LayoutSectionItemDescription>{t("account.no_models")}</LayoutSectionItemDescription>
             ) : null}
             <LayoutSectionItemHeaderActions>

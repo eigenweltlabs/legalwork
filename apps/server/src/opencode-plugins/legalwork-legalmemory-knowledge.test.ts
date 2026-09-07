@@ -22,6 +22,7 @@ describe("LegalWork LegalMemory knowledge plugin", () => {
     const system = output.system.join("\n");
     expect(system).toContain("LegalMemory is connected");
     expect(system).toContain("SEARCH LEGALMEMORY FIRST");
+    expect(system).toContain("Do NOT search LegalMemory for a direct, fully specified edit");
     // The markdown-link form, which is what the model measurably emits.
     expect(system).toContain("[<document title>](legalmemory://document/<document_id>)");
     // The interface renders the Sources list, so the model must not write one.

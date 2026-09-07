@@ -6,6 +6,7 @@ import type { SessionStatus } from "@opencode-ai/sdk/v2/client";
 import { Check, Minimize2, TriangleAlert } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "@/components/ui/sonner";
+import { cn } from "@/lib/utils";
 
 import { analyticsSurface, captureAnalyticsEvent } from "@/app/lib/analytics";
 import { analyticsErrorService, analyticsErrorStatus } from "@/app/lib/analytics-error";
@@ -21,7 +22,7 @@ import {
   eigenweltBillingUrl,
   useEigenweltEntitlements,
 } from "@/react-app/domains/connections/eigenwelt-entitlements";
-import { eigenweltTrialState } from "@/app/lib/eigenwelt-trial";
+import { eigenweltPlanWithoutModels, eigenweltTrialState } from "@/app/lib/eigenwelt-trial";
 import { openDesktopUrl } from "@/app/lib/desktop";
 import { eigenweltPremiumPlatformUrl } from "@/react-app/domains/recorder/model-tiers";
 import { createClient, unwrap } from "@/app/lib/opencode";
@@ -56,6 +57,11 @@ import {
 import { useControlAction, type LegalworkControlAction } from "@/react-app/shell/control/control-provider";
 import { ReactSessionComposer } from "./composer/composer";
 import {
+  VoicePanel,
+  type VoiceOpenCodeJobSnapshot,
+} from "@/react-app/domains/session/voice/voice-panel";
+import { collectVoiceActivity } from "@/react-app/domains/session/voice/voice-activity";
+import {
   createLegalMemoryComposerMention,
   decodeComposerMentionValue,
   encodeComposerMentionValue,
@@ -73,7 +79,7 @@ import { SessionDebugPanel } from "./debug-panel";
 import { deriveRenderedSessionMessages, resolveRenderedSessionSnapshot } from "./session-render-state";
 import { useLocal } from "@/react-app/kernel/local-provider";
 import { useRecorderStore } from "@/react-app/domains/recorder/recorder-store";
-import { isModelReadableAttachment } from "@/react-app/domains/session/sync/attachment-support";
+import { uploadWorkspaceAttachment, workspaceAttachmentDisplayText, workspaceAttachmentInstruction } from "./composer/workspace-attachment";
 import { deriveSessionRenderModel } from "@/react-app/domains/session/sync/transition-controller";
 import { useSessionScrollController } from "./scroll-controller";
 import { SessionScrollOverlay } from "./scroll-overlay";
@@ -115,6 +121,7 @@ import {
 const EMPTY_TRANSCRIPT: UIMessage[] = [];
 const IDLE_STATUS: SessionStatus = { type: "idle" };
 const DEFAULT_COMPOSER_CONTROL_TEXT = "Help me outline the next LegalWork task.";
+const VOICE_JOB_COMPLETION_SETTLE_MS = 3_000;
 
 type SessionError = {
   message: string;
@@ -179,6 +186,9 @@ export type SessionSurfaceProps = {
   onOpenTarget?: (target: OpenTarget, options?: OpenTargetOptions, sessionId?: string) => void;
   environmentRuntimeKey?: string | null;
   onApplyEnvironmentChanges?: () => Promise<ApplyEnvironmentChangesResult>;
+  realtimeVoiceSupported?: boolean;
+  realtimeVoiceActive?: boolean;
+  onRealtimeVoiceActiveChange?: (active: boolean) => void;
 };
 
 function messageToReadableText(message: UIMessage) {
@@ -205,6 +215,20 @@ function transcriptToText(messages: UIMessage[]) {
       return text ? [text] : [];
     })
     .join("\n\n---\n\n");
+}
+
+function assistantCanonicalText(message: UIMessage) {
+  if (message.role !== "assistant") return "";
+  return message.parts
+    .flatMap((part) => part.type === "text" ? [part.text] : [])
+    .join("\n\n")
+    .trim();
+}
+
+function messagesHaveRunningTool(messages: UIMessage[]) {
+  return messages.some((message) => message.parts.some((part) => (
+    part.type === "dynamic-tool" && part.state !== "output-available" && part.state !== "output-error"
+  )));
 }
 
 function statusLabel(snapshot: LegalworkSessionSnapshot | undefined, busy: boolean) {
@@ -321,8 +345,11 @@ function TodoPanel(props: { todos: TodoItem[] }) {
   );
 }
 
-/** The ways out of "no usable model": trial sign-up, sign-in, or bring your own. */
-export type ConnectAiAction = "trial" | "login" | "byo";
+/**
+ * The ways out of "no usable model": trial sign-up, sign-in, bring your own,
+ * or (a firm on the Knowledge Hub plan) upgrading to Plus.
+ */
+export type ConnectAiAction = "trial" | "login" | "byo" | "upgrade";
 
 /**
  * Banner shown above the composer when there is no usable model (there is no
@@ -330,33 +357,49 @@ export type ConnectAiAction = "trial" | "login" | "byo";
  * provider that is no longer connected (signed out of Eigenwelt, access
  * revoked) with nothing else to switch to. Offers the three real paths: the
  * Eigenwelt trial, signing in to an existing account, or bringing your own
- * model/key.
+ * model/key. A firm subscribed to the Knowledge Hub (no AI in the plan) gets
+ * "upgrade or bring your own" instead: it is signed in and paying already.
  */
 function NoModelNotice(props: {
-  variant: "none" | "signed-out";
+  variant: "none" | "signed-out" | "no-ai-plan";
   onConnect?: (action: ConnectAiAction) => void;
 }) {
+  const primaryButtonClass =
+    "rounded-md bg-primary px-2.5 py-1 text-xs font-medium text-primary-fg transition-opacity hover:opacity-90";
   const secondaryButtonClass =
     "rounded-md border border-dls-border px-2.5 py-1 text-xs font-medium text-dls-text transition-colors hover:bg-dls-hover";
+  const title =
+    props.variant === "no-ai-plan"
+      ? t("chat.no_ai_plan_title")
+      : props.variant === "signed-out"
+        ? t("chat.signed_out_title")
+        : t("chat.no_model_title");
+  const body =
+    props.variant === "no-ai-plan"
+      ? t("chat.no_ai_plan_body")
+      : props.variant === "signed-out"
+        ? t("chat.signed_out_body")
+        : t("chat.no_model_body");
   return (
     <div className="flex flex-wrap items-center gap-2.5 border-b border-dls-border bg-dls-surface px-4 py-3">
       <p className="min-w-0 flex-1 text-xs leading-relaxed text-dls-secondary">
-        <span className="font-medium text-dls-text">
-          {props.variant === "signed-out" ? t("chat.signed_out_title") : t("chat.no_model_title")}
-        </span>{" "}
-        {props.variant === "signed-out" ? t("chat.signed_out_body") : t("chat.no_model_body")}
+        <span className="font-medium text-dls-text">{title}</span> {body}
       </p>
       <div className="flex shrink-0 items-center gap-2">
-        <button
-          type="button"
-          className="rounded-md bg-primary px-2.5 py-1 text-xs font-medium text-primary-fg transition-opacity hover:opacity-90"
-          onClick={() => props.onConnect?.("trial")}
-        >
-          {t("chat.no_model_trial")}
-        </button>
-        <button type="button" className={secondaryButtonClass} onClick={() => props.onConnect?.("login")}>
-          {t("chat.no_model_login")}
-        </button>
+        {props.variant === "no-ai-plan" ? (
+          <button type="button" className={primaryButtonClass} onClick={() => props.onConnect?.("upgrade")}>
+            {t("chat.no_ai_plan_upgrade")}
+          </button>
+        ) : (
+          <>
+            <button type="button" className={primaryButtonClass} onClick={() => props.onConnect?.("trial")}>
+              {t("chat.no_model_trial")}
+            </button>
+            <button type="button" className={secondaryButtonClass} onClick={() => props.onConnect?.("login")}>
+              {t("chat.no_model_login")}
+            </button>
+          </>
+        )}
         <button type="button" className={secondaryButtonClass} onClick={() => props.onConnect?.("byo")}>
           {t("chat.no_model_byo")}
         </button>
@@ -511,10 +554,21 @@ function mergeDrafts(drafts: ComposerDraft[]): ComposerDraft | null {
 export function SessionSurface(props: SessionSurfaceProps) {
   const local = useLocal();
   const { config: shellConfig } = useShellConfig();
+  // No model connected at all (free tier retired): offer trial / BYO inline.
+  const noModelNoticeVisible = !props.selectedModel.providerID;
+  // The selection points at a provider that is no longer connected and
+  // nothing else is; refined below once the trial state is known.
+  const lockedOutCandidate =
+    !noModelNoticeVisible &&
+    Boolean(props.modelUnavailable) &&
+    (props.providerConnectedCount ?? 0) === 0;
   const eigenweltEntitlementsQuery = useEigenweltEntitlements({
     client: props.client,
     workspaceId: props.workspaceId,
-    enabled: props.selectedModel.providerID === "eigenwelt",
+    // Also needed while a connect notice may show: a firm on the Knowledge
+    // Hub plan is signed in with no model and gets its own wording.
+    enabled:
+      props.selectedModel.providerID === "eigenwelt" || noModelNoticeVisible || lockedOutCandidate,
   });
   const eigenweltPlan = eigenweltEntitlementsQuery.data?.entitlements?.plan ?? null;
   // Trial lapsed while the selection still points at the Eigenwelt provider:
@@ -524,23 +578,45 @@ export function SessionSurface(props: SessionSurfaceProps) {
   const trialEndedNoticeVisible =
     props.selectedModel.providerID === "eigenwelt" && eigenweltTrial.kind === "ended";
   const trialBillingUrl = eigenweltBillingUrl(eigenweltEntitlementsQuery.data?.platformURL ?? null);
-  // No model connected at all (free tier retired): offer trial / BYO inline.
-  const noModelNoticeVisible = !props.selectedModel.providerID;
   // Locked out: the selection points at a provider that is no longer
   // connected (signed out of Eigenwelt, access revoked, provider removed) and
   // nothing else is connected, so there is no model to switch to. Same ways
   // out as "no model"; a lapsed trial keeps its own subscribe notice.
-  const lockedOutNoticeVisible =
-    !noModelNoticeVisible &&
+  const lockedOutNoticeVisible = lockedOutCandidate && !trialEndedNoticeVisible;
+  // Signed in to a firm on the Knowledge Hub plan: subscribed, but the plan
+  // has no Eigenwelt models, so neither "start a trial" nor "log in" applies.
+  // Also shown while the selection still points at the Eigenwelt provider
+  // (a firm moved down from Plus keeps the model in the picker until the
+  // engine config is rebuilt; the gateway already rejects it).
+  const planWithoutModels =
+    (eigenweltEntitlementsQuery.data?.connected ?? false) &&
+    eigenweltPlanWithoutModels(eigenweltEntitlementsQuery.data?.entitlements ?? null);
+  const noAiPlanNoticeVisible =
+    planWithoutModels &&
     !trialEndedNoticeVisible &&
-    Boolean(props.modelUnavailable) &&
-    (props.providerConnectedCount ?? 0) === 0;
-  const connectNoticeVisible = noModelNoticeVisible || lockedOutNoticeVisible;
-  const connectNoticeVariant =
-    lockedOutNoticeVisible && props.selectedModel.providerID === "eigenwelt" ? "signed-out" : "none";
+    (noModelNoticeVisible || lockedOutCandidate || props.selectedModel.providerID === "eigenwelt");
+  const connectNoticeVisible =
+    noModelNoticeVisible || lockedOutNoticeVisible || noAiPlanNoticeVisible;
+  const connectNoticeVariant = noAiPlanNoticeVisible
+    ? "no-ai-plan"
+    : lockedOutNoticeVisible && props.selectedModel.providerID === "eigenwelt"
+      ? "signed-out"
+      : "none";
+  // "Upgrade to Plus" opens the firm's billing page; everything else is the
+  // route's business (sign-in flows, the provider picker).
+  const onConnectAi = (action: ConnectAiAction) => {
+    if (action === "upgrade") {
+      void openDesktopUrl(trialBillingUrl);
+      return;
+    }
+    props.onConnectAi?.(action);
+  };
   const showThinking = local.prefs.showThinking;
   const sessionActivityStatus = useSessionActivityStore(
     (state) => state.statusesByWorkspaceId[props.workspaceId]?.[props.sessionId] ?? "idle",
+  );
+  const sessionActivityError = useSessionActivityStore(
+    (state) => state.recordsByWorkspaceId[props.workspaceId]?.[props.sessionId]?.errorMessage ?? null,
   );
   const draft = useComposerStateStore((state) => getComposerDraft(state, props.sessionId));
   const attachments = useComposerStateStore((state) => getComposerAttachments(state, props.sessionId));
@@ -559,15 +635,14 @@ export function SessionSurface(props: SessionSurfaceProps) {
   // session.
   const queuedDrafts = useComposerStateStore((state) => getComposerQueuedDrafts(state, props.sessionId));
   const officeAddinRuntime = isOfficeAddinRuntime();
-  // No fusion in the Office pane, and none when there is only one model to
-  // fuse (single provider, single model) — the toggle would be meaningless.
-  const fusionAvailable = !officeAddinRuntime && !props.modelSelectorLocked;
+  const fusionDefaultModels = local.prefs.fusionModels;
+  // Show Fusion only after candidate models have been configured in Settings.
+  const fusionAvailable = !officeAddinRuntime && !props.modelSelectorLocked && (fusionDefaultModels?.length ?? 0) > 0;
   const storedFusionEnabled = useFusionStore((state) => Boolean(state.enabledSessionIds[props.sessionId]));
   const fusionEnabled = fusionAvailable && storedFusionEnabled;
   const fusionModels = useFusionStore((state) => state.selectedModelsBySessionId[props.sessionId]);
   const setFusionEnabled = useFusionStore((state) => state.setEnabled);
   const setFusionModels = useFusionStore((state) => state.setSelectedModels);
-  const fusionDefaultModels = local.prefs.fusionModels;
   const [fusionIntroOpen, setFusionIntroOpen] = useState(false);
   useEffect(() => {
     if (!fusionAvailable && storedFusionEnabled) {
@@ -689,6 +764,13 @@ export function SessionSurface(props: SessionSurfaceProps) {
   const [sending, setSending] = useState(false);
   const [showDelayedLoading, setShowDelayedLoading] = useState(false);
   const [awaitingAssistantBaseline, setAwaitingAssistantBaseline] = useState<number | null>(null);
+  const [voiceJob, setVoiceJob] = useState<(VoiceOpenCodeJobSnapshot & {
+    workspaceId: string;
+    sessionId: string;
+    baseline: number;
+    observedRun: boolean;
+  }) | null>(null);
+  const voiceJobRef = useRef(voiceJob);
   const [rendered, setRendered] = useState<{ sessionId: string; snapshot: LegalworkSessionSnapshot } | null>(null);
   const [toolSkills, setToolSkills] = useState<SkillCard[]>([]);
   const [toolMcpServers, setToolMcpServers] = useState<McpServerEntry[]>([]);
@@ -1018,6 +1100,10 @@ export function SessionSurface(props: SessionSurfaceProps) {
         const kind = mentions[value];
         if (kind === "agent") return [{ type: "agent", name: value } satisfies ComposerDraft["parts"][number]];
         if (kind === "file") return [{ type: "file", path: value, label: value } satisfies ComposerDraft["parts"][number]];
+        if (kind === "upload") {
+          modelContexts.push(workspaceAttachmentInstruction(value));
+          return [{ type: "text", text: workspaceAttachmentDisplayText(value) } satisfies ComposerDraft["parts"][number]];
+        }
         if (kind === "memory") {
           modelContexts.push(legalMemoryComposerInstruction(value));
           return [{ type: "text", text: legalMemoryComposerDisplayText(value) } satisfies ComposerDraft["parts"][number]];
@@ -1036,7 +1122,7 @@ export function SessionSurface(props: SessionSurfaceProps) {
     for (const [value, kind] of Object.entries(mentions)) {
       resolved = resolved.replaceAll(
         `@${encodeComposerMentionValue(value)}`,
-        kind === "memory" ? legalMemoryComposerDisplayText(value) : `@${value}`,
+        kind === "memory" ? legalMemoryComposerDisplayText(value) : kind === "upload" ? workspaceAttachmentDisplayText(value) : `@${value}`,
       );
     }
     const slashCommand = parseSlashCommandInvocation(resolved);
@@ -1169,6 +1255,140 @@ export function SessionSurface(props: SessionSurfaceProps) {
     await snapshotQuery.refetch();
   }, [chatStreaming, clearQueuedDrafts, opencodeClient, props.sessionId, props.workspaceRoot, snapshotQuery.refetch]);
 
+  const startVoiceJob = useCallback(async (request: string) => {
+    const text = request.trim();
+    if (!text) throw new Error("The request is empty.");
+    const current = voiceJobRef.current;
+    if (current && !["completed", "cancelled", "error"].includes(current.status)) {
+      unwrap(await opencodeClient.session.promptAsync({
+        sessionID: props.sessionId,
+        directory: props.workspaceRoot.trim() || undefined,
+        model: props.selectedModel,
+        agent: props.selectedAgent ?? undefined,
+        parts: [{ type: "text", text }],
+      }));
+      return { jobId: current.id };
+    }
+    if (chatStreaming) {
+      throw new Error("I’m still working on the current request. Please wait a moment.");
+    }
+
+    const jobId = `voice_${crypto.randomUUID()}`;
+    const job = {
+      id: jobId,
+      status: "queued" as const,
+      workspaceId: props.workspaceId,
+      sessionId: props.sessionId,
+      baseline: renderedMessages.length,
+      observedRun: false,
+    };
+    voiceJobRef.current = job;
+    setVoiceJob(job);
+    setAwaitingAssistantBaseline(renderedMessages.length);
+    useSessionActivityStore.getState().setRunStatus(props.workspaceId, props.sessionId, { type: "busy" });
+
+    // Work selected by the voice conversation enters the same canonical
+    // session and follows its normal event and transcript path.
+    void (async () => {
+      try {
+        unwrap(await opencodeClient.session.promptAsync({
+          sessionID: props.sessionId,
+          directory: props.workspaceRoot.trim() || undefined,
+          model: props.selectedModel,
+          agent: props.selectedAgent ?? undefined,
+          parts: [{ type: "text", text }],
+        }));
+      } catch (jobError) {
+        const message = jobError instanceof Error ? jobError.message : String(jobError);
+        setVoiceJob((activeJob) => {
+          if (!activeJob || activeJob.id !== jobId) return activeJob;
+          const failed = { ...activeJob, status: "error" as const, error: message };
+          voiceJobRef.current = failed;
+          return failed;
+        });
+        useSessionActivityStore.getState().setError(props.workspaceId, props.sessionId, message);
+      }
+    })();
+
+    return { jobId };
+  }, [chatStreaming, opencodeClient, props.selectedAgent, props.selectedModel, props.sessionId, props.workspaceId, props.workspaceRoot, renderedMessages.length]);
+
+  useEffect(() => {
+    voiceJobRef.current = voiceJob;
+  }, [voiceJob]);
+
+  useEffect(() => {
+    setVoiceJob((current) => {
+      if (!current || (current.workspaceId === props.workspaceId && current.sessionId === props.sessionId)) return current;
+      voiceJobRef.current = null;
+      return null;
+    });
+  }, [props.sessionId, props.workspaceId]);
+
+  useEffect(() => {
+    setVoiceJob((current) => {
+      if (!current || ["completed", "cancelled", "error"].includes(current.status)) return current;
+      if (sessionActivityStatus === "error") {
+        const failed = { ...current, status: "error" as const, error: sessionActivityError || "I couldn’t complete that request." };
+        voiceJobRef.current = failed;
+        return failed;
+      }
+
+      const jobMessages = renderedMessages.slice(current.baseline);
+      const observedRun = current.observedRun || effectiveActivityStatus !== "idle" || jobMessages.length > 0;
+
+      let status: VoiceOpenCodeJobSnapshot["status"] = current.status;
+      if (effectiveActivityStatus === "waiting") status = "waiting_approval";
+      else if (messagesHaveRunningTool(jobMessages)) status = "tool_use";
+      else if (effectiveActivityStatus !== "idle") status = "thinking";
+
+      if (status === current.status && observedRun === current.observedRun) {
+        return current;
+      }
+      const next = {
+        ...current,
+        status,
+        observedRun,
+      };
+      voiceJobRef.current = next;
+      return next;
+    });
+  }, [effectiveActivityStatus, renderedMessages, sessionActivityError, sessionActivityStatus]);
+
+  useEffect(() => {
+    const current = voiceJobRef.current;
+    if (
+      !current
+      || ["completed", "cancelled", "error"].includes(current.status)
+      || !current.observedRun
+      || effectiveActivityStatus !== "idle"
+    ) return;
+    const jobMessages = renderedMessages.slice(current.baseline);
+    if (messagesHaveRunningTool(jobMessages)) return;
+    const canonicalResult = jobMessages
+      .map(assistantCanonicalText)
+      .filter(Boolean)
+      .at(-1) ?? "";
+    if (!canonicalResult) return;
+
+    const jobId = current.id;
+    const timer = window.setTimeout(() => {
+      setVoiceJob((activeJob) => {
+        if (!activeJob || activeJob.id !== jobId || ["completed", "cancelled", "error"].includes(activeJob.status)) {
+          return activeJob;
+        }
+        const completed = { ...activeJob, status: "completed" as const, result: canonicalResult };
+        voiceJobRef.current = completed;
+        return completed;
+      });
+    }, VOICE_JOB_COMPLETION_SETTLE_MS);
+    return () => window.clearTimeout(timer);
+  }, [effectiveActivityStatus, renderedMessages]);
+
+  const voiceActivity = useMemo(() => (
+    voiceJob ? collectVoiceActivity(renderedMessages.slice(voiceJob.baseline)) : []
+  ), [renderedMessages, voiceJob]);
+
   const handleDismissError = useCallback(() => {
     setError(null);
     useSessionActivityStore.getState().clearError(props.workspaceId, props.sessionId);
@@ -1209,40 +1429,35 @@ export function SessionSurface(props: SessionSurfaceProps) {
     props.onDraftChange(buildDraft(draft, attachments));
   }, [attachments, buildDraft, draft, props.onDraftChange]);
 
-  const handleAttachFiles = (files: File[]) => {
+  const [pendingAttachmentUploads, setPendingAttachmentUploads] = useState(0);
+
+  const handleAttachFiles = async (files: File[]) => {
     if (!props.attachmentsEnabled) {
       toast.warning(props.attachmentsDisabledReason ?? "Attachments are unavailable.");
       return;
     }
-    const oversized = files.filter((file) => file.size > 25 * 1024 * 1024);
-    const sized = files.filter((file) => file.size <= 25 * 1024 * 1024);
-    if (oversized.length) {
-      toast.warning(
-        oversized.length === 1 ? `${oversized[0]?.name ?? "File"} is too large` : `${oversized.length} files are too large`,
-        { description: "Files over 25 MB were skipped." },
-      );
+    setPendingAttachmentUploads((count) => count + files.length);
+    for (const file of files) {
+      const notification = toast.info(`Attaching ${file.name}…`, { duration: Infinity });
+      try {
+        const reference = await uploadWorkspaceAttachment(props.client, props.workspaceId, file);
+        const state = useComposerStateStore.getState();
+        const currentDraft = getComposerDraft(state, props.sessionId);
+        const currentMentions = getComposerMentions(state, props.sessionId);
+        const separator = currentDraft && !/\s$/.test(currentDraft) ? " " : "";
+        setComposerDraft(props.sessionId, `${currentDraft}${separator}@${encodeComposerMentionValue(reference)} `);
+        setComposerMentions(props.sessionId, { ...currentMentions, [reference]: "upload" });
+        void queryClient.invalidateQueries({ queryKey: ["workspace-files", props.workspaceId] });
+        toast.dismiss(notification);
+      } catch (error) {
+        toast.error(`Could not attach ${file.name}`, {
+          id: notification,
+          description: error instanceof Error ? error.message : "File upload failed",
+        });
+      } finally {
+        setPendingAttachmentUploads((count) => count - 1);
+      }
     }
-    const unreadable = sized.filter((file) => !isModelReadableAttachment(file.type));
-    const accepted = sized.filter((file) => isModelReadableAttachment(file.type));
-    if (unreadable.length) {
-      toast.warning(
-        unreadable.length === 1
-          ? `${unreadable[0]?.name ?? "File"} has a format the model can't read`
-          : `${unreadable.length} files have formats the model can't read`,
-        { description: "Convert to PDF, image, or plain text and attach again." },
-      );
-    }
-    if (!accepted.length) return;
-    const next = accepted.map((file) => ({
-      id: `${file.name}-${file.lastModified}-${Math.random().toString(36).slice(2)}`,
-      name: file.name,
-      mimeType: file.type || "application/octet-stream",
-      size: file.size,
-      kind: file.type.startsWith("image/") ? "image" as const : "file" as const,
-      file,
-      previewUrl: file.type.startsWith("image/") ? URL.createObjectURL(file) : undefined,
-    }));
-    setComposerAttachments(props.sessionId, [...attachments, ...next]);
   };
 
   const handleRemoveAttachment = (id: string) => {
@@ -1656,6 +1871,7 @@ export function SessionSurface(props: SessionSurfaceProps) {
       <div className="relative min-h-0 flex-1">
         <div
           ref={scrollRef}
+          aria-hidden={props.realtimeVoiceActive || undefined}
           onWheel={(event) => {
             sessionScroll.markScrollGesture(event.target);
           }}
@@ -1670,7 +1886,10 @@ export function SessionSurface(props: SessionSurfaceProps) {
             sessionScroll.markScrollGesture(event.currentTarget);
           }}
           onScroll={sessionScroll.handleScroll}
-          className="absolute inset-0 overflow-x-hidden overflow-y-auto overscroll-y-contain px-3 py-4 sm:px-5"
+          className={cn(
+            "absolute inset-0 overflow-x-hidden overflow-y-auto overscroll-y-contain px-3 py-4 sm:px-5",
+            props.realtimeVoiceActive && "pointer-events-none",
+          )}
         >
           {/* Chat column: tighter than the composer (800px) so messages
                keep a comfortable reading width and don't feel "too big". */}
@@ -1745,15 +1964,30 @@ export function SessionSurface(props: SessionSurfaceProps) {
             )}
           </div>
         </div>
-        <SessionScrollOverlay
-          sessionId={props.sessionId}
-          isStreaming={chatStreaming}
-          onJumpToLatest={sessionScroll.jumpToLatest}
-          onJumpToStartOfMessage={sessionScroll.jumpToStartOfMessage}
-        />
+        {props.realtimeVoiceActive && props.realtimeVoiceSupported ? (
+          <VoicePanel
+            client={props.client}
+            workspaceId={props.workspaceId}
+            sessionId={props.sessionId}
+            sessionContext={transcriptToText(renderedMessages)}
+            job={voiceJob}
+            activity={voiceActivity}
+            onStartJob={startVoiceJob}
+            onClose={() => props.onRealtimeVoiceActiveChange?.(false)}
+          />
+        ) : (
+          <SessionScrollOverlay
+            sessionId={props.sessionId}
+            isStreaming={chatStreaming}
+            onJumpToLatest={sessionScroll.jumpToLatest}
+            onJumpToStartOfMessage={sessionScroll.jumpToStartOfMessage}
+          />
+        )}
       </div>
 
-      <div ref={composerShellRef} className="shrink-0 px-0 pb-2 pt-2">
+      <div ref={composerShellRef} className={cn("shrink-0 px-0 pb-2 pt-2",
+        !pendingSessionLoad && renderedMessages.length === 0 && "lw-fade-enter",
+      )}>
         {fusionEnabled && !fusionConfigured ? (
           <div className="mx-3 mb-2 flex w-[calc(100%-1.5rem)] flex-wrap items-center gap-2 rounded-lg border border-amber-7/40 bg-amber-2/30 px-3 py-2 text-xs text-amber-11">
             <span className="font-medium">{t("fusion.banner_not_configured")}</span>
@@ -1787,6 +2021,7 @@ export function SessionSurface(props: SessionSurfaceProps) {
         onModelChange={props.onModelChange}
         attachments={attachments}
         onAttachFiles={handleAttachFiles}
+        uploading={pendingAttachmentUploads > 0}
         onRemoveAttachment={handleRemoveAttachment}
         attachmentsEnabled={props.attachmentsEnabled}
         attachmentsDisabledReason={props.attachmentsDisabledReason}
@@ -1827,6 +2062,9 @@ export function SessionSurface(props: SessionSurfaceProps) {
           onFusionModelsChange={fusionAvailable ? handleFusionModelsChange : undefined}
           onToggleLiveTranscript={recorderActive ? handleToggleLiveTranscript : undefined}
           liveTranscriptActive={liveTranscriptActive}
+          realtimeVoiceSupported={props.realtimeVoiceSupported}
+          realtimeVoiceActive={props.realtimeVoiceActive}
+          onToggleRealtimeVoice={() => props.onRealtimeVoiceActiveChange?.(!props.realtimeVoiceActive)}
           onUploadInboxFiles={props.onUploadInboxFiles ?? handleUploadInboxFiles}
           compactTopSpacing={Boolean(trialEndedNoticeVisible || connectNoticeVisible || props.activeQuestion || (props.todos ?? []).some((todo) => todo.content.trim()) || props.activePermission || queuedMessages.length > 0)}
           topAccessory={
@@ -1834,7 +2072,7 @@ export function SessionSurface(props: SessionSurfaceProps) {
               <div>
                 {trialEndedNoticeVisible ? <TrialEndedNotice billingUrl={trialBillingUrl} /> : null}
                 {connectNoticeVisible ? (
-                  <NoModelNotice variant={connectNoticeVariant} onConnect={props.onConnectAi} />
+                  <NoModelNotice variant={connectNoticeVariant} onConnect={onConnectAi} />
                 ) : null}
                 {queuedMessages.length > 0 ? (
                   <QueuedMessagesPanel messages={queuedMessages} onRemove={removeQueuedDraft} />

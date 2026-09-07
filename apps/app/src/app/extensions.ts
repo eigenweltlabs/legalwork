@@ -152,6 +152,35 @@ export function isTrustedBuiltInExtension(manifest: LegalWorkExtensionManifest |
 export const BUILT_IN_LEGALWORK_EXTENSION_MANIFESTS: LegalWorkExtensionManifest[] = [
   {
     schemaVersion: 1,
+    id: "legalwork-voice",
+    name: "Voice Mode",
+    description: "Realtime voice control backed by the current session's authoritative OpenCode worker.",
+    preview: true,
+    source: { format: "legalwork-builtin", origin: "builtin", trusted: true },
+    icon: { src: "/legalwork-mark.svg" },
+    resources: [
+      {
+        type: "provider",
+        id: "openai-realtime",
+        label: "Connected OpenAI provider",
+        providerId: "openai",
+        required: true,
+      },
+    ],
+    contributions: [
+      { type: "native-capability", ref: "legalwork.voice.realtime", label: "Realtime voice" },
+      { type: "control-actions", ref: "legalwork.voice.controls", location: "native" },
+    ],
+    enablement: [
+      { type: "provider-connected", ref: "openai", label: "OpenAI provider connected" },
+    ],
+    defaultEnabled: true,
+    defaultHidden: true,
+    lifecycle: { detection: ["provider:openai"] },
+    platform: ["darwin", "linux", "windows"],
+  },
+  {
+    schemaVersion: 1,
     id: "computer-use",
     name: "Computer Use",
     description: "Mac only: control Mac apps through semantic accessibility refs, screenshots, background-safe clicks, keyboard input, and strict mode.",

@@ -1,6 +1,10 @@
 import { describe, expect, test } from "bun:test";
 
-import { eigenweltTrialState, isEigenweltEntitledStatus } from "../src/app/lib/eigenwelt-trial";
+import {
+  eigenweltPlanWithoutModels,
+  eigenweltTrialState,
+  isEigenweltEntitledStatus,
+} from "../src/app/lib/eigenwelt-trial";
 
 const NOW = Date.parse("2026-08-31T12:00:00.000Z");
 const inDays = (days: number) => new Date(NOW + days * 86_400_000).toISOString();
@@ -69,5 +73,29 @@ describe("eigenweltTrialState", () => {
     expect(
       eigenweltTrialState({ subscriptionStatus: null, trialEndsAt: inDays(-3) }, NOW).kind,
     ).toBe("ended");
+  });
+});
+
+describe("eigenweltPlanWithoutModels", () => {
+  test("a subscribed firm whose plan lacks premium_models (Knowledge Hub)", () => {
+    expect(
+      eigenweltPlanWithoutModels({
+        subscriptionStatus: "active",
+        features: ["admin_hub", "settings_presets", "org_management"],
+      }),
+    ).toBe(true);
+  });
+
+  test("Plus firms (premium_models present) and unentitled firms are not", () => {
+    expect(
+      eigenweltPlanWithoutModels({
+        subscriptionStatus: "trialing",
+        features: ["admin_hub", "premium_models"],
+      }),
+    ).toBe(false);
+    expect(eigenweltPlanWithoutModels({ subscriptionStatus: "canceled", features: [] })).toBe(false);
+    expect(eigenweltPlanWithoutModels({ subscriptionStatus: null })).toBe(false);
+    expect(eigenweltPlanWithoutModels(null)).toBe(false);
+    expect(eigenweltPlanWithoutModels(undefined)).toBe(false);
   });
 });

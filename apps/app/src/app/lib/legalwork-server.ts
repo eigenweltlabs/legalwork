@@ -133,16 +133,33 @@ export type LegalworkPersonalizationSettings = {
 export type EigenweltManifestModel = {
   id: string;
   name?: string;
+  description?: string;
   contextLength?: number;
   toolCall?: boolean;
   reasoning?: boolean;
+  /** Where the deployment runs: "EU" or an ISO 3166 alpha-2 code ("US"). */
+  region?: string;
+  /** Plain-English hosting label, e.g. "Europe". */
+  hostedIn?: string;
+  /** The model behind the Eigenwelt name, e.g. "DeepSeek V4 Flash". */
+  upstreamModel?: string;
+  /** The provider keeps prompts and responses for a while to detect misuse. */
+  abuseMonitoring?: boolean;
 };
 
-/** Per-firm daily usage snapshot from the platform (cents, plus a percentage). */
+/** The signed-in seat's included usage for the current window (cents, plus a percentage). */
 export type EigenweltUsage = {
+  /** A week on current platforms, a day on platforms from before the weekly allowance. */
+  window: "day" | "week";
+  allowanceCents: number;
+  remainingCents: number;
+  /** Share of this window's allowance consumed, 0–100 (server-computed). */
+  usedPercent: number;
+  /** ISO timestamp when the allowance resets; null when unknown or without an allowance. */
+  resetsAt: string | null;
+  /** @deprecated The same numbers under the pre-weekly names; read the fields above. */
   dailyAllowanceCents: number;
   dailyRemainingCents: number;
-  /** Share of today's allowance consumed, 0–100 (server-computed). */
   dailyUsedPercent: number;
   extraUsageEnabled: boolean;
   prepaidBalanceCents: number;
@@ -150,7 +167,8 @@ export type EigenweltUsage = {
 
 /** Subscription entitlements. OPTIONAL — absent means the free/legacy tier. */
 export type EigenweltEntitlements = {
-  plan: "plus" | "pro" | null;
+  /** "hub" = the Knowledge Hub plan without AI (no `premium_models` feature). */
+  plan: "plus" | "pro" | "hub" | null;
   subscriptionStatus: string | null;
   /**
    * ISO timestamp when the 7-day trial ends (or ended — compare against now);
@@ -181,6 +199,14 @@ export type EigenweltEntitlementsView = {
   platformURL: string | null;
   /** Signed in with an Eigenwelt account — independent of the served model list. */
   connected: boolean;
+  /**
+   * Fingerprint of the model list the server currently serves (admins turn
+   * models on and off on the platform); null when not connected. Only the
+   * entitlements read sends it; older servers omit it.
+   */
+  modelsRevision?: string | null;
+  /** The ids of the models the server's engine config serves right now. */
+  servedModelIds?: string[];
 };
 
 /** Payload delivered once "Sign in with Eigenwelt" completes in the browser. */
@@ -2483,20 +2509,30 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
         timeoutMs: timeouts.config,
       }),
 
-    createVoiceRealtimeSession: (payload?: { model?: string; sessionContext?: string }) =>
+    getVoiceRealtimeCapability: () =>
+      requestJson<{
+        supported: boolean;
+        providerId: "openai" | null;
+        model: "gpt-realtime-2.1" | null;
+        reason: string | null;
+      }>(baseUrl, "/voice/realtime/capability", {
+        token,
+        hostToken,
+        timeoutMs: timeouts.config,
+      }),
+
+    createVoiceRealtimeCall: (payload: { sdp: string; sessionContext?: string }) =>
       requestJson<{
         ok: true;
-        clientSecret: string;
-        expiresAt: number | null;
-        model: string;
-        transcriptionModel: string;
+        sdp: string;
+        model: "gpt-realtime-2.1";
+        providerId: "openai";
         tools: string[];
-        source?: string;
-      }>(baseUrl, "/voice/realtime/session", {
+      }>(baseUrl, "/voice/realtime/call", {
         token,
         hostToken,
         method: "POST",
-        body: payload ?? {},
+        body: payload,
         timeoutMs: timeouts.config,
       }),
   };

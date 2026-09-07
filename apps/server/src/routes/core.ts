@@ -48,7 +48,8 @@ interface RegisterCoreRoutesOptions {
   serializeWorkspace: (workspace: ServerConfig["workspaces"][number]) => unknown;
   resolveToyUiEnabled: () => boolean;
   resolveDevLogPath: () => string | null;
-  createOpenAiRealtimeVoiceSession: (env: EnvService, input: unknown) => Promise<unknown>;
+  getOpenAiRealtimeVoiceCapability: (env: EnvService) => Promise<unknown>;
+  createOpenAiRealtimeVoiceCall: (env: EnvService, input: unknown) => Promise<unknown>;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -74,7 +75,8 @@ export function registerCoreRoutes(options: RegisterCoreRoutesOptions): void {
     serializeWorkspace,
     resolveToyUiEnabled,
     resolveDevLogPath,
-    createOpenAiRealtimeVoiceSession,
+    getOpenAiRealtimeVoiceCapability,
+    createOpenAiRealtimeVoiceCall,
   } = options;
   const googleWorkspaceConnectFlows = createGoogleWorkspaceConnectFlowManager(config);
   const envPendingChangesByRuntime = new Map<string, boolean>();
@@ -482,8 +484,12 @@ export function registerCoreRoutes(options: RegisterCoreRoutesOptions): void {
     return jsonResponse({ ok: true });
   });
 
-  addRoute(routes, "POST", "/voice/realtime/session", "host", async (ctx) => {
+  addRoute(routes, "GET", "/voice/realtime/capability", "host", async () => {
+    return jsonResponse(await getOpenAiRealtimeVoiceCapability(env));
+  });
+
+  addRoute(routes, "POST", "/voice/realtime/call", "host", async (ctx) => {
     const body = await readJsonBody(ctx.request);
-    return jsonResponse(await createOpenAiRealtimeVoiceSession(env, body));
+    return jsonResponse(await createOpenAiRealtimeVoiceCall(env, body));
   });
 }

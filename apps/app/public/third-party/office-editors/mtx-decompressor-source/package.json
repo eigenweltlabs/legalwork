@@ -1,0 +1,43 @@
+{
+	"name": "mtx-decompressor",
+	"version": "1.6.0",
+	"description": "MicroType Express (MTX) font decompressor — extracts TTF/OTF from compressed EOT containers.",
+	"homepage": "https://github.com/ChristopherVR/mtx-decompressor",
+	"bugs": {
+		"url": "https://github.com/ChristopherVR/mtx-decompressor/issues"
+	},
+	"license": "MPL-2.0",
+	"author": "ChristopherVR",
+	"repository": {
+		"type": "git",
+		"url": "https://github.com/ChristopherVR/mtx-decompressor.git"
+	},
+	"files": [
+		"dist/",
+		"LICENSE",
+		"README.md"
+	],
+	"main": "dist/index.mjs",
+	"module": "dist/index.mjs",
+	"types": "dist/index.d.ts",
+	"exports": {
+		".": {
+			"types": "./dist/index.d.ts",
+			"import": "./dist/index.mjs",
+			"require": "./dist/index.js"
+		}
+	},
+	"scripts": {
+		"build": "tsup",
+		"dev": "tsup --watch",
+		"typecheck": "tsc --noEmit --pretty",
+		"test": "vitest run --passWithNoTests",
+		"test:watch": "vitest",
+		"pack": "bun run build && bun pm pack"
+	},
+	"devDependencies": {
+		"tsup": "^8.5.1",
+		"typescript": "^6.0.3",
+		"vitest": "^4.1.10"
+	}
+}

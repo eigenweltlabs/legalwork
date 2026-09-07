@@ -474,9 +474,6 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
   const [imageGenerationBusy, setImageGenerationBusy] = useState(false);
   const [imageGenerationStatus, setImageGenerationStatus] = useState<string | null>(null);
   const [imageGenerationError, setImageGenerationError] = useState<string | null>(null);
-  const [voiceBusy, setVoiceBusy] = useState(false);
-  const [voiceStatus, setVoiceStatus] = useState<string | null>(null);
-  const [voiceError, setVoiceError] = useState<string | null>(null);
   const [userEnvKeys, setUserEnvKeys] = useState<string[]>([]);
   const emptyWorkspaceDisplay = useMemo<WorkspaceDisplay>(
     () => ({
@@ -757,6 +754,11 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
   const handleOpenProviderAuth = useCallback(() => {
     setCustomProviderEdit(null);
     void providerAuthStore.openProviderAuthModal();
+  }, [providerAuthStore]);
+
+  const handleReplaceProviderKey = useCallback((providerId: string) => {
+    setCustomProviderEdit(null);
+    void providerAuthStore.openProviderAuthModal({ preferredProviderId: providerId });
   }, [providerAuthStore]);
 
   const [customProviderEdit, setCustomProviderEdit] = useState<CustomProviderEditData | null>(null);
@@ -1085,44 +1087,6 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
       setImageGenerationBusy(false);
     }
   }, [legalworkClient, runtimeWorkspaceId, selectedWorkspaceEndpoint, selectedWorkspaceRoot]);
-
-  const saveVoiceApiKey = useCallback(async (apiKey: string) => {
-    const resolvedApiKey = apiKey.trim();
-    if (!legalworkClient || !resolvedApiKey) {
-      setVoiceError("OpenAI API key is required.");
-      return;
-    }
-    setVoiceBusy(true);
-    setVoiceStatus(null);
-    setVoiceError(null);
-    try {
-      await legalworkClient.upsertUserEnv([{ key: "OPENAI_API_KEY", value: resolvedApiKey }]);
-      setUserEnvKeys((current) => Array.from(new Set([...current, "OPENAI_API_KEY"])));
-      setVoiceStatus("Saved OPENAI_API_KEY for Voice Mode.");
-    } catch (error) {
-      setVoiceError(describeRouteError(error));
-    } finally {
-      setVoiceBusy(false);
-    }
-  }, [legalworkClient]);
-
-  const testVoiceSession = useCallback(async () => {
-    if (!legalworkClient) {
-      setVoiceError("LegalWork server is not connected.");
-      return;
-    }
-    setVoiceBusy(true);
-    setVoiceStatus(null);
-    setVoiceError(null);
-    try {
-      const session = await legalworkClient.createVoiceRealtimeSession();
-      setVoiceStatus(`Realtime ready with ${session.model} (${session.tools.length} LegalWork tools).`);
-    } catch (error) {
-      setVoiceError(describeRouteError(error));
-    } finally {
-      setVoiceBusy(false);
-    }
-  }, [legalworkClient]);
 
   const installLocalProvider = useCallback(async (input: LocalProviderInstallInput) => {
     const client = selectedWorkspaceEndpoint?.client ?? legalworkClient;
@@ -1707,13 +1671,6 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
       onInstall: installOpenAiImageExtension,
       onTestGenerate: generateOpenAiTestImage,
     },
-    voiceExtension: {
-      busy: voiceBusy,
-      status: voiceStatus,
-      error: voiceError,
-      onSaveApiKey: saveVoiceApiKey,
-      onTestSession: testVoiceSession,
-    },
     localProvider: {
       busy: localProviderBusy,
       status: localProviderStatus,
@@ -2015,6 +1972,7 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
             providerDisconnectError={providerDisconnectError}
             onOpenProviderAuth={handleOpenProviderAuth}
             onDisconnectProvider={handleDisconnectProvider}
+            onReplaceProviderKey={handleReplaceProviderKey}
             onEditProvider={handleEditCustomProvider}
             canDisconnectProvider={(source) => source !== "env"}
             eigenweltConnected={eigenweltConnected}

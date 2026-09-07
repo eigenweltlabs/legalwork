@@ -1,6 +1,6 @@
 import * as React from "react";
 import { X } from "lucide-react";
-import { Reorder } from "motion/react";
+import { Reorder, useReducedMotion } from "motion/react";
 
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -25,13 +25,15 @@ function PanelTabList<Value>({ className, ...props }: PanelTabListProps<Value>) 
 }
 
 function PanelTabItem({ className, ...props }: React.ComponentProps<typeof Reorder.Item>) {
+  const reduceMotion = useReducedMotion();
   return (
     <Reorder.Item
       as="div"
       layout="position"
+      transition={reduceMotion ? { duration: 0 } : { type: "spring", stiffness: 420, damping: 36 }}
       dragElastic={0}
       dragListener={false}
-      className={cn("group relative w-36 min-w-0 shrink-0", className)}
+      className={cn("group relative w-40 min-w-0 shrink-0", className)}
       {...props}
     />
   );
@@ -47,9 +49,10 @@ function PanelTab({ active, className, ...props }: PanelTabProps) {
       type="button"
       variant="ghost"
       size="sm"
+      aria-pressed={active}
       className={cn(
-        "w-full min-w-0 justify-start gap-2 px-2 pr-8 text-left text-sm font-normal text-muted-foreground hover:bg-muted hover:text-foreground",
-        active && "bg-muted/80 text-foreground",
+        "h-8 w-full min-w-0 justify-start gap-2 rounded-lg border border-transparent px-2.5 pr-8 text-left text-xs font-normal text-muted-foreground hover:bg-background/70 hover:text-foreground",
+        active && "border-border/80 bg-background font-medium text-foreground shadow-[0_1px_2px_rgba(0,0,0,0.03)] hover:bg-background",
         className,
       )}
       {...props}
@@ -78,8 +81,8 @@ function PanelTabClose({
       variant="ghost"
       size="icon-xs"
       className={cn(
-        "absolute right-1 top-1/2 -translate-y-1/2 text-muted-foreground opacity-0 transition-opacity hover:bg-muted hover:text-foreground group-hover:opacity-100 focus:opacity-100",
-        active && "text-foreground hover:bg-muted hover:text-foreground",
+        "absolute right-1 top-1/2 -translate-y-1/2 text-muted-foreground opacity-0 transition-opacity hover:bg-muted hover:text-foreground group-hover:opacity-100 group-focus-within:opacity-100 focus:opacity-100 [@media(hover:none)]:opacity-100",
+        active && "opacity-100 hover:bg-muted hover:text-foreground",
         className,
       )}
       title="Close tab"

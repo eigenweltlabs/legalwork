@@ -6,29 +6,42 @@ description: >-
   governing law"), check a value against a threshold, redline or comment on a clause,
   or accept/adopt or reject tracked changes. Reads the FULL document — including clauses
   laid out in tables — and writes tracked-change redlines + comments as reviewable
-  suggestions anywhere in the document. Two backends: inside the Word add-in it edits
-  the OPEN document live via the word_* tools; otherwise it runs the self-contained
-  file pipeline on the firm's own model and infrastructure, paired with the in-app
-  .docx viewer.
+  suggestions anywhere in the document. Three backends: the LegalWork in-app editor,
+  the Microsoft Word add-in, and a self-contained file pipeline when no live document
+  is open.
 ---
 
 # Word (.docx) reading + editing
 
-This skill is how this firm reads and edits Word documents with AI. It has **two
+This skill is how this firm reads and edits Word documents with AI. It has **three
 backends**, and your FIRST step is always to pick the right one:
 
 ## Step 0 — where are you running?
 
 1. Unless the user explicitly named a different workspace document, call
-   `word_read_document` once. The `word_*` tools are registered in every LegalWork
-   session, so do not infer that they are unavailable without trying the read.
-2. If the read succeeds and returns the document the user means, use the **LIVE backend**
-   below. The document OPEN IN WORD is the target. (The FILE backend still applies to a
-   *different* `.docx` in the workspace that is not open in Word.)
-3. Only when `word_read_document` reports that no Word pane is connected, use the
-   **FILE backend** below; the user reviews its output in the in-app `.docx` viewer.
+   `inapp_docx_read_document` first. If it succeeds, the target is the document open in
+   LegalWork's right-hand editor: use the **IN-APP LIVE backend** below.
+2. If no matching in-app document is open, call `word_read_document`. If it succeeds,
+   the target is the document open in Microsoft Word: use the **WORD LIVE backend**.
+3. Only when both live reads report no matching document may you use the **FILE backend**.
+   Bash is the fallback, not the way to inspect a document already open beside the chat.
 
-## LIVE mode — edit the open document with word_* tools
+## IN-APP LIVE mode — edit the document open in LegalWork
+
+- Read with `inapp_docx_read_document` or find exact text with `inapp_docx_find_text`.
+  Both return stable `paraId` anchors.
+- Edit with `inapp_docx_suggest_change` and comment with `inapp_docx_add_comment`.
+  Every agent text edit is a tracked change and saves back to the workspace automatically.
+- Accept or revert edits with `inapp_docx_accept_changes` / `inapp_docx_reject_changes`.
+  First call `inapp_docx_read_changes`, then pass the relevant IDs. For "revert my edits",
+  reject only changes authored by the agent; never remove unrelated pre-existing redlines.
+- Do the accept/reject action yourself when asked. Do not tell the user to click review
+  controls or claim the live editor lacks the tool.
+- **Never use bash or the FILE pipeline for this open document.** Do not create a
+  `.redlined.docx` copy: the redline appears in the document the user is viewing.
+- Hand back one or two short sentences; the user can review the tracked change beside the chat.
+
+## WORD LIVE mode — edit the open Microsoft Word document with word_* tools
 
 - Read with `word_read_document` (and `word_search` to locate clauses) before editing,
   so anchors are verbatim.

@@ -63,6 +63,11 @@ export function PremiumUpsellModal(props: {
   onSignIn: () => void;
   onUpgrade: () => void;
   onClose: () => void;
+  /**
+   * The firm is subscribed to the Knowledge Hub (no models in the plan): the
+   * pitch is an upgrade, not a trial, and the billing page does the switch.
+   */
+  planWithoutModels?: boolean;
 }) {
   const platformURL = eigenweltPremiumPlatformUrl();
   const checkoutUrl = eigenweltBillingUrl(platformURL);
@@ -92,7 +97,7 @@ export function PremiumUpsellModal(props: {
           },
         }
       : {
-          label: t("premium_upsell.cta"),
+          label: props.planWithoutModels ? t("premium_upsell.cta_upgrade") : t("premium_upsell.cta"),
           onClick: () => {
             // Open Stripe checkout in the browser, then hand off to the provider's
             // poll loop (unless we can't poll, in which case just close).
@@ -105,8 +110,16 @@ export function PremiumUpsellModal(props: {
       <FeatureAnnouncementModal
         open={props.open}
         eyebrow={t("premium_upsell.eyebrow")}
-        headline={t("premium_upsell.headline")}
-        intro={needsSignIn ? t("premium_upsell.intro_signin") : t("premium_upsell.intro")}
+        headline={
+          props.planWithoutModels ? t("premium_upsell.headline_upgrade") : t("premium_upsell.headline")
+        }
+        intro={
+          needsSignIn
+            ? t("premium_upsell.intro_signin")
+            : props.planWithoutModels
+              ? t("premium_upsell.intro_upgrade")
+              : t("premium_upsell.intro")
+        }
         heroOverlay={<PremiumHero />}
         entries={[
           { title: t("premium_upsell.audio_title"), body: t("premium_upsell.audio_body") },

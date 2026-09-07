@@ -246,12 +246,51 @@ describe("parseEigenweltEntitlements", () => {
       features: ["admin_hub", "settings_presets", "org_management", "premium_models"],
       seats: 12,
       usage: {
+        // Only the daily names: a platform from before the weekly allowance.
+        window: "day",
+        allowanceCents: 5000,
+        remainingCents: 1200,
+        usedPercent: 76,
+        resetsAt: null,
         dailyAllowanceCents: 5000,
         dailyRemainingCents: 1200,
         dailyUsedPercent: 76,
         extraUsageEnabled: true,
         prepaidBalanceCents: 900,
       },
+    });
+  });
+
+  test("reads the weekly window and generic names from current platforms, mirroring them onto the daily names", () => {
+    const parsed = parseEigenweltEntitlements({
+      plan: "plus",
+      subscriptionStatus: "active",
+      features: ["premium_models"],
+      seats: 3,
+      usage: {
+        window: "week",
+        allowanceCents: 1154,
+        remainingCents: 400,
+        usedPercent: 65,
+        resetsAt: "2026-09-07T00:00:00.000Z",
+        dailyAllowanceCents: 1154,
+        dailyRemainingCents: 400,
+        dailyUsedPercent: 65,
+        extraUsageEnabled: false,
+        prepaidBalanceCents: 0,
+      },
+    });
+    expect(parsed?.usage).toEqual({
+      window: "week",
+      allowanceCents: 1154,
+      remainingCents: 400,
+      usedPercent: 65,
+      resetsAt: "2026-09-07T00:00:00.000Z",
+      dailyAllowanceCents: 1154,
+      dailyRemainingCents: 400,
+      dailyUsedPercent: 65,
+      extraUsageEnabled: false,
+      prepaidBalanceCents: 0,
     });
   });
 
@@ -278,6 +317,11 @@ describe("parseEigenweltEntitlements", () => {
       features: [],
       seats: 0,
       usage: {
+        window: "day",
+        allowanceCents: 0,
+        remainingCents: 0,
+        usedPercent: 0,
+        resetsAt: null,
         dailyAllowanceCents: 0,
         dailyRemainingCents: 0,
         dailyUsedPercent: 0,

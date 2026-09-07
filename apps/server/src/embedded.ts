@@ -13,6 +13,7 @@ import { ensureWorkspaceFiles } from "./workspace-init.js";
 import { keepLegalworkRuntimeConfigFileFresh, writeLegalworkRuntimeConfigFile } from "./legalwork-runtime-config.js";
 import { prepareManagedOpencodeEngineDb } from "./managed-opencode-db.js";
 import { refreshEigenweltPaidManifest } from "./eigenwelt-paid-manifest.js";
+import { ensureFreshPlatformToken } from "./eigenwelt-refresh.js";
 import type { ServeResult } from "./serve-node.js";
 import type { ServerConfig } from "./types.js";
 
@@ -72,9 +73,12 @@ export async function startEmbeddedServer(options: EmbeddedServerOptions): Promi
       const runtimeConfigPath = await writeLegalworkRuntimeConfigFile(config, workspace.id);
       keepLegalworkRuntimeConfigFileFresh(config, workspace.id);
       // Fire-and-forget: refresh the GLOBAL paid manifest's model list around
-      // the kept key (no-op when not signed in), then rewrite the engine config
-      // so newly-available models appear across every workspace.
-      void refreshEigenweltPaidManifest(config)
+      // the kept key (no-op when not signed in) with the firm's access token,
+      // so the list reflects the admin's on/off choices, then rewrite the
+      // engine config so the current models appear across every workspace.
+      void ensureFreshPlatformToken(config, workspace.id)
+        .catch(() => null)
+        .then((platformToken) => refreshEigenweltPaidManifest(config, { platformToken }))
         .then((r) => (r.changed ? writeLegalworkRuntimeConfigFile(config, workspace.id) : undefined))
         .catch(() => undefined);
       const cwd = options.opencodeCwd

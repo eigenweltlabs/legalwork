@@ -1,220 +1,369 @@
 /** @jsxImportSource react */
-import { type RefObject, useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
-import { DocxEditor, type DocxEditorRef } from "@eigenpal/docx-editor-react";
+import { type RefObject, useCallback, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from "react";
+import { DocxEditor, type DocxEditorRef, type EditorMode } from "@eigenpal/docx-editor-react";
+import { DocxReviewer } from "@eigenpal/docx-editor-agents";
+import { useDocxAgentTools } from "@eigenpal/docx-editor-agents/react";
+import { acceptChangeById, rejectChangeById } from "@eigenpal/docx-editor-core/prosemirror/commands";
+import { extractTrackedChanges } from "@eigenpal/docx-editor-core/prosemirror/utils/extractTrackedChanges";
 import "@eigenpal/docx-editor-react/styles.css";
 
 import { getInitialThemeMode, subscribeToTheme, type ThemeMode } from "@/app/theme";
+import { Button } from "@/components/ui/button";
+import { toast } from "@/components/ui/sonner";
+import { keepDocxVersion, readDocxRecovery, removeDocxRecovery, writeDocxRecovery, type DocxRecovery } from "./docx-recovery";
+import { useDocxPageFit } from "./use-docx-page-fit";
+import { useDocxReviewCard } from "./use-docx-review-card";
+import "./docx-editor-layout.css";
+import { useControlActions } from "../../../shell/control/control-provider";
 
 export type DocxEditorApi = {
-  /** Serialize the current document and persist it via `onSave`. Returns true on write. */
+  /** Serialize and persist the current document. Never clears edits made during a save. */
   save: () => Promise<boolean>;
+  /** Serialize the live draft without writing to the workspace or clearing its dirty state. */
+  getBuffer: () => Promise<ArrayBuffer | null>;
+  executeAgentTool: (toolName: string, args: Record<string, unknown>) => Promise<DocxEditorToolResult>;
+  discardRecovery: () => void;
+};
+
+export type DocxEditorToolResult = {
+  success: boolean;
+  data?: unknown;
+  error?: string;
+  saved?: boolean;
 };
 
 type ArtifactDocxEditorProps = {
   name: string;
-  /** The loaded .docx bytes. Captured once on mount; later changes do not reload the editor. */
+  /** Captured on mount. The panel controls when a different disk revision is loaded. */
   content: ArrayBuffer;
-  /** Author name stamped on comments and tracked changes. */
   author?: string;
-  /** Read-only (remote workspaces / non-file targets): renders in Word-style viewing mode. */
   readOnly?: boolean;
-  /** Persists serialized .docx bytes to the workspace. */
   onSave?: (buffer: ArrayBuffer) => void | Promise<void>;
-  /** The panel sets this so its header "Save" button can drive the editor. */
+  onDirtyChange?: (dirty: boolean) => void;
   apiRef?: RefObject<DocxEditorApi | null>;
+  recoveryKey?: string;
+  baseUpdatedAt?: number | null;
+  onRestore?: (baseUpdatedAt: number | null) => void;
 };
 
-// US-Letter page width in CSS px at 100% (8.5in × 96dpi). Fallback before the real
-// page (A4/Letter/custom) can be measured.
-const FALLBACK_PAGE_WIDTH = 816;
-// Visible breathing room on each side of the page; the zoom-to-fit shrinks the page
-// by 2× this so it sits centered inside the panel with that gutter.
-const PAGE_GUTTER = 12;
-const PAGE_MARGIN = PAGE_GUTTER * 2;
+const AUTHOR_KEY = "legalwork.docx.reviewer";
+let documentInstance = 0;
+// Eigenpal's File > Save exports a download, even when onSave is supplied.
+// Name that action accurately; the panel Save button / Cmd+S persist to the workspace.
+const EDITOR_LABELS = { toolbar: { save: "Download copy", saveShortcut: "" } };
 
-// The editor's pages-track has a hard `min-width` (≈944px, the document's design width),
-// so in the narrow artifact panel it overflows and the page sits off-center with a
-// horizontal scrollbar. Collapse the track to the panel width and center the page.
-// Target both the React (`docx-editor__scroll-container`) and Vue
-// (`docx-editor-vue__pages-viewport`) class names so this always lands.
-const DOCX_FIT_CSS = `
-.ep-root .docx-editor__scroll-container,
-.ep-root .docx-editor-vue__pages-viewport { overflow-x: hidden !important; }
-.ep-root .docx-editor__scroll-container > *,
-.ep-root .docx-editor-vue__pages-viewport > * {
-  min-width: 0 !important;
-  max-width: 100% !important;
-  width: 100% !important;
-  box-sizing: border-box !important;
-  justify-content: center !important;
+const REVIEW_TOOL_NAMES = new Set(["accept_changes", "reject_changes"]);
+
+function requestedChangeIds(args: Record<string, unknown>): number[] | null {
+  if (!Array.isArray(args.changeIds)) return null;
+  const ids = args.changeIds.filter(
+    (value): value is number => typeof value === "number" && Number.isInteger(value) && value >= 0,
+  );
+  return ids.length === args.changeIds.length && ids.length > 0 ? [...new Set(ids)] : null;
 }
-/* Every wrapper between the scroll container and the actual page (.layout-page) must
-   span the full width, and the page itself must center — otherwise an inner wrapper is
-   pinned narrow and the page is pushed left / clipped. */
-.ep-root .docx-editor__scroll-container :has(.layout-page) {
-  min-width: 0 !important;
-  max-width: 100% !important;
-  width: 100% !important;
+
+function decideTrackedChanges(
+  editor: DocxEditorRef | null,
+  decision: "accept" | "reject",
+  requestedIds: number[],
+): DocxEditorToolResult {
+  const view = editor?.getEditorRef()?.getView();
+  if (!view) return { success: false, error: "The document editor is not ready." };
+
+  const { entries } = extractTrackedChanges(view.state);
+  const ids = new Set<number>();
+  for (const requestedId of requestedIds) {
+    const entry = entries.find((candidate) => (
+      Number(candidate.revisionId) === requestedId
+      || Number(candidate.insertionRevisionId) === requestedId
+      || candidate.coalescedRevisionIds?.some((id) => Number(id) === requestedId)
+    ));
+    if (!entry) {
+      ids.add(requestedId);
+      continue;
+    }
+    ids.add(Number(entry.revisionId));
+    if (entry.insertionRevisionId !== undefined) ids.add(Number(entry.insertionRevisionId));
+    entry.coalescedRevisionIds?.forEach((id) => ids.add(Number(id)));
+  }
+
+  const command = decision === "accept" ? acceptChangeById : rejectChangeById;
+  let applied = 0;
+  for (const id of ids) {
+    if (command(id)(view.state, view.dispatch)) applied += 1;
+  }
+  if (applied === 0) {
+    return { success: false, error: "None of those tracked-change IDs exist in the open document." };
+  }
+  const verb = decision === "accept" ? "Accepted" : "Rejected";
+  return { success: true, data: `${verb} ${applied} tracked-change revision${applied === 1 ? "" : "s"}.` };
 }
-.ep-root .paged-editor__pages { align-items: center !important; justify-content: center !important; }
-/* The zoom is a CSS scale and the editor's own centering is off for redline layouts, so
-   the page ends up shifted. We measure the real offset in JS and correct it with this
-   variable (set on our container, inherited here). The important flag survives re-renders. */
-.ep-root .layout-page {
-  margin-left: auto !important;
-  margin-right: auto !important;
-  transform: translateX(var(--docx-center-x, 0px)) !important;
-}
-/* Comments and tracked-change cards live in a right-side sidebar that reserves its
-   width even when the individual cards are hidden, pushing the page off-center in the
-   panel. Collapse the whole sidebar so the page uses the full width. The redlines and
-   comment markers stay inline in the document text. */
-.ep-root .docx-unified-sidebar,
-.ep-root .docx-comments-sidebar,
-.ep-root .docx-comment-margin-markers,
-.ep-root .docx-tracked-change-card { display: none !important; }
-`;
 
 function useThemeColorMode(): ThemeMode {
   return useSyncExternalStore(subscribeToTheme, getInitialThemeMode, getInitialThemeMode);
 }
 
-/**
- * In-artifact DOCX viewer/editor backed by @eigenpal/docx-editor-react (Apache-2.0).
- * Renders the real OOXML package (pagination, tables, tracked changes), scales the
- * page to the panel width, and persists edits through the panel's Save button.
- */
-export function ArtifactDocxEditor({ name, content, author = "Legal Cowork", readOnly = false, onSave, apiRef }: ArtifactDocxEditorProps) {
-  const colorMode = useThemeColorMode();
-  // Capture a private copy of the bytes once: the editor may detach the buffer while
-  // parsing, and a save must not reload (and reset) the view. The parent remounts this
-  // component (key={target.id}) when the artifact changes.
-  const [documentBuffer] = useState(() => content.slice(0));
-  // Default the comments column CLOSED so a redline doc gets the full panel width (the
-  // open column was squeezing the page). Still toggleable; the fit re-runs when it opens.
-  const [commentsSidebarOpen, setCommentsSidebarOpen] = useState(false);
-  const containerRef = useRef<HTMLDivElement>(null);
-  const editorRef = useRef<DocxEditorRef>(null);
-
-  const pagesViewport = () =>
-    containerRef.current?.querySelector(
-      ".docx-editor__scroll-container, .docx-editor-vue__pages-viewport",
-    ) as HTMLElement | null;
-
-  const fitToWidth = useCallback(() => {
-    const editor = editorRef.current;
-    if (!editor) return;
-    // Measure the actual PAGES viewport, not the whole editor: a redline doc shows a
-    // comments column on the right that eats horizontal space. Using the viewport width
-    // makes the page fit what's actually left for it. Fall back to the wrapper width.
-    const viewport = pagesViewport();
-    const areaWidth = viewport?.clientWidth ?? containerRef.current?.clientWidth ?? 0;
-    const available = areaWidth - PAGE_MARGIN;
-    if (available <= 0) return;
-
-    const zoom = editor.getZoom() || 1;
-    // Measure the real page element (.layout-page) and divide out the zoom to get its
-    // true width (A4/Letter/custom). This is the one reliable page node — not the track
-    // and not a table cell. Fall back to Letter width if it isn't rendered yet.
-    let naturalWidth = FALLBACK_PAGE_WIDTH;
-    const page = containerRef.current?.querySelector(".layout-page") as HTMLElement | null;
-    if (page) {
-      const measured = page.getBoundingClientRect().width / zoom;
-      if (measured > 200) naturalWidth = measured;
-    }
-
-    const target = Math.max(0.2, Math.min(1, available / naturalWidth));
-    if (Math.abs(target - zoom) > 0.005) editor.setZoom(target);
-  }, []);
-
-  // Measure the page's real left/right gap and correct the horizontal offset via a CSS
-  // variable (the editor's own centering is off for redline layouts). Reset to 0 first so
-  // we measure the true position, not the previously-corrected one.
-  const centerPage = useCallback(() => {
-    const container = containerRef.current;
-    const sc = pagesViewport();
-    const page = container?.querySelector(".layout-page") as HTMLElement | null;
-    const editor = editorRef.current;
-    if (!container || !sc || !page || !editor) return;
-    container.style.setProperty("--docx-center-x", "0px");
-    const scR = sc.getBoundingClientRect();
-    const pr = page.getBoundingClientRect();
-    const correction = ((scR.right - pr.right) - (pr.left - scR.left)) / 2;
-    const zoom = editor.getZoom() || 1; // .layout-page is scaled by the zoom ancestor
-    container.style.setProperty("--docx-center-x", Math.abs(correction) > 1.5 ? `${correction / zoom}px` : "0px");
-  }, []);
-
-  const applyFit = useCallback(() => {
-    fitToWidth();
-    requestAnimationFrame(centerPage);
-  }, [fitToWidth, centerPage]);
-
-  // Re-fit on resize of the panel AND the pages viewport (it shrinks when the comments
-  // column opens), plus a few times on mount to catch late layout.
+export function ArtifactDocxEditor(props: ArtifactDocxEditorProps) {
+  const [recovery, setRecovery] = useState<DocxRecovery | null>(null);
+  const [checked, setChecked] = useState(Boolean(!props.recoveryKey || props.readOnly));
+  const [restored, setRestored] = useState<DocxRecovery | null>(null);
   useEffect(() => {
-    const container = containerRef.current;
-    if (!container || typeof ResizeObserver === "undefined") return;
-    let raf = 0;
-    const observer = new ResizeObserver(() => {
-      cancelAnimationFrame(raf);
-      raf = requestAnimationFrame(applyFit);
+    if (!props.recoveryKey || props.readOnly) { setChecked(true); return; }
+    let active = true;
+    void readDocxRecovery(props.recoveryKey).then((draft) => {
+      if (active) { setRecovery(draft); setChecked(true); }
+    }).catch(() => {
+      if (active) { setChecked(true); toast.error("Draft recovery is unavailable on this device. Save frequently."); }
     });
-    observer.observe(container);
-    let tries = 0;
-    const attachViewport = () => {
-      const viewport = pagesViewport();
-      if (viewport) {
-        observer.observe(viewport);
-        applyFit();
-      } else if (tries++ < 25) {
-        window.setTimeout(attachViewport, 150);
-      }
-    };
-    attachViewport();
-    const timers = [150, 450, 900, 1500].map((ms) => window.setTimeout(applyFit, ms));
-    return () => {
-      observer.disconnect();
-      cancelAnimationFrame(raf);
-      timers.forEach((t) => window.clearTimeout(t));
-    };
-  }, [applyFit]);
+    return () => { active = false; };
+  }, [props.recoveryKey, props.readOnly]);
+  if (!checked) return <div className="p-6 text-sm" role="status">Checking for an unsaved draft…</div>;
+  if (recovery) return <div className="space-y-4 p-6">
+    <h3 className="font-medium">Recover your unsaved draft?</h3>
+    <p className="text-sm text-muted-foreground">A draft of {props.name} was kept on this device at {new Date(recovery.savedAt).toLocaleString()}. Restoring it does not overwrite the workspace file.</p>
+    {recovery.baseUpdatedAt !== props.baseUpdatedAt && <p className="text-sm">The workspace file has changed. You can recover and download your draft; saving over the newer file will be blocked.</p>}
+    <div className="flex gap-2">
+      <Button onClick={() => { props.onRestore?.(recovery.baseUpdatedAt); setRestored(recovery); setRecovery(null); }}>Recover draft</Button>
+      <Button variant="outline" onClick={() => {
+        void removeDocxRecovery(recovery.key).then(() => setRecovery(null)).catch(() => toast.error("Could not discard the recovery copy. Try again."));
+      }}>Discard draft and open file</Button>
+    </div>
+  </div>;
+  return <LiveDocxEditor {...props} content={restored?.buffer ?? props.content} recovered={!!restored} />;
+}
 
-  // Expose an explicit save to the panel header. `save()` returns the serialized bytes,
-  // which we persist directly (not relying on the editor's internal onSave wiring).
+function LiveDocxEditor({ name, content, author, readOnly = false, onSave, onDirtyChange, apiRef, recoveryKey, baseUpdatedAt = null, recovered }: ArtifactDocxEditorProps & { recovered: boolean }) {
+  const colorMode = useThemeColorMode();
+  const [documentBuffer] = useState(() => content.slice(0));
+  const [documentId] = useState(() => `${Date.now()}:${++documentInstance}`);
+  const [mode, setMode] = useState<EditorMode>("editing");
+  const checkpointTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const dirty = useRef(recovered);
+  const checkpoint = useRef<() => Promise<void>>(async () => {});
+  const checkpointed = useRef<{ revision: number; base: number | null } | null>(null);
+  const [reviewer] = useState(() => {
+    if (author) return author;
+    try { return window.localStorage.getItem(AUTHOR_KEY) ?? ""; } catch { return ""; }
+  });
+  const editorRef = useRef<DocxEditorRef>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [commentsOpen, setCommentsOpen] = useState(false);
+  const fitPage = useDocxPageFit(containerRef, editorRef, commentsOpen);
+  const onReviewClick = useDocxReviewCard(containerRef, editorRef);
+  const recoveryFailed = useRef(false);
+  const { executeToolCall } = useDocxAgentTools({ editorRef, author: "LegalWork AI" });
+  const revision = useRef(0);
+  const ready = useRef(false);
+  const pendingSave = useRef<Promise<boolean> | null>(null);
+  const serialization = useRef<Promise<ArrayBuffer | null> | null>(null);
+  const lastDocument = useRef<ReturnType<DocxEditorRef["getDocument"]>>(null);
+
+  const markDirty = useCallback(() => {
+    if (readOnly || !ready.current) return;
+    revision.current += 1;
+    dirty.current = true;
+    onDirtyChange?.(true);
+    if (recoveryKey) {
+      if (checkpointTimer.current) clearTimeout(checkpointTimer.current);
+      checkpointTimer.current = setTimeout(() => { void checkpoint.current(); }, 1000);
+    }
+  }, [readOnly, onDirtyChange, recoveryKey]);
+
+  const checkDocument = useCallback(() => {
+    const document = editorRef.current?.getDocument();
+    if (!document || document === lastDocument.current) return;
+    const hadDocument = lastDocument.current !== null;
+    lastDocument.current = document;
+    if (hadDocument) markDirty();
+  }, [markDirty]);
+
+  // The pinned adapter omits onChange for some header/footer and property-dialog
+  // edits. Its immutable document reference covers those paths without serializing
+  // or traversing a large contract on every keystroke. Check synchronously before save too.
+  useEffect(() => {
+    const timer = window.setInterval(checkDocument, 250);
+    return () => window.clearInterval(timer);
+  }, [checkDocument]);
+
+  const getBuffer = useCallback(async () => {
+    const serialize = async () => await editorRef.current?.save({ selective: false }) ?? null;
+    const operation = serialization.current ? serialization.current.catch(() => null).then(serialize) : serialize();
+    serialization.current = operation;
+    try { return await operation; } finally { if (serialization.current === operation) serialization.current = null; }
+  }, []);
+
+  checkpoint.current = async () => {
+    if (!recoveryKey || !dirty.current || readOnly) return;
+    const checkpointRevision = revision.current;
+    if (checkpointed.current?.revision === checkpointRevision && checkpointed.current.base === baseUpdatedAt) return;
+    try {
+      const buffer = await getBuffer();
+      if (!buffer || !dirty.current || checkpointRevision !== revision.current) return;
+      await writeDocxRecovery({ key: recoveryKey, buffer, baseUpdatedAt, savedAt: Date.now() });
+      checkpointed.current = { revision: checkpointRevision, base: baseUpdatedAt };
+      recoveryFailed.current = false;
+    } catch {
+      if (!recoveryFailed.current) toast.error("Draft recovery is unavailable. Save your document to keep changes.");
+      recoveryFailed.current = true;
+    }
+  };
+
+  useLayoutEffect(() => {
+    const onHidden = () => { if (document.visibilityState === "hidden") void checkpoint.current(); };
+    const timer = setInterval(() => { void checkpoint.current(); }, 5000);
+    document.addEventListener("visibilitychange", onHidden);
+    return () => {
+      document.removeEventListener("visibilitychange", onHidden);
+      clearInterval(timer);
+      if (checkpointTimer.current) clearTimeout(checkpointTimer.current);
+      void checkpoint.current();
+    };
+  }, []);
+
+  const save = useCallback((): Promise<boolean> => {
+    if (pendingSave.current) return pendingSave.current;
+    if (readOnly || !onSave) return Promise.resolve(false);
+    checkDocument();
+    const savingRevision = revision.current;
+    const operation = (async () => {
+      const buffer = await getBuffer();
+      if (!buffer) return false;
+      await onSave(buffer);
+      if (recoveryKey) void keepDocxVersion(recoveryKey, buffer.slice(0)).catch(() => toast.error("Saved to workspace, but local version history is unavailable."));
+      checkDocument();
+      if (revision.current === savingRevision) {
+        dirty.current = false;
+        onDirtyChange?.(false);
+        if (recoveryKey) await removeDocxRecovery(recoveryKey).catch(() => toast.error("Saved, but the old recovery copy could not be cleared."));
+      }
+      return true;
+    })();
+    pendingSave.current = operation.finally(() => { pendingSave.current = null; });
+    return pendingSave.current;
+  }, [readOnly, onSave, checkDocument, getBuffer, onDirtyChange, recoveryKey]);
+
   useEffect(() => {
     if (!apiRef) return;
-    apiRef.current = {
-      save: async () => {
-        const buffer = await editorRef.current?.save({ selective: false });
-        if (!buffer || !onSave) return false;
-        await onSave(buffer);
-        return true;
+    apiRef.current = { save, getBuffer,
+      executeAgentTool: async (toolName, args) => {
+        if (readOnly) return { success: false, error: "This document is read-only." };
+        if (!ready.current) return { success: false, error: "The document editor is not ready." };
+        const isReviewDecision = REVIEW_TOOL_NAMES.has(toolName);
+        let result: DocxEditorToolResult;
+        if (isReviewDecision) {
+          const changeIds = requestedChangeIds(args);
+          if (!changeIds) {
+            return { success: false, error: "changeIds must be a non-empty array of tracked-change IDs." };
+          }
+          result = decideTrackedChanges(
+            editorRef.current,
+            toolName === "accept_changes" ? "accept" : "reject",
+            changeIds,
+          );
+        } else {
+          result = executeToolCall(toolName, args);
+        }
+        if (!result.success) return result;
+        const mutatesDocument = toolName === "suggest_change" || toolName === "add_comment" || isReviewDecision;
+        if (!mutatesDocument) return result;
+        markDirty();
+        const saved = await save();
+        if (!saved) return { success: false, error: "The document changed in the editor but could not be saved." };
+        return { ...result, saved: true };
       },
-    };
-    return () => {
-      if (apiRef.current) apiRef.current = null;
-    };
-  }, [apiRef, onSave]);
+    discardRecovery: () => {
+      dirty.current = false;
+      onDirtyChange?.(false);
+      if (recoveryKey) void removeDocxRecovery(recoveryKey).catch(() => toast.error("The old recovery copy could not be cleared."));
+    } };
+    return () => { apiRef.current = null; };
+  }, [apiRef, save, getBuffer, onDirtyChange, recoveryKey, executeToolCall, markDirty, readOnly]);
+
+  useControlActions([
+    {
+      id: "document.read_draft", label: "Read the open document draft", sideEffect: "none",
+      description: "Read the live DOCX, including unsaved edits, paragraph handles, comments and redlines. Use this instead of reading the older workspace file.",
+      execute: async () => {
+        const draftRevision = revision.current;
+        const buffer = await getBuffer();
+        if (!buffer) throw new Error("The document is still loading.");
+        const draft = await DocxReviewer.fromBuffer(buffer);
+        if (draftRevision !== revision.current) throw new Error("The draft changed while reading. Read it again before proposing changes.");
+        return { name, documentId, draftRevision, text: draft.getContentAsText(), comments: draft.getComments(), changes: draft.getChanges() };
+      },
+    },
+    {
+      id: "document.propose_change", label: "Propose a change in the open document", sideEffect: "mutation", disabled: readOnly,
+      description: "Apply a tracked proposal to the current draft. Requires name, documentId and draftRevision from document.read_draft. The lawyer reviews it with Accept/Reject; it is not saved automatically.",
+      requiresArgs: true,
+      args: [{ name: "name", type: "string", required: true }, { name: "documentId", type: "string", required: true }, { name: "draftRevision", type: "number", required: true }, { name: "paraId", type: "string", required: true }, { name: "search", type: "string", required: true }, { name: "replaceWith", type: "string", required: true }],
+      execute: (args) => {
+        if (readOnly) throw new Error("This document is read-only.");
+        if (!args || typeof args !== "object" || !("name" in args) || args.name !== name ||
+          !("documentId" in args) || args.documentId !== documentId ||
+          !("draftRevision" in args) || args.draftRevision !== revision.current ||
+          !("paraId" in args) || typeof args.paraId !== "string" ||
+          !("search" in args) || typeof args.search !== "string" ||
+          !("replaceWith" in args) || typeof args.replaceWith !== "string") throw new Error("Read the current draft again and supply its name, revision and paragraph handle.");
+        const applied = editorRef.current?.proposeChange({ paraId: args.paraId, search: args.search, replaceWith: args.replaceWith, author: "LegalWork AI" });
+        if (!applied) throw new Error("The target is missing, ambiguous or already redlined. Read the draft again.");
+        markDirty();
+        return { applied: true, saved: false, draftRevision: revision.current };
+      },
+    },
+  ]);
 
   return (
-    <div ref={containerRef} className="h-full min-h-0 w-full overflow-hidden">
-      <style>{DOCX_FIT_CSS}</style>
-      <DocxEditor
-        ref={editorRef}
-        documentBuffer={documentBuffer}
-        documentName={name}
-        documentNameEditable={false}
-        author={author}
-        mode={readOnly ? "viewing" : "editing"}
-        colorMode={colorMode}
-        showFileOpen={false}
-        showHelpMenu={false}
-        showOutlineButton={false}
-        commentsSidebarOpen={commentsSidebarOpen}
-        onCommentsSidebarOpenChange={setCommentsSidebarOpen}
-        className="h-full"
-        onFontsLoaded={applyFit}
-      />
+    <div ref={containerRef} className="docx-host flex h-full min-h-0 min-w-0 w-full flex-col overflow-hidden" onClickCapture={onReviewClick} onKeyDownCapture={(event) => {
+      if (!(event.metaKey || event.ctrlKey) || event.key.toLowerCase() !== "s" || event.altKey) return;
+      event.preventDefault();
+      event.stopPropagation();
+      if (readOnly) return;
+      void save().then((saved) => {
+        if (!saved) toast.error("The document could not be saved. Your draft is still open.");
+      }).catch((error: unknown) => {
+        toast.error(error instanceof Error ? error.message : "The document could not be saved. Your draft is still open.");
+      });
+    }}>
+      <div className="min-h-0 min-w-0 flex-1">
+        <DocxEditor
+          ref={editorRef}
+          documentBuffer={documentBuffer}
+          documentName={name}
+          documentNameEditable={false}
+          author={reviewer.trim() || "LegalWork"}
+          readOnly={readOnly}
+          mode={readOnly ? "viewing" : mode}
+          onModeChange={setMode}
+          commentsSidebarOpen={commentsOpen}
+          onCommentsSidebarOpenChange={setCommentsOpen}
+          onFontsLoaded={fitPage}
+          colorMode={colorMode}
+          showFileOpen={false}
+          showHelpMenu
+          showOutlineButton={false}
+          showRuler={false}
+          rulerUnit="cm"
+          i18n={EDITOR_LABELS}
+          className="h-full"
+          onEditorViewReady={() => {
+            // Initial import/normalization emits document and comment callbacks.
+            // Establish the baseline after that first render, before accepting edits.
+            requestAnimationFrame(() => {
+              if (ready.current) return;
+              lastDocument.current = editorRef.current?.getDocument() ?? null;
+              ready.current = true;
+              if (recovered) { dirty.current = true; onDirtyChange?.(true); }
+            });
+          }}
+          onChange={(document) => { lastDocument.current = document; markDirty(); }}
+          onCommentsChange={() => {
+            // Loading the imported threads happens before the editor ref has a document.
+            if (editorRef.current?.getDocument()) markDirty();
+          }}
+          onError={(error) => toast.error(error.message)}
+        />
+      </div>
     </div>
   );
 }

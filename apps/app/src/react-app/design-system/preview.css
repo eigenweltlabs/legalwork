@@ -1,0 +1,59 @@
+/* Preview layout only. Component styling comes from the production app. */
+html:has(.design-preview),
+body:has(.design-preview),
+#root:has(.design-preview) {
+  height: auto;
+  min-height: 100%;
+  overflow: visible;
+}
+
+.design-preview {
+  min-height: 100vh;
+  background: var(--lw-canvas);
+}
+
+.design-preview section {
+  scroll-margin-top: 6rem;
+}
+
+/* Review-only override also reaches menus/dialogs portaled into body. */
+html[data-preview-reduced-motion="true"] *,
+html[data-preview-reduced-motion="true"] *::before,
+html[data-preview-reduced-motion="true"] *::after {
+  animation-duration: 0.01ms !important;
+  animation-delay: 0ms !important;
+  animation-iteration-count: 1 !important;
+  transition-duration: 0.01ms !important;
+  transition-delay: 0ms !important;
+  scroll-behavior: auto !important;
+}
+
+html[data-preview-reduced-motion="true"] .lw-control:active {
+  transform: none !important;
+}
+
+.design-preview-frame {
+  display: grid;
+  grid-template-columns: 208px minmax(0, 1fr) 208px;
+  min-height: 400px;
+}
+
+@media (max-width: 1023px) {
+  .design-preview-frame {
+    grid-template-columns: 180px minmax(0, 1fr);
+  }
+
+  .design-preview-frame > :last-child {
+    display: none;
+  }
+}
+
+@media (max-width: 639px) {
+  .design-preview-frame {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .design-preview-frame > :first-child {
+    display: none;
+  }
+}

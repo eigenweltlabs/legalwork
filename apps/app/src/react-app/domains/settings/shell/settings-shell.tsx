@@ -54,8 +54,8 @@ export function SettingsShell(props: SettingsShellProps) {
   if (props.compact) {
     return (
       <div className="flex h-full min-h-0 w-full flex-col overflow-hidden bg-background">
-        <header className="flex h-11 shrink-0 items-center justify-between gap-2 border-b border-dls-border px-3 mac:titlebar-drag">
-          <div className="flex min-w-0 items-center gap-2 mac:titlebar-no-drag">
+        <header className="flex h-12 shrink-0 items-center justify-between gap-2 border-b border-border/70 bg-background/80 px-3 backdrop-blur-xl mac:titlebar-drag">
+          <div className="flex min-w-0 flex-1 items-center gap-2 mac:titlebar-no-drag">
             <SettingsSectionMenu
               activeTab={props.activeTab}
               developerMode={props.developerMode}
@@ -73,7 +73,8 @@ export function SettingsShell(props: SettingsShellProps) {
             <Button
               variant="ghost"
               type="button"
-              className="flex size-8 shrink-0 items-center justify-center rounded-md text-gray-10 transition-colors hover:bg-gray-2/70 hover:text-dls-text"
+              size="icon-sm"
+              className="text-muted-foreground"
               onClick={props.onClose}
               title={t("dashboard.close_settings")}
               aria-label={t("dashboard.close_settings")}
@@ -110,14 +111,14 @@ export function SettingsShell(props: SettingsShellProps) {
           workspaces={props.workspaces}
           onSelectWorkspace={props.onSelectWorkspace}
         />
-        <SidebarInset className="min-h-0 overflow-hidden bg-background mac:bg-background/80 mac:[&_header]:transition-[padding-left] mac:[&_header]:duration-200 mac:[&_header]:ease-linear mac:peer-data-[state=collapsed]:[&_header]:pl-16 [&_header]:pl-16 md:[&_header]:pl-6">
+        <SidebarInset className="min-h-0 overflow-hidden bg-background mac:bg-background/80 mac:[&_header]:transition-[padding-left] mac:[&_header]:duration-200 mac:[&_header]:ease-linear motion-reduce:mac:[&_header]:transition-none mac:peer-data-[state=collapsed]:[&_header]:pl-16 [&_header]:pl-16 md:[&_header]:pl-6">
           <main className="flex min-w-0 flex-1 flex-col overflow-hidden">
-            <header className="shrink-0 flex h-10 items-center justify-between border-b border-dls-border px-4 md:px-6 mac:titlebar-drag">
+            <header className="flex h-12 shrink-0 items-center justify-between border-b border-border/70 bg-background/80 px-4 backdrop-blur-xl md:px-6 mac:titlebar-drag">
               <div className="flex min-w-0 items-center gap-3">
                 <SidebarTrigger className="mac:titlebar-no-drag md:hidden" />
                 {props.headerLeadingSlot}
-                <h1 className="truncate text-[15px] font-semibold text-dls-text">{title}</h1>
-                <span className="hidden truncate text-[13px] text-dls-secondary lg:inline">
+                <h1 className="truncate text-[13px] font-semibold tracking-[-0.01em] text-dls-text">{title}</h1>
+                <span className="hidden truncate border-l border-border pl-3 text-xs text-dls-secondary lg:inline">
                   {props.selectedWorkspaceName}
                 </span>
                 {props.developerMode && props.headerStatus ? (
@@ -136,7 +137,8 @@ export function SettingsShell(props: SettingsShellProps) {
                 <Button
                   variant="ghost"
                   type="button"
-                  className="flex size-9 items-center justify-center rounded-md text-gray-10 transition-colors hover:bg-gray-2/70 hover:text-dls-text md:hidden"
+                  size="icon-sm"
+                  className="text-muted-foreground md:hidden"
                   onClick={props.onClose}
                   title={t("dashboard.close_settings")}
                   aria-label={t("dashboard.close_settings")}
@@ -192,7 +194,8 @@ function SettingsSectionMenu(props: Pick<SettingsPageFrameProps, "activeTab" | "
                 <DropdownMenuItem
                   key={tab}
                   onClick={() => props.onSelectTab(tab)}
-                  className={props.activeTab === tab ? "bg-foreground/10 text-accent-foreground" : undefined}
+                  aria-current={props.activeTab === tab ? "page" : undefined}
+                  className={props.activeTab === tab ? "bg-muted font-medium text-foreground" : undefined}
                 >
                   <Icon />
                   <span>{getSettingsTabLabel(tab)}</span>
@@ -211,7 +214,7 @@ function WorkspaceMenu(props: Pick<SettingsShellProps, "selectedWorkspaceId" | "
     <DropdownMenu>
       <DropdownMenuTrigger
         render={(
-          <Button variant="ghost" size="sm" className="min-w-0 max-w-36 justify-start gap-2 text-dls-secondary">
+          <Button variant="ghost" size="sm" className="min-w-0 shrink justify-start gap-2 text-dls-secondary" title={props.selectedWorkspaceName}>
             <WorkspaceIcon workspaceId={props.selectedWorkspaceId} sizeClass="size-4" />
             <span className="truncate">{props.selectedWorkspaceName}</span>
             <ChevronDown className="ml-auto size-4 shrink-0" />

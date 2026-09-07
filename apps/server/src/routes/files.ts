@@ -1158,11 +1158,6 @@ export function registerFileRoutes(options: RegisterFileRoutesOptions): void {
     } catch {
       throw new ApiError(400, "invalid_payload", "dataBase64 is invalid");
     }
-    const maxBytes = FILE_SESSION_MAX_FILE_BYTES;
-    if (bytes.byteLength > maxBytes) {
-      throw new ApiError(413, "file_too_large", "File exceeds size limit", { maxBytes, size: bytes.byteLength });
-    }
-
     const baseUpdatedAtRaw = body.baseUpdatedAt;
     const baseUpdatedAt =
       typeof baseUpdatedAtRaw === "number" && Number.isFinite(baseUpdatedAtRaw) ? baseUpdatedAtRaw : null;

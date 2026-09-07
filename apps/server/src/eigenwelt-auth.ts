@@ -78,16 +78,34 @@ export function validateEigenweltPlatformUrl(value: string): string {
 export type EigenweltManifestModel = {
   id: string;
   name?: string;
+  description?: string;
   contextLength?: number;
   toolCall?: boolean;
   reasoning?: boolean;
+  /** Where the deployment runs: "EU" or an ISO 3166 alpha-2 code ("US"). */
+  region?: string;
+  /** Plain-English hosting label, e.g. "Europe". */
+  hostedIn?: string;
+  /** The model behind the Eigenwelt name, e.g. "DeepSeek V4 Flash". */
+  upstreamModel?: string;
+  /** The provider keeps prompts and responses for a while to detect misuse. */
+  abuseMonitoring?: boolean;
 };
 
-/** Per-firm daily usage snapshot from the platform (cents, plus a percentage). */
+/** The signed-in seat's included usage for the current window (cents, plus a percentage). */
 export type EigenweltUsage = {
+  /** The window the included allowance applies to: a week on current
+   *  platforms, a day on platforms from before the weekly allowance. */
+  window: "day" | "week";
+  allowanceCents: number;
+  remainingCents: number;
+  /** Share of this window's allowance consumed, 0–100 (server-computed). */
+  usedPercent: number;
+  /** ISO timestamp when the allowance resets; null when unknown or without an allowance. */
+  resetsAt: string | null;
+  /** @deprecated The same numbers under the pre-weekly names; read the fields above. */
   dailyAllowanceCents: number;
   dailyRemainingCents: number;
-  /** Share of today's allowance consumed, 0–100 (server-computed). */
   dailyUsedPercent: number;
   extraUsageEnabled: boolean;
   prepaidBalanceCents: number;
@@ -99,7 +117,8 @@ export type EigenweltUsage = {
  * treat "no entitlements" as the free/legacy tier and not break.
  */
 export type EigenweltEntitlements = {
-  plan: "plus" | "pro" | null;
+  /** "hub" = the Knowledge Hub plan without AI (no `premium_models`). */
+  plan: "plus" | "pro" | "hub" | null;
   subscriptionStatus: string | null;
   /**
    * ISO timestamp when the 7-day trial ends (or ended — compare against now);
@@ -121,10 +140,11 @@ export type EigenweltAccountIdentity = {
 };
 
 /**
- * Active-subscription check. The platform emits the `premium_models` feature
- * ONLY when the org isEntitled (plan plus/pro with an active/trialing/past_due
- * status), so this is the authoritative "has an active sub" signal — stricter
- * than merely being signed in. Used to gate the paid Eigenwelt provider.
+ * Paid-models check. The platform emits the `premium_models` feature ONLY when
+ * the org isEntitled (an active/trialing/past_due status) on a plan that
+ * includes the Eigenwelt models (Plus; the Knowledge Hub plan does not), so
+ * this is the authoritative signal — stricter than merely being signed in or
+ * subscribed. Used to gate the paid Eigenwelt provider.
  */
 export function eigenweltHasPremiumModels(
   entitlements: EigenweltEntitlements | null | undefined,
@@ -206,7 +226,8 @@ function toFiniteNumber(value: unknown, fallback = 0): number {
  */
 export function parseEigenweltEntitlements(value: unknown): EigenweltEntitlements | undefined {
   if (!isRecord(value)) return undefined;
-  const plan = value.plan === "plus" || value.plan === "pro" ? value.plan : null;
+  const plan =
+    value.plan === "plus" || value.plan === "pro" || value.plan === "hub" ? value.plan : null;
   const subscriptionStatus = typeof value.subscriptionStatus === "string" ? value.subscriptionStatus : null;
   const trialEndsAt =
     typeof value.trialEndsAt === "string" && Number.isFinite(Date.parse(value.trialEndsAt))
@@ -216,18 +237,37 @@ export function parseEigenweltEntitlements(value: unknown): EigenweltEntitlement
     ? [...new Set(value.features.filter((f): f is string => typeof f === "string" && ENTITLEMENT_FEATURES.has(f)))]
     : [];
   const usageRaw = isRecord(value.usage) ? value.usage : {};
-  const dailyAllowanceCents = toFiniteNumber(usageRaw.dailyAllowanceCents);
-  const dailyRemainingCents = toFiniteNumber(usageRaw.dailyRemainingCents);
-  // Prefer the server-computed percentage; derive it from cents as a fallback
-  // for older platforms that don't send `dailyUsedPercent` yet.
-  const derivedUsedPercent =
-    dailyAllowanceCents === 0
-      ? 0
-      : ((dailyAllowanceCents - dailyRemainingCents) / dailyAllowanceCents) * 100;
-  const dailyUsedPercent = Math.max(
-    0,
-    Math.min(100, Math.round(toFiniteNumber(usageRaw.dailyUsedPercent, derivedUsedPercent))),
+  // Current platforms send the window plus generic names; older ones only the
+  // daily names (and enforced a daily allowance).
+  const window = usageRaw.window === "week" ? "week" : "day";
+  const allowanceCents = toFiniteNumber(
+    usageRaw.allowanceCents,
+    toFiniteNumber(usageRaw.dailyAllowanceCents),
   );
+  const remainingCents = toFiniteNumber(
+    usageRaw.remainingCents,
+    toFiniteNumber(usageRaw.dailyRemainingCents),
+  );
+  // Prefer the server-computed percentage; derive it from cents as a fallback
+  // for platforms that don't send one.
+  const derivedUsedPercent =
+    allowanceCents === 0 ? 0 : ((allowanceCents - remainingCents) / allowanceCents) * 100;
+  const usedPercent = Math.max(
+    0,
+    Math.min(
+      100,
+      Math.round(
+        toFiniteNumber(
+          usageRaw.usedPercent,
+          toFiniteNumber(usageRaw.dailyUsedPercent, derivedUsedPercent),
+        ),
+      ),
+    ),
+  );
+  const resetsAt =
+    typeof usageRaw.resetsAt === "string" && Number.isFinite(Date.parse(usageRaw.resetsAt))
+      ? usageRaw.resetsAt
+      : null;
   return {
     plan,
     subscriptionStatus,
@@ -235,9 +275,14 @@ export function parseEigenweltEntitlements(value: unknown): EigenweltEntitlement
     features,
     seats: toFiniteNumber(value.seats),
     usage: {
-      dailyAllowanceCents,
-      dailyRemainingCents,
-      dailyUsedPercent,
+      window,
+      allowanceCents,
+      remainingCents,
+      usedPercent,
+      resetsAt,
+      dailyAllowanceCents: allowanceCents,
+      dailyRemainingCents: remainingCents,
+      dailyUsedPercent: usedPercent,
       extraUsageEnabled: usageRaw.extraUsageEnabled === true,
       prepaidBalanceCents: toFiniteNumber(usageRaw.prepaidBalanceCents),
     },
@@ -464,16 +509,34 @@ export async function waitForEigenweltSignIn(
 }
 
 /**
- * Fetch the platform's public model manifest (gateway baseURL + model list).
- * Backs the "Paste an API key" path, where no exchange delivers the models.
+ * Fetch the platform's model manifest (gateway baseURL + model list).
+ *
+ * With a desktop access token this is the FIRM's list from the authenticated
+ * endpoint: models an org admin turned off on the platform are left out, so
+ * a refresh never re-adds one. Without a token (the "Paste an API key" path,
+ * or a legacy sign-in without tokens) it is the whole public catalog.
  */
-export async function fetchEigenweltManifest(): Promise<EigenweltManifest> {
+export async function fetchEigenweltManifest(options?: {
+  platformToken?: string | null;
+}): Promise<EigenweltManifest> {
   const platform = eigenweltPlatformUrl();
+  const token = options?.platformToken?.trim() || null;
+  const url = token ? `${platform}/api/desktop/models` : `${platform}/api/public/models`;
   let response: Response;
   try {
-    response = await fetch(`${platform}/api/public/models`, { headers: { Accept: "application/json" } });
+    response = await fetch(url, {
+      headers: {
+        Accept: "application/json",
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
+    });
   } catch {
     throw new Error("Could not reach the Eigenwelt platform.");
+  }
+  if (token && (response.status === 401 || response.status === 403)) {
+    throw new Error(
+      "Your Eigenwelt sign-in on this computer is no longer valid. Sign in again to refresh the models.",
+    );
   }
   if (!response.ok) {
     throw new Error(`Could not reach the Eigenwelt platform (HTTP ${response.status}).`);

@@ -1,12 +1,11 @@
 /** @jsxImportSource react */
 import type { CSSProperties } from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { usePanelRef } from "react-resizable-panels";
-import { AppWindowMac, Columns2, FileText, Folder, Globe, Mic2, ScrollText, Settings2, SquarePen, X, Zap } from "lucide-react";
+import { AppWindowMac, Columns2, Folder, PanelsTopLeft, Settings2, X, Zap } from "lucide-react";
 
 import { t } from "../../../../i18n";
-import { LEGALWORK_EXTENSION_CATALOG } from "../../../../app/constants";
 import {
   type LegalworkServerClient,
   type LegalworkServerStatus,
@@ -61,17 +60,19 @@ import { type SidePanelItem, useUiStateStore } from "../../../shell/ui-state-sto
 
 import { isElectronRuntime } from "../../../../app/utils";
 import { classifyOpenTarget, isCollectibleArtifactTarget, isLocalhostBrowserTarget, isOpenableFileTarget, resolvePathOpenTarget, type OpenTarget } from "../artifacts/open-target";
+import { confirmDiscardDocuments } from "../artifacts/docx-document-state";
 import type { OpenTargetOptions } from "@/lib/target-provider";
-import { VoicePanel } from "../voice/voice-panel";
 import { SidePanel } from "../panel/side-panel";
 import { WorkspaceFilesPanel } from "../panel/workspace-files-panel";
 import { LegalMemoryFilesPanel } from "../panel/legalmemory-files-panel";
 import { TerminalDock } from "../terminal/terminal-dock";
-import { LEARNINGS_PANEL_SESSION_ID, useActivePanelTab, usePanelTabStore, useSessionPanelState } from "../panel/panel-tab-store";
+import { LEARNINGS_PANEL_SESSION_ID, useActivePanelTab, usePanelTabStore } from "../panel/panel-tab-store";
 import { useWorkspaceShellLayout } from "../../../shell/workspace-shell-layout";
 import { useControlAction, type LegalworkControlAction } from "../../../shell/control/control-provider";
-import { getExtensionId, isLegalWorkExtensionEnabled, LEGALWORK_EXTENSION_STATE_CHANGED } from "../../settings/extension-state";
 import { cn } from "@/lib/utils";
+import "@/components/chat/session-surfaces.css";
+import { WelcomeSurface } from "@/components/chat/session-welcome";
+import { TaskSuggestionCards } from "@/components/chat/task-suggestions";
 
 const STARTUP_SKELETON_ROWS = [
   { id: "intro", titleWidth: "42%", bodyWidth: "88%" },
@@ -192,8 +193,6 @@ export type SessionPageProps = {
   onDeleteSession?: (sessionId: string) => Promise<void> | void;
   onArchiveSession?: (sessionId: string, archived: boolean) => Promise<void> | void;
   onAccessibleTargetsChange?: (targets: OpenTarget[]) => void;
-  /** Settings content rendered inside the right pane when the settings rail icon is active. */
-  settingsSlot?: React.ReactNode;
   /** When set, replaces the session main pane (keeps the sidebar). Used for the Learnings screen. */
   mainView?: React.ReactNode;
   terminalOpen?: boolean;
@@ -303,7 +302,7 @@ export function SessionPage(props: SessionPageProps) {
   // it on the synthetic LEARNINGS_PANEL_SESSION_ID instead. Without this the key
   // is null and the panel can never open (regressed as "opens only on the 2nd
   // click, and only after having visited a chat session first").
-  const panelStateSessionId = props.mainView ? LEARNINGS_PANEL_SESSION_ID : props.selectedSessionId;
+  const panelStateSessionId = props.mainView ? LEARNINGS_PANEL_SESSION_ID : props.selectedSessionId ?? LEARNINGS_PANEL_SESSION_ID;
   const sessionSidePanel = useUiStateStore((state) => (
     panelStateSessionId ? state.sidePanelState[panelStateSessionId] ?? null : null
   ));
@@ -312,14 +311,11 @@ export function SessionPage(props: SessionPageProps) {
   const toggleSidePanelState = useUiStateStore((state) => state.toggleSidePanelState);
   const openTab = usePanelTabStore((state) => state.openTab);
   const closeTab = usePanelTabStore((state) => state.closeTab);
-  const selectTab = usePanelTabStore((state) => state.selectTab);
   const transcriptTargets = usePanelTabStore((state) => (
     props.selectedSessionId ? state.transcriptArtifactTargets[props.selectedSessionId] ?? EMPTY_TRANSCRIPT_TARGETS : EMPTY_TRANSCRIPT_TARGETS
   ));
-  const sessionPanelState = useSessionPanelState(props.selectedSessionId ?? "");
   const activePanelTab = useActivePanelTab(props.selectedSessionId ?? "");
   const [hiddenTargetRevision, setHiddenTargetRevision] = useState(0);
-  const [, setExtensionStateVersion] = useState(0);
   const hiddenAccessibleTargetIds = useMemo(
     () => readHiddenAccessibleTargetIds(props.selectedWorkspaceId, props.selectedSessionId),
     [props.selectedSessionId, props.selectedWorkspaceId, hiddenTargetRevision],
@@ -328,24 +324,21 @@ export function SessionPage(props: SessionPageProps) {
     () => transcriptTargets.filter((target) => isTrackableAccessibleTarget(target) && !hiddenAccessibleTargetIds.has(target.id)),
     [hiddenAccessibleTargetIds, transcriptTargets],
   );
-  const artifactFileTargets = useMemo(() => accessibleTargets.filter(isCollectibleArtifactTarget), [accessibleTargets]);
-  const artifactTargetCount = artifactFileTargets.length;
-  const hasArtifactTargets = artifactTargetCount > 0;
-  const activeSidePanel = voiceSidePanelOpen ? "voice" : sessionSidePanel;
+  // Ignore a previously persisted settings pane; settings now live at the cog.
+  const activeSidePanel = sessionSidePanel === "extensions" ? null : sessionSidePanel;
   const sidePanelOpen = activeSidePanel !== null;
   const panelRailActive = activeSidePanel === "panel";
   const filesRailActive = activeSidePanel === "files";
-  const extensionsRailActive = activeSidePanel === "extensions";
-  const voiceRailActive = activeSidePanel === "voice";
-  // Artifact targets registered by mainView pages (Learnings / Benchmark documents).
-  const learningsArtifactCount = usePanelTabStore(
-    (state) => state.transcriptArtifactTargets[LEARNINGS_PANEL_SESSION_ID]?.length ?? 0,
-  );
-  const voiceExtension = useMemo(
-    () => LEGALWORK_EXTENSION_CATALOG.find((entry) => getExtensionId(entry) === "legalwork-voice") ?? null,
-    [],
-  );
-  const voiceExtensionEnabled = voiceExtension ? isLegalWorkExtensionEnabled(voiceExtension) : false;
+  const openAiProviderConnected = props.providerConnectedIds.includes("openai");
+  const voiceCapabilityQuery = useQuery({
+    queryKey: ["voice-realtime-capability", props.runtimeWorkspaceId, props.providerConnectedIds.join("|")],
+    queryFn: () => props.legalworkServerClient!.getVoiceRealtimeCapability(),
+    enabled: Boolean(props.legalworkServerClient && props.runtimeWorkspaceId && props.selectedSessionId && openAiProviderConnected),
+    retry: false,
+    staleTime: 30_000,
+    refetchInterval: voiceSidePanelOpen ? 5_000 : false,
+  });
+  const realtimeVoiceSupported = openAiProviderConnected && voiceCapabilityQuery.data?.supported === true;
 
   useReactRenderWatchdog("SessionPage", {
     selectedSessionId: props.selectedSessionId,
@@ -371,19 +364,26 @@ export function SessionPage(props: SessionPageProps) {
   const preserveSidePanelOnPanelOpenRef = useRef(false);
 
   const setCurrentSidePanel = useCallback((panel: SidePanelItem | null) => {
-    setSidePanelState(GLOBAL_VOICE_SIDE_PANEL_KEY, panel === "voice" ? "voice" : null);
-    if (panel === "voice") return;
+    if (panel === "voice") {
+      setSidePanelState(GLOBAL_VOICE_SIDE_PANEL_KEY, "voice");
+      return;
+    }
+    if (activeSidePanel === "panel" && panel !== "panel" && !confirmDiscardDocuments()) return;
     setSidePanelState(panelStateSessionId, panel);
-  }, [panelStateSessionId, setSidePanelState]);
+  }, [activeSidePanel, panelStateSessionId, setSidePanelState]);
+
+  const closeVoicePanel = useCallback(() => {
+    setSidePanelState(GLOBAL_VOICE_SIDE_PANEL_KEY, null);
+  }, [setSidePanelState]);
 
   const toggleCurrentSidePanel = useCallback((panel: SidePanelItem) => {
     if (panel === "voice") {
       toggleSidePanelState(GLOBAL_VOICE_SIDE_PANEL_KEY, "voice");
       return;
     }
-    setSidePanelState(GLOBAL_VOICE_SIDE_PANEL_KEY, null);
+    if (activeSidePanel === "panel" && !confirmDiscardDocuments()) return;
     toggleSidePanelState(panelStateSessionId, panel);
-  }, [panelStateSessionId, setSidePanelState, toggleSidePanelState]);
+  }, [activeSidePanel, panelStateSessionId, toggleSidePanelState]);
 
   // When the agent calls a built-in browser tool, the main process opens
   // the WebContentsView and sends panel-opened; when hide_browser is called
@@ -509,19 +509,6 @@ export function SessionPage(props: SessionPageProps) {
   const closeRightPane = useCallback(() => {
     setCurrentSidePanel(null);
   }, [setCurrentSidePanel]);
-  const openBrowserRailPane = useCallback(() => {
-    // Opening the browser pane should land on a usable page, not an empty
-    // panel that forces the user to click "+". If no browser tab exists yet,
-    // create one (defaults to the new-tab URL in the main process).
-    const opening = !panelRailActive;
-    if (opening && isElectronRuntime()) {
-      const hasBrowserTab = sessionPanelState.tabs.some((tab) => tab.type === "browser");
-      if (!hasBrowserTab) {
-        void window.__LEGALWORK_ELECTRON__?.browser?.createTab?.();
-      }
-    }
-    toggleCurrentSidePanel("panel");
-  }, [panelRailActive, sessionPanelState.tabs, toggleCurrentSidePanel]);
   const openBrowserUrlControlAction = useMemo<LegalworkControlAction>(() => ({
     id: "browser.open_url",
     label: "Open URL in built-in browser",
@@ -564,35 +551,6 @@ export function SessionPage(props: SessionPageProps) {
     },
   }), []);
   useControlAction(setBrowserProxyControlAction);
-  const openArtifactRailPane = useCallback(() => {
-    if (!hasArtifactTargets || !props.selectedSessionId) return;
-    const activeTab = sessionPanelState.tabs.find((tab) => tab.id === sessionPanelState.activeTabId);
-    const artifactTargetIds = new Set(artifactFileTargets.map((target) => target.id));
-    const artifactTab = sessionPanelState.tabs.find((tab) => (
-      tab.type === "artifact" && artifactTargetIds.has(tab.id)
-    ));
-    const firstArtifact = artifactFileTargets[0];
-    if (panelRailActive && activeTab?.type === "artifact") {
-      toggleCurrentSidePanel("panel");
-      return;
-    }
-    if (!panelRailActive) {
-      preserveSidePanelOnPanelOpenRef.current = true;
-    }
-    if (artifactTab) {
-      selectTab(props.selectedSessionId, artifactTab.id);
-    } else if (firstArtifact) {
-      openTab(props.selectedSessionId, {
-        id: firstArtifact.id,
-        type: "artifact",
-        label: firstArtifact.name,
-        preview: firstArtifact.preview,
-      });
-    }
-    if (!panelRailActive) {
-      toggleCurrentSidePanel("panel");
-    }
-  }, [artifactFileTargets, hasArtifactTargets, openTab, panelRailActive, props.selectedSessionId, selectTab, sessionPanelState, toggleCurrentSidePanel]);
   const openFilesRailPane = useCallback(() => {
     toggleCurrentSidePanel("files");
   }, [toggleCurrentSidePanel]);
@@ -650,12 +608,6 @@ export function SessionPage(props: SessionPageProps) {
       throw error;
     }
   }, [accessibleTargets, openTarget, props.legalworkServerClient, props.mainView, props.runtimeWorkspaceId, queryClient]);
-  const openExtensionsRailPane = useCallback(() => {
-    toggleCurrentSidePanel("extensions");
-  }, [toggleCurrentSidePanel]);
-  const openVoiceRailPane = useCallback(() => {
-    toggleCurrentSidePanel("voice");
-  }, [toggleCurrentSidePanel]);
   const removeAccessibleTarget = useCallback((target: OpenTarget) => {
     const nextHiddenIds = new Set(hiddenAccessibleTargetIds);
     nextHiddenIds.add(target.id);
@@ -693,46 +645,36 @@ export function SessionPage(props: SessionPageProps) {
     return () => window.removeEventListener("legalwork-close-right-pane", handler);
   }, [setCurrentSidePanel]);
   useEffect(() => {
-    const refresh = () => setExtensionStateVersion((value) => value + 1);
-    window.addEventListener(LEGALWORK_EXTENSION_STATE_CHANGED, refresh);
-    window.addEventListener("storage", refresh);
-    return () => {
-      window.removeEventListener(LEGALWORK_EXTENSION_STATE_CHANGED, refresh);
-      window.removeEventListener("storage", refresh);
-    };
-  }, []);
-  useEffect(() => {
-    if (activeSidePanel === "voice" && !voiceExtensionEnabled) {
-      setCurrentSidePanel(null);
+    if (voiceSidePanelOpen && !realtimeVoiceSupported) {
+      closeVoicePanel();
     }
-  }, [activeSidePanel, setCurrentSidePanel, voiceExtensionEnabled]);
-
+  }, [closeVoicePanel, realtimeVoiceSupported, voiceSidePanelOpen]);
   const openVoicePanelControlAction = useMemo<LegalworkControlAction | null>(() => (
-    voiceExtensionEnabled ? {
+    realtimeVoiceSupported ? {
       id: "voice.panel.open",
       label: "Open Voice Mode",
-      description: "Open the sticky Voice Mode right-side panel.",
+      description: "Open immersive Voice Mode for the current session.",
       sideEffect: "none",
       execute: () => {
         setCurrentSidePanel("voice");
         return { open: true };
       },
     } : null
-  ), [setCurrentSidePanel, voiceExtensionEnabled]);
+  ), [realtimeVoiceSupported, setCurrentSidePanel]);
   useControlAction(openVoicePanelControlAction);
 
   const closeVoicePanelControlAction = useMemo<LegalworkControlAction | null>(() => (
-    voiceExtensionEnabled && activeSidePanel === "voice" ? {
+    realtimeVoiceSupported && voiceSidePanelOpen ? {
       id: "voice.panel.close",
       label: "Close Voice Mode",
-      description: "Close the Voice Mode right-side panel.",
+      description: "Close immersive Voice Mode.",
       sideEffect: "none",
       execute: () => {
-        setCurrentSidePanel(null);
+        closeVoicePanel();
         return { open: false };
       },
     } : null
-  ), [activeSidePanel, setCurrentSidePanel, voiceExtensionEnabled]);
+  ), [closeVoicePanel, realtimeVoiceSupported, voiceSidePanelOpen]);
   useControlAction(closeVoicePanelControlAction);
   const [showDelayedSessionLoadingState, setShowDelayedSessionLoadingState] = useState(false);
 
@@ -923,7 +865,7 @@ export function SessionPage(props: SessionPageProps) {
   };
 
   return (
-    <div className="flex h-full min-h-0 flex-col bg-[radial-gradient(circle_at_top,rgba(74,111,255,0.12),transparent_42%),var(--app-bg,#0b1020)] text-dls-text mac:bg-transparent">
+    <div className="flex h-full min-h-0 flex-col bg-[var(--lw-canvas)] text-dls-text mac:bg-transparent">
       <SidebarProvider
         open={sidebarOpen}
         onOpenChange={setSidebarOpen}
@@ -996,12 +938,12 @@ export function SessionPage(props: SessionPageProps) {
           // Top-level pages (Learnings / Skills / Integrations): keep the app chrome the
           // chat has — the draggable top header and the bottom StatusBar (with the
           // settings gear) — and swap only the center content.
-          <SidebarInset className="min-h-0 overflow-hidden bg-background mac:bg-background/80 mac:[&_header]:transition-[padding-left] mac:[&_header]:duration-200 mac:[&_header]:ease-linear mac:peer-data-[state=collapsed]:[&_header]:pl-28 mac:max-md:[&_header]:pl-28">
+          <SidebarInset className="min-h-0 overflow-hidden bg-background mac:bg-background/80 mac:[&_.lw-session-header]:transition-[padding-left] mac:[&_.lw-session-header]:duration-200 mac:[&_.lw-session-header]:ease-linear mac:peer-data-[state=collapsed]:[&_.lw-session-header]:pl-28 mac:max-md:[&_.lw-session-header]:pl-28">
             <div className="flex min-h-0 flex-1">
             <ResizablePanelGroup orientation="horizontal" className="min-h-0 flex-1">
               <ResizablePanel minSize="360px" className="min-w-0">
             <main className="flex h-full min-w-0 flex-1 flex-col overflow-hidden">
-              <header className="z-10 flex h-10 shrink-0 items-center justify-between border-b border-border px-4 md:px-6 mac:titlebar-drag mac:backdrop-blur-2xl mac:backdrop-saturate-150">
+              <header className="lw-session-header z-10 flex h-11 shrink-0 items-center justify-between border-b border-border px-4 md:px-6 mac:titlebar-drag mac:backdrop-blur-2xl mac:backdrop-saturate-150">
                 <div className="flex min-w-0 items-center gap-3">
                   {shellConfig.sidebar ? (
                 <SidebarTrigger className="mac:hidden" />
@@ -1031,7 +973,7 @@ export function SessionPage(props: SessionPageProps) {
               ) : null}
             </main>
               </ResizablePanel>
-              {activeSidePanel === "panel" || (activeSidePanel === "extensions" && props.settingsSlot) ? (
+              {activeSidePanel === "panel" ? (
                 <>
                   <ResizableHandle withHandle className="hidden lg:flex" />
                   <ResizablePanel
@@ -1040,65 +982,36 @@ export function SessionPage(props: SessionPageProps) {
                     maxSize="70%"
                     className="min-h-0 overflow-hidden lg:flex lg:flex-col"
                   >
-                    {activeSidePanel === "extensions" && props.settingsSlot ? (
-                      <div className="flex h-full min-h-0 flex-col overflow-y-auto bg-background">
-                        {props.settingsSlot}
-                      </div>
-                    ) : (
-                      <SidePanel
-                        sessionId={LEARNINGS_PANEL_SESSION_ID}
-                        client={props.legalworkServerClient}
-                        workspaceId={props.runtimeWorkspaceId}
-                        workspaceRoot={props.selectedWorkspaceRoot}
-                        isRemoteWorkspace={props.selectedWorkspaceDisplay.workspaceType === "remote"}
-                        onClose={closeRightPane}
-                      />
-                    )}
+                    <SidePanel
+                      sessionId={LEARNINGS_PANEL_SESSION_ID}
+                      client={props.legalworkServerClient}
+                      workspaceId={props.runtimeWorkspaceId}
+                      workspaceRoot={props.selectedWorkspaceRoot}
+                      isRemoteWorkspace={props.selectedWorkspaceDisplay.workspaceType === "remote"}
+                      onClose={closeRightPane}
+                    />
                   </ResizablePanel>
                 </>
               ) : null}
             </ResizablePanelGroup>
             {/* Same right icon rail as the session view. */}
-            <aside className="flex w-11 shrink-0 flex-col items-center gap-1 border-l border-border bg-background/95 px-1 py-2 text-muted-foreground mac:titlebar-no-drag">
+            <aside aria-label="Workspace tools" className="lw-session-rail flex w-12 shrink-0 flex-col items-center gap-2 border-l border-border px-1.5 py-3 text-muted-foreground mac:titlebar-no-drag">
               <Button
                 variant="ghost"
                 size="icon-sm"
-                className={cn(
-                  "rounded-xl transition-colors hover:bg-muted hover:text-foreground",
-                  panelRailActive && "bg-primary/10 text-primary hover:bg-primary/15 hover:text-primary",
-                )}
-                onClick={() => setCurrentSidePanel(panelRailActive ? null : "panel")}
-                title={learningsArtifactCount > 0 ? `Files (${learningsArtifactCount})` : "No files yet"}
-                aria-label={learningsArtifactCount > 0 ? `Files (${learningsArtifactCount})` : "No files yet"}
+                className={cn("lw-session-rail-button hover:bg-muted hover:text-foreground", panelRailActive && "text-foreground")}
+                onClick={() => toggleCurrentSidePanel("panel")}
+                title="Viewer"
+                aria-label="Viewer"
                 aria-pressed={panelRailActive}
-                disabled={learningsArtifactCount === 0}
               >
-                <FileText size={17} />
-                {learningsArtifactCount > 0 ? (
-                  <span className="absolute right-0 top-0 flex min-w-3.5 translate-x-1 -translate-y-1 items-center justify-center rounded-full bg-primary px-1 text-[9px] font-semibold leading-3 text-primary-foreground">
-                    {learningsArtifactCount > 9 ? "9+" : learningsArtifactCount}
-                  </span>
-                ) : null}
-              </Button>
-              <Button
-                variant="ghost"
-                size="icon-sm"
-                className={cn(
-                  "rounded-xl transition-colors hover:bg-muted hover:text-foreground",
-                  extensionsRailActive && "bg-primary/10 text-primary hover:bg-primary/15 hover:text-primary",
-                )}
-                onClick={props.settingsSlot ? openExtensionsRailPane : props.onOpenSettings}
-                title="Extensions"
-                aria-label="Extensions"
-                aria-pressed={extensionsRailActive}
-              >
-                <Settings2 size={17} />
+                <PanelsTopLeft size={17} />
               </Button>
             </aside>
             </div>
           </SidebarInset>
         ) : (
-        <SidebarInset className="min-h-0 overflow-hidden bg-background mac:bg-background/80 mac:[&_header]:transition-[padding-left] mac:[&_header]:duration-200 mac:[&_header]:ease-linear mac:peer-data-[state=collapsed]:[&_header]:pl-28 mac:max-md:[&_header]:pl-28">
+        <SidebarInset className="min-h-0 overflow-hidden bg-background mac:bg-background/80 mac:[&_.lw-session-header]:transition-[padding-left] mac:[&_.lw-session-header]:duration-200 mac:[&_.lw-session-header]:ease-linear mac:peer-data-[state=collapsed]:[&_.lw-session-header]:pl-28 mac:max-md:[&_.lw-session-header]:pl-28">
           <div className="flex min-h-0 flex-1">
           <ResizablePanelGroup
             orientation="horizontal"
@@ -1107,7 +1020,7 @@ export function SessionPage(props: SessionPageProps) {
           >
             <ResizablePanel minSize="360px" className="min-w-0">
               <main className="flex h-full min-w-0 flex-col overflow-hidden border-r border-border">
-          <header className={cn("z-10 flex h-10 shrink-0 items-center justify-between border-b border-border px-4 md:px-6 mac:titlebar-drag mac:backdrop-blur-2xl mac:backdrop-saturate-150 @container/titlebar", props.detached && "mac:pl-20")}>
+          <header className={cn("lw-session-header z-10 flex h-11 shrink-0 items-center justify-between border-b border-border px-4 md:px-6 mac:titlebar-drag mac:backdrop-blur-2xl mac:backdrop-saturate-150 @container/titlebar", props.detached && "mac:pl-20")}>
             <div className="flex min-w-0 items-center gap-3">
               {!props.detached && shellConfig.sidebar ? (
                 <SidebarTrigger className="mac:hidden" />
@@ -1116,12 +1029,12 @@ export function SessionPage(props: SessionPageProps) {
                 // Word pane back button) when the sidebar trigger is hidden.
                 <span aria-hidden className="w-6 shrink-0" />
               )}
-              <h1 className="truncate text-[15px] font-semibold text-dls-text">
+              <h1 className="truncate text-[13px] font-medium tracking-[-0.01em] text-dls-text">
                 {showWorkspaceSetupEmptyState
                   ? t("session.create_or_connect_workspace")
                   : selectedSessionTitle || t("session.default_title")}
               </h1>
-              <span className="hidden truncate text-[13px] text-dls-secondary lg:inline">
+              <span className="hidden truncate border-l border-dls-border pl-3 text-xs text-dls-secondary lg:inline">
                 {workspaceName}
               </span>
               {props.developerMode ? (
@@ -1291,6 +1204,15 @@ export function SessionPage(props: SessionPageProps) {
                         respondQuestion={props.respondQuestion}
                         safeStringify={props.safeStringify}
                         onOpenTarget={openTarget}
+                        realtimeVoiceSupported={realtimeVoiceSupported}
+                        realtimeVoiceActive={voiceSidePanelOpen}
+                        onRealtimeVoiceActiveChange={(active) => {
+                          if (active) {
+                            setCurrentSidePanel("voice");
+                            return;
+                          }
+                          closeVoicePanel();
+                        }}
                       />
                     </div>
                     {canRenderSplitSurface ? (
@@ -1305,6 +1227,8 @@ export function SessionPage(props: SessionPageProps) {
                           legalworkToken={reactSessionToken}
                           todos={[]}
                           onOpenTarget={openTarget}
+                          realtimeVoiceSupported={false}
+                          realtimeVoiceActive={false}
                         />
                       </div>
                     ) : null}
@@ -1313,7 +1237,7 @@ export function SessionPage(props: SessionPageProps) {
               ) : null}
 
               {!showDelayedSessionLoadingState && !canRenderReactSurface && !showStartupSkeleton ? (
-                <div className={`mx-auto max-w-[800px] px-6 ${showWorkspaceSetupEmptyState ? "pt-20" : "pt-10"}`}>
+                <div className={`mx-auto h-full max-w-[800px] overflow-y-auto px-6 pb-8 ${showWorkspaceSetupEmptyState ? "pt-20" : "pt-3"}`}>
                   {props.notFoundMessage ? (
                     <div className="px-6 py-16 text-center">
                       <div className="mx-auto max-w-md rounded-2xl border border-dls-border bg-dls-card px-5 py-6 shadow-[var(--dls-card-shadow)]">
@@ -1359,100 +1283,17 @@ export function SessionPage(props: SessionPageProps) {
                       {t("session.loading_detail")}
                     </div>
                   ) : (
-                    <div className="flex flex-1 items-center justify-center px-6 py-16">
-                      <div className="w-full max-w-md space-y-6">
-                        <div className="space-y-1 text-center">
-                          <h2 className="text-lg font-semibold text-dls-text">
-                            {providerCount === 0
-                              ? t("session.connect_model_to_start")
-                              : t("session.select_or_create_session")}
-                          </h2>
-                          <p className="text-xs text-dls-secondary">
-                            {providerCount === 0
-                              ? "Add an AI model provider so your tasks can run."
-                              : "Try one of these to get started:"}
-                          </p>
-                        </div>
-                        <div className="space-y-2">
-                          {providerCount === 0 ? (
-                            <button
-                              type="button"
-                              className="flex w-full items-start gap-3 rounded-xl border border-blue-7/50 bg-blue-2/40 p-3.5 text-left transition-colors hover:bg-blue-3/50"
-                              onClick={() => props.onOpenProviderAuth?.()}
-                            >
-                              <Zap className="mt-0.5 size-5 shrink-0 text-blue-10" />
-                              <div>
-                                <div className="text-[13px] font-medium text-dls-text">Connect a model provider</div>
-                                <div className="mt-0.5 text-[11px] text-dls-secondary">
-                                  Add an API key for Anthropic, OpenAI, Google, or other providers
-                                </div>
-                              </div>
-                            </button>
-                          ) : null}
-                          <button
-                            type="button"
-                            className="flex w-full items-start gap-3 rounded-xl border border-dls-border bg-dls-surface p-3.5 text-left transition-colors hover:bg-dls-hover"
-                            onClick={() => {
-                              props.sidebar.onCreateTaskWithPrompt?.(
-                                props.selectedWorkspaceId,
-                                "Review the contracts in this folder and build a review grid — one row per document, with columns for the parties, effective date, term, governing law, and assignment/change-of-control. Put a short value in each cell with a citation to the source document, and flag anything missing or unusual.",
-                              );
-                            }}
-                          >
-                            <Columns2 className="mt-0.5 size-5 shrink-0 text-dls-secondary" />
-                            <div>
-                              <div className="text-[13px] font-medium text-dls-text">Build a review grid</div>
-                              <div className="mt-0.5 text-[11px] text-dls-secondary">Extract key terms across many documents</div>
-                            </div>
-                          </button>
-                          <button
-                            type="button"
-                            className="flex w-full items-start gap-3 rounded-xl border border-dls-border bg-dls-surface p-3.5 text-left transition-colors hover:bg-dls-hover"
-                            onClick={() => {
-                              props.sidebar.onCreateTaskWithPrompt?.(
-                                props.selectedWorkspaceId,
-                                "Redline this contract: propose your changes as tracked redlines and give me a short rationale for each. If we have a standard template or playbook, mark it up against that.",
-                              );
-                            }}
-                          >
-                            <SquarePen className="mt-0.5 size-5 shrink-0 text-dls-secondary" />
-                            <div>
-                              <div className="text-[13px] font-medium text-dls-text">Redline a contract</div>
-                              <div className="mt-0.5 text-[11px] text-dls-secondary">Propose tracked changes with rationale</div>
-                            </div>
-                          </button>
-                          <button
-                            type="button"
-                            className="flex w-full items-start gap-3 rounded-xl border border-dls-border bg-dls-surface p-3.5 text-left transition-colors hover:bg-dls-hover"
-                            onClick={() => {
-                              props.sidebar.onCreateTaskWithPrompt?.(
-                                props.selectedWorkspaceId,
-                                "Summarize the contracts in this folder. For each one, note what it is in a sentence, then give me an overall summary of what this set covers and anything that stands out — citing the source file for the important points.",
-                              );
-                            }}
-                          >
-                            <ScrollText className="mt-0.5 size-5 shrink-0 text-dls-secondary" />
-                            <div>
-                              <div className="text-[13px] font-medium text-dls-text">Summarize documents</div>
-                              <div className="mt-0.5 text-[11px] text-dls-secondary">Get an overview of every file</div>
-                            </div>
-                          </button>
-                          <button
-                            type="button"
-                            className="flex w-full items-start gap-3 rounded-xl border border-dls-border bg-dls-surface p-3.5 text-left transition-colors hover:bg-dls-hover"
-                            onClick={() => {
-                              props.onOpenSettings?.();
-                            }}
-                          >
-                            <img src="https://cdn.simpleicons.org/hackthebox" alt="" width={20} height={20} className="mt-0.5 shrink-0" />
-                            <div>
-                              <div className="text-[13px] font-medium text-dls-text">Connect an extension</div>
-                              <div className="mt-0.5 text-[11px] text-dls-secondary">Add MCP servers, plugins, and integrations</div>
-                            </div>
-                          </button>
-                        </div>
-                      </div>
-                    </div>
+                    <WelcomeSurface replayKey={props.selectedWorkspaceId}>
+                      <TaskSuggestionCards
+                        providerConnectedCount={providerCount}
+                        onConnect={() => props.onOpenProviderAuth?.()}
+                        onSelect={(prompt) => props.sidebar.onCreateTaskWithPrompt?.(props.selectedWorkspaceId, prompt)}
+                      />
+                      <Button variant="ghost" size="sm" className="mt-4 gap-2" onClick={props.onOpenSettings}>
+                        <Settings2 size={14} aria-hidden="true" />
+                        Connect an extension
+                      </Button>
+                    </WelcomeSurface>
                   )}
                 </div>
               ) : null}
@@ -1492,23 +1333,12 @@ export function SessionPage(props: SessionPageProps) {
                 <ResizableHandle withHandle className="hidden lg:flex" />
                 <ResizablePanel
                   panelRef={browserPanelRef}
-                  defaultSize={`${activeSidePanel === "extensions" ? Math.max(browserPanelDefaultWidth, 480) : browserPanelDefaultWidth}px`}
-                  minSize={activeSidePanel === "extensions" ? "420px" : "320px"}
+                  defaultSize={`${browserPanelDefaultWidth}px`}
+                  minSize="320px"
                   maxSize="70%"
                   className="min-h-0 overflow-hidden lg:flex lg:flex-col"
                 >
-                  {activeSidePanel === "extensions" && props.settingsSlot ? (
-                    <div className="flex h-full min-h-0 flex-col overflow-y-auto bg-background">
-                      {props.settingsSlot}
-                    </div>
-                  ) : activeSidePanel === "voice" ? (
-                    <VoicePanel
-                      client={props.legalworkServerClient}
-                      workspaceId={props.runtimeWorkspaceId}
-                      sessionId={props.selectedSessionId}
-                      onClose={closeRightPane}
-                    />
-                  ) : activeSidePanel === "files" ? (
+                  {activeSidePanel === "files" ? (
                     <WorkspaceFilesPanel
                       key={props.runtimeWorkspaceId ?? "__no_workspace__"}
                       client={props.legalworkServerClient}
@@ -1517,9 +1347,9 @@ export function SessionPage(props: SessionPageProps) {
                       onOpenFile={openWorkspaceFileEntry}
                       onClose={closeRightPane}
                     />
-                  ) : activeSidePanel === "panel" && props.selectedSessionId ? (
+                  ) : activeSidePanel === "panel" ? (
                     <SidePanel
-                      sessionId={props.selectedSessionId}
+                      sessionId={panelStateSessionId}
                       client={props.legalworkServerClient}
                       workspaceId={props.runtimeWorkspaceId}
                       workspaceRoot={props.selectedWorkspaceRoot}
@@ -1532,65 +1362,24 @@ export function SessionPage(props: SessionPageProps) {
             ) : null}
           </ResizablePanelGroup>
           {shellConfig.panelRail ? (
-          <aside className="flex w-11 shrink-0 flex-col items-center gap-1 border-l border-border bg-background/95 px-1 py-2 text-muted-foreground mac:titlebar-no-drag">
-            {isElectronRuntime() ? (
+          <aside aria-label="Workspace tools" className="lw-session-rail flex w-12 shrink-0 flex-col items-center gap-2 border-l border-border px-1.5 py-3 text-muted-foreground mac:titlebar-no-drag">
               <Button
                 variant="ghost"
                 size="icon-sm"
-                className={cn(
-                  "rounded-xl transition-colors hover:bg-muted hover:text-foreground",
-                  panelRailActive && "bg-primary/10 text-primary hover:bg-primary/15 hover:text-primary",
-                )}
-                onClick={openBrowserRailPane}
-                title="Browser"
-                aria-label="Browser"
+                className={cn("lw-session-rail-button hover:bg-muted hover:text-foreground", panelRailActive && "text-foreground")}
+                onClick={() => toggleCurrentSidePanel("panel")}
+                title="Viewer"
+                aria-label="Viewer"
                 aria-pressed={panelRailActive}
               >
-                <Globe size={17} />
+                <PanelsTopLeft size={17} />
               </Button>
-            ) : null}
-            {voiceExtensionEnabled ? (
-              <Button
-                variant="ghost"
-                size="icon-sm"
-                className={cn(
-                  "rounded-xl transition-colors hover:bg-muted hover:text-foreground",
-                  voiceRailActive && "bg-primary/10 text-primary hover:bg-primary/15 hover:text-primary",
-                )}
-                onClick={openVoiceRailPane}
-                title="Voice Mode"
-                aria-label="Voice Mode"
-                aria-pressed={voiceRailActive}
-              >
-                <Mic2 size={17} />
-              </Button>
-            ) : null}
             <Button
               variant="ghost"
               size="icon-sm"
               className={cn(
-                "rounded-xl transition-colors hover:bg-muted hover:text-foreground",
-                panelRailActive && "bg-primary/10 text-primary hover:bg-primary/15 hover:text-primary",
-              )}
-              onClick={openArtifactRailPane}
-              title={hasArtifactTargets ? `Artifacts (${artifactTargetCount})` : "No artifacts yet"}
-              aria-label={hasArtifactTargets ? `Artifacts (${artifactTargetCount})` : "No artifacts yet"}
-              aria-pressed={panelRailActive}
-              disabled={!hasArtifactTargets}
-            >
-              <FileText size={17} />
-              {artifactTargetCount > 0 ? (
-                <span className="absolute right-0 top-0 flex min-w-3.5 translate-x-1 -translate-y-1 items-center justify-center rounded-full bg-primary px-1 text-[9px] font-semibold leading-3 text-primary-foreground">
-                  {artifactTargetCount > 9 ? "9+" : artifactTargetCount}
-                </span>
-              ) : null}
-            </Button>
-            <Button
-              variant="ghost"
-              size="icon-sm"
-              className={cn(
-                "rounded-xl transition-colors hover:bg-muted hover:text-foreground",
-                filesRailActive && "bg-primary/10 text-primary hover:bg-primary/15 hover:text-primary",
+                "lw-session-rail-button hover:bg-muted hover:text-foreground",
+                filesRailActive && "text-foreground",
               )}
               onClick={openFilesRailPane}
               title="Workspace files"
@@ -1599,20 +1388,6 @@ export function SessionPage(props: SessionPageProps) {
               disabled={!props.selectedSessionId || !props.legalworkServerClient || !props.runtimeWorkspaceId}
             >
               <Folder size={17} />
-            </Button>
-            <Button
-              variant="ghost"
-              size="icon-sm"
-              className={cn(
-                "rounded-xl transition-colors hover:bg-muted hover:text-foreground",
-                extensionsRailActive && "bg-primary/10 text-primary hover:bg-primary/15 hover:text-primary",
-              )}
-              onClick={props.settingsSlot ? openExtensionsRailPane : props.onOpenSettings}
-              title="Extensions"
-              aria-label="Extensions"
-              aria-pressed={extensionsRailActive}
-            >
-              <Settings2 size={17} />
             </Button>
           </aside>
           ) : null}

@@ -24,3 +24,27 @@ export function isEigenweltSignInExpiredError(input: {
 export function eigenweltSignInExpiredMessage(): string {
   return t("app.error_eigenwelt_signin_expired");
 }
+
+/**
+ * The gateway's answer when the firm's admin turned the requested model off
+ * on the Eigenwelt platform (LiteLLM's `team_model_access_denied`, a 403).
+ * Checked BEFORE the sign-in check: a 403 from the eigenwelt provider would
+ * otherwise read as an expired sign-in.
+ */
+const MODEL_OFF_MARKERS = [
+  "team_model_access_denied",
+  "team not allowed to access model",
+  "key not allowed to access model",
+];
+
+export function isEigenweltModelDisabledError(input: {
+  texts: Array<string | null | undefined>;
+}): boolean {
+  return input.texts.some(
+    (text) => Boolean(text) && MODEL_OFF_MARKERS.some((marker) => text!.includes(marker)),
+  );
+}
+
+export function eigenweltModelDisabledMessage(): string {
+  return t("app.error_eigenwelt_model_off");
+}

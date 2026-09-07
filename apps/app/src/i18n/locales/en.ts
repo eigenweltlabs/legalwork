@@ -68,6 +68,8 @@ export default {
   "app.error_connect_first": "Connect to this worker before applying runtime changes.",
   "app.error_eigenwelt_signin_expired":
     "Your Eigenwelt sign-in on this computer is no longer valid. Open Settings, then Account, and sign in again.",
+  "app.error_eigenwelt_model_off":
+    "Your firm turned this model off on the Eigenwelt platform. Choose another model in the model picker.",
   "app.error_not_connected": "Not connected to a server",
   "app.error_rate_limit": "Rate limit exceeded",
   "app.error_remote_access": "Failed to update remote access.",
@@ -284,7 +286,6 @@ export default {
   "composer.behavior_label": "Behavior",
   "composer.configure": "Configure",
   "composer.default_agent": "Default agent",
-  "composer.file_exceeds_limit": "{name} exceeds the 8MB limit.",
   "composer.file_kind": "File",
   "composer.image_kind": "Image",
   "composer.inserted_links_unsupported": "Inserted links for unsupported files.",
@@ -1139,7 +1140,7 @@ export default {
   "session.workspace_fallback": "Workspace",
   "settings.audit_actor_host": "host",
   "settings.audit_actor_remote": "remote",
-  "settings.api_keys_info": "API keys are stored locally by OpenCode. Environment-backed providers must be changed in the worker environment and then reloaded.",
+  "settings.api_keys_info": "API keys are stored locally on this device.",
   "settings.appearance_hint": "Match the system or force light/dark mode.",
   "settings.appearance_title": "Appearance",
   "settings.analytics_toggle": "Share anonymous usage data",
@@ -1188,6 +1189,7 @@ export default {
   "settings.config_updated": "Configuration updated. Reload the engine if the change affects OpenCode.",
   "settings.configure": "Configure",
   "settings.connect_provider": "Connect provider",
+  "settings.env_key_override_info": "For providers managed by an environment variable, a locally saved API key takes priority without changing the environment.",
   "settings.connection": "Connection",
   "settings.connection_failed": "Connection failed",
   "settings.connection_title": "Connection",
@@ -1241,6 +1243,7 @@ export default {
   "settings.edit": "Edit",
   "settings.disconnect_server": "Disconnect server",
   "settings.disconnecting": "Disconnecting...",
+  "settings.replace_key": "Replace key",
   "settings.docker_containers_desc": "Clean up Docker containers left behind after tasks finish.",
   "settings.docker_containers_title": "Docker containers",
   "settings.docker_requires_desktop": "Only available in the desktop app",
@@ -1515,6 +1518,8 @@ export default {
   // A connected account with a lapsed subscription (there is no free tier).
   "account.plan_inactive": "Inactive",
   "account.plan_label": "Plan",
+  "account.plan_hub": "Knowledge Hub",
+  "account.models_not_in_plan": "Not included in the Knowledge Hub plan. Upgrade to Plus for the Eigenwelt models.",
   "account.models_label": "Models",
   // 7-day free trial (card-upfront; converts automatically at trial end)
   "account.trial_ends_today": "Free trial: ends today",
@@ -1531,6 +1536,8 @@ export default {
   "firm_hub.free_plan": "Free",
   "firm_hub.seats": "{seats} seats",
   "firm_hub.usage_today": "{percent}% used today",
+  "firm_hub.usage_this_week": "{percent}% used this week",
+  "firm_hub.usage_resets": "Resets {date}",
   "firm_hub.locked_title": "Firm sharing is part of your Eigenwelt subscription",
   "firm_hub.locked_body":
     "Upgrade your firm's plan to share workflows, integrations and settings presets across everyone at your firm.",
@@ -1569,6 +1576,7 @@ export default {
   // Subscription summary
   "firm_hub.subscription_title": "Firm subscription",
   "firm_hub.usage_label": "Daily usage",
+  "firm_hub.usage_label_week": "Weekly usage",
   // Section descriptions
   "firm_hub.workflows_desc": "Skill folders your firm shares. Install to add them to this workspace.",
   "firm_hub.integrations_desc": "MCP servers your firm shares. Credentials are stripped — sign in after installing.",
@@ -1989,6 +1997,9 @@ export default {
   "premium_upsell.share_title": "Share workflows & integrations with your team",
   "premium_upsell.share_body": "Publish workflows and integrations to your whole firm from the shared hub.",
   "premium_upsell.cta": "Start 7-day free trial",
+  "premium_upsell.headline_upgrade": "Upgrade to Eigenwelt Plus",
+  "premium_upsell.intro_upgrade": "€69 per seat/month billed yearly, €99 monthly. Included for every seat in your firm:",
+  "premium_upsell.cta_upgrade": "Upgrade to Plus",
   "premium_upsell.sign_in": "Sign in with Eigenwelt",
   "premium_upsell.signing_in": "Signing in…",
   "premium_upsell.intro_signin": "Sign in with Eigenwelt to connect your firm, then upgrade to Plus:",
@@ -2064,6 +2075,9 @@ export default {
   "chat.no_model_login": "Log in",
   "chat.no_model_byo": "Connect a model",
   // Composer: signed out of Eigenwelt (or access revoked) with nothing else connected
+  "chat.no_ai_plan_title": "Your plan does not include AI models.",
+  "chat.no_ai_plan_body": "The Knowledge Hub covers sharing across your firm. Upgrade to Plus for the Eigenwelt models, or connect your own model.",
+  "chat.no_ai_plan_upgrade": "Upgrade to Plus",
   "chat.signed_out_title": "Signed out of Eigenwelt.",
   "chat.signed_out_body": "Log in to keep using Eigenwelt models, start your 7-day free trial, or connect your own model.",
   // One-time migration dialog after the free tier was retired.

@@ -8,10 +8,10 @@ this session runs inside the Word add-in, or in the in-app viewer otherwise (the
 open-model version of "ask the assistant to redline this contract").
 
 Load and follow the **`docx-edit`** skill — **start with its Step 0** to pick the
-backend: inside the Word add-in (word_* tools available) the target is the document
-open in Word and you edit it LIVE with word_replace_text / word_insert_text /
-word_add_comment, writing no files; only outside Word (or for a `.docx` that is not
-the open document) do you use the file pipeline. Then carry out this request:
+backend. First try the document open in LegalWork's in-app editor and use
+inapp_docx_* tools; otherwise try the Microsoft Word add-in and use word_* tools.
+Only when neither live surface has the target document should you use the file
+pipeline. Then carry out this request:
 
 `$ARGUMENTS`
 
@@ -28,5 +28,5 @@ Reminders from the skill (FILE backend):
 - Report any ops that didn't match verbatim instead of dropping them; never fabricate
   parties, numbers, or terms.
 
-If no document is named in the arguments: inside the Word add-in the target is the
-document open in Word; otherwise ask which `.docx` to edit first.
+If no document is named in the arguments, use the active in-app document or the
+document open in Microsoft Word. Ask which `.docx` to edit only if neither is open.

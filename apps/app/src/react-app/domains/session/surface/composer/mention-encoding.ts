@@ -1,5 +1,5 @@
-/** What a composer `@token` refers to: an agent, a workspace or LegalMemory file, or a macOS app. */
-export type ComposerMentionKind = "agent" | "file" | "memory" | "app";
+/** What a composer `@token` refers to: an agent, a workspace file, an uploaded file, a LegalMemory file, or a macOS app. */
+export type ComposerMentionKind = "agent" | "file" | "memory" | "upload" | "app";
 
 /**
  * Percent-encode a mention value so it can be embedded in the draft as a single `@token` with no spaces.

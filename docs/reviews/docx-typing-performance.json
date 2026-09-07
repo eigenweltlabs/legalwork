@@ -1,0 +1,150 @@
+{
+  "baselineCommit": "d26da8e0ab851249fd4246013cbc88977b2c7d27",
+  "environment": "Chromium 149 headless, Linux, 1280 x 900, production Vite/React build, no CPU throttling",
+  "sampleCharacters": 93,
+  "keyDelayMs": 70,
+  "baseline": [
+    {
+      "label": "baseline-production",
+      "pages": 30,
+      "elapsedMs": 10436.100000000559,
+      "keydownToSecondFrameMs": {
+        "count": 93,
+        "p50": 58.60000000055879,
+        "p95": 79.69999999925494,
+        "max": 126.5,
+        "over50ms": 88
+      },
+      "keydownToDocumentPaintMs": {
+        "count": 93,
+        "p50": 26.59999999962747,
+        "p95": 37.700000000186265,
+        "max": 73.6000000005588,
+        "over50ms": 2
+      },
+      "paintCount": 186,
+      "eventDurationMs": {
+        "count": 93,
+        "p50": 56,
+        "p95": 80,
+        "max": 120,
+        "over50ms": 67
+      },
+      "longTasksMs": {
+        "count": 4,
+        "p50": 52,
+        "p95": 79,
+        "max": 79,
+        "over50ms": 4,
+        "total": 244
+      }
+    },
+    {
+      "label": "baseline-production",
+      "pages": 100,
+      "elapsedMs": 12646.899999999441,
+      "keydownToSecondFrameMs": {
+        "count": 93,
+        "p50": 90,
+        "p95": 161.40000000037253,
+        "max": 235.19999999925494,
+        "over50ms": 93
+      },
+      "keydownToDocumentPaintMs": {
+        "count": 93,
+        "p50": 43.90000000037253,
+        "p95": 77,
+        "max": 94.20000000018626,
+        "over50ms": 29
+      },
+      "paintCount": 186,
+      "eventDurationMs": {
+        "count": 93,
+        "p50": 80,
+        "p95": 152,
+        "max": 232,
+        "over50ms": 93
+      },
+      "longTasksMs": {
+        "count": 59,
+        "p50": 60,
+        "p95": 105,
+        "max": 169,
+        "over50ms": 56,
+        "total": 3976
+      }
+    }
+  ],
+  "optimized": [
+    {
+      "label": "fixed-production",
+      "pages": 30,
+      "elapsedMs": 7924.200000000186,
+      "keydownToSecondFrameMs": {
+        "count": 93,
+        "p50": 37.299999999813735,
+        "p95": 52.299999999813735,
+        "max": 60,
+        "over50ms": 5
+      },
+      "keydownToDocumentPaintMs": {
+        "count": 93,
+        "p50": 27.5,
+        "p95": 37,
+        "max": 42.69999999925494,
+        "over50ms": 0
+      },
+      "paintCount": 93,
+      "eventDurationMs": {
+        "count": 93,
+        "p50": 32,
+        "p95": 40,
+        "max": 48,
+        "over50ms": 0
+      },
+      "longTasksMs": {
+        "count": 0,
+        "p50": 0,
+        "p95": 0,
+        "max": 0,
+        "over50ms": 0,
+        "total": 0
+      }
+    },
+    {
+      "label": "fixed-production",
+      "pages": 100,
+      "elapsedMs": 8304.700000000186,
+      "keydownToSecondFrameMs": {
+        "count": 93,
+        "p50": 45.5,
+        "p95": 56.200000000186265,
+        "max": 75.8999999994412,
+        "over50ms": 14
+      },
+      "keydownToDocumentPaintMs": {
+        "count": 93,
+        "p50": 34.299999999813735,
+        "p95": 41,
+        "max": 47,
+        "over50ms": 0
+      },
+      "paintCount": 93,
+      "eventDurationMs": {
+        "count": 93,
+        "p50": 40,
+        "p95": 48,
+        "max": 56,
+        "over50ms": 1
+      },
+      "longTasksMs": {
+        "count": 0,
+        "p50": 0,
+        "p95": 0,
+        "max": 0,
+        "over50ms": 0,
+        "total": 0
+      }
+    }
+  ]
+}

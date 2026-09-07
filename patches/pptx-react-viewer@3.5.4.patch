@@ -1,0 +1,129 @@
+diff --git a/dist/AiChatPanel-CCJNQGER.mjs b/dist/AiChatPanel-CCJNQGER.mjs
+index 34b16d5eea14e7f950f9bbf65183f625e3b1a8e7..ec49242d8f84aff63319e03140dea5faf9c46c2e 100644
+--- a/dist/AiChatPanel-CCJNQGER.mjs
++++ b/dist/AiChatPanel-CCJNQGER.mjs
+@@ -6,7 +6,7 @@ import './chunk-XGB3TDIC.mjs';
+ import { useMemo, useRef, useState, useEffect, useReducer, useCallback } from 'react';
+ import { useTranslation } from 'react-i18next';
+ import { LuSparkles, LuX, LuLoaderCircle, LuTriangleAlert, LuHistory, LuMessageSquarePlus, LuTrash2, LuPlus, LuGitMerge, LuCrosshair, LuPinOff, LuPin, LuUser, LuBot, LuCheck, LuSquare, LuSend, LuMessageSquare, LuPalette, LuUndo2, LuWrench, LuStickyNote, LuFilm, LuNavigation, LuSearch, LuMove, LuChartColumn, LuLayoutTemplate, LuTable, LuShapes, LuType, LuEye } from 'react-icons/lu';
+-import { isToolUIPart, isDynamicToolUIPart, getToolOrDynamicToolName, isTextUIPart } from 'ai';
++import { isToolUIPart, getToolOrDynamicToolName, isTextUIPart } from 'ai';
+ import { jsxs, jsx } from 'react/jsx-runtime';
+ 
+ function useAiChat(bridge, config) {
+@@ -58,7 +58,7 @@ function extractReadyToolCalls(messages) {
+   const out = [];
+   for (const message of messages) {
+     for (const part of message.parts) {
+-      if (!isToolUIPart(part) && !isDynamicToolUIPart(part)) {
++      if (!isToolUIPart(part) && !(part.type === "dynamic-tool")) {
+         continue;
+       }
+       const tp = part;
+@@ -83,7 +83,7 @@ function toRenderableParts(message) {
+       }
+       continue;
+     }
+-    if (isToolUIPart(part) || isDynamicToolUIPart(part)) {
++    if (isToolUIPart(part) || (part.type === "dynamic-tool")) {
+       const tp = part;
+       out.push({
+         kind: "tool",
+diff --git a/dist/AiChatPanel-LPZWDNVU.js b/dist/AiChatPanel-LPZWDNVU.js
+index 1c13e8fe5c595055f701af9b48e5c29de301579b..275fab092fa0dbc03356391a22bea81b660f0ab7 100644
+--- a/dist/AiChatPanel-LPZWDNVU.js
++++ b/dist/AiChatPanel-LPZWDNVU.js
+@@ -60,7 +60,7 @@ function extractReadyToolCalls(messages) {
+   const out = [];
+   for (const message of messages) {
+     for (const part of message.parts) {
+-      if (!ai.isToolUIPart(part) && !ai.isDynamicToolUIPart(part)) {
++      if (!ai.isToolUIPart(part) && !(part.type === "dynamic-tool")) {
+         continue;
+       }
+       const tp = part;
+@@ -85,7 +85,7 @@ function toRenderableParts(message) {
+       }
+       continue;
+     }
+-    if (ai.isToolUIPart(part) || ai.isDynamicToolUIPart(part)) {
++    if (ai.isToolUIPart(part) || (part.type === "dynamic-tool")) {
+       const tp = part;
+       out.push({
+         kind: "tool",
+diff --git a/dist/chunk-2FMQ7M3L.js b/dist/chunk-2FMQ7M3L.js
+index 4d0aa552097b805846eac659571f12823762e2f5..186f0a997267adda20d0aa730cf5134ded7d7669 100644
+--- a/dist/chunk-2FMQ7M3L.js
++++ b/dist/chunk-2FMQ7M3L.js
+@@ -9916,6 +9916,7 @@ function useViewerIntegration(input) {
+   react.useImperativeHandle(
+     ref,
+     () => ({
++      markSaved() { state.setIsDirty(false); },
+       async getContent() {
+         const data = await serializeSlides();
+         if (data && onContentChange) {
+diff --git a/dist/chunk-EVVWCF2M.mjs b/dist/chunk-EVVWCF2M.mjs
+index 857570a31ed47ac16e7cddb39dfd47f3d577a8c3..f9e2ab37e71b3a9b77a91be1d1b91884a40889d3 100644
+--- a/dist/chunk-EVVWCF2M.mjs
++++ b/dist/chunk-EVVWCF2M.mjs
+@@ -9914,6 +9914,7 @@ function useViewerIntegration(input) {
+   useImperativeHandle(
+     ref,
+     () => ({
++      markSaved() { state.setIsDirty(false); },
+       async getContent() {
+         const data = await serializeSlides();
+         if (data && onContentChange) {
+diff --git a/dist/index.d.ts b/dist/index.d.ts
+index a8b465cdd265e265c8cab7fc304c614fef67d087..c7462c809d02edcbc7cfeaafa7078d75b754b1e1 100644
+--- a/dist/index.d.ts
++++ b/dist/index.d.ts
+@@ -11210,6 +11210,8 @@ interface PowerPointViewerProps {
+   ai?: PptxAiConfig;
+ }
+ interface PowerPointViewerHandle extends FileViewerHandle, PowerPointViewerAPI {
++  /** Legalwork host calls this only after the workspace write succeeds. */
++  markSaved(): void;
+   getContent: () => Promise<Uint8Array>;
+ }
+ 
+diff --git a/dist/internals.d.ts b/dist/internals.d.ts
+index cbd7f6aaa460a8eb2d058c03b98dfd60aee39c34..aa9e1ec94ebc439e0f68f94f7e4ac8e94b480163 100644
+--- a/dist/internals.d.ts
++++ b/dist/internals.d.ts
+@@ -11097,6 +11097,8 @@ interface AccessibilityIssue {
+   message: string;
+ }
+ interface PowerPointViewerHandle extends FileViewerHandle, PowerPointViewerAPI {
++  /** Legalwork host calls this only after the workspace write succeeds. */
++  markSaved(): void;
+   getContent: () => Promise<Uint8Array>;
+ }
+ 
+diff --git a/dist/types-Bzdkiakq.d.ts b/dist/types-Bzdkiakq.d.ts
+index 58370d512b4f650e62b2deda903d43c3372a869e..06739012036e4ba28ddfc3d3df058d648c92f1d2 100644
+--- a/dist/types-Bzdkiakq.d.ts
++++ b/dist/types-Bzdkiakq.d.ts
+@@ -829,6 +829,8 @@ interface PowerPointViewerProps {
+   ai?: PptxAiConfig;
+ }
+ interface PowerPointViewerHandle extends FileViewerHandle, PowerPointViewerAPI {
++  /** Legalwork host calls this only after the workspace write succeeds. */
++  markSaved(): void;
+   getContent: () => Promise<Uint8Array>;
+ }
+ //#endregion
+diff --git a/dist/viewer/index.d.ts b/dist/viewer/index.d.ts
+index 3a888e2f14c0f574433cf0f05033c756ef94fc86..6a15b52faab8890f89d6fb874848094b7d9cbf97 100644
+--- a/dist/viewer/index.d.ts
++++ b/dist/viewer/index.d.ts
+@@ -11003,6 +11003,8 @@ interface PowerPointViewerProps {
+   ai?: PptxAiConfig;
+ }
+ interface PowerPointViewerHandle extends FileViewerHandle, PowerPointViewerAPI {
++  /** Legalwork host calls this only after the workspace write succeeds. */
++  markSaved(): void;
+   getContent: () => Promise<Uint8Array>;
+ }
+ 

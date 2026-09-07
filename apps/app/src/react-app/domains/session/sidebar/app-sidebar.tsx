@@ -143,7 +143,7 @@ function SessionStatusIndicator({ className, status, isStreaming, isActive }: Se
     return (
       <span
         className={cn(
-          "size-1.5 shrink-0 rounded-full",
+          "size-1.5 shrink-0 rounded-full bg-foreground/45",
           status === "waiting" && "bg-sky-9",
           status === "error" && "bg-red-9",
           className,
@@ -356,7 +356,7 @@ function SessionActions({ className, sessionId, workspaceId, isPinned, isArchive
 
   return (
     <DropdownMenu>
-      <DropdownMenuTrigger className="size-6 text-muted-foreground"
+      <DropdownMenuTrigger className="size-6 text-muted-foreground" aria-label="Conversation actions"
         render={
           <Button variant="ghost" size="icon-sm" className={cn("size-6", className)}>
             <MoreHorizontal className="size-4" />
@@ -512,7 +512,7 @@ function isSessionActivityStatus(status: string | undefined): status is SessionA
 // hover/active. The active row uses the default subtle gray fill from
 // SidebarMenuButton (data-active:bg-sidebar-accent) — no accent bar.
 const NAV_ITEM_CLASS =
-  "gap-4 text-sidebar-foreground/80 transition-colors duration-150 data-active:text-sidebar-accent-foreground";
+  "gap-3 text-sidebar-foreground/80 data-active:text-sidebar-accent-foreground";
 
 export function AppSidebar(props: AppSidebarProps) {
   const { config: shellConfig } = useShellConfig();
@@ -662,13 +662,14 @@ export function AppSidebar(props: AppSidebarProps) {
     <SidebarContext.Provider value={contextValue}>
       <Sidebar
         collapsible="offcanvas"
+        role="navigation"
+        aria-label="Main navigation"
         className="mac:**:data-[sidebar=sidebar]:bg-transparent"
       >
         <div className="hidden h-12 mac:block mac:titlebar-drag"/>
-        {/* Top nav — fixed top 40% */}
-        <div className="flex flex-[2] min-h-0 flex-col">
+        <div className="flex shrink-0 flex-col pb-4">
         <div className="px-2 pb-1 mac:titlebar-no-drag">
-          <div className={cn("flex gap-2 px-3", showSidebarBrandName ? "items-center py-1" : "items-center py-0") }>
+          <div className={cn("lw-sidebar-brand flex gap-2.5 px-3", showSidebarBrandName ? "items-center py-2" : "items-center py-0") }>
             <img
               src={sidebarBrandLogoSrc}
               alt={`${sidebarBrandAlt} logo`}
@@ -681,17 +682,17 @@ export function AppSidebar(props: AppSidebarProps) {
             />
             {showSidebarBrandName ? (
               <div className="min-w-0">
-                <div className="truncate text-sm font-medium leading-tight">{sidebarBrandName}</div>
+                <div className="truncate text-[15px] font-semibold leading-tight tracking-[-0.02em]">{sidebarBrandName}</div>
               </div>
             ) : null}
           </div>
         </div>
-        <SidebarMenu className={cn("gap-0.5 px-2 mac:titlebar-no-drag", showSidebarBrandName ? "pt-4" : "pt-3")}>
+        <SidebarMenu className={cn("gap-1 px-2.5 mac:titlebar-no-drag", showSidebarBrandName ? "pt-3" : "pt-2")}>
           <SidebarMenuItem>
             <DropdownMenu>
               <DropdownMenuTrigger
                 render={
-                  <SidebarMenuButton className="gap-4 text-sidebar-foreground/80 transition-colors duration-150 [&_svg]:size-[18px]">
+                  <SidebarMenuButton className="lw-sidebar-new-task mb-1 gap-3 font-medium text-foreground [&_svg]:size-[18px]">
                     <PenLine className="size-[18px]" strokeWidth={1.5} />
                     <span>New Task</span>
                   </SidebarMenuButton>
@@ -748,7 +749,7 @@ export function AppSidebar(props: AppSidebarProps) {
           </SidebarMenuItem>
           <SidebarMenuItem>
             <SidebarMenuButton
-              className="gap-4 text-sidebar-foreground/80 [&_svg]:size-[18px]"
+              className={cn(NAV_ITEM_CLASS, "[&_svg]:size-[18px]")}
               isActive={props.activeNav === "recorder"}
               onClick={() => props.onShowRecorder?.()}
             >
@@ -775,17 +776,19 @@ export function AppSidebar(props: AppSidebarProps) {
         </div>
         </div>
 
-        {/* Folders — fixed bottom 60% (top edge at 40% from top). */}
-        <div className="flex flex-[3] min-h-0 flex-col border-t border-[color:var(--glass-border)] pt-1">
-          <div className="flex items-baseline gap-2 px-3.5 pt-2 pb-1 mac:titlebar-no-drag">
+        <div className="flex min-h-0 flex-1 flex-col border-t border-sidebar-border/70 pt-1">
+          <div className="lw-sidebar-folders-header flex h-10 shrink-0 items-center gap-2 px-5 mac:titlebar-no-drag">
             <span className="lw-section-eyebrow">Folders</span>
+            <span className="ml-auto text-[11px] tabular-nums text-muted-foreground" aria-label={`${props.workspaceSessionGroups.length} folders`}>
+              {props.workspaceSessionGroups.length}
+            </span>
           </div>
           <LazyMotion features={domMax}>
             <m.div
               layoutScroll
               data-slot="sidebar-content"
               data-sidebar="content"
-              className="no-scrollbar flex min-h-0 flex-1 flex-col gap-px overflow-auto [--radius:var(--radius-xl)] group-data-[collapsible=icon]:overflow-hidden"
+              className="no-scrollbar flex min-h-0 flex-1 flex-col gap-1 overflow-auto pb-2 [--radius:var(--radius-xl)] group-data-[collapsible=icon]:overflow-hidden"
             >
               <Reorder.Group
                 as="div"
@@ -811,7 +814,7 @@ export function AppSidebar(props: AppSidebarProps) {
           <SidebarFooter>
             <SidebarMenu>
               <SidebarMenuItem>
-                <SidebarMenuButton onClick={props.onOpenCreateWorkspace}>
+                <SidebarMenuButton className="text-muted-foreground" onClick={props.onOpenCreateWorkspace}>
                   <FolderPlus className="size-4" />
                   Add folder
                 </SidebarMenuButton>
@@ -904,7 +907,7 @@ function WorkspaceHeader({
     <SidebarMenuButton
       {...props}
       className={cn(
-        "group-hover/workspace-header:bg-sidebar-accent group-hover/workspace-header:text-sidebar-accent-foreground mac:group-hover/workspace-header:bg-black/5 dark:mac:group-hover/workspace-header:bg-white/10",
+        "[&_.lw-folder-icon]:size-5 group-hover/workspace-header:bg-sidebar-accent group-hover/workspace-header:text-sidebar-accent-foreground mac:group-hover/workspace-header:bg-black/5 dark:mac:group-hover/workspace-header:bg-white/10",
         statusLabel && "h-10",
       )}
       onClick={(event) => {
@@ -912,10 +915,10 @@ function WorkspaceHeader({
         handleSelectWorkspace();
       }}
     >
-      <WorkspaceIcon workspaceId={workspace.id} sizeClass="size-4" />
+      <WorkspaceIcon workspaceId={workspace.id} sizeClass="size-5" open={ctx.expandedWorkspaceIds.has(workspace.id)} />
       <div
         className={cn(
-          "min-w-0 flex-1 cursor-grab touch-none transition-[padding] duration-75 active:cursor-grabbing group-hover/workspace-header:pr-16 group-has-[[data-workspace-actions]:focus-within]/workspace-header:pr-16 group-has-data-popup-open/workspace-header:pr-11 group-hover/workspace-header:group-has-data-popup-open/workspace-header:pr-16 pr-2",
+          "min-w-0 flex-1 cursor-grab touch-none transition-[padding] duration-75 active:cursor-grabbing group-hover/workspace-header:pr-16 group-has-[[data-workspace-actions]:focus-within]/workspace-header:pr-16 group-has-data-popup-open/workspace-header:pr-11 group-hover/workspace-header:group-has-data-popup-open/workspace-header:pr-16 [@media(hover:none)]:pr-16 pr-2",
           isLoading && "pr-6",
         )}
         onPointerDown={onTitlePointerDown}
@@ -1031,7 +1034,7 @@ function WorkspaceSidebarGroup({
             onOpenChange={() => ctx.toggleWorkspaceExpanded(workspace.id)}
             className="group/collapsible"
           >
-            <div className="group/workspace-header relative max-md:hidden">
+            <div className="group/workspace-header relative">
               <WorkspaceHeader
                 workspace={workspace}
                 statusLabel={statusLabel}
@@ -1043,7 +1046,7 @@ function WorkspaceSidebarGroup({
                 <Button
                   variant="ghost"
                   size="icon"
-                  className="size-6 text-muted-foreground opacity-0 group-hover/workspace-header:opacity-100 group-focus-within/workspace-actions:opacity-100"
+                  className="size-6 text-muted-foreground opacity-0 group-hover/workspace-header:opacity-100 group-focus-within/workspace-header:opacity-100 [@media(hover:none)]:opacity-100"
                   onClick={(e) => {
                     e.stopPropagation();
                     ctx.onCreateTaskInWorkspace(workspace.id);
@@ -1055,7 +1058,7 @@ function WorkspaceSidebarGroup({
                 </Button>
                 <WorkspaceActionsMenu
                   workspace={workspace}
-                  className="size-6 text-muted-foreground opacity-0 group-hover/workspace-header:opacity-100 group-focus-within/workspace-actions:opacity-100 data-popup-open:opacity-100"
+                  className="size-6 text-muted-foreground opacity-0 group-hover/workspace-header:opacity-100 group-focus-within/workspace-header:opacity-100 [@media(hover:none)]:opacity-100 data-popup-open:opacity-100"
                 />
               </div>
               <Button
@@ -1122,33 +1125,21 @@ function WorkspaceSidebarGroup({
                       </Reorder.Group>
                     )}
                     {wsGroups.length === 0 && activeRootCount > previewCount ? (
-                      <SidebarMenuSubItem>
+                      <SidebarMenuSubItem className="flex items-center gap-1 ps-10 text-xs text-muted-foreground">
                         <SidebarMenuSubButton
-                          className="text-muted-foreground text-xs"
+                          className="w-auto min-w-0 ps-0 pr-0 text-muted-foreground text-xs"
                           onClick={() => showMoreSessions(workspace.id, activeRootCount)}
                         >
-                          <span className="flex min-w-0 items-center gap-1">
-                            <span className="truncate">{showMoreLabel}</span>
-                            <span aria-hidden className="shrink-0">⋅</span>
-                            <span
-                              role="button"
-                              tabIndex={0}
-                              className="shrink-0 hover:text-foreground"
-                              onClick={(event) => {
-                                event.stopPropagation();
-                                ctx.onOpenCreateGroupModal?.(workspace.id);
-                              }}
-                              onKeyDown={(event) => {
-                                if (event.key !== "Enter" && event.key !== " ") return;
-                                event.preventDefault();
-                                event.stopPropagation();
-                                ctx.onOpenCreateGroupModal?.(workspace.id);
-                              }}
-                            >
-                              {t("session_management.create_group")}
-                            </span>
-                          </span>
+                          <span className="truncate">{showMoreLabel}</span>
                         </SidebarMenuSubButton>
+                        <span aria-hidden className="shrink-0">⋅</span>
+                        <button
+                          type="button"
+                          className="min-w-0 truncate rounded-md px-1 py-2 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sidebar-ring"
+                          onClick={() => ctx.onOpenCreateGroupModal?.(workspace.id)}
+                        >
+                          {t("session_management.create_group")}
+                        </button>
                       </SidebarMenuSubItem>
                     ) : null}
                     {archivedSessions.length > 0 ? (
@@ -1207,41 +1198,33 @@ function SessionGroupSeparator({ label, count, expanded, onToggle, onRemove, onT
   onTitlePointerDown?: React.PointerEventHandler<HTMLSpanElement>;
 }) {
   return (
-    <button
-      type="button"
-      onClick={onToggle}
-      className="group/separator flex w-full items-center gap-1.5 rounded px-2 pb-1 pt-2.5 text-left transition-colors first:pt-1 hover:bg-sidebar-accent/50"
-      aria-expanded={expanded}
-    >
-      <ChevronRight className={cn("size-3.5 shrink-0 text-muted-foreground transition-transform duration-200", expanded && "rotate-90")} />
-      <span
-        className="min-w-0 flex-1 cursor-grab touch-none truncate text-[11px] font-medium uppercase tracking-wide text-muted-foreground active:cursor-grabbing"
-        onPointerDown={onTitlePointerDown}
+    <div className="group/separator flex w-full items-center gap-1 rounded-lg px-2 pt-2 first:pt-1">
+      <button
+        type="button"
+        onClick={onToggle}
+        className="flex min-w-0 flex-1 items-center gap-1.5 rounded-md py-1.5 text-left transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sidebar-ring"
+        aria-expanded={expanded}
       >
-        {label}
-      </span>
-      <span className="text-[10px] tabular-nums text-muted-foreground/70">{count}</span>
-      {onRemove ? (
+        <ChevronRight className={cn("size-3.5 shrink-0 text-muted-foreground transition-transform duration-200 motion-reduce:transition-none", expanded && "rotate-90")} />
         <span
-          role="button"
-          tabIndex={0}
-          onClick={(event) => {
-            event.stopPropagation();
-            onRemove();
-          }}
-          onKeyDown={(event) => {
-            if (event.key !== "Enter" && event.key !== " ") return;
-            event.preventDefault();
-            event.stopPropagation();
-            onRemove();
-          }}
-          className="ml-auto size-4 shrink-0 text-muted-foreground/50 opacity-0 transition-opacity hover:text-destructive group-hover/separator:opacity-100"
+          className="min-w-0 flex-1 cursor-grab touch-none truncate text-[11px] font-medium text-muted-foreground active:cursor-grabbing"
+          onPointerDown={onTitlePointerDown}
+        >
+          {label}
+        </span>
+        <span className="text-[10px] tabular-nums text-muted-foreground">{count}</span>
+      </button>
+      {onRemove ? (
+        <button
+          type="button"
+          onClick={onRemove}
+          className="flex size-6 shrink-0 items-center justify-center rounded-md text-muted-foreground opacity-0 transition-opacity hover:bg-destructive/5 hover:text-destructive group-hover/separator:opacity-100 group-focus-within/separator:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sidebar-ring [@media(hover:none)]:opacity-100"
           aria-label={t("session_management.remove_group")}
         >
           <Trash2 className="size-3" />
-        </span>
+        </button>
       ) : null}
-    </button>
+    </div>
   );
 }
 
@@ -1566,6 +1549,7 @@ function SessionMenuItem({
   const sessionActivityStatus = ctx.sessionStatusById?.[session.id];
   const isSessionActive = tree.activeIds.has(session.id);
   const isSessionStreaming = tree.streamingIds.has(session.id) || isStreamingSessionStatus(sessionActivityStatus);
+  const showActivity = isSessionStreaming || isSessionActive;
   const isArchived = isSessionArchived(session);
 
   const openSession = () => {
@@ -1608,6 +1592,7 @@ function SessionMenuItem({
               <SidebarMenuSubButton
                 className={cn("relative", depth > 0 && "ps-13")}
                 isActive={isSelected}
+                aria-current={isSelected ? "page" : undefined}
                 onClick={openSession}
                 onDoubleClick={openSessionWindow}
                 onPointerEnter={prefetchSession}
@@ -1615,7 +1600,12 @@ function SessionMenuItem({
               >
                 <PinnedIndicator isPinned={isPinned} />
                 <span
-                  className={cn("min-w-0 flex-1 truncate transition-[padding] duration-75 group-hover/menu-sub-item:pe-12 group-has-data-popup-open/menu-sub-item:pe-12 pe-4", isSessionStreaming || isSessionActive && "pe-12")}
+                  className={cn(
+                    "min-w-0 flex-1 truncate transition-[padding] duration-75",
+                    showActivity
+                      ? "pe-20"
+                      : "pe-4 group-hover/menu-sub-item:pe-12 group-focus-within/menu-sub-item:pe-12 group-has-data-popup-open/menu-sub-item:pe-12 [@media(hover:none)]:pe-12",
+                  )}
                   title={displayTitle}
                 >
                   {displayTitle}
@@ -1632,9 +1622,9 @@ function SessionMenuItem({
           workspaceId={workspaceId}
           isPinned={isPinned}
           isArchived={isArchived}
-          className="absolute right-9 top-1/2 -translate-y-1/2 opacity-0 group-hover/menu-sub-item:opacity-100 data-popup-open:opacity-100"
+          className="absolute right-9 top-1/2 -translate-y-1/2 opacity-0 group-hover/menu-sub-item:opacity-100 group-focus-within/menu-sub-item:opacity-100 data-popup-open:opacity-100 [@media(hover:none)]:opacity-100"
         />
-        <SessionStatusIndicator className="absolute right-9 top-1/2 -translate-y-1/2 opacity-0 group-hover/menu-sub-item:opacity-0 group-has-data-popup-open/menu-sub-item:opacity-0 pointer-events-none select-none" status={sessionActivityStatus} isStreaming={isSessionStreaming} isActive={isSessionActive} />
+        <SessionStatusIndicator className="pointer-events-none absolute right-16 top-1/2 -translate-y-1/2 select-none" status={sessionActivityStatus} isStreaming={isSessionStreaming} isActive={isSessionActive} />
       </SidebarMenuSubItem>
     </Collapsible>
   ) : (
@@ -1642,11 +1632,18 @@ function SessionMenuItem({
       <SessionContextMenu sessionId={session.id} workspaceId={workspaceId} isPinned={isPinned} isArchived={isArchived}>
         <SidebarMenuSubButton
           isActive={isSelected}
+          aria-current={isSelected ? "page" : undefined}
           onClick={openSession}
           onDoubleClick={openSessionWindow}
           onPointerEnter={prefetchSession}
           onFocus={prefetchSession}
-          className={cn("transition-[padding] duration-75 group-hover/menu-sub-item:pe-8 group-has-data-popup-open/menu-sub-item:pe-8", depth > 0 && "ps-13", isSessionStreaming || isSessionActive && "pe-8")}
+          className={cn(
+            "transition-[padding] duration-75",
+            depth > 0 && "ps-13",
+            showActivity
+              ? "pe-14"
+              : "group-hover/menu-sub-item:pe-8 group-focus-within/menu-sub-item:pe-8 group-has-data-popup-open/menu-sub-item:pe-8 [@media(hover:none)]:pe-8",
+          )}
         >
           <PinnedIndicator isPinned={isPinned} />
           <span className="truncate" title={displayTitle}>{displayTitle}</span>
@@ -1657,9 +1654,9 @@ function SessionMenuItem({
         workspaceId={workspaceId}
         isPinned={isPinned}
         isArchived={isArchived}
-        className="absolute right-2 top-1/2 -translate-y-1/2 opacity-0 group-hover/menu-sub-item:opacity-100 data-popup-open:opacity-100"
+        className="absolute right-2 top-1/2 -translate-y-1/2 opacity-0 group-hover/menu-sub-item:opacity-100 group-focus-within/menu-sub-item:opacity-100 data-popup-open:opacity-100 [@media(hover:none)]:opacity-100"
       />
-      <SessionStatusIndicator className="absolute right-3 top-1/2 -translate-y-1/2 opacity-100 group-hover/menu-sub-item:opacity-0 group-has-data-popup-open/menu-sub-item:opacity-0 pointer-events-none select-none" status={sessionActivityStatus} isStreaming={isSessionStreaming} isActive={isSessionActive} />
+      <SessionStatusIndicator className="pointer-events-none absolute right-9 top-1/2 -translate-y-1/2 select-none" status={sessionActivityStatus} isStreaming={isSessionStreaming} isActive={isSessionActive} />
     </SidebarMenuSubItem>
   );
 

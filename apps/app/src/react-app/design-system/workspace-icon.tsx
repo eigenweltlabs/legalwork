@@ -1,14 +1,15 @@
 /** @jsxImportSource react */
-import { MarbleAvatar } from "./marble-avatar";
+import { FolderIcon } from "./folder-icon";
 
 export type WorkspaceIconProps = {
   workspaceId: string;
   /** CSS size class, e.g. "size-4", "size-5.5". Defaults to "size-4". */
   sizeClass?: string;
+  open?: boolean;
 };
 
-export function WorkspaceIcon({ workspaceId, sizeClass = "size-4" }: WorkspaceIconProps) {
+export function WorkspaceIcon({ workspaceId, sizeClass = "size-4", open = false }: WorkspaceIconProps) {
   return (
-    <MarbleAvatar seed={workspaceId} className={`${sizeClass} shrink-0 rounded-full`} />
+    <FolderIcon data-workspace-icon={workspaceId} className={sizeClass} open={open} />
   );
 }

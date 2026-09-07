@@ -114,7 +114,7 @@ export function SessionTranscriptScreen(props: SessionTranscriptScreenProps) {
   // Escape the settings surface padding so the chat fills the pane edge to
   // edge, exactly like the session view.
   return (
-    <div className="-m-4 flex min-h-0 min-w-0 flex-1 flex-col self-stretch md:-m-6 lg:-m-8">
+    <div className="-mx-5 -my-7 flex min-h-0 min-w-0 flex-1 flex-col self-stretch md:-m-8">
       {error || (item && !item.sessionId) ? (
         <div className="px-4 pt-3">
           {error ? <SettingsNotice tone="error">{error}</SettingsNotice> : null}
