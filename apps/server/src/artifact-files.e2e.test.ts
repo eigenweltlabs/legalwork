@@ -55,6 +55,34 @@ function auth(token: string) {
 }
 
 describe("artifact file routes", () => {
+  test("uploaded originals remain byte-identical and readable by their workspace paths", async () => {
+    const root = await createWorkspaceRoot();
+    const { base, token } = await startLegalworkServer(root);
+    const originals = [
+      new File([new Uint8Array([80, 75, 3, 4, 0, 255])], "contract.docx", { type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document" }),
+      new File(["%PDF-1.7\n"], "scan.pdf", { type: "application/pdf" }),
+      new File([new Uint8Array([137, 80, 78, 71, 0, 255])], "image.png", { type: "image/png" }),
+      new File([new Uint8Array([0, 128, 255])], "contract.docx", { type: "application/octet-stream" }),
+    ];
+    for (const [index, file] of originals.entries()) {
+      const uploadPath = `.legalwork/attachments/upload-${index}/${file.name}`;
+      const uploaded = await fetch(`${base}/workspace/ws_1/files/raw`, {
+        method: "POST", headers: auth(token),
+        body: JSON.stringify({ path: uploadPath, dataBase64: Buffer.from(await file.arrayBuffer()).toString("base64") }),
+      });
+      expect(uploaded.status).toBe(200);
+      expect(await uploaded.json()).toMatchObject({ ok: true, path: uploadPath, bytes: file.size });
+      const workspacePath = uploadPath;
+      expect(await readFile(join(root, workspacePath))).toEqual(Buffer.from(await file.arrayBuffer()));
+      const downloaded = await fetch(`${base}/workspace/ws_1/files/raw?path=${encodeURIComponent(workspacePath)}`, { headers: auth(token) });
+      expect(downloaded.status).toBe(200);
+      expect(new Uint8Array(await downloaded.arrayBuffer())).toEqual(new Uint8Array(await file.arrayBuffer()));
+    }
+    // The second contract must not replace the original contract from an earlier turn.
+    expect(await readFile(join(root, ".legalwork/attachments/upload-0/contract.docx")))
+      .toEqual(Buffer.from(await originals[0]!.arrayBuffer()));
+  });
+
   test("resolve, read, write, and download markdown/csv/xlsx/pptx/html artifacts", async () => {
     const root = await createWorkspaceRoot();
     const { base, token } = await startLegalworkServer(root);
