@@ -226,7 +226,7 @@ export function getWorkspaceSettingsTabs(): SettingsTab[] {
 export function getGlobalSettingsTabs(developerMode: boolean): SettingsTab[] {
   // Appearance/Language and Recovery are hidden (theme is fixed to Light).
   // "preferences" is the Privacy tab (usage-analytics opt-out toggle).
-  // "benchmark" is not listed here: it lives on the Eval page in the main
+  // "benchmark" is not listed here: it lives on the Evals page in the main
   // app shell (embedded singleView surface), not in the settings sidebar.
   // Account leads: it is the firm's sign-in, plan and billing home.
   const tabs: SettingsTab[] = ["account", "ai", "personalisation", "safety", "shell", "environment", "preferences", "updates"];

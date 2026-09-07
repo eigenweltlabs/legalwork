@@ -8,7 +8,7 @@ import { useBenchmarkStore } from "../domains/benchmark/store";
 import { SettingsSurface } from "./settings-route";
 
 /**
- * Eval main pane. Rendered inside the session shell's `SidebarInset`
+ * Evals main pane. Rendered inside the session shell's `SidebarInset`
  * (via SessionPage's `mainView`), so the main app sidebar stays in place.
  *
  * The pane is the Benchmark surface and nothing else — embedded through the

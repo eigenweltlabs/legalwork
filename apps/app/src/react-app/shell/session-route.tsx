@@ -323,7 +323,7 @@ export function SessionRoute() {
   );
   const [showEvals, setShowEvals] = useState(false);
   // Top-level pages that live in the main shell (sidebar stays, main pane swaps),
-  // same mechanism as Eval. Mutually exclusive — only one main pane at a time.
+  // same mechanism as Evals. Mutually exclusive — only one main pane at a time.
   const [showWorkflows, setShowWorkflows] = useState(false);
   const [showExtensions, setShowExtensions] = useState(false);
   const [showRecorder, setShowRecorder] = useState(false);
@@ -1776,7 +1776,7 @@ export function SessionRoute() {
     await handleCreateWorkspace("starter", folder);
   }, [createWorkspaceBusy, handleCreateWorkspace]);
 
-  // Leaving a top-level pane (Eval/Skills/Integrations): any session/workspace
+  // Leaving a top-level pane (Evals/Skills/Integrations): any session/workspace
   // navigation drops back to the session view.
   useEffect(() => {
     setShowEvals(false);
@@ -2013,7 +2013,7 @@ export function SessionRoute() {
         },
         onOpenSession: (workspaceId, sessionId) => {
           // Opening a session returns to the chat view — drop any open top-level
-          // pane (Eval/Workflows/Integrations) so it doesn't stay rendered
+          // pane (Evals/Workflows/Integrations) so it doesn't stay rendered
           // over the session.
           setShowEvals(false);
           setShowWorkflows(false);
@@ -2064,7 +2064,7 @@ export function SessionRoute() {
         onForgetWorkspace: (id) => void handleForgetWorkspace(id),
         onOpenCreateWorkspace: () => {
           // New Task returns to the session view — drop any open top-level pane
-          // (Eval/Skills/Integrations) so it doesn't linger behind the modal.
+          // (Evals/Skills/Integrations) so it doesn't linger behind the modal.
           setShowEvals(false);
           setShowWorkflows(false);
           setShowExtensions(false);

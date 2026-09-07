@@ -508,7 +508,7 @@ function isSessionActivityStatus(status: string | undefined): status is SessionA
   return status === "idle" || status === "thinking" || status === "responding" || status === "error" || status === "compacting" || status === "waiting";
 }
 
-// Primary nav rows (Workflows / Integrations / Eval): smooth color fade on
+// Primary nav rows (Workflows / Integrations / Evals): smooth color fade on
 // hover/active. The active row uses the default subtle gray fill from
 // SidebarMenuButton (data-active:bg-sidebar-accent) — no accent bar.
 const NAV_ITEM_CLASS =
@@ -764,7 +764,7 @@ export function AppSidebar(props: AppSidebarProps) {
               onClick={() => props.onShowEvals?.()}
             >
               <FlaskConical className="size-[19px]" strokeWidth={1.5} />
-              <span>Eval</span>
+              <span>Evals</span>
             </SidebarMenuButton>
           </SidebarMenuItem>
         </SidebarMenu>

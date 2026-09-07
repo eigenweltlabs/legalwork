@@ -27,7 +27,7 @@ export type BenchmarkViewProps = {
   taskId: string | null;
   itemId: string | null;
   itemChat: boolean;
-  /** Page heading, for when the view is the whole page (the Eval tab) rather than a settings tab. */
+  /** Page heading, for when the view is the whole page (the Evals tab) rather than a settings tab. */
   showHeader?: boolean;
   onOpenRun: (runId: string) => void;
   onOpenTask: (taskId: string) => void;
