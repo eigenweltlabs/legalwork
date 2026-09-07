@@ -148,6 +148,10 @@ jobs:
         shell: bash
         env:
           TARGET: aarch64-apple-darwin
+          # The renderer bundle (vite build) peaks above Node's default heap
+          # since the editors and media viewers joined it; the 7 GB runner has
+          # room for this.
+          NODE_OPTIONS: --max-old-space-size=6144
         run: pnpm --filter @legalwork/desktop build:electron
 
       - name: Package Electron alpha (macOS, signed + notarized)
