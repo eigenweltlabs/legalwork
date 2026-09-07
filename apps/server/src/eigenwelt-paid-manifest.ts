@@ -60,6 +60,7 @@ function parseManifestModel(value: unknown): EigenweltManifestModel | null {
     ...(region ? { region } : {}),
     ...(hostedIn ? { hostedIn } : {}),
     ...(upstreamModel ? { upstreamModel } : {}),
+    ...(value.abuseMonitoring === true ? { abuseMonitoring: true } : {}),
   };
 }
 
