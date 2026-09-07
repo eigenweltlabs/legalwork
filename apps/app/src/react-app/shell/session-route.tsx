@@ -162,9 +162,9 @@ import { useWorkspaceRouteState } from "./use-workspace-route-state";
 import { getReactQueryClient } from "@/react-app/infra/query-client";
 import { useSessionControlActions } from "@/react-app/domains/session/control/session-control-actions";
 import { legacySessionRoute, workspaceSessionRoute, workspaceSettingsRoute } from "./workspace-routes";
+import { SettingsSurface } from "./settings-route";
 import { WorkspaceProvider } from "./workspace-provider";
 import type { OpenTarget } from "@/react-app/domains/session/artifacts/open-target";
-import { SettingsSurface } from "./settings-route";
 import {
   ensureProviderListQuery,
   getConnectedProviderItems,
@@ -1885,20 +1885,6 @@ export function SessionRoute() {
             }}
           />
         ) : undefined
-      }
-      settingsSlot={
-        <SettingsSurface
-          embedded
-          initialPath="extensions"
-          workspaceId={selectedWorkspaceId}
-          onClose={() => {
-            try {
-              window.dispatchEvent(new CustomEvent("legalwork-close-right-pane"));
-            } catch {
-              // ignore
-            }
-          }}
-        />
       }
       terminalOpen={terminalOpen}
       onTerminalOpenChange={setTerminalOpen}
