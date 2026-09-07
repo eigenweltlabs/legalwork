@@ -22,7 +22,7 @@
     "prepare:sidecar": "node ./scripts/prepare-sidecar.mjs",
     "build:audiotap": "node ./scripts/build-audiotap.mjs",
     "build:key-monitor": "node ./scripts/build-key-monitor.mjs",
-    "test": "node --test electron/runtime.test.mjs electron/opencode-state-dir.test.mjs electron/updater.test.mjs electron/remote-workspace.test.mjs electron/workspace-store.test.mjs electron/office-addin-cert.test.mjs electron/office-addin-cert-web.test.mjs electron/office-addin-platform.test.mjs electron/audio-recorder.test.mjs electron/system-dictation.test.mjs electron/power-lifecycle.test.mjs electron/system-key-monitor.test.mjs",
+    "test": "node --test electron/runtime.test.mjs electron/opencode-state-dir.test.mjs electron/updater.test.mjs electron/remote-workspace.test.mjs electron/workspace-store.test.mjs electron/office-addin-cert.test.mjs electron/office-addin-cert-web.test.mjs electron/office-addin-platform.test.mjs electron/audio-recorder.test.mjs electron/system-dictation.test.mjs electron/power-lifecycle.test.mjs electron/system-key-monitor.test.mjs electron/packaged-server-deps.test.mjs",
     "office:sideload": "node ./scripts/office-addin-sideload.mjs"
   },
   "dependencies": {
@@ -37,6 +37,7 @@
     "jsonc-parser": "^3.2.1",
     "minimatch": "^10.0.1",
     "node-pty": "npm:@lydell/node-pty@1.2.0-beta.12",
+    "openai": "^7.8.0",
     "reflect-metadata": "^0.2.2",
     "sherpa-onnx-node": "1.13.3",
     "yaml": "^2.6.1",

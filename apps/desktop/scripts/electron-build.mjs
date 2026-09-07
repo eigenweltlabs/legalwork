@@ -77,6 +77,7 @@ for (const fileName of readdirSync(electronRoot).filter((name) => name.endsWith(
   run(nodeCmd, ["--check", resolve(electronRoot, fileName)], repoRoot);
 }
 run(nodeCmd, [resolve(__dirname, "check-electron-bridge.mjs")], repoRoot);
+run(nodeCmd, [resolve(__dirname, "check-server-deps.mjs")], repoRoot);
 
 process.stdout.write(
   `${JSON.stringify(
