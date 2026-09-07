@@ -214,6 +214,7 @@ const de: Record<string, string> = {
   "benchmark.progress": "{done} von {total} Bewertungen",
   "benchmark.resume": "Lauf fortsetzen",
   "benchmark.run_meta": "{models} Modelle · {tasks} Aufgaben",
+  "benchmark.run_meta_arms": "{arms} Arme",
   "benchmark.run_name_label": "Name des Laufs",
   "benchmark.search_tasks": "Aufgaben durchsuchen…",
   "benchmark.select_models": "Modelle auswählen…",

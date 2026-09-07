@@ -197,6 +197,7 @@ export default {
   "benchmark.progress": "{done} of {total} evaluations",
   "benchmark.resume": "Resume run",
   "benchmark.run_meta": "{models} models · {tasks} tasks",
+  "benchmark.run_meta_arms": "{arms} arms",
   "benchmark.run_name_label": "Run name",
   "benchmark.search_tasks": "Search tasks…",
   "benchmark.select_models": "Select models…",

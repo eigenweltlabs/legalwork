@@ -5,7 +5,13 @@ import { AlertTriangle, Check, ChevronDown, ChevronRight, X } from "lucide-react
 import { Badge } from "@/components/ui/badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { cn } from "@/lib/utils";
-import type { BenchmarkModelRef, BenchmarkModelScore, BenchmarkRunItem } from "../../../app/lib/benchmark-types";
+import type {
+  BenchmarkArmConfig,
+  BenchmarkModelRef,
+  BenchmarkModelScore,
+  BenchmarkRunItem,
+} from "../../../app/lib/benchmark-types";
+import { ArmLabelWithTooltip } from "./arm-summary";
 import { ProviderIcon } from "../../design-system/provider-icon";
 import { Spinner } from "../settings/settings-section";
 import {
@@ -21,7 +27,7 @@ import { useBenchmarkStore } from "./store";
 export type ResultMatrixProps = {
   runId: string;
   items: BenchmarkRunItem[];
-  models: Array<BenchmarkModelRef & { armId?: string; armLabel?: string }>;
+  models: Array<BenchmarkModelRef & { armId?: string; armLabel?: string; armConfig?: BenchmarkArmConfig }>;
   selectedItemId: string | null;
   onSelectItem: (item: BenchmarkRunItem) => void;
   /** Per-model aggregates rendered as a totals row at the bottom of the table. */
@@ -170,7 +176,7 @@ export function ResultMatrix(props: ResultMatrixProps) {
                 </span>
                 {showArms ? (
                   <span className="mt-0.5 block text-[10px] font-normal text-muted-foreground">
-                    {model.armLabel ?? model.armId}
+                    <ArmLabelWithTooltip label={model.armLabel ?? model.armId ?? ""} config={model.armConfig} />
                   </span>
                 ) : null}
               </TableHead>

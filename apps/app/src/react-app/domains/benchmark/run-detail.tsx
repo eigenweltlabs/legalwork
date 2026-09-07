@@ -5,10 +5,12 @@ import { ArrowLeft, OctagonX, RotateCcw, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import { t } from "@/i18n";
+import type { BenchmarkArmConfig } from "../../../app/lib/benchmark-types";
 import { ProviderIcon } from "../../design-system/provider-icon";
 import { SettingsNotice, SettingsStatusBadge, Spinner } from "../settings/settings-section";
 import { LayoutSection, LayoutSectionHeader, LayoutStack } from "../settings/settings-layout";
 import { criteriaScoreLabel, criteriaScoreToneClass, formatRunMeta, formatScorePercent, isRunActive, runStatusLabel, runStatusTone } from "./format";
+import { RunArmsSection } from "./arm-summary";
 import { ResultMatrix } from "./result-matrix";
 import { RunLeaderboard } from "./run-leaderboard";
 import { RunTagBreakdown } from "./run-tag-breakdown";
@@ -44,7 +46,13 @@ export function RunDetail(props: RunDetailProps) {
   // a partially-executed run only shows columns it has results for, and an
   // unablated run collapses back to one column per model.
   const matrixColumns = useMemo(() => {
-    const seen = new Map<string, { providerID: string; modelID: string; armId: string; armLabel: string }>();
+    // Carry each arm's config onto its column so the header can explain what
+    // the arm took away without the matrix having to know about the run.
+    const configById = new Map((run?.arms ?? []).map((arm) => [arm.id, arm.config]));
+    const seen = new Map<
+      string,
+      { providerID: string; modelID: string; armId: string; armLabel: string; armConfig: BenchmarkArmConfig }
+    >();
     for (const item of items) {
       const key = `${item.providerID}/${item.modelID}/${item.armId}`;
       if (!seen.has(key)) {
@@ -53,11 +61,12 @@ export function RunDetail(props: RunDetailProps) {
           modelID: item.modelID,
           armId: item.armId,
           armLabel: item.armLabel,
+          armConfig: configById.get(item.armId) ?? {},
         });
       }
     }
     return Array.from(seen.values());
-  }, [items]);
+  }, [items, run?.arms]);
 
   return (
     <LayoutStack className="max-w-6xl">
@@ -84,6 +93,8 @@ export function RunDetail(props: RunDetailProps) {
             </div>
           ) : null}
         </LayoutSectionHeader>
+
+        {run ? <RunArmsSection arms={run.arms} /> : null}
 
         {activeRunError ? <SettingsNotice tone="error">{activeRunError}</SettingsNotice> : null}
         {run?.error ? <SettingsNotice tone="error">{run.error}</SettingsNotice> : null}

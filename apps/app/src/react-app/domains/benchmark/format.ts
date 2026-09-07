@@ -171,7 +171,10 @@ export function runStatusTone(status: BenchmarkRunStatus): RunStatusTone {
 }
 
 export function formatRunMeta(run: BenchmarkRunSummary): string {
-  return t("benchmark.run_meta", { models: run.models.length, tasks: run.taskCount });
+  const base = t("benchmark.run_meta", { models: run.models.length, tasks: run.taskCount });
+  // Only worth saying when the run actually has arms to compare.
+  const arms = run.arms?.length ?? 0;
+  return arms > 1 ? `${base} · ${t("benchmark.run_meta_arms", { arms })}` : base;
 }
 
 export function formatRunProgress(run: Pick<BenchmarkRunSummary, "progress">): string {
