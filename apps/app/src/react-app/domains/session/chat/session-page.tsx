@@ -3,7 +3,7 @@ import type { CSSProperties } from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { usePanelRef } from "react-resizable-panels";
-import { AppWindowMac, Columns2, FileText, Folder, Globe, Settings2, X, Zap } from "lucide-react";
+import { AppWindowMac, Columns2, Folder, PanelsTopLeft, Settings2, X, Zap } from "lucide-react";
 
 import { t } from "../../../../i18n";
 import {
@@ -66,7 +66,7 @@ import { SidePanel } from "../panel/side-panel";
 import { WorkspaceFilesPanel } from "../panel/workspace-files-panel";
 import { LegalMemoryFilesPanel } from "../panel/legalmemory-files-panel";
 import { TerminalDock } from "../terminal/terminal-dock";
-import { LEARNINGS_PANEL_SESSION_ID, useActivePanelTab, usePanelTabStore, useSessionPanelState } from "../panel/panel-tab-store";
+import { LEARNINGS_PANEL_SESSION_ID, useActivePanelTab, usePanelTabStore } from "../panel/panel-tab-store";
 import { useWorkspaceShellLayout } from "../../../shell/workspace-shell-layout";
 import { useControlAction, type LegalworkControlAction } from "../../../shell/control/control-provider";
 import { cn } from "@/lib/utils";
@@ -192,8 +192,6 @@ export type SessionPageProps = {
   onDeleteSession?: (sessionId: string) => Promise<void> | void;
   onArchiveSession?: (sessionId: string, archived: boolean) => Promise<void> | void;
   onAccessibleTargetsChange?: (targets: OpenTarget[]) => void;
-  /** Settings content rendered inside the right pane when the settings rail icon is active. */
-  settingsSlot?: React.ReactNode;
   /** When set, replaces the session main pane (keeps the sidebar). Used for the Learnings screen. */
   mainView?: React.ReactNode;
   terminalOpen?: boolean;
@@ -303,7 +301,7 @@ export function SessionPage(props: SessionPageProps) {
   // it on the synthetic LEARNINGS_PANEL_SESSION_ID instead. Without this the key
   // is null and the panel can never open (regressed as "opens only on the 2nd
   // click, and only after having visited a chat session first").
-  const panelStateSessionId = props.mainView ? LEARNINGS_PANEL_SESSION_ID : props.selectedSessionId;
+  const panelStateSessionId = props.mainView ? LEARNINGS_PANEL_SESSION_ID : props.selectedSessionId ?? LEARNINGS_PANEL_SESSION_ID;
   const sessionSidePanel = useUiStateStore((state) => (
     panelStateSessionId ? state.sidePanelState[panelStateSessionId] ?? null : null
   ));
@@ -312,11 +310,9 @@ export function SessionPage(props: SessionPageProps) {
   const toggleSidePanelState = useUiStateStore((state) => state.toggleSidePanelState);
   const openTab = usePanelTabStore((state) => state.openTab);
   const closeTab = usePanelTabStore((state) => state.closeTab);
-  const selectTab = usePanelTabStore((state) => state.selectTab);
   const transcriptTargets = usePanelTabStore((state) => (
     props.selectedSessionId ? state.transcriptArtifactTargets[props.selectedSessionId] ?? EMPTY_TRANSCRIPT_TARGETS : EMPTY_TRANSCRIPT_TARGETS
   ));
-  const sessionPanelState = useSessionPanelState(props.selectedSessionId ?? "");
   const activePanelTab = useActivePanelTab(props.selectedSessionId ?? "");
   const [hiddenTargetRevision, setHiddenTargetRevision] = useState(0);
   const hiddenAccessibleTargetIds = useMemo(
@@ -327,18 +323,11 @@ export function SessionPage(props: SessionPageProps) {
     () => transcriptTargets.filter((target) => isTrackableAccessibleTarget(target) && !hiddenAccessibleTargetIds.has(target.id)),
     [hiddenAccessibleTargetIds, transcriptTargets],
   );
-  const artifactFileTargets = useMemo(() => accessibleTargets.filter(isCollectibleArtifactTarget), [accessibleTargets]);
-  const artifactTargetCount = artifactFileTargets.length;
-  const hasArtifactTargets = artifactTargetCount > 0;
-  const activeSidePanel = sessionSidePanel;
+  // Ignore a previously persisted settings pane; settings now live at the cog.
+  const activeSidePanel = sessionSidePanel === "extensions" ? null : sessionSidePanel;
   const sidePanelOpen = activeSidePanel !== null;
   const panelRailActive = activeSidePanel === "panel";
   const filesRailActive = activeSidePanel === "files";
-  const extensionsRailActive = activeSidePanel === "extensions";
-  // Artifact targets registered by mainView pages (Learnings / Benchmark documents).
-  const learningsArtifactCount = usePanelTabStore(
-    (state) => state.transcriptArtifactTargets[LEARNINGS_PANEL_SESSION_ID]?.length ?? 0,
-  );
   const openAiProviderConnected = props.providerConnectedIds.includes("openai");
   const voiceCapabilityQuery = useQuery({
     queryKey: ["voice-realtime-capability", props.runtimeWorkspaceId, props.providerConnectedIds.join("|")],
@@ -519,19 +508,6 @@ export function SessionPage(props: SessionPageProps) {
   const closeRightPane = useCallback(() => {
     setCurrentSidePanel(null);
   }, [setCurrentSidePanel]);
-  const openBrowserRailPane = useCallback(() => {
-    // Opening the browser pane should land on a usable page, not an empty
-    // panel that forces the user to click "+". If no browser tab exists yet,
-    // create one (defaults to the new-tab URL in the main process).
-    const opening = !panelRailActive;
-    if (opening && isElectronRuntime()) {
-      const hasBrowserTab = sessionPanelState.tabs.some((tab) => tab.type === "browser");
-      if (!hasBrowserTab) {
-        void window.__LEGALWORK_ELECTRON__?.browser?.createTab?.();
-      }
-    }
-    toggleCurrentSidePanel("panel");
-  }, [panelRailActive, sessionPanelState.tabs, toggleCurrentSidePanel]);
   const openBrowserUrlControlAction = useMemo<LegalworkControlAction>(() => ({
     id: "browser.open_url",
     label: "Open URL in built-in browser",
@@ -574,35 +550,6 @@ export function SessionPage(props: SessionPageProps) {
     },
   }), []);
   useControlAction(setBrowserProxyControlAction);
-  const openArtifactRailPane = useCallback(() => {
-    if (!hasArtifactTargets || !props.selectedSessionId) return;
-    const activeTab = sessionPanelState.tabs.find((tab) => tab.id === sessionPanelState.activeTabId);
-    const artifactTargetIds = new Set(artifactFileTargets.map((target) => target.id));
-    const artifactTab = sessionPanelState.tabs.find((tab) => (
-      tab.type === "artifact" && artifactTargetIds.has(tab.id)
-    ));
-    const firstArtifact = artifactFileTargets[0];
-    if (panelRailActive && activeTab?.type === "artifact") {
-      toggleCurrentSidePanel("panel");
-      return;
-    }
-    if (!panelRailActive) {
-      preserveSidePanelOnPanelOpenRef.current = true;
-    }
-    if (artifactTab) {
-      selectTab(props.selectedSessionId, artifactTab.id);
-    } else if (firstArtifact) {
-      openTab(props.selectedSessionId, {
-        id: firstArtifact.id,
-        type: "artifact",
-        label: firstArtifact.name,
-        preview: firstArtifact.preview,
-      });
-    }
-    if (!panelRailActive) {
-      toggleCurrentSidePanel("panel");
-    }
-  }, [artifactFileTargets, hasArtifactTargets, openTab, panelRailActive, props.selectedSessionId, selectTab, sessionPanelState, toggleCurrentSidePanel]);
   const openFilesRailPane = useCallback(() => {
     toggleCurrentSidePanel("files");
   }, [toggleCurrentSidePanel]);
@@ -660,9 +607,6 @@ export function SessionPage(props: SessionPageProps) {
       throw error;
     }
   }, [accessibleTargets, openTarget, props.legalworkServerClient, props.mainView, props.runtimeWorkspaceId, queryClient]);
-  const openExtensionsRailPane = useCallback(() => {
-    toggleCurrentSidePanel("extensions");
-  }, [toggleCurrentSidePanel]);
   const removeAccessibleTarget = useCallback((target: OpenTarget) => {
     const nextHiddenIds = new Set(hiddenAccessibleTargetIds);
     nextHiddenIds.add(target.id);
@@ -993,7 +937,7 @@ export function SessionPage(props: SessionPageProps) {
           // Top-level pages (Learnings / Skills / Integrations): keep the app chrome the
           // chat has — the draggable top header and the bottom StatusBar (with the
           // settings gear) — and swap only the center content.
-          <SidebarInset className="min-h-0 overflow-hidden bg-background mac:bg-background/80 mac:[&_header]:transition-[padding-left] mac:[&_header]:duration-200 mac:[&_header]:ease-linear mac:peer-data-[state=collapsed]:[&_header]:pl-28 mac:max-md:[&_header]:pl-28">
+          <SidebarInset className="min-h-0 overflow-hidden bg-background mac:bg-background/80 mac:[&_.lw-session-header]:transition-[padding-left] mac:[&_.lw-session-header]:duration-200 mac:[&_.lw-session-header]:ease-linear mac:peer-data-[state=collapsed]:[&_.lw-session-header]:pl-28 mac:max-md:[&_.lw-session-header]:pl-28">
             <div className="flex min-h-0 flex-1">
             <ResizablePanelGroup orientation="horizontal" className="min-h-0 flex-1">
               <ResizablePanel minSize="360px" className="min-w-0">
@@ -1028,7 +972,7 @@ export function SessionPage(props: SessionPageProps) {
               ) : null}
             </main>
               </ResizablePanel>
-              {activeSidePanel === "panel" || (activeSidePanel === "extensions" && props.settingsSlot) ? (
+              {activeSidePanel === "panel" ? (
                 <>
                   <ResizableHandle withHandle className="hidden lg:flex" />
                   <ResizablePanel
@@ -1037,20 +981,14 @@ export function SessionPage(props: SessionPageProps) {
                     maxSize="70%"
                     className="min-h-0 overflow-hidden lg:flex lg:flex-col"
                   >
-                    {activeSidePanel === "extensions" && props.settingsSlot ? (
-                      <div className="flex h-full min-h-0 flex-col overflow-y-auto bg-background">
-                        {props.settingsSlot}
-                      </div>
-                    ) : (
-                      <SidePanel
-                        sessionId={LEARNINGS_PANEL_SESSION_ID}
-                        client={props.legalworkServerClient}
-                        workspaceId={props.runtimeWorkspaceId}
-                        workspaceRoot={props.selectedWorkspaceRoot}
-                        isRemoteWorkspace={props.selectedWorkspaceDisplay.workspaceType === "remote"}
-                        onClose={closeRightPane}
-                      />
-                    )}
+                    <SidePanel
+                      sessionId={LEARNINGS_PANEL_SESSION_ID}
+                      client={props.legalworkServerClient}
+                      workspaceId={props.runtimeWorkspaceId}
+                      workspaceRoot={props.selectedWorkspaceRoot}
+                      isRemoteWorkspace={props.selectedWorkspaceDisplay.workspaceType === "remote"}
+                      onClose={closeRightPane}
+                    />
                   </ResizablePanel>
                 </>
               ) : null}
@@ -1060,42 +998,19 @@ export function SessionPage(props: SessionPageProps) {
               <Button
                 variant="ghost"
                 size="icon-sm"
-                className={cn(
-                  "lw-session-rail-button hover:bg-muted hover:text-foreground",
-                  panelRailActive && "text-foreground",
-                )}
-                onClick={() => setCurrentSidePanel(panelRailActive ? null : "panel")}
-                title={learningsArtifactCount > 0 ? `Files (${learningsArtifactCount})` : "No files yet"}
-                aria-label={learningsArtifactCount > 0 ? `Files (${learningsArtifactCount})` : "No files yet"}
+                className={cn("lw-session-rail-button hover:bg-muted hover:text-foreground", panelRailActive && "text-foreground")}
+                onClick={() => toggleCurrentSidePanel("panel")}
+                title="Viewer"
+                aria-label="Viewer"
                 aria-pressed={panelRailActive}
-                disabled={learningsArtifactCount === 0}
               >
-                <FileText size={17} />
-                {learningsArtifactCount > 0 ? (
-                  <span className="absolute -right-1 -top-1 flex min-w-4 items-center justify-center rounded-full border-2 border-background bg-foreground px-0.5 text-[9px] font-semibold leading-3 text-background">
-                    {learningsArtifactCount > 9 ? "9+" : learningsArtifactCount}
-                  </span>
-                ) : null}
-              </Button>
-              <Button
-                variant="ghost"
-                size="icon-sm"
-                className={cn(
-                  "lw-session-rail-button hover:bg-muted hover:text-foreground",
-                  extensionsRailActive && "text-foreground",
-                )}
-                onClick={props.settingsSlot ? openExtensionsRailPane : props.onOpenSettings}
-                title="Extensions"
-                aria-label="Extensions"
-                aria-pressed={extensionsRailActive}
-              >
-                <Settings2 size={17} />
+                <PanelsTopLeft size={17} />
               </Button>
             </aside>
             </div>
           </SidebarInset>
         ) : (
-        <SidebarInset className="min-h-0 overflow-hidden bg-background mac:bg-background/80 mac:[&_header]:transition-[padding-left] mac:[&_header]:duration-200 mac:[&_header]:ease-linear mac:peer-data-[state=collapsed]:[&_header]:pl-28 mac:max-md:[&_header]:pl-28">
+        <SidebarInset className="min-h-0 overflow-hidden bg-background mac:bg-background/80 mac:[&_.lw-session-header]:transition-[padding-left] mac:[&_.lw-session-header]:duration-200 mac:[&_.lw-session-header]:ease-linear mac:peer-data-[state=collapsed]:[&_.lw-session-header]:pl-28 mac:max-md:[&_.lw-session-header]:pl-28">
           <div className="flex min-h-0 flex-1">
           <ResizablePanelGroup
             orientation="horizontal"
@@ -1417,16 +1332,12 @@ export function SessionPage(props: SessionPageProps) {
                 <ResizableHandle withHandle className="hidden lg:flex" />
                 <ResizablePanel
                   panelRef={browserPanelRef}
-                  defaultSize={`${activeSidePanel === "extensions" ? Math.max(browserPanelDefaultWidth, 480) : browserPanelDefaultWidth}px`}
-                  minSize={activeSidePanel === "extensions" ? "420px" : "320px"}
+                  defaultSize={`${browserPanelDefaultWidth}px`}
+                  minSize="320px"
                   maxSize="70%"
                   className="min-h-0 overflow-hidden lg:flex lg:flex-col"
                 >
-                  {activeSidePanel === "extensions" && props.settingsSlot ? (
-                    <div className="flex h-full min-h-0 flex-col overflow-y-auto bg-background">
-                      {props.settingsSlot}
-                    </div>
-                  ) : activeSidePanel === "files" ? (
+                  {activeSidePanel === "files" ? (
                     <WorkspaceFilesPanel
                       key={props.runtimeWorkspaceId ?? "__no_workspace__"}
                       client={props.legalworkServerClient}
@@ -1435,9 +1346,9 @@ export function SessionPage(props: SessionPageProps) {
                       onOpenFile={openWorkspaceFileEntry}
                       onClose={closeRightPane}
                     />
-                  ) : activeSidePanel === "panel" && props.selectedSessionId ? (
+                  ) : activeSidePanel === "panel" ? (
                     <SidePanel
-                      sessionId={props.selectedSessionId}
+                      sessionId={panelStateSessionId}
                       client={props.legalworkServerClient}
                       workspaceId={props.runtimeWorkspaceId}
                       workspaceRoot={props.selectedWorkspaceRoot}
@@ -1451,42 +1362,17 @@ export function SessionPage(props: SessionPageProps) {
           </ResizablePanelGroup>
           {shellConfig.panelRail ? (
           <aside aria-label="Workspace tools" className="lw-session-rail flex w-12 shrink-0 flex-col items-center gap-2 border-l border-border px-1.5 py-3 text-muted-foreground mac:titlebar-no-drag">
-            {isElectronRuntime() ? (
               <Button
                 variant="ghost"
                 size="icon-sm"
-                className={cn(
-                  "lw-session-rail-button hover:bg-muted hover:text-foreground",
-                  panelRailActive && "text-foreground",
-                )}
-                onClick={openBrowserRailPane}
-                title="Browser"
-                aria-label="Browser"
+                className={cn("lw-session-rail-button hover:bg-muted hover:text-foreground", panelRailActive && "text-foreground")}
+                onClick={() => toggleCurrentSidePanel("panel")}
+                title="Viewer"
+                aria-label="Viewer"
                 aria-pressed={panelRailActive}
               >
-                <Globe size={17} />
+                <PanelsTopLeft size={17} />
               </Button>
-            ) : null}
-            <Button
-              variant="ghost"
-              size="icon-sm"
-              className={cn(
-                "lw-session-rail-button hover:bg-muted hover:text-foreground",
-                panelRailActive && "text-foreground",
-              )}
-              onClick={openArtifactRailPane}
-              title={hasArtifactTargets ? `Artifacts (${artifactTargetCount})` : "No artifacts yet"}
-              aria-label={hasArtifactTargets ? `Artifacts (${artifactTargetCount})` : "No artifacts yet"}
-              aria-pressed={panelRailActive}
-              disabled={!hasArtifactTargets}
-            >
-              <FileText size={17} />
-              {artifactTargetCount > 0 ? (
-                <span className="absolute -right-1 -top-1 flex min-w-4 items-center justify-center rounded-full border-2 border-background bg-foreground px-0.5 text-[9px] font-semibold leading-3 text-background">
-                  {artifactTargetCount > 9 ? "9+" : artifactTargetCount}
-                </span>
-              ) : null}
-            </Button>
             <Button
               variant="ghost"
               size="icon-sm"
@@ -1501,20 +1387,6 @@ export function SessionPage(props: SessionPageProps) {
               disabled={!props.selectedSessionId || !props.legalworkServerClient || !props.runtimeWorkspaceId}
             >
               <Folder size={17} />
-            </Button>
-            <Button
-              variant="ghost"
-              size="icon-sm"
-              className={cn(
-                "lw-session-rail-button hover:bg-muted hover:text-foreground",
-                extensionsRailActive && "text-foreground",
-              )}
-              onClick={props.settingsSlot ? openExtensionsRailPane : props.onOpenSettings}
-              title="Extensions"
-              aria-label="Extensions"
-              aria-pressed={extensionsRailActive}
-            >
-              <Settings2 size={17} />
             </Button>
           </aside>
           ) : null}

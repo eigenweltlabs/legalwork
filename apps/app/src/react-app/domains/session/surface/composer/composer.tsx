@@ -134,7 +134,6 @@ type ComposerProps = {
 const FLUSH_PROMPT_EVENT = "legalwork:flushPromptDraft";
 const FOCUS_PROMPT_EVENT = "legalwork:focusPrompt";
 const FUSION_NEW_TOOLTIP_STORAGE_KEY = "legalwork.fusionNewTooltipSeen";
-const MAX_ATTACHMENT_BYTES = 8 * 1024 * 1024;
 const FILE_URL_RE = /^file:\/\//i;
 const HTTP_URL_RE = /^https?:\/\//i;
 
@@ -908,29 +907,7 @@ export function ReactSessionComposer(props: ComposerProps) {
       return;
     }
 
-    const accepted: File[] = [];
-    const oversize: string[] = [];
-
-    for (const file of inputFiles) {
-      if (file.size > MAX_ATTACHMENT_BYTES) {
-        oversize.push(file.name);
-        continue;
-      }
-      accepted.push(file);
-    }
-
-    if (accepted.length) {
-      props.onAttachFiles(accepted);
-    }
-
-    if (oversize.length) {
-      toast.warning(
-        oversize.length === 1
-          ? t("composer.file_exceeds_limit", { name: oversize[0] })
-          : `${oversize.length} files exceed the 8MB limit.`,
-      );
-    }
-
+    props.onAttachFiles(inputFiles);
   };
 
   const activeMcpItems = mcpServers.map((entry) => ({

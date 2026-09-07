@@ -42,13 +42,16 @@ export type LegalworkControlSnapshot = {
   busyActionId: string | null;
   narration: string;
   activeSurface: LegalworkControlSurface | null;
+  openFiles: LegalworkOpenFile[];
   actions: LegalworkControlActionMetadata[];
 };
+
+export type LegalworkOpenFile = { id: string; sessionId: string; name: string; path: string; active: boolean };
 
 export type LegalworkControlSurface = {
   id: string;
   kind: "document";
-  format: "docx";
+  format: "docx" | "xlsx" | "pptx" | "md";
   sessionId: string;
   workspaceId: string;
   name: string;
@@ -108,6 +111,7 @@ type LegalworkControlContextValue = {
   busyActionId: string | null;
   actions: LegalworkControlActionMetadata[];
   registerAction: (actionId: string, actionRef: ControlActionRef) => () => void;
+  registerOpenFiles: (files: LegalworkOpenFile[]) => () => void;
   registerSurface: (surface: LegalworkControlSurface) => () => void;
   executeAction: (actionId: string, args?: unknown) => Promise<LegalworkControlResult>;
   snapshot: () => LegalworkControlSnapshot;
@@ -203,6 +207,8 @@ export function LegalworkControlProvider({ children }: { children: ReactNode }) 
   const [enabledState, setEnabledState] = useState(false);
   const [busyActionId, setBusyActionId] = useState<string | null>(null);
   const [narration, setNarration] = useState("Control mode is off.");
+  const [openFiles, setOpenFiles] = useState<LegalworkOpenFile[]>([]);
+  const openFilesToken = useRef<symbol | null>(null);
   const [activeSurface, setActiveSurface] = useState<LegalworkControlSurface | null>(null);
   const [spotlight, setSpotlight] = useState<SpotlightState>({ visible: false, phase: "target", rect: null });
   const busyActionIdRef = useRef<string | null>(null);
@@ -235,8 +241,9 @@ export function LegalworkControlProvider({ children }: { children: ReactNode }) 
     busyActionId,
     narration,
     activeSurface,
+    openFiles,
     actions: listActionMetadata(),
-  }), [activeSurface, busyActionId, enabled, listActionMetadata, narration, route, status]);
+  }), [openFiles, activeSurface, busyActionId, enabled, listActionMetadata, narration, route, status]);
 
   const registerAction = useCallback((actionId: string, actionRef: ControlActionRef) => {
     const token = Symbol(actionId);
@@ -256,6 +263,13 @@ export function LegalworkControlProvider({ children }: { children: ReactNode }) 
         setVersion((value) => value + 1);
       }
     };
+  }, []);
+
+  const registerOpenFiles = useCallback((files: LegalworkOpenFile[]) => {
+    const token = Symbol("openFiles");
+    openFilesToken.current = token;
+    setOpenFiles(files);
+    return () => { if (openFilesToken.current === token) { openFilesToken.current = null; setOpenFiles([]); } };
   }, []);
 
   const registerSurface = useCallback((surface: LegalworkControlSurface) => {
@@ -362,9 +376,10 @@ export function LegalworkControlProvider({ children }: { children: ReactNode }) 
     actions,
     registerAction,
     registerSurface,
+    registerOpenFiles,
     executeAction,
     snapshot,
-  }), [actions, busyActionId, enabled, executeAction, narration, registerAction, registerSurface, route, setEnabled, snapshot]);
+  }), [actions, busyActionId, enabled, executeAction, narration, registerAction, registerSurface, registerOpenFiles, route, setEnabled, snapshot]);
 
   useEffect(() => {
     if (!enabled) {
@@ -610,4 +625,10 @@ export function LegalworkRouteControlActions() {
 
   useControlActions(actions);
   return null;
+}
+
+export function useControlOpenFiles(files: LegalworkOpenFile[]) {
+  const control = use(LegalworkControlContext);
+  const register = control?.registerOpenFiles;
+  useEffect(() => register?.(files), [register, files]);
 }
