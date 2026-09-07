@@ -37,7 +37,7 @@ export const MANAGED_ENGINE_DB_FILENAME = "opencode-engine.db";
  * migrations by running `strings <opencode binary> | grep -oE
  * '20[0-9]{12}_[a-z0-9_]+'`).
  */
-export const PINNED_ENGINE_NEWEST_MIGRATION_TIMESTAMP = "20260622202450"; // opencode v1.17.18
+export const PINNED_ENGINE_NEWEST_MIGRATION_TIMESTAMP = "20260622202450"; // opencode v1.18.29 (unchanged since v1.17.18)
 
 export type SharedOpencodeDbCompatibility = "compatible" | "foreign" | "unreadable";
 
