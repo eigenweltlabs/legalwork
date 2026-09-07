@@ -20,6 +20,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { app, BrowserWindow, clipboard, desktopCapturer, dialog, globalShortcut, ipcMain, nativeImage, nativeTheme, powerMonitor, powerSaveBlocker, protocol, session, shell, systemPreferences } from "electron";
+import { appleFoundationModelsStatus, hasAppleFoundationModelsCli, connectAppleFoundationModels, APPLE_FM_START_COMMAND } from "./apple-foundation-models.mjs";
 import { configureFakeMediaForTests, installMediaPermissionHandlers } from "./media-permissions.mjs";
 import { appendLoopbackFeatureFlags, disableLoopbackAudio, enableLoopbackAudio, isLoopbackCaptureArmed } from "./audio/loopback.mjs";
 import { captureAuthStatus, openCapturePermissionSettings, requestCapturePermission } from "./audio/capture-permissions.mjs";
@@ -2783,6 +2784,35 @@ ipcMain.handle("legalwork:shell:relaunch", async () => {
   app.exit(0);
 });
 ipcMain.handle("legalwork:system:architecture", async () => resolveArchitectureInfo());
+function resolveAppleFoundationModelsStatus() {
+  return appleFoundationModelsStatus({
+    platform: process.platform,
+    systemVersion: process.getSystemVersion(),
+    flag: process.env.LEGALWORK_EXPERIMENTAL_APPLE_FM,
+    hasCli: process.platform === "darwin" && hasAppleFoundationModelsCli(),
+  });
+}
+ipcMain.handle("legalwork:system:appleFoundationModels", async () => resolveAppleFoundationModelsStatus());
+let appleFoundationModelsConnection = null;
+ipcMain.handle("legalwork:system:appleFoundationModelsConnect", async () => {
+  if (!appleFoundationModelsConnection) {
+    appleFoundationModelsConnection = connectAppleFoundationModels(resolveAppleFoundationModelsStatus(), async () => {
+      const directory = path.join(app.getPath("userData"), "apple-foundation-models");
+      await mkdir(directory, { recursive: true });
+      const launcher = path.join(directory, "Start Apple Intelligence.command");
+      // Run the documented CLI in Terminal, preserving Apple's foreground attribution.
+      // Never accept CLI terms or change Apple availability/quotas programmatically.
+      await writeFile(launcher, `#!/bin/sh\nexec ${APPLE_FM_START_COMMAND}\n`, { mode: 0o700 });
+      await chmod(launcher, 0o700);
+      await new Promise((resolve, reject) => {
+        const child = spawn("/usr/bin/open", ["-a", "Terminal", launcher], { stdio: "ignore" });
+        child.once("error", reject);
+        child.once("exit", (code) => code === 0 ? resolve(undefined) : reject(new Error("Could not open Apple's local service in Terminal.")));
+      });
+    }).finally(() => { appleFoundationModelsConnection = null; });
+  }
+  return appleFoundationModelsConnection;
+});
 ipcMain.handle("legalwork:system:microphoneStatus", async () => {
   if (process.platform !== "darwin") return { platform: process.platform, status: "not-mac" };
   return { platform: process.platform, status: systemPreferences.getMediaAccessStatus("microphone") };
