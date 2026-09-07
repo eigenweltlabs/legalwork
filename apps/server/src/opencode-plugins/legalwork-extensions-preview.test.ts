@@ -1,3 +1,4 @@
+import { z } from "zod";
 import { afterEach, describe, expect, test } from "bun:test";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -194,4 +195,79 @@ describe("in-app Word document routing", () => {
       },
     });
   });
+});
+
+describe("in-app Office sidebar routing", () => {
+  const surface = { kind: "document", format: "xlsx", sessionId: "ses_office", name: "Budget.xlsx", path: "matter/Budget.xlsx", editable: true, agentEditsTracked: false };
+  const snapshot = { activeSurface: surface, openFiles: [
+    { sessionId: "ses_office", name: "Budget.xlsx", path: surface.path, active: true },
+    { sessionId: "ses_office", name: "Review.pptx", path: "matter/Review.pptx", active: false },
+    { sessionId: "ses_other", name: "Private.xlsx", path: "Private.xlsx", active: true },
+  ] };
+  test("reports all open files for this session and injects the live Excel route", async () => {
+    await withBridge(snapshot);
+    const plugin = await LegalWorkExtensionsPreview();
+    const result = JSON.parse(await plugin.tool.inapp_documents_list.execute({}, { sessionID: "ses_office" }));
+    expect(result.files).toHaveLength(2);
+    expect(result.files[1].active).toBe(false);
+    const output: { system: string[] } = { system: [] };
+    await plugin["experimental.chat.system.transform"]({ sessionID: "ses_office" }, output);
+    expect(output.system.join("\n")).toContain("inapp_xlsx_write");
+    expect(output.system.join("\n")).toContain("matter/Review.pptx");
+    expect(output.system.join("\n")).not.toContain("Private.xlsx");
+    expect(output.system.join("\n")).toContain("not tracked changes");
+  });
+  test("routes writes with exact file and engine session identity", async () => {
+    let called: unknown;
+    await withBridge(snapshot, (body) => { called = body; return { ok: true, result: { saved: true } }; });
+    const plugin = await LegalWorkExtensionsPreview();
+    const args = { path: surface.path, sheet: "Budget", range: "B4", values: [[18]] };
+    await plugin.tool.inapp_xlsx_write.execute(args, { sessionID: "ses_office" });
+    expect(called).toEqual({ actionId: "office.agent_tool", args: { sessionId: "ses_office", path: surface.path, toolName: "write", args } });
+  });
+  test("rejects stale paths, wrong formats and cross-session access before dispatch", async () => {
+    let calls = 0;
+    await withBridge(snapshot, () => { calls++; return { ok: true }; });
+    const plugin = await LegalWorkExtensionsPreview();
+    for (const [path, sessionID] of [[surface.path, "ses_other"], ["switched.xlsx", "ses_office"]]) {
+      const result = JSON.parse(await plugin.tool.inapp_xlsx_read.execute({ path }, { sessionID }));
+      expect(result.ok).toBe(false);
+    }
+    expect(JSON.parse(await plugin.tool.inapp_pptx_read.execute({ path: surface.path }, { sessionID: "ses_office" })).ok).toBe(false);
+    expect(calls).toBe(0);
+    expect(JSON.parse(await plugin.tool.inapp_documents_list.execute({}, {})).files).toEqual([]);
+  });
+  test("selects open tabs and retries save without repeating mutations", async () => {
+    const calls: unknown[] = [];
+    await withBridge(snapshot, (body) => { calls.push(body); return { ok: true }; });
+    const plugin = await LegalWorkExtensionsPreview();
+    await plugin.tool.inapp_documents_select.execute({ path: surface.path }, { sessionID: "ses_office" });
+    await plugin.tool.inapp_office_save.execute({ path: surface.path }, { sessionID: "ses_office" });
+    expect(calls).toEqual([
+      { actionId: "documents.select_open", args: { sessionId: "ses_office", path: surface.path } },
+      { actionId: "office.agent_tool", args: { sessionId: "ses_office", path: surface.path, toolName: "save", args: { path: surface.path } } },
+    ]);
+  });
+  test("blocks file rewrites of the live Office draft but allows unrelated work", async () => {
+    await withBridge(snapshot);
+    const plugin = await LegalWorkExtensionsPreview();
+    await expect(plugin["tool.execute.before"]({ tool: "bash", sessionID: "ses_office", callID: "1" }, { args: { command: "rewrite matter/Budget.xlsx" } })).rejects.toThrow("inapp_xlsx_*");
+    await plugin["tool.execute.before"]({ tool: "bash", sessionID: "ses_office", callID: "2" }, { args: { command: "read other.xlsx" } });
+  });
+  test("routes presentation replacements to the live editor", async () => {
+    const pptx = { ...surface, format: "pptx", path: "Review.pptx" };
+    let call: unknown;
+    await withBridge({ activeSurface: pptx }, (body) => { call = body; return { ok: true }; });
+    const plugin = await LegalWorkExtensionsPreview();
+    const args = { path: pptx.path, slideIndex: 0, elementId: "title", search: "Draft", replaceWith: "Approved" };
+    await plugin.tool.inapp_pptx_replace_text.execute(args, { sessionID: "ses_office" });
+    expect(call).toEqual({ actionId: "office.agent_tool", args: { sessionId: "ses_office", path: pptx.path, toolName: "replace_text", args } });
+  });
+});
+
+test("live Office tool schemas are serializable for model tool calling", async () => {
+  const plugin = await LegalWorkExtensionsPreview();
+  for (const [name, tool] of Object.entries(plugin.tool)) {
+    if (name.startsWith("inapp_")) expect(() => z.toJSONSchema(z.object(tool.args))).not.toThrow();
+  }
 });

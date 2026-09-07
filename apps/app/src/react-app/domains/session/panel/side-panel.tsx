@@ -24,6 +24,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/comp
 import { PanelEmptyState } from "@/react-app/design-system/panel-chrome";
 
 import { ArtifactIcon } from "../artifacts/artifact-icon";
+import { confirmDiscardDocuments } from "../artifacts/docx-document-state";
 import { ArtifactPanel } from "../artifacts/artifact-panel";
 import {
   type BrowserPanelTab,
@@ -32,7 +33,7 @@ import {
   useActivePanelTab,
   useSessionPanelState,
 } from "./panel-tab-store";
-import { useControlAction, type LegalworkControlAction } from "../../../shell/control/control-provider";
+import { useControlOpenFiles, useControlAction, type LegalworkControlAction } from "../../../shell/control/control-provider";
 import type { OpenTarget } from "../artifacts/open-target";
 import { useSidePanelTabs } from "./use-side-panel-tabs";
 import {
@@ -400,9 +401,31 @@ export function SidePanel({
 }: SidePanelProps) {
   const { tabs } = useSessionPanelState(sessionId);
   const activeTab = useActivePanelTab(sessionId);
+  const transcriptTargets = usePanelTabStore((state) => state.transcriptArtifactTargets[sessionId]);
+  const openFiles = React.useMemo(() => tabs.flatMap((tab) => {
+    if (tab.type !== "artifact") return [];
+    const path = tab.value ?? transcriptTargets?.find((target) => target.id === tab.id)?.value;
+    return path ? [{ id: tab.id, sessionId, name: tab.label, path, active: tab.id === activeTab?.id }] : [];
+  }), [tabs, transcriptTargets, sessionId, activeTab?.id]);
+  useControlOpenFiles(openFiles);
   const isBrowserAvailable = Boolean(getElectronBrowser());
 
   const { createTab, closeTab, selectTab, reorderTabs } = useSidePanelTabs(sessionId);
+
+  const selectFileAction = React.useMemo<LegalworkControlAction>(() => ({
+    id: "documents.select_open", label: "Show an open file", sideEffect: "navigation", requiresArgs: true,
+    args: [{ name: "sessionId", type: "string", required: true }, { name: "path", type: "string", required: true }],
+    execute: (args) => {
+      if (typeof args !== "object" || !args || Reflect.get(args, "sessionId") !== sessionId) return { ok: false, error: "No matching sidebar for this session." };
+      const file = openFiles.find((file) => file.path === Reflect.get(args, "path"));
+      if (!file) return { ok: false, error: "This file is not open in the sidebar." };
+      if (!file.active && !confirmDiscardDocuments(undefined, () => false)) return { ok: false, error: "Save the current draft before switching files." };
+      selectTab(file.id);
+      if (usePanelTabStore.getState().sessions[sessionId]?.activeTabId !== file.id) return { ok: false, error: "The file could not be selected." };
+      return { ok: true, file: { ...file, active: true }, message: "Read the document after the editor finishes loading." };
+    },
+  }), [openFiles, sessionId, selectTab]);
+  useControlAction(selectFileAction);
 
   const seedArtifactOverflowControlAction = React.useMemo<LegalworkControlAction | null>(() => {
     if (!import.meta.env.DEV) return null;

@@ -401,56 +401,58 @@ function ArtifactPanelView({ sessionId, client, workspaceId, workspaceRoot, isRe
     });
   };
 
-  const docxSurface = useMemo<LegalworkControlSurface | null>(() => (
-    target.preview === "word"
+  const documentSurface = useMemo<LegalworkControlSurface | null>(() => (
+    isBinaryEditor
       ? {
           id: `${sessionId}:${target.id}`,
           kind: "document",
-          format: "docx",
+          format: target.preview === "word" ? "docx" : /\.xlsx$/i.test(target.value) ? "xlsx" : "pptx",
           sessionId,
           workspaceId,
           name: target.name,
           path: target.value,
           editable: !isRemoteWorkspace && target.kind === "file",
-          agentEditsTracked: true,
+          agentEditsTracked: target.preview === "word",
         }
       : null
-  ), [isRemoteWorkspace, sessionId, target.id, target.kind, target.name, target.preview, target.value, workspaceId]);
-  useControlSurface(docxSurface);
+  ), [isBinaryEditor, isRemoteWorkspace, sessionId, target.id, target.kind, target.name, target.preview, target.value, workspaceId]);
+  useControlSurface(documentSurface);
 
-  const docxAgentControlAction = useMemo<LegalworkControlAction | null>(() => (
-    docxSurface?.editable ? {
-      id: "document.agent_tool",
+  const documentAgentControlAction = useMemo<LegalworkControlAction | null>(() => (
+    documentSurface ? {
+      id: target.preview === "word" ? "document.agent_tool" : "office.agent_tool",
       label: `Work on ${target.name}`,
-      description: `Read or edit the open in-app Word document ${target.value}. Agent edits are tracked changes and save automatically.`,
+      description: `Read or edit ${target.value} in the live editor. Edits save automatically.${target.preview === "word" ? " Text edits are tracked changes." : " Office edits are direct edits, without tracked changes."}`,
       sideEffect: "mutation",
       requiresArgs: true,
       args: [
         { name: "sessionId", type: "string", required: true, description: "The OpenCode session requesting access." },
+        { name: "path", type: "string", description: "Exact workspace path; required for PowerPoint and Excel." },
         { name: "toolName", type: "string", required: true, description: "Editor tool name." },
         { name: "args", type: "object", description: "Arguments for the editor tool." },
       ],
       execute: async (rawArgs) => {
         if (!isRecord(rawArgs)) return { ok: false, error: "Document tool arguments are required." };
         if (stringProperty(rawArgs, "sessionId") !== sessionId) {
-          return { ok: false, error: "No in-app Word document is open for this session." };
+          return { ok: false, error: "No in-app document is open for this session." };
         }
         const toolName = stringProperty(rawArgs, "toolName");
         const toolArgs = isRecord(rawArgs.args) ? rawArgs.args : {};
-        const api = docxApi.current;
-        if (!api) return { ok: false, error: "The in-app Word editor is still loading." };
+        if (target.preview !== "word" && stringProperty(rawArgs, "path") !== target.value) return { ok: false, error: "The active file changed. Read the sidebar snapshot and select the intended file before retrying." };
+        const api = target.preview === "word" ? docxApi.current : officeApi.current;
+        if (!api) return { ok: false, error: "The in-app editor is still loading." };
         const result = await api.executeAgentTool(toolName, toolArgs);
         if (!result.success) return { ok: false, error: result.error || `Could not run ${toolName}.` };
         return {
           ok: true,
-          document: { name: target.name, path: target.value, trackChanges: true },
+          document: { name: target.name, path: target.value, trackChanges: target.preview === "word" },
           data: result.data,
           saved: result.saved === true,
         };
       },
     } : null
-  ), [docxSurface?.editable, sessionId, target.name, target.value]);
-  useControlAction(docxAgentControlAction);
+  ), [documentSurface, sessionId, target.name, target.preview, target.value]);
+  useControlAction(documentAgentControlAction);
 
   const saveDocument = async () => {
     if (documentSaving || isSaving) return false;

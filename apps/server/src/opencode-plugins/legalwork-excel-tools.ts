@@ -28,6 +28,8 @@ const EXCEL_TOOL_RULES = `Rules for excel_* tools:
 
 /** Injected when no pane is connected: the tools exist but may be offline. */
 const EXCEL_TOOLS_INSTRUCTION = `## Microsoft Excel workbook tools
+For a Excel workbook open in LegalWork’s own sidebar, prefer inapp_documents_list and the inapp_* editor tools; those operate on its live draft. The native tools below target a separate Microsoft Office application.
+
 The user may work with the LegalWork pane open inside Microsoft Excel. The excel_* tools read and edit the workbook that is currently open in Excel.
 
 ${EXCEL_TOOL_RULES}`;

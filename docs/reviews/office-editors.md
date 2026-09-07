@@ -48,3 +48,19 @@ Validation: 14 focused tests passed; app typecheck and production build passed. 
 ![Workbook in a narrow panel](office-xlsx-narrow.png)
 ![Presentation](office-pptx-expanded.png)
 ![Presentation in a narrow panel](office-pptx-narrow.png)
+
+## Live sidebar agent tools
+
+The sidebar publishes all open artifact tabs and identifies the active file in the UI control snapshot. The agent receives the inventory for its own session at the start of each turn. `inapp_documents_list` refreshes it; `inapp_documents_select` shows an already-open tab. Selection refuses to discard an unsaved draft. Only the active tab's editor is mounted.
+
+The active DOCX/XLSX/PPTX surface includes its format, path and editability. DOCX retains the existing tracked-change tools. The new Office tools target an exact path and session, check that it still matches the active editor, operate on the live draft, and use the existing workspace save/conflict handling:
+
+- `inapp_xlsx_read`: bounded range, sheet inventory, raw and displayed values, formulas, current selection.
+- `inapp_xlsx_write`: rectangular cell values/formulas, with preservation validation before mutation. Null clears a cell. Sheet structure and advanced objects remain outside this tool's scope.
+- `inapp_pptx_read`: slide inventory, element IDs/text, table cells, chart data, speaker notes and selected elements.
+- `inapp_pptx_replace_text`: exact unique replacement in a text/shape element, retaining untouched run styling. Complex paragraph structures and other element types return an explicit unsupported error.
+- `inapp_office_save`: save/retry the existing draft without repeating an edit.
+
+Office mutations are direct edits, not tracked changes. Read-only Office editors allow reads and reject writes. A failed automatic save reports that the edited draft remains open. The tools serialize editor operations and block user input in the editor during a tool/save operation. No new dependencies or license changes were needed for this follow-up.
+
+Validation: 18 focused app tests and 15 server plugin tests pass, including DOCX regressions, session/path/format isolation, sidebar inventory, dispatch, and JSON Schema conversion of tool arguments. App and server typechecks and production builds pass. Browser review used the real production editor API: Excel B4 10→18 recalculated D4 to 6,300; Rates A1 0.19→0.20 survived a simulated failed save, save retry and reopen, with D9 20,160 and formulas intact. PowerPoint title replacement persisted on reopen with the existing chart and speaker note preserved; editing slide 2 while slide 1 was active selected and changed the intended slide. Both editors rejected agent writes in read-only mode. These checks exercise the editor APIs in the review harness and the bridge through server tests; they do not constitute a full model-driven chat end-to-end test.

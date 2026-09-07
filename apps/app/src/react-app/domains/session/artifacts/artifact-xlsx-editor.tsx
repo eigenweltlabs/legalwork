@@ -4,6 +4,7 @@ import { FUniver } from "@univerjs/core/lib/facade";
 import { defaultTheme } from "@univerjs/themes";
 import { UniverSheetsCorePreset } from "@univerjs/preset-sheets-core";
 import enUS from "@univerjs/preset-sheets-core/locales/en-US";
+import { officeRange, xlsxReadSchema, xlsxWriteSchema } from "@legalwork/types/office-editor";
 import { openWorkbook } from "./office-workbook";
 import { useOfficeEditor, type OfficeEditorProps } from "./office-editor-state";
 import { PreviewError, PreviewLoading } from "./preview";
@@ -55,15 +56,49 @@ export function ArtifactXlsxEditor(props: OfficeEditorProps) {
             await univerAPI.getFormula().onCalculationResultApplied(10000);
             return adapter.save(workbook.save(), true);
           };
+          state.agentTool.current = async (name, rawArgs) => {
+            if (name !== "read" && name !== "write") throw new Error("Unknown workbook tool.");
+            const args = name === "read" ? xlsxReadSchema.parse(rawArgs) : xlsxWriteSchema.parse(rawArgs);
+            const sheet = args.sheet ? workbook.getSheetByName(args.sheet) : workbook.getActiveSheet();
+            if (!sheet) throw new Error("Sheet not found. Read the workbook sheet inventory first.");
+            const address = args.range ?? "A1:T50";
+            const bounds = officeRange(address);
+            const range = sheet.getRange(address);
+            if (name === "read") {
+              await univerAPI.getFormula().onCalculationResultApplied(10000);
+              const book = workbook.save();
+              return { data: { sheets: book.sheetOrder.map((id) => ({ id, name: book.sheets[id]?.name, hidden: book.sheets[id]?.hidden })), sheet: sheet.getSheetName(), range: address, values: Array.from({ length: bounds.endRow - bounds.startRow + 1 }, (_, r) => Array.from({ length: bounds.endColumn - bounds.startColumn + 1 }, (_, c) => book.sheets[sheet.getSheetId()]?.cellData?.[bounds.startRow + r]?.[bounds.startColumn + c]?.v ?? null)), displayValues: range.getValues(), selection: workbook.getActiveRange()?.getA1Notation(), formulas: range.getFormulas() } };
+            }
+            const write = xlsxWriteSchema.parse(rawArgs);
+            if (write.values.length !== bounds.endRow - bounds.startRow + 1 || write.values.some((row) => row.length !== bounds.endColumn - bounds.startColumn + 1)) throw new Error("Value matrix dimensions must match the range exactly.");
+            const cells = write.values.map((row) => row.map((value) => typeof value === "string" && value.startsWith("=") ? { f: value, v: null, p: null } : { v: value, f: null, p: null }));
+            // Validate preservation constraints before touching the user's draft
+            // (array formulas, protected structures and unsupported XML edits).
+            const proposed = structuredClone(workbook.save());
+            const snapshot = proposed.sheets[sheet.getSheetId()];
+            if (!snapshot) throw new Error("Sheet no longer exists.");
+            if (bounds.endRow >= (snapshot.rowCount ?? 0) || bounds.endColumn >= (snapshot.columnCount ?? 0)) throw new Error("The range exceeds the current sheet grid. Structural expansion requires Excel.");
+            const cellData = snapshot.cellData ??= {};
+            cells.forEach((row, r) => row.forEach((cell, c) => {
+              const rowIndex = bounds.startRow + r, colIndex = bounds.startColumn + c;
+              const data = cellData[rowIndex] ??= {};
+              data[colIndex] = { ...data[colIndex], ...cell };
+            }));
+            await adapter.save(proposed);
+            if (disposed) throw new Error("The workbook was closed before the edit could be applied.");
+            workbook.setActiveSheet(sheet);
+            range.setValues(cells);
+            return { mutated: true, data: { sheet: sheet.getSheetName(), range: address, cellsUpdated: cells.length * cells[0]!.length } };
+          };
           setAdvanced(adapter.hasAdvancedContent); setReady(true);
         }).catch((error: unknown) => { if (!disposed) state.setError(error instanceof Error ? error.message : "Could not calculate workbook."); });
       };
       const lifecycle = univerAPI.addEvent(univerAPI.Event.LifeCycleChanged, finishOpening);
       finishOpening();
-      cleanup = () => { lifecycle.dispose(); listener.dispose(); before.dispose(); state.serialize.current = null; queueMicrotask(() => univer.dispose()); };
+      cleanup = () => { lifecycle.dispose(); listener.dispose(); before.dispose(); state.serialize.current = null; state.agentTool.current = null; queueMicrotask(() => univer.dispose()); };
     }).catch((error: unknown) => { if (!disposed) state.setError(error instanceof Error ? error.message : "Could not open workbook."); });
     return () => { disposed = true; cleanup?.(); };
-  }, [initial, workbookId, props.name, props.readOnly, state.changed, state.setError, state.serialize]);
+  }, [initial, workbookId, props.name, props.readOnly, state.changed, state.setError, state.serialize, state.agentTool]);
   return <div ref={state.host} className="office-editor office-sheets relative flex h-full min-h-0 flex-col" aria-label="Workbook editor" aria-busy={state.saving}
     onBeforeInputCapture={(event) => { if (props.readOnly && !(event.target instanceof HTMLInputElement)) event.preventDefault(); }}
     onPasteCapture={(event) => { if (props.readOnly && !(event.target instanceof HTMLInputElement)) { event.preventDefault(); event.stopPropagation(); } }}

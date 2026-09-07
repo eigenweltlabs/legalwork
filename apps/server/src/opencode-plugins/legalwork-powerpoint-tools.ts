@@ -29,6 +29,8 @@ const PPT_TOOL_RULES = `Rules for ppt_* tools:
 
 /** Injected when no pane is connected: the tools exist but may be offline. */
 const PPT_TOOLS_INSTRUCTION = `## Microsoft PowerPoint presentation tools
+For a PowerPoint presentation open in LegalWork’s own sidebar, prefer inapp_documents_list and the inapp_* editor tools; those operate on its live draft. The native tools below target a separate Microsoft Office application.
+
 The user may work with the LegalWork pane open inside Microsoft PowerPoint. The ppt_* tools read and edit the presentation that is currently open in PowerPoint.
 
 ${PPT_TOOL_RULES}`;

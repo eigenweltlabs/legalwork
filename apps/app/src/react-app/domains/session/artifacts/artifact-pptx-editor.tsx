@@ -1,5 +1,7 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import { PowerPointViewer, type PowerPointViewerHandle } from "pptx-react-viewer/viewer";
+import { pptxReadSchema, pptxReplaceSchema } from "@legalwork/types/office-editor";
+import { replaceTextSegments } from "./office-agent-text";
 import { translationsEn, keyToLabel } from "pptx-react-viewer/i18n";
 import { createInstance } from "i18next";
 import { I18nextProvider } from "react-i18next";
@@ -40,6 +42,34 @@ export function ArtifactPptxEditor(props: OfficeEditorProps) {
     if (!editor.current || editor.current.getSlideCount() === 0) throw new Error("The presentation is still loading.");
     const bytes = await editor.current.getContent();
     return new Uint8Array(bytes).buffer;
+  };
+  state.agentTool.current = async (name, rawArgs) => {
+    const api = editor.current;
+    if (!api || !api.getSlideCount()) throw new Error("The presentation is still loading.");
+    if (name !== "read" && name !== "replace_text") throw new Error("Unknown presentation tool.");
+    const args = name === "read" ? pptxReadSchema.parse(rawArgs) : pptxReplaceSchema.parse(rawArgs);
+    const slideIndex = args.slideIndex ?? api.getActiveSlideIndex();
+    const slide = api.getSlide(slideIndex);
+    if (!slide) throw new Error("Slide not found. Read the slide inventory first.");
+    if (name === "read") return { data: {
+      activeSlideIndex: api.getActiveSlideIndex(), slideIndex,
+      slides: api.getSlides().map((item, index) => ({ index, elementCount: item.elements.length })),
+      elements: api.getElements(slideIndex).map((element) => ({ id: element.id, type: element.type, x: element.x, y: element.y, width: element.width, height: element.height, ...("text" in element ? { text: element.text } : {}), ...(element.type === "chart" ? { chart: { type: element.chartData?.chartType, categories: element.chartData?.categories, series: element.chartData?.series.map((series) => ({ name: series.name, values: series.values })) } } : {}), ...(element.type === "table" ? { rows: element.tableData?.rows.map((row) => row.cells.map((cell) => cell.text)) } : {}) })),
+      notes: slide.notes,
+      selectedElementIds: api.getSelectedElementIds(),
+    } };
+    const edit = pptxReplaceSchema.parse(rawArgs);
+    const element = api.getElementById(edit.elementId, slideIndex);
+    if (!element || (element.type !== "text" && element.type !== "shape")) throw new Error("Choose a text or shape element from the read result. Other element types are not editable with this tool.");
+    const text = element.text ?? "";
+    const start = text.indexOf(edit.search);
+    if (start < 0 || text.indexOf(edit.search, start + 1) >= 0) throw new Error("Search must match exactly once in the current element. Read it again before editing.");
+    const textSegments = element.textSegments?.length ? replaceTextSegments(element.textSegments, text, edit.search, edit.replaceWith) : undefined;
+    api.setActiveSlideIndex(slideIndex);
+    await new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
+    // Switching slides changes the handle's active-slide mutation closure.
+    editor.current!.updateElement(edit.elementId, { text: text.replace(edit.search, () => edit.replaceWith), ...(textSegments ? { textSegments } : {}) });
+    return { mutated: true, data: { slideIndex, elementId: edit.elementId, text: text.replace(edit.search, () => edit.replaceWith) } };
   };
   return <div ref={state.host} className="office-editor office-slides relative h-full min-h-0" aria-label="Presentation editor" aria-busy={state.saving}>
     <style>{`@scope (.office-slides) { ${viewerStyles.replace(":root,:host", ":scope")} }`}</style>

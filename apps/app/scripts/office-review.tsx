@@ -20,6 +20,9 @@ function Review({ initial, slides }: { initial: ArrayBuffer; slides: boolean }) 
   const [readOnly, setReadOnly] = useState(false);
   const [fail, setFail] = useState(false);
   const [status, setStatus] = useState("Ready");
+  const [agentResult, setAgentResult] = useState("");
+  const [agentArgs, setAgentArgs] = useState("{}");
+  const [agentName, setAgentName] = useState("read");
   const [report, setReport] = useState("");
   const Editor = slides ? Slides : Sheets;
   const save = async () => { try { const ok = await api.current?.save(); setStatus(ok ? "Saved to workspace" : "Still loading"); } catch (error) { setStatus(error instanceof Error ? error.message : "Save failed"); } };
@@ -32,6 +35,12 @@ function Review({ initial, slides }: { initial: ArrayBuffer; slides: boolean }) 
       <label><input type="checkbox" checked={fail} onChange={(e) => setFail(e.target.checked)} /> Fail save</label>
       <label><input type="checkbox" checked={readOnly} onChange={(e) => { setReadOnly(e.target.checked); setGeneration((n) => n + 1); }} /> Read only</label>
     </div>
+    <details className="px-5 text-xs"><summary>Agent tool review</summary>
+      <input aria-label="Agent tool" value={agentName} onChange={(event) => setAgentName(event.target.value)} />
+      <textarea aria-label="Agent arguments" value={agentArgs} onChange={(event) => setAgentArgs(event.target.value)} />
+      <Button onClick={() => { void (async () => { try { setAgentResult(JSON.stringify(await api.current?.executeAgentTool(agentName, JSON.parse(agentArgs)))); } catch (error) { setAgentResult(String(error)); } })(); }}>Run agent tool</Button>
+      <output aria-label="Agent result">{agentResult}</output>
+    </details>
     <output className="px-5 py-2 text-xs" aria-label="Save result">{status}</output>
     <div className="mx-auto flex min-h-0 flex-1 flex-col overflow-hidden rounded-t-xl border bg-background shadow-sm" style={{ width: narrow ? 620 : "calc(100% - 40px)", maxWidth: "100%" }}>
       <ArtifactFrame title={slides ? "Matter review.pptx" : "Matter budget.xlsx"} expandable meta={dirty ? "Unsaved changes" : "Saved"} actions={<Button size="sm" disabled={readOnly} onClick={() => void save()}>Save</Button>}>
