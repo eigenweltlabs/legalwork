@@ -394,21 +394,27 @@ if (userDataOverride) {
 // Resolve and cache the app icon (reused for BrowserWindow + mac dock).
 // Packaged builds ship icons via electron-builder config, but for `dev:electron`
 // the Electron default icon is shown without this.
-function resolveAppIconPath() {
+function resolveAppIconPath({ dark = false } = {}) {
+  // The painted mark sits on a white plate; `dark` swaps in the same flower on
+  // an ink plate. Only the live dock icon can follow the system theme — the
+  // Finder/Launchpad icon is baked into the packaged .icns and cannot.
+  const name = dark ? "icon-dark.png" : "icon.png";
   const candidates = [
     // Dev: match Tauri's separate dev icon so the dev app is visibly distinct.
     ...(isDevMode
       ? [
-          path.resolve(__dirname, "../resources/icons/dev/icon.png"),
-          path.resolve(__dirname, "../resources/icons/dev/128x128@2x.png"),
-          path.resolve(__dirname, "../resources/icons/dev/icon-dev.icns"),
+          path.resolve(__dirname, `../resources/icons/dev/${name}`),
+          ...(dark ? [] : [
+            path.resolve(__dirname, "../resources/icons/dev/128x128@2x.png"),
+            path.resolve(__dirname, "../resources/icons/dev/icon-dev.icns"),
+          ]),
         ]
       : []),
     // Repo-relative path to the Electron resource icon set.
-    path.resolve(__dirname, "../resources/icons/icon.png"),
+    path.resolve(__dirname, `../resources/icons/${name}`),
     // Packaged: electron-builder copies extraResources but we fall back to this
     // if custom packaging ever exposes the icon here.
-    path.join(process.resourcesPath ?? "", "icons", "icon.png"),
+    path.join(process.resourcesPath ?? "", "icons", name),
   ];
   for (const candidate of candidates) {
     if (candidate && existsSync(candidate)) return candidate;
@@ -556,6 +562,44 @@ async function resolveArchitectureInfo() {
 
 const APP_ICON_PATH = resolveAppIconPath();
 const APP_ICON_IMAGE = APP_ICON_PATH ? nativeImage.createFromPath(APP_ICON_PATH) : null;
+const APP_ICON_DARK_PATH = resolveAppIconPath({ dark: true });
+const APP_ICON_DARK_IMAGE = APP_ICON_DARK_PATH ? nativeImage.createFromPath(APP_ICON_DARK_PATH) : null;
+
+// macOS only: the dock icon is the one surface we can repaint at runtime, so
+// the ink-plate variant is used while the system is in dark mode. Falls back
+// to the light plate whenever the dark asset is missing.
+// The dock icon tracks the *system* appearance, not the in-app theme. They are
+// not the same thing: setting an in-app appearance assigns nativeTheme
+// .themeSource, which pins shouldUseDarkColors to that choice and hides the OS
+// setting. Reading AppleInterfaceStyle out of NSUserDefaults is unaffected by
+// that override, so it still reports what macOS itself is doing.
+function systemPrefersDarkAppearance() {
+  if (process.platform !== "darwin") return nativeTheme.shouldUseDarkColors;
+  try {
+    return systemPreferences.getUserDefault("AppleInterfaceStyle", "string") === "Dark";
+  } catch {
+    return nativeTheme.shouldUseDarkColors;
+  }
+}
+
+function applyDockIcon() {
+  if (process.platform !== "darwin" || !app.dock) return;
+  const preferred = systemPrefersDarkAppearance() ? APP_ICON_DARK_IMAGE : APP_ICON_IMAGE;
+  const image = preferred && !preferred.isEmpty() ? preferred : APP_ICON_IMAGE;
+  if (image && !image.isEmpty()) app.dock.setIcon(image);
+}
+
+if (process.platform === "darwin") {
+  try {
+    systemPreferences.subscribeNotification(
+      "AppleInterfaceThemeChangedNotification",
+      () => applyDockIcon(),
+    );
+  } catch {
+    // Falls back to the in-app theme signal below if the subscription fails.
+  }
+}
+nativeTheme.on("updated", applyDockIcon);
 
 // Expose Chrome DevTools Protocol so the opencode-chrome-devtools plugin can
 // drive the built-in browser panel.  Use LEGALWORK_ELECTRON_REMOTE_DEBUG_PORT to
@@ -2971,7 +3015,7 @@ if (!app.requestSingleInstanceLock()) {
     });
     if (process.platform === "darwin" && app.dock) {
       await app.dock.show();
-      if (APP_ICON_IMAGE && !APP_ICON_IMAGE.isEmpty()) app.dock.setIcon(APP_ICON_IMAGE);
+      applyDockIcon();
     }
     // Keep the main process (which delivers the globalShortcut chord and the
     // hotkey→capture IPC) at Windows HighQoS so a hidden/occluded window
