@@ -25,6 +25,7 @@ verifyDepsBeforeRun: false
 allowBuilds:
   "@whiskeysockets/baileys": true
   better-sqlite3: true
+  core-js: false
   electron: true
   esbuild: true
   msw: false
@@ -34,3 +35,4 @@ allowBuilds:
 patchedDependencies:
   '@eigenpal/docx-editor-core@1.8.3': patches/@eigenpal__docx-editor-core@1.8.3.patch
   '@eigenpal/docx-editor-react@1.8.3': patches/@eigenpal__docx-editor-react@1.8.3.patch
+  pptx-react-viewer@3.5.4: patches/pptx-react-viewer@3.5.4.patch

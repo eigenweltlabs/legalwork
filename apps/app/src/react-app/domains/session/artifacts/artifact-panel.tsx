@@ -11,8 +11,10 @@ import { toast } from "@/components/ui/sonner";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { formatFileSize } from "@/lib/utils";
 import { useControlAction, useControlSurface, type LegalworkControlAction, type LegalworkControlSurface } from "@/react-app/shell/control/control-provider";
+import { OfficeEditorBoundary } from "./office-editor-boundary";
 import { ArtifactFrame } from "./artifact-frame";
 import { ArtifactIcon } from "./artifact-icon";
+import type { OfficeEditorApi } from "./office-editor-state";
 import type { DocxEditorApi } from "./artifact-docx-editor";
 import { artifactDocumentKey, reconcileDocxSnapshot, registerUnsavedDocument, savedDocxSnapshot, type DocxSnapshot } from "./docx-document-state";
 import { type ArtifactPanelTab, usePanelTabStore } from "../panel/panel-tab-store";
@@ -28,6 +30,9 @@ const ArtifactSpreadsheetEditor = lazy(() =>
 const ArtifactDocxEditor = lazy(() =>
   import("./artifact-docx-editor").then((module) => ({ default: module.ArtifactDocxEditor })),
 );
+
+const ArtifactPptxEditor = lazy(() => import("./artifact-pptx-editor").then((module) => ({ default: module.ArtifactPptxEditor })));
+const ArtifactXlsxEditor = lazy(() => import("./artifact-xlsx-editor").then((module) => ({ default: module.ArtifactXlsxEditor })));
 
 const EMPTY_TRANSCRIPT_TARGETS: OpenTarget[] = [];
 
@@ -125,25 +130,28 @@ function ArtifactPanelView({ sessionId, client, workspaceId, workspaceRoot, isRe
   const queryClient = useQueryClient();
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState("");
-  const [docxSnapshot, setDocxSnapshot] = useState<DocxSnapshot | null>(null);
-  const [docxDirty, setDocxDirty] = useState(false);
-  const docxDirtyRef = useRef(false);
+  const [documentSnapshot, setDocumentSnapshot] = useState<DocxSnapshot | null>(null);
+  const [documentDirty, setDocumentDirty] = useState(false);
+  const documentDirtyRef = useRef(false);
   const docxApi = useRef<DocxEditorApi | null>(null);
-  const [docxSaving, setDocxSaving] = useState(false);
-  const isEditableDocx = target.preview === "word" && target.kind === "file" && !isRemoteWorkspace;
-  const onDocxDirtyChange = useCallback((dirty: boolean) => {
-    docxDirtyRef.current = dirty;
-    setDocxDirty(dirty);
+  const officeApi = useRef<OfficeEditorApi | null>(null);
+  const isOfficeEditor = /\.(pptx|xlsx)$/i.test(target.value);
+  const isBinaryEditor = target.preview === "word" || isOfficeEditor;
+  const [documentSaving, setDocumentSaving] = useState(false);
+  const isEditableDocument = isBinaryEditor && target.kind === "file" && !isRemoteWorkspace;
+  const onDocumentDirtyChange = useCallback((dirty: boolean) => {
+    documentDirtyRef.current = dirty;
+    setDocumentDirty(dirty);
   }, []);
 
   useEffect(() => {
-    if (!isEditableDocx) return;
-    return registerUnsavedDocument(artifactDocumentKey(workspaceId, sessionId, target.id), target.name, () => docxDirtyRef.current, () => docxApi.current?.discardRecovery());
-  }, [isEditableDocx, sessionId, target.id, target.name, workspaceId]);
+    if (!isEditableDocument) return;
+    return registerUnsavedDocument(artifactDocumentKey(workspaceId, sessionId, target.id), target.name, () => documentDirtyRef.current, () => docxApi.current?.discardRecovery());
+  }, [isEditableDocument, sessionId, target.id, target.name, workspaceId]);
 
   useEffect(() => {
     const beforeUnload = (event: BeforeUnloadEvent) => {
-      if (!docxDirtyRef.current) return;
+      if (!documentDirtyRef.current) return;
       event.preventDefault();
       event.returnValue = "";
     };
@@ -198,9 +206,9 @@ function ArtifactPanelView({ sessionId, client, workspaceId, workspaceRoot, isRe
   const [binaryObjectUrl, setBinaryObjectUrl] = useState<string | null>(null);
 
   useEffect(() => {
-    if (target.preview !== "word" || data?.kind !== "binary") return;
-    setDocxSnapshot((current) => reconcileDocxSnapshot(current, data, docxDirtyRef.current || docxSaving));
-  }, [data, docxDirty, docxSaving, target.preview]);
+    if (!isBinaryEditor || data?.kind !== "binary") return;
+    setDocumentSnapshot((current) => reconcileDocxSnapshot(current, data, documentDirtyRef.current || documentSaving));
+  }, [data, documentDirty, documentSaving, isBinaryEditor]);
 
   useEffect(() => {
     if (!data || data.kind !== "binary") {
@@ -276,10 +284,10 @@ function ArtifactPanelView({ sessionId, client, workspaceId, workspaceRoot, isRe
       return client.writeWorkspaceBinaryFile(workspaceId, { path: target.value, data: input.data, baseUpdatedAt: input.baseUpdatedAt });
     },
     onSuccess: (result, input) => {
-      const savedDocx = target.preview === "word" && input.kind === "binary" && docxSnapshot
-        ? savedDocxSnapshot(docxSnapshot, input.data, result.updatedAt ?? null)
+      const savedDocx = isBinaryEditor && input.kind === "binary" && documentSnapshot
+        ? savedDocxSnapshot(documentSnapshot, input.data, result.updatedAt ?? null)
         : null;
-      if (savedDocx) setDocxSnapshot(savedDocx);
+      if (savedDocx) setDocumentSnapshot(savedDocx);
       queryClient.setQueryData<ArtifactQueryState>(
         ["artifact-panel", workspaceId, target.id] as const,
         input.kind === "text"
@@ -308,11 +316,11 @@ function ArtifactPanelView({ sessionId, client, workspaceId, workspaceRoot, isRe
     // a conflict. Reading the workspace here would silently export an older version.
     let buffer: ArrayBuffer;
     let contentType: string | null;
-    if (isEditableDocx) {
-      const current = await docxApi.current?.getBuffer();
+    if (isEditableDocument) {
+      const current = await (isOfficeEditor ? officeApi.current : docxApi.current)?.getBuffer();
       if (!current) throw new Error("The document is still loading. Try downloading again in a moment.");
       buffer = current;
-      contentType = "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+      contentType = isOfficeEditor ? (data?.kind === "binary" ? data.contentType : null) : "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
     } else {
       const result = await client.downloadWorkspaceFile(workspaceId, target.value);
       buffer = result.data;
@@ -335,9 +343,9 @@ function ArtifactPanelView({ sessionId, client, workspaceId, workspaceRoot, isRe
       return;
     }
     else if (!isRemoteWorkspace) {
-      if (isEditableDocx && docxDirtyRef.current) {
-        if (!(await saveDocx())) return;
-        if (docxDirtyRef.current) {
+      if (isEditableDocument && documentDirtyRef.current) {
+        if (!(await saveDocument())) return;
+        if (documentDirtyRef.current) {
           toast.error("New edits were made while saving. Save again before opening externally.");
           return;
         }
@@ -381,7 +389,7 @@ function ArtifactPanelView({ sessionId, client, workspaceId, workspaceRoot, isRe
     });
   };
 
-  const saveDocxContent = async (buffer: ArrayBuffer) => {
+  const saveDocumentContent = async (buffer: ArrayBuffer) => {
     if (target.kind !== "file") {
       return;
     }
@@ -389,7 +397,7 @@ function ArtifactPanelView({ sessionId, client, workspaceId, workspaceRoot, isRe
     await mutateAsync({
       kind: "binary",
       data: buffer,
-      baseUpdatedAt: docxSnapshot ? docxSnapshot.updatedAt : target.updatedAt ?? null,
+      baseUpdatedAt: documentSnapshot ? documentSnapshot.updatedAt : target.updatedAt ?? null,
     });
   };
 
@@ -444,11 +452,11 @@ function ArtifactPanelView({ sessionId, client, workspaceId, workspaceRoot, isRe
   ), [docxSurface?.editable, sessionId, target.name, target.value]);
   useControlAction(docxAgentControlAction);
 
-  const saveDocx = async () => {
-    if (docxSaving || isSaving) return false;
-    setDocxSaving(true);
+  const saveDocument = async () => {
+    if (documentSaving || isSaving) return false;
+    setDocumentSaving(true);
     try {
-      const ok = await docxApi.current?.save();
+      const ok = await (isOfficeEditor ? officeApi.current : docxApi.current)?.save();
       if (ok) toast.success("Saved");
       else toast.error("The document could not be saved. Wait for it to finish loading and try again.");
       return ok === true;
@@ -456,7 +464,7 @@ function ArtifactPanelView({ sessionId, client, workspaceId, workspaceRoot, isRe
       toast.error(error instanceof Error ? error.message : "Failed to save document.");
       return false;
     } finally {
-      setDocxSaving(false);
+      setDocumentSaving(false);
     }
   };
 
@@ -467,18 +475,18 @@ function ArtifactPanelView({ sessionId, client, workspaceId, workspaceRoot, isRe
       toast.error(error instanceof Error ? error.message : "Could not open the document.");
     }
   };
-  const docxChangedOnDisk = docxDirty && docxSnapshot && data?.kind === "binary" && data.updatedAt !== docxSnapshot.updatedAt;
+  const documentChangedOnDisk = documentDirty && documentSnapshot && data?.kind === "binary" && data.updatedAt !== documentSnapshot.updatedAt;
 
   return (
     <ArtifactFrame
-        expandable={target.preview === "word"}
+        expandable={isBinaryEditor}
         title={target.name}
         icon={fileIcon ? <img src={fileIcon} alt="" className="size-5 shrink-0 object-contain" /> : <ArtifactIcon type={target.preview} className="size-5" />}
         meta={<>
           {target.exists === false ? "missing" : target.size !== undefined ? formatFileSize(target.size) : null}
-          {isEditableDocx && docxSnapshot ? (
+          {isEditableDocument && documentSnapshot ? (
             <span className="ms-2" role="status">
-              {docxSaving || isSaving ? "Saving…" : docxDirty ? "Unsaved changes" : "Saved"}
+              {documentSaving || isSaving ? "Saving…" : documentDirty ? "Unsaved changes" : "Saved"}
             </span>
           ) : null}
         </>}
@@ -526,12 +534,12 @@ function ArtifactPanelView({ sessionId, client, workspaceId, workspaceRoot, isRe
               </Tooltip>
             )
           ) : null}
-          {target.preview === "word" && data?.kind === "binary" && target.kind === "file" && !isRemoteWorkspace ? (
+          {isEditableDocument && data?.kind === "binary" ? (
             <Tooltip>
               <TooltipTrigger
                 render={(
-                  <Button variant="default" size="sm" onClick={() => void saveDocx()} disabled={docxSaving || isSaving || !docxSnapshot}>
-                    {docxSaving || isSaving ? "Saving" : "Save"}
+                  <Button variant="default" size="sm" onClick={() => void saveDocument()} disabled={documentSaving || isSaving || !documentSnapshot}>
+                    {documentSaving || isSaving ? "Saving" : "Save"}
                   </Button>
                 )}
               />
@@ -565,7 +573,7 @@ function ArtifactPanelView({ sessionId, client, workspaceId, workspaceRoot, isRe
           <Tooltip>
             <TooltipTrigger
               render={(
-                <Button variant="ghost" size="icon-sm" onClick={() => void runFileAction(openExternal)} disabled={docxSaving || isSaving} aria-label={isRemoteWorkspace ? "Download artifact" : "Open externally"}>
+                <Button variant="ghost" size="icon-sm" onClick={() => void runFileAction(openExternal)} disabled={documentSaving || isSaving} aria-label={isRemoteWorkspace ? "Download artifact" : "Open externally"}>
                   <ExternalLink />
                 </Button>
               )}
@@ -575,7 +583,7 @@ function ArtifactPanelView({ sessionId, client, workspaceId, workspaceRoot, isRe
           <Tooltip>
             <TooltipTrigger
               render={(
-                <Button variant="ghost" size="icon-sm" onClick={onClose} disabled={docxSaving || isSaving} aria-label="Close artifact">
+                <Button variant="ghost" size="icon-sm" onClick={onClose} disabled={documentSaving || isSaving} aria-label="Close artifact">
                   <X />
                 </Button>
               )}
@@ -584,13 +592,13 @@ function ArtifactPanelView({ sessionId, client, workspaceId, workspaceRoot, isRe
           </Tooltip>
         </>}
       >
-      {docxChangedOnDisk ? (
+      {documentChangedOnDisk ? (
         <div className="shrink-0 border-b border-border bg-muted px-4 py-2 text-xs" role="alert">
           This file changed in the workspace. Your edits are still here. Download a copy to keep them before reopening the latest version.
         </div>
       ) : null}
       <div className="min-h-0 flex-1 overflow-hidden">
-        {isLoading || (data?.kind === "binary" && (!binaryObjectUrl || (target.preview === "word" && !docxSnapshot))) ? (
+        {isLoading || (data?.kind === "binary" && (!binaryObjectUrl || (isBinaryEditor && !documentSnapshot))) ? (
           <PreviewLoading />
         ) : isError ? (
           <PreviewError message={error instanceof Error ? error.message : "Failed to load artifact" } />
@@ -598,27 +606,37 @@ function ArtifactPanelView({ sessionId, client, workspaceId, workspaceRoot, isRe
           <TextEditor value={draft} language={target.preview === "markdown" ? "markdown" : "text"} onChange={setDraft} />
         ) : target.preview === "markdown" && data?.kind === "text" ? (
           <MarkdownPreview content={data.data} />
-        ) : target.preview === "sheet" ? (
+        ) : isOfficeEditor && documentSnapshot ? (
+          <OfficeEditorBoundary key={`${target.id}:${documentSnapshot.revision}`}>
+          <Suspense fallback={<PreviewLoading />}>
+            {/\.pptx$/i.test(target.value) ? (
+              <ArtifactPptxEditor key={`${target.id}:${documentSnapshot.revision}`} name={target.name} content={documentSnapshot.data} readOnly={!isEditableDocument} onSave={saveDocumentContent} apiRef={officeApi} onDirtyChange={onDocumentDirtyChange} onSavingChange={setDocumentSaving} />
+            ) : (
+              <ArtifactXlsxEditor key={`${target.id}:${documentSnapshot.revision}`} name={target.name} content={documentSnapshot.data} readOnly={!isEditableDocument} onSave={saveDocumentContent} apiRef={officeApi} onDirtyChange={onDocumentDirtyChange} onSavingChange={setDocumentSaving} />
+            )}
+          </Suspense>
+          </OfficeEditorBoundary>
+        ) : target.preview === "sheet" && data?.kind === "text" ? (
           <SheetEditor
             name={target.name}
             content={data ?? { kind: "binary", data: new ArrayBuffer(0) }}
             saving={isSaving}
             onSave={saveSpreadsheetContent}
           />
-        ) : target.preview === "word" && docxSnapshot ? (
+        ) : target.preview === "word" && documentSnapshot ? (
           <DocxView
-            key={`${target.id}:${docxSnapshot.revision}`}
+            key={`${target.id}:${documentSnapshot.revision}`}
             name={target.name}
-            content={docxSnapshot.data}
+            content={documentSnapshot.data}
             readOnly={isRemoteWorkspace || target.kind !== "file"}
-            onSave={saveDocxContent}
+            onSave={saveDocumentContent}
             apiRef={docxApi}
-            onDirtyChange={onDocxDirtyChange}
-            recoveryKey={isEditableDocx ? JSON.stringify([workspaceId, target.value]) : undefined}
-            baseUpdatedAt={docxSnapshot.updatedAt}
+            onDirtyChange={onDocumentDirtyChange}
+            recoveryKey={isEditableDocument ? JSON.stringify([workspaceId, target.value]) : undefined}
+            baseUpdatedAt={documentSnapshot.updatedAt}
             onRestore={(baseUpdatedAt) => {
-              onDocxDirtyChange(true);
-              setDocxSnapshot((current) => current ? { ...current, updatedAt: baseUpdatedAt } : current);
+              onDocumentDirtyChange(true);
+              setDocumentSnapshot((current) => current ? { ...current, updatedAt: baseUpdatedAt } : current);
             }}
           />
         ) : target.preview === "html" && data?.kind === "text" ? (

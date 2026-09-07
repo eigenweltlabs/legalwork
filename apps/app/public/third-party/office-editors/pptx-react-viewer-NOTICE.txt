@@ -1,0 +1,18 @@
+pptx-viewer
+Copyright (c) 2025-present pptx-viewer contributors
+
+This package is licensed under the Apache License 2.0. See the LICENSE file for
+details. Under Section 4(d) of that license, please preserve this NOTICE (or the
+attribution it contains) in any derivative works you distribute.
+
+This package bundles the following component under a different license:
+
+  mtx-decompressor - MicroType Express (MTX) font decompressor
+  License: Mozilla Public License 2.0 (MPL-2.0)
+  Source:  https://github.com/ChristopherVR/pptx-viewer/tree/main/packages/mtx-decompressor
+  Origin:  Ported from libeot (https://github.com/nicowilliams/libeot)
+           by Brennan T. Vincent, licensed under MPL-2.0.
+
+Under MPL-2.0, the source code of the mtx-decompressor component remains
+available under the terms of the Mozilla Public License 2.0. The full text
+of the MPL-2.0 can be found at: https://mozilla.org/MPL/2.0/
