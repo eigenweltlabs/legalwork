@@ -147,6 +147,7 @@ import { ensureDesktopLocalLegalworkConnection } from "./desktop-local-legalwork
 import { resolveLegalworkConnection } from "./legalwork-connection";
 import { abortSessionSafe } from "@/app/lib/opencode-session";
 import { notifyAlert } from "./notifications";
+import { ROUTE_LEGALWORK_CAPABILITIES } from "./legalwork-capabilities";
 import { useReloadCoordinator } from "./reload-coordinator";
 import { readActiveWorkspaceId, writeActiveWorkspaceId } from "./session-memory";
 import { workspaceSessionRoute, workspaceSettingsRoute } from "./workspace-routes";
@@ -157,14 +158,6 @@ import {
   OPENAI_IMAGE_MODEL,
 } from "@/react-app/domains/settings/openai-image-extension";
 import { OLLAMA_PROVIDER_CONFIG, type LocalProviderInstallInput } from "@/react-app/domains/settings/openai-image-extension";
-
-const ROUTE_LEGALWORK_CAPABILITIES: LegalworkServerCapabilities = {
-  skills: { read: true, write: true, source: "legalwork" },
-  plugins: { read: true, write: true },
-  mcp: { read: true, write: true },
-  commands: { read: true, write: true },
-  config: { read: true, write: true },
-};
 
 function normalizeComputerUsePermissions(value: unknown) {
   if (typeof value !== "object" || value === null) return null;

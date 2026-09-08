@@ -13,7 +13,7 @@ import { captureAnalyticsEvent } from "@/app/lib/analytics";
 import { openDesktopUrl } from "@/app/lib/desktop";
 import { t } from "@/i18n";
 import { ProviderIcon } from "../../design-system/provider-icon";
-import { CoverSkipButton, OnboardingCover, StepDots } from "./onboarding-cover";
+import { CoverBackButton, CoverSkipButton, OnboardingCover, StepDots } from "./onboarding-cover";
 
 export type AiStepProps = {
   /** Bind the OAuth loopback and return the browser URL (provider-auth store).
@@ -29,6 +29,8 @@ export type AiStepProps = {
   onConnected: () => void;
   /** The one way around the trial: a plain skip. */
   onSkip: () => void;
+  /** Back to the previous step; absent when this is the only in-session step. */
+  onBack?: () => void;
   /** True while the LegalWork server connection is still coming up. */
   serverReady: boolean;
 };
@@ -129,6 +131,11 @@ export function AiStep(props: AiStepProps) {
           </p>
         </>
       }
+      footerLeft={
+        props.onBack ? (
+          <CoverBackButton label={t("onboarding.back")} onClick={props.onBack} />
+        ) : null
+      }
       footerRight={
         <CoverSkipButton
           label={t("onboarding.skip")}
@@ -141,7 +148,7 @@ export function AiStep(props: AiStepProps) {
     >
       <div className="flex w-full max-w-md flex-col gap-8">
         <div>
-          <StepDots step={2} total={4} />
+          <StepDots step={5} total={5} />
           <h1 className="text-[36px] font-medium leading-[1.04] tracking-[-0.035em] text-dls-text">
             {t("onboarding_ai.title")}
           </h1>

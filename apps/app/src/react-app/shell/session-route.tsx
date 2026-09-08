@@ -116,6 +116,7 @@ import { useSessionProviderAuth } from "@/react-app/domains/connections/provider
 import { AiStep } from "@/react-app/domains/onboarding/ai-step";
 import { AudioStep } from "@/react-app/domains/onboarding/audio-step";
 import { OfficeStep } from "@/react-app/domains/onboarding/office-step";
+import { PermissionsStep } from "@/react-app/domains/onboarding/permissions-step";
 import {
   ensureTemplateWorkflowWatcher,
   useHiddenTemplateWorkspaceIds,
@@ -693,10 +694,13 @@ export function SessionRoute() {
 
   // Persisted onboarding stage — survives reloads; "done" for existing
   // installs. "setup" is a legacy interim value, shown as the office step.
+  // Order: office -> audio -> permissions -> ai -> done. The Office and audio
+  // steps are desktop-only, so the web flow starts at permissions (see
+  // WelcomeRoute) and its permissions step has no way back.
   const onboardingStage =
     local.prefs.onboardingStage === "setup" ? "office" : local.prefs.onboardingStage;
   const setOnboardingStage = useCallback(
-    (stage: "ai" | "office" | "audio" | "done") => {
+    (stage: "ai" | "office" | "audio" | "permissions" | "done") => {
       local.setPrefs((previous) => ({
         ...previous,
         onboardingStage: stage,
@@ -708,15 +712,14 @@ export function SessionRoute() {
   // Set when the user navigates backwards in the onboarding flow, so the
   // office step shows its rows instead of auto-skipping forward again.
   const onboardingWentBack = useRef(false);
-  const advanceFromAiStep = useCallback(() => {
-    // The tool steps are desktop-only (Office add-ins, mic, model download).
-    if (isDesktopRuntime()) {
-      setOnboardingStage("office");
-    } else {
-      captureAnalyticsEvent("onboarding_completed", { tools: "unavailable" });
+  // The AI step is the last one, so finishing it finishes onboarding.
+  const finishOnboarding = useCallback(
+    (ai: "connected" | "skipped") => {
+      captureAnalyticsEvent("onboarding_completed", { ai });
       setOnboardingStage("done");
-    }
-  }, [setOnboardingStage]);
+    },
+    [setOnboardingStage],
+  );
   const { store: sessionProviderAuthStore, snapshot: sessionProviderAuthSnapshot } =
     useSessionProviderAuth({
       opencodeClient,
@@ -1804,29 +1807,11 @@ export function SessionRoute() {
         onSessionUpdated={handleRuntimeSessionUpdated}
       />
     ) : null}
-    {onboardingStage === "ai" ? (
-      // One action per step: start the trial (browser funnel) or skip.
-      <AiStep
-        onStartSignIn={sessionProviderAuthStore.startEigenweltSignIn}
-        onWaitSignIn={sessionProviderAuthStore.completeEigenweltSignIn}
-        onConnected={() => {
-          // The trial just activated: refetch entitlements now so the audio
-          // step already offers the premium transcription model.
-          invalidateEigenweltEntitlements(selectedWorkspaceId ?? undefined);
-          advanceFromAiStep();
-        }}
-        onSkip={advanceFromAiStep}
-        serverReady={Boolean(selectedWorkspaceEndpoint)}
-      />
-    ) : null}
     {onboardingStage === "office" ? (
       // One action: install the Word/Office add-in. Self-skips when absent.
+      // First in-session step, so there is nothing to go back to.
       <OfficeStep
         autoAdvance={!onboardingWentBack.current}
-        onBack={() => {
-          onboardingWentBack.current = true;
-          setOnboardingStage("ai");
-        }}
         onDone={(result) => {
           captureAnalyticsEvent("onboarding_office_done", { result });
           setOnboardingStage("audio");
@@ -1843,9 +1828,52 @@ export function SessionRoute() {
           setOnboardingStage("office");
         }}
         onDone={(result) => {
-          captureAnalyticsEvent("onboarding_completed", { audio: result });
-          setOnboardingStage("done");
+          captureAnalyticsEvent("onboarding_audio_done", { result });
+          setOnboardingStage("permissions");
         }}
+      />
+    ) : null}
+    {onboardingStage === "permissions" ? (
+      // The Settings -> Tool Permissions panel, with Continue as the action.
+      <PermissionsStep
+        legalworkClient={selectedWorkspaceEndpoint?.client ?? client}
+        runtimeWorkspaceId={selectedWorkspaceEndpoint?.workspaceId || null}
+        onConfigUpdated={() => {
+          // Permissions only take effect when the engine rebuilds its config.
+          reloadCoordinator.markReloadRequired("config", {
+            type: "config",
+            name: "opencode.json",
+            action: "updated",
+          });
+        }}
+        onBack={
+          isDesktopRuntime()
+            ? () => {
+                onboardingWentBack.current = true;
+                setOnboardingStage("audio");
+              }
+            : undefined
+        }
+        onDone={() => setOnboardingStage("ai")}
+      />
+    ) : null}
+    {onboardingStage === "ai" ? (
+      // Last step. One action per step: start the trial (browser funnel) or skip.
+      <AiStep
+        onStartSignIn={sessionProviderAuthStore.startEigenweltSignIn}
+        onWaitSignIn={sessionProviderAuthStore.completeEigenweltSignIn}
+        onConnected={() => {
+          // The trial just activated: refetch entitlements so the premium
+          // models are live the moment onboarding ends.
+          invalidateEigenweltEntitlements(selectedWorkspaceId ?? undefined);
+          finishOnboarding("connected");
+        }}
+        onBack={() => {
+          onboardingWentBack.current = true;
+          setOnboardingStage("permissions");
+        }}
+        onSkip={() => finishOnboarding("skipped")}
+        serverReady={Boolean(selectedWorkspaceEndpoint)}
       />
     ) : null}
     <SessionPage
