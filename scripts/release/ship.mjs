@@ -49,7 +49,11 @@ const run = (cmd, opts = {}) => {
 // ── Step 1: Resolve tag from HEAD ───────────────────────────────────
 heading("Resolving tag");
 
-const tag = run("git describe --tags --exact-match HEAD", {
+// Alpha builds tag every dev commit (alpha-macos-v0.1.16-alpha.61-992269c),
+// and a release tags a commit that already carries one. Without --match,
+// describe can return the alpha tag and ship bails out with "does not look
+// like a release tag" — prepare.mjs already filters the same way.
+const tag = run('git describe --tags --exact-match --match "v[0-9]*" HEAD', {
   readOnly: true,
   allowFail: true,
 });
