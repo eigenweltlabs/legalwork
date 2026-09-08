@@ -1,5 +1,5 @@
 /** @jsxImportSource react */
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import {
   Dialog,
@@ -12,6 +12,9 @@ import {
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import type { McpDirectoryInfo } from "@/app/constants";
+import { openDesktopUrl } from "@/app/lib/desktop";
+import { isDesktopRuntime } from "@/app/utils";
+import { getMcpOAuthErrorMessage } from "@/app/mcp-oauth-errors";
 
 const PLACEHOLDER_RE = /\{([^}]+)\}/g;
 
@@ -106,7 +109,9 @@ export type McpConnectorSetupModalProps = {
   entry: McpDirectoryInfo | null;
   open: boolean;
   onClose: () => void;
-  onConnect: (entry: McpDirectoryInfo) => void;
+  /** Suppress automatic sign-in if the user dismisses setup while its save is pending. */
+  onCancel?: () => void;
+  onConnect: (entry: McpDirectoryInfo) => boolean | void | Promise<boolean | void>;
 };
 
 /**
@@ -125,6 +130,8 @@ export function McpConnectorSetupModal(props: McpConnectorSetupModalProps) {
   // Token-authed connectors (e.g. iManage) whose OAuth the local engine can't do:
   // collect an access token and connect via Authorization: Bearer instead.
   const needsToken = entry?.requiresToken === true;
+  const redirectUri = entry?.oauthConfig?.redirectUri
+    ?? `http://127.0.0.1:${entry?.oauthConfig?.callbackPort ?? 19876}/mcp/oauth/callback`;
 
   const [values, setValues] = useState<Record<string, string>>({});
   const [clientId, setClientId] = useState("");
@@ -132,6 +139,26 @@ export function McpConnectorSetupModal(props: McpConnectorSetupModalProps) {
   const [scope, setScope] = useState("");
   const [token, setToken] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const [connecting, setConnecting] = useState(false);
+  const submissionRef = useRef({ id: 0, busy: false });
+  const formIdentity = entry?.id ?? entry?.serverName ?? entry?.name;
+
+  useEffect(() => {
+    // Initialize only when opening or switching connector, so refreshed catalog
+    // objects cannot clear credentials while the user is typing.
+    submissionRef.current = { id: submissionRef.current.id + 1, busy: false };
+    setConnecting(false);
+    setValues({});
+    setClientId(entry?.oauthConfig?.clientId ?? "");
+    setClientSecret(entry?.oauthConfig?.clientSecret ?? "");
+    setScope(entry?.oauthConfig?.scope ?? "");
+    setToken("");
+    setError(null);
+    return () => {
+      if (submissionRef.current.busy) props.onCancel?.();
+      submissionRef.current = { id: submissionRef.current.id + 1, busy: false };
+    };
+  }, [props.open, formIdentity]);
 
   const reset = () => {
     setValues({});
@@ -143,14 +170,21 @@ export function McpConnectorSetupModal(props: McpConnectorSetupModalProps) {
   };
 
   const close = () => {
+    submissionRef.current = { id: submissionRef.current.id + 1, busy: false };
+    setConnecting(false);
     reset();
     props.onClose();
+  };
+
+  const cancel = () => {
+    if (submissionRef.current.busy) props.onCancel?.();
+    close();
   };
 
   const allPlaceholdersFilled = placeholders.every((p) => (values[p] ?? "").trim().length > 0);
   const credsOk = !needsCreds || (clientId.trim().length > 0 && (clientIdOnly || clientSecret.trim().length > 0));
   const tokenOk = !needsToken || token.trim().length > 0;
-  const canSubmit = Boolean(entry) && allPlaceholdersFilled && credsOk && tokenOk;
+  const canSubmit = Boolean(entry) && allPlaceholdersFilled && credsOk && tokenOk && !connecting;
 
   // The preview keeps unfilled placeholders visible, so it resolves against the
   // typed values with each blank standing in for itself.
@@ -159,8 +193,8 @@ export function McpConnectorSetupModal(props: McpConnectorSetupModalProps) {
     Object.fromEntries(placeholders.map((p) => [p, values[p]?.trim() ? values[p].trim() : `{${p}}`])),
   );
 
-  const submit = () => {
-    if (!entry || !canSubmit) return;
+  const submit = async () => {
+    if (!entry || !canSubmit || submissionRef.current.busy) return;
     const url = resolveConnectorUrl(entry.url ?? "", values);
     if (/[{}]/.test(url)) {
       setError("Fill in every field before connecting.");
@@ -171,6 +205,8 @@ export function McpConnectorSetupModal(props: McpConnectorSetupModalProps) {
           clientId: clientId.trim(),
           ...(clientSecret.trim() ? { clientSecret: clientSecret.trim() } : {}),
           ...(scope.trim() ? { scope: scope.trim() } : {}),
+          callbackPort: entry.oauthConfig?.callbackPort,
+          redirectUri: entry.oauthConfig?.redirectUri,
         }
       : entry.oauthConfig;
     // Token connectors hand off Authorization: Bearer headers; connectMcp uses these
@@ -178,8 +214,26 @@ export function McpConnectorSetupModal(props: McpConnectorSetupModalProps) {
     const headers = needsToken && token.trim()
       ? { Authorization: `Bearer ${token.trim()}` }
       : entry.headers;
-    props.onConnect({ ...entry, url, oauthConfig, ...(headers ? { headers } : {}) });
-    close();
+    const submissionId = submissionRef.current.id + 1;
+    submissionRef.current = { id: submissionId, busy: true };
+    setConnecting(true);
+    setError(null);
+    try {
+      const connected = await props.onConnect({ ...entry, url, oauthConfig, ...(headers ? { headers } : {}) });
+      if (submissionRef.current.id !== submissionId) return;
+      if (connected === false) {
+        setError("Could not connect. Check your settings and try again.");
+        return;
+      }
+      close();
+    } catch (error) {
+      if (submissionRef.current.id === submissionId) setError(getMcpOAuthErrorMessage(error, "Could not connect. Try again."));
+    } finally {
+      if (submissionRef.current.id === submissionId) {
+        submissionRef.current.busy = false;
+        setConnecting(false);
+      }
+    }
   };
 
   const inputClass =
@@ -189,24 +243,39 @@ export function McpConnectorSetupModal(props: McpConnectorSetupModalProps) {
     <Dialog
       open={props.open}
       onOpenChange={(next) => {
-        if (!next) close();
+        if (!next) cancel();
       }}
     >
       <DialogContent className="flex max-h-[90vh] min-h-0 w-full max-w-lg flex-col overflow-hidden sm:max-w-lg">
         <DialogHeader>
           <DialogTitle>Set up {entry?.name ?? "connector"}</DialogTitle>
           <DialogDescription>
-            {clientIdOnly
+            {entry?.setupNote ?? (clientIdOnly
               ? "Enter your instance details and the OAuth client ID your provider issued, then connect."
               : needsCreds
-              ? "This service has no automatic app registration, so enter your firm's OAuth app details. Then connect."
+              ? "Enter the OAuth app details your provider issued, then connect."
               : needsToken
               ? "This service's OAuth isn't supported by the local engine — paste an access token to connect instead."
-              : "Enter your instance details, then connect."}
+              : "Enter your instance details, then connect.")}
           </DialogDescription>
         </DialogHeader>
 
-        <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-px py-1">
+        <fieldset disabled={connecting} className="min-h-0 min-w-0 flex-1 space-y-4 overflow-y-auto px-px py-1">
+          {entry?.setupUrl ? (
+            <a
+              href={entry.setupUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-sm text-dls-accent underline underline-offset-4"
+              onClick={(event) => {
+                if (!isDesktopRuntime() || !entry.setupUrl) return;
+                event.preventDefault();
+                void openDesktopUrl(entry.setupUrl).catch(() => setError("Could not open the provider's setup instructions."));
+              }}
+            >
+              Provider setup instructions
+            </a>
+          ) : null}
           {error ? (
             <div className="rounded-xl border border-red-7/20 bg-red-1/40 px-4 py-3 text-xs text-red-12">{error}</div>
           ) : null}
@@ -236,6 +305,10 @@ export function McpConnectorSetupModal(props: McpConnectorSetupModalProps) {
 
           {needsCreds ? (
             <>
+              <div className="space-y-1.5 text-xs text-dls-secondary">
+                <p>Register this redirect URL in your provider's OAuth app settings:</p>
+                <code className="block break-all rounded-xl border border-dls-border bg-dls-hover px-3 py-2">{redirectUri}</code>
+              </div>
               <label className="block space-y-1.5">
                 <span className="text-xs font-medium text-dls-text">OAuth client ID</span>
                 <input value={clientId} onChange={(event) => setClientId(event.currentTarget.value)} spellCheck={false} className={inputClass} />
@@ -283,12 +356,12 @@ export function McpConnectorSetupModal(props: McpConnectorSetupModalProps) {
               {previewUrl}
             </div>
           ) : null}
-        </div>
+        </fieldset>
 
         <DialogFooter>
           <DialogClose render={<Button variant="outline" />}>Cancel</DialogClose>
           <Button type="button" disabled={!canSubmit} onClick={submit}>
-            Connect
+            {connecting ? "Connecting..." : "Connect"}
           </Button>
         </DialogFooter>
       </DialogContent>

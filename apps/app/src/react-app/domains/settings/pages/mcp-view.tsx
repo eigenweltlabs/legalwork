@@ -82,6 +82,7 @@ const getSkillHiddenId = (skill: SkillItem) => `skill:${skill.name}`;
 export type McpViewProps = {
   busy: boolean;
   selectedWorkspaceRoot: string;
+  workspaceKey?: string;
   isRemoteWorkspace: boolean;
   /** Installed skills to render alongside MCPs in the grid. */
   installedSkills?: SkillItem[];
@@ -103,7 +104,8 @@ export type McpViewProps = {
   selectedMcp: string | null;
   setSelectedMcp: (name: string | null) => void;
   quickConnect: McpDirectoryInfo[];
-  connectMcp: (entry: McpDirectoryInfo) => void;
+  connectMcp: (entry: McpDirectoryInfo) => boolean | void | Promise<boolean | void>;
+  cancelPendingMcpAuth?: () => void;
   authorizeMcp: (entry: McpServerEntry) => void;
   logoutMcpAuth: (name: string) => Promise<void> | void;
   removeMcp: (name: string) => void;
@@ -287,6 +289,7 @@ export function McpView(props: McpViewProps) {
   const showHeader = props.showHeader !== false;
   const [detailEntry, setDetailEntry] = useState<McpDirectoryInfo | null>(null);
   const [setupEntry, setSetupEntry] = useState<McpDirectoryInfo | null>(null);
+  useEffect(() => setSetupEntry(null), [props.workspaceKey, props.selectedWorkspaceRoot]);
   const [detailSkill, setDetailSkill] = useState<SkillItem | null>(null);
   const [detailSkillContent, setDetailSkillContent] = useState<string | null>(null);
   const [detailPlugin, setDetailPlugin] = useState<ImportedPlugin | null>(null);
@@ -789,10 +792,8 @@ export function McpView(props: McpViewProps) {
         entry={setupEntry}
         open={Boolean(setupEntry)}
         onClose={() => setSetupEntry(null)}
-        onConnect={(entry) => {
-          props.connectMcp(entry);
-          setSetupEntry(null);
-        }}
+        onCancel={props.cancelPendingMcpAuth}
+        onConnect={props.connectMcp}
       />
 
       {detailEntry ? (() => {

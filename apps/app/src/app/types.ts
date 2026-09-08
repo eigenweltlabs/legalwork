@@ -1,5 +1,6 @@
 import type {
   Message,
+  McpOAuthConfig,
   Part,
   PermissionRequest as ApiPermissionRequest,
   PermissionV2Request,
@@ -351,7 +352,7 @@ export type McpServerConfig = {
   enabled?: boolean;
   headers?: Record<string, string>;
   environment?: Record<string, string>;
-  oauth?: Record<string, string> | false;
+  oauth?: McpOAuthConfig | false;
   timeout?: number;
 };
 

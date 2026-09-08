@@ -35,6 +35,7 @@ import { AppTray } from "./tray.mjs";
 import { pinWindowsProcessQoS } from "./windows-qos.mjs";
 import { registerMigrationIpc } from "./migration.mjs";
 import { createRuntimeManager, resolveLegalworkServerConfigPath } from "./runtime.mjs";
+import { createMcpOAuthCallbackBroker, watchMcpOAuthOwner } from "./mcp-oauth-callback.mjs";
 import { buildSupportBundleText, defaultSupportBundleFileName } from "./support-bundle.mjs";
 import {
   ELECTRON_UPDATER_FALLBACK_FEEDS,
@@ -52,6 +53,10 @@ import { createApplicationMenu } from "./app-menu.mjs";
 import { createBrowserPanel } from "./browser-panel.mjs";
 import { createWorkspaceStore } from "./workspace-store.mjs";
 import { exportSkillFolder, readSkillArchive } from "./workspace-archive.mjs";
+
+const mcpOAuthCallbacks = createMcpOAuthCallbackBroker();
+const mcpOAuthOwners = new WeakSet();
+app.on("will-quit", () => mcpOAuthCallbacks.close());
 
 // Privileged scheme for in-app recording playback. Must be registered before
 // app "ready"; the handler is attached in whenReady. `stream` enables Range
@@ -2258,6 +2263,25 @@ const desktopCommandHandlers = {
   },
   "opencodeMcpAuth": async (event, ...args) => {
       return runtimeManager.opencodeMcpAuth(String(args[0] ?? "").trim(), String(args[1] ?? "").trim());
+  },
+  "mcpOAuthListen": async (event, options = {}) => {
+      const owner = event.sender.id;
+      if (!mcpOAuthOwners.has(event.sender)) {
+        mcpOAuthOwners.add(event.sender);
+        watchMcpOAuthOwner(event.sender, mcpOAuthCallbacks);
+      }
+      const listener = await mcpOAuthCallbacks.listen(options, owner);
+      if (event.sender.isDestroyed()) {
+        mcpOAuthCallbacks.cancel(listener.listenerId, owner);
+        throw new Error("Sign-in cancelled.");
+      }
+      return listener;
+  },
+  "mcpOAuthWait": async (event, options) => {
+      return mcpOAuthCallbacks.wait(options, event.sender.id);
+  },
+  "mcpOAuthCancel": async (event, listenerId) => {
+      mcpOAuthCallbacks.cancel(listenerId, event.sender.id);
   },
   "setWindowDecorations": async (event, ...args) => {
       return undefined;

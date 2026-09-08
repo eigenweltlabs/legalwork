@@ -926,17 +926,18 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
     return result;
   }, [legalworkClient, hubWorkspaceId, providerAuthStore, reloadWorkspaceEngineFromUi]);
 
+  const opencodeToken = selectedWorkspaceEndpoint?.token ?? "";
   const opencodeClient = useMemo(() => {
-    if (!selectedWorkspaceEndpoint || !selectedWorkspaceEndpoint.token) return null;
+    if (!opencodeBaseUrl || !opencodeToken) return null;
     return createClient(
-      selectedWorkspaceEndpoint.opencodeBaseUrl,
+      opencodeBaseUrl,
       selectedWorkspaceRoot || undefined,
       {
-        token: selectedWorkspaceEndpoint.token,
+        token: opencodeToken,
         mode: "legalwork",
       },
     );
-  }, [selectedWorkspaceEndpoint, selectedWorkspaceRoot]);
+  }, [opencodeBaseUrl, opencodeToken, selectedWorkspaceRoot]);
 
   useEffect(() => {
     setActiveClient(opencodeClient);
@@ -2184,6 +2185,7 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
             mcpView={
               <McpView
                 busy={busy}
+                workspaceKey={selectedWorkspace?.id}
                 selectedWorkspaceRoot={selectedWorkspaceRoot}
                 isRemoteWorkspace={isRemoteWorkspace}
                 mcpServers={connectionsSnapshot.mcpServers}
@@ -2196,9 +2198,8 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
                 quickConnect={extensionItems.quickConnectEntries}
                 enablementContext={enablementContext}
                 builtInExtensionsDisabled={builtInExtensionsDisabled}
-                connectMcp={(entry) => {
-                  void connectionsStore.connectMcp(entry);
-                }}
+                connectMcp={connectionsStore.connectMcp}
+                cancelPendingMcpAuth={connectionsStore.cancelPendingMcpAuth}
                 configSlotForEntry={extensionController.configSlotForEntry}
                 isExtensionConnected={extensionController.isConnected}
                 authorizeMcp={(entry) => {
@@ -2478,6 +2479,7 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
       <ConnectionsModals
         client={activeClient}
         projectDir={selectedWorkspaceRoot}
+        workspaceKey={selectedWorkspace?.id}
         reloadBlocked={activeReloadBlockingSessions.length > 0}
         activeSessions={activeReloadBlockingSessions}
         isRemoteWorkspace={selectedWorkspace?.workspaceType === "remote"}
@@ -2493,6 +2495,8 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
         }}
         onCloseMcpAuthModal={() => connectionsStore.closeMcpAuthModal()}
         onCompleteMcpAuthModal={() => connectionsStore.completeMcpAuthModal()}
+        onConnectMcp={connectionsStore.connectMcp}
+        onCancelPendingMcpAuth={connectionsStore.cancelPendingMcpAuth}
       />
       <ModelPickerModal
         open={modelPicker.open}

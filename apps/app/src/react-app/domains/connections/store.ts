@@ -17,6 +17,8 @@ import {
 } from "../../../app/lib/legalmemory-connection";
 import { createClient, unwrap } from "../../../app/lib/opencode";
 import { detectReconnectWithoutAuth, type McpStatusSnapshot } from "../../../app/mcp-auth-state";
+import { mcpAuthEntryFromServer, mcpConnectOutcome } from "../../../app/mcp-connect-state";
+import { getMcpOAuthErrorMessage } from "../../../app/mcp-oauth-errors";
 import { finishPerf, perfNow, recordPerfLog } from "../../../app/lib/perf-log";
 import {
   mergeRuntimeMcpServer,
@@ -26,7 +28,6 @@ import {
 } from "../../../app/lib/desktop";
 import { toSessionTransportDirectory } from "../../../app/lib/session-scope";
 import {
-  getMcpIdentityKey,
   parseMcpServersFromContent,
   removeMcpFromConfig,
   validateMcpServerName,
@@ -82,6 +83,8 @@ export function createConnectionsStore(options: {
   let disposed = false;
   let lastWorkspaceContextKey = "";
   let lastProjectDir = "";
+  let pendingMcpAuthGeneration = 0;
+  let connectingMcpGeneration = 0;
   let snapshot: ConnectionsStoreSnapshot;
 
   let state: MutableState = {
@@ -135,6 +138,15 @@ export function createConnectionsStore(options: {
     const workspaceType = options.workspaceType();
     return `${workspaceType}:${workspaceId}:${root}:${runtimeWorkspaceId}`;
   };
+
+  // Runtime workspace IDs can appear during ordinary engine initialization.
+  // Only a change to the selected workspace invalidates its sign-in request.
+  const getMcpAuthWorkspaceKey = () =>
+    `${options.workspaceType()}:${options.selectedWorkspaceId().trim()}:${normalizeDirectoryPath(options.selectedWorkspaceRoot().trim())}`;
+
+  function cancelPendingMcpAuth() {
+    pendingMcpAuthGeneration += 1;
+  }
 
   const getLegalworkSnapshot = () => options.legalworkServer.getSnapshot();
 
@@ -555,6 +567,10 @@ export function createConnectionsStore(options: {
   }
 
   async function connectMcp(entry: McpDirectoryInfo): Promise<boolean> {
+    const authGeneration = ++pendingMcpAuthGeneration;
+    const authWorkspaceKey = getMcpAuthWorkspaceKey();
+    const authRequestIsCurrent = () =>
+      !disposed && authGeneration === pendingMcpAuthGeneration && authWorkspaceKey === getMcpAuthWorkspaceKey();
     const startedAt = perfNow();
     const legalworkSnapshot = getLegalworkSnapshot();
     const isRemoteWorkspace =
@@ -627,6 +643,7 @@ export function createConnectionsStore(options: {
     const action = snapshot.mcpServers.some((server) => server.name === slug) ? "updated" : "added";
 
     try {
+      connectingMcpGeneration = authGeneration;
       mutateState((current) => ({ ...current, mcpStatus: null, mcpConnectingName: entry.name }));
 
       // Resolve dynamic URLs for built-in MCPs
@@ -666,7 +683,9 @@ export function createConnectionsStore(options: {
           mcpEntryConfig["oauth"] = false;
         }
         if (!resolvedHeaders) {
-          if (entry.oauthConfig) {
+          if (entry.oauth === false) {
+            mcpEntryConfig["oauth"] = false;
+          } else if (entry.oauthConfig) {
             mcpEntryConfig["oauth"] = entry.oauthConfig;
           } else if (entry.oauth) {
             mcpEntryConfig["oauth"] = {};
@@ -685,7 +704,7 @@ export function createConnectionsStore(options: {
         }
       }
 
-      if (isDesktopRuntime()) {
+      if (isDesktopRuntime() && !isRemoteWorkspace) {
         // Persist to the GLOBAL opencode config so the MCP loads in every workspace
         // (opencode reads its global config for all projects). The engine hot-add below
         // connects it immediately in the active workspace.
@@ -731,20 +750,14 @@ export function createConnectionsStore(options: {
         // every path an instance loads). Merging into the runtime config makes
         // the connector global: every workspace, old and new, gets it on the
         // next instance build.
-        try {
-          await mergeRuntimeMcpServer(slug, mcpEntryConfig);
-        } catch {
-          // The hot-add below still carries this session; the entry simply
-          // will not survive an instance rebuild.
+        const runtimeWrite = await mergeRuntimeMcpServer(slug, mcpEntryConfig);
+        if (!runtimeWrite.ok) {
+          throw new Error(runtimeWrite.stderr || runtimeWrite.stdout || "Failed to update the runtime MCP config");
         }
         // And the runtime store, for setups where a LegalWork server manages
         // the engine (remote/hosted); no server client exists on plain desktop.
         if (legalworkClient && legalworkWorkspaceId) {
-          try {
-            await legalworkClient.addMcp(legalworkWorkspaceId, { name: slug, config: mcpEntryConfig });
-          } catch {
-            // The config writes above already succeeded.
-          }
+          await legalworkClient.addMcp(legalworkWorkspaceId, { name: slug, config: mcpEntryConfig });
         }
       } else if (canUseLegalworkServer && legalworkClient && legalworkWorkspaceId) {
         await legalworkClient.addMcp(legalworkWorkspaceId, {
@@ -756,7 +769,8 @@ export function createConnectionsStore(options: {
       }
 
       let engineHasMcp = false;
-      if (isDesktopRuntime() && activeClient && resolvedProjectDir) {
+      let engineAddError: unknown;
+      if (isDesktopRuntime() && !isRemoteWorkspace && activeClient && resolvedProjectDir) {
         // Hot-add to the active workspace's engine for a live connection + OAuth
         // detection. Other workspaces load the MCP from global config on next start.
         const mcpAddConfig =
@@ -767,6 +781,7 @@ export function createConnectionsStore(options: {
                 enabled: true,
                 ...(resolvedHeaders ? { headers: resolvedHeaders, oauth: false as const } : {}),
                 ...(!resolvedHeaders && entry.oauthConfig ? { oauth: entry.oauthConfig } : {}),
+                ...(!resolvedHeaders && entry.oauth === false ? { oauth: false as const } : {}),
                 ...(!resolvedHeaders && !entry.oauthConfig && entry.oauth ? { oauth: {} } : {}),
               }
             : {
@@ -792,8 +807,8 @@ export function createConnectionsStore(options: {
             );
             setStateField("mcpStatuses", status as McpStatusMap);
             engineHasMcp = Object.prototype.hasOwnProperty.call(status ?? {}, slug);
-          } catch {
-            // Transient: the engine may still be starting for this workspace.
+          } catch (error) {
+            engineAddError = error;
           }
           if (!engineHasMcp) {
             try {
@@ -812,52 +827,56 @@ export function createConnectionsStore(options: {
       } else {
         setStateField("mcpStatuses", filterConfiguredStatuses(snapshot.mcpStatuses, snapshot.mcpServers));
       }
+      // Saving remains authorized after the setup dialog closes. Its eventual
+      // completion must not reopen sign-in or attach it to a different workspace.
+      if (!authRequestIsCurrent()) return true;
       options.markReloadRequired?.("mcp", { type: "mcp", name: slug, action });
       await refreshMcpServers();
 
-      // OAuth is auto-detected: open the sign-in modal when the directory
-      // entry declares OAuth up front, or when the engine reports the fresh
-      // remote entry as needing auth. Custom apps no longer ask the user to
-      // know whether their server uses OAuth.
-      let needsAuth = Boolean(entry.oauth) && !resolvedHeaders;
-      if (!needsAuth && entryType === "remote" && !resolvedHeaders) {
-        for (let attempt = 0; attempt < 4; attempt += 1) {
-          const detected = snapshot.mcpStatuses[slug]?.status;
-          if (detected === "needs_auth" || detected === "needs_client_registration") {
-            needsAuth = true;
-            break;
-          }
-          if (detected === "connected" || detected === "failed" || detected === "disabled") break;
-          await new Promise((resolve) => setTimeout(resolve, 500));
-          await refreshMcpServers();
-        }
+      let outcome = mcpConnectOutcome(entry, snapshot.mcpStatuses[slug], Boolean(resolvedHeaders));
+      for (let attempt = 0; outcome === "pending" && attempt < 4; attempt += 1) {
+        await new Promise((resolve) => setTimeout(resolve, 500));
+        await refreshMcpServers();
+        outcome = mcpConnectOutcome(entry, snapshot.mcpStatuses[slug], Boolean(resolvedHeaders));
       }
+      engineHasMcp ||= Boolean(snapshot.mcpStatuses[slug]);
+      if (!authRequestIsCurrent()) return true;
 
-      if (needsAuth) {
+      if (outcome === "auth") {
+        if (!engineHasMcp && engineAddError) throw engineAddError;
         mutateState((current) => ({
           ...current,
-          mcpAuthEntry: entry,
+          mcpAuthEntry: { ...entry, id: slug, serverName: slug, url: resolvedUrl },
           mcpAuthNeedsReload: !engineHasMcp,
           mcpAuthModalOpen: true,
         }));
-      } else {
+      } else if (outcome === "connected") {
         setStateField("mcpStatus", t("mcp.connected"));
+        captureAnalyticsEvent("integration_connected", {});
+      } else {
+        const status = snapshot.mcpStatuses[slug];
+        throw engineAddError ?? new Error(
+          status && "error" in status && status.error
+            ? status.error
+            : outcome === "pending"
+              ? "Connection saved, but the engine has not confirmed it. Reload the engine and try again."
+              : "Connection saved, but the server is not connected. Check its settings and try again.",
+        );
       }
 
-      await refreshMcpServers();
-      finishPerf(options.developerMode(), "mcp.connect", "done", startedAt, {
+      finishPerf(options.developerMode(), "mcp.connect", outcome === "auth" ? "awaiting-auth" : "done", startedAt, {
         name: entry.name,
         type: entryType,
         slug,
       });
-      captureAnalyticsEvent("integration_connected", {});
       return true;
     } catch (error) {
       captureAppError("integration_connect", error);
       console.error("[mcp.connect] failed", entry.name, error);
+      await refreshMcpServers();
       setStateField(
         "mcpStatus",
-        error instanceof Error ? error.message : t("mcp.connect_failed"),
+        getMcpOAuthErrorMessage(error, t("mcp.connect_failed")),
       );
       finishPerf(options.developerMode(), "mcp.connect", "error", startedAt, {
         name: entry.name,
@@ -866,7 +885,9 @@ export function createConnectionsStore(options: {
       });
       return false;
     } finally {
-      setStateField("mcpConnectingName", null);
+      if (authGeneration === connectingMcpGeneration) {
+        setStateField("mcpConnectingName", null);
+      }
     }
   }
 
@@ -876,29 +897,10 @@ export function createConnectionsStore(options: {
       return;
     }
 
-    // Match on the server name the catalog entry would be registered under, not
-    // on its slugified title: the two differ for every entry that declares a
-    // serverName ("Microsoft SharePoint" -> "sharepoint").
-    const matchingQuickConnect = MCP_QUICK_CONNECT.find(
-      (candidate) => getMcpIdentityKey(candidate) === entry.name || candidate.name === entry.name,
-    );
-
-    // entry.name is the key in opencode.jsonc, so it is the authoritative
-    // identity — pin it as serverName so the sign-in modal asks the engine for
-    // this exact server even when a catalog entry supplies the display name.
+    cancelPendingMcpAuth();
     mutateState((current) => ({
       ...current,
-      mcpAuthEntry: {
-        ...(matchingQuickConnect ?? {
-          name: entry.name,
-          description: "",
-          type: "remote" as const,
-          url: entry.config.url,
-          oauth: true,
-        }),
-        id: entry.name,
-        serverName: entry.name,
-      },
+      mcpAuthEntry: mcpAuthEntryFromServer(entry),
       mcpAuthNeedsReload: false,
       mcpAuthModalOpen: true,
     }));
@@ -1112,7 +1114,7 @@ export function createConnectionsStore(options: {
       if (expected.length === 0) return true;
       return expected.every((server) => {
         const status = statuses[server.name]?.status;
-        return status === "connected" || status === "needs_auth" || status === "failed";
+        return status === "connected" || status === "needs_auth" || status === "needs_client_registration" || status === "failed";
       });
     };
 
@@ -1158,6 +1160,7 @@ export function createConnectionsStore(options: {
   }
 
   function closeMcpAuthModal() {
+    cancelPendingMcpAuth();
     mutateState((current) => ({
       ...current,
       mcpAuthModalOpen: false,
@@ -1167,8 +1170,14 @@ export function createConnectionsStore(options: {
   }
 
   async function completeMcpAuthModal() {
+    // Only the modal's verified authorization result completes a pending sign-in.
+    // Closing/cancelling the dialog or receiving a duplicate callback cannot
+    // manufacture a successful integration event.
+    if (!snapshot.mcpAuthModalOpen || !snapshot.mcpAuthEntry) return;
     closeMcpAuthModal();
+    captureAnalyticsEvent("integration_connected", {});
     await refreshMcpServers();
+    setStateField("mcpStatus", t("mcp.connected"));
   }
 
   const syncFromOptions = () => {
@@ -1200,6 +1209,7 @@ export function createConnectionsStore(options: {
   };
 
   const dispose = () => {
+    cancelPendingMcpAuth();
     disposed = true;
     started = false;
   };
@@ -1247,6 +1257,7 @@ export function createConnectionsStore(options: {
     readMcpConfigFile,
     refreshMcpServers,
     connectMcp,
+    cancelPendingMcpAuth,
     authorizeMcp,
     logoutMcpAuth,
     removeMcp,

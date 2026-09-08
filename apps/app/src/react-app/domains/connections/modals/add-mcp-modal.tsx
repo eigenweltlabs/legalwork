@@ -117,7 +117,7 @@ export function AddMcpModal(props: AddMcpModalProps) {
             type: "remote",
             url: trimmedUrl,
             ...(headers ? { headers } : {}),
-            oauth: Boolean(oauthConfig),
+            oauth: oauthConfig ? true : undefined,
             ...(oauthConfig ? { oauthConfig } : {}),
           }),
         );
