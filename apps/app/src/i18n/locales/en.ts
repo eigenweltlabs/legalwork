@@ -2095,9 +2095,9 @@ export default {
   "free_retired.cta": "Start free trial",
   "free_retired.dismiss": "Not now",
   // Onboarding: the tool-permissions cover (Settings -> Tool Permissions, quick)
-  "onboarding_permissions.title": "You decide what it may do.",
+  "onboarding_permissions.title": "Decide what needs your approval.",
   "onboarding_permissions.subtitle":
-    "LegalWork works on this computer for you. Set how much it may do on its own — and when it should ask you first.",
+    "LegalWork works on this computer for you. Set how much it may do on its own, and when it should ask you first.",
   "onboarding_permissions.panel_eyebrow": "Always your call",
   "onboarding_permissions.panel_title": "Nothing happens behind your back.",
   "onboarding_permissions.panel_footer": "Applies everywhere · Change anytime",
