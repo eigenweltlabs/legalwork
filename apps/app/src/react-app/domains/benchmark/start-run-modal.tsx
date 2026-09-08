@@ -108,7 +108,7 @@ export function StartRunModal(props: StartRunModalProps) {
             <Input
               className="max-w-sm"
               value={draft.name}
-              placeholder={`Benchmark ${new Date().toLocaleDateString()}`}
+              placeholder={`Eval ${new Date().toLocaleDateString()}`}
               onChange={(event) => setDraftName(event.target.value)}
             />
           </div>

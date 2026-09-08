@@ -83,7 +83,7 @@ export function BenchmarkView(props: BenchmarkViewProps) {
     <>
       {props.showHeader ? (
         <div className="w-full max-w-6xl space-y-3 pb-6">
-          <span className="lw-section-eyebrow uppercase text-dls-secondary">Evaluation</span>
+          <span className="lw-section-eyebrow uppercase text-dls-secondary">Model quality</span>
           <h2 className="text-[34px] font-medium leading-[1.04] tracking-[-0.035em] text-dls-text">
             {t("settings.tab_benchmark")}
           </h2>

@@ -339,7 +339,7 @@ export class BenchmarkRunner {
       {
         id: runId,
         workspaceId: workspace.id,
-        title: input.title || `Benchmark ${new Date(this.now()).toISOString().slice(0, 16).replace("T", " ")}`,
+        title: input.title || `Eval ${new Date(this.now()).toISOString().slice(0, 16).replace("T", " ")}`,
         status: "pending",
         judgeProviderId: judgeModel.providerID,
         judgeModelId: judgeModel.modelID,
