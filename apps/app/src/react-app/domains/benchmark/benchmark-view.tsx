@@ -101,7 +101,8 @@ export function BenchmarkView(props: BenchmarkViewProps) {
       ) : null}
       <div className="flex w-full max-w-5xl flex-col">
         <HubTabs items={tabs} value={tab} onChange={setTab} />
-        <div className="w-full pt-3">
+        {/* Matches the space-y-7 gap Integrations and Workflows leave under their tab row. */}
+        <div className="w-full pt-7">
           {tab === "tasks" ? (
             <TaskTable
               onOpenTask={(task) => props.onOpenTask(task.id)}
