@@ -199,6 +199,10 @@ function serializeSDKError(error: unknown): string {
   return String(error);
 }
 
+// Provider-repair notices already toasted in this renderer, keyed by
+// workspace + provider, so route refreshes never repeat them.
+const shownProviderRepairKeys = new Set<string>();
+
 function describeTaskCreateError(error: unknown) {
   const message = describeRouteError(error);
   const lower = message.toLowerCase();
@@ -655,6 +659,35 @@ export function SessionRoute() {
     markFreeRetiredNoticePending();
     setPrefs((previous) => ({ ...previous, defaultModel: null, modelVariant: null }));
   }, [local.prefs.defaultModel, setPrefs]);
+  // Providers the server dropped from this workspace's stored config at
+  // startup (the retired free tier, or a block the engine cannot parse — one
+  // such block used to take the whole engine down). Toast each exactly once.
+  const repairWorkspaceId = selectedWorkspaceEndpoint?.workspaceId ?? null;
+  useEffect(() => {
+    if (!client || !repairWorkspaceId) return;
+    let cancelled = false;
+    client
+      .getProviderRepairs(repairWorkspaceId)
+      .then(({ removed }) => {
+        if (cancelled) return;
+        for (const notice of removed) {
+          const key = `${repairWorkspaceId}:${notice.providerId}`;
+          if (shownProviderRepairKeys.has(key)) continue;
+          shownProviderRepairKeys.add(key);
+          toast.warning(t("providers.removed_title"), {
+            description: t(
+              notice.reason === "retired" ? "providers.removed_retired" : "providers.removed_invalid",
+              { name: notice.name },
+            ),
+            duration: 15_000,
+          });
+        }
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, [client, repairWorkspaceId]);
   // Connected to Eigenwelt but no USABLE model — either nothing is selected
   // (fresh installs default to null) OR the selection points at a model the
   // gateway no longer serves (the catalog changed under us, e.g. a model was
