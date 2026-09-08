@@ -11,6 +11,7 @@ import { createManagedOpencodeServer, type ManagedOpencodeServer, type OpencodeE
 import { startServer, syncAllWorkspacesRuntimeMcpToEngine } from "./server.js";
 import { ensureWorkspaceFiles } from "./workspace-init.js";
 import { keepLegalworkRuntimeConfigFileFresh, writeLegalworkRuntimeConfigFile } from "./legalwork-runtime-config.js";
+import { repairAllWorkspaceRuntimeProviders } from "./runtime-provider-repair.js";
 import { prepareManagedOpencodeEngineDb } from "./managed-opencode-db.js";
 import { refreshEigenweltPaidManifest } from "./eigenwelt-paid-manifest.js";
 import { ensureFreshPlatformToken } from "./eigenwelt-refresh.js";
@@ -63,6 +64,9 @@ export async function startEmbeddedServer(options: EmbeddedServerOptions): Promi
       await ensureWorkspaceFiles(workspace.path, workspace.preset ?? "starter");
     }
   }
+  // Drop retired / unparsable provider blocks from the runtime DB BEFORE the
+  // engine config file is built: one bad stored block takes the engine down.
+  await repairAllWorkspaceRuntimeProviders(config);
 
   if (!config.opencodeBaseUrl && options.manageOpencode) {
     const workspace = config.workspaces[0];

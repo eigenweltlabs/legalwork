@@ -72,6 +72,8 @@ type CustomModelDraft = {
   toolCall: boolean;
   reasoning: boolean;
   contextLimit: string;
+  /** Stored output limit of an edited model, carried through untouched (not editable here). */
+  outputLimit: number | null;
 };
 
 /**
@@ -94,7 +96,7 @@ function inferReasoningFromId(id: string): boolean {
 }
 
 function makeCustomModelDraft(id: string): CustomModelDraft {
-  return { id, toolCall: true, reasoning: inferReasoningFromId(id), contextLimit: "" };
+  return { id, toolCall: true, reasoning: inferReasoningFromId(id), contextLimit: "", outputLimit: null };
 }
 
 const DEFAULT_BASE_URL_PLACEHOLDER = "https://api.example.com/v1";
@@ -611,6 +613,7 @@ export default function ProviderAuthModal(props: ProviderAuthModalProps) {
         toolCall: model.toolCall,
         reasoning: model.reasoning,
         contextLimit: model.contextLimit != null ? String(model.contextLimit) : "",
+        outputLimit: model.outputLimit,
       })),
     );
     setCustomFetchedModels([]);
@@ -1129,6 +1132,7 @@ export default function ProviderAuthModal(props: ProviderAuthModalProps) {
             toolCall: model.toolCall,
             reasoning: model.reasoning,
             contextLimit: Number.isFinite(parsed) && parsed > 0 ? parsed : null,
+            outputLimit: model.outputLimit,
           };
         }),
       });

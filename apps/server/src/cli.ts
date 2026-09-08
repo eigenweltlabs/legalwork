@@ -7,6 +7,7 @@ import { createManagedOpencodeServer, type ManagedOpencodeServer } from "./manag
 import { createServerLogger, startServer, syncAllWorkspacesRuntimeMcpToEngine } from "./server.js";
 import { ensureWorkspaceFiles } from "./workspace-init.js";
 import { keepLegalworkRuntimeConfigFileFresh, writeLegalworkRuntimeConfigFile } from "./legalwork-runtime-config.js";
+import { repairAllWorkspaceRuntimeProviders } from "./runtime-provider-repair.js";
 import { prepareManagedOpencodeEngineDb } from "./managed-opencode-db.js";
 import { refreshEigenweltProviderModels } from "./eigenwelt-auth.js";
 import pkg from "../package.json" with { type: "json" };
@@ -33,6 +34,9 @@ if (!config.readOnly) {
     await ensureWorkspaceFiles(workspace.path, workspace.preset ?? "starter");
   }
 }
+// Drop retired / unparsable provider blocks from the runtime DB BEFORE the
+// engine config file is built: one bad stored block takes the engine down.
+await repairAllWorkspaceRuntimeProviders(config);
 
 if (!config.opencodeBaseUrl && process.env.LEGALWORK_MANAGE_OPENCODE === "1") {
   const workspace = config.workspaces[0];

@@ -110,6 +110,7 @@ import {
   buildLegalworkRuntimeConfigObject,
   writeLegalworkRuntimeConfigFile,
 } from "./legalwork-runtime-config.js";
+import { providerRepairNotices } from "./runtime-provider-repair.js";
 import {
   eigenweltHasPremiumModels,
   fetchEigenweltManifest,
@@ -1837,6 +1838,14 @@ function createRoutes(
     emitReloadEvent(ctx.reloadEvents, workspace, "config", buildConfigTrigger(configPath));
 
     return jsonResponse({ migrated: true, keys, legacyKeys: legacy.keys, userOpencodeKeys: user.keys, updatedAt, legacyError: legalwork.error });
+  });
+
+  // Providers the startup self-heal dropped from this workspace's stored
+  // config (retired free tier / a block the engine cannot parse), so the app
+  // can tell the user instead of the engine silently refusing to start.
+  addRoute(routes, "GET", "/workspace/:id/provider-repairs", "client", async (ctx) => {
+    const workspace = await resolveWorkspace(config, ctx.params.id);
+    return jsonResponse({ removed: providerRepairNotices(workspace.id) });
   });
 
   addRoute(routes, "GET", "/workspace/:id/runtime-config", "client", async (ctx) => {

@@ -53,6 +53,7 @@ import {
 } from "./eigenwelt-paid-manifest.js";
 import { eigenweltHasPremiumModels } from "./eigenwelt-auth.js";
 import { readEigenweltConnection } from "./eigenwelt-connection-store.js";
+import { repairRuntimeProviders } from "./runtime-provider-repair.js";
 
 const LEGALWORK_AGENT_PROMPT = `You are LegalWork — an AI agent that works alongside legal professionals inside a law firm.
 
@@ -149,7 +150,10 @@ export async function buildLegalworkRuntimeConfigObject(
     OPENCODE_ZEN_PROVIDER_ID,
   ].filter((item, index, list) => list.indexOf(item) === index);
   const providerMap = {
-    ...(runtimeConfig.provider ?? {}),
+    // Never let a retired or unparsable stored block reach the engine: it
+    // would invalidate this whole file. The startup repair also removes such
+    // blocks from the DB and notifies the app.
+    ...repairRuntimeProviders(runtimeConfig.provider ?? {}).providers,
     // Global injection wins over any stale per-workspace eigenwelt block.
     ...(paidProvider ? { [EIGENWELT_PROVIDER_ID]: paidProvider } : {}),
   };

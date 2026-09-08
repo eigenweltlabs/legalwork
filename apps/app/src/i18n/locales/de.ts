@@ -607,6 +607,10 @@ const de: Record<string, string> = {
   "chat.no_ai_plan_upgrade": "Zu Plus wechseln",
   "chat.signed_out_title": "Von Eigenwelt abgemeldet.",
   "chat.signed_out_body": "Melde dich an, um die Eigenwelt-Modelle weiter zu nutzen, starte deine 7-tägige kostenlose Testphase oder verbinde dein eigenes Modell.",
+  // Startup-Hinweis: der Server hat einen eingestellten oder defekten Modellanbieter entfernt.
+  "providers.removed_title": "Modellanbieter entfernt",
+  "providers.removed_retired": "„{name}“ wurde entfernt: Den kostenlosen Eigenwelt-Zugang gibt es nicht mehr. Starte die Testphase oder verbinde dein eigenes Modell.",
+  "providers.removed_invalid": "„{name}“ wurde entfernt, weil die Engine die Konfiguration nicht laden konnte. Füge den Anbieter in den KI-Einstellungen erneut hinzu.",
   // Einmaliger Migrationsdialog nach dem Ende des kostenlosen Zugangs.
   "free_retired.eyebrow": "Eigenwelt-Modelle",
   "free_retired.headline": "Kostenlose Modelle wurden eingestellt.",
