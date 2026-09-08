@@ -384,11 +384,9 @@ export function SettingsSidebar(props: SettingsSidebarProps) {
 }
 
 export function SettingsPage(props: SettingsPageProps) {
-  // Wide tabs (benchmark tables) share a larger cap so the heading stays aligned with the content.
-  const wide = props.activeTab === "benchmark";
   return (
     <SettingsContent>
-      <SettingsPanel key={props.activeTab} className={wide ? "lw-enter lg:max-w-6xl" : "lw-enter"}>
+      <SettingsPanel key={props.activeTab} className="lw-enter">
         <SettingsPanelHeading>
           <SettingsPanelTitle>{getSettingsTabLabel(props.activeTab)}</SettingsPanelTitle>
           <SettingsPanelDescription>{getSettingsTabDescription(props.activeTab)}</SettingsPanelDescription>

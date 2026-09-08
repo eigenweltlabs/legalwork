@@ -52,7 +52,7 @@ export function ItemDetailScreen(props: ItemDetailScreenProps) {
   const deliverables = detail?.deliverables?.deliverables ?? [];
 
   return (
-    <LayoutStack className="max-w-6xl">
+    <LayoutStack className="max-w-5xl">
       <LayoutSection>
         <LayoutSectionHeader>
           {item ? (

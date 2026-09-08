@@ -69,7 +69,7 @@ export function RunDetail(props: RunDetailProps) {
   }, [items, run?.arms]);
 
   return (
-    <LayoutStack className="max-w-6xl">
+    <LayoutStack className="max-w-5xl">
       <LayoutSection>
         <LayoutSectionHeader>
           {run ? (
