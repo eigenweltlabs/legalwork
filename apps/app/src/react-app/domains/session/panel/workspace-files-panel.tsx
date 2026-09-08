@@ -17,6 +17,7 @@ import { PanelEmptyState, PanelHeader } from "@/react-app/design-system/panel-ch
 
 import { ArtifactIcon } from "../artifacts/artifact-icon";
 import { classifyOpenTarget } from "../artifacts/open-target";
+import { t } from "@/i18n";
 
 type WorkspaceFilesPanelProps = {
   client: LegalworkServerClient | null;
@@ -60,7 +61,7 @@ export function WorkspaceFilesPanel({
     queryKey: ["workspace-files", workspaceId, path] as const,
     queryFn: async () => {
       if (!client || !workspaceId) {
-        throw new Error("Workspace is not connected.");
+        throw new Error(t("workspace_files.not_connected"));
       }
       return client.listWorkspaceDirectory(workspaceId, path);
     },
@@ -100,7 +101,7 @@ export function WorkspaceFilesPanel({
   return (
     <TooltipProvider delay={1000}>
       <div className="flex h-full min-h-0 flex-col bg-background/90">
-        <PanelHeader title="Files" icon={<FolderIcon open />}>
+        <PanelHeader title={t("workspace_files.files")} icon={<FolderIcon open />}>
           <Tooltip>
             <TooltipTrigger
               render={(
@@ -108,14 +109,14 @@ export function WorkspaceFilesPanel({
                   variant="ghost"
                   size="icon-sm"
                   onClick={() => setShowHidden((value) => !value)}
-                  aria-label={showHidden ? "Hide hidden files" : "Show hidden files"}
+                  aria-label={showHidden ? t("workspace_files.hide_hidden") : t("workspace_files.show_hidden")}
                   aria-pressed={showHidden}
                 >
                   {showHidden ? <EyeOff /> : <Eye />}
                 </Button>
               )}
             />
-            <TooltipContent>{showHidden ? "Hide hidden files" : "Show hidden files"}</TooltipContent>
+            <TooltipContent>{showHidden ? t("workspace_files.hide_hidden") : t("workspace_files.show_hidden")}</TooltipContent>
           </Tooltip>
           <Tooltip>
             <TooltipTrigger
@@ -125,7 +126,7 @@ export function WorkspaceFilesPanel({
                   size="icon-sm"
                   onClick={() => void refetch()}
                   disabled={isFetching}
-                  aria-label="Refresh folder"
+                  aria-label={t("workspace_files.refresh_folder")}
                 >
                   <RotateCw className={cn(isFetching && "animate-spin")} />
                 </Button>
@@ -136,7 +137,7 @@ export function WorkspaceFilesPanel({
           <Tooltip>
             <TooltipTrigger
               render={(
-                <Button variant="ghost" size="icon-sm" onClick={onClose} aria-label="Close files panel">
+                <Button variant="ghost" size="icon-sm" onClick={onClose} aria-label={t("workspace_files.close_panel")}>
                   <X />
                 </Button>
               )}
@@ -147,7 +148,7 @@ export function WorkspaceFilesPanel({
 
         <nav
           ref={breadcrumbsRef}
-          aria-label="Current folder"
+          aria-label={t("workspace_files.current_folder")}
           className="no-scrollbar flex h-10 shrink-0 items-center gap-0.5 overflow-x-auto whitespace-nowrap border-b border-border/50 bg-muted/20 px-2.5"
         >
           {crumbs.map((crumb, index) => {
@@ -187,15 +188,15 @@ export function WorkspaceFilesPanel({
           ) : isError ? (
             <PanelEmptyState
               icon={<AlertCircle />}
-              title="Unable to open this folder"
-              description={error instanceof Error ? error.message : "Failed to load this folder."}
+              title={t("workspace_files.open_failed_title")}
+              description={error instanceof Error ? error.message : t("workspace_files.load_failed")}
             >
               <Button variant="outline" size="sm" onClick={() => void refetch()}>
-                Try again
+                {t("workspace_files.try_again")}
               </Button>
             </PanelEmptyState>
           ) : visibleEntries.length === 0 ? (
-            <PanelEmptyState icon={<FolderIcon open />} title="This folder is empty" description="Files you add to this folder will appear here.">
+            <PanelEmptyState icon={<FolderIcon open />} title={t("workspace_files.empty_title")} description={t("workspace_files.empty_body")}>
               {hiddenCount > 0 ? (
                 <button
                   type="button"
@@ -233,7 +234,7 @@ export function WorkspaceFilesPanel({
               ))}
               {data?.truncated ? (
                 <p className="px-2.5 py-2 text-center text-[11px] text-muted-foreground/70">
-                  This folder has more entries than can be shown.
+                  {t("workspace_files.more_entries")}
                 </p>
               ) : null}
               {!showHidden && hiddenCount > 0 ? (

@@ -1,4 +1,5 @@
 import type { LegalworkServerClient } from "../../../../../app/lib/legalwork-server";
+import { t } from "@/i18n";
 
 const PREFIX = "attachment://workspace?";
 
@@ -25,7 +26,7 @@ export async function uploadWorkspaceAttachment(
     path: `.legalwork/attachments/${crypto.randomUUID()}/${filename}`,
     data: await file.arrayBuffer(),
   });
-  if (!result.ok || !result.path) throw new Error("The file upload did not complete.");
+  if (!result.ok || !result.path) throw new Error(t("workspace.upload_incomplete"));
   const params = new URLSearchParams({
     name: file.name,
     path: result.path,

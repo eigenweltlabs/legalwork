@@ -325,6 +325,10 @@ export function TaskFormModal(props: TaskFormModalProps) {
                   <Label className="text-[12px]">{t("benchmark.form_work_type")}</Label>
                   <Select
                     value={draft.workType}
+                    items={BENCHMARK_WORK_TYPES.map((workType) => ({
+                      value: workType,
+                      label: workTypeLabel(workType),
+                    }))}
                     onValueChange={(value) => patch({ workType: value as BenchmarkWorkType })}
                   >
                     <SelectTrigger className="w-full">

@@ -47,6 +47,13 @@ export function PreferencesView(props: PreferencesViewProps) {
             <LayoutSectionItemHeaderActions>
               <Select
                 value={props.hideAppMode}
+                // Base UI resolves the trigger label from `items`; without it
+                // the trigger shows the raw value ("recording").
+                items={[
+                  { value: "never", label: t("settings.hide_app_never") },
+                  { value: "recording", label: t("settings.hide_app_recording") },
+                  { value: "always", label: t("settings.hide_app_always") },
+                ]}
                 onValueChange={(value) => props.onChangeHideAppMode(value as HideAppMode)}
                 disabled={props.busy}
               >

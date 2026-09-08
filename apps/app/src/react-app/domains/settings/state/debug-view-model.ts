@@ -746,7 +746,7 @@ export function useDebugViewModel(options: UseDebugViewModelOptions) {
       });
       setLegalworkServiceStatus({
         tone: "success",
-        message: t("settings.restart_succeeded_template", { service: "LegalWork server" }),
+        message: t("settings.restart_succeeded_template", { service: t("debug.legalwork_server") }),
       });
       pushDeveloperLog("Restarted legalwork-server");
       await legalworkServerStore.reconnectLegalworkServer();
@@ -754,7 +754,7 @@ export function useDebugViewModel(options: UseDebugViewModelOptions) {
       const message = error instanceof Error ? error.message : safeStringify(error);
       setLegalworkServiceStatus({
         tone: "error",
-        message: `${t("settings.restart_failed_template", { service: "LegalWork server" })} ${message}`,
+        message: `${t("settings.restart_failed_template", { service: t("debug.legalwork_server") })} ${message}`,
       });
       setServiceRestartError(message);
     } finally {
@@ -819,7 +819,7 @@ export function useDebugViewModel(options: UseDebugViewModelOptions) {
     }
     try {
       await navigator.clipboard.writeText(text);
-      setLegalworkLogStatus(t("settings.copied_service_logs", { service: "LegalWork server" }));
+      setLegalworkLogStatus(t("settings.copied_service_logs", { service: t("debug.legalwork_server") }));
     } catch (error) {
       setLegalworkLogStatus(error instanceof Error ? error.message : safeStringify(error));
     }
@@ -851,8 +851,8 @@ export function useDebugViewModel(options: UseDebugViewModelOptions) {
       if (!isDesktopRuntime()) return;
       const message =
         mode === "all"
-          ? "Reset ALL LegalWork app data? Open sessions and workspaces will be removed."
-          : "Reset onboarding state only?";
+          ? t("debug.reset_all_confirm")
+          : t("debug.reset_onboarding_confirm");
       if (typeof window !== "undefined" && !window.confirm(message)) {
         return;
       }
@@ -863,8 +863,8 @@ export function useDebugViewModel(options: UseDebugViewModelOptions) {
           clearLegalworkLocalStorageForReset(mode);
           setResetStatus(
             mode === "all"
-              ? "Reset LegalWork state. Restart the app to see changes."
-              : "Reset onboarding state. Restart the app to see changes.",
+              ? t("debug.reset_all_desc")
+              : t("debug.reset_onboarding_desc"),
           );
           pushDeveloperLog(`reset_legalwork_state mode=${mode}`);
         })

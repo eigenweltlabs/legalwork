@@ -1,5 +1,6 @@
 import { cn } from "@/lib/utils"
 import * as React from "react"
+import { t } from "@/i18n";
 
 export type GeneratedImageLike = {
   src?: string
@@ -141,7 +142,7 @@ export const Image = ({
               className="rounded-full border border-border bg-background/95 px-3 py-1 text-xs font-medium text-foreground shadow-sm transition-colors hover:bg-muted"
               onClick={() => setExpanded(true)}
             >
-              Show full image
+              {t("image.show_full")}
             </button>
           </div>
         ) : null}
@@ -152,7 +153,7 @@ export const Image = ({
           className="rounded-full border border-border px-3 py-1 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
           onClick={() => setExpanded(false)}
         >
-          Show less
+          {t("image.show_less")}
         </button>
       ) : null}
     </div>

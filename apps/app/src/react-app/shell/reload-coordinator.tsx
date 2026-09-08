@@ -39,69 +39,69 @@ function describeTrigger(
 
   const verb =
     trigger.action === "removed"
-      ? "was removed"
+      ? t("reload.verb_removed")
       : trigger.action === "added"
-        ? "was added"
-        : trigger. action === "updated"
-          ? "was updated"
-          : "changed";
+        ? t("reload.verb_added")
+        : trigger.action === "updated"
+          ? t("reload.verb_updated")
+          : t("reload.verb_changed");
 
   if (trigger.type === "skill") {
     return trigger.name
-      ? `Skill '${trigger.name}' ${verb}. Reload to use it.`
-      : "Skills changed. Reload to apply.";
+      ? t("reload.skill_named", { name: trigger.name, verb })
+      : t("reload.skills_changed");
   }
   if (trigger.type === "plugin") {
     return trigger.name
-      ? `Plugin '${trigger.name}' ${verb}. Reload to activate.`
-      : "Plugins changed. Reload to apply.";
+      ? t("reload.plugin_named", { name: trigger.name, verb })
+      : t("reload.plugins_changed");
   }
   if (trigger.type === "mcp") {
     return trigger.name
-      ? `MCP '${trigger.name}' ${verb}. Reload to connect.`
-      : "MCP config changed. Reload to apply.";
+      ? t("reload.mcp_named", { name: trigger.name, verb })
+      : t("reload.mcp_changed");
   }
   if (trigger.type === "config") {
     return trigger.name
-      ? `Config '${trigger.name}' ${verb}. Reload to apply.`
-      : "Config changed. Reload to apply.";
+      ? t("reload.config_named", { name: trigger.name, verb })
+      : t("reload.config_changed");
   }
   if (trigger.type === "agent") {
     return trigger.name
-      ? `Agent '${trigger.name}' ${verb}. Reload to use it.`
-      : "Agents changed. Reload to apply.";
+      ? t("reload.agent_named", { name: trigger.name, verb })
+      : t("reload.agents_changed");
   }
   if (trigger.type === "command") {
     return trigger.name
-      ? `Command '${trigger.name}' ${verb}. Reload to use it.`
-      : "Commands changed. Reload to apply.";
+      ? t("reload.command_named", { name: trigger.name, verb })
+      : t("reload.commands_changed");
   }
-  return "Config changed. Reload to apply.";
+  return t("system.config_changed_reload");
 }
 
 /** Past-tense copy for the "reload happened automatically" receipt. */
 function describeApplied(trigger: ReloadTrigger | null): string {
-  if (!trigger) return "Latest configuration changes are now active.";
+  if (!trigger) return t("system.config_active");
 
   const label =
     trigger.type === "skill"
-      ? "Skill"
+      ? t("reload.label_skill")
       : trigger.type === "plugin"
-        ? "Plugin"
+        ? t("reload.label_plugin")
         : trigger.type === "mcp"
-          ? "MCP"
+          ? t("reload.label_mcp")
           : trigger.type === "agent"
-            ? "Agent"
+            ? t("reload.label_agent")
             : trigger.type === "command"
-              ? "Command"
-              : "Config";
+              ? t("reload.label_command")
+              : t("reload.label_config");
 
   if (trigger.name) {
     return trigger.action === "removed"
-      ? `${label} '${trigger.name}' was removed.`
-      : `${label} '${trigger.name}' is now active.`;
+      ? t("reload.applied_removed", { label, name: trigger.name })
+      : t("reload.applied_active", { label, name: trigger.name });
   }
-  return `${label} changes are now active.`;
+  return t("reload.applied_changes_active", { label });
 }
 
 const LIVE_ACTIVITY_STATUSES: SessionActivityStatus[] = [

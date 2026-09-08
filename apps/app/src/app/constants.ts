@@ -109,7 +109,12 @@ function extensionManifestToDirectoryInfo(manifest: LegalWorkExtensionManifest):
     id: manifest.id,
     name: manifest.name,
     serverName: mcpResource?.mcpServerName ?? manifest.id,
-    description: manifest.description,
+    // Keep this lazy: `manifest.description` is a `get` accessor backed by
+    // t(), and MCP_QUICK_CONNECT is a module-scope const. Reading it here
+    // would freeze the English value at import, before initLocale() runs.
+    get description() {
+      return manifest.description;
+    },
     type: mcpResource?.command ? "local" : undefined,
     command: mcpResource?.command,
     oauth: false,
@@ -157,7 +162,7 @@ export const MCP_QUICK_CONNECT: McpDirectoryInfo[] = [
     type: "remote",
     oauth: true,
     kind: "mcp",
-    composerPrompt: "Search LegalMemory for ",
+    get composerPrompt() { return t("mcp.composer_search_legalmemory") },
     // Eigenwelt's own product, and the one a firm on this page is most likely
     // to already run, so it leads the catalog rather than sitting alphabetically
     // among third-party vendors.
@@ -201,7 +206,7 @@ export const MCP_QUICK_CONNECT: McpDirectoryInfo[] = [
   {
     name: "CB Insights",
     serverName: "cbinsights",
-    description: "Company, funding, market, and industry intelligence from CB Insights.",
+    get description() { return t("mcp.desc_cbinsights") },
     // Bearer-token protected resource (bearer_methods_supported: ["header"]). Connect
     // with an access token rather than the engine's OAuth.
     url: "https://mcp.cbinsights.com",
@@ -214,7 +219,7 @@ export const MCP_QUICK_CONNECT: McpDirectoryInfo[] = [
   {
     name: "Courtroom5",
     serverName: "courtroom5",
-    description: "Litigation research and case-prep tools from Courtroom5.",
+    get description() { return t("mcp.desc_courtroom5") },
     // Bearer-token protected: connecting without auth fails and the server shows
     // as offline. Connect with an access token (Authorization: Bearer) rather
     // than the engine's OAuth.
@@ -230,7 +235,7 @@ export const MCP_QUICK_CONNECT: McpDirectoryInfo[] = [
   {
     name: "Ironclad",
     serverName: "ironclad",
-    description: "Contract lifecycle management — search and analyze contracts in Ironclad.",
+    get description() { return t("mcp.desc_ironclad") },
     url: "https://mcp.na1.ironcladapp.com/mcp",
     type: "remote",
     oauth: false,
@@ -252,7 +257,7 @@ export const MCP_QUICK_CONNECT: McpDirectoryInfo[] = [
   {
     name: "Legal Data Hunter",
     serverName: "legaldatahunter",
-    description: "Legal data search and research.",
+    get description() { return t("mcp.desc_legaldata") },
     url: "https://legaldatahunter.com/mcp",
     type: "remote",
     oauth: false,
@@ -263,7 +268,7 @@ export const MCP_QUICK_CONNECT: McpDirectoryInfo[] = [
   {
     name: "Midpage",
     serverName: "midpage",
-    description: "Case-law research and citations from Midpage.",
+    get description() { return t("mcp.desc_midpage") },
     url: "https://app.midpage.ai/mcp",
     type: "remote",
     oauth: false,
@@ -274,7 +279,7 @@ export const MCP_QUICK_CONNECT: McpDirectoryInfo[] = [
   {
     name: "Quartr",
     serverName: "quartr",
-    description: "Earnings calls, investor documents, and company data from Quartr.",
+    get description() { return t("mcp.desc_quartr") },
     url: "https://mcp.quartr.com/mcp",
     type: "remote",
     oauth: false,
@@ -285,7 +290,7 @@ export const MCP_QUICK_CONNECT: McpDirectoryInfo[] = [
   {
     name: "Solve Intelligence",
     serverName: "solveintelligence",
-    description: "Patent drafting and IP tooling from Solve Intelligence.",
+    get description() { return t("mcp.desc_solve") },
     url: "https://api.solveintelligence.com/mcp/",
     type: "remote",
     oauth: false,
@@ -296,7 +301,7 @@ export const MCP_QUICK_CONNECT: McpDirectoryInfo[] = [
   {
     name: "TechGC (TopCounsel)",
     serverName: "techgc",
-    description: "Legal ops and general-counsel tools from TechGC.",
+    get description() { return t("mcp.desc_techgc") },
     url: "https://api.techgc.co/api/mcp/topcounsel",
     type: "remote",
     oauth: false,
@@ -307,7 +312,7 @@ export const MCP_QUICK_CONNECT: McpDirectoryInfo[] = [
   {
     name: "Verisk",
     serverName: "verisk",
-    description: "Underwriting and risk intelligence from Verisk.",
+    get description() { return t("mcp.desc_verisk") },
     url: "https://gatewaymcp.verisk.com/underwriting/intelligencemcp/v1",
     type: "remote",
     oauth: false,
@@ -318,7 +323,7 @@ export const MCP_QUICK_CONNECT: McpDirectoryInfo[] = [
   {
     name: "CourtListener",
     serverName: "courtlistener",
-    description: "Federal and state case law, dockets, and opinions from CourtListener.",
+    get description() { return t("mcp.desc_courtlistener") },
     url: "https://mcp.courtlistener.com/",
     type: "remote",
     oauth: false,
@@ -329,7 +334,7 @@ export const MCP_QUICK_CONNECT: McpDirectoryInfo[] = [
   {
     name: "Daloopa",
     serverName: "daloopa",
-    description: "Financial fundamentals and data from Daloopa.",
+    get description() { return t("mcp.desc_daloopa") },
     url: "https://mcp.daloopa.com/server/mcp",
     type: "remote",
     oauth: false,
@@ -340,7 +345,7 @@ export const MCP_QUICK_CONNECT: McpDirectoryInfo[] = [
   {
     name: "Dun & Bradstreet Risk Analytics",
     serverName: "dnb-risk",
-    description: "Company risk and credit analytics from Dun & Bradstreet.",
+    get description() { return t("mcp.desc_dnb") },
     url: "https://agents.riskanalytics.dnb.com/mcp",
     type: "remote",
     oauth: false,
@@ -362,7 +367,7 @@ export const MCP_QUICK_CONNECT: McpDirectoryInfo[] = [
   {
     name: "Everlaw",
     serverName: "everlaw",
-    description: "Ediscovery and litigation document review from Everlaw.",
+    get description() { return t("mcp.desc_everlaw") },
     url: "https://api.everlaw.com/v1/mcp",
     type: "remote",
     oauth: false,
@@ -373,7 +378,7 @@ export const MCP_QUICK_CONNECT: McpDirectoryInfo[] = [
   {
     name: "IBISWorld",
     serverName: "ibisworld",
-    description: "Industry research and market reports from IBISWorld.",
+    get description() { return t("mcp.desc_ibisworld") },
     url: "https://mcp.ibisworld.com",
     type: "remote",
     oauth: false,
@@ -384,7 +389,7 @@ export const MCP_QUICK_CONNECT: McpDirectoryInfo[] = [
   {
     name: "Descrybe",
     serverName: "descrybe",
-    description: "Legal research and case summaries from Descrybe.",
+    get description() { return t("mcp.desc_descrybe") },
     // Bearer-token protected: the server returns unauthorized without an access
     // token. Connect with a token (Authorization: Bearer) rather than OAuth.
     url: "https://mcp.descrybe.com/mcp",

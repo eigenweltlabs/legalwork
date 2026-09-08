@@ -8,6 +8,7 @@ import {
 import { readLegalworkServerSettings, writeLegalworkServerSettings } from "../../app/lib/legalwork-server";
 import { safeStringify } from "../../app/utils";
 import { recordInspectorEvent } from "../../app/lib/app-inspector";
+import { t } from "@/i18n";
 
 type LocalWorkspaceLike = {
   id: string;
@@ -34,7 +35,7 @@ function emitLegalworkSettingsChanged() {
 function describeError(error: unknown) {
   if (error instanceof Error) return error.message;
   const serialized = safeStringify(error);
-  return serialized && serialized !== "{}" ? serialized : "Unknown error";
+  return serialized && serialized !== "{}" ? serialized : t("control.unknown_error");
 }
 
 export async function ensureDesktopLocalLegalworkConnection(
@@ -76,7 +77,7 @@ export async function ensureDesktopLocalLegalworkConnection(
 
     const info = await legalworkServerInfo() as LegalworkServerInfo | null;
     if (!info?.baseUrl) {
-      throw new Error("LegalWork server did not report a base URL after activation.");
+      throw new Error(t("desktop.no_base_url"));
     }
 
     writeLegalworkServerSettings({

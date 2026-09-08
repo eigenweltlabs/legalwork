@@ -126,7 +126,7 @@ export function AdvancedView(props: AdvancedViewProps) {
     try {
       setConfigStatus(await props.getRuntimeConfigStatus());
     } catch (error) {
-      setConfigStatusError(error instanceof Error ? error.message : "Failed to load runtime config status.");
+      setConfigStatusError(error instanceof Error ? error.message : t("advanced.load_status_failed"));
     } finally {
       setConfigStatusBusy(false);
     }
@@ -146,12 +146,12 @@ export function AdvancedView(props: AdvancedViewProps) {
         type: "migrationStatus",
         status: result.migrated
           ? `Migrated legacy runtime config: ${result.keys.join(", ")}.`
-          : "No legacy runtime config found for this workspace.",
+          : t("advanced.no_legacy_config"),
       });
     } catch (error) {
       dispatchLocal({
         type: "migrationStatus",
-        status: error instanceof Error ? error.message : "Failed to migrate legacy runtime config.",
+        status: error instanceof Error ? error.message : t("advanced.migrate_failed"),
       });
     } finally {
       dispatchLocal({ type: "migrationDone" });

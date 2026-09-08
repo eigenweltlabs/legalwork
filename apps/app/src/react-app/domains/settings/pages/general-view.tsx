@@ -26,11 +26,11 @@ export type GeneralSettingsViewProps = {
 
 type SettingsItem = { tab: SettingsTab; icon: LucideIcon; title: string; desc: string };
 
-const workspaceItems: SettingsItem[] = [
-  { tab: "permissions", icon: FolderLock, title: "Permissions", desc: "Authorized folders and file access." },
+const workspaceItems = (): SettingsItem[] => [
+  { tab: "permissions", icon: FolderLock, title: t("settings.tab_permissions"), desc: `${t("settings.tab_description_permissions")}.` },
 ];
 
-const globalItems: SettingsItem[] = [
+const globalItems = (): SettingsItem[] => [
   // Account leads, mirroring getGlobalSettingsTabs.
   {
     tab: "account",
@@ -38,24 +38,25 @@ const globalItems: SettingsItem[] = [
     title: t("settings.tab_account"),
     desc: t("settings.tab_description_account"),
   },
-  { tab: "ai", icon: Zap, title: "AI Providers", desc: "Connect services that provide AI models." },
+  { tab: "ai", icon: Zap, title: t("settings.tab_ai"), desc: `${t("settings.tab_description_ai")}.` },
   {
     tab: "personalisation",
     icon: Sparkles,
-    title: "Personalisation",
-    desc: "System prompt additions, local memory, and response personality.",
+    title: t("settings.tab_personalisation"),
+    desc: `${t("settings.tab_description_personalisation")}.`,
   },
-  { tab: "safety", icon: ShieldCheck, title: "Tool Permissions", desc: "Decide what LegalWork can do on its own across all workspaces." },
-  { tab: "shell", icon: Layout, title: "Customization", desc: "Branding and task suggestions." },
-  { tab: "environment", icon: KeyRound, title: "Secrets", desc: "Store API keys and passwords for connected services." },
-  { tab: "preferences", icon: ShieldCheck, title: "Privacy", desc: "Usage analytics and data sharing." },
-  { tab: "updates", icon: RefreshCcw, title: "Updates", desc: "App version and update channel." },
+  { tab: "safety", icon: ShieldCheck, title: t("settings.tab_safety"), desc: `${t("settings.tab_description_safety")}.` },
+  { tab: "shell", icon: Layout, title: t("settings.tab_shell"), desc: `${t("settings.tab_description_shell")}.` },
+  { tab: "environment", icon: KeyRound, title: t("settings.tab_environment"), desc: `${t("settings.tab_description_environment")}` },
+  { tab: "preferences", icon: ShieldCheck, title: t("settings.tab_preferences"), desc: `${t("settings.tab_description_preferences")}.` },
+  { tab: "updates", icon: RefreshCcw, title: t("settings.tab_updates"), desc: `${t("settings.tab_description_updates_short")}.` },
 ];
 
 // Recorder and Office add-ins depend on local desktop capabilities, mirroring
 // their placement in getGlobalSettingsTabs.
 function resolveGlobalItems(): SettingsItem[] {
-  if (!isDesktopRuntime()) return globalItems;
+  const items = globalItems();
+  if (!isDesktopRuntime()) return items;
   const recorderItem: SettingsItem = {
     tab: "recorder",
     icon: Mic,
@@ -71,7 +72,7 @@ function resolveGlobalItems(): SettingsItem[] {
     desc: `${t("office_addins.tab_description")}.`,
   };
   // After Account and AI Providers, mirroring getGlobalSettingsTabs.
-  return [...globalItems.slice(0, 2), recorderItem, officeAddinsItem, ...globalItems.slice(2)];
+  return [...items.slice(0, 2), recorderItem, officeAddinsItem, ...items.slice(2)];
 }
 
 function SettingsRow(props: { icon: LucideIcon; title: string; desc: string; onClick: () => void }) {
@@ -118,8 +119,8 @@ function SettingsGroup(props: { label: string; items: SettingsItem[]; onNavigate
 export function GeneralSettingsView(props: GeneralSettingsViewProps) {
   return (
     <div className="w-full max-w-3xl space-y-9">
-      <SettingsGroup label="Workspace" items={workspaceItems} onNavigateTab={props.onNavigateTab} />
-      <SettingsGroup label="Global" items={resolveGlobalItems()} onNavigateTab={props.onNavigateTab} />
+      <SettingsGroup label={t("settings.group_workspace")} items={workspaceItems()} onNavigateTab={props.onNavigateTab} />
+      <SettingsGroup label={t("settings.group_global")} items={resolveGlobalItems()} onNavigateTab={props.onNavigateTab} />
       <p className="px-1 text-[11px] text-muted-foreground/70">
         {t("settings.tab_description_general")}
       </p>

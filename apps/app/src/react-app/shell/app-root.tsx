@@ -3,6 +3,7 @@
 import { useEffect } from "react";
 import { Navigate, Route, Routes } from "react-router-dom";
 
+import { useLocale } from "../../i18n/use-locale";
 import { captureAnalyticsEvent, initAnalytics } from "../../app/lib/analytics";
 import { captureRelayedAppError, initErrorAnalytics } from "../../app/lib/app-error";
 import { AppErrorBoundary } from "./app-error-boundary";
@@ -24,6 +25,9 @@ let appOpenedCaptured = false;
 
 export function AppRoot() {
   useDesktopFontZoomBehavior();
+  // `t()` reads a module variable, so subscribing here is what makes a language
+  // change in Settings repaint the app instead of waiting for a reload.
+  useLocale();
 
   // Module-level dedupe keeps StrictMode double-mounts from double-counting.
   useEffect(() => {

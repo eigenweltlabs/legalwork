@@ -8,6 +8,7 @@ import {
 import type { WebFetchToolPart } from "@/lib/build-in-tools"
 import { cn } from "@/lib/utils"
 import { Tool } from "@/components/ui/tool"
+import { t } from "@/i18n"
 
 interface WebfetchToolProps {
   part: WebFetchToolPart
@@ -25,7 +26,7 @@ export function WebfetchTool({ part }: WebfetchToolProps) {
   return (
     <div className="flex gap-2">
       <WebfetchTrigger leftIcon={<Globe className="size-4" />}>
-        Fetching
+        {t("tool.fetching")}
       </WebfetchTrigger>
       <Source href={part.input.url}>
         <SourceTrigger showFavicon />

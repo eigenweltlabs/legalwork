@@ -11,6 +11,8 @@
  * appliance's own sample config says "knowledge-index".
  */
 
+import { t } from "@/i18n";
+
 const SERVER_PREFIX = /^(?:legal[_-]?memory|knowledge[_-]?index)[_-]/i;
 
 /** Every tool the appliance registers. Kept explicit so an unrelated MCP server
@@ -64,38 +66,40 @@ export function legalMemoryActivityLabel(toolName: string, input: unknown): stri
   switch (name) {
     case "search_semantic": {
       const query = quoted(args.query);
-      return query ? `Searching firm knowledge for ${query}` : "Searching firm knowledge";
+      return query
+        ? t("legalmemory_activity.searching_knowledge", { query })
+        : t("legalmemory_activity.searching_knowledge_generic");
     }
     case "search_filter":
       return args.only_final === true
-        ? "Filtering to executed and effective documents"
-        : "Filtering firm documents by legal metadata";
+        ? t("legalmemory_activity.filtering_final")
+        : t("legalmemory_activity.filtering_metadata");
     case "find_related_documents":
-      return "Resolving amendments, annexes and precedence";
+      return t("legalmemory_activity.resolving_amendments");
     case "traverse":
-      return "Following stored document relations";
+      return t("legalmemory_activity.following_relations");
     case "get_document":
-      return "Reading the source document";
+      return t("legalmemory_activity.reading_source");
     case "download_document":
-      return "Preparing the exact original";
+      return t("legalmemory_activity.preparing_original");
     case "list_matters":
-      return "Listing matters you can read";
+      return t("legalmemory_activity.listing_matters");
     case "search_decisions":
-      return "Checking the firm's decided positions";
+      return t("legalmemory_activity.checking_positions");
     case "resolve_entity":
-      return "Resolving parties and entities";
+      return t("legalmemory_activity.resolving_parties");
     case "billing_rollup":
     case "list_invoices":
-      return "Rolling up billed work";
+      return t("legalmemory_activity.rolling_up_billed");
     case "list_taxonomies":
     case "ontology_search":
     case "ontology_roots":
     case "ontology_children":
     case "ontology_node":
-      return "Consulting the firm ontology";
+      return t("legalmemory_activity.consulting_ontology");
     case "preview_search_scope":
-      return "Compiling your permission scope";
+      return t("legalmemory_activity.compiling_scope");
     default:
-      return "Querying the LegalMemory knowledge graph";
+      return t("legalmemory_activity.querying_graph");
   }
 }

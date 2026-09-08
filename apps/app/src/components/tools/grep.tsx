@@ -3,6 +3,7 @@
 import { Tool } from "@/components/ui/tool"
 import type { GrepToolPart } from "@/lib/build-in-tools"
 import { parseFilename, toolDisplayTitle, truncateText } from "@/components/tools/path"
+import { t } from "@/i18n"
 
 interface GrepToolProps {
   part: GrepToolPart
@@ -14,14 +15,14 @@ function getGrepToolTitle(part: GrepToolPart): string | null {
   if (part.state === "output-error") {
     return pattern
       ? `Search attempted ${truncateText(pattern, 44)}`
-      : "Search attempted"
+      : t("tool.search_attempted")
   }
 
   if (part.state !== "output-available") {
     return null
   }
 
-  return pattern ? `Searched ${truncateText(pattern, 44)}` : "Searched code"
+  return pattern ? t("tool.searched", { pattern: truncateText(pattern, 44) }) : t("tool.searched_code")
 }
 
 function getGrepToolDetail(part: GrepToolPart): string | undefined {

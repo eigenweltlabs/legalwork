@@ -831,14 +831,14 @@ export const useRecorderStore = create<RecorderState & RecorderActions>((set, ge
         return;
       }
       if (recording) {
-        const message = "Stop the current Recorder session before starting system-wide dictation.";
+        const message = t("recorder.stop_session_first");
         set({ error: message, dictationState: "error" });
         await audioSystemDictationSetState("error", message).catch(() => {});
         return;
       }
       const model = bootstrap?.models.find((entry) => entry.id === modelId);
       if (!model || model.state !== "installed") {
-        const message = "Install and select a local transcription model in Recorder settings first.";
+        const message = t("recorder.install_model_first");
         set({ error: message, dictationState: "error" });
         await audioSystemDictationSetState("error", message).catch(() => {});
         return;
@@ -986,7 +986,7 @@ export const useRecorderStore = create<RecorderState & RecorderActions>((set, ge
       if (needed.length > 0) {
         set({ permissionsNeeded: needed, error: null });
         if (options?.systemDictation) {
-          const message = "Microphone access is required. Open Recorder settings to finish setup.";
+          const message = t("recorder.mic_access_required");
           set({ dictationState: "error" });
           await audioSystemDictationSetState("error", message).catch(() => {});
         }
@@ -1007,7 +1007,7 @@ export const useRecorderStore = create<RecorderState & RecorderActions>((set, ge
       const startEpoch = suspendEpoch;
       try {
         const status = await audioTranscriberStart({ modelId, language });
-        if (status.state === "error") throw new Error(status.error ?? "Transcriber failed to start.");
+        if (status.state === "error") throw new Error(status.error ?? t("recorder.transcriber_start_failed"));
 
         const meta = await audioRecordingStart({
           title,
@@ -1210,13 +1210,13 @@ export const useRecorderStore = create<RecorderState & RecorderActions>((set, ge
         // Load the model and wait until it's ready — a whole file's PCM would
         // otherwise overflow the worker's pre-ready buffer for long recordings.
         const status = await audioTranscriberStart({ modelId, language });
-        if (status.state === "error") throw new Error(status.error ?? "Transcriber failed to start.");
+        if (status.state === "error") throw new Error(status.error ?? t("recorder.transcriber_start_failed"));
         if (get().transcriber.state !== "ready") {
           const deadline = Date.now() + 60_000;
           while (Date.now() < deadline) {
             const state = get().transcriber.state;
             if (state === "ready") break;
-            if (state === "error") throw new Error(get().transcriber.error ?? "Transcriber failed to load.");
+            if (state === "error") throw new Error(get().transcriber.error ?? t("recorder.transcriber_load_failed"));
             await new Promise((resolve) => setTimeout(resolve, 150));
           }
         }
@@ -1287,7 +1287,7 @@ export const useRecorderStore = create<RecorderState & RecorderActions>((set, ge
     saveRecordingToWorkspace: async (recordingId, workspacePath) => {
       const result = await audioRecordingSaveToWorkspace(recordingId, workspacePath);
       if (!result.ok) {
-        set({ error: result.error ?? "Could not save to workspace." });
+        set({ error: result.error ?? t("recorder.save_failed") });
         return null;
       }
       return result.folderPath;
@@ -1309,7 +1309,7 @@ export const useRecorderStore = create<RecorderState & RecorderActions>((set, ge
       try {
         const result = await audioLiveTranscriptStart(root);
         if (!result.ok) {
-          set({ error: result.error ?? "Could not start the live transcript." });
+          set({ error: result.error ?? t("recorder.live_transcript_failed") });
           return false;
         }
         if (result.fileName) fileName = result.fileName;

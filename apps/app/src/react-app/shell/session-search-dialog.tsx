@@ -26,6 +26,7 @@ import {
   type SessionSearchProgress,
   type SessionSearchSnippet,
 } from "@/react-app/domains/session/search/session-search";
+import { t } from "@/i18n";
 
 const MIN_QUERY_LENGTH = 2;
 const DEBOUNCE_MS = 200;
@@ -189,15 +190,15 @@ export function SessionSearchDialog(props: SessionSearchDialogProps) {
   const trimmedQuery = query.trim();
   const searching = Boolean(deepQuery) && progress !== null && !progress.done;
   const emptyText = !trimmedQuery
-    ? "No sessions yet."
+    ? t("session_search.no_sessions")
     : trimmedQuery.length < MIN_QUERY_LENGTH
-      ? "Keep typing to search message content…"
+      ? t("session_search.keep_typing")
       : searching
-        ? "Searching messages…"
-        : "No sessions or messages match your search.";
+        ? t("session_search.searching")
+        : t("session_search.no_match");
 
   const statusText = !trimmedQuery
-    ? "Recent sessions"
+    ? t("session_search.recent")
     : searching
       ? `Searching messages… ${progress.scanned}/${progress.total}`
       : `${items.length.toLocaleString()} ${items.length === 1 ? "result" : "results"}`;
@@ -210,7 +211,7 @@ export function SessionSearchDialog(props: SessionSearchDialogProps) {
       }}
     >
       <CommandDialogPopup>
-        <CommandDialogTitle>Search sessions</CommandDialogTitle>
+        <CommandDialogTitle>{t("session_search.title")}</CommandDialogTitle>
         <Command
           items={items}
           filter={null}
@@ -220,7 +221,7 @@ export function SessionSearchDialog(props: SessionSearchDialogProps) {
           <CommandHeader>
             <CommandInput
               className="w-full"
-              placeholder="Search all sessions and messages…"
+              placeholder={t("session_search.placeholder")}
             />
           </CommandHeader>
           <CommandPanel>

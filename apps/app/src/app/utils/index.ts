@@ -444,12 +444,12 @@ export function redactTokenLikeText(value: string): string {
 
 export function getWorkspaceTaskLoadErrorDisplay(workspace: WorkspaceInfo, error?: string | null) {
   const raw = redactTokenLikeText(error?.trim() ?? "");
-  const fallbackTitle = raw || "Failed to load tasks";
+  const fallbackTitle = raw || t("workspace.failed_load_tasks");
   if (!raw || !isSandboxWorkspace(workspace)) {
     return {
       tone: "error" as const,
       label: "Error",
-      message: raw && workspace.workspaceType === "remote" ? raw : "Failed to load tasks",
+      message: raw && workspace.workspaceType === "remote" ? raw : t("workspace.failed_load_tasks"),
       title: fallbackTitle,
     };
   }
@@ -464,12 +464,12 @@ export function getWorkspaceTaskLoadErrorDisplay(workspace: WorkspaceInfo, error
     return {
       tone: "error" as const,
       label: "Error",
-      message: "Failed to load tasks",
+      message: t("workspace.failed_load_tasks"),
       title: fallbackTitle,
     };
   }
 
-  const message = "Sandbox is offline. Start Docker Desktop, then test connection.";
+  const message = t("workspace.sandbox_offline");
   return {
     tone: "offline" as const,
     label: "Offline",
@@ -763,45 +763,47 @@ function buildToolTitle(state: any, toolName: string): string {
 
   if (lower === "read") {
     const target = file("filePath", "path", "file");
-    return target ? `Reviewed ${target}` : "Reviewed file";
+    return target ? t("tool.reviewed_file", { target }) : t("tool.reviewed_file_generic");
   }
 
   if (lower === "edit") {
     const target = file("filePath", "path", "file");
-    return target ? `Updated ${target}` : "Updated file";
+    return target ? t("tool.updated_file", { target }) : t("tool.updated_file_generic");
   }
 
   if (lower === "write") {
     const target = file("filePath", "path", "file");
-    return target ? `Write ${target}` : "Write file";
+    return target ? t("tool.write_file", { target }) : t("tool.write_file_generic");
   }
 
   if (lower === "apply_patch") {
-    return "Apply patch";
+    return t("tool.apply_patch");
   }
 
   if (lower === "list" || lower === "list_files") {
     const target = file("path");
-    return target ? `Reviewed ${target}` : "Reviewed files";
+    return target ? t("tool.reviewed_file", { target }) : t("tool.reviewed_files");
   }
 
   if (lower === "grep" || lower === "glob" || lower === "search") {
     const pattern = pick("pattern", "query");
-    return pattern ? `Searched ${truncateStepText(pattern, 44)}` : "Searched code";
+    return pattern
+      ? t("tool.searched", { pattern: truncateStepText(pattern, 44) })
+      : t("tool.searched_code");
   }
 
   if (lower === "bash") {
     const description = pick("description");
     if (description) return truncateStepText(description, 56);
     const command = pick("command", "cmd");
-    if (command) return truncateStepText(`Run ${command}`, 56);
-    return "Run command";
+    if (command) return truncateStepText(t("tool.run_prefix", { command }), 56);
+    return t("tool.run_command");
   }
 
   if (lower === "task") {
     const agent = formatAgentLabel(pick("subagent_type"));
-    if (agent) return `${agent} task`;
-    return "Task";
+    if (agent) return t("tool.agent_task", { agent });
+    return t("tool.task");
   }
 
   if (lower === "question") {
@@ -811,27 +813,27 @@ function buildToolTitle(state: any, toolName: string): string {
       const record = first as Record<string, unknown>;
       const header = normalizeStepText(record.header);
       const question = normalizeStepText(record.question);
-      return truncateStepText(header || question || "Asked a question", 56);
+      return truncateStepText(header || question || t("tool.asked_a_question"), 56);
     }
-    return "Asked a question";
+    return t("tool.asked_question");
   }
 
   if (lower === "todowrite") {
-    return "Update todo list";
+    return t("tool.update_todo_list");
   }
 
   if (lower === "todoread") {
-    return "Read todo list";
+    return t("tool.read_todo_list");
   }
 
   if (lower === "webfetch") {
     const url = pick("url");
-    return url ? `Checked ${truncateStepText(url, 44)}` : "Checked web page";
+    return url ? t("tool.checked_url", { url: truncateStepText(url, 44) }) : t("tool.checked_web_page");
   }
 
   if (lower === "skill") {
     const name = pick("name");
-    return name ? `Load skill ${name}` : "Load skill";
+    return name ? t("tool.load_skill", { name }) : t("tool.load_skill_generic");
   }
 
   const stateTitle = normalizeStepText(state?.title);
@@ -842,7 +844,7 @@ function buildToolTitle(state: any, toolName: string): string {
   const fallback = normalizeStepText(toolName)
     .replace(/[_-]+/g, " ")
     .replace(/\s+/g, " ");
-  return fallback || "Tool";
+  return fallback || t("tool.generic");
 }
 
 /** Build a concise detail line for a tool call — avoids dumping raw output */
@@ -855,8 +857,8 @@ function buildToolDetail(state: any, toolName: string): string | undefined {
     const chunks: string[] = [];
     const offset = input.offset;
     const limit = input.limit;
-    if (typeof offset === "number") chunks.push(`offset ${offset}`);
-    if (typeof limit === "number") chunks.push(`limit ${limit}`);
+    if (typeof offset === "number") chunks.push(t("tool.detail_offset", { offset }));
+    if (typeof limit === "number") chunks.push(t("tool.detail_limit", { limit }));
     if (chunks.length > 0) return chunks.join(" - ");
     return undefined;
   }
@@ -868,14 +870,14 @@ function buildToolDetail(state: any, toolName: string): string | undefined {
 
   if (lower === "grep" || lower === "glob" || lower === "search") {
     const root = pick("path");
-    if (root) return `in ${normalizePathToken(root)}`;
+    if (root) return t("tool.detail_in_path", { path: normalizePathToken(root) });
   }
 
   if (lower === "task") {
     const description = pick("description");
     if (description) return truncateStepText(description, 80);
     const agent = formatAgentLabel(pick("subagent_type"));
-    if (agent) return `${agent} agent`;
+    if (agent) return t("tool.agent_detail", { agent });
   }
 
   if (lower === "question") {
@@ -885,8 +887,8 @@ function buildToolDetail(state: any, toolName: string): string | undefined {
       : state?.output && typeof state.output === "object" && Array.isArray(state.output.answers)
         ? state.output.answers
         : null;
-    if (answers) return "Answered";
-    if (questions > 1) return `${questions} questions`;
+    if (answers) return t("tool.answered");
+    if (questions > 1) return t("tool.question_count", { count: questions });
     return undefined;
   }
 
@@ -1082,7 +1084,7 @@ export function summarizeStep(part: Part): { title: string; detail?: string; isS
   if (part.type === "step-start" || part.type === "step-finish") {
     const reason = (part as any).reason;
     return {
-      title: part.type === "step-start" ? "Step started" : "Step finished",
+      title: part.type === "step-start" ? t("tool.step_started") : t("tool.step_finished"),
       detail: reason ? String(reason) : undefined,
       toolCategory: "tool",
     };

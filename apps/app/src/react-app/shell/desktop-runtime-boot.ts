@@ -25,6 +25,7 @@ import {
 import { isDesktopRuntime, isElectronRuntime, safeStringify } from "../../app/utils";
 import { useServer } from "../kernel/server-provider";
 import { useBootState } from "./boot-state";
+import { t } from "@/i18n";
 
 // Module-scoped latch so React Strict-Mode's "mount-unmount-remount" cycle in
 // dev only triggers the boot sequence once per app launch, and the async work
@@ -184,7 +185,7 @@ export function useDesktopRuntimeBoot() {
             console.error("[desktop-boot] runtime bootstrap failed:", boot.error);
             if (boot.diagnostics) console.error("[desktop-boot] diagnostics:", boot.diagnostics);
             if (boot.logPath) console.error("[desktop-boot] failure log written to:", boot.logPath);
-            setError(boot.error || "Failed to start LegalWork runtime");
+            setError(boot.error || t("desktop.runtime_start_failed"));
             return;
           }
 

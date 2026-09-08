@@ -19,6 +19,7 @@ import type {
   BenchmarkTaskItem,
   BenchmarkWorkType,
 } from "./benchmark-types";
+import { t } from "@/i18n";
 
 export * from "./benchmark-types";
 
@@ -1180,7 +1181,7 @@ async function fetchWithTimeout(
       } catch {
         // ignore
       }
-      reject(new Error("Request timed out."));
+      reject(new Error(t("app.request_timed_out")));
     }, timeoutMs);
   });
 
@@ -1189,7 +1190,7 @@ async function fetchWithTimeout(
   } catch (error) {
     const name = (error && typeof error === "object" && "name" in error ? (error as any).name : "") as string;
     if (name === "AbortError") {
-      throw new Error("Request timed out.");
+      throw new Error(t("app.request_timed_out"));
     }
     throw error;
   } finally {
@@ -2274,7 +2275,7 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
         throw new LegalworkServerError(
           result.status,
           "request_failed",
-          message || "Shared folder upload failed",
+          message || t("workspace.shared_upload_failed"),
         );
       }
 

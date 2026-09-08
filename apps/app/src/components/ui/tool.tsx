@@ -22,6 +22,7 @@ import {
   Wrench,
 } from "lucide-react"
 import type { DynamicToolUIPart, ToolUIPart } from "ai"
+import { t } from "@/i18n";
 
 function toolIcon(part: ToolPart) {
   const name = part.type === "dynamic-tool" ? part.toolName : part.type
@@ -174,7 +175,7 @@ const Tool = ({ title, toolPart, defaultOpen = false, className }: ToolProps) =>
             </pre>
           ) : null}
           {inFlight && !hasInput ? (
-            <span className="text-muted-foreground">Waiting for input…</span>
+            <span className="text-muted-foreground">{t("tool.waiting_for_input")}</span>
           ) : null}
         </div>
       </CollapsibleContent>

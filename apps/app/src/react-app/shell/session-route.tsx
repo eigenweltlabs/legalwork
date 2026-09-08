@@ -211,7 +211,7 @@ function describeTaskCreateError(error: unknown) {
     lower.includes("internal_error") ||
     lower.includes("unexpected server error")
   ) {
-    return "OpenCode is unavailable for this workspace. Retry once it restarts, or restart LegalWork if the problem continues.";
+    return t("session_route.opencode_unavailable_detail");
   }
   return message;
 }
@@ -1045,7 +1045,7 @@ export function SessionRoute() {
         if (!targetSessionId) return;
         const text = (draft.resolvedText ?? draft.text).trim();
         if (!text && draft.attachments.length === 0) return;
-        if (selectedModelUnavailable) throw new Error("Selected model is unavailable. Choose another model before sending.");
+        if (selectedModelUnavailable) throw new Error(t("session_route.model_unavailable"));
 
         const fusionModels = getFusionSelectedModels(targetSessionId);
         captureAnalyticsEvent("task_message_sent", {
@@ -1270,7 +1270,7 @@ export function SessionRoute() {
     setRenameWorkspaceBusy(true);
     try {
       if (!client) {
-        toast.error("LegalWork server is unavailable. Reconnect the server before renaming workspaces.");
+        toast.error(t("session_route.rename_server_unavailable"));
         return;
       }
       await client.updateWorkspaceDisplayName(renameWorkspaceId, trimmed);
@@ -1278,7 +1278,7 @@ export function SessionRoute() {
       setRenameWorkspaceTitle("");
       await refreshRouteState();
     } catch (error) {
-      toast.error("Workspace rename failed", {
+      toast.error(t("session_route.rename_failed"), {
         description: describeRouteError(error),
       });
     } finally {
@@ -1373,7 +1373,7 @@ export function SessionRoute() {
       const message = describeTaskCreateError(error);
       setRouteError(message);
       setErrorsByWorkspaceId((current) => ({ ...current, [workspaceId]: message }));
-      toast.error("OpenCode unavailable", {
+      toast.error(t("session_route.opencode_unavailable"), {
         description: message,
         action: {
           label: "Retry",
@@ -1480,7 +1480,7 @@ export function SessionRoute() {
 
   const commandPaletteControlAction = useMemo<LegalworkControlAction>(() => ({
     id: "command_palette.open",
-    label: "Open the command palette",
+    label: t("control.open_command_palette"),
     description: "Open the in-app command palette so the next choice is visible.",
     sideEffect: "none",
     execute: () => setCommandPaletteOpen(true),
@@ -1489,7 +1489,7 @@ export function SessionRoute() {
 
   const addProviderControlAction = useMemo<LegalworkControlAction>(() => ({
     id: "settings.provider.add",
-    label: "Add a model provider",
+    label: t("control.add_provider"),
     description: "Open the provider connection modal, optionally pre-filtered to a specific provider.",
     sideEffect: "mutation",
     requiresArgs: false,
@@ -1589,8 +1589,8 @@ export function SessionRoute() {
 
   const sessionSearchPaletteItem = useMemo<PaletteItem>(() => ({
     id: "session-search.open",
-    title: "Search session messages",
-    detail: "Deep search every session, including message content",
+    title: t("session_route.search_messages_title"),
+    detail: t("session_route.search_messages_detail"),
     meta: "Cmd/Ctrl+Shift+F",
     searchText: "search find sessions messages history transcript content",
     action: () => {
@@ -1603,7 +1603,7 @@ export function SessionRoute() {
     {
       id: "terminal.toggle",
       title: terminalOpen ? "Hide terminal" : "Show terminal",
-      detail: "Toggle the integrated terminal panel for this workspace",
+      detail: t("session_route.terminal_detail"),
       meta: "Cmd/Ctrl+J",
       searchText: "terminal shell command line console show hide toggle",
       action: () => {
@@ -1631,8 +1631,8 @@ export function SessionRoute() {
 
   const nextSessionTabPaletteItem = useMemo<PaletteItem>(() => ({
     id: "session-tab.next",
-    title: "Next session tab",
-    detail: "Switch to the next session in this workspace",
+    title: t("session_route.next_tab_title"),
+    detail: t("session_route.next_tab_detail"),
     meta: "Cmd/Ctrl+T",
     searchText: "next session tab switch forward",
     action: () => {
@@ -1643,8 +1643,8 @@ export function SessionRoute() {
 
   const prevSessionTabPaletteItem = useMemo<PaletteItem>(() => ({
     id: "session-tab.previous",
-    title: "Previous session tab",
-    detail: "Switch to the previous session in this workspace",
+    title: t("session_route.prev_tab_title"),
+    detail: t("session_route.prev_tab_detail"),
     meta: "Cmd/Ctrl+Shift+T",
     searchText: "previous session tab switch back",
     action: () => {
@@ -1718,7 +1718,7 @@ export function SessionRoute() {
           .catch(() => null);
       }
       if (!list) {
-        throw new Error("LegalWork server is unavailable. Start or reconnect the server before creating a workspace.");
+        throw new Error(t("session_route.create_server_unavailable"));
       }
       const createdId = resolveWorkspaceListSelectedId(list) || list.workspaces[list.workspaces.length - 1]?.id || "";
       let targetWorkspaceId = createdId;

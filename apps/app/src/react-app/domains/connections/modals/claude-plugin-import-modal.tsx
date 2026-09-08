@@ -14,6 +14,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { TextInput } from "../../../design-system/text-input";
 import type { LegalworkClaudePluginPreview } from "../../../../app/lib/legalwork-server";
+import { t } from "@/i18n";
 
 export type ClaudePluginImportModalProps = {
   open: boolean;
@@ -77,7 +78,7 @@ export function ClaudePluginImportModal(props: ClaudePluginImportModalProps) {
   const handlePreview = async () => {
     const url = state.url.trim();
     if (!url) {
-      dispatch({ error: "Enter a GitHub repository URL." });
+      dispatch({ error: t("claude_plugin.repo_required") });
       return;
     }
     dispatch({ previewing: true, error: null, preview: null, previewedUrl: null });
@@ -87,7 +88,7 @@ export function ClaudePluginImportModal(props: ClaudePluginImportModalProps) {
     } catch (error) {
       dispatch({
         previewing: false,
-        error: error instanceof Error ? error.message : "Failed to load plugin preview",
+        error: error instanceof Error ? error.message : t("claude_plugin.preview_failed"),
       });
     }
   };
@@ -106,7 +107,7 @@ export function ClaudePluginImportModal(props: ClaudePluginImportModalProps) {
     } catch (error) {
       dispatch({
         installing: false,
-        error: error instanceof Error ? error.message : "Failed to install plugin",
+        error: error instanceof Error ? error.message : t("claude_plugin.install_failed"),
       });
       return;
     }
@@ -134,10 +135,9 @@ export function ClaudePluginImportModal(props: ClaudePluginImportModalProps) {
     >
       <DialogContent className="flex max-h-[90vh] min-h-0 w-full max-w-lg flex-col overflow-hidden sm:max-w-lg">
         <DialogHeader>
-          <DialogTitle>Install a plugin from GitHub</DialogTitle>
+          <DialogTitle>{t("claude_plugin.title")}</DialogTitle>
           <DialogDescription>
-            Works with Claude Code plugins: a repo with .claude-plugin/plugin.json bundling an MCP
-            server, skills, and commands.
+            {t("claude_plugin.works_with")}
           </DialogDescription>
         </DialogHeader>
 
@@ -145,7 +145,7 @@ export function ClaudePluginImportModal(props: ClaudePluginImportModalProps) {
           <div className="flex items-end gap-2">
             <div className="flex-1">
               <TextInput
-                label="GitHub repository"
+                label={t("claude_plugin.repo_label")}
                 placeholder="https://github.com/slackapi/slack-mcp-plugin"
                 value={state.url}
                 onChange={(event) =>
@@ -186,7 +186,7 @@ export function ClaudePluginImportModal(props: ClaudePluginImportModalProps) {
               </div>
 
               <div>
-                <div className="mb-1.5 text-xs font-medium text-dls-text">Will install</div>
+                <div className="mb-1.5 text-xs font-medium text-dls-text">{t("claude_plugin.will_install")}</div>
                 <div className="space-y-2">
                   {groups.map((group) => (
                     <div key={group.type}>

@@ -302,7 +302,7 @@ export function createProviderAuthStore(options: CreateProviderAuthStoreOptions)
     }
 
     if (hasLegalworkTarget) {
-      throw new Error("LegalWork server config API is unavailable for this workspace.");
+      throw new Error(t("providers.config_api_unavailable"));
     }
 
     if (isLocalWorkspace && isDesktopRuntime() && root) {
@@ -326,19 +326,19 @@ export function createProviderAuthStore(options: CreateProviderAuthStoreOptions)
         content,
       ) as { ok: boolean; stderr?: string; stdout?: string };
       if (!result.ok) {
-        throw new Error(result.stderr || result.stdout || "Failed to write opencode.jsonc");
+        throw new Error(result.stderr || result.stdout || t("connections.write_jsonc_failed"));
       }
       return true;
     }
 
     if (hasLegalworkTarget) {
-      throw new Error("LegalWork server config API is unavailable for this workspace.");
+      throw new Error(t("providers.config_api_unavailable"));
     }
 
     if (isLocalWorkspace && isDesktopRuntime() && root) {
       const result = await writeOpencodeConfig("project", root, content) as { ok: boolean; stderr?: string; stdout?: string };
       if (!result.ok) {
-        throw new Error(result.stderr || result.stdout || "Failed to write opencode.jsonc");
+        throw new Error(result.stderr || result.stdout || t("connections.write_jsonc_failed"));
       }
       return true;
     }
@@ -445,7 +445,7 @@ export function createProviderAuthStore(options: CreateProviderAuthStoreOptions)
     );
 
     if (!updatedConfig) {
-      throw new Error("Could not update opencode.jsonc for this workspace.");
+      throw new Error(t("providers.opencode_jsonc_update_failed"));
     }
 
     options.setDisabledProviders(nextDisabled);
@@ -937,7 +937,7 @@ export function createProviderAuthStore(options: CreateProviderAuthStoreOptions)
     }
 
     if (hasLegalworkTarget) {
-      throw new Error("LegalWork server config API is unavailable for this workspace.");
+      throw new Error(t("providers.config_api_unavailable"));
     }
 
     // Desktop-local fallback: merge the provider into the project opencode.jsonc.
@@ -1087,10 +1087,10 @@ export function createProviderAuthStore(options: CreateProviderAuthStoreOptions)
       throw new Error(t("providers.provider_id_required"));
     }
     if (!baseURL) {
-      throw new Error("Base URL is required.");
+      throw new Error(t("providers.base_url_required"));
     }
     if (!models.length) {
-      throw new Error("Add at least one model ID.");
+      throw new Error(t("providers.model_id_required"));
     }
 
     const modelsConfig: Record<string, Record<string, unknown>> = {};
@@ -1114,7 +1114,7 @@ export function createProviderAuthStore(options: CreateProviderAuthStoreOptions)
     try {
       const wrote = await writeCustomProviderConfig(providerId, providerConfig);
       if (!wrote) {
-        throw new Error("Could not save the provider configuration for this workspace.");
+        throw new Error(t("providers.save_config_failed"));
       }
 
       // Keep the secret out of the config file: store it in the engine auth
@@ -1175,7 +1175,7 @@ export function createProviderAuthStore(options: CreateProviderAuthStoreOptions)
       payload.entitlements || payload.platformToken || payload.refreshToken || payload.platformURL,
     );
     if (!(baseURL && payload.apiKey) && !hasAccount) {
-      throw new Error("The Eigenwelt platform did not return a gateway URL.");
+      throw new Error(t("providers.no_gateway_url"));
     }
 
     // Eigenwelt is a firm ACCOUNT, not a per-workspace provider — so we hand the
@@ -1250,7 +1250,7 @@ export function createProviderAuthStore(options: CreateProviderAuthStoreOptions)
         await finalizeEigenweltConnect(result as EigenweltSignInPayload);
         return { connected: true, message: `${t("status.connected")} Eigenwelt Subscription` };
       }
-      throw new Error("Eigenwelt sign-in timed out. Try again from the provider list.");
+      throw new Error(t("providers.eigenwelt_signin_timeout"));
     } catch (error) {
       if (opts?.cancelled?.()) return { connected: false, cancelled: true };
       const message = describeProviderError(error, t("providers.oauth_failed"));

@@ -14,6 +14,7 @@ import {
   InputGroupAddon,
   InputGroupInput,
 } from "@/components/ui/input-group"
+import { t } from "@/i18n";
 
 export interface SettingsListProps {
   children: React.ReactNode;
@@ -109,7 +110,7 @@ export function SettingsListItemDescription({ children, className }: SettingsLis
 }
 
 export function SettingsListSearchInput({
-  placeholder = "Search...",
+  placeholder = t("settings.search_placeholder"),
   ...props
 }: React.ComponentProps<"input">) {
   return (

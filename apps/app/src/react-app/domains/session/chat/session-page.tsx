@@ -511,7 +511,7 @@ export function SessionPage(props: SessionPageProps) {
   }, [setCurrentSidePanel]);
   const openBrowserUrlControlAction = useMemo<LegalworkControlAction>(() => ({
     id: "browser.open_url",
-    label: "Open URL in built-in browser",
+    label: t("control.open_url_browser"),
     description: "Create or select a LegalWork built-in browser tab, navigate it to a URL, and return the CDP handle for browser automation.",
     sideEffect: "navigation",
     requiresArgs: true,
@@ -535,7 +535,7 @@ export function SessionPage(props: SessionPageProps) {
   useControlAction(openBrowserUrlControlAction);
   const setBrowserProxyControlAction = useMemo<LegalworkControlAction>(() => ({
     id: "browser.set_proxy",
-    label: "Set built-in browser proxy",
+    label: t("control.set_browser_proxy"),
     description: "Route all built-in browser traffic through an HTTP/SOCKS proxy (e.g. to browse from another location). Applies to every built-in browser tab until cleared. Pass an empty proxy to restore system network settings.",
     sideEffect: "mutation",
     args: [
@@ -592,18 +592,18 @@ export function SessionPage(props: SessionPageProps) {
     const client = props.legalworkServerClient;
     const workspaceId = props.runtimeWorkspaceId;
     if (!client || !workspaceId) {
-      toast.error("Could not open the memory file", { description: "Workspace is not connected." });
-      throw new Error("Workspace is not connected.");
+      toast.error(t("session.memory_file_open_failed"), { description: t("session.workspace_not_connected") });
+      throw new Error(t("session.workspace_not_connected"));
     }
     try {
       const result = await materializeLegalMemoryFile(client, workspaceId, file.document_id);
       const target = resolvePathOpenTarget(result.path, accessibleTargets, "legalmemory");
-      if (!target) throw new Error("LegalMemory returned an unusable file path.");
+      if (!target) throw new Error(t("session.legalmemory_unusable_path"));
       queryClient.removeQueries({ queryKey: ["artifact-panel", workspaceId, target.id] });
       openTarget(target, undefined, props.mainView ? LEARNINGS_PANEL_SESSION_ID : undefined);
     } catch (error) {
-      toast.error(`Could not open ${file.name}`, {
-        description: error instanceof Error ? error.message : "LegalMemory download failed.",
+      toast.error(t("session.open_failed", { name: file.name }), {
+        description: error instanceof Error ? error.message : t("session.legalmemory_download_failed"),
       });
       throw error;
     }
@@ -652,7 +652,7 @@ export function SessionPage(props: SessionPageProps) {
   const openVoicePanelControlAction = useMemo<LegalworkControlAction | null>(() => (
     realtimeVoiceSupported ? {
       id: "voice.panel.open",
-      label: "Open Voice Mode",
+      label: t("control.open_voice_mode"),
       description: "Open immersive Voice Mode for the current session.",
       sideEffect: "none",
       execute: () => {
@@ -666,7 +666,7 @@ export function SessionPage(props: SessionPageProps) {
   const closeVoicePanelControlAction = useMemo<LegalworkControlAction | null>(() => (
     realtimeVoiceSupported && voiceSidePanelOpen ? {
       id: "voice.panel.close",
-      label: "Close Voice Mode",
+      label: t("control.close_voice_mode"),
       description: "Close immersive Voice Mode.",
       sideEffect: "none",
       execute: () => {
@@ -786,7 +786,7 @@ export function SessionPage(props: SessionPageProps) {
     if (!isElectronRuntime()) return;
     const title = sessionTitleForId(props.sidebar.workspaceSessionGroups, sessionId);
     void desktopBridge.openSessionWindow({ workspaceId, sessionId, title }).catch(() => {
-      toast.error("Could not open the chat in a new window.");
+      toast.error(t("session.open_in_new_window_failed"));
     });
   }, [props.sidebar.workspaceSessionGroups]);
 
@@ -995,14 +995,14 @@ export function SessionPage(props: SessionPageProps) {
               ) : null}
             </ResizablePanelGroup>
             {/* Same right icon rail as the session view. */}
-            <aside aria-label="Workspace tools" className="lw-session-rail flex w-12 shrink-0 flex-col items-center gap-2 border-l border-border px-1.5 py-3 text-muted-foreground mac:titlebar-no-drag">
+            <aside aria-label={t("session.workspace_tools")} className="lw-session-rail flex w-12 shrink-0 flex-col items-center gap-2 border-l border-border px-1.5 py-3 text-muted-foreground mac:titlebar-no-drag">
               <Button
                 variant="ghost"
                 size="icon-sm"
                 className={cn("lw-session-rail-button hover:bg-muted hover:text-foreground", panelRailActive && "text-foreground")}
                 onClick={() => toggleCurrentSidePanel("panel")}
-                title="Viewer"
-                aria-label="Viewer"
+                title={t("session.viewer")}
+                aria-label={t("session.viewer")}
                 aria-pressed={panelRailActive}
               >
                 <PanelsTopLeft size={17} />
@@ -1056,8 +1056,8 @@ export function SessionPage(props: SessionPageProps) {
                   variant="ghost"
                   size="icon-sm"
                   onClick={() => openSessionWindow(props.selectedWorkspaceId, props.selectedSessionId!)}
-                  title="Open chat in new window"
-                  aria-label="Open chat in new window"
+                  title={t("session.open_in_new_window")}
+                  aria-label={t("session.open_in_new_window")}
                 >
                   <AppWindowMac size={16} />
                 </Button>
@@ -1073,9 +1073,9 @@ export function SessionPage(props: SessionPageProps) {
                       window.localStorage.removeItem("legalwork.orgOnboardingSeen");
                     } catch {}
                   }}
-                  title="Clears acknowledged providers + org onboarding so they trigger again"
+                  title={t("settings.clear_onboarding_hint")}
                 >
-                  Reset notifications
+                  {t("session.reset_notifications")}
                 </Button>
               ) : null}
             </div>
@@ -1169,8 +1169,8 @@ export function SessionPage(props: SessionPageProps) {
                               type="button"
                               className="rounded p-0.5 text-dls-secondary opacity-80 hover:bg-dls-hover hover:text-dls-text group-hover:opacity-100"
                               onClick={() => closeSessionTab(tab.sessionId)}
-                              title="Close tab"
-                              aria-label="Close tab"
+                              title={t("session.close_tab")}
+                              aria-label={t("session.close_tab")}
                             >
                               <X size={13} />
                             </button>
@@ -1241,7 +1241,7 @@ export function SessionPage(props: SessionPageProps) {
                   {props.notFoundMessage ? (
                     <div className="px-6 py-16 text-center">
                       <div className="mx-auto max-w-md rounded-2xl border border-dls-border bg-dls-card px-5 py-6 shadow-[var(--dls-card-shadow)]">
-                        <h3 className="text-base font-medium text-dls-text">Workspace or session not found</h3>
+                        <h3 className="text-base font-medium text-dls-text">{t("session.not_found")}</h3>
                         <p className="mt-2 text-sm leading-6 text-dls-secondary">{props.notFoundMessage}</p>
                       </div>
                     </div>
@@ -1291,7 +1291,7 @@ export function SessionPage(props: SessionPageProps) {
                       />
                       <Button variant="ghost" size="sm" className="mt-4 gap-2" onClick={props.onOpenSettings}>
                         <Settings2 size={14} aria-hidden="true" />
-                        Connect an extension
+                        {t("session.connect_extension")}
                       </Button>
                     </WelcomeSurface>
                   )}
@@ -1362,14 +1362,14 @@ export function SessionPage(props: SessionPageProps) {
             ) : null}
           </ResizablePanelGroup>
           {shellConfig.panelRail ? (
-          <aside aria-label="Workspace tools" className="lw-session-rail flex w-12 shrink-0 flex-col items-center gap-2 border-l border-border px-1.5 py-3 text-muted-foreground mac:titlebar-no-drag">
+          <aside aria-label={t("session.workspace_tools")} className="lw-session-rail flex w-12 shrink-0 flex-col items-center gap-2 border-l border-border px-1.5 py-3 text-muted-foreground mac:titlebar-no-drag">
               <Button
                 variant="ghost"
                 size="icon-sm"
                 className={cn("lw-session-rail-button hover:bg-muted hover:text-foreground", panelRailActive && "text-foreground")}
                 onClick={() => toggleCurrentSidePanel("panel")}
-                title="Viewer"
-                aria-label="Viewer"
+                title={t("session.viewer")}
+                aria-label={t("session.viewer")}
                 aria-pressed={panelRailActive}
               >
                 <PanelsTopLeft size={17} />
@@ -1382,8 +1382,8 @@ export function SessionPage(props: SessionPageProps) {
                 filesRailActive && "text-foreground",
               )}
               onClick={openFilesRailPane}
-              title="Workspace files"
-              aria-label="Workspace files"
+              title={t("session.workspace_files")}
+              aria-label={t("session.workspace_files")}
               aria-pressed={filesRailActive}
               disabled={!props.selectedSessionId || !props.legalworkServerClient || !props.runtimeWorkspaceId}
             >

@@ -15,6 +15,7 @@ import { useDocxPageFit } from "./use-docx-page-fit";
 import { useDocxReviewCard } from "./use-docx-review-card";
 import "./docx-editor-layout.css";
 import { useControlActions } from "../../../shell/control/control-provider";
+import { t } from "@/i18n";
 
 export type DocxEditorApi = {
   /** Serialize and persist the current document. Never clears edits made during a save. */
@@ -50,7 +51,16 @@ const AUTHOR_KEY = "legalwork.docx.reviewer";
 let documentInstance = 0;
 // Eigenpal's File > Save exports a download, even when onSave is supplied.
 // Name that action accurately; the panel Save button / Cmd+S persist to the workspace.
-const EDITOR_LABELS = { toolbar: { save: "Download copy", saveShortcut: "" } };
+// Read lazily: a module-scope t() would freeze the English label at import,
+// before initLocale() picks the language.
+const EDITOR_LABELS = {
+  toolbar: {
+    get save() {
+      return t("artifact.download_copy");
+    },
+    saveShortcut: "",
+  },
+};
 
 const REVIEW_TOOL_NAMES = new Set(["accept_changes", "reject_changes"]);
 
@@ -68,7 +78,7 @@ function decideTrackedChanges(
   requestedIds: number[],
 ): DocxEditorToolResult {
   const view = editor?.getEditorRef()?.getView();
-  if (!view) return { success: false, error: "The document editor is not ready." };
+  if (!view) return { success: false, error: t("docx.editor_not_ready") };
 
   const { entries } = extractTrackedChanges(view.state);
   const ids = new Set<number>();
@@ -93,7 +103,7 @@ function decideTrackedChanges(
     if (command(id)(view.state, view.dispatch)) applied += 1;
   }
   if (applied === 0) {
-    return { success: false, error: "None of those tracked-change IDs exist in the open document." };
+    return { success: false, error: t("docx.unknown_change_ids") };
   }
   const verb = decision === "accept" ? "Accepted" : "Rejected";
   return { success: true, data: `${verb} ${applied} tracked-change revision${applied === 1 ? "" : "s"}.` };
@@ -113,20 +123,20 @@ export function ArtifactDocxEditor(props: ArtifactDocxEditorProps) {
     void readDocxRecovery(props.recoveryKey).then((draft) => {
       if (active) { setRecovery(draft); setChecked(true); }
     }).catch(() => {
-      if (active) { setChecked(true); toast.error("Draft recovery is unavailable on this device. Save frequently."); }
+      if (active) { setChecked(true); toast.error(t("docx.recovery_unavailable")); }
     });
     return () => { active = false; };
   }, [props.recoveryKey, props.readOnly]);
-  if (!checked) return <div className="p-6 text-sm" role="status">Checking for an unsaved draft…</div>;
+  if (!checked) return <div className="p-6 text-sm" role="status">{t("docx.checking_draft")}</div>;
   if (recovery) return <div className="space-y-4 p-6">
-    <h3 className="font-medium">Recover your unsaved draft?</h3>
+    <h3 className="font-medium">{t("docx.recover_prompt")}</h3>
     <p className="text-sm text-muted-foreground">A draft of {props.name} was kept on this device at {new Date(recovery.savedAt).toLocaleString()}. Restoring it does not overwrite the workspace file.</p>
-    {recovery.baseUpdatedAt !== props.baseUpdatedAt && <p className="text-sm">The workspace file has changed. You can recover and download your draft; saving over the newer file will be blocked.</p>}
+    {recovery.baseUpdatedAt !== props.baseUpdatedAt && <p className="text-sm">{t("docx.recover_body")}</p>}
     <div className="flex gap-2">
-      <Button onClick={() => { props.onRestore?.(recovery.baseUpdatedAt); setRestored(recovery); setRecovery(null); }}>Recover draft</Button>
+      <Button onClick={() => { props.onRestore?.(recovery.baseUpdatedAt); setRestored(recovery); setRecovery(null); }}>{t("docx.recover_draft")}</Button>
       <Button variant="outline" onClick={() => {
-        void removeDocxRecovery(recovery.key).then(() => setRecovery(null)).catch(() => toast.error("Could not discard the recovery copy. Try again."));
-      }}>Discard draft and open file</Button>
+        void removeDocxRecovery(recovery.key).then(() => setRecovery(null)).catch(() => toast.error(t("docx.discard_recovery_failed")));
+      }}>{t("docx.discard_and_open")}</Button>
     </div>
   </div>;
   return <LiveDocxEditor {...props} content={restored?.buffer ?? props.content} recovered={!!restored} />;
@@ -203,7 +213,7 @@ function LiveDocxEditor({ name, content, author, readOnly = false, onSave, onDir
       checkpointed.current = { revision: checkpointRevision, base: baseUpdatedAt };
       recoveryFailed.current = false;
     } catch {
-      if (!recoveryFailed.current) toast.error("Draft recovery is unavailable. Save your document to keep changes.");
+      if (!recoveryFailed.current) toast.error(t("docx.recovery_unavailable_save"));
       recoveryFailed.current = true;
     }
   };
@@ -229,12 +239,12 @@ function LiveDocxEditor({ name, content, author, readOnly = false, onSave, onDir
       const buffer = await getBuffer();
       if (!buffer) return false;
       await onSave(buffer);
-      if (recoveryKey) void keepDocxVersion(recoveryKey, buffer.slice(0)).catch(() => toast.error("Saved to workspace, but local version history is unavailable."));
+      if (recoveryKey) void keepDocxVersion(recoveryKey, buffer.slice(0)).catch(() => toast.error(t("docx.saved_no_history")));
       checkDocument();
       if (revision.current === savingRevision) {
         dirty.current = false;
         onDirtyChange?.(false);
-        if (recoveryKey) await removeDocxRecovery(recoveryKey).catch(() => toast.error("Saved, but the old recovery copy could not be cleared."));
+        if (recoveryKey) await removeDocxRecovery(recoveryKey).catch(() => toast.error(t("docx.saved_recovery_not_cleared")));
       }
       return true;
     })();
@@ -246,14 +256,14 @@ function LiveDocxEditor({ name, content, author, readOnly = false, onSave, onDir
     if (!apiRef) return;
     apiRef.current = { save, getBuffer,
       executeAgentTool: async (toolName, args) => {
-        if (readOnly) return { success: false, error: "This document is read-only." };
-        if (!ready.current) return { success: false, error: "The document editor is not ready." };
+        if (readOnly) return { success: false, error: t("docx.read_only") };
+        if (!ready.current) return { success: false, error: t("docx.editor_not_ready") };
         const isReviewDecision = REVIEW_TOOL_NAMES.has(toolName);
         let result: DocxEditorToolResult;
         if (isReviewDecision) {
           const changeIds = requestedChangeIds(args);
           if (!changeIds) {
-            return { success: false, error: "changeIds must be a non-empty array of tracked-change IDs." };
+            return { success: false, error: t("docx.change_ids_required") };
           }
           result = decideTrackedChanges(
             editorRef.current,
@@ -268,13 +278,13 @@ function LiveDocxEditor({ name, content, author, readOnly = false, onSave, onDir
         if (!mutatesDocument) return result;
         markDirty();
         const saved = await save();
-        if (!saved) return { success: false, error: "The document changed in the editor but could not be saved." };
+        if (!saved) return { success: false, error: t("docx.changed_not_saved") };
         return { ...result, saved: true };
       },
     discardRecovery: () => {
       dirty.current = false;
       onDirtyChange?.(false);
-      if (recoveryKey) void removeDocxRecovery(recoveryKey).catch(() => toast.error("The old recovery copy could not be cleared."));
+      if (recoveryKey) void removeDocxRecovery(recoveryKey).catch(() => toast.error(t("docx.recovery_not_cleared")));
     } };
     return () => { apiRef.current = null; };
   }, [apiRef, save, getBuffer, onDirtyChange, recoveryKey, executeToolCall, markDirty, readOnly]);
@@ -286,9 +296,9 @@ function LiveDocxEditor({ name, content, author, readOnly = false, onSave, onDir
       execute: async () => {
         const draftRevision = revision.current;
         const buffer = await getBuffer();
-        if (!buffer) throw new Error("The document is still loading.");
+        if (!buffer) throw new Error(t("docx.still_loading"));
         const draft = await DocxReviewer.fromBuffer(buffer);
-        if (draftRevision !== revision.current) throw new Error("The draft changed while reading. Read it again before proposing changes.");
+        if (draftRevision !== revision.current) throw new Error(t("docx.draft_changed_while_reading"));
         return { name, documentId, draftRevision, text: draft.getContentAsText(), comments: draft.getComments(), changes: draft.getChanges() };
       },
     },
@@ -298,15 +308,15 @@ function LiveDocxEditor({ name, content, author, readOnly = false, onSave, onDir
       requiresArgs: true,
       args: [{ name: "name", type: "string", required: true }, { name: "documentId", type: "string", required: true }, { name: "draftRevision", type: "number", required: true }, { name: "paraId", type: "string", required: true }, { name: "search", type: "string", required: true }, { name: "replaceWith", type: "string", required: true }],
       execute: (args) => {
-        if (readOnly) throw new Error("This document is read-only.");
+        if (readOnly) throw new Error(t("docx.read_only"));
         if (!args || typeof args !== "object" || !("name" in args) || args.name !== name ||
           !("documentId" in args) || args.documentId !== documentId ||
           !("draftRevision" in args) || args.draftRevision !== revision.current ||
           !("paraId" in args) || typeof args.paraId !== "string" ||
           !("search" in args) || typeof args.search !== "string" ||
-          !("replaceWith" in args) || typeof args.replaceWith !== "string") throw new Error("Read the current draft again and supply its name, revision and paragraph handle.");
+          !("replaceWith" in args) || typeof args.replaceWith !== "string") throw new Error(t("docx.read_draft_again"));
         const applied = editorRef.current?.proposeChange({ paraId: args.paraId, search: args.search, replaceWith: args.replaceWith, author: "LegalWork AI" });
-        if (!applied) throw new Error("The target is missing, ambiguous or already redlined. Read the draft again.");
+        if (!applied) throw new Error(t("docx.target_ambiguous"));
         markDirty();
         return { applied: true, saved: false, draftRevision: revision.current };
       },
@@ -320,9 +330,9 @@ function LiveDocxEditor({ name, content, author, readOnly = false, onSave, onDir
       event.stopPropagation();
       if (readOnly) return;
       void save().then((saved) => {
-        if (!saved) toast.error("The document could not be saved. Your draft is still open.");
+        if (!saved) toast.error(t("docx.save_failed_draft_open"));
       }).catch((error: unknown) => {
-        toast.error(error instanceof Error ? error.message : "The document could not be saved. Your draft is still open.");
+        toast.error(error instanceof Error ? error.message : t("docx.save_failed_draft_open"));
       });
     }}>
       <div className="min-h-0 min-w-0 flex-1">

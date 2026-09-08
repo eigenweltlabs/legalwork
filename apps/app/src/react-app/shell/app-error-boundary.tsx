@@ -2,6 +2,7 @@
 import { Component, type ReactNode } from "react";
 
 import { captureAppError } from "@/app/lib/app-error";
+import { t } from "@/i18n"
 
 type Props = { children: ReactNode; fallback?: ReactNode };
 type State = { hasError: boolean };
@@ -27,13 +28,13 @@ export class AppErrorBoundary extends Component<Props, State> {
       return (
         this.props.fallback ?? (
           <div className="flex min-h-screen flex-col items-center justify-center gap-3 p-6 text-center">
-            <div className="text-sm font-medium text-dls-text">Something went wrong.</div>
+            <div className="text-sm font-medium text-dls-text">{t("boot.something_went_wrong")}</div>
             <button
               type="button"
               onClick={() => window.location.reload()}
               className="rounded-full border border-dls-border px-4 py-2 text-[13px] text-dls-text hover:bg-dls-hover"
             >
-              Reload
+              {t("boot.reload")}
             </button>
           </div>
         )

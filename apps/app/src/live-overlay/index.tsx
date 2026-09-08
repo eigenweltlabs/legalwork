@@ -114,7 +114,7 @@ function OverlayApp() {
         setAnswers((current) =>
           current.map((answer) =>
             answer.askId === askId && answer.pending
-              ? { ...answer, pending: false, error: "No answer — is the LegalWork window open?" }
+              ? { ...answer, pending: false, error: t("live_overlay.no_answer") }
               : answer,
           ),
         );

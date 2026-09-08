@@ -9,6 +9,7 @@ import {
 } from "@mdxeditor/editor";
 import "@mdxeditor/editor/style.css";
 import "./markdown-editor.css";
+import { t } from "@/i18n";
 
 type Props = {
   value: string;
@@ -52,7 +53,7 @@ export function ArtifactMarkdownEditor({ value, baseline, onChange, imageUpload,
     markdown={initial.current}
     trim={false}
     plugins={plugins}
-    placeholder="Start writing…"
+    placeholder={t("artifact.start_writing")}
     onChange={(markdown, initialNormalize) => {
       // Opening a file must not rewrite its original whitespace or bullet style.
       if (initialNormalize) return;

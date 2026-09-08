@@ -2,6 +2,7 @@
 
 import { Tool } from "@/components/ui/tool"
 import type { SkillToolPart } from "@/lib/build-in-tools"
+import { t } from "@/i18n"
 
 interface SkillToolProps {
   part: SkillToolPart
@@ -11,14 +12,14 @@ function getSkillToolTitle(part: SkillToolPart): string | null {
   const name = part.input?.name?.trim() ?? ""
 
   if (part.state === "output-error") {
-    return name ? `Load skill ${name} attempted` : "Load skill attempted"
+    return name ? t("tool.load_skill_attempted_named", { name }) : t("tool.load_skill_attempted")
   }
 
   if (part.state !== "output-available") {
     return null
   }
 
-  return name ? `Load skill ${name}` : "Load skill"
+  return name ? t("tool.load_skill", { name }) : t("tool.load_skill_generic")
 }
 
 export function SkillTool({ part }: SkillToolProps) {

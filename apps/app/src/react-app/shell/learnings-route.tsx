@@ -6,6 +6,7 @@ import { Activity, ArrowLeft, ArrowRight, ArrowUpRight, ChevronRight, FileText, 
 import { Button } from "@/components/ui/button";
 import { useBenchmarkStore } from "../domains/benchmark/store";
 import { SettingsSurface } from "./settings-route";
+import { t } from "@/i18n";
 
 /**
  * Learnings main pane. Rendered inside the session shell's `SidebarInset`
@@ -51,9 +52,9 @@ function Sparkline({ data, color, width = 38, height = 14 }: { data: number[]; c
 /** 1. Raw documents on the left flow into sorted, tagged practice folders. */
 function DataStructuringViz() {
   const folders = [
-    { label: "M&A", count: "1,840" },
-    { label: "Employment", count: "1,120" },
-    { label: "Litigation", count: "2,210" },
+    { label: t("learnings.ma"), count: "1,840" },
+    { label: t("learnings.employment"), count: "1,120" },
+    { label: t("learnings.litigation"), count: "2,210" },
   ];
   return (
     <div className="flex h-full w-full items-center justify-between gap-2 text-foreground">
@@ -88,9 +89,9 @@ function DataStructuringViz() {
 /** 2. A compact fleet of specialist models — name, trend, accuracy, status. */
 function ModelsViz() {
   const models: { name: string; acc: string; status: ModelStatus; spark: number[] }[] = [
-    { name: "M&A", acc: "94.2%", status: "live", spark: [90, 91, 90.5, 92, 93, 94.2] },
-    { name: "Litigation", acc: "91.7%", status: "learning", spark: [89, 90, 89.5, 91, 90.8, 91.7] },
-    { name: "Employment", acc: "92.9%", status: "live", spark: [92, 92.3, 92.1, 92.6, 92.7, 92.9] },
+    { name: t("learnings.ma"), acc: "94.2%", status: "live", spark: [90, 91, 90.5, 92, 93, 94.2] },
+    { name: t("learnings.litigation"), acc: "91.7%", status: "learning", spark: [89, 90, 89.5, 91, 90.8, 91.7] },
+    { name: t("learnings.employment"), acc: "92.9%", status: "live", spark: [92, 92.3, 92.1, 92.6, 92.7, 92.9] },
     { name: "Tax", acc: "87.6%", status: "staged", spark: [82, 83.5, 84, 85.5, 86.8, 87.6] },
   ];
   return (
@@ -118,10 +119,10 @@ function ModelsViz() {
 /** 3. The flywheel: signals → tasks → continual learn → rollout, with progress. */
 function ContinualLearningViz() {
   const steps = [
-    { icon: Activity, label: "Signals" },
-    { icon: ListChecks, label: "Tasks" },
-    { icon: RefreshCw, label: "Continual learn" },
-    { icon: Rocket, label: "Rollout" },
+    { icon: Activity, label: t("learnings.signals") },
+    { icon: ListChecks, label: t("learnings.tasks") },
+    { icon: RefreshCw, label: t("learnings.continual_learn") },
+    { icon: Rocket, label: t("learnings.rollout") },
   ];
   return (
     <div className="flex h-full w-full flex-col items-center justify-center gap-4">
@@ -212,7 +213,7 @@ function TalkWithResearcherLink() {
       onClick={(event) => event.stopPropagation()}
       className="inline-flex h-8 items-center justify-center gap-1.5 rounded-full border border-[rgba(11, 132, 254,0.22)] px-3 text-[12px] font-medium text-[#0a58c2] transition-colors hover:bg-[rgba(11, 132, 254,0.08)]"
     >
-      Talk with Researcher
+      {t("learnings.talk_with_researcher")}
       <ArrowUpRight className="size-3.5" />
     </a>
   );
@@ -239,7 +240,7 @@ export function LearningsPane(props: LearningsPaneProps) {
     if (segments[1] === "tasks" && segments[2]) {
       const taskId = decodeURIComponent(segments[2]);
       return {
-        label: "Tasks",
+        label: t("learnings.tasks"),
         action: () => benchmarkNavigateRef.current?.("benchmark"),
         title: benchmarkTasks.find((task) => task.id === taskId)?.title ?? null,
       };
@@ -252,13 +253,13 @@ export function LearningsPane(props: LearningsPaneProps) {
       const itemTitle = item ? `${item.taskTitle} · ${item.modelID}` : null;
       if (segments[5] === "chat") {
         return {
-          label: "Details",
+          label: t("learnings.details"),
           action: () => benchmarkNavigateRef.current?.(itemPath),
           title: itemTitle ? `${itemTitle} — Chat` : "Chat",
         };
       }
       return {
-        label: "Run",
+        label: t("learnings.run"),
         action: () => benchmarkNavigateRef.current?.(runPath),
         title: itemTitle,
       };
@@ -266,7 +267,7 @@ export function LearningsPane(props: LearningsPaneProps) {
     if (segments[1] === "runs" && segments[2]) {
       const runId = decodeURIComponent(segments[2]);
       return {
-        label: "Runs",
+        label: t("learnings.runs"),
         action: () => benchmarkNavigateRef.current?.("benchmark"),
         title:
           activeRun?.run.id === runId
@@ -274,7 +275,7 @@ export function LearningsPane(props: LearningsPaneProps) {
             : benchmarkRuns.find((run) => run.id === runId)?.title ?? null,
       };
     }
-    return { label: "Learnings", action: () => setView("overview"), title: "Benchmark" };
+    return { label: t("learnings.title"), action: () => setView("overview"), title: "Benchmark" };
   })();
 
   if (view === "benchmark") {
@@ -318,10 +319,10 @@ export function LearningsPane(props: LearningsPaneProps) {
         <div className="w-full max-w-5xl">
         {/* Header — left aligned */}
         <div className="text-left">
-          <span className="lw-section-eyebrow">Learnings · Private preview</span>
-          <h1 className="mt-2 text-4xl font-medium tracking-[-0.04em] text-foreground">Own your firm&apos;s intelligence</h1>
+          <span className="lw-section-eyebrow">{t("learnings.eyebrow")}</span>
+          <h1 className="mt-2 text-4xl font-medium tracking-[-0.04em] text-foreground">{t("learnings.headline")}</h1>
           <p className="mt-2 max-w-lg text-sm text-muted-foreground">
-            Your firm&apos;s own models, learned on your matters, improving every week.
+            {t("learnings.subhead")}
           </p>
         </div>
 
@@ -329,8 +330,8 @@ export function LearningsPane(props: LearningsPaneProps) {
         <div className="mt-8 grid gap-4 md:grid-cols-3">
           <PreviewCard
             step="01"
-            title="Data structuring & Benchmarks"
-            desc="We extract the firm's tacit knowledge from your matters, redlines, and comments: partner preferences, drafting style, negotiation playbooks, and review standards."
+            title={t("learnings.card1_title")}
+            desc={t("learnings.card1_desc")}
             blurred={false}
             onClick={() => setView("benchmark")}
             cta={
@@ -351,16 +352,16 @@ export function LearningsPane(props: LearningsPaneProps) {
           </PreviewCard>
           <PreviewCard
             step="02"
-            title="Post learning"
-            desc="A specialist model per practice area, learned on your work and benchmarked against open baselines. Weights your firm owns."
+            title={t("learnings.card2_title")}
+            desc={t("learnings.card2_desc")}
             cta={<TalkWithResearcherLink />}
           >
             <ModelsViz />
           </PreviewCard>
           <PreviewCard
             step="03"
-            title="Continual learning"
-            desc="Signals from real work, like corrections, rewrites, and missed context, become verifiable tasks that continual learn your models and roll out."
+            title={t("learnings.card3_title")}
+            desc={t("learnings.card3_desc")}
             cta={<TalkWithResearcherLink />}
           >
             <ContinualLearningViz />

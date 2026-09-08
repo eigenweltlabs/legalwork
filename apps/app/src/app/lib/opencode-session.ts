@@ -10,6 +10,7 @@
 import type { Session } from "@opencode-ai/sdk/v2/client";
 import type { Client, ModelRef } from "../types";
 import { unwrap } from "./opencode";
+import { t } from "@/i18n";
 
 // ---------------------------------------------------------------------------
 // Session helpers
@@ -211,5 +212,5 @@ function assertNoClientError(result: unknown): void {
       : typeof maybe.error === "string"
         ? maybe.error
         : JSON.stringify(maybe.error);
-  throw new Error(message || "Unknown error");
+  throw new Error(message || t("control.unknown_error"));
 }

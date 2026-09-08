@@ -7,8 +7,15 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { LANGUAGE_OPTIONS, t } from "@/i18n";
-import type { AppearanceViewProps } from "../pages/appearance-view";
+import {
+  LANGUAGE_OPTIONS,
+  SYSTEM_LANGUAGE,
+  detectSystemLanguage,
+  isLanguagePreference,
+  setLanguagePreference,
+  t,
+} from "@/i18n";
+import { useLanguagePreference } from "@/i18n/use-locale";
 import {
   LayoutSectionItem,
   LayoutSectionItemDescription,
@@ -17,22 +24,34 @@ import {
   LayoutSectionItemTitle,
 } from "../settings-layout";
 
-interface LanguageSectionProps extends Pick<AppearanceViewProps, "busy" | "language" | "setLanguage"> {}
+type LanguageSectionProps = {
+  busy?: boolean;
+};
 
 export function LanguageSection(props: LanguageSectionProps) {
+  const preference = useLanguagePreference();
+  const detected = detectSystemLanguage();
+  const detectedName =
+    LANGUAGE_OPTIONS.find((option) => option.value === detected)?.nativeName ?? detected;
+
+  const items = [
+    { value: SYSTEM_LANGUAGE, label: t("settings.language_system", { language: detectedName }) },
+    ...LANGUAGE_OPTIONS.map((option) => ({ value: option.value, label: option.nativeName })),
+  ];
+
   return (
     <LayoutSectionItem>
       <LayoutSectionItemHeader>
         <LayoutSectionItemTitle>{t("settings.language")}</LayoutSectionItemTitle>
-        <LayoutSectionItemDescription>{t("settings.language.description")}</LayoutSectionItemDescription>
+        <LayoutSectionItemDescription>{t("settings.language_section_desc")}</LayoutSectionItemDescription>
 
         <LayoutSectionItemHeaderActions>
           <div className="w-64 max-w-full">
             <Select
-              value={props.language}
-              items={LANGUAGE_OPTIONS}
+              value={preference}
+              items={items}
               onValueChange={(value) => {
-                if (value) props.setLanguage(value);
+                if (isLanguagePreference(value)) setLanguagePreference(value);
               }}
               disabled={props.busy}
             >
@@ -41,9 +60,9 @@ export function LanguageSection(props: LanguageSectionProps) {
               </SelectTrigger>
               <SelectContent>
                 <SelectGroup>
-                  {LANGUAGE_OPTIONS.map((option) => (
-                    <SelectItem key={option.value} value={option.value}>
-                      {option.nativeName}
+                  {items.map((item) => (
+                    <SelectItem key={item.value} value={item.value}>
+                      {item.label}
                     </SelectItem>
                   ))}
                 </SelectGroup>
