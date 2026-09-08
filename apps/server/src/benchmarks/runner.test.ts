@@ -3,6 +3,7 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ServerConfig, WorkspaceInfo } from "../types.js";
+import type { BenchmarkArm } from "./ablation.js";
 import { BenchmarkRunner, type BenchmarkOpencodeClient } from "./runner.js";
 import { openBenchmarkStore, resetBenchmarkStoreCache, type BenchmarkStore } from "./store.js";
 
@@ -551,7 +552,7 @@ describe("ablation arms", () => {
 
     const detail = await runner.getRunDetail(workspace, created.id as string);
     expect(detail.items as unknown[]).toHaveLength(1);
-    expect((detail.run as { arms: Array<{ id: string }> }).arms).toEqual([
+    expect((detail.run as { arms: BenchmarkArm[] }).arms).toEqual([
       { id: "full", label: "Full", config: {} },
     ]);
     // No ablation means no tools override and no restriction note.
