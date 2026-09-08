@@ -96,12 +96,8 @@ export function ShellCustomizationView() {
 
   return (
     <LayoutStack>
-      {/* ---- Language ----
-           One setting, so it carries its own title; a section header above it
-           would just repeat the row's "Language" heading. */}
-      <LayoutSection>
-        <LanguageSection />
-      </LayoutSection>
+      {/* ---- Language ---- carries its own section header and card. */}
+      <LanguageSection />
 
       {/* ---- Branding ---- */}
       <LayoutSection>

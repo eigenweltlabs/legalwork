@@ -1276,6 +1276,7 @@ export default {
   "settings.language.description": "Choose your preferred language",
   "settings.language_system": "System ({language})",
   "settings.language_section_desc": "LegalWork follows your system language until you pick one here.",
+  "settings.language_display": "Display language",
   "settings.customization.branding_title": "Branding",
   "settings.customization.branding_desc": "Customize the name your users see across the app.",
   "settings.customization.sidebar_name": "Sidebar name",

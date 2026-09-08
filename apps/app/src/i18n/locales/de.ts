@@ -1479,6 +1479,7 @@ const de = {
   "settings.language.description": "Wählen Sie Ihre bevorzugte Sprache",
   "settings.language_system": "System ({language})",
   "settings.language_section_desc": "LegalWork folgt Ihrer Systemsprache, solange Sie hier keine auswählen.",
+  "settings.language_display": "Anzeigesprache",
   "settings.customization.branding_title": "Branding",
   "settings.customization.branding_desc": "Passen Sie den Namen an, den Ihre Nutzer in der App sehen.",
   "settings.customization.sidebar_name": "Name in der Seitenleiste",
