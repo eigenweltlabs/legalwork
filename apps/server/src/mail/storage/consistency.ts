@@ -48,6 +48,7 @@ const requiredColumns: Record<string, string[]> = {
   mail_mime_projections: ["account_id","message_key","raw_ref_id","state","metadata_json","body_ref_id","error"],
   mail_mime_parts: ["account_id","message_key","raw_ref_id","part_id","metadata_json","content_ref_id"],
   mail_schema_version: ["singleton", "version"],
+  mail_attachment_extractions: ['account_id','message_key','part_id','ref_id','extractor','state','attempts','lease_token','lease_until','error','result_json'],
   mail_accounts: ["id", "owner_id", "provider", "display_name"],
   mail_folders: ["account_id", "id", "name", "kind", "parent_id", "role"],
   mail_threads: ["account_id", "id"],
