@@ -167,6 +167,7 @@ export class MailWorkerClient {
         const message = parseWorkerMessage(buffer.subarray(0, newline).toString("utf8"));
         buffer = buffer.subarray(newline + 1);
         if (!message) { this.fail("mail_worker_protocol_error"); return; }
+        if (message.kind === "fatal") { this.fail(`mail_worker_${message.code}`); return; }
         if (message.kind === "ready") {
           if (this.state !== "starting" || Number(message.nodeVersion.split(".")[0]) < 22) { this.fail("mail_worker_protocol_error"); return; }
           clearTimeout(this.startupTimer);

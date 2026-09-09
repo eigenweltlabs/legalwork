@@ -3,7 +3,7 @@ import { Database } from "bun:sqlite";
 import { z } from "zod";
 import { providerMessageKey, type ProviderMessageLocator } from "../model.js";
 import type { MailDatabase } from "./database-interface.js";
-import { migrateMailSchema } from "./schema.js";
+import { MAIL_SCHEMA_VERSION, migrateMailSchema } from "./schema.js";
 import { MailRepository } from "./repository.js";
 
 /** TEST ONLY: in-memory stock SQLite. Never exported as a production factory. */
@@ -48,7 +48,7 @@ describe("versioned mail schema", () => {
     const before = db.all("SELECT name,sql FROM sqlite_master WHERE type='table' ORDER BY name");
     migrateMailSchema(db);
     expect(db.all("SELECT name,sql FROM sqlite_master WHERE type='table' ORDER BY name")).toEqual(before);
-    expect(db.all("SELECT * FROM mail_schema_version")).toEqual([{ singleton: 1, version: 1 }]);
+    expect(db.all("SELECT * FROM mail_schema_version")).toEqual([{ singleton: 1, version: MAIL_SCHEMA_VERSION }]);
     expect(repository.readMessage("a", gmail("one"))?.subject).toBe("Prüfung");
   }));
   test("failed migration rolls back all DDL and may retry", () => {
@@ -60,14 +60,14 @@ describe("versioned mail schema", () => {
       expect(db.all("SELECT name FROM sqlite_master WHERE type='table'")).toEqual([]);
       fail = false;
       migrateMailSchema(faulty);
-      expect(db.get("SELECT version FROM mail_schema_version")?.version).toBe(1);
+      expect(db.get("SELECT version FROM mail_schema_version")?.version).toBe(MAIL_SCHEMA_VERSION);
     } finally { db.close(); }
   });
   test("newer version is rejected without deleting or downgrading anything", () => setup((db, repository) => {
     seed(repository); ingest(repository);
-    db.run("UPDATE mail_schema_version SET version=2");
+    db.run("UPDATE mail_schema_version SET version=?", [MAIL_SCHEMA_VERSION + 1]);
     expect(() => migrateMailSchema(db)).toThrow("Unsupported mail schema version");
-    expect(db.get("SELECT version FROM mail_schema_version")?.version).toBe(2);
+    expect(db.get("SELECT version FROM mail_schema_version")?.version).toBe(MAIL_SCHEMA_VERSION + 1);
     expect(repository.readMessage("a", gmail("one"))?.subject).toBe("Prüfung");
   }));
 });
@@ -171,5 +171,25 @@ describe("owned canonical mail repository", () => {
       expect(repository.readMessage("a", gmail(messageId))?.subject).toBe("Prüfung");
     }
     expect(repository.listAccounts()).toHaveLength(1);
+  }));
+});
+
+describe("bounded owner-scoped mailbox pagination", () => {
+  test("pages accounts and folders without crossing owners or skipping rows", () => setup((db, repository) => {
+    const other = new MailRepository(db, "owner-b");
+    other.createAccount({ id: "foreign", provider: "graph", displayName: "Private" });
+    for (const id of ["a", "b", "c"]) repository.createAccount({ id, provider: "gmail", displayName: id });
+    expect(repository.listAccountsPage({ limit: 2 }).items.map(row => row.id)).toEqual(["a", "b"]);
+    expect(repository.listAccountsPage({ limit: 2 }).hasMore).toBe(true);
+    expect(repository.listAccountsPage({ limit: 2, after: "b" }).items.map(row => row.id)).toEqual(["c"]);
+    expect(repository.listAccountsPage({ limit: 2, after: "b" }).hasMore).toBe(false);
+    for (const id of ["f1", "f2", "f3"]) repository.putFolder("a", { id, name: id, kind: "folder" });
+    expect(repository.listFoldersPage("a", { limit: 1 }).items.map(row => row.id)).toEqual(["f1"]);
+    expect(repository.listFoldersPage("a", { limit: 2, after: "f1" }).items.map(row => row.id)).toEqual(["f2", "f3"]);
+    expect(() => repository.listFoldersPage("foreign")).toThrow("Mail account not found");
+    expect(() => repository.listFoldersPage("absent")).toThrow("Mail account not found");
+  }));
+  test("invalid page bounds are rejected", () => setup((_, repository) => {
+    for (const limit of [0, -1, 101, 1.5, NaN]) expect(() => repository.listAccountsPage({ limit })).toThrow();
   }));
 });
