@@ -48,6 +48,11 @@ export type ProviderAuthLegalworkServer = {
   };
 };
 import { dispatchNewProviders } from "../../../../app/lib/provider-events";
+import {
+  customProviderModelEntry,
+  customProviderModelFromEntry,
+  DEFAULT_MODEL_OUTPUT_LIMIT,
+} from "./custom-provider-config";
 
 type ProviderReturnFocusTarget = "none" | "composer";
 
@@ -80,6 +85,8 @@ export type CustomProviderModelInput = {
   reasoning?: boolean;
   /** Optional context-window size used for truncation. */
   contextLimit?: number | null;
+  /** Output-token limit of an edited model; new models get the default. */
+  outputLimit?: number | null;
 };
 
 /**
@@ -127,7 +134,7 @@ export function buildEigenweltProviderBlock(
           name: model.name ?? model.id,
           tool_call: model.toolCall ?? true,
           reasoning: model.reasoning ?? false,
-          limit: { context: model.contextLength ?? 128000, output: 16384 },
+          limit: { context: model.contextLength ?? 128000, output: DEFAULT_MODEL_OUTPUT_LIMIT },
         },
       ]),
     ),
@@ -155,7 +162,13 @@ export type CustomProviderEditData = {
   name: string;
   baseURL: string;
   apiType: CustomProviderApiType;
-  models: Array<{ id: string; toolCall: boolean; reasoning: boolean; contextLimit: number | null }>;
+  models: Array<{
+    id: string;
+    toolCall: boolean;
+    reasoning: boolean;
+    contextLimit: number | null;
+    outputLimit: number | null;
+  }>;
 };
 
 function isPlainRecord(value: unknown): value is Record<string, unknown> {
@@ -1047,17 +1060,7 @@ export function createProviderAuthStore(options: CreateProviderAuthStoreOptions)
     const providerOptions = isPlainRecord(entry.options) ? entry.options : {};
     const baseURL = typeof providerOptions.baseURL === "string" ? providerOptions.baseURL : "";
     const modelsRecord = isPlainRecord(entry.models) ? entry.models : {};
-    const models = Object.entries(modelsRecord).map(([id, raw]) => {
-      const model = isPlainRecord(raw) ? raw : {};
-      const limit = isPlainRecord(model.limit) ? model.limit : {};
-      const context = typeof limit.context === "number" ? limit.context : null;
-      return {
-        id,
-        toolCall: typeof model.tool_call === "boolean" ? model.tool_call : true,
-        reasoning: typeof model.reasoning === "boolean" ? model.reasoning : false,
-        contextLimit: context,
-      };
-    });
+    const models = Object.entries(modelsRecord).map(([id, raw]) => customProviderModelFromEntry(id, raw));
 
     return {
       providerId: resolvedId,
@@ -1095,13 +1098,7 @@ export function createProviderAuthStore(options: CreateProviderAuthStoreOptions)
 
     const modelsConfig: Record<string, Record<string, unknown>> = {};
     for (const model of models) {
-      const entry: Record<string, unknown> = { name: model.name?.trim() || model.id };
-      if (model.toolCall !== undefined) entry.tool_call = model.toolCall;
-      if (model.reasoning) entry.reasoning = true;
-      if (typeof model.contextLimit === "number" && model.contextLimit > 0) {
-        entry.limit = { context: model.contextLimit };
-      }
-      modelsConfig[model.id] = entry;
+      modelsConfig[model.id] = customProviderModelEntry(model);
     }
 
     const providerConfig: Record<string, unknown> = {

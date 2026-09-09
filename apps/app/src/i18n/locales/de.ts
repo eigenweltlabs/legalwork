@@ -4040,6 +4040,11 @@ const de = {
     "Es wird nächste Woche zurückgesetzt. Die Abrechnung Ihrer Kanzlei zeigt die Nutzung dieser Woche im Detail.",
   "budget.upgrade_label": "Abrechnung öffnen",
   "budget.retry_title": "Kontingent für diese Woche aufgebraucht?",
+  "providers.removed_title": "Modellanbieter entfernt",
+  "providers.removed_retired":
+    "„{name}“ wurde entfernt: Den kostenlosen Eigenwelt-Zugang gibt es nicht mehr. Starten Sie die Testphase oder verbinden Sie Ihr eigenes Modell.",
+  "providers.removed_invalid":
+    "„{name}“ wurde entfernt, weil die Engine die Konfiguration nicht laden konnte. Fügen Sie den Anbieter in den KI-Einstellungen erneut hinzu.",
 } as const;
 
 export default de;
