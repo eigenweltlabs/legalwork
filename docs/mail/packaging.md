@@ -68,3 +68,11 @@ Separately, `node scripts/mail/platform-qualification.mjs` has passed actual mac
 ## Remaining release qualification
 
 The complete local artifact now verifies dependency collection, archived entrypoints, selected native file and RunAsNode execution. Distribution signing/notarization, hardened-runtime library validation, updater behavior, full application launch and installed-profile access still need release qualification. The separate successful OS safeStorage probe does not certify those release behaviors. Run separately on macOS x64, Windows x64 and Linux x64; declared prebuilts or matching globs are not execution evidence. The fixture's Linux path currently assumes glibc. The existing encrypted database/worker tests cover wrong-key and WAL behavior more deeply; this packaging fixture does not replace those tests or provider certification.
+
+## Packaged HTTP host acceptance
+
+`verify-built-application.mjs` also starts the **packaged server and LocalMailService inside the built application's Electron Node runtime**, on literal `127.0.0.1:0`. A separate temporary profile sets HOME/USERPROFILE, application-data, XDG, token/environment store and OpenCode configuration paths before dynamic application imports. No normal application UI, OpenCode process or provider operation starts.
+
+The probe unlocks over `/mail/v1/unlock` with the host header, checks the versioned ready status and a real worker account response excluding a foreign owner, rejects collaborator/remote bearer credentials (including a host secret presented through the wrong bearer channel), locks again, then stops HTTP and worker and verifies the listener closed. Key material remains private stdin data. The existing native/MIME/encrypted FTS/reopen/rotation/wrong-key checks remain required.
+
+Passed against the existing macOS arm64 complete artifact (`LegalWork.app`, Electron 35.7.5) using the checked-in script. This closes the Bun-host-only HTTP test gap for that artifact; Windows and Intel artifact execution remain separate platform evidence.

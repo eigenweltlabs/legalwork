@@ -111,9 +111,60 @@ try {
   const wrongKey = await run(entry, { ...rotated, encryptionKey: original.encryptionKey }, true);
   assert.equal(wrongKey.code, 1);
   assert.deepEqual(JSON.parse(wrongKey.stdout), { kind: 'fatal', code: 'initialization_failed' });
+  const httpInspection = join(root, 'http-inspection.mjs');
+  await writeFile(httpInspection, `
+import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import { mkdir } from 'node:fs/promises';
+import { join } from 'node:path';
+const input=JSON.parse(readFileSync(0,'utf8'));
+// Configure every profile/store location before importing packaged application modules.
+const profile=join(input.profileRoot,'profile');await mkdir(profile,{recursive:true,mode:0o700});
+Object.assign(process.env,{
+ HOME:profile,USERPROFILE:profile,APPDATA:join(profile,'roaming'),LOCALAPPDATA:join(profile,'local'),
+ XDG_DATA_HOME:join(profile,'data'),XDG_CONFIG_HOME:join(profile,'config'),XDG_CACHE_HOME:join(profile,'cache'),
+ LEGALWORK_ENV_STORE:join(profile,'env.json'),LEGALWORK_TOKEN_STORE:join(profile,'tokens.json'),
+ OPENCODE_CONFIG_DIR:join(profile,'opencode'),LEGALWORK_INBOX_ENABLED:'0',LEGALWORK_OUTBOX_ENABLED:'0',
+});
+const {startServer}=await import(${moduleUrl('../server.js')});
+const {LocalMailService}=await import(${moduleUrl('service.js')});
+const {openEncryptedMailDatabase}=await import(${moduleUrl('storage/database.js')});
+const {migrateMailSchema}=await import(${moduleUrl('storage/schema.js')});
+const {MailRepository}=await import(${moduleUrl('storage/repository.js')});
+const key=Buffer.from(input.encryptionKey,'base64');
+const db=await openEncryptedMailDatabase({path:input.databasePath,key});
+try{migrateMailSchema(db);new MailRepository(db,input.ownerId).createAccount({id:'packaged-local',provider:'gmail',displayName:'Synthetic packaged account'});new MailRepository(db,'foreign-owner').createAccount({id:'foreign',provider:'gmail',displayName:'Excluded'});}finally{db.close();}
+const service=new LocalMailService({ownerId:input.ownerId,databasePath:input.databasePath,
+ entryPoint:${JSON.stringify(entry)},executable:{kind:'electron',path:process.execPath},loadKey:async()=>Buffer.from(key)});
+const config={host:'127.0.0.1',port:0,token:'synthetic-collaborator',hostToken:'synthetic-http-host',
+ configPath:join(profile,'server.json'),approval:{mode:'auto',timeoutMs:1000},corsOrigins:[],
+ workspaces:[],authorizedRoots:[],readOnly:false,startedAt:Date.now(),tokenSource:'cli',hostTokenSource:'cli',logFormat:'pretty',logRequests:false};
+let server;
+try{
+ server=await startServer(config,{mail:service});assert.ok(server.port>0);
+ const base='http://127.0.0.1:'+server.port+'/mail/v1';
+ const request=(path,method='GET',headers={'x-legalwork-host-token':config.hostToken})=>fetch(base+path,{method,headers,signal:AbortSignal.timeout(5000)});
+ assert.equal((await request('/accounts')).status,423);
+ for(const token of [config.token,config.hostToken,'remote-token'])assert.equal((await request('/unlock','POST',{authorization:'Bearer '+token})).status,401);
+ assert.equal((await request('/unlock','POST',{'x-legalwork-host-token':config.token})).status,401);
+ assert.equal((await request('/unlock','POST',{})).status,401);
+ const unlocked=await request('/unlock','POST');assert.equal(unlocked.status,200);assert.equal(unlocked.headers.get('cache-control'),'no-store');
+ assert.deepEqual(await unlocked.json(),{protocolVersion:1,state:'ready',syncSupported:true});
+ assert.deepEqual(await (await request('/status')).json(),{protocolVersion:1,state:'ready',syncSupported:true});
+ assert.deepEqual(await (await request('/accounts')).json(),{items:[{id:'packaged-local',provider:'gmail',displayName:'Synthetic packaged account'}],nextCursor:null});
+ assert.equal((await request('/lock','POST')).status,200);assert.equal((await request('/accounts')).status,423);
+ await server.stop();server=undefined;
+ await assert.rejects(fetch(base+'/status',{signal:AbortSignal.timeout(1000)}));
+ console.log(JSON.stringify({passed:true,electron:process.versions.electron,node:process.versions.node,http:'127.0.0.1',checks:['host-unlock','worker-account-scope','versioned-status','bearer-denied','lock','shutdown']}));
+}finally{try{await server?.stop();}finally{await service.stop();key.fill(0);}}
+`);
+  const httpDirectory=join(root,'http');await mkdir(httpDirectory,{mode:0o700});
+  const http=await run(httpInspection,{...original,databasePath:join(httpDirectory,'mail.sqlite'),profileRoot:httpDirectory});
+  assert.equal(http.code,0,http.stderr);const httpEvidence=JSON.parse(http.stdout);
+  assert.equal(httpEvidence.passed,true);assert.equal(httpEvidence.electron,evidence.electron);assert.equal(httpEvidence.node,evidence.node);
   const ciphertext = await readFile(original.databasePath);
   assert.notEqual(ciphertext.subarray(0, 16).toString(), 'SQLite format 3\0');
   assert.equal(ciphertext.includes(Buffer.from('synthetic_packaging_private_marker')), false);
-  console.log(JSON.stringify({ passed: true, platform: process.platform, arch: evidence.arch, electron: evidence.electron,
-    checks: ['packaged-dependencies', 'MIME', 'encrypted-FTS', 'worker-status-search', 'reopen', 'rotation', 'wrong-key-refusal', 'ciphertext-marker-absence'] }));
+  console.log(JSON.stringify({ passed: true, platform: process.platform, arch: evidence.arch, electron: evidence.electron, node: evidence.node,
+    checks: ['packaged-HTTP-host-auth-worker', 'packaged-dependencies', 'MIME', 'encrypted-FTS', 'worker-status-search', 'reopen', 'rotation', 'wrong-key-refusal', 'ciphertext-marker-absence'] }));
 } finally { await rm(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 }); }
