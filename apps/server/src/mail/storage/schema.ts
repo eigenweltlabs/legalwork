@@ -1,6 +1,6 @@
 import type { MailDatabase } from "./database-interface.js";
 
-export const MAIL_SCHEMA_VERSION = 5;
+export const MAIL_SCHEMA_VERSION = 6;
 
 /** Dedicated mail database only. Every DDL/version write shares one transaction. */
 export function migrateMailSchema(database: MailDatabase): void {
@@ -167,6 +167,45 @@ export function migrateMailSchema(database: MailDatabase): void {
       );
       CREATE INDEX mail_action_jobs_ready ON mail_action_jobs(account_id,state,available_at,id);
       CREATE INDEX mail_action_jobs_expired ON mail_action_jobs(account_id,state,lease_until,id);
+    `);
+    if (version < 6) database.exec(`
+      CREATE TABLE mail_gmail_runs (
+        account_id TEXT PRIMARY KEY NOT NULL, generation TEXT NOT NULL, revision INTEGER NOT NULL CHECK(revision BETWEEN 1 AND 9007199254740991),
+        state TEXT NOT NULL CHECK(state IN ('active','paused','complete','attention')), failure_count INTEGER NOT NULL DEFAULT 0 CHECK(failure_count BETWEEN 0 AND 5), recent_after INTEGER NOT NULL CHECK(recent_after BETWEEN 0 AND 9007199254740991),
+        next_retry_at INTEGER CHECK(next_retry_at BETWEEN 0 AND 9007199254740991),
+        error TEXT CHECK(error IN ('reconsent_required','configuration_invalid','provider_unavailable','rate_limited','message_unavailable','content_incomplete','storage_unavailable','sync_failed')),
+        FOREIGN KEY(account_id) REFERENCES mail_accounts(id)
+      );
+      CREATE TABLE mail_gmail_metadata (
+        account_id TEXT NOT NULL, message_key TEXT NOT NULL, internal_date INTEGER NOT NULL CHECK(internal_date BETWEEN 0 AND 9007199254740991),
+        thread_id TEXT NOT NULL, label_ids_json TEXT NOT NULL, PRIMARY KEY(account_id,message_key),
+        FOREIGN KEY(account_id,message_key) REFERENCES mail_messages(account_id,message_key) ON DELETE CASCADE
+      );
+      CREATE TABLE mail_mime_projections (
+        account_id TEXT NOT NULL, message_key TEXT NOT NULL, raw_ref_id TEXT NOT NULL, state TEXT NOT NULL CHECK(state IN ('complete','error')),
+        metadata_json TEXT, body_ref_id TEXT, error TEXT CHECK(error IN ('invalid_input','limit','timeout','cancelled','malformed','unsupported','source_failed','sink_failed','hash_mismatch')),
+        PRIMARY KEY(account_id,message_key,raw_ref_id),
+        CHECK((state='complete' AND metadata_json IS NOT NULL AND body_ref_id IS NOT NULL AND error IS NULL) OR
+          (state='error' AND metadata_json IS NULL AND body_ref_id IS NULL AND error IS NOT NULL)),
+        FOREIGN KEY(account_id,message_key) REFERENCES mail_messages(account_id,message_key) ON DELETE CASCADE,
+        FOREIGN KEY(account_id,raw_ref_id) REFERENCES mail_content_refs(account_id,id),
+        FOREIGN KEY(account_id,body_ref_id) REFERENCES mail_content_refs(account_id,id)
+      );
+      CREATE TABLE mail_mime_parts (
+        account_id TEXT NOT NULL, message_key TEXT NOT NULL, raw_ref_id TEXT NOT NULL, part_id TEXT NOT NULL, metadata_json TEXT NOT NULL, content_ref_id TEXT NOT NULL,
+        PRIMARY KEY(account_id,message_key,raw_ref_id,part_id),
+        FOREIGN KEY(account_id,message_key,raw_ref_id) REFERENCES mail_mime_projections(account_id,message_key,raw_ref_id) ON DELETE CASCADE,
+        FOREIGN KEY(account_id,content_ref_id) REFERENCES mail_content_refs(account_id,id)
+      );
+      CREATE TRIGGER mail_raw_projection_insert AFTER INSERT ON mail_content_manifests WHEN NEW.kind='raw' BEGIN
+        DELETE FROM mail_content_manifests WHERE account_id=NEW.account_id AND message_key=NEW.message_key AND kind!='raw';
+        UPDATE mail_messages SET attachments_enumerated=0 WHERE account_id=NEW.account_id AND message_key=NEW.message_key;
+      END;
+      CREATE TRIGGER mail_raw_projection_update AFTER UPDATE ON mail_content_manifests
+        WHEN NEW.kind='raw' AND (OLD.ref_id IS NOT NEW.ref_id OR OLD.state IS NOT NEW.state) BEGIN
+        DELETE FROM mail_content_manifests WHERE account_id=NEW.account_id AND message_key=NEW.message_key AND kind!='raw';
+        UPDATE mail_messages SET attachments_enumerated=0 WHERE account_id=NEW.account_id AND message_key=NEW.message_key;
+      END;
     `);
     database.run("INSERT INTO mail_schema_version(singleton,version) VALUES(1,?) ON CONFLICT(singleton) DO UPDATE SET version=excluded.version", [MAIL_SCHEMA_VERSION]);
   });
