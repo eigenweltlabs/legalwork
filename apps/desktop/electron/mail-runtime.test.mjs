@@ -23,11 +23,16 @@ test("desktop binding unlocks the built encrypted worker and reopens the same OS
   };
   const app = { isReady: () => true, getPath: name => name === "exe" ? (process.env.LEGALWORK_MAIL_TEST_ELECTRON ?? process.execPath) : userData };
   let service;
+  const originalGoogleConfig = process.env.LEGALWORK_MAIL_GOOGLE_CLIENT_CONFIG;
   try {
     await mkdir(userData, { mode: 0o700 });
     await writeFile(join(root, "package.json"), '{"type":"module"}');
     await symlink(join(serverRoot, "node_modules"), join(root, "node_modules"));
-    execFileSync("pnpm", ["exec", "tsc", "--outDir", join(root, "build"), "--rootDir", "src", "--target", "ES2022", "--module", "NodeNext", "--moduleResolution", "NodeNext", "--strict", "--skipLibCheck", "--types", "node,bun-types", "src/mail/service.ts", "src/mail/runtime/worker.ts"], { cwd: serverRoot, stdio: "pipe", timeout: 30_000 });
+    execFileSync("pnpm", ["exec", "tsc", "--outDir", join(root, "build"), "--rootDir", "src", "--target", "ES2022", "--module", "NodeNext", "--moduleResolution", "NodeNext", "--strict", "--skipLibCheck", "--types", "node,bun-types", "src/mail/service.ts", "src/mail/runtime/worker.ts", "src/mail/providers/development-config.ts"], { cwd: serverRoot, stdio: "pipe", timeout: 30_000 });
+    const googleConfig = join(userData, "synthetic-google-client.json");
+    await writeFile(googleConfig, JSON.stringify({ installed: { client_id: "123456-synthetic.apps.googleusercontent.com", project_id: "synthetic-mail-project",
+      client_secret: "synthetic-private-client-marker", auth_uri: "https://accounts.google.com/o/oauth2/auth", token_uri: "https://oauth2.googleapis.com/token", redirect_uris: ["http://localhost"] } }), { mode: 0o600 });
+    process.env.LEGALWORK_MAIL_GOOGLE_CLIENT_CONFIG = googleConfig;
     const embeddedPath = join(root, "build/embedded.js");
     service = await createDesktopMailService({ app, embeddedPath, safeStorage });
     assert.equal(service.status().state, "locked");
@@ -36,6 +41,12 @@ test("desktop binding unlocks the built encrypted worker and reopens the same OS
     await service.unlock();
     assert.equal(service.status().state, "ready");
     assert.deepEqual(await service.listAccounts({}), { items: [], nextCursor: null });
+    const connection = await service.beginConnection("gmail");
+    assert.equal(new URL(connection.authorizationUrl).hostname, "accounts.google.com");
+    assert.equal(JSON.stringify(connection).includes("synthetic-private-client-marker"), false);
+    assert.equal((await service.connectionStatus(connection.connectionId)).state, "pending");
+    await service.cancelConnection(connection.connectionId);
+    assert.equal((await service.connectionStatus(connection.connectionId)).state, "cancelled");
     await service.stop();
     const envelope = await readFile(join(userData, "mail/mail-key-v1.json"));
     const database = await readFile(join(userData, "mail/mail.sqlite"));
@@ -46,6 +57,8 @@ test("desktop binding unlocks the built encrypted worker and reopens the same OS
     await service.stop();
     assert.deepEqual(await readFile(join(userData, "mail/mail-key-v1.json")), envelope);
   } finally {
+    if (originalGoogleConfig === undefined) delete process.env.LEGALWORK_MAIL_GOOGLE_CLIENT_CONFIG;
+    else process.env.LEGALWORK_MAIL_GOOGLE_CLIENT_CONFIG = originalGoogleConfig;
     await service?.stop();
     await rm(root, { recursive: true, force: true });
   }
