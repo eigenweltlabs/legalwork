@@ -97,3 +97,25 @@ test('explicit reconnect cannot inherit an absent refresh credential or change c
  const fresh=make({oauth:async()=>flow(Promise.resolve(tokens({refreshToken:null})))});const result=await settle(fresh,(await fresh.begin(gmail,{reconnectAccountId:first.accountId})).connectionId);
  assert.equal(result.state,'connected');assert.equal(result.renewable,false);assert.throws(()=>credentials.readForRefresh(first.accountId,binding),/refresh_missing/);
 }));
+
+test('controller disconnect persists before cleanup and cancels consent/identity reconnect races',async()=>fixture(async({make,credentials,accounts})=>{
+ for(const stage of ['consent','identity']){
+  const subject={...identity,providerSubject:`subject-${stage}`};const c=make({identity:async()=>subject});const first=await settle(c,(await c.begin(gmail)).connectionId);
+  const pending=deferred(),cleaned=deferred();let cleanupStarted=false;
+  const reconnect=make({oauth:async()=>({...flow(stage==='consent'?pending.promise:Promise.resolve(tokens())),cancel:async()=>{cleanupStarted=true;await cleaned.promise;}}),identity:async()=>stage==='identity'?pending.promise:subject});
+  const begun=await reconnect.begin(gmail,{reconnectAccountId:first.accountId});await new Promise(r=>setTimeout(r,0));
+  const disconnected=reconnect.disconnect(first.accountId);
+  assert.equal(credentials.status(first.accountId).state,'disconnected');assert.equal(reconnect.poll(begun.connectionId).state,'cancelled');
+  await new Promise(r=>setTimeout(r,0));assert.equal(cleanupStarted,true);pending.resolve(stage==='consent'?tokens():subject);cleaned.resolve();await disconnected;
+  await new Promise(r=>setTimeout(r,0));assert.equal(credentials.status(first.accountId).state,'disconnected');
+  const version=credentials.status(first.accountId).version;await reconnect.disconnect(first.accountId);assert.deepEqual(credentials.status(first.accountId).version,version);
+ }
+ assert.equal(accounts.listAccounts().length,2);
+}));
+test('disconnect retains archive and rejects foreign/unconfigured accounts with fixed errors',async()=>fixture(async({make,accounts,db,credentials})=>{
+ const c=make();const first=await settle(c,(await c.begin(gmail)).connectionId);
+ accounts.putFolder(first.accountId,{id:'inbox',name:'Inbox',kind:'folder'});await c.disconnect(first.accountId);assert.equal(accounts.listFolders(first.accountId).length,1);assert.equal(credentials.status(first.accountId).state,'disconnected');
+ accounts.createAccount({id:'unconfigured',provider:'gmail',displayName:'Legacy'});new MailRepository(db,'other').createAccount({id:'foreign',provider:'gmail',displayName:'Foreign'});
+ for(const id of ['unconfigured','foreign','missing'])await assert.rejects(c.disconnect(id),/account_not_found/);
+ await c.close();await assert.rejects(c.disconnect(first.accountId),/closed/);
+}));
