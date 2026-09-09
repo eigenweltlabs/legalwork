@@ -126,11 +126,13 @@ export function registerMailRoutes(routes: Route[], host: string, service?: Mail
     if(ctx.actor?.type!=='host')throw new ApiError(401,'unauthorized','Invalid host token');pageInput(ctx,false);
     if(ctx.request.headers.get('content-type')?.split(';')[0]?.trim().toLowerCase()!=='application/json')throw new ApiError(400,'mail_invalid_request','Invalid mail request');
     const body=await readMailBody(ctx.request,60*1024);let value:unknown;try{value=JSON.parse(body);}catch{throw new ApiError(400,'mail_invalid_request','Invalid mail request');}
-    const parsed=imapConnectionSchema.safeParse(value);if(!parsed.success)throw new ApiError(400,'mail_invalid_request','Invalid mail request');
-    try{return Response.json(await service.connectImap(parsed.data),{headers:{'Cache-Control':'no-store'}});}catch(error){throw safeError(error);}
+    const parsed=imapConnectionSchema.extend({requestId:z.uuid().optional()}).safeParse(value);if(!parsed.success)throw new ApiError(400,'mail_invalid_request','Invalid mail request');
+    const {requestId,...connection}=parsed.data;
+    try{return Response.json(await service.connectImap(connection,requestId),{headers:{'Cache-Control':'no-store'}});}catch(error){throw safeError(error);}
   });
+  route('POST','/imap/connections/:connectionId/cancel',false,async ctx=>{if(!z.uuid().safeParse(ctx.params.connectionId).success)throw new ApiError(400,'mail_invalid_request','Invalid mail request');await service.cancelImapConnection(ctx.params.connectionId);return {cancelled:true};});
   route('GET','/accounts/:accountId/imap',true,(ctx,page)=>service.imapDiscovery(ctx.params.accountId,page.after));
-  const connectionInput = z.object({ provider: z.enum(["gmail", "graph"]), reconnectAccountId: z.string().min(1).max(4096).optional() }).strict();
+  const connectionInput = z.object({ provider: z.enum(["gmail", "graph"]), personal: z.boolean().optional(), reconnectAccountId: z.string().min(1).max(4096).optional() }).strict();
   addRoute(routes, "POST", "/mail/v1/connections", "host-token", async ctx => {
     if (ctx.actor?.type !== "host") throw new ApiError(401, "unauthorized", "Invalid host token");
     pageInput(ctx, false);
@@ -139,9 +141,9 @@ export function registerMailRoutes(routes: Route[], host: string, service?: Mail
     let value: unknown;
     try { value = JSON.parse(raw); } catch { throw new ApiError(400, "mail_invalid_request", "Invalid mail request"); }
     const parsed = connectionInput.safeParse(value);
-    if (!parsed.success) throw new ApiError(400, "mail_invalid_request", "Invalid mail request");
+    if (!parsed.success || (parsed.data.provider !== "graph" && parsed.data.personal !== undefined)) throw new ApiError(400, "mail_invalid_request", "Invalid mail request");
     try {
-      const result = await service.beginConnection(parsed.data.provider, parsed.data.reconnectAccountId);
+      const result = await service.beginConnection(parsed.data.provider, parsed.data.reconnectAccountId, parsed.data.personal);
       return Response.json(result, { headers: { "Cache-Control": "no-store" } });
     } catch (error) { throw safeError(error); }
   });

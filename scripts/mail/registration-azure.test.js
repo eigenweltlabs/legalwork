@@ -70,3 +70,14 @@ test("rejects missing explicit config and unknown flags before CLI", () => {
     expect(mock.calls).toHaveLength(0);
   }
 });
+test("explicit organizational-and-personal audience verifies v2 and retains ownership guards", () => {
+  const selected = [...args, '--audience', 'organizational-and-personal'];
+  const mock = fixture({exists:true,app:{signInAudience:'AzureADandPersonalMicrosoftAccount',api:{requestedAccessTokenVersion:2}}});
+  expect(provision(selected,mock.command).status).toBe('existing_verified');
+  expect(mock.calls.some(call=>call[0]==='rest')).toBe(false);
+  for(const app of [{api:{requestedAccessTokenVersion:1}},{description:'unowned'},{signInAudience:'PersonalMicrosoftAccount'}]) {
+    const bad=fixture({exists:true,app:{signInAudience:'AzureADandPersonalMicrosoftAccount',api:{requestedAccessTokenVersion:2},...app}});
+    expect(()=>provision(selected,bad.command)).toThrow();
+  }
+  expect(()=>provision([...args,'--audience','arbitrary'],mock.command)).toThrow();
+});

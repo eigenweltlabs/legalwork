@@ -17,7 +17,7 @@ const googleClient = z.object({ installed: z.object({
   auth_provider_x509_cert_url: z.literal("https://www.googleapis.com/oauth2/v1/certs").optional(),
   redirect_uris: z.array(z.string().regex(/^http:\/\/(localhost|127\.0\.0\.1|\[::1\])\/?$/)).min(1).max(3).optional(),
 }).strict() }).strict();
-const graphClient = z.object({ clientId: z.uuid(), tenantId: z.uuid() }).strict();
+const graphClient = z.object({ clientId: z.uuid(), tenantId: z.union([z.uuid(), z.literal("consumers")]) }).strict();
 
 /** Trusted local configuration only; never call with an HTTP-supplied object or path. */
 export function parseGoogleInstalledMailClient(value: unknown): Extract<MailOAuthSettings, { provider: "gmail" }> {
