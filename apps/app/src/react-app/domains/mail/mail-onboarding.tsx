@@ -89,7 +89,7 @@ export function MailOnboarding({ client, accounts, onChanged, onClose }: {
   }
   async function selectReconnect(account: MailAccountView) {
     reset(); setReconnect(account.id); setFailure(''); setNotice('Reconnect must use the same mailbox identity.');
-    setChoice(account.provider === 'gmail' ? 'gmail' : account.provider === 'graph' ? 'outlook' : 'manual');
+    setChoice(account.provider === 'gmail' ? 'gmail' : account.provider === 'graph' ? (account.personal ? 'outlook' : 'microsoft-work') : 'manual');
     if (account.provider === 'imap') {
       try { const { settings } = await api.discovery(account.id, abort.current.signal); setHost(settings.host); setPort(settings.port); setUsername(settings.username); setFolderText(settings.folders?.join('\n') ?? ''); }
       catch { setNotice('Enter the original server and username to reconnect this account.'); }
@@ -102,7 +102,7 @@ export function MailOnboarding({ client, accounts, onChanged, onClose }: {
     finally { if (!signal.aborted) setBusy(false); }
   }
   return (
-    <section aria-label="Mail account setup" className="border-b bg-background p-5 max-h-[75vh] overflow-auto">
+    <section aria-label="Mail account setup" className="mail-onboarding border-b bg-background p-5 max-h-[75vh] overflow-auto">
       <div className="flex items-center justify-between gap-4"><h2 className="text-lg font-semibold">Mail accounts</h2><Button variant="outline" onClick={() => { reset(); onClose(); }}>Close setup</Button></div>
       <p className="mt-2 text-sm text-muted-foreground">Connect directly to your provider. Mail stays in the encrypted store on this computer.</p>
       {accounts.length > 0 && <ul className="my-4 space-y-2">{accounts.map(account => (
