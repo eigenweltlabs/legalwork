@@ -50,6 +50,8 @@ test('paged event apply, raw jobs and terminal anchor share one transaction and 
  run=f.db.transaction(()=>{f.journal.commitPage({...historyPage,expectedRevision:1,expectedCursor:'page2',nextCursor:null,jobs:[]},()=>{});return f.runs.advanceHistory('a',stamp(run),{pageToken:null,historyId:'105',pollAt:1800000060000});});assert.equal(run.historyId,'105');assert.equal(run.pollAt,1800000060000);assert.equal(run.failureCount,0);
 }));
 test('v6 migration preserves legacy presence, is atomic on failure and guard requires v7 columns',()=>fixture(async f=>{
+ for(const row of f.db.all("SELECT name FROM sqlite_schema WHERE type='trigger' AND name GLOB 'mail_search_*'"))f.db.exec('DROP TRIGGER "'+row.name+'"');
+ f.db.exec('DROP TABLE mail_search_fts; DROP TABLE mail_search_documents; DROP TABLE mail_search_dirty; ALTER TABLE mail_messages DROP COLUMN is_read');
  f.seed();f.db.exec('DROP TABLE mail_gmail_presence; ALTER TABLE mail_gmail_runs DROP COLUMN phase; ALTER TABLE mail_gmail_runs DROP COLUMN history_id; ALTER TABLE mail_gmail_runs DROP COLUMN history_page_token; ALTER TABLE mail_gmail_runs DROP COLUMN poll_at; UPDATE mail_schema_version SET version=6');
  const failing={...f.db,exec(sql){f.db.exec(sql);if(sql.includes('CREATE TABLE mail_gmail_presence'))throw Error('synthetic failure');}};assert.throws(()=>migrateMailSchema(failing));assert.equal(f.db.get('SELECT version FROM mail_schema_version').version,6);assert.equal(f.db.get("SELECT 1 FROM sqlite_schema WHERE name='mail_gmail_presence'"),undefined);
  migrateMailSchema(f.db);migrateMailSchema(f.db);assertMailSchema(f.db);assert.equal(f.runs.isPresent('a',loc('one')),true);assert.equal(f.db.get('SELECT count(*) AS n FROM mail_gmail_presence').n,1);await f.reopen();assertMailSchema(f.db);
