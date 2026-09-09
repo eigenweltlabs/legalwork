@@ -256,3 +256,39 @@ for (const executable of connectionRuntimes) {
     expect("connectionStarted" in started).toBe(true);
   });
 }
+
+for (const stage of ['oauth', 'identity']) {
+  test(`independent review: shutdown fences delayed ${stage} completion`, async () => {
+    const initialization = await setup();
+    const bootstrap = join(root, `review-delayed-${stage}.mjs`);
+    await writeFile(bootstrap, `
+      import { MailConnectionController } from ${JSON.stringify(pathToFileURL(join(root, 'build/mail/providers/connection-controller.js')).href)};
+      import { startMailOAuth } from ${JSON.stringify(pathToFileURL(join(root, 'build/mail/providers/oauth.js')).href)};
+      const original = MailConnectionController.prototype.begin;
+      MailConnectionController.prototype.begin = async function(...args) {
+        this.oauth = async (...input) => {
+          const flow = await startMailOAuth(...input);
+          return {...flow, result: (async()=>{
+            if (${JSON.stringify(stage)} === 'oauth') await new Promise(r=>setTimeout(r,250));
+            return {accessToken:'synthetic-review-access',refreshToken:null,tokenType:'Bearer',expiresAt:Date.now()+60000,grantedScopes:args[0].scopes,unverifiedIdToken:null};
+          })()};
+        };
+        this.identity = async () => {
+          if (${JSON.stringify(stage)} === 'identity') await new Promise(r=>setTimeout(r,250));
+          return {provider:'gmail',authority:'https://accounts.google.com',providerSubject:'review-subject',tenantId:null,email:'review@example.test',displayName:null};
+        };
+        return original.apply(this,args);
+      };
+      await import(${JSON.stringify(pathToFileURL(entryPoint).href)});
+    `);
+    const client = new MailWorkerClient({entryPoint:bootstrap, executable:node, initialize:()=>initialization,maxRestarts:0});
+    clients.push(client); await client.start();
+    const begun=await client.request({operation:'mail.connection.begin',settings:syntheticSettings});
+    if (!('connectionStarted' in begun)) throw new Error('wrong_result');
+    const polled=await client.request({operation:'mail.connection.poll',connectionId:begun.connectionStarted.connectionId});
+    expect('connection' in polled && polled.connection.state).toBe(stage==='oauth'?'pending':'verifying');
+    await client.stop();
+    const reopened=worker(initialization);await reopened.start();
+    expect(await reopened.request({operation:'mail.accounts.list'})).toEqual({accounts:[],nextCursor:null});
+  });
+}
