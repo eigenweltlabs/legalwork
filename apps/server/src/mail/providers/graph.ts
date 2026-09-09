@@ -16,7 +16,7 @@ export type GraphFolder = z.infer<typeof graphFolderSchema>;
 export type GraphMessage = z.infer<typeof graphMessageSchema>;
 export type GraphAttachment = z.infer<typeof graphAttachmentSchema>;
 export class GraphTransportError extends Error {
-    constructor(readonly code: "invalid_input" | "invalid_response" | "too_large" | "unauthorized" | "inaccessible" | "not_found" | "rate_limited" | "transient" | "cancelled" | "timeout", readonly retryAfterMs = 0) { super(`mail_graph_${code}`); }
+    constructor(readonly code: "invalid_input" | "invalid_response" | "delta_expired" | "too_large" | "unauthorized" | "inaccessible" | "not_found" | "rate_limited" | "transient" | "cancelled" | "timeout", readonly retryAfterMs = 0) { super(`mail_graph_${code}`); }
     get retryable() { return ["rate_limited", "transient", "timeout"].includes(this.code); }
 }
 function fail(code: GraphTransportError["code"]): never { throw new GraphTransportError(code); }
@@ -37,10 +37,16 @@ export function graphContinuation(value: string, path: string): string {
     return value;
 }
 function retryAfter(value: string | null): number {
-    if (!value || value.length > 128) return 0;
-    if (/^[0-9]+$/.test(value)) { const ms=BigInt(value)*1000n; return ms>BigInt(Number.MAX_SAFE_INTEGER)?Number.MAX_SAFE_INTEGER:Number(ms); }
-    if (!/^(Mon|Tue|Wed|Thu|Fri|Sat|Sun), \d{2} [A-Z][a-z]{2} \d{4} \d{2}:\d{2}:\d{2} GMT$/.test(value)) return 0;
-    const ms=Math.max(0,Date.parse(value)-Date.now());return Number.isSafeInteger(ms)?ms:0;
+    if (!value || value.length > 128)
+        return 0;
+    if (/^[0-9]+$/.test(value)) {
+        const ms = BigInt(value) * 1000n;
+        return ms > BigInt(Number.MAX_SAFE_INTEGER) ? Number.MAX_SAFE_INTEGER : Number(ms);
+    }
+    if (!/^(Mon|Tue|Wed|Thu|Fri|Sat|Sun), \d{2} [A-Z][a-z]{2} \d{4} \d{2}:\d{2}:\d{2} GMT$/.test(value))
+        return 0;
+    const ms = Math.max(0, Date.parse(value) - Date.now());
+    return Number.isSafeInteger(ms) ? ms : 0;
 }
 const segment = (value: string) => encodeURIComponent(id.parse(value));
 /** Global-cloud primary mailbox only. Authenticated GETs, no redirects or external attachment URLs. */
@@ -59,7 +65,12 @@ export class GraphReadTransport {
         const controller = new AbortController();
         let timeout = false;
         const expires = performance.now() + (this.options.timeoutMs ?? 30000);
-        const check = () => { if (performance.now() >= expires) { timeout=true; controller.abort(); fail("timeout"); } if(controller.signal.aborted)fail("cancelled"); };
+        const check = () => { if (performance.now() >= expires) {
+            timeout = true;
+            controller.abort();
+            fail("timeout");
+        } if (controller.signal.aborted)
+            fail("cancelled"); };
         const abort = () => controller.abort();
         signal?.addEventListener("abort", abort, { once: true });
         if (signal?.aborted)
@@ -70,8 +81,45 @@ export class GraphReadTransport {
             check();
             const response = await this.fetch(url, { method: "GET", redirect: "error", signal: controller.signal,
                 headers: { Authorization: `Bearer ${this.options.accessToken}`, Prefer: 'IdType="ImmutableId"', Accept: "*/*" } });
-            if (performance.now() >= expires || controller.signal.aborted) { void response.body?.cancel().catch(()=>{}); check(); }
+            if (performance.now() >= expires || controller.signal.aborted) {
+                void response.body?.cancel().catch(() => { });
+                check();
+            }
             if (response.status !== 200) {
+                if (/\/delta(?:\(\))?$/.test(new URL(url).pathname) && [400, 404, 410].includes(response.status)) {
+                    let expired = response.status === 410;
+                    if (!expired && response.body) {
+                        const errorReader = response.body.getReader();
+                        let length = 0;
+                        const pieces: Uint8Array[] = [];
+                        try {
+                            while (true) {
+                                check();
+                                const piece = await errorReader.read();
+                                check();
+                                if (piece.done)
+                                    break;
+                                length += piece.value.byteLength;
+                                if (length > 8192)
+                                    break;
+                                pieces.push(piece.value);
+                            }
+                            if (length <= 8192) {
+                                const value: unknown = JSON.parse(Buffer.concat(pieces).toString('utf8'));
+                                const parsed = z.object({ error: z.object({ code: z.string().max(128) }) }).safeParse(value);
+                                expired = parsed.success && parsed.data.error.code.toLowerCase() === 'syncstatenotfound';
+                            }
+                        }
+                        catch {
+                            check();
+                        }
+                        finally {
+                            void errorReader.cancel().catch(() => { });
+                        }
+                    }
+                    if (expired)
+                        throw new GraphTransportError('delta_expired');
+                }
                 void response.body?.cancel().catch(() => { });
                 const retry = response.headers.get("retry-after");
                 const ms = retryAfter(retry);
@@ -90,7 +138,10 @@ export class GraphReadTransport {
                 total += next.value.byteLength;
                 if (total > maxBytes)
                     fail("too_large");
-                for (let offset = 0; offset < next.value.byteLength; offset += 65536) { check(); yield next.value.subarray(offset, offset + 65536); }
+                for (let offset = 0; offset < next.value.byteLength; offset += 65536) {
+                    check();
+                    yield next.value.subarray(offset, offset + 65536);
+                }
             }
             check();
         }
@@ -134,10 +185,60 @@ export class GraphReadTransport {
         }
         return { items: parsed.data.value, nextLink: next ?? null };
     }
+    async getFolder(folderId: string, signal?: AbortSignal) { const parsed = graphFolderSchema.safeParse(await this.json(`${BASE}/mailFolders/${segment(folderId)}?$select=id,displayName,parentFolderId,childFolderCount,isHidden`, signal)); if (!parsed.success || folderId !== 'msgfolderroot' && parsed.data.id !== folderId)
+        fail('invalid_response'); return parsed.data; }
+    async messageDelta(folderId: string, continuation?: string, signal?: AbortSignal) {
+        if(folderId.split(/[\\/]/).some(part=>part==='.'||part==='..'))fail('invalid_input');
+        const path = `/v1.0/me/mailFolders/${segment(folderId)}/messages/delta`;
+        const validate = (value: string) => {
+            // Decode the key once, not the path: Graph emits both OData quoted keys
+            // and slash keys, with either literal or percent-encoded base64 padding.
+            if (!value.startsWith('https://graph.microsoft.com/'))
+                return fail('invalid_response');
+            const raw = value.slice('https://graph.microsoft.com'.length).split(/[?#]/, 1)[0]!;
+            try {
+                graphContinuation(value, raw);
+            }
+            catch {
+                return fail('invalid_response');
+            }
+            const match = /^\/v1\.0\/me\/(?:mailFolders|mailfolders)(?:\/([^/]+)|\('((?:[^']|'')*)'\))\/messages\/delta$/.exec(raw);
+            if (match) {
+                try {
+                    const key = decodeURIComponent(match[1] ?? match[2] ?? '');
+                    if(match[1]===undefined&&!/^(?:[^']|'')*$/.test(key))return fail('invalid_response');
+                    const decoded = match[1] === undefined ? key.replaceAll("''", "'") : key;
+                    if (decoded === folderId && decoded !== '.' && decoded !== '..')
+                        return value;
+                }
+                catch { }
+            }
+            return fail('invalid_response');
+        };
+        const url = continuation === undefined ? `https://graph.microsoft.com${path}?$select=id&$top=100` : validate(continuation);
+        const parsed = z.object({ value: z.array(z.object({ id, "@removed": z.object({ reason: z.string().max(128) }).optional() })).max(500), "@odata.nextLink": z.string().min(1).max(32768).optional(), "@odata.deltaLink": z.string().min(1).max(32768).optional() }).safeParse(await this.json(url, signal));
+        if (!parsed.success)
+            fail('invalid_response');
+        const next = parsed.data['@odata.nextLink'], delta = parsed.data['@odata.deltaLink'];
+        if ((next === undefined) === (delta === undefined))
+            fail('invalid_response');
+        if (next !== undefined) {
+            validate(next);
+            if (next === url)
+                fail('invalid_response');
+        }
+        if (delta !== undefined)
+            validate(delta);
+        return { items: parsed.data.value, nextLink: next ?? null, deltaLink: delta ?? null };
+    }
     listFolders(parentId: string | null, nextLink?: string, signal?: AbortSignal) { return this.page(parentId === null ? "/mailFolders" : `/mailFolders/${segment(parentId)}/childFolders`, "includeHiddenFolders=true&$top=100&$select=id,displayName,parentFolderId,childFolderCount,isHidden", graphFolderSchema, nextLink, signal); }
     listMessages(nextLink?: string, signal?: AbortSignal) { return this.page("/messages", "$top=100&$select=id,parentFolderId,conversationId,subject,internetMessageId,receivedDateTime,sentDateTime,isRead,isDraft,hasAttachments,importance,categories,lastModifiedDateTime,changeKey", graphMessageSchema, nextLink, signal); }
-    async getMessage(messageId: string, signal?: AbortSignal) { const value = graphMessageSchema.safeParse(await this.json(`${BASE}/messages/${segment(messageId)}?$select=id,parentFolderId,conversationId,subject,internetMessageId,receivedDateTime,sentDateTime,isRead,isDraft,hasAttachments,importance,categories,lastModifiedDateTime,changeKey`, signal)); if (!value.success || value.data.id !== messageId)
-        fail("invalid_response"); return value.data; }
+    async getMessage(messageId: string, signal?: AbortSignal) {
+        const value = graphMessageSchema.safeParse(await this.json(`${BASE}/messages/${segment(messageId)}?$select=id,parentFolderId,conversationId,subject,internetMessageId,receivedDateTime,sentDateTime,isRead,isDraft,hasAttachments,importance,categories,lastModifiedDateTime,changeKey`, signal));
+        if (!value.success || value.data.id !== messageId)
+            fail("invalid_response");
+        return value.data;
+    }
     listAttachments(messageId: string, nextLink?: string, signal?: AbortSignal) { return this.page(`/messages/${segment(messageId)}/attachments`, "$top=100&$select=id,name,contentType,size,isInline,contentId", graphAttachmentSchema, nextLink, signal); }
     messageBytes(messageId: string, signal?: AbortSignal) { return this.bytes(`${BASE}/messages/${segment(messageId)}/$value`, 64 * 1024 * 1024, signal); }
     attachmentBytes(messageId: string, attachmentId: string, signal?: AbortSignal) { return this.bytes(`${BASE}/messages/${segment(messageId)}/attachments/${segment(attachmentId)}/$value`, 32 * 1024 * 1024, signal); }

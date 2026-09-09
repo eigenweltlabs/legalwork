@@ -27,9 +27,6 @@ export class GraphState {
     start(accountId: string) {
         return this.db.transaction(() => {
             this.account(accountId);
-            const old = this.read(accountId);
-            if (old?.state === "complete")
-                return old;
             this.db.run("INSERT INTO mail_graph_runs(account_id,generation,revision,state) VALUES(?,?,1,'active') ON CONFLICT(account_id) DO UPDATE SET revision=revision+1,state='active'", [accountId, randomUUID()]);
             this.db.run("INSERT INTO mail_graph_folder_queue(account_id,id,parent_id,depth) VALUES(?,'',NULL,0) ON CONFLICT DO NOTHING", [accountId]);
             return runSchema.parse(this.db.get("SELECT * FROM mail_graph_runs WHERE account_id=?", [accountId]));
@@ -47,6 +44,7 @@ export class GraphState {
         const old = this.repository.readMessage(accountId, locator);
         // Graph parentFolderId is authoritative; a move keeps immutable identity and stored original.
         this.repository.ingestMessage(accountId, { locator, subject: parsed.subject, rfcMessageId: parsed.internetMessageId ?? old?.rfc_message_id ?? null, threadId: parsed.conversationId ?? null, memberships: [parsed.parentFolderId] });
+        this.db.run("DELETE FROM mail_tombstones WHERE account_id=? AND message_key=? AND reason='graph_removed'",[accountId,providerMessageKey(locator)]);
         this.db.run("UPDATE mail_messages SET is_read=? WHERE account_id=? AND message_key=?", [parsed.isRead ? 1 : 0, accountId, providerMessageKey(locator)]);
         this.db.run("INSERT INTO mail_graph_messages(account_id,message_key,metadata_json) VALUES(?,?,?) ON CONFLICT(account_id,message_key) DO UPDATE SET metadata_json=excluded.metadata_json", [accountId, providerMessageKey(locator), JSON.stringify(parsed)]);
       });
@@ -59,10 +57,10 @@ export class GraphState {
     coalesce(sum(m.parts_complete=1 AND m.raw_change_key=json_extract(m.metadata_json,'$.changeKey') AND m.error IS NULL AND EXISTS(SELECT 1 FROM mail_messages mm WHERE mm.account_id=m.account_id AND mm.message_key=m.message_key AND mm.attachments_enumerated=1) AND EXISTS(SELECT 1 FROM mail_mime_projections p JOIN mail_content_manifests r ON r.account_id=p.account_id AND r.message_key=p.message_key AND r.kind='raw' AND r.ref_id=p.raw_ref_id JOIN mail_content_manifests b ON b.account_id=p.account_id AND b.message_key=p.message_key AND b.kind='body' AND b.ref_id=p.body_ref_id JOIN mail_blob_publications pub ON pub.account_id=b.account_id AND pub.ref_id=b.ref_id WHERE p.account_id=m.account_id AND p.message_key=m.message_key AND p.state='complete'
     AND NOT EXISTS(SELECT 1 FROM mail_graph_attachments a LEFT JOIN mail_blob_publications ap ON ap.account_id=a.account_id AND ap.ref_id=a.ref_id WHERE a.account_id=m.account_id AND a.message_key=m.message_key AND (a.raw_ref_id!=p.raw_ref_id OR a.error IS NOT NULL OR ap.ref_id IS NULL))
     AND NOT EXISTS(SELECT 1 FROM mail_content_manifests c LEFT JOIN mail_content_refs cr ON cr.account_id=c.account_id AND cr.id=c.ref_id LEFT JOIN mail_blob_publications cp ON cp.account_id=c.account_id AND cp.ref_id=c.ref_id LEFT JOIN mail_blob_objects co ON co.account_id=cp.account_id AND co.id=cp.object_id WHERE c.account_id=m.account_id AND c.message_key=m.message_key AND (c.state!='stored' OR co.state IS NOT 'published' OR co.bytes IS NOT cr.bytes OR co.chunk_count IS NOT (cr.bytes/65536+CASE WHEN cr.bytes%65536>0 THEN 1 ELSE 0 END))))),0) AS projected,
-    coalesce(sum(m.error='protected_or_inaccessible'),0) AS inaccessible,coalesce(sum(m.error IS NOT NULL),0) AS unavailable FROM mail_graph_messages m WHERE m.account_id=?`, [accountId]);
-        const jobs = this.db.get("SELECT coalesce(sum(state IN ('queued','running','retry')),0) AS pending,coalesce(sum(state='failed'),0) AS failed,min(CASE WHEN state='running' THEN lease_until WHEN state='retry' THEN available_at END) AS retry_at FROM mail_sync_jobs WHERE account_id=? AND generation=?", [accountId, generation]);
+    coalesce(sum(m.error='protected_or_inaccessible'),0) AS inaccessible,coalesce(sum(m.error IS NOT NULL),0) AS unavailable FROM mail_graph_messages m WHERE m.account_id=? AND NOT EXISTS(SELECT 1 FROM mail_tombstones t WHERE t.account_id=m.account_id AND t.message_key=m.message_key AND t.reason='graph_removed')`, [accountId]);
+        const jobs = this.db.get("SELECT coalesce(sum(state IN ('queued','running','retry')),0) AS pending,coalesce(sum(state='failed'),0) AS failed,min(CASE WHEN state='running' THEN lease_until WHEN state='retry' THEN available_at END) AS retry_at FROM mail_sync_jobs j WHERE account_id=? AND generation=? AND NOT EXISTS(SELECT 1 FROM mail_tombstones t WHERE t.account_id=j.account_id AND t.message_key=j.message_key AND t.reason='graph_removed')", [accountId, generation]);
         const folders = this.db.get("SELECT coalesce(sum(done=0),0) AS pending,coalesce(sum(error IS NOT NULL),0) AS unavailable FROM mail_graph_folder_queue WHERE account_id=?", [accountId]);
-        const references = this.db.get("SELECT coalesce(sum(error='reference_attachment'),0) AS n,coalesce(sum(error='protected_or_inaccessible'),0) AS inaccessible FROM mail_graph_attachments WHERE account_id=?", [accountId]);
+        const references = this.db.get("SELECT coalesce(sum(error='reference_attachment'),0) AS n,coalesce(sum(error='protected_or_inaccessible'),0) AS inaccessible FROM mail_graph_attachments a WHERE account_id=? AND NOT EXISTS(SELECT 1 FROM mail_tombstones t WHERE t.account_id=a.account_id AND t.message_key=a.message_key AND t.reason='graph_removed')", [accountId]);
         return { enumerated: count.parse(totals?.enumerated), downloaded: count.parse(totals?.downloaded), projected: count.parse(totals?.projected), pending: count.parse(jobs?.pending), failed: count.parse(jobs?.failed), nextRetryAt: count.nullable().parse(jobs?.retry_at), folderPending: count.parse(folders?.pending), inaccessible: count.parse(totals?.inaccessible) + count.parse(folders?.unavailable) + count.parse(references?.inaccessible), unavailable: count.parse(totals?.unavailable), references: count.parse(references?.n) };
     }
 }
