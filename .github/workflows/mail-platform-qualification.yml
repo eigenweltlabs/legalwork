@@ -46,5 +46,7 @@ jobs:
         run: node scripts/mail/platform-qualification.mjs
       - name: Actual Node mail acceptance
         run: node apps/server/scripts/mail-acceptance.mjs
+      - name: Actual loopback HTTP mail APIs
+        run: bun test apps/server/src/mail/routes.e2e.test.ts apps/server/src/mail/search.e2e.test.ts apps/server/src/mail/local.e2e.test.ts
       - name: Actual isolated Electron ASAR native loading and rotation
         run: node --test apps/desktop/electron/mail-packaging.test.mjs
