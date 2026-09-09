@@ -24,14 +24,17 @@ The desktop service exposes host-token, loopback-only `POST /mail/v1/security/ro
 folder chooser supplies filesystem paths; HTTP cannot supply them. These operations
 stop the mail worker, reject unlock/new reads while maintenance is active, and leave
 the service locked. Stop cancels outstanding maintenance. Explicit unlock is required
-after success. No provider request or revocation occurs during these operations.
+after success. Cancellation waits for the child close event; an unconfirmed child
+termination keeps store access blocked even after the bounded reaping wait. No provider request or revocation occurs during these operations.
 
 Rotation copies a consistent **ciphertext** database under an exclusive SQLite lock,
 rekeys the copy using the native Buffer API, verifies SQLite integrity and all
 published raw/body/attachment references, and checkpoints the copy. The new key is
 wrapped by Electron safeStorage in a fresh private `store-<generation>` directory.
-A fsynced `active-store-v1.json` rename publishes the new generation. Missing pointer
-means the legacy `mail.sqlite` location. Previous stores and incomplete candidates
+A fsynced `active-store-v1.json` rename publishes the new generation. Before the first candidate, an explicit null-generation selection is fsynced for
+the legacy `mail.sqlite` location. A missing pointer is accepted only when no
+generation artifacts exist; a lost or corrupt selection after rotation/recovery
+fails closed. An aborted first rotation retains the explicit legacy selection. Previous stores and incomplete candidates
 are retained; rotation is not deletion or secure erasure. Cancellation before the
 pointer rename cannot publish the candidate. Failure after rename/directory fsync is
 an uncertain acknowledgement: inspect the selected generation on next unlock.
@@ -52,7 +55,7 @@ vault before atomic promotion. It works in a clean profile with the same trusted
 local owner identity. Original bytes, drafts, metadata and action records survive.
 Credentials become disconnected and require explicit reconnect; pending submissions
 and other pending actions become uncertain for manual reconciliation, never automatic
-replay. Sync runs pause and obsolete running leases are cleared. Wrong passphrase,
+replay. Gmail and installed v9 Graph runs pause, Graph revisions advance, and obsolete running leases are cleared. Wrong passphrase,
 corruption, unsupported schema or failed verification cannot replace the active
 store. No automatic purge of the old store follows recovery.
 
