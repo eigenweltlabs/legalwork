@@ -9,7 +9,7 @@ app.whenReady().then(async()=>{
  const act=(fn,...args)=>win.webContents.executeJavaScript('('+fn.toString()+')('+args.map(value=>JSON.stringify(value)).join(',')+')');
  const until=async(fn,...args)=>{for(let n=0;n<500;n++){if(await act(fn,...args))return;await new Promise(r=>setTimeout(r,15));}throw Error('Renderer timeout '+await act(()=>document.body.innerText));};
  const contains=text=>until(text=>document.body.textContent.includes(text),text);
- const click=label=>act(label=>[...document.querySelectorAll('button')].find(b=>b.textContent===label).click(),label);
+ const click=label=>act(label=>[...document.querySelectorAll('button')].find(b=>b.textContent===label||b.getAttribute('aria-label')===label).click(),label);
  const fill=(label,value)=>act((label,value)=>{const e=[...document.querySelectorAll('input')].find(e=>e.getAttribute('aria-label')===label);Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(e,value);e.dispatchEvent(new Event('input',{bubbles:true}));},label,value);
  await contains('Search local mail');
  await act(()=>[...document.querySelectorAll('summary')].find(e=>e.textContent==='Structured filters').click());
@@ -17,7 +17,7 @@ app.whenReady().then(async()=>{
  await act(()=>{for(const [label,value]of [['Search accounts','a'],['unread','true'],['hasAttachment','true']]){const select=[...document.querySelectorAll('select')].find(e=>e.getAttribute('aria-label')===label);Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype,'value').set.call(select,value);select.dispatchEvent(new Event('change',{bubbles:true}));}});
  await fill('Keywords','two ');assert.equal(await act(()=>document.querySelector('[aria-label="Keywords"]').value),'two ');await fill('Keywords','two words');
  await fill('Literal text','AZ-12/34.5');await click('Search');await contains('21 matches');
- assert.equal(await act(()=>document.body.textContent.includes('3 messages awaiting index')),true);
+ assert.equal(await act(()=>document.body.textContent.includes('Some content is still being prepared.')),true);
  await act(()=>{document.querySelector('[aria-label="Search results"] button').focus();document.activeElement.dispatchEvent(new KeyboardEvent('keydown',{key:'ArrowDown',bubbles:true}));});
  assert.equal(await act(()=>document.activeElement.textContent),'Second keyboard result');
  await click('Matching attachment: page:3');await contains('Kündigung attachment page three');
@@ -30,8 +30,8 @@ app.whenReady().then(async()=>{
  await act(()=>[...document.querySelectorAll('summary')].find(e=>e.textContent.includes('Saved searches')).click());
  await fill('Saved search name','Private saved query');await click('Save current search');await contains('Search saved in encrypted mail storage');
  assert.equal(await act(()=>localStorage.length),0);
- await fill('Literal text','slow');await click('Search');await contains('Searching local storage');await click('Cancel');await contains('Search cancelled.');await new Promise(r=>setTimeout(r,300));assert.equal(await act(()=>document.body.textContent.includes('STALE RESULT')),false);
- await fill('Literal text','slow');await click('Search');await contains('Searching local storage');
+ await fill('Literal text','slow');await click('Search');await contains('Searching…');await click('Cancel');await contains('Search cancelled.');await new Promise(r=>setTimeout(r,300));assert.equal(await act(()=>document.body.textContent.includes('STALE RESULT')),false);
+ await fill('Literal text','slow');await click('Search');await contains('Searching…');
  await fill('Literal text','empty');await click('Search');await contains('No local matches');
  await new Promise(r=>setTimeout(r,300));assert.equal(await act(()=>document.body.textContent.includes('STALE RESULT')),false);
  console.log('MAIL_SEARCH_RENDER_PASS');win.destroy();app.quit();
