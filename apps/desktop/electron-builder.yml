@@ -23,6 +23,7 @@ extraResources:
     to: opencode-plugins
     filter:
       - "*.js"
+      - "!*.test.js"
   # The runtime dock/window icon, which the .icns baked in below cannot supply:
   # resolveAppIconPath() reads these out of `process.resourcesPath/icons` so the
   # dock can swap to the ink plate when macOS is in dark mode. Without them a
