@@ -132,9 +132,9 @@ export class MailSyncJournal {
     });
   }
   private delay(job: SyncJob): number { return Math.min(job.retry_max_ms, job.retry_base_ms * 2 ** (job.attempts - 1)); }
-  private retire(job: SyncJob, now: number, reason: "retryable" | "permanent" | "lease_expired"): void {
+  private retire(job: SyncJob, now: number, reason: "retryable" | "permanent" | "lease_expired", retryAfterMs = 0): void {
     const state = reason === "permanent" || job.attempts >= job.max_attempts ? "failed" : "retry";
-    const available = state === "failed" ? now : integer.parse(now + this.delay(job));
+    const available = state === "failed" ? now : Math.min(Number.MAX_SAFE_INTEGER, now + Math.max(this.delay(job), retryAfterMs));
     this.database.run("UPDATE mail_sync_jobs SET state=?,available_at=?,lease_token=NULL,lease_until=NULL,last_error=? WHERE account_id=? AND id=?",
       [state, available, reason, job.account_id, job.id]);
   }
@@ -175,6 +175,15 @@ export class MailSyncJournal {
     if (!row) throw new Error("Stale sync lease");
     return jobRow.parse(row);
   }
+  /** Internal executor fence; authorization and expiry are rechecked against durable state. */
+  assertLease(accountId: string, jobId: string, token: string): void {
+    this.operation(); this.leased(accountId, jobId, token, this.time());
+  }
+  readJob(accountId: string, jobId: string): SyncJob | undefined {
+    this.operation(); this.account(accountId);
+    const row = this.database.get("SELECT * FROM mail_sync_jobs WHERE account_id=? AND id=?", [accountId, id.parse(jobId)]);
+    return row ? jobRow.parse(row) : undefined;
+  }
   /** Executor may atomically persist its result here. Success alone is NOT a claim of downloaded bytes. */
   succeed(accountId: string, jobId: string, token: string, persistResult: (writer: SyncMetadataWriter) => unknown): void {
     this.succeedWithFollowups(accountId, jobId, token, [], persistResult);
@@ -201,12 +210,13 @@ export class MailSyncJournal {
       this.database.run("UPDATE mail_sync_jobs SET state='succeeded',lease_token=NULL,lease_until=NULL,last_error=NULL WHERE account_id=? AND id=?", [accountId, jobId]);
     });
   }
-  fail(accountId: string, jobId: string, token: string, retryable: boolean): void {
+  fail(accountId: string, jobId: string, token: string, retryable: boolean, retryAfterMs = 0): void {
     this.operation();
     z.boolean().parse(retryable);
+    integer.parse(retryAfterMs);
     this.database.transaction(() => {
       const now = this.time();
-      this.retire(this.leased(accountId, jobId, token, now), now, retryable ? "retryable" : "permanent");
+      this.retire(this.leased(accountId, jobId, token, now), now, retryable ? "retryable" : "permanent", retryAfterMs);
     });
   }
   renew(accountId: string, jobId: string, token: string, leaseMs = 30000): void {
