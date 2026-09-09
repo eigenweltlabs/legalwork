@@ -1,6 +1,6 @@
 import type { MailDatabase } from "./database-interface.js";
 
-export const MAIL_SCHEMA_VERSION = 3;
+export const MAIL_SCHEMA_VERSION = 4;
 
 /** Dedicated mail database only. Every DDL/version write shares one transaction. */
 export function migrateMailSchema(database: MailDatabase): void {
@@ -126,6 +126,21 @@ export function migrateMailSchema(database: MailDatabase): void {
         PRIMARY KEY(account_id,scope_id,generation,job_id),
         FOREIGN KEY(account_id,scope_id,generation) REFERENCES mail_sync_scopes(account_id,scope_id,generation) ON DELETE CASCADE,
         FOREIGN KEY(account_id,job_id,generation) REFERENCES mail_sync_jobs(account_id,id,generation) ON DELETE CASCADE
+      );
+    `);
+    if (version < 4) database.exec(`
+      CREATE TABLE mail_account_credentials (
+        account_id TEXT PRIMARY KEY NOT NULL, provider TEXT NOT NULL CHECK(provider IN ('gmail','graph')),
+        client_id TEXT NOT NULL, authority TEXT NOT NULL, provider_subject TEXT NOT NULL,
+        generation TEXT NOT NULL, revision INTEGER NOT NULL CHECK(revision BETWEEN 1 AND 9007199254740991),
+        state TEXT NOT NULL CHECK(state IN ('connected','disconnected')),
+        archive_locked INTEGER NOT NULL CHECK(archive_locked IN (0,1)),
+        access_token TEXT CHECK(length(access_token) BETWEEN 1 AND 16384),
+        refresh_token TEXT CHECK(length(refresh_token) BETWEEN 1 AND 16384),
+        expires_at INTEGER CHECK(expires_at BETWEEN 1 AND 9007199254740991), granted_scopes_json TEXT,
+        CHECK((state='connected' AND archive_locked=0 AND access_token IS NOT NULL AND expires_at IS NOT NULL) OR
+          (state='disconnected' AND archive_locked=1 AND access_token IS NULL AND refresh_token IS NULL AND expires_at IS NULL AND granted_scopes_json IS NULL)),
+        FOREIGN KEY(account_id,provider) REFERENCES mail_accounts(id,provider)
       );
     `);
     database.run("INSERT INTO mail_schema_version(singleton,version) VALUES(1,?) ON CONFLICT(singleton) DO UPDATE SET version=excluded.version", [MAIL_SCHEMA_VERSION]);
