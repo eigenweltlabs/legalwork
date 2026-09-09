@@ -48,3 +48,9 @@ test("Graph authority and result correlation bind to the originating command", (
   expect(resultMatchesCommand(command.command, { connectionStarted: { ...result.connectionStarted, authorizationUrl: url.href } })).toBe(false);
   expect(resultMatchesCommand({ operation: "mail.connection.poll", connectionId }, { connection: { connectionId: graph.tenantId, expiresAt: 123, state: "pending" } })).toBe(false);
 });
+
+test("connection states reject coercible arrays and objects", () => {
+  for (const state of [["pending"], ["verifying"], ["cancelled"], ["expired"], { toString: "pending" }, null, true]) {
+    expect(response({ connection: { connectionId, expiresAt: 123, state } })).toBeUndefined();
+  }
+});
