@@ -143,6 +143,7 @@ export class GmailBackfill {
     }, Math.min(60000, Math.max(this.turnDelay, delay)));
   }
   private async boundedOperation<T>(session: Session, action: (signal: AbortSignal) => Promise<T>): Promise<T> {
+    if (this.pendingOperation) throw new GmailBackfillError("busy");
     const controller = new AbortController(), deadline = performance.now() + this.operationTimeout;
     const abort = () => controller.abort();
     session.abort.signal.addEventListener("abort", abort, { once: true });
@@ -257,8 +258,8 @@ export class GmailBackfill {
       } else throw new MailSyncExecutionFailure("permanent");
     } catch (error) {
       if (error instanceof MailSyncExecutionFailure) throw error;
-      const failure = classify(error); session.error = failure.code; session.fatal ||= failure.fatal;
-      if (failure.fatal) this.executor.pause(work.job.account_id);
+      const failure = classify(error); session.error = failure.code; session.fatal ||= failure.fatal || this.pendingOperation !== undefined;
+      if (session.fatal) this.executor.pause(work.job.account_id);
       throw new MailSyncExecutionFailure(failure.retry || failure.fatal ? "retryable" : "permanent", failure.delay);
     }
   }
