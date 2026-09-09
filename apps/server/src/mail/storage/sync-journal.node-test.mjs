@@ -178,7 +178,7 @@ function crash(path, key, mode) {
     if(input.mode==='lease') { const [job]=j.claim(input.scope,1,50); process.stdout.write(JSON.stringify(job.lease_token)+'\\n'); }
     {writeSync(2,'crash-boundary');process.kill(process.pid,'SIGKILL');}
   `;
-  const result = spawnSync(process.execPath, ["--input-type=module", "--eval", script], { input: JSON.stringify({ path, key: key.toString("base64"), mode, page: page(), scope }), encoding: "utf8", env: {}, timeout: 10000 });
+  const result = spawnSync(process.execPath, ["--input-type=module", "--eval", script], { input: JSON.stringify({ path, key: key.toString("base64"), mode, page: page(), scope }), encoding: "utf8", env: process.platform === 'win32' ? {SystemRoot:process.env.SystemRoot,WINDIR:process.env.WINDIR} : {}, timeout: 10000 });
   assert.equal(result.error, undefined);
   assert.equal(process.platform === 'win32' ? result.status : result.signal, process.platform === 'win32' ? 1 : 'SIGKILL'); assert.equal(result.stderr, 'crash-boundary');
   assert.ok(!result.stdout.includes(key.toString("base64")));
@@ -332,7 +332,7 @@ for (const mode of ["before","after"]) test(`SIGKILL ${mode} followup commit pre
     });
     {writeSync(2,'crash-boundary');process.kill(process.pid,'SIGKILL');}
   `;
-  const result=spawnSync(process.execPath,['--input-type=module','--eval',script],{input:JSON.stringify({path,key:key.toString('base64'),parent,children:followups(),mode}),encoding:'utf8',env:{},timeout:10000});
+  const result=spawnSync(process.execPath,['--input-type=module','--eval',script],{input:JSON.stringify({path,key:key.toString('base64'),parent,children:followups(),mode}),encoding:'utf8',env:process.platform==='win32'?{SystemRoot:process.env.SystemRoot,WINDIR:process.env.WINDIR}:{},timeout:10000});
   assert.equal(result.error,undefined);assert.equal(process.platform === 'win32' ? result.status : result.signal,process.platform === 'win32' ? 1 : 'SIGKILL');assert.equal(result.stdout,'');assert.equal(result.stderr,'crash-boundary');
   db=await reopen();const recovered=journal();const committed=mode==='after';
   assert.equal(db.get('SELECT attachments_enumerated FROM mail_messages').attachments_enumerated,committed?1:0);
