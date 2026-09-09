@@ -44,6 +44,7 @@ function mockService() {
   let stops = 0;
   const service: MailService = {
     async imapDiscovery(){throw new MailServiceError("unsupported");},
+    async cancelImapConnection(){},
     async connectImap(){throw new MailServiceError("unsupported");},
     async extractionStatus(){throw new MailServiceError('not_found');},async extractionRead(){throw new MailServiceError('not_found');},async extractionReset(){throw new MailServiceError('not_found');},
     async saveDraft(){throw new MailServiceError("not_found");},
@@ -287,4 +288,19 @@ test("security maintenance accepts only host-bound operations and redacts backup
   expect(calls).toBe(0);
   const accepted=await fetch(url,{method:'POST',headers:auth,body});expect(accepted.status).toBe(200);expect(await accepted.json()).toEqual({completed:true,state:'locked'});
   const failed=await fetch(`${base}/security/restore`,{method:'POST',headers:auth,body});expect(failed.status).toBe(503);expect(await failed.text()).not.toContain('synthetic');
+});
+test('onboarding HTTP forwards explicit personal selection and bounded cancellable TLS input only for host',async()=>{
+ const mock=mockService(),seen:unknown[]=[];
+ mock.service.beginConnection=async(provider,reconnectAccountId,personal)=>{seen.push({provider,reconnectAccountId,personal});return {connectionId:'personal',authorizationUrl:'https://login.microsoftonline.com/consumers/oauth2/v2.0/authorize',expiresAt:Date.now()+60000};};
+ mock.service.connectImap=async(input,requestId)=>{seen.push({input,requestId});return {accountId:'imap',provider:'imap'};};
+ mock.service.cancelImapConnection=async requestId=>{seen.push({cancel:requestId});};
+ const {base}=await boot(mock.service),post=(path:string,input:unknown,headers=auth)=>fetch(base+path,{method:'POST',headers:{...headers,'content-type':'application/json'},body:JSON.stringify(input)});
+ expect((await post('/connections',{provider:'graph',personal:true})).status).toBe(200);
+ expect(seen[0]).toEqual({provider:'graph',personal:true,reconnectAccountId:undefined});
+ for(const input of [{provider:'gmail',personal:true},{provider:'graph',personal:'consumers'},{provider:'graph',tenantId:'common'}])expect((await post('/connections',input)).status).toBe(400);
+ const requestId='11111111-2222-4333-8444-555555555555',input={host:'imap.mail.me.com',port:993,username:'synthetic',password:'synthetic-password'};
+ expect((await post('/imap/connections',{...input,requestId})).status).toBe(200);expect(seen[1]).toEqual({input,requestId});
+ expect((await fetch(base+`/imap/connections/${requestId}/cancel`,{method:'POST',headers:auth})).status).toBe(200);expect(seen[2]).toEqual({cancel:requestId});
+ expect((await post('/imap/connections',{...input,tls:false})).status).toBe(400);
+ expect((await fetch(base+`/imap/connections/${requestId}/cancel`,{method:'POST',headers:{authorization:'Bearer synthetic-mail-collaborator'}})).status).toBe(401);
 });

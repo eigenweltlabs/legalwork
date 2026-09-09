@@ -42,7 +42,7 @@ function loopbackUri(value: string, provider: "gmail" | "graph"): URL | undefine
   }
 }
 
-/** Graph is deliberately restricted to an explicit organizational tenant GUID for the pilot. */
+/** Graph accepts a configured organizational tenant or the explicit personal-account authority. */
 export function checkMailProviderReadiness(config: MailProviderConfig): MailProviderReadiness {
   const issues: MailProviderConfigIssue[] = [];
   if (config.applicationType !== "desktop") issues.push("desktop_app_required");
@@ -58,7 +58,7 @@ export function checkMailProviderReadiness(config: MailProviderConfig): MailProv
   if (config.provider === "gmail") {
     if (!config.clientSecretConfigured) issues.push("google_client_secret_missing");
   } else {
-    if (!GUID.test(config.tenantId)) issues.push("explicit_tenant_required");
+    if (config.tenantId !== "consumers" && !GUID.test(config.tenantId)) issues.push("explicit_tenant_required");
     const registered = loopbackUri(config.registeredRedirectUri, "graph");
     const matches = redirect && registered && redirect.hostname === registered.hostname
       && redirect.pathname === registered.pathname

@@ -38,7 +38,8 @@ export type WorkerCommand =
   | { operation: "ping" }
   | { operation: "mail.storage.status" }
   | {operation:"mail.imap.discovery";accountId:string;after?:string}
-  | {operation:"mail.imap.connect";input:ImapConnection}
+  | {operation:"mail.imap.connect";input:ImapConnection;requestId?:string}
+  | {operation:"mail.imap.cancel";requestId:string}
   | { operation: "mail.connection.begin"; settings: MailOAuthSettings; reconnectAccountId?: string }
   | { operation: "mail.connection.poll"; connectionId: string }
   | { operation: "mail.connection.cancel"; connectionId: string }
@@ -73,7 +74,7 @@ export type WorkerResult =
   | { state: "idle" | "syncing"; syncSupported: boolean }
   | { encrypted: true; schemaVersion: number; syncSupported: boolean }
   | { sync: MailSyncView }
-  | { syncProvider: "gmail" | "graph" | "imap" }
+  | { syncProvider: "gmail" | "graph" | "imap"; personal?: boolean }
   | { accounts: WorkerAccount[]; nextCursor: string | null }
   | { folders: WorkerFolder[]; nextCursor: string | null }
   | { messages: { accountId: string; items: MailMessageView[]; nextCursor: string | null } }
@@ -114,7 +115,7 @@ function settings(value: unknown): value is MailOAuthSettings {
     && typeof value.clientId === "string" && value.clientId.length <= 4096 && /^[A-Za-z0-9_-]+\.apps\.googleusercontent\.com$/.test(value.clientId)
     && typeof value.clientSecret === "string" && /^[\x21-\x7e]{1,16384}$/.test(value.clientSecret) && mailScopes(value.scopes, "gmail");
   return value.provider === "graph" && exact(value, ["provider", "applicationType", "pkceMethod", "clientId", "tenantId", "registeredRedirectUri", "scopes"])
-    && uuid(value.clientId) && uuid(value.tenantId) && value.registeredRedirectUri === "http://localhost/mail/callback" && mailScopes(value.scopes, "graph");
+    && uuid(value.clientId) && (uuid(value.tenantId) || value.tenantId === "consumers") && value.registeredRedirectUri === "http://localhost/mail/callback" && mailScopes(value.scopes, "graph");
 }
 /** Browser-target allowlist, including exact query keys, S256/state shape and loopback callback. */
 function authorizationUrl(value: unknown, expected?: MailOAuthSettings): boolean {
@@ -123,7 +124,7 @@ function authorizationUrl(value: unknown, expected?: MailOAuthSettings): boolean
     const url = new URL(value);
     if (url.protocol !== "https:" || url.port || url.username || url.password || url.hash) return false;
     const google = url.hostname === "accounts.google.com" && url.pathname === "/o/oauth2/v2/auth";
-    const graph = url.hostname === "login.microsoftonline.com" && /^\/[0-9a-f-]{36}\/oauth2\/v2\.0\/authorize$/i.test(url.pathname) && uuid(url.pathname.split("/")[1]);
+    const graph = url.hostname === "login.microsoftonline.com" && /^\/(consumers|[0-9a-f-]{36})\/oauth2\/v2\.0\/authorize$/i.test(url.pathname) && (uuid(url.pathname.split("/")[1]) || url.pathname.split("/")[1] === "consumers");
     if (!google && !graph) return false;
     const provider = google ? "gmail" : "graph";
     const keys = ["client_id", "redirect_uri", "response_type", "scope", "state", "code_challenge", "code_challenge_method", ...(google ? ["access_type", "prompt"] : ["response_mode"])];
@@ -173,7 +174,7 @@ function result(value: unknown): value is WorkerResult {
     || (exact(value, ["disconnected"]) && value.disconnected === true)
     || (exact(value, ["state", "syncSupported"]) && (value.state === "idle" || value.state === "syncing") && typeof value.syncSupported === "boolean")
     || (exact(value, ["encrypted", "schemaVersion", "syncSupported"]) && value.encrypted === true && typeof value.syncSupported === "boolean" && Number.isSafeInteger(value.schemaVersion) && typeof value.schemaVersion === "number" && value.schemaVersion > 0)
-    || (exact(value, ["syncProvider"]) && (value.syncProvider === "gmail" || value.syncProvider === "graph" || value.syncProvider === "imap"))
+    || (Object.keys(value).every(key => ["syncProvider", "personal"].includes(key)) && (value.personal === undefined || (value.syncProvider === "graph" && typeof value.personal === "boolean")) && (value.syncProvider === "gmail" || value.syncProvider === "graph" || value.syncProvider === "imap"))
     || (exact(value, ["sync"]) && mailSyncViewSchema.safeParse(value.sync).success)
     || (exact(value, ["messages"]) && mailMessageListSchema.safeParse(value.messages).success)
     || (exact(value, ["message"]) && mailMessageViewSchema.safeParse(value.message).success)
@@ -226,6 +227,7 @@ export function resultMatchesCommand(command: WorkerCommand, value: WorkerResult
     case "mail.imap.connect":return "imapConnection" in value;
     case "mail.connection.begin": return "connectionStarted" in value && authorizationUrl(value.connectionStarted.authorizationUrl, command.settings);
     case "mail.connection.poll": return "connection" in value && value.connection.connectionId === command.connectionId;
+    case "mail.imap.cancel":
     case "mail.connection.cancel": return "cancelled" in value;
     case "mail.account.disconnect": return "disconnected" in value;
     case "mail.storage.status": return "encrypted" in value;
@@ -256,7 +258,8 @@ export function validWorkerCommand(value: unknown): value is WorkerCommand {
   if (value.operation === "mail.search") return exact(value,["operation","input"]) && mailSearchInputSchema.safeParse(value.input).success;
   if (value.operation === "mail.search.rebuild") return exact(value,["operation","input"]) && mailSearchRebuildInputSchema.safeParse(value.input).success;
   if(value.operation==="mail.imap.discovery")return Object.keys(value).every(key=>["operation","accountId","after"].includes(key))&&id(value.accountId)&&(!Object.hasOwn(value,"after")||id(value.after));
-  if(value.operation==="mail.imap.connect")return exact(value,["operation","input"])&&imapConnectionSchema.safeParse(value.input).success;
+  if(value.operation==="mail.imap.cancel")return exact(value,["operation","requestId"])&&uuid(value.requestId);
+  if(value.operation==="mail.imap.connect")return Object.keys(value).every(key=>["operation","input","requestId"].includes(key))&&(value.requestId===undefined||uuid(value.requestId))&&imapConnectionSchema.safeParse(value.input).success;
   if (value.operation === "mail.sync.start") return (exact(value,["operation","accountId"])||exact(value, ["operation", "accountId", "settings"])&&settings(value.settings))&&id(value.accountId);
   if (value.operation === "mail.connection.begin") return Object.keys(value).every(key => ["operation", "settings", "reconnectAccountId"].includes(key))
     && settings(value.settings) && (!Object.hasOwn(value, "reconnectAccountId") || id(value.reconnectAccountId));

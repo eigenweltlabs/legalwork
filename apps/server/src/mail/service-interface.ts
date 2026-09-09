@@ -18,7 +18,8 @@ export class MailServiceError extends Error {
 /** Bound to one trusted owner at construction; no request supplies an owner ID. */
 export interface MailService {
   imapDiscovery(accountId:string,after?:string):Promise<ImapDiscovery>;
-  connectImap(input:ImapConnection):Promise<ImapConnectionResult>;
+  cancelImapConnection(requestId:string):Promise<void>;
+  connectImap(input:ImapConnection,requestId?:string):Promise<ImapConnectionResult>;
   extractionStatus(accountId:string,input:MailExtractionRequest):Promise<MailExtractionStatus>;
   extractionRead(accountId:string,input:MailExtractionRead):Promise<MailExtractionText>;
   extractionReset(accountId:string,input:MailExtractionRequest):Promise<MailExtractionStatus>;
@@ -45,7 +46,7 @@ export interface MailService {
   readMessage(accountId: string, locator: ProviderMessageLocator): Promise<MailMessageView>;
   listParts(accountId: string, locator: ProviderMessageLocator, page: MailPartPageInput): Promise<MailPage<MailPartView>>;
   readContent(accountId: string, locator: ProviderMessageLocator, request: MailContentReadInput): Promise<MailContentChunk>;
-  beginConnection(provider: "gmail" | "graph", reconnectAccountId?: string): Promise<MailConnectionStarted>;
+  beginConnection(provider: "gmail" | "graph", reconnectAccountId?: string, personal?: boolean): Promise<MailConnectionStarted>;
   connectionStatus(connectionId: string): Promise<MailConnectionStatus>;
   cancelConnection(connectionId: string): Promise<void>;
   disconnectAccount(accountId: string): Promise<void>;

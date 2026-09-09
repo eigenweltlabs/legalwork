@@ -107,6 +107,15 @@ export async function discoverMailIdentity(input: {
       return { provider: "gmail", authority: "https://accounts.google.com", providerSubject: user.sub,
         tenantId: null, email: profile.emailAddress, displayName: name(user.name) };
     }
+    if (settings.tenantId === "consumers") {
+      // The fixed consumers token endpoint selects the personal-account authority.
+      // Graph /organization is unavailable to personal accounts; /me supplies identity.
+      const user = await get(GRAPH_ME);
+      if (!record(user) || typeof user.id !== "string" || !/^[A-Za-z0-9_-]{1,256}$/.test(user.id) || !email(user.mail))
+        throw new MailIdentityError("response_invalid");
+      return { provider: "graph", authority: "https://login.microsoftonline.com/consumers/v2.0",
+        providerSubject: user.id, tenantId: "consumers", email: user.mail, displayName: name(user.displayName) };
+    }
     const organization = await get(GRAPH_ORGANIZATION);
     if (!record(organization) || organization["@odata.nextLink"] !== undefined || !Array.isArray(organization.value) || organization.value.length !== 1
       || !record(organization.value[0]) || typeof organization.value[0].id !== "string" || !GUID.test(organization.value[0].id)) throw new MailIdentityError("response_invalid");
