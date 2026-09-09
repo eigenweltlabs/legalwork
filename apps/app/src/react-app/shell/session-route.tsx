@@ -7,6 +7,7 @@ import {
   useState,
 } from "react";
 import { useLocation, useNavigate, useParams } from "react-router-dom";
+import { MailRoute } from "../domains/mail/mail-route";
 import { EvalsPane } from "./evals-route";
 import { RecorderPane } from "../domains/recorder/recorder-pane";
 import { PremiumUpsellHost } from "../domains/recorder/premium-upsell-context";
@@ -326,6 +327,7 @@ export function SessionRoute() {
     () => new URLSearchParams(location.search).get("detached") === "1",
     [location.search],
   );
+  const showMail = location.pathname === "/mail";
   const [showEvals, setShowEvals] = useState(false);
   // Top-level pages that live in the main shell (sidebar stays, main pane swaps),
   // same mechanism as Evals. Mutually exclusive — only one main pane at a time.
@@ -333,23 +335,26 @@ export function SessionRoute() {
   const [showExtensions, setShowExtensions] = useState(false);
   const [showRecorder, setShowRecorder] = useState(false);
   const showEvalsPane = useCallback(() => {
+    if (showMail) navigate("/session");
     setShowEvals(true);
     setShowWorkflows(false);
     setShowExtensions(false);
     setShowRecorder(false);
-  }, []);
+  }, [showMail, navigate]);
   const showWorkflowsPane = useCallback(() => {
+    if (showMail) navigate("/session");
     setShowWorkflows(true);
     setShowEvals(false);
     setShowExtensions(false);
     setShowRecorder(false);
-  }, []);
+  }, [showMail, navigate]);
   const showRecorderPane = useCallback(() => {
+    if (showMail) navigate("/session");
     setShowRecorder(true);
     setShowEvals(false);
     setShowWorkflows(false);
     setShowExtensions(false);
-  }, []);
+  }, [showMail, navigate]);
   const platform = usePlatform();
   const { config: shellConfig } = useShellConfig();
   const local = useLocal();
@@ -1962,7 +1967,7 @@ export function SessionRoute() {
         // One reused SettingsSurface instance across the pages — it follows `initialPath`
         // via an effect, so switching Workflows <-> Integrations is instant and doesn't
         // re-fetch the workspace/stores.
-        showWorkflows ? (
+        showMail ? <MailRoute /> : showWorkflows ? (
           // onClose drops the pane so actions that navigate to a session (e.g.
           // opening the workflow-generation session) always reveal the chat —
           // even when the target session is already the selected one and the
@@ -2012,7 +2017,7 @@ export function SessionRoute() {
         onShowWorkflows: showWorkflowsPane,
         onShowExtensions: () => navigate(`/workspace/${encodeURIComponent(selectedWorkspaceId)}/settings/extensions/mcp`),
         onShowRecorder: showRecorderPane,
-        activeNav: showWorkflows ? "workflows" : showExtensions ? "extensions" : showEvals ? "evals" : showRecorder ? "recorder" : null,
+        activeNav: showMail ? "mail" : showWorkflows ? "workflows" : showExtensions ? "extensions" : showEvals ? "evals" : showRecorder ? "recorder" : null,
         workspaceSessionGroups,
         selectedWorkspaceId,
         selectedSessionId,

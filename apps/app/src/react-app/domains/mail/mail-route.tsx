@@ -1,6 +1,5 @@
 /** @jsxImportSource react */
 import { useEffect, useRef, useState } from 'react';
-import { Link } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { resolveLegalworkConnection } from '../../shell/legalwork-connection';
 import { MailClient, UnifiedMailPages, bodyEnvelope, type MailAccountView, type MailFolderView, type MailMessageView, type MailPartView, type SyncStatus } from './mail-client';
@@ -140,8 +139,8 @@ export function MailRoute() {
     catch (error) {
         setError(textError(error));
     } }
-    return <main className="flex h-screen flex-col bg-background text-foreground" aria-label="Local mail">
-    <header className="flex flex-wrap items-center gap-3 border-b p-4"><Link to="/session" className="underline">← Tasks</Link><h1 className="text-xl font-semibold">Mail</h1><span className="text-sm text-muted-foreground">Stored on this computer</span><div className="ml-auto flex gap-2"><Button variant="outline" onClick={() => { purge(); setConnectionRevision(value => value + 1); setRevision(value => value + 1); }}>Refresh</Button></div></header>
+    return <main className="flex h-full min-h-0 flex-col bg-background text-foreground" aria-label="Local mail">
+    <header className="flex flex-wrap items-center gap-3 border-b p-4"><h1 className="text-xl font-semibold">Mail</h1><span className="text-sm text-muted-foreground">Stored on this computer</span><div className="ml-auto flex gap-2"><Button variant="outline" onClick={() => { purge(); setConnectionRevision(value => value + 1); setRevision(value => value + 1); }}>Refresh</Button></div></header>
     {error && <p role="alert" className="border-b p-3 text-destructive">{error}</p>}
     {locked ? <div className="m-auto max-w-md p-8"><h2 className="text-lg font-medium" role="status">{error ? 'Mail is unavailable' : 'Opening mail…'}</h2>{error && <Button className="mt-3" onClick={() => { setError(''); setConnectionRevision(value => value + 1); setRevision(value => value + 1); }}>Retry</Button>}</div> : <div className="grid min-h-0 flex-1 grid-cols-[190px_minmax(240px,1fr)_minmax(320px,2fr)] max-lg:grid-cols-[150px_1fr]">
       <nav aria-label="Mail accounts and folders" className="overflow-auto border-r p-3 space-y-3"><button className="block w-full rounded p-2 text-left hover:bg-muted" aria-current={!account ? 'page' : undefined} onClick={() => { setThread(undefined); setFolder(''); setInbox(true); setAccount(''); }}>Unified Inbox</button><button className="block w-full rounded p-2 text-left" onClick={() => { setThread(undefined); setFolder(''); setInbox(false); setAccount(''); }}>All stored mail</button>
