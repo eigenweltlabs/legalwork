@@ -10,6 +10,7 @@ import {migrateMailSchema,MAIL_SCHEMA_VERSION} from '../storage/schema.js';
 import {MailRepository} from '../storage/repository.js';
 import {MailCredentialRepository} from '../storage/credentials.js';
 import {MailContentStore} from '../storage/content-store.js';
+import {assertMailSchema} from '../storage/consistency.js';
 import {GraphState} from '../storage/graph-state.js';
 import {GraphBackfill} from './graph-backfill.js';
 import {GraphReadTransport,graphContinuation,GraphTransportError} from './graph.js';
@@ -125,4 +126,31 @@ test('folder hierarchy application yields after 100 rows and resumes staged curs
  f.db.transaction(()=>{for(let i=0;i<205;i++){const id='bulk-'+String(i).padStart(3,'0');f.db.run("INSERT INTO mail_graph_delta(account_id,folder_id,refresh,metadata_json) VALUES('a',?,0,?)",[id,JSON.stringify({id,displayName:id,parentFolderId:'root',childFolderCount:0})]);}f.db.run("UPDATE mail_graph_runs SET generation=lower(hex(randomblob(16)))");f.db.run("UPDATE mail_graph_poll SET phase='create',apply_after='',poll_at=NULL");});
  let paused=false;const observer=setInterval(()=>{const row=f.db.get('SELECT phase,apply_after FROM mail_graph_poll');if(!paused&&row.phase==='create'&&row.apply_after>='bulk-000'){paused=true;e.pause('a');}},0);
  try{e.start('a');await until(()=>paused);const cursor=f.db.get('SELECT apply_after FROM mail_graph_poll').apply_after;assert.ok(cursor>='bulk-000'&&cursor<'bulk-204');clearInterval(observer);await f.reopen();const next=f.make();next.start('a');await until(()=>next.status('a').state==='complete');assert.equal(f.db.get("SELECT count(*) AS n FROM mail_folders WHERE id GLOB 'bulk-*'").n,205);}finally{clearInterval(observer);}
+}));
+
+test('a revived folder discovers its newly created parent before applying the hierarchy',()=>fixture(async f=>{
+ const t=fakeTransport();let changed=false,rechecks=0,parentReads=0;
+ const e=f.make({transport:()=>({...t,async getFolder(id){
+  if(changed&&id==='nested'){
+   if(++rechecks===1)throw new GraphTransportError('not_found');
+   return {...await t.getFolder(id),parentFolderId:'new-parent'};
+  }
+  if(id==='new-parent')parentReads++;
+  return t.getFolder(id);
+ }})});
+ e.start('a');await until(()=>e.status('a').state==='complete');e.pause('a');await delay(20);
+ changed=true;f.db.run('UPDATE mail_graph_poll SET poll_at=0');e.start('a');
+ await until(()=>rechecks>=2&&['complete','attention'].includes(e.status('a').state));
+ assert.equal(e.status('a').state,'complete');assert.equal(parentReads,1);
+ assert.equal(f.db.get("SELECT parent_id FROM mail_folders WHERE id='nested'").parent_id,'new-parent');
+ assert.equal(f.db.get('SELECT folder_id FROM mail_memberships WHERE message_key=?',[JSON.stringify(['graph','two'])]).folder_id,'nested');
+}));
+
+test('startup rejects a current-version store with incomplete delta state without repairing it',()=>fixture(async f=>{
+ assertMailSchema(f.db);
+ const before=f.db.all('SELECT * FROM mail_accounts ORDER BY id');
+ f.db.exec('ALTER TABLE mail_graph_poll DROP COLUMN apply_after');
+ assert.throws(()=>assertMailSchema(f.db),/schema/);
+ assert.deepEqual(f.db.all('SELECT * FROM mail_accounts ORDER BY id'),before);
+ assert.equal(f.db.get("SELECT name FROM pragma_table_info('mail_graph_poll') WHERE name='apply_after'"),undefined);
 }));
