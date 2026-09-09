@@ -53,7 +53,7 @@ test('actual renderer completes browser onboarding and confines iCloud passwords
       assert.equal(await run("JSON.stringify(localStorage).includes('synthetic-app-password')"),false);
       await new Promise(r=>setTimeout(r,100));
       await run("[...document.querySelectorAll('button')].find(b=>b.textContent==='Cancel').click()");
-      await until("document.body.textContent.includes('Connection cancelled.')");
+      await until("document.body.textContent.includes('Cancellation requested.')");
       assert.equal(await run('window.__changed'),1);console.log('ONBOARDING_PASS');win.destroy();app.quit();
     }).catch(error=>{console.error(error);app.exit(1)});
   `);
