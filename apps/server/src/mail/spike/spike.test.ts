@@ -111,3 +111,40 @@ test('process death before COMMIT rolls back the checkpoint on a fresh open', as
   const store = await openSpike(path);
   try { assert.equal(store.checkpoint('crash'), initial); } finally { store.close(); }
 }));
+
+
+test('invalid page and attachment continuations preserve the previous page and permit retry', async () => temporary(async path => {
+  const store = await openSpike(path);
+  try {
+    await store.syncPage('a', fixture());
+    const invalidLinks = [
+      '', '/relative', `${origin}.evil.invalid/steal`,
+      'https://user:pass@graph.microsoft.com/v1.0/me/messages/delta',
+      `${initial}#fragment`,
+    ];
+    for (const location of ['page', 'attachments']) {
+      for (const link of invalidLinks) {
+        const transport: Transport = async request => {
+          if (location === 'page' && request.url === page2) return json({ value: [message('two')], '@odata.nextLink': link });
+          if (location === 'attachments' && request.url.endsWith('/attachments')) return json({
+            value: [{ id: 'file', name: 'synthetic.bin', '@odata.type': '#microsoft.graph.fileAttachment' }],
+            '@odata.nextLink': link,
+          });
+          return fixture()(request);
+        };
+        await assert.rejects(store.syncPage('a', transport), /Untrusted continuation/);
+        assert.equal(store.checkpoint('a'), page2);
+        assert.ok(store.read('a', 'one'));
+        assert.equal(store.read('a', 'two') ?? null, null);
+        assert.equal(store.attachments('a', 'two').length, 0);
+        assert.equal(store.search('a', 'Vertrag').length, 1);
+      }
+    }
+    const calls: string[] = [];
+    assert.deepEqual(await store.syncPage('a', fixture(false, calls)), { count: 1, complete: true });
+    assert.equal(calls[0], page2);
+    assert.equal(store.checkpoint('a'), delta);
+    assert.equal(store.attachments('a', 'two').length, 2);
+    assert.equal(store.search('a', 'Vertrag').length, 2);
+  } finally { store.close(); }
+}));
