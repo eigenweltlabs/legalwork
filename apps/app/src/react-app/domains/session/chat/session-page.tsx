@@ -109,7 +109,9 @@ export type SessionPageSidebarProps = {
   onShowWorkflows?: () => void;
   onShowExtensions?: () => void;
   onShowRecorder?: () => void;
-  activeNav?: "evals" | "workflows" | "extensions" | "recorder" | null;
+  /** Omitted when the firm's plan has no intake, which hides the nav row. */
+  onShowTasks?: () => void;
+  activeNav?: "evals" | "workflows" | "extensions" | "recorder" | "tasks" | null;
   workspaceSessionGroups: WorkspaceSessionGroup[];
   selectedWorkspaceId: string;
   selectedSessionId: string | null;
@@ -930,6 +932,7 @@ export function SessionPage(props: SessionPageProps) {
           onShowWorkflows={props.sidebar.onShowWorkflows}
           onShowExtensions={props.sidebar.onShowExtensions}
           onShowRecorder={props.sidebar.onShowRecorder}
+          onShowTasks={props.sidebar.onShowTasks}
           activeNav={props.sidebar.activeNav}
           onReorderWorkspaces={props.sidebar.onReorderWorkspaces}
           onStartResize={startLeftSidebarResize}

@@ -9,6 +9,7 @@ import {
 import { useLocation, useNavigate, useParams } from "react-router-dom";
 import { EvalsPane } from "./evals-route";
 import { RecorderPane } from "../domains/recorder/recorder-pane";
+import { TasksPane } from "../domains/tasks/tasks-pane";
 import { PremiumUpsellHost } from "../domains/recorder/premium-upsell-context";
 import {
   RECORDER_TRANSCRIPT_EVENT,
@@ -332,23 +333,34 @@ export function SessionRoute() {
   const [showWorkflows, setShowWorkflows] = useState(false);
   const [showExtensions, setShowExtensions] = useState(false);
   const [showRecorder, setShowRecorder] = useState(false);
+  const [showTasks, setShowTasks] = useState(false);
   const showEvalsPane = useCallback(() => {
     setShowEvals(true);
     setShowWorkflows(false);
     setShowExtensions(false);
     setShowRecorder(false);
+    setShowTasks(false);
   }, []);
   const showWorkflowsPane = useCallback(() => {
     setShowWorkflows(true);
     setShowEvals(false);
     setShowExtensions(false);
     setShowRecorder(false);
+    setShowTasks(false);
   }, []);
   const showRecorderPane = useCallback(() => {
     setShowRecorder(true);
     setShowEvals(false);
     setShowWorkflows(false);
     setShowExtensions(false);
+    setShowTasks(false);
+  }, []);
+  const showTasksPane = useCallback(() => {
+    setShowTasks(true);
+    setShowEvals(false);
+    setShowWorkflows(false);
+    setShowExtensions(false);
+    setShowRecorder(false);
   }, []);
   const platform = usePlatform();
   const { config: shellConfig } = useShellConfig();
@@ -843,6 +855,12 @@ export function SessionRoute() {
     eigenweltEntitlementsQuery.data?.entitlements,
     "premium_models",
   );
+  // Tasks (the firm's intake inbox) only exists for a connected firm whose plan
+  // includes it; the same query already runs for the model list, so this is a
+  // read, not another fetch.
+  const intakeEntitled =
+    Boolean(eigenweltEntitlementsQuery.data?.connected) &&
+    hasEigenweltFeature(eigenweltEntitlementsQuery.data?.entitlements, "intake");
   const engineEigenweltModelIds = useMemo(() => {
     const list = providerListQuery.data;
     if (!list) return null;
@@ -1815,6 +1833,7 @@ export function SessionRoute() {
     setShowEvals(false);
     setShowWorkflows(false);
     setShowExtensions(false);
+    setShowTasks(false);
   }, [selectedSessionId, selectedWorkspaceId]);
 
   return (
@@ -1981,6 +2000,21 @@ export function SessionRoute() {
           <SettingsSurface embedded singleView initialPath="extensions" workspaceId={selectedWorkspaceId} />
         ) : showEvals ? (
           <EvalsPane workspaceId={selectedWorkspaceId} />
+        ) : showTasks ? (
+          <TasksPane
+            client={client}
+            workspaceId={selectedWorkspaceId}
+            baseUrl={baseUrl}
+            token={token}
+            workspaces={sidebarWorkspaces}
+            defaultModel={local.prefs.defaultModel}
+            onOpenSession={(workspaceId, sessionId) => {
+              setShowTasks(false);
+              writeActiveWorkspaceId(workspaceId || null);
+              writeLastSessionFor(workspaceId, sessionId);
+              navigateToWorkspaceSession(workspaceId, sessionId);
+            }}
+          />
         ) : showRecorder ? (
           <RecorderPane
             workspacePath={selectedWorkspaceRoot ?? null}
@@ -2015,7 +2049,11 @@ export function SessionRoute() {
         onShowWorkflows: showWorkflowsPane,
         onShowExtensions: () => navigate(`/workspace/${encodeURIComponent(selectedWorkspaceId)}/settings/extensions/mcp`),
         onShowRecorder: showRecorderPane,
-        activeNav: showWorkflows ? "workflows" : showExtensions ? "extensions" : showEvals ? "evals" : showRecorder ? "recorder" : null,
+        // Entitlement gate for the whole Tasks surface: without the handler the
+        // sidebar renders no row at all, so a firm whose plan lacks intake (or
+        // whose subscription lapsed) simply never sees it.
+        onShowTasks: intakeEntitled ? showTasksPane : undefined,
+        activeNav: showWorkflows ? "workflows" : showExtensions ? "extensions" : showEvals ? "evals" : showRecorder ? "recorder" : showTasks ? "tasks" : null,
         workspaceSessionGroups,
         selectedWorkspaceId,
         selectedSessionId,
@@ -2077,6 +2115,7 @@ export function SessionRoute() {
           setShowWorkflows(false);
           setShowExtensions(false);
           setShowRecorder(false);
+          setShowTasks(false);
           setLegacySelectedWorkspaceId(workspaceId);
           writeActiveWorkspaceId(workspaceId || null);
           writeLastSessionFor(workspaceId, sessionId);
@@ -2126,6 +2165,7 @@ export function SessionRoute() {
           setShowEvals(false);
           setShowWorkflows(false);
           setShowExtensions(false);
+          setShowTasks(false);
           handleOpenCreateWorkspace();
         },
         onCreateChatInNewWorkspace: () => {
