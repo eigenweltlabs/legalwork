@@ -9,6 +9,7 @@ import { isAbsolute } from "node:path";
 import { openEncryptedMailDatabase } from "../storage/database.js";
 import type { MailDatabase } from "../storage/database-interface.js";
 import { MailRepository } from "../storage/repository.js";
+import { MailReadStore } from "../storage/read-store.js";
 import { MAIL_SCHEMA_VERSION, migrateMailSchema } from "../storage/schema.js";
 import { assertMailSchema } from "../storage/consistency.js";
 import { MAX_WORKER_MESSAGE_BYTES, parseParentMessage, parseWorkerMessage,
@@ -16,6 +17,7 @@ import { MAX_WORKER_MESSAGE_BYTES, parseParentMessage, parseWorkerMessage,
 
 let database: MailDatabase | undefined;
 let repository: MailRepository | undefined;
+let reads: MailReadStore | undefined;
 let controller: MailConnectionController | undefined;
 let closingController: Promise<void> | undefined;
 let credentials: MailCredentialRepository | undefined;
@@ -53,6 +55,7 @@ async function finish(): Promise<void> {
   try { database?.close(); } catch { exitCode = 1; }
   database = undefined;
   repository = undefined;
+  reads = undefined;
   process.stdout.end(() => { clearTimeout(exitTimer); process.exit(exitCode); });
 }
 function shutdown(code = 0): void {
@@ -87,6 +90,7 @@ async function initialize(value: WorkerInitialization): Promise<void> {
     migrateMailSchema(database);
     assertMailSchema(database);
     repository = new MailRepository(database, value.ownerId);
+    reads = new MailReadStore(database, value.ownerId);
     credentials = new MailCredentialRepository(database, value.ownerId);
     controller = new MailConnectionController({ database, ownerId: value.ownerId });
     access = new MailAccessCoordinator({ database, ownerId: value.ownerId, loadProviderSettings: async binding => {
@@ -121,7 +125,7 @@ function pageResult(id: string, items: WorkerAccount[] | WorkerFolder[], hasMore
   return accepted;
 }
 async function request(message: Extract<ParentMessage, { kind: "request" }>): Promise<void> {
-  if (phase !== "ready" || !repository || !controller || !credentials || !backfill || !database) {
+  if (phase !== "ready" || !repository || !reads || !controller || !credentials || !backfill || !database) {
     write({ kind: "response", id: message.id, ok: false, code: "not_ready" }); return;
   }
   const command = message.command;
@@ -168,6 +172,25 @@ async function request(message: Extract<ParentMessage, { kind: "request" }>): Pr
         } else result = { sync: command.operation === "mail.sync.stop" ? backfill.pause(command.accountId) : backfill.status(command.accountId) };
         break;
       }
+      case "mail.messages.list":
+      case "mail.messages.read":
+      case "mail.parts.list":
+      case "mail.content.read": {
+        if (credentials.status(command.accountId).state === "disconnected") throw locked;
+        if (command.operation === "mail.messages.read") result = { message: reads.read(command.accountId, command.locator) };
+        else if (command.operation === "mail.content.read") result = { content: reads.chunk(command.accountId, command.locator, command.request) };
+        else {
+          const page: { messages: ReturnType<MailReadStore["list"]> } | { parts: ReturnType<MailReadStore["parts"]> } = command.operation === "mail.messages.list" ? { messages: reads.list(command.accountId, command.page) } : { parts: reads.parts(command.accountId, command.locator, command.page) };
+          // Bound the encoded response while preserving the last returned key as continuation.
+          const collection = "messages" in page ? page.messages : page.parts;
+          const hadItems = collection.items.length > 0;
+          while (collection.items.length && Buffer.byteLength(JSON.stringify({ kind: "response", id: message.id, ok: true, result: page })) > MAX_WORKER_MESSAGE_BYTES) {
+            collection.items.pop(); collection.nextCursor = collection.items.at(-1)?.key ?? null;
+          }
+          result = hadItems && collection.items.length === 0 ? undefined : page;
+        }
+        break;
+      }
       case "credentials.update":
         write({ kind: "response", id: message.id, ok: false, code: "unsupported" }); return;
     }
@@ -182,7 +205,7 @@ async function request(message: Extract<ParentMessage, { kind: "request" }>): Pr
       (error instanceof MailConnectionError && (error.code === "not_found" || error.code === "account_not_found"))
       || (error instanceof MailCredentialError && error.code === "account_not_found")
       || (error instanceof GmailBackfillError && error.code === "not_found")
-      || (error instanceof Error && error.message === "Mail account not found") ? "not_found" : "operation_failed";
+      || (error instanceof Error && ["Mail account not found", "Mail message not found", "Mail content not found"].includes(error.message)) ? "not_found" : "operation_failed";
     write({ kind: "response", id: message.id, ok: false, code });
   }
 }

@@ -2,6 +2,9 @@ import { GMAIL_MAIL_SCOPES, GRAPH_MAIL_SCOPES } from "../provider-config.js";
 import type { MailOAuthSettings } from "../providers/oauth.js";
 import type { MailConnectionStatus } from "../providers/connection-controller.js";
 import { mailSyncViewSchema, type MailSyncView } from "../sync-view.js";
+import { providerMessageKey, providerMessageLocatorSchema, type ProviderMessageLocator } from "../model.js";
+import { mailMessagePageSchema, mailMessageViewSchema, mailMessageListSchema, mailPartPageSchema, mailPartListSchema, mailContentReadSchema, mailContentChunkSchema,
+  type MailMessagePageInput, type MailPartPageInput, type MailContentReadInput, type MailMessageView, type MailPartView, type MailContentChunk } from "../read-view.js";
 /** Private parent/worker protocol. No public SQL, filesystem or network command surface. */
 export const MAIL_WORKER_PROTOCOL = 1;
 export const MAX_WORKER_MESSAGE_BYTES = 64 * 1024;
@@ -32,6 +35,10 @@ export type WorkerCommand =
   | { operation: "mail.account.disconnect"; accountId: string }
   | ({ operation: "mail.accounts.list" } & Page)
   | ({ operation: "mail.folders.list"; accountId: string } & Page)
+  | { operation: "mail.messages.list"; accountId: string; page: MailMessagePageInput }
+  | { operation: "mail.messages.read"; accountId: string; locator: ProviderMessageLocator }
+  | { operation: "mail.parts.list"; accountId: string; locator: ProviderMessageLocator; page: MailPartPageInput }
+  | { operation: "mail.content.read"; accountId: string; locator: ProviderMessageLocator; request: MailContentReadInput }
   | { operation: "mail.status"; accountId: string }
   | { operation: "mail.sync.start"; accountId: string; settings: MailOAuthSettings }
   | { operation: "mail.sync.stop"; accountId: string }
@@ -50,6 +57,10 @@ export type WorkerResult =
   | { sync: MailSyncView }
   | { accounts: WorkerAccount[]; nextCursor: string | null }
   | { folders: WorkerFolder[]; nextCursor: string | null }
+  | { messages: { accountId: string; items: MailMessageView[]; nextCursor: string | null } }
+  | { message: MailMessageView }
+  | { parts: { accountId: string; locator: ProviderMessageLocator; items: MailPartView[]; nextCursor: string | null } }
+  | { content: MailContentChunk }
   | { accepted: true }
   | { updated: true };
 export type WorkerErrorCode = "locked" | "not_ready" | "unsupported" | "operation_failed" | "not_found" | "response_too_large";
@@ -139,6 +150,10 @@ function result(value: unknown): value is WorkerResult {
     || (exact(value, ["state", "syncSupported"]) && (value.state === "idle" || value.state === "syncing") && typeof value.syncSupported === "boolean")
     || (exact(value, ["encrypted", "schemaVersion", "syncSupported"]) && value.encrypted === true && typeof value.syncSupported === "boolean" && Number.isSafeInteger(value.schemaVersion) && typeof value.schemaVersion === "number" && value.schemaVersion > 0)
     || (exact(value, ["sync"]) && mailSyncViewSchema.safeParse(value.sync).success)
+    || (exact(value, ["messages"]) && mailMessageListSchema.safeParse(value.messages).success)
+    || (exact(value, ["message"]) && mailMessageViewSchema.safeParse(value.message).success)
+    || (exact(value, ["parts"]) && mailPartListSchema.safeParse(value.parts).success)
+    || (exact(value, ["content"]) && mailContentChunkSchema.safeParse(value.content).success)
     || (exact(value, ["accounts", "nextCursor"]) && Array.isArray(value.accounts) && value.accounts.length <= MAX_WORKER_PAGE_SIZE && value.accounts.every(account) && cursor(value.nextCursor))
     || (exact(value, ["folders", "nextCursor"]) && Array.isArray(value.folders) && value.folders.length <= MAX_WORKER_PAGE_SIZE && value.folders.every(folder) && cursor(value.nextCursor))
     || (exact(value, ["accepted"]) && value.accepted === true)
@@ -172,6 +187,13 @@ export function resultMatchesCommand(command: WorkerCommand, value: WorkerResult
     case "mail.storage.status": return "encrypted" in value;
     case "mail.accounts.list": return "accounts" in value;
     case "mail.folders.list": return "folders" in value;
+    case "mail.messages.list": return "messages" in value && value.messages.accountId === command.accountId && value.messages.items.every(item => item.accountId === command.accountId);
+    case "mail.messages.read": return "message" in value && value.message.accountId === command.accountId && providerMessageKey(value.message.locator) === providerMessageKey(command.locator);
+    case "mail.parts.list": return "parts" in value && value.parts.accountId === command.accountId && providerMessageKey(value.parts.locator) === providerMessageKey(command.locator);
+    case "mail.content.read": return "content" in value && value.content.accountId === command.accountId && providerMessageKey(value.content.locator) === providerMessageKey(command.locator)
+      && value.content.referenceId === command.request.referenceId && value.content.offset === (command.request.offset ?? 0)
+      && Buffer.from(value.content.data, "base64").byteLength <= (command.request.limit ?? 24576)
+      && value.content.offset + Buffer.from(value.content.data, "base64").byteLength === (value.content.nextOffset ?? value.content.totalBytes);
     case "mail.status": return "sync" in value && value.sync.accountId === command.accountId;
     case "credentials.update": return "updated" in value;
     case "mail.sync.start":
@@ -180,6 +202,10 @@ export function resultMatchesCommand(command: WorkerCommand, value: WorkerResult
 }
 export function validWorkerCommand(value: unknown): value is WorkerCommand {
   if (!record(value)) return false;
+  if (value.operation === "mail.messages.list") return exact(value, ["operation", "accountId", "page"]) && id(value.accountId) && mailMessagePageSchema.safeParse(value.page).success;
+  if (value.operation === "mail.messages.read") return exact(value, ["operation", "accountId", "locator"]) && id(value.accountId) && providerMessageLocatorSchema.safeParse(value.locator).success;
+  if (value.operation === "mail.parts.list") return exact(value, ["operation", "accountId", "locator", "page"]) && id(value.accountId) && providerMessageLocatorSchema.safeParse(value.locator).success && mailPartPageSchema.safeParse(value.page).success;
+  if (value.operation === "mail.content.read") return exact(value, ["operation", "accountId", "locator", "request"]) && id(value.accountId) && providerMessageLocatorSchema.safeParse(value.locator).success && mailContentReadSchema.safeParse(value.request).success;
   if (value.operation === "mail.sync.start") return exact(value, ["operation", "accountId", "settings"])
     && id(value.accountId) && settings(value.settings) && value.settings.provider === "gmail";
   if (value.operation === "mail.connection.begin") return Object.keys(value).every(key => ["operation", "settings", "reconnectAccountId"].includes(key))

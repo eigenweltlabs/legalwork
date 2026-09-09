@@ -116,6 +116,28 @@ export class MailContentStore {
     const publication = publicationRow.parse(raw);
     yield* this.readObject(accountId, publication.object_id, publication.bytes, publication.chunk_count, publication.sha256);
   }
+  /** Bounded random access for the private worker protocol. The caller must verify
+   * the complete assembled object's SHA-256; a range is not a full-object attestation. */
+  readRange(accountId: string, referenceId: string, offset: number, limit: number) {
+    this.account(accountId);
+    z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER).parse(offset);
+    z.number().int().min(1).max(24576).parse(limit);
+    const row = this.database.get(`SELECT p.object_id,r.bytes,r.sha256,o.chunk_count FROM mail_blob_publications p
+      JOIN mail_content_refs r ON r.account_id=p.account_id AND r.id=p.ref_id
+      JOIN mail_blob_objects o ON o.account_id=p.account_id AND o.id=p.object_id
+      WHERE p.account_id=? AND p.ref_id=? AND o.state='published'`, [accountId, id.parse(referenceId)]);
+    if (!row) throw new Error("Durable content bytes are unavailable");
+    const publication = publicationRow.parse(row);
+    if (offset > publication.bytes || publication.chunk_count !== Math.ceil(publication.bytes / MAIL_CONTENT_CHUNK_BYTES)) throw new Error("Invalid durable range");
+    const end = offset + Math.min(limit, publication.bytes - offset), pieces: Uint8Array[] = [];
+    for (let ordinal = Math.floor(offset / MAIL_CONTENT_CHUNK_BYTES); ordinal < Math.ceil(end / MAIL_CONTENT_CHUNK_BYTES); ordinal++) {
+      const value = this.database.get("SELECT data FROM mail_blob_chunks WHERE account_id=? AND object_id=? AND ordinal=?", [accountId, publication.object_id, ordinal])?.data;
+      const start = ordinal * MAIL_CONTENT_CHUNK_BYTES;
+      if (!(value instanceof Uint8Array) || value.byteLength !== Math.min(MAIL_CONTENT_CHUNK_BYTES, publication.bytes - start)) throw new Error("Durable content chunk is missing or invalid");
+      pieces.push(value.subarray(Math.max(0, offset - start), Math.min(value.byteLength, end - start)));
+    }
+    return { data: Buffer.concat(pieces).toString("base64"), totalBytes: publication.bytes, sha256: publication.sha256, nextOffset: end < publication.bytes ? end : null };
+  }
   private *readObject(accountId: string, objectId: string, expectedBytes: number, chunkCount: number, expectedHash: string): IterableIterator<Uint8Array> {
     if (chunkCount !== Math.ceil(expectedBytes / MAIL_CONTENT_CHUNK_BYTES)) throw new Error("Invalid durable chunk count");
     const digest = createHash("sha256");

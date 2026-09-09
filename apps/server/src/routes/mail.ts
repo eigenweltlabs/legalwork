@@ -2,6 +2,8 @@ import { ApiError } from "../errors.js";
 import { z } from "zod";
 import { MailServiceError, type MailPageInput, type MailService } from "../mail/service-interface.js";
 import { addRoute, type RequestContext, type Route } from "./registry.js";
+import { providerMessageLocatorSchema } from "../mail/model.js";
+import { mailMessagePageSchema, mailPartPageSchema, mailContentReadSchema } from "../mail/read-view.js";
 
 export function isMailLoopback(host: string): boolean {
   return host === "127.0.0.1" || host === "::1";
@@ -23,7 +25,7 @@ function pageInput(ctx: RequestContext, paginated: boolean): MailPageInput {
 function safeError(error: unknown): ApiError {
   if (error instanceof MailServiceError) {
     switch (error.code) {
-      case "not_found": return new ApiError(404, "mail_not_found", "Mail account not found");
+      case "not_found": return new ApiError(404, "mail_not_found", "Mail resource not found");
       case "locked": return new ApiError(423, "mail_locked", "Mail storage is locked");
       case "too_large": return new ApiError(413, "mail_response_too_large", "Mail response exceeds the supported size");
       case "unsupported": return new ApiError(501, "mail_provider_unsupported", "Synchronization is not available for this provider");
@@ -102,4 +104,22 @@ export function registerMailRoutes(routes: Route[], host: string, service?: Mail
   route("GET", "/accounts/:accountId/sync", false, ctx => service.syncStatus(ctx.params.accountId));
   route("POST", "/accounts/:accountId/sync/start", false, ctx => service.startSync(ctx.params.accountId));
   route("POST", "/accounts/:accountId/sync/pause", false, ctx => service.pauseSync(ctx.params.accountId));
+  function query<T>(path: string, schema: z.ZodType<T>, handler: (accountId: string, input: T) => Promise<unknown>) {
+    addRoute(routes, "POST", `/mail/v1/accounts/:accountId/messages/${path}`, "host-token", async ctx => {
+      if (ctx.actor?.type !== "host") throw new ApiError(401, "unauthorized", "Invalid host token");
+      pageInput(ctx, false);
+      if (ctx.request.headers.get("content-type")?.split(";")[0]?.trim().toLowerCase() !== "application/json") throw new ApiError(400, "mail_invalid_request", "Invalid mail request");
+      const raw = await readMailBody(ctx.request, 32768);
+      let value: unknown;
+      try { value = JSON.parse(raw); } catch { throw new ApiError(400, "mail_invalid_request", "Invalid mail request"); }
+      const parsed = schema.safeParse(value);
+      if (!parsed.success) throw new ApiError(400, "mail_invalid_request", "Invalid mail request");
+      try { return Response.json(await handler(ctx.params.accountId, parsed.data), { headers: { "Cache-Control": "no-store", "X-Content-Type-Options": "nosniff" } }); }
+      catch (error) { throw safeError(error); }
+    });
+  }
+  query("query", mailMessagePageSchema, (accountId, input) => service.listMessages(accountId, input));
+  query("read", z.object({ locator: providerMessageLocatorSchema }).strict(), (accountId, input) => service.readMessage(accountId, input.locator));
+  query("parts", z.object({ locator: providerMessageLocatorSchema, page: mailPartPageSchema.default({ limit: 50 }) }).strict(), (accountId, input) => service.listParts(accountId, input.locator, input.page));
+  query("content", z.object({ locator: providerMessageLocatorSchema, request: mailContentReadSchema }).strict(), (accountId, input) => service.readContent(accountId, input.locator, input.request));
 }
