@@ -1,7 +1,8 @@
+import { createRequire } from 'node:module';
 import {setTimeout as delay} from 'node:timers/promises';
 import {test,expect} from 'bun:test';
 import {execFileSync} from 'node:child_process';
-import {mkdtemp,symlink,writeFile,rm} from 'node:fs/promises';
+import {mkdtemp,realpath,symlink,writeFile,rm} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {randomBytes,randomUUID} from 'node:crypto';
@@ -16,12 +17,13 @@ test('actual HTTP drafts, immutable submission replay, events and encrypted work
  const envNames=['LEGALWORK_ENV_STORE','LEGALWORK_TOKEN_STORE','XDG_DATA_HOME'];const originalEnv=new Map(envNames.map(name=>[name,process.env[name]]));for(const name of envNames)process.env[name]=join(root,name);
  let service:LocalMailService|undefined;let server:Awaited<ReturnType<typeof startServer>>|undefined;
  try{
-  await writeFile(join(root,'package.json'),'{"type":"module"}');await symlink(join(serverRoot,'node_modules'),join(root,'node_modules'));
-  execFileSync('pnpm',['exec','tsc','--outDir',join(root,'build'),'--rootDir','src','--module','NodeNext','--moduleResolution','NodeNext','--target','ES2022','--strict','--skipLibCheck','--types','node,bun-types','src/mail/runtime/worker.ts'],{cwd:serverRoot,timeout:30000});
+  const nodePath=Bun.which('node');if(!nodePath)throw Error('Node required');
+  await writeFile(join(root,'package.json'),'{"type":"module"}');await symlink(await realpath(join(serverRoot,'node_modules')),join(root,'node_modules'),process.platform==='win32'?'junction':'dir');
+  execFileSync(nodePath,[createRequire(import.meta.url).resolve('typescript/bin/tsc'),'--outDir',join(root,'build'),'--rootDir','src','--module','NodeNext','--moduleResolution','NodeNext','--target','ES2022','--strict','--skipLibCheck','--types','node,bun-types','src/mail/runtime/worker.ts'],{cwd:serverRoot,timeout:30000});
   const module=(path:string)=>JSON.stringify(pathToFileURL(join(root,'build/mail',path+'.js')).href);
   const seed=`import {readFileSync} from 'node:fs';import {openEncryptedMailDatabase} from ${module('storage/database')};import {migrateMailSchema} from ${module('storage/schema')};import {MailRepository} from ${module('storage/repository')};import {MailCredentialRepository} from ${module('storage/credentials')};const input=JSON.parse(readFileSync(0,'utf8'));const key=Buffer.from(input.key,'base64');const db=await openEncryptedMailDatabase({path:input.path,key});key.fill(0);migrateMailSchema(db);for(const [owner,id,subject] of [['owner','a','Prüfung AZ-12/34.5'],['foreign-owner','foreign','Foreign secret']]){const repo=new MailRepository(db,owner);repo.createAccount({id,provider:'gmail',displayName:id});repo.ingestMessage(id,{locator:{provider:'gmail',messageId:'one'},rfcMessageId:null,subject,memberships:[]});}for(let i=0;i<25;i++)new MailRepository(db,'owner').ingestMessage('a',{locator:{provider:'gmail',messageId:'x'.repeat(4000)+i},rfcMessageId:null,subject:'large key',memberships:[]});new MailCredentialRepository(db,'owner').connect('a',{provider:'gmail',clientId:'synthetic.apps.googleusercontent.com',authority:'https://accounts.google.com',providerSubject:'a'},null,{accessToken:'synthetic',expiresAt:9999999999999,grantedScopes:null,refreshToken:{action:'clear'}});db.close();`;
-  execFileSync('node',['--input-type=module','-e',seed],{input:JSON.stringify({path:databasePath,key:key.toString('base64')}),timeout:10000});
-  const nodePath=Bun.which('node');if(!nodePath)throw Error('Node required');service=new LocalMailService({ownerId:'owner',databasePath,entryPoint:join(root,'build/mail/runtime/worker.js'),executable:{kind:'node',path:nodePath},loadKey:async()=>new Uint8Array(key)});
+  execFileSync(nodePath,['--input-type=module','-e',seed],{input:JSON.stringify({path:databasePath,key:key.toString('base64')}),timeout:10000});
+  service=new LocalMailService({ownerId:'owner',databasePath,entryPoint:join(root,'build/mail/runtime/worker.js'),executable:{kind:'node',path:nodePath},loadKey:async()=>new Uint8Array(key)});
   const config:ServerConfig={host:'127.0.0.1',port:0,token:'collaborator',hostToken:'host-secret',configPath:join(root,'server.json'),approval:{mode:'auto',timeoutMs:1000},corsOrigins:[],workspaces:[],authorizedRoots:[],readOnly:false,startedAt:Date.now(),tokenSource:'cli',hostTokenSource:'cli',logFormat:'pretty',logRequests:false};
   server=await startServer(config,{mail:service});const base=`http://127.0.0.1:${server.port}/mail/v1`;
   const post=(path:string,value:unknown,token='host-secret')=>fetch(base+path,{method:'POST',headers:{'content-type':'application/json','x-legalwork-host-token':token},body:JSON.stringify(value)});
