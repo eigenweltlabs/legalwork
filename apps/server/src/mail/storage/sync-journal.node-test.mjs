@@ -221,3 +221,120 @@ test("v2 upgrade is additive and atomic; future versions and failed DDL remain u
   assert.throws(() => migrateMailSchema(db), /Unsupported mail schema/);
   assert.equal(db.get("SELECT version FROM mail_schema_version").version, MAIL_SCHEMA_VERSION + 1);
 }));
+
+const followups = () => [{kind:"body",locator:locator("one")},{kind:"attachment",locator:locator("one"),partId:"p1"}];
+test("raw followups commit after enumeration and join every current/later parent scope across reopen", async () => fixture(async ({ db, journal, reopen }) => {
+  let j=journal({maxAttempts:2,retryBaseMs:12,retryMaxMs:24});
+  j.commitPage(page({discoveryComplete:true}),metadata);
+  j.commitPage(page({scopeId:"all-mail",discoveryComplete:true}),metadata);
+  j.commitPage(page({accountId:"b",discoveryComplete:true}),metadata);
+  j.commitPage(page({generation:"g2",discoveryComplete:true}),metadata);
+  const [parent]=j.claim(scope,1);
+  db=await reopen(); j=journal({maxAttempts:9,retryBaseMs:999,retryMaxMs:9999});
+  j.succeedWithFollowups("a",parent.id,parent.lease_token,[...followups(),...followups()],writer=>writer.setAttachmentsEnumerated(locator("one"),true));
+  db=await reopen(); j=journal();
+  for (const scopeId of ["inbox","all-mail"]) {
+    const status=j.status({...scope,scopeId});
+    assert.equal(status.checkpoint.discoveryComplete,true);
+    assert.equal(status.checkpoint.revision,1);
+    assert.equal(status.jobs.queued,2);assert.equal(status.jobs.succeeded,1);
+  }
+  assert.equal(j.status({...scope,accountId:"b"}).jobs.queued,1);
+  assert.equal(j.status({...scope,generation:"g2"}).jobs.queued,1);
+  j.commitPage(page({scopeId:"late-label",discoveryComplete:true}),metadata);
+  assert.deepEqual(j.status({...scope,scopeId:"late-label"}).jobs,j.status(scope).jobs);
+  const children=db.all("SELECT * FROM mail_sync_jobs WHERE account_id='a' AND generation='g1' AND kind!='raw'");
+  assert.equal(children.length,2);
+  assert.ok(children.every(job=>job.max_attempts===2 && job.retry_base_ms===12 && job.retry_max_ms===24));
+  assert.equal(new MailRepository(db,"owner-a").readMessage("a",locator("one")).contentState,"downloading");
+  assert.deepEqual(db.all("PRAGMA foreign_key_check"),[]);
+}));
+
+test("followup dedupe preserves succeeded/failed children and prohibits self or recursive part jobs", async () => fixture(({ db,journal }) => {
+  const j=journal();j.commitPage(page({jobs:[...page().jobs,...followups()]}),metadata);
+  const jobs=j.claim(scope,3);
+  const parent=jobs.find(job=>job.kind==='raw'),body=jobs.find(job=>job.kind==='body'),attachment=jobs.find(job=>job.kind==='attachment');
+  j.succeed("a",body.id,body.lease_token,()=>{});j.fail("a",attachment.id,attachment.lease_token,false);
+  j.succeedWithFollowups("a",parent.id,parent.lease_token,[...followups(),{kind:"attachment",locator:locator("one"),partId:"p2"}],()=>{});
+  assert.deepEqual(j.status(scope).jobs,{queued:1,running:0,retry:0,succeeded:2,failed:1});
+  assert.equal(db.get("SELECT attempts FROM mail_sync_jobs WHERE id=?",[body.id]).attempts,1);
+  const [part]=j.claim(scope,1);
+  assert.throws(()=>j.succeedWithFollowups("a",part.id,part.lease_token,followups(),()=>{}),/Only raw/);
+  j.succeedWithFollowups("a",part.id,part.lease_token,[],()=>{}); // Existing succeed behavior is preserved.
+}));
+
+test("followups reject identity/account/bounds misuse without invoking metadata or hiding work", async () => fixture(({ db,journal }) => {
+  const j=journal();j.commitPage(page(),metadata);const [parent]=j.claim(scope);
+  let called=0;
+  for(const children of [[{kind:"raw",locator:locator("one")}],[{kind:"body",locator:locator("different")}],
+    [{kind:"body",locator:{provider:"graph",messageId:"one"}}],[{...followups()[0],accountId:"b"}],Array.from({length:1001},()=>followups()[0])]) {
+    assert.throws(()=>j.succeedWithFollowups("a",parent.id,parent.lease_token,children,()=>{called++}));
+  }
+  assert.throws(()=>j.succeedWithFollowups("b",parent.id,parent.lease_token,followups(),()=>{called++}),/Stale/);
+  const foreign=new MailSyncJournal(db,"owner-b");
+  assert.throws(()=>foreign.succeedWithFollowups("a",parent.id,parent.lease_token,followups(),()=>{called++}),/Mail account not found/);
+  assert.equal(called,0);assert.equal(j.status(scope).jobs.running,1);
+  assert.equal(db.get("SELECT count(*) AS n FROM mail_sync_jobs").n,1);
+}));
+
+test("followup insertion failure and thenable callbacks roll back metadata, children and parent success", async () => fixture(async ({ db,journal }) => {
+  const j=journal();j.commitPage(page(),metadata);const [parent]=j.claim(scope);
+  let fault=true;
+  const faulty={...db,run(sql,parameters){const result=db.run(sql,parameters);if(fault && sql.includes('INSERT INTO mail_sync_jobs'))throw new Error('child insert interrupted');return result;}};
+  const writer=new MailSyncJournal(faulty,"owner-a",()=>1000);
+  assert.throws(()=>writer.succeedWithFollowups("a",parent.id,parent.lease_token,followups(),w=>w.setAttachmentsEnumerated(locator("one"),true)),/child insert interrupted/);
+  assert.equal(db.get("SELECT attachments_enumerated FROM mail_messages").attachments_enumerated,0);
+  assert.equal(db.get("SELECT count(*) AS n FROM mail_sync_jobs").n,1);
+  assert.equal(j.status(scope).jobs.running,1);
+  let delayed;
+  assert.throws(()=>j.succeedWithFollowups("a",parent.id,parent.lease_token,followups(),w=>{
+    w.setAttachmentsEnumerated(locator("one"),true);delayed=Promise.resolve().then(()=>w.setAttachmentsEnumerated(locator("one"),true));return delayed;
+  }),/thenables/);
+  await assert.rejects(delayed,/writer expired/);
+  assert.equal(db.get("SELECT attachments_enumerated FROM mail_messages").attachments_enumerated,0);
+  fault=false;
+  writer.succeedWithFollowups("a",parent.id,parent.lease_token,followups(),()=>{});
+  assert.equal(j.status(scope).jobs.queued,2);assert.equal(j.status(scope).jobs.succeeded,1);
+}));
+
+test("expired and replaced parent leases cannot enqueue children, including after callback expiry", async () => fixture(async ({ db,journal,setTime,reopen }) => {
+  let j=journal();j.commitPage(page(),metadata);const [old]=j.claim(scope,1,10);
+  assert.throws(()=>j.succeedWithFollowups("a",old.id,old.lease_token,followups(),writer=>{
+    writer.setAttachmentsEnumerated(locator("one"),true);setTime(1010);
+  }),/Stale/);
+  assert.equal(db.get("SELECT count(*) AS n FROM mail_sync_jobs").n,1);
+  assert.equal(db.get("SELECT attachments_enumerated FROM mail_messages").attachments_enumerated,0);
+  db=await reopen();j=journal();j.reclaimExpired("a");setTime(2010);const [current]=j.claim(scope);
+  let called=false;
+  assert.throws(()=>j.succeedWithFollowups("a",old.id,old.lease_token,followups(),()=>{called=true}),/Stale/);
+  assert.equal(called,false);
+  j.succeedWithFollowups("a",current.id,current.lease_token,followups(),()=>{});
+  assert.equal(j.status(scope).jobs.queued,2);
+}));
+
+for (const mode of ["before","after"]) test(`SIGKILL ${mode} followup commit preserves all-or-nothing discovery`,async()=>fixture(async({db,journal,path,key,close,reopen})=>{
+  const j=journal();j.commitPage(page({discoveryComplete:true}),metadata);const [parent]=j.claim(scope);
+  close();
+  const script=`
+    import {readFileSync} from 'node:fs';
+    import {openEncryptedMailDatabase} from ${JSON.stringify(new URL('./database.js',import.meta.url).href)};
+    import {MailSyncJournal} from ${JSON.stringify(new URL('./sync-journal.js',import.meta.url).href)};
+    const input=JSON.parse(readFileSync(0,'utf8'));const key=Buffer.from(input.key,'base64');
+    const db=await openEncryptedMailDatabase({path:input.path,key});key.fill(0);
+    const j=new MailSyncJournal(db,'owner-a',()=>1001);
+    j.succeedWithFollowups('a',input.parent.id,input.parent.lease_token,input.children,writer=>{
+      writer.setAttachmentsEnumerated({provider:'gmail',messageId:'one'},true);
+      if(input.mode==='before')process.kill(process.pid,'SIGKILL');
+    });
+    process.kill(process.pid,'SIGKILL');
+  `;
+  const result=spawnSync(process.execPath,['--input-type=module','--eval',script],{input:JSON.stringify({path,key:key.toString('base64'),parent,children:followups(),mode}),encoding:'utf8',env:{},timeout:10000});
+  assert.equal(result.signal,'SIGKILL');assert.equal(result.stdout,'');assert.equal(result.stderr,'');
+  db=await reopen();const recovered=journal();const committed=mode==='after';
+  assert.equal(db.get('SELECT attachments_enumerated FROM mail_messages').attachments_enumerated,committed?1:0);
+  assert.equal(recovered.status(scope).jobs.queued,committed?2:0);
+  assert.equal(recovered.status(scope).jobs.running,committed?0:1);
+  assert.equal(recovered.status(scope).jobs.succeeded,committed?1:0);
+  assert.equal(recovered.readCheckpoint(scope).discoveryComplete,true);
+  assert.deepEqual(db.all('PRAGMA foreign_key_check'),[]);
+}));

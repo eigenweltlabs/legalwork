@@ -25,6 +25,7 @@ const jobRow = z.object({ account_id: id, id, kind: z.enum(["raw", "body", "atta
   last_error: z.enum(["retryable", "permanent", "lease_expired"]).nullable() });
 export type SyncScope = z.infer<typeof scopeInput>;
 export type SyncPage = z.input<typeof pageInput>;
+export type SyncDownloadJob = z.input<typeof jobInput>;
 export type SyncRetryPolicy = z.input<typeof policyInput>;
 export type SyncJob = z.infer<typeof jobRow>;
 export type SyncCheckpoint = { cursor: string | null; revision: number; discoveryComplete: boolean };
@@ -85,6 +86,24 @@ export class MailSyncJournal {
     } finally { active = false; this.callbackActive = false; }
   }
   private operation(): void { if (this.callbackActive) throw new Error("Sync journal callbacks cannot reenter the journal"); }
+  private insertJob(accountId: string, generation: string, job: z.infer<typeof jobInput>, now: number, policy: z.infer<typeof policyInput>): string {
+    const key = providerMessageKey(job.locator);
+    this.database.run(`INSERT INTO mail_sync_jobs(account_id,id,kind,message_key,part_id,generation,state,attempts,max_attempts,retry_base_ms,retry_max_ms,available_at)
+      VALUES(?,?,?,?,?,?,'queued',0,?,?,?,?) ON CONFLICT(account_id,kind,message_key,part_id,generation) DO NOTHING`,
+    [accountId, randomUUID(), job.kind, key, job.partId, generation, policy.maxAttempts, policy.retryBaseMs, policy.retryMaxMs, now]);
+    const found = this.database.get("SELECT id FROM mail_sync_jobs WHERE account_id=? AND kind=? AND message_key=? AND part_id=? AND generation=?",
+      [accountId, job.kind, key, job.partId, generation]);
+    return id.parse(found?.id);
+  }
+  /** Same-message body/attachment work is the raw job's dependency closure, including later discovery/scopes. */
+  private linkMessageChildren(accountId: string, generation: string, messageKey: string): void {
+    this.database.run(`INSERT INTO mail_sync_scope_jobs(account_id,scope_id,generation,job_id)
+      SELECT s.account_id,s.scope_id,s.generation,c.id FROM mail_sync_jobs p
+      JOIN mail_sync_scope_jobs s ON s.account_id=p.account_id AND s.job_id=p.id AND s.generation=p.generation
+      JOIN mail_sync_jobs c ON c.account_id=p.account_id AND c.generation=p.generation AND c.message_key=p.message_key
+      WHERE p.account_id=? AND p.generation=? AND p.message_key=? AND p.kind='raw' AND c.kind IN ('body','attachment')
+      ON CONFLICT DO NOTHING`, [accountId, generation, messageKey]);
+  }
   /** Callback and new jobs commit with the cursor, or everything rolls back. Even same-cursor pages increment revision. */
   commitPage(input: SyncPage, persistMetadata: (writer: SyncMetadataWriter) => unknown): SyncCheckpoint {
     this.operation();
@@ -104,15 +123,11 @@ export class MailSyncJournal {
       [page.accountId, page.scopeId, page.generation, page.nextCursor, previous.revision + 1, page.discoveryComplete ? 1 : 0]);
       for (const job of page.jobs) {
         if (job.locator.provider !== provider) throw new Error("Provider identity does not match account");
-        const key = providerMessageKey(job.locator);
-        this.database.run(`INSERT INTO mail_sync_jobs(account_id,id,kind,message_key,part_id,generation,state,attempts,max_attempts,retry_base_ms,retry_max_ms,available_at)
-          VALUES(?,?,?,?,?,?,'queued',0,?,?,?,?) ON CONFLICT(account_id,kind,message_key,part_id,generation) DO NOTHING`,
-        [page.accountId, randomUUID(), job.kind, key, job.partId, page.generation, this.policy.maxAttempts, this.policy.retryBaseMs, this.policy.retryMaxMs, now]);
-        const found = this.database.get("SELECT id FROM mail_sync_jobs WHERE account_id=? AND kind=? AND message_key=? AND part_id=? AND generation=?",
-          [page.accountId, job.kind, key, job.partId, page.generation]);
+        const jobId = this.insertJob(page.accountId, page.generation, job, now, this.policy);
         this.database.run("INSERT INTO mail_sync_scope_jobs(account_id,scope_id,generation,job_id) VALUES(?,?,?,?) ON CONFLICT DO NOTHING",
-          [page.accountId, page.scopeId, page.generation, id.parse(found?.id)]);
+          [page.accountId, page.scopeId, page.generation, jobId]);
       }
+      for (const key of new Set(page.jobs.map(job => providerMessageKey(job.locator)))) this.linkMessageChildren(page.accountId, page.generation, key);
       return this.checkpoint(page);
     });
   }
@@ -162,12 +177,26 @@ export class MailSyncJournal {
   }
   /** Executor may atomically persist its result here. Success alone is NOT a claim of downloaded bytes. */
   succeed(accountId: string, jobId: string, token: string, persistResult: (writer: SyncMetadataWriter) => unknown): void {
+    this.succeedWithFollowups(accountId, jobId, token, [], persistResult);
+  }
+  /** Atomically discovers raw-message parts, preserving the parent's generation and shared scopes. */
+  succeedWithFollowups(accountId: string, jobId: string, token: string, input: readonly SyncDownloadJob[], persistResult: (writer: SyncMetadataWriter) => unknown): void {
     this.operation();
+    const jobs = z.array(jobInput).max(1000).parse(input);
     if (typeof persistResult !== "function" || Object.prototype.toString.call(persistResult) === "[object AsyncFunction]") throw new Error("Sync result callback must be synchronous");
     this.database.transaction(() => {
-      this.leased(accountId, jobId, token, this.time());
+      const parent = this.leased(accountId, jobId, token, this.time());
+      const provider = this.account(accountId);
+      for (const job of jobs) {
+        if (parent.kind !== "raw" || job.kind === "raw") throw new Error("Only raw jobs may discover body or attachment followups");
+        if (job.locator.provider !== provider || providerMessageKey(job.locator) !== parent.message_key) throw new Error("Followup identity must match parent message");
+      }
       this.writeMetadata(accountId, persistResult);
-      // A slow callback must not revive a lease that expired while it ran.
+      const now = this.time();
+      for (const job of jobs) this.insertJob(accountId, parent.generation, job, now,
+        { maxAttempts: parent.max_attempts, retryBaseMs: parent.retry_base_ms, retryMaxMs: parent.retry_max_ms });
+      if (parent.kind === "raw") this.linkMessageChildren(accountId, parent.generation, parent.message_key);
+      // Recheck after metadata and child insertion: expired or replaced leases cannot commit either.
       this.leased(accountId, jobId, token, this.time());
       this.database.run("UPDATE mail_sync_jobs SET state='succeeded',lease_token=NULL,lease_until=NULL,last_error=NULL WHERE account_id=? AND id=?", [accountId, jobId]);
     });
