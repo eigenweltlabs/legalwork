@@ -1,3 +1,4 @@
+import { mailSearchInputSchema, mailSearchResultSchema, mailSearchRebuildInputSchema, mailSearchRebuildResultSchema, type MailSearchInput, type MailSearchResult, type MailSearchRebuildInput, type MailSearchRebuildResult } from "../search-view.js";
 import { GMAIL_MAIL_SCOPES, GRAPH_MAIL_SCOPES } from "../provider-config.js";
 import type { MailOAuthSettings } from "../providers/oauth.js";
 import type { MailConnectionStatus } from "../providers/connection-controller.js";
@@ -27,6 +28,8 @@ export type WorkerInitialization = {
 };
 type Page = { limit?: number; after?: string };
 export type WorkerCommand =
+  | { operation: "mail.search"; input: MailSearchInput }
+  | { operation: "mail.search.rebuild"; input: MailSearchRebuildInput }
   | { operation: "ping" }
   | { operation: "mail.storage.status" }
   | { operation: "mail.connection.begin"; settings: MailOAuthSettings; reconnectAccountId?: string }
@@ -47,6 +50,8 @@ export type WorkerCommand =
 export type WorkerAccount = { id: string; provider: "gmail" | "graph" | "imap"; displayName: string };
 export type WorkerFolder = { id: string; name: string; kind: "folder" | "label"; parentId: string | null };
 export type WorkerResult =
+  | { search: MailSearchResult }
+  | { rebuilt: MailSearchRebuildResult }
   | { pong: true }
   | { connectionStarted: { connectionId: string; authorizationUrl: string; expiresAt: number } }
   | { connection: MailConnectionStatus }
@@ -142,7 +147,9 @@ function folder(value: unknown): value is WorkerFolder {
     && typeof value.name === "string" && (value.kind === "folder" || value.kind === "label") && cursor(value.parentId);
 }
 function result(value: unknown): value is WorkerResult {
-  return record(value) && ((exact(value, ["pong"]) && value.pong === true)
+  return record(value) && ((exact(value, ["search"]) && mailSearchResultSchema.safeParse(value.search).success)
+    || (exact(value, ["rebuilt"]) && mailSearchRebuildResultSchema.safeParse(value.rebuilt).success)
+    || (exact(value, ["pong"]) && value.pong === true)
     || (exact(value, ["connectionStarted"]) && started(value.connectionStarted))
     || (exact(value, ["connection"]) && connection(value.connection))
     || (exact(value, ["cancelled"]) && value.cancelled === true)
@@ -179,6 +186,8 @@ export function parseWorkerMessage(line: string): WorkerMessage | undefined {
 }
 export function resultMatchesCommand(command: WorkerCommand, value: WorkerResult): boolean {
   switch (command.operation) {
+    case "mail.search": return "search" in value && (!command.input.accountIds || value.search.items.every(item=>command.input.accountIds?.includes(item.accountId)));
+    case "mail.search.rebuild": return "rebuilt" in value;
     case "ping": return "pong" in value;
     case "mail.connection.begin": return "connectionStarted" in value && authorizationUrl(value.connectionStarted.authorizationUrl, command.settings);
     case "mail.connection.poll": return "connection" in value && value.connection.connectionId === command.connectionId;
@@ -206,6 +215,8 @@ export function validWorkerCommand(value: unknown): value is WorkerCommand {
   if (value.operation === "mail.messages.read") return exact(value, ["operation", "accountId", "locator"]) && id(value.accountId) && providerMessageLocatorSchema.safeParse(value.locator).success;
   if (value.operation === "mail.parts.list") return exact(value, ["operation", "accountId", "locator", "page"]) && id(value.accountId) && providerMessageLocatorSchema.safeParse(value.locator).success && mailPartPageSchema.safeParse(value.page).success;
   if (value.operation === "mail.content.read") return exact(value, ["operation", "accountId", "locator", "request"]) && id(value.accountId) && providerMessageLocatorSchema.safeParse(value.locator).success && mailContentReadSchema.safeParse(value.request).success;
+  if (value.operation === "mail.search") return exact(value,["operation","input"]) && mailSearchInputSchema.safeParse(value.input).success;
+  if (value.operation === "mail.search.rebuild") return exact(value,["operation","input"]) && mailSearchRebuildInputSchema.safeParse(value.input).success;
   if (value.operation === "mail.sync.start") return exact(value, ["operation", "accountId", "settings"])
     && id(value.accountId) && settings(value.settings) && value.settings.provider === "gmail";
   if (value.operation === "mail.connection.begin") return Object.keys(value).every(key => ["operation", "settings", "reconnectAccountId"].includes(key))
