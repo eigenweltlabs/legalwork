@@ -13,9 +13,9 @@ const hasCode = (error, code) => error !== null && typeof error === "object" && 
  * The caller controls the private app-data directory, never a request parameter.
  * @param {{directory:string, safeStorage: Pick<import("electron").SafeStorage,
  * "isEncryptionAvailable"|"encryptString"|"decryptString"|"getSelectedStorageBackend">,
- * platform?:NodeJS.Platform}} options
+ * windowsAcl?:(path:string,directory:boolean)=>Promise<void>, platform?:NodeJS.Platform}} options
  */
-export function createMailKeyStore({ directory, safeStorage, platform = process.platform }) {
+export function createMailKeyStore({ directory, safeStorage, platform = process.platform, windowsAcl }) {
   if (!isAbsolute(directory) || directory.includes("\0")) throw failure("path_invalid");
   const keyPath = join(directory, KEY_FILE);
 
@@ -39,11 +39,13 @@ export function createMailKeyStore({ directory, safeStorage, platform = process.
       try { await handle.sync(); } finally { await handle.close(); }
     }
   }
+  async function acl(path, folder) { if (process.platform === "win32") { if (!windowsAcl) throw failure("permissions_unsafe"); await windowsAcl(path, folder); } }
   async function readExisting() {
     let handle;
     try { handle = await open(keyPath, constants.O_RDONLY | constants.O_NOFOLLOW); }
     catch (error) { if (hasCode(error, "ENOENT")) return undefined; throw failure("unreadable"); }
     try {
+      await acl(keyPath, false);
       const info = await handle.stat();
       requirePrivate(info, false);
       if (info.size === 0 || info.size > MAX_KEY_FILE_BYTES) throw failure("corrupt");
@@ -88,6 +90,7 @@ export function createMailKeyStore({ directory, safeStorage, platform = process.
         catch (creationError) { if (!hasCode(creationError, "EEXIST")) throw creationError; }
         requirePrivate(await lstat(directory), true);
       }
+      await acl(directory, true);
       const existing = await readDurable();
       if (existing) return existing;
       if (!allowCreate) throw failure("missing");
@@ -113,7 +116,7 @@ export function createMailKeyStore({ directory, safeStorage, platform = process.
         if (Buffer.byteLength(content) > MAX_KEY_FILE_BYTES) throw failure("wrap_failed");
         const handle = await open(temporaryPath, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW, 0o600);
         temporaryCreated = true;
-        try { await handle.writeFile(content); await handle.sync(); } finally { await handle.close(); }
+        try { await acl(temporaryPath, false); await handle.writeFile(content); await handle.sync(); } finally { await handle.close(); }
         // Publish without replacing another concurrent creator's key. Readers may
         // see two hardlinks briefly; both contain only OS-wrapped ciphertext.
         try { await link(temporaryPath, keyPath); }

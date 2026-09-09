@@ -91,3 +91,47 @@ explains OS-specific protections and Linux `basic_text`; the pinned runtime uses
 supported synchronous methods. [SQLite Multiple Ciphers Node binding](https://github.com/m4heshd/better-sqlite3-multiple-ciphers)
 provides Buffer-based key/rekey operations. This evidence does not close the external
 platform matrix by itself.
+
+## Required macOS and Windows qualification
+
+Both macOS (arm64 and x64) and Windows x64 are required targets. The dedicated
+`mail-platform-qualification.yml` workflow runs non-release checks on `macos-15`,
+`macos-15-intel`, and `windows-2022`; it asserts the expected architecture. It runs
+only the mail qualification probe, portable native acceptance, and isolated ASAR
+checks. It has read-only repository permissions, publishes no application and
+uploads no database, key, dump or backup artifact. A passing macOS development run
+is not a substitute for the required Windows job.
+
+On Windows, the storage opener now enforces and reads back a protected DACL granting
+only the current user SID FullControl. Directories grant inheritable rights, so new
+SQLite WAL/SHM/journal files are private when created. Keys and managed backup/
+generation directories use the same gate before writing. A fixed Windows PowerShell
+program invokes the .NET ACL APIs; Unicode paths are UTF-8 JSON on stdin, never
+interpolated commands. Reparse points/nonregular files are rejected before ACL
+mutation. Existing foreign-user ownership is refused; an elevated user's default
+Administrators-owned entry may be narrowed to that user's SID. Windows ACL failure
+has no POSIX-mode or plaintext fallback. Source portable backup ACLs are untouched.
+
+`node scripts/mail/platform-qualification.mjs` runs the pinned actual Electron
+safeStorage backend, encrypted SQLite/WAL, in-memory temporary storage, actual mail
+FTS, key rotation and clean-profile recovery. It tests a path containing spaces,
+Unicode, an apostrophe and `$`. macOS uses actual Keychain and Windows uses actual
+DPAPI; the qualification probe supplies no fake vault. On ephemeral GitHub Actions
+runners it additionally requires another OS user's read to fail, after that same
+user successfully reads an accessible synthetic control file. Windows creates and
+removes a temporary local account; that script refuses non-Actions invocation.
+macOS uses `sudo -n -u nobody`. Missing privileges or an unavailable vault fail the
+required job rather than silently skipping it. Signed installer/update identity
+transitions remain a distinct check from this unsigned runtime qualification.
+
+Local evidence: actual macOS arm64 Electron 35.7.5 vault/cipher/WAL/FTS/rotation/
+recovery probe passes. Windows code is typechecked but has not yet executed on this
+macOS host; the Windows runner result is required before declaring Windows ready.
+Graph v9 encrypted recovery also preserves the original and direct attachment bytes,
+names and search index, pauses/fences the run, disconnects credentials, and performs
+no access acquisition or automatic sync.
+
+Sources: [Node filesystem permission caveats](https://nodejs.org/api/fs.html) explain
+why chmod is insufficient on Windows; [Microsoft DirectorySecurity](https://learn.microsoft.com/en-us/dotnet/api/system.security.accesscontrol.directorysecurity?view=netframework-4.8.1)
+defines DACL protection and inheritance; [Microsoft CryptProtectData](https://learn.microsoft.com/en-us/windows/win32/api/dpapi/nf-dpapi-cryptprotectdata)
+describes the default logon-user/computer DPAPI binding.

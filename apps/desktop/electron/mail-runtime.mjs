@@ -10,7 +10,8 @@ import { createMailStoreMaintenance } from "./mail-store-maintenance.mjs";
 export async function createDesktopMailService({ app, embeddedPath, safeStorage }) {
   const directory = join(app.getPath("userData"), "mail");
   const dist = dirname(embeddedPath);
-  const maintenance = createMailStoreMaintenance({ directory, safeStorage, executable: { kind: "electron", path: app.getPath("exe") }, entryPoint: join(dist, "mail/runtime/maintenance-worker.js") });
+  const { enforceMailWindowsAcl } = await import(pathToFileURL(join(dist, "mail/storage/windows-acl.js")).href);
+  const maintenance = createMailStoreMaintenance({ directory, safeStorage, windowsAcl: enforceMailWindowsAcl, executable: { kind: "electron", path: app.getPath("exe") }, entryPoint: join(dist, "mail/runtime/maintenance-worker.js") });
   const { LocalMailService } = await import(pathToFileURL(join(dist, "mail/service.js")).href);
   const { loadGoogleInstalledMailClient, parseGraphMailRegistration } = await import(pathToFileURL(join(dist, "mail/providers/development-config.js")).href);
   return new LocalMailService({
