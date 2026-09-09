@@ -156,7 +156,7 @@ test('staging cleanup cannot remove published/shared/draft content, and reads de
 }));
 
 function restoreV1Shape(db) {
-  db.exec('DROP TABLE mail_action_jobs; DROP TABLE mail_account_credentials; DROP TABLE mail_sync_scope_jobs; DROP TABLE mail_sync_jobs; DROP TABLE mail_sync_scopes; DROP TABLE mail_blob_publications; DROP TABLE mail_blob_chunks; DROP TABLE mail_blob_objects');
+  db.exec('DROP TRIGGER mail_raw_projection_insert; DROP TRIGGER mail_raw_projection_update; DROP TABLE mail_mime_parts; DROP TABLE mail_mime_projections; DROP TABLE mail_gmail_metadata; DROP TABLE mail_gmail_runs; DROP TABLE mail_action_jobs; DROP TABLE mail_account_credentials; DROP TABLE mail_sync_scope_jobs; DROP TABLE mail_sync_jobs; DROP TABLE mail_sync_scopes; DROP TABLE mail_blob_publications; DROP TABLE mail_blob_chunks; DROP TABLE mail_blob_objects');
   db.run('UPDATE mail_schema_version SET version=1');
 }
 test('v1 to current schema preserves legacy metadata, is idempotent and rolls back an injected migration failure', async () => fixture(async ({ repository, db }) => {
@@ -220,8 +220,11 @@ test('migrated formerly-complete metadata reports attention until real bytes are
   const content = new MailContentStore(db,'owner-a');
   assert.throws(()=>[...content.read('a',raw.id)],/unavailable/);
   await content.writePart('a',locator('one'),{kind:'raw',maxBytes:3},[new Uint8Array([1,2,3])]);
-  assert.equal(repository.readMessage('a',locator('one')).contentState,'attention');
+  // Replacing the original invalidates the former derived body and enumeration.
+  assert.equal(repository.readMessage('a',locator('one')).contentState,'downloading');
   await content.writePart('a',locator('one'),{kind:'body',maxBytes:3},[new Uint8Array([4,5,6])]);
+  assert.equal(repository.readMessage('a',locator('one')).contentState,'downloading');
+  repository.setAttachmentsEnumerated('a',locator('one'),true);
   const completed=repository.readMessage('a',locator('one'));
   assert.equal(completed.contentState,'complete');
   assert.ok(completed.content.every(part=>part.bytesAvailable));
