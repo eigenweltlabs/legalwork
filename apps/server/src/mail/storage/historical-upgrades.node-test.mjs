@@ -20,6 +20,7 @@ async function createOldStore(path,key,version){
  const db=await openEncryptedMailDatabase({path,key});
  try{
   // Historical statements are checked-in snapshots, never a current schema with tables dropped.
+  db.exec('PRAGMA foreign_keys=ON');assert.equal(db.get('PRAGMA foreign_keys').foreign_keys,1);
   db.transaction(()=>db.exec(v5));
   if(version===9)db.transaction(()=>db.exec(v9));
   assert.equal(db.get('SELECT version FROM mail_schema_version').version,version);
@@ -55,22 +56,23 @@ function assertRetained(db,old){
  assert.deepEqual(db.all('PRAGMA foreign_key_check'),[]);
 }
 for(const version of [5,9])for(const interruption of ['ddl','version-write']){
- test(`historical v${version} persisted store survives process exit after ${interruption}, reopen and upgrade`,async()=>{
+ test(`historical v${version} persisted store survives SIGKILL after ${interruption}, reopen and upgrade`,async()=>{
   const directory=await mkdtemp(join(tmpdir(),'mail-historical-upgrade-')),path=join(directory,'mail.sqlite'),key=randomBytes(32);
   let db;
   try{
    const old=await createOldStore(path,key,version);
-   // The child exits INSIDE the actual transaction, without rollback/close/finally.
+   // The child is killed INSIDE the actual transaction, without rollback/close/finally.
    // Key material travels only over private stdin, never argv/environment.
-   const script=`import {readFileSync} from 'node:fs';
+   const script=`import {readFileSync,writeSync} from 'node:fs';
 import {openEncryptedMailDatabase} from ${JSON.stringify(new URL('./database.js',import.meta.url).href)};
 import {migrateMailSchema} from ${JSON.stringify(new URL('./schema.js',import.meta.url).href)};
 const input=JSON.parse(readFileSync(0,'utf8')),key=Buffer.from(input.key,'base64');
 const db=await openEncryptedMailDatabase({path:input.path,key});key.fill(0);
-const interrupted={...db,exec(sql){db.exec(sql);if(input.interruption==='ddl'&&sql.includes('CREATE TABLE mail_local_drafts'))process.exit(73);},run(sql,parameters){const result=db.run(sql,parameters);if(input.interruption==='version-write'&&sql.startsWith('INSERT INTO mail_schema_version'))process.exit(73);return result;}};
+function crash(){writeSync(2,'migration-crash-boundary');process.kill(process.pid,'SIGKILL');}
+const interrupted={...db,exec(sql){db.exec(sql);if(input.interruption==='ddl'&&sql.includes('CREATE TABLE mail_local_drafts'))crash();},run(sql,parameters){const result=db.run(sql,parameters);if(input.interruption==='version-write'&&sql.startsWith('INSERT INTO mail_schema_version'))crash();return result;}};
 migrateMailSchema(interrupted);process.exit(74);`;
-   const child=spawnSync(process.execPath,['--input-type=module','-e',script],{input:JSON.stringify({path,key:key.toString('base64'),interruption}),encoding:'utf8',timeout:15000});
-   assert.equal(child.error,undefined);assert.equal(child.status,73);assert.equal(child.stdout,'');assert.equal(child.stderr,'');
+   const child=spawnSync(process.execPath,['--input-type=module','-e',script],{input:JSON.stringify({path,key:key.toString('base64'),interruption}),encoding:'utf8',env:process.platform==='win32'?{SystemRoot:process.env.SystemRoot,WINDIR:process.env.WINDIR}:{},timeout:15000});
+   assert.equal(child.error,undefined);assert.equal(process.platform==='win32'?child.status:child.signal,process.platform==='win32'?1:'SIGKILL');assert.equal(child.stdout,'');assert.equal(child.stderr,'migration-crash-boundary');
    db=await openEncryptedMailDatabase({path,key});
    assert.equal(db.get('SELECT version FROM mail_schema_version').version,version);
    assert.deepEqual(schemaSnapshot(db),old.schema);assertRetained(db,old);
