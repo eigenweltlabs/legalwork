@@ -60,3 +60,15 @@ test('a mailbox disappearing after LIST is reconciled; repeatedly unstable UIDVA
  const changing=(settings,password)=>{const actual=f.transport(settings,password);return {connect:s=>actual.connect(s),discover:s=>actual.discover(s),open:(...args)=>actual.open(...args),async page(...args){f.server.state.validity++;return actual.page(...args);},raw:(...args)=>actual.raw(...args),close:()=>actual.close()};};e=new ImapBackfill({database:f.db,ownerId:'owner',transport:changing});e.start(accountId);await until(()=>e.status(accountId).state==='attention');assert.equal(e.status(accountId).error,'uidvalidity_changed');assert.equal(f.db.get('SELECT epoch_resets FROM mail_imap_runs').epoch_resets,3);assert.equal(f.db.get("SELECT count(*) AS n FROM mail_content_manifests WHERE kind='raw' AND state='stored'").n,2);
  }finally{await e.close();}
 }));
+test('a superseded engine wake cannot adopt the winner run stamp or revive old dispatch',()=>fixture(async f=>{
+ const c=await ready(f);await delay(20);
+ const winner=new ImapBackfill({database:f.db,ownerId:'owner',transport:f.transport});
+ try{
+  winner.start(c.accountId);const stamp=f.db.get('SELECT generation,revision FROM mail_imap_runs WHERE account_id=?',[c.accountId]);
+  const action=c.local.enqueueMutation(c.accountId,{replayKey:'takeover',locator,precondition:c.reads.read(c.accountId,locator).mutationPrecondition,change:{kind:'read',read:false}});
+  c.engine.wake(c.accountId);
+  assert.equal(c.engine.status(c.accountId).state,'paused');
+  assert.deepEqual(f.db.get('SELECT generation,revision FROM mail_imap_runs WHERE account_id=?',[c.accountId]),stamp);
+  assert.equal(c.local.readAction(c.accountId,action.id).state,'queued');assert.deepEqual(f.server.state.writeCommands,[]);
+ }finally{await winner.close();}
+}));
