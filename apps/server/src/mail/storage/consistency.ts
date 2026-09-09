@@ -41,6 +41,7 @@ const requiredColumns: Record<string, string[]> = {
   mail_blob_objects: ["account_id", "id", "state", "bytes", "chunk_count"],
   mail_blob_chunks: ["account_id", "object_id", "ordinal", "data"],
   mail_blob_publications: ["account_id", "ref_id", "object_id"],
+  mail_account_credentials: ["account_id", "provider", "client_id", "authority", "provider_subject", "generation", "revision", "state", "archive_locked", "access_token", "refresh_token", "expires_at", "granted_scopes_json"],
   mail_sync_scopes: ["account_id", "scope_id", "generation", "cursor", "revision", "discovery_complete"],
   mail_sync_jobs: ["account_id", "id", "kind", "message_key", "part_id", "generation", "state", "attempts", "max_attempts", "retry_base_ms", "retry_max_ms", "available_at", "lease_token", "lease_until", "last_error"],
   mail_sync_scope_jobs: ["account_id", "scope_id", "generation", "job_id"],

@@ -54,7 +54,7 @@ test('v1 reopen requires upgrade; a failed current migration rolls back and neve
   seed(repository);
   for (const kind of ['raw', 'body']) repository.putContent('private-account', locator('one'), { kind, state: 'stored', reference: { id: 'legacy-ref', bytes: 3, sha256: 'a'.repeat(64) } });
   repository.setAttachmentsEnumerated('private-account', locator('one'), true);
-  db.exec('DROP TABLE mail_sync_scope_jobs; DROP TABLE mail_sync_jobs; DROP TABLE mail_sync_scopes; DROP TABLE mail_blob_publications; DROP TABLE mail_blob_chunks; DROP TABLE mail_blob_objects; UPDATE mail_schema_version SET version=1');
+  db.exec('DROP TABLE mail_account_credentials; DROP TABLE mail_sync_scope_jobs; DROP TABLE mail_sync_jobs; DROP TABLE mail_sync_scopes; DROP TABLE mail_blob_publications; DROP TABLE mail_blob_chunks; DROP TABLE mail_blob_objects; UPDATE mail_schema_version SET version=1');
   let current = await reopen();
   assert.deepEqual(checkMailConsistency(current).codes, ['schema-upgrade-required']);
   const failing = { ...current, exec(sql) { current.exec(sql); if (sql.includes('CREATE TABLE mail_blob_objects')) throw new Error('migration failure'); } };
@@ -211,7 +211,7 @@ test('v3 fast guard requires journal tables/columns and refuses an unmigrated v2
   db.exec('DROP TABLE mail_sync_scope_jobs');
   assert.throws(() => assertMailSchema(db), { message: 'Mail schema is not ready' });
   assert.deepEqual(checkMailConsistency(db).codes, ['schema-incomplete']);
-  db.exec('DROP TABLE mail_sync_jobs; DROP TABLE mail_sync_scopes; UPDATE mail_schema_version SET version=2');
+  db.exec('DROP TABLE mail_account_credentials; DROP TABLE mail_sync_jobs; DROP TABLE mail_sync_scopes; UPDATE mail_schema_version SET version=2');
   assert.throws(() => assertMailSchema(db), { message: 'Mail schema is not ready' });
   assert.deepEqual(checkMailConsistency(db).codes, ['schema-upgrade-required']);
   migrateMailSchema(db);
