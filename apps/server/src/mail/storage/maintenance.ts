@@ -41,6 +41,8 @@ export async function prepareMailStore(input: MailMaintenanceInput): Promise<{ a
     if (destination.get("SELECT version FROM mail_schema_version WHERE singleton=1")?.version !== MAIL_SCHEMA_VERSION || destination.get("SELECT 1 FROM mail_accounts WHERE owner_id<>? LIMIT 1", [input.ownerId])) throw new MailMaintenanceError();
     if (!destination.rekey) throw new MailMaintenanceError(); destination.rekey(newKey);
     if (input.restore) destination.transaction(() => {
+      destination?.run("UPDATE mail_imap_credentials SET state='disconnected',archive_locked=1,password=NULL,generation=?,revision=revision+1",[randomUUID()]);
+      destination?.run("UPDATE mail_imap_runs SET state='paused',revision=revision+1,retry_at=NULL");
       destination?.run("UPDATE mail_account_credentials SET state='disconnected',archive_locked=1,access_token=NULL,refresh_token=NULL,expires_at=NULL,granted_scopes_json=NULL,generation=?,revision=1", [randomUUID()]);
       destination?.run("UPDATE mail_action_jobs SET state='uncertain',generation=?,revision=1,lease_token=NULL,lease_until=NULL,last_error='outcome_unknown' WHERE state IN ('queued','running','dispatching','retry')", [randomUUID()]);
       destination?.run("UPDATE mail_actions SET state='uncertain' WHERE state IN ('queued','running')");

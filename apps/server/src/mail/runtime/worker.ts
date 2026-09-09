@@ -1,3 +1,6 @@
+import {ImapError} from '../providers/imap-config.js';
+import {ImapBackfill} from '../providers/imap-backfill.js';
+import {imapFailure} from '../providers/imap.js';
 import {MailLocalApiStore,MailLocalError} from "../storage/local-api.js";
 import { MailSearchIndexer } from "./search-indexer.js";
 import { MailSearchStore, MailSearchError } from "../storage/search.js";
@@ -29,6 +32,8 @@ let controller: MailConnectionController | undefined;
 let closingController: Promise<void> | undefined;
 let credentials: MailCredentialRepository | undefined;
 let backfill: GmailBackfill | undefined;
+let imap:ImapBackfill|undefined;
+let closingImap:Promise<void>|undefined;
 let graph: GraphBackfill | undefined;
 let closingGraph: Promise<void> | undefined;
 let access: MailAccessCoordinator | undefined;
@@ -55,12 +60,13 @@ function write(message: WorkerMessage): boolean {
 async function finish(): Promise<void> {
   try { await (closingController ?? controller?.close()); } catch { exitCode = 1; }
   try { await (closingBackfill ?? backfill?.close()); } catch { exitCode = 1; }
+  try{await(closingImap??imap?.close());}catch{exitCode=1;}
   try { await (closingGraph ?? graph?.close()); } catch { exitCode = 1; }
   await Promise.allSettled(requests);
   controller = undefined;
   credentials = undefined;
   backfill = undefined;
-  graph = undefined;
+  graph = undefined;imap=undefined;
   access = undefined;
   providerSettings.clear();
   try { database?.close(); } catch { exitCode = 1; }
@@ -77,7 +83,7 @@ function shutdown(code = 0): void {
   // close() marks the controller closed synchronously, before any queued continuation.
   closingController = controller?.close();
   closingBackfill = backfill?.close();
-  closingGraph = graph?.close();
+  closingGraph = graph?.close();closingImap=imap?.close();
   access?.close();
   input = Buffer.alloc(0);
   process.stdin.pause();
@@ -116,6 +122,7 @@ async function initialize(value: WorkerInitialization): Promise<void> {
     } });
     backfill = new GmailBackfill({ database, ownerId: value.ownerId, access,
       projectRaw: createStoredMimeProjector({ database, ownerId: value.ownerId }) });
+    imap=new ImapBackfill({database,ownerId:value.ownerId});
     graph = new GraphBackfill({ database, ownerId: value.ownerId, access });
     phase = "ready";
     searchIndexer?.start();
@@ -143,7 +150,7 @@ function pageResult(id: string, items: WorkerAccount[] | WorkerFolder[], hasMore
   return accepted;
 }
 async function request(message: Extract<ParentMessage, { kind: "request" }>): Promise<void> {
-  if (phase !== "ready" || !repository || !reads || !controller || !credentials || !backfill || !graph || !database) {
+  if (phase !== "ready" || !repository || !reads || !controller || !credentials || !backfill || !graph || !imap || !database) {
     write({ kind: "response", id: message.id, ok: false, code: "not_ready" }); return;
   }
   const command = message.command;
@@ -165,6 +172,8 @@ async function request(message: Extract<ParentMessage, { kind: "request" }>): Pr
       case "mail.local.events": if(!local)throw locked;result={local:{operation:command.operation,accountId:command.accountId,value:local.events(command.accountId,command.input)}};break;
       case "ping": result = { pong: true }; break;
       case "mail.storage.status": result = { encrypted: true, schemaVersion: MAIL_SCHEMA_VERSION, syncSupported: true }; break;
+      case "mail.imap.discovery":result={imapDiscovery:imap.discovery(command.accountId,command.after)};break;
+      case "mail.imap.connect":try{result={imapConnection:await imap.connect(command.input)};}catch(error){result={imapConnection:{error:imapFailure(error).code}};}break;
       case "mail.connection.begin":
         result = { connectionStarted: await controller.begin(command.settings, { reconnectAccountId: command.reconnectAccountId }) }; break;
       case "mail.connection.poll": result = { connection: controller.poll(command.connectionId) }; break;
@@ -177,6 +186,7 @@ async function request(message: Extract<ParentMessage, { kind: "request" }>): Pr
           try { backfill.pause(command.accountId); } catch { /* The credential generation also fences every late publication. */ }
         }
         try { if (database.get("SELECT provider FROM mail_accounts WHERE id=?", [command.accountId])?.provider === "graph") graph.pause(command.accountId); } catch { /* Durable credential rotation still fences publication. */ }
+        if(database.get("SELECT provider FROM mail_accounts WHERE id=?",[command.accountId])?.provider==='imap'){try{imap.pause(command.accountId);}catch{}if(!current.version)throw locked;credentials.disconnect(command.accountId,current.version);result={disconnected:true};break;}
         await controller.disconnect(command.accountId); result = { disconnected: true }; break;
       }
       case "mail.accounts.list": {
@@ -196,10 +206,12 @@ async function request(message: Extract<ParentMessage, { kind: "request" }>): Pr
       case "mail.sync.stop": {
         if (credentials.status(command.accountId).state === "disconnected") throw locked;
         const provider = database.get("SELECT provider FROM mail_accounts WHERE id=?", [command.accountId])?.provider;
-        if (provider !== "gmail" && provider !== "graph") throw unsupported;
+        if (provider !== "gmail" && provider !== "graph" && provider !== "imap") throw unsupported;
         if (command.operation === "mail.sync.provider") { result = { syncProvider: provider }; break; }
+        if(provider==='imap'){if(command.operation==='mail.sync.start'&&command.settings)throw unsupported;result={sync:command.operation==='mail.sync.start'?imap.start(command.accountId):command.operation==='mail.sync.stop'?imap.pause(command.accountId):imap.status(command.accountId)};break;}
         const engine = provider === "gmail" ? backfill : graph;
         if (command.operation === "mail.sync.start") {
+          if(!command.settings)throw unsupported;
           const binding = credentials.getBinding(command.accountId);
           if (command.settings.provider !== provider || binding.clientId !== command.settings.clientId
             || binding.authority !== (command.settings.provider === "gmail" ? "https://accounts.google.com" : `https://login.microsoftonline.com/${command.settings.tenantId}/v2.0`)) throw new Error("mail_configuration_mismatch");
@@ -254,7 +266,7 @@ async function request(message: Extract<ParentMessage, { kind: "request" }>): Pr
   } catch (error) {
     // Do not echo SQLite/provider errors, row contents, supplied IDs, paths or key material.
     if (isClosing()) return;
-    const code = error instanceof MailLocalError&&error.code==="conflict"?"conflict":error instanceof MailLocalError&&error.code==="invalid_input"?"invalid_input":error instanceof MailLocalError&&error.code==="locked"?"locked":error instanceof MailLocalError&&error.code==="not_found"?"not_found":error === unsupported || (error instanceof MailSearchError && error.code === "unsupported") ? "unsupported" : error === locked || (error instanceof MailSearchError && error.code === "locked") || ((error instanceof GmailBackfillError || error instanceof GraphBackfillError) && error.code === "locked")
+    const code = error instanceof ImapError&&error.code==="locked"?"locked":error instanceof ImapError&&error.code==="too_large"?"response_too_large":error instanceof ImapError&&error.code==="invalid_input"?"invalid_input":error instanceof MailLocalError&&error.code==="conflict"?"conflict":error instanceof MailLocalError&&error.code==="invalid_input"?"invalid_input":error instanceof MailLocalError&&error.code==="locked"?"locked":error instanceof MailLocalError&&error.code==="not_found"?"not_found":error === unsupported || (error instanceof MailSearchError && error.code === "unsupported") ? "unsupported" : error === locked || (error instanceof MailSearchError && error.code === "locked") || ((error instanceof GmailBackfillError || error instanceof GraphBackfillError) && error.code === "locked")
       || (error instanceof MailCredentialError && error.code === "disconnected") ? "locked" :
       (error instanceof MailConnectionError && (error.code === "not_found" || error.code === "account_not_found"))
       || (error instanceof MailCredentialError && error.code === "account_not_found")
