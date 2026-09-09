@@ -393,7 +393,13 @@ export class GraphBackfill {
                     throw error;
                 }
                 this.assert(session, version);
-                db.transaction(() => { this.assert(session, version); db.run("UPDATE mail_graph_delta SET removed=0,metadata_json=?,phase='pending',refresh=0 WHERE account_id=? AND folder_id=?", [JSON.stringify(latest), accountId, folder.folder_id]); db.run("UPDATE mail_graph_poll SET phase='folders' WHERE account_id=?", [accountId]); });
+                db.transaction(() => {
+                    this.assert(session, version);
+                    db.run("UPDATE mail_graph_delta SET removed=0,metadata_json=?,phase='pending',refresh=0 WHERE account_id=? AND folder_id=?", [JSON.stringify(latest), accountId, folder.folder_id]);
+                    if (latest.parentFolderId !== poll.root_id && latest.parentFolderId !== latest.id)
+                        db.run('INSERT INTO mail_graph_delta(account_id,folder_id) VALUES(?,?) ON CONFLICT DO NOTHING', [accountId, latest.parentFolderId]);
+                    db.run("UPDATE mail_graph_poll SET phase='folders' WHERE account_id=?", [accountId]);
+                });
                 session.run = this.state.update(session.run, 'active');
                 this.schedule(session);
                 return;
