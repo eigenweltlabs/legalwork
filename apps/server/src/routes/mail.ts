@@ -95,6 +95,26 @@ export function registerMailRoutes(routes: Route[], host: string, service?: Mail
   route("GET", "/status", false, () => service.status());
   route("POST", "/unlock", false, async () => { await service.unlock(); return service.status(); });
   route("POST", "/lock", false, async () => { await service.lock(); return service.status(); });
+  if (service.maintain) {
+    const operations: Array<"rotate" | "backup" | "restore"> = ["rotate", "backup", "restore"];
+    for (const operation of operations) {
+      addRoute(routes, "POST", `/mail/v1/security/${operation}`, "host-token", async ctx => {
+        if (ctx.actor?.type !== "host") throw new ApiError(401, "unauthorized", "Invalid host token");
+        pageInput(ctx, false);
+        let passphrase: string | undefined;
+        if (operation === "rotate") await readMailBody(ctx.request);
+        else {
+          let value: unknown;
+          try { value = JSON.parse(await readMailBody(ctx.request, 8192)); } catch { throw new ApiError(400, "mail_invalid_request", "Invalid mail request"); }
+          const parsed = z.object({ passphrase: z.string().min(16).max(1024) }).strict().safeParse(value);
+          if (!parsed.success || Buffer.byteLength(parsed.data.passphrase) > 1024) throw new ApiError(400, "mail_invalid_request", "Invalid mail request");
+          passphrase = parsed.data.passphrase;
+        }
+        try { await service.maintain?.(operation, passphrase); return Response.json({ completed: true, state: "locked" }, { headers: { "Cache-Control": "no-store" } }); }
+        catch (error) { throw safeError(error); }
+      });
+    }
+  }
   route("GET", "/accounts", true, (_, page) => service.listAccounts(page));
   route("GET", "/accounts/:accountId/folders", true, (ctx, page) => service.listFolders(ctx.params.accountId, page));
   const connectionInput = z.object({ provider: z.enum(["gmail", "graph"]), reconnectAccountId: z.string().min(1).max(4096).optional() }).strict();

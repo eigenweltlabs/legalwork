@@ -28,7 +28,7 @@ test("desktop binding unlocks the built encrypted worker and reopens the same OS
     await mkdir(userData, { mode: 0o700 });
     await writeFile(join(root, "package.json"), '{"type":"module"}');
     await symlink(join(serverRoot, "node_modules"), join(root, "node_modules"));
-    execFileSync("pnpm", ["exec", "tsc", "--outDir", join(root, "build"), "--rootDir", "src", "--target", "ES2022", "--module", "NodeNext", "--moduleResolution", "NodeNext", "--strict", "--skipLibCheck", "--types", "node,bun-types", "src/mail/service.ts", "src/mail/runtime/worker.ts", "src/mail/providers/development-config.ts"], { cwd: serverRoot, stdio: "pipe", timeout: 30_000 });
+    execFileSync("pnpm", ["exec", "tsc", "--outDir", join(root, "build"), "--rootDir", "src", "--target", "ES2022", "--module", "NodeNext", "--moduleResolution", "NodeNext", "--strict", "--skipLibCheck", "--types", "node,bun-types", "src/mail/runtime/maintenance-worker.ts", "src/mail/service.ts", "src/mail/runtime/worker.ts", "src/mail/providers/development-config.ts"], { cwd: serverRoot, stdio: "pipe", timeout: 30_000 });
     const googleConfig = join(userData, "synthetic-google-client.json");
     await writeFile(googleConfig, JSON.stringify({ installed: { client_id: "123456-synthetic.apps.googleusercontent.com", project_id: "synthetic-mail-project",
       client_secret: "synthetic-private-client-marker", auth_uri: "https://accounts.google.com/o/oauth2/auth", token_uri: "https://oauth2.googleapis.com/token", redirect_uris: ["http://localhost"] } }), { mode: 0o600 });
@@ -52,6 +52,15 @@ test("desktop binding unlocks the built encrypted worker and reopens the same OS
     const database = await readFile(join(userData, "mail/mail.sqlite"));
     assert.notEqual(database.subarray(0, 16).toString(), "SQLite format 3\0");
     service = await createDesktopMailService({ app, embeddedPath, safeStorage });
+    await service.unlock();
+    assert.deepEqual(await service.listAccounts({}), { items: [], nextCursor: null });
+    await service.stop();
+    assert.deepEqual(await readFile(join(userData, "mail/mail-key-v1.json")), envelope);
+    service = await createDesktopMailService({ app, embeddedPath, safeStorage });
+    await service.maintain("rotate");
+    assert.equal(service.status().state, "locked");
+    const pointer = JSON.parse(await readFile(join(userData, "mail/active-store-v1.json"), "utf8"));
+    assert.match(pointer.generation, /^[a-f0-9]{32}$/);
     await service.unlock();
     assert.deepEqual(await service.listAccounts({}), { items: [], nextCursor: null });
     await service.stop();

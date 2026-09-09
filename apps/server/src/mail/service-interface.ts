@@ -32,6 +32,7 @@ export interface MailService {
   startSync(accountId: string): Promise<MailSyncView>;
   pauseSync(accountId: string): Promise<MailSyncView>;
   syncStatus(accountId: string): Promise<MailSyncView>;
+  maintain?(operation: "rotate" | "backup" | "restore", passphrase?: string): Promise<void>;
   stop(): Promise<void>;
 }
 import type { MailConnectionStatus } from "./providers/connection-controller.js";
