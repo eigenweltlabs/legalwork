@@ -49,7 +49,7 @@ const requiredColumns: Record<string, string[]> = {
   mail_mime_parts: ["account_id","message_key","raw_ref_id","part_id","metadata_json","content_ref_id"],
   mail_schema_version: ["singleton", "version"],
   mail_accounts: ["id", "owner_id", "provider", "display_name"],
-  mail_folders: ["account_id", "id", "name", "kind", "parent_id"],
+  mail_folders: ["account_id", "id", "name", "kind", "parent_id", "role"],
   mail_threads: ["account_id", "id"],
   mail_messages: ["is_read","account_id", "message_key", "provider", "locator_json", "rfc_message_id", "subject", "thread_id", "attachments_enumerated"],
   mail_memberships: ["account_id", "message_key", "folder_id"],
