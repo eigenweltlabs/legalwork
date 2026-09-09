@@ -9,7 +9,7 @@ test("key rotation and recovery contract runs on encrypted SQLite in actual Node
   const server = resolve(import.meta.dir, "../../..");
   try {
     const compiled = spawnSync("pnpm", ["exec", "tsc", "--outDir", output, "--rootDir", "src", "--target", "ES2022", "--module", "NodeNext", "--moduleResolution", "NodeNext", "--strict", "--skipLibCheck", "--types", "bun-types,node",
-      "src/mail/runtime/maintenance-worker.ts", "src/mail/storage/maintenance.ts", "src/mail/storage/database.ts", "src/mail/storage/schema.ts", "src/mail/storage/action-journal.ts", "src/mail/storage/credentials.ts"], { cwd: server, encoding: "utf8", timeout: 30000 });
+      "src/mail/storage/search.ts", "src/mail/runtime/maintenance-worker.ts", "src/mail/storage/maintenance.ts", "src/mail/storage/database.ts", "src/mail/storage/schema.ts", "src/mail/storage/action-journal.ts", "src/mail/storage/credentials.ts"], { cwd: server, encoding: "utf8", timeout: 30000 });
     expect(compiled.error).toBeUndefined();
     if (compiled.status !== 0) throw new Error(`${compiled.stdout}\n${compiled.stderr}`);
     writeFileSync(join(output, "package.json"), '{"type":"module"}');
