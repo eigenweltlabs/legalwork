@@ -117,19 +117,19 @@ export type SessionPageSidebarProps = {
   sessionStatusById: Record<string, string>;
   connectingWorkspaceId: string | null;
   workspaceConnectionStateById: Record<string, WorkspaceConnectionState>;
-  newTaskDisabled: boolean;
+  newChatDisabled: boolean;
   sidebarHydratedFromCache: boolean;
   startupPhase: BootPhase;
   onSelectWorkspace: (workspaceId: string) => Promise<boolean> | boolean | void;
   onOpenSession: (workspaceId: string, sessionId: string) => void;
   onPrefetchSession?: (workspaceId: string, sessionId: string) => void;
-  onCreateTaskInWorkspace: (workspaceId: string) => void;
-  onCreateTaskWithPrompt?: (workspaceId: string, prompt: string) => void;
+  onCreateChatInWorkspace: (workspaceId: string) => void;
+  onCreateChatWithPrompt?: (workspaceId: string, prompt: string) => void;
   onOpenRenameWorkspace: (workspaceId: string) => void;
   onRevealWorkspace: (workspaceId: string) => void;
   onForgetWorkspace: (workspaceId: string) => void;
   onOpenCreateWorkspace: () => void;
-  onCreateTaskInNewWorkspace: () => void;
+  onCreateChatInNewWorkspace: () => void;
   onReorderWorkspaces?: (workspaceIds: string[]) => void;
 };
 
@@ -902,12 +902,12 @@ export function SessionPage(props: SessionPageProps) {
           sessionStatusById={props.sidebar.sessionStatusById}
           connectingWorkspaceId={props.sidebar.connectingWorkspaceId}
           workspaceConnectionStateById={props.sidebar.workspaceConnectionStateById}
-          newTaskDisabled={props.sidebar.newTaskDisabled}
+          newChatDisabled={props.sidebar.newChatDisabled}
           onSelectWorkspace={props.sidebar.onSelectWorkspace}
           onOpenSession={openSessionTab}
           onOpenSessionWindow={isElectronRuntime() ? openSessionWindow : undefined}
           onPrefetchSession={props.sidebar.onPrefetchSession}
-          onCreateTaskInWorkspace={props.sidebar.onCreateTaskInWorkspace}
+          onCreateChatInWorkspace={props.sidebar.onCreateChatInWorkspace}
           onOpenRenameSession={props.onRenameSession ? openRenameModal : undefined}
           onOpenDeleteSession={props.onDeleteSession ? (sessionId) => {
             setSessionActionId(sessionId);
@@ -925,7 +925,7 @@ export function SessionPage(props: SessionPageProps) {
           onRevealWorkspace={props.sidebar.onRevealWorkspace}
           onForgetWorkspace={props.sidebar.onForgetWorkspace}
           onOpenCreateWorkspace={props.sidebar.onOpenCreateWorkspace}
-          onCreateTaskInNewWorkspace={props.sidebar.onCreateTaskInNewWorkspace}
+          onCreateChatInNewWorkspace={props.sidebar.onCreateChatInNewWorkspace}
           onShowEvals={props.sidebar.onShowEvals}
           onShowWorkflows={props.sidebar.onShowWorkflows}
           onShowExtensions={props.sidebar.onShowExtensions}
@@ -1283,7 +1283,7 @@ export function SessionPage(props: SessionPageProps) {
                           <Button
                             variant="outline"
                             size="sm"
-                            onClick={() => props.sidebar.onCreateTaskInWorkspace(props.selectedWorkspaceId)}
+                            onClick={() => props.sidebar.onCreateChatInWorkspace(props.selectedWorkspaceId)}
                           >
                             Retry
                           </Button>
@@ -1299,7 +1299,7 @@ export function SessionPage(props: SessionPageProps) {
                       <TaskSuggestionCards
                         providerConnectedCount={providerCount}
                         onConnect={() => props.onOpenProviderAuth?.()}
-                        onSelect={(prompt) => props.sidebar.onCreateTaskWithPrompt?.(props.selectedWorkspaceId, prompt)}
+                        onSelect={(prompt) => props.sidebar.onCreateChatWithPrompt?.(props.selectedWorkspaceId, prompt)}
                       />
                       <Button variant="ghost" size="sm" className="mt-4 gap-2" onClick={props.onOpenSettings}>
                         <Settings2 size={14} aria-hidden="true" />

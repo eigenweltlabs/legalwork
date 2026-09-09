@@ -178,11 +178,11 @@ function SessionPreview() {
           }}
           sidebar={{
             workspaceSessionGroups: groups, selectedWorkspaceId: workspace.id, selectedSessionId, developerMode: false,
-            sessionStatusById: {}, connectingWorkspaceId: null, workspaceConnectionStateById: {}, newTaskDisabled: false,
+            sessionStatusById: {}, connectingWorkspaceId: null, workspaceConnectionStateById: {}, newChatDisabled: false,
             sidebarHydratedFromCache: true, startupPhase: "ready", onSelectWorkspace: previewNotice,
-            onOpenSession: (_workspaceId, id) => setSelectedSessionId(id), onCreateTaskInWorkspace: newTask,
+            onOpenSession: (_workspaceId, id) => setSelectedSessionId(id), onCreateChatInWorkspace: newTask,
             onOpenRenameWorkspace: previewNotice, onRevealWorkspace: previewNotice, onForgetWorkspace: previewNotice,
-            onOpenCreateWorkspace: previewNotice, onCreateTaskInNewWorkspace: previewNotice,
+            onOpenCreateWorkspace: previewNotice, onCreateChatInNewWorkspace: previewNotice,
             onShowEvals: previewNotice, onShowWorkflows: previewNotice, onShowExtensions: previewNotice, onShowRecorder: previewNotice,
           }}
           surface={{
