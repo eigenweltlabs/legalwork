@@ -72,3 +72,11 @@ test('a superseded engine wake cannot adopt the winner run stamp or revive old d
   assert.equal(c.local.readAction(c.accountId,action.id).state,'queued');assert.deepEqual(f.server.state.writeCommands,[]);
  }finally{await winner.close();}
 }));
+test('post-discovery refresh refuses another database connection replacing the run revision',()=>fixture(async f=>{
+ const other=await openEncryptedMailDatabase({path:f.path,key:f.key});
+ const winner=new ImapBackfill({database:other,ownerId:'owner',transport:f.transport});let armed=false,replaced=false,accountId;
+ const wrapped={...f.db,transaction(body){const result=f.db.transaction(body);if(armed&&f.db.get('SELECT discovered FROM mail_imap_runs WHERE account_id=?',[accountId])?.discovered===1){armed=false;winner.start(accountId);replaced=true;}return result;}};
+ const old=new ImapBackfill({database:wrapped,ownerId:'owner',transport:f.transport});
+ try{({accountId}=await old.connect(f.input));old.start(accountId);armed=true;await until(()=>replaced);await delay(30);assert.equal(old.status(accountId).state,'paused');assert.equal(f.db.get('SELECT revision FROM mail_imap_runs WHERE account_id=?',[accountId]).revision,3);}
+ finally{await old.close();await winner.close();other.close();}
+}));

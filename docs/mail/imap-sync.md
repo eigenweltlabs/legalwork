@@ -65,3 +65,5 @@ Focused acceptance additionally runs `node apps/server/scripts/mail-acceptance.m
 Protocol references: [CONDSTORE/QRESYNC RFC 7162](https://datatracker.ietf.org/doc/rfc7162/), [IDLE RFC 2177](https://www.rfc-editor.org/rfc/rfc2177.html), [UIDPLUS RFC 4315](https://www.rfc-editor.org/rfc/rfc4315.html), [MOVE RFC 6851](https://www.rfc-editor.org/rfc/rfc6851.html), and the [ImapFlow API](https://imapflow.com/docs/api/imapflow-client/). Pinned implementation paths were inspected for unsupported-flag filtering and COPY/EXPUNGE fallback behavior.
 
 https://linear.app/eigenweltlabs/issue/EIG-134
+
+Run ownership does not assume a single database opener. Start/cycle transitions capture their new stamp inside an immediate transaction; ordinary refreshes reject any changed generation or revision. Wakeups and metadata writes check the existing session under the same writer transaction. A superseded engine retires without adopting the winner stamp or turning its already-queued intent into permission to dispatch. Focused takeover regressions exercise both a wake and a post-discovery boundary with a second real encrypted database connection.

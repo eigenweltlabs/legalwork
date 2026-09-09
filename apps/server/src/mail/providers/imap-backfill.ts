@@ -152,11 +152,15 @@ export class ImapBackfill {
         }
         if (this.connecting)
             throw new ImapError('busy');
-        const old = this.read(accountId), fresh = !old || old.poll_at !== null || old.state === 'complete' || old.error === 'uidvalidity_changed';
-        this.options.database.run("INSERT INTO mail_imap_runs(account_id,generation,state) VALUES(?,?,'active') ON CONFLICT(account_id) DO UPDATE SET state='active',revision=revision+1,epoch_resets=0,poll_at=NULL,generation=CASE WHEN ? THEN excluded.generation ELSE generation END,discovered=CASE WHEN ? THEN 0 ELSE discovered END,retry_at=CASE WHEN ? THEN NULL ELSE retry_at END,error=CASE WHEN ? THEN NULL ELSE error END,failures=CASE WHEN ? THEN 0 ELSE failures END", [accountId, randomUUID(), fresh ? 1 : 0, fresh ? 1 : 0, fresh ? 1 : 0, fresh ? 1 : 0, fresh ? 1 : 0]);
-        const run = this.read(accountId);
-        if (!run)
-            throw new ImapError('unavailable');
+        const run = this.options.database.transaction(() => {
+            this.custody.assert(accountId, credential.version);
+            const old = this.read(accountId), fresh = !old || old.poll_at !== null || old.state === 'complete' || old.error === 'uidvalidity_changed';
+            this.options.database.run("INSERT INTO mail_imap_runs(account_id,generation,state) VALUES(?,?,'active') ON CONFLICT(account_id) DO UPDATE SET state='active',revision=revision+1,epoch_resets=0,poll_at=NULL,generation=CASE WHEN ? THEN excluded.generation ELSE generation END,discovered=CASE WHEN ? THEN 0 ELSE discovered END,retry_at=CASE WHEN ? THEN NULL ELSE retry_at END,error=CASE WHEN ? THEN NULL ELSE error END,failures=CASE WHEN ? THEN 0 ELSE failures END", [accountId, randomUUID(), fresh ? 1 : 0, fresh ? 1 : 0, fresh ? 1 : 0, fresh ? 1 : 0, fresh ? 1 : 0]);
+            const run = this.read(accountId);
+            if (!run)
+                throw new ImapError('unavailable');
+            return run;
+        });
         const session: Session = { run, version: credential.version, abort: new AbortController() };
         this.current = session;
         this.schedule(session);
@@ -192,18 +196,33 @@ export class ImapBackfill {
     private recoverEpoch(session: Session) {
         this.assert(session);
         if (session.run.epoch_resets >= 3) {
-            this.options.database.run("UPDATE mail_imap_runs SET state='attention',error='uidvalidity_changed' WHERE account_id=?", [session.run.account_id]);
+            this.change(session, () => { this.options.database.run("UPDATE mail_imap_runs SET state='attention',error='uidvalidity_changed' WHERE account_id=?", [session.run.account_id]); });
             this.stop(session);
             return;
         }
-        this.options.database.run('UPDATE mail_imap_runs SET epoch_resets=epoch_resets+1 WHERE account_id=?', [session.run.account_id]);
+        this.change(session, () => { this.options.database.run('UPDATE mail_imap_runs SET epoch_resets=epoch_resets+1 WHERE account_id=?', [session.run.account_id]); });
         this.cycle(session);
         this.schedule(session);
     }
     private cycle(session: Session) {
-        this.assert(session);
-        this.options.database.run("UPDATE mail_imap_runs SET generation=?,revision=revision+1,discovered=0,poll_at=NULL,retry_at=NULL,error=NULL,failures=0 WHERE account_id=?", [randomUUID(), session.run.account_id]);
-        session.run = this.read(session.run.account_id)!;
+        session.run = this.options.database.transaction(() => {
+            this.assert(session);
+            this.options.database.run("UPDATE mail_imap_runs SET generation=?,revision=revision+1,discovered=0,poll_at=NULL,retry_at=NULL,error=NULL,failures=0 WHERE account_id=?", [randomUUID(), session.run.account_id]);
+            const next = this.read(session.run.account_id);
+            if (!next) throw new ImapError('cancelled');
+            return next;
+        });
+    }
+    /** Metadata refreshes must not turn a superseded session into the current writer. */
+    private refresh(session: Session) {
+        const next = this.read(session.run.account_id);
+        if (this.closed || session.abort.signal.aborted || !next ||
+            next.generation !== session.run.generation || next.revision !== session.run.revision)
+            throw new ImapError('cancelled');
+        session.run = next;
+    }
+    private change(session: Session, body: () => void) {
+        this.options.database.transaction(() => { this.assert(session); body(); });
     }
     pause(accountId: string) {
         this.custody.account(accountId);
@@ -297,7 +316,7 @@ export class ImapBackfill {
                 const result = await this.executor.run(scope);
                 this.assert(session);
                 if (result.stopped === 'timeout') {
-                    db.run("UPDATE mail_imap_runs SET state='attention',error='provider_unavailable' WHERE account_id=?", [accountId]);
+                    this.change(session, () => { db.run("UPDATE mail_imap_runs SET state='attention',error='provider_unavailable' WHERE account_id=?", [accountId]); });
                     this.stop(session);
                     return;
                 }
@@ -314,7 +333,7 @@ export class ImapBackfill {
                 const discovery = await transport.discover(session.abort.signal);
                 this.assert(session);
                 db.transaction(() => { this.assert(session); this.folders(accountId, this.custody.read(accountId).settings, discovery.folders, session.run.generation); db.run('UPDATE mail_imap_runs SET discovered=1,capabilities_json=?,error=NULL,failures=0 WHERE account_id=?', [JSON.stringify(discovery.capabilities), accountId]); });
-                session.run = this.read(accountId)!;
+                this.refresh(session);
                 this.schedule(session);
                 return;
             }
@@ -333,12 +352,12 @@ export class ImapBackfill {
                         this.assert(session);
                         if (discovery.folders.some(value => value.path === folder.path))
                             throw error;
-                        db.run("UPDATE mail_imap_folders SET selected=0,done=1,generation='absent' WHERE account_id=? AND path=?", [accountId, folder.path]);
+                        this.change(session, () => { db.run("UPDATE mail_imap_folders SET selected=0,done=1,generation='absent' WHERE account_id=? AND path=?", [accountId, folder.path]); });
                         this.schedule(session);
                         return;
                     }
                     this.assert(session);
-                    db.run('UPDATE mail_imap_folders SET highest_modseq=CASE WHEN uid_validity=? THEN highest_modseq ELSE NULL END,uid_validity=?,uid_next=?,scan_modseq=? WHERE account_id=? AND path=?', [opened.uidValidity, opened.uidValidity, opened.uidNext, opened.highestModseq ?? null, accountId, folder.path]);
+                    this.change(session, () => { db.run('UPDATE mail_imap_folders SET highest_modseq=CASE WHEN uid_validity=? THEN highest_modseq ELSE NULL END,uid_validity=?,uid_next=?,scan_modseq=? WHERE account_id=? AND path=?', [opened.uidValidity, opened.uidValidity, opened.uidNext, opened.highestModseq ?? null, accountId, folder.path]); });
                     this.schedule(session);
                     return;
                 }
@@ -352,14 +371,14 @@ export class ImapBackfill {
                     this.assert(session);
                     session.transport?.close();
                     session.transport = undefined;
-                    db.run('UPDATE mail_imap_folders SET uid_span=? WHERE account_id=? AND path=?', [error.span, accountId, folder.path]);
+                    this.change(session, () => { db.run('UPDATE mail_imap_folders SET uid_span=? WHERE account_id=? AND path=?', [error.span, accountId, folder.path]); });
                     this.schedule(session);
                     return;
                 }
                 this.assert(session);
                 const validity = folder.uid_validity;
                 if (page.items.some(item => item.flags === null && !db.get('SELECT 1 FROM mail_imap_messages WHERE account_id=? AND message_key=?', [accountId, providerMessageKey({ provider: 'imap', mailboxId: folder.path, uidValidity: validity, uid: item.uid })]))) {
-                    db.run('UPDATE mail_imap_folders SET highest_modseq=NULL WHERE account_id=? AND path=?', [accountId, folder.path]);
+                    this.change(session, () => { db.run('UPDATE mail_imap_folders SET highest_modseq=NULL WHERE account_id=? AND path=?', [accountId, folder.path]); });
                     this.schedule(session);
                     return;
                 }
@@ -376,8 +395,8 @@ export class ImapBackfill {
                     }
                     db.run('UPDATE mail_imap_folders SET after_uid=?,uid_span=?,done=?,highest_modseq=CASE WHEN ? THEN scan_modseq ELSE highest_modseq END WHERE account_id=? AND path=?', [page.after, page.nextSpan, page.done ? 1 : 0, page.done ? 1 : 0, accountId, folder.path]);
                 });
-                db.run('UPDATE mail_imap_runs SET error=NULL,failures=0,retry_at=NULL WHERE account_id=?', [accountId]);
-                session.run = this.read(accountId)!;
+                this.change(session, () => { db.run('UPDATE mail_imap_runs SET error=NULL,failures=0,retry_at=NULL WHERE account_id=?', [accountId]); });
+                this.refresh(session);
                 this.schedule(session);
                 return;
             }
@@ -390,8 +409,8 @@ export class ImapBackfill {
             }
             if (!status.checkpoint.discoveryComplete)
                 this.journal.commitPage({ ...scope, expectedCursor: status.checkpoint.cursor, expectedRevision: status.checkpoint.revision, nextCursor: null, discoveryComplete: true, jobs: [] }, () => this.assert(session));
-            db.run("UPDATE mail_imap_runs SET poll_at=?,epoch_resets=0,error=NULL WHERE account_id=?", [Date.now() + (this.options.pollMs ?? 60000), accountId]);
-            session.run = this.read(accountId)!;
+            this.change(session, () => { db.run("UPDATE mail_imap_runs SET poll_at=?,epoch_resets=0,error=NULL WHERE account_id=?", [Date.now() + (this.options.pollMs ?? 60000), accountId]); });
+            this.refresh(session);
             this.schedule(session);
         }
         catch (error) {
@@ -409,8 +428,8 @@ export class ImapBackfill {
                 const retry = issue.retryable && session.run.failures < 4, failures = Math.min(5, session.run.failures + 1), at = retry ? Date.now() + 1000 * 2 ** failures : null;
                 session.transport?.close();
                 session.transport = undefined;
-                this.options.database.run('UPDATE mail_imap_runs SET state=?,error=?,failures=?,retry_at=? WHERE account_id=?', [retry ? 'active' : 'attention', ['authentication_failed', 'certificate_failed', 'uidvalidity_changed'].includes(issue.code) ? issue.code : 'provider_unavailable', failures, at, session.run.account_id]);
-                session.run = this.read(session.run.account_id)!;
+                this.change(session, () => { this.options.database.run('UPDATE mail_imap_runs SET state=?,error=?,failures=?,retry_at=? WHERE account_id=?', [retry ? 'active' : 'attention', ['authentication_failed', 'certificate_failed', 'uidvalidity_changed'].includes(issue.code) ? issue.code : 'provider_unavailable', failures, at, session.run.account_id]); });
+                this.refresh(session);
                 if (retry)
                     this.schedule(session, at! - Date.now());
                 else
@@ -456,14 +475,14 @@ export class ImapBackfill {
             session.transport?.close();
             session.transport = undefined;
             if (issue.code === 'uidvalidity_changed')
-                this.options.database.run("UPDATE mail_imap_runs SET error='uidvalidity_changed' WHERE account_id=?", [accountId]);
+                this.change(session, () => { this.options.database.run("UPDATE mail_imap_runs SET error='uidvalidity_changed' WHERE account_id=?", [accountId]); });
             if (issue.code === 'message_unavailable') {
-                removeImapMessage(this.options.database, accountId, work.job.message_key);
+                this.change(session, () => { removeImapMessage(this.options.database, accountId, work.job.message_key); });
                 work.complete(() => this.assert(session));
                 return;
             }
             if (['authentication_failed', 'certificate_failed'].includes(issue.code)) {
-                this.options.database.run("UPDATE mail_imap_runs SET state='attention',error=? WHERE account_id=?", [issue.code, accountId]);
+                this.change(session, () => { this.options.database.run("UPDATE mail_imap_runs SET state='attention',error=? WHERE account_id=?", [issue.code, accountId]); });
                 this.stop(session);
             }
             throw new MailSyncExecutionFailure((error instanceof MimeProjectionError ? !['source_failed', 'sink_failed', 'cancelled'].includes(error.code) : !issue.retryable) ? 'permanent' : 'retryable', 1000);
