@@ -164,11 +164,22 @@ export class ImapBackfill {
     }
     wake(accountId: string) {
         if (this.current?.run.account_id === accountId) {
-            this.options.database.run('UPDATE mail_imap_runs SET poll_at=0 WHERE account_id=?', [accountId]);
-            this.current.run = this.read(accountId)!;
-            if (!this.current.task) {
-                clearTimeout(this.current.timer);
-                this.schedule(this.current);
+            const session = this.current;
+            try {
+                // A wake is a scheduling hint, never permission to adopt another writer's run.
+                this.options.database.transaction(() => {
+                    this.assert(session);
+                    this.options.database.run('UPDATE mail_imap_runs SET poll_at=0 WHERE account_id=?', [accountId]);
+                    session.run = { ...session.run, poll_at: 0 };
+                });
+            } catch {
+                // The intent was already durably queued; its current owner can dispatch it.
+                this.stop(session);
+                return;
+            }
+            if (!session.task) {
+                clearTimeout(session.timer);
+                this.schedule(session);
             }
         }
         else if (!this.current && !this.connecting) {
