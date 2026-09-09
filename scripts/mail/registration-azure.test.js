@@ -22,14 +22,14 @@ function fixture(options = {}) {
     if (key === "ad app list") return exists ? [app] : [];
     if (key === "ad sp show") return scopeData;
     if (key === "ad app show") return app;
-    if (key === "ad app create") { exists = true; return { id: tenant, appId: tenant }; }
+    if (commandArgs[0] === "rest" && commandArgs.includes("post")) { exists = true; return { id: tenant, appId: tenant }; }
     throw new Error("Unexpected command");
   } };
 }
 test("default dry-run issues reads only", () => {
   const mock = fixture();
   expect(provision(args, mock.command).status).toBe("dry_run");
-  expect(mock.calls.some((call) => call.includes("create"))).toBe(false);
+  expect(mock.calls.some((call) => call[0] === "rest")).toBe(false);
 });
 test("tenant mismatch fails before Graph lookup", () => {
   const mock = fixture({ wrongTenant: true });
@@ -40,15 +40,21 @@ test("apply creates only once, verifies, and reruns idempotently", () => {
   const mock = fixture();
   expect(provision([...args, "--apply"], mock.command).status).toBe("created_verified");
   expect(provision([...args, "--apply"], mock.command).status).toBe("existing_verified");
-  const creates = mock.calls.filter((call) => call.includes("create"));
+  const creates = mock.calls.filter((call) => call[0] === "rest");
   expect(creates).toHaveLength(1);
-  expect(creates[0]).toContain("--public-client-redirect-uris");
-  expect(creates[0]).not.toContain("--password");
+  expect(creates[0]).toContain("https://graph.microsoft.com/v1.0/applications");
+  const body = JSON.parse(creates[0][creates[0].indexOf("--body") + 1]);
+  expect(body.publicClient.redirectUris).toEqual(["http://localhost/mail/callback"]);
+  expect(body.description).toBe("Legalwork Mail development registration; managed by registration-azure.mjs v1");
+  expect(body.signInAudience).toBe("AzureADMyOrg");
+  expect(body.isFallbackPublicClient).toBe(false);
+  expect(body.passwordCredentials).toBeUndefined();
+  expect(body.requiredResourceAccess[0].resourceAccess).toHaveLength(6);
 });
 test("unmanaged collision cannot be adopted", () => {
   const mock = fixture({ exists: true, app: { description: "existing Workspace app" } });
   expect(() => provision([...args, "--apply"], mock.command)).toThrow("Name collision");
-  expect(mock.calls.some((call) => call.includes("create"))).toBe(false);
+  expect(mock.calls.some((call) => call[0] === "rest")).toBe(false);
 });
 test("read-back drift fails without repair", () => {
   for (const app of [{ passwordCredentialCount: 1 }, { signInAudience: "AzureADandPersonalMicrosoftAccount" }, { publicClient: { redirectUris: ["https://example.com"] } }]) {

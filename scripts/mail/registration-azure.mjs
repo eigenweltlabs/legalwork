@@ -53,9 +53,14 @@ export function provision(args, command = az) {
   }
   if (exact.length === 1) return { status: "existing_verified", ...verify(exact[0].id), authorization: "not_checked" };
   if (!apply) return { status: "dry_run", action: "create_new", name, tenantId: tenant, redirect, delegatedScopes: scopes, authorization: "not_checked" };
-  const created = command(["ad", "app", "create", "--display-name", name, "--description", marker,
-    "--sign-in-audience", "AzureADMyOrg", "--public-client-redirect-uris", redirect,
-    "--is-fallback-public-client", "false", "--required-resource-accesses", JSON.stringify(required), "--query", "{id:id,appId:appId}"]);
+  // az ad app create does not expose description. Use Graph's supported JSON
+  // creation surface so the ownership marker is atomic with the new application.
+  const created = command(["rest", "--method", "post", "--url", "https://graph.microsoft.com/v1.0/applications",
+    "--headers", "Content-Type=application/json", "--body", JSON.stringify({
+      displayName: name, description: marker, signInAudience: "AzureADMyOrg",
+      publicClient: { redirectUris: [redirect] }, isFallbackPublicClient: false,
+      requiredResourceAccess: required,
+    }), "--query", "{id:id,appId:appId}"]);
   // No update, service-principal creation, consent grant, credential creation, or login.
   return { status: "created_verified", ...verify(created.id), authorization: "not_checked" };
 }
