@@ -94,7 +94,7 @@ export class ImapBackfill {
                 throw new ImapError('cancelled'); const accountId = this.custody.connect(settings, password, reconnectAccountId, expected); this.folders(accountId, settings, discovery.folders, 'configuration'); this.options.database.run("INSERT INTO mail_imap_runs(account_id,generation,state,capabilities_json) VALUES(?,?,'paused',?) ON CONFLICT(account_id) DO UPDATE SET generation=excluded.generation,revision=revision+1,state='paused',discovered=0,retry_at=NULL,error=NULL,failures=0,capabilities_json=excluded.capabilities_json", [accountId, randomUUID(), JSON.stringify(discovery.capabilities)]); return { accountId, provider: 'imap' }; });
         }
         catch (error) {
-            throw imapFailure(error);
+            throw performance.now() >= deadline ? new ImapError('timeout') : imapFailure(error);
         }
         finally {
             clearTimeout(timer);
