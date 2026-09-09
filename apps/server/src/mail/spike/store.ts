@@ -26,6 +26,13 @@ function values(value: unknown): unknown[] {
 }
 export const origin = 'https://graph.microsoft.com';
 export const initial = `${origin}/v1.0/me/mailFolders/inbox/messages/delta`;
+function continuation(value: unknown): string {
+  if (typeof value !== 'string' || !value.startsWith('https://') || value.trim() !== value) throw new Error('Untrusted continuation');
+  let parsed: URL;
+  try { parsed = new URL(value); } catch { throw new Error('Untrusted continuation'); }
+  if (parsed.origin !== origin || parsed.username || parsed.password || parsed.hash) throw new Error('Untrusted continuation');
+  return value; // Keep the original opaque provider query; do not rebuild it.
+}
 export const digest = (bytes: Uint8Array) => createHash('sha256').update(bytes).digest('hex');
 
 export async function openSpike(path: string) {
@@ -49,9 +56,7 @@ export async function openSpike(path: string) {
     return row ? string(record(row).url) : initial;
   };
   const request = async (transport: Transport, url: string) => {
-    const parsed = new URL(url);
-    if (parsed.origin !== origin || parsed.username || parsed.password) throw new Error('Untrusted Graph URL');
-    const response = await transport(new Request(url, { headers: { Prefer: 'IdType="ImmutableId"' } }));
+    const response = await transport(new Request(continuation(url), { headers: { Prefer: 'IdType="ImmutableId"' } }));
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
     return response;
   };
@@ -69,9 +74,8 @@ export async function openSpike(path: string) {
       const next = page['@odata.nextLink'];
       const delta = page['@odata.deltaLink'];
       if ((typeof next === 'string') === (typeof delta === 'string')) throw new Error('Expected exactly one continuation');
-      const cursor = string(next ?? delta);
-      // Validate before committing an opaque provider continuation.
-      if (new URL(cursor).origin !== origin) throw new Error('Untrusted continuation');
+      // Apply the same policy before persistence as before every request.
+      const cursor = continuation(next ?? delta);
       const items = [];
       for (const entry of values(page.value)) {
         const message = record(entry);
@@ -95,7 +99,7 @@ export async function openSpike(path: string) {
             const bytes = new Uint8Array(await (await request(transport, `${base}/attachments/${encodeURIComponent(attachmentId)}/$value`)).arrayBuffer());
             attachments.push({ id: attachmentId, name: string(attachment.name), bytes });
           }
-          attachmentUrl = list['@odata.nextLink'] === undefined ? undefined : string(list['@odata.nextLink']);
+          attachmentUrl = list['@odata.nextLink'] === undefined ? undefined : continuation(list['@odata.nextLink']);
         }
         items.push({ id, subject, body, mime, attachments });
       }
