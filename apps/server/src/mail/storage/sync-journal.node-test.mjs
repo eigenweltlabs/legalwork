@@ -167,19 +167,20 @@ test("untouched, explicit empty discovery and succeeded jobs remain separate fro
 // Key/path are stdin-only. SIGKILL occurs inside or just after the transaction; no graceful close.
 function crash(path, key, mode) {
   const script = `
-    import {readFileSync} from 'node:fs';
+    import {readFileSync,writeSync} from 'node:fs';
     import {openEncryptedMailDatabase} from ${JSON.stringify(new URL("./database.js", import.meta.url).href)};
     import {MailSyncJournal} from ${JSON.stringify(new URL("./sync-journal.js", import.meta.url).href)};
     const input=JSON.parse(readFileSync(0,'utf8')); const key=Buffer.from(input.key,'base64');
     const db=await openEncryptedMailDatabase({path:input.path,key}); key.fill(0);
     const j=new MailSyncJournal(db,'owner-a',()=>1000,{maxAttempts:2,retryBaseMs:10,retryMaxMs:10});
     j.commitPage(input.page,writer=>{writer.ingestMessage({locator:{provider:'gmail',messageId:'one'},subject:'synthetic_journal_private_marker',rfcMessageId:null,memberships:[]});
-      if(input.mode==='before') process.kill(process.pid,'SIGKILL');});
+      if(input.mode==='before') {writeSync(2,'crash-boundary');process.kill(process.pid,'SIGKILL');}});
     if(input.mode==='lease') { const [job]=j.claim(input.scope,1,50); process.stdout.write(JSON.stringify(job.lease_token)+'\\n'); }
-    process.kill(process.pid,'SIGKILL');
+    {writeSync(2,'crash-boundary');process.kill(process.pid,'SIGKILL');}
   `;
   const result = spawnSync(process.execPath, ["--input-type=module", "--eval", script], { input: JSON.stringify({ path, key: key.toString("base64"), mode, page: page(), scope }), encoding: "utf8", env: {}, timeout: 10000 });
-  assert.equal(result.signal, "SIGKILL"); assert.equal(result.stderr, "");
+  assert.equal(result.error, undefined);
+  assert.equal(process.platform === 'win32' ? result.status : result.signal, process.platform === 'win32' ? 1 : 'SIGKILL'); assert.equal(result.stderr, 'crash-boundary');
   assert.ok(!result.stdout.includes(key.toString("base64")));
   return result.stdout;
 }
@@ -319,7 +320,7 @@ for (const mode of ["before","after"]) test(`SIGKILL ${mode} followup commit pre
   const j=journal();j.commitPage(page({discoveryComplete:true}),metadata);const [parent]=j.claim(scope);
   close();
   const script=`
-    import {readFileSync} from 'node:fs';
+    import {readFileSync,writeSync} from 'node:fs';
     import {openEncryptedMailDatabase} from ${JSON.stringify(new URL('./database.js',import.meta.url).href)};
     import {MailSyncJournal} from ${JSON.stringify(new URL('./sync-journal.js',import.meta.url).href)};
     const input=JSON.parse(readFileSync(0,'utf8'));const key=Buffer.from(input.key,'base64');
@@ -327,12 +328,12 @@ for (const mode of ["before","after"]) test(`SIGKILL ${mode} followup commit pre
     const j=new MailSyncJournal(db,'owner-a',()=>1001);
     j.succeedWithFollowups('a',input.parent.id,input.parent.lease_token,input.children,writer=>{
       writer.setAttachmentsEnumerated({provider:'gmail',messageId:'one'},true);
-      if(input.mode==='before')process.kill(process.pid,'SIGKILL');
+      if(input.mode==='before'){writeSync(2,'crash-boundary');process.kill(process.pid,'SIGKILL');}
     });
-    process.kill(process.pid,'SIGKILL');
+    {writeSync(2,'crash-boundary');process.kill(process.pid,'SIGKILL');}
   `;
   const result=spawnSync(process.execPath,['--input-type=module','--eval',script],{input:JSON.stringify({path,key:key.toString('base64'),parent,children:followups(),mode}),encoding:'utf8',env:{},timeout:10000});
-  assert.equal(result.signal,'SIGKILL');assert.equal(result.stdout,'');assert.equal(result.stderr,'');
+  assert.equal(result.error,undefined);assert.equal(process.platform === 'win32' ? result.status : result.signal,process.platform === 'win32' ? 1 : 'SIGKILL');assert.equal(result.stdout,'');assert.equal(result.stderr,'crash-boundary');
   db=await reopen();const recovered=journal();const committed=mode==='after';
   assert.equal(db.get('SELECT attachments_enumerated FROM mail_messages').attachments_enumerated,committed?1:0);
   assert.equal(recovered.status(scope).jobs.queued,committed?2:0);
