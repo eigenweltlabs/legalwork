@@ -1317,6 +1317,8 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
     status: 6_000,
     config: 10_000,
     workspaceExport: 30_000,
+    // A dragged folder is many downloads behind one call.
+    legalMemoryFolderExport: 300_000,
     workspaceImport: 30_000,
     binary: 60_000,
     benchmark: 15_000,
@@ -1998,6 +2000,14 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
         baseUrl,
         `/workspace/${encodeURIComponent(workspaceId)}/legalmemory/open`,
         { token, hostToken, method: "POST", body: payload, timeoutMs: timeouts.workspaceExport },
+      ),
+    /** Pull every document under a LegalMemory folder into the workspace,
+     * keeping the folder's shape, so a dropped folder becomes one path. */
+    legalMemoryOpenFolder: (workspaceId: string, payload: { source_id: string; path: string; name: string }) =>
+      requestJson<{ ok: boolean; path: string; files: number; bytes: number; skipped: number; truncated: boolean }>(
+        baseUrl,
+        `/workspace/${encodeURIComponent(workspaceId)}/legalmemory/open-folder`,
+        { token, hostToken, method: "POST", body: payload, timeoutMs: timeouts.legalMemoryFolderExport },
       ),
     hubShareIntegration: (workspaceId: string, payload: { mcp: string; name?: string; description?: string }) =>
       requestJson<{ ok: boolean; id: string; version: number }>(

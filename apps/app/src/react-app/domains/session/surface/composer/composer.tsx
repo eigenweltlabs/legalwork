@@ -11,8 +11,11 @@ import { LEGALWORK_EXTENSION_CATALOG, type McpDirectoryInfo } from "@/app/consta
 import type { ImportedPlugin, ImportedPluginFile } from "@/app/lib/extension-imports";
 import {
   hasLegalMemoryFileDrag,
+  hasLegalMemoryFolderDrag,
   readLegalMemoryFileDrag,
+  readLegalMemoryFolderDrag,
   type LegalMemoryFileDragItem,
+  type LegalMemoryFolderDragItem,
 } from "@/app/lib/legalmemory-file";
 import type { ComposerAttachment, McpServerEntry, McpStatusMap, ModelRef, SkillCard, SlashCommandOption } from "@/app/types";
 import { formatBytes, isMacPlatform } from "@/app/utils";
@@ -104,6 +107,7 @@ type ComposerProps = {
   onPasteText: (text: string) => void;
   onUnsupportedFileLinks: (links: string[]) => void;
   onDropLegalMemoryFile: (file: LegalMemoryFileDragItem) => void | Promise<void>;
+  onDropLegalMemoryFolder: (folder: LegalMemoryFolderDragItem) => void | Promise<void>;
   pastedText: PastedTextChip[];
   onExpandPastedText: (id: string) => void;
   onRemovePastedText: (id: string) => void;
@@ -298,7 +302,7 @@ export function ReactSessionComposer(props: ComposerProps) {
   const [mcpLoaded, setMcpLoaded] = useState(Boolean(props.mcpServers));
   const [pluginsLoaded, setPluginsLoaded] = useState(Boolean(props.importedPlugins));
   const [, setExtensionStateVersion] = useState(0);
-  const [dropzoneKind, setDropzoneKind] = useState<"attachment" | "memory" | null>(null);
+  const [dropzoneKind, setDropzoneKind] = useState<"attachment" | "memory" | "memory-folder" | null>(null);
   const [fusionNewTooltipOpen, setFusionNewTooltipOpen] = useState(false);
   const toolMenuRef = useRef<HTMLDivElement | null>(null);
   const editorRef = useRef<LexicalPromptEditorHandle | null>(null);
@@ -1093,10 +1097,18 @@ export function ReactSessionComposer(props: ComposerProps) {
             <div className="pointer-events-none absolute inset-3 z-20 flex items-center justify-center rounded-[20px] border-2 border-dashed border-dls-accent bg-[color:color-mix(in_oklab,var(--dls-accent)_10%,transparent)]">
               <div className="rounded-2xl border border-dls-border bg-dls-surface/95 px-5 py-4 text-center">
                 <div className="text-sm font-medium text-dls-text">
-                  {dropzoneKind === "memory" ? t("composer.download_memory_file") : t("composer.attach_files")}
+                  {dropzoneKind === "memory-folder"
+                    ? t("composer.download_memory_folder")
+                    : dropzoneKind === "memory"
+                      ? t("composer.download_memory_file")
+                      : t("composer.attach_files")}
                 </div>
                 <div className="mt-1 text-xs text-dls-secondary">
-                  {dropzoneKind === "memory" ? "A project copy will be referenced by path" : t("composer.any_file_type_supported")}
+                  {dropzoneKind === "memory-folder"
+                    ? t("composer.download_memory_folder_hint")
+                    : dropzoneKind === "memory"
+                      ? t("composer.download_memory_file_hint")
+                      : t("composer.any_file_type_supported")}
                 </div>
               </div>
             </div>
@@ -1169,6 +1181,12 @@ export function ReactSessionComposer(props: ComposerProps) {
                 }
               }}
               onDragOver={(event) => {
+                if (event.dataTransfer && hasLegalMemoryFolderDrag(event.dataTransfer)) {
+                  event.preventDefault();
+                  event.dataTransfer.dropEffect = "copy";
+                  if (dropzoneKind !== "memory-folder") setDropzoneKind("memory-folder");
+                  return;
+                }
                 if (event.dataTransfer && hasLegalMemoryFileDrag(event.dataTransfer)) {
                   event.preventDefault();
                   event.dataTransfer.dropEffect = "copy";
@@ -1186,8 +1204,14 @@ export function ReactSessionComposer(props: ComposerProps) {
                 setDropzoneKind(null);
               }}
               onDrop={(event) => {
+                const memoryFolder = event.dataTransfer ? readLegalMemoryFolderDrag(event.dataTransfer) : null;
                 const memoryFile = event.dataTransfer ? readLegalMemoryFileDrag(event.dataTransfer) : null;
                 setDropzoneKind(null);
+                if (memoryFolder) {
+                  event.preventDefault();
+                  void props.onDropLegalMemoryFolder(memoryFolder);
+                  return;
+                }
                 if (memoryFile) {
                   event.preventDefault();
                   void props.onDropLegalMemoryFile(memoryFile);

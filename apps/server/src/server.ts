@@ -2,8 +2,9 @@ import { existsSync } from "node:fs";
 import { lstat, mkdir, readFile, writeFile, rm } from "node:fs/promises";
 import { homedir, hostname } from "node:os";
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
-import { LEGALMEMORY_EXPORT_DIR, safeExportFilename } from "./legalmemory-export.js";
+import { LEGALMEMORY_EXPORT_DIR, safeExportFilename, safeExportRelativePath } from "./legalmemory-export.js";
 import {
+  collectLegalMemoryFolderFiles,
   engineAccessToken,
   fetchLegalMemoryDocument,
   fetchLegalMemoryGraph,
@@ -2375,6 +2376,84 @@ function createRoutes(
     const relativePath = `${LEGALMEMORY_EXPORT_DIR}/${filename}`;
     await writeFile(join(exportDir, filename), document.bytes);
     return jsonResponse({ ok: true, path: relativePath, bytes: document.bytes.byteLength, mimeType: document.mimeType });
+  });
+
+  // Drag a whole folder into the chat. Same trust model as the single-document
+  // route above — the server holds the appliance session and takes ids, never
+  // URLs — but one call instead of one per file, so the composer can reference
+  // a single workspace folder rather than a list the user has to read.
+  addRoute(routes, "POST", "/workspace/:id/legalmemory/open-folder", "client", async (ctx) => {
+    ensureWritable(config);
+    requireClientScope(ctx, "collaborator");
+    const workspace = await resolveWorkspace(config, ctx.params.id);
+    const body = await readJsonBodyLimited(ctx.request, 16 * 1024);
+
+    const sourceId = typeof body.source_id === "string" ? body.source_id.trim() : "";
+    const path = typeof body.path === "string" ? body.path.trim() : "";
+    const requestedName = typeof body.name === "string" ? body.name.trim() : "";
+    if (!sourceId) throw new ApiError(400, "invalid_source_id", "A source_id is required");
+    if (!path) throw new ApiError(400, "invalid_tree_path", "A folder path is required");
+    if (path.length > 4096) throw new ApiError(400, "invalid_tree_path", "The folder path is too long");
+
+    // The folder's display name comes from the caller because only the tree
+    // listing knows it, and it is sanitized here because the caller is not
+    // trusted to keep the export inside its own directory.
+    const folderName = safeExportFilename(requestedName || path.split("/").pop() || "");
+    if (!folderName) throw new ApiError(400, "invalid_folder_name", "The folder name cannot be exported");
+
+    const server = resolveLegalMemoryServer(await listMcp(config, workspace.id, workspace.path));
+    if (!server) {
+      throw new ApiError(409, "legalmemory_not_configured", "No LegalMemory server is configured for this workspace");
+    }
+    const bearer = await engineAccessToken(server.name);
+
+    let listing: Awaited<ReturnType<typeof collectLegalMemoryFolderFiles>>;
+    try {
+      listing = await collectLegalMemoryFolderFiles(server, { sourceId, path }, bearer);
+    } catch (error) {
+      throw new ApiError(502, "legalmemory_tree_failed", error instanceof Error ? error.message : "Folder listing failed");
+    }
+
+    const relativeRoot = `${LEGALMEMORY_EXPORT_DIR}/${folderName}`;
+    await mkdir(join(workspace.path, relativeRoot), { recursive: true });
+
+    // A few at a time: a folder of fifty documents fetched one after another
+    // leaves the user watching a spinner, and the appliance is happy to answer
+    // more than one download at once.
+    let written = 0;
+    let bytes = 0;
+    const skipped: string[] = [];
+    const queue = [...listing.entries];
+    const worker = async () => {
+      for (let entry = queue.shift(); entry; entry = queue.shift()) {
+        const relativePath = safeExportRelativePath(entry.relativePath);
+        if (!relativePath) {
+          skipped.push(entry.file.name);
+          continue;
+        }
+        try {
+          const document = await fetchLegalMemoryDocument(server, entry.file.document_id, bearer);
+          const target = join(workspace.path, relativeRoot, relativePath);
+          await mkdir(dirname(target), { recursive: true });
+          await writeFile(target, document.bytes);
+          written += 1;
+          bytes += document.bytes.byteLength;
+        } catch {
+          // One unreadable document should not lose the rest of the folder.
+          skipped.push(entry.file.name);
+        }
+      }
+    };
+    await Promise.all(Array.from({ length: Math.min(4, queue.length) || 1 }, worker));
+
+    return jsonResponse({
+      ok: true,
+      path: relativeRoot,
+      files: written,
+      bytes,
+      skipped: skipped.length,
+      truncated: listing.truncated,
+    });
   });
 
   addRoute(routes, "POST", "/workspace/:id/hub/share/integration", "client", async (ctx) => {

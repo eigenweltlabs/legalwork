@@ -58,7 +58,54 @@ export function parseLegalMemoryComposerMention(value: string): LegalMemoryCompo
   }
 }
 
+export type LegalMemoryFolderComposerMention = {
+  sourceId: string;
+  label: string;
+  /** Workspace-relative folder the documents were copied into. */
+  localPath: string;
+  /** How many documents actually landed there. */
+  files: number;
+};
+
+const LEGALMEMORY_FOLDER_MENTION = /^legalmemory:\/\/folder\/([^?\s]+)\?([^\s]*)$/i;
+
+/** A dropped folder is one pill, not one per document: the copies live under a
+ * single workspace folder and the agent lists it when it reads. */
+export function createLegalMemoryFolderComposerMention(
+  sourceId: string,
+  label: string,
+  localPath: string,
+  files: number,
+): string {
+  const params = new URLSearchParams({ name: label, path: localPath, files: String(files) });
+  return `legalmemory://folder/${encodeURIComponent(sourceId)}?${params.toString()}`;
+}
+
+export function parseLegalMemoryFolderComposerMention(value: string): LegalMemoryFolderComposerMention | null {
+  const match = LEGALMEMORY_FOLDER_MENTION.exec(value.trim());
+  if (!match?.[1]) return null;
+  try {
+    const sourceId = decodeURIComponent(match[1]);
+    const params = new URLSearchParams(match[2] ?? "");
+    const localPath = params.get("path")?.trim();
+    if (!sourceId || !localPath) return null;
+    const files = Number.parseInt(params.get("files") ?? "", 10);
+    return {
+      sourceId,
+      label: params.get("name")?.trim() || localPath.split("/").pop() || localPath,
+      localPath,
+      files: Number.isFinite(files) && files > 0 ? files : 0,
+    };
+  } catch {
+    return null;
+  }
+}
+
 export function legalMemoryComposerInstruction(value: string): string {
+  const folder = parseLegalMemoryFolderComposerMention(value);
+  if (folder) {
+    return `The user dropped the LegalMemory folder "${folder.label}". Its ${folder.files} ${folder.files === 1 ? "document was" : "documents were"} copied into the workspace folder "${folder.localPath}", keeping the folder's own structure. List that folder and read the files in it with tools appropriate for each format (for example, extract or convert DOCX rather than reading it as plain text) before answering. These are local path references, not binary chat attachments.`;
+  }
   const mention = parseLegalMemoryComposerMention(value);
   if (!mention) return value;
   if (mention.localPath) {
@@ -70,6 +117,11 @@ export function legalMemoryComposerInstruction(value: string): string {
 /** Visible representation persisted in the user turn. The transcript renderer
  * turns this ordinary LegalMemory citation into a compact clickable pill. */
 export function legalMemoryComposerDisplayText(value: string): string {
+  const folder = parseLegalMemoryFolderComposerMention(value);
+  if (folder) {
+    const label = folder.label.replaceAll("[", "").replaceAll("]", "");
+    return `[${label || folder.localPath}](${folder.localPath})`;
+  }
   const mention = parseLegalMemoryComposerMention(value);
   if (!mention) return value;
   const label = mention.label.replaceAll("[", "").replaceAll("]", "");

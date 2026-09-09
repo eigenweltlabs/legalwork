@@ -2,11 +2,13 @@ import { describe, expect, test } from "bun:test";
 
 import {
   createLegalMemoryComposerMention,
+  createLegalMemoryFolderComposerMention,
   decodeComposerMentionValue,
   encodeComposerMentionValue,
   legalMemoryComposerInstruction,
   legalMemoryComposerDisplayText,
   parseLegalMemoryComposerMention,
+  parseLegalMemoryFolderComposerMention,
 } from "../src/react-app/domains/session/surface/composer/mention-encoding";
 
 describe("mention-encoding", () => {
@@ -59,5 +61,34 @@ describe("mention-encoding", () => {
     expect(legalMemoryComposerDisplayText(value)).toBe(
       "[Member consent final.docx](legalmemory://document/doc-123)",
     );
+  });
+
+  test("turns a dropped folder into one pill pointing at the copied folder", () => {
+    const value = createLegalMemoryFolderComposerMention(
+      "source-7",
+      "Pleadings",
+      ".legalmemory/Pleadings",
+      12,
+    );
+    expect(parseLegalMemoryFolderComposerMention(value)).toEqual({
+      sourceId: "source-7",
+      label: "Pleadings",
+      localPath: ".legalmemory/Pleadings",
+      files: 12,
+    });
+    const instruction = legalMemoryComposerInstruction(value);
+    expect(instruction).toContain('LegalMemory folder "Pleadings"');
+    expect(instruction).toContain("12 documents");
+    expect(instruction).toContain('workspace folder ".legalmemory/Pleadings"');
+    expect(legalMemoryComposerDisplayText(value)).toBe("[Pleadings](.legalmemory/Pleadings)");
+  });
+
+  test("keeps folder and document mentions apart", () => {
+    const folder = createLegalMemoryFolderComposerMention("source-7", "Pleadings", ".legalmemory/Pleadings", 1);
+    const document = createLegalMemoryComposerMention("doc-123", "Answer.docx", ".legalmemory/Answer.docx");
+    expect(parseLegalMemoryComposerMention(folder)).toBeNull();
+    expect(parseLegalMemoryFolderComposerMention(document)).toBeNull();
+    // A single-document folder still reads as a folder, not as one file.
+    expect(legalMemoryComposerInstruction(folder)).toContain("Its 1 document was copied");
   });
 });

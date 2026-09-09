@@ -34,3 +34,22 @@ export function safeExportFilename(name: string): string | null {
  * here it put there itself.
  */
 export const LEGALMEMORY_EXPORT_DIR = ".legalmemory";
+
+/**
+ * Reduce a folder-relative path from the appliance to segments that can only
+ * ever land inside the export directory.
+ *
+ * A single unusable segment fails the whole path: half a folder written to the
+ * wrong place is worse than the file being skipped.
+ */
+export function safeExportRelativePath(path: string): string | null {
+  const segments = path.split(/[/\\]/).map((segment) => segment.trim()).filter(Boolean);
+  if (!segments.length) return null;
+  const safe: string[] = [];
+  for (const segment of segments) {
+    const name = safeExportFilename(segment);
+    if (!name) return null;
+    safe.push(name);
+  }
+  return safe.join("/");
+}

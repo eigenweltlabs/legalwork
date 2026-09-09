@@ -37,6 +37,7 @@ import {
   decodeComposerMentionValue,
   encodeComposerMentionValue,
   parseLegalMemoryComposerMention,
+  parseLegalMemoryFolderComposerMention,
   type ComposerMentionKind,
 } from "./mention-encoding";
 import { t } from "@/i18n";
@@ -100,6 +101,8 @@ const MENTION_PILL_CLASS: Record<ComposerMentionKind, string> = {
 function mentionPillText(value: string, kind: ComposerMentionKind) {
   if (kind === "upload") return parseWorkspaceAttachmentMention(value)?.name ?? value;
   if (kind === "memory") {
+    const folder = parseLegalMemoryFolderComposerMention(value);
+    if (folder) return `@${folder.label}`;
     const memory = parseLegalMemoryComposerMention(value);
     if (memory) return `@${memory.label}`;
   }
