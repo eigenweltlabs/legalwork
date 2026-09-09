@@ -41,6 +41,8 @@ let graph: GraphBackfill | undefined;
 let closingGraph: Promise<void> | undefined;
 let access: MailAccessCoordinator | undefined;
 let closingBackfill: Promise<void> | undefined;
+let imapConnectId: string | undefined;
+const imapRequests = new Map<string, number>();
 const providerSettings = new Map<string, MailOAuthSettings>();
 const requests = new Set<Promise<void>>();
 const locked = new Error("mail_archive_locked");
@@ -72,7 +74,7 @@ async function finish(): Promise<void> {
   backfill = undefined;
   graph = undefined;imap=undefined;
   access = undefined;
-  providerSettings.clear();
+  providerSettings.clear(); imapRequests.clear(); imapConnectId = undefined;
   try { database?.close(); } catch { exitCode = 1; }
   database = undefined;
   repository = undefined;
@@ -122,7 +124,7 @@ async function initialize(value: WorkerInitialization): Promise<void> {
     credentials = new MailCredentialRepository(database, value.ownerId);
     controller = new MailConnectionController({ database, ownerId: value.ownerId });
     access = new MailAccessCoordinator({ database, ownerId: value.ownerId, loadProviderSettings: async binding => {
-      const selected = providerSettings.get(`${binding.provider}:${binding.clientId}`);
+      const selected = providerSettings.get(`${binding.provider}:${binding.clientId}:${binding.authority}`);
       if (!selected) throw new Error("mail_configuration_unavailable");
       return selected;
     } });
@@ -182,7 +184,24 @@ async function request(message: Extract<ParentMessage, { kind: "request" }>): Pr
       case "ping": result = { pong: true }; break;
       case "mail.storage.status": result = { encrypted: true, schemaVersion: MAIL_SCHEMA_VERSION, syncSupported: true }; break;
       case "mail.imap.discovery":result={imapDiscovery:imap.discovery(command.accountId,command.after)};break;
-      case "mail.imap.connect":try{result={imapConnection:await imap.connect(command.input)};}catch(error){result={imapConnection:{error:imapFailure(error).code}};}break;
+      case "mail.imap.cancel": {
+        for (const [id, expiry] of imapRequests) if (expiry < Date.now()) imapRequests.delete(id);
+        if (!imapRequests.has(command.requestId) && imapRequests.size >= 128) throw new Error("mail_imap_busy");
+        imapRequests.set(command.requestId, Date.now()+600000);
+        if (imapConnectId === command.requestId) imap.cancelConnect();
+        result = {cancelled:true}; break;
+      }
+      case "mail.imap.connect": {
+        for (const [id, expiry] of imapRequests) if (expiry < Date.now()) imapRequests.delete(id);
+        if (command.requestId && imapRequests.has(command.requestId)) {result={imapConnection:{error:"cancelled"}};break;}
+        if (imapConnectId || imapRequests.size >= 128) {result={imapConnection:{error:"busy"}};break;}
+        imapConnectId=command.requestId;
+        if (command.requestId) imapRequests.set(command.requestId,Date.now()+600000);
+        try {result={imapConnection:await imap.connect(command.input)};}
+        catch(error) {result={imapConnection:{error:imapFailure(error).code}};}
+        finally {imapConnectId=undefined;}
+        break;
+      }
       case "mail.connection.begin":
         result = { connectionStarted: await controller.begin(command.settings, { reconnectAccountId: command.reconnectAccountId }) }; break;
       case "mail.connection.poll": result = { connection: controller.poll(command.connectionId) }; break;
@@ -217,7 +236,7 @@ async function request(message: Extract<ParentMessage, { kind: "request" }>): Pr
         if (credentials.status(command.accountId).state === "disconnected") throw locked;
         const provider = database.get("SELECT provider FROM mail_accounts WHERE id=?", [command.accountId])?.provider;
         if (provider !== "gmail" && provider !== "graph" && provider !== "imap") throw unsupported;
-        if (command.operation === "mail.sync.provider") { result = { syncProvider: provider }; break; }
+        if (command.operation === "mail.sync.provider") { result = { syncProvider: provider, ...(provider === "graph" ? {personal: credentials.getBinding(command.accountId).authority === "https://login.microsoftonline.com/consumers/v2.0"} : {}) }; break; }
         if(provider==='imap'){if(command.operation==='mail.sync.start'&&command.settings)throw unsupported;result={sync:command.operation==='mail.sync.start'?imap.start(command.accountId):command.operation==='mail.sync.stop'?imap.pause(command.accountId):imap.status(command.accountId)};break;}
         const engine = provider === "gmail" ? backfill : graph;
         if (command.operation === "mail.sync.start") {
@@ -225,7 +244,7 @@ async function request(message: Extract<ParentMessage, { kind: "request" }>): Pr
           const binding = credentials.getBinding(command.accountId);
           if (command.settings.provider !== provider || binding.clientId !== command.settings.clientId
             || binding.authority !== (command.settings.provider === "gmail" ? "https://accounts.google.com" : `https://login.microsoftonline.com/${command.settings.tenantId}/v2.0`)) throw new Error("mail_configuration_mismatch");
-          providerSettings.set(`${provider}:${binding.clientId}`, command.settings);
+          providerSettings.set(`${provider}:${binding.clientId}:${binding.authority}`, command.settings);
           result = { sync: engine.start(command.accountId) };
         } else result = { sync: command.operation === "mail.sync.stop" ? engine.pause(command.accountId) : engine.status(command.accountId) };
         break;

@@ -31,7 +31,7 @@ const scopes = z.array(z.string().regex(/^[\x21-\x7e]{1,512}$/)).max(32);
 const common = { applicationType: z.literal("desktop"), pkceMethod: z.literal("S256"), scopes };
 const settingsSchema = z.discriminatedUnion("provider", [
   z.object({ ...common, provider: z.literal("gmail"), clientId: z.string().max(4096).regex(/^[A-Za-z0-9_-]+\.apps\.googleusercontent\.com$/), clientSecret: z.string().regex(/^[\x21-\x7e]{1,16384}$/) }).strict(),
-  z.object({ ...common, provider: z.literal("graph"), clientId: guid, tenantId: guid, registeredRedirectUri: z.literal("http://localhost/mail/callback") }).strict(),
+  z.object({ ...common, provider: z.literal("graph"), clientId: guid, tenantId: z.union([guid, z.literal("consumers")]), registeredRedirectUri: z.literal("http://localhost/mail/callback") }).strict(),
 ]);
 function settings(value: unknown, binding: MailCredentialBinding): MailOAuthSettings {
   const result = settingsSchema.safeParse(value);

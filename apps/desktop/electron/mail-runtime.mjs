@@ -22,14 +22,14 @@ export async function createDesktopMailService({ app, embeddedPath, safeStorage 
     // This database belongs to this local OS desktop profile. It has no remotely
     // selectable owner; future multi-user server support requires its own binding.
     ownerId: "desktop-local",
-    loadProviderSettings: async (provider) => {
+    loadProviderSettings: async (provider, personal = false) => {
       if (provider === "gmail") {
         const path = process.env.LEGALWORK_MAIL_GOOGLE_CLIENT_CONFIG;
         if (!path) throw new Error("mail_provider_configuration_unavailable");
         return loadGoogleInstalledMailClient(path);
       }
       return parseGraphMailRegistration({ clientId: process.env.LEGALWORK_MAIL_MICROSOFT_CLIENT_ID,
-        tenantId: process.env.LEGALWORK_MAIL_MICROSOFT_TENANT_ID });
+        tenantId: personal ? "consumers" : process.env.LEGALWORK_MAIL_MICROSOFT_TENANT_ID });
     },
     maintain: async (operation, passphrase, signal) => {
       if (!app.isReady() || signal.aborted) throw new Error("mail_maintenance_failed");

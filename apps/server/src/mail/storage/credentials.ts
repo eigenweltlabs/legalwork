@@ -13,7 +13,9 @@ const bindingInput = z.discriminatedUnion("provider", [
   z.object({ provider: z.literal("gmail"), clientId: z.string().max(4096).regex(/^[A-Za-z0-9_-]+\.apps\.googleusercontent\.com$/),
     authority: z.literal("https://accounts.google.com"), providerSubject: subject }).strict(),
   z.object({ provider: z.literal("graph"), clientId: z.string().regex(new RegExp(`^${guid}$`, "i")).toLowerCase(),
-    authority: z.string().regex(new RegExp(`^https://login\\.microsoftonline\\.com/${guid}/v2\\.0$`, "i")).toLowerCase(), providerSubject: z.string().regex(new RegExp(`^${guid}$`, "i")).toLowerCase() }).strict(),
+    authority: z.string().regex(new RegExp(`^https://login\\.microsoftonline\\.com/(?:${guid}|consumers)/v2\\.0$`, "i")).toLowerCase(), providerSubject: z.string().regex(/^[A-Za-z0-9_-]{1,256}$/) }).strict().superRefine((value, ctx) => {
+    if (!value.authority.endsWith("/consumers/v2.0") && !new RegExp(`^${guid}$`, "i").test(value.providerSubject)) ctx.addIssue({code:"custom",message:"Invalid organizational identity"});
+  }).transform(value => ({...value, providerSubject:value.authority.endsWith("/consumers/v2.0") ? value.providerSubject : value.providerSubject.toLowerCase()})),
 ]);
 const versionInput = z.object({ generation: z.string().uuid(), revision: integer }).strict();
 const grantsInput = z.array(z.string().regex(/^[\x21-\x7e]{1,512}$/)).max(32).nullable();

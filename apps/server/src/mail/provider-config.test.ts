@@ -39,8 +39,9 @@ describe("mail provider configuration readiness", () => {
   test("Graph requires send separately from read/write", () => {
     expect(checkMailProviderReadiness({ ...graph, scopes: GRAPH_MAIL_SCOPES.filter((scope) => scope !== "Mail.Send") }).issues).toContain("missing_required_scopes");
   });
+  test("Graph explicit personal authority is supported", () => { expect(checkMailProviderReadiness({ ...graph, tenantId:"consumers" }).configurationReady).toBe(true); });
   test("Graph pilot disallows broad authorities and injected tenant paths", () => {
-    for (const tenantId of ["", "common", "organizations", "consumers", "example.com", "../common", "tenant?secret"]) {
+    for (const tenantId of ["", "common", "organizations", "example.com", "../common", "tenant?secret"]) {
       expect(checkMailProviderReadiness({ ...graph, tenantId }).issues).toContain("explicit_tenant_required");
     }
   });

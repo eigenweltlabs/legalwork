@@ -16,10 +16,13 @@ export function provision(args, command = az) {
   const values = new Map();
   for (let i = 0; i < args.length; i++) {
     if (args[i] === "--apply") continue;
-    if (!["--tenant", "--name"].includes(args[i]) || !args[i + 1] || args[i + 1].startsWith("--")) throw new Error("Usage: --tenant TENANT_GUID --name legalwork-mail-dev-NAME [--apply]");
+    if (!["--tenant", "--name", "--audience"].includes(args[i]) || !args[i + 1] || args[i + 1].startsWith("--")) throw new Error("Usage: --tenant TENANT_GUID --name legalwork-mail-dev-NAME [--apply]");
     if (values.has(args[i])) throw new Error("Duplicate argument");
     values.set(args[i], args[++i]);
   }
+  const audienceOption = values.get("--audience") ?? "organizational";
+  if (!["organizational", "organizational-and-personal"].includes(audienceOption)) throw new Error("Unsupported explicit account audience");
+  const audience = audienceOption === "organizational-and-personal" ? "AzureADandPersonalMicrosoftAccount" : "AzureADMyOrg";
   const tenant = values.get("--tenant");
   const name = values.get("--name");
   if (!guid.test(tenant ?? "") || !/^legalwork-mail-dev-[a-z0-9-]{1,50}$/.test(name ?? "")) throw new Error("Explicit tenant GUID and dedicated legalwork-mail-dev-* name required");
@@ -35,12 +38,13 @@ export function provision(args, command = az) {
     return { id: matches[0].id, type: "Scope" };
   });
   const required = [{ resourceAppId: graphId, resourceAccess: permissions }];
-  const query = "{id:id,appId:appId,displayName:displayName,description:description,signInAudience:signInAudience,publicClient:publicClient,web:web,spa:spa,requiredResourceAccess:requiredResourceAccess,passwordCredentialCount:length(passwordCredentials),keyCredentialCount:length(keyCredentials),isFallbackPublicClient:isFallbackPublicClient}";
+  const query = "{id:id,appId:appId,displayName:displayName,description:description,signInAudience:signInAudience,api:api,publicClient:publicClient,web:web,spa:spa,requiredResourceAccess:requiredResourceAccess,passwordCredentialCount:length(passwordCredentials),keyCredentialCount:length(keyCredentials),isFallbackPublicClient:isFallbackPublicClient}";
   function verify(id) {
     const app = command(["ad", "app", "show", "--id", id, "--query", query]);
     const actual = app.requiredResourceAccess ?? [];
     const actualPermissions = actual[0]?.resourceAccess ?? [];
-    if (app.description !== marker || app.displayName !== name || app.signInAudience !== "AzureADMyOrg"
+    if (app.description !== marker || app.displayName !== name || app.signInAudience !== audience
+      || (audienceOption === "organizational-and-personal" && app.api?.requestedAccessTokenVersion !== 2)
       || app.publicClient?.redirectUris?.length !== 1 || app.publicClient.redirectUris[0] !== redirect
       || (app.web?.redirectUris?.length ?? 0) || (app.spa?.redirectUris?.length ?? 0)
       || app.passwordCredentialCount !== 0 || app.keyCredentialCount !== 0
@@ -52,12 +56,12 @@ export function provision(args, command = az) {
     return { objectId: app.id, clientId: app.appId };
   }
   if (exact.length === 1) return { status: "existing_verified", ...verify(exact[0].id), authorization: "not_checked" };
-  if (!apply) return { status: "dry_run", action: "create_new", name, tenantId: tenant, redirect, delegatedScopes: scopes, authorization: "not_checked" };
+  if (!apply) return { status: "dry_run", action: "create_new", name, tenantId: tenant, audience, redirect, delegatedScopes: scopes, authorization: "not_checked" };
   // az ad app create does not expose description. Use Graph's supported JSON
   // creation surface so the ownership marker is atomic with the new application.
   const created = command(["rest", "--method", "post", "--url", "https://graph.microsoft.com/v1.0/applications",
     "--headers", "Content-Type=application/json", "--body", JSON.stringify({
-      displayName: name, description: marker, signInAudience: "AzureADMyOrg",
+      displayName: name, description: marker, signInAudience: audience, ...(audienceOption === "organizational-and-personal" ? {api:{requestedAccessTokenVersion:2}} : {}),
       publicClient: { redirectUris: [redirect] }, isFallbackPublicClient: false,
       requiredResourceAccess: required,
     }), "--query", "{id:id,appId:appId}"]);
