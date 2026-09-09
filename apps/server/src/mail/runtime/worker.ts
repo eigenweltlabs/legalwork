@@ -1,4 +1,6 @@
 /** Production Node/Electron entrypoint. stdout is exclusively the private worker protocol. */
+import { MailConnectionController, MailConnectionError } from "../providers/connection-controller.js";
+import { MailCredentialRepository, MailCredentialError } from "../storage/credentials.js";
 import { isAbsolute } from "node:path";
 import { openEncryptedMailDatabase } from "../storage/database.js";
 import type { MailDatabase } from "../storage/database-interface.js";
@@ -10,6 +12,11 @@ import { MAX_WORKER_MESSAGE_BYTES, parseParentMessage, parseWorkerMessage,
 
 let database: MailDatabase | undefined;
 let repository: MailRepository | undefined;
+let controller: MailConnectionController | undefined;
+let closingController: Promise<void> | undefined;
+let credentials: MailCredentialRepository | undefined;
+const requests = new Set<Promise<void>>();
+const locked = new Error("mail_archive_locked");
 let phase: "waiting" | "opening" | "ready" | "closing" = "waiting";
 let input = Buffer.alloc(0);
 let opening: Promise<void> | undefined;
@@ -25,7 +32,11 @@ function write(message: WorkerMessage): boolean {
   process.stdout.write(`${encoded}\n`);
   return true;
 }
-function finish(): void {
+async function finish(): Promise<void> {
+  try { await (closingController ?? controller?.close()); } catch { exitCode = 1; }
+  await Promise.allSettled(requests);
+  controller = undefined;
+  credentials = undefined;
   try { database?.close(); } catch { exitCode = 1; }
   database = undefined;
   repository = undefined;
@@ -35,11 +46,13 @@ function shutdown(code = 0): void {
   exitCode = Math.max(exitCode, code);
   if (phase === "closing") return;
   phase = "closing";
+  // close() marks the controller closed synchronously, before any queued continuation.
+  closingController = controller?.close();
   input = Buffer.alloc(0);
   process.stdin.pause();
   exitTimer = setTimeout(() => process.exit(1), 2000);
   if (opening) void opening.finally(finish);
-  else finish();
+  else void finish();
 }
 function fatal(code: "initialization_failed" | "protocol_error"): void {
   write({ kind: "fatal", code });
@@ -59,6 +72,8 @@ async function initialize(value: WorkerInitialization): Promise<void> {
     migrateMailSchema(database);
     assertMailSchema(database);
     repository = new MailRepository(database, value.ownerId);
+    credentials = new MailCredentialRepository(database, value.ownerId);
+    controller = new MailConnectionController({ database, ownerId: value.ownerId });
     phase = "ready";
     write({ kind: "ready", protocol: 1, runtime: "node", nodeVersion: process.versions.node });
   } catch {
@@ -83,8 +98,8 @@ function pageResult(id: string, items: WorkerAccount[] | WorkerFolder[], hasMore
   }
   return accepted;
 }
-function request(message: Extract<ParentMessage, { kind: "request" }>): void {
-  if (phase !== "ready" || !repository) {
+async function request(message: Extract<ParentMessage, { kind: "request" }>): Promise<void> {
+  if (phase !== "ready" || !repository || !controller || !credentials) {
     write({ kind: "response", id: message.id, ok: false, code: "not_ready" }); return;
   }
   const command = message.command;
@@ -93,17 +108,24 @@ function request(message: Extract<ParentMessage, { kind: "request" }>): void {
     switch (command.operation) {
       case "ping": result = { pong: true }; break;
       case "mail.storage.status": result = { encrypted: true, schemaVersion: MAIL_SCHEMA_VERSION, syncSupported: false }; break;
+      case "mail.connection.begin":
+        result = { connectionStarted: await controller.begin(command.settings, { reconnectAccountId: command.reconnectAccountId }) }; break;
+      case "mail.connection.poll": result = { connection: controller.poll(command.connectionId) }; break;
+      case "mail.connection.cancel": await controller.cancel(command.connectionId); result = { cancelled: true }; break;
+      case "mail.account.disconnect": await controller.disconnect(command.accountId); result = { disconnected: true }; break;
       case "mail.accounts.list": {
         const page = repository.listAccountsPage({ limit: command.limit, after: command.after });
         result = pageResult(message.id, page.items.map((account) => ({ id: account.id, provider: account.provider, displayName: account.display_name })), page.hasMore);
         break;
       }
       case "mail.folders.list": {
+        if (credentials.status(command.accountId).state === "disconnected") throw locked;
         const page = repository.listFoldersPage(command.accountId, { limit: command.limit, after: command.after });
         result = pageResult(message.id, page.items.map((folder) => ({ id: folder.id, name: folder.name, kind: folder.kind, parentId: folder.parent_id })), page.hasMore, true);
         break;
       }
       case "mail.status":
+        if (credentials.status(command.accountId).state === "disconnected") throw locked;
         // An owner-bound lookup verifies the account without fetching its folders.
         repository.listFoldersPage(command.accountId, { limit: 1 });
         result = { state: "idle", syncSupported: false }; break;
@@ -112,11 +134,16 @@ function request(message: Extract<ParentMessage, { kind: "request" }>): void {
       case "credentials.update":
         write({ kind: "response", id: message.id, ok: false, code: "unsupported" }); return;
     }
+    if (isClosing()) return;
     if (!result) { write({ kind: "response", id: message.id, ok: false, code: "response_too_large" }); return; }
     if (!write({ kind: "response", id: message.id, ok: true, result })) write({ kind: "response", id: message.id, ok: false, code: "operation_failed" });
   } catch (error) {
     // Do not echo SQLite/provider errors, row contents, supplied IDs, paths or key material.
-    const code = error instanceof Error && error.message === "Mail account not found" ? "not_found" : "operation_failed";
+    if (isClosing()) return;
+    const code = error === locked ? "locked" :
+      (error instanceof MailConnectionError && (error.code === "not_found" || error.code === "account_not_found"))
+      || (error instanceof MailCredentialError && error.code === "account_not_found")
+      || (error instanceof Error && error.message === "Mail account not found") ? "not_found" : "operation_failed";
     write({ kind: "response", id: message.id, ok: false, code });
   }
 }
@@ -129,7 +156,10 @@ function receive(message: ParentMessage): void {
     opening = initialize(message.initialization);
     return;
   }
-  request(message);
+  if (requests.size >= 64) { write({ kind: "response", id: message.id, ok: false, code: "operation_failed" }); return; }
+  const pending = request(message);
+  requests.add(pending);
+  void pending.finally(() => requests.delete(pending));
 }
 process.stdin.on("data", (chunk: Buffer) => {
   if (phase === "closing") return;
