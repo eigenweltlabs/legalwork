@@ -42,6 +42,18 @@ function mockService() {
   let calls = 0;
   let stops = 0;
   const service: MailService = {
+    async saveDraft(){throw new MailServiceError("not_found");},
+    async readDraft(){throw new MailServiceError("not_found");},
+    async deleteDraft(){throw new MailServiceError("not_found");},
+    async readDraftAttachment(){throw new MailServiceError("not_found");},
+    async listDrafts(){throw new MailServiceError("not_found");},
+    async enqueueSubmission(){throw new MailServiceError("not_found");},
+    async enqueueMutation(){throw new MailServiceError("not_found");},
+    async readAction(){throw new MailServiceError("not_found");},
+    async listActions(){throw new MailServiceError("not_found");},
+    async cancelAction(){throw new MailServiceError("not_found");},
+    async listEvents(){throw new MailServiceError("not_found");},
+
     async search(){return {items:[],total:0,pending:0,incomplete:0,nextOffset:null};},
     async rebuildSearch(){return {processed:0,pending:0,incomplete:0};},
     status() { return { protocolVersion: 1, state, syncSupported: false }; },

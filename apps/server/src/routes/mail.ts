@@ -1,3 +1,4 @@
+import { mailActionCancelSchema, mailActionReadSchema, mailDraftAttachmentSchema, mailDraftDeleteSchema, mailDraftReadSchema, mailDraftSaveSchema, mailEventQuerySchema, mailLocalPageSchema, mailMutationSchema, mailSubmissionSchema } from "../mail/local-view.js";
 import { mailSearchInputSchema, mailSearchRebuildInputSchema } from "../mail/search-view.js";
 import { ApiError } from "../errors.js";
 import { z } from "zod";
@@ -26,6 +27,8 @@ function pageInput(ctx: RequestContext, paginated: boolean): MailPageInput {
 function safeError(error: unknown): ApiError {
   if (error instanceof MailServiceError) {
     switch (error.code) {
+      case "conflict": return new ApiError(409,"mail_conflict","Mail state changed; reload before retrying");
+      case "invalid_input": return new ApiError(400,"mail_invalid_request","Invalid mail request");
       case "not_found": return new ApiError(404, "mail_not_found", "Mail resource not found");
       case "locked": return new ApiError(423, "mail_locked", "Mail storage is locked");
       case "too_large": return new ApiError(413, "mail_response_too_large", "Mail response exceeds the supported size");
@@ -139,7 +142,7 @@ export function registerMailRoutes(routes: Route[], host: string, service?: Mail
   route("POST", "/accounts/:accountId/sync/start", false, ctx => service.startSync(ctx.params.accountId));
   route("POST", "/accounts/:accountId/sync/pause", false, ctx => service.pauseSync(ctx.params.accountId));
   function query<T>(path: string, schema: z.ZodType<T>, handler: (accountId: string, input: T) => Promise<unknown>) {
-    addRoute(routes, "POST", `/mail/v1/accounts/:accountId/messages/${path}`, "host-token", async ctx => {
+    addRoute(routes, "POST", `/mail/v1/accounts/:accountId/${path}`, "host-token", async ctx => {
       if (ctx.actor?.type !== "host") throw new ApiError(401, "unauthorized", "Invalid host token");
       pageInput(ctx, false);
       if (ctx.request.headers.get("content-type")?.split(";")[0]?.trim().toLowerCase() !== "application/json") throw new ApiError(400, "mail_invalid_request", "Invalid mail request");
@@ -152,8 +155,20 @@ export function registerMailRoutes(routes: Route[], host: string, service?: Mail
       catch (error) { throw safeError(error); }
     });
   }
-  query("query", mailMessagePageSchema, (accountId, input) => service.listMessages(accountId, input));
-  query("read", z.object({ locator: providerMessageLocatorSchema }).strict(), (accountId, input) => service.readMessage(accountId, input.locator));
-  query("parts", z.object({ locator: providerMessageLocatorSchema, page: mailPartPageSchema.default({ limit: 50 }) }).strict(), (accountId, input) => service.listParts(accountId, input.locator, input.page));
-  query("content", z.object({ locator: providerMessageLocatorSchema, request: mailContentReadSchema }).strict(), (accountId, input) => service.readContent(accountId, input.locator, input.request));
+  query("messages/query", mailMessagePageSchema, (accountId, input) => service.listMessages(accountId, input));
+  query("messages/read", z.object({ locator: providerMessageLocatorSchema }).strict(), (accountId, input) => service.readMessage(accountId, input.locator));
+  query("messages/parts", z.object({ locator: providerMessageLocatorSchema, page: mailPartPageSchema.default({ limit: 50 }) }).strict(), (accountId, input) => service.listParts(accountId, input.locator, input.page));
+  query("messages/content", z.object({ locator: providerMessageLocatorSchema, request: mailContentReadSchema }).strict(), (accountId, input) => service.readContent(accountId, input.locator, input.request));
+  query("drafts/save", mailDraftSaveSchema, (accountId,input)=>service.saveDraft(accountId,input));
+  query("drafts/read", mailDraftReadSchema, (accountId,input)=>service.readDraft(accountId,input));
+  query("drafts/delete", mailDraftDeleteSchema, (accountId,input)=>service.deleteDraft(accountId,input));
+  query("drafts/attachment", mailDraftAttachmentSchema, (accountId,input)=>service.readDraftAttachment(accountId,input));
+  query("drafts/query", mailLocalPageSchema, (accountId,input)=>service.listDrafts(accountId,input));
+  query("actions/submission", mailSubmissionSchema, (accountId,input)=>service.enqueueSubmission(accountId,input));
+  query("actions/mutation", mailMutationSchema, (accountId,input)=>service.enqueueMutation(accountId,input));
+  query("actions/read", mailActionReadSchema, (accountId,input)=>service.readAction(accountId,input.actionId));
+  query("actions/query", mailLocalPageSchema, (accountId,input)=>service.listActions(accountId,input));
+  query("actions/cancel", mailActionCancelSchema, (accountId,input)=>service.cancelAction(accountId,input));
+  query("events/query", mailEventQuerySchema, (accountId,input)=>service.listEvents(accountId,input));
+
 }
