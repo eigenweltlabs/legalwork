@@ -3,7 +3,7 @@ import type { MailActionCancel, MailActionPage, MailDraftAttachment, MailDraftAt
 import type { MailSearchInput, MailSearchResult, MailSearchRebuildInput, MailSearchRebuildResult } from "./search-view.js";
 export type MailPageInput = { limit?: number; after?: string };
 export type MailAccountView = { id: string; provider: "gmail" | "graph" | "imap"; displayName: string };
-export type MailFolderView = { id: string; name: string; kind: "folder" | "label"; parentId: string | null };
+export type MailFolderView = { id: string; name: string; kind: "folder" | "label"; parentId: string | null; role?: "inbox" };
 export type MailPage<T> = { items: T[]; nextCursor: string | null };
 export type MailServiceStatus = {
   protocolVersion: 1;

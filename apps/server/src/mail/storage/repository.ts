@@ -19,7 +19,7 @@ const contentInput = z.object({
   if ((value.state === "stored") !== (value.reference !== undefined)) ctx.addIssue({ code: "custom", message: "Only stored content requires a durable reference" });
 });
 const pageInput = z.object({ limit: z.number().int().min(1).max(100).default(50), after: id.optional() }).strict();
-const folderRow = z.object({ id, name: z.string(), kind: z.enum(["folder", "label"]), parent_id: id.nullable() });
+const folderRow = z.object({ id, name: z.string(), kind: z.enum(["folder", "label"]), parent_id: id.nullable(), role: z.literal("inbox").nullable().optional() });
 export type MailPageInput = z.input<typeof pageInput>;
 
 const accountRow = z.object({ id, owner_id: id, provider, display_name: z.string() });
@@ -62,7 +62,7 @@ export class MailRepository {
     this.account(accountId);
     const page = pageInput.parse(input);
     const items = this.database.all(
-      "SELECT id,name,kind,parent_id FROM mail_folders WHERE account_id=? AND id>? ORDER BY id LIMIT ?",
+      "SELECT id,name,kind,parent_id,role FROM mail_folders WHERE account_id=? AND id>? ORDER BY id LIMIT ?",
       [accountId, page.after ?? "", page.limit + 1],
     ).map(row => folderRow.parse(row));
     return { items: items.slice(0, page.limit), hasMore: items.length > page.limit };
@@ -78,7 +78,7 @@ export class MailRepository {
   }
   listFolders(accountId: string) {
     this.account(accountId);
-    return this.database.all("SELECT id,name,kind,parent_id FROM mail_folders WHERE account_id=? ORDER BY id", [accountId]);
+    return this.database.all("SELECT id,name,kind,parent_id,role FROM mail_folders WHERE account_id=? ORDER BY id", [accountId]);
   }
   /** Memberships are a complete snapshot for this provider identity. Raw content survives metadata updates. */
   ingestMessage(accountId: string, input: MailMessageInput): string {

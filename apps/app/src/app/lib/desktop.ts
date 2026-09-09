@@ -49,6 +49,8 @@ export type BrowserProxyState = {
 declare global {
   interface Window {
     __LEGALWORK_ELECTRON__?: {
+      mailArtifactCancel?: () => Promise<void>;
+      mailArtifact?: (value: {accountId: string; locator: unknown; kind: "raw" | "attachment"; partId: string; referenceId: string; operation: "open" | "save"}) => Promise<unknown>;
       invokeDesktop?: <C extends DesktopCommandName>(
         command: C,
         ...args: DesktopCommandArgs<C>

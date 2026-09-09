@@ -29,16 +29,40 @@ export class MailReadStore {
     const metadata = typeof row?.metadata_json === "string" ? z.object({ metadata: mimeMetadataSchema }).parse(JSON.parse(row.metadata_json)).metadata : null;
     const removed = !!this.database.get("SELECT 1 FROM mail_tombstones WHERE account_id=? AND message_key=?", [accountId, message.message_key]);
     return mailMessageViewSchema.parse({ accountId, key: message.message_key, locator: message.locator, subject: message.subject,
-      rfcMessageId: message.rfc_message_id, threadId: message.thread_id, memberships: message.memberships, removed, contentState: message.contentState, metadata });
+      rfcMessageId: message.rfc_message_id, threadId: message.thread_id, memberships: message.memberships, removed, contentState: message.contentState, rawReferenceId: message.content.find(part=>part.kind==='raw')?.ref_id??null, metadata });
   }
   list(accountId: string, supplied: MailMessagePageInput) {
     // This bounded owner check precedes cursor/filter handling and every result query.
     this.repository.listFoldersPage(accountId, { limit: 1 });
     const page = mailMessagePageSchema.parse(supplied);
+    if (page.order === "received") {
+      const cursor = page.after ? z.tuple([z.number().int().nonnegative().nullable(), z.string().min(1).max(32768)]).parse(JSON.parse(page.after)) : null;
+      const rows = this.database.all(`WITH received AS (
+        SELECT m.*, CASE WHEN im.internal_date >= 0 THEN im.internal_date WHEN gm.internal_date >= 0 THEN gm.internal_date
+          WHEN unixepoch(json_extract(gr.metadata_json,'$.receivedDateTime'),'subsec')>=0 THEN CAST(unixepoch(json_extract(gr.metadata_json,'$.receivedDateTime'),'subsec')*1000 AS INTEGER) ELSE NULL END AS received_at
+        FROM mail_messages m LEFT JOIN mail_gmail_metadata gm ON gm.account_id=m.account_id AND gm.message_key=m.message_key
+        LEFT JOIN mail_imap_messages im ON im.account_id=m.account_id AND im.message_key=m.message_key
+        LEFT JOIN mail_graph_messages gr ON gr.account_id=m.account_id AND gr.message_key=m.message_key WHERE m.account_id=?
+      ) SELECT m.message_key,m.locator_json,m.received_at,m.is_read FROM received m
+      WHERE (? IS NULL OR coalesce(m.received_at,-1)<? OR (coalesce(m.received_at,-1)=? AND m.message_key>?))
+      AND (?=1 OR NOT EXISTS(SELECT 1 FROM mail_tombstones t WHERE t.account_id=m.account_id AND t.message_key=m.message_key))
+      AND (? IS NULL OR m.thread_id=?) AND (? IS NULL OR EXISTS(SELECT 1 FROM mail_memberships f WHERE f.account_id=m.account_id AND f.message_key=m.message_key AND f.folder_id=?))
+      AND (?=0 OR EXISTS(SELECT 1 FROM mail_memberships f JOIN mail_folders ff ON ff.account_id=f.account_id AND ff.id=f.folder_id WHERE f.account_id=m.account_id AND f.message_key=m.message_key AND ff.role='inbox'))
+      ORDER BY coalesce(m.received_at,-1) DESC,m.message_key LIMIT ?`, [accountId, cursor ? 1 : null, cursor?.[0] ?? -1,cursor?.[0] ?? -1,cursor?.[1] ?? "",page.includeRemoved?1:0,page.threadId??null,page.threadId??null,page.folderId??null,page.folderId??null,page.inboxOnly?1:0,page.limit+1]);
+      const items=rows.slice(0,page.limit).map(row=>{
+        if(typeof row.locator_json!=="string")throw Error("Invalid stored locator");
+        const result=this.read(accountId,providerMessageLocatorSchema.parse(JSON.parse(row.locator_json)));
+        const unread=this.database.get("SELECT 1 FROM mail_memberships WHERE account_id=? AND message_key=? AND folder_id='UNREAD'",[accountId,result.key]);
+        return mailMessageViewSchema.parse({...result,receivedAt:row.received_at??null,isRead:result.locator.provider==='gmail'?(row.received_at===null?null:!unread):row.is_read===null?null:row.is_read===1});
+      });
+      const last=items.at(-1);
+      return {accountId,items,nextCursor:rows.length>page.limit&&last?JSON.stringify([last.receivedAt,last.key]):null};
+    }
     const rows = this.database.all(`SELECT m.message_key,m.locator_json FROM mail_messages m
       WHERE m.account_id=? AND m.message_key>? AND (?=1 OR NOT EXISTS(SELECT 1 FROM mail_tombstones t WHERE t.account_id=m.account_id AND t.message_key=m.message_key))
       AND (? IS NULL OR m.thread_id=?) AND (? IS NULL OR EXISTS(SELECT 1 FROM mail_memberships f WHERE f.account_id=m.account_id AND f.message_key=m.message_key AND f.folder_id=?))
-      ORDER BY m.message_key LIMIT ?`, [accountId, page.after ?? "", page.includeRemoved ? 1 : 0, page.threadId ?? null, page.threadId ?? null, page.folderId ?? null, page.folderId ?? null, page.limit + 1]);
+      AND (?=0 OR EXISTS(SELECT 1 FROM mail_memberships f JOIN mail_folders ff ON ff.account_id=f.account_id AND ff.id=f.folder_id WHERE f.account_id=m.account_id AND f.message_key=m.message_key AND ff.role='inbox'))
+      ORDER BY m.message_key LIMIT ?`, [accountId, page.after ?? "", page.includeRemoved ? 1 : 0, page.threadId ?? null, page.threadId ?? null, page.folderId ?? null, page.folderId ?? null, page.inboxOnly ? 1 : 0, page.limit + 1]);
     const items = rows.slice(0, page.limit).map(row => {
       if (typeof row.locator_json !== "string") throw new Error("Invalid stored locator");
       return this.read(accountId, providerMessageLocatorSchema.parse(JSON.parse(row.locator_json)));

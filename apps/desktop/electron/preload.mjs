@@ -50,6 +50,8 @@ function installMenuOverlayDismissListeners() {
 }
 
 contextBridge.exposeInMainWorld("__LEGALWORK_ELECTRON__", {
+  mailArtifactCancel() { return ipcRenderer.invoke("legalwork:mail:artifact:cancel"); },
+  mailArtifact(value) { return ipcRenderer.invoke("legalwork:mail:artifact", value); },
   invokeDesktop(command, ...args) {
     return ipcRenderer.invoke("legalwork:desktop", command, ...args);
   },
