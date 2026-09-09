@@ -1,0 +1,50 @@
+# Fresh Legalwork Mail development registrations
+
+EIG-120 remains **incomplete**: registrations, provider consent and live mail tests have not been performed. This runbook prepares new applications only; do not reuse or modify existing Google Workspace registrations. Verified 9 September 2026.
+
+## Observed CLI context (read-only)
+
+`az account show` returned cached account `chris@eigenweltlabs.com`, subscription display name `Azure subscription 1`, Enabled state, user account type, and tenant `e2fd8f91-6a4c-4705-a16b-10383242a69a`. This identifies the cached context; it does **not** prove fresh Microsoft Graph authentication, app-registration permission, administrator role, or Exchange licensing. No Graph resources or role assignments were queried.
+
+`gcloud config list --format='json(core.account,core.project)'` returned configured account `chris@eigenweltlabs.com` and project `eigenweltlabs-training`, but warned that credential refresh requires reauthentication. No login was initiated. The training project is not the destination: choose a fresh, dedicated development project owned by the approved Eigenwelt organization. No access tokens, secret values, mailboxes or browser sessions were accessed.
+
+## Azure: executable plan, then explicit apply
+
+Prerequisites: Bun, Azure CLI, approved owning account and explicit tenant, permission to register apps, and dedicated licensed Exchange test users. The lead establishes CLI authentication separately after confirming ownership. This script never logs in or switches tenants/subscriptions. A subscription is not the app-registration ownership boundary; the Entra tenant is.
+
+Run from the repository root, substituting the approved tenant and a unique dedicated suffix:
+
+```sh
+pnpm exec bun scripts/mail/registration-azure.mjs --tenant TENANT_GUID --name legalwork-mail-dev-SUFFIX
+```
+
+Suffix must be lowercase letters, digits or hyphens. Default is dry-run: it reads active account metadata, searches the dedicated app name, resolves enabled delegated scope IDs from Microsoft's Graph service principal, and prints the proposed configuration. It does make authenticated read requests; it performs no writes. The bounded preparation task did not run this script against Azure, even in dry-run.
+
+Once the owner/tenant and displayed plan are confirmed, the lead runs the same command with `--apply`. This creates one single-tenant app with a native/public desktop redirect `http://localhost/mail/callback` and delegated `openid`, `profile`, `offline_access`, `User.Read`, `Mail.ReadWrite`, `Mail.Send`. Runtime uses the same callback path with the actual local listener port. The app receives no client secret; fallback public-client flows are disabled because the native redirect identifies the public client for interactive authorization code + S256 PKCE. No implicit/password/device-code flow is provisioned. [Azure app CLI](https://learn.microsoft.com/en-us/cli/azure/ad/app?view=azure-cli-latest), [native registration](https://learn.microsoft.com/en-us/graph/auth-register-app-v2), [localhost port matching](https://learn.microsoft.com/en-us/entra/identity-platform/reply-url).
+
+The script resolves permission IDs instead of copying unverified UUIDs, then checks the created object by ID: exact dedicated name/marker, audience, one native redirect, no Web/SPA redirects, no credentials, and exact delegated permission set. It prints only object/client identifiers and status; it does not grant consent. The lead must establish tenant consent policy and approve required delegated permissions separately. [Graph permission reference](https://learn.microsoft.com/en-us/graph/permissions-reference).
+
+Idempotency is conservative: one exact name with the script's ownership marker is verified and reused without mutation; a foreign name collision, duplicates, or configuration drift stop execution. There is no update/repair operation. Run serially: directory display names are not unique and Azure has no atomic create-if-name-absent guarantee. If creation succeeds but read-back fails because of replication lag, retry after checking the dedicated app by name; never invent a second name just to bypass an ambiguous outcome. A read-back mismatch never triggers automatic deletion.
+
+Rollback is manual and limited to the new application. Record the successful output's object ID. In the approved tenant, run `az ad app show --id OBJECT_ID --query '{id:id,appId:appId,displayName:displayName,description:description}'` and verify the dedicated name plus marker `Legalwork Mail development registration; managed by registration-azure.mjs v1`. Then, if rollback is intended, run `az ad app delete --id OBJECT_ID`. Never delete by a guessed name or an existing Workspace client ID. Review any subsequently created enterprise-app consent/service-principal state separately; this script creates neither a service principal nor consent grants. [Show/delete commands](https://learn.microsoft.com/en-us/cli/azure/ad/app?view=azure-cli-latest).
+
+## Google: dedicated project and supported console step
+
+No documented public `gcloud` command or public API for creating the standard Google Auth Platform **Desktop app** OAuth client was verified. Do not substitute `gcloud iam oauth-clients create`: its documented IAM OAuth integration is for workforce identity/Identity-Aware Proxy and cloud-platform scopes, not ordinary consumer/Workspace Gmail installed-app clients. Likewise, an IAP OAuth client is not a Gmail Desktop client. [IAM OAuth integration boundary](https://docs.cloud.google.com/iam/docs/workforce-manage-oauth-app), [IAM command](https://docs.cloud.google.com/sdk/gcloud/reference/iam/oauth-clients/create).
+
+The minimal supported manual path is:
+
+1. After the lead restores authentication, create/select a **fresh** project under the approved organization, with a unique project ID and development-specific display name. Do not change `eigenweltlabs-training`. Confirm project ownership, billing requirements and API enablement permission with the owner. Gmail API can be enabled with `gcloud services enable gmail.googleapis.com --project NEW_PROJECT_ID`; this is a future authorized mutation, not executed here.
+2. In that project, Google Auth Platform → Branding: configure the application name `Legalwork Mail Development`, support email and developer contact. Set Audience intentionally: Internal for organization-only testing or External in Testing with each dedicated test user's email listed. Data Access: request Gmail modify and the identity scopes actually used by the mail connection.
+3. Google Auth Platform → Clients → Create client → **Desktop app** → name `Legalwork Mail Development Desktop` → Create. Download the installed-client JSON immediately into an owner-controlled location outside the repository; client secrets are shown/downloadable at creation. Do not paste it into task output. This console step cannot honestly be represented by the IAM CLI above. [Official Desktop credential steps](https://developers.google.com/workspace/guides/create-credentials), [client management/download behavior](https://support.google.com/cloud/answer/15549257?hl=en), [consent setup](https://developers.google.com/workspace/guides/configure-oauth-consent).
+4. Supply this new client only to the new mail connection configuration once integration supports that separation. Do not overwrite existing Workspace OAuth environment settings. Verify project/client identity through redacted metadata, enable API access under Workspace policy, and complete consent with dedicated synthetic-data accounts. Desktop redirect is an actual loopback listener such as `http://127.0.0.1:<port>/`; use S256 PKCE and state. [Installed-app flow](https://developers.google.com/identity/protocols/oauth2/native-app).
+
+Google rollback: select the **new project's new Desktop client** in Clients and delete that client after verifying its ID/name; remove local test credentials. Keep project deletion a separate deliberate operation because it deletes all project resources. Never delete or rotate existing Workspace credentials as rollback.
+
+## Capability and acceptance boundaries
+
+Single-tenant Graph is a development rollout constraint, not the product definition. Outlook.com personal accounts and Microsoft organizational multitenant support remain core planned mail capabilities. They need explicit audience/authority policy, registration support and tests; the current provider-config validator must be extended accordingly rather than treating those accounts as unsupported product scope.
+
+`gmail.modify` does not allow immediate permanent deletion that bypasses Trash. The product contract must distinguish Move to Trash from permanent deletion and report the latter unavailable under this grant. Do not silently claim complete deletion support or broaden to `https://mail.google.com/`. [Gmail scope boundary](https://developers.google.com/workspace/gmail/api/auth/scopes).
+
+Registration is not live acceptance. Next evidence remains actual consent/granted scopes, isolated account identity, refresh after restart and revocation, synthetic message sync/mutations, and explicitly authorized controlled sends. See `provider-readiness.md` for test-account prerequisites. Mock tests validate script command intent and safety checks only; no Azure resource creation or Google interoperability has been tested.
