@@ -18,6 +18,7 @@ function serviceError(error: unknown): MailServiceError {
     if (error.message === "mail_worker_not_found") return new MailServiceError("not_found");
     if (error.message === "mail_worker_locked") return new MailServiceError("locked");
     if (error.message === "mail_worker_response_too_large") return new MailServiceError("too_large");
+    if (error.message === "mail_worker_unsupported") return new MailServiceError("unsupported");
   }
   return new MailServiceError("unavailable");
 }
@@ -50,7 +51,7 @@ export class LocalMailService implements MailService {
     if (this.stopped) state = "stopped";
     else if (this.phase === "open") state = this.worker.status().state === "ready" ? "ready" : "unavailable";
     else state = this.phase;
-    return { protocolVersion: 1, state, syncSupported: false };
+    return { protocolVersion: 1, state, syncSupported: true };
   }
   unlock(): Promise<void> {
     if (this.stopped) return Promise.reject(new MailServiceError("unavailable"));
@@ -135,6 +136,30 @@ export class LocalMailService implements MailService {
     this.epoch++;
     const result = await this.request({ operation: "mail.account.disconnect", accountId });
     if (!("disconnected" in result)) throw new MailServiceError("unavailable");
+  }
+  async startSync(accountId: string) {
+    if (this.stopped || !this.loadProviderSettings) throw new MailServiceError("unavailable");
+    if (this.phase !== "open") throw new MailServiceError("locked");
+    const epoch = this.epoch;
+    let settings: MailOAuthSettings;
+    try { settings = await this.loadProviderSettings("gmail"); }
+    catch { throw new MailServiceError("unavailable"); }
+    if (epoch !== this.epoch) throw new MailServiceError("locked");
+    if (settings.provider !== "gmail") throw new MailServiceError("unavailable");
+    const result = await this.request({ operation: "mail.sync.start", accountId, settings });
+    if (!("sync" in result)) throw new MailServiceError("unavailable");
+    return result.sync;
+  }
+  async pauseSync(accountId: string) {
+    this.epoch++; // A pause also cancels a start still awaiting trusted configuration.
+    const result = await this.request({ operation: "mail.sync.stop", accountId });
+    if (!("sync" in result)) throw new MailServiceError("unavailable");
+    return result.sync;
+  }
+  async syncStatus(accountId: string) {
+    const result = await this.request({ operation: "mail.status", accountId });
+    if (!("sync" in result)) throw new MailServiceError("unavailable");
+    return result.sync;
   }
   stop(): Promise<void> {
     this.stopped = true;

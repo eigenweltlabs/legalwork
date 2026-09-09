@@ -5,6 +5,22 @@ const settings = { provider: "gmail", applicationType: "desktop", pkceMethod: "S
 const connectionId = "11111111-1111-4111-8111-111111111111";
 const parent = (command: unknown) => parseParentMessage(JSON.stringify({ kind: "request", id: "1:1", command }));
 const response = (result: unknown) => parseWorkerMessage(JSON.stringify({ kind: "response", id: "1:1", ok: true, result }));
+test("sync protocol requires trusted settings and validates bounded, account-correlated progress", () => {
+  expect(parent({ operation: "mail.sync.start", accountId: "a", settings })).toBeDefined();
+  expect(parent({ operation: "mail.sync.start", accountId: "a" })).toBeUndefined();
+  expect(parent({ operation: "mail.sync.start", accountId: "a", settings: { ...settings, accessToken: "private" } })).toBeUndefined();
+  const sync = { accountId: "a", provider: "gmail", state: "syncing", enumerated: 5,
+    downloaded: 3, projected: 2, failed: 0, pending: 3, nextRetryAt: null, error: null };
+  expect(response({ sync })).toBeDefined();
+  for (const invalid of [{ ...sync, accessToken: "private" }, { ...sync, error: "provider secret" },
+    { ...sync, downloaded: -1 }, { ...sync, pending: Number.MAX_SAFE_INTEGER + 1 }, { ...sync, state: ["complete"] }]) {
+    expect(response({ sync: invalid })).toBeUndefined();
+  }
+  const parsed = response({ sync });
+  if (parsed?.kind !== "response" || !parsed.ok) throw new Error("wrong_response");
+  expect(resultMatchesCommand({ operation: "mail.status", accountId: "a" }, parsed.result)).toBe(true);
+  expect(resultMatchesCommand({ operation: "mail.status", accountId: "other" }, parsed.result)).toBe(false);
+});
 test("connection commands strictly constrain settings and identifiers", () => {
   expect(parent({ operation: "mail.connection.begin", settings })).toBeDefined();
   for (const invalid of [{ ...settings, token: "secret" }, { ...settings, scopes: [...settings.scopes, "extra"] }, { ...settings, clientSecret: "" }, { ...settings, tokenEndpoint: "https://evil.example" }, { ...settings, clientId: "invalid" }]) expect(parent({ operation: "mail.connection.begin", settings: invalid })).toBeUndefined();

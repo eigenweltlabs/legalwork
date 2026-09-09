@@ -59,7 +59,7 @@ function seed(initialization: WorkerInitialization, longNames = false, connected
       for (const id of ['f1','f2','f3']) own.putFolder('a',{id,name:input.longNames ? id.repeat(15000) : id,kind:'label'});
       if (input.connected) new MailCredentialRepository(db,input.ownerId).connect('a',
         {provider:'gmail',clientId:'synthetic.apps.googleusercontent.com',authority:'https://accounts.google.com',providerSubject:'synthetic-subject'},null,
-        {accessToken:'synthetic-access',expiresAt:Date.now()+3600000,grantedScopes:null,refreshToken:{action:'replace',value:'synthetic-refresh'}});
+        {accessToken:'synthetic-access',expiresAt:Date.now()+3600000,grantedScopes:${JSON.stringify(GMAIL_MAIL_SCOPES)},refreshToken:{action:'replace',value:'synthetic-refresh'}});
       if (input.longNames) {
         own.createAccount({id:'oversized',provider:'gmail',displayName:'x'.repeat(70000)});
         own.putFolder('b',{id:'oversized-folder',name:'y'.repeat(70000),kind:'folder'});
@@ -73,7 +73,7 @@ test("built encrypted worker migrates before ready and reopens after shutdown", 
   const initialization = await setup();
   const client = worker(initialization);
   await client.start();
-  expect(await client.request({ operation: "mail.storage.status" })).toEqual({ encrypted: true, schemaVersion: MAIL_SCHEMA_VERSION, syncSupported: false });
+  expect(await client.request({ operation: "mail.storage.status" })).toEqual({ encrypted: true, schemaVersion: MAIL_SCHEMA_VERSION, syncSupported: true });
   expect(await client.request({ operation: "mail.accounts.list" })).toEqual({ accounts: [], nextCursor: null });
   await client.stop();
   const bytes = await readFile(initialization.databasePath);
@@ -94,7 +94,7 @@ test("owned account/folder pagination and foreign/missing account isolation", as
     await expect(client.request({ operation: "mail.folders.list", accountId })).rejects.toThrow("not_found");
     await expect(client.request({ operation: "mail.status", accountId })).rejects.toThrow("not_found");
   }
-  expect(await client.request({ operation: "mail.status", accountId: "a" })).toEqual({ state: "idle", syncSupported: false });
+  expect(await client.request({ operation: "mail.status", accountId: "a" })).toMatchObject({ sync: { accountId: "a", state: "idle", enumerated: 0 } });
   expect(JSON.stringify(await client.request({ operation: "mail.accounts.list" }))).not.toContain("owner");
 });
 test("byte cap paginates without skipping rows and rejects oversized individual rows", async () => {
@@ -139,9 +139,8 @@ test("owner is mandatory, initialization credentials and unimplemented commands 
   const withCredentials = worker({ ...initialization, credentials: [{ accountId: "a", provider: "gmail", refreshToken: "secret" }] });
   await expect(withCredentials.start()).rejects.toThrow("initialization_failed"); await withCredentials.stop();
   const client = worker(initialization); await client.start();
-  for (const operation of ["mail.sync.start", "mail.sync.stop"]) {
-    if (operation === "mail.sync.start" || operation === "mail.sync.stop") await expect(client.request({ operation, accountId: "a" })).rejects.toThrow("unsupported");
-  }
+  await expect(client.request({ operation: "mail.sync.start", accountId: "a", settings: syntheticSettings })).rejects.toThrow("not_found");
+  await expect(client.request({ operation: "mail.sync.stop", accountId: "a" })).rejects.toThrow("not_found");
   await expect(client.request({ operation: "credentials.update", credentials: { accountId: "a", provider: "gmail", refreshToken: "secret" } })).rejects.toThrow("unsupported");
 });
 
@@ -181,7 +180,7 @@ test("production worker closes on parent EOF/signals and rejects malformed/overs
     expect(result.stdout).not.toContain(initialization.encryptionKey);
   }
   const reopened = worker(initialization); await reopened.start();
-  expect(await reopened.request({ operation: "mail.storage.status" })).toEqual({ encrypted: true, schemaVersion: MAIL_SCHEMA_VERSION, syncSupported: false });
+  expect(await reopened.request({ operation: "mail.storage.status" })).toEqual({ encrypted: true, schemaVersion: MAIL_SCHEMA_VERSION, syncSupported: true });
 });
 const electronPath = process.env.LEGALWORK_MAIL_TEST_ELECTRON;
 test.skipIf(!electronPath)("built encrypted worker opens and reopens under actual Electron Node mode", async () => {
@@ -193,10 +192,87 @@ test.skipIf(!electronPath)("built encrypted worker opens and reopens under actua
   if (!("accounts" in result)) throw new Error("wrong_result");
   expect(result.accounts.map((account) => account.id)).toEqual(["a", "b", "c"]);
   await client.stop(); await client.start();
-  expect(await client.request({ operation: "mail.storage.status" })).toEqual({ encrypted: true, schemaVersion: MAIL_SCHEMA_VERSION, syncSupported: false });
+  expect(await client.request({ operation: "mail.storage.status" })).toEqual({ encrypted: true, schemaVersion: MAIL_SCHEMA_VERSION, syncSupported: true });
 });
 const syntheticSettings: MailOAuthSettings = { provider: "gmail", applicationType: "desktop", pkceMethod: "S256",
   clientId: "synthetic.apps.googleusercontent.com", clientSecret: "synthetic-secret", scopes: [...GMAIL_MAIL_SCOPES] };
+
+test("real worker downloads recent and paginated Gmail history, projects attachments, and reopens complete", async () => {
+  const initialization = await setup(); seed(initialization, false, true);
+  const bootstrap = join(root, "gmail-fixture.mjs");
+  await writeFile(bootstrap, `
+    let recentRead=false;
+    const rawReads=new Map();
+    globalThis.fetch=async (input,init) => {
+      const url=new URL(input);
+      if(url.origin!=='https://gmail.googleapis.com' || init?.method!=='GET') throw new Error('fixture_unexpected_network');
+      if(url.pathname.endsWith('/labels')) return Response.json({labels:[
+        {id:'INBOX',name:'INBOX',type:'system'},{id:'SPAM',name:'SPAM',type:'system'},{id:'TRASH',name:'TRASH',type:'system'}]});
+      if(url.pathname.endsWith('/messages')) {
+        if(url.searchParams.get('includeSpamTrash')!=='true') throw new Error('fixture_missing_full_scope');
+        if(url.searchParams.has('q')) { recentRead=true; return Response.json({messages:[{id:'new',threadId:'t-new'}],resultSizeEstimate:1}); }
+        if(!recentRead || rawReads.get('new')!==1) throw new Error('fixture_recent_not_downloaded_first');
+        return Response.json(url.searchParams.get('pageToken')==='older'
+          ? {messages:[{id:'old',threadId:'t-old'}],resultSizeEstimate:3}
+          : {messages:[{id:'new',threadId:'t-new'},{id:'spam',threadId:'t-spam'}],nextPageToken:'older',resultSizeEstimate:3});
+      }
+      const id=url.pathname.split('/').pop();
+      if(!['new','spam','old'].includes(id)||url.searchParams.get('format')!=='raw') throw new Error('fixture_unexpected_request');
+      rawReads.set(id,(rawReads.get(id)??0)+1);
+      if(rawReads.get(id)!==1) throw new Error('fixture_duplicate_download');
+      const raw=Buffer.from(['From: Alice <alice@example.test>','To: Bob <bob@example.test>',
+        'Subject: Case '+id,'Message-ID: <'+id+'@example.test>','MIME-Version: 1.0',
+        'Content-Type: multipart/mixed; boundary="fixture"','','--fixture','Content-Type: text/plain; charset=utf-8','',
+        'Matter body '+id,'--fixture','Content-Type: application/octet-stream','Content-Disposition: attachment; filename="evidence.txt"',
+        'Content-Transfer-Encoding: base64','',Buffer.from('evidence-'+id).toString('base64'),'--fixture--',''].join('\\r\\n'));
+      return Response.json({id,threadId:'t-'+id,labelIds:[id==='spam'?'SPAM':id==='old'?'TRASH':'INBOX'],historyId:'123',
+        internalDate:'1788950400000',sizeEstimate:raw.length,raw:raw.toString('base64url')});
+    };
+    await import(${JSON.stringify(pathToFileURL(entryPoint).href)});
+  `);
+  const client = new MailWorkerClient({ entryPoint: bootstrap, executable: node, initialize: () => initialization, maxRestarts: 0 });
+  clients.push(client); await client.start();
+  expect(await client.request({ operation: "mail.sync.start", accountId: "a", settings: syntheticSettings })).toMatchObject({ sync: { accountId: "a" } });
+  const deadline = Date.now() + 10000;
+  while (true) {
+    const result = await client.request({ operation: "mail.status", accountId: "a" });
+    if (!("sync" in result)) throw new Error("wrong_result");
+    if (result.sync.state === "attention" || result.sync.state === "complete") {
+      expect(result.sync).toEqual({ accountId: "a", provider: "gmail", state: "complete", enumerated: 3,
+        downloaded: 3, projected: 3, failed: 0, pending: 0, nextRetryAt: null, error: null });
+      break;
+    }
+    if (Date.now() >= deadline) throw new Error(`fixture_sync_timeout:${JSON.stringify(result.sync)}`);
+    await new Promise(resolve => setTimeout(resolve, 25));
+  }
+  await client.stop();
+  const inspection = `
+    import {readFileSync} from 'node:fs';
+    import {openEncryptedMailDatabase} from ${JSON.stringify(pathToFileURL(join(root, "build/mail/storage/database.js")).href)};
+    import {MailRepository} from ${JSON.stringify(pathToFileURL(join(root, "build/mail/storage/repository.js")).href)};
+    import {MailContentStore} from ${JSON.stringify(pathToFileURL(join(root, "build/mail/storage/content-store.js")).href)};
+    const input=JSON.parse(readFileSync(0,'utf8')),key=Buffer.from(input.encryptionKey,'base64');
+    const db=await openEncryptedMailDatabase({path:input.databasePath,key}); key.fill(0);
+    try { const repository=new MailRepository(db,input.ownerId),content=new MailContentStore(db,input.ownerId);
+      const result=['new','spam','old'].map(id=>{
+        const message=repository.readMessage('a',{provider:'gmail',messageId:id});
+        const attachments=message.content.filter(part=>part.kind==='attachment');
+        return {id,subject:message.subject,memberships:message.memberships,
+          attachments:attachments.map(part=>Buffer.concat([...content.read('a',part.ref_id)]).toString())};
+      }); console.log(JSON.stringify(result));
+    }finally{db.close();}
+  `;
+  const stored = JSON.parse(execFileSync(node.path, ["--input-type=module", "--eval", inspection], {
+    input: JSON.stringify(initialization), stdio: ["pipe", "pipe", "pipe"], timeout: 10000,
+  }).toString());
+  expect(stored).toEqual([
+    { id: "new", subject: "Case new", memberships: ["INBOX"], attachments: ["evidence-new"] },
+    { id: "spam", subject: "Case spam", memberships: ["SPAM"], attachments: ["evidence-spam"] },
+    { id: "old", subject: "Case old", memberships: ["TRASH"], attachments: ["evidence-old"] },
+  ]);
+  const reopened = worker(initialization); await reopened.start();
+  expect(await reopened.request({ operation: "mail.status", accountId: "a" })).toMatchObject({ sync: { state: "complete", projected: 3 } });
+}, 20000);
 const connectionRuntimes: WorkerExecutable[] = [node, ...(electronPath ? [{ kind: "electron", path: electronPath } satisfies WorkerExecutable] : [])];
 for (const executable of connectionRuntimes) {
   test(`connection lifecycle and retained archive lock in actual ${executable.kind} (no provider HTTP)`, async () => {
