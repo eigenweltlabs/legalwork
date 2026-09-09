@@ -1,4 +1,5 @@
 import {imapDiscoverySchema,type ImapDiscovery,imapConnectionSchema,imapConnectionResultSchema,type ImapConnection,type ImapConnectionResult} from '../providers/imap-config.js';
+import {extractionCommandSchema,extractionStatusSchema,extractionTextSchema,type MailExtractionCommand,type MailExtractionStatus,type MailExtractionText} from "../extraction-view.js";
 import {mailLocalCommandSchema,mailLocalResultSchema,localResultMatches,type MailLocalCommand,type MailLocalResult} from "../local-view.js";
 import { mailSearchInputSchema, mailSearchResultSchema, mailSearchRebuildInputSchema, mailSearchRebuildResultSchema, type MailSearchInput, type MailSearchResult, type MailSearchRebuildInput, type MailSearchRebuildResult } from "../search-view.js";
 import { GMAIL_MAIL_SCOPES, GRAPH_MAIL_SCOPES } from "../provider-config.js";
@@ -30,6 +31,7 @@ export type WorkerInitialization = {
 };
 type Page = { limit?: number; after?: string };
 export type WorkerCommand =
+  | MailExtractionCommand
   | MailLocalCommand
   | { operation: "mail.search"; input: MailSearchInput }
   | { operation: "mail.search.rebuild"; input: MailSearchRebuildInput }
@@ -56,6 +58,8 @@ export type WorkerCommand =
 export type WorkerAccount = { id: string; provider: "gmail" | "graph" | "imap"; displayName: string };
 export type WorkerFolder = { id: string; name: string; kind: "folder" | "label"; parentId: string | null; role?: "inbox" };
 export type WorkerResult =
+  | {extraction:MailExtractionStatus}
+  | {extractionText:MailExtractionText}
   | {local:MailLocalResult}
   | { search: MailSearchResult }
   | { rebuilt: MailSearchRebuildResult }
@@ -157,7 +161,7 @@ function folder(value: unknown): value is WorkerFolder {
     && typeof value.name === "string" && (value.kind === "folder" || value.kind === "label") && cursor(value.parentId);
 }
 function result(value: unknown): value is WorkerResult {
-  return record(value) && ((exact(value,["local"]) && mailLocalResultSchema.safeParse(value.local).success)
+  return record(value) && ((exact(value,["extraction"])&&extractionStatusSchema.safeParse(value.extraction).success)||(exact(value,["extractionText"])&&extractionTextSchema.safeParse(value.extractionText).success)||(exact(value,["local"]) && mailLocalResultSchema.safeParse(value.local).success)
     || (exact(value, ["search"]) && mailSearchResultSchema.safeParse(value.search).success)
     || (exact(value, ["rebuilt"]) && mailSearchRebuildResultSchema.safeParse(value.rebuilt).success)
     || (exact(value,["imapDiscovery"])&&imapDiscoverySchema.safeParse(value.imapDiscovery).success)
@@ -200,6 +204,9 @@ export function parseWorkerMessage(line: string): WorkerMessage | undefined {
 }
 export function resultMatchesCommand(command: WorkerCommand, value: WorkerResult): boolean {
   switch (command.operation) {
+    case 'mail.extraction.status':case 'mail.extraction.reset':return 'extraction' in value&&value.extraction.accountId===command.accountId&&JSON.stringify(value.extraction.locator)===JSON.stringify(command.input.locator)&&value.extraction.partId===command.input.partId&&value.extraction.referenceId===command.input.referenceId;
+    case 'mail.extraction.read':return 'extractionText' in value&&value.extractionText.status.accountId===command.accountId&&JSON.stringify(value.extractionText.status.locator)===JSON.stringify(command.input.locator)&&value.extractionText.status.partId===command.input.partId&&value.extractionText.status.referenceId===command.input.referenceId&&value.extractionText.section===(command.input.section??0)&&value.extractionText.offset===(command.input.offset??0)&&value.extractionText.text.length<=(command.input.limit??4096);
+
     case "mail.local.draft.save":
     case "mail.local.draft.read":
     case "mail.local.draft.delete":
@@ -240,6 +247,7 @@ export function resultMatchesCommand(command: WorkerCommand, value: WorkerResult
 }
 export function validWorkerCommand(value: unknown): value is WorkerCommand {
   if (!record(value)) return false;
+  if(typeof value.operation==="string"&&value.operation.startsWith("mail.extraction."))return extractionCommandSchema.safeParse(value).success;
   if(typeof value.operation==="string"&&value.operation.startsWith("mail.local."))return mailLocalCommandSchema.safeParse(value).success;
   if (value.operation === "mail.messages.list") return exact(value, ["operation", "accountId", "page"]) && id(value.accountId) && mailMessagePageSchema.safeParse(value.page).success;
   if (value.operation === "mail.messages.read") return exact(value, ["operation", "accountId", "locator"]) && id(value.accountId) && providerMessageLocatorSchema.safeParse(value.locator).success;

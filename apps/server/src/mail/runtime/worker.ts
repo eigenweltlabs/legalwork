@@ -1,6 +1,8 @@
 import {ImapError} from '../providers/imap-config.js';
 import {ImapBackfill} from '../providers/imap-backfill.js';
 import {imapFailure} from '../providers/imap.js';
+import {MailExtractionStore,MailExtractionStorageError} from "../storage/extraction.js";
+import {MailExtractionRunner} from "./extraction-runner.js";
 import {MailLocalApiStore,MailLocalError} from "../storage/local-api.js";
 import { MailSearchIndexer } from "./search-indexer.js";
 import { MailSearchStore, MailSearchError } from "../storage/search.js";
@@ -27,6 +29,7 @@ let repository: MailRepository | undefined;
 let local:MailLocalApiStore|undefined;
 let reads: MailReadStore | undefined;
 let search: MailSearchStore | undefined;
+let extraction:MailExtractionStore|undefined,extractionRunner:MailExtractionRunner|undefined,closingExtraction:Promise<void>|undefined;
 let searchIndexer: MailSearchIndexer | undefined;
 let controller: MailConnectionController | undefined;
 let closingController: Promise<void> | undefined;
@@ -58,6 +61,7 @@ function write(message: WorkerMessage): boolean {
   return true;
 }
 async function finish(): Promise<void> {
+  try{await(closingExtraction??extractionRunner?.close());}catch{exitCode=1;}
   try { await (closingController ?? controller?.close()); } catch { exitCode = 1; }
   try { await (closingBackfill ?? backfill?.close()); } catch { exitCode = 1; }
   try{await(closingImap??imap?.close());}catch{exitCode=1;}
@@ -81,6 +85,7 @@ function shutdown(code = 0): void {
   if (phase === "closing") return;
   phase = "closing";
   // close() marks the controller closed synchronously, before any queued continuation.
+  closingExtraction=extractionRunner?.close();
   closingController = controller?.close();
   closingBackfill = backfill?.close();
   closingGraph = graph?.close();closingImap=imap?.close();
@@ -113,6 +118,7 @@ async function initialize(value: WorkerInitialization): Promise<void> {
     reads = new MailReadStore(database, value.ownerId);
     search = new MailSearchStore(database, value.ownerId);
     searchIndexer = new MailSearchIndexer(database,value.ownerId);
+    extraction=new MailExtractionStore(database,value.ownerId);extractionRunner=new MailExtractionRunner(database,value.ownerId);
     credentials = new MailCredentialRepository(database, value.ownerId);
     controller = new MailConnectionController({ database, ownerId: value.ownerId });
     access = new MailAccessCoordinator({ database, ownerId: value.ownerId, loadProviderSettings: async binding => {
@@ -125,7 +131,7 @@ async function initialize(value: WorkerInitialization): Promise<void> {
     imap=new ImapBackfill({database,ownerId:value.ownerId});
     graph = new GraphBackfill({ database, ownerId: value.ownerId, access });
     phase = "ready";
-    searchIndexer?.start();
+    searchIndexer?.start();extractionRunner?.start();
     write({ kind: "ready", protocol: 1, runtime: "node", nodeVersion: process.versions.node });
   } catch {
     if (phase !== "closing") fatal("initialization_failed");
@@ -157,6 +163,9 @@ async function request(message: Extract<ParentMessage, { kind: "request" }>): Pr
   try {
     let result: WorkerResult | undefined;
     switch (command.operation) {
+      case 'mail.extraction.status':if(!extraction)throw locked;result={extraction:extraction.status(command.accountId,command.input)};break;
+      case 'mail.extraction.read':if(!extraction)throw locked;result={extractionText:extraction.read(command.accountId,command.input)};break;
+      case 'mail.extraction.reset':if(!extraction)throw locked;result={extraction:extraction.reset(command.accountId,command.input)};break;
       case "mail.search": if (!search) throw locked; result = {search:search.search(command.input)}; break;
       case "mail.search.rebuild": if (!search) throw locked; result = {rebuilt:search.rebuild(command.input)}; break;
       case "mail.local.draft.save": if(!local)throw locked;result={local:{operation:command.operation,accountId:command.accountId,value:local.saveDraft(command.accountId,command.input)}};break;
@@ -180,6 +189,7 @@ async function request(message: Extract<ParentMessage, { kind: "request" }>): Pr
       case "mail.connection.cancel": await controller.cancel(command.connectionId); result = { cancelled: true }; break;
       case "mail.account.disconnect": {
         const current = credentials.status(command.accountId); // Owner gate before provider lookup or cancellation.
+        extractionRunner?.cancelAccount(command.accountId);
         if (current.state !== "disconnected" && database.get("SELECT provider FROM mail_accounts WHERE id=?", [command.accountId])?.provider === "gmail") {
           // Abort publication before rotating the durable credential generation.
           // A journal failure must not prevent the credential revocation attempt.
@@ -269,7 +279,7 @@ async function request(message: Extract<ParentMessage, { kind: "request" }>): Pr
   } catch (error) {
     // Do not echo SQLite/provider errors, row contents, supplied IDs, paths or key material.
     if (isClosing()) return;
-    const code = error instanceof ImapError&&error.code==="locked"?"locked":error instanceof ImapError&&error.code==="too_large"?"response_too_large":error instanceof ImapError&&error.code==="invalid_input"?"invalid_input":error instanceof MailLocalError&&error.code==="conflict"?"conflict":error instanceof MailLocalError&&error.code==="invalid_input"?"invalid_input":error instanceof MailLocalError&&error.code==="locked"?"locked":error instanceof MailLocalError&&error.code==="not_found"?"not_found":error === unsupported || (error instanceof MailSearchError && error.code === "unsupported") ? "unsupported" : error === locked || (error instanceof MailSearchError && error.code === "locked") || ((error instanceof GmailBackfillError || error instanceof GraphBackfillError) && error.code === "locked")
+    const code = error instanceof MailExtractionStorageError&&error.code==="locked"?"locked":error instanceof MailExtractionStorageError&&error.code==="not_found"?"not_found":error instanceof ImapError&&error.code==="locked"?"locked":error instanceof ImapError&&error.code==="too_large"?"response_too_large":error instanceof ImapError&&error.code==="invalid_input"?"invalid_input":error instanceof MailLocalError&&error.code==="conflict"?"conflict":error instanceof MailLocalError&&error.code==="invalid_input"?"invalid_input":error instanceof MailLocalError&&error.code==="locked"?"locked":error instanceof MailLocalError&&error.code==="not_found"?"not_found":error === unsupported || (error instanceof MailSearchError && error.code === "unsupported") ? "unsupported" : error === locked || (error instanceof MailSearchError && error.code === "locked") || ((error instanceof GmailBackfillError || error instanceof GraphBackfillError) && error.code === "locked")
       || (error instanceof MailCredentialError && error.code === "disconnected") ? "locked" :
       (error instanceof MailConnectionError && (error.code === "not_found" || error.code === "account_not_found"))
       || (error instanceof MailCredentialError && error.code === "account_not_found")
