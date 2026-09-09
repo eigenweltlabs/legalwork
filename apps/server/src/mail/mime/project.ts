@@ -83,6 +83,23 @@ function transferCheck(encoding: string | false) {
   };
 }
 
+/** Pinned mailsplit 5.4.16 hook: delegate MIME matching while accepting transport whitespace.
+ * Only comparison bytes change; emitted original bytes and the original hash remain untouched. */
+class TransportWhitespaceSplitter extends Splitter {
+  compareBoundary(line: Buffer, start: number, boundary: Buffer): 1 | 2 | false {
+    const compare: unknown = Reflect.get(Splitter.prototype, "compareBoundary");
+    if (typeof compare !== "function") throw new MimeProjectionError("unsupported");
+    let end = line.length;
+    while (end && (line[end - 1] === 10 || line[end - 1] === 13)) end--;
+    let contentEnd = end;
+    while (contentEnd && (line[contentEnd - 1] === 32 || line[contentEnd - 1] === 9)) contentEnd--;
+    const comparable = contentEnd === end ? line : Buffer.concat([line.subarray(0, contentEnd), line.subarray(end)]);
+    const result: unknown = Reflect.apply(compare, this, [comparable, start, boundary]);
+    if (result !== 1 && result !== 2 && result !== false) throw new MimeProjectionError("unsupported");
+    return result;
+  }
+}
+
 /** One pass from already durable original bytes. Sink writes are provisional until this promise resolves.
  * No filesystem, accounts, network, HTML rewriting, image expansion or original mutation. */
 export async function projectMime(input: MimeProjectionInput): Promise<MimeProjection> {
@@ -122,7 +139,7 @@ export async function projectMime(input: MimeProjectionInput): Promise<MimeProje
       }
     } catch (error) { throw error instanceof MimeProjectionError && errorCodes.has(error.code) ? error : new MimeProjectionError("source_failed"); }
   }
-  const parser = new Splitter({ ignoreEmbedded: true, maxHeadSize: budget.maxHeaderBytes, maxChildNodes: budget.maxParts });
+  const parser = new TransportWhitespaceSplitter({ ignoreEmbedded: true, maxHeadSize: budget.maxHeaderBytes, maxChildNodes: budget.maxParts });
   const reader = Readable.from(source()); streams.add(reader); streams.add(parser);
   reader.on("error", error => { parser.destroy(error); });
   Readable.prototype.on.call(parser, "error", () => {});
@@ -133,7 +150,7 @@ export async function projectMime(input: MimeProjectionInput): Promise<MimeProje
     const result = await iterator.next(); guard(); return result.done ? undefined : chunk(result.value);
   };
   const boundaries = new Map<string, boolean>();
-  let boundaryLine = "", overlong = false;
+  let boundaryLine = "", overlong = false, transportWhitespace = false;
   const scanData = (bytes: Buffer, final = false) => {
     for (const byte of bytes) {
       if (byte === 10) {
@@ -141,8 +158,10 @@ export async function projectMime(input: MimeProjectionInput): Promise<MimeProje
         if (!overlong && line.startsWith("--") && line.endsWith("--")) {
           const boundary = line.slice(2, -2); if (boundaries.has(boundary)) boundaries.set(boundary, true);
         }
-        boundaryLine = ""; overlong = false;
+        boundaryLine = ""; overlong = false; transportWhitespace = false;
       } else if (!overlong) {
+        if ((byte === 32 || byte === 9) && boundaryLine.startsWith("--") && boundaryLine.endsWith("--")) { transportWhitespace = true; continue; }
+        if (transportWhitespace && byte !== 13) { overlong = true; continue; }
         if (boundaryLine.length < 80) boundaryLine += String.fromCharCode(byte); else { boundaryLine = ""; overlong = true; }
       }
     }
@@ -176,7 +195,7 @@ export async function projectMime(input: MimeProjectionInput): Promise<MimeProje
       const value = await next(); if (!value) break;
       if (value.type === "data") { scanData(value.value); continue; }
       if (value.type !== "node" || !value.headers) throw new MimeProjectionError("malformed");
-      scanData(Buffer.alloc(0), true); boundaryLine = ""; overlong = false;
+      scanData(Buffer.alloc(0), true); boundaryLine = ""; overlong = false; transportWhitespace = false;
       ordinal++; if (ordinal > budget.maxParts) throw new MimeProjectionError("limit");
       let depth = 1, parent = value.parentNode;
       while (parent) { depth++; parent = parent.parentNode; if (depth > budget.maxDepth) throw new MimeProjectionError("limit"); }
@@ -200,11 +219,16 @@ export async function projectMime(input: MimeProjectionInput): Promise<MimeProje
       const isBody = (contentType === "text/plain" || contentType === "text/html") && value.disposition !== "attachment" && !value.filename;
       if (isBody && (contentType === "text/plain" || contentType === "text/html")) {
         const charset = value.charset || "utf-8";
-        if (value.flowed || !iconv.encodingExists(charset)) throw new MimeProjectionError("unsupported");
+        if (!iconv.encodingExists(charset)) throw new MimeProjectionError("unsupported");
         const convert = iconv.getDecoder(charset), pieces: string[] = []; let rawBytes = 0;
         const append = (text: string) => { bodyBytes += Buffer.byteLength(text); if (bodyBytes > budget.maxBodyBytes) throw new MimeProjectionError("limit"); pieces.push(text); };
         for await (const bytes of decoded(value)) { rawBytes += bytes.byteLength; if (rawBytes > budget.maxBodyBytes) throw new MimeProjectionError("limit"); append(convert.write(bytes)); }
-        append(convert.end() || ""); projection.bodies.push({ partId, contentType, text: pieces.join("") });
+        append(convert.end() || "");
+        const collected = pieces.join("");
+        const body = contentType === "text/plain" && value.flowed ? libmime.decodeFlowed(collected, value.delSp) : collected;
+        bodyBytes += Buffer.byteLength(body) - Buffer.byteLength(collected);
+        guard(); if (bodyBytes > budget.maxBodyBytes) throw new MimeProjectionError("limit");
+        projection.bodies.push({ partId, contentType, text: body });
       } else {
         if (projection.attachments.length >= budget.maxAttachments) throw new MimeProjectionError("limit");
         const part: MimeAttachmentMetadata = { partId, filename: clean(value.filename), contentType,

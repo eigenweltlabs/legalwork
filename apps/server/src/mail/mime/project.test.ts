@@ -20,7 +20,7 @@ test("bounded MIME projection runs in actual Node", () => {
     expect(result.error).toBeUndefined();
     if (result.status !== 0) throw new Error(`${result.stdout}\n${result.stderr}`);
     expect(result.status).toBe(0);
-    expect(result.stdout).toContain("tests 9");
+    expect(result.stdout).toContain("tests 10");
     expect(result.stdout).toContain("fail 0");
   } finally { rmSync(output, { recursive: true, force: true }); }
 }, 95000);
