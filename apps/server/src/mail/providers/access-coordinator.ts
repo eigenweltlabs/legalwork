@@ -1,3 +1,4 @@
+import { performance } from "node:perf_hooks";
 import { z } from "zod";
 import { MailCredentialRepository, MailCredentialError, type MailCredentialBinding, type MailCredentialVersion } from "../storage/credentials.js";
 import type { MailDatabase } from "../storage/database-interface.js";
@@ -59,7 +60,7 @@ function safe(error: unknown): MailAccessError {
   if (error instanceof MailRefreshError) {
     const code = error.code === "configuration_invalid" || error.code === "reconsent_required" || error.code === "transient" || error.code === "rate_limited" || error.code === "timeout" ? error.code : "provider_rejected";
     const delay = error.retryAfterMs;
-    return new MailAccessError(code, typeof delay === "number" && Number.isSafeInteger(delay) && delay >= 0 ? Math.min(delay, 3600000) : null);
+    return new MailAccessError(code, typeof delay === "number" && Number.isSafeInteger(delay) && delay >= 0 ? delay : null);
   }
   return new MailAccessError("storage_unavailable");
 }
@@ -91,30 +92,32 @@ export class MailAccessCoordinator {
     if (existing) return existing.promise;
     if (this.pending.size >= 64) return Promise.reject(new MailAccessError("capacity"));
     const controller = new AbortController();
+    const deadline = performance.now() + this.timeout;
     let timer: ReturnType<typeof setTimeout>;
     const stopped = new Promise<never>((_, reject) => {
       controller.signal.addEventListener("abort", () => reject(new MailAccessError(this.closed ? "closed" : "timeout")), { once: true });
       timer = setTimeout(() => controller.abort(), this.timeout);
     });
-    const promise = Promise.race([this.perform(accountId, controller.signal), stopped]).catch(error => { throw safe(error); })
+    const promise = Promise.race([this.perform(accountId, controller.signal, deadline), stopped]).catch(error => { throw safe(error); })
       .finally(() => { clearTimeout(timer); this.pending.delete(accountId); })
       .then(access => {
         try {
           if (controller.signal.aborted) throw new MailAccessError(this.closed ? "closed" : "timeout");
           this.fence(accountId, access.version);
           if (access.expiresAt <= this.now()) throw new MailAccessError("transient");
+          if (performance.now() >= deadline) throw new MailAccessError("timeout");
           return access;
         } catch (error) { throw safe(error); }
       });
     this.pending.set(accountId, { controller, promise });
     return promise;
   }
-  private async perform(accountId: string, signal: AbortSignal): Promise<MailAccountAccess> {
+  private async perform(accountId: string, signal: AbortSignal, deadline: number): Promise<MailAccountAccess> {
     const current = this.credentials.status(accountId);
     if (current.state !== "connected" || current.archiveLocked) throw new MailAccessError("locked");
     const expected = current.version;
     const binding = this.credentials.getBinding(accountId);
-    const check = () => { if (signal.aborted) throw new MailAccessError(this.closed ? "closed" : "timeout"); this.fence(accountId, expected); };
+    const check = () => { if (signal.aborted) throw new MailAccessError(this.closed ? "closed" : "timeout"); this.fence(accountId, expected); if (performance.now() >= deadline) throw new MailAccessError("timeout"); };
     let supplied: MailOAuthSettings;
     try { supplied = await this.options.loadProviderSettings(Object.freeze({ ...binding })); }
     catch { check(); throw new MailAccessError("configuration_invalid"); }
