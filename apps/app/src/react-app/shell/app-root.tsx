@@ -20,7 +20,6 @@ import { ReactRenderWatchdogOverlay } from "./react-render-watchdog-overlay";
 import { AppMenuProvider } from "./app-menu";
 import { LegalworkControlProvider, LegalworkRouteControlActions } from "./control/control-provider";
 import { SessionRoute } from "./session-route";
-import { MailRoute } from "../domains/mail/mail-route";
 import { SettingsRoute } from "./settings-route";
 import { ShellConfigProvider } from "./shell-config";
 import { StealthMode } from "./stealth-mode";
@@ -69,7 +68,7 @@ export function AppRoot() {
           <LegalworkRouteControlActions />
           <LegalMemoryPermissions />
           <Routes>
-              <Route path="/mail" element={<MailRoute />} />
+              <Route path="/mail" element={<SessionRoute />} />
               <Route
                 path="/welcome"
                 element={
