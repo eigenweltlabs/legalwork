@@ -12,6 +12,8 @@ export type LocalMailServiceOptions = Pick<MailWorkerOptions, "executable" | "en
   ownerId: string;
   /** Main process OS vault callback. Called only on unlock/restart, never startup. */
   loadKey: () => Promise<Uint8Array>;
+  loadStore?: () => Promise<{ databasePath: string; key: Uint8Array }>;
+  maintain?: (operation: "rotate" | "backup" | "restore", passphrase: string | undefined, signal: AbortSignal) => Promise<void>;
   /** Trusted main-process configuration; HTTP callers select only a provider. */
   loadProviderSettings?: (provider: "gmail" | "graph") => Promise<MailOAuthSettings>;
 };
@@ -31,6 +33,9 @@ export class LocalMailService implements MailService {
   private readonly worker: MailWorkerClient;
   private phase: "locked" | "unlocking" | "open" | "locking" = "locked";
   private stopped = false;
+  private maintenance?: Promise<void>;
+  private maintenanceAbort?: AbortController;
+  private readonly maintenanceHandler: LocalMailServiceOptions["maintain"];
   private epoch = 0;
   private opening?: Promise<void>;
   private closing?: Promise<void>;
@@ -38,13 +43,15 @@ export class LocalMailService implements MailService {
 
   constructor(options: LocalMailServiceOptions) {
     this.loadProviderSettings = options.loadProviderSettings;
+    this.maintenanceHandler = options.maintain;
     this.worker = new MailWorkerClient({
       executable: options.executable, entryPoint: options.entryPoint,
       initialize: async () => {
-        const key = await options.loadKey();
+        const store = options.loadStore ? await options.loadStore() : { key: await options.loadKey(), databasePath: options.databasePath };
+        const key = store.key;
         try {
           if (!(key instanceof Uint8Array) || key.byteLength !== 32) throw new MailServiceError("unavailable");
-          return { ownerId: options.ownerId, databasePath: options.databasePath, encryptionKey: Buffer.from(key.buffer, key.byteOffset, key.byteLength).toString("base64") };
+          return { ownerId: options.ownerId, databasePath: store.databasePath, encryptionKey: Buffer.from(key.buffer, key.byteOffset, key.byteLength).toString("base64") };
         } finally { if (key instanceof Uint8Array) key.fill(0); }
       },
     });
@@ -58,6 +65,7 @@ export class LocalMailService implements MailService {
   }
   unlock(): Promise<void> {
     if (this.stopped) return Promise.reject(new MailServiceError("unavailable"));
+    if (this.maintenance) return Promise.reject(new MailServiceError("locked"));
     if (this.closing) return Promise.reject(new MailServiceError("locked"));
     if (this.opening) return this.opening;
     if (this.status().state === "ready") return Promise.resolve();
@@ -82,6 +90,7 @@ export class LocalMailService implements MailService {
     return attempt;
   }
   lock(): Promise<void> {
+    this.maintenanceAbort?.abort();
     if (this.closing) return this.closing;
     this.epoch++;
     this.phase = "locking"; // Reject new operations before awaiting child cleanup.
@@ -199,8 +208,26 @@ export class LocalMailService implements MailService {
     if (!("sync" in result)) throw new MailServiceError("unavailable");
     return result.sync;
   }
-  stop(): Promise<void> {
+  maintain(operation: "rotate" | "backup" | "restore", passphrase?: string): Promise<void> {
+    if (this.stopped || !this.maintenanceHandler) return Promise.reject(new MailServiceError("unavailable"));
+    if (this.maintenance) return Promise.reject(new MailServiceError("locked"));
+    const signal = new AbortController();
+    const closing = this.lock();
+    this.maintenanceAbort = signal;
+    const operationTask = (async () => {
+      try {
+        await closing;
+        if (signal.signal.aborted || this.stopped) throw new MailServiceError("locked");
+        await this.maintenanceHandler?.(operation, passphrase, signal.signal);
+      } catch { throw new MailServiceError("unavailable"); }
+    })();
+    this.maintenance = operationTask;
+    void operationTask.finally(() => { if (this.maintenance === operationTask) { this.maintenance = undefined; this.maintenanceAbort = undefined; } }).catch(() => {});
+    return operationTask;
+  }
+  async stop(): Promise<void> {
     this.stopped = true;
-    return this.lock();
+    await this.lock();
+    await this.maintenance?.catch(() => {});
   }
 }

@@ -199,3 +199,16 @@ test("pause and lock revoke a sync start still waiting for trusted settings", as
     expect(await service.listAccounts({})).toEqual({ items: [], nextCursor: null });
   }
 });
+
+test("maintenance stops the real worker, denies unlock and stop cancels late promotion", async () => {
+  const privateDir = await mkdtemp(join(directory, "maintenance-"));
+  let entered!: () => void, release!: () => void;
+  const started = new Promise<void>(resolve => { entered = resolve; });
+  const blocked = new Promise<void>(resolve => { release = resolve; });
+  let promoted = false;
+  const service = new LocalMailService({ entryPoint, databasePath: join(privateDir,"mail.sqlite"), ownerId:"desktop-local", executable:{kind:"node",path:nodePath!}, loadKey: async()=>new Uint8Array(32).fill(7), maintain: async (_operation,_passphrase,signal)=>{ entered(); await blocked; if (signal.aborted) throw Error("synthetic secret must not escape"); promoted=true; } });
+  services.push(service);await service.unlock();
+  const maintenance=service.maintain("rotate");await started;
+  expect(service.status().state).toBe("locked");await expect(service.unlock()).rejects.toThrow("mail_locked");await expect(service.listAccounts({})).rejects.toThrow("mail_locked");
+  const stopped=service.stop();release();await expect(maintenance).rejects.toThrow("mail_unavailable");await stopped;expect(promoted).toBe(false);expect(service.status().state).toBe("stopped");
+});
