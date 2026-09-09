@@ -41,7 +41,7 @@ function privateReport(result) {
   }
 }
 
-test('valid v2 encrypted content survives reopen and shallow diagnostic returns only fixed codes/counts', async () => fixture(async ({ db, repository, store, reopen }) => {
+test('valid current-schema encrypted content survives reopen and shallow diagnostic returns only fixed codes/counts', async () => fixture(async ({ db, repository, store, reopen }) => {
   seed(repository); await complete(store, repository);
   const first = checkMailConsistency(db);
   assert.equal(first.ok, true); assert.equal(first.scanComplete, true); assert.equal(first.contentHashesVerified, false);
@@ -50,11 +50,11 @@ test('valid v2 encrypted content survives reopen and shallow diagnostic returns 
   assert.deepEqual(checkMailConsistency(reopened), first);
 }));
 
-test('v1 reopen requires upgrade; a failed v2 migration rolls back and never repairs legacy stored refs', async () => fixture(async ({ db, repository, reopen }) => {
+test('v1 reopen requires upgrade; a failed current migration rolls back and never repairs legacy stored refs', async () => fixture(async ({ db, repository, reopen }) => {
   seed(repository);
   for (const kind of ['raw', 'body']) repository.putContent('private-account', locator('one'), { kind, state: 'stored', reference: { id: 'legacy-ref', bytes: 3, sha256: 'a'.repeat(64) } });
   repository.setAttachmentsEnumerated('private-account', locator('one'), true);
-  db.exec('DROP TABLE mail_blob_publications; DROP TABLE mail_blob_chunks; DROP TABLE mail_blob_objects; UPDATE mail_schema_version SET version=1');
+  db.exec('DROP TABLE mail_sync_scope_jobs; DROP TABLE mail_sync_jobs; DROP TABLE mail_sync_scopes; DROP TABLE mail_blob_publications; DROP TABLE mail_blob_chunks; DROP TABLE mail_blob_objects; UPDATE mail_schema_version SET version=1');
   let current = await reopen();
   assert.deepEqual(checkMailConsistency(current).codes, ['schema-upgrade-required']);
   const failing = { ...current, exec(sql) { current.exec(sql); if (sql.includes('CREATE TABLE mail_blob_objects')) throw new Error('migration failure'); } };
@@ -203,4 +203,20 @@ test('Graph immutable identity keeps its stored content while a move replaces fo
   assert.equal(message.content[0].ref_id, reference.id);
   assert.deepEqual(Buffer.concat([...store.read('graph-account', reference.id)]), Buffer.from([42, 0]));
   assert.equal(checkMailConsistency(db).ok, true);
+}));
+
+
+test('v3 fast guard requires journal tables/columns and refuses an unmigrated v2 schema', async () => fixture(async ({ db }) => {
+  assert.doesNotThrow(() => assertMailSchema(db));
+  db.exec('DROP TABLE mail_sync_scope_jobs');
+  assert.throws(() => assertMailSchema(db), { message: 'Mail schema is not ready' });
+  assert.deepEqual(checkMailConsistency(db).codes, ['schema-incomplete']);
+  db.exec('DROP TABLE mail_sync_jobs; DROP TABLE mail_sync_scopes; UPDATE mail_schema_version SET version=2');
+  assert.throws(() => assertMailSchema(db), { message: 'Mail schema is not ready' });
+  assert.deepEqual(checkMailConsistency(db).codes, ['schema-upgrade-required']);
+  migrateMailSchema(db);
+  assert.doesNotThrow(() => assertMailSchema(db));
+  db.exec('ALTER TABLE mail_sync_jobs DROP COLUMN last_error');
+  assert.throws(() => assertMailSchema(db), { message: 'Mail schema is not ready' });
+  assert.deepEqual(checkMailConsistency(db).codes, ['schema-incomplete']);
 }));

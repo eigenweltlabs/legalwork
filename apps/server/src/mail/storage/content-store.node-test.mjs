@@ -155,10 +155,10 @@ test('staging cleanup cannot remove published/shared/draft content, and reads de
 }));
 
 function restoreV1Shape(db) {
-  db.exec('DROP TABLE mail_blob_publications; DROP TABLE mail_blob_chunks; DROP TABLE mail_blob_objects');
+  db.exec('DROP TABLE mail_sync_scope_jobs; DROP TABLE mail_sync_jobs; DROP TABLE mail_sync_scopes; DROP TABLE mail_blob_publications; DROP TABLE mail_blob_chunks; DROP TABLE mail_blob_objects');
   db.run('UPDATE mail_schema_version SET version=1');
 }
-test('v1 to v2 preserves legacy metadata, is idempotent and rolls back an injected migration failure', async () => fixture(async ({ repository, db }) => {
+test('v1 to current schema preserves legacy metadata, is idempotent and rolls back an injected migration failure', async () => fixture(async ({ repository, db }) => {
   seed(repository);
   repository.putContent('a', locator('one'), { kind: 'raw', state: 'stored', reference: { id: 'legacy', bytes: 3, sha256: 'a'.repeat(64) } });
   const before = repository.readMessage('a', locator('one'));

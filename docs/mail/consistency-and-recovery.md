@@ -2,14 +2,14 @@
 
 `checkMailConsistency(database, { deep: false, maxRows: 100000, batchSize: 128 })` is an explicit, worker-only diagnostic over the injected encrypted `MailDatabase`. It is not wired to startup or public APIs by this change. It performs no migration, repair, deletion, reset, content download or schema-version update.
 
-`assertMailSchema(database)` is the separate fast startup guard. It checks the current schema version, the same static required-table/column map, and `foreign_keys=ON`. It performs no mailbox, chunk, quick-check or foreign-key-violation scan, and makes no repairs. Its failures throw only `Mail schema is not ready`, without the underlying database error text. The lead may wire this guard before worker readiness; the full diagnostic remains an explicit operation.
+`assertMailSchema(database)` is the separate fast startup guard. It checks the current schema version, the same static required-table/column map, and `foreign_keys=ON`. It performs no mailbox, chunk, quick-check or foreign-key-violation scan, and makes no repairs. Its failures throw only `Mail schema is not ready`, without the underlying database error text. The storage worker now invokes this guard after `migrateMailSchema` and before reporting ready; the full diagnostic remains an explicit operation. The static map includes the v3 sync scopes, jobs and scope/job association tables.
 
 The diagnostic result contains only `ok`, `scanComplete`, `scannedRows`, `contentHashesVerified: false`, and a sorted list of fixed issue codes. It does not return account IDs, message IDs, subjects, bodies, reference hashes, paths, SQL error details or offending database rows. Invalid options also produce a fixed code. The caller decides how to display an actionable recovery state without exposing mailbox data.
 
 ## What is checked
 
 - SQLite `quick_check(1)` and a one-row-limited foreign-key diagnostic, plus whether foreign-key enforcement is enabled. The check never enables enforcement implicitly.
-- Current schema version and the presence of required tables/columns. Missing schema, incomplete schema, v1 requiring migration and an unsupported/newer version produce distinct codes. A v1 database is not treated as a healthy current schema.
+- Current schema version and the presence of required tables/columns. Missing schema, incomplete schema, prior v1/v2 schemas requiring migration and an unsupported/newer version produce distinct codes. A prior-version database is not treated as a healthy current schema.
 - Account declarations, canonical provider message keys/locators and account-provider agreement. IMAP identities must retain their own mailbox membership.
 - Reference metadata and manifest part/state relationships. Any stored part or referenced draft lacking a published blob object is `unpublished-content`; an old v1 metadata reference is not proof that the bytes exist after upgrade.
 - Published blob identity/reference relationships and indexed chunk metadata: contiguous ordinals, exact count, size, maximum chunk length and final-chunk length. Unpublished staging left by an interrupted writer is not treated as complete content or deleted by the diagnostic.
@@ -29,7 +29,7 @@ No BLOB data is selected by the model scan; chunk queries inspect `length(data)`
 5. A missing table, failed integrity check, unavailable key, incorrect key, incomplete migration or missing published bytes requires explicit investigation. Never auto-delete/reset the store, silently mark content complete, regenerate the encryption key or replace the database with an empty one. Keep the original evidence and backups intact until a recovery decision is made.
 6. Once storage is accessible again, abandoned staging may be inspected and explicitly discarded through `MailContentStore` with writers quiesced. Published content is not garbage-collected by that API; shared messages, drafts and future matter references must remain protected.
 
-These rules describe safe recovery boundaries, not an implemented backup/restore UI or an operating-system power-loss guarantee. Worker startup wiring, retry policy and operator-facing recovery actions remain the lead's integration decision.
+These rules describe safe recovery boundaries, not an implemented backup/restore UI or an operating-system power-loss guarantee. Only the fast guard runs before worker readiness. Full diagnostics, retry policy and operator-facing recovery actions remain separate integration decisions.
 
 ## Validation
 
@@ -38,4 +38,4 @@ bun test apps/server/src/mail/storage/consistency.test.ts
 pnpm --dir apps/server typecheck
 ```
 
-The Bun launcher compiles production TypeScript into a temporary directory and runs twelve tests in actual Node with the encrypted native database. Cases cover v2 reopen, v1 reopen/upgrade, transactional migration failure, newer-version refusal, missing tables, legacy stored refs without publications, invalid canonical/provider state, disabled/broken foreign keys, missing chunks/publications, fixed-code privacy, bounded keyset scans the explicit limit of shallow hash checking, fast-guard query boundaries/missing-schema/future-version failures, and Graph-shaped immutable-ID move/content preservation. The Graph case is a local storage invariant, not live-provider qualification. Test databases and build output are temporary. No production data or credentials are used.
+The Bun launcher compiles production TypeScript into a temporary directory and runs thirteen tests in actual Node with the encrypted native database. Cases cover current-schema reopen, v1/v2 upgrade handling, transactional migration failure, newer-version refusal, missing tables, legacy stored refs without publications, invalid canonical/provider state, disabled/broken foreign keys, missing chunks/publications, fixed-code privacy, bounded keyset scans the explicit limit of shallow hash checking, fast-guard query boundaries/missing-schema/future-version failures and v3 journal table/column requirements, and Graph-shaped immutable-ID move/content preservation. The Graph case is a local storage invariant, not live-provider qualification. Test databases and build output are temporary. No production data or credentials are used.
