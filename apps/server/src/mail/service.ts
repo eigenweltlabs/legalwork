@@ -18,7 +18,7 @@ export type LocalMailServiceOptions = Pick<MailWorkerOptions, "executable" | "en
   loadStore?: () => Promise<{ databasePath: string; key: Uint8Array }>;
   maintain?: (operation: "rotate" | "backup" | "restore", passphrase: string | undefined, signal: AbortSignal) => Promise<void>;
   /** Trusted main-process configuration; HTTP callers select only a provider. */
-  loadProviderSettings?: (provider: "gmail" | "graph") => Promise<MailOAuthSettings>;
+  loadProviderSettings?: (provider: "gmail" | "graph", personal?: boolean) => Promise<MailOAuthSettings>;
 };
 function serviceError(error: unknown): MailServiceError {
   if (error instanceof MailServiceError) return error;
@@ -187,12 +187,12 @@ export class LocalMailService implements MailService {
     if (!("folders" in result)) throw new MailServiceError("unavailable");
     return { items: result.folders, nextCursor: result.nextCursor };
   }
-  async beginConnection(provider: "gmail" | "graph", reconnectAccountId?: string) {
+  async beginConnection(provider: "gmail" | "graph", reconnectAccountId?: string, personal = false) {
     if (this.stopped || !this.loadProviderSettings) throw new MailServiceError("unavailable");
     if (this.phase !== "open") throw new MailServiceError("locked");
     const epoch = this.epoch;
     let settings: MailOAuthSettings;
-    try { settings = await this.loadProviderSettings(provider); }
+    try { settings = await this.loadProviderSettings(provider, personal); }
     catch { throw new MailServiceError("unavailable"); }
     if (epoch !== this.epoch) throw new MailServiceError("locked");
     if (settings.provider !== provider) throw new MailServiceError("unavailable");
@@ -237,7 +237,8 @@ export class LocalMailService implements MailService {
     if (!("disconnected" in result)) throw new MailServiceError("unavailable");
   }
   async imapDiscovery(accountId:string,after?:string){const result=await this.request({operation:"mail.imap.discovery",accountId,...(after===undefined?{}:{after})});if(!("imapDiscovery" in result))throw new MailServiceError("unavailable");return result.imapDiscovery;}
-  async connectImap(input:ImapConnection){const result=await this.request({operation:"mail.imap.connect",input});if(!("imapConnection" in result))throw new MailServiceError("unavailable");return result.imapConnection;}
+  async cancelImapConnection(requestId:string){await this.request({operation:"mail.imap.cancel",requestId});}
+  async connectImap(input:ImapConnection,requestId?:string){const result=await this.request({operation:"mail.imap.connect",input,...(requestId?{requestId}:{})});if(!("imapConnection" in result))throw new MailServiceError("unavailable");return result.imapConnection;}
   async startSync(accountId: string) {
     if (this.stopped) throw new MailServiceError("unavailable");
     if (this.phase !== "open") throw new MailServiceError("locked");
@@ -248,7 +249,7 @@ export class LocalMailService implements MailService {
       if (!("syncProvider" in provider)) throw new MailServiceError("unavailable");
       if(provider.syncProvider==='imap'){if(epoch!==this.epoch)throw new MailServiceError('locked');const result=await this.request({operation:'mail.sync.start',accountId});if(!('sync' in result))throw new MailServiceError('unavailable');return result.sync;}
       if(!this.loadProviderSettings)throw new MailServiceError('unavailable');
-      settings = await this.loadProviderSettings(provider.syncProvider);
+      settings = await this.loadProviderSettings(provider.syncProvider, provider.personal);
       if (settings.provider !== provider.syncProvider) throw new MailServiceError("unavailable");
     }
     catch { throw new MailServiceError("unavailable"); }

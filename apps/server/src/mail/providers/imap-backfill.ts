@@ -86,6 +86,7 @@ export class ImapBackfill {
             db.run('INSERT INTO mail_imap_folders(account_id,path,delimiter,special_use,selectable,selected,generation) VALUES(?,?,?,?,?,?,?) ON CONFLICT(account_id,path) DO UPDATE SET delimiter=excluded.delimiter,special_use=excluded.special_use,selectable=excluded.selectable,selected=excluded.selected,generation=excluded.generation,uid_next=NULL,after_uid=0,uid_span=1000,done=0', [accountId, folder.path, folder.delimiter, folder.specialUse, folder.selectable ? 1 : 0, folder.selectable && (!settings.folders || settings.folders.includes(folder.path)) ? 1 : 0, generation]);
         }
     }
+    cancelConnect(): void { this.connecting?.abort.abort(); this.connecting?.transport.close(); }
     async connect(input: ImapConnection): Promise<{
         accountId: string;
         provider: "imap";
@@ -127,7 +128,6 @@ export class ImapBackfill {
                 this.connecting = undefined;
         }
     }
-    cancelConnect(): void { this.connecting?.abort.abort(); this.connecting?.transport.close(); }
     status(accountId: string): ImapSyncView {
         const run = this.read(accountId), db = this.options.database;
         const progress = run ? this.journal.status(this.scope(run)) : null;
