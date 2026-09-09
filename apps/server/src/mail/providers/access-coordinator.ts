@@ -133,9 +133,12 @@ export class MailAccessCoordinator {
     try { result = await (this.options.refresh ?? refreshMailOAuth)({ settings: selected, refreshToken: refresh.refreshToken, signal, timeoutMs: this.timeout }); }
     catch (error) { check(); throw error; }
     check();
-    // Unknown current grants remain unknown; neither prior grants nor configuration substitutes proof.
+    // RFC 6749 sections 6 and 5.1: omitted refresh request scope retains the grant,
+    // and an omitted response scope denotes no change. Preserve only recorded Gmail proof.
+    // https://www.rfc-editor.org/rfc/rfc6749.html#section-6
+    const grantedScopes = binding.provider === "gmail" && result.grantedScopes === null ? refresh.grantedScopes : result.grantedScopes;
     const version = this.credentials.rotate(accountId, binding, expected, { accessToken: result.accessToken, expiresAt: result.expiresAt,
-      refreshToken: result.refreshToken, grantedScopes: result.grantedScopes });
+      refreshToken: result.refreshToken, grantedScopes });
     const access = this.credentials.readAccess(accountId, binding);
     if (access.version.generation !== version.generation || access.version.revision !== version.revision) throw new MailAccessError("stale_credentials");
     this.fence(accountId, version);
