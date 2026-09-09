@@ -184,15 +184,16 @@ test('process death after a durable staging chunk preserves prior manifest; reop
   const databaseModule = new URL('./database.js', import.meta.url).href;
   const contentModule = new URL('./content-store.js', import.meta.url).href;
   const child = spawnSync(process.execPath, ['--input-type=module', '-e', `
-    import {readFileSync} from 'node:fs';
+    import {readFileSync,writeSync} from 'node:fs';
     import {openEncryptedMailDatabase} from ${JSON.stringify(databaseModule)};
     import {MailContentStore} from ${JSON.stringify(contentModule)};
     const input=JSON.parse(readFileSync(0,'utf8'));
     const db=await openEncryptedMailDatabase({path:input.path,key:Buffer.from(input.key,'base64')});
-    async function* source(){yield new Uint8Array(65536).fill(99);process.kill(process.pid,'SIGKILL');}
+    async function* source(){yield new Uint8Array(65536).fill(99);{writeSync(2,'crash-boundary');process.kill(process.pid,'SIGKILL');}}
     await new MailContentStore(db,'owner-a').writePart('a',{provider:'gmail',messageId:'one'},{kind:'raw',maxBytes:131072},source());
   `], { input: JSON.stringify({ path, key: key.toString('base64') }), encoding: 'utf8', timeout: 20000 });
-  assert.equal(child.error, undefined); assert.equal(child.signal, 'SIGKILL');
+  assert.equal(child.error, undefined); assert.equal(child.stderr, 'crash-boundary');
+  assert.equal(process.platform === 'win32' ? child.status : child.signal, process.platform === 'win32' ? 1 : 'SIGKILL');
   const reopened = await reopen();
   const after = new MailContentStore(reopened, 'owner-a');
   assert.equal(new MailRepository(reopened, 'owner-a').readMessage('a', locator('one')).content[0].ref_id, ref.id);
