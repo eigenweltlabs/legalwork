@@ -1,4 +1,4 @@
--- Frozen executed migration SQL from 82ad798dc:apps/server/src/mail/storage/schema.ts
+-- Frozen executed migration SQL from 8435d9a0d:apps/server/src/mail/storage/schema.ts
 -- Existing version 5; target version 9. No current schema imports.
 PRAGMA foreign_keys = ON;
 CREATE TABLE IF NOT EXISTS mail_schema_version (singleton INTEGER PRIMARY KEY CHECK(singleton = 1), version INTEGER NOT NULL CHECK(version >= 0));
