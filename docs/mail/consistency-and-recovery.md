@@ -2,7 +2,9 @@
 
 `checkMailConsistency(database, { deep: false, maxRows: 100000, batchSize: 128 })` is an explicit, worker-only diagnostic over the injected encrypted `MailDatabase`. It is not wired to startup or public APIs by this change. It performs no migration, repair, deletion, reset, content download or schema-version update.
 
-The result contains only `ok`, `scanComplete`, `scannedRows`, `contentHashesVerified: false`, and a sorted list of fixed issue codes. It does not return account IDs, message IDs, subjects, bodies, reference hashes, paths, SQL error details or offending database rows. Invalid options also produce a fixed code. The caller decides how to display an actionable recovery state without exposing mailbox data.
+`assertMailSchema(database)` is the separate fast startup guard. It checks the current schema version, the same static required-table/column map, and `foreign_keys=ON`. It performs no mailbox, chunk, quick-check or foreign-key-violation scan, and makes no repairs. Its failures throw only `Mail schema is not ready`, without the underlying database error text. The lead may wire this guard before worker readiness; the full diagnostic remains an explicit operation.
+
+The diagnostic result contains only `ok`, `scanComplete`, `scannedRows`, `contentHashesVerified: false`, and a sorted list of fixed issue codes. It does not return account IDs, message IDs, subjects, bodies, reference hashes, paths, SQL error details or offending database rows. Invalid options also produce a fixed code. The caller decides how to display an actionable recovery state without exposing mailbox data.
 
 ## What is checked
 
@@ -36,4 +38,4 @@ bun test apps/server/src/mail/storage/consistency.test.ts
 pnpm --dir apps/server typecheck
 ```
 
-The Bun launcher compiles production TypeScript into a temporary directory and runs nine tests in actual Node with the encrypted native database. Cases cover v2 reopen, v1 reopen/upgrade, transactional migration failure, newer-version refusal, missing tables, legacy stored refs without publications, invalid canonical/provider state, disabled/broken foreign keys, missing chunks/publications, fixed-code privacy, bounded keyset scans and the explicit limit of shallow hash checking. Test databases and build output are temporary. No production data or credentials are used.
+The Bun launcher compiles production TypeScript into a temporary directory and runs twelve tests in actual Node with the encrypted native database. Cases cover v2 reopen, v1 reopen/upgrade, transactional migration failure, newer-version refusal, missing tables, legacy stored refs without publications, invalid canonical/provider state, disabled/broken foreign keys, missing chunks/publications, fixed-code privacy, bounded keyset scans the explicit limit of shallow hash checking, fast-guard query boundaries/missing-schema/future-version failures, and Graph-shaped immutable-ID move/content preservation. The Graph case is a local storage invariant, not live-provider qualification. Test databases and build output are temporary. No production data or credentials are used.
