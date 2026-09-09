@@ -64,6 +64,7 @@
     "@opencode/schema": "2.1.4",
     "basic-ftp": "^6.2.1",
     "better-sqlite3": "^12.11.1",
+    "better-sqlite3-multiple-ciphers": "13.0.3",
     "drizzle-orm": "^0.45.1",
     "effect": "4.0.1",
     "fflate": "^0.8.3",

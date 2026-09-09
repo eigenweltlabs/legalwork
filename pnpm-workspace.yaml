@@ -45,6 +45,7 @@ allowBuilds:
   msgpackr-extract: false
   ssh2: false
   better-sqlite3: true
+  better-sqlite3-multiple-ciphers: true
   core-js: false
   electron: true
   esbuild: true

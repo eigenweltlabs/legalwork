@@ -462,6 +462,9 @@ importers:
       better-sqlite3:
         specifier: ^12.11.1
         version: 12.11.1
+      better-sqlite3-multiple-ciphers:
+        specifier: 13.0.3
+        version: 13.0.3
       drizzle-orm:
         specifier: ^0.45.1
         version: 0.45.1(@opentelemetry/api@1.10.0)(@types/better-sqlite3@7.6.13)(better-sqlite3@12.11.1)(bun-types@1.3.6)
@@ -656,6 +659,9 @@ importers:
       better-sqlite3:
         specifier: ^12.11.1
         version: 12.11.1
+      better-sqlite3-multiple-ciphers:
+        specifier: 13.0.3
+        version: 13.0.3
       drizzle-orm:
         specifier: ^0.45.1
         version: 0.45.1(@opentelemetry/api@1.9.0)(@types/better-sqlite3@7.6.13)(better-sqlite3@12.11.1)(bun-types@1.3.6)
@@ -5275,6 +5281,11 @@ packages:
     resolution: {integrity: sha512-dq9AtApgg5PGFtBzPFSBl3HZQjHok5gaQCM6zh2Yk0aSmDCs1CbnVI8/HgASQkNKsWFpseIO9beg5xxpYhbIfA==}
     engines: {node: 20.x || 22.x || 23.x || 24.x || 25.x || 26.x}
 
+  better-sqlite3-multiple-ciphers@13.0.3:
+    resolution: {integrity: sha512-UYabM82r1J84TLWc/SszoHs6XopWpl/2HCg3Nui1JUaFXg/VLswzkPowYiRhK/4CftI8dgtikwyZQecMldrGxQ==}
+    engines: {node: '>=22'}
+
+
   bignumber.js@9.3.1:
     resolution: {integrity: sha512-Ko0uX15oIUS7wJ3Rb30Fs6SkVbLmPBAKdlm7q9+ak9bbIeFf0MwuBsQV6z7+X768/cHsfg+WlysDWJcmthjsjQ==}
 
@@ -7951,6 +7962,10 @@ packages:
 
   node-api-headers@1.9.0:
     resolution: {integrity: sha512-2oNILP4jXwRB4ywnYKjVk1YyJ96n2D4EOVJO6S3oYZ5PtbJrw3Yt9TpAuX3nBLMuzn74rnfGQrv13pS9vC+YiA==}
+
+  node-addon-api@8.9.2:
+    resolution: {integrity: sha512-VijLXbi3UACN69I0JVXJsX4tjACjNoQDgv2gTF6sx2wWEi8tkSg2eX8p5gSIFi8z2+DL3oHmY6OyKce38SDolg==}
+    engines: {node: ^18 || ^20 || >= 21}
 
   node-api-version@0.2.1:
     resolution: {integrity: sha512-2xP/IGGMmmSQpI1+O/k72jF/ykvZ89JeuKX3TLJAYPDVLUalrshrLHkeVcCCZqG/eEa635cr8IBYzgnDvM2O8Q==}
@@ -15574,6 +15589,10 @@ snapshots:
     dependencies:
       tweetnacl: 0.14.5
 
+  better-sqlite3-multiple-ciphers@13.0.3:
+    dependencies:
+      node-addon-api: 8.9.2
+
   better-sqlite3@12.11.1:
     dependencies:
       bindings: 1.5.0
@@ -18741,6 +18760,8 @@ snapshots:
   node-addon-api@8.5.0: {}
 
   node-api-headers@1.9.0: {}
+
+  node-addon-api@8.9.2: {}
 
   node-api-version@0.2.1:
     dependencies:
