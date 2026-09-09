@@ -9,6 +9,8 @@ export const mailSyncViewSchema = z.object({
   enumerated: count,
   downloaded: count,
   projected: count,
+  removed: count,
+  retained: count,
   failed: count,
   pending: count,
   nextRetryAt: count.nullable(),

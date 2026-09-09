@@ -10,7 +10,7 @@ test("sync protocol requires trusted settings and validates bounded, account-cor
   expect(parent({ operation: "mail.sync.start", accountId: "a" })).toBeUndefined();
   expect(parent({ operation: "mail.sync.start", accountId: "a", settings: { ...settings, accessToken: "private" } })).toBeUndefined();
   const sync = { accountId: "a", provider: "gmail", state: "syncing", enumerated: 5,
-    downloaded: 3, projected: 2, failed: 0, pending: 3, nextRetryAt: null, error: null };
+    downloaded: 3, projected: 2, removed: 0, retained: 0, failed: 0, pending: 3, nextRetryAt: null, error: null };
   expect(response({ sync })).toBeDefined();
   for (const invalid of [{ ...sync, accessToken: "private" }, { ...sync, error: "provider secret" },
     { ...sync, downloaded: -1 }, { ...sync, pending: Number.MAX_SAFE_INTEGER + 1 }, { ...sync, state: ["complete"] }]) {
