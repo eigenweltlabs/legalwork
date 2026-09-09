@@ -41,6 +41,10 @@ function mockService() {
       if (id !== "local") throw new MailServiceError("not_found");
       return { items: [], nextCursor: null };
     },
+    async beginConnection(provider) { calls++; return { connectionId: "synthetic-connection", authorizationUrl: `https://${provider === "gmail" ? "accounts.google.com" : "login.microsoftonline.com"}/authorize`, expiresAt: 2000000000000 }; },
+    async connectionStatus(id) { calls++; return { connectionId: id, state: "pending", expiresAt: 2000000000000 }; },
+    async cancelConnection() { calls++; },
+    async disconnectAccount() { calls++; },
     async stop() { stops++; state = "stopped"; },
   };
   return { service, calls: () => calls, stops: () => stops };
@@ -64,6 +68,28 @@ test("mail routes are absent by default and when sharing binds all interfaces", 
   const shared = await boot(mock.service, "0.0.0.0");
   expect((await fetch(`${shared.base}/status`, { headers: auth })).status).toBe(404);
   expect(mock.calls()).toBe(0);
+});
+test("connection routes accept provider selection but reject credentials, paths, owners and excess input", async () => {
+  const mock = mockService();
+  const { base } = await boot(mock.service);
+  for (const input of [{ provider: "imap" }, { provider: "gmail", clientSecret: "private" },
+    { provider: "gmail", ownerId: "other" }, { provider: "gmail", configPath: "/private/file" },
+    { provider: "gmail", reconnectAccountId: "" }, { provider: "gmail", extra: "x".repeat(8192) }]) {
+    const response = await fetch(`${base}/connections`, { method: "POST", headers: { ...auth, "content-type": "application/json" }, body: JSON.stringify(input) });
+    expect(response.status).toBe(400);
+  }
+  expect(mock.calls()).toBe(0);
+  const forbidden = await fetch(`${base}/connections`, { method: "POST", headers: { authorization: "Bearer synthetic-mail-collaborator", "content-type": "application/json" }, body: '{"provider":"gmail"}' });
+  expect(forbidden.status).toBe(401);
+  expect(mock.calls()).toBe(0);
+  const response = await fetch(`${base}/connections`, { method: "POST", headers: { ...auth, "content-type": "application/json" }, body: '{"provider":"gmail"}' });
+  expect(response.status).toBe(200);
+  expect(response.headers.get("cache-control")).toBe("no-store");
+  expect((await response.json()).connectionId).toBe("synthetic-connection");
+  expect((await fetch(`${base}/connections/synthetic-connection`, { headers: auth })).status).toBe(200);
+  expect((await fetch(`${base}/connections/synthetic-connection/cancel`, { method: "POST", headers: auth })).status).toBe(200);
+  expect((await fetch(`${base}/accounts/local/disconnect`, { method: "POST", headers: auth })).status).toBe(200);
+  expect(mock.calls()).toBe(4);
 });
 test("only host-token auth can access mail; all remote bearer scopes are denied", async () => {
   const mock = mockService();

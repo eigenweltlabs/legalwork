@@ -12,6 +12,7 @@ export async function createDesktopMailService({ app, embeddedPath, safeStorage 
   const keyStore = createMailKeyStore({ directory, safeStorage });
   const dist = dirname(embeddedPath);
   const { LocalMailService } = await import(pathToFileURL(join(dist, "mail/service.js")).href);
+  const { loadGoogleInstalledMailClient, parseGraphMailRegistration } = await import(pathToFileURL(join(dist, "mail/providers/development-config.js")).href);
   return new LocalMailService({
     executable: { kind: "electron", path: app.getPath("exe") },
     entryPoint: join(dist, "mail/runtime/worker.js"),
@@ -19,6 +20,15 @@ export async function createDesktopMailService({ app, embeddedPath, safeStorage 
     // This database belongs to this local OS desktop profile. It has no remotely
     // selectable owner; future multi-user server support requires its own binding.
     ownerId: "desktop-local",
+    loadProviderSettings: async (provider) => {
+      if (provider === "gmail") {
+        const path = process.env.LEGALWORK_MAIL_GOOGLE_CLIENT_CONFIG;
+        if (!path) throw new Error("mail_provider_configuration_unavailable");
+        return loadGoogleInstalledMailClient(path);
+      }
+      return parseGraphMailRegistration({ clientId: process.env.LEGALWORK_MAIL_MICROSOFT_CLIENT_ID,
+        tenantId: process.env.LEGALWORK_MAIL_MICROSOFT_TENANT_ID });
+    },
     loadKey: async () => {
       if (!app.isReady()) throw new Error("mail_key_backend_unavailable");
       return keyStore.load({ allowCreate: true });

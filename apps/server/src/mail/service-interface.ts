@@ -18,5 +18,11 @@ export interface MailService {
   lock(): Promise<void>;
   listAccounts(page: MailPageInput): Promise<MailPage<MailAccountView>>;
   listFolders(accountId: string, page: MailPageInput): Promise<MailPage<MailFolderView>>;
+  beginConnection(provider: "gmail" | "graph", reconnectAccountId?: string): Promise<MailConnectionStarted>;
+  connectionStatus(connectionId: string): Promise<MailConnectionStatus>;
+  cancelConnection(connectionId: string): Promise<void>;
+  disconnectAccount(accountId: string): Promise<void>;
   stop(): Promise<void>;
 }
+import type { MailConnectionStatus } from "./providers/connection-controller.js";
+export type MailConnectionStarted = { connectionId: string; authorizationUrl: string; expiresAt: number };
