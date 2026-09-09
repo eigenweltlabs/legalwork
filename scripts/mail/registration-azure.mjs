@@ -16,7 +16,7 @@ export function provision(args, command = az) {
   const values = new Map();
   for (let i = 0; i < args.length; i++) {
     if (args[i] === "--apply") continue;
-    if (!["--tenant", "--name", "--audience"].includes(args[i]) || !args[i + 1] || args[i + 1].startsWith("--")) throw new Error("Usage: --tenant TENANT_GUID --name legalwork-mail-dev-NAME [--apply]");
+    if (!["--tenant", "--name", "--audience"].includes(args[i]) || !args[i + 1] || args[i + 1].startsWith("--")) throw new Error("Usage: --tenant TENANT_GUID --name legalwork-mail-dev-NAME [--audience organizational|organizational-and-personal] [--apply]");
     if (values.has(args[i])) throw new Error("Duplicate argument");
     values.set(args[i], args[++i]);
   }
