@@ -146,7 +146,7 @@ test("two actual Node refresh writers sharing a snapshot produce one CAS winner 
 }));
 
 test("v3 to v4 migration preserves existing data and fast guard requires credential structure",async()=>fixture(({db})=>{
- db.exec("DROP TABLE mail_account_credentials; UPDATE mail_schema_version SET version=3");
+ db.exec("DROP TABLE mail_action_jobs; DROP TABLE mail_account_credentials; UPDATE mail_schema_version SET version=3");
  assert.throws(()=>assertMailSchema(db));assert.deepEqual(checkMailConsistency(db).codes,["schema-upgrade-required"]);
  const faulty={...db,exec(sql){db.exec(sql);if(sql.includes('CREATE TABLE mail_account_credentials'))throw new Error('DDL interrupted')}};
  assert.throws(()=>migrateMailSchema(faulty),/DDL interrupted/);

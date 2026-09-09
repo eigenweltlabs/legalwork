@@ -1,6 +1,6 @@
 import type { MailDatabase } from "./database-interface.js";
 
-export const MAIL_SCHEMA_VERSION = 4;
+export const MAIL_SCHEMA_VERSION = 5;
 
 /** Dedicated mail database only. Every DDL/version write shares one transaction. */
 export function migrateMailSchema(database: MailDatabase): void {
@@ -142,6 +142,31 @@ export function migrateMailSchema(database: MailDatabase): void {
           (state='disconnected' AND archive_locked=1 AND access_token IS NULL AND refresh_token IS NULL AND expires_at IS NULL AND granted_scopes_json IS NULL)),
         FOREIGN KEY(account_id,provider) REFERENCES mail_accounts(id,provider)
       );
+    `);
+    if (version < 5) database.exec(`
+      CREATE TABLE mail_action_jobs (
+        account_id TEXT NOT NULL, id TEXT NOT NULL, replay_key TEXT NOT NULL,
+        kind TEXT NOT NULL CHECK(kind IN ('mutation','submission')),
+        payload_json TEXT NOT NULL CHECK(length(CAST(payload_json AS BLOB)) BETWEEN 2 AND 32768), precondition TEXT,
+        conflict_policy TEXT NOT NULL CHECK(conflict_policy IN ('manual','refresh_then_reapply')),
+        generation TEXT NOT NULL, revision INTEGER NOT NULL CHECK(revision BETWEEN 1 AND 9007199254740991),
+        state TEXT NOT NULL CHECK(state IN ('queued','running','dispatching','retry','succeeded','failed','cancelled','uncertain')),
+        attempts INTEGER NOT NULL CHECK(attempts BETWEEN 0 AND 20), max_attempts INTEGER NOT NULL CHECK(max_attempts BETWEEN 1 AND 20),
+        retry_base_ms INTEGER NOT NULL CHECK(retry_base_ms BETWEEN 1 AND 3600000),
+        retry_max_ms INTEGER NOT NULL CHECK(retry_max_ms BETWEEN retry_base_ms AND 86400000),
+        available_at INTEGER NOT NULL CHECK(available_at BETWEEN 0 AND 9007199254740991),
+        lease_token TEXT, lease_until INTEGER CHECK(lease_until BETWEEN 0 AND 9007199254740991),
+        cancel_requested INTEGER NOT NULL DEFAULT 0 CHECK(cancel_requested IN (0,1)),
+        last_error TEXT CHECK(last_error IN ('preflight_retryable','preflight_permanent','lease_expired','outcome_unknown','rejected','conflict','cancelled','reconciled')),
+        PRIMARY KEY(account_id,id), UNIQUE(account_id,replay_key),
+        CHECK(attempts <= max_attempts),
+        CHECK(kind!='submission' OR conflict_policy='manual'),
+        CHECK((state IN ('running','dispatching') AND lease_token IS NOT NULL AND lease_until IS NOT NULL) OR
+          (state NOT IN ('running','dispatching') AND lease_token IS NULL AND lease_until IS NULL)),
+        FOREIGN KEY(account_id) REFERENCES mail_accounts(id)
+      );
+      CREATE INDEX mail_action_jobs_ready ON mail_action_jobs(account_id,state,available_at,id);
+      CREATE INDEX mail_action_jobs_expired ON mail_action_jobs(account_id,state,lease_until,id);
     `);
     database.run("INSERT INTO mail_schema_version(singleton,version) VALUES(1,?) ON CONFLICT(singleton) DO UPDATE SET version=excluded.version", [MAIL_SCHEMA_VERSION]);
   });
