@@ -46,7 +46,7 @@ test("service stays locked without vault access until unlock, clears supplied ke
   const first = service.unlock();
   expect(service.unlock()).toBe(first);
   await first;
-  expect(service.status()).toEqual({ protocolVersion: 1, state: "ready", syncSupported: false });
+  expect(service.status()).toEqual({ protocolVersion: 1, state: "ready", syncSupported: true });
   expect(supplied).toHaveLength(1);
   expect(supplied[0]?.every(byte => byte === 0)).toBe(true);
   expect(await service.listAccounts({ limit: 1 })).toEqual({ items: [], nextCursor: null });
@@ -163,4 +163,23 @@ test("disconnect fences reconnect waiting for private configuration", async () =
     expect(service.status().state).toBe("ready");
     await expect(service.listFolders("a", {})).rejects.toThrow("mail_locked");
   } finally { key.fill(0); }
+});
+
+test("pause and lock revoke a sync start still waiting for trusted settings", async () => {
+  for (const action of ["pause", "lock"]) {
+    let loaded = () => {};
+    const loading = new Promise<void>(resolve => { loaded = resolve; });
+    let supply: (settings: MailOAuthSettings) => void = () => {};
+    const delayed = new Promise<MailOAuthSettings>(resolve => { supply = resolve; });
+    const { service } = await setup(undefined, async () => { loaded(); return delayed; });
+    await service.unlock();
+    const pending = service.startSync("missing").then(() => "started", error => error.message);
+    await loading;
+    if (action === "pause") await service.pauseSync("missing").catch(() => {});
+    else { await service.lock(); await service.unlock(); }
+    supply(googleSettings);
+    expect(await pending).toBe("mail_locked");
+    expect(service.status().state).toBe("ready");
+    expect(await service.listAccounts({})).toEqual({ items: [], nextCursor: null });
+  }
 });

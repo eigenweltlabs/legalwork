@@ -19,6 +19,9 @@ All endpoints require the desktop `X-LegalWork-Host-Token`. Remote owner, collab
 | `GET /mail/v1/connections/:connectionId` | Poll a redacted pending/verifying/connected/failed/cancelled/expired state |
 | `POST /mail/v1/connections/:connectionId/cancel` | Cancel the local OAuth attempt and close its loopback listener |
 | `POST /mail/v1/accounts/:accountId/disconnect` | Clear credentials, fence pending reconnects and retain a locked local archive |
+| `POST /mail/v1/accounts/:accountId/sync/start` | Start or resume Gmail history using trusted desktop registration settings |
+| `POST /mail/v1/accounts/:accountId/sync/pause` | Pause background work and revoke a pending start/publication |
+| `GET /mail/v1/accounts/:accountId/sync` | Durable enumeration, original, projection, pending/failure counts and fixed error codes |
 
 Connection creation accepts only JSON `{ "provider": "gmail" | "graph", "reconnectAccountId"?: "owned-account-id" }`, bounded to 8192 bytes with a two-second read deadline. Provider settings, credentials, owner and filesystem paths cannot be supplied through HTTP. Other POST commands accept an empty body. Lists accept only `limit` (1–100, default 50) and optional `after`. SQL keyset pagination bounds row count, and the worker's 64 KiB response cap bounds encoded output. A single oversized row returns a fixed error; pagination never silently skips a row. Responses are marked `no-store`. Internal owner IDs, database paths, credentials and raw worker errors are excluded. Mail request paths are redacted in the normal request logger.
 
@@ -26,7 +29,11 @@ The development desktop loads Google's installed-client JSON from the trusted ma
 
 Only a verified provider identity and the required actual grants can create an account and encrypted credentials atomically. Cancel, lock and shutdown fence late completion. An operation epoch also rejects configuration loads started before lock/reopen or disconnect; an old begin request cannot obtain a fresh post-disconnect credential version. Disconnect retains metadata and content but clears tokens and locks folder/status access across worker restarts. Repeated disconnect rotates the durable generation, including when another controller is reconnecting. This does not revoke the provider grant remotely or purge retained content; the public privacy notice must be reconciled with this approved retention contract before pilot.
 
-The service does not claim provider sync, message listing/search, draft editing, sending or mailbox mutations. `syncSupported` is explicitly false. Those operations need real implementations and separate typed protocol/API additions; there are no successful stub sync commands. Accounts are created only through verified provider connection handling.
+The service supports Gmail backfill (`syncSupported: true`): recent mail first, then all accessible history including Spam and Trash, with deduplication by account/provider message ID. Originals, body variants, inline images, embedded messages and attachments are eagerly stored in the encrypted database. Graph and IMAP synchronization remain unsupported. Accounts are created through verified provider connection handling.
+
+Start and pause accept empty bodies. Registration settings and tokens stay inside the private parent/worker boundary. Start returns progress immediately; downloads run in the worker with one active account and one raw request at a time. Progress distinguishes enumerated, downloaded and projected messages from pending/failed jobs. Completion requires exhausted history pagination and durable current bodies/attachments for every discovered original. Limit, unsupported-MIME and missing-provider-content failures remain visible and retain the original. A reopened unfinished run reports paused until explicitly resumed; its cursor and jobs remain durable. Lock, pause, disconnect and shutdown revoke late publication.
+
+Message listing/search, draft editing, sending and mailbox mutations still need their own typed operations. Current progress is a headless implementation surface; it does not establish live-provider or signed-platform qualification.
 
 ## Reviewed evidence and limits
 
@@ -40,3 +47,9 @@ pnpm --dir apps/desktop typecheck:electron
 ```
 
 This is a headless foundation; no new mail UI is exposed yet. Actual signed-app OS-vault behavior, release packaging on all target platforms, provider consent and live mailbox tests remain open. Tests use synthetic data only.
+
+## Gmail backfill integration evidence
+
+The real built-worker fixture follows recent and all-history Gmail pages, deduplicates messages across them, preserves Inbox/Spam/Trash memberships, eagerly stores and reads exact attachment bytes, and reopens with complete durable progress. The complete mail suite passed 156 tests with actual Electron enabled. Packaged ASAR worker, desktop binding, native unpacking and dependency-mirror checks passed. Independent review covered the engine, stream publication, stored projection and local API integration.
+
+The current scope is full-history backfill. New-mail/history polling and remote removal/flag reconciliation belong to EIG-129; search and core client commands remain separate tickets. Default limits are explicit (64 MiB original, 32 MiB decoded attachment, 2 MiB decoded bodies); messages exceeding them remain incomplete with errors and retained originals where available. No live mailbox, actual send, signed-platform qualification or large-mailbox benchmark is claimed.
