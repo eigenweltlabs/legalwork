@@ -1,3 +1,4 @@
+import { mailSearchInputSchema, mailSearchRebuildInputSchema } from "../mail/search-view.js";
 import { ApiError } from "../errors.js";
 import { z } from "zod";
 import { MailServiceError, type MailPageInput, type MailService } from "../mail/service-interface.js";
@@ -78,6 +79,19 @@ export function registerMailRoutes(routes: Route[], host: string, service?: Mail
       } catch (error) { throw safeError(error); }
     });
   }
+  for (const operation of ["search", "search/rebuild"]) addRoute(routes,"POST",`/mail/v1/${operation}`,"host-token",async ctx=>{
+    if(ctx.actor?.type!=="host")throw new ApiError(401,"unauthorized","Invalid host token");
+    pageInput(ctx,false);
+    if(ctx.request.headers.get("content-type")?.split(";")[0]?.trim().toLowerCase()!=="application/json")throw new ApiError(400,"mail_invalid_request","Invalid mail request");
+    const raw=await readMailBody(ctx.request,16384);let value:unknown;
+    try{value=JSON.parse(raw);}catch{throw new ApiError(400,"mail_invalid_request","Invalid mail request");}
+    const parsed=operation==="search"?mailSearchInputSchema.safeParse(value):mailSearchRebuildInputSchema.safeParse(value);
+    if(!parsed.success)throw new ApiError(400,"mail_invalid_request","Invalid mail request");
+    try{
+      const result=operation==="search"?await service.search(mailSearchInputSchema.parse(value)):await service.rebuildSearch(mailSearchRebuildInputSchema.parse(value));
+      return Response.json(result,{headers:{"Cache-Control":"no-store"}});
+    }catch(error){throw safeError(error);}
+  });
   route("GET", "/status", false, () => service.status());
   route("POST", "/unlock", false, async () => { await service.unlock(); return service.status(); });
   route("POST", "/lock", false, async () => { await service.lock(); return service.status(); });

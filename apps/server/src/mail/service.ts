@@ -1,3 +1,4 @@
+import type { MailSearchInput, MailSearchRebuildInput } from "./search-view.js";
 import { MailWorkerClient, type MailWorkerOptions } from "./runtime/client.js";
 import type { WorkerCommand, WorkerResult } from "./runtime/protocol.js";
 import { MailServiceError, type MailPageInput, type MailService, type MailServiceStatus } from "./service-interface.js";
@@ -104,6 +105,16 @@ export class LocalMailService implements MailService {
       return result;
     }
     catch (error) { throw serviceError(error); }
+  }
+  async search(input: MailSearchInput) {
+    const result = await this.request({operation:"mail.search",input});
+    if (!("search" in result)) throw new MailServiceError("unavailable");
+    return result.search;
+  }
+  async rebuildSearch(input: MailSearchRebuildInput) {
+    const result = await this.request({operation:"mail.search.rebuild",input});
+    if (!("rebuilt" in result)) throw new MailServiceError("unavailable");
+    return result.rebuilt;
   }
   async listAccounts(page: MailPageInput) {
     const result = await this.request({ operation: "mail.accounts.list", ...page });

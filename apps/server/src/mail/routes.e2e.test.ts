@@ -42,6 +42,8 @@ function mockService() {
   let calls = 0;
   let stops = 0;
   const service: MailService = {
+    async search(){return {items:[],total:0,pending:0,incomplete:0,nextOffset:null};},
+    async rebuildSearch(){return {processed:0,pending:0,incomplete:0};},
     status() { return { protocolVersion: 1, state, syncSupported: false }; },
     async unlock() { calls++; state = "ready"; },
     async lock() { calls++; state = "locked"; },

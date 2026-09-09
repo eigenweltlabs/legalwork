@@ -1,6 +1,6 @@
 import type { MailDatabase } from "./database-interface.js";
 
-export const MAIL_SCHEMA_VERSION = 7;
+export const MAIL_SCHEMA_VERSION = 8;
 
 /** Dedicated mail database only. Every DDL/version write shares one transaction. */
 export function migrateMailSchema(database: MailDatabase): void {
@@ -220,6 +220,38 @@ export function migrateMailSchema(database: MailDatabase): void {
       INSERT INTO mail_gmail_presence(account_id,message_key,seen_generation,remote_present,history_id)
         SELECT account_id,message_key,NULL,1,NULL FROM mail_messages WHERE provider='gmail';
     `);
+    if (version < 8) database.exec(`
+      ALTER TABLE mail_messages ADD COLUMN is_read INTEGER CHECK(is_read IN (0,1));
+      CREATE TABLE mail_search_documents (
+        id INTEGER PRIMARY KEY, account_id TEXT NOT NULL, message_key TEXT NOT NULL,
+        subject TEXT NOT NULL, body TEXT NOT NULL, names TEXT NOT NULL, addresses TEXT NOT NULL,
+        senders_json TEXT NOT NULL, recipients_json TEXT NOT NULL, filenames_json TEXT NOT NULL,
+        normalized_text TEXT NOT NULL, has_attachment INTEGER CHECK(has_attachment IN (0,1)),
+        date TEXT, incomplete INTEGER NOT NULL CHECK(incomplete IN (0,1)),
+        UNIQUE(account_id,message_key), FOREIGN KEY(account_id,message_key) REFERENCES mail_messages(account_id,message_key) ON DELETE CASCADE
+      );
+      CREATE VIRTUAL TABLE mail_search_fts USING fts5(subject,body,names,addresses,content='mail_search_documents',content_rowid='id',tokenize='unicode61 remove_diacritics 0');
+      CREATE TRIGGER mail_search_insert AFTER INSERT ON mail_search_documents BEGIN
+        INSERT INTO mail_search_fts(rowid,subject,body,names,addresses) VALUES(NEW.id,NEW.subject,NEW.body,NEW.names,NEW.addresses);
+      END;
+      CREATE TRIGGER mail_search_delete AFTER DELETE ON mail_search_documents BEGIN
+        INSERT INTO mail_search_fts(mail_search_fts,rowid,subject,body,names,addresses) VALUES('delete',OLD.id,OLD.subject,OLD.body,OLD.names,OLD.addresses);
+      END;
+      CREATE TABLE mail_search_dirty(account_id TEXT NOT NULL,message_key TEXT NOT NULL,PRIMARY KEY(account_id,message_key),FOREIGN KEY(account_id,message_key) REFERENCES mail_messages(account_id,message_key) ON DELETE CASCADE);
+      INSERT INTO mail_search_dirty SELECT account_id,message_key FROM mail_messages;
+    `);
+    if (version < 8) {
+      // Static owned identifiers: every content/metadata change invalidates the derived index atomically.
+      for (const table of ["mail_messages","mail_content_manifests","mail_mime_projections","mail_mime_parts"]) {
+        for (const operation of ["INSERT","UPDATE","DELETE"]) {
+          if (table === "mail_messages" && operation === "DELETE") continue;
+          const row = operation === "DELETE" ? "OLD" : "NEW";
+          database.exec(`CREATE TRIGGER mail_search_dirty_${table}_${operation} AFTER ${operation} ON ${table} BEGIN
+            INSERT INTO mail_search_dirty(account_id,message_key) SELECT ${row}.account_id,${row}.message_key WHERE EXISTS(SELECT 1 FROM mail_messages WHERE account_id=${row}.account_id AND message_key=${row}.message_key) ON CONFLICT(account_id,message_key) DO NOTHING;
+          END`);
+        }
+      }
+    }
     database.run("INSERT INTO mail_schema_version(singleton,version) VALUES(1,?) ON CONFLICT(singleton) DO UPDATE SET version=excluded.version", [MAIL_SCHEMA_VERSION]);
   });
 }

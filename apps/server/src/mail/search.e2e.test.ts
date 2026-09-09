@@ -1,0 +1,42 @@
+import {setTimeout as delay} from 'node:timers/promises';
+import {test,expect} from 'bun:test';
+import {execFileSync} from 'node:child_process';
+import {mkdtemp,symlink,writeFile,rm} from 'node:fs/promises';
+import {tmpdir} from 'node:os';
+import {join} from 'node:path';
+import {randomBytes} from 'node:crypto';
+import {pathToFileURL} from 'node:url';
+import {LocalMailService} from './service.js';
+import {registerMailRoutes} from '../routes/mail.js';
+import {startServer} from '../server.js';
+import type {ServerConfig} from '../types.js';
+import type {Route} from '../routes/registry.js';
+test('actual HTTP -> service -> Node worker -> encrypted local search, authorization, restart and rebuild',async()=>{
+ const root=await mkdtemp(join(tmpdir(),'mail-search-e2e-')),serverRoot=join(import.meta.dir,'../..'),key=randomBytes(32),databasePath=join(root,'mail.sqlite');
+ const envNames=['LEGALWORK_ENV_STORE','LEGALWORK_TOKEN_STORE','XDG_DATA_HOME'];const originalEnv=new Map(envNames.map(name=>[name,process.env[name]]));for(const name of envNames)process.env[name]=join(root,name);
+ let service:LocalMailService|undefined;let server:Awaited<ReturnType<typeof startServer>>|undefined;
+ try{
+  await writeFile(join(root,'package.json'),'{"type":"module"}');await symlink(join(serverRoot,'node_modules'),join(root,'node_modules'));
+  execFileSync('pnpm',['exec','tsc','--outDir',join(root,'build'),'--rootDir','src','--module','NodeNext','--moduleResolution','NodeNext','--target','ES2022','--strict','--skipLibCheck','--types','node,bun-types','src/mail/runtime/worker.ts'],{cwd:serverRoot,timeout:30000});
+  const module=(path:string)=>JSON.stringify(pathToFileURL(join(root,'build/mail',path+'.js')).href);
+  const seed=`import {readFileSync} from 'node:fs';import {openEncryptedMailDatabase} from ${module('storage/database')};import {migrateMailSchema} from ${module('storage/schema')};import {MailRepository} from ${module('storage/repository')};const input=JSON.parse(readFileSync(0,'utf8'));const key=Buffer.from(input.key,'base64');const db=await openEncryptedMailDatabase({path:input.path,key});key.fill(0);migrateMailSchema(db);for(const [owner,id,subject] of [['owner','a','Prüfung AZ-12/34.5'],['foreign-owner','foreign','Foreign secret']]){const repo=new MailRepository(db,owner);repo.createAccount({id,provider:'gmail',displayName:id});repo.ingestMessage(id,{locator:{provider:'gmail',messageId:'one'},rfcMessageId:null,subject,memberships:[]});}db.close();`;
+  execFileSync('node',['--input-type=module','-e',seed],{input:JSON.stringify({path:databasePath,key:key.toString('base64')}),timeout:10000});
+  const nodePath=Bun.which('node');if(!nodePath)throw Error('Node required');service=new LocalMailService({ownerId:'owner',databasePath,entryPoint:join(root,'build/mail/runtime/worker.js'),executable:{kind:'node',path:nodePath},loadKey:async()=>new Uint8Array(key)});
+  const config:ServerConfig={host:'127.0.0.1',port:0,token:'collaborator',hostToken:'host-secret',configPath:join(root,'server.json'),approval:{mode:'auto',timeoutMs:1000},corsOrigins:[],workspaces:[],authorizedRoots:[],readOnly:false,startedAt:Date.now(),tokenSource:'cli',hostTokenSource:'cli',logFormat:'pretty',logRequests:false};
+  server=await startServer(config,{mail:service});const base=`http://127.0.0.1:${server.port}/mail/v1`;
+  const post=(path:string,value:unknown,token='host-secret')=>fetch(base+path,{method:'POST',headers:{'content-type':'application/json','x-legalwork-host-token':token},body:JSON.stringify(value)});
+  expect((await post('/search',{})).status).toBe(423);await service.unlock();
+  expect((await post('/search',{},'collaborator')).status).toBe(401);
+  expect((await post('/search',{ownerId:'foreign-owner'})).status).toBe(400);
+  expect((await post('/search',{matterId:'fake-association'})).status).toBe(400);
+  expect((await post('/search',{accountIds:['foreign']})).status).toBe(404);
+  expect((await post('/search/rebuild',{accountId:'foreign'})).status).toBe(404);
+  const deadline=Date.now()+2500;let indexed=0;while(Date.now()<deadline){indexed=(await (await post('/search',{keywords:['Prüfung']})).json()).total;if(indexed)break;await delay(20);}expect(indexed).toBe(1);
+  expect((await post('/search/rebuild',{accountId:'a'})).status).toBe(200);
+  const found=await post('/search',{keywords:['Prüfung'],matterIdentifier:'AZ-12/34.5'});expect(found.headers.get('cache-control')).toBe('no-store');const body=await found.json();expect(body.total).toBe(1);expect(body.items[0].accountId).toBe('a');expect(body.incomplete).toBe(1);
+  expect((await (await post('/search',{literal:'Foreign secret'})).json()).total).toBe(0);
+  await service.lock();expect((await post('/search',{})).status).toBe(423);await service.unlock();expect((await (await post('/search',{keywords:['Prüfung']})).json()).total).toBe(1);
+  expect((await post('/search/rebuild',{accountId:'a',reset:true,limit:1})).status).toBe(200);
+  const routes:Route[]=[];registerMailRoutes(routes,'0.0.0.0',service);expect(routes).toHaveLength(0);
+ }finally{await server?.stop();await service?.stop();key.fill(0);for(const name of envNames){const old=originalEnv.get(name);if(old===undefined)delete process.env[name];else process.env[name]=old;}await rm(root,{recursive:true,force:true});}
+},60000);

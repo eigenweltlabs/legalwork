@@ -156,6 +156,8 @@ test('staging cleanup cannot remove published/shared/draft content, and reads de
 }));
 
 function restoreV1Shape(db) {
+ for(const row of db.all("SELECT name FROM sqlite_schema WHERE type='trigger' AND name GLOB 'mail_search_*'"))db.exec('DROP TRIGGER "'+row.name+'"');
+ db.exec('DROP TABLE mail_search_fts; DROP TABLE mail_search_documents; DROP TABLE mail_search_dirty; ALTER TABLE mail_messages DROP COLUMN is_read');
   db.exec('DROP TRIGGER mail_raw_projection_insert; DROP TRIGGER mail_raw_projection_update; DROP TABLE mail_mime_parts; DROP TABLE mail_mime_projections; DROP TABLE mail_gmail_metadata; DROP TABLE mail_gmail_presence; DROP TABLE mail_gmail_runs; DROP TABLE mail_action_jobs; DROP TABLE mail_account_credentials; DROP TABLE mail_sync_scope_jobs; DROP TABLE mail_sync_jobs; DROP TABLE mail_sync_scopes; DROP TABLE mail_blob_publications; DROP TABLE mail_blob_chunks; DROP TABLE mail_blob_objects');
   db.run('UPDATE mail_schema_version SET version=1');
 }

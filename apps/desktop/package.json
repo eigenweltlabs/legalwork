@@ -35,6 +35,7 @@
     "better-sqlite3-multiple-ciphers": "13.0.3",
     "drizzle-orm": "^0.45.1",
     "electron-updater": "^6.3.9",
+    "entities": "6.0.1",
     "fflate": "^0.8.3",
     "iconv-lite": "0.7.3",
     "jsonc-parser": "^3.2.1",

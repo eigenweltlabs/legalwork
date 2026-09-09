@@ -1,3 +1,4 @@
+import type { MailSearchInput, MailSearchResult, MailSearchRebuildInput, MailSearchRebuildResult } from "./search-view.js";
 export type MailPageInput = { limit?: number; after?: string };
 export type MailAccountView = { id: string; provider: "gmail" | "graph" | "imap"; displayName: string };
 export type MailFolderView = { id: string; name: string; kind: "folder" | "label"; parentId: string | null };
@@ -13,6 +14,8 @@ export class MailServiceError extends Error {
 
 /** Bound to one trusted owner at construction; no request supplies an owner ID. */
 export interface MailService {
+  search(input: MailSearchInput): Promise<MailSearchResult>;
+  rebuildSearch(input: MailSearchRebuildInput): Promise<MailSearchRebuildResult>;
   status(): MailServiceStatus;
   unlock(): Promise<void>;
   lock(): Promise<void>;
