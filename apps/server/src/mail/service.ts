@@ -1,3 +1,4 @@
+import type { MailActionCancel, MailActionPage, MailDraftAttachment, MailDraftAttachmentView, MailDraftDelete, MailDraftPage, MailDraftRead, MailDraftSave, MailDraftSummary, MailDraftView, MailEventPage, MailEventQuery, MailLocalAction, MailLocalPage, MailMutation, MailSubmission } from "./local-view.js";
 import type { MailSearchInput, MailSearchRebuildInput } from "./search-view.js";
 import { MailWorkerClient, type MailWorkerOptions } from "./runtime/client.js";
 import type { WorkerCommand, WorkerResult } from "./runtime/protocol.js";
@@ -20,6 +21,8 @@ export type LocalMailServiceOptions = Pick<MailWorkerOptions, "executable" | "en
 function serviceError(error: unknown): MailServiceError {
   if (error instanceof MailServiceError) return error;
   if (error instanceof Error) {
+    if (error.message === "mail_worker_conflict") return new MailServiceError("conflict");
+    if (error.message === "mail_worker_invalid_input") return new MailServiceError("invalid_input");
     if (error.message === "mail_worker_not_found") return new MailServiceError("not_found");
     if (error.message === "mail_worker_locked") return new MailServiceError("locked");
     if (error.message === "mail_worker_response_too_large") return new MailServiceError("too_large");
@@ -114,6 +117,50 @@ export class LocalMailService implements MailService {
       return result;
     }
     catch (error) { throw serviceError(error); }
+  }
+  async saveDraft(accountId:string,input:MailDraftSave){
+    const result=await this.request({operation:"mail.local.draft.save",accountId,input:input});
+    if(!("local" in result)||result.local.operation!=="mail.local.draft.save")throw new MailServiceError("unavailable");return result.local.value;
+  }
+  async readDraft(accountId:string,input:MailDraftRead){
+    const result=await this.request({operation:"mail.local.draft.read",accountId,input:input});
+    if(!("local" in result)||result.local.operation!=="mail.local.draft.read")throw new MailServiceError("unavailable");return result.local.value;
+  }
+  async deleteDraft(accountId:string,input:MailDraftDelete){
+    const result=await this.request({operation:"mail.local.draft.delete",accountId,input:input});
+    if(!("local" in result)||result.local.operation!=="mail.local.draft.delete")throw new MailServiceError("unavailable");return result.local.value;
+  }
+  async readDraftAttachment(accountId:string,input:MailDraftAttachment){
+    const result=await this.request({operation:"mail.local.draft.attachment",accountId,input:input});
+    if(!("local" in result)||result.local.operation!=="mail.local.draft.attachment")throw new MailServiceError("unavailable");return result.local.value;
+  }
+  async listDrafts(accountId:string,input:MailLocalPage){
+    const result=await this.request({operation:"mail.local.draft.list",accountId,input:input});
+    if(!("local" in result)||result.local.operation!=="mail.local.draft.list")throw new MailServiceError("unavailable");return result.local.value;
+  }
+  async enqueueSubmission(accountId:string,input:MailSubmission){
+    const result=await this.request({operation:"mail.local.action.submission",accountId,input:input});
+    if(!("local" in result)||result.local.operation!=="mail.local.action.submission")throw new MailServiceError("unavailable");return result.local.value;
+  }
+  async enqueueMutation(accountId:string,input:MailMutation){
+    const result=await this.request({operation:"mail.local.action.mutation",accountId,input:input});
+    if(!("local" in result)||result.local.operation!=="mail.local.action.mutation")throw new MailServiceError("unavailable");return result.local.value;
+  }
+  async readAction(accountId:string,actionId:string){
+    const result=await this.request({operation:"mail.local.action.read",accountId,input:{actionId}});
+    if(!("local" in result)||result.local.operation!=="mail.local.action.read")throw new MailServiceError("unavailable");return result.local.value;
+  }
+  async listActions(accountId:string,input:MailLocalPage){
+    const result=await this.request({operation:"mail.local.action.list",accountId,input:input});
+    if(!("local" in result)||result.local.operation!=="mail.local.action.list")throw new MailServiceError("unavailable");return result.local.value;
+  }
+  async cancelAction(accountId:string,input:MailActionCancel){
+    const result=await this.request({operation:"mail.local.action.cancel",accountId,input:input});
+    if(!("local" in result)||result.local.operation!=="mail.local.action.cancel")throw new MailServiceError("unavailable");return result.local.value;
+  }
+  async listEvents(accountId:string,input:MailEventQuery){
+    const result=await this.request({operation:"mail.local.events",accountId,input:input});
+    if(!("local" in result)||result.local.operation!=="mail.local.events")throw new MailServiceError("unavailable");return result.local.value;
   }
   async search(input: MailSearchInput) {
     const result = await this.request({operation:"mail.search",input});

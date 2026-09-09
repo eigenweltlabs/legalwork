@@ -14,7 +14,7 @@
 - Content manifests record raw MIME, extracted body and attachment parts separately, with pending/stored/unavailable states. Stored parts require a reference; other states forbid one. Raw/body use an empty part ID; attachments require a stable nonempty part ID.
 - Schema v2 adds staged/published blob objects, bounded BLOB chunks and account-local SHA-256 publications; see [streamed content](streamed-content-store.md). The upgrade preserves all v1 data.
 - Schema v3 adds sync scopes/jobs, v4 adds encrypted credential records, and v5 adds the bounded [mutation/submission action journal](action-journal.md). Legacy `mail_actions` remains preserved and excluded from execution.
-- Cursor, draft, legacy action and tombstone tables reserve durable records. Their lifecycle, retries, sending, conflict policy and provider checkpoint transactions are not implemented by this repository. Tombstones deliberately outlive message rows and therefore reference the account and canonical identity, not a live-message foreign key. No production code writes those reserved tables yet.
+- Cursor, draft, legacy action and tombstone tables reserve durable records. Their lifecycle, retries, sending, conflict policy and provider checkpoint transactions are not implemented by this repository. Tombstones deliberately outlive message rows and therefore reference the account and canonical identity, not a live-message foreign key. No production code writes those reserved tables yet. Schema v10 adds separate immutable local draft revisions, intent pins and metadata event streams; see [local drafts/actions/events](local-drafts-actions-events.md).
 
 ## Focused repository API
 
