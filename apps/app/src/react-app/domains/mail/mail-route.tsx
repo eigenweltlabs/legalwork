@@ -45,7 +45,8 @@ export function MailRoute() {
                 setError('');
             }
         }).catch(error => { if (!controller.signal.aborted) setError(textError(error)); });
-        return () => { controller.abort(); request.current.abort(); };
+        // Repeated announcements only retire this resolver, not the current mail requests.
+        return () => controller.abort();
     }, [connectionRevision]);
     useEffect(() => {
         const changed = () => setConnectionRevision(value => value + 1);
@@ -76,12 +77,12 @@ export function MailRoute() {
             { setLocked(true); setError(textError(error)); }
     } })(); return () => controller.abort(); }, [client, revision]);
     useEffect(() => { if (!client || locked)
-        return; const controller = new AbortController(); const poll = setInterval(() => { void client.status(controller.signal).then(status => { if (status.state !== 'ready') {
+        return; const controller = new AbortController(); const poll = setInterval(() => { void client.status(controller.signal).then(status => { if (!controller.signal.aborted && status.state !== 'ready') {
         purge();
         setLocked(true);
         setAccounts([]);
         setError('Mail service is unavailable. Please retry.');
-    } }).catch(() => { purge(); setLocked(true); setError('Mail service is unavailable. Please retry.'); }); }, 5000); return () => { clearInterval(poll); controller.abort(); }; }, [client, locked]);
+    } }).catch(() => { if (!controller.signal.aborted) { purge(); setLocked(true); setError('Mail service is unavailable. Please retry.'); } }); }, 5000); return () => { clearInterval(poll); controller.abort(); }; }, [client, locked]);
     useEffect(() => { purge(); setFolder(''); setFolders([]); if (!client || !account)
         return; const controller = new AbortController(); void (async () => { try {
         const result: MailFolderView[] = [];
@@ -104,14 +105,14 @@ export function MailRoute() {
             setError(textError(error));
     } })(); return () => controller.abort(); }, [client, account]);
     useEffect(() => { purge(); if (!client || locked || !accounts.length)
-        return; const signal = request.current.signal; const stream = new UnifiedMailPages(client, account ? accounts.filter(item => item.id === account) : accounts, folder || undefined, thread, inbox && !thread && !folder); pager.current = stream; setBusy(true); setError(''); void stream.next(signal).then(rows => { if (!signal.aborted) {
+        return; const controller = request.current; const signal = controller.signal; const stream = new UnifiedMailPages(client, account ? accounts.filter(item => item.id === account) : accounts, folder || undefined, thread, inbox && !thread && !folder); pager.current = stream; setBusy(true); setError(''); void stream.next(signal).then(rows => { if (!signal.aborted) {
         setItems(rows);
         setMore(stream.hasMore);
         if (stream.exclusions.length)
             setError(stream.exclusions.map(value => `${accounts.find(account => account.id === value.accountId)?.displayName ?? value.accountId}: ${value.reason}`).join(" · "));
     } }).catch(error => { if (!signal.aborted)
         setError(textError(error)); }).finally(() => { if (!signal.aborted)
-        setBusy(false); }); return () => request.current.abort(); }, [client, accounts, account, folder, thread, inbox, locked, revision]);
+        setBusy(false); }); return () => controller.abort(); }, [client, accounts, account, folder, thread, inbox, locked, revision]);
     async function loadMore() { const signal = request.current.signal, stream = pager.current; if (!stream)
         return; setBusy(true); try {
         const rows = await stream.next(signal);
@@ -137,11 +138,12 @@ export function MailRoute() {
         setSync(value); }).catch(error => { if (!abort.signal.aborted)
         setError(textError(error)); }).finally(() => { pending = false; }); }, 3000); return () => { abort.abort(); clearInterval(poll); }; }, [client, account, locked]);
     async function control(operation: 'start' | 'pause') { if (!client || !account)
-        return; try {
-        setSync(await client.sync(account, request.current.signal, operation));
+        return; const signal = request.current.signal; try {
+        const status = await client.sync(account, signal, operation);
+        if (!signal.aborted) setSync(status);
     }
     catch (error) {
-        setError(textError(error));
+        if (!signal.aborted) setError(textError(error));
     } }
     return <main className="flex h-full min-h-0 flex-col bg-background text-foreground" aria-label="Local mail">
     <header className="flex flex-wrap items-center gap-3 border-b p-4"><h1 className="text-xl font-semibold">Mail</h1><span className="text-sm text-muted-foreground">Stored on this computer</span><div className="ml-auto flex gap-2"><Button variant="outline" disabled={locked} onClick={()=>{purge();setSearching(value=>!value);}}>{searching?'Browse mail':'Search mail'}</Button><Button variant="outline" disabled={!client || locked} onClick={() => setSetup(value => !value)}>Accounts</Button><Button variant="outline" onClick={() => { purge(); setConnectionRevision(value => value + 1); setRevision(value => value + 1); }}>Refresh</Button></div></header>
