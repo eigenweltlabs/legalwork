@@ -7,7 +7,7 @@ import { parseFrontmatter, buildFrontmatter } from "./frontmatter.js";
 import { exists } from "./utils.js";
 import { validateDescription, validateSkillName } from "./validators.js";
 import { ApiError } from "./errors.js";
-import { projectSkillsDir } from "./workspace-files.js";
+import { globalSkillsDir, projectSkillsDir } from "./workspace-files.js";
 
 async function findWorkspaceRoots(workspaceRoot: string): Promise<string[]> {
   const roots: string[] = [];
@@ -164,10 +164,26 @@ export async function listSkills(workspaceRoot: string, includeGlobal: boolean):
   });
 }
 
+/**
+ * Where a skill/workflow is written.
+ *
+ * "project" is this workspace's .opencode/skills. "global" is the shared
+ * library the desktop Skills and Workflows screens list and the engine loads
+ * for every workspace — anything created for the firm (rather than for one
+ * repository) belongs there, or it never shows up in the app.
+ */
+export type SkillScope = "project" | "global";
+
+export function skillsDirForScope(workspaceRoot: string, scope: SkillScope): string {
+  return scope === "global" ? globalSkillsDir() : projectSkillsDir(workspaceRoot);
+}
+
 export type UpsertSkillPayload = {
   name: string;
   content: string;
   description?: string;
+  /** Defaults to "project" so existing callers keep writing into the workspace. */
+  scope?: SkillScope;
 };
 
 export function buildSkillContent(payload: UpsertSkillPayload): { name: string; content: string } {
@@ -208,16 +224,17 @@ export function buildSkillContent(payload: UpsertSkillPayload): { name: string; 
 export async function upsertSkill(
   workspaceRoot: string,
   payload: UpsertSkillPayload,
-): Promise<{ path: string; action: "added" | "updated" }> {
+): Promise<{ path: string; action: "added" | "updated"; scope: SkillScope }> {
   const skill = buildSkillContent(payload);
+  const scope: SkillScope = payload.scope === "global" ? "global" : "project";
 
-  const baseDir = projectSkillsDir(workspaceRoot);
+  const baseDir = skillsDirForScope(workspaceRoot, scope);
   const skillDir = join(baseDir, skill.name);
   await mkdir(skillDir, { recursive: true });
   const skillPath = join(skillDir, "SKILL.md");
   const existed = await exists(skillPath);
   await writeFile(skillPath, skill.content, "utf8");
-  return { path: skillPath, action: existed ? "updated" : "added" };
+  return { path: skillPath, action: existed ? "updated" : "added", scope };
 }
 
 export async function deleteSkill(workspaceRoot: string, name: string): Promise<{ path: string }> {

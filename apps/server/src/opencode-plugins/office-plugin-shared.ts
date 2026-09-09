@@ -32,11 +32,16 @@ type WorkspaceListPayload = {
   items?: Array<{ id?: unknown; path?: unknown }>;
 };
 
-let workspaceCache: { at: number; items: Array<{ id: string; path: string }> } | null = null;
+// Keyed by server URL: the cached ids belong to one server, so an engine
+// pointed at a different LegalWork server must not read the previous one's.
+let workspaceCache: { at: number; url: string; items: Array<{ id: string; path: string }> } | null = null;
 
 export async function listWorkspaces(): Promise<Array<{ id: string; path: string }>> {
-  if (workspaceCache && Date.now() - workspaceCache.at < WORKSPACE_CACHE_MS) return workspaceCache.items;
-  const response = await fetch(`${serverUrl()}/workspaces`, {
+  const url = serverUrl();
+  if (workspaceCache && workspaceCache.url === url && Date.now() - workspaceCache.at < WORKSPACE_CACHE_MS) {
+    return workspaceCache.items;
+  }
+  const response = await fetch(`${url}/workspaces`, {
     headers: { Authorization: `Bearer ${serverToken()}` },
     signal: AbortSignal.timeout(8_000),
   });
@@ -45,7 +50,7 @@ export async function listWorkspaces(): Promise<Array<{ id: string; path: string
   const items = (payload.items ?? []).flatMap((item) =>
     typeof item.id === "string" && typeof item.path === "string" ? [{ id: item.id, path: item.path }] : [],
   );
-  workspaceCache = { at: Date.now(), items };
+  workspaceCache = { at: Date.now(), url, items };
   return items;
 }
 
