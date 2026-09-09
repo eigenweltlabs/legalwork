@@ -42,6 +42,10 @@ export async function prepareMailStore(input: MailMaintenanceInput): Promise<{ a
       destination?.run("UPDATE mail_action_jobs SET state='uncertain',generation=?,revision=1,lease_token=NULL,lease_until=NULL,last_error='outcome_unknown' WHERE state IN ('queued','running','dispatching','retry')", [randomUUID()]);
       destination?.run("UPDATE mail_actions SET state='uncertain' WHERE state IN ('queued','running')");
       destination?.run("UPDATE mail_gmail_runs SET state='paused'");
+      // v9 Graph installations may be recovered by this same maintenance path.
+      if (destination?.get("SELECT 1 FROM sqlite_schema WHERE type='table' AND name='mail_graph_runs'")) {
+        destination.run("UPDATE mail_graph_runs SET state='paused',revision=revision+1,retry_at=NULL");
+      }
       destination?.run("UPDATE mail_sync_jobs SET state=CASE WHEN attempts>=max_attempts THEN 'failed' ELSE 'retry' END,lease_token=NULL,lease_until=NULL,last_error='lease_expired' WHERE state='running'");
     });
     if (destination.get("PRAGMA integrity_check")?.integrity_check !== "ok" || destination.get("SELECT 1 FROM pragma_foreign_key_check LIMIT 1")) throw new MailMaintenanceError();
