@@ -64,7 +64,8 @@ function child(executable, entry, initialization, worker = false) {
     processChild.stderr.on("data", (chunk) => { stderr += chunk.toString(); if (stderr.length > 65536) processChild.kill("SIGKILL"); });
     processChild.on("close", (code) => {
       clearTimeout(timer);
-      if (stdout.includes(initialization.encryptionKey) || stderr.includes(initialization.encryptionKey)) { reject(new Error("mail_packaging_probe_secret_leak")); return; }
+      const secrets = [initialization.encryptionKey, initialization.sourceKey, initialization.destinationKey].filter(value => typeof value === "string");
+      if (secrets.some(value => stdout.includes(value) || stderr.includes(value))) { reject(new Error("mail_packaging_probe_secret_leak")); return; }
       resolveResult({ code, stdout, stderr });
     });
     if (worker) processChild.stdin.write(JSON.stringify({ kind: "initialize", protocol: 1, initialization }) + "\n");
@@ -101,7 +102,7 @@ test("actual Electron starts built encrypted worker inside ASAR and resolves unp
   const root = await mkdtemp(join(tmpdir(), "legalwork-mail-asar-"));
   try {
     const built = join(root, "built");
-    execFileSync(process.execPath, [createRequire(join(server, "package.json")).resolve("typescript/bin/tsc"), "--outDir", built, "--rootDir", "src", "--module", "NodeNext", "--moduleResolution", "NodeNext", "--target", "ES2022", "--strict", "--skipLibCheck", "--types", "node,bun-types", "src/mail/runtime/worker.ts"], { cwd: server, stdio: "pipe", timeout: 30_000 });
+    execFileSync(process.execPath, [createRequire(join(server, "package.json")).resolve("typescript/bin/tsc"), "--outDir", built, "--rootDir", "src", "--module", "NodeNext", "--moduleResolution", "NodeNext", "--target", "ES2022", "--strict", "--skipLibCheck", "--types", "node,bun-types", "src/mail/runtime/worker.ts", "src/mail/runtime/maintenance-worker.ts"], { cwd: server, stdio: "pipe", timeout: 30_000 });
     const layout = "app";
     const source = join(root, layout);
     const nativeRelative = `node_modules/${packageName}`;
@@ -150,6 +151,28 @@ test("actual Electron starts built encrypted worker inside ASAR and resolves unp
       assert.equal(frames[1].result.syncSupported, true);
       assert.deepEqual(frames[2].result.search,{items:[],total:0,pending:0,incomplete:0,nextOffset:null});
     }
+    // Maintenance is a separate packaged entry point; prove it can rekey and reopen
+    // the same encrypted schema/FTS using only dependencies in this ASAR.
+    const rotatedDirectory = join(root, "rotated-data");
+    await mkdir(rotatedDirectory, { mode: 0o700 });
+    const rotated = { ...initialization, databasePath: join(rotatedDirectory, "mail.sqlite"), encryptionKey: randomBytes(32).toString("base64") };
+    const maintained = await child(executable, join(archive, "server/dist/mail/runtime/maintenance-worker.js"), {
+      sourcePath: initialization.databasePath, destinationPath: rotated.databasePath,
+      sourceKey: initialization.encryptionKey, destinationKey: rotated.encryptionKey,
+      ownerId: initialization.ownerId, restore: false, expectedSha256: null,
+    });
+    assert.equal(maintained.code, 0, maintained.stderr);
+    assert.equal(maintained.stderr, "");
+    assert.equal(JSON.parse(maintained.stdout).ok, true);
+    const rotatedInspection = await child(executable, inspectionEntry, rotated);
+    assert.equal(rotatedInspection.code, 0, rotatedInspection.stderr);
+    assert.equal(JSON.parse(rotatedInspection.stdout).count, 1);
+    const wrongKey = await child(executable, entry, { ...rotated, encryptionKey: initialization.encryptionKey }, true);
+    assert.equal(wrongKey.code, 1);
+    assert.deepEqual(JSON.parse(wrongKey.stdout), { kind: "fatal", code: "initialization_failed" });
+    const original = await child(executable, inspectionEntry, initialization);
+    assert.equal(original.code, 0, original.stderr);
+    assert.equal(JSON.parse(original.stdout).count, 1);
     const bytes = await readFile(initialization.databasePath);
     assert.notEqual(bytes.subarray(0, 16).toString(), "SQLite format 3\0");
     assert.equal(bytes.includes(Buffer.from("synthetic_packaging_private_marker")), false);
