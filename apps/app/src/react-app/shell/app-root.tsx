@@ -68,7 +68,7 @@ export function AppRoot() {
           <LegalworkRouteControlActions />
           <LegalMemoryPermissions />
           <Routes>
-              <Route path="/mail" element={<SessionRoute />} />
+              <Route path="/mail" element={<DevProfiler id="SessionRoute"><SessionRoute /></DevProfiler>} />
               <Route
                 path="/welcome"
                 element={

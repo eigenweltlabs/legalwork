@@ -520,6 +520,7 @@ export function SessionRoute() {
     handleRuntimeSessionLoaded,
     handleRuntimeSessionUpdated,
   } = useWorkspaceRouteState({
+    skipAutomaticNavigation: showMail,
     onServerSettingsChanged: () => setLegalworkServerSettingsVersion((value) => value + 1),
     onHostInfo: setLegalworkServerHostInfoState,
   });
