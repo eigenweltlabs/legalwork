@@ -161,13 +161,13 @@ function restoreV1Shape(db) {
 test('v1 to v2 preserves legacy metadata, is idempotent and rolls back an injected migration failure', async () => fixture(async ({ repository, db }) => {
   seed(repository);
   repository.putContent('a', locator('one'), { kind: 'raw', state: 'stored', reference: { id: 'legacy', bytes: 3, sha256: 'a'.repeat(64) } });
-  restoreV1Shape(db);
   const before = repository.readMessage('a', locator('one'));
+  restoreV1Shape(db);
   const faulty = { ...db, exec(sql) { db.exec(sql); if (sql.includes('CREATE TABLE mail_blob_objects')) throw new Error('migration interruption'); } };
   assert.throws(() => migrateMailSchema(faulty), /migration interruption/);
   assert.equal(db.get('SELECT version FROM mail_schema_version').version, 1);
   assert.equal(db.get("SELECT name FROM sqlite_master WHERE name='mail_blob_objects'"), undefined);
-  assert.deepEqual(repository.readMessage('a', locator('one')), before);
+  assert.equal(db.get("SELECT ref_id FROM mail_content_manifests WHERE account_id='a'").ref_id, 'legacy');
   migrateMailSchema(db); migrateMailSchema(db);
   assert.equal(db.get('SELECT version FROM mail_schema_version').version, MAIL_SCHEMA_VERSION);
   assert.deepEqual(repository.readMessage('a', locator('one')), before);
@@ -198,4 +198,32 @@ test('process death after a durable staging chunk preserves prior manifest; reop
   const retried = await after.writePart('a', locator('one'), { kind: 'raw', maxBytes: CHUNK * 2 }, generated(2));
   assert.equal(readHash(after, 'a', retried.id).bytes, CHUNK * 2);
   assert.equal(readHash(after, 'a', ref.id).bytes, CHUNK); // No published GC, even after replacement.
+}));
+
+test('migrated formerly-complete metadata reports attention until real bytes are published', async () => fixture(async ({ repository, db }) => {
+  seed(repository);
+  const raw = { id:'legacy-raw',bytes:3,sha256:'a'.repeat(64) };
+  const body = { id:'legacy-body',bytes:3,sha256:'b'.repeat(64) };
+  repository.putContent('a',locator('one'),{kind:'raw',state:'stored',reference:raw});
+  repository.putContent('a',locator('one'),{kind:'body',state:'stored',reference:body});
+  repository.setAttachmentsEnumerated('a',locator('one'),true);
+  const referencesBefore = db.all('SELECT * FROM mail_content_refs ORDER BY id');
+  const manifestsBefore = db.all('SELECT * FROM mail_content_manifests ORDER BY kind');
+  restoreV1Shape(db); migrateMailSchema(db);
+  const migrated = repository.readMessage('a',locator('one'));
+  assert.equal(migrated.attachments_enumerated,1);
+  assert.equal(migrated.contentState,'attention');
+  assert.ok(migrated.content.every(part=>part.state==='stored' && part.bytesAvailable===false));
+  assert.deepEqual(db.all('SELECT * FROM mail_content_refs ORDER BY id'),referencesBefore);
+  assert.deepEqual(db.all('SELECT * FROM mail_content_manifests ORDER BY kind'),manifestsBefore);
+  const content = new MailContentStore(db,'owner-a');
+  assert.throws(()=>[...content.read('a',raw.id)],/unavailable/);
+  await content.writePart('a',locator('one'),{kind:'raw',maxBytes:3},[new Uint8Array([1,2,3])]);
+  assert.equal(repository.readMessage('a',locator('one')).contentState,'attention');
+  await content.writePart('a',locator('one'),{kind:'body',maxBytes:3},[new Uint8Array([4,5,6])]);
+  const completed=repository.readMessage('a',locator('one'));
+  assert.equal(completed.contentState,'complete');
+  assert.ok(completed.content.every(part=>part.bytesAvailable));
+  // Re-download changes associations intentionally; migration itself retained both legacy refs.
+  assert.equal(db.get('SELECT count(*) AS n FROM mail_content_refs WHERE id IN (?,?)',[raw.id,body.id]).n,2);
 }));

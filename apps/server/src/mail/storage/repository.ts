@@ -24,7 +24,7 @@ export type MailPageInput = z.input<typeof pageInput>;
 
 const accountRow = z.object({ id, owner_id: id, provider, display_name: z.string() });
 const messageRow = z.object({ account_id: id, message_key: z.string().min(1), provider, locator_json: z.string(), rfc_message_id: z.string().nullable(), subject: z.string(), thread_id: id.nullable(), attachments_enumerated: z.union([z.literal(0), z.literal(1)]) });
-const manifestRow = z.object({ kind: z.enum(["raw", "body", "attachment"]), part_id: z.string(), state: z.enum(["pending", "stored", "unavailable"]), ref_id: id.nullable(), bytes: z.number().nullable(), sha256: z.string().nullable() });
+const manifestRow = z.object({ kind: z.enum(["raw", "body", "attachment"]), part_id: z.string(), state: z.enum(["pending", "stored", "unavailable"]), ref_id: id.nullable(), bytes: z.number().nullable(), sha256: z.string().nullable(), bytes_available: z.union([z.literal(0), z.literal(1)]) });
 
 export type MailAccountInput = z.input<typeof accountInput>;
 export type MailFolderInput = z.input<typeof folderInput>;
@@ -126,11 +126,22 @@ export class MailRepository {
     if (!raw) return undefined;
     const message = messageRow.parse(raw);
     const memberships = this.database.all("SELECT folder_id FROM mail_memberships WHERE account_id=? AND message_key=? ORDER BY folder_id", [accountId, key]).map(row => id.parse(row.folder_id));
-    const content = this.database.all(`SELECT m.kind,m.part_id,m.state,m.ref_id,r.bytes,r.sha256 FROM mail_content_manifests m
-      LEFT JOIN mail_content_refs r ON r.account_id=m.account_id AND r.id=m.ref_id WHERE m.account_id=? AND m.message_key=? ORDER BY m.kind,m.part_id`, [accountId, key]).map(row => manifestRow.parse(row));
-    const unavailable = content.some(part => part.state === "unavailable");
+    const content = this.database.all(`SELECT m.kind,m.part_id,m.state,m.ref_id,r.bytes,r.sha256,
+      CASE WHEN o.state='published' AND o.bytes=r.bytes
+        AND o.chunk_count=(r.bytes / 65536 + CASE WHEN r.bytes % 65536 > 0 THEN 1 ELSE 0 END)
+        THEN 1 ELSE 0 END AS bytes_available
+      FROM mail_content_manifests m
+      LEFT JOIN mail_content_refs r ON r.account_id=m.account_id AND r.id=m.ref_id
+      LEFT JOIN mail_blob_publications p ON p.account_id=r.account_id AND p.ref_id=r.id
+      LEFT JOIN mail_blob_objects o ON o.account_id=p.account_id AND o.id=p.object_id
+      WHERE m.account_id=? AND m.message_key=? ORDER BY m.kind,m.part_id`, [accountId, key]).map(row => {
+      const { bytes_available, ...part } = manifestRow.parse(row);
+      return { ...part, bytesAvailable: bytes_available === 1 };
+    });
+    // A legacy stored manifest is not an attestation that this database has its bytes.
+    const unavailable = content.some(part => part.state === "unavailable" || (part.state === "stored" && !part.bytesAvailable));
     const complete = message.attachments_enumerated === 1 && content.some(part => part.kind === "raw" && part.state === "stored") &&
-      content.some(part => part.kind === "body" && part.state === "stored") && content.every(part => part.state === "stored");
+      content.some(part => part.kind === "body" && part.state === "stored") && content.every(part => part.state === "stored" && part.bytesAvailable);
     const contentState: "attention" | "complete" | "downloading" = unavailable ? "attention" : complete ? "complete" : "downloading";
     return { ...message, locator: providerMessageLocatorSchema.parse(JSON.parse(message.locator_json)), memberships, content, contentState };
   }
