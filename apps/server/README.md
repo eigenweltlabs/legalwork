@@ -11,7 +11,7 @@ legalwork-server --workspace /path/to/workspace --approval auto
 
 `legalwork-server` ships as a compiled binary, so Bun is not required at runtime.
 
-Or from source:
+Or from source with Bun 1.4.2+ (older runtimes can truncate FTPS transfers):
 
 ```bash
 pnpm --filter legalwork-server dev -- \

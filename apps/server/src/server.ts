@@ -79,6 +79,7 @@ import { registerOfficeToolRoutes } from "./routes/office-tools.js";
 import { BenchmarkRunner, type BenchmarkOpencodeClient } from "./benchmarks/runner.js";
 import { openBenchmarkStore } from "./benchmarks/store.js";
 import { registerBenchmarkRoutes } from "./routes/benchmarks.js";
+import { registerStorageRoutes } from "./routes/file-storage.js";
 import { registerCoreRoutes } from "./routes/core.js";
 import { registerFileRoutes } from "./routes/files.js";
 import { registerOperationRoutes } from "./routes/operations.js";
@@ -1419,6 +1420,8 @@ function createRoutes(
   benchmarkRunner: BenchmarkRunner,
 ): Route[] {
   const routes: Route[] = [];
+  registerStorageRoutes({ routes, config, jsonResponse, readJsonBodyLimited, ensureWritable, requireClientScope, resolveWorkspace });
+
   registerCoreRoutes({
     routes,
     config,

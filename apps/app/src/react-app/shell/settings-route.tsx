@@ -85,6 +85,8 @@ import { AppearanceView } from "@/react-app/domains/settings/pages/appearance-vi
 import { captureAnalyticsEvent, captureAnalyticsOptOut } from "@/app/lib/analytics";
 import { DebugView } from "@/react-app/domains/settings/pages/debug-view";
 import { EnvironmentView } from "@/react-app/domains/settings/pages/environment-view";
+import { FileStorageView } from "@/react-app/domains/settings/pages/file-storage-view";
+import { STORAGE_CHANGED_EVENT } from "@/react-app/domains/settings/pages/storage-providers";
 import { ExtensionsView } from "@/react-app/domains/settings/pages/extensions-view";
 import { McpView } from "@/react-app/domains/settings/pages/mcp-view";
 import { RecoveryView } from "@/react-app/domains/settings/pages/recovery-view";
@@ -204,7 +206,7 @@ const SETTINGS_UPDATE_AUTO_DOWNLOAD_KEY = "legalwork.react.settings.update-auto-
 function parseSettingsPath(pathname: string): {
   tab: SettingsTab;
   redirectPath: string | null;
-  extensionsSection?: "all" | "mcp" | "skills" | "plugins";
+  extensionsSection?: "all" | "mcp" | "skills" | "plugins" | "storage";
   benchmarkRunId?: string;
   benchmarkTaskId?: string;
   benchmarkItemId?: string;
@@ -258,6 +260,7 @@ function parseSettingsPath(pathname: string): {
       return { tab: "benchmark", redirectPath: null };
     }
     case "extensions":
+      if (tail === "storage") return { tab: "extensions", redirectPath: null, extensionsSection: "storage" };
       if (tail === "mcp") return { tab: "extensions", redirectPath: null, extensionsSection: "mcp" };
       if (tail === "skills") return { tab: "extensions", redirectPath: null, extensionsSection: "skills" };
       if (tail === "plugins") return { tab: "extensions", redirectPath: null, extensionsSection: "plugins" };
@@ -2171,11 +2174,13 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
               navigateSettingsPath(path);
             }}
             onRefresh={() => {
+              window.dispatchEvent(new Event(STORAGE_CHANGED_EVENT));
               void connectionsStore.refreshMcpServers();
               void extensionsStore.refreshPlugins();
             }}
             previewClaudePlugin={(url) => extensionsStore.previewClaudePlugin(url)}
             installClaudePlugin={(url) => extensionsStore.installClaudePlugin(url)}
+            storageView={<FileStorageView client={isRemoteWorkspace ? selectedWorkspaceEndpoint?.client ?? legalworkClient : legalworkClient} workspaceId={runtimeWorkspaceId || selectedWorkspaceId || null} />}
             mcpView={
               <McpView
                 busy={busy}

@@ -1,3 +1,4 @@
+import type { StorageInput, StorageConnection, StorageRoot, StoragePage, StorageFile } from "@legalwork/types/file-storage";
 import type { Message, Part, Session, Todo } from "@opencode-ai/sdk/v2/client";
 import { desktopFetch } from "./desktop";
 import { isDesktopRuntime } from "./runtime-env";
@@ -1961,6 +1962,25 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
         `/workspace/${encodeURIComponent(workspaceId)}/legalmemory/matters`,
         { token, hostToken, method: "POST", body: {}, timeoutMs: timeouts.config },
       ),
+    storageConnections: (workspaceId: string) =>
+      requestJson<{ connections: StorageConnection[] }>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/storage`, { token, hostToken }),
+    saveStorageConnection: (workspaceId: string, input: StorageInput, id?: string) =>
+      requestJson<{ connection: StorageConnection }>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/storage${id ? `/${encodeURIComponent(id)}` : ""}`, { token, hostToken, method: id ? "PUT" : "POST", body: input }),
+    testStorageConnection: (workspaceId: string, input: StorageInput, id?: string) =>
+      requestJson<{ ok: true }>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/storage/test${id ? `?connectionId=${encodeURIComponent(id)}` : ""}`, { token, hostToken, method: "POST", body: input, timeoutMs: 90_000 }),
+    removeStorageConnection: (workspaceId: string, id: string) =>
+      requestJson<{ ok: true }>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/storage/${encodeURIComponent(id)}`, { token, hostToken, method: "DELETE" }),
+    storageRoots: (workspaceId: string) =>
+      requestJson<{ roots: StorageRoot[] }>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/storage/roots`, { token, hostToken }),
+    storageChildren: (workspaceId: string, id: string, path: string, cursor?: string) =>
+      requestJson<StoragePage>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/storage/${encodeURIComponent(id)}/children?${new URLSearchParams({ path, ...(cursor ? { cursor } : {}) })}`, { token, hostToken, timeoutMs: 90_000 }),
+    readStorageFile: (workspaceId: string, id: string, path: string) =>
+      requestJson<StorageFile>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/storage/${encodeURIComponent(id)}/file?${new URLSearchParams({ path })}`, { token, hostToken, timeoutMs: 120_000 }),
+    writeStorageFile: (workspaceId: string, id: string, path: string, data: ArrayBuffer, contentType: string, version?: string) =>
+      requestJson<{ ok: true; version: string }>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/storage/${encodeURIComponent(id)}/file`, { token, hostToken, method: version ? "PUT" : "POST", body: { path, dataBase64: arrayBufferToBase64(data), contentType, version }, timeoutMs: 120_000 }),
+    createStorageFolder: (workspaceId: string, id: string, path: string) =>
+      requestJson<{ ok: true }>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/storage/${encodeURIComponent(id)}/folders`, { token, hostToken, method: "POST", body: { path }, timeoutMs: 90_000 }),
+
     legalMemoryTreeRoots: (workspaceId: string) =>
       requestJson<{ roots: LegalMemoryTreeRoot[] }>(
         baseUrl,

@@ -23,6 +23,8 @@ preferWorkspacePackages: true
 # Installs are always explicit here, so skip the pre-run check.
 verifyDepsBeforeRun: false
 allowBuilds:
+  cpu-features: false
+  ssh2: false
   "@whiskeysockets/baileys": true
   better-sqlite3: true
   core-js: false
