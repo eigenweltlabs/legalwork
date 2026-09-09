@@ -4,6 +4,7 @@ import { openEncryptedMailDatabase } from "../storage/database.js";
 import type { MailDatabase } from "../storage/database-interface.js";
 import { MailRepository } from "../storage/repository.js";
 import { MAIL_SCHEMA_VERSION, migrateMailSchema } from "../storage/schema.js";
+import { assertMailSchema } from "../storage/consistency.js";
 import { MAX_WORKER_MESSAGE_BYTES, parseParentMessage, parseWorkerMessage,
   type ParentMessage, type WorkerInitialization, type WorkerMessage, type WorkerResult, type WorkerAccount, type WorkerFolder } from "./protocol.js";
 
@@ -56,6 +57,7 @@ async function initialize(value: WorkerInitialization): Promise<void> {
     database = await openEncryptedMailDatabase({ path: value.databasePath, key });
     if (phase === "closing") return;
     migrateMailSchema(database);
+    assertMailSchema(database);
     repository = new MailRepository(database, value.ownerId);
     phase = "ready";
     write({ kind: "ready", protocol: 1, runtime: "node", nodeVersion: process.versions.node });

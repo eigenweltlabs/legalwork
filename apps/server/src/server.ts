@@ -88,6 +88,8 @@ import { registerOperationRoutes } from "./routes/operations.js";
 import { addRoute, matchRoute, type AuthMode, type RequestContext, type Route } from "./routes/registry.js";
 import { registerSessionRoutes } from "./routes/sessions.js";
 import { registerWorkspaceRoutes } from "./routes/workspaces.js";
+import { registerMailRoutes } from "./routes/mail.js";
+import type { MailService } from "./mail/service-interface.js";
 import {
   applyGlobalToolPermissions,
   GLOBAL_PERSONALIZATION_ID,
@@ -629,10 +631,11 @@ function logRequest(input: {
   const url = new URL(request.url);
   const method = request.method.toUpperCase();
   const proxyLabel = proxyBaseUrl ? ` (${proxyService ?? "proxy"})` : "";
-  const message = `${method} ${url.pathname} ${status} ${durationMs}ms${proxyLabel}`;
+  const loggedPath = url.pathname.startsWith("/mail/") ? "/mail/[redacted]" : url.pathname;
+  const message = `${method} ${loggedPath} ${status} ${durationMs}ms${proxyLabel}`;
   const attributes: LogAttributes = {
     method,
-    path: url.pathname,
+    path: loggedPath,
     status,
     durationMs,
     auth: authMode,
@@ -713,7 +716,7 @@ export type StartedServer = ServeResult & {
   wordAddinPort: number | null;
 };
 
-export async function startServer(config: ServerConfig): Promise<StartedServer> {
+export async function startServer(config: ServerConfig, dependencies: { mail?: MailService } = {}): Promise<StartedServer> {
   const approvals = new ApprovalService(config.approval, config.requestHostApproval);
   const reloadEvents = new ReloadEventStore();
   const tokens = new TokenService(config);
@@ -742,6 +745,7 @@ export async function startServer(config: ServerConfig): Promise<StartedServer> 
       createDirectoryOpencodeClient(config, workspace, directory) as unknown as BenchmarkOpencodeClient,
   });
   const routes = createRoutes(config, approvals, tokens, env, officeTools, restartReloadWatchers, benchmarkRunner);
+  registerMailRoutes(routes, config.host, dependencies.mail);
 
   const serverOptions: {
     hostname: string;
@@ -952,8 +956,11 @@ export async function startServer(config: ServerConfig): Promise<StartedServer> 
       watcherHandle.close();
       workspaceBootstrapPromises.delete(config);
       reloadBaselineRefreshers.delete(config);
-      await wordAddinServer?.stop();
-      await server.stop();
+      try { await dependencies.mail?.stop(); }
+      finally {
+        try { await wordAddinServer?.stop(); }
+        finally { await server.stop(); }
+      }
     },
   };
 }
