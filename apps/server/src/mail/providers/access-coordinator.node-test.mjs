@@ -84,9 +84,9 @@ for(const phase of ['settings','network'])test(`close immediately rejects uncoop
  const pending=c.acquire('a'),rejected=assert.rejects(pending,{code:'closed'});await entered.promise;c.close();await rejected;if(signal)assert.equal(signal.aborted,true);
  await assert.rejects(c.acquire('a'),{code:'closed'});gate.resolve();await new Promise(resolve=>setImmediate(resolve));assert.equal(f.credentials.status('a').version.revision,1);
 }));
-test('deadline bounds ignored cancellation, late result cannot rotate, transient errors redact and clamp retries',async()=>fixture(async f=>{
+test('deadline bounds ignored cancellation, late result cannot rotate, transient errors redact and preserve safe retry advice',async()=>fixture(async f=>{
  f.seed();const gate=deferred();const c=f.make({timeoutMs:10,refresh:async()=>gate.promise});await assert.rejects(c.acquire('a'),{code:'timeout',retryable:true});gate.resolve(f.result());await new Promise(resolve=>setImmediate(resolve));assert.equal(f.credentials.status('a').version.revision,1);
- await assert.rejects(f.make({refresh:async()=>{throw new MailRefreshError('rate_limited',Number.MAX_SAFE_INTEGER);}}).acquire('a'),{code:'rate_limited',retryAfterMs:3600000,retryable:true});
+ await assert.rejects(f.make({refresh:async()=>{throw new MailRefreshError('rate_limited',Number.MAX_SAFE_INTEGER);}}).acquire('a'),{code:'rate_limited',retryAfterMs:Number.MAX_SAFE_INTEGER,retryable:true});
  for(const options of [{loadProviderSettings:async()=>{throw Error(ACCESS);}}, {refresh:async()=>{throw Error(REFRESH);}}]){
   try{await f.make(options).acquire('a');assert.fail('must reject');}catch(error){assert.equal(error.message.includes(ACCESS),false);assert.equal(error.message.includes(REFRESH),false);assert.equal('cause' in error,false);}
  }
@@ -106,4 +106,15 @@ test('provider classifications stay bounded, do not retry or mutate stored crede
 test('close fences token delivery even when configuration resolves in the same microtask turn',async()=>fixture(async f=>{
  f.seed('a',{ttl:3600000});const gate=deferred();const c=f.make({loadProviderSettings:async()=>gate.promise});
  const pending=c.acquire('a'),rejected=assert.rejects(pending,{code:'closed'});gate.resolve(gmail);queueMicrotask(()=>c.close());await rejected;
+}));
+
+test('independent review: total deadline fences synchronous refresh overrun before persistence',async()=>fixture(async f=>{
+ f.seed();const initial=f.credentials.status('a').version;
+ const coordinator=f.make({timeoutMs:10,refresh:async()=>{const until=Date.now()+30;while(Date.now()<until){}return f.result();}});
+ await assert.rejects(coordinator.acquire('a'),{code:'timeout'});
+ assert.deepEqual(f.credentials.status('a').version,initial);
+}));
+test('independent review: provider Retry-After is not shortened into an earlier retry',async()=>fixture(async f=>{
+ f.seed();const coordinator=f.make({refresh:async()=>{throw new MailRefreshError('rate_limited',7200000);}});
+ await assert.rejects(coordinator.acquire('a'),{code:'rate_limited',retryAfterMs:7200000});
 }));
