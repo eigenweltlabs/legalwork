@@ -91,6 +91,12 @@ export class MailSearchStore {
       }catch{incomplete=1;body='';}
       const received=this.db.get('SELECT internal_date FROM mail_gmail_metadata WHERE account_id=? AND message_key=?',[input.accountId,key]);if(typeof received?.internal_date==='number'){const parsedDate=new Date(received.internal_date);if(Number.isFinite(parsedDate.getTime()))date=parsedDate.toISOString();else{date=null;incomplete=1;}}
       this.db.run('DELETE FROM mail_search_documents WHERE account_id=? AND message_key=?',[input.accountId,key]);
+      if(locator.provider==='graph'){
+        const direct=this.db.all(`SELECT a.metadata_json,a.error FROM mail_graph_attachments a JOIN mail_content_manifests m ON m.account_id=a.account_id AND m.message_key=a.message_key AND m.ref_id=a.raw_ref_id WHERE a.account_id=? AND a.message_key=? AND m.kind='raw' AND m.state='stored' LIMIT 101`,[input.accountId,key]);
+        if(direct.length>100)throw new MailSearchError('invalid_input');
+        for(const item of direct){if(typeof item.metadata_json!=='string')continue;const part=z.object({name:z.string()}).parse(JSON.parse(item.metadata_json));if(part.name.length<=512)names.push(part.name);else incomplete=1;if(item.error!==null)incomplete=1;}
+        if(direct.length)hasAttachment=1;names=[...new Set(names)];
+      }
       this.db.run('INSERT INTO mail_search_documents(account_id,message_key,subject,body,names,addresses,senders_json,recipients_json,filenames_json,date,incomplete,normalized_text,has_attachment) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)',[input.accountId,key,subject.normalize('NFC'),body.normalize('NFC'),names.join('\n').normalize('NFC'),[...senders,...recipients].join(' '),JSON.stringify(senders),JSON.stringify(recipients),JSON.stringify(names.map(normalize)),date,incomplete,normalize(subject+"\n"+body+"\n"+names.join("\n")),hasAttachment]);
       this.db.run('DELETE FROM mail_search_dirty WHERE account_id=? AND message_key=?',[input.accountId,key]);
     }

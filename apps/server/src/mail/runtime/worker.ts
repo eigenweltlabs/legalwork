@@ -4,6 +4,7 @@ import { MailSearchStore, MailSearchError } from "../storage/search.js";
 import { MailConnectionController, MailConnectionError } from "../providers/connection-controller.js";
 import { MailCredentialRepository, MailCredentialError } from "../storage/credentials.js";
 import { MailAccessCoordinator } from "../providers/access-coordinator.js";
+import { GraphBackfill, GraphBackfillError } from "../providers/graph-backfill.js";
 import { GmailBackfill, GmailBackfillError } from "../providers/gmail-backfill.js";
 import { createStoredMimeProjector } from "../storage/mime-projection.js";
 import type { MailOAuthSettings } from "../providers/oauth.js";
@@ -26,9 +27,11 @@ let controller: MailConnectionController | undefined;
 let closingController: Promise<void> | undefined;
 let credentials: MailCredentialRepository | undefined;
 let backfill: GmailBackfill | undefined;
+let graph: GraphBackfill | undefined;
+let closingGraph: Promise<void> | undefined;
 let access: MailAccessCoordinator | undefined;
 let closingBackfill: Promise<void> | undefined;
-const gmailSettings = new Map<string, MailOAuthSettings>();
+const providerSettings = new Map<string, MailOAuthSettings>();
 const requests = new Set<Promise<void>>();
 const locked = new Error("mail_archive_locked");
 const unsupported = new Error("mail_provider_unsupported");
@@ -50,12 +53,14 @@ function write(message: WorkerMessage): boolean {
 async function finish(): Promise<void> {
   try { await (closingController ?? controller?.close()); } catch { exitCode = 1; }
   try { await (closingBackfill ?? backfill?.close()); } catch { exitCode = 1; }
+  try { await (closingGraph ?? graph?.close()); } catch { exitCode = 1; }
   await Promise.allSettled(requests);
   controller = undefined;
   credentials = undefined;
   backfill = undefined;
+  graph = undefined;
   access = undefined;
-  gmailSettings.clear();
+  providerSettings.clear();
   try { database?.close(); } catch { exitCode = 1; }
   database = undefined;
   repository = undefined;
@@ -70,6 +75,7 @@ function shutdown(code = 0): void {
   // close() marks the controller closed synchronously, before any queued continuation.
   closingController = controller?.close();
   closingBackfill = backfill?.close();
+  closingGraph = graph?.close();
   access?.close();
   input = Buffer.alloc(0);
   process.stdin.pause();
@@ -101,12 +107,13 @@ async function initialize(value: WorkerInitialization): Promise<void> {
     credentials = new MailCredentialRepository(database, value.ownerId);
     controller = new MailConnectionController({ database, ownerId: value.ownerId });
     access = new MailAccessCoordinator({ database, ownerId: value.ownerId, loadProviderSettings: async binding => {
-      const selected = binding.provider === "gmail" ? gmailSettings.get(binding.clientId) : undefined;
+      const selected = providerSettings.get(`${binding.provider}:${binding.clientId}`);
       if (!selected) throw new Error("mail_configuration_unavailable");
       return selected;
     } });
     backfill = new GmailBackfill({ database, ownerId: value.ownerId, access,
       projectRaw: createStoredMimeProjector({ database, ownerId: value.ownerId }) });
+    graph = new GraphBackfill({ database, ownerId: value.ownerId, access });
     phase = "ready";
     searchIndexer?.start();
     write({ kind: "ready", protocol: 1, runtime: "node", nodeVersion: process.versions.node });
@@ -133,7 +140,7 @@ function pageResult(id: string, items: WorkerAccount[] | WorkerFolder[], hasMore
   return accepted;
 }
 async function request(message: Extract<ParentMessage, { kind: "request" }>): Promise<void> {
-  if (phase !== "ready" || !repository || !reads || !controller || !credentials || !backfill || !database) {
+  if (phase !== "ready" || !repository || !reads || !controller || !credentials || !backfill || !graph || !database) {
     write({ kind: "response", id: message.id, ok: false, code: "not_ready" }); return;
   }
   const command = message.command;
@@ -155,6 +162,7 @@ async function request(message: Extract<ParentMessage, { kind: "request" }>): Pr
           // A journal failure must not prevent the credential revocation attempt.
           try { backfill.pause(command.accountId); } catch { /* The credential generation also fences every late publication. */ }
         }
+        try { if (database.get("SELECT provider FROM mail_accounts WHERE id=?", [command.accountId])?.provider === "graph") graph.pause(command.accountId); } catch { /* Durable credential rotation still fences publication. */ }
         await controller.disconnect(command.accountId); result = { disconnected: true }; break;
       }
       case "mail.accounts.list": {
@@ -168,18 +176,22 @@ async function request(message: Extract<ParentMessage, { kind: "request" }>): Pr
         result = pageResult(message.id, page.items.map((folder) => ({ id: folder.id, name: folder.name, kind: folder.kind, parentId: folder.parent_id })), page.hasMore, true);
         break;
       }
+      case "mail.sync.provider":
       case "mail.status":
       case "mail.sync.start":
       case "mail.sync.stop": {
         if (credentials.status(command.accountId).state === "disconnected") throw locked;
-        if (database.get("SELECT provider FROM mail_accounts WHERE id=?", [command.accountId])?.provider !== "gmail") throw unsupported;
+        const provider = database.get("SELECT provider FROM mail_accounts WHERE id=?", [command.accountId])?.provider;
+        if (provider !== "gmail" && provider !== "graph") throw unsupported;
+        if (command.operation === "mail.sync.provider") { result = { syncProvider: provider }; break; }
+        const engine = provider === "gmail" ? backfill : graph;
         if (command.operation === "mail.sync.start") {
           const binding = credentials.getBinding(command.accountId);
-          if (command.settings.provider !== "gmail" || binding.clientId !== command.settings.clientId
-            || binding.authority !== "https://accounts.google.com") throw new Error("mail_configuration_mismatch");
-          gmailSettings.set(binding.clientId, command.settings);
-          result = { sync: backfill.start(command.accountId) };
-        } else result = { sync: command.operation === "mail.sync.stop" ? backfill.pause(command.accountId) : backfill.status(command.accountId) };
+          if (command.settings.provider !== provider || binding.clientId !== command.settings.clientId
+            || binding.authority !== (command.settings.provider === "gmail" ? "https://accounts.google.com" : `https://login.microsoftonline.com/${command.settings.tenantId}/v2.0`)) throw new Error("mail_configuration_mismatch");
+          providerSettings.set(`${provider}:${binding.clientId}`, command.settings);
+          result = { sync: engine.start(command.accountId) };
+        } else result = { sync: command.operation === "mail.sync.stop" ? engine.pause(command.accountId) : engine.status(command.accountId) };
         break;
       }
       case "mail.messages.list":
@@ -212,11 +224,11 @@ async function request(message: Extract<ParentMessage, { kind: "request" }>): Pr
   } catch (error) {
     // Do not echo SQLite/provider errors, row contents, supplied IDs, paths or key material.
     if (isClosing()) return;
-    const code = error === unsupported || (error instanceof MailSearchError && error.code === "unsupported") ? "unsupported" : error === locked || (error instanceof MailSearchError && error.code === "locked") || (error instanceof GmailBackfillError && error.code === "locked")
+    const code = error === unsupported || (error instanceof MailSearchError && error.code === "unsupported") ? "unsupported" : error === locked || (error instanceof MailSearchError && error.code === "locked") || ((error instanceof GmailBackfillError || error instanceof GraphBackfillError) && error.code === "locked")
       || (error instanceof MailCredentialError && error.code === "disconnected") ? "locked" :
       (error instanceof MailConnectionError && (error.code === "not_found" || error.code === "account_not_found"))
       || (error instanceof MailCredentialError && error.code === "account_not_found")
-      || (error instanceof GmailBackfillError && error.code === "not_found")
+      || ((error instanceof GmailBackfillError || error instanceof GraphBackfillError) && error.code === "not_found")
       || (error instanceof MailSearchError && error.code === "not_found")
       || (error instanceof Error && ["Mail account not found", "Mail message not found", "Mail content not found"].includes(error.message)) ? "not_found" : "operation_failed";
     write({ kind: "response", id: message.id, ok: false, code });
