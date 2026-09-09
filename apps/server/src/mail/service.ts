@@ -189,10 +189,14 @@ export class LocalMailService implements MailService {
     if (this.phase !== "open") throw new MailServiceError("locked");
     const epoch = this.epoch;
     let settings: MailOAuthSettings;
-    try { settings = await this.loadProviderSettings("gmail"); }
+    try {
+      const provider = await this.request({ operation: "mail.sync.provider", accountId });
+      if (!("syncProvider" in provider)) throw new MailServiceError("unavailable");
+      settings = await this.loadProviderSettings(provider.syncProvider);
+      if (settings.provider !== provider.syncProvider) throw new MailServiceError("unavailable");
+    }
     catch { throw new MailServiceError("unavailable"); }
     if (epoch !== this.epoch) throw new MailServiceError("locked");
-    if (settings.provider !== "gmail") throw new MailServiceError("unavailable");
     const result = await this.request({ operation: "mail.sync.start", accountId, settings });
     if (!("sync" in result)) throw new MailServiceError("unavailable");
     return result.sync;

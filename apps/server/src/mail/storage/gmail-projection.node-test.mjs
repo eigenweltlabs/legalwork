@@ -63,6 +63,7 @@ test('credential change during source consumption fences final projection and pr
  assert.equal(result.succeeded,0);assert.notEqual(f.repository.readMessage('a',locator).contentState,'complete');assert.deepEqual(Buffer.concat([...f.content.read('a',ref.id)]),mime);
 }));
 test('v5 migration is atomic and idempotent, guard rejects incomplete v6',async()=>fixture(async f=>{
+ f.db.exec("DROP TABLE mail_graph_attachments; DROP TABLE mail_graph_messages; DROP TABLE mail_graph_folder_queue; DROP TABLE mail_graph_runs");
  for(const row of f.db.all("SELECT name FROM sqlite_schema WHERE type='trigger' AND name GLOB 'mail_search_*'"))f.db.exec('DROP TRIGGER "'+row.name+'"');
  f.db.exec('DROP TABLE mail_search_fts; DROP TABLE mail_search_documents; DROP TABLE mail_search_dirty; ALTER TABLE mail_messages DROP COLUMN is_read');
  f.seed();f.db.exec('DROP TRIGGER mail_raw_projection_insert; DROP TRIGGER mail_raw_projection_update; DROP TABLE mail_mime_parts; DROP TABLE mail_mime_projections; DROP TABLE mail_gmail_metadata; DROP TABLE mail_gmail_presence; DROP TABLE mail_gmail_runs; UPDATE mail_schema_version SET version=5');

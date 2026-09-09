@@ -3,6 +3,7 @@ import { providerMessageLocatorSchema, type ProviderMessageLocator } from "../mo
 import { mailMessagePageSchema, mailMessageViewSchema, mailPartPageSchema, mailPartViewSchema, mailContentReadSchema,
   type MailMessagePageInput, type MailPartPageInput, type MailContentReadInput } from "../read-view.js";
 import { MailRepository } from "./repository.js";
+import { graphAttachmentSchema } from "../providers/graph.js";
 import { mimeMetadataSchema } from "./mime-projection-store.js";
 import { MailContentStore } from "./content-store.js";
 import type { MailDatabase } from "./database-interface.js";
@@ -50,7 +51,12 @@ export class MailReadStore {
       const raw = this.database.get(`SELECT p.metadata_json FROM mail_mime_parts p JOIN mail_content_manifests m
         ON m.account_id=p.account_id AND m.message_key=p.message_key AND m.ref_id=p.raw_ref_id
         WHERE p.account_id=? AND p.message_key=? AND p.part_id=? AND m.kind='raw' AND m.state='stored'`, [accountId, message.message_key, part.part_id]);
-      const metadata = typeof raw?.metadata_json === "string" ? z.object({ filename: z.string().nullable(), contentType: z.string(), contentId: z.string().nullable() }).parse(JSON.parse(raw.metadata_json)) : null;
+      let metadata = typeof raw?.metadata_json === "string" ? z.object({ filename: z.string().nullable(), contentType: z.string(), contentId: z.string().nullable() }).parse(JSON.parse(raw.metadata_json)) : null;
+      if (!metadata && locator.provider === "graph" && part.part_id.startsWith("graph:")) {
+        const native = this.database.get(`SELECT a.metadata_json FROM mail_graph_attachments a JOIN mail_content_manifests m ON m.account_id=a.account_id AND m.message_key=a.message_key AND m.ref_id=a.raw_ref_id
+          WHERE a.account_id=? AND a.message_key=? AND a.id=? AND m.kind='raw' AND m.state='stored'`, [accountId,message.message_key,part.part_id.slice(6)]);
+        if (typeof native?.metadata_json === "string") { const value=graphAttachmentSchema.parse(JSON.parse(native.metadata_json)); metadata={filename:value.name,contentType:value.contentType??"application/octet-stream",contentId:value.contentId??null}; }
+      }
       return mailPartViewSchema.parse({ key: JSON.stringify([part.kind, part.part_id]), kind: part.kind, partId: part.part_id,
         state: part.state, referenceId: part.ref_id, bytes: part.bytes, sha256: part.sha256, bytesAvailable: part.bytesAvailable,
         filename: metadata?.filename ?? null, contentType: metadata?.contentType ?? (part.kind === "raw" ? "message/rfc822" : part.kind === "body" ? "application/json" : null), contentId: metadata?.contentId ?? null });
