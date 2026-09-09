@@ -9,5 +9,7 @@ export interface MailDatabase {
   all(sql: string, parameters?: readonly MailSqlValue[]): MailSqlRow[];
   /** Must reject asynchronous/thenable callbacks and roll back when the body throws. */
   transaction<T>(body: () => T): T;
+  /** Internal maintenance only, while the service has stopped its worker. */
+  rekey?(key: Uint8Array): void;
   close(): void;
 }

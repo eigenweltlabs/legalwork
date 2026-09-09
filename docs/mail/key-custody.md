@@ -15,3 +15,76 @@ Validation: eight filesystem/envelope tests plus two deterministic race regressi
 ```sh
 node --test apps/desktop/electron/mail-key-store.test.mjs apps/desktop/electron/mail-key-store.races.test.mjs
 ```
+
+## Rotation and portable recovery (EIG-126)
+
+The desktop service exposes host-token, loopback-only `POST /mail/v1/security/rotate`,
+`/backup`, and `/restore`. Rotation has an empty body; backup/recovery accept only
+`{"passphrase":"..."}` (16 characters minimum, 1024 UTF-8 bytes maximum). A native
+folder chooser supplies filesystem paths; HTTP cannot supply them. These operations
+stop the mail worker, reject unlock/new reads while maintenance is active, and leave
+the service locked. Stop cancels outstanding maintenance. Explicit unlock is required
+after success. No provider request or revocation occurs during these operations.
+
+Rotation copies a consistent **ciphertext** database under an exclusive SQLite lock,
+rekeys the copy using the native Buffer API, verifies SQLite integrity and all
+published raw/body/attachment references, and checkpoints the copy. The new key is
+wrapped by Electron safeStorage in a fresh private `store-<generation>` directory.
+A fsynced `active-store-v1.json` rename publishes the new generation. Missing pointer
+means the legacy `mail.sqlite` location. Previous stores and incomplete candidates
+are retained; rotation is not deletion or secure erasure. Cancellation before the
+pointer rename cannot publish the candidate. Failure after rename/directory fsync is
+an uncertain acknowledgement: inspect the selected generation on next unlock.
+The desktop's existing single-instance lock and service maintenance barrier are
+required; this is not a multi-process shared-database rotation protocol.
+
+Backup creates a new private directory with encrypted `mail.sqlite` and
+`recovery.json`. The database key is wrapped using AES-256-GCM, a random 16-byte salt,
+12-byte nonce, and scrypt (N=32768, r=8, p=1; 32-byte output). Authenticated associated
+data includes the ciphertext database SHA-256. Use a unique strong passphrase and
+keep it separately from the backup. There is no password reset or vendor recovery
+key. The native package's generic backup API is deliberately not used: it does not
+configure a destination cipher key before copying pages.
+
+Recovery verifies the passphrase and ciphertext digest, copies rather than modifies
+the backup, migrates and validates the copy, and wraps a fresh key in the current OS
+vault before atomic promotion. It works in a clean profile with the same trusted
+local owner identity. Original bytes, drafts, metadata and action records survive.
+Credentials become disconnected and require explicit reconnect; pending submissions
+and other pending actions become uncertain for manual reconciliation, never automatic
+replay. Sync runs pause and obsolete running leases are cleared. Wrong passphrase,
+corruption, unsupported schema or failed verification cannot replace the active
+store. No automatic purge of the old store follows recovery.
+
+### Qualification evidence and remaining release gates
+
+Actual Node tests exercise native cipher rekey, SQLite/WAL plaintext-marker absence,
+in-memory SQLite temporary storage, FTS5 index retention, raw/attachment digest reads,
+wrong keys, wrong backup digest, unchanged backup bytes, credential disconnection,
+submission quarantine, generation promotion, cancellation and portable key unwrap.
+The desktop integration additionally uses an actual Electron child to rotate and
+reopen the selected generation; its deterministic vault seam is a lifecycle test,
+not OS-vault qualification.
+
+On this development host (macOS arm64, Electron 35.7.5), actual safeStorage reported
+available and encrypted/decrypted a synthetic value successfully. No live mailbox or
+provider tokens were used. POSIX store directories/files are checked for owner-only
+0700/0600 permissions and symlink/hardlink rejection. An attempted noninteractive
+second-UID qualification could not run (`sudo: a password is required`); mode checks
+must not be represented as an executed cross-user test.
+
+Still required for release: signed macOS arm64/x64 app identity/update and second-OS-
+user tests; Windows x64 DPAPI plus inherited ACL/second-user checks; Linux x64 actual
+supported secret-service backends and second-user checks. Windows POSIX mode bits
+are not ACL evidence. This host cannot qualify those platforms, signing transitions,
+OS crash dump policies or backup recovery on them. JS strings can remain in process
+memory; this design does not promise protection against an administrator, malware
+running as the same OS user, swap or an independently enabled OS memory dump.
+Mail database/files are not support-bundle inputs and mail child stderr is discarded;
+maintenance errors are fixed strings and keys travel only through private stdin.
+
+Provider/runtime references: [Electron safeStorage](https://www.electronjs.org/docs/latest/api/safe-storage)
+explains OS-specific protections and Linux `basic_text`; the pinned runtime uses its
+supported synchronous methods. [SQLite Multiple Ciphers Node binding](https://github.com/m4heshd/better-sqlite3-multiple-ciphers)
+provides Buffer-based key/rekey operations. This evidence does not close the external
+platform matrix by itself.

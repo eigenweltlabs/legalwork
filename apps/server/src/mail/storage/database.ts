@@ -14,6 +14,7 @@ interface NativeDatabase {
   };
   pragma(sql: string, options?: { simple: boolean }): unknown;
   key(key: Buffer): number;
+  rekey(key: Buffer): number;
   defaultSafeIntegers(enabled: boolean): void;
   transaction<T>(body: () => T): { immediate(): T };
   exec(sql: string): void;
@@ -141,6 +142,16 @@ export async function openEncryptedMailDatabase(options: EncryptedMailDatabaseOp
           }
           return result;
         }).immediate();
+      },
+      rekey(nextKey) {
+        if (!(nextKey instanceof Uint8Array) || nextKey.byteLength !== 32) throw new Error("Invalid mail rekey input");
+        const replacement = Buffer.from(nextKey);
+        try {
+          if (db.pragma("journal_mode=DELETE", { simple: true }) !== "delete") throw new Error("Mail rekey requires an exclusive store");
+          if (db.rekey(replacement) !== 0) throw new Error("Mail rekey failed");
+          db.prepare("SELECT count(*) FROM sqlite_master").get();
+          if (db.pragma("journal_mode=WAL", { simple: true }) !== "wal") throw new Error("Mail rekey durability failed");
+        } finally { replacement.fill(0); }
       },
       close() { db.close(); },
     };
