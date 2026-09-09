@@ -91,10 +91,11 @@ export class GmailBackfill {
     if (!run) return { accountId, provider: "gmail", state: "idle", enumerated: 0, downloaded: 0, projected: 0, failed: 0, pending: 0, nextRetryAt: null, error: null };
     const progress = this.runs.progress(accountId, run.generation);
     const retry = run.nextRetryAt ?? progress.nextRetryAt;
-    const state = run.state === "paused" ? "paused" : run.state === "attention" ? "attention" : run.state === "complete" ? "complete"
+    const complete = progress.enumerationComplete && progress.failed === 0 && progress.pending === 0 && progress.downloaded === progress.enumerated && progress.projected === progress.enumerated;
+    const state = run.state === "paused" ? "paused" : run.state === "attention" ? "attention" : run.state === "complete" ? complete ? "complete" : "attention"
       : !this.current || this.current.run.accountId !== accountId || this.current.abort.signal.aborted ? "paused" : retry !== null && retry > Date.now() ? "waiting" : "syncing";
     return { accountId, provider: "gmail", state, enumerated: progress.enumerated, downloaded: progress.downloaded,
-      projected: progress.projected, failed: progress.failed, pending: progress.pending, nextRetryAt: retry, error: run.error };
+      projected: progress.projected, failed: progress.failed, pending: progress.pending, nextRetryAt: retry, error: run.state === "complete" && !complete ? "content_incomplete" : run.error };
   }
   start(accountId: string): MailSyncView {
     if (this.closed) throw new GmailBackfillError("closed"); this.account(accountId);
