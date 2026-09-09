@@ -71,3 +71,9 @@ test("opaque IDs stay path data, invalid options and invalid UTF-8 reject safely
  for(const maxRawBytes of [0,128*1024*1024+1,1.5])expect(()=>client(async()=>Response.json({}),{maxRawBytes})).toThrow("invalid_input");
  await expect(client(async()=>new Response(Uint8Array.from([123,34,120,34,58,34,255,34,125]),{headers:{"content-type":"application/json"}})).listLabels()).rejects.toThrow("invalid_response");
 });
+
+test("fixed recent window uses numeric Gmail after query and retains spam/trash",async()=>{
+ const c=client(async url=>{const parsed=new URL(url);expect(parsed.searchParams.get("q")).toBe("after:1700000000");expect(parsed.searchParams.get("includeSpamTrash")).toBe("true");return Response.json({});});
+ await c.listMessages({recentAfterSeconds:1700000000});
+ for(const recentAfterSeconds of [-1,1.5,Number.MAX_SAFE_INTEGER+1])await expect(c.listMessages({recentAfterSeconds})).rejects.toThrow("invalid_input");
+});

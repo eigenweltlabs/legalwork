@@ -137,12 +137,13 @@ export class GmailReadTransport {
       return { labels };
     });
   }
-  listMessages(options: { pageToken?: string; pageSize?: number; signal?: AbortSignal } = {}): Promise<GmailMessagePage> {
+  listMessages(options: { pageToken?: string; pageSize?: number; recentAfterSeconds?: number; signal?: AbortSignal } = {}): Promise<GmailMessagePage> {
     const size = options.pageSize ?? 100;
-    if (!Number.isInteger(size) || size < 1 || size > 500 || (options.pageToken !== undefined && !pageToken(options.pageToken))) return Promise.reject(new GmailTransportError("invalid_input"));
+    if ((options.recentAfterSeconds !== undefined && (!Number.isSafeInteger(options.recentAfterSeconds) || options.recentAfterSeconds < 0)) || !Number.isInteger(size) || size < 1 || size > 500 || (options.pageToken !== undefined && !pageToken(options.pageToken))) return Promise.reject(new GmailTransportError("invalid_input"));
     const inputToken = options.pageToken;
     const url = new URL(`${BASE}/messages`); url.searchParams.set("includeSpamTrash", "true"); url.searchParams.set("maxResults", String(size));
     if (inputToken !== undefined) url.searchParams.set("pageToken", inputToken);
+    if (options.recentAfterSeconds !== undefined) url.searchParams.set("q", `after:${options.recentAfterSeconds}`);
     return this.run(options.signal, async signal => {
       const data = await this.get(url.toString(), MiB, signal);
       const values = data.messages === undefined ? [] : data.messages;
