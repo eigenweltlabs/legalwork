@@ -131,11 +131,11 @@ export class MailActionJournal {
       return parse(z.object({ unmanaged: integer, unresolved: integer }), this.database.get("SELECT count(*) AS unmanaged,coalesce(sum(state!='succeeded'),0) AS unresolved FROM mail_actions WHERE account_id=?", [accountId]));
     });
   }
-  claim(accountId: string, leaseMs = 30000): MailClaimedAction | null {
+  claim(accountId: string, leaseMs = 30000, kind?: "mutation" | "submission"): MailClaimedAction | null {
     return safe(() => this.database.transaction(() => {
       this.account(accountId);
       const now = this.time(), until = parse(integer, now + parse(z.number().int().min(1).max(300000), leaseMs));
-      const found = this.database.get("SELECT * FROM mail_action_jobs WHERE account_id=? AND state IN ('queued','retry') AND available_at<=? AND attempts<max_attempts ORDER BY available_at,id LIMIT 1", [accountId, now]);
+      const found = this.database.get("SELECT * FROM mail_action_jobs WHERE account_id=? AND state IN ('queued','retry') AND available_at<=? AND attempts<max_attempts AND (? IS NULL OR kind=?) ORDER BY available_at,id LIMIT 1", [accountId, now, kind ?? null, kind ?? null]);
       if (!found) return null;
       const row = parse(rowInput, found), token = randomUUID();
       this.database.run("UPDATE mail_action_jobs SET state='running',revision=?,attempts=attempts+1,lease_token=?,lease_until=?,last_error=NULL WHERE account_id=? AND id=?", [next(row), token, until, accountId, row.id]);
