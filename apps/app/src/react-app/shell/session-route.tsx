@@ -1881,7 +1881,10 @@ export function SessionRoute() {
               }
             : undefined
         }
-        onDone={() => setOnboardingStage("ai")}
+        onDone={() => {
+          captureAnalyticsEvent("onboarding_permissions_done");
+          setOnboardingStage("ai");
+        }}
       />
     ) : null}
     {onboardingStage === "ai" ? (
