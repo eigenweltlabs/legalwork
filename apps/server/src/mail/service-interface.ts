@@ -18,6 +18,10 @@ export interface MailService {
   lock(): Promise<void>;
   listAccounts(page: MailPageInput): Promise<MailPage<MailAccountView>>;
   listFolders(accountId: string, page: MailPageInput): Promise<MailPage<MailFolderView>>;
+  listMessages(accountId: string, page: MailMessagePageInput): Promise<MailPage<MailMessageView>>;
+  readMessage(accountId: string, locator: ProviderMessageLocator): Promise<MailMessageView>;
+  listParts(accountId: string, locator: ProviderMessageLocator, page: MailPartPageInput): Promise<MailPage<MailPartView>>;
+  readContent(accountId: string, locator: ProviderMessageLocator, request: MailContentReadInput): Promise<MailContentChunk>;
   beginConnection(provider: "gmail" | "graph", reconnectAccountId?: string): Promise<MailConnectionStarted>;
   connectionStatus(connectionId: string): Promise<MailConnectionStatus>;
   cancelConnection(connectionId: string): Promise<void>;
@@ -29,4 +33,6 @@ export interface MailService {
 }
 import type { MailConnectionStatus } from "./providers/connection-controller.js";
 import type { MailSyncView } from "./sync-view.js";
+import type { ProviderMessageLocator } from "./model.js";
+import type { MailMessagePageInput, MailMessageView, MailPartPageInput, MailPartView, MailContentReadInput, MailContentChunk } from "./read-view.js";
 export type MailConnectionStarted = { connectionId: string; authorizationUrl: string; expiresAt: number };

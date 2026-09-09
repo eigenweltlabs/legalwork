@@ -70,3 +70,22 @@ test("connection states reject coercible arrays and objects", () => {
     expect(response({ connection: { connectionId, expiresAt: 123, state } })).toBeUndefined();
   }
 });
+
+test("offline read protocol binds identity and content ranges without accepting injected scope or stalled cursors", () => {
+  const locator = { provider: "gmail", messageId: "m" } satisfies import("../model.js").ProviderMessageLocator;
+  const referenceId = `sha256:${"0".repeat(64)}`;
+  const command = { operation: "mail.content.read", accountId: "a", locator, request: { kind: "raw", referenceId } } satisfies import("./protocol.js").WorkerCommand;
+  expect(parent(command)).toBeDefined();
+  expect(parent({ ...command, ownerId: "other" })).toBeUndefined();
+  expect(parent({ ...command, request: { ...command.request, limit: 24577 } })).toBeUndefined();
+  expect(parent({ operation: "mail.messages.list", accountId: "a", page: { ownerId: "other" } })).toBeUndefined();
+  const content = { accountId: "a", locator, referenceId, offset: 0, totalBytes: 1, sha256: "0".repeat(64), data: "YQ==", nextOffset: null };
+  const parsed = response({ content });
+  if (parsed?.kind !== "response" || !parsed.ok) throw new Error("wrong_response");
+  expect(resultMatchesCommand(command, parsed.result)).toBe(true);
+  expect(resultMatchesCommand({ ...command, accountId: "other" }, parsed.result)).toBe(false);
+  expect(resultMatchesCommand({ ...command, locator: { ...locator, messageId: "other" } }, parsed.result)).toBe(false);
+  for (const invalid of [{ ...content, data: "", nextOffset: 0 }, { ...content, data: "YR==" }, { ...content, nextOffset: 2 }, { ...content, accessToken: "secret" }, { ...content, referenceId: "different" }]) {
+    expect(response({ content: invalid })).toBeUndefined();
+  }
+});
