@@ -30,7 +30,7 @@ test('run generation, fixed recent boundary, retry budget, CAS and explicit comp
  f.seed();const first=f.runs.startOrResume('a');assert.equal(first.recentAfter,Math.floor(f.now/1000)-30*86400);
  const paused=f.runs.setState('a',stamp(first),'paused',{failureCount:3,nextRetryAt:f.now+999,error:'rate_limited'});await f.reopen();f.advance(86400000);
  const resumed=f.runs.startOrResume('a');assert.equal(resumed.generation,first.generation);assert.equal(resumed.recentAfter,first.recentAfter);assert.equal(resumed.failureCount,3);assert.equal(resumed.nextRetryAt,paused.nextRetryAt);assert.throws(()=>f.runs.assertCurrent('a',stamp(first)),{code:'stale_run'});
- const done=f.runs.setState('a',stamp(resumed),'complete',{failureCount:0});assert.deepEqual(f.runs.startOrResume('a'),done);
+ const done=f.runs.setState('a',stamp(resumed),'complete',{failureCount:0});assert.deepEqual(f.runs.startOrResume('a'),{...done,state:'active',revision:done.revision+1});
  new MailRepository(f.db,'other').createAccount({id:'foreign',provider:'gmail',displayName:'Other'});assert.throws(()=>f.runs.read('foreign'),{code:'not_found'});
 }));
 test('provider envelope survives malformed MIME, updates exact thread/labels and preserves raw',async()=>fixture(async f=>{
@@ -63,7 +63,7 @@ test('credential change during source consumption fences final projection and pr
  assert.equal(result.succeeded,0);assert.notEqual(f.repository.readMessage('a',locator).contentState,'complete');assert.deepEqual(Buffer.concat([...f.content.read('a',ref.id)]),mime);
 }));
 test('v5 migration is atomic and idempotent, guard rejects incomplete v6',async()=>fixture(async f=>{
- f.seed();f.db.exec('DROP TRIGGER mail_raw_projection_insert; DROP TRIGGER mail_raw_projection_update; DROP TABLE mail_mime_parts; DROP TABLE mail_mime_projections; DROP TABLE mail_gmail_metadata; DROP TABLE mail_gmail_runs; UPDATE mail_schema_version SET version=5');
+ f.seed();f.db.exec('DROP TRIGGER mail_raw_projection_insert; DROP TRIGGER mail_raw_projection_update; DROP TABLE mail_mime_parts; DROP TABLE mail_mime_projections; DROP TABLE mail_gmail_metadata; DROP TABLE mail_gmail_presence; DROP TABLE mail_gmail_runs; UPDATE mail_schema_version SET version=5');
  const failing={...f.db,exec(sql){if(sql.includes('CREATE TABLE mail_gmail_runs')){f.db.exec(sql);throw Error('injected migration failure');}f.db.exec(sql);}};
  assert.throws(()=>migrateMailSchema(failing));assert.equal(f.db.get('SELECT version FROM mail_schema_version').version,5);assert.equal(f.db.get("SELECT name FROM sqlite_schema WHERE name='mail_gmail_runs'"),undefined);
  migrateMailSchema(f.db);migrateMailSchema(f.db);assertMailSchema(f.db);assert.equal(f.db.get('SELECT version FROM mail_schema_version').version,MAIL_SCHEMA_VERSION);assert.equal(f.repository.listAccounts().length,1);
