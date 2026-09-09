@@ -1,5 +1,8 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, rm, mkdir, symlink, writeFile } from "node:fs/promises";
+import { execFileSync } from "node:child_process";
+import { createHash, randomBytes } from "node:crypto";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { z } from "zod";
@@ -8,6 +11,8 @@ import { startServer, type StartedServer } from "../server.js";
 import type { ServerConfig } from "../types.js";
 import { MailServiceError, type MailService, type MailServiceStatus } from "./service-interface.js";
 import type { MailSyncView } from "./sync-view.js";
+import { LocalMailService } from "./service.js";
+import { mailContentChunkSchema, mailMessageViewSchema, mailPartViewSchema } from "./read-view.js";
 
 const auth = { "x-legalwork-host-token": "synthetic-mail-host" };
 let directory = "";
@@ -46,6 +51,10 @@ function mockService() {
       if (id !== "local") throw new MailServiceError("not_found");
       return { items: [], nextCursor: null };
     },
+    async listMessages() { calls++; return { items: [], nextCursor: null }; },
+    async readMessage() { calls++; throw new MailServiceError("not_found"); },
+    async listParts() { calls++; return { items: [], nextCursor: null }; },
+    async readContent() { calls++; throw new MailServiceError("not_found"); },
     async beginConnection(provider) { calls++; return { connectionId: "synthetic-connection", authorizationUrl: `https://${provider === "gmail" ? "accounts.google.com" : "login.microsoftonline.com"}/authorize`, expiresAt: 2000000000000 }; },
     async connectionStatus(id) { calls++; return { connectionId: id, state: "pending", expiresAt: 2000000000000 }; },
     async cancelConnection() { calls++; },
@@ -68,6 +77,80 @@ async function boot(service?: MailService, host = "127.0.0.1") {
   running.push(server);
   return { server, base: `http://127.0.0.1:${server.port}/mail/v1`, root: `http://127.0.0.1:${server.port}` };
 }
+
+test("local HTTP reads complete encrypted originals and attachments offline with scope, lock and page bounds", async () => {
+  const executable = Bun.which("node");
+  if (!executable) throw new Error("Actual Node required");
+  const runtime = join(directory, "runtime"), serverRoot = fileURLToPath(new URL("../../", import.meta.url));
+  await mkdir(runtime); await writeFile(join(runtime, "package.json"), '{"type":"module"}');
+  await symlink(join(serverRoot, "node_modules"), join(runtime, "node_modules"));
+  execFileSync("pnpm", ["exec", "tsc", "--outDir", join(runtime, "build"), "--rootDir", "src", "--module", "NodeNext", "--moduleResolution", "NodeNext", "--target", "ES2022", "--strict", "--skipLibCheck", "--types", "node,bun-types", "src/mail/runtime/worker.ts"], { cwd: serverRoot, stdio: "pipe", timeout: 30000 });
+  const privateDir = join(directory, "private"); await mkdir(privateDir, { mode: 0o700 });
+  const databasePath = join(privateDir, "mail.sqlite"), key = randomBytes(32), locator = { provider: "gmail", messageId: "m1" } satisfies import("./model.js").ProviderMessageLocator;
+  const attachment = Buffer.alloc(100003, 0xa7);
+  const raw = Buffer.from(`Subject: Offline ÄÖÜ case 12 O 123/26\r\nContent-Type: multipart/mixed; boundary=fixture\r\n\r\n--fixture\r\nContent-Type: text/plain\r\n\r\nOffline body\r\n--fixture\r\nContent-Type: application/octet-stream\r\nContent-Disposition: attachment; filename=case.bin\r\nContent-Transfer-Encoding: base64\r\n\r\n${attachment.toString("base64")}\r\n--fixture--\r\n`);
+  const moduleUrl = (name: string) => JSON.stringify(pathToFileURL(join(runtime, "build/mail/storage", name)).href);
+  const seed = `import {readFileSync} from 'node:fs';
+    import {openEncryptedMailDatabase} from ${moduleUrl("database.js")}; import {migrateMailSchema} from ${moduleUrl("schema.js")};
+    import {MailRepository} from ${moduleUrl("repository.js")}; import {MailContentStore} from ${moduleUrl("content-store.js")}; import {MimeProjectionStore} from ${moduleUrl("mime-projection-store.js")};
+    import {MailCredentialRepository} from ${moduleUrl("credentials.js")};
+    const input=JSON.parse(readFileSync(0,'utf8')); const db=await openEncryptedMailDatabase({path:input.path,key:Buffer.from(input.key,'base64')});
+    try { migrateMailSchema(db); const repo=new MailRepository(db,'owner'),content=new MailContentStore(db,'owner'),projections=new MimeProjectionStore(db,'owner');
+      repo.createAccount({id:'a',provider:'gmail',displayName:'Offline fixture'}); new MailRepository(db,'other').createAccount({id:'foreign',provider:'gmail',displayName:'Private'});
+      new MailCredentialRepository(db,'owner').connect('a',{provider:'gmail',clientId:'synthetic.apps.googleusercontent.com',authority:'https://accounts.google.com',providerSubject:'synthetic-subject'},null,{accessToken:'synthetic-access',expiresAt:Date.now()+3600000,grantedScopes:['https://www.googleapis.com/auth/gmail.modify'],refreshToken:{action:'replace',value:'synthetic-refresh'}});
+      repo.putFolder('a',{id:'INBOX',name:'Inbox',kind:'label'}); repo.putFolder('a',{id:'UNREAD',name:'Unread',kind:'label'});
+      for(const id of ['m1','m2','m3']) repo.ingestMessage('a',{locator:{provider:'gmail',messageId:id},rfcMessageId:null,subject:id==='m3'?'x'.repeat(70000):'Offline ÄÖÜ case 12 O 123/26',threadId:'thread',memberships:['INBOX','UNREAD']});
+      function* chunks(bytes){for(let at=0;at<bytes.length;at+=65536)yield bytes.subarray(at,at+65536);}
+      const rawBytes=Buffer.from(input.raw,'base64'),attachmentBytes=Buffer.from(input.attachment,'base64'),bodyBytes=Buffer.from(JSON.stringify({version:1,bodies:[{partId:'text',contentType:'text/plain',text:'Offline body'}]}));
+      const loc={provider:'gmail',messageId:'m1'};
+      const rawRef=await content.writePart('a',loc,{kind:'raw',maxBytes:rawBytes.length},chunks(rawBytes));
+      const body=await content.writePart('a',loc,{kind:'body',maxBytes:bodyBytes.length},chunks(bodyBytes));
+      const part=await content.writePart('a',loc,{kind:'attachment',partId:'part',maxBytes:attachmentBytes.length},chunks(attachmentBytes));
+      projections.complete('a',loc,rawRef.id,{metadata:{subject:'Offline ÄÖÜ case 12 O 123/26',from:'sender@example.test',to:'owner@example.test',cc:null,bcc:null,replyTo:null,date:'2026-01-01T00:00:00.000Z',messageId:null},bodies:[{partId:'text',contentType:'text/plain'}],body,attachments:[{partId:'part',filename:'case.bin',contentType:'application/octet-stream',disposition:'attachment',contentId:null,reference:part}]}); repo.setAttachmentsEnumerated('a',loc,true);
+      db.run("INSERT INTO mail_tombstones VALUES('a',?,'gmail-removed','2026-01-01')",[JSON.stringify(['gmail','m2'])]);
+    } finally {db.close();}`;
+  execFileSync(executable, ["--input-type=module", "--eval", seed], { input: JSON.stringify({ path: databasePath, key: key.toString("base64"), raw: raw.toString("base64"), attachment: attachment.toString("base64") }), stdio: ["pipe", "pipe", "pipe"], timeout: 10000 });
+  const service = new LocalMailService({ executable: { kind: "node", path: executable }, entryPoint: join(runtime, "build/mail/runtime/worker.js"), databasePath, ownerId: "owner", loadKey: async () => Buffer.from(key) });
+  const { base } = await boot(service);
+  const post = (operation: string, value: unknown, accountId = "a", headers: Record<string,string> = auth) => fetch(`${base}/accounts/${accountId}/messages/${operation}`, { method: "POST", headers: { ...headers, "content-type": "application/json" }, body: JSON.stringify(value) });
+  try {
+    expect((await post("query", {})).status).toBe(423);
+    await service.unlock();
+    expect((await post("query", {}, "a", {})).status).toBe(401);
+    for (const accountId of ["foreign", "missing"]) expect((await post("read", { locator }, accountId)).status).toBe(404);
+    expect((await post("read", { locator, ownerId: "other" })).status).toBe(400);
+    expect((await post("read", { locator: { provider: "gmail", messageId: "missing" } })).status).toBe(404);
+    const first = z.object({ items: z.array(mailMessageViewSchema), nextCursor: z.string().nullable() }).parse(await (await post("query", { limit: 2, folderId: "INBOX", threadId: "thread", includeRemoved: true })).json());
+    expect(first.items.map(item => item.locator)).toEqual([locator, { provider: "gmail", messageId: "m2" }]);
+    expect(first.items[1]?.removed).toBe(true);
+    expect((await post("query", { after: first.nextCursor })).status).toBe(413);
+    const filtered = z.object({ items: z.array(mailMessageViewSchema), nextCursor: z.string().nullable() }).parse(await (await post("query", {})).json());
+    expect(filtered.items.map(item => item.locator)).toEqual([locator]);
+    expect(filtered.nextCursor).toBe(JSON.stringify(["gmail", "m1"]));
+    const message = mailMessageViewSchema.parse(await (await post("read", { locator })).json());
+    expect(message.metadata?.from).toBe("sender@example.test"); expect(message.contentState).toBe("complete");
+    const parts = z.object({ items: z.array(mailPartViewSchema), nextCursor: z.string().nullable() }).parse(await (await post("parts", { locator })).json());
+    expect(parts.items).toHaveLength(3);
+    for (const kind of ["raw", "attachment"]) {
+      const part = parts.items.find(item => item.kind === kind); if (!part?.referenceId || !part.sha256) throw new Error("missing fixture part");
+      const chunks: Buffer[] = []; let offset = 0;
+      while (true) {
+        const response = await post("content", { locator, request: { kind, partId: part.partId, referenceId: part.referenceId, offset, limit: 16387 } });
+        expect(response.headers.get("cache-control")).toBe("no-store");
+        const chunk = mailContentChunkSchema.parse(await response.json());
+        chunks.push(Buffer.from(chunk.data, "base64")); if (chunk.nextOffset === null) break; offset = chunk.nextOffset;
+      }
+      const bytes = Buffer.concat(chunks); expect(bytes).toEqual(kind === "raw" ? raw : attachment);
+      expect(createHash("sha256").update(bytes).digest("hex")).toBe(part.sha256);
+    }
+    const part = parts.items.find(item => item.kind === "raw"); if (!part?.referenceId) throw new Error("missing raw");
+    expect((await post("content", { locator: { provider: "gmail", messageId: "m2" }, request: { kind: "raw", referenceId: part.referenceId } })).status).toBe(404);
+    expect((await post("content", { locator, request: { kind: "raw", referenceId: part.referenceId, limit: 24577 } })).status).toBe(400);
+    await service.lock(); await service.unlock(); expect((await post("read", { locator })).status).toBe(200);
+    await service.disconnectAccount("a"); expect((await post("read", { locator })).status).toBe(423);
+    expect((await post("content", { locator, request: { kind: "raw", referenceId: part.referenceId } })).status).toBe(423);
+  } finally { await service.stop(); key.fill(0); }
+}, 30000);
 
 test("mail routes are absent by default and when sharing binds all interfaces", async () => {
   const absent = await boot();
