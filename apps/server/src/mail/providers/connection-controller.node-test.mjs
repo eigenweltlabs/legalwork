@@ -108,7 +108,7 @@ test('controller disconnect persists before cleanup and cancels consent/identity
   assert.equal(credentials.status(first.accountId).state,'disconnected');assert.equal(reconnect.poll(begun.connectionId).state,'cancelled');
   await new Promise(r=>setTimeout(r,0));assert.equal(cleanupStarted,true);pending.resolve(stage==='consent'?tokens():subject);cleaned.resolve();await disconnected;
   await new Promise(r=>setTimeout(r,0));assert.equal(credentials.status(first.accountId).state,'disconnected');
-  const version=credentials.status(first.accountId).version;await reconnect.disconnect(first.accountId);assert.deepEqual(credentials.status(first.accountId).version,version);
+  const version=credentials.status(first.accountId).version;await reconnect.disconnect(first.accountId);assert.notDeepEqual(credentials.status(first.accountId).version,version);
  }
  assert.equal(accounts.listAccounts().length,2);
 }));
@@ -118,4 +118,15 @@ test('disconnect retains archive and rejects foreign/unconfigured accounts with 
  accounts.createAccount({id:'unconfigured',provider:'gmail',displayName:'Legacy'});new MailRepository(db,'other').createAccount({id:'foreign',provider:'gmail',displayName:'Foreign'});
  for(const id of ['unconfigured','foreign','missing'])await assert.rejects(c.disconnect(id),/account_not_found/);
  await c.close();await assert.rejects(c.disconnect(first.accountId),/closed/);
+}));
+
+test('repeated disconnect fences a reconnect in another controller even while already disconnected',async()=>fixture(async({make,credentials})=>{
+ const firstController=make();const first=await settle(firstController,(await firstController.begin(gmail)).connectionId);
+ await firstController.disconnect(first.accountId);const captured=credentials.status(first.accountId).version;
+ const pending=deferred();const secondController=make({oauth:async()=>flow(pending.promise)});
+ const reconnect=await secondController.begin(gmail,{reconnectAccountId:first.accountId});
+ await firstController.disconnect(first.accountId);assert.notDeepEqual(credentials.status(first.accountId).version,captured);
+ pending.resolve(tokens());const result=await settle(secondController,reconnect.connectionId);
+ assert.equal(result.state,'failed');assert.equal(result.error,'stale_credentials');assert.equal(credentials.status(first.accountId).state,'disconnected');
+ assert.throws(()=>credentials.readAccess(first.accountId,binding),/disconnected/);
 }));
