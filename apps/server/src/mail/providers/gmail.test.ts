@@ -77,3 +77,20 @@ test("fixed recent window uses numeric Gmail after query and retains spam/trash"
  await c.listMessages({recentAfterSeconds:1700000000});
  for(const recentAfterSeconds of [-1,1.5,Number.MAX_SAFE_INTEGER+1])await expect(c.listMessages({recentAfterSeconds})).rejects.toThrow("invalid_input");
 });
+
+test("history preserves large sequence IDs, specific events and exact fixed endpoint pagination",async()=>{
+ const start="90071992547409930001",current="90071992547409930009";
+ const c=client(async url=>{const u=new URL(url);expect(u.pathname).toBe("/gmail/v1/users/me/history");expect(u.searchParams.get("startHistoryId")).toBe(start);expect(u.searchParams.get("pageToken")).toBe("opaque+token");return Response.json({historyId:current,nextPageToken:"next",history:[{id:current,messages:[{id:"m",threadId:"t"}],labelsAdded:[{message:{id:"m",threadId:"t"},labelIds:["UNREAD"]}]}]});});
+ const result=await c.listHistory({startHistoryId:start,pageToken:"opaque+token"});expect(result.historyId).toBe(current);expect(result.records[0]?.changes).toEqual([{kind:"labelsAdded",messageId:"m",threadId:"t",labelIds:["UNREAD"]}]);
+});
+test("history rejects backwards IDs, malformed events and oversized event fanout without checkpointing",async()=>{
+ for(const data of [{historyId:"9"},{historyId:"11",history:[{id:"10"}]},{historyId:"12",history:[{id:"12"},{id:"11"}]},{historyId:"11",history:[{id:"11",labelsAdded:[{message:{id:"m",threadId:"t"}}]}]},{historyId:"11",history:[{id:"11",messages:[{id:"m"}]}]},{historyId:"11",history:[{id:"11",messagesAdded:Array.from({length:1001},()=>({message:{id:"m",threadId:"t"}}))}]}])await expect(client(async()=>Response.json(data)).listHistory({startHistoryId:"10"})).rejects.toThrow("invalid_response");
+ expect(await client(async()=>Response.json({historyId:"10"})).listHistory({startHistoryId:"10"})).toEqual({historyId:"10",nextPageToken:null,records:[]});
+ await expect(client(async()=>new Response(null,{status:404})).listHistory({startHistoryId:"10"})).rejects.toThrow("not_found");
+});
+test("profile anchor and minimal snapshots remain bounded and validate requested identity",async()=>{
+ expect(await client(async()=>Response.json({historyId:"90071992547409930000"})).getProfile()).toEqual({historyId:"90071992547409930000"});
+ const c=client(async url=>{expect(new URL(url).searchParams.get("format")).toBe("minimal");return Response.json({id:"m",threadId:"t",historyId:"10"});});
+ expect((await c.getMetadata("m")).labelIds).toEqual([]);
+ await expect(client(async()=>Response.json({id:"other",threadId:"t",historyId:"10",labelIds:[]})).getMetadata("m")).rejects.toThrow("invalid_response");
+});
