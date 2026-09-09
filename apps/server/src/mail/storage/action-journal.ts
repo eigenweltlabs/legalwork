@@ -83,9 +83,10 @@ export class MailActionJournal {
       [state, next(row), error, availableAt, cancelled, row.account_id, row.id]);
     return status(this.load(row.account_id, row.id));
   }
-  private retry(row: Row, error: "preflight_retryable" | "lease_expired"): MailActionStatus {
+  private retry(row: Row, error: "preflight_retryable" | "lease_expired", retryAfterMs = 0): MailActionStatus {
     if (row.attempts >= row.max_attempts) return this.terminal(row, "failed", error);
-    const availableAt = this.time() + Math.min(row.retry_max_ms, row.retry_base_ms * 2 ** Math.max(0, row.attempts - 1));
+    const backoff = Math.min(row.retry_max_ms, row.retry_base_ms * 2 ** Math.max(0, row.attempts - 1));
+    const availableAt = Math.min(Number.MAX_SAFE_INTEGER, this.time() + Math.max(backoff, retryAfterMs));
     parse(integer, availableAt);
     return this.terminal(row, "retry", error, availableAt);
   }
@@ -159,11 +160,11 @@ export class MailActionJournal {
       return status(this.load(row.account_id, row.id));
     }));
   }
-  failBeforeDispatch(lease: MailActionLease, retryable: boolean): MailActionStatus {
+  failBeforeDispatch(lease: MailActionLease, retryable: boolean, retryAfterMs = 0): MailActionStatus {
     return safe(() => this.database.transaction(() => {
-      const row = this.leased(lease); parse(z.boolean(), retryable);
+      const row = this.leased(lease); parse(z.boolean(), retryable); parse(integer, retryAfterMs);
       if (row.state !== "running") throw new MailActionError("invalid_state");
-      return retryable ? this.retry(row, "preflight_retryable") : this.terminal(row, "failed", "preflight_permanent");
+      return retryable ? this.retry(row, "preflight_retryable", retryAfterMs) : this.terminal(row, "failed", "preflight_permanent");
     }));
   }
   recordOutcome(lease: MailActionLease, outcome: "succeeded" | "rejected" | "conflict" | "unknown"): MailActionStatus {
