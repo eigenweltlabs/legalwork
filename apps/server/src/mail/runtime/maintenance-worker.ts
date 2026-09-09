@@ -4,7 +4,9 @@ process.stdin.on("data", (chunk: Buffer) => { bytes += chunk.length; if (bytes >
 process.stdin.on("end", async () => {
   let sourceKey: Buffer | undefined, destinationKey: Buffer | undefined;
   try {
-    const value: unknown = JSON.parse(Buffer.concat(chunks).toString("utf8"));
+    const joined = Buffer.concat(chunks);
+    let value: unknown;
+    try { value = JSON.parse(joined.toString("utf8")); } finally { joined.fill(0); }
     for (const chunk of chunks) chunk.fill(0);
     if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error();
     const input = Object.getOwnPropertyDescriptors(value);
