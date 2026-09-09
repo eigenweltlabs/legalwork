@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
+import { createHash } from "node:crypto";
 import { z } from "zod";
 import { providerMessageKey, type ProviderMessageLocator } from "../model.js";
 import type { MailDatabase } from "./database-interface.js";
@@ -32,7 +33,7 @@ function setup(run: (db: MailDatabase, repository: MailRepository) => void) {
   try { migrateMailSchema(db); run(db, new MailRepository(db, "owner-a")); } finally { db.close(); }
 }
 const gmail = (messageId: string): ProviderMessageLocator => ({ provider: "gmail", messageId });
-const reference = { id: "blob-one", bytes: 15, sha256: "a".repeat(64) };
+const reference = { id: "blob-one", bytes: 15, sha256: createHash("sha256").update(new Uint8Array(15)).digest("hex") };
 function seed(repository: MailRepository) {
   repository.createAccount({ id: "a", provider: "gmail", displayName: "Synthetic" });
   repository.putFolder("a", { id: "inbox", name: "Inbox", kind: "label" });
@@ -136,7 +137,7 @@ describe("owned canonical mail repository", () => {
     expect(repository.readMessage("a", gmail("one"))?.memberships).toEqual(["contracts", "inbox"]);
     expect(db.get("SELECT count(*) AS count FROM mail_threads")?.count).toBe(0);
   }));
-  test("content completeness requires raw, body, enumerated attachments and all stored parts", () => setup((_, repository) => {
+  test("content completeness requires raw, body, enumeration and published bytes for every stored part", () => setup((db, repository) => {
     seed(repository); ingest(repository);
     const read = () => repository.readMessage("a", gmail("one"));
     expect(read()?.contentState).toBe("downloading");
@@ -144,13 +145,26 @@ describe("owned canonical mail repository", () => {
       if (kind !== "raw" && kind !== "body") throw new Error("Invalid test kind");
       repository.putContent("a", gmail("one"), { kind, state: "stored", reference });
     }
+    expect(read()?.contentState).toBe("attention");
+    expect(read()?.content.every(part => !part.bytesAvailable)).toBe(true);
+    // TEST ONLY: explicit storage publication attestation; metadata alone never means complete.
+    db.run("INSERT INTO mail_blob_objects(account_id,id,state,bytes,chunk_count) VALUES(?,?,'published',?,1)", ["a", "test-object", reference.bytes]);
+    db.run("INSERT INTO mail_blob_chunks VALUES(?,?,0,?)", ["a", "test-object", new Uint8Array(reference.bytes)]);
+    db.run("INSERT INTO mail_blob_publications VALUES(?,?,?)", ["a", reference.id, "test-object"]);
     expect(read()?.contentState).toBe("downloading");
+    expect(read()?.content.every(part => part.bytesAvailable)).toBe(true);
     repository.putContent("a", gmail("one"), { kind: "attachment", partId: "part-1", state: "pending" });
     repository.setAttachmentsEnumerated("a", gmail("one"), true);
     expect(read()?.contentState).toBe("downloading");
     repository.putContent("a", gmail("one"), { kind: "attachment", partId: "part-1", state: "unavailable" });
     expect(read()?.contentState).toBe("attention");
     repository.putContent("a", gmail("one"), { kind: "attachment", partId: "part-1", state: "stored", reference });
+    expect(read()?.contentState).toBe("complete");
+    db.run("UPDATE mail_blob_objects SET state='staging' WHERE id='test-object'");
+    expect(read()?.contentState).toBe("attention");
+    db.run("UPDATE mail_blob_objects SET state='published',bytes=16 WHERE id='test-object'");
+    expect(read()?.contentState).toBe("attention");
+    db.run("UPDATE mail_blob_objects SET bytes=15 WHERE id='test-object'");
     expect(read()?.contentState).toBe("complete");
     repository.setAttachmentsEnumerated("a", gmail("one"), false);
     expect(read()?.contentState).toBe("downloading");
