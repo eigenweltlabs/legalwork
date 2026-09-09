@@ -43,6 +43,10 @@ asarUnpack:
   # outside the asar.
   - node_modules/.pnpm/sherpa-onnx*/**
   - node_modules/sherpa-onnx-node/**
+  # Mail's pinned Node-API addon resolves prebuilds relative to lib/binding.js.
+  # Keep the complete package together, in both pnpm and flattened layouts.
+  - node_modules/.pnpm/better-sqlite3-multiple-ciphers*/**
+  - node_modules/better-sqlite3-multiple-ciphers/**
 npmRebuild: false
 afterPack: scripts/electron-after-pack.cjs
 afterSign: scripts/electron-after-sign.cjs
