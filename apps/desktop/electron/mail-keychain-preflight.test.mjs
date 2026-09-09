@@ -16,7 +16,13 @@ test("embedded server keeps the OS home while child environment remains isolated
 
 test("missing or redirected macOS keychains fail before native vault access", async () => {
   let nativeCalls = 0;
-  const safeStorage = { isEncryptionAvailable() { nativeCalls++; return true; } };
+  /** @type {Pick<import("electron").SafeStorage, "isEncryptionAvailable"|"encryptString"|"decryptString"|"getSelectedStorageBackend">} */
+  const safeStorage = {
+    isEncryptionAvailable() { nativeCalls++; return true; },
+    encryptString() { nativeCalls++; return Buffer.alloc(0); },
+    decryptString() { nativeCalls++; return ""; },
+    getSelectedStorageBackend() { nativeCalls++; return "gnome_libsecret"; },
+  };
   for (const options of [
     { home: "/wrong", query: async () => { throw Error("must not query"); } },
     { home: "/real", query: async () => { throw Error("no default"); } },
