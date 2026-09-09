@@ -2,6 +2,8 @@ import { MailWorkerClient, type MailWorkerOptions } from "./runtime/client.js";
 import type { WorkerCommand, WorkerResult } from "./runtime/protocol.js";
 import { MailServiceError, type MailPageInput, type MailService, type MailServiceStatus } from "./service-interface.js";
 import type { MailOAuthSettings } from "./providers/oauth.js";
+import type { ProviderMessageLocator } from "./model.js";
+import type { MailMessagePageInput, MailPartPageInput, MailContentReadInput } from "./read-view.js";
 
 export type LocalMailServiceOptions = Pick<MailWorkerOptions, "executable" | "entryPoint"> & {
   databasePath: string;
@@ -121,6 +123,26 @@ export class LocalMailService implements MailService {
       ...(reconnectAccountId === undefined ? {} : { reconnectAccountId }) });
     if (!("connectionStarted" in result)) throw new MailServiceError("unavailable");
     return result.connectionStarted;
+  }
+  async listMessages(accountId: string, page: MailMessagePageInput) {
+    const result = await this.request({ operation: "mail.messages.list", accountId, page });
+    if (!("messages" in result)) throw new MailServiceError("unavailable");
+    return { items: result.messages.items, nextCursor: result.messages.nextCursor };
+  }
+  async readMessage(accountId: string, locator: ProviderMessageLocator) {
+    const result = await this.request({ operation: "mail.messages.read", accountId, locator });
+    if (!("message" in result)) throw new MailServiceError("unavailable");
+    return result.message;
+  }
+  async listParts(accountId: string, locator: ProviderMessageLocator, page: MailPartPageInput) {
+    const result = await this.request({ operation: "mail.parts.list", accountId, locator, page });
+    if (!("parts" in result)) throw new MailServiceError("unavailable");
+    return { items: result.parts.items, nextCursor: result.parts.nextCursor };
+  }
+  async readContent(accountId: string, locator: ProviderMessageLocator, request: MailContentReadInput) {
+    const result = await this.request({ operation: "mail.content.read", accountId, locator, request });
+    if (!("content" in result)) throw new MailServiceError("unavailable");
+    return result.content;
   }
   async connectionStatus(connectionId: string) {
     const result = await this.request({ operation: "mail.connection.poll", connectionId });
