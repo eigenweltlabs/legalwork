@@ -1,4 +1,5 @@
 import { createShutdownGuard } from "./shutdown-guard.mjs";
+import { createMailArtifacts } from "./mail-artifacts.mjs";
 import { execFileSync, spawn } from "node:child_process";
 import { boundedShutdown } from "./bounded-shutdown.mjs";
 import { createServer } from "node:http";
@@ -3028,6 +3029,24 @@ async function createMainWindow() {
   return mainWindow;
 }
 
+const mailArtifacts = createMailArtifacts({
+  connection: () => runtimeManager.legalworkServerInfo(), dialog, shell,
+  privateDirectory: async directory => {
+    if (process.platform !== "win32") return;
+    const dist = app.isPackaged ? path.join(process.resourcesPath, "app.asar/server/dist") : path.resolve(__dirname, "../../server/dist");
+    const { enforceMailWindowsAcl } = await import(pathToFileURL(path.join(dist, "mail/storage/windows-acl.js")).href);
+    await enforceMailWindowsAcl(directory, true);
+  },
+});
+ipcMain.handle("legalwork:mail:artifact", (event, value) => {
+  if (!mainWindow || event.sender !== mainWindow.webContents || event.senderFrame !== mainWindow.webContents.mainFrame || new URL(mainWindow.webContents.getURL()).hash !== "#/mail") throw new Error("Mail reader required");
+  return mailArtifacts.perform(value);
+});
+ipcMain.handle("legalwork:mail:artifact:cancel", event => {
+  if (!mainWindow || event.sender !== mainWindow.webContents || event.senderFrame !== mainWindow.webContents.mainFrame) throw new Error("Mail reader required");
+  mailArtifacts.cancel();
+});
+app.on("before-quit", () => { void mailArtifacts.close(); });
 ipcMain.handle("legalwork:desktop", handleDesktopInvoke);
 ipcMain.handle("legalwork:shell:openExternal", async (_event, url) => {
   if (typeof url === "string" && url.trim().length > 0) {

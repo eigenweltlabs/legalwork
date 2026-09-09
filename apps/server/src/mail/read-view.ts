@@ -7,11 +7,13 @@ const key = z.string().min(1).max(32768);
 const integer = z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER);
 export const mailMessagePageSchema = z.object({
   limit: z.number().int().min(1).max(100).default(50), after: key.optional(),
+  order: z.enum(["key", "received"]).default("key"), inboxOnly: z.boolean().default(false),
   folderId: id.optional(), threadId: id.optional(), includeRemoved: z.boolean().default(false),
 }).strict();
 export type MailMessagePageInput = z.input<typeof mailMessagePageSchema>;
 export const mailMessageViewSchema = z.object({
   accountId: id, key, locator: providerMessageLocatorSchema, subject: z.string(),
+  rawReferenceId: id.nullable().optional(), receivedAt: integer.nullable().optional(), isRead: z.boolean().nullable().optional(),
   threadId: id.nullable(), rfcMessageId: z.string().nullable(), removed: z.boolean(),
   memberships: z.array(id).max(10000),
   contentState: z.enum(["complete", "downloading", "attention"]),

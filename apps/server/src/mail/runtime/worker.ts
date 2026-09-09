@@ -197,7 +197,7 @@ async function request(message: Extract<ParentMessage, { kind: "request" }>): Pr
       case "mail.folders.list": {
         if (credentials.status(command.accountId).state === "disconnected") throw locked;
         const page = repository.listFoldersPage(command.accountId, { limit: command.limit, after: command.after });
-        result = pageResult(message.id, page.items.map((folder) => ({ id: folder.id, name: folder.name, kind: folder.kind, parentId: folder.parent_id })), page.hasMore, true);
+        result = pageResult(message.id, page.items.map((folder) => ({ id: folder.id, name: folder.name, kind: folder.kind, parentId: folder.parent_id, ...(folder.role ? {role: folder.role} : {}) })), page.hasMore, true);
         break;
       }
       case "mail.sync.provider":
@@ -233,7 +233,10 @@ async function request(message: Extract<ParentMessage, { kind: "request" }>): Pr
           const collection = "messages" in page ? page.messages : page.parts;
           const hadItems = collection.items.length > 0;
           while (collection.items.length && Buffer.byteLength(JSON.stringify({ kind: "response", id: message.id, ok: true, result: page })) > MAX_WORKER_MESSAGE_BYTES) {
-            collection.items.pop(); collection.nextCursor = collection.items.at(-1)?.key ?? null;
+            collection.items.pop();
+            if(command.operation === "mail.messages.list" && command.page.order === "received" && "messages" in page){
+              const last=page.messages.items.at(-1);page.messages.nextCursor=last?JSON.stringify([last.receivedAt??null,last.key]):null;
+            }else collection.nextCursor = collection.items.at(-1)?.key ?? null;
           }
           result = hadItems && collection.items.length === 0 ? undefined : page;
         }
