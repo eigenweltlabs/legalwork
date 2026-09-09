@@ -1,6 +1,7 @@
 import { MailWorkerClient, type MailWorkerOptions } from "./runtime/client.js";
 import type { WorkerCommand, WorkerResult } from "./runtime/protocol.js";
 import { MailServiceError, type MailPageInput, type MailService, type MailServiceStatus } from "./service-interface.js";
+import type { MailOAuthSettings } from "./providers/oauth.js";
 
 export type LocalMailServiceOptions = Pick<MailWorkerOptions, "executable" | "entryPoint"> & {
   databasePath: string;
@@ -8,11 +9,14 @@ export type LocalMailServiceOptions = Pick<MailWorkerOptions, "executable" | "en
   ownerId: string;
   /** Main process OS vault callback. Called only on unlock/restart, never startup. */
   loadKey: () => Promise<Uint8Array>;
+  /** Trusted main-process configuration; HTTP callers select only a provider. */
+  loadProviderSettings?: (provider: "gmail" | "graph") => Promise<MailOAuthSettings>;
 };
 function serviceError(error: unknown): MailServiceError {
   if (error instanceof MailServiceError) return error;
   if (error instanceof Error) {
     if (error.message === "mail_worker_not_found") return new MailServiceError("not_found");
+    if (error.message === "mail_worker_locked") return new MailServiceError("locked");
     if (error.message === "mail_worker_response_too_large") return new MailServiceError("too_large");
   }
   return new MailServiceError("unavailable");
@@ -23,10 +27,13 @@ export class LocalMailService implements MailService {
   private readonly worker: MailWorkerClient;
   private phase: "locked" | "unlocking" | "open" | "locking" = "locked";
   private stopped = false;
+  private epoch = 0;
   private opening?: Promise<void>;
   private closing?: Promise<void>;
+  private readonly loadProviderSettings?: LocalMailServiceOptions["loadProviderSettings"];
 
   constructor(options: LocalMailServiceOptions) {
+    this.loadProviderSettings = options.loadProviderSettings;
     this.worker = new MailWorkerClient({
       executable: options.executable, entryPoint: options.entryPoint,
       initialize: async () => {
@@ -51,6 +58,7 @@ export class LocalMailService implements MailService {
     if (this.opening) return this.opening;
     if (this.status().state === "ready") return Promise.resolve();
     // An explicit retry from unavailable first tears down any failed generation.
+    this.epoch++;
     this.phase = "unlocking";
     const attempt = (async () => {
       try {
@@ -71,6 +79,7 @@ export class LocalMailService implements MailService {
   }
   lock(): Promise<void> {
     if (this.closing) return this.closing;
+    this.epoch++;
     this.phase = "locking"; // Reject new operations before awaiting child cleanup.
     const opening = this.opening;
     const closing = (async () => {
@@ -97,6 +106,35 @@ export class LocalMailService implements MailService {
     const result = await this.request({ operation: "mail.folders.list", accountId, ...page });
     if (!("folders" in result)) throw new MailServiceError("unavailable");
     return { items: result.folders, nextCursor: result.nextCursor };
+  }
+  async beginConnection(provider: "gmail" | "graph", reconnectAccountId?: string) {
+    if (this.stopped || !this.loadProviderSettings) throw new MailServiceError("unavailable");
+    if (this.phase !== "open") throw new MailServiceError("locked");
+    const epoch = this.epoch;
+    let settings: MailOAuthSettings;
+    try { settings = await this.loadProviderSettings(provider); }
+    catch { throw new MailServiceError("unavailable"); }
+    if (epoch !== this.epoch) throw new MailServiceError("locked");
+    if (settings.provider !== provider) throw new MailServiceError("unavailable");
+    const result = await this.request({ operation: "mail.connection.begin", settings,
+      ...(reconnectAccountId === undefined ? {} : { reconnectAccountId }) });
+    if (!("connectionStarted" in result)) throw new MailServiceError("unavailable");
+    return result.connectionStarted;
+  }
+  async connectionStatus(connectionId: string) {
+    const result = await this.request({ operation: "mail.connection.poll", connectionId });
+    if (!("connection" in result)) throw new MailServiceError("unavailable");
+    return result.connection;
+  }
+  async cancelConnection(connectionId: string) {
+    const result = await this.request({ operation: "mail.connection.cancel", connectionId });
+    if (!("cancelled" in result)) throw new MailServiceError("unavailable");
+  }
+  async disconnectAccount(accountId: string) {
+    // Invalidate pending configuration loads before the worker advances its credential fence.
+    this.epoch++;
+    const result = await this.request({ operation: "mail.account.disconnect", accountId });
+    if (!("disconnected" in result)) throw new MailServiceError("unavailable");
   }
   stop(): Promise<void> {
     this.stopped = true;
