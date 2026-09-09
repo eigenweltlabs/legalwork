@@ -1,0 +1,23 @@
+name: legalwork-storage-fixtures
+services:
+  minio:
+    image: quay.io/minio/minio:RELEASE.2025-09-07T16-13-09Z
+    command: server /data --console-address :9001
+    environment:
+      MINIO_ROOT_USER: legalwork
+      MINIO_ROOT_PASSWORD: fixture-password
+    ports:
+      - "127.0.0.1:19290:9000"
+      - "127.0.0.1:19291:9001"
+  azurite:
+    image: mcr.microsoft.com/azure-storage/azurite:3.35.0
+    command: azurite-blob --blobHost 0.0.0.0 --location /data
+    environment:
+      AZURITE_ACCOUNTS: "legalwork:BwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwc="
+    ports:
+      - "127.0.0.1:19000:10000"
+  gcs:
+    image: fsouza/fake-gcs-server:1.56.1
+    command: -scheme http -port 4443 -external-url http://127.0.0.1:19444 -backend memory
+    ports:
+      - "127.0.0.1:19444:4443"

@@ -35,7 +35,7 @@ nothing. Details: [TERMS.md](./TERMS.md) and the
 
 ## Develop
 
-Requirements: Node.js + `pnpm@10.27.0`, **Bun 1.3.9+**, the Rust toolchain (Tauri), and the `opencode` CLI on PATH. macOS needs Xcode Command Line Tools; Linux needs the WebKitGTK 4.1 dev packages.
+Requirements: Node.js + `pnpm@10.27.0`, **Bun 1.4.2+**, the Rust toolchain (Tauri), and the `opencode` CLI on PATH. macOS needs Xcode Command Line Tools; Linux needs the WebKitGTK 4.1 dev packages.
 
 ```bash
 pnpm install

@@ -1,0 +1,103 @@
+import { Cloud, Database, FolderOpen, Globe, HardDrive, KeyRound, Network } from "lucide-react";
+import type { StorageKind, StorageSecretKey } from "@legalwork/types/file-storage";
+import { t } from "@/i18n";
+
+export const STORAGE_CHANGED_EVENT = "legalwork:file-storage-changed";
+export const storageKinds: StorageKind[] = ["local", "webdav", "s3", "azure", "gcs", "sftp", "ftp"];
+export const storageIcons = {
+  local: FolderOpen,
+  webdav: Globe,
+  s3: Database,
+  azure: Cloud,
+  gcs: HardDrive,
+  sftp: KeyRound,
+  ftp: Network,
+};
+export const storageLabel = (kind: StorageKind) => t(`storage.provider_${kind}`);
+export const storageDescription = (kind: StorageKind) => t(`storage.description_${kind}`);
+
+type ConfigField = { key: string; label: string; placeholder?: string; optional?: boolean; type?: "number" | "url" };
+type SecretField = { key: StorageSecretKey; label: string; multiline?: boolean };
+const field = (key: string, placeholder?: string, optional = false, type?: "number" | "url"): ConfigField => ({
+  key,
+  label: t(`storage.field_${key}`),
+  placeholder,
+  optional,
+  type,
+});
+export function storageFields(kind: StorageKind): ConfigField[] {
+  switch (kind) {
+    case "local":
+      return [field("rootPath", "/Volumes/Firm documents")];
+    case "webdav":
+      return [
+        field("endpoint", "https://files.example.com/remote.php/dav/files/user/", false, "url"),
+        field("username", undefined, true),
+      ];
+    case "s3":
+      return [
+        field("bucket", "firm-documents"),
+        field("region", "eu-central-1"),
+        field("endpoint", "https://s3.example.com", true, "url"),
+        field("prefix", "matters", true),
+        field("accessKeyId", undefined, true),
+      ];
+    case "azure":
+      return [
+        field("accountName", "firmstorage"),
+        field("container", "documents"),
+        field("prefix", "matters", true),
+        field("endpoint", "https://firmstorage.blob.core.windows.net", true, "url"),
+      ];
+    case "gcs":
+      return [
+        field("bucket", "firm-documents"),
+        field("projectId", "firm-project", true),
+        field("prefix", "matters", true),
+        field("endpoint", undefined, true, "url"),
+      ];
+    case "sftp":
+      return [
+        field("host", "files.example.com"),
+        field("port", "22", false, "number"),
+        field("username"),
+        field("rootPath", "/documents"),
+        field("hostFingerprint", "SHA256:…"),
+      ];
+    case "ftp":
+      return [
+        field("host", "files.example.com"),
+        field("port", "21", false, "number"),
+        field("username"),
+        field("rootPath", "/documents"),
+      ];
+  }
+}
+export function storageSecretFields(kind: StorageKind): SecretField[] {
+  const secret = (key: StorageSecretKey, multiline = false): SecretField => ({
+    key,
+    label: t(`storage.field_${key}`),
+    multiline,
+  });
+  switch (kind) {
+    case "local":
+      return [];
+    case "webdav":
+    case "ftp":
+      return [secret("password")];
+    case "sftp":
+      return [secret("password"), secret("privateKey", true), secret("passphrase")];
+    case "s3":
+      return [secret("secretAccessKey"), secret("sessionToken")];
+    case "azure":
+      return [secret("accountKey"), secret("sasToken")];
+    case "gcs":
+      return [secret("serviceAccount", true)];
+  }
+}
+export function storageDefaults(kind: StorageKind): Record<string, string> {
+  if (kind === "s3") return { region: "eu-central-1" };
+  if (kind === "sftp") return { port: "22", rootPath: "/" };
+  if (kind === "ftp") return { port: "21", rootPath: "/", security: "tls" };
+  return {};
+}

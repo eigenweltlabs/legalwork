@@ -1,7 +1,9 @@
 /** @jsxImportSource react */
+import { StorageDriveTree } from "./storage-drive-tree";
+import { STORAGE_CHANGED_EVENT } from "../../settings/pages/storage-providers";
 import { MemoryDriveIcon } from "./memory-drive-icon";
 import * as React from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { AlertCircle, ChevronRight, HardDrive, Loader2, RotateCw, Search, X } from "lucide-react";
 
@@ -61,6 +63,8 @@ export function LegalMemoryFilesPanel({
   onConnectLegalMemory,
   onClose,
 }: LegalMemoryFilesPanelProps) {
+  const storageQueryClient = useQueryClient();
+  const [storageRevision, setStorageRevision] = React.useState(0);
   const [openFolders, setOpenFolders] = React.useState<Set<string>>(new Set());
   const [folders, setFolders] = React.useState<Map<string, FolderState>>(new Map());
   const [query, setQuery] = React.useState("");
@@ -87,6 +91,21 @@ export function LegalMemoryFilesPanel({
     return () => window.removeEventListener(LEGALMEMORY_CONNECTION_CHANGED_EVENT, resetDisconnectedTree);
   }, []);
 
+  const storageRoots = useQuery({
+    queryKey: ["storage-roots", workspaceId],
+    queryFn: () => client!.storageRoots(workspaceId!),
+    enabled: Boolean(client && workspaceId),
+    staleTime: 30_000,
+    refetchOnWindowFocus: false,
+    retry: false,
+  });
+  React.useEffect(() => {
+    const refreshStorage = () => { setStorageRevision((value) => value + 1); void storageRoots.refetch(); };
+    window.addEventListener(STORAGE_CHANGED_EVENT, refreshStorage);
+    return () => window.removeEventListener(STORAGE_CHANGED_EVENT, refreshStorage);
+  }, [storageRoots.refetch]);
+  const hasStorage = Boolean(storageRoots.data?.roots.length);
+
   const rootsQuery = useQuery({
     queryKey: ["legalmemory-tree-roots", workspaceId] as const,
     queryFn: async () => {
@@ -96,6 +115,7 @@ export function LegalMemoryFilesPanel({
     enabled: Boolean(client && workspaceId),
     staleTime: 30_000,
     refetchOnWindowFocus: false,
+    retry: (count, error) => !(error instanceof LegalworkServerError && error.code === "legalmemory_not_configured") && count < 2,
   });
 
   React.useEffect(() => {
@@ -268,9 +288,12 @@ export function LegalMemoryFilesPanel({
   const refresh = React.useCallback(() => {
     setOpenFolders(new Set());
     setFolders(new Map());
+    setStorageRevision((value) => value + 1);
+    void storageQueryClient.invalidateQueries({ queryKey: ["storage-children", workspaceId] });
+    void storageRoots.refetch();
     void rootsQuery.refetch();
     if (searchQuery) void search.refetch();
-  }, [rootsQuery, search, searchQuery]);
+  }, [rootsQuery, search, searchQuery, storageRoots, storageQueryClient, workspaceId]);
 
   const roots = rootsQuery.data?.roots ?? [];
   const totalFiles = roots.reduce((sum, root) => sum + root.files, 0);
@@ -283,7 +306,7 @@ export function LegalMemoryFilesPanel({
   return (
     <TooltipProvider delay={800}>
       <aside aria-label={t("sidebar.memory_drive")} className="flex h-full w-full min-w-0 flex-col bg-background/90 backdrop-blur-xl">
-        <PanelHeader title={t("sidebar.memory_drive")} icon={<MemoryDriveIcon />} meta={rootsQuery.data && totalsKnown ? totalFiles.toLocaleString() : undefined}>
+        <PanelHeader title={t("sidebar.memory_drive")} icon={<MemoryDriveIcon />} meta={!hasStorage && rootsQuery.data && totalsKnown ? totalFiles.toLocaleString() : undefined}>
           <Tooltip>
             <TooltipTrigger render={<Button variant="ghost" size="icon-sm" onClick={refresh} aria-label={t("legalmemory.refresh_drive")} />}>
               <RotateCw className={cn("size-3.5", (rootsQuery.isFetching || search.isFetching) && "animate-spin")} />
@@ -321,7 +344,15 @@ export function LegalMemoryFilesPanel({
           </div>
         </div> : null}
 
-        {notConfigured ? (
+        {client && workspaceId && hasStorage ? (
+          <div className={cn("min-h-0 overflow-y-auto", rootsQuery.data?.roots.length ? "max-h-[60%] shrink-0 border-b border-border/50" : "flex-1")}>
+            <StorageDriveTree key={workspaceId} client={client} workspaceId={workspaceId} roots={storageRoots.data!.roots} refreshKey={storageRevision} />
+          </div>
+        ) : null}
+        {storageRoots.isError ? <div role="alert" className="px-4 py-2 text-xs text-destructive">{storageRoots.error.message}<Button variant="ghost" size="sm" onClick={() => void storageRoots.refetch()}>{t("storage.retry")}</Button></div> : null}
+        {storageRoots.isLoading && !hasStorage ? <div className="flex items-center gap-2 px-4 py-2 text-xs text-muted-foreground"><Loader2 className="size-3 animate-spin" />{t("storage.loading")}</div> : null}
+
+        {notConfigured && hasStorage ? null : notConfigured ? (
           <PanelEmptyState icon={<HardDrive />} title={t("legalmemory.connect_title")} description={t("legalmemory.intro")}>
             {onConnectLegalMemory ? (
               <Button variant="outline" size="sm" onClick={onConnectLegalMemory}>{t("legalmemory.open_integrations")}</Button>
@@ -336,11 +367,11 @@ export function LegalMemoryFilesPanel({
               </div>
             ))}
           </div>
-        ) : initialError ? (
+        ) : initialError && hasStorage ? <p role="alert" className="px-4 py-2 text-xs text-destructive">{rootsQuery.error instanceof Error ? rootsQuery.error.message : t("legalmemory.load_failed")}</p> : initialError ? (
           <PanelEmptyState icon={<AlertCircle />} title={t("legalmemory.unable_to_open")} description={rootsQuery.error instanceof Error ? rootsQuery.error.message : t("legalmemory.load_failed")}>
             <Button variant="outline" size="sm" onClick={() => void rootsQuery.refetch()}>{t("legalmemory.try_again")}</Button>
           </PanelEmptyState>
-        ) : roots.length === 0 && !searchQuery ? (
+        ) : roots.length === 0 && !searchQuery && hasStorage ? null : roots.length === 0 && !searchQuery ? (
           <PanelEmptyState icon={<FolderIcon open />} title={t("legalmemory.empty_title")} description={t("legalmemory.empty_body")} />
         ) : (
           <div ref={scrollRef} className="min-h-0 flex-1 overflow-auto px-2 py-2">

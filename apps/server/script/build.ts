@@ -92,7 +92,8 @@ async function buildOnce(entrypoint: string, outdir: string, filename: string, t
   mkdirSync(outdir, { recursive: true });
   const outfile = join(outdir, outputName(filename, target));
 
-  const args = ["build", entrypoint, "--compile", "--outfile", outfile];
+  // ssh2 falls back to pure JS when its optional native CPU detector is absent.
+  const args = ["build", entrypoint, "--compile", "--external", "cpu-features", "--outfile", outfile];
   if (target) {
     args.push("--target", target);
   }

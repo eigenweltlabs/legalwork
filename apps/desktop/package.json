@@ -26,10 +26,14 @@
     "office:sideload": "node ./scripts/office-addin-sideload.mjs"
   },
   "dependencies": {
+    "@aws-sdk/client-s3": "^3.1127.0",
+    "@azure/storage-blob": "^12.33.0",
+    "@google-cloud/storage": "^8.0.1",
     "@opencode-ai/sdk": "^1.18.29",
     "@peculiar/asn1-schema": "^2.8.0",
     "@peculiar/asn1-x509": "^2.8.0",
     "@peculiar/x509": "^2.0.0",
+    "basic-ftp": "^6.2.1",
     "better-sqlite3": "^11.10.0",
     "drizzle-orm": "^0.45.1",
     "electron-updater": "^6.3.9",
@@ -40,6 +44,8 @@
     "openai": "^7.8.0",
     "reflect-metadata": "^0.2.2",
     "sherpa-onnx-node": "1.13.3",
+    "ssh2-sftp-client": "^12.1.1",
+    "webdav": "^5.10.0",
     "yaml": "^2.6.1",
     "zod": "^4.3.6"
   },
