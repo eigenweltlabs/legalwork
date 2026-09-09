@@ -48,8 +48,11 @@ export function McpAuthModal(props: McpAuthModalProps) {
   const latest = useRef(props);
   latest.current = props;
   const [state, setState] = useState<McpOAuthState>({ phase: "idle" });
-  const [preparation, setPreparation] = useState("Preparing sign-in…");
+  const [preparation, setPreparation] = useState(() => t("mcp.auth.preparing_sign_in"));
   const [needsReload, setNeedsReload] = useState(false);
+  // Set where we detect it, so classification never depends on the
+  // message language.
+  const [needsCredentials, setNeedsCredentials] = useState(false);
   const [waitingForSessions, setWaitingForSessions] = useState(false);
   const [callbackInput, setCallbackInput] = useState("");
   const [copied, setCopied] = useState(false);
@@ -64,20 +67,22 @@ export function McpAuthModal(props: McpAuthModalProps) {
       // Popup blockers often reject an async open. A direct user-activated link
       // remains visible in every waiting state, including browser-only clients.
       const popup = window.open(url, "_blank");
-      if (!popup) throw new Error("Browser popup was blocked.");
+      if (!popup) throw new Error(t("mcp.auth.popup_blocked"));
       popup.opener = null;
     },
     prepare: async (signal): Promise<McpOAuthDriver> => {
       const entry = latest.current.entry;
       const initialClient = latest.current.client;
-      if (!entry || !initialClient) throw new Error("Choose a workspace before signing in.");
+      if (!entry || !initialClient) throw new Error(t("mcp.auth.choose_workspace"));
       let client: Client = initialClient;
       setNeedsReload(false);
+      setNeedsCredentials(false);
       setWaitingForSessions(false);
-      setPreparation("Preparing sign-in…");
+      setPreparation(t("mcp.auth.preparing_sign_in"));
       const name = resolveMcpSignInName(entry);
       if (entry.requiresOauthClient && (!entry.oauthConfig?.clientId || (!entry.oauthClientIdOnly && !entry.oauthConfig.clientSecret))) {
-        throw new Error("This provider requires your firm's registered app credentials. Open connection setup to enter them.");
+        setNeedsCredentials(true);
+        throw new Error(t("mcp.auth.client_registration_required"));
       }
       let directory = normalizeDirectoryPath(latest.current.projectDir).replace(/^\/private\/tmp(?=\/|$)/, "/tmp");
       if (!directory) directory = unwrap(await client.path.get()).directory;
@@ -152,17 +157,17 @@ export function McpAuthModal(props: McpAuthModalProps) {
             await reload();
             try { await listen(); } catch (retryError) {
               signal.throwIfAborted();
-              notice = `Automatic return is unavailable. ${getMcpOAuthErrorMessage(retryError)} Paste the callback URL below after authorizing.`;
+              notice = t("mcp.auth.automatic_return_unavailable", { message: getMcpOAuthErrorMessage(retryError) });
             }
           } else {
-            notice = `Automatic return is unavailable. ${getMcpOAuthErrorMessage(error)} Paste the callback URL below after authorizing.`;
+            notice = t("mcp.auth.automatic_return_unavailable", { message: getMcpOAuthErrorMessage(error) });
           }
         }
       } else {
-        notice = "After authorizing, your browser may show a callback error page. Copy that page's full address and paste it below to finish connecting.";
+        notice = t("mcp.auth.callback_error_notice");
       }
       signal.throwIfAborted();
-      setPreparation("Requesting the provider’s sign-in link…");
+      setPreparation(t("mcp.auth.requesting_link"));
       const authClient = client;
       const activeListenerId = listenerId;
       return {
@@ -245,7 +250,8 @@ export function McpAuthModal(props: McpAuthModalProps) {
   };
 
   const errorKind = classifyMcpOAuthError(state.error);
-  const needsSetup = errorKind === "client_registration_required" || errorKind === "invalid_client";
+  const needsSetup =
+    needsCredentials || errorKind === "client_registration_required" || errorKind === "invalid_client";
   const busy = state.phase === "preparing" || state.phase === "completing";
   const waiting = state.phase === "waiting";
   const serverName = props.entry?.name ?? "MCP Server";
@@ -255,13 +261,13 @@ export function McpAuthModal(props: McpAuthModalProps) {
       <DialogContent className="flex max-h-[90vh] min-h-0 w-full max-w-lg flex-col overflow-hidden sm:max-w-lg">
         <DialogHeader>
           <DialogTitle>{t("mcp.auth.connect_server", { server: serverName })}</DialogTitle>
-          <DialogDescription>Authorize access in your browser, then return here to finish connecting.</DialogDescription>
+          <DialogDescription>{t("mcp.auth.modal_description")}</DialogDescription>
         </DialogHeader>
         <div className="min-h-0 flex-1 space-y-4 overflow-y-auto">
           {busy ? (
             <div className="space-y-3 rounded-[20px] border border-dls-border bg-dls-hover px-5 py-6 text-center" role="status">
               <Loader2 size={28} className="mx-auto animate-spin text-dls-accent" />
-              <p className="text-sm font-medium">{state.phase === "completing" ? "Finishing authorization…" : preparation}</p>
+              <p className="text-sm font-medium">{state.phase === "completing" ? t("mcp.auth.finishing") : preparation}</p>
               {waitingForSessions ? (
                 <div className="space-y-2 text-left">
                   <p className="text-xs text-dls-secondary">{t("mcp.auth.reload_blocked")}</p>
@@ -280,7 +286,7 @@ export function McpAuthModal(props: McpAuthModalProps) {
           {state.phase === "success" ? (
             <div className="flex items-center gap-3 rounded-[20px] border border-emerald-7/20 bg-emerald-3/20 p-5" role="status">
               <CheckCircle2 className="text-emerald-11" />
-              <div><p className="text-sm font-medium">Connected</p><p className="text-xs text-dls-secondary">{serverName} authorized access successfully.</p></div>
+              <div><p className="text-sm font-medium">{t("mcp.auth.connected_title")}</p><p className="text-xs text-dls-secondary">{t("mcp.auth.connected_body", { server: serverName })}</p></div>
             </div>
           ) : null}
           {state.error || actionError ? (
@@ -288,8 +294,8 @@ export function McpAuthModal(props: McpAuthModalProps) {
               <p className="whitespace-pre-wrap text-sm text-red-11">{actionError ?? state.error}</p>
               {needsSetup ? (
                 <>
-                  <p className="text-xs text-dls-secondary">{props.entry?.setupNote ?? "Check your provider's registered app credentials and allowed redirect URL in connection setup."}</p>
-                  {props.onConfigure ? <Button onClick={configure}>Connection setup</Button> : null}
+                  <p className="text-xs text-dls-secondary">{props.entry?.setupNote ?? t("mcp.auth.setup_hint")}</p>
+                  {props.onConfigure ? <Button onClick={configure}>{t("mcp.auth.connection_setup")}</Button> : null}
                 </>
               ) : state.phase === "error" ? (
                 needsReload && props.onReloadEngine ? (
@@ -297,23 +303,23 @@ export function McpAuthModal(props: McpAuthModalProps) {
                     <RefreshCcw size={14} />{t("mcp.auth.reload_engine_retry")}
                   </Button>
                 ) : <Button variant="outline" onClick={retry}>{t("mcp.auth.retry")}</Button>
-              ) : waiting ? <Button variant="outline" onClick={() => { flow.cancel(); retry(); }}>Start new sign-in</Button> : null}
+              ) : waiting ? <Button variant="outline" onClick={() => { flow.cancel(); retry(); }}>{t("mcp.auth.start_new_sign_in")}</Button> : null}
             </div>
           ) : null}
           {waiting && state.authorizationUrl ? (
             <div className="space-y-4 rounded-[20px] border border-dls-border bg-dls-hover p-4">
               <p className="text-sm font-medium">{t("mcp.auth.waiting_authorization")}</p>
-              <p className="text-xs text-dls-secondary">{state.notice ?? "Approve access in your browser. This window will update when authorization finishes."}</p>
+              <p className="text-xs text-dls-secondary">{state.notice ?? t("mcp.auth.approve_in_browser")}</p>
               <div className="flex flex-wrap gap-2">
-                <Button variant="outline" onClick={() => void flow.reopen()}>Open sign-in page</Button>
+                <Button variant="outline" onClick={() => void flow.reopen()}>{t("mcp.auth.open_sign_in_page")}</Button>
                 <Button variant="outline" onClick={() => {
-                  void navigator.clipboard.writeText(state.authorizationUrl ?? "").then(() => setCopied(true), () => setActionError("Could not copy the link. Use Open sign-in page."));
+                  void navigator.clipboard.writeText(state.authorizationUrl ?? "").then(() => setCopied(true), () => setActionError(t("mcp.auth.copy_failed")));
                 }}>{copied ? t("mcp.auth.copied") : t("mcp.auth.copy_link")}</Button>
               </div>
               <details open={Boolean(state.notice)}>
-                <summary className="cursor-pointer text-xs font-medium">Finish with a callback URL</summary>
+                <summary className="cursor-pointer text-xs font-medium">{t("mcp.auth.finish_with_callback")}</summary>
                 <div className="mt-3 space-y-3">
-                  <p className="text-xs text-dls-secondary">If you are not returned automatically, paste the final browser address here. It can still be used if the callback page shows an error.</p>
+                  <p className="text-xs text-dls-secondary">{t("mcp.auth.callback_help")}</p>
                   <TextInput label={t("mcp.auth.callback_label")} placeholder={t("mcp.auth.callback_placeholder")} value={callbackInput} onChange={(event) => setCallbackInput(event.currentTarget.value)} />
                   <Button onClick={() => void flow.submit(callbackInput)} disabled={!callbackInput.trim()}>{t("mcp.auth.complete_connection")}</Button>
                 </div>

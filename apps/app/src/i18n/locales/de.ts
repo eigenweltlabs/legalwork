@@ -127,8 +127,8 @@ const de = {
   "benchmark.tasks_count": "{count} Aufgaben",
   "benchmark.criteria_meta": "{count} Kriterien",
   "benchmark.deliverables_meta": "{count} Ergebnisdateien",
-  "benchmark.onboarding_eyebrow": "Benchmark",
-  "benchmark.onboarding_headline": "Testen Sie Ihre Modelle an juristischer Arbeit",
+  "benchmark.onboarding_eyebrow": "Evals",
+  "benchmark.onboarding_headline": "Bewerten Sie Ihre Modelle an juristischer Arbeit",
   "benchmark.onboarding_intro":
     "Vergleichen Sie, wie Ihre verbundenen KI-Modelle bei realistischen juristischen Aufgaben abschneiden, Kriterium für Kriterium von einem Judge-Modell bewertet.",
   "benchmark.onboarding_step1_title": "Aufgaben hinzufügen",
@@ -174,7 +174,7 @@ const de = {
   "benchmark.new_task": "Neue Aufgabe",
   "benchmark.no_session": "Für dieses Element wurde keine Agenten-Session aufgezeichnet.",
   "benchmark.select_all": "Alle auswählen",
-  "benchmark.tab_runs": "Benchmark-Läufe",
+  "benchmark.tab_runs": "Eval-Läufe",
   "benchmark.tab_tasks": "Aufgaben",
   "benchmark.tab_models": "Ihr Leaderboard",
   "benchmark.column_model": "Modell",
@@ -183,7 +183,7 @@ const de = {
   "benchmark.clear_filter": "Zurücksetzen",
   "benchmark.analytics_empty": "Noch keine Ergebnisse",
   "benchmark.analytics_empty_hint":
-    "Starten Sie einen Benchmark, um die Modellleistung \u00fcber Aufgaben und Rechtsgebiete hinweg zu vergleichen.",
+    "Starten Sie ein Eval, um die Modellleistung über Aufgaben und Rechtsgebiete hinweg zu vergleichen.",
   "benchmark.back_to_runs": "Alle Läufe",
   "benchmark.catalog_hydrating": "Aufgabendetails werden geladen… {hydrated} von {total}",
   "benchmark.custom_badge": "Eigene",
@@ -197,12 +197,12 @@ const de = {
   "benchmark.edit_documents_kept":
     "{count} Eingabedokument(e) angehängt. Sie bleiben beim Speichern unverändert.",
   "benchmark.empty_runs":
-    "Noch keine Benchmark-Läufe. Legen Sie einen an, um Ihre verbundenen Modelle an juristischen Aufgaben zu vergleichen.",
-  "benchmark.error_create_run": "Der Benchmark konnte nicht gestartet werden: {message}",
+    "Noch keine Eval-Läufe. Legen Sie einen an, um Ihre verbundenen Modelle an juristischen Aufgaben zu vergleichen.",
+  "benchmark.error_create_run": "Das Eval konnte nicht gestartet werden: {message}",
   "benchmark.evaluations": "{count} Bewertungen",
   "benchmark.large_run_warning": "{count} Bewertungen laufen lokal und können dauern.",
   "benchmark.error_load_catalog": "Der Aufgabenkatalog konnte nicht geladen werden: {message}",
-  "benchmark.error_load_runs": "Die Benchmark-Läufe konnten nicht geladen werden: {message}",
+  "benchmark.error_load_runs": "Die Eval-Läufe konnten nicht geladen werden: {message}",
   "benchmark.filter_vertical": "Rechtsgebiet",
   "benchmark.filter_work_type": "Aufgabentyp",
   "benchmark.form_add_criterion": "Kriterium hinzufügen",
@@ -222,17 +222,18 @@ const de = {
   "benchmark.judge_hint":
     "Das Judge-Modell bewertet jedes Arbeitsergebnis anhand der Pass/Fail-Kriterien der Aufgabe.",
   "benchmark.judge_title": "Judge-Modell",
-  "benchmark.models_title": "Zu testende Modelle",
-  "benchmark.new_run": "Neuer Benchmark",
-  "benchmark.no_models_connected": "Verbinden Sie zuerst einen KI-Anbieter, um Benchmarks auszuf\u00fchren.",
+  "benchmark.models_title": "Zu bewertende Modelle",
+  "benchmark.new_run": "Neues Eval",
+  "benchmark.no_models_connected": "Verbinden Sie zuerst einen KI-Anbieter, um Evals auszuführen.",
   "benchmark.progress": "{done} von {total} Bewertungen",
   "benchmark.resume": "Lauf fortsetzen",
   "benchmark.run_meta": "{models} Modelle · {tasks} Aufgaben",
+  "benchmark.run_meta_arms": "{arms} Arme",
   "benchmark.run_name_label": "Name des Laufs",
   "benchmark.search_tasks": "Aufgaben durchsuchen…",
   "benchmark.select_models": "Modelle auswählen…",
   "benchmark.selected_count": "{count} ausgewählt",
-  "benchmark.start_run": "Benchmark starten",
+  "benchmark.start_run": "Eval starten",
   "benchmark.starting": "Wird gestartet…",
   "benchmark.status_aborted": "Abgebrochen",
   "benchmark.status_aborting": "Wird abgebrochen",
@@ -245,7 +246,11 @@ const de = {
   "benchmark.step_review": "Überprüfen",
   "benchmark.step_tasks": "Aufgaben",
   "benchmark.transcript_readonly":
-    "Schreibgeschützte Benchmark-Session: Der Agent hat diese Aufgabe autonom bearbeitet.",
+    "Schreibgeschützte Eval-Session: Der Agent hat diese Aufgabe autonom bearbeitet.",
+  "evals.details": "Details",
+  "evals.run": "Lauf",
+  "evals.runs": "Läufe",
+  "evals.tasks": "Aufgaben",
   "benchmark.verdict_error": "Judge-Fehler",
   "benchmark.verdict_fail": "Nicht bestanden",
   "benchmark.verdict_pass": "Bestanden",
@@ -299,6 +304,7 @@ const de = {
   "common.cancel": "Abbrechen",
   "common.back": "Zurück",
   "common.close": "Schließen",
+  "common.copy": "Kopieren",
   "common.default_parens": "(Standard)",
   "common.edit": "Bearbeiten",
   "common.hide": "Ausblenden",
@@ -768,84 +774,82 @@ const de = {
   "mcp.apps_connected": "Apps verbunden",
   "mcp.apps_subtitle": "Verbinden Sie Ihre bevorzugten Werkzeuge, damit LegalWork sie für Sie nutzen kann.",
   "mcp.apps_title": "Apps",
-  "mcp.auth.already_connected": "Bereits verbunden",
-  "mcp.auth.already_connected_description": "{server} ist bereits authentifiziert und einsatzbereit.",
-  "mcp.auth.applying_changes_body":
-    "Der Worker wird neu gestartet, damit das neue MCP zur Anmeldung bereit ist.",
   "mcp.auth.applying_changes_title": "Änderungen werden vor der Anmeldung übernommen",
+  "mcp.auth.approve_in_browser":
+    "Bestätigen Sie den Zugriff in Ihrem Browser. Dieses Fenster aktualisiert sich, sobald die Autorisierung abgeschlossen ist.",
+  "mcp.auth.authorization_declined":
+    "Die Autorisierung wurde abgelehnt. Versuchen Sie es erneut, sobald Sie sich anmelden möchten.",
   "mcp.auth.authorization_link": "Autorisierungslink",
-  "mcp.auth.authorization_still_required":
-    "Es ist weiterhin eine Autorisierung erforderlich. Versuchen Sie es erneut, um den Ablauf neu zu starten.",
-  "mcp.auth.callback_invalid":
-    "Fügen Sie die Callback-URL oder den Parameter „code“ ein, um OAuth abzuschließen.",
+  "mcp.auth.automatic_return_unavailable":
+    "Die automatische Rückleitung ist nicht verfügbar. {message} Fügen Sie nach der Autorisierung unten die Callback-URL ein.",
+  "mcp.auth.browser_open_failed":
+    "Ihr Browser konnte nicht geöffnet werden. Kopieren Sie den Autorisierungslink und öffnen Sie ihn in Ihrem Browser.",
+  "mcp.auth.browser_open_failed_notice":
+    "Ihr Browser konnte nicht automatisch geöffnet werden. Öffnen oder kopieren Sie den Autorisierungslink unten.",
+  "mcp.auth.callback_error_notice":
+    "Nach der Autorisierung zeigt Ihr Browser möglicherweise eine Callback-Fehlerseite. Kopieren Sie deren vollständige Adresse und fügen Sie sie unten ein, um die Verbindung abzuschließen.",
+  "mcp.auth.callback_help":
+    "Wenn Sie nicht automatisch zurückgeleitet werden, fügen Sie hier die endgültige Browser-Adresse ein. Sie funktioniert auch, wenn die Callback-Seite einen Fehler anzeigt.",
+  "mcp.auth.callback_incomplete":
+    "Fügen Sie die vollständige Callback-URL oder nur den Autorisierungscode ein.",
+  "mcp.auth.callback_invalid": "Fügen Sie die Callback-URL oder den Autorisierungscode ein.",
   "mcp.auth.callback_label": "Callback-URL oder Code",
+  "mcp.auth.callback_missing_code": "Die Callback-URL enthält keinen Autorisierungscode.",
   "mcp.auth.callback_placeholder": "http://127.0.0.1:19876/mcp/oauth/callback?code=…",
+  "mcp.auth.callback_state_mismatch":
+    "Dieser Callback gehört zu einem anderen Anmeldeversuch. Verwenden Sie den aktuellen Browser-Link.",
+  "mcp.auth.callback_wrong_redirect": "Das ist nicht die Callback-URL für diese Verbindung.",
   "mcp.auth.cancel": "Abbrechen",
+  "mcp.auth.choose_workspace": "Wählen Sie vor der Anmeldung einen Workspace.",
   "mcp.auth.client_registration_required":
-    "Vor dem Fortfahren mit OAuth ist eine Client-Registrierung erforderlich.",
+    "Dieser Anbieter erfordert die registrierten App-Zugangsdaten Ihrer Kanzlei. Öffnen Sie die Verbindungseinrichtung, um sie einzutragen.",
   "mcp.auth.complete_connection": "Verbindung abschließen",
-  "mcp.auth.configured_previously":
-    "Das MCP wurde möglicherweise global oder in einer früheren Session konfiguriert. Sie können dieses Fenster schließen und die MCP-Tools sofort verwenden.",
   "mcp.auth.connect_server": "{server} verbinden",
+  "mcp.auth.connected_body": "{server} hat den Zugriff erfolgreich autorisiert.",
+  "mcp.auth.connected_title": "Verbunden",
+  "mcp.auth.connection_setup": "Verbindungseinrichtung",
   "mcp.auth.copied": "Kopiert",
+  "mcp.auth.copy_failed": "Der Link konnte nicht kopiert werden. Verwenden Sie „Anmeldeseite öffnen“.",
   "mcp.auth.copy_link": "Link kopieren",
+  "mcp.auth.could_not_finish": "Die Anmeldung konnte nicht abgeschlossen werden.",
   "mcp.auth.done": "Fertig",
-  "mcp.auth.failed_to_start_oauth": "Der OAuth-Ablauf konnte nicht gestartet werden",
-  "mcp.auth.follow_browser_steps": "Folgen Sie den Autorisierungsschritten im Browser.",
+  "mcp.auth.finish_with_callback": "Mit einer Callback-URL abschließen",
+  "mcp.auth.finishing": "Autorisierung wird abgeschlossen…",
   "mcp.auth.force_stop": "Erzwungen stoppen",
   "mcp.auth.force_stopping": "Wird gestoppt…",
-  "mcp.auth.im_done": "Ich bin fertig",
-  "mcp.auth.invalid_refresh_token":
-    "Der OAuth-Refresh-Token ist ungültig oder abgelaufen. Autorisieren Sie erneut, um fortzufahren.",
-  "mcp.auth.manual_finish_hint":
-    "Fügen Sie die Callback-URL (localhost:19876) oder nur den Code ein, um die Verbindung abzuschließen.",
-  "mcp.auth.manual_finish_title": "Remote-Server?",
-  "mcp.auth.oauth_completed_reload":
-    "OAuth abgeschlossen. Laden Sie die Engine neu, um das MCP zu aktivieren.",
+  "mcp.auth.invalid_authorization_link": "Der Server hat einen ungültigen Autorisierungslink zurückgegeben.",
+  "mcp.auth.missing_oauth_state":
+    "Im Autorisierungslink des Servers fehlt der OAuth-State. Die Anmeldung kann nicht fortgesetzt werden.",
+  "mcp.auth.modal_description":
+    "Autorisieren Sie den Zugriff in Ihrem Browser und kehren Sie dann hierher zurück, um die Verbindung abzuschließen.",
+  "mcp.auth.no_authorization_link":
+    "Der Server hat keinen Autorisierungslink bereitgestellt. Die Anmeldung wurde nicht abgeschlossen. Prüfen Sie die Authentifizierungseinrichtung dieses Connectors.",
   "mcp.auth.oauth_failed": "Die OAuth-Authentifizierung ist fehlgeschlagen.",
-  "mcp.auth.oauth_not_supported_hint":
-    "Mögliche Ursachen: • Der MCP-Server gibt keine OAuth-Fähigkeiten an • Die Engine muss neu geladen werden, um die Serverfähigkeiten zu erkennen • Versuchen Sie: opencode mcp auth {server} in der CLI",
-  "mcp.auth.open_browser_signin": "Wir öffnen Ihren Browser, um die Anmeldung abzuschließen.",
+  "mcp.auth.open_sign_in_page": "Anmeldeseite öffnen",
+  "mcp.auth.popup_blocked": "Das Browser-Pop-up wurde blockiert.",
   "mcp.auth.port_forward_hint":
     "Tipp: Leiten Sie bei Bedarf den Callback-Port weiter: ssh -L 19876:127.0.0.1:19876 user@host",
-  "mcp.auth.reauth_action": "OAuth erneut autorisieren",
+  "mcp.auth.preparing_sign_in": "Anmeldung wird vorbereitet…",
+  "mcp.auth.provider_did_not_finish":
+    "Der Anbieter hat die Autorisierung dieser Verbindung nicht abgeschlossen. Versuchen Sie es erneut, um sich anzumelden.",
   "mcp.auth.reauth_cli_hint": "Ausführen: opencode mcp auth {server}",
-  "mcp.auth.reauth_failed": "Die erneute Autorisierung ist fehlgeschlagen.",
-  "mcp.auth.reauth_remote_hint": "Autorisieren Sie erneut von dem Rechner aus, auf dem dieser Worker läuft.",
-  "mcp.auth.reauth_running": "Wird erneut autorisiert…",
   "mcp.auth.reload_blocked":
     "Das Neuladen pausiert, solange eine Session läuft. Stoppen Sie den Lauf, um die Einrichtung abzuschließen.",
   "mcp.auth.reload_engine_retry": "Änderungen übernehmen und erneut versuchen",
-  "mcp.auth.reload_failed": "Der Worker konnte vor der Anmeldung nicht neu geladen werden.",
-  "mcp.auth.reload_notice":
-    "Damit das wirksam wird, muss LegalWork den Worker-Dienst aktualisieren. Eine laufende Session kann dabei unterbrochen werden.",
-  "mcp.auth.reload_remote_confirm":
-    "Damit das wirksam wird, muss LegalWork den Worker-Dienst aktualisieren. Ihre laufende Session kann dabei beendet werden. Fortfahren?",
-  "mcp.auth.reopen_browser_link": "Hier klicken, um den Browser erneut zu öffnen",
-  "mcp.auth.request_timed_out": "Zeitüberschreitung bei der Anfrage.",
+  "mcp.auth.requesting_link": "Der Anmeldelink des Anbieters wird angefordert…",
   "mcp.auth.retry": "Erneut versuchen",
-  "mcp.auth.retry_now": "Jetzt erneut versuchen",
   "mcp.auth.server_disabled":
     "Dieser MCP-Server ist deaktiviert. Aktivieren Sie ihn und versuchen Sie es erneut.",
-  "mcp.auth.slack_client_registration_required":
-    "Slack unterstützt keine automatische OAuth-Client-Registrierung für MCP. Bitten Sie Ihre Slack-Administration, eine Slack-App für MCP anzulegen oder freizugeben, und konfigurieren Sie dieses MCP dann mit der OAuth-Client-ID und dem Client-Secret dieser App. Halten Sie das Client-Secret aus Chats und der Versionsverwaltung heraus. Laden Sie nach dem Speichern der Zugangsdaten die Engine neu und versuchen Sie es erneut.",
-  "mcp.auth.step1_description": "Wir starten den Anmeldeablauf von {server} automatisch.",
-  "mcp.auth.step1_title": "Ihr Browser wird geöffnet",
-  "mcp.auth.step2_description":
-    "Melden Sie sich an und bestätigen Sie den Zugriff, wenn Sie dazu aufgefordert werden.",
-  "mcp.auth.step2_title": "LegalWork autorisieren",
-  "mcp.auth.step3_description": "Wir schließen die Verbindung ab, sobald die Autorisierung erfolgt ist.",
-  "mcp.auth.step3_title": "Kehren Sie hierher zurück, wenn Sie fertig sind",
-  "mcp.auth.connect_failed_generic":
-    "Die Verbindung konnte nicht abgeschlossen werden. Versuchen Sie es erneut, und laden Sie bei wiederholtem Fehlschlag die Engine in den Einstellungen neu.",
+  "mcp.auth.setup_hint":
+    "Prüfen Sie in der Verbindungseinrichtung die registrierten App-Zugangsdaten Ihres Anbieters und die zulässige Redirect-URL.",
+  "mcp.auth.sign_in_timed_out":
+    "Zeitüberschreitung bei der Anmeldung. Versuchen Sie es erneut, um einen neuen Autorisierungslink zu erhalten.",
+  "mcp.auth.start_new_sign_in": "Neue Anmeldung starten",
   "mcp.auth.server_not_registered":
     "Diese App wurde gespeichert, die Engine hat sie aber noch nicht übernommen. Laden Sie die Engine neu und verbinden Sie erneut.",
   "mcp.auth.try_reload_engine": "{message}. Laden Sie zuerst die Engine neu.",
   "mcp.auth.waiting_authorization": "Warten auf den Abschluss der Autorisierung in Ihrem Browser…",
-  "mcp.auth.waiting_for_conversation_body":
-    "Wir leiten Sie zur Authentifizierung weiter, sobald es möglich ist.",
   "mcp.auth.waiting_for_conversation_title": "Warten auf das Ende der Konversation",
-  "mcp.auth.waiting_for_session": "Warten, bis {session} fertig ist",
   "mcp.available_apps": "Verfügbare Apps",
   "mcp.cap_signin": "Kontoanmeldung",
   "mcp.cap_tools": "KI-Tools",
@@ -881,7 +885,7 @@ const de = {
     "Dadurch werden die gespeicherten OAuth-Zugangsdaten für {server} entfernt. Um diese App wieder zu nutzen, müssen Sie sich erneut anmelden.",
   "mcp.logout_modal_title": "Von dieser App abmelden?",
   "mcp.logout_no_credentials":
-    "{server} verbindet sich ohne Anmeldung, es gab also nichts abzumelden. Der Status wird wieder „Bereit“ lauten, und abgelehnte Anfragen müssen auf dem Server selbst geklärt werden.",
+    "Die gespeicherten OAuth-Zugangsdaten für {server} wurden entfernt. Dieser Server akzeptiert eine Verbindung ohne Anmeldung, einzelne Tools können aber weiterhin eine Anmeldung verlangen.",
   "mcp.logout_success": "Von {server} abgemeldet.",
   "mcp.logout_working": "Wird abgemeldet…",
   "mcp.name_required": "Geben Sie einen Servernamen ein.",
@@ -918,7 +922,9 @@ const de = {
     "Juristische Recherche in natürlicher Sprache mit DingDuff: Millionen Gerichtsentscheidungen, Bundes- und Landesgesetze samt Verfahrensordnungen sowie PACER-Eingaben. Anmeldung mit einem Klick über Ihr DingDuff-Konto.",
   "mcp.quick_connect_dingduff_title": "DingDuff",
   "mcp.quick_connect_dropbox_desc":
-    "Durchsuchen, lesen und verwalten Sie Aktendateien in der Dropbox der Kanzlei. Anmeldung mit einem Klick über Ihr Dropbox-Konto.",
+    "Durchsuchen, lesen und verwalten Sie Aktendateien in der Dropbox der Kanzlei mit Ihrem Dropbox-Konto.",
+  "mcp.quick_connect_dropbox_note":
+    "Erfordert eine registrierte Dropbox-App. Hinterlegen Sie deren App-Key als OAuth-Client-ID und das App-Secret, bevor Sie sich anmelden.",
   "mcp.quick_connect_dropbox_title": "Dropbox",
   "mcp.quick_connect_egnyte_desc":
     "Durchsuchen und fassen Sie Dokumente im Egnyte-Repository der Kanzlei zusammen, im Rahmen der bestehenden Egnyte-Berechtigungen.",
@@ -971,7 +977,6 @@ const de = {
   "mcp.quick_connect_taxgraph_desc":
     "Durchsuchen Sie einen täglich aktualisierten Wissensgraphen zum deutschen Steuerrecht: Gesetze, BFH-Rechtsprechung und BMF-Schreiben mit Fundstellen.",
   "mcp.quick_connect_taxgraph_title": "TaxGraph",
-  "mcp.reload_banner_blocked_hint": "Stoppen Sie die laufende Aufgabe, um zu aktivieren.",
   "mcp.remote_workspace_url_hint":
     "Remote-Worker verbinden sich am schnellsten mit URL-basierten MCP-Servern.",
   "mcp.remove_app": "Entfernen",
@@ -1065,7 +1070,7 @@ const de = {
   "tool_permissions.ask_before_edit": "Vor dem Bearbeiten von Dateien fragen",
   "tool_permissions.ask_before_edit_desc":
     "LegalWork holt Ihre Zustimmung ein, bevor es Dateien anlegt oder ändert.",
-  "tool_permissions.ask_before_shell": "Vor dem Ausführen von Shell-Befehlen fragen",
+  "tool_permissions.ask_before_shell": "Vor dem Ausführen von Computerbefehlen fragen",
   "tool_permissions.ask_before_shell_desc":
     "LegalWork holt Ihre Zustimmung ein, bevor es Befehle auf diesem Rechner ausführt.",
   "tool_permissions.block_internet": "Internetzugriff blockieren",
@@ -1080,7 +1085,7 @@ const de = {
   "tool_permissions.action_not_set": "Standard",
   "tool_permissions.tool_edit": "Dateien bearbeiten",
   "tool_permissions.tool_edit_desc": "Dateien in diesem Workspace anlegen und ändern.",
-  "tool_permissions.tool_bash": "Shell-Befehle",
+  "tool_permissions.tool_bash": "Computerbefehle",
   "tool_permissions.tool_bash_desc":
     "Befehle auf diesem Rechner ausführen, sofern keine Befehlsregel unten greift.",
   "tool_permissions.tool_webfetch": "Internetzugriff",
@@ -1088,16 +1093,16 @@ const de = {
   "tool_permissions.tool_doom_loop": "Schutz vor Wiederholungsschleifen",
   "tool_permissions.tool_doom_loop_desc":
     "Was passiert, wenn LegalWork dieselbe Aktion viele Male hintereinander wiederholt.",
-  "tool_permissions.bash_rules_title": "Regeln für Shell-Befehle",
+  "tool_permissions.bash_rules_title": "Regeln für Computerbefehle",
   "tool_permissions.bash_rules_desc":
-    "Legen Sie fest, was bei bestimmten Shell-Befehlen passiert. Regeln arbeiten mit Mustern: git * erfasst zum Beispiel jeden git-Befehl.",
+    "Legen Sie fest, was bei bestimmten Computerbefehlen passiert. Regeln arbeiten mit Mustern: git * erfasst zum Beispiel jeden git-Befehl.",
   "tool_permissions.pattern_placeholder": "Befehlsmuster, z. B. git *",
   "tool_permissions.add_rule": "Regel hinzufügen",
   "tool_permissions.remove_rule": "Regel für {pattern} entfernen",
   "tool_permissions.rule_action_label": "Aktion für {pattern}",
   "tool_permissions.rule_exists": "Für dieses Muster gibt es bereits eine Regel.",
   "tool_permissions.rule_wildcard_reserved":
-    "Nutzen Sie oben „Shell-Befehle“, um das Verhalten für alle Befehle festzulegen.",
+    "Nutzen Sie oben „Computerbefehle“, um das Verhalten für alle Befehle festzulegen.",
   "tool_permissions.saving": "Berechtigungen werden gespeichert…",
   "tool_permissions.updated": "Berechtigungen aktualisiert.",
   "tool_permissions.no_access":
@@ -1757,8 +1762,8 @@ const de = {
   "settings.environment.value_label": "Wert",
   "settings.environment.table_actions": "Aktionen",
   "settings.environment.updated_at": "Aktualisiert {date}",
-  "settings.tab_benchmark": "Benchmark",
-  "settings.tab_description_benchmark": "Verbundene Modelle mit juristischen Benchmark-Aufgaben bewerten.",
+  "settings.tab_benchmark": "Evals",
+  "settings.tab_description_benchmark": "Verbundene Modelle an echten juristischen Aufgaben bewerten.",
   "settings.tab_account": "Konto",
   "settings.tab_description_account": "Eigenwelt-Anmeldung, Tarif, Nutzung und Abrechnung Ihrer Kanzlei.",
   "account.eyebrow": "Eigenwelt-Konto",
@@ -1965,6 +1970,7 @@ const de = {
   "share_skill_destination.title": "Wohin soll dieser Skill?",
   "share_skill_destination.trigger_label": "Auslöser",
   "sidebar.collapse": "Einklappen",
+  "sidebar.evals": "Evals",
   "sidebar.expand": "Ausklappen",
   "sidebar.update_available_title": "Update verfügbar",
   "sidebar.update_dismiss": "Ausblenden",
@@ -2422,6 +2428,16 @@ const de = {
     "Nutzen Sie stattdessen Ihren eigenen API-Schlüssel oder ein lokales Modell. LegalWork selbst bleibt kostenlos.",
   "free_retired.cta": "Kostenlose Testphase starten",
   "free_retired.dismiss": "Nicht jetzt",
+  "onboarding_permissions.title": "Entscheiden Sie, was Ihre Freigabe braucht.",
+  "onboarding_permissions.subtitle":
+    "LegalWork arbeitet auf diesem Computer für Sie. Legen Sie fest, wie viel es eigenständig tun darf und wann es vorher nachfragen soll.",
+  "onboarding_permissions.panel_eyebrow": "Sie entscheiden",
+  "onboarding_permissions.panel_title": "Nichts geschieht hinter Ihrem Rücken.",
+  "onboarding_permissions.panel_footer": "Gilt überall · Jederzeit änderbar",
+  "onboarding_permissions.mock_label": "Berechtigung erforderlich",
+  "onboarding_permissions.mock_body": "„Acquisition NDA.docx“ in Ihrem Workspace bearbeiten?",
+  "onboarding_permissions.mock_allow": "Erlauben",
+  "onboarding_permissions.mock_deny": "Jetzt nicht",
   "onboarding_ai.title": "KI für LegalWork.",
   "onboarding_ai.subtitle": "Premium-Modelle, gehostet in der EU, startklar mit einer Anmeldung.",
   "onboarding_ai.cta": "7 Tage kostenlos testen",
@@ -3083,18 +3099,6 @@ const de = {
   "settings.select_workspace_inspect": "Wählen Sie einen Workspace, um die Laufzeitkonfiguration zu prüfen.",
   "settings.clear_onboarding_hint":
     "Setzt bestätigte Provider und das Organisations-Onboarding zurück, damit sie erneut erscheinen",
-  "learnings.eyebrow": "Learnings · Private Vorschau",
-  "learnings.headline": "Die Intelligenz Ihrer Kanzlei gehört Ihnen",
-  "learnings.subhead": "Eigene Modelle Ihrer Kanzlei, trainiert auf Ihren Mandaten, jede Woche besser.",
-  "learnings.card1_title": "Datenstrukturierung und Benchmarks",
-  "learnings.card1_desc":
-    "Wir erschließen das implizite Wissen der Kanzlei aus Ihren Mandaten, Redlines und Kommentaren: Präferenzen der Partnerinnen und Partner, Formulierungsstil, Verhandlungs-Playbooks und Prüfstandards.",
-  "learnings.card2_title": "Nachtraining",
-  "learnings.card2_desc":
-    "Ein Spezialmodell je Rechtsgebiet, trainiert auf Ihrer Arbeit und gegen offene Vergleichswerte gemessen. Die Gewichte gehören Ihrer Kanzlei.",
-  "learnings.card3_title": "Kontinuierliches Lernen",
-  "learnings.card3_desc":
-    "Signale aus der echten Arbeit, etwa Korrekturen, Umformulierungen und fehlender Kontext, werden zu überprüfbaren Aufgaben, die Ihre Modelle fortlaufend weiterlernen lassen und ausgerollt werden.",
   "providers.config_api_unavailable":
     "Die Konfigurations-API des LegalWork-Servers ist für diesen Workspace nicht verfügbar.",
   "providers.opencode_jsonc_update_failed":
@@ -3337,7 +3341,6 @@ const de = {
   "model_picker.all_models": "Alle Modelle",
   "app.collect_logs_failed":
     "Die Protokolle konnten nicht erfasst werden. Nutzen Sie Hilfe > Support-Protokolle sammeln…",
-  "learnings.talk_with_researcher": "Mit der Forschung sprechen",
   "architecture.mismatch_title": "Architektur passt nicht",
   "architecture.install_correct": "Installieren Sie den passenden LegalWork-Build",
   "architecture.download_correct": "Passende Version herunterladen",
@@ -3449,7 +3452,6 @@ const de = {
   "sidebar.memory_drive": "Memory Drive",
   "sidebar.workflows": "Workflows",
   "sidebar.integrations": "Integrationen",
-  "sidebar.learning": "Learnings",
   "sidebar.folders": "Ordner",
   "common.saved": "Gespeichert",
   "common.saving": "Wird gespeichert…",
@@ -3777,18 +3779,14 @@ const de = {
   "mcp.composer_search_legalmemory": "LegalMemory durchsuchen nach ",
   "mcp.desc_cbinsights": "Unternehmens-, Finanzierungs-, Markt- und Brancheninformationen von CB Insights.",
   "mcp.desc_courtroom5": "Prozessrecherche und Werkzeuge zur Fallvorbereitung von Courtroom5.",
-  "mcp.desc_ironclad": "Vertragslebenszyklus-Management: Verträge in Ironclad suchen und analysieren.",
   "mcp.desc_legaldata": "Suche und Recherche in Rechtsdaten.",
   "mcp.desc_midpage": "Rechtsprechungsrecherche und Fundstellen von Midpage.",
   "mcp.desc_quartr": "Bilanzkonferenzen, Investorendokumente und Unternehmensdaten von Quartr.",
   "mcp.desc_solve": "Patentausarbeitung und IP-Werkzeuge von Solve Intelligence.",
   "mcp.desc_techgc": "Legal-Ops- und General-Counsel-Werkzeuge von TechGC.",
   "mcp.desc_verisk": "Underwriting- und Risikoinformationen von Verisk.",
-  "mcp.desc_courtlistener":
-    "Bundes- und Landesrechtsprechung, Verfahrensregister und Entscheidungen von CourtListener.",
   "mcp.desc_daloopa": "Finanzkennzahlen und Daten von Daloopa.",
   "mcp.desc_dnb": "Unternehmensrisiko- und Bonitätsanalysen von Dun & Bradstreet.",
-  "mcp.desc_everlaw": "E-Discovery und Dokumentensichtung im Prozess von Everlaw.",
   "mcp.desc_ibisworld": "Branchenrecherche und Marktberichte von IBISWorld.",
   "mcp.desc_descrybe": "Rechtsrecherche und Fallzusammenfassungen von Descrybe.",
   "provider_auth.sign_in_eigenwelt": "Mit Eigenwelt anmelden",
@@ -4017,17 +4015,6 @@ const de = {
   "session.connection_lost": "Verbindung verloren",
   "desktop.runtime_start_failed": "Die LegalWork-Laufzeitumgebung konnte nicht gestartet werden",
   "boot.something_went_wrong": "Etwas ist schiefgelaufen.",
-  "learnings.signals": "Signale",
-  "learnings.tasks": "Aufgaben",
-  "learnings.continual_learn": "Fortlaufendes Lernen",
-  "learnings.rollout": "Ausrollen",
-  "learnings.details": "Details",
-  "learnings.run": "Lauf",
-  "learnings.runs": "Läufe",
-  "learnings.title": "Learnings",
-  "learnings.ma": "M&A",
-  "learnings.employment": "Arbeitsrecht",
-  "learnings.litigation": "Prozessführung",
   "mcp.write_opencode_failed": "Die opencode.json konnte nicht geschrieben werden",
   "plugins.parse_opencode_failed": "Die opencode.json konnte nicht gelesen werden",
   "legalmemory.file_not_ready": "Die heruntergeladene LegalMemory-Datei ist noch nicht bereit.",

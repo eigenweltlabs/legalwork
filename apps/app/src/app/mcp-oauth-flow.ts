@@ -1,4 +1,5 @@
 import { getMcpOAuthErrorMessage } from "./mcp-oauth-errors";
+import { t } from "@/i18n";
 
 export type McpOAuthPhase = "idle" | "preparing" | "waiting" | "completing" | "success" | "error";
 export type McpOAuthState = {
@@ -19,27 +20,27 @@ export type McpOAuthDriver = {
 /** A callback from another attempt must never be submitted to this one's PKCE exchange. */
 export function parseMcpOAuthCallback(input: string, authorizationUrl: string): string {
   const value = input.trim();
-  if (!value) throw new Error("Paste the callback URL or authorization code.");
+  if (!value) throw new Error(t("mcp.auth.callback_invalid"));
   if (!/^https?:\/\//i.test(value)) {
-    if (/[\s/?&#]/.test(value)) throw new Error("Paste the complete callback URL or just the authorization code.");
+    if (/[\s/?&#]/.test(value)) throw new Error(t("mcp.auth.callback_incomplete"));
     return value;
   }
   const callback = new URL(value);
   const authorization = new URL(authorizationUrl);
   const state = authorization.searchParams.get("state");
   if (!state || callback.searchParams.get("state") !== state) {
-    throw new Error("This callback belongs to a different sign-in attempt. Use the current browser link.");
+    throw new Error(t("mcp.auth.callback_state_mismatch"));
   }
   const redirect = authorization.searchParams.get("redirect_uri");
   if (redirect) {
     const expected = new URL(redirect);
     if (expected.origin !== callback.origin || expected.pathname !== callback.pathname) {
-      throw new Error("This is not the callback URL for this connection.");
+      throw new Error(t("mcp.auth.callback_wrong_redirect"));
     }
   }
-  if (callback.searchParams.has("error")) throw new Error("Authorization was declined. Retry when you are ready to sign in.");
+  if (callback.searchParams.has("error")) throw new Error(t("mcp.auth.authorization_declined"));
   const code = callback.searchParams.get("code");
-  if (!code) throw new Error("The callback URL does not contain an authorization code.");
+  if (!code) throw new Error(t("mcp.auth.callback_missing_code"));
   return code;
 }
 
@@ -82,7 +83,7 @@ export function createMcpOAuthFlow(options: {
   const fail = (attempt: Attempt, error: unknown) => {
     if (current !== attempt) return;
     release(attempt);
-    publish({ phase: "error", error: getMcpOAuthErrorMessage(error, "Could not finish signing in.") });
+    publish({ phase: "error", error: getMcpOAuthErrorMessage(error, t("mcp.auth.could_not_finish")) });
   };
   const enqueue = <T>(attempt: Attempt, task: () => Promise<T>): Promise<T> => {
     const result = pending.then(() => {
@@ -100,7 +101,7 @@ export function createMcpOAuthFlow(options: {
       const result = await enqueue(attempt, () => driver.complete(code));
       if (current !== attempt) return;
       if (result.status !== "connected") {
-        throw new Error(result.error || "The provider did not finish authorizing this connection. Retry to sign in again.");
+        throw new Error(result.error || t("mcp.auth.provider_did_not_finish"));
       }
       release(attempt);
       publish({ phase: "success" });
@@ -116,7 +117,7 @@ export function createMcpOAuthFlow(options: {
       const attempt: Attempt = { controller: new AbortController() };
       current = attempt;
       publish({ phase: "preparing" });
-      attempt.timer = setTimeout(() => fail(attempt, new Error("Sign-in timed out. Retry to get a new authorization link.")), options.timeoutMs ?? 5 * 60_000);
+      attempt.timer = setTimeout(() => fail(attempt, new Error(t("mcp.auth.sign_in_timed_out"))), options.timeoutMs ?? 5 * 60_000);
       try {
         // Wait for an abandoned engine request before preparing another attempt.
         const driver = await enqueue(attempt, async () => {
@@ -134,11 +135,11 @@ export function createMcpOAuthFlow(options: {
         }
         const auth = await enqueue(attempt, driver.start);
         if (current !== attempt) return;
-        if (!auth.authorizationUrl) throw new Error("The server did not provide an authorization link. Sign-in has not completed. Check this connector's authentication setup.");
+        if (!auth.authorizationUrl) throw new Error(t("mcp.auth.no_authorization_link"));
         const url = new URL(auth.authorizationUrl);
-        if (url.protocol !== "https:" && url.protocol !== "http:") throw new Error("The server returned an invalid authorization link.");
+        if (url.protocol !== "https:" && url.protocol !== "http:") throw new Error(t("mcp.auth.invalid_authorization_link"));
         const oauthState = url.searchParams.get("state");
-        if (!oauthState) throw new Error("The server's authorization link is missing OAuth state. Sign-in cannot continue.");
+        if (!oauthState) throw new Error(t("mcp.auth.missing_oauth_state"));
         publish({ phase: "waiting", authorizationUrl: url.href, notice: driver.notice });
         // Register the callback before opening the browser (fast SSO can return immediately).
         if (driver.receiveCode) {
@@ -151,7 +152,7 @@ export function createMcpOAuthFlow(options: {
           await options.openBrowser(url.href);
         } catch {
           if (current === attempt && state.phase === "waiting") {
-            publish({ ...state, notice: "Your browser could not be opened automatically. Open or copy the authorization link below." });
+            publish({ ...state, notice: t("mcp.auth.browser_open_failed_notice") });
           }
         }
       } catch (error) {
@@ -164,7 +165,7 @@ export function createMcpOAuthFlow(options: {
       try {
         await options.openBrowser(state.authorizationUrl);
       } catch {
-        if (current === attempt) publish({ ...state, notice: "Could not open your browser. Copy the authorization link and open it in your browser." });
+        if (current === attempt) publish({ ...state, notice: t("mcp.auth.browser_open_failed") });
       }
     },
     async submit(input: string) {

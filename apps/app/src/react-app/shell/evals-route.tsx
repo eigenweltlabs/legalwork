@@ -6,6 +6,7 @@ import { ArrowLeft } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useBenchmarkStore } from "../domains/benchmark/store";
 import { SettingsSurface } from "./settings-route";
+import { t } from "@/i18n";
 
 /**
  * Evals main pane. Rendered inside the session shell's `SidebarInset`
@@ -36,7 +37,7 @@ export function EvalsPane(props: EvalsPaneProps) {
     if (segments[1] === "tasks" && segments[2]) {
       const taskId = decodeURIComponent(segments[2]);
       return {
-        label: "Tasks",
+        label: t("evals.tasks"),
         action: () => benchmarkNavigateRef.current?.("benchmark"),
         title: benchmarkTasks.find((task) => task.id === taskId)?.title ?? null,
       };
@@ -49,13 +50,13 @@ export function EvalsPane(props: EvalsPaneProps) {
       const itemTitle = item ? `${item.taskTitle} · ${item.modelID}` : null;
       if (segments[5] === "chat") {
         return {
-          label: "Details",
+          label: t("evals.details"),
           action: () => benchmarkNavigateRef.current?.(itemPath),
           title: itemTitle ? `${itemTitle} — Chat` : "Chat",
         };
       }
       return {
-        label: "Run",
+        label: t("evals.run"),
         action: () => benchmarkNavigateRef.current?.(runPath),
         title: itemTitle,
       };
@@ -63,7 +64,7 @@ export function EvalsPane(props: EvalsPaneProps) {
     if (segments[1] === "runs" && segments[2]) {
       const runId = decodeURIComponent(segments[2]);
       return {
-        label: "Runs",
+        label: t("evals.runs"),
         action: () => benchmarkNavigateRef.current?.("benchmark"),
         title:
           activeRun?.run.id === runId

@@ -1,3 +1,5 @@
+import { t } from "@/i18n";
+
 export type McpOAuthErrorKind =
   | "client_registration_required"
   | "invalid_client"
@@ -9,7 +11,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 /** Read error fields, including serialized SDK errors, without dumping request credentials. */
-export function getMcpOAuthErrorMessage(error: unknown, fallback = "OAuth authentication failed."): string {
+export function getMcpOAuthErrorMessage(error: unknown, fallback = t("mcp.auth.oauth_failed")): string {
   const messages = new Set<string>();
   const seen = new Set<object>();
 

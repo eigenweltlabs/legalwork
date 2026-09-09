@@ -40,7 +40,7 @@ const GERMAN_KEEPS_ENGLISH = new Set<string>([
   // Tool transcript: loanwords and identical tokens
   "terminal.region_label", "message_list.skill_badge", "benchmark.run_name_placeholder",
   "provider_auth.name", "hub_share.skills", "hub_share.plugins",
-  "learnings.details", "learnings.ma", "learnings.title",
+  "evals.details", "sidebar.evals",
   "tool.generic", "tool.detail_in_path", "tool_activity.agent_prefix",
   "reload.label_skill", "reload.label_plugin", "reload.label_mcp", "reload.label_agent",
   // Product and brand names
