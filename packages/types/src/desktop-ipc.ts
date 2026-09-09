@@ -589,6 +589,15 @@ export type DesktopCommandMap = {
   resetLegalworkState: { args: [mode?: "onboarding" | "all"]; result: unknown };
   resetOpencodeCache: { args: []; result: CacheResetResult };
   opencodeMcpAuth: { args: [action: string, name: string]; result: ExecResult };
+  mcpOAuthListen: {
+    args: [options?: { redirectUri?: string }];
+    result: { listenerId: string; redirectUri: string };
+  };
+  mcpOAuthWait: {
+    args: [options: { listenerId: string; state: string }];
+    result: { code: string };
+  };
+  mcpOAuthCancel: { args: [listenerId: string]; result: void };
   setWindowDecorations: { args: [decorated: boolean]; result: unknown };
   /**
    * Stealth (local-recording) mode for the main window: excludes it from

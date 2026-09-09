@@ -1,18 +1,15 @@
 /**
- * Deciding whether logging an MCP server out actually did anything.
+ * Detecting whether a server accepts a transport connection after logout.
  *
  * Some remote MCP servers accept an unauthenticated handshake and reject only
  * individual tool calls. The engine reports those as plain `connected`, exactly
- * like an authenticated one — `McpStatusConnected` carries no auth state, and no
- * endpoint reports stored credentials. So a connector that was never signed in
- * shows as Ready, "Log out" clears a credential that does not exist, the badge
- * drops to Paused, and the next launch silently restores Ready. Read as a stale
- * session surviving a logout, and reported that way in issue #86.
+ * like an authenticated one — `McpStatusConnected` carries no auth state.
+ * Reconnection cannot tell whether credentials previously existed or whether
+ * individual tools need them. The logout message must preserve that distinction.
  *
  * The signal is to reconnect once the credentials are gone — the same thing the
- * next launch does, only now rather than later. A server that needed them comes
- * back asking to sign in; one that never did comes back connected. Doing it
- * during logout also leaves the badge showing the truth immediately, instead of
+ * next launch does, only now rather than later. Doing it during logout also
+ * leaves the badge showing the transport state immediately, instead of
  * a Paused state that quietly flips to Ready on restart.
  */
 
@@ -39,12 +36,10 @@ export type DetectReconnectOptions = {
 
 /**
  * True when the server reconnects successfully after its credentials were
- * removed — meaning it never authenticated and the logout cleared nothing.
+ * removed. This proves only that the transport permits anonymous connections.
  *
  * False for every other outcome, including a failed probe or an unreadable
- * status. This picks which message a user is shown, so an uncertain answer must
- * fall back to the ordinary one rather than accuse a working logout of being a
- * no-op.
+ * status. An uncertain answer falls back to the ordinary logout message.
  */
 export async function detectReconnectWithoutAuth(options: DetectReconnectOptions): Promise<boolean> {
   const {

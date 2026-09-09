@@ -34,11 +34,14 @@ export type McpDirectoryInfo = {
    * When set, the server connects via these headers and skips OAuth — the way to
    * connect token-authed servers like iManage that reject the engine's OAuth redirect. */
   headers?: Record<string, string>;
-  oauth: boolean;
+  /** Omit to discover whether the server needs OAuth; false explicitly disables it. */
+  oauth?: boolean;
   oauthConfig?: {
     clientId?: string;
     clientSecret?: string;
     scope?: string;
+    callbackPort?: number;
+    redirectUri?: string;
   };
   /** Extension category for UI grouping. Defaults to "mcp". */
   kind?: ExtensionKind;
@@ -73,6 +76,8 @@ export type McpDirectoryInfo = {
    * connectors need this: without it, "Connect" looks like it should just work.
    */
   setupNote?: string;
+  /** Provider instructions for registering the OAuth app or obtaining connector credentials. */
+  setupUrl?: string;
   /**
    * Vendor partner/program URL for connectors that are gated to named AI
    * clients and cannot be self-connected from here yet. When set, the catalog
@@ -155,7 +160,6 @@ export const MCP_QUICK_CONNECT: McpDirectoryInfo[] = [
     // which is the only thing that knows.
     url: "{appliance}/mcp/",
     type: "remote",
-    oauth: true,
     kind: "mcp",
     composerPrompt: "Search LegalMemory for ",
     // Eigenwelt's own product, and the one a firm on this page is most likely
@@ -227,17 +231,6 @@ export const MCP_QUICK_CONNECT: McpDirectoryInfo[] = [
   },
   // --- Token-authed legal/research MCP connectors (Bearer in the Authorization header;
   // the engine's OAuth isn't used — paste an access token in the setup form). ---
-  {
-    name: "Ironclad",
-    serverName: "ironclad",
-    description: "Contract lifecycle management — search and analyze contracts in Ironclad.",
-    url: "https://mcp.na1.ironcladapp.com/mcp",
-    type: "remote",
-    oauth: false,
-    requiresToken: true,
-    kind: "mcp",
-    preview: true,
-  },
   {
     name: "Lawve",
     serverName: "lawve",
@@ -316,17 +309,6 @@ export const MCP_QUICK_CONNECT: McpDirectoryInfo[] = [
     preview: true,
   },
   {
-    name: "CourtListener",
-    serverName: "courtlistener",
-    description: "Federal and state case law, dockets, and opinions from CourtListener.",
-    url: "https://mcp.courtlistener.com/",
-    type: "remote",
-    oauth: false,
-    requiresToken: true,
-    kind: "mcp",
-    preview: true,
-  },
-  {
     name: "Daloopa",
     serverName: "daloopa",
     description: "Financial fundamentals and data from Daloopa.",
@@ -353,17 +335,6 @@ export const MCP_QUICK_CONNECT: McpDirectoryInfo[] = [
     serverName: "datasite",
     description: "M&A and due-diligence data-room tools from Datasite.",
     url: "https://mcp.global.datasite.com/mcp",
-    type: "remote",
-    oauth: false,
-    requiresToken: true,
-    kind: "mcp",
-    preview: true,
-  },
-  {
-    name: "Everlaw",
-    serverName: "everlaw",
-    description: "Ediscovery and litigation document review from Everlaw.",
-    url: "https://api.everlaw.com/v1/mcp",
     type: "remote",
     oauth: false,
     requiresToken: true,
@@ -457,20 +428,21 @@ export const MCP_QUICK_CONNECT: McpDirectoryInfo[] = [
     kind: "mcp",
     preview: true,
     requiresOauthClient: true,
+    setupUrl: "https://support.ironcladapp.com/hc/en-us/articles/39887091143319-Ironclad-MCP-Server",
   },
   {
     get name() { return t("mcp.quick_connect_everlaw_title"); },
     serverName: "everlaw",
     get description() { return t("mcp.quick_connect_everlaw_desc"); },
     // Regional API host (api.everlaw.com US, api.everlaw.co.uk UK). Real path is
-    // /v1/mcp (bare /mcp redirects to docs). An org admin enables the OAuth2
-    // setting and pre-registers an OAuth app (no dynamic client registration).
+    // /v1/mcp (bare /mcp redirects to docs). Everlaw documents standard OAuth
+    // discovery with no manual setup beyond this resource URL.
     url: "https://api.everlaw.com/v1/mcp",
     type: "remote",
     oauth: true,
     kind: "mcp",
     preview: true,
-    requiresOauthClient: true,
+    setupUrl: "https://support.everlaw.com/hc/en-us/articles/49986656959771-Everlaw-MCP-Server",
   },
   {
     get name() { return t("mcp.quick_connect_highq_title"); },
@@ -539,13 +511,16 @@ export const MCP_QUICK_CONNECT: McpDirectoryInfo[] = [
     get name() { return t("mcp.quick_connect_dropbox_title"); },
     serverName: "dropbox",
     get description() { return t("mcp.quick_connect_dropbox_desc"); },
-    // One-click: OAuth with dynamic client registration. Dropbox forces
-    // loopback, port-less redirect URIs — the host's OAuth helper must use one.
+    // Dropbox reserves dynamic registration for approved MCP clients. Other
+    // clients must supply their own Dropbox app key and secret before OAuth.
     url: "https://mcp.dropbox.com/mcp",
     type: "remote",
     oauth: true,
     kind: "mcp",
     iconSlug: "dropbox",
+    requiresOauthClient: true,
+    get setupNote() { return t("mcp.quick_connect_dropbox_note"); },
+    setupUrl: "https://help.dropbox.com/integrations/connect-dropbox-mcp-server",
   },
   {
     get name() { return t("mcp.quick_connect_netdocuments_title"); },
