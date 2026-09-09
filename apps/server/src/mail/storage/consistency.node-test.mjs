@@ -9,7 +9,7 @@ import { openEncryptedMailDatabase } from './database.js';
 import { migrateMailSchema, MAIL_SCHEMA_VERSION } from './schema.js';
 import { MailRepository } from './repository.js';
 import { MailContentStore } from './content-store.js';
-import { checkMailConsistency } from './consistency.js';
+import { assertMailSchema, checkMailConsistency } from './consistency.js';
 
 const locator = messageId => ({ provider: 'gmail', messageId });
 async function fixture(body, migrate = true) {
@@ -153,4 +153,54 @@ test('SQLite diagnostic failures return fixed codes instead of database error de
   const result = checkMailConsistency(failed);
   assert.deepEqual(result.codes, ['database-check-failed']); assert.equal(result.ok, false);
   assert.ok(!JSON.stringify(result).includes('secret'));
+}));
+
+
+test('fast startup guard uses only schema metadata and settings, with fixed safe failures', async () => fixture(async ({ db, repository, store }) => {
+  seed(repository); await complete(store, repository);
+  const watched = { ...db, get(sql, parameters) {
+    assert.ok(sql.includes('sqlite_schema') || sql.includes('pragma_table_info') || sql === 'SELECT version FROM mail_schema_version WHERE singleton=1' || sql === 'PRAGMA foreign_keys');
+    assert.ok(!sql.includes('quick_check') && !sql.includes('foreign_key_check'));
+    return db.get(sql, parameters);
+  }, all() { throw new Error('Startup guard must not scan content'); } };
+  assert.doesNotThrow(() => assertMailSchema(watched));
+  const failed = { ...db, get() { throw new Error('Private account details'); } };
+  assert.throws(() => assertMailSchema(failed), { message: 'Mail schema is not ready' });
+  db.exec('PRAGMA foreign_keys=OFF');
+  assert.throws(() => assertMailSchema(db), { message: 'Mail schema is not ready' });
+  assert.equal(db.get('PRAGMA foreign_keys').foreign_keys, 0);
+}));
+
+test('fast startup guard refuses missing tables, missing columns and future versions before use', async () => {
+  await fixture(async ({ db }) => {
+    db.exec('DROP TABLE mail_actions');
+    assert.throws(() => assertMailSchema(db), { message: 'Mail schema is not ready' });
+    assert.equal(db.get("SELECT name FROM sqlite_schema WHERE name='mail_actions'"), undefined);
+  });
+  await fixture(async ({ db }) => {
+    db.exec('ALTER TABLE mail_accounts DROP COLUMN display_name');
+    assert.throws(() => assertMailSchema(db), { message: 'Mail schema is not ready' });
+    assert.deepEqual(checkMailConsistency(db).codes, ['schema-incomplete']);
+  });
+  await fixture(async ({ db }) => {
+    db.run('UPDATE mail_schema_version SET version=?', [MAIL_SCHEMA_VERSION + 1]);
+    assert.throws(() => assertMailSchema(db), { message: 'Mail schema is not ready' });
+    assert.equal(db.get('SELECT version FROM mail_schema_version').version, MAIL_SCHEMA_VERSION + 1);
+  });
+});
+
+test('Graph immutable identity keeps its stored content while a move replaces folder membership', async () => fixture(async ({ db, repository, store }) => {
+  repository.createAccount({ id: 'graph-account', provider: 'graph', displayName: 'Synthetic Graph' });
+  for (const folder of ['inbox', 'archive']) repository.putFolder('graph-account', { id: folder, name: folder, kind: 'folder' });
+  const identity = { provider: 'graph', messageId: 'immutable-id' };
+  const before = repository.ingestMessage('graph-account', { locator: identity, rfcMessageId: '<same@example.invalid>', subject: 'Original', memberships: ['inbox'] });
+  const reference = await store.writePart('graph-account', identity, { kind: 'raw', maxBytes: 2 }, [new Uint8Array([42, 0])]);
+  const after = repository.ingestMessage('graph-account', { locator: identity, rfcMessageId: '<same@example.invalid>', subject: 'Moved', memberships: ['archive'] });
+  assert.equal(after, before);
+  assert.equal(db.get('SELECT count(*) AS count FROM mail_messages').count, 1);
+  const message = repository.readMessage('graph-account', identity);
+  assert.deepEqual(message.memberships, ['archive']);
+  assert.equal(message.content[0].ref_id, reference.id);
+  assert.deepEqual(Buffer.concat([...store.read('graph-account', reference.id)]), Buffer.from([42, 0]));
+  assert.equal(checkMailConsistency(db).ok, true);
 }));
