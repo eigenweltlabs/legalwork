@@ -29,7 +29,7 @@ export class MailClient {
     async request<T>(path: string, schema: z.ZodType<T>, signal: AbortSignal, body?: unknown, post = false): Promise<T> {
         const response = await this.transport(this.origin + '/mail/v1' + path, { method: body !== undefined || post ? 'POST' : 'GET', headers: { 'X-LegalWork-Host-Token': this.token, ...(body === undefined ? {} : { 'Content-Type': 'application/json' }) }, body: body === undefined ? undefined : JSON.stringify(body), signal: AbortSignal.any([signal, AbortSignal.timeout(15000)]), redirect: 'error', cache: 'no-store', credentials: 'omit' });
         if (!response.ok)
-            throw Error(response.status === 423 ? 'Mail is locked. Unlock to read stored messages.' : response.status === 404 ? 'This account or message is unavailable.' : response.status === 401 ? 'Local host authentication expired.' : `Mail request failed (${response.status}).`);
+            throw Error(response.status === 423 ? 'Mail is temporarily unavailable. Please retry.' : response.status === 404 ? 'This account or message is unavailable.' : response.status === 401 ? 'Local host authentication expired.' : `Mail request failed (${response.status}).`);
         return schema.parse(await response.json());
     }
     status(signal: AbortSignal) { return this.request('/status', z.object({ state: z.string() }), signal); }
