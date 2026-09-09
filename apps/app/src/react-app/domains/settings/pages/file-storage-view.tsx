@@ -38,6 +38,7 @@ import { t } from "@/i18n";
 import { cn } from "@/lib/utils";
 import {
   STORAGE_CHANGED_EVENT,
+  storageAuthDescription,
   storageDefaults,
   storageDescription,
   storageFields,
@@ -432,7 +433,7 @@ function StorageConnectionDialog({
             <section className="space-y-4 border-t border-border pt-5">
               <div>
                 <h4 className="text-sm font-medium">{t("storage.credentials")}</h4>
-                <p className="mt-1 text-xs leading-5 text-muted-foreground">{t(`storage.auth_${kind}`)}</p>
+                <p className="mt-1 text-xs leading-5 text-muted-foreground">{storageAuthDescription(kind)}</p>
                 {connection && <p className="mt-1 text-xs text-muted-foreground">{t("storage.keep_secrets")}</p>}
               </div>
               {storageSecretFields(kind).map((field) => (

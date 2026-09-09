@@ -13,14 +13,70 @@ export const storageIcons = {
   sftp: KeyRound,
   ftp: Network,
 };
-export const storageLabel = (kind: StorageKind) => t(`storage.provider_${kind}`);
-export const storageDescription = (kind: StorageKind) => t(`storage.description_${kind}`);
+const providerLabels = {
+  local: () => t("storage.provider_local"),
+  webdav: () => t("storage.provider_webdav"),
+  s3: () => t("storage.provider_s3"),
+  azure: () => t("storage.provider_azure"),
+  gcs: () => t("storage.provider_gcs"),
+  sftp: () => t("storage.provider_sftp"),
+  ftp: () => t("storage.provider_ftp"),
+};
+const providerDescriptions = {
+  local: () => t("storage.description_local"),
+  webdav: () => t("storage.description_webdav"),
+  s3: () => t("storage.description_s3"),
+  azure: () => t("storage.description_azure"),
+  gcs: () => t("storage.description_gcs"),
+  sftp: () => t("storage.description_sftp"),
+  ftp: () => t("storage.description_ftp"),
+};
+const authDescriptions = {
+  local: () => "",
+  webdav: () => t("storage.auth_webdav"),
+  s3: () => t("storage.auth_s3"),
+  azure: () => t("storage.auth_azure"),
+  gcs: () => t("storage.auth_gcs"),
+  sftp: () => t("storage.auth_sftp"),
+  ftp: () => t("storage.auth_ftp"),
+};
+const fieldLabels = {
+  rootPath: () => t("storage.field_rootPath"),
+  endpoint: () => t("storage.field_endpoint"),
+  username: () => t("storage.field_username"),
+  bucket: () => t("storage.field_bucket"),
+  region: () => t("storage.field_region"),
+  prefix: () => t("storage.field_prefix"),
+  accessKeyId: () => t("storage.field_accessKeyId"),
+  accountName: () => t("storage.field_accountName"),
+  container: () => t("storage.field_container"),
+  projectId: () => t("storage.field_projectId"),
+  host: () => t("storage.field_host"),
+  port: () => t("storage.field_port"),
+  hostFingerprint: () => t("storage.field_hostFingerprint"),
+  password: () => t("storage.field_password"),
+  privateKey: () => t("storage.field_privateKey"),
+  passphrase: () => t("storage.field_passphrase"),
+  secretAccessKey: () => t("storage.field_secretAccessKey"),
+  sessionToken: () => t("storage.field_sessionToken"),
+  accountKey: () => t("storage.field_accountKey"),
+  sasToken: () => t("storage.field_sasToken"),
+  serviceAccount: () => t("storage.field_serviceAccount"),
+};
+export const storageLabel = (kind: StorageKind) => providerLabels[kind]();
+export const storageDescription = (kind: StorageKind) => providerDescriptions[kind]();
+export const storageAuthDescription = (kind: StorageKind) => authDescriptions[kind]();
 
 type ConfigField = { key: string; label: string; placeholder?: string; optional?: boolean; type?: "number" | "url" };
 type SecretField = { key: StorageSecretKey; label: string; multiline?: boolean };
-const field = (key: string, placeholder?: string, optional = false, type?: "number" | "url"): ConfigField => ({
+const field = (
+  key: keyof typeof fieldLabels,
+  placeholder?: string,
+  optional = false,
+  type?: "number" | "url",
+): ConfigField => ({
   key,
-  label: t(`storage.field_${key}`),
+  label: fieldLabels[key](),
   placeholder,
   optional,
   type,
@@ -76,7 +132,7 @@ export function storageFields(kind: StorageKind): ConfigField[] {
 export function storageSecretFields(kind: StorageKind): SecretField[] {
   const secret = (key: StorageSecretKey, multiline = false): SecretField => ({
     key,
-    label: t(`storage.field_${key}`),
+    label: fieldLabels[key](),
     multiline,
   });
   switch (kind) {
