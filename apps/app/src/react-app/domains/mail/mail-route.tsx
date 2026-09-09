@@ -1,3 +1,5 @@
+import { mailDocxText } from "../session/artifacts/mail-docx-source";
+import { mailPreviewType, openMailPreview } from "../session/artifacts/mail-preview-source";
 import {MailSearch} from './mail-search';
 /** @jsxImportSource react */
 import { useEffect, useRef, useState } from 'react';
@@ -227,11 +229,7 @@ function MailReader({ client, item, account, onThread, onUnavailable }: {
     const [parts, setParts] = useState<MailPartView[]>([]), [bodies, setBodies] = useState<{
         contentType: string;
         text: string;
-    }[]>([]), [inline, setInline] = useState<ReadonlyMap<string, string>>(new Map()), [error, setError] = useState(''), [busy, setBusy] = useState(true), [plain, setPlain] = useState(false), [preview, setPreview] = useState<{
-        name: string;
-        text?: string;
-        image?: string;
-    }>();
+    }[]>([]), [inline, setInline] = useState<ReadonlyMap<string, string>>(new Map()), [error, setError] = useState(''), [busy, setBusy] = useState(true), [plain, setPlain] = useState(false);
     const controller = useRef(new AbortController());
     useEffect(() => { const abort = new AbortController(); controller.current = abort; void (async () => { try {
         const values: MailPartView[] = [];
@@ -282,37 +280,49 @@ function MailReader({ client, item, account, onThread, onUnavailable }: {
         setParts([]);
         setBodies([]);
         setInline(new Map());
-        setPreview(undefined);
         onUnavailable();
     } }), 5000); return () => { abort.abort(); clearInterval(poll); void window.__LEGALWORK_ELECTRON__?.mailArtifactCancel?.(); }; }, [client, item.accountId, item.key]);
-    async function content(part: MailPartView, save: boolean) { setBusy(true); setError(''); try {
-        const native = window.__LEGALWORK_ELECTRON__?.mailArtifact;
-        if (native && part.referenceId && (save || part.kind === 'attachment')) {
-            await native({ accountId: item.accountId, locator: item.locator, kind: part.kind === 'raw' ? 'raw' : 'attachment', partId: part.partId, referenceId: part.referenceId, operation: save ? 'save' : 'open' });
-            return;
-        }
-        const bytes = await client.bytes(item, part, controller.current.signal);
-        if (controller.current.signal.aborted)
-            return;
+    async function content(part: MailPartView, save: boolean) { const signal = controller.current.signal; setBusy(true); setError(''); try {
         const name = part.kind === 'raw' ? 'original.eml' : safeFilename(part.filename);
-        if (save) {
-            saveBytes(bytes, name, part.contentType ?? 'application/octet-stream');
+        const previewType = mailPreviewType(name);
+        if (!save && previewType) {
+            let bytes = await client.bytes(item, part, signal);
+            if (previewType === 'word') bytes = await mailDocxText(bytes, signal);
+            const validate = async () => {
+                const current = await client.check(item, signal);
+                if (current.rawReferenceId !== item.rawReferenceId || current.contentState !== item.contentState) throw Error('Mail changed. Reload the message.');
+                let after: string | undefined;
+                for (let page = 0; page < 20; page++) {
+                    const result = await client.parts(item, signal, after);
+                    if (result.items.some(value => value.kind === part.kind && value.partId === part.partId && value.referenceId === part.referenceId && value.sha256 === part.sha256 && value.bytesAvailable)) return;
+                    if (!result.nextCursor) break;
+                    after = result.nextCursor;
+                }
+                throw Error('Attachment changed. Reload the message.');
+            };
+            await validate();
+            if (signal.aborted) return;
+            const imageType = rasterType(bytes);
+            if (previewType === 'image' && !imageType) throw Error('This image cannot be previewed safely. Use Save instead.');
+            if (previewType === 'pdf' && new TextDecoder().decode(bytes.subarray(0, 5)) !== '%PDF-') throw Error('This file is not a PDF. Use Save instead.');
+            openMailPreview({ name, bytes, type: previewType, mime: previewType === 'pdf' ? 'application/pdf' : imageType ?? 'text/plain' }, signal, validate);
             return;
         }
-        const type = rasterType(bytes);
-        if (type)
-            setPreview({ name, image: dataUrl(bytes, type) });
-        else if (part.kind === 'raw' || part.contentType?.startsWith('text/'))
-            setPreview({ name, text: new TextDecoder().decode(bytes) });
-        else
-            setPreview({ name, text: 'This attachment is stored and verified. Use Save to open this file in its desktop application.' });
+        if (!save) throw Error('Internal preview is unavailable for this attachment. Use Save to open a copy in another application.');
+        const native = window.__LEGALWORK_ELECTRON__?.mailArtifact;
+        if (native && part.referenceId) {
+            await native({ accountId: item.accountId, locator: item.locator, kind: part.kind === 'raw' ? 'raw' : 'attachment', partId: part.partId, referenceId: part.referenceId, operation: 'save' });
+            return;
+        }
+        const bytes = await client.bytes(item, part, signal);
+        if (!signal.aborted) saveBytes(bytes, name, part.contentType ?? 'application/octet-stream');
     }
     catch (error) {
-        if (!controller.current.signal.aborted)
+        if (!signal.aborted)
             setError(textError(error));
     }
     finally {
-        if (!controller.current.signal.aborted)
+        if (!signal.aborted)
             setBusy(false);
     } }
     const raw = parts.find(part => part.kind === 'raw'), html = bodies.filter(body => body.contentType === 'text/html'), texts = bodies.filter(body => body.contentType === 'text/plain');
@@ -342,7 +352,6 @@ function MailReader({ client, item, account, onThread, onUnavailable }: {
             : !busy ? <p className="mail-loading">No message body is available yet.</p> : null}
         </div>
         {parts.some(part => part.kind === 'attachment') && <div className="mail-attachments"><h3><Paperclip size={14}/>Attachments</h3><ul>{parts.filter(part => part.kind === 'attachment').map(part => <li key={part.key}><span className="mail-file-icon"><FileText size={19}/></span><div><strong>{part.filename || 'Unnamed attachment'}</strong><small>{part.bytesAvailable ? `${((part.bytes ?? 0) / 1024).toFixed(1)} KB` : part.state === 'pending' ? 'Downloading…' : 'Unavailable'}</small></div><button disabled={!part.bytesAvailable || busy} onClick={() => content(part, false)}>Open</button><button aria-label={`Save ${part.filename || 'attachment'}`} title="Save attachment" disabled={!part.bytesAvailable || busy} onClick={() => content(part, true)}><Download size={15}/></button></li>)}</ul></div>}
-        {preview && <section aria-label="Attachment preview" className="mail-attachment-preview"><div><h3>{preview.name}</h3><button aria-label="Close preview" onClick={() => setPreview(undefined)}><X size={16}/></button></div>{preview.image ? <img src={preview.image} alt={preview.name}/> : <pre>{preview.text}</pre>}</section>}
       </article>
     );
 }
