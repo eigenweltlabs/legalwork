@@ -3,10 +3,10 @@ on:
   workflow_dispatch:
   push:
     branches: [feat/local-mail-client]
-    paths: ['apps/server/src/mail/**', 'apps/server/src/routes/mail.ts', 'apps/server/scripts/mail-acceptance.mjs', 'apps/server/package.json', 'apps/desktop/package.json', 'apps/desktop/electron-builder.yml', 'apps/desktop/electron/mail-*.mjs', 'scripts/mail/**', '.github/workflows/mail-platform-qualification.yml', 'pnpm-lock.yaml']
+    paths: ['apps/server/src/mail/**', 'apps/server/src/routes/mail.ts', 'apps/server/scripts/mail-acceptance.mjs', 'apps/server/package.json', 'apps/desktop/package.json', 'apps/desktop/electron-builder.yml', 'apps/desktop/electron/mail-*.mjs', 'apps/desktop/scripts/electron-*.cjs', 'apps/desktop/scripts/electron-build.mjs', 'scripts/mail/**', '.github/workflows/mail-platform-qualification.yml', 'pnpm-lock.yaml']
   pull_request:
     branches: [dev]
-    paths: ['apps/server/src/mail/**', 'apps/server/src/routes/mail.ts', 'apps/server/scripts/mail-acceptance.mjs', 'apps/server/package.json', 'apps/desktop/package.json', 'apps/desktop/electron-builder.yml', 'apps/desktop/electron/mail-*.mjs', 'scripts/mail/**', '.github/workflows/mail-platform-qualification.yml', 'pnpm-lock.yaml']
+    paths: ['apps/server/src/mail/**', 'apps/server/src/routes/mail.ts', 'apps/server/scripts/mail-acceptance.mjs', 'apps/server/package.json', 'apps/desktop/package.json', 'apps/desktop/electron-builder.yml', 'apps/desktop/electron/mail-*.mjs', 'apps/desktop/scripts/electron-*.cjs', 'apps/desktop/scripts/electron-build.mjs', 'scripts/mail/**', '.github/workflows/mail-platform-qualification.yml', 'pnpm-lock.yaml']
 permissions:
   contents: read
 concurrency:
@@ -20,10 +20,13 @@ jobs:
         include:
           - os: macos-15
             arch: arm64
+            application: apps/desktop/dist-electron/mac-arm64/LegalWork.app
           - os: macos-15-intel
             arch: x64
+            application: apps/desktop/dist-electron/mac/LegalWork.app
           - os: windows-2022
             arch: x64
+            application: apps/desktop/dist-electron/win-unpacked
     runs-on: ${{ matrix.os }}
     timeout-minutes: 25
     env:
@@ -50,3 +53,12 @@ jobs:
         run: bun test apps/server/src/mail/routes.e2e.test.ts apps/server/src/mail/search.e2e.test.ts apps/server/src/mail/local.e2e.test.ts
       - name: Actual isolated Electron ASAR native loading and rotation
         run: node --test apps/desktop/electron/mail-packaging.test.mjs
+      - name: Build complete desktop package without publication
+        run: pnpm --dir apps/desktop run package:electron:dir --publish never
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+          MACOS_NOTARIZE: 'false'
+          LEGALWORK_COMPUTER_USE_SIGN_IDENTITY: '-'
+          LEGALWORK_COMPUTER_USE_CODESIGN_IDENTITY: '-'
+      - name: Verify mail from the built application
+        run: node scripts/mail/verify-built-application.mjs "${{ matrix.application }}"

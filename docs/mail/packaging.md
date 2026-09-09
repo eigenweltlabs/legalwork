@@ -55,6 +55,12 @@ On 2026-09-09, `pnpm --dir apps/desktop run package:electron:dir` completed the 
 
 The actual artifact's `Contents/MacOS/LegalWork` executable ran in Node mode, against its own `Contents/Resources/app.asar/server/dist/mail` modules. With only synthetic stdin initialization and an OS-temporary database, it passed MIME plain-body extraction, encrypted FTS creation/reopen, actual worker readiness/storage/search, maintenance-worker key rotation, old-key refusal and ciphertext marker absence. The native loader resolved inside the built archive to the `darwin-arm64.node` prebuild; Electron 35.7.5 / Node 22.16.0 reported SQLite3 Multiple Ciphers 2.4.0 with `sqlcipher`. No app UI or actual user profile was launched. This checks the builder's real dependency collection rather than a manually assembled dependency tree.
 
+The checked-in `scripts/mail/verify-built-application.mjs` reproduces that check against a built `.app` on macOS or the unpacked application directory on Windows. It uses the packaged executable and archive, bounded private stdin/stdout, synthetic data and a disposable directory. The platform workflow builds and runs it for all three required targets with publication disabled. Example after building on Apple Silicon:
+
+```sh
+node scripts/mail/verify-built-application.mjs apps/desktop/dist-electron/mac-arm64/LegalWork.app
+```
+
 The build exposed and fixed a stale `afterPack` contract: the server now runs in-process and Chrome DevTools is not a prepared binary, so only OpenCode and the orchestrator are sidecars. The hook now accepts electron-builder's numeric architecture enum; previously it silently skipped alias selection and helper signing. The final app contains exactly the two arm64 sidecars, their aliases and two version files. Synthetic Linux/Windows resource regressions protect the same filtering contract.
 
 Separately, `node scripts/mail/platform-qualification.mjs` has passed actual macOS arm64 Electron `safeStorage`, cipher, rotation and backup recovery checks in an isolated profile. That OS-vault probe is distinct from both the minimal ASAR test and the complete-app worker check. The qualification workflow owns macOS x64 and Windows execution and Windows other-user denial; those results remain pending until the workflow runs.
