@@ -93,6 +93,10 @@ asarUnpack:
   - node_modules/paddleocr/**
   - node_modules/.pnpm/image-size*/**
   - node_modules/image-size/**
+  # Mail's pinned Node-API addon resolves prebuilds relative to lib/binding.js.
+  # Keep the complete package together, in both pnpm and flattened layouts.
+  - node_modules/.pnpm/better-sqlite3-multiple-ciphers*/**
+  - node_modules/better-sqlite3-multiple-ciphers/**
 npmRebuild: false
 afterPack: scripts/electron-after-pack.cjs
 afterSign: scripts/electron-after-sign.cjs
