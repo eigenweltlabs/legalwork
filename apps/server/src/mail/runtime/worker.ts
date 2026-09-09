@@ -220,7 +220,7 @@ async function request(message: Extract<ParentMessage, { kind: "request" }>): Pr
       }
       case "mail.accounts.list": {
         const page = repository.listAccountsPage({ limit: command.limit, after: command.after });
-        result = pageResult(message.id, page.items.map((account) => ({ id: account.id, provider: account.provider, displayName: account.display_name })), page.hasMore);
+        result = pageResult(message.id, page.items.map((account) => ({ id: account.id, provider: account.provider, displayName: account.display_name, ...(account.provider === "graph" && credentials!.status(account.id).version ? {personal: credentials!.getBinding(account.id).authority === "https://login.microsoftonline.com/consumers/v2.0"} : {}) })), page.hasMore);
         break;
       }
       case "mail.folders.list": {
@@ -233,10 +233,11 @@ async function request(message: Extract<ParentMessage, { kind: "request" }>): Pr
       case "mail.status":
       case "mail.sync.start":
       case "mail.sync.stop": {
-        if (credentials.status(command.accountId).state === "disconnected") throw locked;
+        const credentialStatus = credentials.status(command.accountId);
         const provider = database.get("SELECT provider FROM mail_accounts WHERE id=?", [command.accountId])?.provider;
         if (provider !== "gmail" && provider !== "graph" && provider !== "imap") throw unsupported;
         if (command.operation === "mail.sync.provider") { result = { syncProvider: provider, ...(provider === "graph" ? {personal: credentials.getBinding(command.accountId).authority === "https://login.microsoftonline.com/consumers/v2.0"} : {}) }; break; }
+        if (credentialStatus.state === 'disconnected') throw locked;
         if(provider==='imap'){if(command.operation==='mail.sync.start'&&command.settings)throw unsupported;result={sync:command.operation==='mail.sync.start'?imap.start(command.accountId):command.operation==='mail.sync.stop'?imap.pause(command.accountId):imap.status(command.accountId)};break;}
         const engine = provider === "gmail" ? backfill : graph;
         if (command.operation === "mail.sync.start") {
