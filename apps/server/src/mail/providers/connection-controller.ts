@@ -171,7 +171,8 @@ export class MailConnectionController {
       this.database.transaction(() => {
         const status = this.credentials.status(accountId);
         if (status.state === "unconfigured") throw new MailConnectionError("account_not_found");
-        if (status.state === "connected") this.credentials.disconnect(accountId, status.version);
+        // Every explicit disconnect fences reconnects started by other controllers/processes.
+        this.credentials.disconnect(accountId, status.version);
       });
     } catch (error) {
       throw new MailConnectionError(error instanceof MailConnectionError && error.code === "account_not_found"
