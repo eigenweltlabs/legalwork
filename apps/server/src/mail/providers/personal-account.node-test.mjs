@@ -32,6 +32,12 @@ test('personal OAuth callback, encrypted immutable identity, restart refresh and
  const kinds=[];service=new LocalMailService({ownerId:'owner',databasePath:path,loadKey:async()=>Buffer.from(key),loadProviderSettings:async(provider,personal)=>{kinds.push(personal);return {...settings,tenantId:personal?'consumers':'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee'};},executable:{kind:'node',path:process.execPath},entryPoint:worker});await service.unlock();
  // Real worker discovers persisted authority before loading trusted connection configuration.
  await service.startSync(accountId);await service.pauseSync(accountId);await service.startSync('org');await service.pauseSync('org');assert.deepEqual(kinds,[true,false]);
+ const listed=(await service.listAccounts({limit:10})).items;assert.equal(listed.find(item=>item.id===accountId).personal,true);assert.equal(listed.find(item=>item.id==='org').personal,false);
+ await service.disconnectAccount('org');
+ const orgReconnect=await service.beginConnection('graph','org',true);assert.equal(new URL(orgReconnect.authorizationUrl).pathname,'/aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee/oauth2/v2.0/authorize');await service.cancelConnection(orgReconnect.connectionId);
+ await service.disconnectAccount(accountId);
+ const consumerReconnect=await service.beginConnection('graph',accountId,false);assert.equal(new URL(consumerReconnect.authorizationUrl).pathname,'/consumers/oauth2/v2.0/authorize');await service.cancelConnection(consumerReconnect.connectionId);
+ assert.deepEqual(kinds,[true,false,false,true]);assert.equal((await service.listAccounts({limit:10})).items.find(item=>item.id==='org').personal,false);
  }finally {await service?.stop();access?.close();await controller?.close();db?.close();key.fill(0);await rm(dir,{recursive:true,force:true});}
 });
 test('onboarding cancellation before HTTP start and during IMAP discovery cannot publish a late account',async()=>{
