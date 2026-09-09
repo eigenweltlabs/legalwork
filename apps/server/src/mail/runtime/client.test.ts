@@ -36,8 +36,8 @@ test("ready handshake, coalesced start and out-of-order correlation", async () =
   await start;
   const slow = worker.request({ operation: "mail.status", accountId: "slow" });
   const fast = worker.request({ operation: "mail.status", accountId: "fast" });
-  expect(await fast).toEqual({ state: "idle", syncSupported: true });
-  expect(await slow).toEqual({ state: "syncing", syncSupported: true });
+  expect(await fast).toMatchObject({ sync: { accountId: "fast", state: "idle" } });
+  expect(await slow).toMatchObject({ sync: { accountId: "slow", state: "syncing" } });
   expect(await worker.request({ operation: "ping" })).toEqual({ pong: true });
 });
 test("crash rejects every pending request", async () => {

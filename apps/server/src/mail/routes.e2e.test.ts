@@ -7,12 +7,17 @@ import { ApiError } from "../errors.js";
 import { startServer, type StartedServer } from "../server.js";
 import type { ServerConfig } from "../types.js";
 import { MailServiceError, type MailService, type MailServiceStatus } from "./service-interface.js";
+import type { MailSyncView } from "./sync-view.js";
 
 const auth = { "x-legalwork-host-token": "synthetic-mail-host" };
 let directory = "";
 const running: StartedServer[] = [];
 const envNames = ["LEGALWORK_ENV_STORE", "LEGALWORK_TOKEN_STORE", "XDG_DATA_HOME"];
 const originalEnv = new Map(envNames.map(name => [name, process.env[name]]));
+function progress(accountId: string, state: MailSyncView["state"]): MailSyncView {
+  return { accountId, provider: "gmail", state, enumerated: 3, downloaded: 2, projected: 1,
+    failed: 0, pending: 2, nextRetryAt: null, error: null };
+}
 beforeEach(async () => {
   directory = await mkdtemp(join(tmpdir(), "legalwork-mail-api-"));
   process.env.LEGALWORK_ENV_STORE = join(directory, "env.json");
@@ -45,6 +50,9 @@ function mockService() {
     async connectionStatus(id) { calls++; return { connectionId: id, state: "pending", expiresAt: 2000000000000 }; },
     async cancelConnection() { calls++; },
     async disconnectAccount() { calls++; },
+    async startSync(id) { calls++; return progress(id, "syncing"); },
+    async pauseSync(id) { calls++; return progress(id, "paused"); },
+    async syncStatus(id) { calls++; return progress(id, "waiting"); },
     async stop() { stops++; state = "stopped"; },
   };
   return { service, calls: () => calls, stops: () => stops };
@@ -68,6 +76,27 @@ test("mail routes are absent by default and when sharing binds all interfaces", 
   const shared = await boot(mock.service, "0.0.0.0");
   expect((await fetch(`${shared.base}/status`, { headers: auth })).status).toBe(404);
   expect(mock.calls()).toBe(0);
+});
+test("sync controls require a local host token and reject settings in bodies or query strings", async () => {
+  const mock = mockService();
+  const { base } = await boot(mock.service);
+  const path = `${base}/accounts/local/sync`;
+  for (const action of ["start", "pause"]) {
+    expect((await fetch(`${path}/${action}`, { method: "POST" })).status).toBe(401);
+    expect((await fetch(`${path}/${action}`, { method: "POST", headers: { authorization: "Bearer synthetic-mail-collaborator" } })).status).toBe(401);
+    expect((await fetch(`${path}/${action}?ownerId=other`, { method: "POST", headers: auth })).status).toBe(400);
+    expect((await fetch(`${path}/${action}`, { method: "POST", headers: auth, body: '{"accessToken":"private"}' })).status).toBe(400);
+  }
+  expect(mock.calls()).toBe(0);
+  for (const [action, state] of [["start", "syncing"], ["pause", "paused"]]) {
+    const result = await fetch(`${path}/${action}`, { method: "POST", headers: auth });
+    expect(result.status).toBe(200);
+    expect(result.headers.get("cache-control")).toBe("no-store");
+    expect(await result.json()).toEqual(progress("local", state === "syncing" ? "syncing" : "paused"));
+  }
+  const result = await fetch(path, { headers: auth });
+  expect(await result.json()).toEqual(progress("local", "waiting"));
+  expect(mock.calls()).toBe(3);
 });
 test("connection routes accept provider selection but reject credentials, paths, owners and excess input", async () => {
   const mock = mockService();

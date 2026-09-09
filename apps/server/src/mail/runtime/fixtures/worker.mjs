@@ -29,6 +29,8 @@ createInterface({ input: process.stdin }).on("line", (line) => {
   if (account === "worker-error") { output({ kind: "response", id: message.id, ok: false, code: "operation_failed" }); return; }
   const result = message.command.operation === "ping" ? { pong: true }
     : message.command.operation === "credentials.update" ? { updated: true }
-      : message.command.operation === "mail.status" ? { state: account === "slow" ? "syncing" : "idle", syncSupported: true } : { accepted: true };
+      : message.command.operation === "mail.status" ? { sync: { accountId: account, provider: "gmail",
+        state: account === "slow" ? "syncing" : "idle", enumerated: 0, downloaded: 0, projected: 0,
+        failed: 0, pending: 0, nextRetryAt: null, error: null } } : { accepted: true };
   setTimeout(() => output({ kind: "response", id: message.id, ok: true, result }), account === "slow" ? 60 : 0);
 });
