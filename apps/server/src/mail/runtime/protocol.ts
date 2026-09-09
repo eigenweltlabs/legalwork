@@ -1,3 +1,6 @@
+import { GMAIL_MAIL_SCOPES, GRAPH_MAIL_SCOPES } from "../provider-config.js";
+import type { MailOAuthSettings } from "../providers/oauth.js";
+import type { MailConnectionStatus } from "../providers/connection-controller.js";
 /** Private parent/worker protocol. No public SQL, filesystem or network command surface. */
 export const MAIL_WORKER_PROTOCOL = 1;
 export const MAX_WORKER_MESSAGE_BYTES = 64 * 1024;
@@ -22,6 +25,10 @@ type Page = { limit?: number; after?: string };
 export type WorkerCommand =
   | { operation: "ping" }
   | { operation: "mail.storage.status" }
+  | { operation: "mail.connection.begin"; settings: MailOAuthSettings; reconnectAccountId?: string }
+  | { operation: "mail.connection.poll"; connectionId: string }
+  | { operation: "mail.connection.cancel"; connectionId: string }
+  | { operation: "mail.account.disconnect"; accountId: string }
   | ({ operation: "mail.accounts.list" } & Page)
   | ({ operation: "mail.folders.list"; accountId: string } & Page)
   | { operation: "mail.status"; accountId: string }
@@ -33,13 +40,17 @@ export type WorkerAccount = { id: string; provider: "gmail" | "graph" | "imap"; 
 export type WorkerFolder = { id: string; name: string; kind: "folder" | "label"; parentId: string | null };
 export type WorkerResult =
   | { pong: true }
+  | { connectionStarted: { connectionId: string; authorizationUrl: string; expiresAt: number } }
+  | { connection: MailConnectionStatus }
+  | { cancelled: true }
+  | { disconnected: true }
   | { state: "idle" | "syncing"; syncSupported: boolean }
   | { encrypted: true; schemaVersion: number; syncSupported: false }
   | { accounts: WorkerAccount[]; nextCursor: string | null }
   | { folders: WorkerFolder[]; nextCursor: string | null }
   | { accepted: true }
   | { updated: true };
-export type WorkerErrorCode = "not_ready" | "unsupported" | "operation_failed" | "not_found" | "response_too_large";
+export type WorkerErrorCode = "locked" | "not_ready" | "unsupported" | "operation_failed" | "not_found" | "response_too_large";
 export type ParentMessage =
   | { kind: "initialize"; protocol: 1; initialization: WorkerInitialization }
   | { kind: "request"; id: string; command: WorkerCommand }
@@ -58,6 +69,57 @@ function exact(value: Record<string, unknown>, keys: string[]): boolean {
 }
 function id(value: unknown): value is string { return typeof value === "string" && value.length > 0 && value.length <= 4096; }
 function cursor(value: unknown): value is string | null { return value === null || id(value); }
+function uuid(value: unknown): value is string { return typeof value === "string" && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value); }
+function time(value: unknown): value is number { return typeof value === "number" && Number.isSafeInteger(value) && value > 0; }
+function mailScopes(value: unknown, provider: "gmail" | "graph"): value is string[] {
+  const expected = provider === "gmail" ? GMAIL_MAIL_SCOPES : GRAPH_MAIL_SCOPES;
+  return Array.isArray(value) && value.length === expected.length && new Set(value).size === value.length && value.every(scope => expected.includes(scope));
+}
+/** Settings are a trusted parent-only transport; no endpoint, fetch, owner, token or redirect overrides. */
+function settings(value: unknown): value is MailOAuthSettings {
+  if (!record(value) || value.applicationType !== "desktop" || value.pkceMethod !== "S256") return false;
+  if (value.provider === "gmail") return exact(value, ["provider", "applicationType", "pkceMethod", "clientId", "clientSecret", "scopes"])
+    && typeof value.clientId === "string" && value.clientId.length <= 4096 && /^[A-Za-z0-9_-]+\.apps\.googleusercontent\.com$/.test(value.clientId)
+    && typeof value.clientSecret === "string" && /^[\x21-\x7e]{1,16384}$/.test(value.clientSecret) && mailScopes(value.scopes, "gmail");
+  return value.provider === "graph" && exact(value, ["provider", "applicationType", "pkceMethod", "clientId", "tenantId", "registeredRedirectUri", "scopes"])
+    && uuid(value.clientId) && uuid(value.tenantId) && value.registeredRedirectUri === "http://localhost/mail/callback" && mailScopes(value.scopes, "graph");
+}
+/** Browser-target allowlist, including exact query keys, S256/state shape and loopback callback. */
+function authorizationUrl(value: unknown, expected?: MailOAuthSettings): boolean {
+  if (typeof value !== "string" || value.length > 16384 || value.includes("\\")) return false;
+  try {
+    const url = new URL(value);
+    if (url.protocol !== "https:" || url.port || url.username || url.password || url.hash) return false;
+    const google = url.hostname === "accounts.google.com" && url.pathname === "/o/oauth2/v2/auth";
+    const graph = url.hostname === "login.microsoftonline.com" && /^\/[0-9a-f-]{36}\/oauth2\/v2\.0\/authorize$/i.test(url.pathname) && uuid(url.pathname.split("/")[1]);
+    if (!google && !graph) return false;
+    const provider = google ? "gmail" : "graph";
+    const keys = ["client_id", "redirect_uri", "response_type", "scope", "state", "code_challenge", "code_challenge_method", ...(google ? ["access_type", "prompt"] : ["response_mode"])];
+    if ([...url.searchParams.keys()].length !== keys.length || keys.some(key => url.searchParams.getAll(key).length !== 1)) return false;
+    const clientId = url.searchParams.get("client_id") ?? "";
+    if (google ? !/^[A-Za-z0-9_-]+\.apps\.googleusercontent\.com$/.test(clientId) : !uuid(clientId)) return false;
+    if (url.searchParams.get("response_type") !== "code" || url.searchParams.get("code_challenge_method") !== "S256"
+      || !/^[A-Za-z0-9_-]{43}$/.test(url.searchParams.get("state") ?? "") || !/^[A-Za-z0-9_-]{43}$/.test(url.searchParams.get("code_challenge") ?? "")
+      || !mailScopes((url.searchParams.get("scope") ?? "").split(" "), provider)) return false;
+    if (google ? url.searchParams.get("access_type") !== "offline" || url.searchParams.get("prompt") !== "consent" : url.searchParams.get("response_mode") !== "query") return false;
+    const redirect = url.searchParams.get("redirect_uri") ?? "";
+    if (!(google ? /^http:\/\/127\.0\.0\.1:[1-9][0-9]{0,4}\/$/ : /^http:\/\/localhost:[1-9][0-9]{0,4}\/mail\/callback$/).test(redirect)) return false;
+    const callback = new URL(redirect);
+    if (!callback.port) return false;
+    return !expected || (expected.provider === provider && expected.clientId === clientId
+      && (expected.provider !== "graph" || expected.tenantId.toLowerCase() === url.pathname.split("/")[1]?.toLowerCase()));
+  } catch { return false; }
+}
+const connectionErrors = ["configuration_invalid", "provider_busy", "capacity", "closed", "not_found", "account_not_found", "reconnect_required", "binding_mismatch", "stale_credentials", "permissions_missing", "cancelled", "expired", "authorization_failed", "identity_failed", "persistence_failed"];
+function connection(value: unknown): value is MailConnectionStatus {
+  if (!record(value) || !uuid(value.connectionId) || !time(value.expiresAt)) return false;
+  if (value.state === "connected") return exact(value, ["connectionId", "expiresAt", "state", "accountId", "renewable"]) && id(value.accountId) && typeof value.renewable === "boolean";
+  if (value.state === "failed") return exact(value, ["connectionId", "expiresAt", "state", "error"]) && typeof value.error === "string" && connectionErrors.includes(value.error);
+  return exact(value, ["connectionId", "expiresAt", "state"]) && ["pending", "verifying", "cancelled", "expired"].includes(String(value.state));
+}
+function started(value: unknown): boolean {
+  return record(value) && exact(value, ["connectionId", "authorizationUrl", "expiresAt"]) && uuid(value.connectionId) && time(value.expiresAt) && authorizationUrl(value.authorizationUrl);
+}
 function account(value: unknown): value is WorkerAccount {
   return record(value) && exact(value, ["id", "provider", "displayName"]) && id(value.id)
     && (value.provider === "gmail" || value.provider === "graph" || value.provider === "imap") && typeof value.displayName === "string";
@@ -68,6 +130,10 @@ function folder(value: unknown): value is WorkerFolder {
 }
 function result(value: unknown): value is WorkerResult {
   return record(value) && ((exact(value, ["pong"]) && value.pong === true)
+    || (exact(value, ["connectionStarted"]) && started(value.connectionStarted))
+    || (exact(value, ["connection"]) && connection(value.connection))
+    || (exact(value, ["cancelled"]) && value.cancelled === true)
+    || (exact(value, ["disconnected"]) && value.disconnected === true)
     || (exact(value, ["state", "syncSupported"]) && (value.state === "idle" || value.state === "syncing") && typeof value.syncSupported === "boolean")
     || (exact(value, ["encrypted", "schemaVersion", "syncSupported"]) && value.encrypted === true && value.syncSupported === false && Number.isSafeInteger(value.schemaVersion) && typeof value.schemaVersion === "number" && value.schemaVersion > 0)
     || (exact(value, ["accounts", "nextCursor"]) && Array.isArray(value.accounts) && value.accounts.length <= MAX_WORKER_PAGE_SIZE && value.accounts.every(account) && cursor(value.nextCursor))
@@ -89,13 +155,17 @@ export function parseWorkerMessage(line: string): WorkerMessage | undefined {
   if (value.kind !== "response" || typeof value.id !== "string" || value.id.length > 40 || !/^[0-9]+:[0-9]+$/.test(value.id)) return;
   if (exact(value, ["kind", "id", "ok", "result"]) && value.ok === true && result(value.result)) return { kind: "response", id: value.id, ok: true, result: value.result };
   if (exact(value, ["kind", "id", "ok", "code"]) && value.ok === false
-    && (value.code === "not_ready" || value.code === "unsupported" || value.code === "operation_failed" || value.code === "not_found" || value.code === "response_too_large")) {
+    && (value.code === "locked" || value.code === "not_ready" || value.code === "unsupported" || value.code === "operation_failed" || value.code === "not_found" || value.code === "response_too_large")) {
     return { kind: "response", id: value.id, ok: false, code: value.code };
   }
 }
 export function resultMatchesCommand(command: WorkerCommand, value: WorkerResult): boolean {
   switch (command.operation) {
     case "ping": return "pong" in value;
+    case "mail.connection.begin": return "connectionStarted" in value && authorizationUrl(value.connectionStarted.authorizationUrl, command.settings);
+    case "mail.connection.poll": return "connection" in value && value.connection.connectionId === command.connectionId;
+    case "mail.connection.cancel": return "cancelled" in value;
+    case "mail.account.disconnect": return "disconnected" in value;
     case "mail.storage.status": return "encrypted" in value;
     case "mail.accounts.list": return "accounts" in value;
     case "mail.folders.list": return "folders" in value;
@@ -107,6 +177,10 @@ export function resultMatchesCommand(command: WorkerCommand, value: WorkerResult
 }
 export function validWorkerCommand(value: unknown): value is WorkerCommand {
   if (!record(value)) return false;
+  if (value.operation === "mail.connection.begin") return Object.keys(value).every(key => ["operation", "settings", "reconnectAccountId"].includes(key))
+    && settings(value.settings) && (!Object.hasOwn(value, "reconnectAccountId") || id(value.reconnectAccountId));
+  if (value.operation === "mail.connection.poll" || value.operation === "mail.connection.cancel") return exact(value, ["operation", "connectionId"]) && uuid(value.connectionId);
+  if (value.operation === "mail.account.disconnect") return exact(value, ["operation", "accountId"]) && id(value.accountId);
   if (value.operation === "ping" || value.operation === "mail.storage.status") return exact(value, ["operation"]);
   if (value.operation === "credentials.update") {
     const credentials = value.credentials;
