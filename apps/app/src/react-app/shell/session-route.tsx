@@ -489,7 +489,7 @@ export function SessionRoute() {
     rememberPendingCreatedSession,
     handleRuntimeSessionUpdated,
   } = useWorkspaceRouteState({
-    skipAutomaticNavigation: showMail,
+    skipAutomaticNavigation: showMail || showWorkflows || showEvals || showRecorder || showExtensions,
     onServerSettingsChanged: () => setLegalworkServerSettingsVersion((value) => value + 1),
     onHostInfo: setLegalworkServerHostInfoState,
   });
