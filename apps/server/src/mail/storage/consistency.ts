@@ -43,6 +43,32 @@ const requiredColumns: Record<string, string[]> = {
   mail_blob_publications: ["account_id", "ref_id", "object_id"],
 };
 
+function schemaIssue(database: MailDatabase): MailConsistencyCode | undefined {
+  if (!database.get("SELECT name FROM sqlite_schema WHERE type='table' AND name='mail_schema_version'")) return "schema-missing";
+  for (const column of requiredColumns.mail_schema_version) {
+    if (!database.get("SELECT name FROM pragma_table_info(?) WHERE name=?", ["mail_schema_version", column])) return "schema-incomplete";
+  }
+  const version = database.get("SELECT version FROM mail_schema_version WHERE singleton=1")?.version;
+  if (typeof version === "number" && Number.isInteger(version) && version >= 1 && version < MAIL_SCHEMA_VERSION) return "schema-upgrade-required";
+  if (version !== MAIL_SCHEMA_VERSION) return "unsupported-schema-version";
+  for (const [table, columns] of Object.entries(requiredColumns)) {
+    if (!database.get("SELECT name FROM sqlite_schema WHERE type='table' AND name=?", [table])) return "schema-incomplete";
+    for (const column of columns) {
+      if (!database.get("SELECT name FROM pragma_table_info(?) WHERE name=?", [table, column])) return "schema-incomplete";
+    }
+  }
+}
+
+/** Fast startup guard: schema metadata and FK setting only, independent of mailbox size.
+ * No quick_check, foreign-key scan, content scan, migration or repair. */
+export function assertMailSchema(database: MailDatabase): void {
+  try {
+    if (schemaIssue(database) || database.get("PRAGMA foreign_keys")?.foreign_keys !== 1) throw new Error("Mail schema is not ready");
+  } catch {
+    throw new Error("Mail schema is not ready");
+  }
+}
+
 /** Worker-only diagnostic, never a migration, repair, deletion or content-download verdict.
  * Uses a synchronous snapshot and bounded keyset pages; returns fixed codes, never SQL error text or mail identifiers. */
 export function checkMailConsistency(database: MailDatabase, options: MailConsistencyOptions = {}): MailConsistencyResult {
@@ -82,19 +108,8 @@ export function checkMailConsistency(database: MailDatabase, options: MailConsis
   try {
     database.transaction(() => {
       if (database.get("PRAGMA quick_check(1)")?.quick_check !== "ok") codes.add("sqlite-integrity-failed");
-      if (!database.get("SELECT name FROM sqlite_schema WHERE type='table' AND name='mail_schema_version'")) {
-        codes.add("schema-missing"); scanComplete = false; return;
-      }
-      const version = database.get("SELECT version FROM mail_schema_version WHERE singleton=1")?.version;
-      if (version === 1) { codes.add("schema-upgrade-required"); scanComplete = false; return; }
-      if (version !== MAIL_SCHEMA_VERSION) { codes.add("unsupported-schema-version"); scanComplete = false; return; }
-      for (const [table, columns] of Object.entries(requiredColumns)) {
-        for (const column of columns) {
-          if (!database.get("SELECT name FROM pragma_table_info(?) WHERE name=?", [table, column])) {
-            codes.add("schema-incomplete"); scanComplete = false; return;
-          }
-        }
-      }
+      const schema = schemaIssue(database);
+      if (schema) { codes.add(schema); scanComplete = false; return; }
       if (database.get("PRAGMA foreign_keys")?.foreign_keys !== 1) codes.add("foreign-key-enforcement-disabled");
       if (database.get("SELECT 1 AS violation FROM pragma_foreign_key_check LIMIT 1")) codes.add("foreign-key-violation");
       scan("mail_accounts", "id,owner_id,provider", ["id"], row => {
