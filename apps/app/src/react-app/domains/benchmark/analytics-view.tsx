@@ -2,6 +2,7 @@
 import { useEffect, useState } from "react";
 import { ChevronDown, RefreshCw } from "lucide-react";
 
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -25,10 +26,10 @@ import { RunLeaderboard } from "./run-leaderboard";
 import { useBenchmarkStore } from "./store";
 
 /** Present the overall aggregate as a run-style score so we can reuse the leaderboard chart. */
-function toModelScore(model: BenchmarkModelAnalytics): BenchmarkModelScore {
+function toModelScore(model: BenchmarkModelAnalytics, showArm: boolean): BenchmarkModelScore {
   return {
     providerID: model.providerID,
-    modelID: model.modelID,
+    modelID: showArm ? `${model.modelID} · ${model.armLabel}` : model.modelID,
     passed: 0,
     failed: 0,
     error: 0,
@@ -101,8 +102,14 @@ export function AnalyticsView() {
     );
   }
 
-  const models = analytics.models.map((model) => ({ providerID: model.providerID, modelID: model.modelID }));
-  const scoreByModel = analytics.models.map(toModelScore);
+  // With more than one arm every model appears once per arm, so rows and chart
+  // labels have to carry the arm or they read as duplicates of each other.
+  const showArm = (analytics.arms?.length ?? 0) > 1;
+  const models = analytics.models.map((model) => ({
+    providerID: model.providerID,
+    modelID: showArm ? `${model.modelID} · ${model.armLabel}` : model.modelID,
+  }));
+  const scoreByModel = analytics.models.map((model) => toModelScore(model, showArm));
   const availableTags = analytics.tags;
   const toggleTag = (tag: string) =>
     setAnalyticsTags(selectedTags.includes(tag) ? selectedTags.filter((entry) => entry !== tag) : [...selectedTags, tag]);
@@ -195,13 +202,21 @@ export function AnalyticsView() {
                     {analytics.models.map((model) => {
                       const byTag = new Map(model.byTag.map((entry) => [entry.tag, entry]));
                       return (
-                        <tr key={`${model.providerID}/${model.modelID}`} className="border-t border-dls-border">
+                        <tr
+                          key={`${model.providerID}/${model.modelID}/${model.armId}`}
+                          className="border-t border-dls-border"
+                        >
                           <td className="sticky left-0 z-10 max-w-52 bg-background px-5 py-2">
                             <span className="inline-flex min-w-0 items-center gap-1.5">
                               <ProviderIcon providerId={model.providerID} size={13} />
                               <span className="truncate" title={model.modelID}>
                                 {model.modelID}
                               </span>
+                              {showArm ? (
+                                <Badge variant="outline" className="shrink-0 px-1 py-0 text-[9px]">
+                                  {model.armLabel}
+                                </Badge>
+                              ) : null}
                             </span>
                           </td>
                           <StatCell stat={model.overall} className="border-l border-dls-border font-semibold" />

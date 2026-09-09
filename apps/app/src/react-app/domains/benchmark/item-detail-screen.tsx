@@ -7,7 +7,7 @@ import { t } from "@/i18n";
 import { SettingsNotice, SettingsStatusBadge, Spinner } from "../settings/settings-section";
 import { LayoutSection, LayoutSectionHeader, LayoutStack } from "../settings/settings-layout";
 import { resolvePathOpenTarget } from "../session/artifacts/open-target";
-import { LEARNINGS_PANEL_SESSION_ID, usePanelTabStore } from "../session/panel/panel-tab-store";
+import { EVALS_PANEL_SESSION_ID, usePanelTabStore } from "../session/panel/panel-tab-store";
 import { criteriaScoreLabel, criteriaScoreToneClass, isItemActive, itemStatusBadge } from "./format";
 import type { BenchmarkItemStatus } from "../../../app/lib/benchmark-types";
 
@@ -41,8 +41,8 @@ export function ItemDetailScreen(props: ItemDetailScreenProps) {
     if (!target) return;
     const resolved = { ...target, exists: true };
     const panelStore = usePanelTabStore.getState();
-    const existing = panelStore.transcriptArtifactTargets[LEARNINGS_PANEL_SESSION_ID] ?? [];
-    panelStore.syncTranscriptArtifacts(LEARNINGS_PANEL_SESSION_ID, [
+    const existing = panelStore.transcriptArtifactTargets[EVALS_PANEL_SESSION_ID] ?? [];
+    panelStore.syncTranscriptArtifacts(EVALS_PANEL_SESSION_ID, [
       ...existing.filter((entry) => entry.id !== resolved.id),
       resolved,
     ]);
@@ -52,7 +52,7 @@ export function ItemDetailScreen(props: ItemDetailScreenProps) {
   const deliverables = detail?.deliverables?.deliverables ?? [];
 
   return (
-    <LayoutStack className="max-w-6xl">
+    <LayoutStack className="max-w-5xl">
       <LayoutSection>
         <LayoutSectionHeader>
           {item ? (

@@ -226,7 +226,7 @@ export function getWorkspaceSettingsTabs(): SettingsTab[] {
 export function getGlobalSettingsTabs(developerMode: boolean): SettingsTab[] {
   // Appearance/Language and Recovery are hidden (theme is fixed to Light).
   // "preferences" is the Privacy tab (usage-analytics opt-out toggle).
-  // "benchmark" is not listed here: it lives on the Learnings page in the main
+  // "benchmark" is not listed here: it lives on the Evals page in the main
   // app shell (embedded singleView surface), not in the settings sidebar.
   // Account leads: it is the firm's sign-in, plan and billing home.
   const tabs: SettingsTab[] = ["account", "ai", "personalisation", "safety", "shell", "environment", "preferences", "updates"];
@@ -384,11 +384,9 @@ export function SettingsSidebar(props: SettingsSidebarProps) {
 }
 
 export function SettingsPage(props: SettingsPageProps) {
-  // Wide tabs (benchmark tables) share a larger cap so the heading stays aligned with the content.
-  const wide = props.activeTab === "benchmark";
   return (
     <SettingsContent>
-      <SettingsPanel key={props.activeTab} className={wide ? "lw-enter lg:max-w-6xl" : "lw-enter"}>
+      <SettingsPanel key={props.activeTab} className="lw-enter">
         <SettingsPanelHeading>
           <SettingsPanelTitle>{getSettingsTabLabel(props.activeTab)}</SettingsPanelTitle>
           <SettingsPanelDescription>{getSettingsTabDescription(props.activeTab)}</SettingsPanelDescription>

@@ -61,7 +61,7 @@ export function AppRoot() {
                 }
               />
               <Route
-                path="/learnings"
+                path="/evals"
                 element={
                   <DevProfiler id="SessionRoute">
                     <SessionRoute />
@@ -69,7 +69,7 @@ export function AppRoot() {
                 }
               />
               <Route
-                path="/workspace/:workspaceId/learnings"
+                path="/workspace/:workspaceId/evals"
                 element={
                   <DevProfiler id="SessionRoute">
                     <SessionRoute />

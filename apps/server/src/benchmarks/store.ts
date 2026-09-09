@@ -3,6 +3,7 @@ import { dirname, join, resolve } from "node:path";
 import type { ServerConfig } from "../types.js";
 import { ensureDir } from "../utils.js";
 import type { AnalyticsRow } from "./analytics.js";
+import { BASELINE_ARM, parseArmConfig, type BenchmarkArm } from "./ablation.js";
 import { parseStoredTaskJson, type BenchmarkTaskSource, type BenchmarkWorkType } from "./task-schema.js";
 
 export type BenchmarkRunStatus =
@@ -55,6 +56,8 @@ export type BenchmarkItemRow = {
   taskJson: string;
   providerId: string;
   modelId: string;
+  armId: string;
+  armLabel: string;
   status: BenchmarkItemStatus;
   sessionId: string | null;
   workDir: string | null;
@@ -71,7 +74,17 @@ export type BenchmarkItemRow = {
 
 export type NewBenchmarkItem = Pick<
   BenchmarkItemRow,
-  "id" | "taskSource" | "taskKey" | "taskTitle" | "workType" | "vertical" | "taskJson" | "providerId" | "modelId"
+  | "id"
+  | "taskSource"
+  | "taskKey"
+  | "taskTitle"
+  | "workType"
+  | "vertical"
+  | "taskJson"
+  | "providerId"
+  | "modelId"
+  | "armId"
+  | "armLabel"
 >;
 
 export type BenchmarkVerdictRow = {
@@ -106,6 +119,8 @@ export type BenchmarkLatestResultRow = {
   taskKey: string;
   providerID: string;
   modelID: string;
+  armId: string;
+  armLabel: string;
   status: BenchmarkItemStatus;
   score: number | null;
   nCriteria: number | null;
@@ -172,6 +187,14 @@ CREATE TABLE IF NOT EXISTS benchmark_run_models (
   model_id TEXT NOT NULL,
   PRIMARY KEY (run_id, provider_id, model_id)
 );
+CREATE TABLE IF NOT EXISTS benchmark_run_arms (
+  run_id TEXT NOT NULL,
+  arm_id TEXT NOT NULL,             -- stable within the run ('full', 'no-skills', ...)
+  label TEXT NOT NULL,
+  config_json TEXT NOT NULL,        -- BenchmarkArmConfig: tool overrides + skill policy
+  position INTEGER NOT NULL,        -- authoring order; the first arm is the baseline
+  PRIMARY KEY (run_id, arm_id)
+);
 CREATE TABLE IF NOT EXISTS benchmark_run_items (
   id TEXT PRIMARY KEY,
   run_id TEXT NOT NULL,
@@ -183,6 +206,8 @@ CREATE TABLE IF NOT EXISTS benchmark_run_items (
   task_json TEXT NOT NULL,
   provider_id TEXT NOT NULL,
   model_id TEXT NOT NULL,
+  arm_id TEXT NOT NULL DEFAULT 'full',
+  arm_label TEXT NOT NULL DEFAULT 'Full',
   status TEXT NOT NULL,
   session_id TEXT,
   work_dir TEXT,
@@ -242,7 +267,34 @@ CREATE TABLE IF NOT EXISTS benchmark_task_cache (
   fetched_at INTEGER NOT NULL,
   PRIMARY KEY (ref, task_key)
 );
+CREATE TABLE IF NOT EXISTS benchmark_tree_cache (
+  tree_sha TEXT PRIMARY KEY,      -- git tree sha; content-addressed, so it survives commits
+  paths_json TEXT NOT NULL,       -- every blob path under that tree, relative to it
+  fetched_at INTEGER NOT NULL
+);
 `;
+
+/**
+ * Additive migrations for databases created by an earlier build. `CREATE TABLE
+ * IF NOT EXISTS` leaves existing tables alone, so new columns are added here.
+ * Every step is a no-op when already applied.
+ */
+function migrate(db: SqliteHandle): void {
+  const columns = new Set(
+    (db.prepare("PRAGMA table_info(benchmark_run_items)").all() as Array<{ name?: string }>).flatMap((row) =>
+      typeof row.name === "string" ? [row.name] : [],
+    ),
+  );
+  // Pre-ablation runs were all-capabilities, which is exactly the baseline arm.
+  if (!columns.has("arm_id")) {
+    db.exec("ALTER TABLE benchmark_run_items ADD COLUMN arm_id TEXT NOT NULL DEFAULT 'full'");
+  }
+  if (!columns.has("arm_label")) {
+    db.exec("ALTER TABLE benchmark_run_items ADD COLUMN arm_label TEXT NOT NULL DEFAULT 'Full'");
+  }
+  // The plugin resolves an arm policy from a session id on every skill call.
+  db.exec("CREATE INDEX IF NOT EXISTS idx_benchmark_run_items_session ON benchmark_run_items(session_id)");
+}
 
 const RUN_COLUMNS = `id, workspace_id AS workspaceId, title, status,
   judge_provider_id AS judgeProviderId, judge_model_id AS judgeModelId,
@@ -251,7 +303,8 @@ const RUN_COLUMNS = `id, workspace_id AS workspaceId, title, status,
 
 const ITEM_COLUMNS = `id, run_id AS runId, task_source AS taskSource, task_key AS taskKey,
   task_title AS taskTitle, work_type AS workType, vertical, task_json AS taskJson,
-  provider_id AS providerId, model_id AS modelId, status, session_id AS sessionId,
+  provider_id AS providerId, model_id AS modelId, arm_id AS armId, arm_label AS armLabel,
+  status, session_id AS sessionId,
   work_dir AS workDir, score, n_criteria AS nCriteria, n_passed AS nPassed,
   deliverables_found AS deliverablesFound, error, started_at AS startedAt,
   finished_at AS finishedAt, cost, tokens_json AS tokensJson`;
@@ -321,6 +374,7 @@ export class BenchmarkStore {
   static async open(path: string): Promise<BenchmarkStore> {
     const db = await openSqlite(path);
     db.exec(DDL);
+    migrate(db);
     return new BenchmarkStore(db);
   }
 
@@ -344,6 +398,7 @@ export class BenchmarkStore {
     run: Omit<BenchmarkRunRow, "startedAt" | "finishedAt" | "error">,
     models: BenchmarkModelRef[],
     items: NewBenchmarkItem[],
+    arms: BenchmarkArm[] = [BASELINE_ARM],
   ): void {
     this.transaction(() => {
       this.db
@@ -368,9 +423,15 @@ export class BenchmarkStore {
       for (const model of models) {
         insertModel.run(run.id, model.providerID, model.modelID);
       }
+      const insertArm = this.db.prepare(
+        "INSERT INTO benchmark_run_arms (run_id, arm_id, label, config_json, position) VALUES (?, ?, ?, ?, ?)",
+      );
+      arms.forEach((arm, position) => {
+        insertArm.run(run.id, arm.id, arm.label, JSON.stringify(arm.config ?? {}), position);
+      });
       const insertItem = this.db.prepare(
-        `INSERT INTO benchmark_run_items (id, run_id, task_source, task_key, task_title, work_type, vertical, task_json, provider_id, model_id, status)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending')`,
+        `INSERT INTO benchmark_run_items (id, run_id, task_source, task_key, task_title, work_type, vertical, task_json, provider_id, model_id, arm_id, arm_label, status)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending')`,
       );
       for (const item of items) {
         insertItem.run(
@@ -384,9 +445,38 @@ export class BenchmarkStore {
           item.taskJson,
           item.providerId,
           item.modelId,
+          item.armId,
+          item.armLabel,
         );
       }
     });
+  }
+
+  listRunArms(runId: string): BenchmarkArm[] {
+    const rows = this.db
+      .prepare("SELECT arm_id AS id, label, config_json AS configJson FROM benchmark_run_arms WHERE run_id = ? ORDER BY position")
+      .all(runId) as Array<{ id: string; label: string; configJson: string }>;
+    if (!rows.length) return [BASELINE_ARM];
+    return rows.map((row) => ({ id: row.id, label: row.label, config: parseArmConfig(row.configJson) }));
+  }
+
+  /**
+   * The arm an agent session is running under, resolved from the session id the
+   * engine reports. Backs the plugin's skill gate, so it must stay a cheap
+   * indexed lookup — it runs on every `skill` tool call in the process.
+   */
+  getArmBySessionId(sessionId: string): (BenchmarkArm & { runId: string }) | null {
+    const row = this.db
+      .prepare(
+        `SELECT i.run_id AS runId, i.arm_id AS id, i.arm_label AS label, a.config_json AS configJson
+           FROM benchmark_run_items i
+           LEFT JOIN benchmark_run_arms a ON a.run_id = i.run_id AND a.arm_id = i.arm_id
+          WHERE i.session_id = ?
+          LIMIT 1`,
+      )
+      .get(sessionId) as { runId: string; id: string; label: string; configJson: string | null } | undefined;
+    if (!row) return null;
+    return { runId: row.runId, id: row.id, label: row.label, config: parseArmConfig(row.configJson) };
   }
 
   getRun(runId: string): BenchmarkRunRow | null {
@@ -432,6 +522,7 @@ export class BenchmarkStore {
         .run(runId);
       this.db.prepare("DELETE FROM benchmark_run_items WHERE run_id = ?").run(runId);
       this.db.prepare("DELETE FROM benchmark_run_models WHERE run_id = ?").run(runId);
+      this.db.prepare("DELETE FROM benchmark_run_arms WHERE run_id = ?").run(runId);
       this.db.prepare("DELETE FROM benchmark_runs WHERE id = ?").run(runId);
     });
   }
@@ -595,6 +686,7 @@ export class BenchmarkStore {
     return this.db
       .prepare(
         `SELECT i.task_key AS taskKey, i.provider_id AS providerID, i.model_id AS modelID,
+                i.arm_id AS armId, i.arm_label AS armLabel,
                 i.status, i.score, i.n_criteria AS nCriteria, i.n_passed AS nPassed,
                 i.id AS itemId, i.run_id AS runId, r.created_at AS runCreatedAt, i.finished_at AS finishedAt
          FROM benchmark_run_items i
@@ -608,8 +700,11 @@ export class BenchmarkStore {
                AND i2.task_key = i.task_key
                AND i2.provider_id = i.provider_id
                AND i2.model_id = i.model_id
+               -- Per arm: otherwise every arm of the newest run matches and the
+               -- same task×model comes back once per arm as if duplicated.
+               AND i2.arm_id = i.arm_id
            )
-         ORDER BY i.task_key, i.provider_id, i.model_id`,
+         ORDER BY i.task_key, i.provider_id, i.model_id, i.arm_id`,
       )
       .all(workspaceId) as BenchmarkLatestResultRow[];
   }
@@ -619,6 +714,7 @@ export class BenchmarkStore {
     const rows = this.db
       .prepare(
         `SELECT i.task_key AS taskKey, i.provider_id AS providerID, i.model_id AS modelID,
+                i.arm_id AS armId, i.arm_label AS armLabel,
                 i.vertical AS vertical, i.n_criteria AS nCriteria, i.n_passed AS nPassed, i.task_json AS taskJson
          FROM benchmark_run_items i
          JOIN benchmark_runs r ON r.id = i.run_id
@@ -631,6 +727,10 @@ export class BenchmarkStore {
                AND i2.task_key = i.task_key
                AND i2.provider_id = i.provider_id
                AND i2.model_id = i.model_id
+               -- Arms are separate measurements of the same task×model, so
+               -- "latest" is resolved per arm; without this an ablated result
+               -- and its baseline would average together.
+               AND i2.arm_id = i.arm_id
            )`,
       )
       .all(workspaceId) as Array<Omit<AnalyticsRow, "tags"> & { taskJson: string }>;
@@ -668,6 +768,35 @@ export class BenchmarkStore {
          ON CONFLICT(ref) DO UPDATE SET fetched_at = excluded.fetched_at, index_json = excluded.index_json`,
       )
       .run(ref, fetchedAt, indexJson);
+  }
+
+  /**
+   * Blob paths under one git tree. Keyed by tree sha rather than commit sha:
+   * an unchanged directory keeps its sha across commits, so re-indexing after a
+   * benchmark-repo update only refetches the parts that actually moved — and a
+   * walk interrupted by a GitHub rate limit resumes from where it stopped.
+   */
+  getCachedTree(treeSha: string): string[] | null {
+    const row = this.db
+      .prepare("SELECT paths_json AS pathsJson FROM benchmark_tree_cache WHERE tree_sha = ?")
+      .get(treeSha);
+    const pathsJson = (row as { pathsJson: string } | undefined)?.pathsJson;
+    if (!pathsJson) return null;
+    try {
+      const parsed = JSON.parse(pathsJson);
+      return Array.isArray(parsed) ? (parsed as string[]) : null;
+    } catch {
+      return null;
+    }
+  }
+
+  setCachedTree(treeSha: string, paths: string[], fetchedAt: number): void {
+    this.db
+      .prepare(
+        `INSERT INTO benchmark_tree_cache (tree_sha, paths_json, fetched_at) VALUES (?, ?, ?)
+         ON CONFLICT(tree_sha) DO UPDATE SET paths_json = excluded.paths_json, fetched_at = excluded.fetched_at`,
+      )
+      .run(treeSha, JSON.stringify(paths), fetchedAt);
   }
 
   getCachedTask(ref: string, taskKey: string): string | null {

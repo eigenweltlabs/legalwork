@@ -1,7 +1,7 @@
 /** @jsxImportSource react */
 /**
  * Recorder main pane — local audio recording + on-device transcription.
- * Rendered in the session shell's main view (sidebar stays), like Learnings.
+ * Rendered in the session shell's main view (sidebar stays), like Evals.
  */
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";

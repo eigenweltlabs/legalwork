@@ -20,6 +20,8 @@ function item(patch: Partial<BenchmarkRunItem>): BenchmarkRunItem {
     tags: ["tax"],
     providerID: "prov",
     modelID: "m",
+    armId: "full",
+    armLabel: "Full",
     status: "pending",
     score: null,
     nCriteria: null,
@@ -81,12 +83,12 @@ describe("aggregateByTag", () => {
     const rows = aggregateByTag(items, models);
     // tax appears 3×, then us/m&a once each (alpha tiebreak).
     expect(rows.map((row) => row.tag)).toEqual(["tax", "m&a", "us"]);
-    expect(rows[0].byModel["p/a"]).toEqual({ rate: 0.75, count: 2 });
-    expect(rows[0].byModel["p/b"]).toEqual({ rate: 0.25, count: 1 });
+    expect(rows[0].byModel["p/a/full"]).toEqual({ rate: 0.75, count: 2 });
+    expect(rows[0].byModel["p/b/full"]).toEqual({ rate: 0.25, count: 1 });
     // us only from the first item (multi-tag membership).
     const us = rows.find((row) => row.tag === "us")!;
-    expect(us.byModel["p/a"]).toEqual({ rate: 0.5, count: 1 });
-    expect(us.byModel["p/b"]).toEqual({ rate: null, count: 0 });
+    expect(us.byModel["p/a/full"]).toEqual({ rate: 0.5, count: 1 });
+    expect(us.byModel["p/b/full"]).toEqual({ rate: null, count: 0 });
   });
 
   test("ignores unjudged items", () => {
@@ -98,5 +100,45 @@ describe("aggregateByTag", () => {
       models,
     );
     expect(rows).toHaveLength(0);
+  });
+});
+
+describe("aggregateByTag under ablation", () => {
+  test("keeps each arm as its own column instead of averaging them together", () => {
+    const items: BenchmarkRunItem[] = [
+      // Same task, same model, two arms: the baseline aced it, the ablated arm failed.
+      item({ tags: ["tax"], providerID: "p", modelID: "a", armId: "full", armLabel: "Full", nPassed: 4, nCriteria: 4 }),
+      item({
+        tags: ["tax"],
+        providerID: "p",
+        modelID: "a",
+        armId: "no-skills",
+        armLabel: "No skills",
+        nPassed: 0,
+        nCriteria: 4,
+      }),
+      item({ tags: ["m&a"], providerID: "p", modelID: "a", armId: "full", armLabel: "Full", nPassed: 2, nCriteria: 4 }),
+    ];
+    const rows = aggregateByTag(items, [
+      { providerID: "p", modelID: "a", armId: "full" },
+      { providerID: "p", modelID: "a", armId: "no-skills" },
+    ]);
+    const tax = rows.find((row) => row.tag === "tax")!;
+    // Averaging the two arms would report 50% for both and hide the whole effect.
+    expect(tax.byModel["p/a/full"]).toEqual({ rate: 1, count: 1 });
+    expect(tax.byModel["p/a/no-skills"]).toEqual({ rate: 0, count: 1 });
+    // A tag only the baseline covered leaves the ablated column empty, not zero.
+    const ma = rows.find((row) => row.tag === "m&a")!;
+    expect(ma.byModel["p/a/full"]).toEqual({ rate: 0.5, count: 1 });
+    expect(ma.byModel["p/a/no-skills"]).toEqual({ rate: null, count: 0 });
+  });
+
+  test("items without an arm fall back to the baseline column", () => {
+    // Rows written before ablation carry no arm; they are baseline measurements.
+    const rows = aggregateByTag(
+      [item({ tags: ["tax", "us"], providerID: "p", modelID: "a", nPassed: 3, nCriteria: 4 })],
+      [{ providerID: "p", modelID: "a" }],
+    );
+    expect(rows.find((row) => row.tag === "tax")!.byModel["p/a/full"]).toEqual({ rate: 0.75, count: 1 });
   });
 });

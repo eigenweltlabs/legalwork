@@ -4,7 +4,7 @@ import legalworkMarkDark from "@/assets/legalwork-mark-dark.svg";
 import {
   Archive,
   ArchiveRestore,
-  Sprout,
+  FlaskConical,
   ChevronRight,
   FolderPlus,
   HardDrive,
@@ -484,12 +484,12 @@ export type AppSidebarProps = {
   onCreateTaskInNewWorkspace: () => void;
   onToggleDrive?: () => void;
   driveOpen?: boolean;
-  onShowLearnings?: () => void;
+  onShowEvals?: () => void;
   onShowWorkflows?: () => void;
   onShowExtensions?: () => void;
   onShowRecorder?: () => void;
   /** Which main-pane nav tab is currently shown (shades it like hover). */
-  activeNav?: "learnings" | "workflows" | "extensions" | "recorder" | null;
+  activeNav?: "evals" | "workflows" | "extensions" | "recorder" | null;
   onReorderWorkspaces?: (workspaceIds: string[]) => void;
   onStartResize?: React.PointerEventHandler<HTMLButtonElement>;
 };
@@ -508,7 +508,7 @@ function isSessionActivityStatus(status: string | undefined): status is SessionA
   return status === "idle" || status === "thinking" || status === "responding" || status === "error" || status === "compacting" || status === "waiting";
 }
 
-// Primary nav rows (Learning / Workflows / Integrations): smooth color fade on
+// Primary nav rows (Workflows / Integrations / Evals): smooth color fade on
 // hover/active. The active row uses the default subtle gray fill from
 // SidebarMenuButton (data-active:bg-sidebar-accent) — no accent bar.
 const NAV_ITEM_CLASS =
@@ -760,11 +760,11 @@ export function AppSidebar(props: AppSidebarProps) {
           <SidebarMenuItem>
             <SidebarMenuButton
               className={cn(NAV_ITEM_CLASS, "[&_svg]:size-[19px]")}
-              isActive={props.activeNav === "learnings"}
-              onClick={() => props.onShowLearnings?.()}
+              isActive={props.activeNav === "evals"}
+              onClick={() => props.onShowEvals?.()}
             >
-              <Sprout className="size-[19px]" strokeWidth={1.5} />
-              <span>Learning</span>
+              <FlaskConical className="size-[19px]" strokeWidth={1.5} />
+              <span>Evals</span>
             </SidebarMenuButton>
           </SidebarMenuItem>
         </SidebarMenu>

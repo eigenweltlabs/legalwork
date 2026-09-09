@@ -11,7 +11,7 @@ import { ProviderIcon } from "../../design-system/provider-icon";
 import { LayoutStack } from "../settings/settings-layout";
 import { SettingsNotice, Spinner } from "../settings/settings-section";
 import { resolvePathOpenTarget } from "../session/artifacts/open-target";
-import { LEARNINGS_PANEL_SESSION_ID, usePanelTabStore } from "../session/panel/panel-tab-store";
+import { EVALS_PANEL_SESSION_ID, usePanelTabStore } from "../session/panel/panel-tab-store";
 import { criteriaScoreLabel, criteriaScoreToneClass, isItemActive, itemStatusBadge, workTypeLabel } from "./format";
 import { useBenchmarkStore } from "./store";
 import { TaskFormModal } from "./task-form-modal";
@@ -59,7 +59,7 @@ export function TaskDetailScreen(props: TaskDetailScreenProps) {
     const targets = (documents ?? [])
       .map((entry) => resolvePathOpenTarget(entry.relativePath, [], "benchmark task document"))
       .filter((entry): entry is NonNullable<typeof entry> => entry !== null);
-    usePanelTabStore.getState().syncTranscriptArtifacts(LEARNINGS_PANEL_SESSION_ID, targets);
+    usePanelTabStore.getState().syncTranscriptArtifacts(EVALS_PANEL_SESSION_ID, targets);
     const target = targets.find((entry) => entry.value === doc.relativePath) ?? targets[0];
     if (target) {
       window.dispatchEvent(new CustomEvent("legalwork-open-accessible-target", { detail: target }));

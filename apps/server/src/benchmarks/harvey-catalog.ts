@@ -1,10 +1,11 @@
 /**
  * On-demand Harvey Legal Agent Benchmark catalog.
  *
- * The repo (~491MB) is never vendored or cloned. The index costs two GitHub API
- * calls (head sha + recursive tree) and is cached per-sha in SQLite; task.json
- * files hydrate lazily from raw.githubusercontent.com (not API-rate-limited),
- * and task documents download only when a run actually needs them.
+ * The repo (~491MB) is never vendored or cloned. The index is built from the
+ * git tree API (see `listBlobPaths` for how truncation is handled) and cached
+ * per-sha in SQLite; task.json files hydrate lazily from
+ * raw.githubusercontent.com (not API-rate-limited), and task documents download
+ * only when a run actually needs them.
  */
 import { mkdir, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
@@ -55,6 +56,7 @@ export type CatalogFilter = {
   search?: string;
 };
 
+const TASKS_DIR = "tasks";
 const TASK_JSON_PATTERN = /^tasks\/([^/]+)\/([^/]+)\/task\.json$/;
 const DOCUMENT_PATTERN = /^tasks\/([^/]+)\/([^/]+)\/documents\/(.+)$/;
 
@@ -81,15 +83,30 @@ function githubHeaders(accept: string): Record<string, string> {
   return headers;
 }
 
+/**
+ * Indexing the catalog costs a handful of tree calls, and GitHub only allows 60
+ * an hour unauthenticated — say so instead of surfacing a bare 403.
+ */
+async function githubError(res: Response, url: string): Promise<ApiError> {
+  const text = await res.text().catch(() => "");
+  const rateLimited =
+    (res.status === 403 || res.status === 429) && res.headers.get("x-ratelimit-remaining") === "0";
+  if (rateLimited) {
+    return new ApiError(
+      502,
+      "github_rate_limited",
+      "GitHub rate limit reached for the benchmark repo. Set LEGALWORK_GITHUB_TOKEN (or GITHUB_TOKEN) to raise it, or try again later.",
+    );
+  }
+  return new ApiError(502, "github_fetch_failed", `Failed to read from GitHub (${res.status}): ${text || url}`);
+}
+
 async function ghJson(url: string): Promise<any> {
   const res = await fetch(url, {
     headers: githubHeaders("application/vnd.github+json"),
     signal: AbortSignal.timeout(20_000),
   });
-  if (!res.ok) {
-    const text = await res.text().catch(() => "");
-    throw new ApiError(502, "github_fetch_failed", `Failed to read from GitHub (${res.status}): ${text || url}`);
-  }
+  if (!res.ok) throw await githubError(res, url);
   return res.json();
 }
 
@@ -98,10 +115,7 @@ async function ghBuffer(url: string): Promise<Buffer> {
     headers: githubHeaders("*/*"),
     signal: AbortSignal.timeout(60_000),
   });
-  if (!res.ok) {
-    const text = await res.text().catch(() => "");
-    throw new ApiError(502, "github_fetch_failed", `Failed to read from GitHub (${res.status}): ${text || url}`);
-  }
+  if (!res.ok) throw await githubError(res, url);
   return Buffer.from(await res.arrayBuffer());
 }
 
@@ -135,6 +149,7 @@ function parseIndexJson(raw: string): HarveyIndex | null {
 
 function buildIndexEntries(paths: string[]): HarveyIndexEntry[] {
   const byKey = new Map<string, HarveyIndexEntry>();
+  const pathSet = new Set(paths);
   for (const path of paths) {
     const taskMatch = TASK_JSON_PATTERN.exec(path);
     if (taskMatch) {
@@ -154,9 +169,7 @@ function buildIndexEntries(paths: string[]): HarveyIndexEntry[] {
     }
   }
   // Entries discovered only through documents (no task.json) are not runnable.
-  const entries = Array.from(byKey.values()).filter((entry) =>
-    paths.includes(`${entry.key}/task.json`),
-  );
+  const entries = Array.from(byKey.values()).filter((entry) => pathSet.has(`${entry.key}/task.json`));
   return entries.sort((a, b) => a.key.localeCompare(b.key));
 }
 
@@ -169,16 +182,73 @@ async function resolveHeadSha(): Promise<string> {
   return sha;
 }
 
-async function fetchIndexAtRef(ref: string): Promise<HarveyIndexEntry[]> {
-  const tree = await ghJson(`${apiBase()}/repos/${benchmarkRepo()}/git/trees/${encodeURIComponent(ref)}?recursive=1`);
-  if (tree?.truncated === true) {
-    throw new ApiError(502, "github_tree_truncated", "GitHub truncated the benchmark repo tree listing");
-  }
-  const entries = Array.isArray(tree?.tree) ? tree.tree : [];
-  const paths = entries.flatMap((entry: any) =>
-    entry && entry.type === "blob" && typeof entry.path === "string" ? [String(entry.path)] : [],
+type TreeNode = { path: string; type: string; sha: string };
+
+async function fetchTree(sha: string, recursive: boolean): Promise<{ truncated: boolean; nodes: TreeNode[] }> {
+  const url = `${apiBase()}/repos/${benchmarkRepo()}/git/trees/${encodeURIComponent(sha)}${recursive ? "?recursive=1" : ""}`;
+  const tree = await ghJson(url);
+  const raw = Array.isArray(tree?.tree) ? tree.tree : [];
+  const nodes = raw.flatMap((node: any) =>
+    node && typeof node.path === "string" && typeof node.sha === "string"
+      ? [{ path: String(node.path), type: String(node.type), sha: String(node.sha) }]
+      : [],
   );
-  return buildIndexEntries(paths);
+  return { truncated: tree?.truncated === true, nodes };
+}
+
+/**
+ * Every blob under the tree `sha`, as paths relative to it.
+ *
+ * One recursive call covers the whole subtree, but GitHub truncates that
+ * response past ~100k entries / 7MB — which the Harvey repo exceeds inside a
+ * single practice area (diligence alone carries >30k document blobs). When the
+ * listing comes back truncated, walk the tree one level at a time and recurse
+ * into each subtree instead: each piece is small enough to come back whole.
+ *
+ * Results are cached per tree sha. Tree shas are content-addressed, so an
+ * unchanged directory is free on the next index build, and a walk cut short by
+ * GitHub's hourly rate limit (~40 calls for the Harvey repo, against 60
+ * unauthenticated) resumes instead of restarting.
+ */
+async function listBlobPaths(store: BenchmarkStore, sha: string): Promise<string[]> {
+  const cached = store.getCachedTree(sha);
+  if (cached) return cached;
+
+  const paths = await fetchBlobPaths(store, sha);
+  store.setCachedTree(sha, paths, Date.now());
+  return paths;
+}
+
+async function fetchBlobPaths(store: BenchmarkStore, sha: string): Promise<string[]> {
+  const recursive = await fetchTree(sha, true);
+  if (!recursive.truncated) {
+    return recursive.nodes.flatMap((node) => (node.type === "blob" ? [node.path] : []));
+  }
+
+  const shallow = await fetchTree(sha, false);
+  if (shallow.truncated) {
+    throw new ApiError(
+      502,
+      "github_tree_truncated",
+      `GitHub truncated a directory listing in the benchmark repo (tree ${sha})`,
+    );
+  }
+  const paths = shallow.nodes.flatMap((node) => (node.type === "blob" ? [node.path] : []));
+  const subtrees = shallow.nodes.filter((node) => node.type === "tree");
+  const nested = await mapWithConcurrency(subtrees, 4, async (node) =>
+    (await listBlobPaths(store, node.sha)).map((path) => `${node.path}/${path}`),
+  );
+  return paths.concat(...nested);
+}
+
+async function fetchIndexAtRef(store: BenchmarkStore, ref: string): Promise<HarveyIndexEntry[]> {
+  // Only `tasks/` feeds the index (both path patterns are rooted there), so
+  // scope the walk to it rather than listing the whole repo.
+  const root = await fetchTree(ref, false);
+  const tasks = root.nodes.find((node) => node.type === "tree" && node.path === TASKS_DIR);
+  if (!tasks) return [];
+  const paths = await listBlobPaths(store, tasks.sha);
+  return buildIndexEntries(paths.map((path) => `${TASKS_DIR}/${path}`));
 }
 
 export async function loadHarveyIndex(store: BenchmarkStore, options?: { refresh?: boolean }): Promise<HarveyIndex> {
@@ -200,7 +270,7 @@ export async function loadHarveyIndex(store: BenchmarkStore, options?: { refresh
     }
   }
 
-  const entries = await fetchIndexAtRef(sha);
+  const entries = await fetchIndexAtRef(store, sha);
   const index: HarveyIndex = { ref: sha, fetchedAt: now, entries };
   store.setCatalogIndex(sha, JSON.stringify(index), now);
   store.setCatalogHead(sha, now);
