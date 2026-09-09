@@ -14,8 +14,10 @@ try {
   $controlAcl.AddAccessRule($readRule); Set-Acl -LiteralPath $control -AclObject $controlAcl
   $inputValue = @{path=$value.path;control=$control} | ConvertTo-Json -Compress
   $secure = ConvertTo-SecureString $password -AsPlainText -Force
-  New-LocalUser -Name $account -Password $secure -AccountNeverExpires | Out-Null
+  $localUser = New-LocalUser -Name $account -Password $secure -AccountNeverExpires
   $created = $true
+  $users = Get-LocalGroup -SID 'S-1-5-32-545'
+  if (!(@(Get-LocalGroupMember -Group $users | Where-Object { $_.SID -eq $localUser.SID }).Count)) { Add-LocalGroupMember -Group $users -Member $localUser }
   $program = @'
 [Console]::InputEncoding = New-Object System.Text.UTF8Encoding($false)
 try {
