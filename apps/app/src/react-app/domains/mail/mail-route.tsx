@@ -32,10 +32,11 @@ export function MailRoute() {
         setClient(new MailClient(connection.normalizedBaseUrl, connection.resolvedHostToken)); }).catch(error => setError(textError(error))); return () => { controller.abort(); request.current.abort(); }; }, []);
     useEffect(() => { if (!client)
         return; const controller = new AbortController(); void (async () => { try {
-        const status = await client.status(controller.signal);
-        setLocked(status.state !== 'ready');
-        if (status.state !== 'ready')
-            return;
+        let status = await client.status(controller.signal);
+        if (status.state !== 'ready') status = await client.unlock(controller.signal);
+        if (status.state !== 'ready') throw Error('Mail could not be opened. Please retry.');
+        if (controller.signal.aborted) return;
+        setLocked(false);
         let next: string | null = null;
         const result: MailAccountView[] = [];
         do {
@@ -50,14 +51,15 @@ export function MailRoute() {
     }
     catch (error) {
         if (!controller.signal.aborted)
-            setError(textError(error));
+            { setLocked(true); setError(textError(error)); }
     } })(); return () => controller.abort(); }, [client, revision]);
     useEffect(() => { if (!client || locked)
         return; const controller = new AbortController(); const poll = setInterval(() => { void client.status(controller.signal).then(status => { if (status.state !== 'ready') {
         purge();
         setLocked(true);
         setAccounts([]);
-    } }).catch(() => { purge(); setLocked(true); }); }, 5000); return () => { clearInterval(poll); controller.abort(); }; }, [client, locked]);
+        setError('Mail service is unavailable. Please retry.');
+    } }).catch(() => { purge(); setLocked(true); setError('Mail service is unavailable. Please retry.'); }); }, 5000); return () => { clearInterval(poll); controller.abort(); }; }, [client, locked]);
     useEffect(() => { purge(); setFolder(''); setFolders([]); if (!client || !account)
         return; const controller = new AbortController(); void (async () => { try {
         const result: MailFolderView[] = [];
@@ -107,21 +109,6 @@ export function MailRoute() {
         if (!signal.aborted)
             setBusy(false);
     } }
-    async function toggleLock() { if (!client)
-        return; purge(); setAccounts([]); setError(''); try {
-        if (locked) {
-            await client.unlock(request.current.signal);
-            setLocked(false);
-        }
-        else {
-            setLocked(true);
-            await client.lock(request.current.signal);
-        }
-        setRevision(value => value + 1);
-    }
-    catch (error) {
-        setError(textError(error));
-    } }
     useEffect(() => { if (!client || !account || locked)
         return; const abort = new AbortController(); let pending = false; const poll = setInterval(() => { if (pending)
         return; pending = true; void client.sync(account, abort.signal).then(value => { if (!abort.signal.aborted)
@@ -135,9 +122,9 @@ export function MailRoute() {
         setError(textError(error));
     } }
     return <main className="flex h-screen flex-col bg-background text-foreground" aria-label="Local mail">
-    <header className="flex flex-wrap items-center gap-3 border-b p-4"><Link to="/session" className="underline">← Tasks</Link><h1 className="text-xl font-semibold">Mail</h1><span className="text-sm text-muted-foreground">Stored on this computer</span><div className="ml-auto flex gap-2"><Button variant="outline" onClick={() => { purge(); setRevision(value => value + 1); }}>Refresh</Button><Button onClick={toggleLock} disabled={!client}>{locked ? 'Unlock mail' : 'Lock mail'}</Button></div></header>
+    <header className="flex flex-wrap items-center gap-3 border-b p-4"><Link to="/session" className="underline">← Tasks</Link><h1 className="text-xl font-semibold">Mail</h1><span className="text-sm text-muted-foreground">Stored on this computer</span><div className="ml-auto flex gap-2"><Button variant="outline" onClick={() => { purge(); setRevision(value => value + 1); }}>Refresh</Button></div></header>
     {error && <p role="alert" className="border-b p-3 text-destructive">{error}</p>}
-    {locked ? <div className="m-auto max-w-md p-8"><h2 className="text-lg font-medium">Your mail is locked</h2><p>Unlock to browse messages already stored on this computer. Mailbox keys stay in the local mail service.</p></div> : <div className="grid min-h-0 flex-1 grid-cols-[190px_minmax(240px,1fr)_minmax(320px,2fr)] max-lg:grid-cols-[150px_1fr]">
+    {locked ? <div className="m-auto max-w-md p-8"><h2 className="text-lg font-medium" role="status">{error ? 'Mail is unavailable' : 'Opening mail…'}</h2>{error && <Button className="mt-3" disabled={!client} onClick={() => { setError(''); setRevision(value => value + 1); }}>Retry</Button>}</div> : <div className="grid min-h-0 flex-1 grid-cols-[190px_minmax(240px,1fr)_minmax(320px,2fr)] max-lg:grid-cols-[150px_1fr]">
       <nav aria-label="Mail accounts and folders" className="overflow-auto border-r p-3 space-y-3"><button className="block w-full rounded p-2 text-left hover:bg-muted" aria-current={!account ? 'page' : undefined} onClick={() => { setThread(undefined); setFolder(''); setInbox(true); setAccount(''); }}>Unified Inbox</button><button className="block w-full rounded p-2 text-left" onClick={() => { setThread(undefined); setFolder(''); setInbox(false); setAccount(''); }}>All stored mail</button>
         {accounts.map(item => <button key={item.id} className={`block w-full break-words rounded p-2 text-left ${account === item.id ? 'bg-muted' : ''}`} aria-current={account === item.id ? 'page' : undefined} onClick={() => { setThread(undefined); setAccount(item.id); }}>{item.displayName}<span className="block text-xs text-muted-foreground">{item.provider}</span></button>)}
         {account && <><h2 className="font-medium">Folders and labels</h2>{!folders.some(value => value.role === 'inbox') && <p className="text-xs">Inbox not identified yet. Resume synchronization; all stored folders remain accessible.</p>}<button onClick={() => { setInbox(false); setFolder(''); setThread(undefined); }}>All mail</button>{folders.map(item => <button key={item.id} className={`block w-full break-words rounded p-2 text-left ${folder === item.id ? 'bg-muted' : ''}`} aria-current={folder === item.id ? 'page' : undefined} onClick={() => { setThread(undefined); setFolder(item.id); }}>{item.parentId ? '↳ ' : ''}{item.name}</button>)}<div className="border-t pt-3 text-xs"><p>Sync: {sync?.state ?? 'Not checked'}</p>{sync && <><p>{sync.downloaded} originals · {sync.projected} readable · {sync.pending} pending · {sync.failed} failed</p>{sync.error && <p role="status">{sync.error.replaceAll('_', ' ')}</p>}{sync.unsupportedScopes?.map(value => <p key={value}>Excluded: {value.replaceAll('-', ' ')}</p>)}{Boolean(sync.inaccessible) && <p>{sync.inaccessible} inaccessible items</p>}</>}<div className="mt-2 flex flex-wrap gap-2"><Button size="sm" variant="outline" onClick={() => control('start')}>Resume</Button><Button size="sm" variant="outline" onClick={() => control('pause')}>Pause</Button></div></div></>}
@@ -147,7 +134,7 @@ export function MailRoute() {
         {items.map(item => <button key={item.accountId + '|' + item.key} className={`block w-full border-b p-3 text-left hover:bg-muted ${selected?.accountId === item.accountId && selected.key === item.key ? 'bg-muted' : ''}`} onClick={() => setSelected(item)} aria-pressed={selected?.accountId === item.accountId && selected.key === item.key}><span className={item.isRead === false ? 'font-bold' : 'font-medium'}>{item.subject || '(No subject)'}</span>{item.isRead === false && <span className="ml-2 text-xs">Unread</span>}<span className="block truncate text-sm">{item.metadata?.from ?? 'Sender not downloaded'}</span><span className="block text-xs text-muted-foreground">{accounts.find(account => account.id === item.accountId)?.displayName} · {item.receivedAt ? new Date(item.receivedAt).toLocaleString() : 'Received date unavailable'}</span><span className="text-xs">{item.contentState === 'complete' ? 'Available offline' : item.contentState === 'downloading' ? 'Downloading content' : 'Content needs attention'}</span></button>)}
         {busy && <p role="status" className="p-3">Loading stored mail…</p>}{more && <Button className="m-3" variant="outline" disabled={busy} onClick={loadMore}>Next page</Button>}
       </section>
-      <section aria-label="Message reader" className="overflow-auto max-lg:col-span-2 max-lg:border-t">{selected && client ? <MailReader key={selected.accountId + '|' + selected.key} client={client} item={selected} account={accounts.find(value => value.id === selected.accountId)?.displayName ?? selected.accountId} onUnavailable={() => { purge(); setError('Mail access changed. Refresh or unlock to continue.'); }} onThread={() => { setAccount(selected.accountId); setThread(selected.threadId ?? undefined); }}/> : <p className="p-8 text-muted-foreground">Select a message to read its stored content.</p>}</section>
+      <section aria-label="Message reader" className="overflow-auto max-lg:col-span-2 max-lg:border-t">{selected && client ? <MailReader key={selected.accountId + '|' + selected.key} client={client} item={selected} account={accounts.find(value => value.id === selected.accountId)?.displayName ?? selected.accountId} onUnavailable={() => { purge(); setError('Mail access changed. Refresh to continue.'); }} onThread={() => { setAccount(selected.accountId); setThread(selected.threadId ?? undefined); }}/> : <p className="p-8 text-muted-foreground">Select a message to read its stored content.</p>}</section>
     </div>}
   </main>;
 }
