@@ -21,6 +21,9 @@ describe("mail provider configuration readiness", () => {
   test("existing Google read/compose grant does not satisfy full mail operations", () => {
     expect(checkMailProviderReadiness({ ...gmail, scopes: ["https://www.googleapis.com/auth/gmail.readonly", "https://www.googleapis.com/auth/gmail.compose"] }).issues).toContain("missing_required_scopes");
   });
+  test("Google identity discovery requires explicit OIDC scopes", () => {
+    for (const omitted of ["openid", "email"]) expect(checkMailProviderReadiness({ ...gmail, scopes: GMAIL_MAIL_SCOPES.filter((scope) => scope !== omitted) }).issues).toContain("missing_required_scopes");
+  });
   test("Google direct exchange requires configured installed client secret", () => {
     expect(checkMailProviderReadiness({ ...gmail, clientSecretConfigured: false }).issues).toContain("google_client_secret_missing");
   });
