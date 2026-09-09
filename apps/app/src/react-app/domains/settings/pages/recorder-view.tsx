@@ -104,6 +104,11 @@ export function RecorderSettingsView() {
                   <Languages className="size-4 text-subtext" />
                   <Select
                     value={store.language}
+                    items={[
+                      { value: "auto", label: t("recorder.language_auto") },
+                      { value: "en", label: "English" },
+                      { value: "de", label: "Deutsch" },
+                    ]}
                     onValueChange={(value) => {
                       if (value === "auto" || value === "en" || value === "de") store.setLanguage(value);
                     }}

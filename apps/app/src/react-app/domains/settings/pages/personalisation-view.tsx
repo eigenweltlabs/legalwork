@@ -1,5 +1,5 @@
 /** @jsxImportSource react */
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { Info } from "lucide-react";
 
 import {
@@ -28,6 +28,7 @@ import {
   LayoutStack,
 } from "../settings-layout";
 import { SettingsNotice } from "../settings-section";
+import { t } from "@/i18n";
 
 const DEFAULT_SETTINGS: LegalworkPersonalizationSettings = {
   customInstructions: "",
@@ -36,20 +37,21 @@ const DEFAULT_SETTINGS: LegalworkPersonalizationSettings = {
   personality: "pragmatic",
 };
 
-const PERSONALITY_LABELS: Record<LegalworkPersonality, string> = {
-  default: "Default",
-  pragmatic: "Pragmatic",
-  professional: "Professional",
-  friendly: "Friendly",
-  candid: "Candid",
-};
+// Built per render, not once at import: `t()` reads the current language.
+const personalityLabels = (): Record<LegalworkPersonality, string> => ({
+  default: t("personalisation.personality_default"),
+  pragmatic: t("personalisation.personality_pragmatic"),
+  professional: t("personalisation.personality_professional"),
+  friendly: t("personalisation.personality_friendly"),
+  candid: t("personalisation.personality_candid"),
+});
 
 function isPersonality(value: unknown): value is LegalworkPersonality {
   return typeof value === "string" && LEGALWORK_PERSONALITY_VALUES.some((personality) => personality === value);
 }
 
 function describeError(error: unknown): string {
-  return error instanceof Error ? error.message : "Personalisation settings could not be updated.";
+  return error instanceof Error ? error.message : t("personalisation.update_failed");
 }
 
 export type PersonalisationViewProps = {
@@ -114,10 +116,13 @@ export function PersonalisationView(props: PersonalisationViewProps) {
     }
   };
 
-  const personalityItems = useMemo(
-    () => LEGALWORK_PERSONALITY_VALUES.map((value) => ({ value, label: PERSONALITY_LABELS[value] })),
-    [],
-  );
+  // Not memoised on []: the labels come from `t()`, so they must rebuild when
+  // the language changes.
+  const labels = personalityLabels();
+  const personalityItems = LEGALWORK_PERSONALITY_VALUES.map((value) => ({
+    value,
+    label: labels[value],
+  }));
 
   const deleteMemories = async () => {
     if (!props.client) return;
@@ -126,7 +131,7 @@ export function PersonalisationView(props: PersonalisationViewProps) {
     setError(null);
     try {
       await props.client.deleteLocalMemories();
-      toast.success("Local memories deleted.");
+      toast.success(t("personalisation.memories_deleted"));
     } catch (deleteError) {
       const message = describeError(deleteError);
       setError(message);
@@ -141,7 +146,7 @@ export function PersonalisationView(props: PersonalisationViewProps) {
       <LayoutStack>
         {!props.client ? (
           <SettingsNotice tone="warning">
-            Connect to the LegalWork server to manage host-wide personalisation.
+            {t("personalisation.server_required")}
           </SettingsNotice>
         ) : null}
         {error ? <SettingsNotice tone="error">{error}</SettingsNotice> : null}
@@ -150,9 +155,9 @@ export function PersonalisationView(props: PersonalisationViewProps) {
           <LayoutSectionHeader>
             <div className="flex items-start justify-between gap-4">
               <div className="space-y-1">
-                <LayoutSectionTitle>System prompt additions</LayoutSectionTitle>
+                <LayoutSectionTitle>{t("personalisation.system_prompt_title")}</LayoutSectionTitle>
                 <LayoutSectionDescription>
-                  Add instructions and context that LegalWork includes in the system prompt for every chat on this host.
+                  {t("personalisation.system_prompt_desc")}
                 </LayoutSectionDescription>
               </div>
               <Button
@@ -163,7 +168,7 @@ export function PersonalisationView(props: PersonalisationViewProps) {
                   "System prompt additions saved.",
                 )}
               >
-                Save
+                {t("common.save")}
               </Button>
             </div>
           </LayoutSectionHeader>
@@ -174,40 +179,40 @@ export function PersonalisationView(props: PersonalisationViewProps) {
               maxLength={12_000}
               disabled={disabled}
               onChange={(event) => setInstructionsDraft(event.currentTarget.value)}
-              placeholder="Add your system prompt additions…"
-              aria-label="System prompt additions"
+              placeholder={t("personalisation.system_prompt_placeholder")}
+              aria-label={t("personalisation.system_prompt_title")}
               className="min-h-52 resize-y rounded-2xl bg-surface px-4 py-3.5"
             />
             <div className="text-right text-xs text-muted-foreground">
-              {remainingCharacters.toLocaleString()} characters remaining
+              {t("personalisation.characters_remaining", { count: remainingCharacters.toLocaleString() })}
             </div>
           </div>
         </LayoutSection>
 
         <LayoutSection>
           <LayoutSectionHeader>
-            <LayoutSectionTitle>Memory</LayoutSectionTitle>
+            <LayoutSectionTitle>{t("personalisation.memory_title")}</LayoutSectionTitle>
             <LayoutSectionDescription>
-              Configure how local memories are collected and used on this host.{" "}
+              {t("personalisation.memory_desc")}{" "}
               <button
                 type="button"
                 className="text-primary hover:underline"
                 onClick={() => props.onOpenLink("https://www.opencode.asia/ecosystem/plugins/agent-memory/")}
               >
-                Learn more
+                {t("personalisation.learn_more")}
               </button>
             </LayoutSectionDescription>
           </LayoutSectionHeader>
 
           <LayoutSectionItem>
             <LayoutSectionItemHeader>
-              <LayoutSectionItemTitle>Enable local memories</LayoutSectionItemTitle>
+              <LayoutSectionItemTitle>{t("personalisation.enable_memories")}</LayoutSectionItemTitle>
               <LayoutSectionItemDescription>
-                Create private memory blocks from chats on this host and use them to personalise future chats.
+                {t("personalisation.enable_memories_desc")}
               </LayoutSectionItemDescription>
               <LayoutSectionItemHeaderActions>
                 <Switch
-                  aria-label="Enable local memories"
+                  aria-label={t("personalisation.enable_memories")}
                   checked={settings.localMemoriesEnabled}
                   disabled={disabled}
                   onCheckedChange={(checked) => void persist({ ...settings, localMemoriesEnabled: checked })}
@@ -218,13 +223,13 @@ export function PersonalisationView(props: PersonalisationViewProps) {
 
           <LayoutSectionItem>
             <LayoutSectionItemHeader>
-              <LayoutSectionItemTitle>Allow memory generation from tool-assisted chats</LayoutSectionItemTitle>
+              <LayoutSectionItemTitle>{t("personalisation.allow_tool_memories")}</LayoutSectionItemTitle>
               <LayoutSectionItemDescription>
-                Let LegalWork retain durable context from chats that used MCP tools or web search.
+                {t("personalisation.allow_tool_memories_desc")}
               </LayoutSectionItemDescription>
               <LayoutSectionItemHeaderActions>
                 <Switch
-                  aria-label="Allow memory generation from tool-assisted chats"
+                  aria-label={t("personalisation.allow_tool_memories")}
                   checked={settings.allowToolAssistedMemory}
                   disabled={disabled}
                   onCheckedChange={(checked) => void persist({ ...settings, allowToolAssistedMemory: checked })}
@@ -235,9 +240,9 @@ export function PersonalisationView(props: PersonalisationViewProps) {
 
           <LayoutSectionItem>
             <LayoutSectionItemHeader>
-              <LayoutSectionItemTitle>Delete local memories</LayoutSectionItemTitle>
+              <LayoutSectionItemTitle>{t("personalisation.delete_memories")}</LayoutSectionItemTitle>
               <LayoutSectionItemDescription>
-                Permanently delete all global and workspace memory blocks stored on this host.
+                {t("personalisation.delete_memories_desc")}
               </LayoutSectionItemDescription>
               <LayoutSectionItemHeaderActions>
                 <Button variant="destructive" size="sm" disabled={disabled} onClick={() => setDeleteOpen(true)}>
@@ -251,24 +256,27 @@ export function PersonalisationView(props: PersonalisationViewProps) {
         <div className="flex items-start gap-3 rounded-2xl border border-amber-7/30 bg-amber-2/30 px-4 py-3 text-sm text-amber-12">
           <Info className="mt-0.5 size-4 shrink-0 text-amber-10" />
           <span>
-            Personality settings may be followed differently by different models. Fine-tune LegalWork&apos;s tone in System prompt additions.
+            {t("personalisation.personality_note")}
           </span>
         </div>
 
         <LayoutSection>
           <LayoutSectionItem>
             <LayoutSectionItemHeader>
-              <LayoutSectionItemTitle>Personality</LayoutSectionItemTitle>
-              <LayoutSectionItemDescription>Choose the default tone for LegalWork responses.</LayoutSectionItemDescription>
+              <LayoutSectionItemTitle>{t("personalisation.personality")}</LayoutSectionItemTitle>
+              <LayoutSectionItemDescription>{t("personalisation.tone_desc")}</LayoutSectionItemDescription>
               <LayoutSectionItemHeaderActions>
                 <Select
                   value={settings.personality}
+                  // Base UI resolves the trigger label from `items`; without it
+                  // the trigger shows the raw value ("pragmatic").
+                  items={personalityItems}
                   disabled={disabled}
                   onValueChange={(value) => {
                     if (isPersonality(value)) void persist({ ...settings, personality: value });
                   }}
                 >
-                  <SelectTrigger className="w-44" aria-label="Personality">
+                  <SelectTrigger className="w-44" aria-label={t("personalisation.personality")}>
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
@@ -285,10 +293,10 @@ export function PersonalisationView(props: PersonalisationViewProps) {
 
       <ConfirmModal
         open={deleteOpen}
-        title="Delete all local memories?"
-        message="This permanently removes the global and workspace memory blocks stored on this LegalWork host. This cannot be undone."
-        confirmLabel="Delete memories"
-        cancelLabel="Cancel"
+        title={t("personalisation.delete_confirm_title")}
+        message={t("personalisation.delete_confirm_message")}
+        confirmLabel={t("personalisation.delete_confirm_label")}
+        cancelLabel={t("personalisation.cancel")}
         variant="danger"
         onConfirm={() => void deleteMemories()}
         onCancel={() => setDeleteOpen(false)}

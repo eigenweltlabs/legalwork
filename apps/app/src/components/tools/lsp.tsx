@@ -3,21 +3,22 @@
 import { Tool } from "@/components/ui/tool"
 import type { LspInput, LspToolPart } from "@/lib/build-in-tools"
 import { parseFilename, toolDisplayTitle } from "@/components/tools/path"
+import { t } from "@/i18n"
 
 interface LspToolProps {
   part: LspToolPart
 }
 
 const LSP_OPERATION_LABELS: Record<LspInput["operation"], string> = {
-  goToDefinition: "Go to definition",
-  findReferences: "Find references",
-  hover: "Hover",
-  documentSymbol: "Document symbols",
-  workspaceSymbol: "Workspace symbols",
-  goToImplementation: "Go to implementation",
-  prepareCallHierarchy: "Prepare call hierarchy",
-  incomingCalls: "Incoming calls",
-  outgoingCalls: "Outgoing calls",
+  get goToDefinition() { return t("tool.lsp_go_to_definition") },
+  get findReferences() { return t("tool.lsp_find_references") },
+  get hover() { return t("tool.lsp_hover") },
+  get documentSymbol() { return t("tool.lsp_document_symbol") },
+  get workspaceSymbol() { return t("tool.lsp_workspace_symbol") },
+  get goToImplementation() { return t("tool.lsp_go_to_implementation") },
+  get prepareCallHierarchy() { return t("tool.lsp_prepare_call_hierarchy") },
+  get incomingCalls() { return t("tool.lsp_incoming_calls") },
+  get outgoingCalls() { return t("tool.lsp_outgoing_calls") },
 }
 
 function getLspToolTitle(part: LspToolPart): string | null {

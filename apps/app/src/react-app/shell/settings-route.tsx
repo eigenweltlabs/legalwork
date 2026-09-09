@@ -31,7 +31,7 @@ import type {
   WorkspaceSessionGroup,
 } from "@/app/types";
 import { getWorkspaceTaskLoadErrorDisplay } from "@/app/utils";
-import { currentLocale, t, setLocale, type Language } from "@/i18n";
+import { t } from "@/i18n";
 import { useModelPicker } from "@/react-app/domains/session/modals/use-model-picker";
 import {
   type RouteWorkspace,
@@ -1249,7 +1249,7 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
               return {
                 workspaceId: workspace.id,
                 sessions: [],
-                error: connectionState.message ?? "Remote worker connection failed.",
+                error: connectionState.message ?? t("diagnostics.remote_failed"),
                 connectionState,
               };
             }
@@ -1378,7 +1378,7 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
       if (!result.ok) {
         setErrorsByWorkspaceId((current) => ({
           ...current,
-          [workspaceId]: result.state.message ?? "Remote worker connection failed.",
+          [workspaceId]: result.state.message ?? t("diagnostics.remote_failed"),
         }));
         if (remoteWorkspaceCheckRunRef.current[workspaceId] === runId) {
           delete remoteWorkspaceCheckRunRef.current[workspaceId];
@@ -1684,7 +1684,7 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
   );
   const routeLegalworkStatus = legalworkClient ? "connected" : "disconnected";
   const notFoundRouteError = !loading && routeWorkspaceId && !selectedWorkspace
-    ? "Workspace was not found. Select a new workspace from the sidebar."
+    ? t("workspace.not_found")
     : null;
   useEffect(() => {
     if (notFoundRouteError) {
@@ -1774,7 +1774,7 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
     setRenameWorkspaceBusy(true);
     try {
       if (!legalworkClient) {
-        toast.error("LegalWork server is unavailable. Reconnect the server before renaming workspaces.");
+        toast.error(t("session_route.rename_server_unavailable"));
         return;
       }
       await legalworkClient.updateWorkspaceDisplayName(renameWorkspaceId, trimmed);
@@ -1782,7 +1782,7 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
       setRenameWorkspaceTitle("");
       await refreshRouteState();
     } catch (error) {
-      toast.error("Workspace rename failed", {
+      toast.error(t("session_route.rename_failed"), {
         description: describeRouteError(error),
       });
     } finally {
@@ -1799,7 +1799,7 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
 
   const handleForgetWorkspace = useCallback(async (workspaceId: string) => {
     if (typeof window !== "undefined") {
-      const message = t("workspace_list.remove_confirm") || "Remove this workspace from the sidebar?";
+      const message = t("workspace_list.remove_confirm") || t("workspace.remove_confirm");
       if (!window.confirm(message)) return;
     }
     if (legalworkClient) {
@@ -1832,7 +1832,7 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
           .catch(() => null);
       }
       if (!list) {
-        throw new Error("LegalWork server is unavailable. Start or reconnect the server before creating a workspace.");
+        throw new Error(t("session_route.create_server_unavailable"));
       }
       const createdId = resolveWorkspaceListSelectedId(list) || list.workspaces[list.workspaces.length - 1]?.id || "";
       if (createdId) {
@@ -2128,13 +2128,13 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
               return undefined;
             }}
             onGenerateFromTemplates={async () => {
-              const selection = await pickDirectory({ title: "Choose your templates folder" });
+              const selection = await pickDirectory({ title: t("settings.templates_folder_title") });
               const folder =
                 typeof selection === "string" ? selection : Array.isArray(selection) ? selection[0] : null;
               // A cancelled picker is not an error — resolve ok with no message.
               if (!folder?.trim()) return { ok: true };
               if (!legalworkClient || !baseUrl || !token) {
-                return { ok: false, message: "Still connecting to the LegalWork server. Try again in a moment." };
+                return { ok: false, message: t("settings.still_connecting") };
               }
               return startTemplateWorkflowGeneration({
                 environmentClient: legalworkClient,
@@ -2298,11 +2298,11 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
               return next;
             })}
             opencodeDevModeEnabled={false}
-            openDebugDeepLink={async () => ({ ok: false, message: "Debug deep links are not wired into the React settings route yet." })}
+            openDebugDeepLink={async () => ({ ok: false, message: t("settings.debug_deeplinks_unwired") })}
             canMigrateRuntimeConfig={Boolean(legalworkClient && selectedWorkspaceId)}
             migrateRuntimeConfig={async () => {
               if (!legalworkClient || !selectedWorkspaceId) {
-                throw new Error("Select a workspace before migrating legacy runtime config.");
+                throw new Error(t("settings.select_workspace_migrate"));
               }
               const result = await legalworkClient.migrateRuntimeConfig(selectedWorkspaceId);
               if (result.migrated) {
@@ -2313,27 +2313,14 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
             }}
             getRuntimeConfigStatus={async () => {
               if (!legalworkClient || !selectedWorkspaceId) {
-                throw new Error("Select a workspace to inspect runtime config.");
+                throw new Error(t("settings.select_workspace_inspect"));
               }
               return legalworkClient.getRuntimeConfigStatus(selectedWorkspaceId);
             }}
           />
         );
       case "appearance":
-        return (
-          <AppearanceView
-            busy={busy}
-            themeMode={themeMode}
-            setThemeMode={(mode) => {
-              captureAnalyticsEvent("theme_changed", { mode });
-              setThemeModeState(mode);
-            }}
-            language={currentLocale() as Language}
-            setLanguage={setLocale}
-            hideTitlebar={hideTitlebar}
-            toggleHideTitlebar={() => setHideTitlebar((current) => !current)}
-          />
-        );
+        return <AppearanceView busy={busy} />;
       case "updates":
         return (
           <UpdatesView

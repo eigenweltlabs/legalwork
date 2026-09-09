@@ -2,6 +2,7 @@
 
 import { Tool } from "@/components/ui/tool"
 import type { TodoWriteToolPart } from "@/lib/build-in-tools"
+import { t } from "@/i18n";
 
 interface TodoWriteToolProps {
   part: TodoWriteToolPart
@@ -13,14 +14,14 @@ function getTodoWriteToolTitle(part: TodoWriteToolPart): string | null {
   const count = part.input?.todos?.length ?? 0
 
   if (part.state === "output-error") {
-    return "Update todo list attempted"
+    return t("tool.update_todo_list_attempted")
   }
 
   if (part.state !== "output-available") {
     return null
   }
 
-  return count > 0 ? `Update todo list (${count})` : "Update todo list"
+  return count > 0 ? t("tool.update_todo_count", { count }) : t("tool.update_todo_list")
 }
 
 export function TodoWriteTool({ part }: TodoWriteToolProps) {

@@ -104,6 +104,7 @@ import { resolveFilePartOpenTarget, resolvePathOpenTarget } from "@/react-app/do
 import { WORKSPACE_ATTACHMENT_LINK_SOURCE, parseWorkspaceAttachmentLink } from "@/react-app/domains/session/surface/composer/workspace-attachment"
 import { LEGALMEMORY_OPEN_EVENT, parseLegalMemoryRef } from "@/components/markdown/legalmemory-ref"
 import { groupMessages, isMessageGroup, getLastTextPart, getAssistantRenderGroups, getFileTitle, getMediaBadge, getMessageCreated, formatMessageTimestamp, type UIMessageWithIndex, getMessagesText } from "./utils"
+import { t } from "@/i18n";
 
 function MessageTimestamp({ message, className }: { message: UIMessage; className?: string }) {
   const created = getMessageCreated(message)
@@ -147,7 +148,7 @@ class ToolMessage extends React.Component<ToolMessageProps, { failed: boolean }>
   render() {
     if (this.state.failed) {
       return (
-        <div className="text-xs text-muted-foreground">Tool step unavailable</div>
+        <div className="text-xs text-muted-foreground">{t("message_list.tool_step_unavailable")}</div>
       )
     }
     return <ToolMessageInner part={this.props.part} />
@@ -302,7 +303,7 @@ function FileMessage({ part }: FileMessageProps) {
         onClick={() => {
           if (openTarget) onOpenTarget(openTarget)
         }}
-        title={`Open ${title}`}
+        title={t("message_list.open_item", { label: title })}
         className={cn(baseClassName, "cursor-pointer transition-colors hover:bg-muted/60")}
       >
         {inner}
@@ -325,7 +326,7 @@ function EmptyMessage({
       )}
       {...props}
     >
-      Empty message
+      {t("message_list.empty_message")}
     </div>
   )
 }
@@ -357,11 +358,11 @@ function CopyMessageButton({ messages }: CopyMessageButtonProps) {
   }
 
   return (
-    <MessageAction tooltip={copied ? "Copied!" : "Copy"}>
+    <MessageAction tooltip={copied ? t("message_list.copied") : t("common.copy")}>
       <Button
         variant="ghost"
         size="icon"
-        aria-label="Copy message"
+        aria-label={t("message_list.copy_message")}
         onClick={() => void onCopy()}
       >
         {copied ? <Check /> : <Copy />}
@@ -458,7 +459,7 @@ function cleanUserMessageText(text: string) {
 
 function UserSkillChip(props: { name: string }) {
   return (
-    <span className="mx-0.5 inline-flex items-center rounded-full border border-violet-6/35 bg-violet-3/20 px-2.5 py-1 text-xs font-medium text-violet-11 align-middle" title={`Skill: ${props.name}`}>
+    <span className="mx-0.5 inline-flex items-center rounded-full border border-violet-6/35 bg-violet-3/20 px-2.5 py-1 text-xs font-medium text-violet-11 align-middle" title={t("message_list.skill_badge", { name: props.name })}>
       {props.name}
     </span>
   )
@@ -469,7 +470,7 @@ function UserLegalMemoryChip(props: { label: string; documentId: string }) {
     <button
       type="button"
       className="mx-0.5 inline-flex max-w-72 items-center gap-1.5 rounded-full border border-indigo-6/60 bg-indigo-2/55 px-2.5 py-1 text-xs font-medium text-indigo-11 align-middle transition-colors hover:bg-indigo-3/70"
-      title={`Open ${props.label}`}
+      title={t("message_list.open_item", { label: props.label })}
       onClick={() => {
         window.dispatchEvent(new CustomEvent(LEGALMEMORY_OPEN_EVENT, {
           detail: { documentId: props.documentId, label: props.label },
@@ -489,7 +490,7 @@ function UserWorkspaceAttachmentChip(props: { name: string; path: string }) {
     <button
       type="button"
       className="mx-0.5 inline-flex max-w-72 items-center gap-1.5 rounded-full border border-gray-6 bg-gray-3 px-2.5 py-1 text-xs font-medium text-gray-11 align-middle transition-colors hover:bg-gray-4"
-      title={`Open ${props.name}`}
+      title={t("message_list.open_item", { label: props.name })}
       onClick={() => {
         const target = resolvePathOpenTarget(props.path, openTargets, "attachment")
         if (target) onOpenTarget?.(target)
@@ -559,32 +560,32 @@ const UserMessage = React.memo(
                     <MessageTimestamp message={message} className="mr-1.5" />
                     <CopyMessageButton messages={[message]} />
                     {messageText ? (
-                      <MessageAction tooltip="Edit message">
+                      <MessageAction tooltip={t("message_list.edit_message")}>
                         <Button
                           variant="ghost"
                           size="icon"
-                          aria-label="Edit message"
+                          aria-label={t("message_list.edit_message")}
                           onClick={() => onEditUserMessage(message.id, messageText)}
                         >
                           <Pencil />
                         </Button>
                       </MessageAction>
                     ) : null}
-                    <MessageAction tooltip="Branch in new chat">
+                    <MessageAction tooltip={t("message_list.branch_in_new_chat")}>
                       <Button
                         variant="ghost"
                         size="icon"
-                        aria-label="Branch in new chat"
+                        aria-label={t("message_list.branch_in_new_chat")}
                         onClick={() => onForkAtMessage(message.id)}
                       >
                         <Split className="rotate-90" />
                       </Button>
                     </MessageAction>
-                    <MessageAction tooltip="Revert">
+                    <MessageAction tooltip={t("message_list.revert")}>
                       <Button
                         variant="ghost"
                         size="icon"
-                        aria-label="Revert"
+                        aria-label={t("message_list.revert")}
                         onClick={() => onRevertToUserMessage(message.id)}
                       >
                         <Undo2 />
@@ -599,22 +600,22 @@ const UserMessage = React.memo(
             {messageText ? (
               <ContextMenuItem onClick={() => onEditUserMessage(message.id, messageText)}>
                 <Pencil className="size-4" />
-                Edit message
+                {t("message_list.edit_message")}
               </ContextMenuItem>
             ) : null}
             {messageText ? (
               <ContextMenuItem onClick={() => void navigator.clipboard.writeText(messageText)}>
                 <Copy className="size-4" />
-                Copy
+                {t("common.copy")}
               </ContextMenuItem>
             ) : null}
             <ContextMenuItem onClick={() => onForkAtMessage(message.id)}>
               <Split className="size-4 rotate-90" />
-              Branch in new chat
+              {t("message_list.branch_in_new_chat")}
             </ContextMenuItem>
             <ContextMenuItem onClick={() => onRevertToUserMessage(message.id)}>
               <Undo2 className="size-4" />
-              Revert
+              {t("message_list.revert")}
             </ContextMenuItem>
           </ContextMenuContent>
         </ContextMenu>
@@ -635,7 +636,7 @@ type MessageComponentProps = {
 const MessageComponent = React.memo(
   ({ message, isLastMessage, isStreaming, isLastStep }: MessageComponentProps) => {
     if (isSessionErrorMessage(message)) {
-      return <ErrorMessage error={getMessagesText([message]) || "Session failed"} />
+      return <ErrorMessage error={getMessagesText([message]) || t("session.failed")} />
     }
 
     if (isEmptyMessage(message) && !isStreaming) {
@@ -685,7 +686,7 @@ const LoadingMessage = React.memo(({ label }: { label?: string }) => (
             style={{ backgroundColor: "#818cf8", width: "100%", height: "100%", borderRadius: "50%" }}
           />
         </div>
-        <span>{label ?? "Thinking…"}</span>
+        <span>{label ?? t("session.thinking")}</span>
       </div>
     </div>
   </Message>
@@ -777,8 +778,8 @@ const RetryMessage = React.memo(({ status }: RetryMessageProps) => {
   }, [status])
 
   const info = seconds > 0
-    ? `Retrying in ${seconds}s · attempt ${status.attempt}`
-    : `Retrying · attempt ${status.attempt}`
+    ? t("session.retrying_in", { seconds, attempt: status.attempt })
+    : t("session.retrying", { attempt: status.attempt })
   const action = status.action
 
   return (
@@ -948,21 +949,21 @@ function MessageGroup({
             <CopyMessageButton messages={renderableItems.map((item) => item.message)} />
             {lastRealItem ? (
               <>
-                <MessageAction tooltip="Branch in new chat">
+                <MessageAction tooltip={t("message_list.branch_in_new_chat")}>
                   <Button
                     variant="ghost"
                     size="icon"
-                    aria-label="Branch in new chat"
+                    aria-label={t("message_list.branch_in_new_chat")}
                     onClick={() => onForkAtMessage(lastRealItem.message.id)}
                   >
                     <Split className="rotate-90" />
                   </Button>
                 </MessageAction>
-                <MessageAction tooltip="Revert">
+                <MessageAction tooltip={t("message_list.revert")}>
                   <Button
                     variant="ghost"
                     size="icon"
-                    aria-label="Revert"
+                    aria-label={t("message_list.revert")}
                     onClick={() => onRevertToUserMessage(lastRealItem.message.id)}
                   >
                     <Undo2 />

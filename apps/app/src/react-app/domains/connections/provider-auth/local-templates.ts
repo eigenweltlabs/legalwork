@@ -1,4 +1,5 @@
 import type { CustomProviderApiType } from "./store";
+import { t } from "@/i18n";
 
 /**
  * A one-click starting point for a local model server. Picking a template
@@ -29,7 +30,11 @@ export type LocalRuntimeTemplate = {
   autoDetected?: boolean;
 };
 
-export const LOCAL_RUNTIME_TEMPLATES: LocalRuntimeTemplate[] = [
+/**
+ * Built per call, not once at import: `t()` reads the current language, so a
+ * module-level constant would freeze these notes in whatever language loaded first.
+ */
+export const localRuntimeTemplates = (): LocalRuntimeTemplate[] => [
   {
     id: "llamacpp",
     label: "llama.cpp",
@@ -37,7 +42,7 @@ export const LOCAL_RUNTIME_TEMPLATES: LocalRuntimeTemplate[] = [
     baseURL: "http://localhost:8080/v1",
     placeholder: "http://localhost:8080/v1",
     apiType: "chat",
-    note: "Run `llama-server -m model.gguf`, then fetch the served model. No API key needed.",
+    note: t("local_templates.llamacpp_hint"),
   },
   {
     id: "vllm",
@@ -46,7 +51,7 @@ export const LOCAL_RUNTIME_TEMPLATES: LocalRuntimeTemplate[] = [
     baseURL: "http://localhost:8000/v1",
     placeholder: "http://localhost:8000/v1",
     apiType: "chat",
-    note: "Point at your vLLM server (local or self-hosted), then fetch its served models.",
+    note: t("local_templates.vllm_note"),
   },
   {
     id: "localai",
@@ -55,7 +60,7 @@ export const LOCAL_RUNTIME_TEMPLATES: LocalRuntimeTemplate[] = [
     baseURL: "http://localhost:8080/v1",
     placeholder: "http://localhost:8080/v1",
     apiType: "chat",
-    note: "Point at your LocalAI endpoint, then fetch its configured models. No API key needed.",
+    note: t("local_templates.localai_note"),
   },
   {
     id: "ollama",
@@ -65,7 +70,7 @@ export const LOCAL_RUNTIME_TEMPLATES: LocalRuntimeTemplate[] = [
     placeholder: "http://localhost:11434/v1",
     apiType: "chat",
     autoDetected: true,
-    note: "Heads up: a local Ollama is already detected automatically and its models show up live — adding it here isn't required. Change the URL to point at a remote or non-default host.",
+    note: t("local_templates.ollama_note"),
   },
   {
     id: "lmstudio",
@@ -75,7 +80,7 @@ export const LOCAL_RUNTIME_TEMPLATES: LocalRuntimeTemplate[] = [
     placeholder: "http://localhost:1234/v1",
     apiType: "chat",
     autoDetected: true,
-    note: "Heads up: a local LM Studio is already detected automatically and its models show up live — adding it here isn't required. Change the URL to point at a remote or non-default host.",
+    note: t("local_templates.lmstudio_note"),
   },
 ];
 
@@ -97,7 +102,7 @@ export function slugifyProviderId(name: string): string {
 export function resolveTemplateName(
   currentName: string,
   template: LocalRuntimeTemplate,
-  templates: LocalRuntimeTemplate[] = LOCAL_RUNTIME_TEMPLATES,
+  templates: LocalRuntimeTemplate[] = localRuntimeTemplates(),
 ): string {
   const trimmed = currentName.trim();
   const isTemplateName = templates.some((candidate) => candidate.name === trimmed);

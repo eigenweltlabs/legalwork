@@ -171,7 +171,7 @@ export function useWorkspaceRouteState(input: UseWorkspaceRouteStateInput) {
         const endpoint = endpointForWorkspace(workspace);
         if (!endpoint) {
           if (workspace.workspaceType === "remote") {
-            const message = "Remote worker URL is missing. Edit connection and add a server URL.";
+            const message = t("diagnostics.remote_url_missing");
             setErrorsByWorkspaceId((current) => ({ ...current, [workspace.id]: message }));
             setWorkspaceConnectionOverrides((current) => ({
               ...current,
@@ -271,7 +271,7 @@ export function useWorkspaceRouteState(input: UseWorkspaceRouteStateInput) {
             const connectionState = await diagnoseRemoteWorkspaceTaskLoadFailure(workspace, message);
             setErrorsByWorkspaceId((current) => ({
               ...current,
-              [workspace.id]: connectionState.message ?? "Remote worker connection failed.",
+              [workspace.id]: connectionState.message ?? t("diagnostics.remote_failed"),
             }));
             setWorkspaceConnectionOverrides((current) => {
               return {
@@ -725,10 +725,10 @@ export function useWorkspaceRouteState(input: UseWorkspaceRouteStateInput) {
   const routeNotFoundMessage = (() => {
     if (loading) return null;
     if (routeWorkspaceId && !selectedWorkspace) {
-      return "Workspace was not found. Select a new workspace from the sidebar.";
+      return t("workspace.not_found");
     }
     if (selectedSessionId && !selectedWorkspaceIsLoading && !selectedSessionKnown) {
-      return "Session was not found. Select a new session from the sidebar.";
+      return t("session.not_found_detail");
     }
     return null;
   })();
@@ -784,7 +784,7 @@ export function useWorkspaceRouteState(input: UseWorkspaceRouteStateInput) {
       if (!result.ok) {
         setErrorsByWorkspaceId((current) => ({
           ...current,
-          [workspaceId]: result.state.message ?? "Remote worker connection failed.",
+          [workspaceId]: result.state.message ?? t("diagnostics.remote_failed"),
         }));
         if (remoteWorkspaceCheckRunRef.current[workspaceId] === runId) {
           delete remoteWorkspaceCheckRunRef.current[workspaceId];

@@ -7,6 +7,7 @@ import {
   type LegalworkServerClient,
 } from "../../../app/lib/legalwork-server";
 import { redactTokenLikeText } from "../../../app/utils";
+import { t } from "@/i18n";
 
 export type RemoteWorkspaceConnectionTarget = {
   kind: "legalwork";
@@ -87,7 +88,7 @@ function isValidHttpEndpoint(baseUrl: string) {
 }
 
 function describeUnknownError(error: unknown) {
-  return redactRemoteDiagnosticText(error instanceof Error ? error.message : String(error || "Unknown error"));
+  return redactRemoteDiagnosticText(error instanceof Error ? error.message : String(error || t("diagnostics.unknown_error")));
 }
 
 function isServerErrorStatus(error: unknown, status: number | number[]) {
@@ -154,7 +155,7 @@ export function resolveRemoteWorkspaceConnectionTarget(workspace: WorkspaceInfo)
       ok: false,
       state: {
         status: "error",
-        message: "Only remote workers can be tested.",
+        message: t("diagnostics.remote_only"),
         checkedAt: Date.now(),
       },
     };
@@ -165,7 +166,7 @@ export function resolveRemoteWorkspaceConnectionTarget(workspace: WorkspaceInfo)
       ok: false,
       state: {
         status: "error",
-        message: "Connection diagnostics are only available for LegalWork remote workers.",
+        message: t("diagnostics.remote_only_available"),
         checkedAt: Date.now(),
       },
     };
@@ -338,7 +339,7 @@ export async function diagnoseRemoteWorkspaceTaskLoadFailure(
   options: TestOptions = {},
 ): Promise<WorkspaceConnectionState> {
   const checkedAt = options.now?.() ?? Date.now();
-  const fallback = redactRemoteDiagnosticText(trim(taskLoadError) || "Remote worker connection failed.");
+  const fallback = redactRemoteDiagnosticText(trim(taskLoadError) || t("diagnostics.remote_failed"));
 
   try {
     const diagnostic = await testRemoteWorkspaceConnection(workspace, options);

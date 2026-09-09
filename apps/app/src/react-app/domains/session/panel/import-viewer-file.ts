@@ -1,6 +1,7 @@
 import type { LegalworkServerClient } from "@/app/lib/legalwork-server";
 import { classifyOpenTarget } from "../artifacts/open-target";
 import type { ArtifactPanelTab } from "./panel-tab-store";
+import { t } from "@/i18n";
 
 /** Keep the original intact and give every dropped file its own working copy. */
 export async function importViewerFile(
@@ -13,7 +14,7 @@ export async function importViewerFile(
     path: `.legalwork/tmp/${crypto.randomUUID()}/${filename}`,
     data: await file.arrayBuffer(),
   });
-  if (!result.ok || !result.path) throw new Error("The file could not be copied into the workspace.");
+  if (!result.ok || !result.path) throw new Error(t("workspace.copy_failed"));
   return {
     id: `file:${result.path}`,
     type: "artifact",

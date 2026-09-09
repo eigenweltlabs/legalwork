@@ -591,7 +591,7 @@ export function McpView(props: McpViewProps) {
             <Search size={16} className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-dls-secondary" />
             <input
               className="w-full rounded-[14px] border border-dls-border bg-transparent py-2.5 pl-10 pr-3 text-[14px] text-dls-text placeholder:text-dls-secondary focus:border-[rgba(var(--dls-accent-rgb),0.4)] focus:outline-none"
-              placeholder="Search connectors..."
+              placeholder={t("mcp.search_connectors")}
               value={search}
               onChange={(e) => setSearch(e.currentTarget.value)}
             />
@@ -608,7 +608,7 @@ export function McpView(props: McpViewProps) {
                     : "text-dls-secondary transition-colors hover:text-dls-text"
                 }
               >
-                {f === "all" ? "All" : f === "mcp" ? "MCPs" : "Skills"}
+                {f === "all" ? t("mcp.filter_all") : f === "mcp" ? t("mcp.filter_mcps") : t("mcp.filter_skills")}
               </button>
             ))}
             <button
@@ -620,7 +620,11 @@ export function McpView(props: McpViewProps) {
                   : "text-dls-secondary transition-colors hover:text-dls-text"
               }
             >
-              {showHidden ? "Showing hidden" : hiddenOrPolicyCount > 0 ? `Show hidden (${hiddenOrPolicyCount})` : "Show hidden"}
+              {showHidden
+                ? t("mcp.showing_hidden")
+                : hiddenOrPolicyCount > 0
+                  ? t("mcp.show_hidden_count", { count: hiddenOrPolicyCount })
+                  : t("mcp.show_hidden")}
             </button>
           </div>
         </div>
@@ -639,7 +643,7 @@ export function McpView(props: McpViewProps) {
 
       {props.builtInExtensionsDisabled ? (
         <div className="rounded-[20px] border border-amber-6 bg-amber-2 px-5 py-4 text-[13px] text-amber-11">
-          Built-in LegalWork extensions are disabled by your organization. Use Show hidden to review blocked built-ins.
+          {t("mcp.builtins_blocked")}
         </div>
       ) : null}
 
@@ -873,7 +877,7 @@ export function McpView(props: McpViewProps) {
             open={!!detailSkill}
             onClose={() => { setDetailSkill(null); setDetailSkillContent(null); }}
             name={detailSkill.name}
-            description={detailSkill.description ?? "Installed skill"}
+            description={detailSkill.description ?? t("mcp.installed_skill")}
             kind="skill"
             connected={true}
             hidden={hidden}
@@ -900,7 +904,7 @@ export function McpView(props: McpViewProps) {
             open={!!detailPlugin}
             onClose={() => setDetailPlugin(null)}
             name={detailPlugin.name}
-            description={detailPlugin.description ?? "Marketplace extension installed in this workspace."}
+            description={detailPlugin.description ?? t("mcp.marketplace_installed")}
             kind="extension"
             connected={true}
             hidden={hidden}
@@ -920,7 +924,7 @@ export function McpView(props: McpViewProps) {
 function McpViewHeader(props: { connectedCount: number }) {
   return (
     <>
-      <span className="lw-section-eyebrow uppercase text-dls-secondary">Connectors</span>
+      <span className="lw-section-eyebrow uppercase text-dls-secondary">{t("mcp.eyebrow_connectors")}</span>
       <h2 className={`mt-3 ${pageTitleClass}`}>{t("mcp.apps_title")}</h2>
       <p className="mt-3 max-w-xl text-[14px] leading-[1.65] text-dls-secondary">{t("mcp.apps_subtitle")}</p>
       {props.connectedCount > 0 ? (
@@ -980,8 +984,8 @@ function McpQuickConnectSection(props: {
       {totalCount === 0 ? (
         <div className="border-y border-dls-border py-16 text-center">
           <Unplug size={24} className="mx-auto mb-3 text-dls-secondary/30" />
-          <div className="text-[14px] font-medium text-dls-secondary">No extensions found</div>
-          <div className="mt-1 text-[13px] text-dls-secondary/60">Try a different search, filter, or open Marketplace to add one.</div>
+          <div className="text-[14px] font-medium text-dls-secondary">{t("mcp.no_extensions_found")}</div>
+          <div className="mt-1 text-[13px] text-dls-secondary/60">{t("mcp.no_extensions_hint")}</div>
         </div>
       ) : (
         <div className="grid gap-3 grid-cols-[repeat(auto-fill,minmax(min(100%,19rem),1fr))]">
@@ -999,11 +1003,11 @@ function McpQuickConnectSection(props: {
             const shareRef = props.shareRefForEntry?.(entry) ?? null;
             const typeLabel = kind === "skill" ? "Skill" : kind === "extension" ? "Extension" : "MCP";
             const actionLabel = configured
-              ? "View details"
+              ? t("mcp.view_details")
               : entry.requestAccessUrl
-                ? "Request access"
+                ? t("mcp.request_access")
                 : entryNeedsSetup(entry)
-                  ? "Set up & connect"
+                  ? t("mcp.set_up_connect")
                   : t("mcp.tap_to_connect");
             return (
               <div
@@ -1081,7 +1085,7 @@ function McpQuickConnectSection(props: {
                     )}
                     {hidden ? <span className={typeTagClass}>Hidden</span> : null}
                     {entry.featured ? <span className={featuredTagClass}>{t("mcp.quick_connect_featured")}</span> : null}
-                    {entry.preview ? <span className={typeTagClass}>Preview</span> : null}
+                    {entry.preview ? <span className={typeTagClass}>{t("extension_card.preview")}</span> : null}
                     {disabledReason ? <span className={typeTagClass}>Disabled</span> : null}
                   </div>
                   {shareRef && props.onShareMcp ? (
@@ -1129,13 +1133,13 @@ function McpQuickConnectSection(props: {
                   <LedgerBrandIcon name={skill.name} kind="skill" />
                   <h4 className="truncate text-[15px] font-medium tracking-[-0.01em] text-dls-text">{skill.name}</h4>
                 </div>
-                <p className="mt-2 line-clamp-2 text-[13px] leading-relaxed text-dls-secondary">{skill.description ?? "Installed skill"}</p>
+                <p className="mt-2 line-clamp-2 text-[13px] leading-relaxed text-dls-secondary">{skill.description ?? t("mcp.installed_skill")}</p>
                 <div className="mt-3 flex items-center justify-between gap-2">
                   <div className="flex items-center gap-2">
                     <span className={typeTagClass}>Skill</span>
                     {hidden ? <span className={typeTagClass}>Hidden</span> : null}
                   </div>
-                  <span className="shrink-0 text-[12px] font-medium text-dls-secondary transition-colors group-hover:text-dls-text">View details</span>
+                  <span className="shrink-0 text-[12px] font-medium text-dls-secondary transition-colors group-hover:text-dls-text">{t("mcp.view_details")}</span>
                 </div>
               </div>
             );
@@ -1170,7 +1174,7 @@ function McpQuickConnectSection(props: {
                     <span className={typeTagClass}>Extension</span>
                     {hidden ? <span className={typeTagClass}>Hidden</span> : null}
                   </div>
-                  <span className="shrink-0 text-[12px] font-medium text-dls-secondary transition-colors group-hover:text-dls-text">View details</span>
+                  <span className="shrink-0 text-[12px] font-medium text-dls-secondary transition-colors group-hover:text-dls-text">{t("mcp.view_details")}</span>
                 </div>
               </div>
             );

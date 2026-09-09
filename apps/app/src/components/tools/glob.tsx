@@ -3,6 +3,7 @@
 import { Tool } from "@/components/ui/tool"
 import type { GlobToolPart } from "@/lib/build-in-tools"
 import { parseFilename, toolDisplayTitle, truncateText } from "@/components/tools/path"
+import { t } from "@/i18n"
 
 interface GlobToolProps {
   part: GlobToolPart
@@ -14,14 +15,14 @@ function getGlobToolTitle(part: GlobToolPart): string | null {
   if (part.state === "output-error") {
     return pattern
       ? `Search attempted ${truncateText(pattern, 44)}`
-      : "Search attempted"
+      : t("tool.search_attempted")
   }
 
   if (part.state !== "output-available") {
     return null
   }
 
-  return pattern ? `Searched ${truncateText(pattern, 44)}` : "Searched code"
+  return pattern ? t("tool.searched", { pattern: truncateText(pattern, 44) }) : t("tool.searched_code")
 }
 
 function getGlobToolDetail(part: GlobToolPart): string | undefined {

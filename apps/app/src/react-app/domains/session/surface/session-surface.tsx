@@ -232,10 +232,12 @@ function messagesHaveRunningTool(messages: UIMessage[]) {
 }
 
 function statusLabel(snapshot: LegalworkSessionSnapshot | undefined, busy: boolean) {
-  if (busy) return "Running...";
-  if (snapshot?.status.type === "busy") return "Running...";
-  if (snapshot?.status.type === "retry") return `Retrying: ${snapshot.status.message}`;
-  return "Ready";
+  if (busy) return t("session.status_running");
+  if (snapshot?.status.type === "busy") return t("session.status_running");
+  if (snapshot?.status.type === "retry") {
+    return t("session.status_retrying", { message: snapshot.status.message });
+  }
+  return t("session.status_ready");
 }
 
 function controlTextArgument(args: unknown) {
@@ -495,7 +497,7 @@ function SessionErrorCard({ error, onDismiss, onChangeModel, onOpenModelPicker }
                     onDismiss();
                   }}
                 >
-                  Change model
+                  {t("session.change_model")}
                 </button>
               </div>
             ) : null}
@@ -504,7 +506,7 @@ function SessionErrorCard({ error, onDismiss, onChangeModel, onOpenModelPicker }
             type="button"
             className="shrink-0 rounded-full p-1 text-red-10 transition-colors hover:bg-red-3 hover:text-red-11"
             onClick={onDismiss}
-            aria-label="Dismiss error"
+            aria-label={t("session.dismiss_error")}
           >
             <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M3.5 3.5l7 7M10.5 3.5l-7 7" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" /></svg>
           </button>
@@ -1145,7 +1147,7 @@ export function SessionSurface(props: SessionSurfaceProps) {
     try {
       await navigator.clipboard.writeText(transcriptToText(renderedMessages));
     } catch (nextError) {
-      setError({ message: nextError instanceof Error ? nextError.message : "Failed to copy transcript." });
+      setError({ message: nextError instanceof Error ? nextError.message : t("session.copy_transcript_failed") });
     }
   };
 
@@ -1257,7 +1259,7 @@ export function SessionSurface(props: SessionSurfaceProps) {
 
   const startVoiceJob = useCallback(async (request: string) => {
     const text = request.trim();
-    if (!text) throw new Error("The request is empty.");
+    if (!text) throw new Error(t("session.voice_request_empty"));
     const current = voiceJobRef.current;
     if (current && !["completed", "cancelled", "error"].includes(current.status)) {
       unwrap(await opencodeClient.session.promptAsync({
@@ -1270,7 +1272,7 @@ export function SessionSurface(props: SessionSurfaceProps) {
       return { jobId: current.id };
     }
     if (chatStreaming) {
-      throw new Error("I’m still working on the current request. Please wait a moment.");
+      throw new Error(t("session.voice_still_working"));
     }
 
     const jobId = `voice_${crypto.randomUUID()}`;
@@ -1450,9 +1452,9 @@ export function SessionSurface(props: SessionSurfaceProps) {
         void queryClient.invalidateQueries({ queryKey: ["workspace-files", props.workspaceId] });
         toast.dismiss(notification);
       } catch (error) {
-        toast.error(`Could not attach ${file.name}`, {
+        toast.error(t("session.attach_failed", { name: file.name }), {
           id: notification,
-          description: error instanceof Error ? error.message : "File upload failed",
+          description: error instanceof Error ? error.message : t("session.file_upload_failed"),
         });
       } finally {
         setPendingAttachmentUploads((count) => count - 1);
@@ -1520,8 +1522,8 @@ export function SessionSurface(props: SessionSurfaceProps) {
       );
       setComposerMentions(props.sessionId, { ...currentMentions, [reference]: "memory" });
     } catch (error) {
-      toast.error(`Could not download ${file.name}`, {
-        description: error instanceof Error ? error.message : "LegalMemory download failed",
+      toast.error(t("session.download_failed", { name: file.name }), {
+        description: error instanceof Error ? error.message : t("session.legalmemory_download_failed"),
       });
     }
   };
@@ -1623,9 +1625,9 @@ export function SessionSurface(props: SessionSurfaceProps) {
           queryClient.removeQueries({ queryKey: ["artifact-panel", workspaceId, target.id] });
           props.onOpenTarget?.(target);
         } catch (error) {
-          const label = "label" in detail && typeof detail.label === "string" ? detail.label : "that document";
-          toast.error(`Could not open ${label}`, {
-            description: error instanceof Error ? error.message : "LegalMemory download failed",
+          const label = "label" in detail && typeof detail.label === "string" ? detail.label : t("session.that_document");
+          toast.error(t("session.open_failed", { name: label }), {
+            description: error instanceof Error ? error.message : t("session.legalmemory_download_failed"),
           });
         }
       })();
@@ -1636,7 +1638,7 @@ export function SessionSurface(props: SessionSurfaceProps) {
 
   const composerSetTextControlAction = useMemo<LegalworkControlAction>(() => ({
     id: "composer.set_text",
-    label: "Type into the composer",
+    label: t("control.type_composer"),
     description: "Replace the current session draft and type the supplied text visibly.",
     sideEffect: "none",
     requiresArgs: true,
@@ -1655,7 +1657,7 @@ export function SessionSurface(props: SessionSurfaceProps) {
 
   const composerSendControlAction = useMemo<LegalworkControlAction>(() => ({
     id: "composer.send",
-    label: "Send the composer prompt",
+    label: t("control.send_composer"),
     description: "Send the currently visible composer draft to the active session.",
     sideEffect: "mutation",
     disabled: props.modelUnavailable || (!draft.trim() && attachments.length === 0) || model.transitionState !== "idle",
@@ -1669,7 +1671,7 @@ export function SessionSurface(props: SessionSurfaceProps) {
 
   const composerStopControlAction = useMemo<LegalworkControlAction>(() => ({
     id: "composer.stop",
-    label: "Stop the current run",
+    label: t("control.stop_run"),
     description: "Stop the current streaming session run.",
     sideEffect: "mutation",
     disabled: !chatStreaming,
@@ -1731,7 +1733,7 @@ export function SessionSurface(props: SessionSurfaceProps) {
       const results = await Promise.all(input.map((file) => props.client.uploadInbox(props.workspaceId, file)));
       return results;
     } catch (nextError) {
-      toast.warning(nextError instanceof Error ? nextError.message : "Shared folder upload failed");
+      toast.warning(nextError instanceof Error ? nextError.message : t("session.shared_folder_upload_failed"));
       throw nextError;
     }
   };
@@ -1785,7 +1787,7 @@ export function SessionSurface(props: SessionSurfaceProps) {
 
   const sessionScrollTopControlAction = useMemo<LegalworkControlAction>(() => ({
     id: "session.scroll_top",
-    label: "Go to the top of the session",
+    label: t("control.go_top"),
     description: "Scroll the visible session transcript to the first messages.",
     sideEffect: "none",
     execute: () => {
@@ -1799,7 +1801,7 @@ export function SessionSurface(props: SessionSurfaceProps) {
 
   const sessionScrollBottomControlAction = useMemo<LegalworkControlAction>(() => ({
     id: "session.scroll_bottom",
-    label: "Go to the bottom of the session",
+    label: t("control.go_bottom"),
     description: "Scroll the visible session transcript to the newest messages and composer area.",
     sideEffect: "none",
     execute: () => {
@@ -1811,7 +1813,7 @@ export function SessionSurface(props: SessionSurfaceProps) {
 
   const sessionLatestMessageControlAction = useMemo<LegalworkControlAction>(() => ({
     id: "session.latest_message",
-    label: "Read the latest session message",
+    label: t("control.read_latest_message"),
     description: "Return the latest visible message in the current session transcript.",
     sideEffect: "none",
     execute: () => {
@@ -1830,7 +1832,7 @@ export function SessionSurface(props: SessionSurfaceProps) {
 
   const sessionReadTranscriptControlAction = useMemo<LegalworkControlAction>(() => ({
     id: "session.read_transcript",
-    label: "Read the current session transcript",
+    label: t("control.read_transcript"),
     description: "Return the last messages from the current session transcript as readable text, including the session ID, title, and message count.",
     sideEffect: "none",
     args: [{ name: "count", type: "number", required: false, description: "Number of recent messages to return, from 1 to 30. Defaults to 10." }],
@@ -1897,7 +1899,7 @@ export function SessionSurface(props: SessionSurfaceProps) {
             {showDelayedLoading && pendingSessionLoad ? (
               <div className="px-6 py-16">
                 <div className="mx-auto max-w-sm rounded-3xl border border-dls-border bg-dls-hover/60 px-8 py-10 text-center">
-                  <div className="text-sm text-dls-secondary">Opening session…</div>
+                  <div className="text-sm text-dls-secondary">{t("session.opening")}</div>
                 </div>
               </div>
             ) : (snapshotQuery.isError || error) && !snapshot && renderedMessages.length === 0 ? (
@@ -1911,7 +1913,7 @@ export function SessionSurface(props: SessionSurfaceProps) {
                   />
                 ) : (
                   <div className="mx-auto max-w-xl rounded-3xl border border-red-6/40 bg-red-3/20 px-6 py-5 text-sm text-red-11">
-                    {snapshotQuery.error instanceof Error ? snapshotQuery.error.message : "Failed to load session."}
+                    {snapshotQuery.error instanceof Error ? snapshotQuery.error.message : t("session.load_failed")}
                   </div>
                 )}
               </div>

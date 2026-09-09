@@ -1032,7 +1032,7 @@ export default {
   "settings.updates_title": "Actualizaciones",
   "settings.window_appearance_desc": "Personaliza la apariencia de la ventana.",
   "settings.worker_id_label": "Worker {id}",
-  "settings.worker_unresolved": "Worker {entorno de ejecuciónWorkspaceId}",
+  "settings.worker_unresolved": "Worker {runtimeWorkspaceId}",
   "settings.workspace_config_desc": ".opencode/legalwork.json",
   "settings.workspace_config_title": "Configuración del espacio de trabajo",
   "settings.workspace_debug_events_label": "Eventos de depuración del espacio de trabajo",

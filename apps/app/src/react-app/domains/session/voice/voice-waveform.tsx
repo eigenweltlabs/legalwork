@@ -1,6 +1,7 @@
 import { useEffect, useRef, useSyncExternalStore, type ReactNode } from "react";
 import { SILENT_VOICE_AUDIO, type VoiceAudioFrame } from "./voice-audio-meter";
 import "./voice-waveform.css";
+import { t } from "@/i18n";
 
 export type VoiceStatus = "connecting" | "listening" | "thinking" | "tool_use" | "waiting_approval" | "speaking" | "error";
 
@@ -136,7 +137,7 @@ export function VoiceWaveform({ status, sample }: { status: VoiceStatus; sample:
   }, [reducedMotion]);
   useEffect(() => { redraw.current(); }, [status]);
   return <div className="lw-voice-waveform" data-testid="voice-waveform" data-voice-state={status}
-    role="img" aria-label={`Voice status: ${status.replaceAll("_", " ")}`}>
+    role="img" aria-label={t("voice.status_label", { status: status.replaceAll("_", " ") })}>
     <canvas ref={canvas} aria-hidden="true" />
   </div>;
 }

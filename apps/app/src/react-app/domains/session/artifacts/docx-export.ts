@@ -1,5 +1,6 @@
 import { DocxReviewer } from "@eigenpal/docx-editor-agents";
 import JSZip from "jszip";
+import { t } from "@/i18n";
 
 const reviewMarkup = /<(?:[\w.-]+:)?(?:ins|del|delText|delInstrText|conflictIns|conflictDel|move(?:From|To)(?:Range(?:Start|End))?|customXml(?:Ins|Del|MoveFrom|MoveTo)Range(?:Start|End)|\w+PrChange|tblGridChange|numberingChange|cellIns|cellDel|cellMerge|comment|commentRangeStart|commentRangeEnd|commentReference)\b/;
 
@@ -20,7 +21,7 @@ export async function createCleanDocx(buffer: ArrayBuffer): Promise<ArrayBuffer>
   for (const [path, file] of Object.entries(zip.files)) {
     if (!path.startsWith("word/") || !path.endsWith(".xml")) continue;
     if (reviewMarkup.test(await file.async("string"))) {
-      throw new Error("This document contains review markup that cannot yet be removed safely. Download a copy with markup and finish the clean copy in Word.");
+      throw new Error(t("artifact.markup_blocked"));
     }
   }
   return await zip.generateAsync({ type: "arraybuffer" });

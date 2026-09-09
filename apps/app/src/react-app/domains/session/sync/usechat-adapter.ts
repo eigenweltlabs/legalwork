@@ -16,6 +16,7 @@ import {
   parseStructuredOutputUIPart,
   STRUCTURED_OUTPUT_TOOL,
 } from "./parse-tool-parts";
+import { t } from "@/i18n";
 
 function recordValue(value: unknown, key: string) {
   if (!value || typeof value !== "object") return undefined;
@@ -43,11 +44,11 @@ function firstNumberValue(records: unknown[], keys: string[]) {
 }
 
 function defaultErrorMessage(name: string | null, fallback: string) {
-  if (name === "ProviderAuthError") return "Provider authentication failed";
-  if (name === "MessageOutputLengthError") return "The model reached its output limit before finishing";
-  if (name === "StructuredOutputError") return "The model could not produce valid structured output";
-  if (name === "ContextOverflowError") return "The conversation is too large for the model context window";
-  if (name === "MessageAbortedError") return "The message was interrupted";
+  if (name === "ProviderAuthError") return t("chat.error_provider_auth");
+  if (name === "MessageOutputLengthError") return t("chat.error_output_limit");
+  if (name === "StructuredOutputError") return t("chat.error_structured_output");
+  if (name === "ContextOverflowError") return t("chat.error_context_window");
+  if (name === "MessageAbortedError") return t("chat.error_interrupted");
   return fallback;
 }
 

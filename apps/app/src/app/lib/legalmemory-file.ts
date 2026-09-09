@@ -1,4 +1,5 @@
 import type { LegalMemoryTreeFile, LegalworkServerClient } from "./legalwork-server";
+import { t } from "@/i18n";
 
 export const LEGALMEMORY_FILE_DRAG_TYPE = "application/x-legalwork-legalmemory-file";
 
@@ -81,5 +82,5 @@ export async function materializeLegalMemoryFile(
   }
   throw readinessError instanceof Error
     ? readinessError
-    : new Error("The downloaded LegalMemory file is not ready yet.");
+    : new Error(t("legalmemory.file_not_ready"));
 }

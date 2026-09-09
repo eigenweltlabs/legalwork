@@ -1,5 +1,6 @@
 import { isReasoningUIPart, isToolUIPart, type DynamicToolUIPart, type FileUIPart, type ToolUIPart, type UIMessage } from "ai"
 import type { ThreadStatus } from "@/lib/messages"
+import { t } from "@/i18n";
 
 interface MessageGroup {
   messages: UIMessageWithIndex[]
@@ -35,7 +36,7 @@ export function getFileTitle(part: FileUIPart) {
   }
 
   if (part.url.startsWith("data:")) {
-    return "Attached file"
+    return t("tool.attached_file")
   }
 
   return part.url || "File"

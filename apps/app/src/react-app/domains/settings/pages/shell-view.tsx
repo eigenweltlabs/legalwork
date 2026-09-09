@@ -22,6 +22,7 @@ import {
   LayoutSectionTitle,
   LayoutStack,
 } from "../settings-layout";
+import { LanguageSection } from "../appearance/language-section";
 import { useShellConfig, DEFAULT_SHELL_CONFIG } from "../../../shell/shell-config";
 import { useLocal } from "@/react-app/kernel/local-provider";
 import { t } from "@/i18n";
@@ -31,10 +32,10 @@ const SIDEBAR_BRAND_LOGO_MAX_BYTES = 512 * 1024;
 function readFileAsDataUrl(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
-    reader.onerror = () => reject(new Error("Could not read file."));
+    reader.onerror = () => reject(new Error(t("settings.customization.logo_error_read")));
     reader.onload = () => {
       if (typeof reader.result !== "string" || !reader.result.trim()) {
-        reject(new Error("Could not read file."));
+        reject(new Error(t("settings.customization.logo_error_read")));
         return;
       }
       resolve(reader.result);
@@ -60,11 +61,11 @@ export function ShellCustomizationView() {
     if (!file) return;
     const mime = file.type.trim().toLowerCase();
     if (!mime.startsWith("image/")) {
-      setBrandLogoError("Please choose an image file.");
+      setBrandLogoError(t("settings.customization.logo_error_not_image"));
       return;
     }
     if (file.size > SIDEBAR_BRAND_LOGO_MAX_BYTES) {
-      setBrandLogoError("Logo is too large. Please use an image up to 512 KB.");
+      setBrandLogoError(t("settings.customization.logo_error_too_large"));
       return;
     }
     setBrandLogoError(null);
@@ -77,7 +78,9 @@ export function ShellCustomizationView() {
           has_custom_logo: dataUrl.trim().length > 0,
         });
       } catch (error) {
-        setBrandLogoError(error instanceof Error ? error.message : "Could not load logo.");
+        setBrandLogoError(
+          error instanceof Error ? error.message : t("settings.customization.logo_error_load"),
+        );
       }
     })();
   };
@@ -93,25 +96,28 @@ export function ShellCustomizationView() {
 
   return (
     <LayoutStack>
+      {/* ---- Language ---- carries its own section header and card. */}
+      <LanguageSection />
+
       {/* ---- Branding ---- */}
       <LayoutSection>
         <LayoutSectionHeader>
-          <LayoutSectionTitle>Branding</LayoutSectionTitle>
+          <LayoutSectionTitle>{t("settings.customization.branding_title")}</LayoutSectionTitle>
           <LayoutSectionDescription>
-            Customize the name your users see across the app.
+            {t("settings.customization.branding_desc")}
           </LayoutSectionDescription>
         </LayoutSectionHeader>
 
         <LayoutSectionItem>
           <LayoutSectionItemHeader>
-            <LayoutSectionItemTitle>Sidebar name</LayoutSectionItemTitle>
+            <LayoutSectionItemTitle>{t("settings.customization.sidebar_name")}</LayoutSectionItemTitle>
             <LayoutSectionItemDescription>
-              Shown above New task in the left sidebar. Leave blank to show logo only.
+              {t("settings.customization.sidebar_name_desc")}
             </LayoutSectionItemDescription>
             <LayoutSectionItemHeaderActions>
               <Field className="w-64 max-w-full gap-0">
                 <FieldLabel className="sr-only" htmlFor="shell-sidebar-brand-name">
-                  Sidebar brand name
+                  {t("settings.customization.sidebar_name_label")}
                 </FieldLabel>
                 <Input
                   id="shell-sidebar-brand-name"
@@ -133,9 +139,9 @@ export function ShellCustomizationView() {
 
         <LayoutSectionItem>
           <LayoutSectionItemHeader>
-            <LayoutSectionItemTitle>Sidebar logo</LayoutSectionItemTitle>
+            <LayoutSectionItemTitle>{t("settings.customization.sidebar_logo")}</LayoutSectionItemTitle>
             <LayoutSectionItemDescription>
-              Upload an image to show above New task. If no logo is set, the default logo is used.
+              {t("settings.customization.sidebar_logo_desc")}
             </LayoutSectionItemDescription>
             <LayoutSectionItemHeaderActions>
               <div className="flex items-center gap-2">
@@ -144,7 +150,7 @@ export function ShellCustomizationView() {
                   size="sm"
                   onClick={() => logoInputRef.current?.click()}
                 >
-                  <span>Upload logo</span>
+                  <span>{t("settings.customization.upload_logo")}</span>
                 </Button>
                 {config.sidebarBrandLogoDataUrl.trim() ? (
                   <Button
@@ -155,7 +161,7 @@ export function ShellCustomizationView() {
                       setBrandLogoError(null);
                     }}
                   >
-                    Use default
+                    {t("settings.customization.use_default")}
                   </Button>
                 ) : null}
                 <input
@@ -172,7 +178,7 @@ export function ShellCustomizationView() {
           <div className="flex items-center gap-3 rounded-xl border border-dls-border bg-dls-hover/40 p-3">
             <img
               src={sidebarBrandLogoSrc}
-              alt={`${sidebarBrandAlt} logo`}
+              alt={t("settings.customization.logo_alt", { name: sidebarBrandAlt })}
               className={cn(
                 "shrink-0 border border-dls-border object-contain p-1",
                 showSidebarBrandName
@@ -182,11 +188,15 @@ export function ShellCustomizationView() {
             />
             {showSidebarBrandName ? (
               <div className="min-w-0">
-                <div className="text-[11px] uppercase tracking-[0.08em] text-muted-foreground">Preview</div>
+                <div className="text-[11px] uppercase tracking-[0.08em] text-muted-foreground">
+                  {t("settings.customization.preview")}
+                </div>
                 <div className="truncate text-sm font-medium text-foreground">{sidebarBrandName}</div>
               </div>
             ) : (
-              <div className="text-[11px] uppercase tracking-[0.08em] text-muted-foreground">Logo only</div>
+              <div className="text-[11px] uppercase tracking-[0.08em] text-muted-foreground">
+                {t("settings.customization.logo_only")}
+              </div>
             )}
           </div>
           {brandLogoError ? (
@@ -197,21 +207,21 @@ export function ShellCustomizationView() {
           ) : (
             <Alert>
               <Info />
-              <AlertDescription>Use a square PNG/SVG for best results. Max size: 512 KB.</AlertDescription>
+              <AlertDescription>{t("settings.customization.logo_hint")}</AlertDescription>
             </Alert>
           )}
         </LayoutSectionItem>
 
-        {/* Task suggestions — shown below the logo */}
+        {/* Task suggestions - shown below the logo */}
         <LayoutSectionItem className="gap-3">
           <LayoutSectionItemHeader>
-            <LayoutSectionItemTitle>Display task suggestions</LayoutSectionItemTitle>
+            <LayoutSectionItemTitle>{t("settings.customization.task_suggestions")}</LayoutSectionItemTitle>
             <LayoutSectionItemDescription>
-              Show task suggestions to help users get started.
+              {t("settings.customization.task_suggestions_desc")}
             </LayoutSectionItemDescription>
             <LayoutSectionItemHeaderActions>
               <Switch
-                aria-label="Display task suggestions"
+                aria-label={t("settings.customization.task_suggestions")}
                 checked={config.starterCards}
                 onCheckedChange={(value) => update({ starterCards: value })}
               />

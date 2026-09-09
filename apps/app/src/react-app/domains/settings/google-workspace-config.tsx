@@ -19,14 +19,15 @@ import type { GoogleWorkspaceAuthStatus, LegalworkServerClient } from "../../../
 import { usePlatform } from "../../kernel/platform";
 import type { ExtensionConfigContext } from "./extension-registry";
 import { registerExtensionRuntime } from "./extension-registry";
+import { t } from "@/i18n";
 
 type BusyAction = "status" | "connect" | "disconnect" | "set-active" | "test" | "smoke-test" | "save-secret";
 type OptionalFeature = "driveFull" | "calendarWrite" | "chat";
 
-const OPTIONAL_FEATURES: { id: OptionalFeature; label: string; description: string }[] = [
-  { id: "driveFull", label: "Drive write access", description: "Let LegalWork edit and create files in your Drive, not just read them." },
-  { id: "calendarWrite", label: "Create calendar events", description: "Create events on your Google Calendar." },
-  { id: "chat", label: "Google Chat", description: "List spaces, read messages, and send messages in Google Chat." },
+const OPTIONAL_FEATURES: { id: OptionalFeature; labelKey: string; descriptionKey: string }[] = [
+  { id: "driveFull", labelKey: "google_workspace.feature_drive_full", descriptionKey: "google_workspace.feature_drive_full_desc" },
+  { id: "calendarWrite", labelKey: "google_workspace.feature_calendar_write", descriptionKey: "google_workspace.feature_calendar_write_desc" },
+  { id: "chat", labelKey: "google_workspace.feature_chat", descriptionKey: "google_workspace.feature_chat_desc" },
 ];
 type GoogleWorkspaceCommand = () => Promise<unknown>;
 const DESKTOP_ACTION_TIMEOUT_MS = 6 * 60 * 1000;
@@ -99,11 +100,11 @@ async function waitForGoogleWorkspaceConnection(client: LegalworkServerClient, f
     const result = await client.googleWorkspaceConnectStatus(flowId);
     if (result.status === "connected" && result.googleWorkspace) return result.googleWorkspace;
     if (result.status === "failed" || result.status === "expired") {
-      throw new Error(result.error ?? "Google Workspace connection did not complete.");
+      throw new Error(result.error ?? t("google.connection_incomplete"));
     }
     await sleep(CONNECT_POLL_INTERVAL_MS);
   }
-  throw new Error("Google Workspace OAuth timed out.");
+  throw new Error(t("google_workspace.oauth_timed_out"));
 }
 
 function GoogleWorkspaceConfig({ legalworkServerClient, hostLegalworkServerClient, onExtensionConnectionChange, restartLocalServer }: ExtensionConfigContext) {
@@ -129,7 +130,7 @@ function GoogleWorkspaceConfig({ legalworkServerClient, hostLegalworkServerClien
       setStatus(result);
       onExtensionConnectionChange?.("google-workspace", result.connected);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to read Google Workspace status.");
+      setError(err instanceof Error ? err.message : t("google_workspace.status_read_failed"));
     } finally {
       setBusyAction(null);
     }
@@ -147,14 +148,14 @@ function GoogleWorkspaceConfig({ legalworkServerClient, hostLegalworkServerClien
       const result = await Promise.race([
         command(),
         new Promise<never>((_, reject) => {
-          window.setTimeout(() => reject(new Error("Google Workspace connection is taking too long. Try again, or restart LegalWork if the browser already said authorization was received.")), DESKTOP_ACTION_TIMEOUT_MS);
+          window.setTimeout(() => reject(new Error(t("google_workspace.connect_slow"))), DESKTOP_ACTION_TIMEOUT_MS);
         }),
       ]);
       const next = normalizeGoogleWorkspaceAuthStatus(result);
       setStatus(next);
       onExtensionConnectionChange?.("google-workspace", next.connected);
     } catch (err) {
-      setError(err instanceof Error ? err.message : `Google Workspace ${action} failed.`);
+      setError(err instanceof Error ? err.message : t("google_workspace.action_failed", { action }));
       await loadStatus({ clearError: false });
     } finally {
       setBusyAction(null);
@@ -171,7 +172,7 @@ function GoogleWorkspaceConfig({ legalworkServerClient, hostLegalworkServerClien
 
   const saveOauthEnv = async (entries: { key: string; value: string }[], onSaved: () => void) => {
     if (!hostLegalworkServerClient) {
-      setError("Google OAuth settings can only be saved from the local desktop app.");
+      setError(t("google_workspace.desktop_only_save"));
       return;
     }
     setBusyAction("save-secret");
@@ -182,13 +183,13 @@ function GoogleWorkspaceConfig({ legalworkServerClient, hostLegalworkServerClien
       onSaved();
       if (restartLocalServer) {
         const restarted = await restartLocalServer();
-        if (!restarted) setError("Saved Google OAuth settings. Restart LegalWork to apply them.");
+        if (!restarted) setError(t("google_workspace.oauth_saved"));
       } else {
-        setError("Saved Google OAuth settings. Restart LegalWork to apply them.");
+        setError(t("google_workspace.oauth_saved"));
       }
       await loadStatus({ clearError: false });
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to save Google OAuth settings.");
+      setError(err instanceof Error ? err.message : t("google_workspace.oauth_save_failed"));
     } finally {
       setBusyAction(null);
     }
@@ -197,7 +198,7 @@ function GoogleWorkspaceConfig({ legalworkServerClient, hostLegalworkServerClien
   const saveGoogleClientSecret = async () => {
     const value = clientSecret.trim();
     if (!value) {
-      setError("Enter the client secret from your Google OAuth desktop client.");
+      setError(t("google_workspace.enter_secret"));
       return;
     }
     await saveOauthEnv([{ key: "GOOGLE_WORKSPACE_OAUTH_CLIENT_SECRET", value }], () => setClientSecret(""));
@@ -207,7 +208,7 @@ function GoogleWorkspaceConfig({ legalworkServerClient, hostLegalworkServerClien
     const id = customClientId.trim();
     const secret = customClientSecret.trim();
     if (!id || !secret) {
-      setError("Enter both the client ID and client secret from your own Google OAuth desktop client.");
+      setError(t("google_workspace.enter_id_and_secret"));
       return;
     }
     if (id === LEGALWORK_BUILTIN_GOOGLE_CLIENT_ID) {
@@ -233,26 +234,28 @@ function GoogleWorkspaceConfig({ legalworkServerClient, hostLegalworkServerClien
       {!serverAvailable ? (
         <Alert variant="warning">
           <ShieldCheck />
-          <AlertTitle>LegalWork server required</AlertTitle>
-          <AlertDescription>Start LegalWork server to connect Google Workspace.</AlertDescription>
+          <AlertTitle>{t("google_workspace.server_required_title")}</AlertTitle>
+          <AlertDescription>{t("google_workspace.server_required_body")}</AlertDescription>
         </Alert>
       ) : null}
 
       {status?.connected ? (
         <Alert>
           <CheckCircle2 />
-          <AlertTitle>Connected to Google Workspace</AlertTitle>
+          <AlertTitle>{t("google_workspace.connected_title")}</AlertTitle>
           <AlertDescription>
-            {connectedAccounts.length === 1 && connectedAccounts[0]?.email ? `Signed in as ${connectedAccounts[0].email}.` : `${connectedAccounts.length} Google accounts connected.`}
+            {connectedAccounts.length === 1 && connectedAccounts[0]?.email
+              ? t("google_workspace.signed_in_as", { email: connectedAccounts[0].email })
+              : t("google_workspace.accounts_connected", { count: connectedAccounts.length })}
             {status.testStatus ? ` ${status.testStatus}` : ""}
           </AlertDescription>
         </Alert>
       ) : (
         <Alert variant="warning">
           <ShieldCheck />
-          <AlertTitle>Connect Google Workspace</AlertTitle>
+          <AlertTitle>{t("google.connect_workspace")}</AlertTitle>
           <AlertDescription>
-            Let LegalWork read your calendar and your Google Drive (read-only) when you ask it to.
+            {t("google_workspace.readonly_intro")}
           </AlertDescription>
         </Alert>
       )}
@@ -260,17 +263,17 @@ function GoogleWorkspaceConfig({ legalworkServerClient, hostLegalworkServerClien
       {status && !status.configured ? (
         <Alert variant="warning">
           <XCircle />
-          <AlertTitle>Google OAuth client not configured</AlertTitle>
-          <AlertDescription>Add your Google OAuth desktop client secret to connect Google Workspace.</AlertDescription>
+          <AlertTitle>{t("google_workspace.not_configured_title")}</AlertTitle>
+          <AlertDescription>{t("google_workspace.not_configured_body")}</AlertDescription>
         </Alert>
       ) : null}
 
       {status && !status.configured ? (
         <Card variant="outline" size="sm">
           <CardHeader>
-            <CardTitle>Set up Google OAuth</CardTitle>
+            <CardTitle>{t("google_workspace.setup_title")}</CardTitle>
             <CardDescription>
-              Use a Google Cloud OAuth desktop client. LegalWork already includes the desktop client ID; paste the matching client secret here.
+              {t("google_workspace.oauth_setup_hint")}
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-3">
@@ -278,11 +281,11 @@ function GoogleWorkspaceConfig({ legalworkServerClient, hostLegalworkServerClien
               type="password"
               value={clientSecret}
               onChange={(event) => setClientSecret(event.target.value)}
-              placeholder="Google OAuth desktop client secret"
+              placeholder={t("google_workspace.secret_placeholder")}
               autoComplete="off"
             />
             <p className="text-xs leading-relaxed text-muted-foreground">
-              The secret is saved locally in LegalWork environment settings and applied after the local server restarts.
+              {t("google_workspace.secret_saved_locally")}
             </p>
           </CardContent>
           <CardFooter>
@@ -297,15 +300,15 @@ function GoogleWorkspaceConfig({ legalworkServerClient, hostLegalworkServerClien
       {status?.vault === "unavailable" ? (
         <Alert variant="destructive">
           <XCircle />
-          <AlertTitle>Encrypted token vault unavailable</AlertTitle>
-          <AlertDescription>LegalWork cannot securely save your Google connection on this machine right now.</AlertDescription>
+          <AlertTitle>{t("google_workspace.vault_unavailable_title")}</AlertTitle>
+          <AlertDescription>{t("google_workspace.vault_unavailable_body")}</AlertDescription>
         </Alert>
       ) : null}
 
       {error || status?.error ? (
         <Alert variant="destructive">
           <XCircle />
-          <AlertTitle>Google Workspace error</AlertTitle>
+          <AlertTitle>{t("google_workspace.error_title")}</AlertTitle>
           <AlertDescription>{error ?? status?.error}</AlertDescription>
         </Alert>
       ) : null}
@@ -313,28 +316,26 @@ function GoogleWorkspaceConfig({ legalworkServerClient, hostLegalworkServerClien
       {status?.smokeTest ? (
         <Alert>
           <CheckCircle2 />
-          <AlertTitle>Scope smoke test complete</AlertTitle>
-          <AlertDescription>Calendar and Drive read access were verified.</AlertDescription>
+          <AlertTitle>{t("google_workspace.smoke_test_title")}</AlertTitle>
+          <AlertDescription>{t("google_workspace.smoke_test_body")}</AlertDescription>
         </Alert>
       ) : null}
 
       <Card variant="outline" size="sm">
         <CardHeader>
-          <CardTitle>What LegalWork can do</CardTitle>
-          <CardDescription>
-            Connect Google Workspace so LegalWork can read your calendar and your Google Drive (read-only).
-          </CardDescription>
+          <CardTitle>{t("google_workspace.capabilities_title")}</CardTitle>
+          <CardDescription>{t("google_workspace.capabilities_desc")}</CardDescription>
         </CardHeader>
         <CardContent className="grid gap-3 sm:grid-cols-2">
           <div className="rounded-2xl border border-border bg-card p-3">
             <CalendarDays className="mb-2 size-4 text-blue-11" />
-            <div className="text-sm font-medium text-card-foreground">Calendar read</div>
-            <div className="mt-1 text-xs leading-relaxed text-muted-foreground">List upcoming events and provide meeting context.</div>
+            <div className="text-sm font-medium text-card-foreground">{t("google_workspace.calendar_read")}</div>
+            <div className="mt-1 text-xs leading-relaxed text-muted-foreground">{t("google_workspace.calendar_read_desc")}</div>
           </div>
           <div className="rounded-2xl border border-border bg-card p-3">
             <FileText className="mb-2 size-4 text-green-11" />
-            <div className="text-sm font-medium text-card-foreground">Drive (read-only)</div>
-            <div className="mt-1 text-xs leading-relaxed text-muted-foreground">Search and read across your whole Google Drive.</div>
+            <div className="text-sm font-medium text-card-foreground">{t("google_workspace.drive_read")}</div>
+            <div className="mt-1 text-xs leading-relaxed text-muted-foreground">{t("google_workspace.drive_read_desc")}</div>
           </div>
         </CardContent>
       </Card>
@@ -345,8 +346,8 @@ function GoogleWorkspaceConfig({ legalworkServerClient, hostLegalworkServerClien
             {connectedAccounts.map((account) => (
               <div key={account.accountId ?? account.email ?? account.sub ?? "google-account"} className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-border bg-card p-3">
                 <div className="min-w-0">
-                  <div className="truncate text-sm font-medium text-card-foreground">{account.email ?? account.name ?? "Google account"}</div>
-                  <div className="text-xs text-muted-foreground">{account.accountId === status?.activeAccountId ? "Default for extension actions" : "Connected"}</div>
+                  <div className="truncate text-sm font-medium text-card-foreground">{account.email ?? account.name ?? t("google.account")}</div>
+                  <div className="text-xs text-muted-foreground">{account.accountId === status?.activeAccountId ? t("google.default_for_actions") : "Connected"}</div>
                 </div>
                 <div className="flex flex-wrap gap-2">
                   {account.accountId && account.accountId !== status?.activeAccountId ? (
@@ -371,7 +372,7 @@ function GoogleWorkspaceConfig({ legalworkServerClient, hostLegalworkServerClien
           <div className="flex flex-wrap gap-2">
             <Button disabled={Boolean(busyAction) || !canConnect} onClick={() => void runDesktopAction("connect", connectGoogleWorkspace)}>
               {busyAction === "connect" ? <Loader2 className="size-4 animate-spin" /> : null}
-              {status?.connected ? "Add another Google account" : "Connect with Google"}
+              {status?.connected ? t("google.add_another_account") : t("google.connect_with_google")}
             </Button>
             {connectedAccounts.length > 1 ? (
               <Button variant="destructive" disabled={Boolean(busyAction)} onClick={() => void runDesktopAction("disconnect", () => legalworkServerClient?.googleWorkspaceDisconnect() ?? Promise.resolve(null))}>
@@ -393,34 +394,34 @@ function GoogleWorkspaceConfig({ legalworkServerClient, hostLegalworkServerClien
 
       <Accordion>
         <AccordionItem value="advanced">
-          <AccordionTrigger>Advanced</AccordionTrigger>
+          <AccordionTrigger>{t("google_workspace.advanced")}</AccordionTrigger>
           <AccordionContent className="space-y-4">
             <p className="text-xs leading-relaxed text-muted-foreground">
-              Use your own Google OAuth client to unlock extra permissions, like Drive write access, creating calendar events, and Google Chat.
+              {t("google_workspace.advanced_desc")}
             </p>
             {status?.customClient ? (
               <Alert>
                 <CheckCircle2 />
-                <AlertTitle>Using your own Google OAuth client</AlertTitle>
-                <AlertDescription>Extra permissions below are available.</AlertDescription>
+                <AlertTitle>{t("google_workspace.custom_client_title")}</AlertTitle>
+                <AlertDescription>{t("google_workspace.custom_client_body")}</AlertDescription>
               </Alert>
             ) : (
               <div className="space-y-3">
                 <Input
                   value={customClientId}
                   onChange={(event) => setCustomClientId(event.target.value)}
-                  placeholder="Your Google OAuth desktop client ID"
+                  placeholder={t("google_workspace.custom_client_id_placeholder")}
                   autoComplete="off"
                 />
                 <Input
                   type="password"
                   value={customClientSecret}
                   onChange={(event) => setCustomClientSecret(event.target.value)}
-                  placeholder="Your Google OAuth desktop client secret"
+                  placeholder={t("google_workspace.custom_client_secret_placeholder")}
                   autoComplete="off"
                 />
                 <p className="text-xs leading-relaxed text-muted-foreground">
-                  Create a desktop OAuth client in Google Cloud Console, then paste its client ID and secret. They are saved locally in LegalWork environment settings and applied after the local server restarts.
+                  {t("google_workspace.custom_client_hint")}
                 </p>
                 <Button disabled={busyAction === "save-secret" || !customClientId.trim() || !customClientSecret.trim() || !hostServerAvailable} onClick={() => void saveCustomOauthClient()}>
                   {busyAction === "save-secret" ? <Loader2 className="size-4 animate-spin" /> : null}
@@ -431,8 +432,8 @@ function GoogleWorkspaceConfig({ legalworkServerClient, hostLegalworkServerClien
             <div className="space-y-3">
               <p className="text-xs leading-relaxed text-muted-foreground">
                 {status?.customClient
-                  ? "Allow or deny each extra permission below. They are requested the next time you connect a Google account. Already connected? Disconnect and connect again to change them."
-                  : "Add your own Google OAuth client above to enable these options."}
+                  ? t("google.scopes_hint")
+                  : t("google.own_client_hint")}
               </p>
               {OPTIONAL_FEATURES.map((feature) => (
                 <label key={feature.id} className="flex items-start gap-2.5">
@@ -443,8 +444,8 @@ function GoogleWorkspaceConfig({ legalworkServerClient, hostLegalworkServerClien
                     className="mt-0.5"
                   />
                   <span className="min-w-0">
-                    <span className="block text-sm font-medium text-card-foreground">{feature.label}</span>
-                    <span className="block text-xs leading-relaxed text-muted-foreground">{feature.description}</span>
+                    <span className="block text-sm font-medium text-card-foreground">{t(feature.labelKey)}</span>
+                    <span className="block text-xs leading-relaxed text-muted-foreground">{t(feature.descriptionKey)}</span>
                   </span>
                 </label>
               ))}

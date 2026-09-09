@@ -18,6 +18,7 @@ import {
 import { ScrollArea, ScrollAreaViewport } from "@/components/ui/scroll-area";
 import { cn } from "@/lib/utils";
 import { registerExtensionConfig } from "./extension-registry";
+import { t } from "@/i18n";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -62,7 +63,7 @@ function hasDesktopBridge() {
 
 function parsePermissionResult(value: unknown): PermissionResult {
   if (typeof value !== "object" || value === null) {
-    throw new Error("Unreadable response.");
+    throw new Error(t("computer_use.unreadable_response"));
   }
   return {
     ok: "ok" in value && value.ok === true,
@@ -110,7 +111,7 @@ export function ComputerUseConfig({
   } = useMutation({
     mutationFn: async () => {
       if (!hasDesktopBridge()) {
-        throw new Error("Computer Use is Mac only and requires the LegalWork desktop app on macOS.");
+        throw new Error(t("computer_use.mac_only"));
       }
 
       return parsePermissionResult(await desktopBridge.openComputerUsePermissionSetup());
@@ -145,9 +146,9 @@ export function ComputerUseConfig({
   return (
     <Card variant="outline" size="sm">
       <CardHeader>
-        <CardTitle>Computer Use setup (Mac only)</CardTitle>
+        <CardTitle>{t("computer_use.setup_title")}</CardTitle>
         <CardDescription>
-          Computer Use only works on Mac. Connect the local MCP server and grant the macOS permissions it needs to control apps.
+          {t("computer_use.intro")}
         </CardDescription>
         <CardAction>
           <Button variant="ghost" size="icon-sm" onClick={() => void verify()} disabled={isBusy}>
@@ -166,8 +167,8 @@ export function ComputerUseConfig({
 
         {/* Step 1 — MCP */}
         <SetupRow
-          title="1. Connect Computer Use MCP"
-          description="Adds the local Computer Use server to this workspace so Composer can use the computer-control tools."
+          title={t("computer_use.step1_title")}
+          description={t("computer_use.step1_desc")}
           complete={connected}
         >
           <Button
@@ -184,14 +185,14 @@ export function ComputerUseConfig({
 
         {/* Step 2 — Permissions */}
         <SetupRow
-          title="2. Grant macOS permissions"
-          description="Opens the LegalWork Computer Use helper. Grant both permissions there, then click Verify below."
+          title={t("computer_use.step2_title")}
+          description={t("computer_use.step2_desc")}
           complete={allGranted}
         >
           <div className="flex w-full min-w-0 flex-col gap-3">
             <div className="grid gap-2">
-              <Pill label="Accessibility" granted={result?.accessibility === true} checked={result !== null} />
-              <Pill label="Screen Recording" granted={result?.screenRecording === true} checked={result !== null} />
+              <Pill label={t("computer_use.accessibility")} granted={result?.accessibility === true} checked={result !== null} />
+              <Pill label={t("computer_use.screen_recording")} granted={result?.screenRecording === true} checked={result !== null} />
             </div>
 
             <Button
@@ -205,7 +206,7 @@ export function ComputerUseConfig({
                 <Settings2 className="size-4 shrink-0" />
               )}
               <span className="min-w-0 wrap-break-word">
-                {isBusy ? "Opening…" : allGranted ? "Reopen helper" : "Grant permissions"}
+                {isBusy ? "Opening…" : allGranted ? t("computer_use.reopen_helper") : t("computer_use.grant_permissions")}
               </span>
             </Button>
           </div>
@@ -216,8 +217,8 @@ export function ComputerUseConfig({
         <div className="flex w-full flex-col gap-3">
           <p className="text-xs text-muted-foreground">
             {allGranted
-              ? "Permissions verified. Try a Composer prompt that uses Computer Use."
-              : "After granting permissions in the helper, click Verify."}
+              ? t("computer_use.verified")
+              : t("computer_use.after_granting")}
           </p>
           <div className="flex w-full justify-end gap-2">
             {onRefresh ? (

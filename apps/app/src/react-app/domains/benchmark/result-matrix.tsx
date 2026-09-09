@@ -23,6 +23,7 @@ import {
   workTypeLabel,
 } from "./format";
 import { useBenchmarkStore } from "./store";
+import { t } from "@/i18n";
 
 export type ResultMatrixProps = {
   runId: string;
@@ -311,7 +312,7 @@ export function ResultMatrix(props: ResultMatrixProps) {
                         "font-semibold tabular-nums",
                         criteriaScoreToneClass(Math.round((score.rubricPassRate ?? 0) * 100), 100),
                       )}
-                      title={`${score.passed}/${taskCount} tasks fully passed`}
+                      title={t("benchmark.tasks_passed", { passed: score.passed, total: taskCount })}
                     >
                       {score.rubricPassRate !== null
                         ? `${Math.round(score.rubricPassRate * 100)}% (${score.criteriaPassed}/${score.criteriaTotal})`

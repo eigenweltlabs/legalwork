@@ -67,10 +67,12 @@ export type ExtensionsViewProps = {
 };
 
 // The Integrations page covers connectors (MCP), skills, and plugins.
-const TABS: Array<{ id: ExtensionsTab; label: string; icon: LucideIcon; subtitle: string }> = [
-  { id: "connectors", label: "Connectors", icon: Plug, subtitle: "Connect your favorite tools so LegalWork can use them on your behalf." },
-  { id: "skills", label: "Skills", icon: Blocks, subtitle: "Reusable abilities this worker can call on. Add from a repo or create your own." },
-  { id: "plugins", label: "Plugins", icon: Package, subtitle: "Bundled capabilities that pair a skill, an agent, and a command, ready to use in chat." },
+// Built per render, not once at import: `t()` reads the current language, so a
+// module-level constant would freeze the tabs in whatever language loaded first.
+const tabs = (): Array<{ id: ExtensionsTab; label: string; icon: LucideIcon; subtitle: string }> => [
+  { id: "connectors", label: t("extensions.connectors_label"), icon: Plug, subtitle: t("extensions.apps_subtitle_short") },
+  { id: "skills", label: "Skills", icon: Blocks, subtitle: t("extensions.skills_subtitle") },
+  { id: "plugins", label: "Plugins", icon: Package, subtitle: t("extensions.plugins_subtitle") },
 ];
 
 const pageTitleClass = "text-[34px] font-medium leading-[1.04] tracking-[-0.035em] text-dls-text";
@@ -99,6 +101,7 @@ export function ExtensionsView(props: ExtensionsViewProps) {
     props.setSectionRoute?.(next === "connectors" ? "mcp" : next);
   };
 
+  const TABS = tabs();
   const activeTab = TABS.find((entry) => entry.id === tab) ?? TABS[0];
 
   return (
@@ -109,7 +112,7 @@ export function ExtensionsView(props: ExtensionsViewProps) {
           <HubScopeToggle scope={hubScope} onChange={setHubScope} />
           {hubScope === "team" && props.onOpenTeamShare ? (
             <Button variant="outline" onClick={props.onOpenTeamShare}>
-              Share with firm
+              {t("extensions.share_with_firm")}
             </Button>
           ) : null}
         </div>
@@ -134,7 +137,7 @@ export function ExtensionsView(props: ExtensionsViewProps) {
 
       {props.showHeader !== false ? (
         <div className="space-y-3">
-          <span className="lw-section-eyebrow uppercase text-dls-secondary">Integrations</span>
+          <span className="lw-section-eyebrow uppercase text-dls-secondary">{t("extensions.eyebrow_integrations")}</span>
           <h2 className={pageTitleClass}>{activeTab.label}</h2>
           <p className="max-w-xl text-[14px] leading-[1.65] text-dls-secondary">{activeTab.subtitle}</p>
         </div>
@@ -153,13 +156,13 @@ export function ExtensionsView(props: ExtensionsViewProps) {
           <div className={`flex flex-wrap items-start gap-3 ${props.showHeader !== false ? "justify-end" : "justify-between"}`}>
             {props.showHeader === false ? (
               <p className="max-w-prose text-sm text-dls-secondary">
-                Plugins bundle a skill, an agent, and a command into one capability. These ship with the app and are ready to use in chat.
+                {t("extensions.plugins_bundle_note")}
               </p>
             ) : null}
             {props.previewClaudePlugin && props.installClaudePlugin ? (
               <Button variant="outline" onClick={() => setImportOpen(true)}>
                 <Download size={14} />
-                Import from GitHub
+                {t("extensions.import_from_github")}
               </Button>
             ) : null}
           </div>
@@ -191,7 +194,7 @@ export function ExtensionsView(props: ExtensionsViewProps) {
                   {plugin.command}
                 </div>
                 <p className="mt-3 text-[11px] text-dls-secondary/70">
-                  Built into every LegalWork installation — no sharing needed.
+                  {t("extensions.built_in_note")}
                 </p>
               </div>
             ))}

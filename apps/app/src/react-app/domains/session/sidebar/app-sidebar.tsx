@@ -193,7 +193,7 @@ function SessionMenuContent({ variant, sessionId, workspaceId, isPinned, isArchi
           <>
             <DropdownMenuItem onClick={() => ctx.onOpenSessionWindow?.(workspaceId, sessionId)}>
               <AppWindowMac className="size-4" />
-              Open in New Window
+              {t("sidebar.open_in_new_window")}
             </DropdownMenuItem>
             <DropdownMenuSeparator />
           </>
@@ -275,7 +275,7 @@ function SessionMenuContent({ variant, sessionId, workspaceId, isPinned, isArchi
         <>
           <ContextMenuItem onClick={() => ctx.onOpenSessionWindow?.(workspaceId, sessionId)}>
             <AppWindowMac className="size-4" />
-            Open in New Window
+            {t("sidebar.open_in_new_window")}
           </ContextMenuItem>
           <ContextMenuSeparator />
         </>
@@ -356,7 +356,7 @@ function SessionActions({ className, sessionId, workspaceId, isPinned, isArchive
 
   return (
     <DropdownMenu>
-      <DropdownMenuTrigger className="size-6 text-muted-foreground" aria-label="Conversation actions"
+      <DropdownMenuTrigger className="size-6 text-muted-foreground" aria-label={t("sidebar.conversation_actions")}
         render={
           <Button variant="ghost" size="icon-sm" className={cn("size-6", className)}>
             <MoreHorizontal className="size-4" />
@@ -663,7 +663,7 @@ export function AppSidebar(props: AppSidebarProps) {
       <Sidebar
         collapsible="offcanvas"
         role="navigation"
-        aria-label="Main navigation"
+        aria-label={t("sidebar.main_navigation")}
         className="mac:**:data-[sidebar=sidebar]:bg-transparent"
       >
         <div className="hidden h-12 mac:block mac:titlebar-drag"/>
@@ -694,7 +694,7 @@ export function AppSidebar(props: AppSidebarProps) {
                 render={
                   <SidebarMenuButton className="lw-sidebar-new-task mb-1 gap-3 font-medium text-foreground [&_svg]:size-[18px]">
                     <PenLine className="size-[18px]" strokeWidth={1.5} />
-                    <span>New Task</span>
+                    <span>{t("sidebar.new_task")}</span>
                   </SidebarMenuButton>
                 }
               />
@@ -712,7 +712,7 @@ export function AppSidebar(props: AppSidebarProps) {
                 {props.workspaceSessionGroups.length > 0 ? <DropdownMenuSeparator /> : null}
                 <DropdownMenuItem onClick={props.onCreateTaskInNewWorkspace}>
                   <FolderPlus className="size-4" />
-                  New folder…
+                  {t("sidebar.new_folder")}
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
@@ -724,7 +724,7 @@ export function AppSidebar(props: AppSidebarProps) {
               onClick={toggleDrive}
             >
               <HardDrive className="size-[18px]" strokeWidth={1.5} />
-              <span>Memory Drive</span>
+              <span>{t("sidebar.memory_drive")}</span>
             </SidebarMenuButton>
           </SidebarMenuItem>
           <SidebarMenuItem>
@@ -734,7 +734,7 @@ export function AppSidebar(props: AppSidebarProps) {
               onClick={() => (props.onShowWorkflows ? props.onShowWorkflows() : goSettings("general"))}
             >
               <Workflow className="size-[18px]" strokeWidth={1.5} />
-              <span>Workflows</span>
+              <span>{t("sidebar.workflows")}</span>
             </SidebarMenuButton>
           </SidebarMenuItem>
           <SidebarMenuItem>
@@ -744,7 +744,7 @@ export function AppSidebar(props: AppSidebarProps) {
               onClick={() => (props.onShowExtensions ? props.onShowExtensions() : goSettings("extensions/mcp"))}
             >
               <Puzzle className="size-[18px]" strokeWidth={1.5} />
-              <span>Integrations</span>
+              <span>{t("sidebar.integrations")}</span>
             </SidebarMenuButton>
           </SidebarMenuItem>
           <SidebarMenuItem>
@@ -764,7 +764,7 @@ export function AppSidebar(props: AppSidebarProps) {
               onClick={() => props.onShowEvals?.()}
             >
               <FlaskConical className="size-[19px]" strokeWidth={1.5} />
-              <span>Evals</span>
+              <span>{t("sidebar.evals")}</span>
             </SidebarMenuButton>
           </SidebarMenuItem>
         </SidebarMenu>
@@ -778,8 +778,8 @@ export function AppSidebar(props: AppSidebarProps) {
 
         <div className="flex min-h-0 flex-1 flex-col border-t border-sidebar-border/70 pt-1">
           <div className="lw-sidebar-folders-header flex h-10 shrink-0 items-center gap-2 px-5 mac:titlebar-no-drag">
-            <span className="lw-section-eyebrow">Folders</span>
-            <span className="ml-auto text-[11px] tabular-nums text-muted-foreground" aria-label={`${props.workspaceSessionGroups.length} folders`}>
+            <span className="lw-section-eyebrow">{t("sidebar.folders")}</span>
+            <span className="ml-auto text-[11px] tabular-nums text-muted-foreground" aria-label={t("sidebar.folder_count", { count: props.workspaceSessionGroups.length })}>
               {props.workspaceSessionGroups.length}
             </span>
           </div>
@@ -816,7 +816,7 @@ export function AppSidebar(props: AppSidebarProps) {
               <SidebarMenuItem>
                 <SidebarMenuButton className="text-muted-foreground" onClick={props.onOpenCreateWorkspace}>
                   <FolderPlus className="size-4" />
-                  Add folder
+                  {t("sidebar.add_folder")}
                 </SidebarMenuButton>
               </SidebarMenuItem>
             </SidebarMenu>

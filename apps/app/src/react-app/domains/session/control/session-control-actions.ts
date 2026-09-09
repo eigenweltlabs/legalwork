@@ -7,6 +7,7 @@ import { setSessionArchived } from "../../../../app/lib/opencode-session";
 import { getDisplaySessionTitle } from "../../../../app/lib/session-title";
 import { useControlAction, type LegalworkControlAction } from "../../../shell/control/control-provider";
 import { useSessionManagementStore } from "../sidebar/session-management-store";
+import { t } from "@/i18n";
 
 type SessionLike = {
   id?: string;
@@ -83,7 +84,7 @@ export function useSessionControlActions(input: UseSessionControlActionsInput) {
 
   const createTaskControlAction = useMemo<LegalworkControlAction>(() => ({
     id: "session.create_task",
-    label: "Create a new task",
+    label: t("control.create_task"),
     description: "Create a new session in the selected workspace.",
     sideEffect: "mutation",
     disabled: !canCreateTask || !selectedWorkspaceId,
@@ -97,7 +98,7 @@ export function useSessionControlActions(input: UseSessionControlActionsInput) {
 
   const listSessionsControlAction = useMemo<LegalworkControlAction>(() => ({
     id: "session.list_sessions",
-    label: "List available sessions",
+    label: t("control.list_sessions"),
     description: "Return the list of sessions across workspaces so the user can ask to open one by name.",
     sideEffect: "none",
     execute: () => {
@@ -120,7 +121,7 @@ export function useSessionControlActions(input: UseSessionControlActionsInput) {
 
   const openSessionControlAction = useMemo<LegalworkControlAction>(() => ({
     id: "session.open",
-    label: "Open a session by ID",
+    label: t("control.open_session"),
     description: "Navigate to a specific session. Use list_sessions first to get the session ID.",
     sideEffect: "navigation",
     requiresArgs: true,
@@ -136,7 +137,7 @@ export function useSessionControlActions(input: UseSessionControlActionsInput) {
 
   const renameSessionControlAction = useMemo<LegalworkControlAction>(() => ({
     id: "session.rename",
-    label: "Rename a session",
+    label: t("control.rename_session"),
     description: "Rename a session by ID. Use list_sessions first to match the title the user said.",
     sideEffect: "mutation",
     requiresArgs: true,
@@ -150,7 +151,7 @@ export function useSessionControlActions(input: UseSessionControlActionsInput) {
       const title = stringArg(args, "title");
       if (!sessionId) return { ok: false, error: "sessionId is required" };
       if (!title) return { ok: false, error: "title is required" };
-      if (!opencodeClient) return { ok: false, error: "OpenCode client is not connected" };
+      if (!opencodeClient) return { ok: false, error: t("control.opencode_not_connected") };
 
       const targetWorkspace = findSessionWorkspace(workspaces, sessionsByWorkspaceId, sessionId);
       await opencodeClient.session.update({
@@ -166,7 +167,7 @@ export function useSessionControlActions(input: UseSessionControlActionsInput) {
 
   const deleteSessionControlAction = useMemo<LegalworkControlAction>(() => ({
     id: "session.delete",
-    label: "Delete a session",
+    label: t("control.delete_session"),
     description: "Delete a session by ID. Destructive: only run after explicit user confirmation.",
     sideEffect: "mutation",
     requiresArgs: true,
@@ -180,11 +181,11 @@ export function useSessionControlActions(input: UseSessionControlActionsInput) {
       const sessionId = stringArg(args, "sessionId");
       const confirmed = booleanArg(args, "confirmed");
       if (!sessionId) return { ok: false, error: "sessionId is required" };
-      if (!confirmed) return { ok: false, error: "Deletion requires confirmed: true after explicit user confirmation" };
-      if (!legalworkClient) return { ok: false, error: "LegalWork server is not connected" };
+      if (!confirmed) return { ok: false, error: t("control.delete_needs_confirm") };
+      if (!legalworkClient) return { ok: false, error: t("control.server_not_connected") };
 
       const targetWorkspace = findSessionWorkspace(workspaces, sessionsByWorkspaceId, sessionId);
-      if (!targetWorkspace) return { ok: false, error: "Session was not found in the current session list" };
+      if (!targetWorkspace) return { ok: false, error: t("control.session_not_found") };
       await legalworkClient.deleteSession(targetWorkspace.id, sessionId);
       if (selectedSessionId === sessionId) {
         navigateToSessionRoot();
@@ -197,7 +198,7 @@ export function useSessionControlActions(input: UseSessionControlActionsInput) {
 
   const modelPickerControlAction = useMemo<LegalworkControlAction>(() => ({
     id: "session.model_picker.open",
-    label: "Open the model picker",
+    label: t("control.open_model_picker"),
     description: "Open the current session model picker.",
     sideEffect: "none",
     disabled: !selectedWorkspaceId,
@@ -230,7 +231,7 @@ export function useSessionControlActions(input: UseSessionControlActionsInput) {
 
   const pinControlAction = useMemo<LegalworkControlAction>(() => ({
     id: "session.pin",
-    label: "Pin or unpin a session",
+    label: t("control.pin_session"),
     description: "Toggle pin on a session. Pinned sessions float to the top of the sidebar.",
     sideEffect: "mutation",
     requiresArgs: true,
@@ -247,7 +248,7 @@ export function useSessionControlActions(input: UseSessionControlActionsInput) {
 
   const archiveControlAction = useMemo<LegalworkControlAction>(() => ({
     id: "session.archive",
-    label: "Archive or unarchive a session",
+    label: t("control.archive_session"),
     description: "Archive a session (non-destructive, preserves context). Archived sessions move to the Archived section. Pass archived=false to unarchive.",
     sideEffect: "mutation",
     requiresArgs: true,
@@ -260,7 +261,7 @@ export function useSessionControlActions(input: UseSessionControlActionsInput) {
       const sessionId = stringArg(args, "sessionId");
       const archived = booleanArg(args, "archived");
       if (!sessionId) return { ok: false, error: "sessionId is required" };
-      if (!opencodeClient) return { ok: false, error: "OpenCode client is not connected" };
+      if (!opencodeClient) return { ok: false, error: t("control.opencode_not_connected") };
       const targetWorkspace = findSessionWorkspace(workspaces, sessionsByWorkspaceId, sessionId);
       await setSessionArchived(opencodeClient, sessionId, archived, targetWorkspace?.path || selectedWorkspaceRoot || undefined);
       await refreshRouteState();
@@ -271,7 +272,7 @@ export function useSessionControlActions(input: UseSessionControlActionsInput) {
 
   const groupCreateControlAction = useMemo<LegalworkControlAction>(() => ({
     id: "session.group.create",
-    label: "Create a session group",
+    label: t("control.create_group"),
     description: "Create a new group (folder/separator) in the current workspace sidebar. Sessions can then be moved into it.",
     sideEffect: "mutation",
     requiresArgs: true,
@@ -284,7 +285,7 @@ export function useSessionControlActions(input: UseSessionControlActionsInput) {
       const label = stringArg(args, "label");
       const wsId = resolveWorkspaceId(stringArg(args, "workspaceId"));
       if (!label) return { ok: false, error: "label is required" };
-      if (!wsId) return { ok: false, error: "No workspace selected" };
+      if (!wsId) return { ok: false, error: t("control.no_workspace") };
       store.getState().createGroup(wsId, label);
       const created = store.getState().groupsByWorkspace[wsId];
       const newGroup = created?.groups[created.groups.length - 1];
@@ -295,7 +296,7 @@ export function useSessionControlActions(input: UseSessionControlActionsInput) {
 
   const groupMoveControlAction = useMemo<LegalworkControlAction>(() => ({
     id: "session.group.move",
-    label: "Move a session to a group",
+    label: t("control.move_session_group"),
     description: "Assign a session to a group (folder). Pass groupId=null or omit to remove from current group. Use session.group.list to see available groups.",
     sideEffect: "mutation",
     requiresArgs: true,
@@ -310,7 +311,7 @@ export function useSessionControlActions(input: UseSessionControlActionsInput) {
       if (!sessionId) return { ok: false, error: "sessionId is required" };
       const targetWorkspace = findSessionWorkspace(workspaces, sessionsByWorkspaceId, sessionId);
       const wsId = resolveWorkspaceId(stringArg(args, "workspaceId")) || targetWorkspace?.id;
-      if (!wsId) return { ok: false, error: "Could not determine workspace" };
+      if (!wsId) return { ok: false, error: t("control.no_workspace_resolved") };
       store.getState().assignGroup(wsId, sessionId, groupId);
       return { ok: true, sessionId, groupId, workspaceId: wsId };
     },
@@ -319,7 +320,7 @@ export function useSessionControlActions(input: UseSessionControlActionsInput) {
 
   const groupRemoveControlAction = useMemo<LegalworkControlAction>(() => ({
     id: "session.group.remove",
-    label: "Remove a session group",
+    label: t("control.remove_group"),
     description: "Remove a group from the workspace. Sessions in the group become ungrouped (not deleted).",
     sideEffect: "mutation",
     requiresConfirmation: true,
@@ -335,8 +336,8 @@ export function useSessionControlActions(input: UseSessionControlActionsInput) {
       const confirmed = booleanArg(args, "confirmed");
       const wsId = resolveWorkspaceId(stringArg(args, "workspaceId"));
       if (!groupId) return { ok: false, error: "groupId is required" };
-      if (!confirmed) return { ok: false, error: "Requires confirmed: true" };
-      if (!wsId) return { ok: false, error: "No workspace selected" };
+      if (!confirmed) return { ok: false, error: t("control.needs_confirm") };
+      if (!wsId) return { ok: false, error: t("control.no_workspace") };
       store.getState().removeGroup(wsId, groupId);
       return { ok: true, groupId, workspaceId: wsId };
     },
@@ -345,13 +346,13 @@ export function useSessionControlActions(input: UseSessionControlActionsInput) {
 
   const groupListControlAction = useMemo<LegalworkControlAction>(() => ({
     id: "session.group.list",
-    label: "List session groups",
+    label: t("control.list_groups"),
     description: "List all groups in a workspace with their IDs and labels.",
     sideEffect: "none",
     args: [{ name: "workspaceId", type: "string", required: false, description: "Workspace ID. Defaults to selected." }],
     execute: (args) => {
       const wsId = resolveWorkspaceId(stringArg(args, "workspaceId"));
-      if (!wsId) return { ok: false, error: "No workspace selected" };
+      if (!wsId) return { ok: false, error: t("control.no_workspace") };
       const state = store.getState().groupsByWorkspace[wsId];
       return {
         ok: true,

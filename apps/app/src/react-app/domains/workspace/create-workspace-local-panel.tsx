@@ -208,7 +208,7 @@ export function CreateWorkspaceLocalPanel(
                 className={pillGhostClass}
                 onClick={props.onToggleProgressDetails}
               >
-                {props.showProgressDetails ? "Hide logs" : "Show logs"}
+                {props.showProgressDetails ? t("workspace.hide_logs") : t("workspace.show_logs")}
               </button>
             </div>
 
@@ -243,7 +243,7 @@ export function CreateWorkspaceLocalPanel(
             {props.showProgressDetails && progress.logs.length > 0 ? (
               <div className={`mt-3 ${softCardClass}`}>
                 <div className="mb-2 text-[10px] font-semibold uppercase tracking-wide text-dls-secondary">
-                  Live logs
+                  {t("workspace.live_logs")}
                 </div>
                 <div className="max-h-[120px] space-y-0.5 overflow-y-auto">
                   {toKeyedLines(progress.logs.slice(-10)).map(({ key, line }) => (
@@ -297,7 +297,7 @@ export function CreateWorkspaceLocalPanel(
                 className={`mt-3 ${softCardClass} text-[11px] text-dls-text`}
               >
                 <summary className="cursor-pointer text-[12px] font-semibold text-dls-text">
-                  Docker debug details
+                  {t("workspace.docker_debug_details")}
                 </summary>
                 <div className="mt-2 space-y-1 break-words font-mono">
                   {toKeyedLines(props.workerDebugLines).map(({ key, line }) => (

@@ -43,6 +43,7 @@ import {
 import { useControlOpenFiles, useControlAction, type LegalworkControlAction } from "../../../shell/control/control-provider";
 import type { OpenTarget } from "../artifacts/open-target";
 import { useSidePanelTabs } from "./use-side-panel-tabs";
+import { t } from "@/i18n";
 import {
   computeBounds,
   getElectronBrowser,
@@ -123,7 +124,7 @@ function SidePanelTab({ tab, active, onSelect, onClose }: SidePanelTabProps) {
             showBrowserTabContextMenu();
           } : undefined}
           title={tab.label}
-          aria-label={`Select tab: ${tab.label}`}
+          aria-label={t("side_panel.select_tab", { label: tab.label })}
         >
           {tab.type === "browser" ? (
             tab.favicon ? (
@@ -312,7 +313,7 @@ function BrowserPanelContent({
                     size="icon-sm"
                     onClick={back}
                     disabled={!tab.canGoBack}
-                    aria-label="Go back"
+                    aria-label={t("side_panel.go_back")}
                   >
                     <ArrowLeft />
                   </Button>
@@ -328,7 +329,7 @@ function BrowserPanelContent({
                     size="icon-sm"
                     onClick={forward}
                     disabled={!tab.canGoForward}
-                    aria-label="Go forward"
+                    aria-label={t("side_panel.go_forward")}
                   >
                     <ArrowRight />
                   </Button>
@@ -343,7 +344,7 @@ function BrowserPanelContent({
                     variant="ghost"
                     size="icon-sm"
                     onClick={reload}
-                    aria-label="Reload page"
+                    aria-label={t("side_panel.reload_page")}
                   >
                     {tab.status === "loading" ? <Loader2 className="animate-spin" /> : <RotateCw />}
                   </Button>
@@ -366,8 +367,8 @@ function BrowserPanelContent({
                 onBlur={() => {
                   urlFocusedRef.current = false;
                 }}
-                placeholder="Enter a website address"
-                aria-label="Website address"
+                placeholder={t("side_panel.address_placeholder")}
+                aria-label={t("side_panel.address_label")}
                 spellCheck={false}
                 autoComplete="off"
               />
@@ -377,21 +378,25 @@ function BrowserPanelContent({
             </InputGroup>
           </>
         ) : (
-          <p className="min-w-0 flex-1 truncate px-2 text-[13px] font-medium text-foreground">Browser</p>
+          <p className="min-w-0 flex-1 truncate px-2 text-[13px] font-medium text-foreground">{t("side_panel.browser")}</p>
         )}
         <Button
           variant="ghost"
           size="icon-sm"
           onClick={onClose}
-          title="Close panel"
-          aria-label="Close panel"
+          title={t("side_panel.close_panel")}
+          aria-label={t("side_panel.close_panel")}
         >
           <X />
         </Button>
       </div>
       <div className="min-h-0 flex-1 overflow-hidden">
         {isAvailable ? <div ref={contentRef} className="h-full overflow-hidden" /> : (
-          <PanelEmptyState icon={<Globe />} title="Browse in the desktop app" description="Open LegalWork on your desktop to browse websites alongside your conversation." />
+          <PanelEmptyState
+            icon={<Globe />}
+            title={t("side_panel.desktop_only_title")}
+            description={t("side_panel.desktop_only_body")}
+          />
         )}
       </div>
     </>
@@ -442,7 +447,7 @@ export function SidePanel({
     if (!files.length && !memoryFile) return;
     if (importing.current) return;
     if (!client || !workspaceId) {
-      toast.error("Wait for the workspace to connect before opening files.");
+      toast.error(t("side_panel.wait_for_workspace"));
       return;
     }
     importing.current = true;
@@ -462,13 +467,13 @@ export function SidePanel({
             usePanelTabStore.getState().openTab(sessionId, tab);
             if (usePanelTabStore.getState().sessions[sessionId]?.activeTabId !== tab.id) break;
           } catch (error) {
-            toast.error(`Could not open ${file.name}`, { description: error instanceof Error ? error.message : "File copy failed." });
+            toast.error(`Could not open ${file.name}`, { description: error instanceof Error ? error.message : t("side_panel.file_copy_failed") });
           }
         }
       }
       void queryClient.invalidateQueries({ queryKey: ["workspace-files", workspaceId] });
     } catch (error) {
-      toast.error("Could not open the file", { description: error instanceof Error ? error.message : "File copy failed." });
+      toast.error(t("side_panel.file_open_failed"), { description: error instanceof Error ? error.message : t("side_panel.file_copy_failed") });
     } finally {
       importing.current = false;
       if (mounted.current) setCopyingFile(null);
@@ -653,7 +658,7 @@ export function SidePanel({
               type="file"
               multiple
               className="hidden"
-              aria-label="Open files in viewer"
+              aria-label={t("side_panel.open_in_viewer")}
               onChange={(event) => {
                 const files = Array.from(event.currentTarget.files ?? []);
                 event.currentTarget.value = "";
@@ -661,18 +666,18 @@ export function SidePanel({
               }}
             />
             <DropdownMenu>
-              <DropdownMenuTrigger render={<Button variant="ghost" size="icon-sm" aria-label="New tab" title="New tab"><Plus /></Button>} />
+              <DropdownMenuTrigger render={<Button variant="ghost" size="icon-sm" aria-label={t("side_panel.new_tab")} title={t("side_panel.new_tab")}><Plus /></Button>} />
               <DropdownMenuContent align="end">
                 <DropdownMenuItem disabled={!client || !workspaceId || Boolean(copyingFile)} onClick={() => fileInputRef.current?.click()}>
-                  <FolderInput /> Files…
+                  <FolderInput /> {t("side_panel.files")}
                 </DropdownMenuItem>
                 <DropdownMenuItem disabled={!isBrowserAvailable} onClick={() => createTab()}>
-                  <Globe /> Browser
+                  <Globe /> {t("side_panel.browser")}
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
             {!activeTab ? (
-              <Button variant="ghost" size="icon-sm" className="ml-auto" onClick={onClose} aria-label="Close preview panel">
+              <Button variant="ghost" size="icon-sm" className="ml-auto" onClick={onClose} aria-label={t("side_panel.close_preview")}>
                 <X />
               </Button>
             ) : null}
@@ -703,6 +708,10 @@ export function SidePanel({
 
 function PanelEmpty() {
   return (
-    <PanelEmptyState icon={<PanelsTopLeft />} title="A closer look at your work" description="Drop files here to open working copies, or open a browser tab alongside your conversation." />
+    <PanelEmptyState
+      icon={<PanelsTopLeft />}
+      title={t("side_panel.empty_title")}
+      description={t("side_panel.empty_body")}
+    />
   );
 }

@@ -225,8 +225,8 @@ export function AddMcpModal(props: AddMcpModalProps) {
                 {t("mcp.oauth_autodetect_hint")}
               </div>
               <TextInput
-                label="API token (optional)"
-                placeholder="Paste a token to skip OAuth"
+                label={t("add_mcp.api_token_optional")}
+                placeholder={t("add_mcp.api_token_placeholder")}
                 type="password"
                 value={state.apiToken}
                 onChange={(event) => dispatch({ apiToken: event.currentTarget.value })}

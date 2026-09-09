@@ -288,7 +288,7 @@ export function createConnectionsStore(options: {
     });
 
     if (hasLegalworkTarget && !canTryLegalworkServer) {
-      throw new Error("LegalWork server cannot read MCP config for this workspace.");
+      throw new Error(t("mcp.config_read_failed"));
     }
 
     if (!canTryLegalworkServer || !legalworkClient || !legalworkWorkspaceId) return null;
@@ -332,7 +332,7 @@ export function createConnectionsStore(options: {
       if (!fallbackOnError) {
         throw error instanceof Error
           ? error
-          : new Error("Computer Use helper app is unavailable. Restart LegalWork or reinstall the app.");
+          : new Error(t("mcp.computer_use_helper_unavailable"));
       }
       // Fall through to the published package command in the manifest/catalog.
     }
@@ -407,7 +407,7 @@ export function createConnectionsStore(options: {
           mcpServers: next,
           mcpLastUpdatedAt: Date.now(),
           mcpStatuses: nextStatuses,
-          mcpStatus: next.length ? null : "No MCP servers configured yet. Add one to use it in every workspace.",
+          mcpStatus: next.length ? null : t("mcp.no_servers_configured_workspace"),
         }));
         return;
       } catch (error) {
@@ -415,7 +415,7 @@ export function createConnectionsStore(options: {
           ...current,
           mcpServers: [],
           mcpStatuses: {},
-          mcpStatus: error instanceof Error ? error.message : "Failed to load MCP servers",
+          mcpStatus: error instanceof Error ? error.message : t("mcp.load_servers_failed"),
         }));
         return;
       }
@@ -437,7 +437,7 @@ export function createConnectionsStore(options: {
           mcpStatuses: serverResult.nextStatuses,
           mcpStatus: failedNames
             ? `Some MCPs could not be registered with the engine: ${failedNames}. They may appear disconnected — try reloading the engine.`
-            : serverResult.next.length ? null : "No MCP servers configured yet.",
+            : serverResult.next.length ? null : t("mcp.no_servers_configured"),
         }));
         return;
       }
@@ -451,7 +451,7 @@ export function createConnectionsStore(options: {
           ...current,
           mcpServers: [],
           mcpStatuses: {},
-          mcpStatus: error instanceof Error ? error.message : "Failed to load MCP servers",
+          mcpStatus: error instanceof Error ? error.message : t("mcp.load_servers_failed"),
         }));
         return;
       }
@@ -460,7 +460,7 @@ export function createConnectionsStore(options: {
     if (isRemoteWorkspace) {
       mutateState((current) => ({
         ...current,
-        mcpStatus: "LegalWork server unavailable. MCP config is read-only.",
+        mcpStatus: t("connections.mcp_readonly"),
         mcpServers: [],
         mcpStatuses: {},
       }));
@@ -480,7 +480,7 @@ export function createConnectionsStore(options: {
     if (!projectDir) {
       mutateState((current) => ({
         ...current,
-        mcpStatus: "Pick a workspace folder to load MCP servers.",
+        mcpStatus: t("connections.pick_workspace_folder"),
         mcpServers: [],
         mcpStatuses: {},
       }));
@@ -533,7 +533,7 @@ export function createConnectionsStore(options: {
           ...current,
           mcpServers: [],
           mcpStatuses: {},
-          mcpStatus: "No opencode.json found yet. Create one by connecting an MCP.",
+          mcpStatus: t("connections.no_opencode_json"),
         }));
         return;
       }
@@ -554,14 +554,14 @@ export function createConnectionsStore(options: {
         mcpServers: next,
         mcpLastUpdatedAt: Date.now(),
         mcpStatuses: nextStatuses,
-        mcpStatus: next.length ? null : "No MCP servers configured yet.",
+        mcpStatus: next.length ? null : t("mcp.no_servers_configured"),
       }));
     } catch (error) {
       mutateState((current) => ({
         ...current,
         mcpServers: [],
         mcpStatuses: {},
-        mcpStatus: error instanceof Error ? error.message : "Failed to load MCP servers",
+        mcpStatus: error instanceof Error ? error.message : t("mcp.load_servers_failed"),
       }));
     }
   }
@@ -590,7 +590,7 @@ export function createConnectionsStore(options: {
       await resolveWritableLegalworkTarget();
 
     if (isRemoteWorkspace && !canUseLegalworkServer) {
-      setStateField("mcpStatus", "LegalWork server unavailable. MCP config is read-only.");
+      setStateField("mcpStatus", t("connections.mcp_readonly"));
       finishPerf(options.developerMode(), "mcp.connect", "blocked", startedAt, {
         reason: "legalwork-server-unavailable",
       });
@@ -673,7 +673,7 @@ export function createConnectionsStore(options: {
 
       if (entryType === "remote") {
         if (!resolvedUrl) {
-          throw new Error("Missing MCP URL. Is the LegalWork desktop app running?");
+          throw new Error(t("mcp.missing_url"));
         }
         mcpEntryConfig["url"] = resolvedUrl;
         if (resolvedHeaders) {
@@ -695,7 +695,7 @@ export function createConnectionsStore(options: {
 
       if (entryType === "local") {
         if (!entry.command?.length) {
-          throw new Error("Missing MCP command.");
+          throw new Error(t("mcp.missing_command"));
         }
         mcpEntryConfig["command"] = await resolveLocalMcpCommand(entry);
         const environment = await resolveLocalMcpEnvironment(entry);
@@ -740,7 +740,7 @@ export function createConnectionsStore(options: {
           updated.endsWith("\n") ? updated : `${updated}\n`,
         ) as { ok: boolean; stderr?: string; stdout?: string };
         if (!writeResult.ok) {
-          throw new Error(writeResult.stderr || writeResult.stdout || "Failed to write global opencode.json");
+          throw new Error(writeResult.stderr || writeResult.stdout || t("connections.write_global_failed"));
         }
 
         // The global file is not what the packaged engine reads. On a config
@@ -1051,7 +1051,7 @@ export function createConnectionsStore(options: {
         // the same place or the server resurrects on the next instance build.
         const runtimeRemoval = await mergeRuntimeMcpServer(name, null);
         if (!runtimeRemoval.ok) {
-          throw new Error(runtimeRemoval.stderr || runtimeRemoval.stdout || "Failed to remove the runtime MCP config");
+          throw new Error(runtimeRemoval.stderr || runtimeRemoval.stdout || t("connections.remove_runtime_failed"));
         }
 
         // The server removal hot-disconnects its engine. Also disconnect the

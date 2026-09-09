@@ -5,6 +5,7 @@ import { BookMarked, ChevronLeft, ChevronRight } from "lucide-react"
 
 import { LEGALMEMORY_OPEN_EVENT } from "@/components/markdown/legalmemory-ref"
 import { isAuthoritativeStatus, type LegalMemoryDocument } from "@/lib/legalmemory-documents"
+import { t } from "@/i18n";
 
 const SOURCES_PER_PAGE = 5
 
@@ -62,7 +63,7 @@ export function LegalMemorySourcesCard({
                   }),
                 )
               }
-              title={`Open ${document.title}`}
+              title={t("legalmemory.open_document", { title: document.title })}
               className="flex w-full items-center gap-2.5 px-3 py-2 text-left transition-colors hover:bg-[var(--lw-surface-hover)]"
             >
               <span className="w-4 shrink-0 text-right text-xs tabular-nums text-[var(--lw-text-tertiary)]">
@@ -95,15 +96,15 @@ export function LegalMemorySourcesCard({
       </ul>
       {pageCount > 1 ? (
         <nav
-          aria-label="Sources pagination"
+          aria-label={t("sources.pagination")}
           className="flex items-center justify-end gap-2 border-t border-[var(--lw-border-subtle)] px-3 py-2"
         >
           <button
             type="button"
             onClick={() => setPage(Math.max(0, currentPage - 1))}
             disabled={currentPage === 0}
-            aria-label="Previous sources page"
-            title="Previous page"
+            aria-label={t("sources.previous_page")}
+            title={t("common.previous_page")}
             className="grid size-7 place-items-center rounded-md text-[var(--lw-text-secondary)] transition-colors hover:bg-[var(--lw-surface-hover)] hover:text-[var(--lw-text)] disabled:pointer-events-none disabled:opacity-35"
           >
             <ChevronLeft className="size-4" />
@@ -115,8 +116,8 @@ export function LegalMemorySourcesCard({
             type="button"
             onClick={() => setPage(Math.min(pageCount - 1, currentPage + 1))}
             disabled={currentPage === pageCount - 1}
-            aria-label="Next sources page"
-            title="Next page"
+            aria-label={t("sources.next_page")}
+            title={t("common.next_page")}
             className="grid size-7 place-items-center rounded-md text-[var(--lw-text-secondary)] transition-colors hover:bg-[var(--lw-surface-hover)] hover:text-[var(--lw-text)] disabled:pointer-events-none disabled:opacity-35"
           >
             <ChevronRight className="size-4" />

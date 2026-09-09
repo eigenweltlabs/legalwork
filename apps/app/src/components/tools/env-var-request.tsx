@@ -16,6 +16,7 @@ import {
   useIsEnvironmentVariableChangesPending,
   type EnvironmentEditorDraft,
 } from "@/react-app/domains/settings/pages/environment-variable-provider"
+import { t } from "@/i18n";
 
 interface EnvVarRequestToolProps {
   part: EnvVarRequestToolPart
@@ -50,7 +51,7 @@ export function EnvVarRequestTool({ part }: EnvVarRequestToolProps) {
   }, [key])
 
   if (!key) {
-    return <Tool toolPart={part} title="Requested environment variable" />
+    return <Tool toolPart={part} title={t("tool.env_requested")} />
   }
 
   const save = () => {
@@ -81,12 +82,12 @@ export function EnvVarRequestTool({ part }: EnvVarRequestToolProps) {
               {saved ? (
                 <span className="inline-flex items-center gap-1 rounded-full border border-green-6/40 bg-green-3/30 px-2 py-0.5 text-[11px] font-medium text-green-11">
                   <Check className="size-3" />
-                  Saved
+                  {t("tool.env_saved")}
                 </span>
               ) : null}
             </div>
             <p className="text-xs leading-5 text-dls-secondary">
-              {description || "Paste the token here. LegalWork stores it locally and does not send the secret back into chat."}
+              {description || t("tool.env_paste_hint")}
             </p>
           </div>
 
@@ -101,7 +102,7 @@ export function EnvVarRequestTool({ part }: EnvVarRequestToolProps) {
 
           {!canModify ? (
             <p className="rounded-lg border border-amber-6/40 bg-amber-3/20 px-3 py-2 text-xs text-amber-11">
-              Environment variables can only be edited from a local desktop workspace.
+              {t("env_var.local_only")}
             </p>
           ) : null}
           {applyError ? (
@@ -113,31 +114,31 @@ export function EnvVarRequestTool({ part }: EnvVarRequestToolProps) {
           <div className="flex flex-wrap items-center gap-2">
             <Button size="sm" onClick={save} disabled={!canModify || isModifying || !editor.value}>
               {isModifying ? <LoaderCircle className="size-4 animate-spin" /> : null}
-              {saved ? "Update token" : "Save token"}
+              {saved ? t("tool.env_update_token") : t("tool.env_save_token")}
             </Button>
             {canApplyChanges && pendingChanges ? (
               <Button size="sm" variant="outline" onClick={apply} disabled={isApplying}>
                 {isApplying ? <LoaderCircle className="size-4 animate-spin" /> : <RefreshCw className="size-4" />}
-                Apply changes
+                {t("tool.env_apply_changes")}
               </Button>
             ) : null}
             {helpUrl ? (
               <Button size="sm" variant="ghost" render={<a href={helpUrl} target="_blank" rel="noreferrer" />}>
-                Open setup guide
+                {t("env_var.open_setup_guide")}
                 <ExternalLink className="size-3.5" />
               </Button>
             ) : null}
             {followUpPrompt && saved ? (
               <Button size="sm" variant="ghost" onClick={() => setPrompt(followUpPrompt)}>
-                Continue setup
+                {t("env_var.continue_setup")}
               </Button>
             ) : null}
           </div>
 
           <p className={cn("text-[11px] leading-4 text-dls-tertiary", saved && pendingChanges ? "text-amber-11" : "")}>
             {saved && pendingChanges
-              ? "Saved locally. Apply changes so local agents can read the latest value."
-              : "The token is written through the same local Environment Variables store used by Settings."}
+              ? t("tool.env_saved_hint")
+              : t("tool.env_store_hint")}
           </p>
         </div>
       </div>

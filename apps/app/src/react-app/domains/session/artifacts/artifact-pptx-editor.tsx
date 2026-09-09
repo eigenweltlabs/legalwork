@@ -9,6 +9,7 @@ import { toast } from "@/components/ui/sonner";
 import { useOfficeEditor, type OfficeEditorProps } from "./office-editor-state";
 import viewerStyles from "pptx-react-viewer/styles.css?inline";
 import "./office-editor.css";
+import { t } from "@/i18n";
 
 const i18n = createInstance();
 void i18n.init({ lng: "en", fallbackLng: "en", keySeparator: false, resources: { en: { translation: translationsEn } }, parseMissingKeyHandler: keyToLabel, initAsync: false });
@@ -39,18 +40,18 @@ export function ArtifactPptxEditor(props: OfficeEditorProps) {
     return () => { resize.disconnect(); mount.disconnect(); };
   }, [state.host]);
   state.serialize.current = async () => {
-    if (!editor.current || editor.current.getSlideCount() === 0) throw new Error("The presentation is still loading.");
+    if (!editor.current || editor.current.getSlideCount() === 0) throw new Error(t("pptx.still_loading"));
     const bytes = await editor.current.getContent();
     return new Uint8Array(bytes).buffer;
   };
   state.agentTool.current = async (name, rawArgs) => {
     const api = editor.current;
-    if (!api || !api.getSlideCount()) throw new Error("The presentation is still loading.");
-    if (name !== "read" && name !== "replace_text") throw new Error("Unknown presentation tool.");
+    if (!api || !api.getSlideCount()) throw new Error(t("pptx.still_loading"));
+    if (name !== "read" && name !== "replace_text") throw new Error(t("pptx.unknown_tool"));
     const args = name === "read" ? pptxReadSchema.parse(rawArgs) : pptxReplaceSchema.parse(rawArgs);
     const slideIndex = args.slideIndex ?? api.getActiveSlideIndex();
     const slide = api.getSlide(slideIndex);
-    if (!slide) throw new Error("Slide not found. Read the slide inventory first.");
+    if (!slide) throw new Error(t("pptx.slide_not_found"));
     if (name === "read") return { data: {
       activeSlideIndex: api.getActiveSlideIndex(), slideIndex,
       slides: api.getSlides().map((item, index) => ({ index, elementCount: item.elements.length })),
@@ -60,10 +61,10 @@ export function ArtifactPptxEditor(props: OfficeEditorProps) {
     } };
     const edit = pptxReplaceSchema.parse(rawArgs);
     const element = api.getElementById(edit.elementId, slideIndex);
-    if (!element || (element.type !== "text" && element.type !== "shape")) throw new Error("Choose a text or shape element from the read result. Other element types are not editable with this tool.");
+    if (!element || (element.type !== "text" && element.type !== "shape")) throw new Error(t("pptx.element_not_editable"));
     const text = element.text ?? "";
     const start = text.indexOf(edit.search);
-    if (start < 0 || text.indexOf(edit.search, start + 1) >= 0) throw new Error("Search must match exactly once in the current element. Read it again before editing.");
+    if (start < 0 || text.indexOf(edit.search, start + 1) >= 0) throw new Error(t("pptx.search_must_match_once"));
     const textSegments = element.textSegments?.length ? replaceTextSegments(element.textSegments, text, edit.search, edit.replaceWith) : undefined;
     api.setActiveSlideIndex(slideIndex);
     await new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
@@ -71,17 +72,17 @@ export function ArtifactPptxEditor(props: OfficeEditorProps) {
     editor.current!.updateElement(edit.elementId, { text: text.replace(edit.search, () => edit.replaceWith), ...(textSegments ? { textSegments } : {}) });
     return { mutated: true, data: { slideIndex, elementId: edit.elementId, text: text.replace(edit.search, () => edit.replaceWith) } };
   };
-  return <div ref={state.host} className="office-editor office-slides relative h-full min-h-0" aria-label="Presentation editor" aria-busy={state.saving}>
+  return <div ref={state.host} className="office-editor office-slides relative h-full min-h-0" aria-label={t("pptx.editor_aria")} aria-busy={state.saving}>
     <style>{`@scope (.office-slides) { ${viewerStyles.replace(":root,:host", ":scope")} }`}</style>
     <div className="h-full" inert={state.saving}>
       <I18nextProvider i18n={i18n}>
         <PowerPointViewer ref={editor} content={content} fileName={props.name} canEdit={!props.readOnly} autosave={false}
-          onOpenFile={() => toast.info("Open presentations from the workspace file browser.")}
+          onOpenFile={() => toast.info(t("pptx.open_from_browser"))}
           onDirtyChange={onDirtyChange}
           hiddenActions={["file", "share", "broadcast", "record", "export", "help"]}
           theme={{ colors: { background: "var(--background)", foreground: "var(--foreground)", card: "var(--background)", cardForeground: "var(--foreground)", popover: "var(--popover)", popoverForeground: "var(--popover-foreground)", primary: "var(--primary)", primaryForeground: "var(--primary-foreground)", secondary: "var(--muted)", secondaryForeground: "var(--foreground)", input: "var(--border)", ring: "var(--ring)", muted: "var(--muted)", mutedForeground: "var(--muted-foreground)", border: "var(--border)", accent: "var(--accent)", accentForeground: "var(--accent-foreground)" } }} />
       </I18nextProvider>
     </div>
-    {state.saving && <div className="office-saving" role="status">Saving presentation…</div>}
+    {state.saving && <div className="office-saving" role="status">{t("pptx.saving")}</div>}
   </div>;
 }

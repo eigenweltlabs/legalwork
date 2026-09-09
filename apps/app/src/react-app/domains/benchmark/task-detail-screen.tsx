@@ -92,7 +92,7 @@ export function TaskDetailScreen(props: TaskDetailScreenProps) {
                     <Badge className="px-1.5 py-0 text-[10px]">{t("benchmark.custom_badge")}</Badge>
                   ) : (
                     <Badge variant="outline" className="px-1.5 py-0 text-[10px]">
-                      Legal Agent Benchmark
+                      {t("benchmark.legal_agent_benchmark")}
                     </Badge>
                   )}
                   {task.tags.map((tag) => (

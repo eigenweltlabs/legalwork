@@ -15,6 +15,7 @@ import type { McpDirectoryInfo } from "@/app/constants";
 import { openDesktopUrl } from "@/app/lib/desktop";
 import { isDesktopRuntime } from "@/app/utils";
 import { getMcpOAuthErrorMessage } from "@/app/mcp-oauth-errors";
+import { t } from "@/i18n";
 
 const PLACEHOLDER_RE = /\{([^}]+)\}/g;
 
@@ -89,18 +90,18 @@ function isLoopback(value: string): boolean {
  */
 function hintFor(name: string): string | null {
   if (name !== "appliance") return null;
-  return "Your firm's running LegalMemory deployment, for example ki.yourfirm.com. Ask whoever administers it, or see eigenweltlabs.com/legalmemory to deploy one.";
+  return t("mcp.legalmemory_url_hint");
 }
 
 function labelFor(name: string): string {
   const map: Record<string, string> = {
-    appliance: "LegalMemory base URL (host[:port], or http://host if it isn't on TLS)",
-    instance: "HighQ instance (subdomain)",
-    site: "Site / context name",
-    tenant_id: "Microsoft tenant ID",
-    tenantHostname: "Relativity tenant hostname",
+    appliance: t("mcp_setup.legalmemory_base_url"),
+    instance: t("mcp_setup.highq_instance"),
+    site: t("mcp_setup.site_context"),
+    tenant_id: t("mcp_setup.tenant_id"),
+    tenantHostname: t("mcp_setup.relativity_host"),
     region: "Region",
-    customer: "Customer subdomain",
+    customer: t("mcp_setup.customer_subdomain"),
   };
   return map[name] ?? name.replace(/[-_]/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
 }
@@ -197,7 +198,7 @@ export function McpConnectorSetupModal(props: McpConnectorSetupModalProps) {
     if (!entry || !canSubmit || submissionRef.current.busy) return;
     const url = resolveConnectorUrl(entry.url ?? "", values);
     if (/[{}]/.test(url)) {
-      setError("Fill in every field before connecting.");
+      setError(t("mcp.fill_all_fields"));
       return;
     }
     const oauthConfig = needsCreds
@@ -251,12 +252,12 @@ export function McpConnectorSetupModal(props: McpConnectorSetupModalProps) {
           <DialogTitle>Set up {entry?.name ?? "connector"}</DialogTitle>
           <DialogDescription>
             {entry?.setupNote ?? (clientIdOnly
-              ? "Enter your instance details and the OAuth client ID your provider issued, then connect."
+              ? t("mcp_setup.oauth_client_hint")
               : needsCreds
-              ? "Enter the OAuth app details your provider issued, then connect."
+              ? t("mcp_setup.no_auto_registration")
               : needsToken
-              ? "This service's OAuth isn't supported by the local engine — paste an access token to connect instead."
-              : "Enter your instance details, then connect.")}
+              ? t("mcp_setup.oauth_unsupported")
+              : t("mcp_setup.instance_details"))}
           </DialogDescription>
         </DialogHeader>
 
@@ -310,21 +311,21 @@ export function McpConnectorSetupModal(props: McpConnectorSetupModalProps) {
                 <code className="block break-all rounded-xl border border-dls-border bg-dls-hover px-3 py-2">{redirectUri}</code>
               </div>
               <label className="block space-y-1.5">
-                <span className="text-xs font-medium text-dls-text">OAuth client ID</span>
+                <span className="text-xs font-medium text-dls-text">{t("mcp.oauth_client_id_label")}</span>
                 <input value={clientId} onChange={(event) => setClientId(event.currentTarget.value)} spellCheck={false} className={inputClass} />
               </label>
               {clientIdOnly ? null : (
                 <>
                   <label className="block space-y-1.5">
-                    <span className="text-xs font-medium text-dls-text">OAuth client secret</span>
+                    <span className="text-xs font-medium text-dls-text">{t("mcp.oauth_client_secret_label")}</span>
                     <input type="password" value={clientSecret} onChange={(event) => setClientSecret(event.currentTarget.value)} className={inputClass} />
                   </label>
                   <label className="block space-y-1.5">
-                    <span className="text-xs font-medium text-dls-text">Scope (optional)</span>
+                    <span className="text-xs font-medium text-dls-text">{t("mcp.scope_optional")}</span>
                     <input
                       value={scope}
                       onChange={(event) => setScope(event.currentTarget.value)}
-                      placeholder="space-separated scopes"
+                      placeholder={t("mcp.scope_placeholder_short")}
                       spellCheck={false}
                       className={inputClass}
                     />
@@ -336,12 +337,12 @@ export function McpConnectorSetupModal(props: McpConnectorSetupModalProps) {
 
           {needsToken ? (
             <label className="block space-y-1.5">
-              <span className="text-xs font-medium text-dls-text">API token</span>
+              <span className="text-xs font-medium text-dls-text">{t("mcp.api_token")}</span>
               <input
                 type="password"
                 value={token}
                 onChange={(event) => setToken(event.currentTarget.value)}
-                placeholder="Paste your access token"
+                placeholder={t("mcp.api_token_placeholder")}
                 spellCheck={false}
                 className={inputClass}
               />
