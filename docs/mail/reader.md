@@ -15,3 +15,9 @@ Focused acceptance: browser-client malicious-origin and k-way pagination tests; 
 Integration: the small `reader-schema.ts` migration is version 13 after the accepted IMAP migration. Synthetic downgrade fixtures remove the role column/index/trigger before replaying old migrations; production migration remains atomic and refuses future versions.
 
 Mail opens automatically with the OS keychain on entry. There is no manual lock/unlock control. An unavailable vault or service produces a retryable error; internal shutdown and maintenance still clear readable content.
+
+## Development preview profiles
+
+`LEGALWORK_ELECTRON_USERDATA` selects an isolated desktop profile. In development, OpenCode's database follows that profile under `legalwork-dev-data/xdg/data/opencode/opencode.db`; using a fresh preview profile therefore shows different tasks. It does not migrate or erase the regular development database. The September 9 mail preview uses `output/mail-preview/profile`, while the regular development app retains its existing Application Support profile. A read-only inspection confirmed the original sessions were still present.
+
+Preserving Electron's real OS home for keychain access does not change this development XDG selection: the managed child receives its isolated home explicitly. Production continues using the configured managed OpenCode database path. Do not reset the keychain or move session databases to resolve a preview-profile difference.
