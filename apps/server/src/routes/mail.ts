@@ -1,3 +1,4 @@
+import {savedSearchInputSchema} from '../mail/saved-search-view.js';
 import {imapConnectionSchema} from '../mail/providers/imap-config.js';
 import {extractionRequestSchema,extractionReadSchema} from "../mail/extraction-view.js";
 import { mailActionCancelSchema, mailActionReadSchema, mailDraftAttachmentSchema, mailDraftDeleteSchema, mailDraftReadSchema, mailDraftSaveSchema, mailEventQuerySchema, mailLocalPageSchema, mailMutationSchema, mailSubmissionSchema } from "../mail/local-view.js";
@@ -96,6 +97,13 @@ export function registerMailRoutes(routes: Route[], host: string, service?: Mail
       const result=operation==="search"?await service.search(mailSearchInputSchema.parse(value)):await service.rebuildSearch(mailSearchRebuildInputSchema.parse(value));
       return Response.json(result,{headers:{"Cache-Control":"no-store"}});
     }catch(error){throw safeError(error);}
+  });
+  addRoute(routes,'POST','/mail/v1/search/saved','host-token',async ctx=>{
+    if(ctx.actor?.type!=='host')throw new ApiError(401,'unauthorized','Invalid host token');pageInput(ctx,false);
+    if(ctx.request.headers.get('content-type')?.split(';')[0]?.trim().toLowerCase()!=='application/json')throw new ApiError(400,'mail_invalid_request','Invalid mail request');
+    let value:unknown;try{value=JSON.parse(await readMailBody(ctx.request,16384));}catch{throw new ApiError(400,'mail_invalid_request','Invalid mail request');}
+    const input=savedSearchInputSchema.safeParse(value);if(!input.success)throw new ApiError(400,'mail_invalid_request','Invalid mail request');
+    try{return Response.json(await service.savedSearch(input.data),{headers:{'Cache-Control':'no-store'}});}catch(error){throw safeError(error);}
   });
   route("GET", "/status", false, () => service.status());
   route("POST", "/unlock", false, async () => { await service.unlock(); return service.status(); });

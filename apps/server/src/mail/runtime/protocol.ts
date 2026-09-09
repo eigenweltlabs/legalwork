@@ -1,3 +1,4 @@
+import {savedSearchInputSchema,savedSearchResultSchema,savedSearchResultMatches,type SavedSearchInput,type SavedSearchResult} from '../saved-search-view.js';
 import {imapDiscoverySchema,type ImapDiscovery,imapConnectionSchema,imapConnectionResultSchema,type ImapConnection,type ImapConnectionResult} from '../providers/imap-config.js';
 import {extractionCommandSchema,extractionStatusSchema,extractionTextSchema,type MailExtractionCommand,type MailExtractionStatus,type MailExtractionText} from "../extraction-view.js";
 import {mailLocalCommandSchema,mailLocalResultSchema,localResultMatches,type MailLocalCommand,type MailLocalResult} from "../local-view.js";
@@ -33,6 +34,7 @@ type Page = { limit?: number; after?: string };
 export type WorkerCommand =
   | MailExtractionCommand
   | MailLocalCommand
+  | {operation:"mail.search.saved";input:SavedSearchInput}
   | { operation: "mail.search"; input: MailSearchInput }
   | { operation: "mail.search.rebuild"; input: MailSearchRebuildInput }
   | { operation: "ping" }
@@ -59,6 +61,7 @@ export type WorkerCommand =
 export type WorkerAccount = { id: string; provider: "gmail" | "graph" | "imap"; displayName: string; personal?: boolean };
 export type WorkerFolder = { id: string; name: string; kind: "folder" | "label"; parentId: string | null; role?: "inbox" };
 export type WorkerResult =
+  | {savedSearch:SavedSearchResult}
   | {extraction:MailExtractionStatus}
   | {extractionText:MailExtractionText}
   | {local:MailLocalResult}
@@ -162,7 +165,7 @@ function folder(value: unknown): value is WorkerFolder {
     && typeof value.name === "string" && (value.kind === "folder" || value.kind === "label") && cursor(value.parentId);
 }
 function result(value: unknown): value is WorkerResult {
-  return record(value) && ((exact(value,["extraction"])&&extractionStatusSchema.safeParse(value.extraction).success)||(exact(value,["extractionText"])&&extractionTextSchema.safeParse(value.extractionText).success)||(exact(value,["local"]) && mailLocalResultSchema.safeParse(value.local).success)
+  return record(value) && ((exact(value,["savedSearch"])&&savedSearchResultSchema.safeParse(value.savedSearch).success)||(exact(value,["extraction"])&&extractionStatusSchema.safeParse(value.extraction).success)||(exact(value,["extractionText"])&&extractionTextSchema.safeParse(value.extractionText).success)||(exact(value,["local"]) && mailLocalResultSchema.safeParse(value.local).success)
     || (exact(value, ["search"]) && mailSearchResultSchema.safeParse(value.search).success)
     || (exact(value, ["rebuilt"]) && mailSearchRebuildResultSchema.safeParse(value.rebuilt).success)
     || (exact(value,["imapDiscovery"])&&imapDiscoverySchema.safeParse(value.imapDiscovery).success)
@@ -220,6 +223,7 @@ export function resultMatchesCommand(command: WorkerCommand, value: WorkerResult
     case "mail.local.action.cancel":
     case "mail.local.events":
       return "local" in value&&localResultMatches(command,value.local);
+    case "mail.search.saved":return "savedSearch" in value&&savedSearchResultMatches(command.input,value.savedSearch);
     case "mail.search": return "search" in value && (!command.input.accountIds || value.search.items.every(item=>command.input.accountIds?.includes(item.accountId)));
     case "mail.search.rebuild": return "rebuilt" in value;
     case "ping": return "pong" in value;
@@ -255,6 +259,7 @@ export function validWorkerCommand(value: unknown): value is WorkerCommand {
   if (value.operation === "mail.messages.read") return exact(value, ["operation", "accountId", "locator"]) && id(value.accountId) && providerMessageLocatorSchema.safeParse(value.locator).success;
   if (value.operation === "mail.parts.list") return exact(value, ["operation", "accountId", "locator", "page"]) && id(value.accountId) && providerMessageLocatorSchema.safeParse(value.locator).success && mailPartPageSchema.safeParse(value.page).success;
   if (value.operation === "mail.content.read") return exact(value, ["operation", "accountId", "locator", "request"]) && id(value.accountId) && providerMessageLocatorSchema.safeParse(value.locator).success && mailContentReadSchema.safeParse(value.request).success;
+  if(value.operation==="mail.search.saved")return exact(value,["operation","input"])&&savedSearchInputSchema.safeParse(value.input).success;
   if (value.operation === "mail.search") return exact(value,["operation","input"]) && mailSearchInputSchema.safeParse(value.input).success;
   if (value.operation === "mail.search.rebuild") return exact(value,["operation","input"]) && mailSearchRebuildInputSchema.safeParse(value.input).success;
   if(value.operation==="mail.imap.discovery")return Object.keys(value).every(key=>["operation","accountId","after"].includes(key))&&id(value.accountId)&&(!Object.hasOwn(value,"after")||id(value.after));

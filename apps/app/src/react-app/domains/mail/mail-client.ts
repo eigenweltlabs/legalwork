@@ -26,7 +26,7 @@ export class MailClient {
     private readonly origin: string;
     constructor(base: string, private readonly token: string, private readonly transport: typeof fetch = (input, init) => fetch(input, init)) { this.origin = mailOrigin(base); if (!token)
         throw Error('Local host authentication is unavailable.'); }
-    async request<T>(path: string, schema: z.ZodType<T>, signal: AbortSignal, body?: unknown, post = false, timeoutMs = 15000): Promise<T> {
+    async request<T>(path: string, schema: {parse(value:unknown):T}, signal: AbortSignal, body?: unknown, post = false, timeoutMs = 15000): Promise<T> {
         const response = await this.transport(this.origin + '/mail/v1' + path, { method: body !== undefined || post ? 'POST' : 'GET', headers: { 'X-LegalWork-Host-Token': this.token, ...(body === undefined ? {} : { 'Content-Type': 'application/json' }) }, body: body === undefined ? undefined : JSON.stringify(body), signal: AbortSignal.any([signal, AbortSignal.timeout(timeoutMs)]), redirect: 'error', cache: 'no-store', credentials: 'omit' });
         if (!response.ok)
             throw Error(response.status === 423 ? 'Mail is temporarily unavailable. Please retry.' : response.status === 404 ? 'This account or message is unavailable.' : response.status === 401 ? 'Local host authentication expired.' : `Mail request failed (${response.status}).`);
@@ -43,6 +43,7 @@ export class MailClient {
         threadId?: string;
         inboxOnly?: boolean;
     }, signal: AbortSignal) { return this.request(`/accounts/${encodeURIComponent(accountId)}/messages/query`, page(message), signal, { ...input, limit: 25, order: 'received' }); }
+    readLocator(accountId:string, locator:MailMessageView["locator"], signal:AbortSignal){return this.request(`/accounts/${encodeURIComponent(accountId)}/messages/read`,message,signal,{locator});}
     check(item: MailMessageView, signal: AbortSignal) { return this.request(`/accounts/${encodeURIComponent(item.accountId)}/messages/read`, message, signal, { locator: item.locator }); }
     parts(item: MailMessageView, signal: AbortSignal, after?: string) { return this.request(`/accounts/${encodeURIComponent(item.accountId)}/messages/parts`, page(part), signal, { locator: item.locator, page: { limit: 100, ...(after ? { after } : {}) } }); }
     sync(accountId: string, signal: AbortSignal, operation?: 'start' | 'pause') { return this.request(`/accounts/${encodeURIComponent(accountId)}/sync${operation ? '/' + operation : ''}`, syncSchema, signal, undefined, Boolean(operation)); }

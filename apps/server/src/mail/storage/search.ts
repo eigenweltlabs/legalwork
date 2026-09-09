@@ -105,6 +105,21 @@ export class MailSearchStore {
     }
     return{processed:rows.length,...this.stats([input.accountId])};
   }));}
+  private attachmentMatches(accountId:string,messageKey:string,input:MailSearchInput){
+    const terms=[input.literal,input.matterIdentifier,input.phrase,...(input.keywords??[])].filter((value):value is string=>typeof value==='string');
+    if(!terms.length)return [];
+    const rows=this.db.all(`SELECT e.part_id,e.ref_id,e.state,e.result_json FROM mail_attachment_extractions e JOIN mail_content_manifests m ON m.account_id=e.account_id AND m.message_key=e.message_key AND m.kind='attachment' AND m.part_id=e.part_id AND m.ref_id=e.ref_id AND m.state='stored' WHERE e.account_id=? AND e.message_key=? AND e.extractor='local-text-v1' ORDER BY e.part_id LIMIT 8`,[accountId,messageKey]);
+    const matches=[];
+    for(const row of rows){if(row.state!=='complete')continue;const value=z.object({sections:z.array(z.object({source:z.string(),text:z.string()}))}).safeParse(JSON.parse(string.parse(row.result_json)));if(!value.success)continue;
+      for(const [section,part] of value.data.sections.entries()){
+        const plain=normalize(part.text);let at=-1;
+        for(const term of terms){const exact=plain.indexOf(normalize(term));if(exact>=0){at=exact;break;}}
+        // Token phrase navigation also handles punctuation between consecutive FTS words.
+        if(at<0){const tokens=[...plain.matchAll(/[\p{L}\p{N}\p{M}\p{Co}]+/gu)];for(const term of [input.phrase,...(input.keywords??[])]){if(!term)continue;const words=normalize(term).match(/[\p{L}\p{N}\p{M}\p{Co}]+/gu)??[];if(!words.length)continue;for(let start=0;start<tokens.length;start++)if(words.every((word,index)=>tokens[start+index]?.[0]===word)){at=tokens[start].index;break;}if(at>=0)break;}}
+        if(at>=0){matches.push({partId:string.parse(row.part_id),referenceId:string.parse(row.ref_id),section,offset:Math.max(0,Math.min(part.text.length,at)-80),source:part.source});break;}
+      }
+    }return matches;
+  }
   search(supplied:MailSearchInput){return this.safe(()=>this.db.transaction(()=>{
     const parsed=mailSearchInputSchema.safeParse(supplied);if(!parsed.success)throw new MailSearchError('invalid_input');const input=parsed.data;
     const accounts=input.accountIds??this.db.all("SELECT a.id FROM mail_accounts a LEFT JOIN mail_account_credentials c ON c.account_id=a.id LEFT JOIN mail_imap_credentials i ON i.account_id=a.id WHERE a.owner_id=? AND (coalesce(c.state,i.state) IS NULL OR coalesce(c.state,i.state)!='disconnected') ORDER BY a.id",[this.ownerId]).map(row=>string.parse(row.id));
@@ -121,8 +136,9 @@ export class MailSearchStore {
     if(input.hasAttachment!==undefined){where.push(`d.has_attachment=${input.hasAttachment?1:0}`);}
     const from=`FROM mail_search_documents d JOIN mail_accounts a ON a.id=d.account_id LEFT JOIN mail_account_credentials c ON c.account_id=a.id LEFT JOIN mail_imap_credentials i ON i.account_id=a.id JOIN mail_messages m ON m.account_id=d.account_id AND m.message_key=d.message_key ${match?'JOIN mail_search_fts ON mail_search_fts.rowid=d.id':''} WHERE ${where.join(' AND ')}`;
     const total=count.parse(this.db.get(`SELECT count(*) AS n ${from}`,params)?.n),limit=input.limit??20,offset=input.offset??0;
-    const rows=this.db.all(`SELECT d.account_id,d.message_key,m.locator_json,d.subject,d.date,d.has_attachment,${match?"snippet(mail_search_fts,1,'','',' … ',32)":"substr(d.body,1,512)"} AS snippet ${from} ORDER BY d.date DESC,d.account_id,d.message_key LIMIT ? OFFSET ?`,[...params,limit,offset]);
-    const result=mailSearchResultSchema.parse({items:rows.map(row=>({accountId:row.account_id,locator:JSON.parse(string.parse(row.locator_json)),subject:string.parse(row.subject).slice(0,512),snippet:string.parse(row.snippet).slice(0,512),date:row.date,hasAttachment:row.has_attachment===null?null:row.has_attachment===1,attachmentSources:this.db.all(`SELECT e.part_id,e.ref_id,e.state FROM mail_attachment_extractions e JOIN mail_content_manifests m ON m.account_id=e.account_id AND m.message_key=e.message_key AND m.kind='attachment' AND m.part_id=e.part_id AND m.ref_id=e.ref_id AND m.state='stored' WHERE e.account_id=? AND e.message_key=? AND e.extractor='local-text-v1' ORDER BY e.part_id LIMIT 8`,[string.parse(row.account_id),string.parse(row.message_key)]).filter(source=>source.state==='complete').map(source=>({partId:source.part_id,referenceId:source.ref_id}))})),total,...this.stats(accounts),nextOffset:offset+rows.length<total?offset+rows.length:null});
+    const literalSnippet=input.literal??input.matterIdentifier;
+    const rows=this.db.all(`SELECT d.account_id,d.message_key,m.locator_json,d.subject,d.date,d.has_attachment,${match?"snippet(mail_search_fts,1,'','',' … ',32)":literalSnippet?"substr(d.normalized_text,max(1,instr(d.normalized_text,?)-80),320)":"substr(d.body,1,512)"} AS snippet ${from} ORDER BY d.date DESC,d.account_id,d.message_key LIMIT ? OFFSET ?`,[...(!match&&literalSnippet?[normalize(literalSnippet)]:[]),...params,limit,offset]);
+    const result=mailSearchResultSchema.parse({items:rows.map(row=>({accountId:row.account_id,locator:JSON.parse(string.parse(row.locator_json)),subject:string.parse(row.subject).slice(0,512),snippet:string.parse(row.snippet).slice(0,512),date:row.date,hasAttachment:row.has_attachment===null?null:row.has_attachment===1,attachmentMatches:this.attachmentMatches(string.parse(row.account_id),string.parse(row.message_key),input),attachmentSources:this.db.all(`SELECT e.part_id,e.ref_id,e.state FROM mail_attachment_extractions e JOIN mail_content_manifests m ON m.account_id=e.account_id AND m.message_key=e.message_key AND m.kind='attachment' AND m.part_id=e.part_id AND m.ref_id=e.ref_id AND m.state='stored' WHERE e.account_id=? AND e.message_key=? AND e.extractor='local-text-v1' ORDER BY e.part_id LIMIT 8`,[string.parse(row.account_id),string.parse(row.message_key)]).filter(source=>source.state==='complete').map(source=>({partId:source.part_id,referenceId:source.ref_id}))})),total,...this.stats(accounts),nextOffset:offset+rows.length<total?offset+rows.length:null});
     while(Buffer.byteLength(JSON.stringify(result))>48*1024&&result.items.length>1)result.items.pop();
     result.nextOffset=offset+result.items.length<total?offset+result.items.length:null;return result;
   }));}
