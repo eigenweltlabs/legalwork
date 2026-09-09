@@ -1,4 +1,4 @@
-import { afterAll, afterEach, beforeAll, expect, test } from "bun:test";
+import { afterAll, afterEach, beforeAll, expect, spyOn, test } from "bun:test";
 import { randomBytes } from "node:crypto";
 import { execFileSync } from "node:child_process";
 import { mkdtemp, rm, stat, symlink, writeFile } from "node:fs/promises";
@@ -8,6 +8,8 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { LocalMailService, type LocalMailServiceOptions } from "./service.js";
 import { GMAIL_MAIL_SCOPES } from "./provider-config.js";
 import type { MailOAuthSettings } from "./providers/oauth.js";
+import { MailWorkerClient } from "./runtime/client.js";
+import type { WorkerResult } from "./runtime/protocol.js";
 
 const serverRoot = fileURLToPath(new URL("../../", import.meta.url));
 const nodePath = Bun.which("node");
@@ -67,6 +69,20 @@ test("stop forbids reactivation and new requests before asynchronous cleanup fin
   await expect(service.unlock()).rejects.toThrow("mail_unavailable");
   await expect(service.listAccounts({})).rejects.toThrow("mail_unavailable");
   await stopping;
+});
+
+test("already pending read responses cannot cross a lock and new worker generation", async () => {
+  const { service } = await setup(); await service.unlock();
+  let deliver: (value: WorkerResult) => void = () => {};
+  const delayed = new Promise<WorkerResult>(resolve => { deliver = resolve; });
+  const request = spyOn(MailWorkerClient.prototype, "request").mockImplementation(() => delayed);
+  try {
+    const reading = service.listAccounts({});
+    const rejected = reading.then(() => false, error => error instanceof Error && error.message === "mail_locked");
+    await service.lock(); await service.unlock();
+    deliver({ accounts: [{ id: "private", provider: "gmail", displayName: "Old generation" }], nextCursor: null });
+    expect(await rejected).toBe(true);
+  } finally { request.mockRestore(); }
 });
 test("locking while key retrieval is pending prevents a late worker start", async () => {
   let requested = () => {};
