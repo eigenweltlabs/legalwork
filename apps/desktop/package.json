@@ -36,6 +36,7 @@
     "@peculiar/x509": "^2.0.0",
     "basic-ftp": "^6.2.1",
     "better-sqlite3": "^11.10.0",
+    "better-sqlite3-multiple-ciphers": "13.0.3",
     "drizzle-orm": "^0.45.1",
     "electron-updater": "^6.3.9",
     "fflate": "^0.8.3",
