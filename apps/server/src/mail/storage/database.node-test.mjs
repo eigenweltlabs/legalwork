@@ -8,8 +8,11 @@ import { join } from 'node:path';
 import { pathToFileURL, fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
 import { DatabaseSync } from 'node:sqlite';
-import { openEncryptedMailDatabase } from './database.ts';
-const moduleUrl = new URL('./database.ts', import.meta.url).href;
+import { existsSync } from 'node:fs';
+// Existing source launcher and compile-once acceptance both execute this same contract.
+const moduleFile = existsSync(new URL('./database.js', import.meta.url)) ? 'database.js' : 'database.ts';
+const moduleUrl = new URL(moduleFile, import.meta.url).href;
+const { openEncryptedMailDatabase } = await import(moduleUrl);
 const privateKey = () => randomBytes(32);
 async function fixture(body) {
   const dir = await mkdtemp(join(tmpdir(),'legalwork-mail-database-test-'));
@@ -112,10 +115,12 @@ test('rollback, nested savepoints, synchronous return values and thenable reject
 test('rejects symlinks and insecure existing file permissions', async () => fixture(async (path,dir) => {
   await mkdir(join(dir,'private'),{mode:0o700});
   const target=join(dir,'target');
-  await writeFile(target,'unchanged',{mode:0o600});
-  await symlink(target,path);
+  const marker = process.platform === 'win32' ? join(target, 'marker') : target;
+  if (process.platform === 'win32') await mkdir(target);
+  await writeFile(marker,'unchanged',{mode:0o600});
+  await symlink(target,path,process.platform === 'win32' ? 'junction' : 'file');
   await assert.rejects(openEncryptedMailDatabase({path,key:privateKey()}),/regular/);
-  assert.equal(await readFile(target,'utf8'),'unchanged');
+  assert.equal(await readFile(marker,'utf8'),'unchanged');
   await rm(path);
   await writeFile(path,'',{mode:0o600});
   if(process.platform !== 'win32') {
@@ -149,7 +154,7 @@ test('rejects unknown/plaintext native modules before creating a target file', a
   const moduleDir=join(dir,'node_modules','better-sqlite3-multiple-ciphers');
   await mkdir(moduleDir,{recursive:true});
   await writeFile(join(dir,'package.json'),'{"type":"module"}');
-  await copyFile(fileURLToPath(new URL('./database.ts',import.meta.url)),join(dir,'database.ts'));
+  await copyFile(fileURLToPath(new URL(moduleFile,import.meta.url)),join(dir,moduleFile));
   await writeFile(join(moduleDir,'package.json'),'{"main":"index.cjs"}');
   for(const implementation of [
     `module.exports={};`,
@@ -157,7 +162,7 @@ test('rejects unknown/plaintext native modules before creating a target file', a
   ]) {
     await writeFile(join(moduleDir,'index.cjs'),implementation);
     const child=spawnSync(process.execPath,['--experimental-strip-types','--input-type=module','-e',`
-      import {openEncryptedMailDatabase} from ${JSON.stringify(pathToFileURL(join(dir,'database.ts')).href)};
+      import {openEncryptedMailDatabase} from ${JSON.stringify(pathToFileURL(join(dir,moduleFile)).href)};
       try {await openEncryptedMailDatabase({path:process.argv[1],key:new Uint8Array(32)});process.exitCode=1;}
       catch(error){if(!/Invalid encrypted|Unsupported encrypted/.test(error.message))throw error;}
     `,path],{encoding:'utf8',timeout:10_000});
