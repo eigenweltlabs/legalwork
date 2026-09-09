@@ -17,7 +17,7 @@ app.whenReady().then(async()=>{
  await act(()=>{for(const [label,value]of [['Search accounts','a'],['unread','true'],['hasAttachment','true']]){const select=[...document.querySelectorAll('select')].find(e=>e.getAttribute('aria-label')===label);Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype,'value').set.call(select,value);select.dispatchEvent(new Event('change',{bubbles:true}));}});
  await fill('Keywords','two ');assert.equal(await act(()=>document.querySelector('[aria-label="Keywords"]').value),'two ');await fill('Keywords','two words');
  await fill('Literal text','AZ-12/34.5');await click('Search');await contains('21 matches');
- assert.equal(await act(()=>document.body.textContent.includes('Some content is still being prepared.')),true);
+ assert.equal(await act(()=>document.body.textContent.includes('Some content is not searchable.')),true);
  await act(()=>{document.querySelector('[aria-label="Search results"] button').focus();document.activeElement.dispatchEvent(new KeyboardEvent('keydown',{key:'ArrowDown',bubbles:true}));});
  assert.equal(await act(()=>document.activeElement.textContent),'Second keyboard result');
  await click('Matching attachment: page:3');await contains('Kündigung attachment page three');
