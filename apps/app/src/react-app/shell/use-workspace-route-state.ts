@@ -53,6 +53,8 @@ import {
 import { legacySessionRoute, workspaceSessionRoute } from "./workspace-routes";
 
 export type UseWorkspaceRouteStateInput = {
+  /** Keep standalone main panes open while still loading their shared sidebar. */
+  skipAutomaticNavigation?: boolean;
   /** Invoked when the legalwork-server settings-changed event fires (the route bumps its settings version). */
   onServerSettingsChanged: () => void;
   /** Receives the local legalwork-server host info discovered during refresh. */
@@ -647,6 +649,7 @@ export function useWorkspaceRouteState(input: UseWorkspaceRouteStateInput) {
   // Once workspaces + sessions are loaded and the URL has no sessionId, try to
   // restore the last session the user opened in the active workspace.
   useEffect(() => {
+    if (input.skipAutomaticNavigation) return;
     if (loading) return;
     if (routeWorkspaceId && workspaces.length > 0 && !workspaces.some((workspace) => workspace.id === routeWorkspaceId)) {
       const fallbackWorkspaceId = workspaces.some((workspace) => workspace.id === legacySelectedWorkspaceId)
@@ -669,6 +672,7 @@ export function useWorkspaceRouteState(input: UseWorkspaceRouteStateInput) {
     if (!sessions.some((session) => session?.id === remembered)) return;
     navigateToWorkspaceSession(selectedWorkspaceId, remembered, { replace: true });
   }, [
+    input.skipAutomaticNavigation,
     loading,
     legacySelectedWorkspaceId,
     navigateToWorkspaceSession,
@@ -683,11 +687,12 @@ export function useWorkspaceRouteState(input: UseWorkspaceRouteStateInput) {
   // completed onboarding. This fires after the initial route refresh so
   // `loading` is false and we know for sure there are zero workspaces.
   useEffect(() => {
+    if (input.skipAutomaticNavigation) return;
     if (loading) return;
     if (workspaces.length > 0) return;
     if (local.prefs.hasCompletedOnboarding) return;
     navigate("/welcome", { replace: true });
-  }, [loading, local.prefs.hasCompletedOnboarding, navigate, workspaces.length]);
+  }, [input.skipAutomaticNavigation, loading, local.prefs.hasCompletedOnboarding, navigate, workspaces.length]);
 
   // NOTE: Blueprint seeding was removed from the route.
   // It was firing `materializeBlueprintSessions` + a session re-fetch on every

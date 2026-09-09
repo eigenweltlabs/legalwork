@@ -406,6 +406,7 @@ export function SessionRoute() {
     rememberPendingCreatedSession,
     handleRuntimeSessionUpdated,
   } = useWorkspaceRouteState({
+    skipAutomaticNavigation: showMail,
     onServerSettingsChanged: () => setLegalworkServerSettingsVersion((value) => value + 1),
     onHostInfo: setLegalworkServerHostInfoState,
   });
