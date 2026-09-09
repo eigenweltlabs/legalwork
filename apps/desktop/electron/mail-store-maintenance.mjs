@@ -1,6 +1,6 @@
 import { createHash, createCipheriv, createDecipheriv, randomBytes, scrypt } from 'node:crypto';
-import { constants, createReadStream } from 'node:fs';
-import { lstat, mkdir, open, rename } from 'node:fs/promises';
+import { constants } from 'node:fs';
+import { lstat, mkdir, open, rename, readdir } from 'node:fs/promises';
 import { join, isAbsolute } from 'node:path';
 import { spawn } from 'node:child_process';
 import { createMailKeyStore } from './mail-key-store.mjs';
@@ -23,15 +23,21 @@ function password(value) { if (typeof value !== 'string' || value.length < 16 ||
  */
 export function createMailStoreMaintenance({ directory, safeStorage, executable, entryPoint, ownerId = 'desktop-local' }) {
   if (!isAbsolute(directory) || !isAbsolute(entryPoint) || !isAbsolute(executable.path)) throw fail();
-  const pointer = join(directory, 'active-store-v1.json'); let busy = false;
+  const pointer = join(directory, 'active-store-v1.json'); let busy = false, physicalPending = false;
   async function selected() {
     let value;
-    try { value = await jsonFile(pointer); } catch (error) { if (error?.code === 'ENOENT') return null; throw fail(); }
-    if (!value || Object.keys(value).sort().join(',') !== 'generation,version' || value.version !== 1 || !/^[a-f0-9]{32}$/.test(value.generation)) throw fail();
+    try { value = await jsonFile(pointer); } catch (error) {
+      if (error?.code !== 'ENOENT') throw fail();
+      let entries; try { entries = await readdir(directory); } catch (missing) { if (missing?.code === 'ENOENT') return null; throw fail(); }
+      if (entries.some(name => name.startsWith('store-') || name.startsWith('.active-'))) throw fail();
+      return null;
+    }
+    if (!value || Object.keys(value).sort().join(',') !== 'generation,version' || value.version !== 1 || (value.generation !== null && !/^[a-f0-9]{32}$/.test(value.generation))) throw fail();
+    if (value.generation === null) return null;
     const folder = join(directory, `store-${value.generation}`); await privateEntry(folder, true); return { generation: value.generation, folder };
   }
   async function loadStore() {
-    if (busy) throw fail(); const active = await selected(), folder = active?.folder ?? directory;
+    if (busy || physicalPending) throw fail(); const active = await selected(), folder = active?.folder ?? directory;
     const key = await createMailKeyStore({ directory: folder, safeStorage }).load({ allowCreate: !active });
     return { databasePath: join(folder, 'mail.sqlite'), key };
   }
@@ -41,23 +47,41 @@ export function createMailStoreMaintenance({ directory, safeStorage, executable,
       /** @type {NodeJS.ProcessEnv} */
       const env = {}; for (const name of ['SystemRoot','WINDIR']) if (process.env[name]) env[name] = process.env[name];
       if (executable.kind === 'electron') env.ELECTRON_RUN_AS_NODE = '1'; else delete env.ELECTRON_RUN_AS_NODE;
-      const child = spawn(executable.path, [entryPoint], { env, stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true }); let output = '', settled = false;
-      const finish = (error, value) => { if (settled) return; settled = true; clearTimeout(timer); signal?.removeEventListener('abort', abort); if (error) { child.kill('SIGKILL'); reject(fail()); } else resolve(value); };
-      const abort = () => finish(true); signal?.addEventListener('abort', abort, { once: true });
-      const timer = setTimeout(() => finish(true), 120000);
-      child.stdout.on('data', bytes => { output += bytes.toString('utf8'); if (output.length > 4096) finish(true); });
+      physicalPending = true;
+      const child = spawn(executable.path, [entryPoint], { env, stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true });
+      let output = '', settled = false, failed = false;
+      /** @type {ReturnType<typeof setTimeout>|undefined} */
+      let reapTimer;
+      const finish = (error, value) => { if (settled) return; settled = true; clearTimeout(timer); clearTimeout(reapTimer); signal?.removeEventListener('abort', abort); if (error) reject(fail()); else resolve(value); };
+      const abort = () => {
+        if (failed || settled) return; failed = true; child.kill('SIGKILL');
+        // Wait for physical termination. A lost close event must not reopen the store.
+        reapTimer = setTimeout(() => finish(true), 5000);
+      };
+      signal?.addEventListener('abort', abort, { once: true });
+      const timer = setTimeout(abort, 120000);
+      child.stdout.on('data', bytes => { if (failed) return; output += bytes.toString('utf8'); if (output.length > 4096) abort(); });
       child.stderr.resume(); // Never forward native errors or private data to app diagnostics.
-      child.on('error', () => finish(true)); child.stdin.on('error', () => finish(true));
-      child.on('exit', code => { try { const result = JSON.parse(output); if (code !== 0 || result.ok !== true || Object.keys(result).sort().join(',') !== 'accounts,messages,ok,references,schemaVersion' || !['accounts','messages','references','schemaVersion'].every(key => Number.isSafeInteger(result[key]) && result[key] >= 0)) throw fail(); finish(false, result); } catch { finish(true); } });
+      child.on('error', abort); child.stdin.on('error', abort);
+      child.on('close', code => {
+        physicalPending = false;
+        try { const result = JSON.parse(output); if (failed || code !== 0 || result.ok !== true || Object.keys(result).sort().join(',') !== 'accounts,messages,ok,references,schemaVersion' || !['accounts','messages','references','schemaVersion'].every(key => Number.isSafeInteger(result[key]) && result[key] >= 0)) throw fail(); finish(false, result); } catch { finish(true); }
+      });
       child.stdin.end(JSON.stringify({ ...input, sourceKey: input.sourceKey.toString('base64'), destinationKey: input.destinationKey.toString('base64'), ownerId }));
     });
   }
   async function exclusive(action) {
-    if (busy) throw fail(); busy = true;
+    if (busy || physicalPending) throw fail(); busy = true;
     try { try { await mkdir(directory, {mode:0o700}); } catch (error) { if (error?.code !== 'EEXIST') throw error; } await privateEntry(directory, true); return await action(); }
     catch { throw fail(); } finally { busy = false; }
   }
   async function candidate() {
+    // Commit the initial legacy selection before creating any candidate. An aborted
+    // first rotation can reopen legacy; a lost pointer after promotion cannot.
+    await selected();
+    try { await writePrivate(pointer, JSON.stringify({ version: 1, generation: null })); await syncDirectory(directory); }
+    catch (error) { if (error?.code !== 'EEXIST') throw error; }
+
     const generation = randomBytes(16).toString('hex'), folder = join(directory, `store-${generation}`);
     await mkdir(folder, { mode: 0o700 }); const key = await createMailKeyStore({ directory: folder, safeStorage }).load({ allowCreate: true });
     return { generation, folder, key, databasePath: join(folder, 'mail.sqlite') };
