@@ -209,7 +209,7 @@ for (const mode of ["before", "after", "lease"]) test(`SIGKILL ${mode} page comm
 }));
 
 test("v2 upgrade is additive and atomic; future versions and failed DDL remain unchanged", async () => fixture(({ db }) => {
-  db.exec("DROP TABLE mail_account_credentials; DROP TABLE mail_sync_scope_jobs; DROP TABLE mail_sync_jobs; DROP TABLE mail_sync_scopes; UPDATE mail_schema_version SET version=2");
+  db.exec("DROP TABLE mail_action_jobs; DROP TABLE mail_account_credentials; DROP TABLE mail_sync_scope_jobs; DROP TABLE mail_sync_jobs; DROP TABLE mail_sync_scopes; UPDATE mail_schema_version SET version=2");
   const faulty = { ...db, exec(sql) { db.exec(sql); if (sql.includes("CREATE TABLE mail_sync_jobs")) throw new Error("migration interruption"); } };
   assert.throws(() => migrateMailSchema(faulty), /migration interruption/);
   assert.equal(db.get("SELECT version FROM mail_schema_version").version, 2);

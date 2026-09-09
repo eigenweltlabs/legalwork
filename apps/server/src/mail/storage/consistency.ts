@@ -36,6 +36,7 @@ const requiredColumns: Record<string, string[]> = {
   mail_content_manifests: ["account_id", "message_key", "kind", "part_id", "state", "ref_id"],
   mail_cursors: ["account_id", "scope_id", "cursor"],
   mail_drafts: ["account_id", "id", "revision", "content_ref_id"],
+  mail_action_jobs: ["account_id", "id", "replay_key", "kind", "payload_json", "precondition", "conflict_policy", "generation", "revision", "state", "attempts", "max_attempts", "retry_base_ms", "retry_max_ms", "available_at", "lease_token", "lease_until", "cancel_requested", "last_error"],
   mail_actions: ["account_id", "id", "kind", "payload_json", "state"],
   mail_tombstones: ["account_id", "message_key", "reason", "observed_at"],
   mail_blob_objects: ["account_id", "id", "state", "bytes", "chunk_count"],

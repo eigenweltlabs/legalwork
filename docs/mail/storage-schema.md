@@ -1,6 +1,6 @@
 # Durable mail schema and repository (EIG-124)
 
-`migrateMailSchema(database)` installs schema version 2 (including the original v1 tables) in one synchronous transaction. It enables and verifies foreign keys, records a singleton version, does nothing on a repeated current migration, and rejects future versions without a downgrade or destructive reset. An unversioned database containing conflicting mail tables also fails instead of replacing data. This is a dedicated mail database, not a migration for the existing general server store.
+`migrateMailSchema(database)` installs schema version 5 (including the original v1 tables) in one synchronous transaction. It enables and verifies foreign keys, records a singleton version, does nothing on a repeated current migration, and rejects future versions without a downgrade or destructive reset. An unversioned database containing conflicting mail tables also fails instead of replacing data. This is a dedicated mail database, not a migration for the existing general server store.
 
 `MailRepository(database, ownerId)` accepts only the injected `MailDatabase`. It opens no files and supplies no plaintext fallback. The service supplies the authenticated owner scope; callers must not choose it from an untrusted request body. Every existing-account operation checks ownership. Account IDs are globally unique locally, and every subordinate identity/reference uses account-composite keys and foreign keys. The isolated in-memory stock SQLite adapter exists only inside `repository.test.ts`; encrypted factory/worker and packaged-runtime validation are separate work.
 
@@ -13,7 +13,8 @@
 - Immutable content references record an opaque encrypted-blob reference, bytes and SHA-256. Multiple message manifests may intentionally reference the same account-local content reference. A hash alone does not merge messages or references.
 - Content manifests record raw MIME, extracted body and attachment parts separately, with pending/stored/unavailable states. Stored parts require a reference; other states forbid one. Raw/body use an empty part ID; attachments require a stable nonempty part ID.
 - Schema v2 adds staged/published blob objects, bounded BLOB chunks and account-local SHA-256 publications; see [streamed content](streamed-content-store.md). The upgrade preserves all v1 data.
-- Cursor, draft, action journal and tombstone tables reserve durable records. Their lifecycle, retries, sending, conflict policy and provider checkpoint transactions are not implemented by this repository. Tombstones deliberately outlive message rows and therefore reference the account and canonical identity, not a live-message foreign key. No production code writes those reserved tables yet.
+- Schema v3 adds sync scopes/jobs, v4 adds encrypted credential records, and v5 adds the bounded [mutation/submission action journal](action-journal.md). Legacy `mail_actions` remains preserved and excluded from execution.
+- Cursor, draft, legacy action and tombstone tables reserve durable records. Their lifecycle, retries, sending, conflict policy and provider checkpoint transactions are not implemented by this repository. Tombstones deliberately outlive message rows and therefore reference the account and canonical identity, not a live-message foreign key. No production code writes those reserved tables yet.
 
 ## Focused repository API
 
