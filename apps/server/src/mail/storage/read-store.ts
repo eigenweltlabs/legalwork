@@ -1,3 +1,4 @@
+import {storedImapPrecondition} from './imap-incremental.js';
 import { z } from "zod";
 import { providerMessageLocatorSchema, type ProviderMessageLocator } from "../model.js";
 import { mailMessagePageSchema, mailMessageViewSchema, mailPartPageSchema, mailPartViewSchema, mailContentReadSchema,
@@ -29,7 +30,7 @@ export class MailReadStore {
     const metadata = typeof row?.metadata_json === "string" ? z.object({ metadata: mimeMetadataSchema }).parse(JSON.parse(row.metadata_json)).metadata : null;
     const removed = !!this.database.get("SELECT 1 FROM mail_tombstones WHERE account_id=? AND message_key=?", [accountId, message.message_key]);
     return mailMessageViewSchema.parse({ accountId, key: message.message_key, locator: message.locator, subject: message.subject,
-      rfcMessageId: message.rfc_message_id, threadId: message.thread_id, memberships: message.memberships, removed, contentState: message.contentState, rawReferenceId: message.content.find(part=>part.kind==='raw')?.ref_id??null, metadata });
+      rfcMessageId: message.rfc_message_id, threadId: message.thread_id, memberships: message.memberships, removed, contentState: message.contentState, rawReferenceId: message.content.find(part=>part.kind==='raw')?.ref_id??null, metadata, mutationPrecondition:storedImapPrecondition(this.database,accountId,locator) });
   }
   list(accountId: string, supplied: MailMessagePageInput) {
     // This bounded owner check precedes cursor/filter handling and every result query.

@@ -17,7 +17,7 @@ export const mailMessageViewSchema = z.object({
   threadId: id.nullable(), rfcMessageId: z.string().nullable(), removed: z.boolean(),
   memberships: z.array(id).max(10000),
   contentState: z.enum(["complete", "downloading", "attention"]),
-  metadata: mimeMetadataSchema.nullable(),
+  metadata: mimeMetadataSchema.nullable(), mutationPrecondition: z.string().max(100).nullable().optional(),
 }).strict().refine(value => value.key === providerMessageKey(value.locator));
 export type MailMessageView = z.infer<typeof mailMessageViewSchema>;
 export const mailMessageListSchema = z.object({
