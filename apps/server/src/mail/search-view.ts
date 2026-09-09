@@ -7,7 +7,7 @@ export const mailSearchInputSchema = z.object({
   afterDate: z.string().datetime().optional(), beforeDate: z.string().datetime().optional(),
   folderId: id.optional(), unread: z.boolean().optional(), hasAttachment: z.boolean().optional(), filename: text.optional(),
   matterIdentifier: text.optional(),
-  limit: z.number().int().min(1).max(25).optional(), offset: z.number().int().min(0).max(10000).optional(),
+  limit: z.number().int().min(1).max(25).optional(), offset: z.number().int().min(0).max(Number.MAX_SAFE_INTEGER).optional(),
 }).strict().refine(x => !x.afterDate || !x.beforeDate || x.afterDate < x.beforeDate);
 export type MailSearchInput = z.infer<typeof mailSearchInputSchema>;
 export const mailSearchResultSchema = z.object({
