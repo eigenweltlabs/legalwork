@@ -185,6 +185,8 @@ import { assertManagedCommandIntegration, interruptEngineSession } from "./nativ
 import { isInternalSession } from "./native-shared-values.js";
 import { registerWorkspaceRoutes } from "./routes/workspaces.js";
 import { prepareConnectorStorage } from "./connectors/store.js";
+import { registerMailRoutes } from "./routes/mail.js";
+import type { MailService } from "./mail/service-interface.js";
 import {
   applyGlobalToolPermissions,
   bootstrapRuntimeOpencodeConfig,
@@ -737,10 +739,11 @@ function logRequest(input: {
   const url = new URL(request.url);
   const method = request.method.toUpperCase();
   const proxyLabel = proxyBaseUrl ? ` (${proxyService ?? "proxy"})` : "";
-  const message = `${method} ${url.pathname} ${status} ${durationMs}ms${proxyLabel}`;
+  const loggedPath = url.pathname.startsWith("/mail/") ? "/mail/[redacted]" : url.pathname;
+  const message = `${method} ${loggedPath} ${status} ${durationMs}ms${proxyLabel}`;
   const attributes: LogAttributes = {
     method,
-    path: url.pathname,
+    path: loggedPath,
     status,
     durationMs,
     auth: authMode,
@@ -831,7 +834,7 @@ function startOriginalImageCleanup(config: ServerConfig) {
   });
 }
 
-export async function startServer(config: ServerConfig, runtimeOptions: ServerRuntimeOptions = {}): Promise<StartedServer> {
+export async function startServer(config: ServerConfig, runtimeOptions: ServerRuntimeOptions & { mail?: MailService } = {}): Promise<StartedServer> {
   // Also cover callers embedding the HTTP server directly. These preflights
   // validate completed stores without reopening their retired sources.
   await bootstrapRuntimeOpencodeConfig(config);
@@ -966,6 +969,7 @@ export async function startServer(config: ServerConfig, runtimeOptions: ServerRu
     },
   });
   const routes = createRoutes(config, approvals, tokens, env, officeTools, restartReloadWatchers, benchmarkRunner, ocr, preparation, reviews, corpus, scheduledTasks, wikiStore, wikiSync);
+  registerMailRoutes(routes, config.host, runtimeOptions.mail);
   await assistantRuntime.register(routes, { jsonResponse, readJsonBodyLimited, ensureWritable, requireClientScope, requireApproval });
   registerToolImageOriginalRoutes({ routes, config, raster: toolImageRaster, jsonResponse, resolveWorkspace, ensureWritable, requireClientScope, requireApproval });
   configureWikiAgentSessionLookup(config, async (workspace, sessionID, directory, signal) => {
@@ -1306,8 +1310,11 @@ export async function startServer(config: ServerConfig, runtimeOptions: ServerRu
       watcherHandle.close();
       workspaceBootstrapPromises.delete(config);
       reloadBaselineRefreshers.delete(config);
-      await wordAddinServer?.stop();
-      await server.stop();
+      try { await runtimeOptions.mail?.stop(); }
+      finally {
+        try { await wordAddinServer?.stop(); }
+        finally { await server.stop(); }
+      }
     },
   };
   try {

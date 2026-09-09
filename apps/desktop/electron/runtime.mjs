@@ -15,6 +15,7 @@ import { migrateLegacyWindowsOpenCodeConfig } from "./opencode-config-migration.
 import { downloadOpencodeBinary, opencodeRelease, opencodeReleaseTarget } from "./opencode-release.mjs";
 import { expectedOpencodeVersion } from "@legalwork/opencode-release/candidate";
 import { installSelectedOpencodeEngine, opencodeEngineSelection } from "@legalwork/opencode-release/selection";
+import { createDesktopMailService } from "./mail-runtime.mjs";
 
 const __runtimeDir = path.dirname(fileURLToPath(import.meta.url));
 
@@ -1395,6 +1396,11 @@ export function createRuntimeManager({ app, desktopRoot, listLocalWorkspacePaths
     // copy under apps/desktop/server for electron-builder.
     const embeddedPath = locateEmbeddedServerPath();
     const { startEmbeddedServer } = await import(pathToFileURL(embeddedPath).href);
+    let mail;
+    if (!options.remoteAccessEnabled) {
+      const { safeStorage } = await import("electron");
+      mail = await createDesktopMailService({ app, embeddedPath, safeStorage });
+    }
     // startEmbeddedServer falls back to an OS-assigned port if `port` races
     // into EADDRINUSE (see apps/server/src/serve-node.ts), so the bound port
     // below is authoritative.
@@ -1476,11 +1482,13 @@ export function createRuntimeManager({ app, desktopRoot, listLocalWorkspacePaths
         return result.canceled ? null : (result.filePaths[0] ?? null);
       },
       recorder,
+      mail,
       // Word/Excel/PowerPoint add-in listener — enabled via the Office Add-ins
       // settings tab; null when not installed so the listener stays off.
       ...(officeAddinManager.serverConfig() ?? {}),
     }).catch((error) => {
       legalworkServerState.inProcess = false;
+      await mail?.stop();
       throw error;
     });
     publishServerConnection(handle);
