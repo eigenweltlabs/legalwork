@@ -21,7 +21,7 @@ configuration only; it does not delete source files.
 Cloud roots target existing buckets/containers. Folder creation uses zero-byte
 directory markers. Native SMB and NFS authentication stays with the operating
 system: mount the share on the LegalWork server, then select **Folder or file share**.
-Account-based Drive/Dropbox/OneDrive connectors remain in the existing Apps tab;
+Account-based Drive/Dropbox/OneDrive connectors remain in the existing Connectors tab;
 this tab is for storage protocols and server connections.
 
 When using Bun, FTPS requires a server built/run with **Bun 1.4.2+**. The desktop's
@@ -136,4 +136,14 @@ Browser verification covered adding/testing/editing settings while retaining
 hidden credentials, lazy nested folder requests, sidebar upload and folder
 creation, text and DOCX saves verified in the source files, stale-write
 conflicts retaining drafts, unsaved-change confirmation, and read-only FTPS.
-Screenshots and a recording are saved locally under `output/playwright/`.
+## Screenshots
+
+The reference workspace contains seven connected roots. The settings page manages
+connections and permissions; Memory Drive loads folders as they are opened.
+
+![File storage settings with connected providers](images/file-storage/settings.png)
+
+![Memory Drive with a nested matter folder, upload, and new-folder controls](images/file-storage/memory-drive.png)
+
+Additional screenshots and a browser recording are saved locally under
+`output/playwright/`.
