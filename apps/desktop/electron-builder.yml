@@ -47,6 +47,16 @@ asarUnpack:
   # Keep the complete package together, in both pnpm and flattened layouts.
   - node_modules/.pnpm/better-sqlite3-multiple-ciphers*/**
   - node_modules/better-sqlite3-multiple-ciphers/**
+  # Isolated attachment extraction keeps native canvas, OCR worker/WASM and
+  # immutable language assets available by their package-relative paths.
+  - node_modules/@napi-rs/canvas*/**
+  - node_modules/.pnpm/@napi-rs+canvas*/**
+  - node_modules/tesseract.js*/**
+  - node_modules/.pnpm/tesseract.js*/**
+  - node_modules/@tesseract.js-data/**
+  - node_modules/.pnpm/@tesseract.js-data*/**
+  - node_modules/pdfjs-dist/**
+  - node_modules/.pnpm/pdfjs-dist*/**
 npmRebuild: false
 afterPack: scripts/electron-after-pack.cjs
 afterSign: scripts/electron-after-sign.cjs

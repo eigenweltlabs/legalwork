@@ -1,4 +1,5 @@
 import type {ImapConnection} from './providers/imap-config.js';
+import type {MailExtractionRequest,MailExtractionRead} from "./extraction-view.js";
 import type { MailActionCancel, MailActionPage, MailDraftAttachment, MailDraftAttachmentView, MailDraftDelete, MailDraftPage, MailDraftRead, MailDraftSave, MailDraftSummary, MailDraftView, MailEventPage, MailEventQuery, MailLocalAction, MailLocalPage, MailMutation, MailSubmission } from "./local-view.js";
 import type { MailSearchInput, MailSearchRebuildInput } from "./search-view.js";
 import { MailWorkerClient, type MailWorkerOptions } from "./runtime/client.js";
@@ -119,6 +120,9 @@ export class LocalMailService implements MailService {
     }
     catch (error) { throw serviceError(error); }
   }
+  async extractionStatus(accountId:string,input:MailExtractionRequest){const result=await this.request({operation:'mail.extraction.status',accountId,input});if(!('extraction' in result))throw new MailServiceError('unavailable');return result.extraction;}
+  async extractionRead(accountId:string,input:MailExtractionRead){const result=await this.request({operation:'mail.extraction.read',accountId,input});if(!('extractionText' in result))throw new MailServiceError('unavailable');return result.extractionText;}
+  async extractionReset(accountId:string,input:MailExtractionRequest){const result=await this.request({operation:'mail.extraction.reset',accountId,input});if(!('extraction' in result))throw new MailServiceError('unavailable');return result.extraction;}
   async saveDraft(accountId:string,input:MailDraftSave){
     const result=await this.request({operation:"mail.local.draft.save",accountId,input:input});
     if(!("local" in result)||result.local.operation!=="mail.local.draft.save")throw new MailServiceError("unavailable");return result.local.value;

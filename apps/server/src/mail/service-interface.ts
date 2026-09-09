@@ -1,4 +1,5 @@
 import type {ImapDiscovery,ImapConnection,ImapConnectionResult} from './providers/imap-config.js';
+import type {MailExtractionRequest,MailExtractionRead,MailExtractionStatus,MailExtractionText} from "./extraction-view.js";
 import type { MailActionCancel, MailActionPage, MailDraftAttachment, MailDraftAttachmentView, MailDraftDelete, MailDraftPage, MailDraftRead, MailDraftSave, MailDraftSummary, MailDraftView, MailEventPage, MailEventQuery, MailLocalAction, MailLocalPage, MailMutation, MailSubmission } from "./local-view.js";
 import type { MailSearchInput, MailSearchResult, MailSearchRebuildInput, MailSearchRebuildResult } from "./search-view.js";
 export type MailPageInput = { limit?: number; after?: string };
@@ -18,6 +19,9 @@ export class MailServiceError extends Error {
 export interface MailService {
   imapDiscovery(accountId:string,after?:string):Promise<ImapDiscovery>;
   connectImap(input:ImapConnection):Promise<ImapConnectionResult>;
+  extractionStatus(accountId:string,input:MailExtractionRequest):Promise<MailExtractionStatus>;
+  extractionRead(accountId:string,input:MailExtractionRead):Promise<MailExtractionText>;
+  extractionReset(accountId:string,input:MailExtractionRequest):Promise<MailExtractionStatus>;
   saveDraft(accountId:string, input:MailDraftSave):Promise<MailDraftView>;
   readDraft(accountId:string, input:MailDraftRead):Promise<MailDraftView>;
   deleteDraft(accountId:string, input:MailDraftDelete):Promise<MailDraftSummary>;

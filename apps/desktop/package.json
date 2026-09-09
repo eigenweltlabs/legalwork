@@ -26,10 +26,13 @@
     "office:sideload": "node ./scripts/office-addin-sideload.mjs"
   },
   "dependencies": {
+    "@napi-rs/canvas": "1.0.8",
     "@opencode-ai/sdk": "^1.18.29",
     "@peculiar/asn1-schema": "^2.8.0",
     "@peculiar/asn1-x509": "^2.8.0",
     "@peculiar/x509": "^2.0.0",
+    "@tesseract.js-data/deu": "1.0.0",
+    "@tesseract.js-data/eng": "1.0.0",
     "@zone-eu/mailsplit": "5.4.16",
     "better-sqlite3": "^11.10.0",
     "better-sqlite3-multiple-ciphers": "13.0.3",
@@ -43,8 +46,12 @@
     "minimatch": "^10.0.1",
     "node-pty": "npm:@lydell/node-pty@1.2.0-beta.12",
     "openai": "^7.8.0",
+    "pdf-lib": "1.17.1",
+    "pdfjs-dist": "6.3.289",
     "reflect-metadata": "^0.2.2",
+    "saxes": "6.0.0",
     "sherpa-onnx-node": "1.13.3",
+    "tesseract.js": "7.0.0",
     "yaml": "^2.6.1",
     "zod": "^4.3.6",
     "imapflow": "1.7.8"
