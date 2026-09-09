@@ -155,7 +155,7 @@ test('staging cleanup cannot remove published/shared/draft content, and reads de
 }));
 
 function restoreV1Shape(db) {
-  db.exec('DROP TABLE mail_sync_scope_jobs; DROP TABLE mail_sync_jobs; DROP TABLE mail_sync_scopes; DROP TABLE mail_blob_publications; DROP TABLE mail_blob_chunks; DROP TABLE mail_blob_objects');
+  db.exec('DROP TABLE mail_account_credentials; DROP TABLE mail_sync_scope_jobs; DROP TABLE mail_sync_jobs; DROP TABLE mail_sync_scopes; DROP TABLE mail_blob_publications; DROP TABLE mail_blob_chunks; DROP TABLE mail_blob_objects');
   db.run('UPDATE mail_schema_version SET version=1');
 }
 test('v1 to current schema preserves legacy metadata, is idempotent and rolls back an injected migration failure', async () => fixture(async ({ repository, db }) => {
