@@ -1,6 +1,6 @@
 import type { MailDatabase } from "./database-interface.js";
 
-export const MAIL_SCHEMA_VERSION = 2;
+export const MAIL_SCHEMA_VERSION = 3;
 
 /** Dedicated mail database only. Every DDL/version write shares one transaction. */
 export function migrateMailSchema(database: MailDatabase): void {
@@ -92,6 +92,40 @@ export function migrateMailSchema(database: MailDatabase): void {
         PRIMARY KEY(account_id,ref_id), UNIQUE(account_id,object_id),
         FOREIGN KEY(account_id,ref_id) REFERENCES mail_content_refs(account_id,id),
         FOREIGN KEY(account_id,object_id) REFERENCES mail_blob_objects(account_id,id)
+      );
+    `);
+    if (version < 3) database.exec(`
+      CREATE TABLE mail_sync_scopes (
+        account_id TEXT NOT NULL, scope_id TEXT NOT NULL, generation TEXT NOT NULL, cursor TEXT,
+        revision INTEGER NOT NULL CHECK(revision >= 0 AND revision <= 9007199254740991),
+        discovery_complete INTEGER NOT NULL CHECK(discovery_complete IN (0,1)),
+        PRIMARY KEY(account_id,scope_id,generation), FOREIGN KEY(account_id) REFERENCES mail_accounts(id) ON DELETE CASCADE
+      );
+      CREATE TABLE mail_sync_jobs (
+        account_id TEXT NOT NULL, id TEXT NOT NULL, kind TEXT NOT NULL CHECK(kind IN ('raw','body','attachment')),
+        message_key TEXT NOT NULL, part_id TEXT NOT NULL, generation TEXT NOT NULL,
+        state TEXT NOT NULL CHECK(state IN ('queued','running','retry','succeeded','failed')),
+        attempts INTEGER NOT NULL CHECK(attempts BETWEEN 0 AND 20),
+        max_attempts INTEGER NOT NULL CHECK(max_attempts BETWEEN 1 AND 20 AND attempts <= max_attempts),
+        retry_base_ms INTEGER NOT NULL CHECK(retry_base_ms BETWEEN 1 AND 3600000),
+        retry_max_ms INTEGER NOT NULL CHECK(retry_max_ms BETWEEN retry_base_ms AND 86400000),
+        available_at INTEGER NOT NULL CHECK(available_at BETWEEN 0 AND 9007199254740991),
+        lease_token TEXT, lease_until INTEGER CHECK(lease_until BETWEEN 0 AND 9007199254740991),
+        last_error TEXT CHECK(last_error IN ('retryable','permanent','lease_expired')),
+        PRIMARY KEY(account_id,id), UNIQUE(account_id,id,generation), UNIQUE(account_id,kind,message_key,part_id,generation),
+        CHECK((state='queued' AND attempts=0) OR (state!='queued' AND attempts>0)),
+        CHECK((kind='attachment' AND length(part_id)>0) OR (kind!='attachment' AND part_id='')),
+        CHECK((state='running' AND lease_token IS NOT NULL AND lease_until IS NOT NULL) OR
+          (state!='running' AND lease_token IS NULL AND lease_until IS NULL)),
+        FOREIGN KEY(account_id,message_key) REFERENCES mail_messages(account_id,message_key) ON DELETE CASCADE
+      );
+      CREATE INDEX mail_sync_jobs_due ON mail_sync_jobs(account_id,state,available_at,id);
+      CREATE INDEX mail_sync_jobs_expiry ON mail_sync_jobs(account_id,state,lease_until,id);
+      CREATE TABLE mail_sync_scope_jobs (
+        account_id TEXT NOT NULL, scope_id TEXT NOT NULL, generation TEXT NOT NULL, job_id TEXT NOT NULL,
+        PRIMARY KEY(account_id,scope_id,generation,job_id),
+        FOREIGN KEY(account_id,scope_id,generation) REFERENCES mail_sync_scopes(account_id,scope_id,generation) ON DELETE CASCADE,
+        FOREIGN KEY(account_id,job_id,generation) REFERENCES mail_sync_jobs(account_id,id,generation) ON DELETE CASCADE
       );
     `);
     database.run("INSERT INTO mail_schema_version(singleton,version) VALUES(1,?) ON CONFLICT(singleton) DO UPDATE SET version=excluded.version", [MAIL_SCHEMA_VERSION]);
