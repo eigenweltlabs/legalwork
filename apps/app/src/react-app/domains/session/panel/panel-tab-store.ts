@@ -76,6 +76,8 @@ export type ArtifactPanelTab = {
   reviewCitation?: ReviewSourceReference;
   /** A review document's recognized pages; without a page, the first page that needs review. */
   reviewRecognition?: { reviewId: string; documentId: string; page?: number };
+  /** In-memory mail source; never a workspace path. */
+  mailSourceId?: string;
 }
 
 export type TaskPanelTab = {
@@ -247,7 +249,7 @@ function reconcileOpenArtifactTabs(session: SessionPanelState, targets: Array<{ 
   const tabs = session.tabs.flatMap<PanelTab>(tab => {
     if (tab.type !== "artifact") return [tab];
     const target = targetMap.get(tab.id);
-    return target ? [{ ...tab, label: target.name, preview: target.preview }] : tab.value || tab.storage || tab.sourceProject ? [tab] : [];
+    return target ? [{ ...tab, label: target.name, preview: target.preview }] : tab.value || tab.storage || tab.sourceProject || tab.mailSourceId ? [tab] : [];
   });
   return normalizeSession({ ...session, tabs });
 }
