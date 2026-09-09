@@ -204,6 +204,16 @@ export class GraphBackfill {
                 }
                 session.run = this.delta.begin(session.run);
             }
+            if (!db.get("SELECT 1 FROM mail_folders WHERE account_id=? AND role='inbox'", [accountId])) {
+                const {transport,version}=await this.access(session);
+                const inbox=await this.operation(session,signal=>transport.getFolder('inbox',signal));
+                this.assert(session,version);
+                db.transaction(()=>{
+                    this.assert(session,version);
+                    this.state.repository.putFolder(accountId,{id:inbox.id,name:inbox.displayName,kind:'folder'});
+                    db.run("UPDATE mail_folders SET role='inbox' WHERE account_id=? AND id=?",[accountId,inbox.id]);
+                });
+            }
             const folder = db.get("SELECT * FROM mail_graph_folder_queue WHERE account_id=? AND done=0 ORDER BY depth,id LIMIT 1", [accountId]);
             if (folder) {
                 const value = z.object({ id: z.string(), parent_id: z.string().nullable(), depth: z.number(), cursor: z.string().nullable() }).parse(folder);
