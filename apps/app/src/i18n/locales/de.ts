@@ -2423,8 +2423,7 @@ const de = {
   "free_retired.cta": "Kostenlose Testphase starten",
   "free_retired.dismiss": "Nicht jetzt",
   "onboarding_ai.title": "KI für LegalWork.",
-  "onboarding_ai.subtitle":
-    "Premium-Modelle, gehostet in der EU, startklar mit einer Anmeldung. Ihre Dokumente werden nur mit Ihrer KI geteilt. Kein Server dazwischen.",
+  "onboarding_ai.subtitle": "Premium-Modelle, gehostet in der EU, startklar mit einer Anmeldung.",
   "onboarding_ai.cta": "7 Tage kostenlos testen",
   "onboarding_ai.cta_note": "EU-gehostet · Keine Datenspeicherung · 69 €/Sitzplatz nach der Testphase",
   "onboarding_ai.login_prompt": "Sie haben bereits ein Konto?",
