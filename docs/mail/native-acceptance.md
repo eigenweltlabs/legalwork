@@ -1,6 +1,12 @@
 # Native mail acceptance
 
-Run from the repository root after installing the pinned dependencies (including the native cipher addon):
+During ticket work, run only the affected feature suites. From the repository root after installing the pinned dependencies (including the native cipher addon), for example:
+
+```sh
+node apps/server/scripts/mail-acceptance.mjs --suite providers/graph-backfill
+```
+
+Reserve the full native acceptance run and full Electron app tests/builds for the final integration pass after all mail tickets are complete. The final platform qualification workflow is manual and covers macOS arm64, macOS x64 and Windows x64. The full native command for that final pass is:
 
 ```sh
 node apps/server/scripts/mail-acceptance.mjs
