@@ -1,3 +1,4 @@
+import {imapConnectionSchema} from '../mail/providers/imap-config.js';
 import { mailActionCancelSchema, mailActionReadSchema, mailDraftAttachmentSchema, mailDraftDeleteSchema, mailDraftReadSchema, mailDraftSaveSchema, mailEventQuerySchema, mailLocalPageSchema, mailMutationSchema, mailSubmissionSchema } from "../mail/local-view.js";
 import { mailSearchInputSchema, mailSearchRebuildInputSchema } from "../mail/search-view.js";
 import { ApiError } from "../errors.js";
@@ -120,6 +121,14 @@ export function registerMailRoutes(routes: Route[], host: string, service?: Mail
   }
   route("GET", "/accounts", true, (_, page) => service.listAccounts(page));
   route("GET", "/accounts/:accountId/folders", true, (ctx, page) => service.listFolders(ctx.params.accountId, page));
+  addRoute(routes,'POST','/mail/v1/imap/connections','host-token',async ctx=>{
+    if(ctx.actor?.type!=='host')throw new ApiError(401,'unauthorized','Invalid host token');pageInput(ctx,false);
+    if(ctx.request.headers.get('content-type')?.split(';')[0]?.trim().toLowerCase()!=='application/json')throw new ApiError(400,'mail_invalid_request','Invalid mail request');
+    const body=await readMailBody(ctx.request,60*1024);let value:unknown;try{value=JSON.parse(body);}catch{throw new ApiError(400,'mail_invalid_request','Invalid mail request');}
+    const parsed=imapConnectionSchema.safeParse(value);if(!parsed.success)throw new ApiError(400,'mail_invalid_request','Invalid mail request');
+    try{return Response.json(await service.connectImap(parsed.data),{headers:{'Cache-Control':'no-store'}});}catch(error){throw safeError(error);}
+  });
+  route('GET','/accounts/:accountId/imap',true,(ctx,page)=>service.imapDiscovery(ctx.params.accountId,page.after));
   const connectionInput = z.object({ provider: z.enum(["gmail", "graph"]), reconnectAccountId: z.string().min(1).max(4096).optional() }).strict();
   addRoute(routes, "POST", "/mail/v1/connections", "host-token", async ctx => {
     if (ctx.actor?.type !== "host") throw new ApiError(401, "unauthorized", "Invalid host token");

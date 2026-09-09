@@ -1,3 +1,4 @@
+import type {ImapConnection} from './providers/imap-config.js';
 import type { MailActionCancel, MailActionPage, MailDraftAttachment, MailDraftAttachmentView, MailDraftDelete, MailDraftPage, MailDraftRead, MailDraftSave, MailDraftSummary, MailDraftView, MailEventPage, MailEventQuery, MailLocalAction, MailLocalPage, MailMutation, MailSubmission } from "./local-view.js";
 import type { MailSearchInput, MailSearchRebuildInput } from "./search-view.js";
 import { MailWorkerClient, type MailWorkerOptions } from "./runtime/client.js";
@@ -231,14 +232,18 @@ export class LocalMailService implements MailService {
     const result = await this.request({ operation: "mail.account.disconnect", accountId });
     if (!("disconnected" in result)) throw new MailServiceError("unavailable");
   }
+  async imapDiscovery(accountId:string,after?:string){const result=await this.request({operation:"mail.imap.discovery",accountId,...(after===undefined?{}:{after})});if(!("imapDiscovery" in result))throw new MailServiceError("unavailable");return result.imapDiscovery;}
+  async connectImap(input:ImapConnection){const result=await this.request({operation:"mail.imap.connect",input});if(!("imapConnection" in result))throw new MailServiceError("unavailable");return result.imapConnection;}
   async startSync(accountId: string) {
-    if (this.stopped || !this.loadProviderSettings) throw new MailServiceError("unavailable");
+    if (this.stopped) throw new MailServiceError("unavailable");
     if (this.phase !== "open") throw new MailServiceError("locked");
     const epoch = this.epoch;
     let settings: MailOAuthSettings;
     try {
       const provider = await this.request({ operation: "mail.sync.provider", accountId });
       if (!("syncProvider" in provider)) throw new MailServiceError("unavailable");
+      if(provider.syncProvider==='imap'){if(epoch!==this.epoch)throw new MailServiceError('locked');const result=await this.request({operation:'mail.sync.start',accountId});if(!('sync' in result))throw new MailServiceError('unavailable');return result.sync;}
+      if(!this.loadProviderSettings)throw new MailServiceError('unavailable');
       settings = await this.loadProviderSettings(provider.syncProvider);
       if (settings.provider !== provider.syncProvider) throw new MailServiceError("unavailable");
     }

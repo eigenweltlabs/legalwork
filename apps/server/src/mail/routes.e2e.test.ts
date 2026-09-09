@@ -43,6 +43,8 @@ function mockService() {
   let calls = 0;
   let stops = 0;
   const service: MailService = {
+    async imapDiscovery(){throw new MailServiceError("unsupported");},
+    async connectImap(){throw new MailServiceError("unsupported");},
     async saveDraft(){throw new MailServiceError("not_found");},
     async readDraft(){throw new MailServiceError("not_found");},
     async deleteDraft(){throw new MailServiceError("not_found");},

@@ -1,9 +1,10 @@
+import {IMAP_SCHEMA_SQL} from './imap-custody.js';
 import { GRAPH_DELTA_SCHEMA_SQL } from "./graph-delta.js";
 import { MAIL_LOCAL_SCHEMA_SQL } from "./local-schema.js";
 import { GRAPH_SCHEMA_SQL } from "./graph-state.js";
 import type { MailDatabase } from "./database-interface.js";
 
-export const MAIL_SCHEMA_VERSION = 11;
+export const MAIL_SCHEMA_VERSION = 12;
 
 /** Dedicated mail database only. Every DDL/version write shares one transaction. */
 export function migrateMailSchema(database: MailDatabase): void {
@@ -258,6 +259,7 @@ export function migrateMailSchema(database: MailDatabase): void {
     if (version < 9) database.exec(GRAPH_SCHEMA_SQL);
     if (version < 10) database.exec(MAIL_LOCAL_SCHEMA_SQL);
     if (version < 11) database.exec(GRAPH_DELTA_SCHEMA_SQL);
+    if(version<12)database.exec(IMAP_SCHEMA_SQL);
     database.run("INSERT INTO mail_schema_version(singleton,version) VALUES(1,?) ON CONFLICT(singleton) DO UPDATE SET version=excluded.version", [MAIL_SCHEMA_VERSION]);
   });
 }

@@ -6,7 +6,7 @@ import { MailCredentialRepository, type MailCredentialVersion } from "../storage
 import { GmailRunStore, type GmailRun } from "../storage/gmail-state.js";
 import { MailSyncJournal, type SyncScope } from "../storage/sync-journal.js";
 import { MailSyncExecutor, MailSyncExecutionFailure, type MailSyncWork } from "../runtime/sync-executor.js";
-import type { MailSyncView } from "../sync-view.js";
+type MailSyncView = Extract<import("../sync-view.js").MailSyncView,{provider:"gmail"}>;
 import { providerMessageKey, type ProviderMessageLocator } from "../model.js";
 import { MailAccessError, type MailAccessCoordinator } from "./access-coordinator.js";
 import { GmailReadTransport, GmailTransportError, type GmailRawMetadata } from "./gmail.js";
