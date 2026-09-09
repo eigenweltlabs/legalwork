@@ -1,6 +1,6 @@
 /** @jsxImportSource react */
 import { useEffect, useRef, useState } from 'react';
-import { SlidersHorizontal, RefreshCw, ChevronLeft, ChevronRight } from 'lucide-react';
+import { SlidersHorizontal, Bookmark, RefreshCw, ChevronLeft, ChevronRight } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { MailClient, type MailAccountView, type MailFolderView, type MailMessageView } from './mail-client';
 import { runMailSearch, savedMailSearch, readExtraction, SearchRequests, type MailSearchInput, type MailSearchResult, type SavedSearch } from './mail-search-client';
@@ -11,8 +11,9 @@ const addressFields: Array<'sender' | 'recipient' | 'filename' | 'matterIdentifi
 const dateFields: Array<'afterDate' | 'beforeDate'> = ['afterDate', 'beforeDate'];
 const flagFields: Array<'unread' | 'hasAttachment'> = ['unread', 'hasAttachment'];
 const errorText = (value: unknown) => value instanceof Error ? value.message : 'Search is unavailable.';
-export function MailSearch({ client, accounts, onOpen, toolbarQuery }: {
+export function MailSearch({ client, accounts, onOpen, toolbarQuery, onSavedQuery }: {
     toolbarQuery?: string;
+    onSavedQuery?: (text: string, name: string) => void;
     client: MailClient;
     accounts: MailAccountView[];
     onOpen: (item: MailMessageView | undefined) => void;
@@ -22,6 +23,7 @@ export function MailSearch({ client, accounts, onOpen, toolbarQuery }: {
         partId: string;
         referenceId: string;
     }>();
+    const [filtersOpen, setFiltersOpen] = useState(false), [savedOpen, setSavedOpen] = useState(false);
     const [keywordText, setKeywordText] = useState('');
     const savedRequests = useRef(new SearchRequests());
     const requests = useRef(new SearchRequests()), auxiliary = useRef(new AbortController());
@@ -207,14 +209,16 @@ export function MailSearch({ client, accounts, onOpen, toolbarQuery }: {
     }, [client, submitted, result, busy, offsets, source]);
     useEffect(() => {
         if (toolbarQuery === undefined) return;
-        const input = { ...query, literal: toolbarQuery };
+        const input = { ...query };
+        if (toolbarQuery) input.literal = toolbarQuery; else delete input.literal;
         setQuery(input); setResult(undefined); setSubmitted(undefined); setError('');
         const timer = setTimeout(() => { void search(input); }, 250);
         return () => { clearTimeout(timer); requests.current.cancel(); };
     }, [toolbarQuery, client]);
     const label = (id: string) => accounts.find(account => account.id === id)?.displayName ?? 'Unavailable account';
     return <section aria-label="Local mail search" className={`mail-search-panel ${toolbarQuery !== undefined ? 'mail-search-embedded' : ''}`}>
-  <details className="mail-search-filters" open={toolbarQuery === undefined ? true : undefined}><summary><SlidersHorizontal size={13}/>Filters</summary><h2 className="text-lg font-semibold">Search local mail</h2><p className="text-sm">Find messages and attachments on this computer.</p>
+  {toolbarQuery !== undefined && <div className="mail-results-toolbar"><span role="status">{busy ? 'Searching…' : result ? `${result.total} ${result.total === 1 ? 'match' : 'matches'}` : 'Search'}</span><div><button className="mail-icon-button" aria-label="Search filters" title="Filters" aria-expanded={filtersOpen} onClick={() => setFiltersOpen(value => !value)}><SlidersHorizontal size={14}/></button><button className="mail-icon-button" aria-label="Saved searches" title="Saved searches" aria-expanded={savedOpen} onClick={() => setSavedOpen(value => !value)}><Bookmark size={14}/></button><button className="mail-icon-button" aria-label="Refresh results" title="Refresh results" onClick={() => search(submitted ?? query)}><RefreshCw size={14}/></button></div></div>}
+  <details className="mail-search-filters" open={toolbarQuery === undefined ? true : filtersOpen} hidden={toolbarQuery !== undefined && !filtersOpen}><summary><SlidersHorizontal size={13}/>Filters</summary><h2 className="text-lg font-semibold">Search local mail</h2><p className="text-sm">Find messages and attachments on this computer.</p>
   <form className="space-y-3" onSubmit={event => { event.preventDefault(); void search(); }}>
    <div className="grid gap-3 sm:grid-cols-3">{primaryFields.map(key => <label key={key}>{key === 'literal' ? 'Literal text' : 'Exact phrase'}<input className="block w-full rounded border bg-background p-2" aria-label={key === 'literal' ? 'Literal text' : 'Exact phrase'} maxLength={512} value={query[key] ?? ''} onChange={event => field(key, event.target.value)}/></label>)}<label>Keywords<input className="block w-full rounded border bg-background p-2" aria-label="Keywords" maxLength={512} value={keywordText} onChange={event => {
             const next = { ...query };
@@ -257,11 +261,11 @@ export function MailSearch({ client, accounts, onOpen, toolbarQuery }: {
             }}><option value="any">Any</option><option value="true">{key === 'unread' ? 'Unread' : 'Has attachments'}</option><option value="false">{key === 'unread' ? 'Read' : 'No attachments'}</option></select></label>)}
    </div></details>
    <p className="text-sm font-medium">Scope: {query.accountIds?.map(label).join(', ') ?? 'All accessible local accounts'}{query.folderId ? ' · ' + (folders.find(value => value.id === query.folderId)?.name ?? query.folderId) : ' · All stored folders'}</p>
-   <div className="flex gap-2"><Button type="submit">Search</Button>{busy && <Button type="button" variant="outline" onClick={cancel}>Cancel</Button>}<Button type="button" variant="outline" onClick={() => edit({})}>Clear</Button></div>
+   <div className="flex gap-2"><Button type="submit">Search</Button>{busy && <Button type="button" variant="outline" onClick={cancel}>Cancel</Button>}<Button type="button" variant="outline" onClick={() => edit(toolbarQuery === undefined ? {} : toolbarQuery ? {literal: toolbarQuery} : {})}>Clear filters</Button></div>
   </form></details>
-  <details><summary className="cursor-pointer">Saved searches</summary><div className="flex gap-2 py-2"><input aria-label="Saved search name" className="border bg-background p-2" maxLength={120} value={name} onChange={event => setName(event.target.value)} placeholder="Name this search"/><Button disabled={!name.trim()} onClick={save}>Save current search</Button></div>{saved.map(item => <div key={item.id} className="flex gap-3"><button className="underline" onClick={() => { edit(item.query); void search(item.query); }}>{item.name}</button><button aria-label={'Delete saved search ' + item.name} onClick={() => remove(item)}>Delete</button></div>)}{savedCursor && <button className="underline" onClick={() => listSaved(savedCursor)}>More saved searches</button>}</details>
-  {error && <p role="alert">{error}</p>}{note && <p role="status">{note}</p>}{busy && <p role="status">Searching…</p>}
-  {result && <><p role="status">{result.total} matches{result.pending || result.incomplete ? ' · Some content is still being prepared.' : ''} </p><button className="mail-icon-button" aria-label="Refresh results" title="Refresh results" onClick={() => search(submitted)}><RefreshCw size={14}/></button>{!result.items.length && <p>No local matches. Broaden the filters or wait for content to finish downloading and indexing.</p>}
+  <details className="mail-saved-searches" open={toolbarQuery !== undefined ? savedOpen : undefined} hidden={toolbarQuery !== undefined && !savedOpen}><summary className="cursor-pointer">Saved searches</summary><div className="flex gap-2 py-2"><input aria-label="Saved search name" className="border bg-background p-2" maxLength={120} value={name} onChange={event => setName(event.target.value)} placeholder="Name this search"/><Button disabled={!name.trim()} onClick={save}>Save current search</Button></div>{saved.map(item => <div key={item.id} className="flex gap-3"><button className="underline" onClick={() => { edit(item.query); onSavedQuery?.(item.query.literal ?? '', item.name); void search(item.query); }}>{item.name}</button><button aria-label={'Delete saved search ' + item.name} onClick={() => remove(item)}>Delete</button></div>)}{savedCursor && <button className="underline" onClick={() => listSaved(savedCursor)}>More saved searches</button>}</details>
+  {error && <p role="alert">{error}</p>}{note && <p role="status">{note}</p>}{busy && toolbarQuery === undefined && <p role="status">Searching…</p>}
+  {result && <>{toolbarQuery === undefined && <><p role="status">{result.total} {result.total === 1 ? 'match' : 'matches'}{result.pending || result.incomplete ? ' · Some content is still being prepared.' : ''} </p><button className="mail-icon-button" aria-label="Refresh results" title="Refresh results" onClick={() => search(submitted)}><RefreshCw size={14}/></button></>}{toolbarQuery !== undefined && Boolean(result.pending || result.incomplete) && <p className="mail-search-pending">Some content is still being prepared.</p>}{!result.items.length && <p>No local matches. Broaden the filters or wait for content to finish downloading and indexing.</p>}
    <div aria-label="Search results" onKeyDown={event => {
                 if (!['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key))
                     return;

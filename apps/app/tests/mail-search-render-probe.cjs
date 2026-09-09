@@ -28,7 +28,7 @@ app.whenReady().then(async()=>{
  await click('Open source message');await until(()=>document.getElementById('opened').textContent==='Opened source message');
  await click('Next page');await contains('Second page source');await click('Previous page');await contains('Second keyboard result');
  await act(()=>[...document.querySelectorAll('summary')].find(e=>e.textContent.includes('Saved searches')).click());
- await fill('Saved search name','Private saved query');await click('Save current search');await contains('Search saved in encrypted mail storage');
+ await fill('Saved search name','Private saved query');await click('Save current search');await contains('Search saved.');
  assert.equal(await act(()=>localStorage.length),0);
  await fill('Literal text','slow');await click('Search');await contains('Searching…');await click('Cancel');await contains('Search cancelled.');await new Promise(r=>setTimeout(r,300));assert.equal(await act(()=>document.body.textContent.includes('STALE RESULT')),false);
  await fill('Literal text','slow');await click('Search');await contains('Searching…');
