@@ -1,12 +1,7 @@
-name: Mail platform qualification (non-release)
+name: Mail final platform qualification (non-release)
 on:
+  # Run after all mail tickets are complete; ticket work uses feature-specific tests.
   workflow_dispatch:
-  push:
-    branches: [feat/local-mail-client]
-    paths: ['apps/server/src/mail/**', 'apps/server/src/routes/mail.ts', 'apps/server/scripts/mail-acceptance.mjs', 'apps/server/package.json', 'apps/desktop/package.json', 'apps/desktop/electron-builder.yml', 'apps/desktop/electron/mail-*.mjs', 'apps/desktop/scripts/electron-*.cjs', 'apps/desktop/scripts/electron-build.mjs', 'scripts/mail/**', '.github/workflows/mail-platform-qualification.yml', 'pnpm-lock.yaml']
-  pull_request:
-    branches: [dev]
-    paths: ['apps/server/src/mail/**', 'apps/server/src/routes/mail.ts', 'apps/server/scripts/mail-acceptance.mjs', 'apps/server/package.json', 'apps/desktop/package.json', 'apps/desktop/electron-builder.yml', 'apps/desktop/electron/mail-*.mjs', 'apps/desktop/scripts/electron-*.cjs', 'apps/desktop/scripts/electron-build.mjs', 'scripts/mail/**', '.github/workflows/mail-platform-qualification.yml', 'pnpm-lock.yaml']
 permissions:
   contents: read
 concurrency:
