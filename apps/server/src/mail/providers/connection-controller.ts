@@ -17,7 +17,7 @@ export type MailConnectionStatus = { connectionId: string; expiresAt: number } &
   | { state: "connected"; accountId: string; renewable: boolean }
   | { state: "failed"; error: MailConnectionErrorCode });
 type Entry = {
-  status: MailConnectionStatus; provider: "gmail" | "graph"; abort: AbortController;
+  status: MailConnectionStatus; reconnectAccountId?: string; provider: "gmail" | "graph"; abort: AbortController;
   timer: ReturnType<typeof setTimeout>; settledAt: number | null; flow?: MailOAuthFlow; cleaning?: Promise<void>;
 };
 export type MailConnectionControllerOptions = {
@@ -100,7 +100,7 @@ export class MailConnectionController {
     }
     const connectionId = randomUUID(), expiresAt = Date.now() + this.lifetime;
     const abort = new AbortController();
-    const entry: Entry = { provider: settings.provider, status: { connectionId, expiresAt, state: "pending" }, abort,
+    const entry: Entry = { provider: settings.provider, reconnectAccountId: reconnectId, status: { connectionId, expiresAt, state: "pending" }, abort,
       timer: setTimeout(() => this.finish(entry, { connectionId, expiresAt, state: "expired" }), this.lifetime), settledAt: null };
     this.entries.set(connectionId, entry);
     let aborted: (() => void) | undefined;
@@ -163,6 +163,24 @@ export class MailConnectionController {
   async cancel(connectionId: string): Promise<void> {
     const entry = this.entries.get(connectionId); if (!entry) throw new MailConnectionError("not_found");
     this.finish(entry, { ...this.base(entry), state: "cancelled" }); await entry.cleaning;
+  }
+  /** Persist the fence before any async cleanup; retain archive metadata/content and never revoke remotely. */
+  async disconnect(accountId: string): Promise<void> {
+    if (this.closed) throw new MailConnectionError("closed");
+    try {
+      this.database.transaction(() => {
+        const status = this.credentials.status(accountId);
+        if (status.state === "unconfigured") throw new MailConnectionError("account_not_found");
+        if (status.state === "connected") this.credentials.disconnect(accountId, status.version);
+      });
+    } catch (error) {
+      throw new MailConnectionError(error instanceof MailConnectionError && error.code === "account_not_found"
+        || error instanceof MailCredentialError && error.code === "account_not_found" ? "account_not_found"
+        : error instanceof MailCredentialError && error.code === "stale_version" ? "stale_credentials" : "persistence_failed");
+    }
+    const matching = [...this.entries.values()].filter(entry => entry.reconnectAccountId === accountId);
+    for (const entry of matching) this.finish(entry, { ...this.base(entry), state: "cancelled" });
+    await Promise.all(matching.map(entry => entry.cleaning));
   }
   async close(): Promise<void> {
     this.closed = true;
