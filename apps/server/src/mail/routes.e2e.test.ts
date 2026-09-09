@@ -260,3 +260,15 @@ test("native/keychain errors are redacted and server shutdown stops the service"
   running.splice(running.indexOf(server), 1);
   expect(mock.stops()).toBe(1);
 });
+
+test("security maintenance accepts only host-bound operations and redacts backup secrets", async () => {
+  const fixture=mockService();let calls=0;
+  fixture.service.maintain=async(operation,passphrase)=>{calls++;if(operation==='restore')throw Error(`synthetic-private:${passphrase}`);};
+  const {base}=await boot(fixture.service);
+  const url=`${base}/security/backup`,body=JSON.stringify({passphrase:'synthetic strong recovery passphrase'});
+  expect((await fetch(url,{method:'POST',body})).status).toBe(401);
+  expect((await fetch(url,{method:'POST',headers:auth,body:JSON.stringify({passphrase:'synthetic strong recovery passphrase',path:'/arbitrary'})})).status).toBe(400);
+  expect(calls).toBe(0);
+  const accepted=await fetch(url,{method:'POST',headers:auth,body});expect(accepted.status).toBe(200);expect(await accepted.json()).toEqual({completed:true,state:'locked'});
+  const failed=await fetch(`${base}/security/restore`,{method:'POST',headers:auth,body});expect(failed.status).toBe(503);expect(await failed.text()).not.toContain('synthetic');
+});
