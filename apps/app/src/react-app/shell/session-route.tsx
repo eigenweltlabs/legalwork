@@ -711,11 +711,11 @@ export function SessionRoute() {
       return { ...previous, defaultModel: { providerID: "eigenwelt", modelID }, modelVariant: null };
     });
   }, [local.prefs.defaultModel, selectedModelUnavailable, providerListQuery.data, setPrefs]);
-  // Creating a task only needs a reachable workspace — `session.create` never
+  // Creating a chat only needs a reachable workspace — `session.create` never
   // touches a model. A missing or dead model selection must NOT block it: the
   // new chat opens with the connect-AI bar above the composer, which is where
   // the ways out (trial / log in / bring your own) live.
-  const canCreateTask = Boolean(
+  const canCreateChat = Boolean(
     opencodeClient && selectedWorkspaceId && !loading && !selectedWorkspaceError,
   );
 
@@ -909,7 +909,7 @@ export function SessionRoute() {
   });
   const showPreparingStatus =
     effectiveLoading ||
-    (!canCreateTask && !routeError && !selectedWorkspaceError);
+    (!canCreateChat && !routeError && !selectedWorkspaceError);
 
   useEffect(() => {
     if (!opencodeClient) {
@@ -1014,7 +1014,7 @@ export function SessionRoute() {
     // for one render tick. Only block rendering when we KNOW the session
     // belongs to a different workspace (i.e., it exists in another
     // workspace's list). A brand-new session that hasn't been refreshed
-    // into any list yet must still render so "New task" feels instant.
+    // into any list yet must still render so "New Chat" feels instant.
     let sessionOwnedByOtherWorkspace = false;
     for (const [workspaceId, sessions] of Object.entries(sessionsByWorkspaceId)) {
       if (workspaceId === selectedWorkspaceId) continue;
@@ -1367,7 +1367,7 @@ export function SessionRoute() {
   );
 
 
-  const handleCreateTaskInWorkspace = useCallback(async (workspaceId: string) => {
+  const handleCreateChatInWorkspace = useCallback(async (workspaceId: string) => {
     const workspace = workspaces.find((item) => item.id === workspaceId);
     if (
       !workspace ||
@@ -1391,6 +1391,9 @@ export function SessionRoute() {
       const session = unwrap(
         await workspaceClient.session.create({ directory: workspace.path?.trim() || undefined }),
       );
+      // The UI calls this "New Chat" now, but the analytics names stay as they
+      // are: renaming the event or its source breaks funnel continuity against
+      // every event already recorded.
       captureAnalyticsEvent("task_created", {
         source: "new_task",
         surface: analyticsSurface(),
@@ -1418,7 +1421,7 @@ export function SessionRoute() {
         description: message,
         action: {
           label: "Retry",
-          onClick: () => void handleCreateTaskInWorkspace(workspaceId),
+          onClick: () => void handleCreateChatInWorkspace(workspaceId),
         },
         duration: Infinity,
       });
@@ -1472,9 +1475,9 @@ export function SessionRoute() {
     terminalOpen,
     setTerminalOpen,
   } = useShellShortcuts({
-    canCreateTask,
+    canCreateChat,
     workspaceId: selectedWorkspaceId,
-    onCreateTask: handleCreateTaskInWorkspace,
+    onCreateChat: handleCreateChatInWorkspace,
     onNextSessionTab: goToNextSessionTab,
     onPrevSessionTab: goToPrevSessionTab,
   });
@@ -1509,12 +1512,12 @@ export function SessionRoute() {
     selectedWorkspaceId,
     selectedWorkspaceRoot,
     selectedSessionId,
-    canCreateTask,
+    canCreateChat,
     legalworkClient: client,
     opencodeClient,
     navigateToSession: navigateToSessionForControl,
     navigateToSessionRoot: navigateToSessionRootForControl,
-    createTaskInWorkspace: handleCreateTaskInWorkspace,
+    createTaskInWorkspace: handleCreateChatInWorkspace,
     openModelPicker: openModelPickerForControl,
     refreshRouteState,
   });
@@ -1803,14 +1806,14 @@ export function SessionRoute() {
     } catch (error) {
       setCreateWorkspaceError(describeWorkspaceCreateError(error));
       // Surface the error even when creation was started outside the modal
-      // (e.g. from the New Task workspace picker's folder select).
+      // (e.g. from the New Chat workspace picker's folder select).
       setCreateWorkspaceOpen(true);
     } finally {
       setCreateWorkspaceBusy(false);
     }
   }, [baseUrl, client, local, navigateToWorkspaceSession, refreshRouteState, rememberPendingCreatedSession, token]);
 
-  const handleCreateTaskInNewWorkspace = useCallback(async () => {
+  const handleCreateChatInNewWorkspace = useCallback(async () => {
     if (createWorkspaceBusy) return;
     const folder = (await pickDirectory({ title: t("onboarding.authorize_folder") })) as string | null;
     if (!folder?.trim()) return;
@@ -1932,13 +1935,13 @@ export function SessionRoute() {
       runtimeWorkspaceId={selectedWorkspaceEndpoint?.workspaceId || null}
       opencodeBaseUrl={opencodeBaseUrl}
       workspaces={sidebarWorkspaces}
-      clientConnected={canCreateTask}
+      clientConnected={canCreateChat}
       legalworkServerStatus={client ? "connected" : "disconnected"}
       legalworkServerClient={selectedWorkspaceEndpoint?.client ?? client}
       environmentClient={client}
       legalworkServerToken={selectedWorkspaceServerToken}
       developerMode={developerMode}
-      headerStatus={canCreateTask ? t("status.connected") : t("session.loading_detail")}
+      headerStatus={canCreateChat ? t("status.connected") : t("session.loading_detail")}
       busyHint={effectiveLoading ? t("session.loading_detail") : null}
       startupPhase={effectiveLoading ? "nativeInit" : "ready"}
       providerConnectedIds={providerConnectedIds}
@@ -2035,7 +2038,7 @@ export function SessionRoute() {
         sessionStatusById: sidebarSessionStatusById,
         connectingWorkspaceId: null,
         workspaceConnectionStateById,
-        newTaskDisabled: !canCreateTask,
+        newChatDisabled: !canCreateChat,
         sidebarHydratedFromCache: Object.values(sessionsByWorkspaceId).some((list) => list.length > 0),
         startupPhase: effectiveLoading ? "nativeInit" : "ready",
         onSelectWorkspace: async (workspaceId) => {
@@ -2095,10 +2098,10 @@ export function SessionRoute() {
           navigateToWorkspaceSession(workspaceId, sessionId);
         },
         onPrefetchSession: () => {},
-        onCreateTaskInWorkspace: (workspaceId) => {
-          void handleCreateTaskInWorkspace(workspaceId);
+        onCreateChatInWorkspace: (workspaceId) => {
+          void handleCreateChatInWorkspace(workspaceId);
         },
-        onCreateTaskWithPrompt: (workspaceId, prompt) => {
+        onCreateChatWithPrompt: (workspaceId, prompt) => {
           void (async () => {
             const workspace = workspaces.find((item) => item.id === workspaceId);
             if (!workspace) return;
@@ -2124,8 +2127,8 @@ export function SessionRoute() {
               navigateToWorkspaceSession(workspaceId, session.id);
               focusPromptSoon();
             } catch {
-              // Fall back to normal task creation without prompt
-              void handleCreateTaskInWorkspace(workspaceId);
+              // Fall back to normal chat creation without prompt
+              void handleCreateChatInWorkspace(workspaceId);
             }
           })();
         },
@@ -2133,15 +2136,15 @@ export function SessionRoute() {
         onRevealWorkspace: (id) => void handleRevealWorkspace(id),
         onForgetWorkspace: (id) => void handleForgetWorkspace(id),
         onOpenCreateWorkspace: () => {
-          // New Task returns to the session view — drop any open top-level pane
+          // New Chat returns to the session view — drop any open top-level pane
           // (Evals/Skills/Integrations) so it doesn't linger behind the modal.
           setShowEvals(false);
           setShowWorkflows(false);
           setShowExtensions(false);
           handleOpenCreateWorkspace();
         },
-        onCreateTaskInNewWorkspace: () => {
-          void handleCreateTaskInNewWorkspace();
+        onCreateChatInNewWorkspace: () => {
+          void handleCreateChatInNewWorkspace();
         },
         onReorderWorkspaces: handleReorderWorkspaces,
       }}
@@ -2223,7 +2226,7 @@ export function SessionRoute() {
       onClose={() => setCommandPaletteOpen(false)}
       onCreateNewSession={() => {
         if (selectedWorkspaceId) {
-          void handleCreateTaskInWorkspace(selectedWorkspaceId);
+          void handleCreateChatInWorkspace(selectedWorkspaceId);
         }
       }}
       onOpenSession={(workspaceId, sessionId) => navigateToWorkspaceSession(workspaceId, sessionId)}

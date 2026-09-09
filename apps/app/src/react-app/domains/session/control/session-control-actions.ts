@@ -28,7 +28,7 @@ type UseSessionControlActionsInput = {
   selectedWorkspaceId: string;
   selectedWorkspaceRoot: string;
   selectedSessionId: string | null;
-  canCreateTask: boolean;
+  canCreateChat: boolean;
   legalworkClient: LegalworkServerClient | null;
   opencodeClient: ReturnType<typeof createClient> | null;
   navigateToSession: (sessionId: string) => void;
@@ -67,7 +67,7 @@ function booleanArg(args: unknown, name: string) {
 
 export function useSessionControlActions(input: UseSessionControlActionsInput) {
   const {
-    canCreateTask,
+    canCreateChat,
     createTaskInWorkspace,
     navigateToSession,
     navigateToSessionRoot,
@@ -87,13 +87,13 @@ export function useSessionControlActions(input: UseSessionControlActionsInput) {
     label: t("control.create_task"),
     description: "Create a new session in the selected workspace.",
     sideEffect: "mutation",
-    disabled: !canCreateTask || !selectedWorkspaceId,
+    disabled: !canCreateChat || !selectedWorkspaceId,
     execute: async () => {
       if (!selectedWorkspaceId) return false;
       await createTaskInWorkspace(selectedWorkspaceId);
       return true;
     },
-  }), [canCreateTask, createTaskInWorkspace, selectedWorkspaceId]);
+  }), [canCreateChat, createTaskInWorkspace, selectedWorkspaceId]);
   useControlAction(createTaskControlAction);
 
   const listSessionsControlAction = useMemo<LegalworkControlAction>(() => ({

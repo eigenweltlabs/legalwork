@@ -55,7 +55,7 @@
     background: linear-gradient(180deg, var(--lw-surface-hover), var(--lw-sidebar));
   }
 
-  .lw-sidebar-new-task {
+  .lw-sidebar-new-chat {
     background: var(--lw-glass-strong);
     box-shadow: var(--lw-shadow-xs), inset 0 1px 0 var(--lw-glass-highlight);
   }
