@@ -17,8 +17,8 @@ export type GmailProjectionInput = { accountId: string; locator: ProviderMessage
   source: Iterable<Uint8Array> | AsyncIterable<Uint8Array>; work: MailSyncWork; assertCurrent(): void };
 export type GmailBackfillOptions = { database: MailDatabase; ownerId: string; access: Pick<MailAccessCoordinator, "acquire">;
   projectRaw?: (input: GmailProjectionInput) => Promise<void>;
-  transport?: (accessToken: string) => Pick<GmailReadTransport, "listLabels" | "listMessages" | "consumeRaw">;
-  jobsPerTurn?: number; pageSize?: number; operationTimeoutMs?: number; turnDelayMs?: number };
+  transport?: (accessToken: string) => Pick<GmailReadTransport, "listLabels" | "listMessages" | "consumeRaw" | "getProfile" | "listHistory" | "getMetadata">;
+  jobsPerTurn?: number; pageSize?: number; operationTimeoutMs?: number; turnDelayMs?: number; pollIntervalMs?: number };
 type Session = { run: GmailRun; abort: AbortController; labelsLoaded: boolean; timer?: ReturnType<typeof setTimeout>; pumping: boolean;
   error: MailSyncView["error"]; fatal: boolean; finished?: Promise<void> };
 function bounded(value: number | undefined, fallback: number, min: number, max: number): number {
@@ -65,6 +65,7 @@ export class GmailBackfill {
   private readonly pageSize: number;
   private readonly operationTimeout: number;
   private readonly turnDelay: number;
+  private readonly pollInterval: number;
   private current?: Session;
   private closed = false;
   private pendingOperation?: Promise<unknown>;
@@ -72,6 +73,7 @@ export class GmailBackfill {
     this.pageSize = bounded(options.pageSize, 100, 1, 500);
     this.operationTimeout = bounded(options.operationTimeoutMs, 60000, 10, 120000);
     this.turnDelay = bounded(options.turnDelayMs, 0, 0, 1000);
+    this.pollInterval = bounded(options.pollIntervalMs, 60000, 1000, 3600000);
     this.runs = new GmailRunStore(options.database, options.ownerId);
     this.journal = new MailSyncJournal(options.database, options.ownerId);
     this.credentials = new MailCredentialRepository(options.database, options.ownerId);
@@ -88,14 +90,15 @@ export class GmailBackfill {
   status(accountId: string): MailSyncView {
     this.account(accountId);
     const run = this.runs.read(accountId);
-    if (!run) return { accountId, provider: "gmail", state: "idle", enumerated: 0, downloaded: 0, projected: 0, failed: 0, pending: 0, nextRetryAt: null, error: null };
+    if (!run) return { accountId, provider: "gmail", state: "idle", enumerated: 0, downloaded: 0, projected: 0, failed: 0, pending: 0, removed: 0, retained: 0, nextRetryAt: null, error: null };
     const progress = this.runs.progress(accountId, run.generation);
     const retry = run.nextRetryAt ?? progress.nextRetryAt;
     const complete = progress.enumerationComplete && progress.failed === 0 && progress.pending === 0 && progress.downloaded === progress.enumerated && progress.projected === progress.enumerated;
+    const invalidated = run.phase === "history" && (progress.failed > 0 || (run.pollAt !== null && progress.pending === 0 && !complete));
     const state = run.state === "paused" ? "paused" : run.state === "attention" ? "attention" : run.state === "complete" ? complete ? "complete" : "attention"
-      : !this.current || this.current.run.accountId !== accountId || this.current.abort.signal.aborted ? "paused" : retry !== null && retry > Date.now() ? "waiting" : "syncing";
+      : !this.current || this.current.run.accountId !== accountId || this.current.abort.signal.aborted ? "paused" : invalidated ? "attention" : retry !== null && retry > Date.now() ? "waiting" : run.phase === "history" && run.pollAt !== null && run.pollAt > Date.now() && complete ? "complete" : "syncing";
     return { accountId, provider: "gmail", state, enumerated: progress.enumerated, downloaded: progress.downloaded,
-      projected: progress.projected, failed: progress.failed, pending: progress.pending, nextRetryAt: retry, error: run.state === "complete" && !complete ? "content_incomplete" : run.error };
+      projected: progress.projected, failed: progress.failed, pending: progress.pending, removed: progress.removed, retained: progress.retained, nextRetryAt: retry, error: run.error ?? ((run.state === "complete" && !complete) || invalidated ? "content_incomplete" : null) };
   }
   start(accountId: string): MailSyncView {
     if (this.closed) throw new GmailBackfillError("closed"); this.account(accountId);
@@ -106,14 +109,14 @@ export class GmailBackfill {
     }
     if (this.pendingOperation) throw new GmailBackfillError("busy");
     const run = this.runs.startOrResume(accountId);
-    if (run.state === "complete") return this.status(accountId);
+
     const session: Session = { run, abort: new AbortController(), labelsLoaded: false, pumping: false, error: null, fatal: false };
     this.current = session; this.schedule(session, 0); return this.status(accountId);
   }
   pause(accountId: string): MailSyncView {
     if (this.closed) throw new GmailBackfillError("closed"); this.account(accountId);
     const run = this.runs.read(accountId);
-    try { if (run && run.state !== "complete" && run.state !== "paused") this.runs.setState(accountId, this.stamp(run), "paused"); }
+    try { if (run && run.state !== "paused") this.runs.setState(accountId, this.stamp(run), "paused"); }
     finally { if (this.current?.run.accountId === accountId) this.stop(this.current); }
     return this.status(accountId);
   }
@@ -169,6 +172,14 @@ export class GmailBackfill {
     try {
       this.assert(session);
       if (session.run.nextRetryAt !== null && session.run.nextRetryAt > Date.now()) { this.schedule(session, session.run.nextRetryAt - Date.now()); return; }
+      if (session.run.historyId === null) {
+        const { access, transport } = await this.access(session);
+        const profile = await this.boundedOperation(session, signal => transport.getProfile({ signal })); this.assert(session, access.version);
+        const existing = !!this.options.database.get("SELECT 1 FROM mail_sync_scopes WHERE account_id=? AND generation=? AND revision>0 LIMIT 1", [session.run.accountId, session.run.generation]);
+        session.run = existing ? this.runs.beginReconciliation(session.run.accountId, this.stamp(session.run), profile.historyId)
+          : this.runs.captureBaseline(session.run.accountId, this.stamp(session.run), profile.historyId);
+      }
+      if (session.run.phase === "history") { await this.history(session); return; }
       if (!session.labelsLoaded) {
         const { access, transport } = await this.access(session);
         const { labels } = await this.boundedOperation(session, signal => transport.listLabels({ signal })); this.assert(session, access.version);
@@ -207,6 +218,7 @@ export class GmailBackfill {
             const locator = { provider: "gmail", messageId: message.id } satisfies ProviderMessageLocator;
             if (!this.options.database.get("SELECT 1 FROM mail_messages WHERE account_id=? AND message_key=?", [scope.accountId, providerMessageKey(locator)]))
               writer.ingestMessage({ locator, rfcMessageId: null, subject: "", threadId: message.threadId, memberships: [] });
+            this.runs.markPresent(scope.accountId, locator, scope.generation, session.run.historyId ?? undefined);
           }
         });
         session.run = this.runs.setState(scope.accountId, this.stamp(session.run), "active", { failureCount: 0 });
@@ -214,8 +226,11 @@ export class GmailBackfill {
       const progress = this.runs.progress(scope.accountId, scope.generation);
       if (progress.enumerationComplete && progress.pending === 0) {
         const complete = progress.failed === 0 && progress.downloaded === progress.enumerated && progress.projected === progress.enumerated;
-        session.run = this.runs.setState(scope.accountId, this.stamp(session.run), complete ? "complete" : "attention", { error: complete ? null : session.error ?? "content_incomplete", nextRetryAt: null });
-        this.stop(session); return;
+        if (!complete) session.error ??= "content_incomplete";
+        const reconciled = this.runs.markMissingBatch(scope.accountId, scope.generation, 100);
+        if (reconciled.remaining) { this.schedule(session, 0); return; }
+        session.run = this.runs.advanceHistory(scope.accountId, this.stamp(session.run), { pageToken: null, pollAt: null });
+        this.schedule(session, 0); return;
       }
       session.run = this.runs.setState(scope.accountId, this.stamp(session.run), "active", { error: session.error, nextRetryAt: null });
       this.schedule(session, 0);
@@ -231,22 +246,113 @@ export class GmailBackfill {
       } catch { this.stop(session); }
     }
   }
+  private rawReference(accountId: string, locator: ProviderMessageLocator): MailContentReference | null {
+    const row = this.options.database.get(`SELECT r.id,r.bytes,r.sha256 FROM mail_content_manifests m
+      JOIN mail_content_refs r ON r.account_id=m.account_id AND r.id=m.ref_id
+      JOIN mail_blob_publications p ON p.account_id=r.account_id AND p.ref_id=r.id
+      JOIN mail_blob_objects o ON o.account_id=p.account_id AND o.id=p.object_id AND o.state='published'
+      WHERE m.account_id=? AND m.message_key=? AND m.kind='raw' AND m.state='stored'`, [accountId, providerMessageKey(locator)]);
+    return row && typeof row.id === "string" && typeof row.bytes === "number" && typeof row.sha256 === "string" ? { id: row.id, bytes: row.bytes, sha256: row.sha256 } : null;
+  }
+  private async history(session: Session): Promise<void> {
+    const scope = { accountId: session.run.accountId, generation: session.run.generation, scopeId: "gmail:history" };
+    const status = this.journal.status(scope);
+    if (status.jobs.queued + status.jobs.retry + status.jobs.running > 0) {
+      await this.executor.run(scope); this.assert(session);
+      if (session.fatal) { session.run = this.runs.setState(scope.accountId, this.stamp(session.run), "attention", { error: session.error }); this.stop(session); return; }
+      const next = this.options.database.get(`SELECT min(CASE WHEN j.state='running' THEN j.lease_until ELSE j.available_at END) AS due FROM mail_sync_jobs j
+        JOIN mail_sync_scope_jobs s ON s.account_id=j.account_id AND s.job_id=j.id WHERE s.account_id=? AND s.generation=? AND s.scope_id=? AND j.state IN ('queued','retry','running')`, [scope.accountId, scope.generation, scope.scopeId]);
+      const due = typeof next?.due === "number" ? next.due : null;
+      if (due !== null) {
+        session.run = this.runs.setState(scope.accountId, this.stamp(session.run), "active", { error: session.error, nextRetryAt: due > Date.now() ? due : null });
+        this.schedule(session, Math.max(0, due - Date.now())); return;
+      }
+    }
+    const progress = this.runs.progress(scope.accountId, scope.generation);
+    if (progress.failed > 0) session.error ??= "content_incomplete";
+    if (session.run.pollAt !== null && session.run.pollAt > Date.now()) { this.schedule(session, session.run.pollAt - Date.now()); return; }
+    const { access, transport } = await this.access(session);
+    const { labels } = await this.boundedOperation(session, signal => transport.listLabels({ signal })); this.assert(session, access.version);
+    this.options.database.transaction(() => {
+      this.assert(session, access.version);
+      for (const label of labels) this.options.database.run("INSERT INTO mail_folders(account_id,id,name,kind,parent_id) VALUES(?,?,?,'label',NULL) ON CONFLICT(account_id,id) DO UPDATE SET name=excluded.name", [scope.accountId, label.id, label.name]);
+    });
+    if (session.run.historyId === null) throw new GmailBackfillError("configuration_invalid");
+    let page;
+    try { page = await this.boundedOperation(session, signal => transport.listHistory({ startHistoryId: session.run.historyId ?? "0", pageToken: session.run.historyPageToken ?? undefined, pageSize: this.pageSize, signal })); }
+    catch (error) {
+      if (!(error instanceof GmailTransportError) || error.code !== "not_found") throw error;
+      const profile = await this.boundedOperation(session, signal => transport.getProfile({ signal })); this.assert(session, access.version);
+      session.run = this.runs.beginReconciliation(scope.accountId, this.stamp(session.run), profile.historyId); session.labelsLoaded = false;
+      this.schedule(session, 0); return;
+    }
+    this.assert(session, access.version);
+    const messages = new Map<string, { id: string; threadId: string }>();
+    for (const record of page.records) for (const change of record.changes) if (change.kind !== "deleted") messages.set(change.messageId, { id: change.messageId, threadId: change.threadId });
+    const jobs = [...messages.values()].filter(message => !this.rawReference(scope.accountId, { provider: "gmail", messageId: message.id }))
+      .map(message => ({ kind: "raw", locator: { provider: "gmail", messageId: message.id } } satisfies import("../storage/sync-journal.js").SyncDownloadJob));
+    const committed = this.options.database.transaction(() => {
+      this.assert(session, access.version);
+      this.journal.commitPage({ ...scope, expectedCursor: status.checkpoint.cursor, expectedRevision: status.checkpoint.revision, nextCursor: page.nextPageToken, discoveryComplete: false, jobs }, writer => {
+        this.assert(session, access.version);
+        for (const record of page.records) for (const change of record.changes) {
+          const locator: ProviderMessageLocator = { provider: "gmail", messageId: change.messageId };
+          if (change.kind === "deleted") { this.runs.markRemoved(scope.accountId, locator, record.id); continue; }
+          if (!this.options.database.get("SELECT 1 FROM mail_messages WHERE account_id=? AND message_key=?", [scope.accountId, providerMessageKey(locator)])) writer.ingestMessage({ locator, subject: "", rfcMessageId: null, threadId: change.threadId, memberships: [] });
+          if (change.kind === "added" || !this.runs.isPresent(scope.accountId, locator)) this.runs.markPresent(scope.accountId, locator, scope.generation, record.id);
+          if (change.kind === "labelsAdded" || change.kind === "labelsRemoved") this.runs.applyLabelDelta(scope.accountId, locator, { add: change.kind === "labelsAdded" ? change.labelIds : [], remove: change.kind === "labelsRemoved" ? change.labelIds : [], historyId: record.id });
+        }
+      });
+      return this.runs.advanceHistory(scope.accountId, this.stamp(session.run), { ...(page.nextPageToken === null ? { historyId: page.historyId } : {}), pageToken: page.nextPageToken, pollAt: page.nextPageToken === null ? Date.now() + this.pollInterval : null });
+    });
+    session.run = committed; session.error = null;
+    this.schedule(session, 0);
+  }
   private async handle(work: MailSyncWork): Promise<void> {
     const session = this.current;
     if (!session || session.run.accountId !== work.job.account_id || session.run.generation !== work.job.generation) throw new MailSyncExecutionFailure("permanent");
+    let credentialVersion: MailCredentialVersion | undefined;
     try {
       const parsed: unknown = JSON.parse(work.job.message_key);
       if (!Array.isArray(parsed) || parsed.length !== 2 || parsed[0] !== "gmail" || typeof parsed[1] !== "string") throw new MailSyncExecutionFailure("permanent");
       const locator: ProviderMessageLocator = { provider: "gmail", messageId: parsed[1] };
+      if (!this.runs.isPresent(work.job.account_id, locator)) {
+        const credential = this.credentials.status(work.job.account_id);
+        if (credential.state !== "connected") throw new MailAccessError("locked");
+        work.complete(() => this.assert(session, credential.version)); return;
+      }
       const { access, transport } = await this.access(session);
+      credentialVersion = access.version;
       const assertCurrent = () => { work.assertCurrent(); this.assert(session, access.version); };
+      const assertSnapshot = (historyId: string) => {
+        assertCurrent(); const known = this.runs.readMessageHistoryId(work.job.account_id, locator);
+        if (known !== null && BigInt(historyId) < BigInt(known)) throw new GmailTransportError("transient");
+      };
       assertCurrent();
       if (work.job.kind === "raw") {
+        if (this.rawReference(work.job.account_id, locator)) {
+          try {
+            const metadata = await transport.getMetadata(locator.messageId, { signal: work.signal }); assertSnapshot(metadata.historyId);
+            const previous = this.runs.readGmailMetadata(work.job.account_id, locator);
+            work.complete(() => { this.assert(session, access.version); const known = this.runs.readMessageHistoryId(work.job.account_id, locator); if (known !== null && BigInt(metadata.historyId) < BigInt(known)) throw new GmailTransportError("transient"); if (!this.runs.putGmailMetadata(work.job.account_id, locator, { threadId: metadata.threadId, labelIds: metadata.labelIds, historyId: metadata.historyId, internalDate: metadata.internalDate === null ? previous?.internalDate ?? 0 : Number(metadata.internalDate) })) throw new GmailTransportError("transient"); }, [{ kind: "body", locator }]);
+          } catch (error) {
+            if (!(error instanceof GmailTransportError) || error.code !== "not_found") throw error;
+            assertCurrent(); work.complete(() => { this.assert(session, access.version); this.runs.markAbsentFromFetch(work.job.account_id, locator); });
+          }
+          return;
+        }
         let metadata: GmailRawMetadata | undefined;
-        const source = chunks(async consume => { metadata = await transport.consumeRaw(locator.messageId, async chunk => { assertCurrent(); await consume(chunk); }, { signal: work.signal }); }, work.signal);
+        const source = chunks(async consume => {
+          metadata = await transport.consumeRaw(locator.messageId, async chunk => { assertCurrent(); await consume(chunk); }, { signal: work.signal });
+          assertCurrent(); const known = this.runs.readMessageHistoryId(work.job.account_id, locator);
+          if (known !== null && BigInt(metadata.historyId) < BigInt(known)) {
+            const current = await transport.getMetadata(locator.messageId, { signal: work.signal }); assertSnapshot(current.historyId);
+            metadata = { ...metadata, threadId: current.threadId, labelIds: current.labelIds, historyId: current.historyId, internalDate: current.internalDate ?? metadata.internalDate };
+          }
+        }, work.signal);
         await this.content.writePart(work.job.account_id, locator, { kind: "raw", maxBytes: 64 * 1024 * 1024 }, source, () => {
-          assertCurrent(); if (!metadata) throw new Error("missing metadata");
-          this.runs.putGmailMetadata(work.job.account_id, locator, { internalDate: Number(metadata.internalDate), threadId: metadata.threadId, labelIds: metadata.labelIds });
+          assertCurrent(); if (!metadata) throw new Error("missing metadata"); assertSnapshot(metadata.historyId);
+          if (!this.runs.putGmailMetadata(work.job.account_id, locator, { internalDate: Number(metadata.internalDate), threadId: metadata.threadId, labelIds: metadata.labelIds, historyId: metadata.historyId })) throw new GmailTransportError("transient");
           work.complete(() => { this.assert(session, access.version); }, [{ kind: "body", locator }]);
         });
       } else if (work.job.kind === "body") {
@@ -257,6 +363,11 @@ export class GmailBackfill {
           source: this.content.read(work.job.account_id, row.id), work, assertCurrent: () => this.assert(session, access.version) });
       } else throw new MailSyncExecutionFailure("permanent");
     } catch (error) {
+      if (error instanceof GmailTransportError && error.code === "not_found" && work.job.kind === "raw") {
+        work.assertCurrent(); if (!credentialVersion) throw new MailSyncExecutionFailure("retryable"); this.assert(session, credentialVersion);
+        const identity: unknown = JSON.parse(work.job.message_key);
+        if (Array.isArray(identity) && identity[0] === "gmail" && typeof identity[1] === "string") { const locator: ProviderMessageLocator = { provider: "gmail", messageId: identity[1] }; work.complete(() => { this.assert(session, credentialVersion); this.runs.markAbsentFromFetch(work.job.account_id, locator); }); return; }
+      }
       if (error instanceof MailSyncExecutionFailure) throw error;
       const failure = classify(error); session.error = failure.code; session.fatal ||= failure.fatal || this.pendingOperation !== undefined;
       if (session.fatal) this.executor.pause(work.job.account_id);

@@ -13,6 +13,9 @@ export class GmailTransportError extends Error {
 export type GmailLabel = { id: string; name: string; type: "system" | "user" };
 export type GmailMessagePage = { messages: { id: string; threadId: string }[]; nextPageToken: string | null; resultSizeEstimate: number | null };
 export type GmailRawMetadata = { id: string; threadId: string; labelIds: string[]; historyId: string; internalDate: string; sizeEstimate: number; rawBytes: number };
+export type GmailHistoryChange = { kind: "added" | "deleted" | "labelsAdded" | "labelsRemoved"; messageId: string; threadId: string; labelIds: string[] };
+export type GmailHistoryPage = { historyId: string; nextPageToken: string | null; records: { id: string; changes: GmailHistoryChange[] }[] };
+export type GmailMetadata = { id: string; threadId: string; labelIds: string[]; historyId: string; internalDate: string | null };
 const BASE = "https://gmail.googleapis.com/gmail/v1/users/me";
 const MiB = 1024 * 1024;
 const ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
@@ -135,6 +138,56 @@ export class GmailReadTransport {
         seen.add(value.id); return { id: value.id, name: value.name, type: value.type };
       });
       return { labels };
+    });
+  }
+  getProfile(options: { signal?: AbortSignal } = {}): Promise<{ historyId: string }> {
+    return this.run(options.signal, async signal => {
+      const data = await this.get(`${BASE}/profile`, 65536, signal);
+      if (!decimal(data.historyId)) return reject("invalid_response");
+      return { historyId: data.historyId };
+    });
+  }
+  getMetadata(messageId: string, options: { signal?: AbortSignal } = {}): Promise<GmailMetadata> {
+    if (!id(messageId)) return Promise.reject(new GmailTransportError("invalid_input"));
+    return this.run(options.signal, async signal => {
+      const data = await this.get(`${BASE}/messages/${encodeURIComponent(messageId)}?format=minimal`, MiB, signal);
+      const labels = data.labelIds === undefined ? [] : data.labelIds;
+      if (data.id !== messageId || !id(data.threadId) || !decimal(data.historyId) || !Array.isArray(labels)
+        || labels.length > 10000 || !labels.every(id) || (data.internalDate !== undefined && !decimal(data.internalDate))) return reject("invalid_response");
+      return { id: messageId, threadId: data.threadId, labelIds: [...new Set(labels)], historyId: data.historyId, internalDate: typeof data.internalDate === "string" ? data.internalDate : null };
+    });
+  }
+  /** Specific events only; Gmail's cumulative messages field duplicates those events. */
+  listHistory(options: { startHistoryId: string; pageToken?: string; pageSize?: number; signal?: AbortSignal }): Promise<GmailHistoryPage> {
+    const size = options.pageSize ?? 100;
+    if (!decimal(options.startHistoryId) || !Number.isInteger(size) || size < 1 || size > 500 || (options.pageToken !== undefined && !pageToken(options.pageToken))) return Promise.reject(new GmailTransportError("invalid_input"));
+    const url = new URL(`${BASE}/history`); url.searchParams.set("startHistoryId", options.startHistoryId); url.searchParams.set("maxResults", String(size));
+    if (options.pageToken !== undefined) url.searchParams.set("pageToken", options.pageToken);
+    return this.run(options.signal, async signal => {
+      const data = await this.get(url.toString(), 4 * MiB, signal);
+      if (!decimal(data.historyId) || BigInt(data.historyId) < BigInt(options.startHistoryId)
+        || (data.nextPageToken !== undefined && (!pageToken(data.nextPageToken) || data.nextPageToken === options.pageToken))) return reject("invalid_response");
+      const values = data.history === undefined ? [] : data.history;
+      if (!Array.isArray(values) || values.length > size) return reject("invalid_response");
+      const records: GmailHistoryPage["records"] = []; let previous = BigInt(options.startHistoryId), changesCount = 0, labelCount = 0;
+      for (const value of values) {
+        if (!record(value) || !decimal(value.id) || BigInt(value.id) <= previous || BigInt(value.id) > BigInt(data.historyId)) return reject("invalid_response");
+        previous = BigInt(value.id); const changes: GmailHistoryChange[] = [];
+        for (const [field, kind] of [["messagesAdded", "added"], ["labelsAdded", "labelsAdded"], ["labelsRemoved", "labelsRemoved"], ["messagesDeleted", "deleted"]] satisfies [string, GmailHistoryChange["kind"]][]) {
+          const events = value[field] === undefined ? [] : value[field];
+          if (!Array.isArray(events) || events.length > 1000) return reject("invalid_response");
+          for (const event of events) {
+            if (!record(event) || !record(event.message) || !id(event.message.id) || !id(event.message.threadId) || ++changesCount > 1000) return reject("invalid_response");
+            const labels: unknown = kind === "labelsAdded" || kind === "labelsRemoved" ? event.labelIds : [];
+            if (!Array.isArray(labels) || labels.length > 1000 || !labels.every(id) || (labelCount += labels.length) > 10000) return reject("invalid_response");
+            changes.push({ kind, messageId: event.message.id, threadId: event.message.threadId, labelIds: [...new Set(labels)] });
+          }
+        }
+        // Unknown future history-only records cannot be silently checkpointed.
+        if (changes.length === 0 && Array.isArray(value.messages) && value.messages.length > 0) return reject("invalid_response");
+        records.push({ id: value.id, changes });
+      }
+      return { historyId: data.historyId, nextPageToken: typeof data.nextPageToken === "string" ? data.nextPageToken : null, records };
     });
   }
   listMessages(options: { pageToken?: string; pageSize?: number; recentAfterSeconds?: number; signal?: AbortSignal } = {}): Promise<GmailMessagePage> {
