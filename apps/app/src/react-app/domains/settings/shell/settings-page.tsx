@@ -15,6 +15,7 @@ import {
   Languages,
   Layout,
   Mic,
+  Mail,
   Puzzle,
   RefreshCcw,
   ShieldCheck,
@@ -61,6 +62,8 @@ import { WorkspaceIcon } from "../../../design-system/workspace-icon";
 
 export function getSettingsTabIcon(tab: SettingsTab) {
   switch (tab) {
+    case "mail-accounts":
+      return Mail;
     case "ai":
       return Zap;
     case "account":
@@ -112,6 +115,8 @@ export function getSettingsTabIcon(tab: SettingsTab) {
 
 export function getSettingsTabLabel(tab: SettingsTab) {
   switch (tab) {
+    case "mail-accounts":
+      return "Mail Accounts";
     case "ai":
       return t("settings.tab_ai");
     case "account":
@@ -165,6 +170,8 @@ export function getSettingsTabLabel(tab: SettingsTab) {
 
 export function getSettingsTabDescription(tab: SettingsTab) {
   switch (tab) {
+    case "mail-accounts":
+      return "Connect and manage the mail accounts on this computer.";
     case "ai":
       return t("settings.tab_description_ai");
     case "account":
@@ -228,7 +235,7 @@ export function getGlobalSettingsTabs(developerMode: boolean): SettingsTab[] {
   // "benchmark" is not listed here: it lives on the Evals page in the main
   // app shell (embedded singleView surface), not in the settings sidebar.
   // Account leads: it is the firm's sign-in, plan and billing home.
-  const tabs: SettingsTab[] = ["account", "ai", "extensions", "personalisation", "safety", "shell", "environment", "preferences", "updates"];
+  const tabs: SettingsTab[] = ["account", "ai", "mail-accounts", "extensions", "personalisation", "safety", "shell", "environment", "preferences", "updates"];
   // Office add-ins install into local desktop apps, so the tab is desktop-only.
   // Placed right after AI Providers.
   if (isDesktopRuntime()) tabs.splice(2, 0, "office-addins");

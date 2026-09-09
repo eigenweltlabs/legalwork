@@ -1,0 +1,7 @@
+# Mail account settings
+
+Provider connections live in **Settings → Mail Accounts** at `/settings/mail-accounts`, using the existing Settings surface and global navigation. Mail's account toolbar and empty inbox link here with a Mail return destination. The Settings close action preserves that destination across tab changes. Account setup is a page, without a modal, inline inbox panel, or duplicate heading.
+
+The page resolves the local host independently of the selected workspace and opens mail automatically through the existing API. It reuses provider setup, reconnect and disconnect requests. Unchanged desktop host announcements preserve pending consent; a changed base URL or host token retires the previous controls and cancels pending OAuth/IMAP requests. Navigating away also cancels pending setup. Secrets remain transient and are not persisted in browser storage.
+
+Focused acceptance: `pnpm exec bun test apps/app/tests/mail-accounts-settings.test.ts` runs the page in a hidden Electron renderer against synthetic local HTTP, covering same-host OAuth preservation, changed-host cancellation, successful account refresh, and IMAP cancellation on exit. `mail-onboarding.test.ts` additionally covers fixed provider authorization endpoints and transient password handling. No live consent or keychain access is involved. Existing installed Electron may be selected with `ELECTRON_OVERRIDE_DIST_PATH`.
