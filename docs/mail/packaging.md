@@ -47,7 +47,7 @@ The test uses the installed Electron package by default. To select an explicit c
 LEGALWORK_MAIL_TEST_ELECTRON=/absolute/path/to/Electron pnpm --dir apps/desktop exec node --test electron/mail-packaging.test.mjs
 ```
 
-Add `electron/mail-packaging.test.mjs` to the desktop's existing node --test command. Package-script editing remains with the integration lead. The test needs the normal desktop/server development dependencies and actual Electron binary; it fails rather than reporting a skipped native qualification when these are missing.
+The lead added `electron/mail-packaging.test.mjs` to the desktop's default `pnpm test` command alongside key custody and desktop binding tests. The test needs the normal desktop/server development dependencies and actual Electron binary; it fails rather than reporting a skipped native qualification when these are missing.
 
 ## Remaining release qualification
 
