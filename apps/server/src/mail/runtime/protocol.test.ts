@@ -95,3 +95,10 @@ test("search protocol rejects extra scope, coercible filters and foreign result 
   expect(parseParentMessage(JSON.stringify({kind:"request",id:"1:1",command:{operation:"mail.search.rebuild",input:{accountId:"a",limit:26}}}))).toBeUndefined();
   expect(parseWorkerMessage(JSON.stringify({kind:"response",id:"1:1",ok:true,result:{search:{items:[],total:-1,pending:0,incomplete:0,nextOffset:null}}}))).toBeUndefined();
 });
+
+test("search continuations above 10000 remain valid requests",()=>{
+  const parsed=response({search:{items:[],total:10026,pending:0,incomplete:0,nextOffset:10025}});
+  if(parsed?.kind!=="response"||!parsed.ok||!("search" in parsed.result))throw Error("invalid search response");
+  expect(parent({operation:"mail.search",input:{offset:parsed.result.search.nextOffset}})).toBeDefined();
+  expect(parent({operation:"mail.search",input:{offset:Number.MAX_SAFE_INTEGER+1}})).toBeUndefined();
+});
