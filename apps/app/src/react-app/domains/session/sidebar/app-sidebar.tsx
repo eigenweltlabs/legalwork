@@ -7,6 +7,7 @@ import {
   FlaskConical,
   ChevronRight,
   FolderPlus,
+  Inbox,
   Loader2,
   Mic,
   PenLine,
@@ -482,8 +483,15 @@ export type AppSidebarProps = {
   onShowWorkflows?: () => void;
   onShowExtensions?: () => void;
   onShowRecorder?: () => void;
+  /**
+   * Tasks is the firm's intake inbox and is entitlement-gated: the route only
+   * passes this handler when the firm is connected AND its plan includes
+   * `intake`, and the nav row is omitted entirely without it. A lapsed
+   * subscription therefore makes the row disappear rather than error.
+   */
+  onShowTasks?: () => void;
   /** Which main-pane nav tab is currently shown (shades it like hover). */
-  activeNav?: "evals" | "workflows" | "extensions" | "recorder" | null;
+  activeNav?: "evals" | "workflows" | "extensions" | "recorder" | "tasks" | null;
   onReorderWorkspaces?: (workspaceIds: string[]) => void;
   onStartResize?: React.PointerEventHandler<HTMLButtonElement>;
 };
@@ -706,6 +714,18 @@ export function AppSidebar(props: AppSidebarProps) {
               </DropdownMenuContent>
             </DropdownMenu>
           </SidebarMenuItem>
+          {props.onShowTasks ? (
+            <SidebarMenuItem>
+              <SidebarMenuButton
+                className={cn(NAV_ITEM_CLASS, "[&_svg]:size-[18px]")}
+                isActive={props.activeNav === "tasks"}
+                onClick={props.onShowTasks}
+              >
+                <Inbox className="size-[18px]" strokeWidth={1.5} />
+                <span>{t("sidebar.tasks")}</span>
+              </SidebarMenuButton>
+            </SidebarMenuItem>
+          ) : null}
           <SidebarMenuItem>
             <SidebarMenuButton
               className={cn(NAV_ITEM_CLASS, "[&_svg]:size-[18px]")}

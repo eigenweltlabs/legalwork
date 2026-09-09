@@ -64,6 +64,17 @@ export function AppRoot() {
                   </DevProfiler>
                 }
               />
+              {/* Tasks is GLOBAL only: intake is org-level, while workspaces
+                  are folders on this machine, so there is no
+                  /workspace/:id/tasks sibling. */}
+              <Route
+                path="/tasks"
+                element={
+                  <DevProfiler id="SessionRoute">
+                    <SessionRoute />
+                  </DevProfiler>
+                }
+              />
               <Route
                 path="/evals"
                 element={
