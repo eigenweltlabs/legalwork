@@ -139,10 +139,11 @@ export function AudioStep(props: {
   const sysGranted = sysState === "granted" || (!demo && sysState === "unknown");
   const sysDone = sysGranted || sysSkipped;
 
-  // A firm entitled to premium models (connected at the AI step) gets the
+  // A firm already entitled to premium models (an existing Eigenwelt
+  // connection — the onboarding AI step now runs after this one) gets the
   // premium transcription model; everyone else the device recommendation /
   // best free tier. Live query, so the tier upgrades on this screen the
-  // moment the platform reports the fresh trial.
+  // moment the platform reports an entitlement.
   const entitlementsQuery = useEigenweltEntitlements({
     client: props.legalworkClient,
     workspaceId: props.workspaceId,
@@ -314,7 +315,7 @@ export function AudioStep(props: {
     >
       <div className="flex w-full max-w-md flex-col gap-7">
         <div>
-          <StepDots step={4} total={4} />
+          <StepDots step={3} total={5} />
           <h1 className="text-[36px] font-medium leading-[1.04] tracking-[-0.035em] text-dls-text">
             {t("onboarding_audio.title")}
           </h1>

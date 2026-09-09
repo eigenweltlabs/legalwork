@@ -110,7 +110,8 @@ function DocumentMock() {
 
 export function OfficeStep(props: {
   onDone: (result: "installed" | "skipped" | "unavailable") => void;
-  onBack: () => void;
+  /** Absent on the first in-session step — the welcome screen is gone by then. */
+  onBack?: () => void;
   /** False when the user navigated back here: show the rows (all installed)
    * instead of skipping forward again. Self-skip on missing Office stays. */
   autoAdvance?: boolean;
@@ -210,7 +211,11 @@ export function OfficeStep(props: {
           </p>
         </>
       }
-      footerLeft={<CoverBackButton label={t("onboarding.back")} onClick={props.onBack} />}
+      footerLeft={
+        props.onBack ? (
+          <CoverBackButton label={t("onboarding.back")} onClick={props.onBack} />
+        ) : null
+      }
       footerRight={
         anyInstalled ? (
           <Button size="sm" onClick={() => props.onDone("installed")}>
@@ -223,7 +228,7 @@ export function OfficeStep(props: {
     >
       <div className="flex w-full max-w-md flex-col gap-8">
         <div>
-          <StepDots step={3} total={4} />
+          <StepDots step={2} total={5} />
           <h1 className="text-[36px] font-medium leading-[1.04] tracking-[-0.035em] text-dls-text">
             {t("onboarding_office.title")}
           </h1>

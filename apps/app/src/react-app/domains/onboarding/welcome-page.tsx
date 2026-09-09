@@ -218,7 +218,7 @@ export function WelcomePage({
     >
       <div className="flex w-full max-w-md flex-col gap-8">
         <div>
-          <StepDots step={1} total={4} />
+          <StepDots step={1} total={5} />
           <h1 className="text-[36px] font-medium leading-[1.04] tracking-[-0.035em] text-dls-text">
             {t("welcome.title")}
           </h1>

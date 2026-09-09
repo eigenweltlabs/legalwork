@@ -218,13 +218,15 @@ export function WelcomeRoute() {
         }
         dispatch({ type: "close" });
         // Leaving the welcome screen — commit the analytics choice and start
-        // the PERSISTED in-session onboarding ("Your AI" → quick setup). The
+        // the PERSISTED in-session onboarding (quick setup → "Your AI"). The
         // stage survives reloads; hasCompletedOnboarding only gates /welcome.
+        // Office add-ins and audio need the desktop, so the web starts at the
+        // permissions step.
         local.setPrefs((prev) => ({
           ...prev,
           analyticsEnabled: analyticsOptIn,
           hasCompletedOnboarding: true,
-          onboardingStage: "ai",
+          onboardingStage: isDesktopRuntime() ? "office" : "permissions",
         }));
         captureAnalyticsEvent("workspace_created", { source: "onboarding", surface: analyticsSurface() });
         // The consent choice just persisted: an opt-out sends its single
