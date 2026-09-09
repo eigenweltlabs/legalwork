@@ -78,6 +78,11 @@ export class GmailRunStore {
     return{...next,generation,phase:"backfill",historyId:anchor,historyPageToken:null,pollAt:null,recentAfter};
   }));}
   isPresent(accountId:string,locator:ProviderMessageLocator):boolean{return safe(()=>{this.account(accountId);return this.presence(accountId,providerMessageKey(locator))?.remote_present!==0;});}
+  /** A list result observes presence, not a new per-message history version. */
+  markSeenFromList(accountId:string,locator:ProviderMessageLocator,generation:string):void{safe(()=>this.database.transaction(()=>{
+    const known=this.readMessageHistoryId(accountId,locator);
+    this.markPresent(accountId,locator,generation,known??undefined);
+  }));}
   markPresent(accountId:string,locator:ProviderMessageLocator,generation:string,historyId?:string):void{safe(()=>this.database.transaction(()=>{
     this.account(accountId);input(id,generation);const identity=input(providerMessageLocatorSchema,locator);if(identity.provider!=="gmail")throw new GmailStateError("provider_mismatch");
     const incoming=historyId===undefined?null:input(history,historyId),key=providerMessageKey(identity),old=this.presence(accountId,key);
@@ -115,7 +120,7 @@ export class GmailRunStore {
     this.account(accountId);input(id,generation);input(z.number().int().min(1).max(500),limit);const run=this.read(accountId);
     if(!run||run.generation!==generation||run.phase!=="backfill"||run.state!=="active"||run.historyId===null||!this.database.get("SELECT 1 AS found FROM mail_sync_scopes WHERE account_id=? AND generation=? AND scope_id='gmail:all' AND discovery_complete=1",[accountId,generation]))throw new GmailStateError("stale_run");
     const rows=this.database.all("SELECT m.locator_json,p.message_key FROM mail_gmail_presence p JOIN mail_messages m ON m.account_id=p.account_id AND m.message_key=p.message_key WHERE p.account_id=? AND p.remote_present=1 AND p.seen_generation IS NOT ? ORDER BY p.message_key LIMIT ?",[accountId,generation,limit]);
-    for(const row of rows){if(typeof row.locator_json!=="string")throw new GmailStateError("storage_unavailable");this.markRemoved(accountId,input(providerMessageLocatorSchema,JSON.parse(row.locator_json)),run.historyId);this.database.run("UPDATE mail_gmail_presence SET seen_generation=? WHERE account_id=? AND message_key=?",[generation,accountId,input(z.string().min(1),row.message_key)]);}
+    for(const row of rows){if(typeof row.locator_json!=="string")throw new GmailStateError("storage_unavailable");this.markAbsentFromFetch(accountId,input(providerMessageLocatorSchema,JSON.parse(row.locator_json)));this.database.run("UPDATE mail_gmail_presence SET seen_generation=? WHERE account_id=? AND message_key=?",[generation,accountId,input(z.string().min(1),row.message_key)]);}
     const remaining=!!this.database.get("SELECT 1 AS found FROM mail_gmail_presence WHERE account_id=? AND remote_present=1 AND seen_generation IS NOT ? LIMIT 1",[accountId,generation]);return{processed:rows.length,remaining};
   }));}
   progress(accountId:string,generation:string){return safe(()=>this.database.transaction(()=>{

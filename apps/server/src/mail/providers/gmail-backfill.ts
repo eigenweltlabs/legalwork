@@ -218,7 +218,7 @@ export class GmailBackfill {
             const locator = { provider: "gmail", messageId: message.id } satisfies ProviderMessageLocator;
             if (!this.options.database.get("SELECT 1 FROM mail_messages WHERE account_id=? AND message_key=?", [scope.accountId, providerMessageKey(locator)]))
               writer.ingestMessage({ locator, rfcMessageId: null, subject: "", threadId: message.threadId, memberships: [] });
-            this.runs.markPresent(scope.accountId, locator, scope.generation, session.run.historyId ?? undefined);
+            this.runs.markSeenFromList(scope.accountId, locator, scope.generation);
           }
         });
         session.run = this.runs.setState(scope.accountId, this.stamp(session.run), "active", { failureCount: 0 });
