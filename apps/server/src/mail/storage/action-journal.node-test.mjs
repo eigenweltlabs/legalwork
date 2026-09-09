@@ -100,7 +100,7 @@ test('write failure after SQL mutation rolls back the dispatch marker with fixed
  journal.markDispatched(work.lease);assert.throws(()=>faulty.recordOutcome(work.lease,'succeeded'),fails('storage_unavailable'));assert.equal(journal.read('a',job.id).state,'dispatching');
 }));
 test('v4 migration is atomic, preserves unmanaged legacy actions and requires v5 guard',async()=>fixture(f=>{
- f.db.exec("DROP TRIGGER mail_raw_projection_insert; DROP TRIGGER mail_raw_projection_update; DROP TABLE mail_mime_parts; DROP TABLE mail_mime_projections; DROP TABLE mail_gmail_metadata; DROP TABLE mail_gmail_runs; DROP TABLE mail_action_jobs; UPDATE mail_schema_version SET version=4");
+ f.db.exec("DROP TRIGGER mail_raw_projection_insert; DROP TRIGGER mail_raw_projection_update; DROP TABLE mail_mime_parts; DROP TABLE mail_mime_projections; DROP TABLE mail_gmail_metadata; DROP TABLE mail_gmail_presence; DROP TABLE mail_gmail_runs; DROP TABLE mail_action_jobs; UPDATE mail_schema_version SET version=4");
  for(const state of ['queued','running','uncertain','succeeded'])f.db.run('INSERT INTO mail_actions VALUES(?,?,?,?,?)',['a',state,'legacy','{"opaque":"unchanged"}',state]);
  const before=f.db.all('SELECT * FROM mail_actions ORDER BY id');assert.throws(()=>assertMailSchema(f.db));
  const faulty={...f.db,exec(sql){f.db.exec(sql);if(sql.includes('CREATE TABLE mail_action_jobs'))throw Error('migration interrupted');}};
