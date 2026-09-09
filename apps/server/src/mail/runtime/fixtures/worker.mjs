@@ -24,11 +24,11 @@ createInterface({ input: process.stdin }).on("line", (line) => {
   if (account === "hang") return;
   if (account === "malformed") { process.stdout.write('{"kind":"secret-value"}\n'); return; }
   if (account === "oversize") { process.stdout.write("x".repeat(70 * 1024)); return; }
-  if (account === "unknown-id") { output({ kind: "response", id: "999:999", ok: true, result: { state: "idle" } }); return; }
+  if (account === "unknown-id") { output({ kind: "response", id: "999:999", ok: true, result: { state: "idle", syncSupported: false } }); return; }
   if (account === "wrong-result") { output({ kind: "response", id: message.id, ok: true, result: { pong: true } }); return; }
   if (account === "worker-error") { output({ kind: "response", id: message.id, ok: false, code: "operation_failed" }); return; }
   const result = message.command.operation === "ping" ? { pong: true }
     : message.command.operation === "credentials.update" ? { updated: true }
-      : message.command.operation === "mail.status" ? { state: account === "slow" ? "syncing" : "idle" } : { accepted: true };
+      : message.command.operation === "mail.status" ? { state: account === "slow" ? "syncing" : "idle", syncSupported: true } : { accepted: true };
   setTimeout(() => output({ kind: "response", id: message.id, ok: true, result }), account === "slow" ? 60 : 0);
 });

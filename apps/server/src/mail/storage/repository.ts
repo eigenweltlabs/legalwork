@@ -18,6 +18,10 @@ const contentInput = z.object({
   if ((value.kind === "attachment") !== (value.partId.length > 0)) ctx.addIssue({ code: "custom", message: "Only attachment parts require a part ID" });
   if ((value.state === "stored") !== (value.reference !== undefined)) ctx.addIssue({ code: "custom", message: "Only stored content requires a durable reference" });
 });
+const pageInput = z.object({ limit: z.number().int().min(1).max(100).default(50), after: id.optional() }).strict();
+const folderRow = z.object({ id, name: z.string(), kind: z.enum(["folder", "label"]), parent_id: id.nullable() });
+export type MailPageInput = z.input<typeof pageInput>;
+
 const accountRow = z.object({ id, owner_id: id, provider, display_name: z.string() });
 const messageRow = z.object({ account_id: id, message_key: z.string().min(1), provider, locator_json: z.string(), rfc_message_id: z.string().nullable(), subject: z.string(), thread_id: id.nullable(), attachments_enumerated: z.union([z.literal(0), z.literal(1)]) });
 const manifestRow = z.object({ kind: z.enum(["raw", "body", "attachment"]), part_id: z.string(), state: z.enum(["pending", "stored", "unavailable"]), ref_id: id.nullable(), bytes: z.number().nullable(), sha256: z.string().nullable() });
@@ -44,6 +48,24 @@ export class MailRepository {
   }
   listAccounts() {
     return this.database.all("SELECT * FROM mail_accounts WHERE owner_id=? ORDER BY id", [this.ownerId]).map(row => accountRow.parse(row));
+  }
+  /** Keyset pagination is bounded in SQL, including one look-ahead row. */
+  listAccountsPage(input: MailPageInput = {}) {
+    const page = pageInput.parse(input);
+    const items = this.database.all(
+      "SELECT id,owner_id,provider,display_name FROM mail_accounts WHERE owner_id=? AND id>? ORDER BY id LIMIT ?",
+      [this.ownerId, page.after ?? "", page.limit + 1],
+    ).map(row => accountRow.parse(row));
+    return { items: items.slice(0, page.limit), hasMore: items.length > page.limit };
+  }
+  listFoldersPage(accountId: string, input: MailPageInput = {}) {
+    this.account(accountId);
+    const page = pageInput.parse(input);
+    const items = this.database.all(
+      "SELECT id,name,kind,parent_id FROM mail_folders WHERE account_id=? AND id>? ORDER BY id LIMIT ?",
+      [accountId, page.after ?? "", page.limit + 1],
+    ).map(row => folderRow.parse(row));
+    return { items: items.slice(0, page.limit), hasMore: items.length > page.limit };
   }
   putFolder(accountId: string, input: MailFolderInput): void {
     this.account(accountId);
