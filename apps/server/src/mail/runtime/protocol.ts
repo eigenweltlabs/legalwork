@@ -1,3 +1,4 @@
+import {mailLocalCommandSchema,mailLocalResultSchema,localResultMatches,type MailLocalCommand,type MailLocalResult} from "../local-view.js";
 import { mailSearchInputSchema, mailSearchResultSchema, mailSearchRebuildInputSchema, mailSearchRebuildResultSchema, type MailSearchInput, type MailSearchResult, type MailSearchRebuildInput, type MailSearchRebuildResult } from "../search-view.js";
 import { GMAIL_MAIL_SCOPES, GRAPH_MAIL_SCOPES } from "../provider-config.js";
 import type { MailOAuthSettings } from "../providers/oauth.js";
@@ -28,6 +29,7 @@ export type WorkerInitialization = {
 };
 type Page = { limit?: number; after?: string };
 export type WorkerCommand =
+  | MailLocalCommand
   | { operation: "mail.search"; input: MailSearchInput }
   | { operation: "mail.search.rebuild"; input: MailSearchRebuildInput }
   | { operation: "ping" }
@@ -51,6 +53,7 @@ export type WorkerCommand =
 export type WorkerAccount = { id: string; provider: "gmail" | "graph" | "imap"; displayName: string };
 export type WorkerFolder = { id: string; name: string; kind: "folder" | "label"; parentId: string | null };
 export type WorkerResult =
+  | {local:MailLocalResult}
   | { search: MailSearchResult }
   | { rebuilt: MailSearchRebuildResult }
   | { pong: true }
@@ -70,7 +73,7 @@ export type WorkerResult =
   | { content: MailContentChunk }
   | { accepted: true }
   | { updated: true };
-export type WorkerErrorCode = "locked" | "not_ready" | "unsupported" | "operation_failed" | "not_found" | "response_too_large";
+export type WorkerErrorCode = "conflict" | "invalid_input" | "locked" | "not_ready" | "unsupported" | "operation_failed" | "not_found" | "response_too_large";
 export type ParentMessage =
   | { kind: "initialize"; protocol: 1; initialization: WorkerInitialization }
   | { kind: "request"; id: string; command: WorkerCommand }
@@ -149,7 +152,8 @@ function folder(value: unknown): value is WorkerFolder {
     && typeof value.name === "string" && (value.kind === "folder" || value.kind === "label") && cursor(value.parentId);
 }
 function result(value: unknown): value is WorkerResult {
-  return record(value) && ((exact(value, ["search"]) && mailSearchResultSchema.safeParse(value.search).success)
+  return record(value) && ((exact(value,["local"]) && mailLocalResultSchema.safeParse(value.local).success)
+    || (exact(value, ["search"]) && mailSearchResultSchema.safeParse(value.search).success)
     || (exact(value, ["rebuilt"]) && mailSearchRebuildResultSchema.safeParse(value.rebuilt).success)
     || (exact(value, ["pong"]) && value.pong === true)
     || (exact(value, ["connectionStarted"]) && started(value.connectionStarted))
@@ -183,12 +187,24 @@ export function parseWorkerMessage(line: string): WorkerMessage | undefined {
   if (value.kind !== "response" || typeof value.id !== "string" || value.id.length > 40 || !/^[0-9]+:[0-9]+$/.test(value.id)) return;
   if (exact(value, ["kind", "id", "ok", "result"]) && value.ok === true && result(value.result)) return { kind: "response", id: value.id, ok: true, result: value.result };
   if (exact(value, ["kind", "id", "ok", "code"]) && value.ok === false
-    && (value.code === "locked" || value.code === "not_ready" || value.code === "unsupported" || value.code === "operation_failed" || value.code === "not_found" || value.code === "response_too_large")) {
+    && (value.code === "conflict" || value.code === "invalid_input" || value.code === "locked" || value.code === "not_ready" || value.code === "unsupported" || value.code === "operation_failed" || value.code === "not_found" || value.code === "response_too_large")) {
     return { kind: "response", id: value.id, ok: false, code: value.code };
   }
 }
 export function resultMatchesCommand(command: WorkerCommand, value: WorkerResult): boolean {
   switch (command.operation) {
+    case "mail.local.draft.save":
+    case "mail.local.draft.read":
+    case "mail.local.draft.delete":
+    case "mail.local.draft.attachment":
+    case "mail.local.draft.list":
+    case "mail.local.action.submission":
+    case "mail.local.action.mutation":
+    case "mail.local.action.read":
+    case "mail.local.action.list":
+    case "mail.local.action.cancel":
+    case "mail.local.events":
+      return "local" in value&&localResultMatches(command,value.local);
     case "mail.search": return "search" in value && (!command.input.accountIds || value.search.items.every(item=>command.input.accountIds?.includes(item.accountId)));
     case "mail.search.rebuild": return "rebuilt" in value;
     case "ping": return "pong" in value;
@@ -215,6 +231,7 @@ export function resultMatchesCommand(command: WorkerCommand, value: WorkerResult
 }
 export function validWorkerCommand(value: unknown): value is WorkerCommand {
   if (!record(value)) return false;
+  if(typeof value.operation==="string"&&value.operation.startsWith("mail.local."))return mailLocalCommandSchema.safeParse(value).success;
   if (value.operation === "mail.messages.list") return exact(value, ["operation", "accountId", "page"]) && id(value.accountId) && mailMessagePageSchema.safeParse(value.page).success;
   if (value.operation === "mail.messages.read") return exact(value, ["operation", "accountId", "locator"]) && id(value.accountId) && providerMessageLocatorSchema.safeParse(value.locator).success;
   if (value.operation === "mail.parts.list") return exact(value, ["operation", "accountId", "locator", "page"]) && id(value.accountId) && providerMessageLocatorSchema.safeParse(value.locator).success && mailPartPageSchema.safeParse(value.page).success;

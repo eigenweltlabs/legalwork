@@ -1,3 +1,4 @@
+import type { MailActionCancel, MailActionPage, MailDraftAttachment, MailDraftAttachmentView, MailDraftDelete, MailDraftPage, MailDraftRead, MailDraftSave, MailDraftSummary, MailDraftView, MailEventPage, MailEventQuery, MailLocalAction, MailLocalPage, MailMutation, MailSubmission } from "./local-view.js";
 import type { MailSearchInput, MailSearchResult, MailSearchRebuildInput, MailSearchRebuildResult } from "./search-view.js";
 export type MailPageInput = { limit?: number; after?: string };
 export type MailAccountView = { id: string; provider: "gmail" | "graph" | "imap"; displayName: string };
@@ -9,11 +10,23 @@ export type MailServiceStatus = {
   syncSupported: boolean;
 };
 export class MailServiceError extends Error {
-  constructor(readonly code: "not_found" | "locked" | "unavailable" | "too_large" | "unsupported") { super(`mail_${code}`); }
+  constructor(readonly code: "not_found" | "locked" | "unavailable" | "too_large" | "unsupported" | "conflict" | "invalid_input") { super(`mail_${code}`); }
 }
 
 /** Bound to one trusted owner at construction; no request supplies an owner ID. */
 export interface MailService {
+  saveDraft(accountId:string, input:MailDraftSave):Promise<MailDraftView>;
+  readDraft(accountId:string, input:MailDraftRead):Promise<MailDraftView>;
+  deleteDraft(accountId:string, input:MailDraftDelete):Promise<MailDraftSummary>;
+  readDraftAttachment(accountId:string, input:MailDraftAttachment):Promise<MailDraftAttachmentView>;
+  listDrafts(accountId:string, input:MailLocalPage):Promise<MailDraftPage>;
+  enqueueSubmission(accountId:string, input:MailSubmission):Promise<MailLocalAction>;
+  enqueueMutation(accountId:string, input:MailMutation):Promise<MailLocalAction>;
+  readAction(accountId:string, actionId:string):Promise<MailLocalAction>;
+  listActions(accountId:string, input:MailLocalPage):Promise<MailActionPage>;
+  cancelAction(accountId:string, input:MailActionCancel):Promise<MailLocalAction>;
+  listEvents(accountId:string, input:MailEventQuery):Promise<MailEventPage>;
+
   search(input: MailSearchInput): Promise<MailSearchResult>;
   rebuildSearch(input: MailSearchRebuildInput): Promise<MailSearchRebuildResult>;
   status(): MailServiceStatus;

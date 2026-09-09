@@ -1,3 +1,4 @@
+import {MailLocalApiStore,MailLocalError} from "../storage/local-api.js";
 import { MailSearchIndexer } from "./search-indexer.js";
 import { MailSearchStore, MailSearchError } from "../storage/search.js";
 /** Production Node/Electron entrypoint. stdout is exclusively the private worker protocol. */
@@ -20,6 +21,7 @@ import { MAX_WORKER_MESSAGE_BYTES, parseParentMessage, parseWorkerMessage,
 
 let database: MailDatabase | undefined;
 let repository: MailRepository | undefined;
+let local:MailLocalApiStore|undefined;
 let reads: MailReadStore | undefined;
 let search: MailSearchStore | undefined;
 let searchIndexer: MailSearchIndexer | undefined;
@@ -101,6 +103,7 @@ async function initialize(value: WorkerInitialization): Promise<void> {
     migrateMailSchema(database);
     assertMailSchema(database);
     repository = new MailRepository(database, value.ownerId);
+    local=new MailLocalApiStore(database,value.ownerId);
     reads = new MailReadStore(database, value.ownerId);
     search = new MailSearchStore(database, value.ownerId);
     searchIndexer = new MailSearchIndexer(database,value.ownerId);
@@ -149,6 +152,17 @@ async function request(message: Extract<ParentMessage, { kind: "request" }>): Pr
     switch (command.operation) {
       case "mail.search": if (!search) throw locked; result = {search:search.search(command.input)}; break;
       case "mail.search.rebuild": if (!search) throw locked; result = {rebuilt:search.rebuild(command.input)}; break;
+      case "mail.local.draft.save": if(!local)throw locked;result={local:{operation:command.operation,accountId:command.accountId,value:local.saveDraft(command.accountId,command.input)}};break;
+      case "mail.local.draft.read": if(!local)throw locked;result={local:{operation:command.operation,accountId:command.accountId,value:local.readDraft(command.accountId,command.input)}};break;
+      case "mail.local.draft.delete": if(!local)throw locked;result={local:{operation:command.operation,accountId:command.accountId,value:local.deleteDraft(command.accountId,command.input)}};break;
+      case "mail.local.draft.attachment": if(!local)throw locked;result={local:{operation:command.operation,accountId:command.accountId,value:local.readDraftAttachment(command.accountId,command.input)}};break;
+      case "mail.local.draft.list": if(!local)throw locked;result={local:{operation:command.operation,accountId:command.accountId,value:local.listDrafts(command.accountId,command.input)}};break;
+      case "mail.local.action.submission": if(!local)throw locked;result={local:{operation:command.operation,accountId:command.accountId,value:local.enqueueSubmission(command.accountId,command.input)}};break;
+      case "mail.local.action.mutation": if(!local)throw locked;result={local:{operation:command.operation,accountId:command.accountId,value:local.enqueueMutation(command.accountId,command.input)}};break;
+      case "mail.local.action.read": if(!local)throw locked;result={local:{operation:command.operation,accountId:command.accountId,value:local.readAction(command.accountId,command.input.actionId)}};break;
+      case "mail.local.action.list": if(!local)throw locked;result={local:{operation:command.operation,accountId:command.accountId,value:local.listActions(command.accountId,command.input)}};break;
+      case "mail.local.action.cancel": if(!local)throw locked;result={local:{operation:command.operation,accountId:command.accountId,value:local.cancelAction(command.accountId,command.input)}};break;
+      case "mail.local.events": if(!local)throw locked;result={local:{operation:command.operation,accountId:command.accountId,value:local.events(command.accountId,command.input)}};break;
       case "ping": result = { pong: true }; break;
       case "mail.storage.status": result = { encrypted: true, schemaVersion: MAIL_SCHEMA_VERSION, syncSupported: true }; break;
       case "mail.connection.begin":
@@ -216,6 +230,22 @@ async function request(message: Extract<ParentMessage, { kind: "request" }>): Pr
       case "credentials.update":
         write({ kind: "response", id: message.id, ok: false, code: "unsupported" }); return;
     }
+    if(result&&'local' in result){
+      const localResult=result.local;
+      if(localResult.operation==='mail.local.events'){
+        const page=localResult.value;
+        while(page.items.length&&Buffer.byteLength(JSON.stringify({kind:'response',id:message.id,ok:true,result}))>MAX_WORKER_MESSAGE_BYTES){
+          page.items.pop();page.hasMore=true;
+          if(page.items.length)page.nextCursor=page.items.at(-1)!.sequence;else{result=undefined;break;}
+        }
+      }else if(localResult.operation==='mail.local.draft.list'||localResult.operation==='mail.local.action.list'){
+        const page=localResult.value;
+        while(page.items.length&&Buffer.byteLength(JSON.stringify({kind:'response',id:message.id,ok:true,result}))>MAX_WORKER_MESSAGE_BYTES){
+          page.items.pop();page.nextCursor=page.items.at(-1)?.id??null;
+          if(!page.items.length){result=undefined;break;}
+        }
+      }
+    }
     if (isClosing()) return;
     if (!result || Buffer.byteLength(JSON.stringify({ kind: "response", id: message.id, ok: true, result })) > MAX_WORKER_MESSAGE_BYTES) {
       write({ kind: "response", id: message.id, ok: false, code: "response_too_large" }); return;
@@ -224,7 +254,7 @@ async function request(message: Extract<ParentMessage, { kind: "request" }>): Pr
   } catch (error) {
     // Do not echo SQLite/provider errors, row contents, supplied IDs, paths or key material.
     if (isClosing()) return;
-    const code = error === unsupported || (error instanceof MailSearchError && error.code === "unsupported") ? "unsupported" : error === locked || (error instanceof MailSearchError && error.code === "locked") || ((error instanceof GmailBackfillError || error instanceof GraphBackfillError) && error.code === "locked")
+    const code = error instanceof MailLocalError&&error.code==="conflict"?"conflict":error instanceof MailLocalError&&error.code==="invalid_input"?"invalid_input":error instanceof MailLocalError&&error.code==="locked"?"locked":error instanceof MailLocalError&&error.code==="not_found"?"not_found":error === unsupported || (error instanceof MailSearchError && error.code === "unsupported") ? "unsupported" : error === locked || (error instanceof MailSearchError && error.code === "locked") || ((error instanceof GmailBackfillError || error instanceof GraphBackfillError) && error.code === "locked")
       || (error instanceof MailCredentialError && error.code === "disconnected") ? "locked" :
       (error instanceof MailConnectionError && (error.code === "not_found" || error.code === "account_not_found"))
       || (error instanceof MailCredentialError && error.code === "account_not_found")
