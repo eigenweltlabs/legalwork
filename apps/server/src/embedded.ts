@@ -26,6 +26,8 @@ export type EmbeddedServerOptions = CliArgs & {
   opencodeBin?: string;
   /** Working directory for the managed OpenCode process. */
   opencodeCwd?: string;
+  /** Development home for managed children only; main-process OS identity is unchanged. */
+  opencodeHome?: string;
   /** Native folder-picker hook, forwarded to ServerConfig.pickDirectory. */
   pickDirectory?: ServerConfig["pickDirectory"];
   /** Desktop recorder hook, forwarded to Office add-in API routes. */
@@ -105,6 +107,7 @@ export async function startEmbeddedServer(options: EmbeddedServerOptions): Promi
       managedOpencode = await createManagedOpencodeServer({
         bin: options.opencodeBin || process.env.LEGALWORK_OPENCODE_BIN,
         cwd,
+        home: options.opencodeHome,
         excludedPorts: [config.port],
         env: {
           ...(process.env.LEGALWORK_DEV_MODE ? { LEGALWORK_DEV_MODE: process.env.LEGALWORK_DEV_MODE } : {}),
