@@ -137,3 +137,17 @@ test('competing Node writers deduplicate replay keys and grant only one lease',a
  });
  const [a,b]=await Promise.all([run(),run()]);assert.equal(a.id,b.id);assert.equal(Number(a.claimed)+Number(b.claimed),1);await f.reopen();assert.equal(f.journal().list('a').length,1);
 }));
+
+
+test('preflight throttling persists provider minimum delay without permitting post-dispatch retry',async()=>fixture(async f=>{
+ let journal=f.journal();const job=journal.enqueue('a',input());let work=journal.claim('a');
+ assert.throws(()=>journal.failBeforeDispatch(work.lease,true,-1),fails('invalid_input'));
+ const retry=journal.failBeforeDispatch(work.lease,true,7200000);
+ assert.equal(retry.availableAt,7201000);
+ await f.reopen();journal=f.journal();f.setTime(7200999);assert.equal(journal.claim('a'),null);
+ f.setTime(7201000);work=journal.claim('a');assert.equal(work.lease.id,job.id);
+ journal.markDispatched(work.lease);
+ assert.throws(()=>journal.failBeforeDispatch(work.lease,true,7200000),fails('invalid_state'));
+ assert.equal(journal.recordOutcome(work.lease,'unknown').state,'uncertain');
+ assert.equal(journal.claim('a'),null);
+}));
