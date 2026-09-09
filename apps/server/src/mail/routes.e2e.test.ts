@@ -126,6 +126,7 @@ test("local HTTP reads complete encrypted originals and attachments offline with
     expect(first.items.map(item => item.locator)).toEqual([locator, { provider: "gmail", messageId: "m2" }]);
     expect(first.items[1]?.removed).toBe(true);
     expect((await post("query", { after: first.nextCursor })).status).toBe(413);
+    expect((await post("read", { locator: { provider: "gmail", messageId: "m3" } })).status).toBe(413);
     const filtered = z.object({ items: z.array(mailMessageViewSchema), nextCursor: z.string().nullable() }).parse(await (await post("query", {})).json());
     expect(filtered.items.map(item => item.locator)).toEqual([locator]);
     expect(filtered.nextCursor).toBe(JSON.stringify(["gmail", "m1"]));

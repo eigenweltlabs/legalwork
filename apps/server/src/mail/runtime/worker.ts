@@ -205,7 +205,9 @@ async function request(message: Extract<ParentMessage, { kind: "request" }>): Pr
         write({ kind: "response", id: message.id, ok: false, code: "unsupported" }); return;
     }
     if (isClosing()) return;
-    if (!result) { write({ kind: "response", id: message.id, ok: false, code: "response_too_large" }); return; }
+    if (!result || Buffer.byteLength(JSON.stringify({ kind: "response", id: message.id, ok: true, result })) > MAX_WORKER_MESSAGE_BYTES) {
+      write({ kind: "response", id: message.id, ok: false, code: "response_too_large" }); return;
+    }
     if (!write({ kind: "response", id: message.id, ok: true, result })) write({ kind: "response", id: message.id, ok: false, code: "operation_failed" });
   } catch (error) {
     // Do not echo SQLite/provider errors, row contents, supplied IDs, paths or key material.
