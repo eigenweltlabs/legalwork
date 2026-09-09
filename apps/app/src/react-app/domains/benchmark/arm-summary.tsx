@@ -4,6 +4,7 @@ import { Badge } from "@/components/ui/badge";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import type { BenchmarkArm, BenchmarkArmConfig } from "../../../app/lib/benchmark-types";
+import { t } from "@/i18n";
 
 /**
  * What an ablation arm took away, for the run views.
@@ -54,24 +55,24 @@ export function isUnrestricted(config: BenchmarkArmConfig | undefined): boolean 
 export function armSummaryLine(config: BenchmarkArmConfig | undefined): string {
   const { tools, skills } = armRestrictions(config);
   const parts: string[] = [];
-  if (tools.length) parts.push(`no ${tools.join(", ")}`);
-  if (skills.kind === "none") parts.push("no skills or workflows");
-  else if (skills.kind === "allow") parts.push(`only the ${skills.names.join(", ")} skill(s)`);
-  else if (skills.kind === "deny") parts.push(`no ${skills.names.join(", ")}`);
-  return parts.length ? parts.join("; ") : "everything available";
+  if (tools.length) parts.push(t("benchmark.arm_line_no_tools", { tools: tools.join(", ") }));
+  if (skills.kind === "none") parts.push(t("benchmark.arm_line_no_skills"));
+  else if (skills.kind === "allow") parts.push(t("benchmark.arm_line_only_skills", { skills: skills.names.join(", ") }));
+  else if (skills.kind === "deny") parts.push(t("benchmark.arm_line_no_named", { names: skills.names.join(", ") }));
+  return parts.length ? parts.join("; ") : t("benchmark.arm_line_everything");
 }
 
 /** The full include/exclude breakdown for one arm. */
 export function ArmDetail({ config, className }: { config: BenchmarkArmConfig | undefined; className?: string }) {
   const { tools, skills } = armRestrictions(config);
   if (tools.length === 0 && skills.kind === "all") {
-    return <p className={cn("text-[12px] text-muted-foreground", className)}>Everything available — no ablation.</p>;
+    return <p className={cn("text-[12px] text-muted-foreground", className)}>{t("benchmark.arm_detail_everything")}</p>;
   }
   return (
     <div className={cn("space-y-1.5 text-[12px]", className)}>
       {tools.length ? (
         <div className="flex flex-wrap items-center gap-1">
-          <span className="text-muted-foreground">Tools off:</span>
+          <span className="text-muted-foreground">{t("benchmark.arm_tools_off")}</span>
           {tools.map((tool) => (
             <Badge key={tool} variant="outline" className="px-1.5 py-0 font-mono text-[10px] line-through">
               {tool}
@@ -87,7 +88,7 @@ export function ArmDetail({ config, className }: { config: BenchmarkArmConfig | 
       {skills.kind === "allow" || skills.kind === "deny" ? (
         <div className="flex flex-wrap items-center gap-1">
           <span className="text-muted-foreground">
-            {skills.kind === "allow" ? "Only these skills:" : "Skills off:"}
+            {skills.kind === "allow" ? t("benchmark.arm_only_skills") : t("benchmark.arm_skills_off")}
           </span>
           {skills.names.map((name) => (
             <Badge
@@ -116,10 +117,8 @@ export function RunArmsSection({ arms }: { arms: BenchmarkArm[] | undefined }) {
   return (
     <div className="rounded-xl border border-dls-border">
       <div className="border-b border-dls-border px-4 py-2">
-        <h3 className="text-[13px] font-medium text-foreground">Ablation arms</h3>
-        <p className="text-[11px] text-muted-foreground">
-          Every task ran once per arm. The first arm is the baseline the others are read against.
-        </p>
+        <h3 className="text-[13px] font-medium text-foreground">{t("benchmark.arm_section_title")}</h3>
+        <p className="text-[11px] text-muted-foreground">{t("benchmark.arm_section_hint")}</p>
       </div>
       <div className="divide-y divide-dls-border">
         {arms.map((arm, index) => (

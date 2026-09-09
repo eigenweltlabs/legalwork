@@ -9,6 +9,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { cn } from "@/lib/utils";
 import type { BenchmarkArm, BenchmarkSkillPolicy } from "../../../app/lib/benchmark-types";
+import { t } from "@/i18n";
 
 /**
  * Ablation arm editor for the start-run modal.
@@ -89,10 +90,10 @@ function SkillPolicyEditor(props: {
       <div className="flex flex-wrap gap-1">
         {(
           [
-            { id: "all", label: "All skills" },
-            { id: "none", label: "No skills" },
-            { id: "allow", label: "Only these" },
-            { id: "deny", label: "All except" },
+            { id: "all", label: t("benchmark.arm_skills_all") },
+            { id: "none", label: t("benchmark.arm_skills_none") },
+            { id: "allow", label: t("benchmark.arm_skills_allow") },
+            { id: "deny", label: t("benchmark.arm_skills_deny") },
           ] as const
         ).map((option) => (
           <button
@@ -168,14 +169,12 @@ export function ArmSelectStep(props: ArmSelectProps) {
     <div className="space-y-2">
       <div className="flex items-center justify-between">
         <div>
-          <Label className="text-[12px]">Ablation</Label>
-          <p className="text-[11px] text-muted-foreground">
-            Every arm re-runs the same tasks with a different capability set. The first is the baseline.
-          </p>
+          <Label className="text-[12px]">{t("benchmark.arm_ablation")}</Label>
+          <p className="text-[11px] text-muted-foreground">{t("benchmark.arm_ablation_hint")}</p>
         </div>
         <Button variant="outline" size="sm" className="gap-1.5" onClick={addArm} disabled={props.arms.length >= 6}>
           <Plus className="size-3.5" />
-          Add arm
+          {t("benchmark.arm_add")}
         </Button>
       </div>
 
@@ -190,11 +189,11 @@ export function ArmSelectStep(props: ArmSelectProps) {
                   className="h-7 max-w-[200px] text-[12px]"
                   value={arm.label}
                   onChange={(event) => update(arm.id, { label: event.target.value })}
-                  placeholder="Arm name"
+                  placeholder={t("benchmark.arm_name_placeholder")}
                 />
                 {baseline ? (
                   <Badge variant="secondary" className="px-1.5 py-0 text-[10px]">
-                    baseline
+                    {t("benchmark.arm_baseline")}
                   </Badge>
                 ) : (
                   <span className="truncate text-[11px] text-muted-foreground">{summarize(arm)}</span>
@@ -206,7 +205,7 @@ export function ArmSelectStep(props: ArmSelectProps) {
                     className="ml-auto h-7 text-[11px]"
                     onClick={() => setExpanded(open ? null : arm.id)}
                   >
-                    {open ? "Done" : "Configure"}
+                    {open ? t("benchmark.arm_done") : t("benchmark.arm_configure")}
                   </Button>
                 ) : null}
                 {!baseline ? (
@@ -227,7 +226,7 @@ export function ArmSelectStep(props: ArmSelectProps) {
               {open && !baseline ? (
                 <div className="space-y-3 border-t border-dls-border p-3">
                   <div className="space-y-1.5">
-                    <Label className="text-[11px] text-muted-foreground">Tools switched off</Label>
+                    <Label className="text-[11px] text-muted-foreground">{t("benchmark.arm_tools_off_label")}</Label>
                     <div className="flex flex-wrap gap-1">
                       {tools.map((tool) => {
                         const disabled = arm.config.tools?.[tool] === false;
@@ -256,7 +255,7 @@ export function ArmSelectStep(props: ArmSelectProps) {
                   </div>
 
                   <div className="space-y-1.5">
-                    <Label className="text-[11px] text-muted-foreground">Skills &amp; workflows</Label>
+                    <Label className="text-[11px] text-muted-foreground">{t("benchmark.arm_skills_workflows")}</Label>
                     <SkillPolicyEditor
                       policy={arm.config.skills ?? { mode: "all" }}
                       skills={props.skills}
