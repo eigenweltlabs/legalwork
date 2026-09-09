@@ -1,4 +1,5 @@
 import {imapConnectionSchema} from '../mail/providers/imap-config.js';
+import {extractionRequestSchema,extractionReadSchema} from "../mail/extraction-view.js";
 import { mailActionCancelSchema, mailActionReadSchema, mailDraftAttachmentSchema, mailDraftDeleteSchema, mailDraftReadSchema, mailDraftSaveSchema, mailEventQuerySchema, mailLocalPageSchema, mailMutationSchema, mailSubmissionSchema } from "../mail/local-view.js";
 import { mailSearchInputSchema, mailSearchRebuildInputSchema } from "../mail/search-view.js";
 import { ApiError } from "../errors.js";
@@ -164,6 +165,9 @@ export function registerMailRoutes(routes: Route[], host: string, service?: Mail
       catch (error) { throw safeError(error); }
     });
   }
+  query('attachments/extraction/status',extractionRequestSchema,(accountId,input)=>service.extractionStatus(accountId,input));
+  query('attachments/extraction/read',extractionReadSchema,(accountId,input)=>service.extractionRead(accountId,input));
+  query('attachments/extraction/reset',extractionRequestSchema,(accountId,input)=>service.extractionReset(accountId,input));
   query("messages/query", mailMessagePageSchema, (accountId, input) => service.listMessages(accountId, input));
   query("messages/read", z.object({ locator: providerMessageLocatorSchema }).strict(), (accountId, input) => service.readMessage(accountId, input.locator));
   query("messages/parts", z.object({ locator: providerMessageLocatorSchema, page: mailPartPageSchema.default({ limit: 50 }) }).strict(), (accountId, input) => service.listParts(accountId, input.locator, input.page));
