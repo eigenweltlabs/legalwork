@@ -54,6 +54,7 @@ test('v1 reopen requires upgrade; a failed current migration rolls back and neve
   seed(repository);
   for (const kind of ['raw', 'body']) repository.putContent('private-account', locator('one'), { kind, state: 'stored', reference: { id: 'legacy-ref', bytes: 3, sha256: 'a'.repeat(64) } });
   repository.setAttachmentsEnumerated('private-account', locator('one'), true);
+ db.exec("DROP TABLE mail_graph_attachments; DROP TABLE mail_graph_messages; DROP TABLE mail_graph_folder_queue; DROP TABLE mail_graph_runs");
  for(const row of db.all("SELECT name FROM sqlite_schema WHERE type='trigger' AND name GLOB 'mail_search_*'"))db.exec('DROP TRIGGER "'+row.name+'"');
  db.exec('DROP TABLE mail_search_fts; DROP TABLE mail_search_documents; DROP TABLE mail_search_dirty; ALTER TABLE mail_messages DROP COLUMN is_read');
   db.exec('DROP TRIGGER mail_raw_projection_insert; DROP TRIGGER mail_raw_projection_update; DROP TABLE mail_mime_parts; DROP TABLE mail_mime_projections; DROP TABLE mail_gmail_metadata; DROP TABLE mail_gmail_presence; DROP TABLE mail_gmail_runs; DROP TABLE mail_action_jobs; DROP TABLE mail_account_credentials; DROP TABLE mail_sync_scope_jobs; DROP TABLE mail_sync_jobs; DROP TABLE mail_sync_scopes; DROP TABLE mail_blob_publications; DROP TABLE mail_blob_chunks; DROP TABLE mail_blob_objects; UPDATE mail_schema_version SET version=1');
@@ -213,6 +214,7 @@ test('v3 fast guard requires journal tables/columns and refuses an unmigrated v2
   db.exec('DROP TABLE mail_sync_scope_jobs');
   assert.throws(() => assertMailSchema(db), { message: 'Mail schema is not ready' });
   assert.deepEqual(checkMailConsistency(db).codes, ['schema-incomplete']);
+ db.exec("DROP TABLE mail_graph_attachments; DROP TABLE mail_graph_messages; DROP TABLE mail_graph_folder_queue; DROP TABLE mail_graph_runs");
  for(const row of db.all("SELECT name FROM sqlite_schema WHERE type='trigger' AND name GLOB 'mail_search_*'"))db.exec('DROP TRIGGER "'+row.name+'"');
  db.exec('DROP TABLE mail_search_fts; DROP TABLE mail_search_documents; DROP TABLE mail_search_dirty; ALTER TABLE mail_messages DROP COLUMN is_read');
   db.exec('DROP TRIGGER mail_raw_projection_insert; DROP TRIGGER mail_raw_projection_update; DROP TABLE mail_mime_parts; DROP TABLE mail_mime_projections; DROP TABLE mail_gmail_metadata; DROP TABLE mail_gmail_presence; DROP TABLE mail_gmail_runs; DROP TABLE mail_action_jobs; DROP TABLE mail_account_credentials; DROP TABLE mail_sync_jobs; DROP TABLE mail_sync_scopes; UPDATE mail_schema_version SET version=2');

@@ -1,0 +1,4 @@
+import { z } from "zod";
+const count = z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER);
+export const graphSyncViewSchema = z.object({ accountId: z.string().min(1).max(4096), provider: z.literal("graph"), state: z.enum(["idle", "syncing", "paused", "waiting", "complete", "attention"]), removed: count, retained: count, enumerated: count, downloaded: count, projected: count, failed: count, pending: count, nextRetryAt: count.nullable(), error: z.enum(["reconsent_required", "configuration_invalid", "provider_unavailable", "rate_limited", "message_unavailable", "content_incomplete", "storage_unavailable", "sync_failed"]).nullable(), inaccessible: count, referenceAttachments: count, unsupportedScopes: z.tuple([z.literal("in-place-archive-mailbox")]) }).strict();
+export type GraphSyncView = z.infer<typeof graphSyncViewSchema>;
