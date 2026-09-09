@@ -135,3 +135,12 @@ Sources: [Node filesystem permission caveats](https://nodejs.org/api/fs.html) ex
 why chmod is insufficient on Windows; [Microsoft DirectorySecurity](https://learn.microsoft.com/en-us/dotnet/api/system.security.accesscontrol.directorysecurity?view=netframework-4.8.1)
 defines DACL protection and inheritance; [Microsoft CryptProtectData](https://learn.microsoft.com/en-us/windows/win32/api/dpapi/nf-dpapi-cryptprotectdata)
 describes the default logon-user/computer DPAPI binding.
+
+Schema-v10 recovery preserves immutable draft versions, attachment pins and the
+submission-to-draft association. It rotates every local event-stream generation in
+the same transaction as credential disconnection and action quarantine. Clients
+holding a pre-recovery stream receive `resetRequired: true` and must resnapshot;
+restored sequence numbers cannot silently continue an unrelated pre-recovery feed.
+The actual encrypted recovery regression verifies both draft revisions, exact pinned
+attachment bytes, a quarantined submission and reset behavior after explicit
+synthetic reconnect. Disconnected draft reads remain denied.
