@@ -1,6 +1,6 @@
 import type { MailDatabase } from "./database-interface.js";
 
-export const MAIL_SCHEMA_VERSION = 6;
+export const MAIL_SCHEMA_VERSION = 7;
 
 /** Dedicated mail database only. Every DDL/version write shares one transaction. */
 export function migrateMailSchema(database: MailDatabase): void {
@@ -206,6 +206,19 @@ export function migrateMailSchema(database: MailDatabase): void {
         DELETE FROM mail_content_manifests WHERE account_id=NEW.account_id AND message_key=NEW.message_key AND kind!='raw';
         UPDATE mail_messages SET attachments_enumerated=0 WHERE account_id=NEW.account_id AND message_key=NEW.message_key;
       END;
+    `);
+    if (version < 7) database.exec(`
+      ALTER TABLE mail_gmail_runs ADD COLUMN phase TEXT NOT NULL DEFAULT 'backfill' CHECK(phase IN ('backfill','history'));
+      ALTER TABLE mail_gmail_runs ADD COLUMN history_id TEXT;
+      ALTER TABLE mail_gmail_runs ADD COLUMN history_page_token TEXT;
+      ALTER TABLE mail_gmail_runs ADD COLUMN poll_at INTEGER CHECK(poll_at BETWEEN 0 AND 9007199254740991);
+      CREATE TABLE mail_gmail_presence (
+        account_id TEXT NOT NULL, message_key TEXT NOT NULL, seen_generation TEXT, remote_present INTEGER NOT NULL CHECK(remote_present IN (0,1)), history_id TEXT,
+        PRIMARY KEY(account_id,message_key), FOREIGN KEY(account_id,message_key) REFERENCES mail_messages(account_id,message_key) ON DELETE CASCADE
+      );
+      CREATE INDEX mail_gmail_presence_scan ON mail_gmail_presence(account_id,remote_present,seen_generation,message_key);
+      INSERT INTO mail_gmail_presence(account_id,message_key,seen_generation,remote_present,history_id)
+        SELECT account_id,message_key,NULL,1,NULL FROM mail_messages WHERE provider='gmail';
     `);
     database.run("INSERT INTO mail_schema_version(singleton,version) VALUES(1,?) ON CONFLICT(singleton) DO UPDATE SET version=excluded.version", [MAIL_SCHEMA_VERSION]);
   });
