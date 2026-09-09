@@ -11,6 +11,7 @@ import { pathToFileURL } from "node:url";
 import { createOfficeAddinManager } from "./office-addin-manager.mjs";
 import { ensureOpencodeStateDir } from "./opencode-state-dir.mjs";
 import { createDesktopMailService } from "./mail-runtime.mjs";
+import { applyEmbeddedServerEnvironment } from "./runtime-environment.mjs";
 
 const __runtimeDir = path.dirname(fileURLToPath(import.meta.url));
 
@@ -1293,7 +1294,7 @@ export function createRuntimeManager({ app, desktopRoot, listLocalWorkspacePaths
 
     // Inject user env vars so the server and managed OpenCode inherit them.
     const serverEnv = await buildChildEnv({});
-    Object.assign(process.env, serverEnv);
+    applyEmbeddedServerEnvironment(process.env, serverEnv);
 
     // Once the embedded server has a persisted registry, it is the source of
     // truth. Do not pass Electron's legacy workspace list as CLI workspaces or

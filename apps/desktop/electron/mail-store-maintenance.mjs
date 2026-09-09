@@ -21,7 +21,7 @@ function password(value) { if (typeof value !== 'string' || value.length < 16 ||
 /** Main-process only; caller must hold LocalMailService maintenance barrier and desktop single-instance lock.
  * All paths originate in app data or a trusted native file chooser, never renderer input.
  */
-export function createMailStoreMaintenance({ directory, safeStorage, executable, entryPoint, windowsAcl, ownerId = 'desktop-local' }) {
+export function createMailStoreMaintenance({ directory, safeStorage, executable, entryPoint, windowsAcl, beforeAccess, ownerId = 'desktop-local' }) {
   if (!isAbsolute(directory) || !isAbsolute(entryPoint) || !isAbsolute(executable.path)) throw fail();
   const pointer = join(directory, 'active-store-v1.json'); let busy = false, physicalPending = false;
   async function acl(path, folder) { if (process.platform === "win32") { if (!windowsAcl) throw fail(); await windowsAcl(path, folder); } }
@@ -39,7 +39,7 @@ export function createMailStoreMaintenance({ directory, safeStorage, executable,
   }
   async function loadStore() {
     if (busy || physicalPending) throw fail(); const active = await selected(), folder = active?.folder ?? directory;
-    const key = await createMailKeyStore({ directory: folder, safeStorage, windowsAcl }).load({ allowCreate: !active });
+    const key = await createMailKeyStore({ directory: folder, safeStorage, windowsAcl, beforeAccess }).load({ allowCreate: !active });
     return { databasePath: join(folder, 'mail.sqlite'), key };
   }
   async function worker(input, signal) {
@@ -84,7 +84,7 @@ export function createMailStoreMaintenance({ directory, safeStorage, executable,
     catch (error) { if (error?.code !== 'EEXIST') throw error; }
 
     const generation = randomBytes(16).toString('hex'), folder = join(directory, `store-${generation}`);
-    await mkdir(folder, { mode: 0o700 }); const key = await createMailKeyStore({ directory: folder, safeStorage, windowsAcl }).load({ allowCreate: true });
+    await mkdir(folder, { mode: 0o700 }); const key = await createMailKeyStore({ directory: folder, safeStorage, windowsAcl, beforeAccess }).load({ allowCreate: true });
     return { generation, folder, key, databasePath: join(folder, 'mail.sqlite') };
   }
   async function promote(next, previous, signal) {
@@ -94,7 +94,7 @@ export function createMailStoreMaintenance({ directory, safeStorage, executable,
     if (signal?.aborted) throw fail();
     await rename(temporary, pointer); await syncDirectory(directory);
   }
-  async function current() { const active = await selected(), folder = active?.folder ?? directory; return { active, databasePath: join(folder,'mail.sqlite'), key: await createMailKeyStore({ directory: folder, safeStorage, windowsAcl }).load() }; }
+  async function current() { const active = await selected(), folder = active?.folder ?? directory; return { active, databasePath: join(folder,'mail.sqlite'), key: await createMailKeyStore({ directory: folder, safeStorage, windowsAcl, beforeAccess }).load() }; }
   return {
     loadStore,
     rotate(signal) { return exclusive(async () => {

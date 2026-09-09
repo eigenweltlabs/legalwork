@@ -1,6 +1,7 @@
 import { join, dirname } from "node:path";
 import { pathToFileURL } from "node:url";
 import { createMailStoreMaintenance } from "./mail-store-maintenance.mjs";
+import { assertMailKeychainReady } from "./mail-keychain-preflight.mjs";
 
 /** Lazy desktop-only binding. No worker or OS-vault access until explicit unlock.
  * @param {{app: Pick<import("electron").App, "getPath"|"isReady">,
@@ -11,7 +12,7 @@ export async function createDesktopMailService({ app, embeddedPath, safeStorage 
   const directory = join(app.getPath("userData"), "mail");
   const dist = dirname(embeddedPath);
   const { enforceMailWindowsAcl } = await import(pathToFileURL(join(dist, "mail/storage/windows-acl.js")).href);
-  const maintenance = createMailStoreMaintenance({ directory, safeStorage, windowsAcl: enforceMailWindowsAcl, executable: { kind: "electron", path: app.getPath("exe") }, entryPoint: join(dist, "mail/runtime/maintenance-worker.js") });
+  const maintenance = createMailStoreMaintenance({ directory, safeStorage, beforeAccess: assertMailKeychainReady, windowsAcl: enforceMailWindowsAcl, executable: { kind: "electron", path: app.getPath("exe") }, entryPoint: join(dist, "mail/runtime/maintenance-worker.js") });
   const { LocalMailService } = await import(pathToFileURL(join(dist, "mail/service.js")).href);
   const { loadGoogleInstalledMailClient, parseGraphMailRegistration } = await import(pathToFileURL(join(dist, "mail/providers/development-config.js")).href);
   return new LocalMailService({
