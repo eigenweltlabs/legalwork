@@ -46,11 +46,14 @@ test('one in-flight refresh per account, independent accounts, durable replaceme
  for(const file of [f.path,f.path+'-wal']){const bytes=await readFile(file);for(const marker of [ACCESS,REFRESH,ROTATED,'mail_account_credentials'])assert.equal(bytes.includes(Buffer.from(marker)),false);}
  await f.reopen();assert.equal((await f.make().acquire('a')).accessToken,ROTATED);
 }));
-test('omitted grants remain unknown even with previous actual grants; explicit scopes replace; refresh preserve is exact',async()=>fixture(async f=>{
+test('Gmail omitted scopes preserve recorded grants, unknown remains unknown; explicit scopes replace; refresh preserve is exact',async()=>fixture(async f=>{
  f.seed();f.seed('unknown',{grants:null});
  const c=f.make({refresh:async()=>f.result()});
- for(const id of ['a','unknown']){assert.equal((await c.acquire(id)).grantedScopes,null);assert.equal(f.credentials.readForRefresh(id,binding).refreshToken,REFRESH);}
+ assert.deepEqual((await c.acquire('a')).grantedScopes,[...GMAIL_MAIL_SCOPES]);assert.equal((await c.acquire('unknown')).grantedScopes,null);
+ for(const id of ['a','unknown'])assert.equal(f.credentials.readForRefresh(id,binding).refreshToken,REFRESH);
  f.advance(3600000);const explicit=f.make({refresh:async()=>f.result({grantedScopes:['openid']})});assert.deepEqual((await explicit.acquire('a')).grantedScopes,['openid']);
+ f.advance(3600000);assert.deepEqual((await f.make({refresh:async()=>f.result({grantedScopes:[]})}).acquire('a')).grantedScopes,[]);
+ f.seed('graph',{binding:graphBinding});assert.equal((await f.make({loadProviderSettings:async()=>graph,refresh:async()=>f.result()}).acquire('graph')).grantedScopes,null);
 }));
 test('expiry margin triggers refresh; missing refresh requires reconsent',async()=>fixture(async f=>{
  f.seed('a',{ttl:60001});f.seed('missing',{noRefresh:true});let calls=0;const c=f.make({refresh:async()=>{calls++;return f.result();}});
@@ -91,9 +94,9 @@ test('deadline bounds ignored cancellation, late result cannot rotate, transient
   try{await f.make(options).acquire('a');assert.fail('must reject');}catch(error){assert.equal(error.message.includes(ACCESS),false);assert.equal(error.message.includes(REFRESH),false);assert.equal('cause' in error,false);}
  }
 }));
-test('real refresh parser with injected HTTP preserves omitted refresh token and unknown current scopes',async()=>fixture(async f=>{
+test('real refresh parser with injected HTTP preserves omitted refresh token and recorded Gmail scopes',async()=>fixture(async f=>{
  f.seed();let calls=0;const c=f.make({refresh:input=>refreshMailOAuth({...input,fetch:async(url,options)=>{calls++;assert.equal(url,'https://oauth2.googleapis.com/token');assert.equal(new URLSearchParams(options.body).get('refresh_token'),REFRESH);return Response.json({access_token:ROTATED,token_type:'Bearer',expires_in:3600});}})});
- assert.equal((await c.acquire('a')).grantedScopes,null);assert.equal(calls,1);assert.equal(f.credentials.readForRefresh('a',binding).refreshToken,REFRESH);
+ assert.deepEqual((await c.acquire('a')).grantedScopes,[...GMAIL_MAIL_SCOPES]);assert.equal(calls,1);assert.equal(f.credentials.readForRefresh('a',binding).refreshToken,REFRESH);
 }));
 test('provider classifications stay bounded, do not retry or mutate stored credentials',async()=>fixture(async f=>{
  f.seed();let calls=0;
