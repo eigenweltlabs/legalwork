@@ -24,8 +24,12 @@ jobs:
       - uses: pnpm/action-setup@v4
         with:
           version: 11.4.0
+      # The suite loads docx-export.ts, which imports the app's "@/" alias.
+      # Bun resolves it the way every other test suite here does; plain node
+      # does not.
+      - uses: oven-sh/setup-bun@v2
       - run: pnpm install --frozen-lockfile --ignore-scripts
-      - run: node --experimental-strip-types --test apps/app/tests/docx-document-state.test.ts apps/app/tests/docx-roundtrip.test.ts
+      - run: pnpm --filter @legalwork/app exec bun test tests/docx-document-state.test.ts tests/docx-roundtrip.test.ts
       - run: sudo apt-get update && sudo apt-get install -y libreoffice-writer poppler-utils fonts-liberation
       - run: pnpm --filter @legalwork/app exec node scripts/docx-interop.mjs
       - uses: actions/upload-artifact@v4
