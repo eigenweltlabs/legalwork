@@ -1,7 +1,7 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {randomBytes,createHash} from 'node:crypto';
-import {mkdtemp,rm,mkdir,readFile,stat} from 'node:fs/promises';
+import {mkdtemp,rm,mkdir,readFile,stat,writeFile} from 'node:fs/promises';
 import {join} from 'node:path';
 import {tmpdir} from 'node:os';
 import {openEncryptedMailDatabase} from './database.js';
@@ -29,13 +29,22 @@ test('main-process maintenance promotes generations and restores a passphrase ba
   await prepareMailStore({sourcePath:f.path,destinationPath:join(directory,'mail.sqlite'),sourceKey:f.key,destinationKey:initial,ownerId:'owner',restore:false,expectedSha256:null});initial.fill(0);
   const options={directory,safeStorage:vault,ownerId:'owner',executable:{kind:'node',path:process.execPath},entryPoint:fileURLToPath(new URL('../runtime/maintenance-worker.js',import.meta.url))};
   const manager=createMailStoreMaintenance(options),old=await manager.loadStore();
+  const firstAbort=new AbortController();firstAbort.abort();await assert.rejects(manager.rotate(firstAbort.signal));const legacy=await manager.loadStore();assert.equal(legacy.databasePath,old.databasePath);legacy.key.fill(0);assert.equal(JSON.parse(await readFile(join(directory,'active-store-v1.json'),'utf8')).generation,null);
   await manager.rotate();const rotated=await manager.loadStore();assert.notEqual(rotated.databasePath,old.databasePath);assert.notDeepEqual(rotated.key,old.key);
+  const activePointer=join(directory,'active-store-v1.json'),selection=await readFile(activePointer);await rm(activePointer);await assert.rejects(manager.loadStore(),{message:'mail_maintenance_failed'});await writeFile(activePointer,'corrupt',{mode:0o600});await assert.rejects(manager.loadStore(),{message:'mail_maintenance_failed'});await writeFile(activePointer,selection,{mode:0o600});
+  const hangingEntry=join(f.directory,'hanging.cjs'),pidFile=join(f.directory,'child.pid');
+  await writeFile(hangingEntry,`process.stdin.resume();process.stdin.on('end',()=>{require('node:fs').writeFileSync(${JSON.stringify(pidFile)},String(process.pid));setInterval(()=>{},1000)});`);
+  const hanging=createMailStoreMaintenance({...options,entryPoint:hangingEntry}),abort=new AbortController();
+  const pending=hanging.rotate(abort.signal);let pid;
+  try { for(let attempt=0;attempt<100;attempt++){try{pid=Number(await readFile(pidFile,'utf8'));break;}catch{await new Promise(resolve=>setTimeout(resolve,10));}}assert.ok(pid); }
+  finally { abort.abort(); }
+  await assert.rejects(pending,{message:'mail_maintenance_failed'});assert.throws(()=>process.kill(pid,0),{code:'ESRCH'});
   const backup=join(f.directory,'backup'),passphrase='synthetic recovery passphrase long enough';await manager.exportBackup(backup,passphrase);
   const before=await readFile(join(backup,'mail.sqlite'));
   await assert.rejects(manager.restoreBackup(backup,'wrong synthetic passphrase'),{message:'mail_maintenance_failed'});
   const cancelled=new AbortController();cancelled.abort();await assert.rejects(manager.rotate(cancelled.signal));assert.equal((await manager.loadStore()).databasePath,rotated.databasePath);
   await manager.restoreBackup(backup,passphrase);const restored=await manager.loadStore();assert.notEqual(restored.databasePath,rotated.databasePath);
   const db=await openEncryptedMailDatabase({path:restored.databasePath,key:restored.key});assert.equal(new MailCredentialRepository(db,'owner').status('a').state,'disconnected');assert.equal(db.get('SELECT state FROM mail_action_jobs').state,'uncertain');db.close();
-  const clean=createMailStoreMaintenance({...options,directory:join(f.directory,'clean-profile')});await clean.restoreBackup(backup,passphrase);const recovered=await clean.loadStore();const cleanDb=await openEncryptedMailDatabase({path:recovered.databasePath,key:recovered.key});assert.equal(cleanDb.get('SELECT count(*) AS n FROM mail_messages').n,1);cleanDb.close();recovered.key.fill(0);
+  const clean=createMailStoreMaintenance({...options,directory:join(f.directory,'clean-profile')});await clean.restoreBackup(backup,passphrase);const recovered=await clean.loadStore();const cleanDb=await openEncryptedMailDatabase({path:recovered.databasePath,key:recovered.key});assert.equal(cleanDb.get('SELECT count(*) AS n FROM mail_messages').n,1);cleanDb.close();recovered.key.fill(0);await rm(join(f.directory,'clean-profile','active-store-v1.json'));await assert.rejects(clean.loadStore(),{message:'mail_maintenance_failed'});await assert.rejects(stat(join(f.directory,'clean-profile','mail.sqlite')),{code:'ENOENT'});
   assert.deepEqual(await readFile(join(backup,'mail.sqlite')),before);for(const key of [old.key,rotated.key,restored.key])key.fill(0);
 }));
