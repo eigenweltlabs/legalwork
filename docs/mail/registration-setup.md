@@ -1,12 +1,16 @@
 # Fresh Legalwork Mail development registrations
 
-EIG-120 remains **incomplete**: the new Microsoft development app and dedicated Google project/Gmail API are created and verified, while the standard Google Desktop OAuth client, provider consent and live mailbox tests remain open. Do not reuse or modify existing Google Workspace registrations. Updated 9 September 2026.
+EIG-120 remains **incomplete**: the new Microsoft development app and Google Desktop OAuth client/project/Gmail API are created and verified. Provider consent, dedicated test mailboxes and live acceptance remain open. Do not reuse or modify existing Google Workspace registrations. Updated 9 September 2026.
 
 ## Verified development setup
 
 The lead ran the new-registration Azure script and verified the dedicated application by reading it back. It has a native loopback redirect and delegated permissions only, with no client secret or consent grant. This does not establish Exchange licensing, mailbox access or successful OAuth consent. Non-secret operational identifiers and verification evidence are maintained in [EIG-120](https://linear.app/eigenweltlabs/issue/EIG-120).
 
-After the owner reauthenticated Google CLI, the lead created `legalwork-mail-dev-20260909` (Legalwork Mail Development) under the same organization as the existing training project, verified ACTIVE status and enabled `gmail.googleapis.com`. No billing attachment or compute deployment was made. The training project was read only to identify its organization; it was not changed. No live mailbox or browser session was used.
+After the owner reauthenticated Google CLI, the lead created `legalwork-mail-dev-20260909` (Legalwork Mail Development) under the same organization as the existing training project, verified ACTIVE status and enabled `gmail.googleapis.com`. No billing attachment or compute deployment was made. The training project was read only to identify its organization; it was not changed.
+
+The owner then authorized browser control, signed in to Google Cloud and explicitly approved Google API Services User Data Policy acceptance and client creation. The lead created **Legalwork Mail Development Desktop**, verified its Desktop type and Enabled state, and saved the displayed credentials into a standard installed-client JSON outside the repository. The in-app browser's download did not produce a file; the local copy was verified by JSON parsing and non-secret client/project identity only. Its directory is private (0700), its file 0600. Operational IDs and current state are in EIG-120; no secret is in source or Linear. Audience is External/Testing with the owner as the sole tester. Existing Legalwork homepage/privacy links and Eigenwelt's domain are configured. No mailbox consent or live mail request has occurred.
+
+Before pilot/production, reconcile the published privacy notice's deletion-on-disconnect wording with `scope.md`'s retained locked archive and explicit purge contract. EIG-151 tracks this concrete mismatch; registration setup does not change the public legal notice or the approved mail retention contract.
 
 ## Azure: executable plan, then explicit apply
 
