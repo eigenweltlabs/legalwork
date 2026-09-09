@@ -1,3 +1,4 @@
+import { enforceMailWindowsAcl } from "./windows-acl.js";
 import { constants, createReadStream } from "node:fs";
 import { chmod, copyFile, lstat, open } from "node:fs/promises";
 import { dirname, isAbsolute } from "node:path";
@@ -16,6 +17,7 @@ export async function prepareMailStore(input: MailMaintenanceInput): Promise<{ a
     if (oldKey.length !== 32 || newKey.length !== 32 || !isAbsolute(input.sourcePath) || !isAbsolute(input.destinationPath) || input.sourcePath === input.destinationPath || !input.ownerId || input.ownerId.length > 4096) throw new MailMaintenanceError();
     const directory = await lstat(dirname(input.destinationPath));
     if (!directory.isDirectory() || (process.platform !== "win32" && (directory.uid !== process.getuid?.() || (directory.mode & 0o077) !== 0))) throw new MailMaintenanceError();
+    await enforceMailWindowsAcl(dirname(input.destinationPath), true);
     // Never initialize a missing source or follow a filesystem link during recovery.
     const existing = await lstat(input.sourcePath); if (!existing.isFile() || existing.nlink !== 1 || existing.size === 0) throw new MailMaintenanceError();
     if (input.restore) {

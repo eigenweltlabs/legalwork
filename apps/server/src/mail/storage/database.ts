@@ -1,3 +1,4 @@
+import { enforceMailWindowsAcl } from "./windows-acl.js";
 import { constants } from "node:fs";
 import { lstat, mkdir, open, stat } from "node:fs/promises";
 import { dirname, isAbsolute } from "node:path";
@@ -58,6 +59,7 @@ function verifyEngine(db: NativeDatabase): void {
 async function verifyPrivateFile(path: string): Promise<void> {
   const info = await lstat(path);
   if (!info.isFile() || info.nlink !== 1) throw new Error("Mail database must be a regular file with a single link");
+  await enforceMailWindowsAcl(path, false);
   if (process.platform !== "win32" && ((info.mode & 0o077) !== 0 || info.uid !== process.getuid?.())) {
     throw new Error("Mail database must be privately owned with mode 0600");
   }
@@ -91,6 +93,7 @@ export async function openEncryptedMailDatabase(options: EncryptedMailDatabaseOp
     const folder = dirname(path);
     await mkdir(folder, { recursive: true, mode: 0o700 });
     const parent = await stat(folder);
+    await enforceMailWindowsAcl(folder, true);
     if (process.platform !== "win32" && ((parent.mode & 0o022) !== 0 || parent.uid !== process.getuid?.())) {
       throw new Error("Mail database directory must be owned and not writable by other users");
     }
