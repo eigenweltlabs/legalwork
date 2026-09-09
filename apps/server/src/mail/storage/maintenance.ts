@@ -1,3 +1,4 @@
+import { resetMailLocalEventStreams } from "./local-schema.js";
 import { enforceMailWindowsAcl } from "./windows-acl.js";
 import { constants, createReadStream } from "node:fs";
 import { chmod, copyFile, lstat, open } from "node:fs/promises";
@@ -49,6 +50,7 @@ export async function prepareMailStore(input: MailMaintenanceInput): Promise<{ a
         destination.run("UPDATE mail_graph_runs SET state='paused',revision=revision+1,retry_at=NULL");
       }
       destination?.run("UPDATE mail_sync_jobs SET state=CASE WHEN attempts>=max_attempts THEN 'failed' ELSE 'retry' END,lease_token=NULL,lease_until=NULL,last_error='lease_expired' WHERE state='running'");
+      if (destination) resetMailLocalEventStreams(destination);
     });
     if (destination.get("PRAGMA integrity_check")?.integrity_check !== "ok" || destination.get("SELECT 1 FROM pragma_foreign_key_check LIMIT 1")) throw new MailMaintenanceError();
     // Verify every published reference with bounded reads, including raw MIME and attachments.
