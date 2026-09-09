@@ -20,7 +20,7 @@ const patterns = config.asarUnpack.filter((pattern) => pattern.includes(packageN
 // Preserve each package's resolved dependency versions inside the isolated ASAR fixture.
 // Loading the actual worker below detects missing transitive MIME dependencies too.
 async function copyRuntimePackage(name, resolver, destination) {
-  const manifestPath = resolver.resolve(`${name}/package.json`);
+  const manifestPath = name === "entities" ? resolve(dirname(resolver.resolve(name)), "../../package.json") : resolver.resolve(`${name}/package.json`);
   const source = dirname(manifestPath);
   const target = join(destination, "node_modules", name);
   await mkdir(dirname(target), { recursive: true });
@@ -58,7 +58,7 @@ function child(executable, entry, initialization, worker = false) {
       if (stdout.length > 65536) { processChild.kill("SIGKILL"); return; }
       if (worker && !requested && stdout.includes('"kind":"ready"')) {
         requested = true;
-        processChild.stdin.end(JSON.stringify({ kind: "request", id: "1:1", command: { operation: "mail.storage.status" } }) + "\n" + JSON.stringify({ kind: "shutdown" }) + "\n");
+        processChild.stdin.end(JSON.stringify({ kind: "request", id: "1:1", command: { operation: "mail.storage.status" } }) + "\n" + JSON.stringify({kind:"request",id:"1:2",command:{operation:"mail.search",input:{}}}) + "\n" + JSON.stringify({ kind: "shutdown" }) + "\n");
       }
     });
     processChild.stderr.on("data", (chunk) => { stderr += chunk.toString(); if (stderr.length > 65536) processChild.kill("SIGKILL"); });
@@ -114,7 +114,7 @@ test("actual Electron starts built encrypted worker inside ASAR and resolves unp
     assert.equal(JSON.parse(await readFile(join(nativeSource, "package.json"), "utf8")).version, "13.0.3");
     await cp(nativeSource, join(source, nativeRelative), { recursive: true, filter: (path) => !path.startsWith(join(nativeSource, "node_modules")) });
     await cp(dirname(require.resolve("zod/package.json")), join(source, "node_modules/zod"), { recursive: true });
-    for (const dependency of ["@zone-eu/mailsplit", "iconv-lite", "libmime"]) {
+    for (const dependency of ["@zone-eu/mailsplit", "iconv-lite", "libmime", "entities"]) {
       await copyRuntimePackage(dependency, require, source);
     }
     const archive = join(root, `${layout}.asar`);
@@ -148,6 +148,7 @@ test("actual Electron starts built encrypted worker inside ASAR and resolves unp
       assert.equal(frames[0].kind, "ready");
       assert.equal(frames[1].result.encrypted, true);
       assert.equal(frames[1].result.syncSupported, true);
+      assert.deepEqual(frames[2].result.search,{items:[],total:0,pending:0,incomplete:0,nextOffset:null});
     }
     const bytes = await readFile(initialization.databasePath);
     assert.notEqual(bytes.subarray(0, 16).toString(), "SQLite format 3\0");

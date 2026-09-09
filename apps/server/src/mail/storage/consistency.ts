@@ -28,6 +28,9 @@ const hash = z.string().regex(/^[0-9a-f]{64}$/);
 const requiredColumns: Record<string, string[]> = {
   mail_gmail_presence: ["account_id","message_key","seen_generation","remote_present","history_id"],
   mail_gmail_runs: ["account_id","generation","revision","state","recent_after","next_retry_at","error","failure_count","phase","history_id","history_page_token","poll_at"],
+  mail_search_documents: ["id","account_id","message_key","subject","body","names","addresses","senders_json","recipients_json","filenames_json","date","incomplete","normalized_text","has_attachment"],
+  mail_search_fts: ["subject","body","names","addresses"],
+  mail_search_dirty: ["account_id","message_key"],
   mail_gmail_metadata: ["account_id","message_key","internal_date","thread_id","label_ids_json"],
   mail_mime_projections: ["account_id","message_key","raw_ref_id","state","metadata_json","body_ref_id","error"],
   mail_mime_parts: ["account_id","message_key","raw_ref_id","part_id","metadata_json","content_ref_id"],
@@ -35,7 +38,7 @@ const requiredColumns: Record<string, string[]> = {
   mail_accounts: ["id", "owner_id", "provider", "display_name"],
   mail_folders: ["account_id", "id", "name", "kind", "parent_id"],
   mail_threads: ["account_id", "id"],
-  mail_messages: ["account_id", "message_key", "provider", "locator_json", "rfc_message_id", "subject", "thread_id", "attachments_enumerated"],
+  mail_messages: ["is_read","account_id", "message_key", "provider", "locator_json", "rfc_message_id", "subject", "thread_id", "attachments_enumerated"],
   mail_memberships: ["account_id", "message_key", "folder_id"],
   mail_content_refs: ["account_id", "id", "bytes", "sha256"],
   mail_content_manifests: ["account_id", "message_key", "kind", "part_id", "state", "ref_id"],

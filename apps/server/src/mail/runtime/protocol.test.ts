@@ -89,3 +89,9 @@ test("offline read protocol binds identity and content ranges without accepting 
     expect(response({ content: invalid })).toBeUndefined();
   }
 });
+test("search protocol rejects extra scope, coercible filters and foreign result correlation",()=>{
+  expect(parseParentMessage(JSON.stringify({kind:"request",id:"1:1",command:{operation:"mail.search",input:{accountIds:["a"],unread:"false"}}}))).toBeUndefined();
+  expect(parseParentMessage(JSON.stringify({kind:"request",id:"1:1",command:{operation:"mail.search",input:{ownerId:"foreign"}}}))).toBeUndefined();
+  expect(parseParentMessage(JSON.stringify({kind:"request",id:"1:1",command:{operation:"mail.search.rebuild",input:{accountId:"a",limit:26}}}))).toBeUndefined();
+  expect(parseWorkerMessage(JSON.stringify({kind:"response",id:"1:1",ok:true,result:{search:{items:[],total:-1,pending:0,incomplete:0,nextOffset:null}}}))).toBeUndefined();
+});

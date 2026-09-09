@@ -1,3 +1,5 @@
+import { MailSearchIndexer } from "./search-indexer.js";
+import { MailSearchStore, MailSearchError } from "../storage/search.js";
 /** Production Node/Electron entrypoint. stdout is exclusively the private worker protocol. */
 import { MailConnectionController, MailConnectionError } from "../providers/connection-controller.js";
 import { MailCredentialRepository, MailCredentialError } from "../storage/credentials.js";
@@ -18,6 +20,8 @@ import { MAX_WORKER_MESSAGE_BYTES, parseParentMessage, parseWorkerMessage,
 let database: MailDatabase | undefined;
 let repository: MailRepository | undefined;
 let reads: MailReadStore | undefined;
+let search: MailSearchStore | undefined;
+let searchIndexer: MailSearchIndexer | undefined;
 let controller: MailConnectionController | undefined;
 let closingController: Promise<void> | undefined;
 let credentials: MailCredentialRepository | undefined;
@@ -59,6 +63,7 @@ async function finish(): Promise<void> {
   process.stdout.end(() => { clearTimeout(exitTimer); process.exit(exitCode); });
 }
 function shutdown(code = 0): void {
+  searchIndexer?.close();
   exitCode = Math.max(exitCode, code);
   if (phase === "closing") return;
   phase = "closing";
@@ -91,6 +96,8 @@ async function initialize(value: WorkerInitialization): Promise<void> {
     assertMailSchema(database);
     repository = new MailRepository(database, value.ownerId);
     reads = new MailReadStore(database, value.ownerId);
+    search = new MailSearchStore(database, value.ownerId);
+    searchIndexer = new MailSearchIndexer(database,value.ownerId);
     credentials = new MailCredentialRepository(database, value.ownerId);
     controller = new MailConnectionController({ database, ownerId: value.ownerId });
     access = new MailAccessCoordinator({ database, ownerId: value.ownerId, loadProviderSettings: async binding => {
@@ -101,6 +108,7 @@ async function initialize(value: WorkerInitialization): Promise<void> {
     backfill = new GmailBackfill({ database, ownerId: value.ownerId, access,
       projectRaw: createStoredMimeProjector({ database, ownerId: value.ownerId }) });
     phase = "ready";
+    searchIndexer?.start();
     write({ kind: "ready", protocol: 1, runtime: "node", nodeVersion: process.versions.node });
   } catch {
     if (phase !== "closing") fatal("initialization_failed");
@@ -132,6 +140,8 @@ async function request(message: Extract<ParentMessage, { kind: "request" }>): Pr
   try {
     let result: WorkerResult | undefined;
     switch (command.operation) {
+      case "mail.search": if (!search) throw locked; result = {search:search.search(command.input)}; break;
+      case "mail.search.rebuild": if (!search) throw locked; result = {rebuilt:search.rebuild(command.input)}; break;
       case "ping": result = { pong: true }; break;
       case "mail.storage.status": result = { encrypted: true, schemaVersion: MAIL_SCHEMA_VERSION, syncSupported: true }; break;
       case "mail.connection.begin":
@@ -200,11 +210,12 @@ async function request(message: Extract<ParentMessage, { kind: "request" }>): Pr
   } catch (error) {
     // Do not echo SQLite/provider errors, row contents, supplied IDs, paths or key material.
     if (isClosing()) return;
-    const code = error === unsupported ? "unsupported" : error === locked || (error instanceof GmailBackfillError && error.code === "locked")
+    const code = error === unsupported || (error instanceof MailSearchError && error.code === "unsupported") ? "unsupported" : error === locked || (error instanceof MailSearchError && error.code === "locked") || (error instanceof GmailBackfillError && error.code === "locked")
       || (error instanceof MailCredentialError && error.code === "disconnected") ? "locked" :
       (error instanceof MailConnectionError && (error.code === "not_found" || error.code === "account_not_found"))
       || (error instanceof MailCredentialError && error.code === "account_not_found")
       || (error instanceof GmailBackfillError && error.code === "not_found")
+      || (error instanceof MailSearchError && error.code === "not_found")
       || (error instanceof Error && ["Mail account not found", "Mail message not found", "Mail content not found"].includes(error.message)) ? "not_found" : "operation_failed";
     write({ kind: "response", id: message.id, ok: false, code });
   }
