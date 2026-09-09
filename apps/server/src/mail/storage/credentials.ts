@@ -106,6 +106,15 @@ export class MailCredentialRepository {
         : { state: "unconfigured", archiveLocked: true, version: null };
     });
   }
+  /** Internal owner-checked immutable identity lookup. Never includes usable secrets. */
+  getBinding(accountId: string): MailCredentialBinding {
+    return safe(() => {
+      this.account(accountId);
+      const row = this.database.get("SELECT provider,client_id,authority,provider_subject FROM mail_account_credentials WHERE account_id=?", [accountId]);
+      if (!row) throw new MailCredentialError("disconnected");
+      return input(bindingInput, { provider: row.provider, clientId: row.client_id, authority: row.authority, providerSubject: row.provider_subject });
+    });
+  }
   /** First connect uses expected=null; reconnect must CAS the saved status and never inherits refresh credentials. */
   connect(accountId: string, requested: MailCredentialBinding, expected: MailCredentialVersion | null, supplied: MailCredentialTokens): MailCredentialVersion {
     return safe(() => {
