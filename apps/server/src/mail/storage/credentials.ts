@@ -1,3 +1,4 @@
+import {ImapCustody} from './imap-custody.js';
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import type { MailDatabase } from "./database-interface.js";
@@ -99,8 +100,8 @@ export class MailCredentialRepository {
   /** Nonsecret single-account lifecycle status, not an archive content authorization gate. */
   status(accountId: string): MailCredentialStatus {
     return safe(() => {
-      this.account(accountId);
-      const found = this.database.get("SELECT state,archive_locked,generation,revision FROM mail_account_credentials WHERE account_id=?", [accountId]);
+      const provider=this.account(accountId);
+      const found = this.database.get(provider==='imap'?"SELECT state,archive_locked,generation,revision FROM mail_imap_credentials WHERE account_id=?":"SELECT state,archive_locked,generation,revision FROM mail_account_credentials WHERE account_id=?", [accountId]);
       const row = found ? input(storedInput.pick({ state: true, archive_locked: true, generation: true, revision: true }), found) : undefined;
       return row ? { state: row.state, archiveLocked: row.archive_locked === 1, version: version(row) }
         : { state: "unconfigured", archiveLocked: true, version: null };
@@ -154,6 +155,7 @@ export class MailCredentialRepository {
   disconnect(accountId: string, expected: MailCredentialVersion): MailCredentialVersion {
     return safe(() => {
       const wanted = input(versionInput, expected);
+      if(this.account(accountId)==='imap')return new ImapCustody(this.database,this.ownerId).disconnect(accountId,wanted);
       return this.database.transaction(() => {
         this.account(accountId); const row = this.load(accountId); this.matches(row, wanted);
         if (!row) throw new MailCredentialError("stale_version");

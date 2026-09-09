@@ -1,0 +1,29 @@
+import {test,expect} from 'bun:test';
+import {mkdtemp,rm,mkdir,symlink,realpath,writeFile} from 'node:fs/promises';
+import {join} from 'node:path';
+import {tmpdir} from 'node:os';
+import {fileURLToPath,pathToFileURL} from 'node:url';
+import {createRequire} from 'node:module';
+import {execFileSync} from 'node:child_process';
+import {randomBytes} from 'node:crypto';
+import {startServer} from '../server.ts';
+import {LocalMailService} from './service.ts';
+import {imapServer} from './testing/imap-server.mjs';
+test('IMAP host HTTP authenticates, streams through Node worker, serves attachments and rejects remote credentials',async()=>{
+ const remote=await imapServer(),dir=await mkdtemp(join(tmpdir(),'imap-http-')),key=randomBytes(32),serverRoot=fileURLToPath(new URL('../../',import.meta.url));let server,service;
+ const names=['LEGALWORK_ENV_STORE','LEGALWORK_TOKEN_STORE','XDG_DATA_HOME'],old=names.map(name=>process.env[name]);for(const name of names)process.env[name]=join(dir,name);
+ try{const node=Bun.which('node');expect(node).toBeTruthy();const build=join(dir,'build');await mkdir(build);await symlink(await realpath(join(serverRoot,'node_modules')),join(build,'node_modules'),process.platform==='win32'?'junction':'dir');await writeFile(join(build,'package.json'),'{"type":"module"}');execFileSync(node,[createRequire(import.meta.url).resolve('typescript/bin/tsc'),'--outDir',build,'--rootDir','src','--module','NodeNext','--moduleResolution','NodeNext','--target','ES2022','--strict','--skipLibCheck','--types','node,bun-types','src/mail/runtime/worker.ts'],{cwd:serverRoot,stdio:'pipe',timeout:30000});
+ const cert=join(dir,'ca.pem'),entry=join(dir,'entry.mjs');await writeFile(cert,remote.cert);await writeFile(entry,`import {setDefaultCACertificates,getCACertificates} from 'node:tls';import {readFile} from 'node:fs/promises';setDefaultCACertificates([...getCACertificates('default'),await readFile(${JSON.stringify(cert)},'utf8')]);await import(${JSON.stringify(pathToFileURL(join(build,'mail/runtime/worker.js')).href)});`);
+ service=new LocalMailService({ownerId:'owner',databasePath:join(dir,'mail.sqlite'),loadKey:async()=>Buffer.from(key),executable:{kind:'node',path:node},entryPoint:entry});
+ server=await startServer({host:'127.0.0.1',port:0,token:'synthetic-other',hostToken:'synthetic-host',configPath:join(dir,'server.json'),approval:{mode:'auto',timeoutMs:1000},corsOrigins:[],workspaces:[],authorizedRoots:[],readOnly:false,startedAt:Date.now(),tokenSource:'cli',hostTokenSource:'cli',logFormat:'pretty',logRequests:false},{mail:service});const base=`http://127.0.0.1:${server.port}/mail/v1`,auth={'x-legalwork-host-token':'synthetic-host','content-type':'application/json'};
+ const call=(path,body)=>fetch(base+path,{method:body===undefined?'GET':'POST',headers:auth,...(body===undefined?{}:{body:body===null?undefined:JSON.stringify(body)})});
+ expect((await call('/unlock',null)).status).toBe(200);const input={host:'localhost',port:remote.port,username:'synthetic@example.test',password:'PRIVATE_SYNTHETIC_PASSWORD'};
+ expect((await fetch(base+'/imap/connections',{method:'POST',headers:{'content-type':'application/json','x-legalwork-token':'synthetic-other'},body:JSON.stringify(input)})).status).toBe(401);
+ expect((await call('/imap/connections',{...input,tls:{rejectUnauthorized:false}})).status).toBe(400);
+ const connected=await call('/imap/connections',input);expect(connected.status).toBe(200);const account=await connected.json();expect(account.provider).toBe('imap');const id=encodeURIComponent(account.accountId);
+ expect((await call(`/accounts/${id}/sync/start`,null)).status).toBe(200);let status;for(let i=0;i<300;i++){status=await(await call(`/accounts/${id}/sync`)).json();if(status.state==='complete')break;await new Promise(r=>setTimeout(r,10));}expect(status.state).toBe('complete');expect(status.downloaded).toBe(3);
+ const discovery=await(await call(`/accounts/${id}/imap`)).json();expect(discovery.capabilities).toContain('IMAP4rev1');expect(JSON.stringify(discovery)).not.toContain(input.password);
+ const locator={provider:'imap',mailboxId:'INBOX',uidValidity:7,uid:1},parts=await(await call(`/accounts/${id}/messages/parts`,{locator})).json(),part=parts.items.find(item=>item.kind==='attachment');expect(part).toBeTruthy();const content=await(await call(`/accounts/${id}/messages/content`,{locator,request:{kind:'attachment',partId:part.partId,referenceId:part.referenceId}})).json();expect([...Buffer.from(content.data,'base64')]).toEqual([1,2,3]);
+ expect((await call(`/accounts/${id}/disconnect`,null)).status).toBe(200);expect((await call(`/accounts/${id}/messages/read`,{locator})).status).toBe(423);
+ }finally{await server?.stop();await service?.stop();await remote.close();key.fill(0);for(let i=0;i<names.length;i++){if(old[i]===undefined)delete process.env[names[i]];else process.env[names[i]]=old[i];}await rm(dir,{recursive:true,force:true});}
+},30000);

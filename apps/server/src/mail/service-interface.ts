@@ -1,3 +1,4 @@
+import type {ImapDiscovery,ImapConnection,ImapConnectionResult} from './providers/imap-config.js';
 import type { MailActionCancel, MailActionPage, MailDraftAttachment, MailDraftAttachmentView, MailDraftDelete, MailDraftPage, MailDraftRead, MailDraftSave, MailDraftSummary, MailDraftView, MailEventPage, MailEventQuery, MailLocalAction, MailLocalPage, MailMutation, MailSubmission } from "./local-view.js";
 import type { MailSearchInput, MailSearchResult, MailSearchRebuildInput, MailSearchRebuildResult } from "./search-view.js";
 export type MailPageInput = { limit?: number; after?: string };
@@ -15,6 +16,8 @@ export class MailServiceError extends Error {
 
 /** Bound to one trusted owner at construction; no request supplies an owner ID. */
 export interface MailService {
+  imapDiscovery(accountId:string,after?:string):Promise<ImapDiscovery>;
+  connectImap(input:ImapConnection):Promise<ImapConnectionResult>;
   saveDraft(accountId:string, input:MailDraftSave):Promise<MailDraftView>;
   readDraft(accountId:string, input:MailDraftRead):Promise<MailDraftView>;
   deleteDraft(accountId:string, input:MailDraftDelete):Promise<MailDraftSummary>;

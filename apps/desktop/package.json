@@ -55,7 +55,8 @@
     "webdav": "^5.10.0",
     "ws": "^8.19.0",
     "yaml": "^2.6.1",
-    "zod": "^4.3.6"
+    "zod": "^4.3.6",
+    "imapflow": "1.7.8"
   },
   "devDependencies": {
     "@legalwork/types": "workspace:*",

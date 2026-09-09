@@ -1,3 +1,4 @@
+import {imapDiscoverySchema,type ImapDiscovery,imapConnectionSchema,imapConnectionResultSchema,type ImapConnection,type ImapConnectionResult} from '../providers/imap-config.js';
 import {mailLocalCommandSchema,mailLocalResultSchema,localResultMatches,type MailLocalCommand,type MailLocalResult} from "../local-view.js";
 import { mailSearchInputSchema, mailSearchResultSchema, mailSearchRebuildInputSchema, mailSearchRebuildResultSchema, type MailSearchInput, type MailSearchResult, type MailSearchRebuildInput, type MailSearchRebuildResult } from "../search-view.js";
 import { GMAIL_MAIL_SCOPES, GRAPH_MAIL_SCOPES } from "../provider-config.js";
@@ -34,6 +35,8 @@ export type WorkerCommand =
   | { operation: "mail.search.rebuild"; input: MailSearchRebuildInput }
   | { operation: "ping" }
   | { operation: "mail.storage.status" }
+  | {operation:"mail.imap.discovery";accountId:string;after?:string}
+  | {operation:"mail.imap.connect";input:ImapConnection}
   | { operation: "mail.connection.begin"; settings: MailOAuthSettings; reconnectAccountId?: string }
   | { operation: "mail.connection.poll"; connectionId: string }
   | { operation: "mail.connection.cancel"; connectionId: string }
@@ -46,7 +49,7 @@ export type WorkerCommand =
   | { operation: "mail.content.read"; accountId: string; locator: ProviderMessageLocator; request: MailContentReadInput }
   | { operation: "mail.status"; accountId: string }
   | { operation: "mail.sync.provider"; accountId: string }
-  | { operation: "mail.sync.start"; accountId: string; settings: MailOAuthSettings }
+  | { operation: "mail.sync.start"; accountId: string; settings?: MailOAuthSettings }
   | { operation: "mail.sync.stop"; accountId: string }
   | { operation: "credentials.update"; credentials: WorkerCredentials };
 
@@ -57,6 +60,8 @@ export type WorkerResult =
   | { search: MailSearchResult }
   | { rebuilt: MailSearchRebuildResult }
   | { pong: true }
+  | {imapDiscovery:ImapDiscovery}
+  | {imapConnection:ImapConnectionResult}
   | { connectionStarted: { connectionId: string; authorizationUrl: string; expiresAt: number } }
   | { connection: MailConnectionStatus }
   | { cancelled: true }
@@ -64,7 +69,7 @@ export type WorkerResult =
   | { state: "idle" | "syncing"; syncSupported: boolean }
   | { encrypted: true; schemaVersion: number; syncSupported: boolean }
   | { sync: MailSyncView }
-  | { syncProvider: "gmail" | "graph" }
+  | { syncProvider: "gmail" | "graph" | "imap" }
   | { accounts: WorkerAccount[]; nextCursor: string | null }
   | { folders: WorkerFolder[]; nextCursor: string | null }
   | { messages: { accountId: string; items: MailMessageView[]; nextCursor: string | null } }
@@ -155,6 +160,8 @@ function result(value: unknown): value is WorkerResult {
   return record(value) && ((exact(value,["local"]) && mailLocalResultSchema.safeParse(value.local).success)
     || (exact(value, ["search"]) && mailSearchResultSchema.safeParse(value.search).success)
     || (exact(value, ["rebuilt"]) && mailSearchRebuildResultSchema.safeParse(value.rebuilt).success)
+    || (exact(value,["imapDiscovery"])&&imapDiscoverySchema.safeParse(value.imapDiscovery).success)
+    || (exact(value,["imapConnection"]) && imapConnectionResultSchema.safeParse(value.imapConnection).success)
     || (exact(value, ["pong"]) && value.pong === true)
     || (exact(value, ["connectionStarted"]) && started(value.connectionStarted))
     || (exact(value, ["connection"]) && connection(value.connection))
@@ -162,7 +169,7 @@ function result(value: unknown): value is WorkerResult {
     || (exact(value, ["disconnected"]) && value.disconnected === true)
     || (exact(value, ["state", "syncSupported"]) && (value.state === "idle" || value.state === "syncing") && typeof value.syncSupported === "boolean")
     || (exact(value, ["encrypted", "schemaVersion", "syncSupported"]) && value.encrypted === true && typeof value.syncSupported === "boolean" && Number.isSafeInteger(value.schemaVersion) && typeof value.schemaVersion === "number" && value.schemaVersion > 0)
-    || (exact(value, ["syncProvider"]) && (value.syncProvider === "gmail" || value.syncProvider === "graph"))
+    || (exact(value, ["syncProvider"]) && (value.syncProvider === "gmail" || value.syncProvider === "graph" || value.syncProvider === "imap"))
     || (exact(value, ["sync"]) && mailSyncViewSchema.safeParse(value.sync).success)
     || (exact(value, ["messages"]) && mailMessageListSchema.safeParse(value.messages).success)
     || (exact(value, ["message"]) && mailMessageViewSchema.safeParse(value.message).success)
@@ -208,6 +215,8 @@ export function resultMatchesCommand(command: WorkerCommand, value: WorkerResult
     case "mail.search": return "search" in value && (!command.input.accountIds || value.search.items.every(item=>command.input.accountIds?.includes(item.accountId)));
     case "mail.search.rebuild": return "rebuilt" in value;
     case "ping": return "pong" in value;
+    case "mail.imap.discovery":return "imapDiscovery" in value&&value.imapDiscovery.accountId===command.accountId;
+    case "mail.imap.connect":return "imapConnection" in value;
     case "mail.connection.begin": return "connectionStarted" in value && authorizationUrl(value.connectionStarted.authorizationUrl, command.settings);
     case "mail.connection.poll": return "connection" in value && value.connection.connectionId === command.connectionId;
     case "mail.connection.cancel": return "cancelled" in value;
@@ -238,8 +247,9 @@ export function validWorkerCommand(value: unknown): value is WorkerCommand {
   if (value.operation === "mail.content.read") return exact(value, ["operation", "accountId", "locator", "request"]) && id(value.accountId) && providerMessageLocatorSchema.safeParse(value.locator).success && mailContentReadSchema.safeParse(value.request).success;
   if (value.operation === "mail.search") return exact(value,["operation","input"]) && mailSearchInputSchema.safeParse(value.input).success;
   if (value.operation === "mail.search.rebuild") return exact(value,["operation","input"]) && mailSearchRebuildInputSchema.safeParse(value.input).success;
-  if (value.operation === "mail.sync.start") return exact(value, ["operation", "accountId", "settings"])
-    && id(value.accountId) && settings(value.settings);
+  if(value.operation==="mail.imap.discovery")return Object.keys(value).every(key=>["operation","accountId","after"].includes(key))&&id(value.accountId)&&(!Object.hasOwn(value,"after")||id(value.after));
+  if(value.operation==="mail.imap.connect")return exact(value,["operation","input"])&&imapConnectionSchema.safeParse(value.input).success;
+  if (value.operation === "mail.sync.start") return (exact(value,["operation","accountId"])||exact(value, ["operation", "accountId", "settings"])&&settings(value.settings))&&id(value.accountId);
   if (value.operation === "mail.connection.begin") return Object.keys(value).every(key => ["operation", "settings", "reconnectAccountId"].includes(key))
     && settings(value.settings) && (!Object.hasOwn(value, "reconnectAccountId") || id(value.reconnectAccountId));
   if (value.operation === "mail.connection.poll" || value.operation === "mail.connection.cancel") return exact(value, ["operation", "connectionId"]) && uuid(value.connectionId);
