@@ -97,7 +97,12 @@ export class LocalMailService implements MailService {
   private async request(command: WorkerCommand): Promise<WorkerResult> {
     if (this.stopped) throw new MailServiceError("unavailable");
     if (this.phase !== "open") throw new MailServiceError("locked");
-    try { return await this.worker.request(command); }
+    const epoch = this.epoch;
+    try {
+      const result = await this.worker.request(command);
+      if (epoch !== this.epoch || this.phase !== "open" || this.stopped) throw new MailServiceError("locked");
+      return result;
+    }
     catch (error) { throw serviceError(error); }
   }
   async listAccounts(page: MailPageInput) {
