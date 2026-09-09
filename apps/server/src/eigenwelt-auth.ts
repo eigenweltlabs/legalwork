@@ -213,6 +213,7 @@ const ENTITLEMENT_FEATURES = new Set([
   "settings_presets",
   "org_management",
   "premium_models",
+  "intake",
 ]);
 
 function toFiniteNumber(value: unknown, fallback = 0): number {

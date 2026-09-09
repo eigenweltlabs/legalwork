@@ -191,7 +191,12 @@ export type EigenweltAccountIdentity = {
 };
 
 /** Feature flags the platform may grant (subset the app gates surfaces on). */
-export type EigenweltFeature = "admin_hub" | "settings_presets" | "org_management" | "premium_models";
+export type EigenweltFeature =
+  | "admin_hub"
+  | "settings_presets"
+  | "org_management"
+  | "premium_models"
+  | "intake";
 
 /** App-safe connection view: entitlements + platformURL, never the secret token. */
 export type EigenweltEntitlementsView = {
@@ -290,6 +295,73 @@ export type EigenweltHubInstall = {
 };
 
 export type EigenweltHubInstallMap = Record<string, EigenweltHubInstall>;
+
+// Intake — the firm's shared inbox on the platform. Mirrors the platform's task
+// shapes; the server relays these with the stored token, so nothing here
+// carries a platform credential.
+export type EigenweltIntakeTaskStatus = "open" | "in_progress" | "done" | "cancelled";
+export type EigenweltIntakeTaskPriority = 0 | 1 | 2 | 3 | 4;
+
+export type EigenweltIntakeAttachment = {
+  id: string;
+  filename: string;
+  contentType: string;
+  size: number;
+};
+
+export type EigenweltIntakeTask = {
+  id: string;
+  endpointId: string;
+  endpointName: string;
+  submissionId: string | null;
+  title: string;
+  description: string;
+  status: EigenweltIntakeTaskStatus;
+  priority: EigenweltIntakeTaskPriority;
+  dueDate: string | null;
+  assigneeUserId: string | null;
+  assigneeName: string | null;
+  assignmentNote: string | null;
+  workflowHubItemId: string | null;
+  workflowVersion: number | null;
+  cloudRunId: string | null;
+  lastLocalRunAt: string | null;
+  attachments: EigenweltIntakeAttachment[];
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type EigenweltIntakeMember = {
+  userId: string;
+  name: string | null;
+  email: string | null;
+  role: string;
+};
+
+export type EigenweltIntakeTaskListParams = {
+  assignee?: string;
+  status?: EigenweltIntakeTaskStatus;
+  endpointId?: string;
+  sort?: "created" | "updated" | "priority";
+  order?: "asc" | "desc";
+  limit?: number;
+  cursor?: string;
+};
+
+export type EigenweltIntakeTaskPatch = {
+  status?: EigenweltIntakeTaskStatus;
+  assigneeUserId?: string | null;
+  priority?: EigenweltIntakeTaskPriority;
+  note?: string;
+  lastLocalRunAt?: string | null;
+};
+
+/**
+ * `code` on a LegalworkServerError when the firm's plan has no Intake — the one
+ * intake failure that is an upsell rather than an error. Both the local plan
+ * check and the platform's own 403 arrive under this code.
+ */
+export const EIGENWELT_INTAKE_NOT_ENTITLED = "intake_not_entitled";
 
 // The shared WorkspaceWire contract now carries the opencode block; keep the
 // historical name as an alias for the many existing imports.
@@ -2045,6 +2117,81 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
         baseUrl,
         `/workspace/${encodeURIComponent(workspaceId)}/hub/${encodeURIComponent(itemId)}`,
         { token, hostToken, method: "DELETE", timeoutMs: timeouts.config },
+      ),
+    // Intake: same relay shape as the Firm Hub — the server holds the platform
+    // token and answers `intake_not_entitled` when the firm's plan lacks it.
+    intakeListTasks: (workspaceId: string, params?: EigenweltIntakeTaskListParams) => {
+      const query = new URLSearchParams();
+      if (params?.assignee) query.set("assignee", params.assignee);
+      if (params?.status) query.set("status", params.status);
+      if (params?.endpointId) query.set("endpointId", params.endpointId);
+      if (params?.sort) query.set("sort", params.sort);
+      if (params?.order) query.set("order", params.order);
+      if (params?.limit !== undefined) query.set("limit", String(params.limit));
+      if (params?.cursor) query.set("cursor", params.cursor);
+      const search = query.toString();
+      return requestJson<{ tasks: EigenweltIntakeTask[]; nextCursor: string | null }>(
+        baseUrl,
+        `/workspace/${encodeURIComponent(workspaceId)}/intake/tasks${search ? `?${search}` : ""}`,
+        { token, hostToken, timeoutMs: timeouts.config },
+      );
+    },
+    intakeGetTask: (workspaceId: string, taskId: string) =>
+      requestJson<{ task: EigenweltIntakeTask; submission: unknown }>(
+        baseUrl,
+        `/workspace/${encodeURIComponent(workspaceId)}/intake/tasks/${encodeURIComponent(taskId)}`,
+        { token, hostToken, timeoutMs: timeouts.config },
+      ),
+    // `task` is null when the platform answered without a task body — refetch
+    // rather than render a row that was never returned.
+    intakeCreateTask: (
+      workspaceId: string,
+      payload: { endpointId: string; title: string; description?: string; assigneeUserId?: string | null },
+    ) =>
+      requestJson<{ ok: boolean; task: EigenweltIntakeTask | null }>(
+        baseUrl,
+        `/workspace/${encodeURIComponent(workspaceId)}/intake/tasks`,
+        { token, hostToken, method: "POST", body: payload, timeoutMs: timeouts.config },
+      ),
+    intakePatchTask: (workspaceId: string, taskId: string, patch: EigenweltIntakeTaskPatch) =>
+      requestJson<{ ok: boolean; task: EigenweltIntakeTask | null }>(
+        baseUrl,
+        `/workspace/${encodeURIComponent(workspaceId)}/intake/tasks/${encodeURIComponent(taskId)}`,
+        { token, hostToken, method: "PATCH", body: patch, timeoutMs: timeouts.config },
+      ),
+    intakeUploadAttachments: async (workspaceId: string, taskId: string, files: File[]) => {
+      const form = new FormData();
+      for (const file of files) form.append("files[]", file, file.name);
+      const result = await requestMultipartRaw(
+        baseUrl,
+        `/workspace/${encodeURIComponent(workspaceId)}/intake/tasks/${encodeURIComponent(taskId)}/attachments`,
+        { token, hostToken, method: "POST", body: form, timeoutMs: timeouts.binary },
+      );
+      // The relay always answers `{ code, message }` on failure, so the code is
+      // the only fallback needed when a body is missing entirely.
+      let parsed: { ok?: boolean; task?: EigenweltIntakeTask | null; code?: string; message?: string } | null = null;
+      try {
+        parsed = result.text ? JSON.parse(result.text) : null;
+      } catch {
+        parsed = null;
+      }
+      if (!result.ok) {
+        const code = typeof parsed?.code === "string" ? parsed.code : "request_failed";
+        throw new LegalworkServerError(result.status, code, parsed?.message ?? code);
+      }
+      return { ok: true, task: parsed?.task ?? null };
+    },
+    intakeDownloadAttachment: (workspaceId: string, taskId: string, attachmentId: string) =>
+      requestBinary(
+        baseUrl,
+        `/workspace/${encodeURIComponent(workspaceId)}/intake/tasks/${encodeURIComponent(taskId)}/attachments/${encodeURIComponent(attachmentId)}`,
+        { token, hostToken, timeoutMs: timeouts.binary },
+      ),
+    intakeListMembers: (workspaceId: string) =>
+      requestJson<{ members: EigenweltIntakeMember[] }>(
+        baseUrl,
+        `/workspace/${encodeURIComponent(workspaceId)}/intake/members`,
+        { token, hostToken, timeoutMs: timeouts.config },
       ),
     listReloadEvents: (workspaceId: string, options?: { since?: number }) => {
       const query = typeof options?.since === "number" ? `?since=${options.since}` : "";

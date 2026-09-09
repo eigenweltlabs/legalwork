@@ -158,6 +158,19 @@ import {
   EIGENWELT_HUB_MAX_SECRET_BYTES,
   type EigenweltHubKind,
 } from "./eigenwelt-hub.js";
+import {
+  intakeCreateTask,
+  intakeDownloadAttachment,
+  intakeGetTask,
+  intakeListMembers,
+  intakeListTasks,
+  intakePatchTask,
+  intakeUploadAttachments,
+  parseIntakeTaskCreate,
+  parseIntakeTaskListParams,
+  parseIntakeTaskPatch,
+  requireIntakeClient,
+} from "./eigenwelt-intake.js";
 import { sanitizePresetFragment } from "./hub-sanitize.js";
 import {
   forgetHubInstall,
@@ -2774,6 +2787,94 @@ function createRoutes(
       installedAt: Date.now(),
     });
     return jsonResponse({ ok: true, installs });
+  });
+
+  // Intake: the firm's shared inbox on the platform, relayed with the stored
+  // platformToken exactly like the Firm Hub above — the app never sees it. Only
+  // the task-facing routes are proxied; endpoint/key administration stays
+  // browser-session-only on the platform.
+  const resolveIntakeClient = async (workspaceId: string) => {
+    await ensureFreshPlatformToken(config, workspaceId);
+    return requireIntakeClient(await readEigenweltConnection(config, workspaceId));
+  };
+
+  addRoute(routes, "GET", "/workspace/:id/intake/tasks", "client", async (ctx) => {
+    const workspace = await resolveWorkspace(config, ctx.params.id);
+    const client = await resolveIntakeClient(workspace.id);
+    const params = parseIntakeTaskListParams(ctx.url.searchParams);
+    return jsonResponse(await intakeListTasks(client, params));
+  });
+
+  addRoute(routes, "POST", "/workspace/:id/intake/tasks", "client", async (ctx) => {
+    ensureWritable(config);
+    requireClientScope(ctx, "collaborator");
+    const workspace = await resolveWorkspace(config, ctx.params.id);
+    const client = await resolveIntakeClient(workspace.id);
+    const body = await readJsonBodyLimited(ctx.request, 512 * 1024);
+    const task = await intakeCreateTask(client, parseIntakeTaskCreate(body));
+    return jsonResponse({ ok: true, task });
+  });
+
+  addRoute(routes, "GET", "/workspace/:id/intake/tasks/:taskId", "client", async (ctx) => {
+    const workspace = await resolveWorkspace(config, ctx.params.id);
+    const client = await resolveIntakeClient(workspace.id);
+    return jsonResponse(await intakeGetTask(client, ctx.params.taskId));
+  });
+
+  addRoute(routes, "PATCH", "/workspace/:id/intake/tasks/:taskId", "client", async (ctx) => {
+    ensureWritable(config);
+    requireClientScope(ctx, "collaborator");
+    const workspace = await resolveWorkspace(config, ctx.params.id);
+    const client = await resolveIntakeClient(workspace.id);
+    const body = await readJsonBodyLimited(ctx.request, 512 * 1024);
+    const task = await intakePatchTask(client, ctx.params.taskId, parseIntakeTaskPatch(body));
+    return jsonResponse({ ok: true, task });
+  });
+
+  addRoute(routes, "POST", "/workspace/:id/intake/tasks/:taskId/attachments", "client", async (ctx) => {
+    ensureWritable(config);
+    requireClientScope(ctx, "collaborator");
+    const workspace = await resolveWorkspace(config, ctx.params.id);
+    const client = await resolveIntakeClient(workspace.id);
+    const contentType = ctx.request.headers.get("content-type") ?? "";
+    if (!contentType.toLowerCase().includes("multipart/form-data")) {
+      throw new ApiError(400, "invalid_payload", "Expected multipart/form-data");
+    }
+    const form = await ctx.request.formData();
+    // `files[]` is the platform's field name and what the app sends; `files`
+    // is accepted too because several form helpers drop the brackets.
+    const entries = [...form.getAll("files[]"), ...form.getAll("files")];
+    const files = entries.filter((entry): entry is File => entry instanceof File);
+    const task = await intakeUploadAttachments(client, ctx.params.taskId, files);
+    return jsonResponse({ ok: true, task });
+  });
+
+  addRoute(
+    routes,
+    "GET",
+    "/workspace/:id/intake/tasks/:taskId/attachments/:attachmentId",
+    "client",
+    async (ctx) => {
+      const workspace = await resolveWorkspace(config, ctx.params.id);
+      const client = await resolveIntakeClient(workspace.id);
+      const attachment = await intakeDownloadAttachment(client, ctx.params.taskId, ctx.params.attachmentId);
+      const headers = new Headers();
+      headers.set("Content-Type", attachment.contentType);
+      headers.set("Content-Length", String(attachment.bytes.byteLength));
+      if (attachment.filename) {
+        headers.set(
+          "Content-Disposition",
+          `attachment; filename="${attachment.filename.replace(/[^A-Za-z0-9._-]/g, "_")}"`,
+        );
+      }
+      return new Response(attachment.bytes, { status: 200, headers });
+    },
+  );
+
+  addRoute(routes, "GET", "/workspace/:id/intake/members", "client", async (ctx) => {
+    const workspace = await resolveWorkspace(config, ctx.params.id);
+    const client = await resolveIntakeClient(workspace.id);
+    return jsonResponse({ members: await intakeListMembers(client) });
   });
 
   addRoute(routes, "GET", "/workspace/:id/audit", "client", async (ctx) => {
