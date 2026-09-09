@@ -7,6 +7,7 @@ import {
   useState,
 } from "react";
 import { useLocation, useNavigate, useParams } from "react-router-dom";
+import { MailRoute } from "../domains/mail/mail-route";
 import { EvalsPane } from "./evals-route";
 import { RecorderPane } from "../domains/recorder/recorder-pane";
 import { TasksPane } from "../domains/tasks/tasks-pane";
@@ -347,6 +348,7 @@ export function SessionRoute() {
     () => new URLSearchParams(location.search).get("detached") === "1",
     [location.search],
   );
+  const showMail = location.pathname === "/mail";
   const [showEvals, setShowEvals] = useState(false);
   // Top-level pages that live in the main shell (sidebar stays, main pane swaps),
   // same mechanism as Evals. Mutually exclusive — only one main pane at a time.
@@ -363,33 +365,37 @@ export function SessionRoute() {
   // not close the pane it opened (see the pane-closing effect below).
   const keepTasksPaneUntil = useRef(0);
   const showEvalsPane = useCallback(() => {
+    if (showMail) navigate("/session");
     setShowEvals(true);
     setShowWorkflows(false);
     setShowExtensions(false);
     setShowRecorder(false);
     setShowTasks(false);
-  }, []);
+  }, [showMail, navigate]);
   const showWorkflowsPane = useCallback(() => {
+    if (showMail) navigate("/session");
     setShowWorkflows(true);
     setShowEvals(false);
     setShowExtensions(false);
     setShowRecorder(false);
     setShowTasks(false);
-  }, []);
+  }, [showMail, navigate]);
   const showRecorderPane = useCallback(() => {
+    if (showMail) navigate("/session");
     setShowRecorder(true);
     setShowEvals(false);
     setShowWorkflows(false);
     setShowExtensions(false);
     setShowTasks(false);
-  }, []);
+  }, [showMail, navigate]);
   const showTasksPane = useCallback(() => {
+    if (showMail) navigate("/session");
     setShowTasks(true);
     setShowEvals(false);
     setShowWorkflows(false);
     setShowExtensions(false);
     setShowRecorder(false);
-  }, []);
+  }, [showMail, navigate]);
   // The Tasks pane is where task announcements are read — once the user looks
   // at it: while it is open AND the window is in front, the counts next to
   // Tasks and on the app icon stay clear. An announcement that arrives while
@@ -2264,7 +2270,7 @@ export function SessionRoute() {
         // One reused SettingsSurface instance across the pages — it follows `initialPath`
         // via an effect, so switching Workflows <-> Integrations is instant and doesn't
         // re-fetch the workspace/stores.
-        showWorkflows ? (
+        showMail ? <MailRoute /> : showWorkflows ? (
           // onClose drops the pane so actions that navigate to a session (e.g.
           // opening the workflow-generation session) always reveal the chat —
           // even when the target session is already the selected one and the
@@ -2334,7 +2340,7 @@ export function SessionRoute() {
         // Tasks live on this machine, so the surface exists for everyone — a
         // connected firm additionally syncs them with its Eigenwelt account.
         onShowTasks: showTasksPane,
-        activeNav: showWorkflows ? "workflows" : showExtensions ? "extensions" : showEvals ? "evals" : showRecorder ? "recorder" : showTasks ? "tasks" : null,
+        activeNav: showMail ? "mail" : showWorkflows ? "workflows" : showExtensions ? "extensions" : showEvals ? "evals" : showRecorder ? "recorder" : showTasks ? "tasks" : null,
         workspaceSessionGroups,
         selectedWorkspaceId,
         selectedSessionId,

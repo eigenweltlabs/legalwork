@@ -494,7 +494,7 @@ export type AppSidebarProps = {
    */
   onShowTasks?: () => void;
   /** Which main-pane nav tab is currently shown (shades it like hover). */
-  activeNav?: "evals" | "workflows" | "extensions" | "recorder" | "tasks" | null;
+  activeNav?: "mail" | "evals" | "workflows" | "extensions" | "recorder" | "tasks" | null;
   onReorderWorkspaces?: (workspaceIds: string[]) => void;
   onStartResize?: React.PointerEventHandler<HTMLButtonElement>;
 };
@@ -743,6 +743,12 @@ export function AppSidebar(props: AppSidebarProps) {
             </SidebarMenuItem>
           ) : null}
           <SidebarMenuItem>
+            <SidebarMenuButton className={cn(NAV_ITEM_CLASS, "[&_svg]:size-[18px]")} isActive={props.activeNav === "mail"} onClick={() => navigate("/mail")}>
+              <Mail className="size-[18px]" strokeWidth={1.5} />
+              <span>Mail</span>
+            </SidebarMenuButton>
+          </SidebarMenuItem>
+          <SidebarMenuItem>
             <SidebarMenuButton
               className={cn(NAV_ITEM_CLASS, "[&_svg]:size-[18px]")}
               isActive={props.activeNav === "workflows"}
@@ -752,7 +758,6 @@ export function AppSidebar(props: AppSidebarProps) {
               <span>{t("sidebar.workflows")}</span>
             </SidebarMenuButton>
           </SidebarMenuItem>
-          <SidebarMenuItem><SidebarMenuButton className={NAV_ITEM_CLASS} onClick={() => navigate("/mail")}><Mail className="size-[18px]" strokeWidth={1.5}/><span>Mail</span></SidebarMenuButton></SidebarMenuItem>
           <SidebarMenuItem>
             <SidebarMenuButton
               className={cn(NAV_ITEM_CLASS, "[&_svg]:size-[18px]")}
