@@ -115,7 +115,7 @@ function connection(value: unknown): value is MailConnectionStatus {
   if (!record(value) || !uuid(value.connectionId) || !time(value.expiresAt)) return false;
   if (value.state === "connected") return exact(value, ["connectionId", "expiresAt", "state", "accountId", "renewable"]) && id(value.accountId) && typeof value.renewable === "boolean";
   if (value.state === "failed") return exact(value, ["connectionId", "expiresAt", "state", "error"]) && typeof value.error === "string" && connectionErrors.includes(value.error);
-  return exact(value, ["connectionId", "expiresAt", "state"]) && ["pending", "verifying", "cancelled", "expired"].includes(String(value.state));
+  return exact(value, ["connectionId", "expiresAt", "state"]) && typeof value.state === "string" && ["pending", "verifying", "cancelled", "expired"].includes(value.state);
 }
 function started(value: unknown): boolean {
   return record(value) && exact(value, ["connectionId", "authorizationUrl", "expiresAt"]) && uuid(value.connectionId) && time(value.expiresAt) && authorizationUrl(value.authorizationUrl);
