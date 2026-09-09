@@ -15,6 +15,7 @@ import {
   Languages,
   Layout,
   Mic,
+  Mail,
   Puzzle,
   RefreshCcw,
   ShieldCheck,
@@ -63,6 +64,8 @@ import { AssistantFlowerIcon } from "../../session/sidebar/assistant-appearance"
 
 export function getSettingsTabIcon(tab: SettingsTab) {
   switch (tab) {
+    case "mail-accounts":
+      return Mail;
     case "ai":
       return Zap;
     case "tabular-review":
@@ -120,6 +123,8 @@ export function getSettingsTabIcon(tab: SettingsTab) {
 
 export function getSettingsTabLabel(tab: SettingsTab) {
   switch (tab) {
+    case "mail-accounts":
+      return "Mail Accounts";
     case "ai":
       return t("settings.tab_ai");
     case "tabular-review":
@@ -181,6 +186,8 @@ export function getSettingsTabDescription(tab: SettingsTab) {
   switch (tab) {
     case "tabular-review":
       return t("review.defaults_scope");
+    case "mail-accounts":
+      return "Connect and manage the mail accounts on this computer.";
     case "ai":
       return t("settings.tab_description_ai");
     case "account":
@@ -248,7 +255,7 @@ export function getGlobalSettingsTabs(developerMode: boolean): SettingsTab[] {
   // "benchmark" is not listed here: it lives on the Evals page in the main
   // app shell (embedded singleView surface), not in the settings sidebar.
   // Account leads: it is the firm's sign-in, plan and billing home.
-  const tabs: SettingsTab[] = ["account", "ai", "assistant", "notifications", "tabular-review", "extensions", "personalisation", "safety", "shell", "environment", "preferences", "updates"];
+  const tabs: SettingsTab[] = ["account", "ai", "assistant", "notifications", "tabular-review", "mail-accounts", "extensions", "personalisation", "safety", "shell", "environment", "preferences", "updates"];
   // Office add-ins install into local desktop apps, so the tab is desktop-only.
   // Keep Account, AI Providers and Assistant first.
   if (isDesktopRuntime()) tabs.splice(3, 0, "office-addins");

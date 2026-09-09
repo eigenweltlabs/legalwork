@@ -21,7 +21,7 @@ const errors: Record<string, string> = {
 };
 function errorText(code: string) { return errors[code] ?? 'The account could not be connected. Check the provider settings and try again.'; }
 export function MailOnboarding({ client, accounts, onChanged, onClose }: {
-  client: MailClient; accounts: MailAccountView[]; onChanged: () => void; onClose: () => void;
+  client: MailClient; accounts: MailAccountView[]; onChanged: () => void; onClose?: () => void;
 }) {
   const api = useRef(new MailOnboardingClient(client)).current;
   const [choice, setChoice] = useState<AccountChoice>('gmail');
@@ -91,8 +91,9 @@ export function MailOnboarding({ client, accounts, onChanged, onClose }: {
     reset(); setReconnect(account.id); setFailure(''); setNotice('Reconnect must use the same mailbox identity.');
     setChoice(account.provider === 'gmail' ? 'gmail' : account.provider === 'graph' ? (account.personal ? 'outlook' : 'microsoft-work') : 'manual');
     if (account.provider === 'imap') {
-      try { const { settings } = await api.discovery(account.id, abort.current.signal); setHost(settings.host); setPort(settings.port); setUsername(settings.username); setFolderText(settings.folders?.join('\n') ?? ''); }
-      catch { setNotice('Enter the original server and username to reconnect this account.'); }
+      const signal = abort.current.signal;
+      try { const { settings } = await api.discovery(account.id, signal); if (signal.aborted) return; setHost(settings.host); setPort(settings.port); setUsername(settings.username); setFolderText(settings.folders?.join('\n') ?? ''); }
+      catch { if (!signal.aborted) setNotice('Enter the original server and username to reconnect this account.'); }
     }
   }
   async function disconnect(account: MailAccountView) {
@@ -102,8 +103,8 @@ export function MailOnboarding({ client, accounts, onChanged, onClose }: {
     finally { if (!signal.aborted) setBusy(false); }
   }
   return (
-    <section aria-label="Mail account setup" className="mail-onboarding border-b bg-background p-5 max-h-[75vh] overflow-auto">
-      <div className="flex items-center justify-between gap-4"><h2 className="text-lg font-semibold">Mail accounts</h2><Button variant="outline" onClick={() => { reset(); onClose(); }}>Close setup</Button></div>
+    <section aria-label="Mail account setup" className="mail-onboarding bg-background">
+      <div className="flex items-center justify-between gap-4">{onClose && <h2 className="text-lg font-semibold">Mail accounts</h2>}{onClose && <Button variant="outline" onClick={() => { reset(); onClose(); }}>Close setup</Button>}</div>
       <p className="mt-2 text-sm text-muted-foreground">Connect directly to your provider. Mail stays in the encrypted store on this computer.</p>
       {accounts.length > 0 && <ul className="my-4 space-y-2">{accounts.map(account => (
         <li key={account.id} className="flex flex-wrap items-center gap-2"><span className="flex-1 break-words">{account.displayName}</span><Button size="sm" variant="outline" disabled={busy} onClick={() => void selectReconnect(account)}>Reconnect</Button><Button size="sm" variant="outline" disabled={busy} onClick={() => void disconnect(account)}>Disconnect</Button></li>

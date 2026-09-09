@@ -99,6 +99,7 @@ import { RecoveryView } from "@/react-app/domains/settings/pages/recovery-view";
 import { OfficeAddinsView } from "@/react-app/domains/settings/pages/office-addins-view";
 import { RecorderSettingsView } from "@/react-app/domains/settings/pages/recorder-view";
 import { WorkflowsView } from "@/react-app/domains/settings/pages/workflows-view";
+import { MailAccountsView } from "@/react-app/domains/settings/pages/mail-accounts-view";
 import { UpdatesView } from "@/react-app/domains/settings/pages/updates-view";
 import { useDebugViewModel } from "@/react-app/domains/settings/state/debug-view-model";
 import { useElectronUpdaterState } from "@/react-app/domains/settings/state/electron-updater-state";
@@ -217,6 +218,7 @@ function parseSettingsPath(pathname: string): {
     case "updates":
     case "recovery":
     case "office-addins":
+    case "mail-accounts":
     case "recorder":
     case "debug":
       return { tab: head, redirectPath: null };
@@ -390,8 +392,8 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
       setEmbeddedPath(path);
       return;
     }
-    navigate(selectedWorkspaceId ? workspaceSettingsRoute(selectedWorkspaceId, path) : `/settings/${path}`);
-  }, [navigate, props.embedded, selectedWorkspaceId]);
+    navigate(selectedWorkspaceId ? workspaceSettingsRoute(selectedWorkspaceId, path) : `/settings/${path}`, { state: location.state });
+  }, [navigate, props.embedded, selectedWorkspaceId, location.state]);
 
   const embeddedNavigateRef = props.embeddedNavigateRef;
   useEffect(() => {
@@ -1892,6 +1894,8 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
 
   const settingsView = (() => {
     switch (route.tab) {
+      case "mail-accounts":
+        return <MailAccountsView />;
       case "general":
         return (
           <GeneralSettingsView
@@ -2409,7 +2413,7 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
           onSelectWorkspace={handleSelectSettingsWorkspace}
           headerStatus={routeLegalworkStatus}
           busyHint={loading ? t("session.loading_detail") : busyLabel}
-          onClose={props.onClose ?? (() => navigate(selectedWorkspaceId ? workspaceSessionRoute(selectedWorkspaceId) : "/session"))}
+          onClose={props.onClose ?? (() => navigate(location.state?.from === "/mail" ? "/mail" : selectedWorkspaceId ? workspaceSessionRoute(selectedWorkspaceId) : "/session"))}
           compact={props.embedded}
         >
           {settingsView}
