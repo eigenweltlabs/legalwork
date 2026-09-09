@@ -17,6 +17,7 @@ import { refreshEigenweltPaidManifest } from "./eigenwelt-paid-manifest.js";
 import { ensureFreshPlatformToken } from "./eigenwelt-refresh.js";
 import type { ServeResult } from "./serve-node.js";
 import type { ServerConfig } from "./types.js";
+import type { MailService } from "./mail/service-interface.js";
 
 export type EmbeddedServerOptions = CliArgs & {
   /** When true, spawn a managed OpenCode child process. */
@@ -29,6 +30,8 @@ export type EmbeddedServerOptions = CliArgs & {
   pickDirectory?: ServerConfig["pickDirectory"];
   /** Desktop recorder hook, forwarded to Office add-in API routes. */
   recorder?: ServerConfig["recorder"];
+  /** Desktop-owned local mail service. Never loaded from environment or config. */
+  mail?: MailService;
 };
 
 export type EmbeddedServerHandle = {
@@ -133,7 +136,7 @@ export async function startEmbeddedServer(options: EmbeddedServerOptions): Promi
     }
   }
 
-  const server = await startServer(config);
+  const server = await startServer(config, { mail: options.mail });
 
   // The runtime config file above only covers workspaces[0]. Push every
   // workspace's runtime-DB MCPs into the engine so they aren't invisible
@@ -148,8 +151,8 @@ export async function startEmbeddedServer(options: EmbeddedServerOptions): Promi
     config,
     managedOpencodeExecution: managedOpencode?.execution ?? null,
     async stop() {
-      await managedOpencode?.close();
-      await server.stop();
+      try { await managedOpencode?.close(); }
+      finally { await server.stop(); }
     },
   };
 }
