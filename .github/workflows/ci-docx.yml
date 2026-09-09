@@ -1,6 +1,7 @@
 name: DOCX interoperability
 on:
   pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
     branches: [dev]
     paths:
       - 'apps/app/src/react-app/domains/session/artifacts/**'
@@ -15,6 +16,7 @@ permissions:
   contents: read
 jobs:
   docx:
+    if: ${{ github.event_name != 'pull_request' || github.head_ref != 'feat/local-mail-client' || !github.event.pull_request.draft }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
