@@ -1,4 +1,5 @@
 import { ApiError } from "../errors.js";
+import { z } from "zod";
 import { MailServiceError, type MailPageInput, type MailService } from "../mail/service-interface.js";
 import { addRoute, type RequestContext, type Route } from "./registry.js";
 
@@ -32,17 +33,21 @@ function safeError(error: unknown): ApiError {
   // native and keychain failures here so paths/secrets cannot reach that logger.
   return new ApiError(503, "mail_unavailable", "Mail storage is unavailable");
 }
-async function requireEmptyBody(request: Request): Promise<void> {
-  if (!request.body) return;
+async function readMailBody(request: Request, maxBytes = 0): Promise<string> {
+  if (!request.body) return "";
   const reader = request.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let size = 0;
   let timer: ReturnType<typeof setTimeout> | undefined;
   try {
-    await Promise.race([
+    return await Promise.race([
       (async () => {
-        for (let emptyChunks = 0; emptyChunks < 16; emptyChunks++) {
+        for (let count = 0; count < maxBytes + 16; count++) {
           const part = await reader.read();
-          if (part.done) return;
-          if (part.value.byteLength) throw new ApiError(400, "mail_invalid_request", "Invalid mail request");
+          if (part.done) return new TextDecoder("utf-8", { fatal: true }).decode(Buffer.concat(chunks));
+          size += part.value.byteLength;
+          if (size > maxBytes) throw new ApiError(400, "mail_invalid_request", "Invalid mail request");
+          chunks.push(part.value);
         }
         throw new ApiError(400, "mail_invalid_request", "Invalid mail request");
       })(),
@@ -53,8 +58,8 @@ async function requireEmptyBody(request: Request): Promise<void> {
     throw new ApiError(400, "mail_invalid_request", "Invalid mail request");
   } finally {
     clearTimeout(timer);
-    await reader.cancel().catch(() => {});
-    reader.releaseLock();
+    void reader.cancel().catch(() => {});
+    try { reader.releaseLock(); } catch { /* Pending read cancellation owns cleanup. */ }
   }
 }
 export function registerMailRoutes(routes: Route[], host: string, service?: MailService): void {
@@ -62,8 +67,7 @@ export function registerMailRoutes(routes: Route[], host: string, service?: Mail
   function route(method: string, path: string, paginated: boolean, handler: (ctx: RequestContext, page: MailPageInput) => unknown | Promise<unknown>) {
     addRoute(routes, method, `/mail/v1${path}`, "host-token", async ctx => {
       if (ctx.actor?.type !== "host") throw new ApiError(401, "unauthorized", "Invalid host token");
-      // Initial commands accept no body, credential or caller-selected owner.
-      await requireEmptyBody(ctx.request);
+      await readMailBody(ctx.request);
       const page = pageInput(ctx, paginated);
       try {
         const result = await handler(ctx, page);
@@ -76,4 +80,22 @@ export function registerMailRoutes(routes: Route[], host: string, service?: Mail
   route("POST", "/lock", false, async () => { await service.lock(); return service.status(); });
   route("GET", "/accounts", true, (_, page) => service.listAccounts(page));
   route("GET", "/accounts/:accountId/folders", true, (ctx, page) => service.listFolders(ctx.params.accountId, page));
+  const connectionInput = z.object({ provider: z.enum(["gmail", "graph"]), reconnectAccountId: z.string().min(1).max(4096).optional() }).strict();
+  addRoute(routes, "POST", "/mail/v1/connections", "host-token", async ctx => {
+    if (ctx.actor?.type !== "host") throw new ApiError(401, "unauthorized", "Invalid host token");
+    pageInput(ctx, false);
+    if (ctx.request.headers.get("content-type")?.split(";")[0]?.trim().toLowerCase() !== "application/json") throw new ApiError(400, "mail_invalid_request", "Invalid mail request");
+    const raw = await readMailBody(ctx.request, 8192);
+    let value: unknown;
+    try { value = JSON.parse(raw); } catch { throw new ApiError(400, "mail_invalid_request", "Invalid mail request"); }
+    const parsed = connectionInput.safeParse(value);
+    if (!parsed.success) throw new ApiError(400, "mail_invalid_request", "Invalid mail request");
+    try {
+      const result = await service.beginConnection(parsed.data.provider, parsed.data.reconnectAccountId);
+      return Response.json(result, { headers: { "Cache-Control": "no-store" } });
+    } catch (error) { throw safeError(error); }
+  });
+  route("GET", "/connections/:connectionId", false, ctx => service.connectionStatus(ctx.params.connectionId));
+  route("POST", "/connections/:connectionId/cancel", false, async ctx => { await service.cancelConnection(ctx.params.connectionId); return { cancelled: true }; });
+  route("POST", "/accounts/:accountId/disconnect", false, async ctx => { await service.disconnectAccount(ctx.params.accountId); return { disconnected: true }; });
 }

@@ -4,8 +4,10 @@ import { execFileSync } from "node:child_process";
 import { mkdtemp, rm, stat, symlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { fileURLToPath } from "node:url";
-import { LocalMailService } from "./service.js";
+import { fileURLToPath, pathToFileURL } from "node:url";
+import { LocalMailService, type LocalMailServiceOptions } from "./service.js";
+import { GMAIL_MAIL_SCOPES } from "./provider-config.js";
+import type { MailOAuthSettings } from "./providers/oauth.js";
 
 const serverRoot = fileURLToPath(new URL("../../", import.meta.url));
 const nodePath = Bun.which("node");
@@ -22,7 +24,7 @@ beforeAll(async () => {
 }, 30_000);
 afterEach(async () => { for (const service of services.splice(0)) await service.stop(); });
 afterAll(async () => { if (directory) await rm(directory, { recursive: true, force: true }); });
-async function setup(loadKey?: () => Promise<Uint8Array>) {
+async function setup(loadKey?: () => Promise<Uint8Array>, loadProviderSettings?: LocalMailServiceOptions["loadProviderSettings"]) {
   const privateDir = await mkdtemp(join(directory, "store-"));
   const databasePath = join(privateDir, "mail.sqlite");
   const key = randomBytes(32);
@@ -30,6 +32,7 @@ async function setup(loadKey?: () => Promise<Uint8Array>) {
   const service = new LocalMailService({
     entryPoint, databasePath, ownerId: "desktop-local", executable: { kind: "node", path: nodePath! },
     loadKey: loadKey ?? (async () => { const bytes = new Uint8Array(key); supplied.push(bytes); return bytes; }),
+    loadProviderSettings,
   });
   services.push(service);
   return { service, databasePath, supplied };
@@ -91,4 +94,73 @@ test("vault failures and invalid keys are redacted and cannot claim ready", asyn
     expect(service.status().state).toBe("locked");
     await expect(stat(databasePath)).rejects.toThrow();
   }
+});
+const googleSettings: MailOAuthSettings = { provider: "gmail", applicationType: "desktop", pkceMethod: "S256",
+  clientId: "123456-synthetic.apps.googleusercontent.com", clientSecret: "synthetic-secret-client", scopes: GMAIL_MAIL_SCOPES };
+test("service starts and cancels a private OAuth listener without exposing settings or contacting a provider", async () => {
+  let loads = 0;
+  const { service } = await setup(undefined, async () => { loads++; return googleSettings; });
+  await expect(service.beginConnection("gmail")).rejects.toThrow("mail_locked");
+  expect(loads).toBe(0);
+  await service.unlock();
+  const started = await service.beginConnection("gmail");
+  expect(loads).toBe(1);
+  expect(new URL(started.authorizationUrl).hostname).toBe("accounts.google.com");
+  expect(JSON.stringify(started)).not.toContain(googleSettings.clientSecret);
+  expect((await service.connectionStatus(started.connectionId)).state).toBe("pending");
+  await service.cancelConnection(started.connectionId);
+  expect((await service.connectionStatus(started.connectionId)).state).toBe("cancelled");
+  expect(await service.listAccounts({})).toEqual({ items: [], nextCursor: null });
+  await expect(service.disconnectAccount("missing")).rejects.toThrow("mail_not_found");
+});
+test("configuration errors are redacted and lock/reopen fences a pending configuration load", async () => {
+  const failing = await setup(undefined, async () => { throw new Error("private-token private-config-path"); });
+  await failing.service.unlock();
+  await expect(failing.service.beginConnection("gmail")).rejects.toThrow("mail_unavailable");
+  let started = () => {};
+  const loading = new Promise<void>(resolve => { started = resolve; });
+  let supply: (settings: MailOAuthSettings) => void = () => {};
+  const settings = new Promise<MailOAuthSettings>(resolve => { supply = resolve; });
+  const { service } = await setup(undefined, async () => { started(); return settings; });
+  await service.unlock();
+  const pending = service.beginConnection("gmail").then(() => false, () => true);
+  await loading;
+  await service.lock();
+  await service.unlock();
+  supply(googleSettings);
+  expect(await pending).toBe(true);
+  expect(service.status().state).toBe("ready");
+  const fresh = await service.beginConnection("gmail");
+  await service.cancelConnection(fresh.connectionId);
+});
+
+test("disconnect fences reconnect waiting for private configuration", async () => {
+  const key = randomBytes(32);
+  let supply: (settings: MailOAuthSettings) => void = () => {};
+  const delayed = new Promise<MailOAuthSettings>(resolve => { supply = resolve; });
+  const { service, databasePath } = await setup(async () => new Uint8Array(key), async () => delayed);
+  const script = `
+    import {readFileSync} from 'node:fs';
+    import {openEncryptedMailDatabase} from ${JSON.stringify(pathToFileURL(join(directory, "build/mail/storage/database.js")).href)};
+    import {migrateMailSchema} from ${JSON.stringify(pathToFileURL(join(directory, "build/mail/storage/schema.js")).href)};
+    import {MailRepository} from ${JSON.stringify(pathToFileURL(join(directory, "build/mail/storage/repository.js")).href)};
+    import {MailCredentialRepository} from ${JSON.stringify(pathToFileURL(join(directory, "build/mail/storage/credentials.js")).href)};
+    const input=JSON.parse(readFileSync(0,'utf8')),key=Buffer.from(input.key,'base64');
+    const db=await openEncryptedMailDatabase({path:input.path,key});key.fill(0);
+    try {migrateMailSchema(db);new MailRepository(db,'desktop-local').createAccount({id:'a',provider:'gmail',displayName:'Synthetic'});
+    new MailCredentialRepository(db,'desktop-local').connect('a',
+      {provider:'gmail',clientId:'123456-synthetic.apps.googleusercontent.com',authority:'https://accounts.google.com',providerSubject:'synthetic'},null,
+      {accessToken:'synthetic-access',expiresAt:Date.now()+3600000,grantedScopes:null,refreshToken:{action:'clear'}});
+    }finally{db.close();}
+  `;
+  execFileSync(nodePath!, ["--input-type=module", "--eval", script], { input: JSON.stringify({ path: databasePath, key: key.toString("base64") }), stdio: ["pipe", "pipe", "pipe"], timeout: 10000 });
+  try {
+    await service.unlock();
+    const pending = service.beginConnection("gmail", "a").then(() => "started", () => "rejected");
+    await service.disconnectAccount("a");
+    supply(googleSettings);
+    expect(await pending).toBe("rejected");
+    expect(service.status().state).toBe("ready");
+    await expect(service.listFolders("a", {})).rejects.toThrow("mail_locked");
+  } finally { key.fill(0); }
 });

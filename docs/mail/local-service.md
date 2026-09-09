@@ -15,10 +15,18 @@ All endpoints require the desktop `X-LegalWork-Host-Token`. Remote owner, collab
 | `POST /mail/v1/lock` | Reject new work, stop worker and close storage |
 | `GET /mail/v1/accounts` | Current owner's account summaries |
 | `GET /mail/v1/accounts/:accountId/folders` | Owned account's folder/label summaries; missing and foreign accounts have the same 404 |
+| `POST /mail/v1/connections` | Begin Google or Microsoft OAuth with trusted desktop configuration; return connection ID, authorization URL and expiry |
+| `GET /mail/v1/connections/:connectionId` | Poll a redacted pending/verifying/connected/failed/cancelled/expired state |
+| `POST /mail/v1/connections/:connectionId/cancel` | Cancel the local OAuth attempt and close its loopback listener |
+| `POST /mail/v1/accounts/:accountId/disconnect` | Clear credentials, fence pending reconnects and retain a locked local archive |
 
-POST commands accept an empty body. Lists accept only `limit` (1–100, default 50) and optional `after`. SQL keyset pagination bounds row count, and the worker's 64 KiB response cap bounds encoded output. A single oversized row returns a fixed error; pagination never silently skips a row. Responses are marked `no-store`. Internal owner IDs, database paths, credentials and raw worker errors are excluded. Mail request paths are redacted in the normal request logger.
+Connection creation accepts only JSON `{ "provider": "gmail" | "graph", "reconnectAccountId"?: "owned-account-id" }`, bounded to 8192 bytes with a two-second read deadline. Provider settings, credentials, owner and filesystem paths cannot be supplied through HTTP. Other POST commands accept an empty body. Lists accept only `limit` (1–100, default 50) and optional `after`. SQL keyset pagination bounds row count, and the worker's 64 KiB response cap bounds encoded output. A single oversized row returns a fixed error; pagination never silently skips a row. Responses are marked `no-store`. Internal owner IDs, database paths, credentials and raw worker errors are excluded. Mail request paths are redacted in the normal request logger.
 
-The service does not claim provider sync, message listing/search, draft editing, sending or mutations. `syncSupported` is explicitly false. Those operations need real implementations and separate typed protocol/API additions; there are no successful stub sync commands. Account rows will be created through verified provider connection handling, not an arbitrary public account-creation endpoint.
+The development desktop loads Google's installed-client JSON from the trusted main-process `LEGALWORK_MAIL_GOOGLE_CLIENT_CONFIG` environment variable. The loader requires a private owner-controlled regular file and directory on Unix and rejects symlinks, hardlinks, FIFOs and oversized input. Microsoft uses `LEGALWORK_MAIL_MICROSOFT_CLIENT_ID` and `LEGALWORK_MAIL_MICROSOFT_TENANT_ID` from that same trusted process. No registration is reused from a workspace. Distribution configuration and Windows ACL qualification remain separate work.
+
+Only a verified provider identity and the required actual grants can create an account and encrypted credentials atomically. Cancel, lock and shutdown fence late completion. An operation epoch also rejects configuration loads started before lock/reopen or disconnect; an old begin request cannot obtain a fresh post-disconnect credential version. Disconnect retains metadata and content but clears tokens and locks folder/status access across worker restarts. Repeated disconnect rotates the durable generation, including when another controller is reconnecting. This does not revoke the provider grant remotely or purge retained content; the public privacy notice must be reconciled with this approved retention contract before pilot.
+
+The service does not claim provider sync, message listing/search, draft editing, sending or mailbox mutations. `syncSupported` is explicitly false. Those operations need real implementations and separate typed protocol/API additions; there are no successful stub sync commands. Accounts are created only through verified provider connection handling.
 
 ## Reviewed evidence and limits
 
