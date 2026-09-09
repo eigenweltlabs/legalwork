@@ -129,7 +129,7 @@ function childRotate(path,key,binding,version,accessToken){
  catch(error){process.stdout.write(error.message==='mail_credentials_stale_version'?'stale':'unexpected');}
  finally{db.close();}`;
  return new Promise((resolve,reject)=>{
-  const child=spawn(process.execPath,['--input-type=module','--eval',script],{env:{},stdio:['pipe','pipe','pipe']});let out='',err='';
+  const child=spawn(process.execPath,['--input-type=module','--eval',script],{env:process.platform==='win32'?{SystemRoot:process.env.SystemRoot,WINDIR:process.env.WINDIR}:{},stdio:['pipe','pipe','pipe']});let out='',err='';
   const timer=setTimeout(()=>{child.kill('SIGKILL');reject(new Error('test_timeout'))},10000);
   child.on('error',reject);child.stdout.on('data',chunk=>out+=chunk.toString());child.stderr.on('data',chunk=>err+=chunk.toString());
   child.on('close',code=>{clearTimeout(timer);if(code!==0||err)reject(new Error('credential_child_failed'));else resolve(out)});

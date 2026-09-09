@@ -116,7 +116,7 @@ async function crashAfter(path,key,stage){
  const script=`import{readFileSync}from'node:fs';import{openEncryptedMailDatabase}from ${JSON.stringify(new URL('./database.js',import.meta.url).href)};import{MailActionJournal}from ${JSON.stringify(new URL('./action-journal.js',import.meta.url).href)};
  const input=JSON.parse(readFileSync(0,'utf8'));const key=Buffer.from(input.key,'base64');const db=await openEncryptedMailDatabase({path:input.path,key});key.fill(0);const journal=new MailActionJournal(db,'owner',()=>1000);const work=journal.claim('a',10);if(input.stage==='dispatching')journal.markDispatched(work.lease);process.stdout.write('durable');setInterval(()=>{},1000);`;
  await new Promise((resolve,reject)=>{
-  const child=spawn(process.execPath,['--input-type=module','--eval',script],{env:{},stdio:['pipe','pipe','pipe']});let ready=false;
+  const child=spawn(process.execPath,['--input-type=module','--eval',script],{env:process.platform==='win32'?{SystemRoot:process.env.SystemRoot,WINDIR:process.env.WINDIR}:{},stdio:['pipe','pipe','pipe']});let ready=false;
   const timer=setTimeout(()=>{child.kill('SIGKILL');reject(Error('crash test timed out'));},10000);
   child.on('error',reject);child.stdout.once('data',()=>{ready=true;child.kill('SIGKILL');});child.on('close',()=>{clearTimeout(timer);ready?resolve():reject(Error('child failed before durable boundary'));});
   child.stdin.end(JSON.stringify({path,key:key.toString('base64'),stage}));
@@ -133,7 +133,7 @@ test('competing Node writers deduplicate replay keys and grant only one lease',a
  const script=`import{readFileSync}from'node:fs';import{openEncryptedMailDatabase}from ${JSON.stringify(new URL('./database.js',import.meta.url).href)};import{MailActionJournal}from ${JSON.stringify(new URL('./action-journal.js',import.meta.url).href)};
  const input=JSON.parse(readFileSync(0,'utf8'));const key=Buffer.from(input.key,'base64');const db=await openEncryptedMailDatabase({path:input.path,key});key.fill(0);try{const journal=new MailActionJournal(db,'owner',()=>1000);const job=journal.enqueue('a',input.action);process.stdout.write(JSON.stringify({id:job.id,claimed:journal.claim('a')!==null}));}finally{db.close();}`;
  const run=()=>new Promise((resolve,reject)=>{
-  const child=spawn(process.execPath,['--input-type=module','--eval',script],{env:{},stdio:['pipe','pipe','pipe']});let output='';
+  const child=spawn(process.execPath,['--input-type=module','--eval',script],{env:process.platform==='win32'?{SystemRoot:process.env.SystemRoot,WINDIR:process.env.WINDIR}:{},stdio:['pipe','pipe','pipe']});let output='';
   const timer=setTimeout(()=>{child.kill('SIGKILL');reject(Error('competing writer timed out'));},10000);
   child.on('error',reject);child.stdout.on('data',chunk=>output+=chunk);child.on('close',code=>{clearTimeout(timer);code===0?resolve(JSON.parse(output)):reject(Error('competing writer failed'));});
   child.stdin.end(JSON.stringify({path:f.path,key:f.key.toString('base64'),action:input()}));

@@ -155,6 +155,9 @@ test('rejects unknown/plaintext native modules before creating a target file', a
   await mkdir(moduleDir,{recursive:true});
   await writeFile(join(dir,'package.json'),'{"type":"module"}');
   await copyFile(fileURLToPath(new URL(moduleFile,import.meta.url)),join(dir,moduleFile));
+  // Keep production's built-in-only ACL helper while isolating the native addon.
+  const aclModule = new URL('./windows-acl.js', import.meta.url);
+  if (existsSync(aclModule)) await copyFile(fileURLToPath(aclModule), join(dir, 'windows-acl.js'));
   await writeFile(join(moduleDir,'package.json'),'{"main":"index.cjs"}');
   for(const implementation of [
     `module.exports={};`,
