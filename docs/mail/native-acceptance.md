@@ -1,6 +1,6 @@
 # Native mail acceptance
 
-During ticket work, run only the affected feature suites. From the repository root after installing the pinned dependencies (including the native cipher addon), for example:
+During ticket work, run only the affected feature suites locally. Defer platform CI until final integration. From the repository root after installing the pinned dependencies (including the native cipher addon), for example:
 
 ```sh
 node apps/server/scripts/mail-acceptance.mjs --suite providers/graph-backfill
