@@ -3,12 +3,15 @@ on:
   workflow_dispatch:
   push:
     branches: [feat/local-mail-client]
-    paths: ['apps/server/src/mail/**', 'apps/server/scripts/mail-acceptance.mjs', 'apps/desktop/electron/mail-*.mjs', 'scripts/mail/**', '.github/workflows/mail-platform-qualification.yml', 'pnpm-lock.yaml']
+    paths: ['apps/server/src/mail/**', 'apps/server/src/routes/mail.ts', 'apps/server/scripts/mail-acceptance.mjs', 'apps/server/package.json', 'apps/desktop/package.json', 'apps/desktop/electron-builder.yml', 'apps/desktop/electron/mail-*.mjs', 'scripts/mail/**', '.github/workflows/mail-platform-qualification.yml', 'pnpm-lock.yaml']
   pull_request:
     branches: [dev]
-    paths: ['apps/server/src/mail/**', 'apps/server/scripts/mail-acceptance.mjs', 'apps/desktop/electron/mail-*.mjs', 'scripts/mail/**', '.github/workflows/mail-platform-qualification.yml', 'pnpm-lock.yaml']
+    paths: ['apps/server/src/mail/**', 'apps/server/src/routes/mail.ts', 'apps/server/scripts/mail-acceptance.mjs', 'apps/server/package.json', 'apps/desktop/package.json', 'apps/desktop/electron-builder.yml', 'apps/desktop/electron/mail-*.mjs', 'scripts/mail/**', '.github/workflows/mail-platform-qualification.yml', 'pnpm-lock.yaml']
 permissions:
   contents: read
+concurrency:
+  group: mail-platform-${{ github.ref }}
+  cancel-in-progress: true
 jobs:
   qualify:
     strategy:
