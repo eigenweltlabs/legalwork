@@ -26,7 +26,8 @@ const size = z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER);
 const hash = z.string().regex(/^[0-9a-f]{64}$/);
 // Static identifiers only. Never interpolate provider values or schema-discovered names into SQL.
 const requiredColumns: Record<string, string[]> = {
-  mail_gmail_runs: ["account_id","generation","revision","state","recent_after","next_retry_at","error","failure_count"],
+  mail_gmail_presence: ["account_id","message_key","seen_generation","remote_present","history_id"],
+  mail_gmail_runs: ["account_id","generation","revision","state","recent_after","next_retry_at","error","failure_count","phase","history_id","history_page_token","poll_at"],
   mail_gmail_metadata: ["account_id","message_key","internal_date","thread_id","label_ids_json"],
   mail_mime_projections: ["account_id","message_key","raw_ref_id","state","metadata_json","body_ref_id","error"],
   mail_mime_parts: ["account_id","message_key","raw_ref_id","part_id","metadata_json","content_ref_id"],
