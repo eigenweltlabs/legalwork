@@ -5,7 +5,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { AlertCircle, ChevronRight, HardDrive, Loader2, RotateCw, Search, X } from "lucide-react";
 
-import { writeLegalMemoryFileDrag } from "@/app/lib/legalmemory-file";
+import { writeLegalMemoryFileDrag, writeLegalMemoryFolderDrag } from "@/app/lib/legalmemory-file";
 import { LEGALMEMORY_CONNECTION_CHANGED_EVENT } from "@/app/lib/legalmemory-connection";
 import {
   LegalworkServerError,
@@ -433,8 +433,10 @@ function LegalMemoryTreeRow({
     return (
       <button
         type="button"
+        draggable
         style={inset}
         aria-expanded={row.open}
+        onDragStart={(event) => writeLegalMemoryFolderDrag(event.dataTransfer, row.sourceId, row.folder)}
         onClick={() => onToggle(row.sourceId, row.folder.path)}
         title={row.folder.path}
         className="group flex min-h-9 w-full items-center gap-1.5 rounded-lg pr-2 text-left transition-colors hover:bg-muted/60 focus-visible:bg-muted/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/40"

@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { LEGALMEMORY_EXPORT_DIR, safeExportFilename } from "./legalmemory-export.js";
+import { LEGALMEMORY_EXPORT_DIR, safeExportFilename, safeExportRelativePath } from "./legalmemory-export.js";
 
 describe("safeExportFilename", () => {
   test("keeps the punctuation real legal filenames carry", () => {
@@ -47,5 +47,26 @@ describe("LEGALMEMORY_EXPORT_DIR", () => {
     // escape it.
     expect(LEGALMEMORY_EXPORT_DIR.includes("/")).toBe(false);
     expect(LEGALMEMORY_EXPORT_DIR.startsWith("/")).toBe(false);
+  });
+});
+
+describe("safeExportRelativePath", () => {
+  test("keeps the shape of a folder dragged out of the drive", () => {
+    expect(safeExportRelativePath("Pleadings/Answer.docx")).toBe("Pleadings/Answer.docx");
+    expect(safeExportRelativePath("Korrespondenz\\2026\\Anlage_3 – Gebühren.pdf"))
+      .toBe("Korrespondenz/2026/Anlage_3 – Gebühren.pdf");
+  });
+
+  test("refuses a path that would leave the export folder", () => {
+    expect(safeExportRelativePath("../../etc/passwd")).toBeNull();
+    expect(safeExportRelativePath("Pleadings/../../../evil.docx")).toBeNull();
+    expect(safeExportRelativePath("/absolute/Deed.docx")).toBe("absolute/Deed.docx");
+  });
+
+  test("refuses a path with an unusable segment rather than flattening it", () => {
+    expect(safeExportRelativePath(".hidden/Deed.docx")).toBeNull();
+    expect(safeExportRelativePath("Pleadings/Deed\u0000.docx")).toBeNull();
+    expect(safeExportRelativePath("")).toBeNull();
+    expect(safeExportRelativePath("///")).toBeNull();
   });
 });

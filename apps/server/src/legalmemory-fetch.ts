@@ -245,6 +245,73 @@ export async function fetchLegalMemoryTreeChildren(
   return legalMemoryTreePageSchema.parse(body);
 }
 
+/**
+ * How much of a folder one drag can pull in.
+ *
+ * A drop is a gesture, not a sync: without a ceiling, dragging a matter with a
+ * decade of correspondence in it would buffer the whole thing through this
+ * process. The caller is told when a folder was cut short so the user sees it
+ * rather than silently working from a partial copy.
+ */
+export const FOLDER_EXPORT_LIMITS = { files: 200, depth: 12 } as const;
+const FOLDER_PAGE_SIZE = 200;
+
+export type LegalMemoryFolderEntry = {
+  file: LegalMemoryTreeFile;
+  /** Where the file sits inside the dragged folder, e.g. `Pleadings/Answer.docx`. */
+  relativePath: string;
+};
+
+/**
+ * Every file under a folder, with the folder's own shape preserved.
+ *
+ * The relative path is accumulated from the folder names walked into rather
+ * than sliced off `file.path`: the two tree backends disagree about what a
+ * folder path looks like (the appliance uses the source path, the MCP fallback
+ * uses `matter/<id>/…`), and the names are the part they agree on.
+ */
+export async function collectLegalMemoryFolderFiles(
+  server: LegalMemoryServer,
+  input: { sourceId: string; path: string },
+  bearer?: string,
+): Promise<{ entries: LegalMemoryFolderEntry[]; truncated: boolean }> {
+  const entries: LegalMemoryFolderEntry[] = [];
+  let truncated = false;
+
+  const walk = async (path: string, prefix: string, depth: number): Promise<void> => {
+    const subfolders: { name: string; path: string }[] = [];
+    for (let offset = 0; ; ) {
+      const page = await fetchLegalMemoryTreeChildren(
+        server,
+        { sourceId: input.sourceId, path: path || undefined, offset, limit: FOLDER_PAGE_SIZE },
+        bearer,
+      );
+      // Both backends repeat the full folder list on every page of files.
+      if (offset === 0) subfolders.push(...page.folders.map((folder) => ({ name: folder.name, path: folder.path })));
+      for (const file of page.files) {
+        if (entries.length >= FOLDER_EXPORT_LIMITS.files) {
+          truncated = true;
+          return;
+        }
+        entries.push({ file, relativePath: `${prefix}${file.name}` });
+      }
+      if (!page.pagination.has_more || page.pagination.returned === 0) break;
+      offset += page.pagination.returned;
+    }
+    if (depth >= FOLDER_EXPORT_LIMITS.depth) {
+      if (subfolders.length) truncated = true;
+      return;
+    }
+    for (const folder of subfolders) {
+      await walk(folder.path, `${prefix}${folder.name}/`, depth + 1);
+      if (truncated) return;
+    }
+  };
+
+  await walk(input.path, "", 0);
+  return { entries, truncated };
+}
+
 export async function fetchLegalMemoryTreeSearch(
   server: LegalMemoryServer,
   input: { query: string; limit: number },
