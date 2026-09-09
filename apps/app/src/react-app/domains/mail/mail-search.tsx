@@ -1,5 +1,6 @@
 /** @jsxImportSource react */
 import { useEffect, useRef, useState } from 'react';
+import { SlidersHorizontal, RefreshCw, ChevronLeft, ChevronRight } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { MailClient, type MailAccountView, type MailFolderView, type MailMessageView } from './mail-client';
 import { runMailSearch, savedMailSearch, readExtraction, SearchRequests, type MailSearchInput, type MailSearchResult, type SavedSearch } from './mail-search-client';
@@ -10,7 +11,8 @@ const addressFields: Array<'sender' | 'recipient' | 'filename' | 'matterIdentifi
 const dateFields: Array<'afterDate' | 'beforeDate'> = ['afterDate', 'beforeDate'];
 const flagFields: Array<'unread' | 'hasAttachment'> = ['unread', 'hasAttachment'];
 const errorText = (value: unknown) => value instanceof Error ? value.message : 'Search is unavailable.';
-export function MailSearch({ client, accounts, onOpen }: {
+export function MailSearch({ client, accounts, onOpen, toolbarQuery }: {
+    toolbarQuery?: string;
     client: MailClient;
     accounts: MailAccountView[];
     onOpen: (item: MailMessageView | undefined) => void;
@@ -68,7 +70,7 @@ export function MailSearch({ client, accounts, onOpen }: {
     }
     useEffect(() => { void listSaved(); }, [client]);
     const cancel = () => { requests.current.cancel(); setBusy(false); setNote('Search cancelled.'); };
-    function edit(next: MailSearchInput) { setKeywordText(next.keywords?.join(' ') ?? ''); onOpen(undefined); requests.current.cancel(); setBusy(false); setQuery(next); setResult(undefined); setSubmitted(undefined); setExcerpt(undefined); setSource(undefined); setNote(''); setError(''); setOffsets([0]); }
+    function edit(next: MailSearchInput) { setKeywordText(next.keywords?.join(' ') ?? ''); if (toolbarQuery === undefined) onOpen(undefined); requests.current.cancel(); setBusy(false); setQuery(next); setResult(undefined); setSubmitted(undefined); setExcerpt(undefined); setSource(undefined); setNote(''); setError(''); setOffsets([0]); }
     function field(key: 'literal' | 'phrase' | 'sender' | 'recipient' | 'filename' | 'matterIdentifier' | 'folderId', value: string) {
         const next = { ...query };
         if (value)
@@ -154,7 +156,7 @@ export function MailSearch({ client, accounts, onOpen }: {
             await savedMailSearch(client, { action: 'save', id: crypto.randomUUID(), expectedRevision: null, name, query }, auxiliary.current.signal);
             if (!auxiliary.current.signal.aborted) {
                 setName('');
-                setNote('Search saved in encrypted mail storage.');
+                setNote('Search saved.');
                 await listSaved();
             }
         }
@@ -203,9 +205,16 @@ export function MailSearch({ client, accounts, onOpen }: {
         }, 5000);
         return () => { clearInterval(timer); controller.abort(); };
     }, [client, submitted, result, busy, offsets, source]);
+    useEffect(() => {
+        if (toolbarQuery === undefined) return;
+        const input = { ...query, literal: toolbarQuery };
+        setQuery(input); setResult(undefined); setSubmitted(undefined); setError('');
+        const timer = setTimeout(() => { void search(input); }, 250);
+        return () => { clearTimeout(timer); requests.current.cancel(); };
+    }, [toolbarQuery, client]);
     const label = (id: string) => accounts.find(account => account.id === id)?.displayName ?? 'Unavailable account';
-    return <section aria-label="Local mail search" className="mail-search-panel">
-  <h2 className="text-lg font-semibold">Search local mail</h2><p className="text-sm">Find messages and attachments on this computer.</p>
+    return <section aria-label="Local mail search" className={`mail-search-panel ${toolbarQuery !== undefined ? 'mail-search-embedded' : ''}`}>
+  <details className="mail-search-filters" open={toolbarQuery === undefined ? true : undefined}><summary><SlidersHorizontal size={13}/>Filters</summary><h2 className="text-lg font-semibold">Search local mail</h2><p className="text-sm">Find messages and attachments on this computer.</p>
   <form className="space-y-3" onSubmit={event => { event.preventDefault(); void search(); }}>
    <div className="grid gap-3 sm:grid-cols-3">{primaryFields.map(key => <label key={key}>{key === 'literal' ? 'Literal text' : 'Exact phrase'}<input className="block w-full rounded border bg-background p-2" aria-label={key === 'literal' ? 'Literal text' : 'Exact phrase'} maxLength={512} value={query[key] ?? ''} onChange={event => field(key, event.target.value)}/></label>)}<label>Keywords<input className="block w-full rounded border bg-background p-2" aria-label="Keywords" maxLength={512} value={keywordText} onChange={event => {
             const next = { ...query };
@@ -217,7 +226,7 @@ export function MailSearch({ client, accounts, onOpen }: {
             setKeywordText(event.target.value);
         }}/></label></div>
    <p className="text-xs">Combine text, phrases and keywords to narrow your results.</p>
-   <details><summary className="cursor-pointer font-medium">Structured filters</summary><div className="grid gap-3 p-2 sm:grid-cols-3">
+   <details open={toolbarQuery !== undefined ? true : undefined}><summary className="cursor-pointer font-medium">Structured filters</summary><div className="grid gap-3 p-2 sm:grid-cols-3">
     <label>Accounts<select multiple aria-label="Search accounts" className="block w-full border bg-background p-2" value={query.accountIds ?? []} onChange={event => {
             const ids = Array.from(event.target.selectedOptions, option => option.value);
             const next = { ...query };
@@ -249,10 +258,10 @@ export function MailSearch({ client, accounts, onOpen }: {
    </div></details>
    <p className="text-sm font-medium">Scope: {query.accountIds?.map(label).join(', ') ?? 'All accessible local accounts'}{query.folderId ? ' · ' + (folders.find(value => value.id === query.folderId)?.name ?? query.folderId) : ' · All stored folders'}</p>
    <div className="flex gap-2"><Button type="submit">Search</Button>{busy && <Button type="button" variant="outline" onClick={cancel}>Cancel</Button>}<Button type="button" variant="outline" onClick={() => edit({})}>Clear</Button></div>
-  </form>
-  <details><summary className="cursor-pointer">Saved searches (encrypted)</summary><div className="flex gap-2 py-2"><input aria-label="Saved search name" className="border bg-background p-2" maxLength={120} value={name} onChange={event => setName(event.target.value)} placeholder="Name this search"/><Button disabled={!name.trim()} onClick={save}>Save current search</Button></div>{saved.map(item => <div key={item.id} className="flex gap-3"><button className="underline" onClick={() => { edit(item.query); void search(item.query); }}>{item.name}</button><button aria-label={'Delete saved search ' + item.name} onClick={() => remove(item)}>Delete</button></div>)}{savedCursor && <button className="underline" onClick={() => listSaved(savedCursor)}>More saved searches</button>}</details>
-  {error && <p role="alert">{error}</p>}{note && <p role="status">{note}</p>}{busy && <p role="status">Searching local storage…</p>}
-  {result && <><p role="status">{result.total} matches{result.pending || result.incomplete ? ' · Some content is still being prepared.' : ''} {result.pending || result.incomplete ? 'Results may grow during synchronization or extraction. Refresh to include new content.' : 'Local index is current for stored content.'}</p><Button variant="outline" onClick={() => search(submitted)}>Refresh results</Button>{!result.items.length && <p>No local matches. Broaden the filters or wait for content to finish downloading and indexing.</p>}
+  </form></details>
+  <details><summary className="cursor-pointer">Saved searches</summary><div className="flex gap-2 py-2"><input aria-label="Saved search name" className="border bg-background p-2" maxLength={120} value={name} onChange={event => setName(event.target.value)} placeholder="Name this search"/><Button disabled={!name.trim()} onClick={save}>Save current search</Button></div>{saved.map(item => <div key={item.id} className="flex gap-3"><button className="underline" onClick={() => { edit(item.query); void search(item.query); }}>{item.name}</button><button aria-label={'Delete saved search ' + item.name} onClick={() => remove(item)}>Delete</button></div>)}{savedCursor && <button className="underline" onClick={() => listSaved(savedCursor)}>More saved searches</button>}</details>
+  {error && <p role="alert">{error}</p>}{note && <p role="status">{note}</p>}{busy && <p role="status">Searching…</p>}
+  {result && <><p role="status">{result.total} matches{result.pending || result.incomplete ? ' · Some content is still being prepared.' : ''} </p><button className="mail-icon-button" aria-label="Refresh results" title="Refresh results" onClick={() => search(submitted)}><RefreshCw size={14}/></button>{!result.items.length && <p>No local matches. Broaden the filters or wait for content to finish downloading and indexing.</p>}
    <div aria-label="Search results" onKeyDown={event => {
                 if (!['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key))
                     return;
@@ -261,10 +270,10 @@ export function MailSearch({ client, accounts, onOpen }: {
                 setSelected(index);
                 buttons.current[index]?.focus();
             }}>{result.items.map((hit, index) => <article className="mail-search-hit" key={hit.accountId + JSON.stringify(hit.locator)}><button ref={element => { buttons.current[index] = element; }} className="mail-search-subject" onFocus={() => setSelected(index)} onClick={() => open(hit)}>{hit.subject || '(No subject)'}</button><p className="text-xs">{label(hit.accountId)} · {hit.date ? new Date(hit.date).toLocaleDateString() : 'Date unavailable'}</p><p className="whitespace-pre-wrap break-words">{hit.snippet}</p>{hit.attachmentMatches?.map(part => <button key={part.partId + 'match'} className="mr-3 text-sm underline" onClick={() => section({ hit, ...part }, part.section, part.offset)}>Matching attachment: {part.source}</button>)}{hit.attachmentSources?.map(part => <button key={part.partId} className="mr-3 text-sm underline" onClick={() => section({ hit, ...part })}>Read extracted attachment</button>)}</article>)}</div>
-   <div className="flex gap-2"><Button variant="outline" disabled={busy || offsets.length < 2} onClick={() => { const history = offsets.slice(0, -1); void search(submitted, history.at(-1) ?? 0, history); }}>Previous page</Button><Button variant="outline" disabled={busy || result.nextOffset === null} onClick={() => {
+   <div className="flex gap-2"><Button variant="outline" disabled={busy || offsets.length < 2} onClick={() => { const history = offsets.slice(0, -1); void search(submitted, history.at(-1) ?? 0, history); }} aria-label="Previous page" title="Previous page"><ChevronLeft size={14}/></Button><Button variant="outline" disabled={busy || result.nextOffset === null} onClick={() => {
                 if (result.nextOffset !== null)
                     void search(submitted, result.nextOffset, [...offsets, result.nextOffset]);
-            }}>Next page</Button></div>
+            }} aria-label="Next page" title="Next page"><ChevronRight size={14}/></Button></div>
   </>}
   {excerpt && source && <aside aria-label="Extracted attachment text" className="rounded border p-4"><h3 className="font-semibold">{excerpt.source} · {excerpt.method === 'ocr' ? 'OCR text' : 'Extracted text'}</h3><p className="text-xs break-all">{source.hit.subject}</p><pre className="whitespace-pre-wrap break-words">{excerpt.text}</pre><div className="flex gap-2"><Button onClick={() => open(source.hit)}>Open source message</Button><Button variant="outline" disabled={busy || excerpt.nextOffset === null && excerpt.nextSection === null} onClick={() => section(source, excerpt.nextOffset !== null ? excerpt.section : excerpt.nextSection ?? excerpt.section, excerpt.nextOffset ?? 0)}>Continue extracted text</Button><Button variant="outline" onClick={() => { setExcerpt(undefined); setSource(undefined); }}>Close excerpt</Button></div></aside>}
  </section>;

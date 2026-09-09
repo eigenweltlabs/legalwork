@@ -18,7 +18,9 @@ function saveBytes(bytes: Uint8Array<ArrayBuffer>, name: string, type: string) {
 export function MailRoute() {
     const [foldersOpen, setFoldersOpen] = useState(false);
     const [setup, setSetup] = useState(false);
-    const [searching,setSearching]=useState(false);
+    const [searchQuery, setSearchQuery] = useState('');
+    const searching = Boolean(searchQuery.trim());
+    const setSearching = (value: boolean) => { if (!value) setSearchQuery(''); };
     const [client, setClient] = useState<MailClient>();
     const [accounts, setAccounts] = useState<MailAccountView[]>([]);
     const [account, setAccount] = useState('');
@@ -109,7 +111,7 @@ export function MailRoute() {
         if (!controller.signal.aborted)
             setError(textError(error));
     } })(); return () => controller.abort(); }, [client, account]);
-    useEffect(() => { purge(); if (!client || locked || !accounts.length || searching)
+    useEffect(() => { if (searching) { request.current.abort(); pager.current = undefined; setBusy(false); return; } purge(); if (!client || locked || !accounts.length)
         return; const controller = request.current; const signal = controller.signal; const stream = new UnifiedMailPages(client, account ? accounts.filter(item => item.id === account) : accounts, folder || undefined, thread, inbox && !thread && !folder); pager.current = stream; setBusy(true); setError(''); void stream.next(signal).then(rows => { if (!signal.aborted) {
         setItems(rows);
         setMore(stream.hasMore);
@@ -163,7 +165,7 @@ export function MailRoute() {
           <button className="mail-icon-button mail-folder-toggle" aria-label="Toggle mail folders" onClick={() => setFoldersOpen(value => !value)}><PanelLeft size={17}/></button>
           <h1>Mail</h1>
           <div className="mail-toolbar-actions">
-            <button className={`mail-search-trigger ${searching ? 'is-active' : ''}`} disabled={locked} onClick={() => { purge(); setSearching(value => !value); }}><Search size={15}/><span>{searching ? 'Back to inbox' : 'Search mail'}</span></button>
+            <label className="mail-toolbar-search"><Search size={15}/><input aria-label="Search mail" placeholder="Search" disabled={locked} value={searchQuery} onChange={event => setSearchQuery(event.target.value)}/>{searchQuery && <button aria-label="Clear search" onClick={() => setSearchQuery('')}><X size={13}/></button>}</label>
             <button className="mail-icon-button" title="Refresh mail" aria-label="Refresh mail" onClick={refresh}><RefreshCw size={16}/></button>
             <button className={`mail-icon-button ${setup ? 'is-active' : ''}`} title="Mail accounts" aria-label="Mail accounts" disabled={!client || locked} onClick={() => setSetup(value => !value)}><Settings2 size={17}/></button>
           </div>
@@ -171,19 +173,18 @@ export function MailRoute() {
         {setup && client && !locked && <MailOnboarding client={client} accounts={accounts} onClose={() => setSetup(false)} onChanged={() => { purge(); setRevision(value => value + 1); }}/>}
         {error && <div role="alert" className="mail-notice"><CircleAlert size={15}/><span>{error}</span><button aria-label="Dismiss message" onClick={() => setError('')}><X size={14}/></button></div>}
         {locked ? <div className="mail-empty"><div className="mail-empty-icon"><Mail size={24}/></div><h2 role="status">{error ? 'Mail is unavailable' : 'Opening your mail…'}</h2>{error && <Button variant="outline" size="sm" onClick={refresh}>Try again</Button>}</div>
-          : searching && client ? <div className={`mail-search-layout ${selected ? 'has-selection' : ''}`}><MailSearch client={client} accounts={accounts} onOpen={setSelected}/><section aria-label="Search source message" className="mail-reader-pane">{selected && <button className="mail-back" onClick={() => setSelected(undefined)}><ChevronLeft size={15}/>Search results</button>}{reader}</section></div>
           : <div className={`mail-grid ${selected ? 'has-selection' : ''} ${foldersOpen ? 'folders-open' : ''}`}>
             <nav aria-label="Mail accounts and folders" className="mail-folders">
               <div className="mail-nav-caption">Mailboxes</div>
-              <button className={`mail-nav-row ${!account && inbox ? 'is-active' : ''}`} onClick={() => { setThread(undefined); setFolder(''); setInbox(true); setAccount(''); setFoldersOpen(false); }}><Inbox size={16}/><span>Unified Inbox</span></button>
-              <button className={`mail-nav-row ${!account && !inbox ? 'is-active' : ''}`} onClick={() => { setThread(undefined); setFolder(''); setInbox(false); setAccount(''); setFoldersOpen(false); }}><Archive size={16}/><span>All mail</span></button>
+              <button className={`mail-nav-row ${!account && inbox ? 'is-active' : ''}`} onClick={() => { setSearching(false); setThread(undefined); setFolder(''); setInbox(true); setAccount(''); setFoldersOpen(false); }}><Inbox size={16}/><span>Inbox</span></button>
+              <button className={`mail-nav-row ${!account && !inbox ? 'is-active' : ''}`} onClick={() => { setSearching(false); setThread(undefined); setFolder(''); setInbox(false); setAccount(''); setFoldersOpen(false); }}><Archive size={16}/><span>All mail</span></button>
               <div className="mail-nav-caption mail-account-caption">Accounts</div>
-              {accounts.map(value => <button key={value.id} className={`mail-nav-row mail-account-row ${account === value.id ? 'is-active' : ''}`} onClick={() => { setThread(undefined); setAccount(value.id); }}><span className="mail-account-dot">{value.displayName.slice(0, 1).toUpperCase()}</span><span><span className="mail-account-name">{value.displayName}</span><small>{accountLabel(value.provider)}</small></span></button>)}
+              {accounts.map(value => <div key={value.id}><button className={`mail-nav-row mail-account-row ${account === value.id ? 'is-active' : ''}`} onClick={() => { setSearching(false); setThread(undefined); setAccount(value.id); }}><span className="mail-account-dot">{value.displayName.slice(0, 1).toUpperCase()}</span><span><span className="mail-account-name">{value.displayName}</span><small>{accountLabel(value.provider)}</small></span></button>{account === value.id && <div className="mail-account-folders">{folders.map(folderEntry => <button key={folderEntry.id} className={`mail-nav-row ${folder === folderEntry.id ? 'is-active' : ''}`} title={folderEntry.name} onClick={() => { setSearching(false); setThread(undefined); setFolder(folderEntry.id); setFoldersOpen(false); }}>{folderEntry.role === 'inbox' ? <Inbox size={15}/> : <Folder size={15}/>}<span>{folderEntry.name}</span></button>)}</div>}</div>)}
               {!accounts.length && <button className="mail-nav-row" onClick={() => setSetup(true)}><Mail size={15}/><span>Add an account</span></button>}
               {account && <>
-                <div className="mail-nav-caption mail-account-caption">Folders</div>
+                
                 <button className={`mail-nav-row ${!folder ? 'is-active' : ''}`} onClick={() => { setInbox(false); setFolder(''); setThread(undefined); }}><Archive size={15}/><span>All mail</span></button>
-                {folders.map(value => <button key={value.id} className={`mail-nav-row ${folder === value.id ? 'is-active' : ''}`} title={value.name} onClick={() => { setThread(undefined); setFolder(value.id); setFoldersOpen(false); }}>{value.role === 'inbox' ? <Inbox size={15}/> : <Folder size={15}/>}<span>{value.name}</span></button>)}
+
                 <details className="mail-sync-details"><summary><span className={`mail-sync-dot ${sync?.failed ? 'needs-attention' : ''}`}/>{sync?.state === 'syncing' ? 'Downloading mail' : sync?.failed ? 'Needs attention' : 'Sync details'}</summary>
                   <p>{sync?.projected ?? 0} available offline · {sync?.pending ?? 0} pending</p>
                   {sync?.error && <p>{sync.error.replaceAll('_', ' ')}</p>}{sync?.unsupportedScopes?.map(value => <p key={value}>Not included: {value.replaceAll('-', ' ')}</p>)}
@@ -193,6 +194,7 @@ export function MailRoute() {
               </>}
             </nav>
             <section aria-label="Messages" className="mail-message-list">
+              {searching && client ? <MailSearch client={client} accounts={accounts} toolbarQuery={searchQuery.trim()} onOpen={setSelected}/> : <>
               <div className="mail-list-heading"><div><h2>{title}</h2><p>{account ? accounts.find(value => value.id === account)?.displayName : 'All accounts'}</p></div><button className="mail-icon-button" title="Newest messages" aria-label="Newest messages" onClick={() => setRevision(value => value + 1)}><RefreshCw size={14}/></button></div>
               {thread && <button className="mail-back" onClick={() => setThread(undefined)}><ChevronLeft size={14}/>Back to inbox</button>}
               <div className="mail-message-scroll">
@@ -205,6 +207,7 @@ export function MailRoute() {
                 {busy && <p role="status" className="mail-loading">Loading messages…</p>}
               </div>
               {more && <div className="mail-pagination"><button disabled={busy} onClick={loadMore}>Next page<ChevronRight size={14}/></button></div>}
+              </>}
             </section>
             <section aria-label="Message reader" className="mail-reader-pane">{selected && <button className="mail-back" onClick={() => setSelected(undefined)}><ChevronLeft size={15}/>Inbox</button>}{reader}</section>
           </div>}
