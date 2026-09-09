@@ -7,6 +7,8 @@ import { join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { MailWorkerClient, type WorkerDiagnostic } from "./client.js";
 import { workerEnvironment, type WorkerExecutable } from "./executable.js";
+import { GMAIL_MAIL_SCOPES } from "../provider-config.js";
+import type { MailOAuthSettings } from "../providers/oauth.js";
 import { MAIL_SCHEMA_VERSION } from "../storage/schema.js";
 import { MAX_WORKER_MESSAGE_BYTES, type WorkerInitialization } from "./protocol.js";
 
@@ -38,7 +40,7 @@ function worker(initialization: WorkerInitialization, executable = node, diagnos
   clients.push(client);
   return client;
 }
-function seed(initialization: WorkerInitialization, longNames = false) {
+function seed(initialization: WorkerInitialization, longNames = false, connected = false) {
   const databaseModule = pathToFileURL(join(root, "build", "mail", "storage", "database.js")).href;
   const schemaModule = pathToFileURL(join(root, "build", "mail", "storage", "schema.js")).href;
   const repositoryModule = pathToFileURL(join(root, "build", "mail", "storage", "repository.js")).href;
@@ -47,6 +49,7 @@ function seed(initialization: WorkerInitialization, longNames = false) {
     import { openEncryptedMailDatabase } from ${JSON.stringify(databaseModule)};
     import { migrateMailSchema } from ${JSON.stringify(schemaModule)};
     import { MailRepository } from ${JSON.stringify(repositoryModule)};
+    import { MailCredentialRepository } from ${JSON.stringify(pathToFileURL(join(root, "build", "mail", "storage", "credentials.js")).href)};
     const input=JSON.parse(readFileSync(0,'utf8')); const key=Buffer.from(input.encryptionKey,'base64');
     const db=await openEncryptedMailDatabase({path:input.databasePath,key}); key.fill(0);
     try {
@@ -54,13 +57,16 @@ function seed(initialization: WorkerInitialization, longNames = false) {
       for (const id of ['a','b','c']) own.createAccount({id,provider:'gmail',displayName: input.longNames ? id.repeat(30000) : 'Synthetic '+id});
       other.createAccount({id:'foreign',provider:'graph',displayName:'Foreign private'});
       for (const id of ['f1','f2','f3']) own.putFolder('a',{id,name:input.longNames ? id.repeat(15000) : id,kind:'label'});
+      if (input.connected) new MailCredentialRepository(db,input.ownerId).connect('a',
+        {provider:'gmail',clientId:'synthetic.apps.googleusercontent.com',authority:'https://accounts.google.com',providerSubject:'synthetic-subject'},null,
+        {accessToken:'synthetic-access',expiresAt:Date.now()+3600000,grantedScopes:null,refreshToken:{action:'replace',value:'synthetic-refresh'}});
       if (input.longNames) {
         own.createAccount({id:'oversized',provider:'gmail',displayName:'x'.repeat(70000)});
         own.putFolder('b',{id:'oversized-folder',name:'y'.repeat(70000),kind:'folder'});
       }
     } finally { db.close(); }
   `;
-  execFileSync(node.path, ["--input-type=module", "--eval", script], { input: JSON.stringify({ ...initialization, longNames }), env: workerEnvironment(node), stdio: ["pipe", "pipe", "pipe"], timeout: 10_000 });
+  execFileSync(node.path, ["--input-type=module", "--eval", script], { input: JSON.stringify({ ...initialization, longNames, connected }), env: workerEnvironment(node), stdio: ["pipe", "pipe", "pipe"], timeout: 10_000 });
 }
 
 test("built encrypted worker migrates before ready and reopens after shutdown", async () => {
@@ -189,3 +195,64 @@ test.skipIf(!electronPath)("built encrypted worker opens and reopens under actua
   await client.stop(); await client.start();
   expect(await client.request({ operation: "mail.storage.status" })).toEqual({ encrypted: true, schemaVersion: MAIL_SCHEMA_VERSION, syncSupported: false });
 });
+const syntheticSettings: MailOAuthSettings = { provider: "gmail", applicationType: "desktop", pkceMethod: "S256",
+  clientId: "synthetic.apps.googleusercontent.com", clientSecret: "synthetic-secret", scopes: [...GMAIL_MAIL_SCOPES] };
+const connectionRuntimes: WorkerExecutable[] = [node, ...(electronPath ? [{ kind: "electron", path: electronPath } satisfies WorkerExecutable] : [])];
+for (const executable of connectionRuntimes) {
+  test(`connection lifecycle and retained archive lock in actual ${executable.kind} (no provider HTTP)`, async () => {
+    const initialization = await setup(); seed(initialization, false, true);
+    const client = worker(initialization, executable); await client.start();
+    const started = await client.request({ operation: "mail.connection.begin", settings: syntheticSettings });
+    if (!("connectionStarted" in started)) throw new Error("wrong_result");
+    const { connectionId, authorizationUrl, expiresAt } = started.connectionStarted;
+    expect(new URL(authorizationUrl).hostname).toBe("accounts.google.com");
+    expect(JSON.stringify(started)).not.toContain(syntheticSettings.clientSecret);
+    expect(await client.request({ operation: "ping" })).toEqual({ pong: true });
+    expect(await client.request({ operation: "mail.connection.poll", connectionId })).toEqual({ connection: { connectionId, expiresAt, state: "pending" } });
+    expect(await client.request({ operation: "mail.connection.cancel", connectionId })).toEqual({ cancelled: true });
+    expect(await client.request({ operation: "mail.connection.poll", connectionId })).toEqual({ connection: { connectionId, expiresAt, state: "cancelled" } });
+    await expect(fetch(new URL(authorizationUrl).searchParams.get("redirect_uri") ?? "")).rejects.toThrow();
+    await expect(client.request({ operation: "mail.account.disconnect", accountId: "foreign" })).rejects.toThrow("not_found");
+    expect(await client.request({ operation: "mail.account.disconnect", accountId: "a" })).toEqual({ disconnected: true });
+    await client.stop(); await client.start();
+    expect(await client.request({ operation: "mail.account.disconnect", accountId: "a" })).toEqual({ disconnected: true });
+    await expect(client.request({ operation: "mail.folders.list", accountId: "a" })).rejects.toThrow("locked");
+    await expect(client.request({ operation: "mail.status", accountId: "a" })).rejects.toThrow("locked");
+    const accounts = await client.request({ operation: "mail.accounts.list" });
+    expect("accounts" in accounts && accounts.accounts.some(account => account.id === "a")).toBe(true);
+    const active = await client.request({ operation: "mail.connection.begin", settings: syntheticSettings });
+    if (!("connectionStarted" in active)) throw new Error("wrong_result");
+    await client.stop();
+    await expect(fetch(new URL(active.connectionStarted.authorizationUrl).searchParams.get("redirect_uri") ?? "")).rejects.toThrow();
+  });
+}
+for (const executable of connectionRuntimes) {
+  test(`pending begin does not block ping and drains safely on ${executable.kind} shutdown`, async () => {
+    const initialization = await setup();
+    const bootstrap = join(root, `delayed-${executable.kind}.mjs`);
+    // Test-only module bootstrap delays entry to the real controller. No seam is exposed by RPC.
+    await writeFile(bootstrap, `
+      import { MailConnectionController } from ${JSON.stringify(pathToFileURL(join(root, "build/mail/providers/connection-controller.js")).href)};
+      const begin = MailConnectionController.prototype.begin;
+      MailConnectionController.prototype.begin = async function(...args) {
+        await new Promise(resolve => setTimeout(resolve, 250));
+        return begin.apply(this, args);
+      };
+      await import(${JSON.stringify(pathToFileURL(entryPoint).href)});
+    `);
+    const client = new MailWorkerClient({ entryPoint: bootstrap, executable, initialize: () => initialization,
+      maxRestarts: 0, startupTimeoutMs: 3000, shutdownTimeoutMs: 1500 });
+    clients.push(client); await client.start();
+    let settled = false;
+    const pending = client.request({ operation: "mail.connection.begin", settings: syntheticSettings }).then(
+      () => { settled = true; return "unexpected_success"; }, () => { settled = true; return "stopped"; });
+    expect(await client.request({ operation: "ping" })).toEqual({ pong: true });
+    expect(settled).toBe(false);
+    await client.stop();
+    expect(await pending).toBe("stopped");
+    const reopened = worker(initialization, executable); await reopened.start();
+    expect(await reopened.request({ operation: "mail.accounts.list" })).toEqual({ accounts: [], nextCursor: null });
+    const started = await reopened.request({ operation: "mail.connection.begin", settings: syntheticSettings });
+    expect("connectionStarted" in started).toBe(true);
+  });
+}
