@@ -10,7 +10,7 @@ test("streamed encrypted content contract runs in Node", () => {
   const server = resolve(import.meta.dir, "../../..");
   try {
     const compiled = spawnSync("pnpm", ["exec", "tsc", "--outDir", output, "--rootDir", "src", "--target", "ES2022", "--module", "NodeNext", "--moduleResolution", "NodeNext", "--strict", "--skipLibCheck", "--types", "bun-types,node",
-      "src/mail/storage/content-store.ts", "src/mail/storage/database.ts", "src/mail/storage/schema.ts"], { cwd: server, encoding: "utf8", timeout: 30000 });
+      "src/mail/storage/content-store.ts", "src/mail/storage/database.ts", "src/mail/storage/schema.ts", "src/mail/storage/sync-journal.ts"], { cwd: server, encoding: "utf8", timeout: 30000 });
     expect(compiled.error).toBeUndefined();
     if (compiled.status !== 0) throw new Error(`${compiled.stdout}\n${compiled.stderr}`);
     writeFileSync(join(output, "package.json"), '{"type":"module"}');

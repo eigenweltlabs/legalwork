@@ -338,3 +338,25 @@ for (const mode of ["before","after"]) test(`SIGKILL ${mode} followup commit pre
   assert.equal(recovered.readCheckpoint(scope).discoveryComplete,true);
   assert.deepEqual(db.all('PRAGMA foreign_key_check'),[]);
 }));
+
+
+test("executor fences and provider retry delays remain account scoped and durable", async () => fixture(async ({db,journal,setTime,reopen}) => {
+  const j=journal(); j.commitPage(page(),metadata); const [job]=j.claim(scope,1,100);
+  j.assertLease('a',job.id,job.lease_token);
+  assert.equal(j.readJob('a',job.id).state,'running');
+  assert.equal(j.readJob('b',job.id),undefined);
+  const foreign=new MailSyncJournal(db,'owner-b');
+  assert.throws(()=>foreign.readJob('a',job.id),/account not found/);
+  assert.throws(()=>foreign.assertLease('a',job.id,job.lease_token),/account not found/);
+  assert.throws(()=>j.fail('a',job.id,job.lease_token,true,-1));
+  j.fail('a',job.id,job.lease_token,true,7200000);
+  assert.equal(j.readJob('a',job.id).available_at,7201000);
+  assert.throws(()=>j.assertLease('a',job.id,job.lease_token),/Stale/);
+  await reopen(); const after=journal(); setTime(7200999);
+  assert.deepEqual(after.claim(scope,1,100),[]);
+  setTime(7201000); const [retry]=after.claim(scope,1,100);
+  assert.equal(retry.id,job.id);
+  assert.notEqual(retry.lease_token,job.lease_token);
+  after.fail('a',retry.id,retry.lease_token,true,Number.MAX_SAFE_INTEGER);
+  assert.equal(after.readJob('a',job.id).available_at,Number.MAX_SAFE_INTEGER);
+}));

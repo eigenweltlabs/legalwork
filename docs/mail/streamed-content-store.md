@@ -48,3 +48,10 @@ pnpm --dir apps/server typecheck
 The Bun test compiles production TypeScript into a temporary directory, links the installed server dependencies there, and executes `content-store.node-test.mjs` in actual Node against the encrypted native adapter. Temporary databases/build output are removed afterward. Its eight tests cover 4 MiB bounded generation/readback/reopen, staging invisibility, input coalescing, empty bodies, dedup/account isolation, failed refresh preservation, injected chunk/final-publication write errors, reference-aware cleanup, aggregate corruption detection, v1-to-v2 rollback/preservation and formerly-complete metadata without bytes, and SIGKILL after a committed staged chunk followed by reopen/cleanup/retry. The crash child receives its random test key only through stdin.
 
 Injected write errors exercise rollback boundaries; they do not qualify actual operating-system ENOSPC, power loss or signed application packaging. Provider APIs may still eagerly fetch bodies elsewhere: this writer's streaming contract does not validate or repair those adapters.
+
+
+## Atomic executor publication
+
+`writePart` accepts an optional fifth argument, a trusted synchronous `onPublish(reference)` callback. It runs after verified publication metadata is staged but before the enclosing transaction commits. The executor can check credentials and complete its current journal lease there, so publication and job success either commit together or both roll back. A frozen copy of the content reference prevents accidental mutation of the returned receipt. Stale leases and callback errors preserve the previous original and remove the abandoned stage.
+
+The callback cannot do network I/O or schedule deferred writes. Runtime thenable rejection rolls back synchronous changes, but cannot cancel deferred closures using externally captured repositories; this is an internal trusted-callsite contract, not a sandbox. Provider input cannot supply this callback. Added encrypted tests cover expired-lease publication rollback, atomic job completion, and callback rejection/rollback (ten content cases total).

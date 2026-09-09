@@ -10,6 +10,7 @@ import { openEncryptedMailDatabase } from './database.js';
 import { migrateMailSchema, MAIL_SCHEMA_VERSION } from './schema.js';
 import { MailRepository } from './repository.js';
 import { MailContentStore, MAIL_CONTENT_CHUNK_BYTES as CHUNK } from './content-store.js';
+import { MailSyncJournal } from './sync-journal.js';
 
 const locator = messageId => ({ provider: 'gmail', messageId });
 const digest = bytes => createHash('sha256').update(bytes).digest('hex');
@@ -226,4 +227,48 @@ test('migrated formerly-complete metadata reports attention until real bytes are
   assert.ok(completed.content.every(part=>part.bytesAvailable));
   // Re-download changes associations intentionally; migration itself retained both legacy refs.
   assert.equal(db.get('SELECT count(*) AS n FROM mail_content_refs WHERE id IN (?,?)',[raw.id,body.id]).n,2);
+}));
+
+
+test('publication and fenced job success commit together; stale lease keeps the previous original', async () => fixture(async ({ repository, store, db }) => {
+  seed(repository);
+  let now = 1000;
+  const journal = new MailSyncJournal(db, 'owner-a', () => now);
+  const scope = { accountId:'a', scopeId:'all', generation:'initial' };
+  journal.commitPage({ ...scope, expectedCursor:null, expectedRevision:0, nextCursor:null, discoveryComplete:true,
+    jobs:[{kind:'raw',locator:locator('one')}] }, () => {});
+  const old = await store.writePart('a', locator('one'), {kind:'raw',maxBytes:1}, [new Uint8Array([1])]);
+  const [claimed] = journal.claim(scope, 1, 10);
+  const publish = () => journal.succeed('a', claimed.id, claimed.lease_token, () => {});
+  async function* expired() { yield new Uint8Array([2]); now += 11; }
+  await assert.rejects(store.writePart('a', locator('one'), {kind:'raw',maxBytes:1}, expired(), publish), /Stale sync lease/);
+  assert.equal(repository.readMessage('a',locator('one')).content[0].ref_id, old.id);
+  assert.equal(db.get('SELECT count(*) AS n FROM mail_blob_publications').n, 1);
+  assert.equal(store.listStaging('a').length,0);
+  journal.reclaimExpired('a'); now += 1001;
+  const [retry] = journal.claim(scope,1,100);
+  const next = await store.writePart('a', locator('one'), {kind:'raw',maxBytes:1}, [new Uint8Array([3])], reference => {
+    assert.equal(Object.isFrozen(reference),true);
+    assert.equal(repository.readMessage('a',locator('one')).content[0].ref_id,reference.id);
+    journal.succeed('a',retry.id,retry.lease_token, () => {});
+  });
+  assert.equal(repository.readMessage('a',locator('one')).content[0].ref_id,next.id);
+  assert.equal(journal.status(scope).jobs.succeeded,1);
+}));
+
+test('publication callbacks reject asynchronous work and roll back callback mutations', async () => fixture(async ({repository,store,db}) => {
+  seed(repository);
+  const original = await store.writePart('a',locator('one'),{kind:'raw',maxBytes:1},[new Uint8Array([1])]);
+  let consumed = false;
+  async function* source() { consumed=true; yield new Uint8Array([2]); }
+  await assert.rejects(store.writePart('a',locator('one'),{kind:'raw',maxBytes:1},source(),async () => {}),/synchronous/);
+  assert.equal(consumed,false);
+  for (const callback of [() => {db.run("UPDATE mail_messages SET subject='changed'"); return Promise.resolve();},
+    () => {db.run("UPDATE mail_messages SET subject='changed'"); throw new Error('fence changed');}]) {
+    await assert.rejects(store.writePart('a',locator('one'),{kind:'raw',maxBytes:1},[new Uint8Array([2])],callback));
+    assert.equal(repository.readMessage('a',locator('one')).subject,'Synthetic');
+    assert.equal(repository.readMessage('a',locator('one')).content[0].ref_id,original.id);
+    assert.equal(db.get('SELECT count(*) AS n FROM mail_blob_publications').n,1);
+    assert.equal(store.listStaging('a').length,0);
+  }
 }));

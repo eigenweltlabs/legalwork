@@ -42,9 +42,12 @@ export class MailContentStore {
   }
 
   /** Source chunks MUST be Uint8Arrays <=64 KiB. The writer owns one 64 KiB buffer.
-   * The final transaction alone changes the manifest; a failed refresh retains its old part. */
+   * The final transaction alone changes the manifest; a failed refresh retains its old part.
+   * An optional trusted synchronous callback can fence credentials/leases and commit job success
+   * in that same transaction. It must not perform network I/O or retain mutable store access. */
   async writePart(accountId: string, locator: ProviderMessageLocator, options: MailContentWriteOptions,
-    source: AsyncIterable<Uint8Array> | Iterable<Uint8Array>): Promise<MailContentReference> {
+    source: AsyncIterable<Uint8Array> | Iterable<Uint8Array>, onPublish?: (reference: Readonly<MailContentReference>) => unknown): Promise<MailContentReference> {
+    if (onPublish !== undefined && (typeof onPublish !== "function" || Object.prototype.toString.call(onPublish) === "[object AsyncFunction]")) throw new Error("Content publication callback must be synchronous");
     this.account(accountId);
     const key = providerMessageKey(locator);
     const value = writeOptions.parse(options);
@@ -90,6 +93,8 @@ export class MailContentStore {
           this.database.run("UPDATE mail_blob_objects SET state='published' WHERE account_id=? AND id=?", [accountId, stageId]);
           this.database.run("INSERT INTO mail_blob_publications(account_id,ref_id,object_id) VALUES(?,?,?)", [accountId, reference.id, stageId]);
         }
+        // A savepoint rejects thenables and rolls back both callback writes and publication.
+        if (onPublish) this.database.transaction(() => onPublish(Object.freeze({ ...reference })));
       });
       return reference;
     } catch (error) {
