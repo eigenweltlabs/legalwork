@@ -21,7 +21,8 @@ export function authorizationUrl(value: string, choice: AccountChoice): string {
 export class MailOnboardingClient {
   constructor(private client: MailClient) {}
   begin(choice: AccountChoice, signal: AbortSignal, reconnectAccountId?: string) {
-    return this.client.request('/connections', started, signal, { provider: choice === 'gmail' ? 'gmail' : 'graph', ...(choice === 'gmail' ? {} : { personal: choice === 'outlook' }), ...(reconnectAccountId ? { reconnectAccountId } : {}) });
+    signal.throwIfAborted();
+    return this.client.request('/connections', started, AbortSignal.timeout(15000), { provider: choice === 'gmail' ? 'gmail' : 'graph', ...(choice === 'gmail' ? {} : { personal: choice === 'outlook' }), ...(reconnectAccountId ? { reconnectAccountId } : {}) });
   }
   status(connectionId: string, signal: AbortSignal) { return this.client.request('/connections/' + encodeURIComponent(connectionId), status, signal); }
   cancel(connectionId: string) { return this.client.request('/connections/' + encodeURIComponent(connectionId) + '/cancel', z.object({ cancelled: z.boolean() }), AbortSignal.timeout(5000), undefined, true); }

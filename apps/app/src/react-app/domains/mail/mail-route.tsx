@@ -1,16 +1,22 @@
 import {MailSearch} from './mail-search';
 /** @jsxImportSource react */
 import { useEffect, useRef, useState } from 'react';
+import { Inbox, Archive, ChevronLeft, ChevronRight, Folder, Mail, Search, RefreshCw, Settings2, Paperclip, Download, FileText, Printer, MessagesSquare, X, PanelLeft, CircleAlert, Check, Pause, Play } from 'lucide-react';
+import './mail-reader.css';
 import { Button } from '@/components/ui/button';
 import { resolveLegalworkConnection } from '../../shell/legalwork-connection';
 import { MailClient, UnifiedMailPages, bodyEnvelope, type MailAccountView, type MailFolderView, type MailMessageView, type MailPartView, type SyncStatus } from './mail-client';
 import { MailOnboarding } from './mail-onboarding';
 import { mailHtml, rasterType, safeFilename } from './mail-html';
+const accountLabel = (provider: string) => provider === 'gmail' ? 'Google' : provider === 'graph' ? 'Microsoft' : 'IMAP';
+const shortDate = (value?: number | null) => value ? new Date(value).toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) : '';
+const senderName = (value?: string | null) => value?.split('<')[0].trim() || value || 'Sender not downloaded';
 const textError = (error: unknown) => error instanceof Error ? error.message : 'Mail is unavailable.';
 function dataUrl(bytes: Uint8Array, type: string) { let binary = ''; for (let at = 0; at < bytes.length; at += 8192)
     binary += String.fromCharCode(...bytes.subarray(at, at + 8192)); return `data:${type};base64,${btoa(binary)}`; }
 function saveBytes(bytes: Uint8Array<ArrayBuffer>, name: string, type: string) { const url = URL.createObjectURL(new Blob([bytes], { type })); const link = document.createElement('a'); link.href = url; link.download = safeFilename(name); link.click(); setTimeout(() => URL.revokeObjectURL(url), 1000); }
 export function MailRoute() {
+    const [foldersOpen, setFoldersOpen] = useState(false);
     const [setup, setSetup] = useState(false);
     const [searching,setSearching]=useState(false);
     const [client, setClient] = useState<MailClient>();
@@ -45,7 +51,6 @@ export function MailRoute() {
                 setError('');
             }
         }).catch(error => { if (!controller.signal.aborted) setError(textError(error)); });
-        // Repeated announcements only retire this resolver, not the current mail requests.
         return () => controller.abort();
     }, [connectionRevision]);
     useEffect(() => {
@@ -104,7 +109,7 @@ export function MailRoute() {
         if (!controller.signal.aborted)
             setError(textError(error));
     } })(); return () => controller.abort(); }, [client, account]);
-    useEffect(() => { purge(); if (!client || locked || !accounts.length)
+    useEffect(() => { purge(); if (!client || locked || !accounts.length || searching)
         return; const controller = request.current; const signal = controller.signal; const stream = new UnifiedMailPages(client, account ? accounts.filter(item => item.id === account) : accounts, folder || undefined, thread, inbox && !thread && !folder); pager.current = stream; setBusy(true); setError(''); void stream.next(signal).then(rows => { if (!signal.aborted) {
         setItems(rows);
         setMore(stream.hasMore);
@@ -112,7 +117,7 @@ export function MailRoute() {
             setError(stream.exclusions.map(value => `${accounts.find(account => account.id === value.accountId)?.displayName ?? value.accountId}: ${value.reason}`).join(" · "));
     } }).catch(error => { if (!signal.aborted)
         setError(textError(error)); }).finally(() => { if (!signal.aborted)
-        setBusy(false); }); return () => controller.abort(); }, [client, accounts, account, folder, thread, inbox, locked, revision]);
+        setBusy(false); }); return () => controller.abort(); }, [client, accounts, account, folder, thread, inbox, locked, revision, searching]);
     async function loadMore() { const signal = request.current.signal, stream = pager.current; if (!stream)
         return; setBusy(true); try {
         const rows = await stream.next(signal);
@@ -145,24 +150,68 @@ export function MailRoute() {
     catch (error) {
         if (!signal.aborted) setError(textError(error));
     } }
-    return <main className="flex h-full min-h-0 flex-col bg-background text-foreground" aria-label="Local mail">
-    <header className="flex flex-wrap items-center gap-3 border-b p-4"><h1 className="text-xl font-semibold">Mail</h1><span className="text-sm text-muted-foreground">Stored on this computer</span><div className="ml-auto flex gap-2"><Button variant="outline" disabled={locked} onClick={()=>{purge();setSearching(value=>!value);}}>{searching?'Browse mail':'Search mail'}</Button><Button variant="outline" disabled={!client || locked} onClick={() => setSetup(value => !value)}>Accounts</Button><Button variant="outline" onClick={() => { purge(); setConnectionRevision(value => value + 1); setRevision(value => value + 1); }}>Refresh</Button></div></header>
-    {setup && client && !locked && <MailOnboarding client={client} accounts={accounts} onClose={() => setSetup(false)} onChanged={() => { purge(); setRevision(value => value + 1); }}/> }
-    {error && <p role="alert" className="border-b p-3 text-destructive">{error}</p>}
-    {locked ? <div className="m-auto max-w-md p-8"><h2 className="text-lg font-medium" role="status">{error ? 'Mail is unavailable' : 'Opening mail…'}</h2>{error && <Button className="mt-3" onClick={() => { setError(''); setConnectionRevision(value => value + 1); setRevision(value => value + 1); }}>Retry</Button>}</div> : searching&&client ? <div className="flex min-h-0 flex-1 max-lg:flex-col"><MailSearch client={client} accounts={accounts} onOpen={setSelected}/>{selected&&<section aria-label="Search source message" className="w-1/2 overflow-auto border-l max-lg:w-full"><MailReader key={selected.accountId+selected.key} client={client} item={selected} account={accounts.find(value=>value.id===selected.accountId)?.displayName??selected.accountId} onUnavailable={()=>{purge();setLocked(true);}} onThread={()=>{setSearching(false);setAccount(selected.accountId);setThread(selected.threadId??undefined);}}/></section>}</div> : <div className="grid min-h-0 flex-1 grid-cols-[190px_minmax(240px,1fr)_minmax(320px,2fr)] max-lg:grid-cols-[150px_1fr]">
-      <nav aria-label="Mail accounts and folders" className="overflow-auto border-r p-3 space-y-3"><button className="block w-full rounded p-2 text-left hover:bg-muted" aria-current={!account ? 'page' : undefined} onClick={() => { setThread(undefined); setFolder(''); setInbox(true); setAccount(''); }}>Unified Inbox</button><button className="block w-full rounded p-2 text-left" onClick={() => { setThread(undefined); setFolder(''); setInbox(false); setAccount(''); }}>All stored mail</button>
-        {accounts.map(item => <button key={item.id} className={`block w-full break-words rounded p-2 text-left ${account === item.id ? 'bg-muted' : ''}`} aria-current={account === item.id ? 'page' : undefined} onClick={() => { setThread(undefined); setAccount(item.id); }}>{item.displayName}<span className="block text-xs text-muted-foreground">{item.provider}</span></button>)}
-        {account && <><h2 className="font-medium">Folders and labels</h2>{!folders.some(value => value.role === 'inbox') && <p className="text-xs">Inbox not identified yet. Resume synchronization; all stored folders remain accessible.</p>}<button onClick={() => { setInbox(false); setFolder(''); setThread(undefined); }}>All mail</button>{folders.map(item => <button key={item.id} className={`block w-full break-words rounded p-2 text-left ${folder === item.id ? 'bg-muted' : ''}`} aria-current={folder === item.id ? 'page' : undefined} onClick={() => { setThread(undefined); setFolder(item.id); }}>{item.parentId ? '↳ ' : ''}{item.name}</button>)}<div className="border-t pt-3 text-xs"><p>Sync: {sync?.state ?? 'Not checked'}</p>{sync && <><p>{sync.downloaded} originals · {sync.projected} readable · {sync.pending} pending · {sync.failed} failed</p>{sync.error && <p role="status">{sync.error.replaceAll('_', ' ')}</p>}{sync.unsupportedScopes?.map(value => <p key={value}>Excluded: {value.replaceAll('-', ' ')}</p>)}{Boolean(sync.inaccessible) && <p>{sync.inaccessible} inaccessible items</p>}</>}<div className="mt-2 flex flex-wrap gap-2"><Button size="sm" variant="outline" onClick={() => control('start')}>Resume</Button><Button size="sm" variant="outline" onClick={() => control('pause')}>Pause</Button></div></div></>}
-      </nav>
-      <section aria-label="Messages" className="overflow-auto border-r"><div className="border-b p-3"><h2 className="font-semibold">{thread ? 'Thread' : folder ? folders.find(value => value.id === folder)?.name : inbox ? 'Inbox' : 'All stored mail'}</h2><p className="text-xs text-muted-foreground">Newest received first. Unknown dates last.</p><button className="text-xs underline" onClick={() => setRevision(value => value + 1)}>Newest page</button>{thread && <button className="underline" onClick={() => setThread(undefined)}>Back to messages</button>}</div>
-        {!accounts.length && <p className="p-4">No local mail accounts. Choose Accounts above to connect your mailbox.</p>}{!busy && !items.length && accounts.length > 0 && <p className="p-4">No stored messages in this view. Select an account to check synchronization.</p>}
-        {items.map(item => <button key={item.accountId + '|' + item.key} className={`block w-full border-b p-3 text-left hover:bg-muted ${selected?.accountId === item.accountId && selected.key === item.key ? 'bg-muted' : ''}`} onClick={() => setSelected(item)} aria-pressed={selected?.accountId === item.accountId && selected.key === item.key}><span className={item.isRead === false ? 'font-bold' : 'font-medium'}>{item.subject || '(No subject)'}</span>{item.isRead === false && <span className="ml-2 text-xs">Unread</span>}<span className="block truncate text-sm">{item.metadata?.from ?? 'Sender not downloaded'}</span><span className="block text-xs text-muted-foreground">{accounts.find(account => account.id === item.accountId)?.displayName} · {item.receivedAt ? new Date(item.receivedAt).toLocaleString() : 'Received date unavailable'}</span><span className="text-xs">{item.contentState === 'complete' ? 'Available offline' : item.contentState === 'downloading' ? 'Downloading content' : 'Content needs attention'}</span></button>)}
-        {busy && <p role="status" className="p-3">Loading stored mail…</p>}{more && <Button className="m-3" variant="outline" disabled={busy} onClick={loadMore}>Next page</Button>}
-      </section>
-      <section aria-label="Message reader" className="overflow-auto max-lg:col-span-2 max-lg:border-t">{selected && client ? <MailReader key={selected.accountId + '|' + selected.key} client={client} item={selected} account={accounts.find(value => value.id === selected.accountId)?.displayName ?? selected.accountId} onUnavailable={() => { purge(); setError('Mail access changed. Refresh to continue.'); }} onThread={() => { setAccount(selected.accountId); setThread(selected.threadId ?? undefined); }}/> : <p className="p-8 text-muted-foreground">Select a message to read its stored content.</p>}</section>
-    </div>}
-  </main>;
+    const title = thread ? 'Conversation' : folder ? folders.find(value => value.id === folder)?.name ?? folder : inbox ? 'Inbox' : 'All mail';
+    const refresh = () => { purge(); setConnectionRevision(value => value + 1); setRevision(value => value + 1); };
+    const reader = selected && client ? <MailReader key={selected.accountId + '|' + selected.key} client={client} item={selected}
+      account={accounts.find(value => value.id === selected.accountId)?.displayName ?? selected.accountId}
+      onUnavailable={() => { purge(); setError('Mail access changed. Please refresh.'); }}
+      onThread={() => { setSearching(false); setAccount(selected.accountId); setThread(selected.threadId ?? undefined); }}/>
+      : <div className="mail-empty"><div className="mail-empty-icon"><Mail size={26} strokeWidth={1.3}/></div><h2>Select a message</h2><p>Conversations and attachments.<br/>Available wherever you work.</p></div>;
+    return (
+      <main className="mail-workspace" aria-label="Local mail">
+        <header className="mail-toolbar">
+          <button className="mail-icon-button mail-folder-toggle" aria-label="Toggle mail folders" onClick={() => setFoldersOpen(value => !value)}><PanelLeft size={17}/></button>
+          <h1>Mail</h1>
+          <div className="mail-toolbar-actions">
+            <button className={`mail-search-trigger ${searching ? 'is-active' : ''}`} disabled={locked} onClick={() => { purge(); setSearching(value => !value); }}><Search size={15}/><span>{searching ? 'Back to inbox' : 'Search mail'}</span></button>
+            <button className="mail-icon-button" title="Refresh mail" aria-label="Refresh mail" onClick={refresh}><RefreshCw size={16}/></button>
+            <button className={`mail-icon-button ${setup ? 'is-active' : ''}`} title="Mail accounts" aria-label="Mail accounts" disabled={!client || locked} onClick={() => setSetup(value => !value)}><Settings2 size={17}/></button>
+          </div>
+        </header>
+        {setup && client && !locked && <MailOnboarding client={client} accounts={accounts} onClose={() => setSetup(false)} onChanged={() => { purge(); setRevision(value => value + 1); }}/>}
+        {error && <div role="alert" className="mail-notice"><CircleAlert size={15}/><span>{error}</span><button aria-label="Dismiss message" onClick={() => setError('')}><X size={14}/></button></div>}
+        {locked ? <div className="mail-empty"><div className="mail-empty-icon"><Mail size={24}/></div><h2 role="status">{error ? 'Mail is unavailable' : 'Opening your mail…'}</h2>{error && <Button variant="outline" size="sm" onClick={refresh}>Try again</Button>}</div>
+          : searching && client ? <div className={`mail-search-layout ${selected ? 'has-selection' : ''}`}><MailSearch client={client} accounts={accounts} onOpen={setSelected}/><section aria-label="Search source message" className="mail-reader-pane">{selected && <button className="mail-back" onClick={() => setSelected(undefined)}><ChevronLeft size={15}/>Search results</button>}{reader}</section></div>
+          : <div className={`mail-grid ${selected ? 'has-selection' : ''} ${foldersOpen ? 'folders-open' : ''}`}>
+            <nav aria-label="Mail accounts and folders" className="mail-folders">
+              <div className="mail-nav-caption">Mailboxes</div>
+              <button className={`mail-nav-row ${!account && inbox ? 'is-active' : ''}`} onClick={() => { setThread(undefined); setFolder(''); setInbox(true); setAccount(''); setFoldersOpen(false); }}><Inbox size={16}/><span>Unified Inbox</span></button>
+              <button className={`mail-nav-row ${!account && !inbox ? 'is-active' : ''}`} onClick={() => { setThread(undefined); setFolder(''); setInbox(false); setAccount(''); setFoldersOpen(false); }}><Archive size={16}/><span>All mail</span></button>
+              <div className="mail-nav-caption mail-account-caption">Accounts</div>
+              {accounts.map(value => <button key={value.id} className={`mail-nav-row mail-account-row ${account === value.id ? 'is-active' : ''}`} onClick={() => { setThread(undefined); setAccount(value.id); }}><span className="mail-account-dot">{value.displayName.slice(0, 1).toUpperCase()}</span><span><span className="mail-account-name">{value.displayName}</span><small>{accountLabel(value.provider)}</small></span></button>)}
+              {!accounts.length && <button className="mail-nav-row" onClick={() => setSetup(true)}><Mail size={15}/><span>Add an account</span></button>}
+              {account && <>
+                <div className="mail-nav-caption mail-account-caption">Folders</div>
+                <button className={`mail-nav-row ${!folder ? 'is-active' : ''}`} onClick={() => { setInbox(false); setFolder(''); setThread(undefined); }}><Archive size={15}/><span>All mail</span></button>
+                {folders.map(value => <button key={value.id} className={`mail-nav-row ${folder === value.id ? 'is-active' : ''}`} title={value.name} onClick={() => { setThread(undefined); setFolder(value.id); setFoldersOpen(false); }}>{value.role === 'inbox' ? <Inbox size={15}/> : <Folder size={15}/>}<span>{value.name}</span></button>)}
+                <details className="mail-sync-details"><summary><span className={`mail-sync-dot ${sync?.failed ? 'needs-attention' : ''}`}/>{sync?.state === 'syncing' ? 'Downloading mail' : sync?.failed ? 'Needs attention' : 'Sync details'}</summary>
+                  <p>{sync?.projected ?? 0} available offline · {sync?.pending ?? 0} pending</p>
+                  {sync?.error && <p>{sync.error.replaceAll('_', ' ')}</p>}{sync?.unsupportedScopes?.map(value => <p key={value}>Not included: {value.replaceAll('-', ' ')}</p>)}
+                  {Boolean(sync?.inaccessible) && <p>{sync?.inaccessible} items unavailable</p>}
+                  <div><button onClick={() => control('start')}><Play size={12}/>Resume</button><button onClick={() => control('pause')}><Pause size={12}/>Pause</button></div>
+                </details>
+              </>}
+            </nav>
+            <section aria-label="Messages" className="mail-message-list">
+              <div className="mail-list-heading"><div><h2>{title}</h2><p>{account ? accounts.find(value => value.id === account)?.displayName : 'All accounts'}</p></div><button className="mail-icon-button" title="Newest messages" aria-label="Newest messages" onClick={() => setRevision(value => value + 1)}><RefreshCw size={14}/></button></div>
+              {thread && <button className="mail-back" onClick={() => setThread(undefined)}><ChevronLeft size={14}/>Back to inbox</button>}
+              <div className="mail-message-scroll">
+                {items.map(value => <button key={value.accountId + '|' + value.key} className={`mail-message-row ${selected?.accountId === value.accountId && selected.key === value.key ? 'is-selected' : ''} ${value.isRead === false ? 'is-unread' : ''}`} onClick={() => setSelected(value)} aria-pressed={selected?.accountId === value.accountId && selected.key === value.key}>
+                  <span className="mail-row-top"><span className="mail-sender">{senderName(value.metadata?.from)}</span><time>{shortDate(value.receivedAt)}</time></span>
+                  <span className="mail-row-subject">{value.isRead === false && <span className="mail-unread-dot" aria-label="Unread"/>}{value.subject || '(No subject)'}</span>
+                  <span className="mail-row-bottom"><span>{accounts.find(entry => entry.id === value.accountId)?.displayName}</span>{value.contentState !== 'complete' && <span title={value.contentState === 'downloading' ? 'Content is downloading' : 'Content is unavailable'}><CircleAlert size={12}/></span>}</span>
+                </button>)}
+                {!busy && !items.length && <div className="mail-list-empty"><Inbox size={25} strokeWidth={1.2}/><p>{accounts.length ? 'No messages here yet' : 'Your inbox starts here'}</p><small>{accounts.length ? 'Try another folder or resume sync.' : 'Add an account to bring your mail together.'}</small>{!accounts.length && <Button size="sm" variant="outline" onClick={() => setSetup(true)}>Add account</Button>}</div>}
+                {busy && <p role="status" className="mail-loading">Loading messages…</p>}
+              </div>
+              {more && <div className="mail-pagination"><button disabled={busy} onClick={loadMore}>Next page<ChevronRight size={14}/></button></div>}
+            </section>
+            <section aria-label="Message reader" className="mail-reader-pane">{selected && <button className="mail-back" onClick={() => setSelected(undefined)}><ChevronLeft size={15}/>Inbox</button>}{reader}</section>
+          </div>}
+      </main>
+    );
 }
+
 function MailReader({ client, item, account, onThread, onUnavailable }: {
     client: MailClient;
     item: MailMessageView;
@@ -262,10 +311,33 @@ function MailReader({ client, item, account, onThread, onUnavailable }: {
             setBusy(false);
     } }
     const raw = parts.find(part => part.kind === 'raw'), html = bodies.filter(body => body.contentType === 'text/html'), texts = bodies.filter(body => body.contentType === 'text/plain');
-    return <article id="mail-print-root" className="p-5"><style>{`@media print{body *{visibility:hidden}#mail-print-root,#mail-print-root *{visibility:visible}#mail-print-root{position:absolute;inset:0;overflow:visible}#mail-print-root button,#mail-print-root iframe,#mail-print-root>h3,#mail-print-root>ul,#mail-print-root>section,#mail-print-content>:not(.mail-print-copy){display:none}#mail-print-root .mail-print-copy{display:block!important;white-space:pre-wrap}}`}</style><header><p className="text-xs text-muted-foreground">{account}</p><h2 className="text-xl font-semibold break-words">{item.subject || '(No subject)'}</h2><p className="break-words">From: {item.metadata?.from ?? 'Not downloaded'}</p><p className="break-words">To: {item.metadata?.to ?? 'Not downloaded'}</p><p className="text-sm">{item.contentState === 'complete' ? 'Available offline' : 'Content is incomplete. Headers alone are not an offline copy.'}</p><div className="my-3 flex flex-wrap gap-2">{item.threadId && <Button variant="outline" size="sm" onClick={onThread}>Show thread</Button>}<Button size="sm" variant="outline" disabled={!raw?.bytesAvailable || busy} onClick={() => raw && content(raw, false)}>View source</Button><Button size="sm" variant="outline" disabled={!raw?.bytesAvailable || busy} onClick={() => raw && content(raw, true)}>Export original</Button><Button size="sm" variant="outline" disabled={!bodies.length} onClick={() => window.print()}>Print</Button>{html.length > 0 && <Button size="sm" variant="outline" onClick={() => setPlain(value => !value)}>{plain ? 'Show HTML' : 'Plain text'}</Button>}</div></header>
-    {error && <p role="alert" className="text-destructive">{error}</p>}{busy && <p role="status">Reading encrypted content…</p>}
-    <div id="mail-print-content"><pre className="mail-print-copy" style={{ display: "none" }}>{(texts.length ? texts.map(body => body.text) : html.map(body => new DOMParser().parseFromString(mailHtml(body.text), 'text/html').body.textContent)).join("\n\n")}</pre><p className="my-2 text-xs text-muted-foreground">Scripts, links and external resources are blocked. Only stored inline images are shown.</p>{html.length && !plain ? html.map((body, index) => <iframe key={index} title={`Message HTML ${index + 1}`} sandbox="" referrerPolicy="no-referrer" srcDoc={mailHtml(body.text, inline)} className="w-full min-h-[420px] rounded border bg-white"/>) : texts.length ? texts.map((body, index) => <pre key={index} className="whitespace-pre-wrap break-words font-sans text-sm">{body.text}</pre>) : html.length ? <pre className="whitespace-pre-wrap text-sm">{new DOMParser().parseFromString(mailHtml(html[0].text), 'text/html').body.textContent}</pre> : !busy ? <p>No readable body is stored yet.</p> : null}</div>
-    <h3 className="mt-6 font-semibold">Attachments</h3><ul>{parts.filter(part => part.kind === 'attachment').map(part => <li key={part.key} className="flex flex-wrap items-center gap-2 border-b py-3"><span className="min-w-0 flex-1 break-words">{part.filename || 'Unnamed attachment'}<span className="block text-xs">{part.bytesAvailable ? `${part.bytes?.toLocaleString()} bytes · available offline` : part.state === 'pending' ? 'Download pending' : 'Unavailable / inaccessible'}</span></span><Button size="sm" variant="outline" disabled={!part.bytesAvailable || busy} onClick={() => content(part, false)}>Open</Button><Button size="sm" variant="outline" disabled={!part.bytesAvailable || busy} onClick={() => content(part, true)}>Save</Button></li>)}</ul>
-    {preview && <section aria-label="Attachment preview" className="mt-4 rounded border p-3"><div className="flex justify-between"><h3 className="font-medium">{preview.name}</h3><Button size="sm" variant="outline" onClick={() => setPreview(undefined)}>Close preview</Button></div>{preview.image ? <img src={preview.image} alt={preview.name} className="max-w-full"/> : <pre className="whitespace-pre-wrap break-words text-sm">{preview.text}</pre>}</section>}
-  </article>;
+    return (
+      <article id="mail-print-root" className="mail-message">
+        <style>{`@media print{body *{visibility:hidden}#mail-print-root,#mail-print-root *{visibility:visible}#mail-print-root{position:absolute;inset:0;overflow:visible}#mail-print-root button,#mail-print-root iframe,#mail-print-root .mail-message-actions,#mail-print-root .mail-attachments,#mail-print-root>section,#mail-print-content>:not(.mail-print-copy){display:none}#mail-print-root .mail-print-copy{display:block!important;white-space:pre-wrap}}`}</style>
+        <div className="mail-message-actions">
+          {item.threadId && <button title="View conversation" onClick={onThread}><MessagesSquare size={15}/><span>Conversation</span></button>}
+          <div/>
+          <button title="View original source" aria-label="View source" disabled={!raw?.bytesAvailable || busy} onClick={() => raw && content(raw, false)}><FileText size={15}/></button>
+          <button title="Export original message" aria-label="Export original" disabled={!raw?.bytesAvailable || busy} onClick={() => raw && content(raw, true)}><Download size={15}/></button>
+          <button title="Print message" aria-label="Print" disabled={!bodies.length} onClick={() => window.print()}><Printer size={15}/></button>
+        </div>
+        <header className="mail-message-header">
+          <div className="mail-message-account">{account}</div>
+          <h2>{item.subject || '(No subject)'}</h2>
+          <div className="mail-correspondent"><span className="mail-avatar">{senderName(item.metadata?.from).slice(0, 1).toUpperCase()}</span><div><p>{item.metadata?.from ?? 'Sender not downloaded'}</p><small>To: {item.metadata?.to ?? 'Not downloaded'}</small></div><time>{shortDate(item.receivedAt)}</time></div>
+          {item.contentState !== 'complete' && <p className="mail-content-warning"><CircleAlert size={13}/>This message is not fully downloaded yet.</p>}
+        </header>
+        {error && <p role="alert" className="mail-notice">{error}</p>}{busy && <p role="status" className="mail-loading">Opening message…</p>}
+        <div id="mail-print-content" className="mail-message-body">
+          <pre className="mail-print-copy" style={{display:'none'}}>{(texts.length ? texts.map(body => body.text) : html.map(body => new DOMParser().parseFromString(mailHtml(body.text), 'text/html').body.textContent)).join('\n\n')}</pre>
+          {html.length > 0 && <div className="mail-body-options"><span>External images blocked</span><button onClick={() => setPlain(value => !value)}>{plain ? 'Formatted view' : 'Plain text'}</button></div>}
+          {html.length && !plain ? html.map((body, index) => <iframe key={index} title={`Message HTML ${index + 1}`} sandbox="" referrerPolicy="no-referrer" srcDoc={mailHtml(body.text, inline)} />)
+            : texts.length ? texts.map((body, index) => <pre key={index} className="mail-plain-body">{body.text}</pre>)
+            : html.length ? <pre className="mail-plain-body">{new DOMParser().parseFromString(mailHtml(html[0].text), 'text/html').body.textContent}</pre>
+            : !busy ? <p className="mail-loading">No message body is available yet.</p> : null}
+        </div>
+        {parts.some(part => part.kind === 'attachment') && <div className="mail-attachments"><h3><Paperclip size={14}/>Attachments</h3><ul>{parts.filter(part => part.kind === 'attachment').map(part => <li key={part.key}><span className="mail-file-icon"><FileText size={19}/></span><div><strong>{part.filename || 'Unnamed attachment'}</strong><small>{part.bytesAvailable ? `${((part.bytes ?? 0) / 1024).toFixed(1)} KB` : part.state === 'pending' ? 'Downloading…' : 'Unavailable'}</small></div><button disabled={!part.bytesAvailable || busy} onClick={() => content(part, false)}>Open</button><button aria-label={`Save ${part.filename || 'attachment'}`} title="Save attachment" disabled={!part.bytesAvailable || busy} onClick={() => content(part, true)}><Download size={15}/></button></li>)}</ul></div>}
+        {preview && <section aria-label="Attachment preview" className="mail-attachment-preview"><div><h3>{preview.name}</h3><button aria-label="Close preview" onClick={() => setPreview(undefined)}><X size={16}/></button></div>{preview.image ? <img src={preview.image} alt={preview.name}/> : <pre>{preview.text}</pre>}</section>}
+      </article>
+    );
 }
