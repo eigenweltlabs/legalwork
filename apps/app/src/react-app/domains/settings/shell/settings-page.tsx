@@ -139,7 +139,7 @@ export function getSettingsTabLabel(tab: SettingsTab) {
     case "skills":
       return t("settings.tab_skills");
     case "extensions":
-      return t("settings.tab_extensions");
+      return t("sidebar.integrations");
     case "environment":
       return t("settings.tab_environment");
     case "advanced":
@@ -217,9 +217,8 @@ export function getSettingsTabDescription(tab: SettingsTab) {
 }
 
 export function getWorkspaceSettingsTabs(): SettingsTab[] {
-  // Skills now live in the Integrations page (as a tab between Connectors and
-  // Plugins); Workflows and Integrations (extensions) are top-level pages in the
-  // main app shell. Preferences (Model) and Advanced are hidden.
+  // Skills and plugins live in Settings > Integrations.
+  // Workspace-specific access is configured here.
   return ["permissions"];
 }
 
@@ -229,7 +228,7 @@ export function getGlobalSettingsTabs(developerMode: boolean): SettingsTab[] {
   // "benchmark" is not listed here: it lives on the Evals page in the main
   // app shell (embedded singleView surface), not in the settings sidebar.
   // Account leads: it is the firm's sign-in, plan and billing home.
-  const tabs: SettingsTab[] = ["account", "ai", "personalisation", "safety", "shell", "environment", "preferences", "updates"];
+  const tabs: SettingsTab[] = ["account", "ai", "extensions", "personalisation", "safety", "shell", "environment", "preferences", "updates"];
   // Office add-ins install into local desktop apps, so the tab is desktop-only.
   // Placed right after AI Providers.
   if (isDesktopRuntime()) tabs.splice(2, 0, "office-addins");

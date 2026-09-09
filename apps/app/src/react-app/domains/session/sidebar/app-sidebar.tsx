@@ -7,11 +7,9 @@ import {
   FlaskConical,
   ChevronRight,
   FolderPlus,
-  HardDrive,
   Loader2,
   Mic,
   PenLine,
-  Puzzle,
   Workflow,
   MoreHorizontal,
   Pencil,
@@ -41,7 +39,6 @@ import { t } from "../../../../i18n";
 
 import {
   Sidebar,
-  SidebarFooter,
   SidebarGroup,
   SidebarGroupContent,
   SidebarMenu,
@@ -51,7 +48,6 @@ import {
   SidebarMenuSubButton,
   SidebarMenuSubItem,
   SidebarRail,
-  useSidebar,
 } from "@/components/ui/sidebar";
 import {
   Collapsible,
@@ -482,8 +478,6 @@ export type AppSidebarProps = {
   onForgetWorkspace: (workspaceId: string) => void;
   onOpenCreateWorkspace: () => void;
   onCreateTaskInNewWorkspace: () => void;
-  onToggleDrive?: () => void;
-  driveOpen?: boolean;
   onShowEvals?: () => void;
   onShowWorkflows?: () => void;
   onShowExtensions?: () => void;
@@ -516,12 +510,7 @@ const NAV_ITEM_CLASS =
 
 export function AppSidebar(props: AppSidebarProps) {
   const { config: shellConfig } = useShellConfig();
-  const { isMobile, setOpenMobile } = useSidebar();
   const navigate = useNavigate();
-  const toggleDrive = React.useCallback(() => {
-    if (isMobile) setOpenMobile(false);
-    props.onToggleDrive?.();
-  }, [isMobile, props.onToggleDrive, setOpenMobile]);
   const goSettings = React.useCallback(
     (tab: string) => {
       const ws = props.selectedWorkspaceId.trim();
@@ -720,31 +709,11 @@ export function AppSidebar(props: AppSidebarProps) {
           <SidebarMenuItem>
             <SidebarMenuButton
               className={cn(NAV_ITEM_CLASS, "[&_svg]:size-[18px]")}
-              isActive={props.driveOpen}
-              onClick={toggleDrive}
-            >
-              <HardDrive className="size-[18px]" strokeWidth={1.5} />
-              <span>{t("sidebar.memory_drive")}</span>
-            </SidebarMenuButton>
-          </SidebarMenuItem>
-          <SidebarMenuItem>
-            <SidebarMenuButton
-              className={cn(NAV_ITEM_CLASS, "[&_svg]:size-[18px]")}
               isActive={props.activeNav === "workflows"}
               onClick={() => (props.onShowWorkflows ? props.onShowWorkflows() : goSettings("general"))}
             >
               <Workflow className="size-[18px]" strokeWidth={1.5} />
               <span>{t("sidebar.workflows")}</span>
-            </SidebarMenuButton>
-          </SidebarMenuItem>
-          <SidebarMenuItem>
-            <SidebarMenuButton
-              className={cn(NAV_ITEM_CLASS, "[&_svg]:size-[18px]")}
-              isActive={props.activeNav === "extensions"}
-              onClick={() => (props.onShowExtensions ? props.onShowExtensions() : goSettings("extensions/mcp"))}
-            >
-              <Puzzle className="size-[18px]" strokeWidth={1.5} />
-              <span>{t("sidebar.integrations")}</span>
             </SidebarMenuButton>
           </SidebarMenuItem>
           <SidebarMenuItem>
@@ -811,16 +780,6 @@ export function AppSidebar(props: AppSidebarProps) {
             </m.div>
           </LazyMotion>
           <SidebarUpdateBadge onOpenUpdatesSettings={() => navigate("/settings/updates")} />
-          <SidebarFooter>
-            <SidebarMenu>
-              <SidebarMenuItem>
-                <SidebarMenuButton className="text-muted-foreground" onClick={props.onOpenCreateWorkspace}>
-                  <FolderPlus className="size-4" />
-                  {t("sidebar.add_folder")}
-                </SidebarMenuButton>
-              </SidebarMenuItem>
-            </SidebarMenu>
-          </SidebarFooter>
         </div>
         <SidebarRail
           aria-label={props.onStartResize ? t("session.resize_workspace_column") : undefined}
@@ -874,7 +833,7 @@ function WorkspaceReorderItem({
         showInitialLoading={showInitialLoading}
         previewCount={previewCount}
         showMoreSessions={showMoreSessions}
-        onWorkspaceTitlePointerDown={(event) => dragControls.start(event)}
+        onWorkspaceTitlePointerDown={(event) => dragControls.start(event, { distanceThreshold: 10 })}
       />
     </Reorder.Item>
   );
@@ -1477,7 +1436,7 @@ function SessionGroupSection({ group, rows, expanded, workspaceId, store, render
             expanded={expanded}
             onToggle={() => store.getState().toggleGroupExpanded(workspaceId, group.id)}
             onRemove={() => store.getState().removeGroup(workspaceId, group.id)}
-            onTitlePointerDown={(event) => dragControls.start(event)}
+            onTitlePointerDown={(event) => dragControls.start(event, { distanceThreshold: 10 })}
           />
           <CollapsibleContent>
             {visibleRows.length > 0

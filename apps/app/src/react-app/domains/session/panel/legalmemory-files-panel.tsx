@@ -1,4 +1,5 @@
 /** @jsxImportSource react */
+import { MemoryDriveIcon } from "./memory-drive-icon";
 import * as React from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useVirtualizer } from "@tanstack/react-virtual";
@@ -281,8 +282,8 @@ export function LegalMemoryFilesPanel({
 
   return (
     <TooltipProvider delay={800}>
-      <aside aria-label={t("sidebar.memory_drive")} className="flex h-full w-[300px] min-w-[260px] max-w-[34vw] shrink-0 flex-col border-r border-border/70 bg-background/90 backdrop-blur-xl">
-        <PanelHeader title={t("sidebar.memory_drive")} icon={<FolderIcon open />} meta={rootsQuery.data && totalsKnown ? totalFiles.toLocaleString() : undefined}>
+      <aside aria-label={t("sidebar.memory_drive")} className="flex h-full w-full min-w-0 flex-col bg-background/90 backdrop-blur-xl">
+        <PanelHeader title={t("sidebar.memory_drive")} icon={<MemoryDriveIcon />} meta={rootsQuery.data && totalsKnown ? totalFiles.toLocaleString() : undefined}>
           <Tooltip>
             <TooltipTrigger render={<Button variant="ghost" size="icon-sm" onClick={refresh} aria-label={t("legalmemory.refresh_drive")} />}>
               <RotateCw className={cn("size-3.5", (rootsQuery.isFetching || search.isFetching) && "animate-spin")} />

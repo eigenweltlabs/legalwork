@@ -344,12 +344,6 @@ export function SessionRoute() {
     setShowExtensions(false);
     setShowRecorder(false);
   }, []);
-  const showExtensionsPane = useCallback(() => {
-    setShowExtensions(true);
-    setShowEvals(false);
-    setShowWorkflows(false);
-    setShowRecorder(false);
-  }, []);
   const showRecorderPane = useCallback(() => {
     setShowRecorder(true);
     setShowEvals(false);
@@ -2016,7 +2010,7 @@ export function SessionRoute() {
       sidebar={{
         onShowEvals: showEvalsPane,
         onShowWorkflows: showWorkflowsPane,
-        onShowExtensions: showExtensionsPane,
+        onShowExtensions: () => navigate(`/workspace/${encodeURIComponent(selectedWorkspaceId)}/settings/extensions/mcp`),
         onShowRecorder: showRecorderPane,
         activeNav: showWorkflows ? "workflows" : showExtensions ? "extensions" : showEvals ? "evals" : showRecorder ? "recorder" : null,
         workspaceSessionGroups,

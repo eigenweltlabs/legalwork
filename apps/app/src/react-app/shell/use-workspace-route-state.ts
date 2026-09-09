@@ -48,6 +48,7 @@ import {
   readLastSessionFor,
   readWorkspaceOrderIds,
   writeActiveWorkspaceId,
+  writeWorkspaceOrderIds,
 } from "./session-memory";
 import { legacySessionRoute, workspaceSessionRoute } from "./workspace-routes";
 
@@ -112,6 +113,17 @@ export function useWorkspaceRouteState(input: UseWorkspaceRouteStateInput) {
   const refreshInFlightRef = useRef(false);
   const workspacesRef = useRef<RouteWorkspace[]>([]);
   const workspaceOrderIdsRef = useRef(workspaceOrderIds);
+  // Remember the first-seen order too, so desktop/server refreshes cannot
+  // reshuffle folders before the user has ever dragged one. New folders append.
+  useEffect(() => {
+    const knownIds = new Set(workspaceOrderIdsRef.current);
+    const addedIds = workspaces.map((workspace) => workspace.id).filter((id) => !knownIds.has(id));
+    if (addedIds.length === 0) return;
+    const nextOrder = [...workspaceOrderIdsRef.current, ...addedIds];
+    workspaceOrderIdsRef.current = nextOrder;
+    setWorkspaceOrderIds(nextOrder);
+    writeWorkspaceOrderIds(nextOrder);
+  }, [workspaces]);
   const remoteWorkspaceCheckRunRef = useRef<Record<string, string>>({});
   const remoteWorkspaceCheckRunCounterRef = useRef(0);
   const sessionsByWorkspaceIdRef = useRef<Record<string, RouteSession[]>>({});

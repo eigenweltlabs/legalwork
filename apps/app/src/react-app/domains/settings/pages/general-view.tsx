@@ -6,6 +6,7 @@ import {
   KeyRound,
   Layout,
   Mic,
+  Puzzle,
   RefreshCcw,
   ShieldCheck,
   Sparkles,
@@ -39,6 +40,7 @@ const globalItems = (): SettingsItem[] => [
     desc: t("settings.tab_description_account"),
   },
   { tab: "ai", icon: Zap, title: t("settings.tab_ai"), desc: `${t("settings.tab_description_ai")}.` },
+  { tab: "extensions", icon: Puzzle, title: t("sidebar.integrations"), desc: `${t("settings.tab_description_extensions")}.` },
   {
     tab: "personalisation",
     icon: Sparkles,
