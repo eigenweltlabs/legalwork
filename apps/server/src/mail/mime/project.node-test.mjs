@@ -47,8 +47,8 @@ test('input, headers, body, attachment bytes and counts reject at bounded limits
  await assert.rejects(parse(Buffer.alloc(65537)),reject('invalid_input'));
  await assert.rejects(parse(raw,{limits:{timeoutMs:0}}),reject('invalid_input'));
 });
-test('unsupported encoding/charset/flowed and duplicate structure headers remain incomplete',async()=>{
- for(const raw of [text(['Content-Type: text/plain; charset=no-such-charset','','hello']),text(['Content-Type: text/plain; format=flowed','','hello']),text(['Content-Transfer-Encoding: x-custom','','hello'])])await assert.rejects(parse(raw),reject('unsupported'));
+test('unsupported encoding/charset and duplicate structure headers remain incomplete',async()=>{
+ for(const raw of [text(['Content-Type: text/plain; charset=no-such-charset','','hello']),text(['Content-Transfer-Encoding: x-custom','','hello'])])await assert.rejects(parse(raw),reject('unsupported'));
  await assert.rejects(parse(text(['Content-Type: text/plain','Content-Type: text/html','','hello'])),reject('malformed'));
 });
 test('sink must consume fully; sink/source exceptions remain fixed and original stays unchanged',async()=>{
@@ -68,4 +68,16 @@ test('deadline and cancellation bound ignored source/sink waits and fence later 
  const controller=new AbortController();controller.abort();let calls=0;
  await assert.rejects(parse(mime,{signal:controller.signal,onAttachment:async()=>{calls++;}}),reject('cancelled'));assert.equal(calls,0);
  const active=new AbortController();await assert.rejects(parse(mime,{signal:active.signal,onAttachment:async(_meta,chunks)=>{active.abort();for await(const bytes of chunks){throw Error('must not emit after abort');}}}),reject('cancelled'));
+});
+
+
+test('valid flowed delsp semantics and transport-whitespace delimiters preserve HTML and original hash',async()=>{
+ const raw=text(['MIME-Version: 1.0','Content-Type: multipart/alternative; boundary=flow','','--flow',
+  'Content-Type: text/plain; charset=utf-8; format=flowed; delsp=yes','','Vertr ','ag',' From legal','-- ','Signature',
+  '--flow','Content-Type: text/plain; charset=utf-8; format=flowed; delsp=no','','Legal ','work',
+  '--flow','Content-Type: text/html; charset=utf-8','','<p>Keep  spacing <img src="cid:original"></p>','--flow-- \t']);
+ async function* split(){for(let i=0;i<raw.length;i+=7)yield raw.subarray(i,i+7);}
+ const result=await parse(raw,{source:split()});assert.equal(result.originalSha256,hash([raw]));
+ assert.equal(result.bodies[0].text,'Vertrag\nFrom legal\n-- \nSignature');assert.equal(result.bodies[1].text,'Legal work');
+ assert.equal(result.bodies[2].text,'<p>Keep  spacing <img src="cid:original"></p>');
 });
