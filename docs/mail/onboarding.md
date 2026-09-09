@@ -17,3 +17,5 @@ IMAP requests carry a generated cancellation ID outside account settings. The wo
 | Other IMAP | Explicit host/port/user/folders, certificate validation; existing synthetic IMAP acceptance | Server-specific compatibility requires a real authorized account |
 
 Focused verification combines actual isolated Electron form interactions, host-token HTTP forwarding/rejection, real encrypted Node OAuth/refresh/reopen and IMAP cancellation tests. No live credentials, provider traffic, broad platform suite or whole-app build is used for these tests.
+
+Reconnect selects Graph personal/organizational authority from the encrypted existing binding, including disconnected accounts; a caller cannot silently switch it with a `personal` flag. Account lists expose only an optional non-secret `personal` boolean for that selection. The existing immutable client/subject binding and publication CAS still apply.

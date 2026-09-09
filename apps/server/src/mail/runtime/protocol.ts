@@ -56,7 +56,7 @@ export type WorkerCommand =
   | { operation: "mail.sync.stop"; accountId: string }
   | { operation: "credentials.update"; credentials: WorkerCredentials };
 
-export type WorkerAccount = { id: string; provider: "gmail" | "graph" | "imap"; displayName: string };
+export type WorkerAccount = { id: string; provider: "gmail" | "graph" | "imap"; displayName: string; personal?: boolean };
 export type WorkerFolder = { id: string; name: string; kind: "folder" | "label"; parentId: string | null; role?: "inbox" };
 export type WorkerResult =
   | {extraction:MailExtractionStatus}
@@ -154,7 +154,7 @@ function started(value: unknown): boolean {
   return record(value) && exact(value, ["connectionId", "authorizationUrl", "expiresAt"]) && uuid(value.connectionId) && time(value.expiresAt) && authorizationUrl(value.authorizationUrl);
 }
 function account(value: unknown): value is WorkerAccount {
-  return record(value) && exact(value, ["id", "provider", "displayName"]) && id(value.id)
+  return record(value) && exact(value, value.personal === undefined ? ["id", "provider", "displayName"] : ["id", "provider", "displayName", "personal"]) && (value.personal === undefined || value.provider === "graph" && typeof value.personal === "boolean") && id(value.id)
     && (value.provider === "gmail" || value.provider === "graph" || value.provider === "imap") && typeof value.displayName === "string";
 }
 function folder(value: unknown): value is WorkerFolder {
