@@ -5,10 +5,10 @@ export type MailPage<T> = { items: T[]; nextCursor: string | null };
 export type MailServiceStatus = {
   protocolVersion: 1;
   state: "locked" | "unlocking" | "ready" | "unavailable" | "locking" | "stopped";
-  syncSupported: false;
+  syncSupported: boolean;
 };
 export class MailServiceError extends Error {
-  constructor(readonly code: "not_found" | "locked" | "unavailable" | "too_large") { super(`mail_${code}`); }
+  constructor(readonly code: "not_found" | "locked" | "unavailable" | "too_large" | "unsupported") { super(`mail_${code}`); }
 }
 
 /** Bound to one trusted owner at construction; no request supplies an owner ID. */
@@ -22,7 +22,11 @@ export interface MailService {
   connectionStatus(connectionId: string): Promise<MailConnectionStatus>;
   cancelConnection(connectionId: string): Promise<void>;
   disconnectAccount(accountId: string): Promise<void>;
+  startSync(accountId: string): Promise<MailSyncView>;
+  pauseSync(accountId: string): Promise<MailSyncView>;
+  syncStatus(accountId: string): Promise<MailSyncView>;
   stop(): Promise<void>;
 }
 import type { MailConnectionStatus } from "./providers/connection-controller.js";
+import type { MailSyncView } from "./sync-view.js";
 export type MailConnectionStarted = { connectionId: string; authorizationUrl: string; expiresAt: number };

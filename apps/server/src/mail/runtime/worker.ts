@@ -1,6 +1,10 @@
 /** Production Node/Electron entrypoint. stdout is exclusively the private worker protocol. */
 import { MailConnectionController, MailConnectionError } from "../providers/connection-controller.js";
 import { MailCredentialRepository, MailCredentialError } from "../storage/credentials.js";
+import { MailAccessCoordinator } from "../providers/access-coordinator.js";
+import { GmailBackfill, GmailBackfillError } from "../providers/gmail-backfill.js";
+import { createStoredMimeProjector } from "../storage/mime-projection.js";
+import type { MailOAuthSettings } from "../providers/oauth.js";
 import { isAbsolute } from "node:path";
 import { openEncryptedMailDatabase } from "../storage/database.js";
 import type { MailDatabase } from "../storage/database-interface.js";
@@ -15,8 +19,13 @@ let repository: MailRepository | undefined;
 let controller: MailConnectionController | undefined;
 let closingController: Promise<void> | undefined;
 let credentials: MailCredentialRepository | undefined;
+let backfill: GmailBackfill | undefined;
+let access: MailAccessCoordinator | undefined;
+let closingBackfill: Promise<void> | undefined;
+const gmailSettings = new Map<string, MailOAuthSettings>();
 const requests = new Set<Promise<void>>();
 const locked = new Error("mail_archive_locked");
+const unsupported = new Error("mail_provider_unsupported");
 let phase: "waiting" | "opening" | "ready" | "closing" = "waiting";
 let input = Buffer.alloc(0);
 let opening: Promise<void> | undefined;
@@ -34,9 +43,13 @@ function write(message: WorkerMessage): boolean {
 }
 async function finish(): Promise<void> {
   try { await (closingController ?? controller?.close()); } catch { exitCode = 1; }
+  try { await (closingBackfill ?? backfill?.close()); } catch { exitCode = 1; }
   await Promise.allSettled(requests);
   controller = undefined;
   credentials = undefined;
+  backfill = undefined;
+  access = undefined;
+  gmailSettings.clear();
   try { database?.close(); } catch { exitCode = 1; }
   database = undefined;
   repository = undefined;
@@ -48,6 +61,8 @@ function shutdown(code = 0): void {
   phase = "closing";
   // close() marks the controller closed synchronously, before any queued continuation.
   closingController = controller?.close();
+  closingBackfill = backfill?.close();
+  access?.close();
   input = Buffer.alloc(0);
   process.stdin.pause();
   exitTimer = setTimeout(() => process.exit(1), 2000);
@@ -74,6 +89,13 @@ async function initialize(value: WorkerInitialization): Promise<void> {
     repository = new MailRepository(database, value.ownerId);
     credentials = new MailCredentialRepository(database, value.ownerId);
     controller = new MailConnectionController({ database, ownerId: value.ownerId });
+    access = new MailAccessCoordinator({ database, ownerId: value.ownerId, loadProviderSettings: async binding => {
+      const selected = binding.provider === "gmail" ? gmailSettings.get(binding.clientId) : undefined;
+      if (!selected) throw new Error("mail_configuration_unavailable");
+      return selected;
+    } });
+    backfill = new GmailBackfill({ database, ownerId: value.ownerId, access,
+      projectRaw: createStoredMimeProjector({ database, ownerId: value.ownerId }) });
     phase = "ready";
     write({ kind: "ready", protocol: 1, runtime: "node", nodeVersion: process.versions.node });
   } catch {
@@ -99,7 +121,7 @@ function pageResult(id: string, items: WorkerAccount[] | WorkerFolder[], hasMore
   return accepted;
 }
 async function request(message: Extract<ParentMessage, { kind: "request" }>): Promise<void> {
-  if (phase !== "ready" || !repository || !controller || !credentials) {
+  if (phase !== "ready" || !repository || !controller || !credentials || !backfill || !database) {
     write({ kind: "response", id: message.id, ok: false, code: "not_ready" }); return;
   }
   const command = message.command;
@@ -107,12 +129,20 @@ async function request(message: Extract<ParentMessage, { kind: "request" }>): Pr
     let result: WorkerResult | undefined;
     switch (command.operation) {
       case "ping": result = { pong: true }; break;
-      case "mail.storage.status": result = { encrypted: true, schemaVersion: MAIL_SCHEMA_VERSION, syncSupported: false }; break;
+      case "mail.storage.status": result = { encrypted: true, schemaVersion: MAIL_SCHEMA_VERSION, syncSupported: true }; break;
       case "mail.connection.begin":
         result = { connectionStarted: await controller.begin(command.settings, { reconnectAccountId: command.reconnectAccountId }) }; break;
       case "mail.connection.poll": result = { connection: controller.poll(command.connectionId) }; break;
       case "mail.connection.cancel": await controller.cancel(command.connectionId); result = { cancelled: true }; break;
-      case "mail.account.disconnect": await controller.disconnect(command.accountId); result = { disconnected: true }; break;
+      case "mail.account.disconnect": {
+        const current = credentials.status(command.accountId); // Owner gate before provider lookup or cancellation.
+        if (current.state !== "disconnected" && database.get("SELECT provider FROM mail_accounts WHERE id=?", [command.accountId])?.provider === "gmail") {
+          // Abort publication before rotating the durable credential generation.
+          // A journal failure must not prevent the credential revocation attempt.
+          try { backfill.pause(command.accountId); } catch { /* The credential generation also fences every late publication. */ }
+        }
+        await controller.disconnect(command.accountId); result = { disconnected: true }; break;
+      }
       case "mail.accounts.list": {
         const page = repository.listAccountsPage({ limit: command.limit, after: command.after });
         result = pageResult(message.id, page.items.map((account) => ({ id: account.id, provider: account.provider, displayName: account.display_name })), page.hasMore);
@@ -125,12 +155,19 @@ async function request(message: Extract<ParentMessage, { kind: "request" }>): Pr
         break;
       }
       case "mail.status":
-        if (credentials.status(command.accountId).state === "disconnected") throw locked;
-        // An owner-bound lookup verifies the account without fetching its folders.
-        repository.listFoldersPage(command.accountId, { limit: 1 });
-        result = { state: "idle", syncSupported: false }; break;
       case "mail.sync.start":
-      case "mail.sync.stop":
+      case "mail.sync.stop": {
+        if (credentials.status(command.accountId).state === "disconnected") throw locked;
+        if (database.get("SELECT provider FROM mail_accounts WHERE id=?", [command.accountId])?.provider !== "gmail") throw unsupported;
+        if (command.operation === "mail.sync.start") {
+          const binding = credentials.getBinding(command.accountId);
+          if (command.settings.provider !== "gmail" || binding.clientId !== command.settings.clientId
+            || binding.authority !== "https://accounts.google.com") throw new Error("mail_configuration_mismatch");
+          gmailSettings.set(binding.clientId, command.settings);
+          result = { sync: backfill.start(command.accountId) };
+        } else result = { sync: command.operation === "mail.sync.stop" ? backfill.pause(command.accountId) : backfill.status(command.accountId) };
+        break;
+      }
       case "credentials.update":
         write({ kind: "response", id: message.id, ok: false, code: "unsupported" }); return;
     }
@@ -140,9 +177,11 @@ async function request(message: Extract<ParentMessage, { kind: "request" }>): Pr
   } catch (error) {
     // Do not echo SQLite/provider errors, row contents, supplied IDs, paths or key material.
     if (isClosing()) return;
-    const code = error === locked ? "locked" :
+    const code = error === unsupported ? "unsupported" : error === locked || (error instanceof GmailBackfillError && error.code === "locked")
+      || (error instanceof MailCredentialError && error.code === "disconnected") ? "locked" :
       (error instanceof MailConnectionError && (error.code === "not_found" || error.code === "account_not_found"))
       || (error instanceof MailCredentialError && error.code === "account_not_found")
+      || (error instanceof GmailBackfillError && error.code === "not_found")
       || (error instanceof Error && error.message === "Mail account not found") ? "not_found" : "operation_failed";
     write({ kind: "response", id: message.id, ok: false, code });
   }

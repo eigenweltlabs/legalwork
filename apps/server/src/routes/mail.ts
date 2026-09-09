@@ -26,6 +26,7 @@ function safeError(error: unknown): ApiError {
       case "not_found": return new ApiError(404, "mail_not_found", "Mail account not found");
       case "locked": return new ApiError(423, "mail_locked", "Mail storage is locked");
       case "too_large": return new ApiError(413, "mail_response_too_large", "Mail response exceeds the supported size");
+      case "unsupported": return new ApiError(501, "mail_provider_unsupported", "Synchronization is not available for this provider");
       case "unavailable": break;
     }
   }
@@ -98,4 +99,7 @@ export function registerMailRoutes(routes: Route[], host: string, service?: Mail
   route("GET", "/connections/:connectionId", false, ctx => service.connectionStatus(ctx.params.connectionId));
   route("POST", "/connections/:connectionId/cancel", false, async ctx => { await service.cancelConnection(ctx.params.connectionId); return { cancelled: true }; });
   route("POST", "/accounts/:accountId/disconnect", false, async ctx => { await service.disconnectAccount(ctx.params.accountId); return { disconnected: true }; });
+  route("GET", "/accounts/:accountId/sync", false, ctx => service.syncStatus(ctx.params.accountId));
+  route("POST", "/accounts/:accountId/sync/start", false, ctx => service.startSync(ctx.params.accountId));
+  route("POST", "/accounts/:accountId/sync/pause", false, ctx => service.pauseSync(ctx.params.accountId));
 }

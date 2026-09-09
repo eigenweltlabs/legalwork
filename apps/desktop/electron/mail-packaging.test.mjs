@@ -17,6 +17,21 @@ const { minimatch } = require("minimatch");
 const config = parse(await readFile(join(desktop, "electron-builder.yml"), "utf8"));
 const patterns = config.asarUnpack.filter((pattern) => pattern.includes(packageName));
 
+// Preserve each package's resolved dependency versions inside the isolated ASAR fixture.
+// Loading the actual worker below detects missing transitive MIME dependencies too.
+async function copyRuntimePackage(name, resolver, destination) {
+  const manifestPath = resolver.resolve(`${name}/package.json`);
+  const source = dirname(manifestPath);
+  const target = join(destination, "node_modules", name);
+  await mkdir(dirname(target), { recursive: true });
+  await cp(source, target, { recursive: true, filter: path => !path.startsWith(join(source, "node_modules")) });
+  const manifest = JSON.parse(await readFile(manifestPath, "utf8"));
+  const packageRequire = createRequire(manifestPath);
+  for (const dependency of Object.keys(manifest.dependencies ?? {})) {
+    await copyRuntimePackage(dependency, packageRequire, target);
+  }
+}
+
 // Run with the installed toolchain; no downloads or whole-app build/publish.
 test("mail native package and loader siblings stay unpacked in both dependency layouts", async () => {
   assert.equal(config.asar, true);
@@ -99,6 +114,9 @@ test("actual Electron starts built encrypted worker inside ASAR and resolves unp
     assert.equal(JSON.parse(await readFile(join(nativeSource, "package.json"), "utf8")).version, "13.0.3");
     await cp(nativeSource, join(source, nativeRelative), { recursive: true, filter: (path) => !path.startsWith(join(nativeSource, "node_modules")) });
     await cp(dirname(require.resolve("zod/package.json")), join(source, "node_modules/zod"), { recursive: true });
+    for (const dependency of ["@zone-eu/mailsplit", "iconv-lite", "libmime"]) {
+      await copyRuntimePackage(dependency, require, source);
+    }
     const archive = join(root, `${layout}.asar`);
     await asar.createPackageWithOptions(source, archive, { unpack: `{${patterns.map((pattern) => `**/${pattern}`).join(",")}}` });
     const relativePrebuild = `${nativeRelative}/prebuilds/${process.platform}-${process.arch}.node`;
@@ -129,7 +147,7 @@ test("actual Electron starts built encrypted worker inside ASAR and resolves unp
       const frames = ran.stdout.trim().split("\n").map((line) => JSON.parse(line));
       assert.equal(frames[0].kind, "ready");
       assert.equal(frames[1].result.encrypted, true);
-      assert.equal(frames[1].result.syncSupported, false);
+      assert.equal(frames[1].result.syncSupported, true);
     }
     const bytes = await readFile(initialization.databasePath);
     assert.notEqual(bytes.subarray(0, 16).toString(), "SQLite format 3\0");
