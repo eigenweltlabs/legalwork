@@ -1,5 +1,5 @@
 /** Configuration checks only: no environment, network, credentials, or account access. */
-export const GMAIL_MAIL_SCOPES: readonly string[] = ["https://www.googleapis.com/auth/gmail.modify"];
+export const GMAIL_MAIL_SCOPES: readonly string[] = ["openid", "email", "https://www.googleapis.com/auth/gmail.modify"];
 export const GRAPH_MAIL_SCOPES: readonly string[] = ["openid", "profile", "offline_access", "User.Read", "Mail.ReadWrite", "Mail.Send"];
 
 type InstalledAppSettings = {
