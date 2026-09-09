@@ -16,7 +16,7 @@ const envNames = ["LEGALWORK_ENV_STORE", "LEGALWORK_TOKEN_STORE", "XDG_DATA_HOME
 const originalEnv = new Map(envNames.map(name => [name, process.env[name]]));
 function progress(accountId: string, state: MailSyncView["state"]): MailSyncView {
   return { accountId, provider: "gmail", state, enumerated: 3, downloaded: 2, projected: 1,
-    failed: 0, pending: 2, nextRetryAt: null, error: null };
+    removed: 0, retained: 0, failed: 0, pending: 2, nextRetryAt: null, error: null };
 }
 beforeEach(async () => {
   directory = await mkdtemp(join(tmpdir(), "legalwork-mail-api-"));

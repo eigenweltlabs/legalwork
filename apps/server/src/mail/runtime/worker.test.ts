@@ -11,6 +11,7 @@ import { GMAIL_MAIL_SCOPES } from "../provider-config.js";
 import type { MailOAuthSettings } from "../providers/oauth.js";
 import { MAIL_SCHEMA_VERSION } from "../storage/schema.js";
 import { MAX_WORKER_MESSAGE_BYTES, type WorkerInitialization } from "./protocol.js";
+import { createGmailHistoryFixtures } from "../testing/gmail-history-fixtures.js";
 
 const nodePath = process.env.LEGALWORK_MAIL_TEST_NODE ?? Bun.which("node");
 if (!nodePath) throw new Error("Explicit compatible Node executable required");
@@ -197,7 +198,7 @@ test.skipIf(!electronPath)("built encrypted worker opens and reopens under actua
 const syntheticSettings: MailOAuthSettings = { provider: "gmail", applicationType: "desktop", pkceMethod: "S256",
   clientId: "synthetic.apps.googleusercontent.com", clientSecret: "synthetic-secret", scopes: [...GMAIL_MAIL_SCOPES] };
 
-test("real worker downloads recent and paginated Gmail history, projects attachments, and reopens complete", async () => {
+test("real worker downloads recent and paginated Gmail history, projects attachments, and reopens paused", async () => {
   const initialization = await setup(); seed(initialization, false, true);
   const bootstrap = join(root, "gmail-fixture.mjs");
   await writeFile(bootstrap, `
@@ -206,6 +207,8 @@ test("real worker downloads recent and paginated Gmail history, projects attachm
     globalThis.fetch=async (input,init) => {
       const url=new URL(input);
       if(url.origin!=='https://gmail.googleapis.com' || init?.method!=='GET') throw new Error('fixture_unexpected_network');
+      if(url.pathname.endsWith('/profile')) return Response.json({emailAddress:'synthetic@example.test',historyId:'100',messagesTotal:3,threadsTotal:3});
+      if(url.pathname.endsWith('/history')) return Response.json({historyId:'200'});
       if(url.pathname.endsWith('/labels')) return Response.json({labels:[
         {id:'INBOX',name:'INBOX',type:'system'},{id:'SPAM',name:'SPAM',type:'system'},{id:'TRASH',name:'TRASH',type:'system'}]});
       if(url.pathname.endsWith('/messages')) {
@@ -239,7 +242,7 @@ test("real worker downloads recent and paginated Gmail history, projects attachm
     if (!("sync" in result)) throw new Error("wrong_result");
     if (result.sync.state === "attention" || result.sync.state === "complete") {
       expect(result.sync).toEqual({ accountId: "a", provider: "gmail", state: "complete", enumerated: 3,
-        downloaded: 3, projected: 3, failed: 0, pending: 0, nextRetryAt: null, error: null });
+        downloaded: 3, projected: 3, removed: 0, retained: 0, failed: 0, pending: 0, nextRetryAt: null, error: null });
       break;
     }
     if (Date.now() >= deadline) throw new Error(`fixture_sync_timeout:${JSON.stringify(result.sync)}`);
@@ -271,9 +274,124 @@ test("real worker downloads recent and paginated Gmail history, projects attachm
     { id: "old", subject: "Case old", memberships: ["TRASH"], attachments: ["evidence-old"] },
   ]);
   const reopened = worker(initialization); await reopened.start();
-  expect(await reopened.request({ operation: "mail.status", accountId: "a" })).toMatchObject({ sync: { state: "complete", projected: 3 } });
+  expect(await reopened.request({ operation: "mail.status", accountId: "a" })).toMatchObject({ sync: { state: "paused", projected: 3 } });
 }, 20000);
 const connectionRuntimes: WorkerExecutable[] = [node, ...(electronPath ? [{ kind: "electron", path: electronPath } satisfies WorkerExecutable] : [])];
+
+test("real worker applies paginated Gmail history and retains a remotely deleted original", async () => {
+  const initialization = await setup(); seed(initialization, false, true);
+  const fixture = createGmailHistoryFixtures();
+  const bootstrap = join(root, "gmail-history-fixture.mjs");
+  await writeFile(bootstrap, `
+    const fixture=${JSON.stringify(fixture)};
+    const originals=new Map(fixture.initial.map(item=>[item.id,item]));
+    originals.set(fixture.ids.added,fixture.incremental.newMessageMetadata);
+    globalThis.fetch=async(input,init)=>{
+      const url=new URL(input);
+      if(url.origin!=='https://gmail.googleapis.com'||init?.method!=='GET')throw Error('fixture_unexpected_network');
+      if(url.pathname.endsWith('/profile'))return Response.json({emailAddress:'synthetic@example.test',historyId:fixture.cursor.initial,messagesTotal:3,threadsTotal:3});
+      if(url.pathname.endsWith('/labels'))return Response.json({labels:['INBOX','SPAM','TRASH','UNREAD','Label_old','Label_new','Label_keep'].map(id=>({id,name:id,type:id.startsWith('Label_')?'user':'system'}))});
+      if(url.pathname.endsWith('/messages')){
+        if(url.searchParams.get('includeSpamTrash')!=='true')throw Error('fixture_missing_full_scope');
+        return Response.json({messages:url.searchParams.has('q')?[]:fixture.initial.map(({id,threadId})=>({id,threadId}))});
+      }
+      if(url.pathname.endsWith('/history')){
+        const start=url.searchParams.get('startHistoryId'),token=url.searchParams.get('pageToken');
+        if(start===fixture.cursor.initial)return Response.json(fixture.incremental.pages[token?1:0]);
+        if(start===fixture.cursor.terminal||start===fixture.cursor.empty)return Response.json(fixture.incremental.emptyPoll);
+        throw Error('fixture_skipped_history');
+      }
+      const metadata=originals.get(url.pathname.split('/').pop());
+      if(!metadata||url.searchParams.get('format')!=='raw')throw Error('fixture_unexpected_message');
+      const raw=Buffer.from('Subject: '+metadata.id+'\\r\\nContent-Type: text/plain; charset=utf-8\\r\\n\\r\\nsynthetic-original-'+metadata.id+'\\r\\n');
+      return Response.json({...metadata,sizeEstimate:raw.length,raw:raw.toString('base64url')});
+    };
+    await import(${JSON.stringify(pathToFileURL(entryPoint).href)});
+  `);
+  const client = new MailWorkerClient({ entryPoint: bootstrap, executable: node, initialize: () => initialization, maxRestarts: 0 });
+  clients.push(client); await client.start();
+  await client.request({ operation: "mail.sync.start", accountId: "a", settings: syntheticSettings });
+  const deadline = Date.now() + 10000;
+  while (true) {
+    const result = await client.request({ operation: "mail.status", accountId: "a" });
+    if (!("sync" in result)) throw new Error("wrong_result");
+    expect(result.sync.state).not.toBe("attention");
+    if (result.sync.state === "complete" && result.sync.removed === 1) {
+      expect(result.sync).toMatchObject({ enumerated: 3, downloaded: 3, projected: 3, removed: 1, retained: 1, failed: 0, pending: 0 });
+      break;
+    }
+    if (Date.now() >= deadline) throw new Error(`fixture_history_timeout:${JSON.stringify(result.sync)}`);
+    await new Promise(resolve => setTimeout(resolve, 25));
+  }
+  expect(await client.request({ operation: "mail.sync.stop", accountId: "a" })).toMatchObject({ sync: { state: "paused", retained: 1 } });
+  await client.stop();
+  const inspection = `
+    import {readFileSync} from 'node:fs';
+    import {openEncryptedMailDatabase} from ${JSON.stringify(pathToFileURL(join(root, "build/mail/storage/database.js")).href)};
+    import {MailRepository} from ${JSON.stringify(pathToFileURL(join(root, "build/mail/storage/repository.js")).href)};
+    import {MailContentStore} from ${JSON.stringify(pathToFileURL(join(root, "build/mail/storage/content-store.js")).href)};
+    const input=JSON.parse(readFileSync(0,'utf8')),key=Buffer.from(input.encryptionKey,'base64');
+    const db=await openEncryptedMailDatabase({path:input.databasePath,key});key.fill(0);
+    try{const repository=new MailRepository(db,input.ownerId),content=new MailContentStore(db,input.ownerId);
+      const rows=${JSON.stringify([fixture.ids.existing,fixture.ids.deleted,fixture.ids.laterAbsent,fixture.ids.added])}.map(id=>{
+        const message=repository.readMessage('a',{provider:'gmail',messageId:id});
+        const raw=message.content.find(part=>part.kind==='raw');
+        return{id,memberships:message.memberships,original:Buffer.concat([...content.read('a',raw.ref_id)]).toString()};
+      });console.log(JSON.stringify(rows));
+    }finally{db.close();}
+  `;
+  const stored = JSON.parse(execFileSync(node.path, ["--input-type=module", "--eval", inspection], {
+    input: JSON.stringify(initialization), stdio: ["pipe", "pipe", "pipe"], timeout: 10000,
+  }).toString());
+  expect(stored.map((row: { memberships: string[] }) => row.memberships)).toEqual([["Label_new"], [], ["Label_keep"], ["INBOX", "UNREAD"]]);
+  expect(stored[1].original).toContain(`synthetic-original-${fixture.ids.deleted}`);
+  const reopened = worker(initialization); await reopened.start();
+  expect(await reopened.request({ operation: "mail.status", accountId: "a" })).toMatchObject({ sync: { state: "paused", removed: 1, retained: 1 } });
+  await reopened.stop();
+  // Expire the persisted polling wait, then exercise the production worker's history404 recovery.
+  execFileSync(node.path, ["--input-type=module", "--eval", inspection.replace("try{const repository", "try{db.run('UPDATE mail_gmail_runs SET poll_at=0');const repository")], { input: JSON.stringify(initialization), stdio: ["pipe", "pipe", "pipe"], timeout: 10000 });
+  const recoveryBootstrap = join(root, "gmail-reconciliation-fixture.mjs");
+  await writeFile(recoveryBootstrap, `
+    const fixture=${JSON.stringify(fixture)};
+    const metadata=new Map(fixture.reconciliation.metadata.map(item=>[item.id,item]));
+    let rawReads=0;
+    globalThis.fetch=async(input,init)=>{
+      const url=new URL(input);
+      if(url.origin!=='https://gmail.googleapis.com'||init?.method!=='GET')throw Error('fixture_unexpected_network');
+      if(url.pathname.endsWith('/profile'))return Response.json(fixture.reconciliation.anchorProfile);
+      if(url.pathname.endsWith('/labels'))return Response.json({labels:['INBOX','SPAM','STARRED','Label_new'].map(id=>({id,name:id,type:'system'}))});
+      if(url.pathname.endsWith('/history'))return url.searchParams.get('startHistoryId')===fixture.cursor.reconciliationAnchor?Response.json({historyId:fixture.cursor.reconciliationAnchor}):new Response(null,{status:404});
+      if(url.pathname.endsWith('/messages')){
+        if(url.searchParams.get('includeSpamTrash')!=='true')throw Error('fixture_missing_full_scope');
+        return Response.json(url.searchParams.has('q')?{messages:[]}:fixture.reconciliation.listPages[url.searchParams.has('pageToken')?1:0]);
+      }
+      const item=metadata.get(url.pathname.split('/').pop());if(!item)throw Error('fixture_unknown_message');
+      if(url.searchParams.get('format')==='minimal')return Response.json(item);
+      if(item.id!==fixture.ids.reconciled||++rawReads!==1)throw Error('fixture_redownloaded_retained_original');
+      const raw=Buffer.from('Subject: '+item.id+'\\r\\nContent-Type: text/plain\\r\\n\\r\\nsynthetic-original-'+item.id);
+      return Response.json({...item,sizeEstimate:raw.length,raw:raw.toString('base64url')});
+    };
+    await import(${JSON.stringify(pathToFileURL(entryPoint).href)});
+  `);
+  const recovered = new MailWorkerClient({ entryPoint: recoveryBootstrap, executable: node, initialize: () => initialization, maxRestarts: 0 });
+  clients.push(recovered); await recovered.start();
+  await recovered.request({ operation: "mail.sync.start", accountId: "a", settings: syntheticSettings });
+  const recoveryDeadline = Date.now() + 10000;
+  while (true) {
+    const result = await recovered.request({ operation: "mail.status", accountId: "a" });
+    if (!("sync" in result)) throw new Error("wrong_result");
+    expect(result.sync.state).not.toBe("attention");
+    if (result.sync.state === "complete" && result.sync.removed === 2) { expect(result.sync).toMatchObject({ enumerated: 3, downloaded: 3, projected: 3, retained: 2, failed: 0, pending: 0 }); break; }
+    if (Date.now() >= recoveryDeadline) throw new Error(`fixture_reconciliation_timeout:${JSON.stringify(result.sync)}`);
+    await new Promise(resolve => setTimeout(resolve, 25));
+  }
+  await recovered.stop();
+  const afterRecovery = JSON.parse(execFileSync(node.path, ["--input-type=module", "--eval", inspection], { input: JSON.stringify(initialization), stdio: ["pipe", "pipe", "pipe"], timeout: 10000 }).toString());
+  expect(afterRecovery.map((row: { memberships: string[] }) => row.memberships)).toEqual([["Label_new", "STARRED"], [], [], ["INBOX"]]);
+  expect(afterRecovery[1].original).toBe(stored[1].original);
+  expect(afterRecovery[2].original).toBe(stored[2].original);
+}, 20000);
+
 for (const executable of connectionRuntimes) {
   test(`connection lifecycle and retained archive lock in actual ${executable.kind} (no provider HTTP)`, async () => {
     const initialization = await setup(); seed(initialization, false, true);
