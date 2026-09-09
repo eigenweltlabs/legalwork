@@ -43,6 +43,7 @@ export type WorkerCommand =
   | { operation: "mail.parts.list"; accountId: string; locator: ProviderMessageLocator; page: MailPartPageInput }
   | { operation: "mail.content.read"; accountId: string; locator: ProviderMessageLocator; request: MailContentReadInput }
   | { operation: "mail.status"; accountId: string }
+  | { operation: "mail.sync.provider"; accountId: string }
   | { operation: "mail.sync.start"; accountId: string; settings: MailOAuthSettings }
   | { operation: "mail.sync.stop"; accountId: string }
   | { operation: "credentials.update"; credentials: WorkerCredentials };
@@ -60,6 +61,7 @@ export type WorkerResult =
   | { state: "idle" | "syncing"; syncSupported: boolean }
   | { encrypted: true; schemaVersion: number; syncSupported: boolean }
   | { sync: MailSyncView }
+  | { syncProvider: "gmail" | "graph" }
   | { accounts: WorkerAccount[]; nextCursor: string | null }
   | { folders: WorkerFolder[]; nextCursor: string | null }
   | { messages: { accountId: string; items: MailMessageView[]; nextCursor: string | null } }
@@ -156,6 +158,7 @@ function result(value: unknown): value is WorkerResult {
     || (exact(value, ["disconnected"]) && value.disconnected === true)
     || (exact(value, ["state", "syncSupported"]) && (value.state === "idle" || value.state === "syncing") && typeof value.syncSupported === "boolean")
     || (exact(value, ["encrypted", "schemaVersion", "syncSupported"]) && value.encrypted === true && typeof value.syncSupported === "boolean" && Number.isSafeInteger(value.schemaVersion) && typeof value.schemaVersion === "number" && value.schemaVersion > 0)
+    || (exact(value, ["syncProvider"]) && (value.syncProvider === "gmail" || value.syncProvider === "graph"))
     || (exact(value, ["sync"]) && mailSyncViewSchema.safeParse(value.sync).success)
     || (exact(value, ["messages"]) && mailMessageListSchema.safeParse(value.messages).success)
     || (exact(value, ["message"]) && mailMessageViewSchema.safeParse(value.message).success)
@@ -203,6 +206,7 @@ export function resultMatchesCommand(command: WorkerCommand, value: WorkerResult
       && value.content.referenceId === command.request.referenceId && value.content.offset === (command.request.offset ?? 0)
       && Buffer.from(value.content.data, "base64").byteLength <= (command.request.limit ?? 24576)
       && value.content.offset + Buffer.from(value.content.data, "base64").byteLength === (value.content.nextOffset ?? value.content.totalBytes);
+    case "mail.sync.provider": return "syncProvider" in value;
     case "mail.status": return "sync" in value && value.sync.accountId === command.accountId;
     case "credentials.update": return "updated" in value;
     case "mail.sync.start":
@@ -218,7 +222,7 @@ export function validWorkerCommand(value: unknown): value is WorkerCommand {
   if (value.operation === "mail.search") return exact(value,["operation","input"]) && mailSearchInputSchema.safeParse(value.input).success;
   if (value.operation === "mail.search.rebuild") return exact(value,["operation","input"]) && mailSearchRebuildInputSchema.safeParse(value.input).success;
   if (value.operation === "mail.sync.start") return exact(value, ["operation", "accountId", "settings"])
-    && id(value.accountId) && settings(value.settings) && value.settings.provider === "gmail";
+    && id(value.accountId) && settings(value.settings);
   if (value.operation === "mail.connection.begin") return Object.keys(value).every(key => ["operation", "settings", "reconnectAccountId"].includes(key))
     && settings(value.settings) && (!Object.hasOwn(value, "reconnectAccountId") || id(value.reconnectAccountId));
   if (value.operation === "mail.connection.poll" || value.operation === "mail.connection.cancel") return exact(value, ["operation", "connectionId"]) && uuid(value.connectionId);
@@ -239,7 +243,7 @@ export function validWorkerCommand(value: unknown): value is WorkerCommand {
       && (value.after === undefined || id(value.after))
       && (value.limit === undefined || (typeof value.limit === "number" && Number.isInteger(value.limit) && value.limit >= 1 && value.limit <= MAX_WORKER_PAGE_SIZE));
   }
-  return typeof value.operation === "string" && ["mail.status", "mail.sync.stop"].includes(value.operation)
+  return typeof value.operation === "string" && ["mail.status", "mail.sync.stop", "mail.sync.provider"].includes(value.operation)
     && exact(value, ["operation", "accountId"]) && id(value.accountId);
 }
 /** Worker-side parser; bound bytes before accumulating/decoding input as well. */

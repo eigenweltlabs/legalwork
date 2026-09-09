@@ -187,7 +187,15 @@ test("pause and lock revoke a sync start still waiting for trusted settings", as
     const loading = new Promise<void>(resolve => { loaded = resolve; });
     let supply: (settings: MailOAuthSettings) => void = () => {};
     const delayed = new Promise<MailOAuthSettings>(resolve => { supply = resolve; });
-    const { service } = await setup(undefined, async () => { loaded(); return delayed; });
+    const key = randomBytes(32);
+    const { service, databasePath } = await setup(async () => new Uint8Array(key), async () => { loaded(); return delayed; });
+    execFileSync(nodePath!, ["--input-type=module", "--eval", `
+      import {openEncryptedMailDatabase} from ${JSON.stringify(pathToFileURL(join(directory,"build/mail/storage/database.js")).href)};
+      import {migrateMailSchema} from ${JSON.stringify(pathToFileURL(join(directory,"build/mail/storage/schema.js")).href)};
+      import {MailRepository} from ${JSON.stringify(pathToFileURL(join(directory,"build/mail/storage/repository.js")).href)};
+      const db=await openEncryptedMailDatabase({path:${JSON.stringify(databasePath)},key:Buffer.from(${JSON.stringify(key.toString("base64"))},'base64')});migrateMailSchema(db);
+      new MailRepository(db,'desktop-local').createAccount({id:'missing',provider:'gmail',displayName:'Synthetic'});db.close();
+    `], {timeout:10000});
     await service.unlock();
     const pending = service.startSync("missing").then(() => "started", error => error.message);
     await loading;
@@ -196,7 +204,8 @@ test("pause and lock revoke a sync start still waiting for trusted settings", as
     supply(googleSettings);
     expect(await pending).toBe("mail_locked");
     expect(service.status().state).toBe("ready");
-    expect(await service.listAccounts({})).toEqual({ items: [], nextCursor: null });
+    expect((await service.listAccounts({})).items.map(account => account.id)).toEqual(["missing"]);
+    key.fill(0);
   }
 });
 

@@ -1,6 +1,7 @@
+import { GRAPH_SCHEMA_SQL } from "./graph-state.js";
 import type { MailDatabase } from "./database-interface.js";
 
-export const MAIL_SCHEMA_VERSION = 8;
+export const MAIL_SCHEMA_VERSION = 9;
 
 /** Dedicated mail database only. Every DDL/version write shares one transaction. */
 export function migrateMailSchema(database: MailDatabase): void {
@@ -252,6 +253,7 @@ export function migrateMailSchema(database: MailDatabase): void {
         }
       }
     }
+    if (version < 9) database.exec(GRAPH_SCHEMA_SQL);
     database.run("INSERT INTO mail_schema_version(singleton,version) VALUES(1,?) ON CONFLICT(singleton) DO UPDATE SET version=excluded.version", [MAIL_SCHEMA_VERSION]);
   });
 }
