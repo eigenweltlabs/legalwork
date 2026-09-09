@@ -13,9 +13,10 @@ const hasCode = (error, code) => error !== null && typeof error === "object" && 
  * The caller controls the private app-data directory, never a request parameter.
  * @param {{directory:string, safeStorage: Pick<import("electron").SafeStorage,
  * "isEncryptionAvailable"|"encryptString"|"decryptString"|"getSelectedStorageBackend">,
- * windowsAcl?:(path:string,directory:boolean)=>Promise<void>, platform?:NodeJS.Platform}} options
+ * windowsAcl?:(path:string,directory:boolean)=>Promise<void>, platform?:NodeJS.Platform,
+ * beforeAccess?:()=>Promise<void>}} options
  */
-export function createMailKeyStore({ directory, safeStorage, platform = process.platform, windowsAcl }) {
+export function createMailKeyStore({ directory, safeStorage, platform = process.platform, windowsAcl, beforeAccess }) {
   if (!isAbsolute(directory) || directory.includes("\0")) throw failure("path_invalid");
   const keyPath = join(directory, KEY_FILE);
 
@@ -79,6 +80,7 @@ export function createMailKeyStore({ directory, safeStorage, platform = process.
      * @param {{allowCreate?:boolean}} options
      */
   async function load({ allowCreate = false } = {}) {
+      try { await beforeAccess?.(); } catch { throw failure("backend_unavailable"); }
       requireBackend();
       try { requirePrivate(await lstat(directory), true); }
       catch (error) {
