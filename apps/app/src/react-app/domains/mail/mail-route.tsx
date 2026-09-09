@@ -169,7 +169,7 @@ export function MailRoute() {
           <div className="mail-toolbar-actions">
             <label className="mail-toolbar-search"><Search size={15}/><input aria-label="Search mail" placeholder={savedSearchName ? `Saved: ${savedSearchName}` : 'Search'} disabled={locked} value={searchQuery} onChange={event => { setSearchQuery(event.target.value); setSavedSearchName(''); }}/>{searching && <button aria-label="Clear search" onClick={() => setSearching(false)}><X size={13}/></button>}</label>
             <button className="mail-icon-button" title="Refresh mail" aria-label="Refresh mail" onClick={refresh}><RefreshCw size={16}/></button>
-            <button className="mail-icon-button" title="Mail accounts" aria-label="Mail accounts" disabled={!client || locked} onClick={openSettings}><Settings2 size={17}/></button>
+            <button className="mail-icon-button" title="Mail accounts" aria-label="Mail accounts" onClick={openSettings}><Settings2 size={17}/></button>
           </div>
         </header>
 

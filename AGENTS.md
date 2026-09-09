@@ -49,7 +49,7 @@ If you cannot run tests or capture the video, say so explicitly and explain why,
 - When creating new components, we prefer using shadcn/ui with (Base UI).
 - Assume most end users of LegalWork are non-technical.
 - Treat LegalWork as an operating-system-style app: Mail and other tools are components of the shared shell. Reuse its sidebar, navigation and internal file viewers instead of building isolated app views or opening attachments externally when an internal preview is supported.
-- Mail should use dense message rows, compact icon actions with accessible labels/tooltips, and one inline search field whose results stay in the message list. Keep storage implementation details out of mailbox navigation.
+- Mail should use dense message rows, compact icon actions with accessible labels/tooltips, and one inline search field whose results stay in the message list. Keep storage implementation details out of mailbox navigation. Mail provider setup and account management belong on a page in app Settings.
 
 ### Tech Stack Preferences
 
