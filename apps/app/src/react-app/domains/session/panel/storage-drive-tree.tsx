@@ -2,7 +2,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useInfiniteQuery, useQueryClient } from "@tanstack/react-query";
 import { AlertCircle, ChevronRight, FolderPlus, Loader2, LockKeyhole, RefreshCw, Upload } from "lucide-react";
-import { STORAGE_MAX_FILE_BYTES, type StorageEntry, type StorageRoot } from "@legalwork/types/file-storage";
+import { type StorageEntry, type StorageRoot } from "@legalwork/types/file-storage";
 import type { LegalworkServerClient } from "@/app/lib/legalwork-server";
 import { Button } from "@/components/ui/button";
 import {
@@ -58,12 +58,11 @@ export function StorageDriveTree({ client, workspaceId, roots, refreshKey, onOpe
       if (!live.current) return;
       setBusy(t("storage.upload_progress", { current: index + 1, total: files.length, name: file.name }));
       try {
-        if (file.size > STORAGE_MAX_FILE_BYTES) throw new Error(t("storage.size_limit"));
         await client.writeStorageFile(
           workspaceId,
           target.root.id,
           target.path ? `${target.path}/${file.name}` : file.name,
-          await file.arrayBuffer(),
+          file,
           file.type || "application/octet-stream",
         );
       } catch (cause) {

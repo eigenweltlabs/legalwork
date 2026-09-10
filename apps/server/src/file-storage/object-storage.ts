@@ -1,3 +1,4 @@
+import { pipeline } from "node:stream/promises";
 import {
   GetObjectCommand,
   HeadObjectCommand,
@@ -18,6 +19,9 @@ import { STORAGE_PAGE_SIZE } from "./schema.js";
 import { ApiError } from "../errors.js";
 import {
   collectStream,
+  receiveFile,
+  sourceStream,
+  sourceSize,
   entry,
   missingAsNull,
   objectPrefix,
@@ -55,7 +59,20 @@ export function s3Adapter(input: StorageInput): StorageAdapter {
     IfMatch: value.version,
     IfNoneMatch: value.createOnly ? "*" : undefined,
   });
-  const signal = () => ({ abortSignal: AbortSignal.timeout(60_000) });
+  const signal = () => ({ abortSignal: AbortSignal.timeout(900_000) });
+  const upload = async (path: string, data: Buffer | string, contentType: string, condition: WriteCondition) => {
+    await client.send(
+      new PutObjectCommand({
+        Bucket: config.bucket,
+        Key: key(path),
+        Body: sourceStream(data),
+        ContentLength: await sourceSize(data),
+        ContentType: contentType,
+        ...conditions(condition),
+      }),
+      signal(),
+    );
+  };
   return {
     async searchCapabilities() {
       return { modes: ["path_prefix"], pagination: true };
@@ -126,18 +143,17 @@ export function s3Adapter(input: StorageInput): StorageAdapter {
       const data = await collectStream(result.Body.transformToWebStream());
       return { data, size: data.length, version: result.ETag, contentType: result.ContentType };
     },
-    async write(path, data, contentType, condition) {
-      await client.send(
-        new PutObjectCommand({
-          Bucket: config.bucket,
-          Key: key(path),
-          Body: data,
-          ContentType: contentType,
-          ...conditions(condition),
-        }),
-        signal(),
-      );
+    async download(path, destination) {
+      const result = await client.send(new GetObjectCommand({ Bucket: config.bucket, Key: key(path) }), signal());
+      if (!result.Body || !result.ETag) throw new Error("S3 omitted the file body or version");
+      return {
+        ...(await receiveFile(result.Body.transformToWebStream(), destination)),
+        version: result.ETag,
+        contentType: result.ContentType,
+      };
     },
+    write: upload,
+    upload,
     async mkdir(path) {
       await client.send(
         new PutObjectCommand({ Bucket: config.bucket, Key: key(`${path}/`), Body: Buffer.alloc(0), IfNoneMatch: "*" }),
@@ -155,7 +171,7 @@ export function azureAdapter(input: StorageInput): StorageAdapter {
   const config = input.config;
   const base = config.endpoint ?? `https://${config.accountName}.blob.core.windows.net`;
   const url = `${base.replace(/\/$/, "")}/${encodeURIComponent(config.container)}`;
-  const options = { retryOptions: { maxTries: 2, tryTimeoutInMs: 60_000 } };
+  const options = { retryOptions: { maxTries: 2, tryTimeoutInMs: 900_000 } };
   if (!input.secrets.sasToken && !input.secrets.accountKey)
     throw new ApiError(400, "storage_credentials_required", "Provide an Azure account key or a container SAS token.");
   const client = input.secrets.sasToken
@@ -163,6 +179,12 @@ export function azureAdapter(input: StorageInput): StorageAdapter {
     : new ContainerClient(url, new StorageSharedKeyCredential(config.accountName, input.secrets.accountKey!), options);
   const root = objectPrefix(config.prefix);
   const file = (path: string) => client.getBlockBlobClient(root + path);
+  const upload = async (path: string, data: Buffer | string, contentType: string, condition: WriteCondition) => {
+    await file(path).uploadStream(sourceStream(data), 8 * 1024 * 1024, 2, {
+      blobHTTPHeaders: { blobContentType: contentType },
+      conditions: { ifMatch: condition.version, ifNoneMatch: condition.createOnly ? "*" : undefined },
+    });
+  };
   return {
     async searchCapabilities() {
       return { modes: ["path_prefix"], pagination: true };
@@ -226,12 +248,17 @@ export function azureAdapter(input: StorageInput): StorageAdapter {
       const data = await collectStream(result.readableStreamBody);
       return { data, size: data.length, version: result.etag, contentType: result.contentType };
     },
-    async write(path, data, contentType, condition) {
-      await file(path).uploadData(data, {
-        blobHTTPHeaders: { blobContentType: contentType },
-        conditions: { ifMatch: condition.version, ifNoneMatch: condition.createOnly ? "*" : undefined },
-      });
+    async download(path, destination) {
+      const result = await file(path).download();
+      if (!result.readableStreamBody || !result.etag) throw new Error("Azure omitted the file body or version");
+      return {
+        ...(await receiveFile(result.readableStreamBody, destination)),
+        version: result.etag,
+        contentType: result.contentType,
+      };
     },
+    write: upload,
+    upload,
     async mkdir(path) {
       await file(`${path}/`).uploadData(Buffer.alloc(0), { conditions: { ifNoneMatch: "*" } });
     },
@@ -262,11 +289,21 @@ export function gcsAdapter(input: StorageInput): StorageAdapter {
     credentials,
     apiEndpoint: config.endpoint,
     useAuthWithCustomEndpoint: Boolean(config.endpoint && credentials),
-    retryOptions: { maxRetries: 1, totalTimeout: 60 },
+    retryOptions: { maxRetries: 1, totalTimeout: 900 },
   });
   const bucket = client.bucket(config.bucket);
   const root = objectPrefix(config.prefix);
   const file = (path: string) => bucket.file(root + path);
+  const upload = async (path: string, data: Buffer | string, contentType: string, condition: WriteCondition) => {
+    await pipeline(
+      sourceStream(data),
+      file(path).createWriteStream({
+        resumable: false,
+        contentType,
+        preconditionOpts: { ifGenerationMatch: condition.createOnly ? 0 : condition.version },
+      }),
+    );
+  };
   return {
     async searchCapabilities() {
       return { modes: ["path_prefix", "name"], pagination: true };
@@ -348,13 +385,17 @@ export function gcsAdapter(input: StorageInput): StorageAdapter {
       );
       return { data, size: data.length, version: String(metadata.generation), contentType: metadata.contentType };
     },
-    async write(path, data, contentType, condition) {
-      await file(path).save(data, {
-        resumable: false,
-        contentType,
-        preconditionOpts: { ifGenerationMatch: condition.createOnly ? 0 : condition.version },
-      });
+    async download(path, destination) {
+      const [metadata] = await file(path).getMetadata();
+      if (!metadata.generation) throw new Error("GCS omitted the file generation");
+      const result = await receiveFile(
+        bucket.file(root + path, { generation: metadata.generation }).createReadStream(),
+        destination,
+      );
+      return { ...result, version: String(metadata.generation), contentType: metadata.contentType };
     },
+    write: upload,
+    upload,
     async mkdir(path) {
       await file(`${path}/`).save(Buffer.alloc(0), { resumable: false, preconditionOpts: { ifGenerationMatch: 0 } });
     },

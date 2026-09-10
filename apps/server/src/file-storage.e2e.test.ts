@@ -327,6 +327,47 @@ describe("storage API access and validation", () => {
     await api("DELETE", `/${id}`);
     expect((await api("GET", `/${id}/children`)).status).toBe(404);
   });
+  test("local copies honor manual workspace approval, including read-only connections", async () => {
+    const id = await connect({ ...offlineInput(), readOnly: true });
+    await writeFile(join(temporary, "approval-source.txt"), "kept locally");
+    config.approval.mode = "manual";
+    try {
+      const pending = api("POST", `/${id}/local-copy`, {
+        localPath: "approval-source.txt",
+        targetPath: "approval-destination.txt",
+      });
+      const headers = { "x-legalwork-host-token": config.hostToken, "content-type": "application/json" };
+      let approvalId: string | undefined;
+      for (let attempt = 0; attempt < 30 && !approvalId; attempt++) {
+        const result = z
+          .object({ items: z.array(z.object({ id: z.string() })) })
+          .parse(await (await fetch(`${base}/approvals`, { headers })).json());
+        approvalId = result.items[0]?.id;
+        if (!approvalId) await new Promise((resolve) => setTimeout(resolve, 10));
+      }
+      expect(approvalId).toBeDefined();
+      await fetch(`${base}/approvals/${approvalId}`, {
+        method: "POST",
+        headers,
+        body: JSON.stringify({ reply: "deny" }),
+      });
+      expect((await pending).status).toBe(403);
+      await expect(readFile(join(temporary, "approval-destination.txt"))).rejects.toMatchObject({ code: "ENOENT" });
+      config.approval.mode = "auto";
+      expect(
+        (
+          await api("POST", `/${id}/local-copy`, {
+            localPath: "approval-source.txt",
+            targetPath: "approval-destination.txt",
+          })
+        ).status,
+      ).toBe(201);
+      expect(await readFile(join(temporary, "approval-destination.txt"), "utf8")).toBe("kept locally");
+    } finally {
+      config.approval.mode = "auto";
+      await api("DELETE", `/${id}`);
+    }
+  });
   test("rejects traversal, malformed credentials and oversized uploads before provider access", async () => {
     const id = await connect(offlineInput());
     for (const path of ["../outside", "/absolute", "a/../b", "a\\b", "a//b", "a\nDELE x"]) {
@@ -360,7 +401,7 @@ async function roundTrip(input: StorageInput) {
   const checked = await api("POST", `/test?connectionId=${id}`, { ...input, secrets: {} });
   expect(await checked.text()).toContain('"ok":true');
   expect((await api("POST", `/${id}/folders`, { path: folder })).status).toBe(201);
-  const path = `${folder}/Müller #1?.txt`;
+  const path = `${folder}/Müller #1${input.config.kind === "smb" ? "" : "?"}.txt`;
   const initial = Buffer.from("Initial contract text");
   const uploaded = await api("POST", `/${id}/file`, {
     path,
@@ -462,10 +503,73 @@ async function roundTrip(input: StorageInput) {
       ).json();
       expect(noMatch.entries).toEqual([]);
     }
+  } else if (input.config.kind === "smb") {
+    expect(capabilities.search).toMatchObject({ modes: ["name"], scope: "folder", pagination: true });
+    const { tool } = await LegalWorkStorageTools();
+    const search = async (query: string, cursor?: string) =>
+      JSON.parse(
+        await tool.storage_search.execute(
+          {
+            connection_ids: [id],
+            mode: "name",
+            path: folder,
+            query,
+            ...(cursor ? { cursors: { [id]: cursor } } : {}),
+          },
+          { directory: temporary },
+        ),
+      ).results[0];
+    const first = await search("page-");
+    expect(first.page.scope).toBe("folder");
+    expect(first.page.path).toBe(folder);
+    expect(first.page.entries).toHaveLength(100);
+    const rest = await search("page-", first.page.nextCursor);
+    expect(rest.page.entries).toHaveLength(5);
+    expect((await search("hidden")).page.entries).toEqual([]);
+    expect((await search("MÜLLER")).page.entries.map((item: { path: string }) => item.path)).toEqual([path]);
+    expect((await search("does-not-exist")).page.entries).toEqual([]);
+    expect((await search("*")).code).toBe("invalid_storage_search");
+    expect((await api("GET", `/${id}/search?mode=content&query=contract`)).status).toBe(400);
   } else {
     expect(capabilities.search.modes).toEqual([]);
     expect((await api("GET", `/${id}/search?mode=content&query=contract`)).status).toBe(400);
   }
+  // Real transfers exceed the old inline limit and preserve working copies on conflict.
+  const large = Buffer.alloc(51 * 1024 * 1024, 0x5a);
+  const largePath = `${folder}/large.bin`;
+  const upload = await fetch(
+    `${base}/workspace/storage-test/storage/${id}/content?${new URLSearchParams({ path: largePath })}`,
+    {
+      method: "POST",
+      headers: { authorization: `Bearer ${config.token}`, "content-type": "application/octet-stream" },
+      body: large,
+    },
+  );
+  expect(await upload.text()).toContain('"ok":true');
+  const copy = await (await api("POST", `/${id}/checkout`, { path: largePath })).json();
+  expect(copy.size).toBe(large.length);
+  expect(await readFile(join(temporary, copy.localPath))).toEqual(large);
+  await writeFile(join(temporary, copy.localPath), "local edit");
+  const localName = `${folder}-local.bin`;
+  expect((await api("POST", `/${id}/local-copy`, { localPath: copy.localPath, targetPath: localName })).status).toBe(
+    201,
+  );
+  expect(await readFile(join(temporary, localName), "utf8")).toBe("local edit");
+  expect((await api("POST", `/${id}/local-copy`, { localPath: copy.localPath, targetPath: localName })).status).toBe(
+    409,
+  );
+  expect((await withStorage(input, (adapter) => adapter.download(largePath))).size).toBe(large.length);
+  const publish = { path: largePath, localPath: copy.localPath, version: copy.version, mode: "replace" };
+  expect((await api("POST", `/${id}/from-workspace`, publish)).status).toBe(200);
+  expect((await api("POST", `/${id}/from-workspace`, publish)).status).toBe(409);
+  expect(await readFile(join(temporary, copy.localPath), "utf8")).toBe("local edit");
+  expect((await api("POST", `/${id}/from-workspace`, { ...publish, localPath: process.execPath })).status).toBe(403);
+  expect(
+    (await api("POST", `/${id}/local-copy`, { localPath: copy.localPath, targetPath: "../escape.bin" })).status,
+  ).toBe(400);
+  expect(
+    (await api("POST", `/${id}/local-copy`, { localPath: copy.localPath, targetPath: "viewer.bin" }, "viewer")).status,
+  ).toBe(403);
   await agentRoundTrip(id, folder);
   await api("DELETE", `/${id}`);
 }
@@ -569,6 +673,26 @@ describe.skipIf(process.env.LEGALWORK_STORAGE_INTEGRATION !== "1")("real storage
     await azure.createContainer(bucket);
     await new Storage({ apiEndpoint: "http://127.0.0.1:19444", projectId: "legalwork-test" }).createBucket(bucket);
   });
+  test("SMB 3 / Samba with required encryption and agent filename search", async () => {
+    const input = storageInputSchema.parse({
+      name: "SMB fixture",
+      config: {
+        kind: "smb",
+        host: "127.0.0.1",
+        port: 19345,
+        share: "documents",
+        prefix: "Integration",
+        username: "legalwork",
+        encryption: "required",
+      },
+      secrets: { password: "fixture-password" },
+    });
+    await roundTrip(input);
+    await expect(
+      withStorage({ ...input, secrets: { password: "incorrect" } }, (adapter) => adapter.list("")),
+    ).rejects.toMatchObject({ status: 403 });
+    await expect(withStorage(input, (adapter) => adapter.list("../outside"))).rejects.toMatchObject({ status: 400 });
+  }, 180_000);
   test(
     "S3 / MinIO",
     () =>

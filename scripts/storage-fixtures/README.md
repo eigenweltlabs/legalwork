@@ -23,6 +23,7 @@ and tests.
 
 | Service | Endpoint | Test authentication |
 | --- | --- | --- |
+| SMB / Samba | `127.0.0.1:19345`, share `documents`, prefix `Demo` | `legalwork` / `fixture-password`; require encryption |
 | MinIO (S3) | `http://127.0.0.1:19290` | `legalwork` / `fixture-password`, path-style, `us-east-1` |
 | Azurite | `http://127.0.0.1:19000/legalwork` | Account `legalwork`, key in `compose.yml` |
 | fake-gcs-server | `http://127.0.0.1:19444` | No credentials; project `legalwork-test` |
@@ -39,6 +40,16 @@ and the external URL above. Older emulators have pagination and CRC metadata
 differences. The Compose configuration is provided for convenience; the native
 services were used for the actual integration run.
 
+To run just SMB using Podman instead of Docker:
+
+```sh
+podman build -t legalwork-storage-smb scripts/storage-fixtures/smb
+podman run -d --name legalwork-storage-smb -p 127.0.0.1:19345:445 legalwork-storage-smb
+```
+
+The Samba reference container requires signing and SMB 3 encryption. No OS share
+mount or additional runtime installation is needed by LegalWork itself.
+
 ## Where the demo files live
 
 The macOS verification used native processes on the same Mac as the dev app.
@@ -46,6 +57,7 @@ Their data lives beneath `/tmp/legalwork-storage-fixtures`:
 
 | Demo connection | Backing data in the native setup |
 | --- | --- |
+| Test · SMB (Samba) | `/share/Demo/` inside `legalwork-storage-smb`; use `podman cp` to export files. Data survives stop/start but is lost on container removal. |
 | Test · S3 (MinIO) | `minio/` contains MinIO's object data; browse it through S3 or the MinIO console at `http://127.0.0.1:19291`. |
 | Test · Azure (Azurite) | `azure/` contains Azurite's blob data and metadata. |
 | Test · Google Cloud (emulator) | In the emulator process's memory; lost when that process stops. |
@@ -76,7 +88,7 @@ pnpm --filter legalwork-server exec bun test src/file-storage.e2e.test.ts src/fi
 The tests create unique buckets/containers and folders. They exercise real HTTP
 routes and providers: authentication, workspace isolation, secret redaction,
 path confinement, permissions, upload, read, edits, stale versions, concurrent
-saves, file limits, folder creation, Unicode names, lazy depth-one listing,
+saves, 51 MiB streamed transfers, local-copy saves, folder creation, Unicode names, lazy depth-one listing,
 pagination, SSH fingerprint rejection, and trusted FTPS. Without the environment
 flag, only self-contained API tests run in the normal suite. These include
 controlled HTTP fixtures for weak ETags and oversized-file metadata, plus a
@@ -109,7 +121,7 @@ pnpm --filter legalwork-server exec bun scripts/storage-demo.ts
 ```
 
 Open the settings URL printed by the seed script at `http://localhost:15273`.
-Six connections are seeded: **Test · S3 (MinIO)**, **Test · Azure (Azurite)**,
+Seven connections are seeded: **Test · SMB (Samba)**, **Test · S3 (MinIO)**, **Test · Azure (Azurite)**,
 **Test · Google Cloud (emulator)**, **Test · WebDAV**, **Test · SFTP**, and
 **Test · FTPS**. FTPS is read-only to demonstrate the disabled write controls.
 Local folders are not available as a storage provider.
@@ -120,7 +132,7 @@ sources you searched. Read Deal notes.txt from Test · WebDAV, add a testing not
 and save it back.” Use only the disposable Test connections. The agent should use
 `storage_*` tools, preserve connection IDs, and save with the version it read.
 S3/Azure/GCS expose native path-prefix filtering; GCS also exposes filename
-matching. WsgiDAV, SFTP and FTP fixtures report no native search. WebDAV SEARCH
+matching. SMB exposes native filename search in the selected folder only (try `Matters/Acquisition`, query `agreement`). WsgiDAV, SFTP and FTP fixtures report no native search. WebDAV SEARCH
 is covered by separate HTTP contract tests, not by pretending WsgiDAV supports it.
 
 
@@ -131,11 +143,10 @@ is covered by separate HTTP contract tests, not by pretending WsgiDAV supports i
    that folder's `/children` endpoint.
 3. Select a writable folder, upload files, and create a folder. Drop a file on
    a folder to test drag-and-drop. A duplicate upload must not replace a file.
-4. Open `Deal notes.txt` or `Draft agreement.docx`, edit, and save. Reopen the
-   source file to check the update. Close a dirty editor to test the discard
+4. Open `Deal notes.txt` or `Draft agreement.docx` and edit the working copy. Choose **Save local copy…** to keep it in the workspace and verify the source is unchanged. Choose **Save to [connection]** to publish the edit, then reopen the source to check the update. Close a dirty editor to test the discard
    confirmation. Change the WebDAV fixture file in `files/Demo` before saving a
    draft to test the conflict message and preservation of unsaved text.
-5. Open **Test · FTPS**. Reads work; uploads and edits are unavailable.
+5. Open **Test · FTPS**. Reads and local-copy edits work; uploads and saving to the connection are unavailable.
 
 Stop the terminal processes with Ctrl-C and run
 `docker compose -f scripts/storage-fixtures/compose.yml down` when finished.

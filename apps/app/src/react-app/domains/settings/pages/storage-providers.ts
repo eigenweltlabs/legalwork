@@ -3,8 +3,9 @@ import type { StorageKind, StorageSecretKey } from "@legalwork/types/file-storag
 import { t } from "@/i18n";
 
 export const STORAGE_CHANGED_EVENT = "legalwork:file-storage-changed";
-export const storageKinds: StorageKind[] = ["webdav", "s3", "azure", "gcs", "sftp", "ftp"];
+export const storageKinds: StorageKind[] = ["smb", "webdav", "s3", "azure", "gcs", "sftp", "ftp"];
 export const storageIcons = {
+  smb: Network,
   webdav: Globe,
   s3: Database,
   azure: Cloud,
@@ -13,6 +14,7 @@ export const storageIcons = {
   ftp: Network,
 };
 const providerLabels = {
+  smb: () => t("storage.provider_smb"),
   webdav: () => t("storage.provider_webdav"),
   s3: () => t("storage.provider_s3"),
   azure: () => t("storage.provider_azure"),
@@ -21,6 +23,7 @@ const providerLabels = {
   ftp: () => t("storage.provider_ftp"),
 };
 const providerDescriptions = {
+  smb: () => t("storage.description_smb"),
   webdav: () => t("storage.description_webdav"),
   s3: () => t("storage.description_s3"),
   azure: () => t("storage.description_azure"),
@@ -29,6 +32,7 @@ const providerDescriptions = {
   ftp: () => t("storage.description_ftp"),
 };
 const authDescriptions = {
+  smb: () => t("storage.auth_smb"),
   webdav: () => t("storage.auth_webdav"),
   s3: () => t("storage.auth_s3"),
   azure: () => t("storage.auth_azure"),
@@ -37,6 +41,8 @@ const authDescriptions = {
   ftp: () => t("storage.auth_ftp"),
 };
 const fieldLabels = {
+  share: () => t("storage.field_share"),
+  domain: () => t("storage.field_domain"),
   rootPath: () => t("storage.field_rootPath"),
   endpoint: () => t("storage.field_endpoint"),
   username: () => t("storage.field_username"),
@@ -79,6 +85,15 @@ const field = (
 });
 export function storageFields(kind: StorageKind): ConfigField[] {
   switch (kind) {
+    case "smb":
+      return [
+        field("host", "files.firm.local"),
+        field("share", "RA-MICRO"),
+        field("prefix", "documents", true),
+        field("domain", "FIRM", true),
+        field("username"),
+        field("port", "445", false, "number"),
+      ];
     case "webdav":
       return [
         field("endpoint", "https://files.example.com/remote.php/dav/files/user/", false, "url"),
@@ -130,6 +145,7 @@ export function storageSecretFields(kind: StorageKind): SecretField[] {
     multiline,
   });
   switch (kind) {
+    case "smb":
     case "webdav":
     case "ftp":
       return [secret("password")];
@@ -144,6 +160,7 @@ export function storageSecretFields(kind: StorageKind): SecretField[] {
   }
 }
 export function storageDefaults(kind: StorageKind): Record<string, string> {
+  if (kind === "smb") return { port: "445", encryption: "if-offered" };
   if (kind === "s3") return { region: "eu-central-1" };
   if (kind === "sftp") return { port: "22", rootPath: "/" };
   if (kind === "ftp") return { port: "21", rootPath: "/", security: "tls" };

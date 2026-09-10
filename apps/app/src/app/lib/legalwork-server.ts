@@ -1,4 +1,4 @@
-import type { StorageInput, StorageConnection, StorageRoot, StoragePage, StorageFile } from "@legalwork/types/file-storage";
+import type { StorageInput, StorageWorkingCopy, StorageConnection, StorageRoot, StoragePage, StorageFile } from "@legalwork/types/file-storage";
 import type { Message, Part, Session, Todo } from "@opencode-ai/sdk/v2/client";
 import { desktopFetch } from "./desktop";
 import { isDesktopRuntime } from "./runtime-env";
@@ -1236,6 +1236,20 @@ async function requestJson<T>(
   return json as T;
 }
 
+async function requestStorageUpload(baseUrl: string, path: string, body: Blob | ArrayBuffer, contentType: string, token?: string, hostToken?: string, method = "POST"): Promise<{ ok: true; version: string }> {
+  // Send bytes directly: the Electron text IPC fetch bridge cannot carry binary bodies.
+  const response = await fetchWithTimeout(globalThis.fetch.bind(globalThis), `${baseUrl}${path}`, {
+    method, headers: { ...buildAuthHeaders(token, hostToken), "Content-Type": contentType }, body,
+  }, 900_000);
+  const payload: unknown = await response.json();
+  if (!payload || typeof payload !== "object") throw new Error(t("artifact.save_failed"));
+  if (!response.ok) throw new LegalworkServerError(response.status,
+    "code" in payload && typeof payload.code === "string" ? payload.code : "request_failed",
+    "message" in payload && typeof payload.message === "string" ? payload.message : response.statusText);
+  if (!("version" in payload) || typeof payload.version !== "string") throw new Error(t("artifact.save_failed"));
+  return { ok: true, version: payload.version };
+}
+
 async function requestMultipartRaw(
   baseUrl: string,
   path: string,
@@ -1976,8 +1990,14 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
       requestJson<StoragePage>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/storage/${encodeURIComponent(id)}/children?${new URLSearchParams({ path, ...(cursor ? { cursor } : {}) })}`, { token, hostToken, timeoutMs: 90_000 }),
     readStorageFile: (workspaceId: string, id: string, path: string) =>
       requestJson<StorageFile>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/storage/${encodeURIComponent(id)}/file?${new URLSearchParams({ path })}`, { token, hostToken, timeoutMs: 120_000 }),
-    writeStorageFile: (workspaceId: string, id: string, path: string, data: ArrayBuffer, contentType: string, version?: string) =>
-      requestJson<{ ok: true; version: string }>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/storage/${encodeURIComponent(id)}/file`, { token, hostToken, method: version ? "PUT" : "POST", body: { path, dataBase64: arrayBufferToBase64(data), contentType, version }, timeoutMs: 120_000 }),
+    checkoutStorageFile: (workspaceId: string, id: string, path: string) =>
+      requestJson<StorageWorkingCopy>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/storage/${encodeURIComponent(id)}/checkout`, { token, hostToken, method: "POST", body: { path }, timeoutMs: 900_000 }),
+    saveStorageWorkingCopy: (workspaceId: string, id: string, path: string, localPath: string, version: string, contentType: string) =>
+      requestJson<{ ok: true; version: string }>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/storage/${encodeURIComponent(id)}/from-workspace`, { token, hostToken, method: "POST", body: { path, localPath, version, contentType, mode: "replace" }, timeoutMs: 900_000 }),
+    keepStorageLocalCopy: (workspaceId: string, id: string, localPath: string, targetPath: string) =>
+      requestJson<{ path: string }>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/storage/${encodeURIComponent(id)}/local-copy`, { token, hostToken, method: "POST", body: { localPath, targetPath }, timeoutMs: 900_000 }),
+    writeStorageFile: (workspaceId: string, id: string, path: string, data: Blob | ArrayBuffer, contentType: string, version?: string) =>
+      requestStorageUpload(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/storage/${encodeURIComponent(id)}/content?${new URLSearchParams({ path, ...(version ? { version } : {}) })}`, data, contentType, token, hostToken, version ? "PUT" : "POST"),
     createStorageFolder: (workspaceId: string, id: string, path: string) =>
       requestJson<{ ok: true }>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/storage/${encodeURIComponent(id)}/folders`, { token, hostToken, method: "POST", body: { path }, timeoutMs: 90_000 }),
 

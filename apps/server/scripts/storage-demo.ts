@@ -28,6 +28,19 @@ const existing = z
   .parse(await (await fetch(`${server}/workspace/${workspaceId}/storage`, { headers })).json());
 const configs: StorageInput[] = [
   storageInputSchema.parse({
+    name: "Test · SMB (Samba)",
+    config: {
+      kind: "smb",
+      host: "127.0.0.1",
+      port: 19345,
+      share: "documents",
+      prefix: "Demo",
+      username: "legalwork",
+      encryption: "required",
+    },
+    secrets: { password: "fixture-password" },
+  }),
+  storageInputSchema.parse({
     name: "Test · S3 (MinIO)",
     config: {
       kind: "s3",

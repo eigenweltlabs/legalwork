@@ -2,6 +2,8 @@ import { expect, test } from "bun:test";
 import { mkdtemp, mkdir, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { workingCopy } from "../file-storage/working-copy.js";
+import { ApiError } from "../errors.js";
 import { LegalWorkStorageTools } from "./legalwork-storage-tools.js";
 
 type Call = { url: URL; method: string; body: unknown };
@@ -65,14 +67,24 @@ async function fixture(
           createFolder: false,
           search: { modes: ["name"], pagination: false },
         });
-      if (url.pathname.endsWith("/file") && request.method === "GET")
-        return Response.json({
-          dataBase64: Buffer.from([0, 255, 1, 2]).toString("base64"),
-          contentType: "application/octet-stream",
-          version: "v1",
-          writable: true,
-        });
-      if (url.pathname.endsWith("/file") && request.method === "PUT") return Response.json({ ok: true, version: "v2" });
+      if (url.pathname.endsWith("/checkout")) {
+        try {
+          const copy = await workingCopy(directory, "Contract.docx");
+          await writeFile(copy.path, Buffer.from([0, 255, 1, 2]));
+          return Response.json({
+            localPath: copy.relativePath,
+            size: 4,
+            contentType: "application/octet-stream",
+            version: "v1",
+            writable: true,
+          });
+        } catch (error) {
+          if (error instanceof ApiError)
+            return Response.json({ code: error.code, message: error.message }, { status: error.status });
+          throw error;
+        }
+      }
+      if (url.pathname.endsWith("/from-workspace")) return Response.json({ ok: true, version: "v2" });
       return Response.json({ code: "not_found", message: "Not found." }, { status: 404 });
     },
   });
@@ -161,7 +173,7 @@ test("downloads binary documents to editable workspace copies and requires expli
     const read = JSON.parse(await plugin.tool.storage_read_file.execute(source, { directory }));
     expect(read.local_path).toStartWith(".legalwork/storage-downloads/");
     expect(await readFile(join(directory, read.local_path))).toEqual(Buffer.from([0, 255, 1, 2]));
-    expect(calls.every((call) => call.method === "GET")).toBe(true);
+    expect(calls.every((call) => call.method === "GET" || call.url.pathname.endsWith("/checkout"))).toBe(true);
     await writeFile(join(directory, read.local_path), "edited document bytes");
     const saved = JSON.parse(
       await plugin.tool.storage_write_file.execute(
@@ -172,7 +184,8 @@ test("downloads binary documents to editable workspace copies and requires expli
     expect(saved.result.version).toBe("v2");
     expect(calls.at(-1)?.body).toMatchObject({
       version: "v1",
-      dataBase64: Buffer.from("edited document bytes").toString("base64"),
+      localPath: read.local_path,
+      mode: "replace",
     });
     expect(
       JSON.parse(

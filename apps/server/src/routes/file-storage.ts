@@ -1,12 +1,24 @@
+import { mkdtemp, rm, stat } from "node:fs/promises";
+import { join } from "node:path";
+import { tmpdir } from "node:os";
+import { Readable } from "node:stream";
+import { workingCopy, snapshotWorkspaceFile, keepWorkspaceCopy } from "../file-storage/working-copy.js";
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import { storageInputSchema, storageSearchSchema, STORAGE_MAX_FILE_BYTES } from "../file-storage/schema.js";
 import { recordAudit } from "../audit.js";
 import { ApiError } from "../errors.js";
-import { conflict, ensureFileSize, hashVersion, storagePath, unsupportedSearch } from "../file-storage/common.js";
+import {
+  conflict,
+  ensureFileSize,
+  hashVersion,
+  receiveFile,
+  storagePath,
+  unsupportedSearch,
+} from "../file-storage/common.js";
 import { withStorage } from "../file-storage/service.js";
 import { mergeStorageSecrets, publicConnection, StorageStore } from "../file-storage/store.js";
-import type { ServerConfig, TokenScope, WorkspaceInfo } from "../types.js";
+import type { ApprovalRequest, ServerConfig, TokenScope, WorkspaceInfo } from "../types.js";
 import { addRoute, type RequestContext, type Route } from "./registry.js";
 
 type Options = {
@@ -15,6 +27,7 @@ type Options = {
   jsonResponse: (data: unknown, status?: number) => Response;
   readJsonBodyLimited: (request: Request, maxBytes: number) => Promise<Record<string, unknown>>;
   ensureWritable: (config: ServerConfig) => void;
+  requireApproval: (ctx: RequestContext, input: Omit<ApprovalRequest, "id" | "createdAt" | "actor">) => Promise<void>;
   requireClientScope: (ctx: RequestContext, required: TokenScope) => void;
   resolveWorkspace: (config: ServerConfig, id: string) => Promise<WorkspaceInfo>;
 };
@@ -36,6 +49,7 @@ export function registerStorageRoutes({
   jsonResponse,
   readJsonBodyLimited,
   ensureWritable,
+  requireApproval,
   requireClientScope,
   resolveWorkspace,
 }: Options) {
@@ -170,6 +184,136 @@ export function registerStorageRoutes({
         !result.version.startsWith("W/"),
     });
   });
+  addRoute(routes, "POST", `${base}/:storageId/checkout`, "client", async (ctx) => {
+    const connection = await selected(ctx);
+    const parsed = z.object({ path: z.string() }).safeParse(await readJsonBodyLimited(ctx.request, 8 * 1024));
+    if (!parsed.success) throw new ApiError(400, "invalid_storage_path", "A file path is required.");
+    const path = storagePath(parsed.data.path, false);
+    const current = await resolveWorkspace(config, ctx.params.id);
+    const copy = await workingCopy(current.path, path);
+    try {
+      const file = await withStorage(connection, (adapter) => adapter.download(path, copy.path));
+      return jsonResponse({
+        localPath: copy.relativePath,
+        version: file.version,
+        size: file.size,
+        contentType: file.contentType ?? "application/octet-stream",
+        updatedAt: (await stat(copy.path)).mtimeMs,
+        writable:
+          !connection.readOnly &&
+          canWrite(ctx) &&
+          !file.version.startsWith("sha256:") &&
+          !file.version.startsWith("W/"),
+        localWritable: canWrite(ctx),
+      });
+    } catch (error) {
+      await copy.remove();
+      throw error;
+    }
+  });
+  addRoute(routes, "POST", `${base}/:storageId/local-copy`, "client", async (ctx) => {
+    await selected(ctx);
+    requireClientScope(ctx, "collaborator");
+    ensureWritable(config);
+    const parsed = z
+      .object({ localPath: z.string(), targetPath: z.string() })
+      .safeParse(await readJsonBodyLimited(ctx.request, 16 * 1024));
+    if (!parsed.success) throw new ApiError(400, "invalid_storage_path", "Choose a workspace file and destination.");
+    const current = await resolveWorkspace(config, ctx.params.id);
+    const destination = storagePath(parsed.data.targetPath, false);
+    await requireApproval(ctx, {
+      workspaceId: current.id,
+      action: "workspace.file.write",
+      summary: `Save local copy ${destination}`,
+      paths: [join(current.path, destination)],
+    });
+    const saved = await keepWorkspaceCopy(current.path, parsed.data.localPath, destination);
+    await recordAudit(current.path, {
+      id: randomUUID(),
+      timestamp: Date.now(),
+      workspaceId: current.id,
+      actor: ctx.actor!,
+      action: "workspace.file.write",
+      target: destination,
+      summary: `Saved local copy ${destination}`,
+    });
+    return jsonResponse(saved, 201);
+  });
+  // Raw uploads and workspace saves share version checks, serialization, and read-back verification.
+  for (const endpoint of ["content", "from-workspace"]) {
+    for (const method of endpoint === "content" ? ["POST", "PUT"] : ["POST"]) {
+      addRoute(routes, method, `${base}/:storageId/${endpoint}`, "client", async (ctx) => {
+        const connection = await selected(ctx, true);
+        const raw =
+          endpoint === "content"
+            ? {
+                ...Object.fromEntries(ctx.url.searchParams),
+                mode: method === "POST" ? "create" : "replace",
+                contentType: ctx.request.headers.get("content-type") ?? undefined,
+              }
+            : await readJsonBodyLimited(ctx.request, 32 * 1024);
+        const parsed = z
+          .object({
+            path: z.string(),
+            localPath: z.string().optional(),
+            mode: z.enum(["create", "replace"]),
+            version: writeSchema.shape.version,
+            contentType: writeSchema.shape.contentType,
+          })
+          .safeParse(raw);
+        if (!parsed.success)
+          throw new ApiError(400, "invalid_storage_file", "Provide a file path and version when replacing a file.");
+        const input = parsed.data;
+        const path = storagePath(input.path, false);
+        if (input.mode === "replace" && !input.version)
+          throw new ApiError(400, "storage_version_required", "Reload this file before saving changes.");
+        const current = await resolveWorkspace(config, ctx.params.id);
+        const staged = await (async () => {
+          if (endpoint === "from-workspace") {
+            if (!input.localPath) throw new ApiError(400, "invalid_storage_file", "Choose a workspace file.");
+            return snapshotWorkspaceFile(current.path, input.localPath);
+          }
+          const directory = await mkdtemp(join(tmpdir(), "legalwork-upload-"));
+          const target = join(directory, "content");
+          try {
+            const body = ctx.request.body;
+            const received = await receiveFile(body ?? Readable.from([]), target);
+            return { path: target, ...received, remove: () => rm(directory, { recursive: true, force: true }) };
+          } catch (error) {
+            await rm(directory, { recursive: true, force: true });
+            throw error;
+          }
+        })();
+        try {
+          const result = await serializeWrite(`${connection.id}/${path}`, () =>
+            withStorage(connection, async (adapter) => {
+              await adapter.upload(
+                path,
+                staged.path,
+                input.contentType,
+                input.mode === "create" ? { createOnly: true } : { version: input.version },
+              );
+              const saved = await adapter.download(path);
+              if (saved.sha256 !== staged.sha256) conflict();
+              return { version: saved.version };
+            }),
+          );
+          await recordAudit(current.path, {
+            id: randomUUID(),
+            timestamp: Date.now(),
+            workspaceId: connection.workspaceId,
+            actor: ctx.actor!,
+            action: input.mode === "create" ? "storage.upload" : "storage.write",
+            target: connection.id,
+            summary: `${input.mode === "create" ? "Uploaded" : "Saved"} ${path}`,
+          });
+          return jsonResponse({ ok: true, ...result }, input.mode === "create" ? 201 : 200);
+        } finally {
+          await staged.remove();
+        }
+      });
+    }
+  }
   for (const method of ["POST", "PUT"]) {
     addRoute(routes, method, `${base}/:storageId/file`, "client", async (ctx) => {
       const connection = await selected(ctx, true);
