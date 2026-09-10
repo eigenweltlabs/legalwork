@@ -51,7 +51,8 @@ these direct storage connections are browsed lazily and are not automatically
 indexed or copied into a workspace. Writes affect the source immediately.
 
 Every edit includes the version read when opening the file. S3/Azure use ETags,
-GCS uses generations, and WebDAV requires a strong ETag for editing. A WebDAV
+GCS uses generations, and WebDAV requires a strong ETag for editing and also
+checks a content hash to catch implementations that reuse ETags for rapid edits. A WebDAV
 server without one remains browsable and supports new-file uploads.
 SFTP and FTP saves compare content hashes before replacement. SFTP/FTP
 stage replacements before renaming, and this server serializes mutations of
@@ -92,6 +93,8 @@ authentication and role model.
 | `POST /test?connectionId=…` | Owner: test submitted settings, retaining existing secrets when omitted |
 | `DELETE /:storageId` | Owner: disconnect |
 | `GET /roots` | Enabled root metadata, no provider access |
+| `GET /:storageId/capabilities` | Read/write access and supported native search modes |
+| `GET /:storageId/search?mode=…&query=…&path=…&cursor=…` | Scoped native search with provider pagination or truncation |
 | `GET /:storageId/children?path=…&cursor=…` | One folder page, optional continuation cursor |
 | `GET /:storageId/file?path=…` | Base64 content, content type, version and writable flag |
 | `POST /:storageId/file` | New upload: `{path, dataBase64, contentType}` |
@@ -103,6 +106,41 @@ listing only. Absolute paths, traversal, empty segments, backslashes and control
 characters are rejected. Upload/edit operations are audited using the existing
 workspace audit system.
 
+## Agent access
+
+The bundled agent uses one tool set across all providers and multiple connections:
+
+| Tool | Purpose |
+| --- | --- |
+| `storage_list_connections` | Discover enabled connections in the task's workspace; returns `connection_id`, name, type and write access without scanning files |
+| `storage_get_capabilities` | Discover a connection's supported operations and native search modes |
+| `storage_list_folder` | Read one folder page; pass its cursor to continue |
+| `storage_search` | Search selected `connection_ids`; each source returns its own results, cursor or error |
+| `storage_read_file` | Read bounded UTF-8 text or download a document into the workspace for existing document tools |
+| `storage_write_file` | Create from text/a workspace file, or replace using the version returned by a read |
+| `storage_create_folder` | Create a folder within a writable connection |
+
+Every file result retains its connection ID and root-relative path. Identical
+filenames in different connections remain distinct. Binary files are downloaded
+to `.legalwork/storage-downloads/`; editing this copy does not update the source
+until `storage_write_file` succeeds. Read-only connections and viewer permissions
+apply to agent writes just as they do to the sidebar. Provider credentials are
+never included in tool results.
+
+| Provider | Native search exposed |
+| --- | --- |
+| S3-compatible, Azure Blob | `path_prefix`: case-sensitive start of a relative object path, with continuation pages |
+| Google Cloud Storage | `path_prefix`, plus literal filename `name` matching via `matchGlob`, with continuation pages |
+| WebDAV | `name` and/or `content` when discovered through RFC 5323; optional operators are probed if schema discovery is unavailable |
+| SFTP, FTP/FTPS | No standard search; browse folders |
+
+Search respects the configured connection root and optional folder scope. It
+does not build a LegalMemory index, extract matter/entity metadata, perform RAG,
+or silently crawl folders. WebDAV content search follows the connected system's
+semantics. WebDAV has no standard continuation cursor: partial or capped results
+are marked `truncated`, and the agent must narrow the query. An unavailable or
+unsupported source is an explicit per-connection error, never an empty success.
+
 ## References and verification
 
 The adapters follow the providers' reference APIs and use their maintained SDKs:
@@ -111,6 +149,7 @@ The adapters follow the providers' reference APIs and use their maintained SDKs:
 - [Azure Blob hierarchical listing](https://learn.microsoft.com/en-us/azure/storage/blobs/storage-blobs-list-javascript)
 - [GCS objects.list](https://docs.cloud.google.com/storage/docs/json_api/v1/objects/list)
 - [WebDAV RFC 4918](https://www.rfc-editor.org/rfc/rfc4918.html) and [webdav-client](https://github.com/perry-mitchell/webdav-client)
+- [WebDAV SEARCH RFC 5323](https://www.rfc-editor.org/rfc/rfc5323.html)
 - [ssh2-sftp-client](https://github.com/theophilusx/ssh2-sftp-client)
 - [basic-ftp](https://github.com/patrickjuchli/basic-ftp)
 
@@ -123,20 +162,27 @@ fake-gcs-server emulators, not live cloud accounts. This verifies protocol behav
 against those implementations; live-cloud credentials, IAM policies, and deployment
 behavior still require testing with the target account. The normal API test suite
 also uses controlled HTTP fixtures for edge cases such as weak ETags and oversized
-files. These fixtures are separate from the dev app connections.
+files. WebDAV SEARCH discovery, native query construction and partial results
+use HTTP contract fixtures; WsgiDAV does not implement SEARCH. Agent tests cover
+multiple sources, per-source failures/cursors and workspace path confinement.
+The live reference tests also run agent create/read/edit/download/save-back flows
+over all seven protocol variants. These test fixtures are separate from the dev
+app connections.
 
 Validation on Bun 1.4.2 (September 9–10, 2026):
 
 | Check | Result |
 | --- | --- |
-| `pnpm --filter legalwork-server test` | 580 passed; 16 optional tests skipped |
+| `pnpm --filter legalwork-server test` | 591 passed; 16 optional tests skipped |
 | `pnpm --filter @legalwork/app test` | 410 passed |
 | `pnpm --filter @legalwork/desktop test` | 101 passed; 1 skipped |
-| Reference fixtures with `LEGALWORK_STORAGE_INTEGRATION=1` | 15 passed, covering six provider types and both FTP/FTPS |
+| Reference fixtures with `LEGALWORK_STORAGE_INTEGRATION=1` | 16 passed, covering six provider types and both FTP/FTPS |
+| WebDAV SEARCH and agent contract tests | 10 passed; multiple sources, partial failures, cursors, scoped queries and document save-back |
 | Server/app typechecks, app `test:i18n`, and `node scripts/i18n-audit.mjs --ci` | Passed |
 | `pnpm test:e2e` | Passed with an isolated workspace and OpenCode sidecar |
 | Server `build`, `build:bin`, and `pnpm build:ui` | Passed; existing UI chunk-size warnings remain |
 | Built Node modules with TypeScript stripping disabled | Imported successfully; all six adapters listed/read fixture files |
+| Built storage plugin + running OpenCode engine | All seven tools registered with argument schemas; packaged Node plugin queried six fixture connections and searched multiple sources |
 | Compiled server HTTP smoke test | All six roots listed/read successfully |
 
 Browser verification covered adding/testing/editing settings while retaining

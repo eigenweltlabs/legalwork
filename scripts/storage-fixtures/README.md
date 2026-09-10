@@ -70,7 +70,7 @@ connection never deletes its source files.
 ```sh
 LEGALWORK_STORAGE_INTEGRATION=1 \
 NODE_EXTRA_CA_CERTS=/tmp/legalwork-storage-fixtures/ftps-cert.pem \
-pnpm --filter legalwork-server exec bun test src/file-storage.e2e.test.ts
+pnpm --filter legalwork-server exec bun test src/file-storage.e2e.test.ts src/file-storage/webdav-search.test.ts src/opencode-plugins/legalwork-storage-tools.test.ts
 ```
 
 The tests create unique buckets/containers and folders. They exercise real HTTP
@@ -113,6 +113,16 @@ Six connections are seeded: **Test · S3 (MinIO)**, **Test · Azure (Azurite)**,
 **Test · Google Cloud (emulator)**, **Test · WebDAV**, **Test · SFTP**, and
 **Test · FTPS**. FTPS is read-only to demonstrate the disabled write controls.
 Local folders are not available as a storage provider.
+
+To test the agent, ask it: “List my connected storage and its search capabilities.
+Search the cloud connections for paths starting with Matters/ and tell me which
+sources you searched. Read Deal notes.txt from Test · WebDAV, add a testing note,
+and save it back.” Use only the disposable Test connections. The agent should use
+`storage_*` tools, preserve connection IDs, and save with the version it read.
+S3/Azure/GCS expose native path-prefix filtering; GCS also exposes filename
+matching. WsgiDAV, SFTP and FTP fixtures report no native search. WebDAV SEARCH
+is covered by separate HTTP contract tests, not by pretending WsgiDAV supports it.
+
 
 1. Edit **Test · WebDAV**, test the connection, and save it. Edit it again to verify saved credentials stay
    hidden and are retained when unchanged.

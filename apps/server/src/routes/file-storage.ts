@@ -1,9 +1,9 @@
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
-import { storageInputSchema, STORAGE_MAX_FILE_BYTES } from "../file-storage/schema.js";
+import { storageInputSchema, storageSearchSchema, STORAGE_MAX_FILE_BYTES } from "../file-storage/schema.js";
 import { recordAudit } from "../audit.js";
 import { ApiError } from "../errors.js";
-import { conflict, ensureFileSize, hashVersion, storagePath } from "../file-storage/common.js";
+import { conflict, ensureFileSize, hashVersion, storagePath, unsupportedSearch } from "../file-storage/common.js";
 import { withStorage } from "../file-storage/service.js";
 import { mergeStorageSecrets, publicConnection, StorageStore } from "../file-storage/store.js";
 import type { ServerConfig, TokenScope, WorkspaceInfo } from "../types.js";
@@ -124,6 +124,29 @@ export function registerStorageRoutes({
     ensureWritable(config);
     await store.remove(await workspace(ctx), ctx.params.storageId);
     return jsonResponse({ ok: true });
+  });
+  addRoute(routes, "GET", `${base}/:storageId/capabilities`, "client", async (ctx) => {
+    const connection = await selected(ctx);
+    const writable = !connection.readOnly && canWrite(ctx);
+    const search = await withStorage(
+      connection,
+      (adapter) => adapter.searchCapabilities?.() ?? Promise.resolve({ modes: [], pagination: false }),
+    );
+    return jsonResponse({ read: true, write: writable, createFolder: writable, search });
+  });
+  addRoute(routes, "GET", `${base}/:storageId/search`, "client", async (ctx) => {
+    const connection = await selected(ctx);
+    const parsed = storageSearchSchema.safeParse(Object.fromEntries(ctx.url.searchParams));
+    if (!parsed.success)
+      throw new ApiError(
+        400,
+        "invalid_storage_search",
+        "Provide a supported search mode, query, and relative folder path.",
+      );
+    storagePath(parsed.data.path);
+    return jsonResponse(
+      await withStorage(connection, (adapter) => (adapter.search ? adapter.search(parsed.data) : unsupportedSearch())),
+    );
   });
   addRoute(routes, "GET", `${base}/:storageId/children`, "client", async (ctx) => {
     const connection = await selected(ctx);

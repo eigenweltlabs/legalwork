@@ -9,6 +9,7 @@ import {
   ContainerClient,
   StorageSharedKeyCredential,
   type ContainerListBlobHierarchySegmentResponse,
+  type ContainerListBlobFlatSegmentResponse,
 } from "@azure/storage-blob";
 import { Storage } from "@google-cloud/storage";
 import { z } from "zod";
@@ -20,6 +21,8 @@ import {
   entry,
   missingAsNull,
   objectPrefix,
+  searchPrefix,
+  unsupportedSearch,
   type StorageAdapter,
   type WriteCondition,
 } from "./common.js";
@@ -54,6 +57,30 @@ export function s3Adapter(input: StorageInput): StorageAdapter {
   });
   const signal = () => ({ abortSignal: AbortSignal.timeout(60_000) });
   return {
+    async searchCapabilities() {
+      return { modes: ["path_prefix"], pagination: true };
+    },
+    async search(input) {
+      if (input.mode !== "path_prefix") unsupportedSearch();
+      const prefix = key(searchPrefix(input));
+      const page = await client.send(
+        new ListObjectsV2Command({
+          Bucket: config.bucket,
+          Prefix: prefix,
+          MaxKeys: STORAGE_PAGE_SIZE,
+          ContinuationToken: input.cursor,
+        }),
+        signal(),
+      );
+      return {
+        entries: (page.Contents ?? []).flatMap((item) =>
+          item.Key?.startsWith(prefix) && !item.Key.endsWith("/")
+            ? [entry(item.Key.slice(root.length), "file", item.Size ?? null, item.LastModified?.toISOString() ?? null)]
+            : [],
+        ),
+        nextCursor: page.NextContinuationToken,
+      };
+    },
     async list(path, cursor) {
       const prefix = key(path ? `${path}/` : "");
       const page = await client.send(
@@ -137,6 +164,30 @@ export function azureAdapter(input: StorageInput): StorageAdapter {
   const root = objectPrefix(config.prefix);
   const file = (path: string) => client.getBlockBlobClient(root + path);
   return {
+    async searchCapabilities() {
+      return { modes: ["path_prefix"], pagination: true };
+    },
+    async search(input) {
+      if (input.mode !== "path_prefix") unsupportedSearch();
+      const prefix = root + searchPrefix(input);
+      const pages = client
+        .listBlobsFlat({ prefix })
+        .byPage({ maxPageSize: STORAGE_PAGE_SIZE, continuationToken: input.cursor });
+      const page: ContainerListBlobFlatSegmentResponse | undefined = (await pages.next()).value;
+      return {
+        entries: (page?.segment.blobItems ?? [])
+          .filter((item) => item.name.startsWith(prefix) && !item.name.endsWith("/"))
+          .map((item) =>
+            entry(
+              item.name.slice(root.length),
+              "file",
+              item.properties.contentLength ?? null,
+              item.properties.lastModified?.toISOString() ?? null,
+            ),
+          ),
+        nextCursor: page?.continuationToken || undefined,
+      };
+    },
     async list(path, cursor) {
       const prefix = root + (path ? `${path}/` : "");
       const pages = client
@@ -217,6 +268,40 @@ export function gcsAdapter(input: StorageInput): StorageAdapter {
   const root = objectPrefix(config.prefix);
   const file = (path: string) => bucket.file(root + path);
   return {
+    async searchCapabilities() {
+      return { modes: ["path_prefix", "name"], pagination: true };
+    },
+    async search(input) {
+      if (input.mode !== "path_prefix" && input.mode !== "name") unsupportedSearch();
+      const scope = root + (input.path ? `${input.path}/` : "");
+      const prefix = input.mode === "path_prefix" ? root + searchPrefix(input) : scope;
+      const literal = (text: string) => text.replace(/[?*\\[\]{}]/g, "\\$&");
+      const [files, nextQuery] = await bucket.getFiles({
+        prefix,
+        ...(input.mode === "name" ? { matchGlob: `${literal(scope)}**/*${literal(input.query)}*` } : {}),
+        maxResults: STORAGE_PAGE_SIZE,
+        pageToken: input.cursor,
+        autoPaginate: false,
+      });
+      return {
+        entries: files
+          .filter(
+            (item) =>
+              item.name.startsWith(prefix) &&
+              !item.name.endsWith("/") &&
+              (input.mode !== "name" || item.name.split("/").at(-1)?.includes(input.query)),
+          )
+          .map((item) =>
+            entry(
+              item.name.slice(root.length),
+              "file",
+              item.metadata.size == null ? null : Number(item.metadata.size),
+              item.metadata.updated ?? null,
+            ),
+          ),
+        nextCursor: nextQuery?.pageToken,
+      };
+    },
     async list(path, cursor) {
       const prefix = root + (path ? `${path}/` : "");
       const [files, nextQuery, raw] = await bucket.getFiles({

@@ -1,3 +1,4 @@
+import { webdavSearch } from "./webdav-search.js";
 import { posix } from "node:path";
 import { randomUUID } from "node:crypto";
 import { Readable } from "node:stream";
@@ -40,7 +41,29 @@ export function webdavAdapter(input: StorageInput): StorageAdapter {
       if (info.type !== "file") throw new ApiError(400, "storage_not_a_file", "Choose a file.");
       return { size: info.size, version: info.etag || "", contentType: info.mime };
     });
+  const read = async (path: string) => {
+    const info = await fileStat(path);
+    if (!info) throw new ApiError(404, "storage_not_found", "File not found.");
+    ensureFileSize(info.size);
+    const data = await collectStream(
+      client.createReadStream(remote(path), {
+        ...options,
+        headers: info.version && !info.version.startsWith("W/") ? { "If-Match": quoteEtag(info.version) } : {},
+      }),
+    );
+    return {
+      ...info,
+      data,
+      size: data.length,
+      version: !info.version
+        ? `sha256:${hashVersion(data)}`
+        : info.version.startsWith("W/")
+          ? info.version
+          : `davhash:${hashVersion(data)}:${Buffer.from(info.version).toString("base64url")}`,
+    };
+  };
   return {
+    ...webdavSearch(client, input.config.endpoint),
     async list(path, cursor) {
       const result = await client.getDirectoryContents(remote(path), { ...options, deep: false });
       const entries = result;
@@ -57,18 +80,7 @@ export function webdavAdapter(input: StorageInput): StorageAdapter {
       );
     },
     stat: fileStat,
-    async read(path) {
-      const info = await fileStat(path);
-      if (!info) throw new ApiError(404, "storage_not_found", "File not found.");
-      ensureFileSize(info.size);
-      const data = await collectStream(
-        client.createReadStream(remote(path), {
-          ...options,
-          headers: info.version && !info.version.startsWith("W/") ? { "If-Match": quoteEtag(info.version) } : {},
-        }),
-      );
-      return { ...info, data, size: data.length, version: info.version || `sha256:${hashVersion(data)}` };
-    },
+    read,
     async write(path, data, contentType, condition) {
       if (condition.version?.startsWith("sha256:") || condition.version?.startsWith("W/")) {
         throw new ApiError(
@@ -77,12 +89,19 @@ export function webdavAdapter(input: StorageInput): StorageAdapter {
           "This storage does not support safe updates to existing files. Upload a new file instead.",
         );
       }
+      let etag = condition.version;
+      if (etag?.startsWith("davhash:")) {
+        // Some implementations derive ETags from coarse timestamps and file size.
+        // Check the bytes too, then retain the provider's atomic If-Match guard.
+        if ((await read(path)).version !== etag) conflict();
+        etag = Buffer.from(etag.slice(etag.lastIndexOf(":") + 1), "base64url").toString("utf8");
+      }
       const result = await client.putFileContents(remote(path), data, {
         ...options,
         overwrite: !condition.createOnly,
         headers: {
           "Content-Type": contentType,
-          ...(condition.version ? { "If-Match": quoteEtag(condition.version) } : {}),
+          ...(etag ? { "If-Match": quoteEtag(etag) } : {}),
           ...(condition.createOnly ? { "If-None-Match": "*" } : {}),
         },
       });
@@ -201,11 +220,7 @@ export async function ftpAdapter(input: StorageInput): Promise<StorageAdapter> {
   // Bun 1.3.9 can silently truncate FTPS data streams. Verified with 2,000
   // repeated listings on 1.4.2; fail explicitly on older bundled runtimes.
   if (config.security !== "none" && typeof Bun !== "undefined" && Bun.semver.order(Bun.version, "1.4.2") < 0) {
-    throw new ApiError(
-      503,
-      "storage_runtime_upgrade_required",
-      "Update LegalWork to use encrypted FTP connections.",
-    );
+    throw new ApiError(503, "storage_runtime_upgrade_required", "Update LegalWork to use encrypted FTP connections.");
   }
   const client = new FtpClient(30_000);
   try {
