@@ -2,6 +2,7 @@
 // from a workspace dependency. UI and server still share one schema definition.
 export {
   storageInputSchema,
+  storageSearchSchema,
   storageSecretKeys,
   STORAGE_MAX_FILE_BYTES,
   STORAGE_PAGE_SIZE,

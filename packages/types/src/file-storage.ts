@@ -47,7 +47,10 @@ const configSchema = z.discriminatedUnion("kind", [
     rootPath: z.string().default("/"),
     hostFingerprint: z
       .string()
-      .regex(/^(?:SHA256:[A-Za-z0-9+/]{43}=?|[a-fA-F0-9]{64})$/, "Enter the SHA256 connection fingerprint provided by your IT team."),
+      .regex(
+        /^(?:SHA256:[A-Za-z0-9+/]{43}=?|[a-fA-F0-9]{64})$/,
+        "Enter the SHA256 connection fingerprint provided by your IT team.",
+      ),
   }),
   z.object({
     kind: z.literal("ftp"),
@@ -98,3 +101,21 @@ export type StoragePage = { entries: StorageEntry[]; nextCursor?: string };
 export type StorageFile = { dataBase64: string; contentType: string; version: string; writable: boolean };
 export const STORAGE_MAX_FILE_BYTES = 50 * 1024 * 1024;
 export const STORAGE_PAGE_SIZE = 100;
+
+/** Provider-native search only; these connections are not a LegalMemory index. */
+export const storageSearchModeSchema = z.enum(["path_prefix", "name", "content"]);
+export const storageSearchSchema = z.object({
+  mode: storageSearchModeSchema,
+  query: z.string().min(1).max(512),
+  path: z.string().default(""),
+  cursor: z.string().min(1).max(16_384).optional(),
+});
+export type StorageSearchMode = z.infer<typeof storageSearchModeSchema>;
+export type StorageSearch = z.infer<typeof storageSearchSchema>;
+export type StorageSearchPage = StoragePage & { truncated?: boolean };
+export type StorageCapabilities = {
+  read: boolean;
+  write: boolean;
+  createFolder: boolean;
+  search: { modes: StorageSearchMode[]; pagination: boolean };
+};

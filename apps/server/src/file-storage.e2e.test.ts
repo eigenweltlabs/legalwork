@@ -1,5 +1,6 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { mkdtemp, mkdir, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { LegalWorkStorageTools } from "./opencode-plugins/legalwork-storage-tools.js";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { z } from "zod";
@@ -93,6 +94,8 @@ beforeAll(async () => {
   };
   server = await startServer(config);
   base = `http://127.0.0.1:${server.port}`;
+  process.env.LEGALWORK_SERVER_URL = base;
+  process.env.LEGALWORK_SERVER_TOKEN = config.token;
   const issued = await fetch(`${base}/tokens`, {
     method: "POST",
     headers: { "x-legalwork-host-token": config.hostToken, "content-type": "application/json" },
@@ -187,6 +190,52 @@ describe("storage API access and validation", () => {
       expect(
         (await api("PUT", `/${id}/file`, { path: "note.txt", dataBase64: "eA==", version: file.version })).status,
       ).toBe(409);
+    } finally {
+      if (id) await api("DELETE", `/${id}`);
+      await dav.stop(true);
+    }
+  });
+  test("rejects stale WebDAV edits even when the provider reuses a strong ETag", async () => {
+    let content = "draft one";
+    let writes = 0;
+    const dav = Bun.serve({
+      hostname: "127.0.0.1",
+      port: 0,
+      async fetch(request) {
+        if (request.method === "PROPFIND")
+          return new Response(
+            `<d:multistatus xmlns:d="DAV:"><d:response><d:href>/note.txt</d:href><d:propstat><d:prop><d:resourcetype/><d:getcontentlength>${content.length}</d:getcontentlength><d:getetag>"fixed"</d:getetag></d:prop><d:status>HTTP/1.1 200 OK</d:status></d:propstat></d:response></d:multistatus>`,
+            { status: 207 },
+          );
+        expect(request.headers.get("if-match")).toBe('"fixed"');
+        if (request.method === "PUT") {
+          content = await request.text();
+          writes++;
+          return new Response(null, { status: 204 });
+        }
+        return new Response(content, { headers: { etag: '"fixed"' } });
+      },
+    });
+    let id: string | undefined;
+    try {
+      id = await connect(
+        storageInputSchema.parse({
+          name: "Coarse ETag fixture",
+          config: { kind: "webdav", endpoint: `http://127.0.0.1:${dav.port}` },
+        }),
+      );
+      const original = fileSchema.parse(await (await api("GET", `/${id}/file?path=note.txt`)).json());
+      const body = {
+        path: "note.txt",
+        dataBase64: Buffer.from("draft two").toString("base64"),
+        version: original.version,
+      };
+      expect((await api("PUT", `/${id}/file`, body)).status).toBe(200);
+      expect(
+        (await api("PUT", `/${id}/file`, { ...body, dataBase64: Buffer.from("old draft").toString("base64") })).status,
+      ).toBe(409);
+      expect(writes).toBe(1);
+      expect(content).toBe("draft two");
     } finally {
       if (id) await api("DELETE", `/${id}`);
       await dav.stop(true);
@@ -375,7 +424,129 @@ async function roundTrip(input: StorageInput) {
     }),
   ).toBe(107);
   expect(listing.nested.entries.map((item) => item.name)).toEqual(["hidden.txt"]);
+  const capabilities = await (await api("GET", `/${id}/capabilities`)).json();
+  expect(capabilities.write).toBe(true);
+  if (["s3", "azure", "gcs"].includes(input.config.kind)) {
+    expect(capabilities.search.modes).toContain("path_prefix");
+    const searchQuery = new URLSearchParams({ mode: "path_prefix", path: folder, query: "nested/" });
+    const found = await (await api("GET", `/${id}/search?${searchQuery}`)).json();
+    expect(found.entries.map((item: { path: string }) => item.path)).toEqual([`${folder}/nested/hidden.txt`]);
+    expect(
+      (await api("GET", `/${id}/search?${new URLSearchParams({ mode: "path_prefix", query: "../escape" })}`)).status,
+    ).toBe(400);
+    let cursor: string | undefined;
+    const paths: string[] = [];
+    do {
+      const page = await (
+        await api(
+          "GET",
+          `/${id}/search?${new URLSearchParams({ mode: "path_prefix", query: `${folder}/`, ...(cursor ? { cursor } : {}) })}`,
+        )
+      ).json();
+      expect(page.entries.length).toBeLessThanOrEqual(100);
+      paths.push(...page.entries.map((item: { path: string }) => item.path));
+      cursor = page.nextCursor;
+    } while (cursor);
+    expect(paths).toContain(`${folder}/nested/hidden.txt`);
+    if (input.config.kind === "gcs") {
+      const names = await (
+        await api("GET", `/${id}/search?${new URLSearchParams({ mode: "name", path: folder, query: "hidden" })}`)
+      ).json();
+      expect(names.entries.map((item: { path: string }) => item.path)).toEqual([`${folder}/nested/hidden.txt`]);
+      const literal = await (
+        await api("GET", `/${id}/search?${new URLSearchParams({ mode: "name", path: folder, query: "#1?" })}`)
+      ).json();
+      expect(literal.entries.map((item: { path: string }) => item.path)).toEqual([path]);
+      const noMatch = await (
+        await api("GET", `/${id}/search?${new URLSearchParams({ mode: "name", path: folder, query: "no-such-file" })}`)
+      ).json();
+      expect(noMatch.entries).toEqual([]);
+    }
+  } else {
+    expect(capabilities.search.modes).toEqual([]);
+    expect((await api("GET", `/${id}/search?mode=content&query=contract`)).status).toBe(400);
+  }
+  await agentRoundTrip(id, folder);
   await api("DELETE", `/${id}`);
+}
+
+async function agentRoundTrip(id: string, folder: string) {
+  const { tool } = await LegalWorkStorageTools();
+  const context = { directory: temporary };
+  const source = { connection_id: id, path: `${folder}/agent.txt` };
+  const roots = JSON.parse(await tool.storage_list_connections.execute({}, context)).connections;
+  expect(roots).toContainEqual(expect.objectContaining({ connection_id: id }));
+  const made = JSON.parse(
+    await tool.storage_write_file.execute({ ...source, mode: "create", content: "Agent draft" }, context),
+  );
+  expect(made.result.ok).toBe(true);
+  const read = JSON.parse(await tool.storage_read_file.execute({ ...source, max_chars: 5 }, context));
+  expect(read.text).toBe("Agent");
+  expect(read.next_offset).toBe(5);
+  const rest = JSON.parse(await tool.storage_read_file.execute({ ...source, offset: read.next_offset }, context));
+  expect(rest.text).toBe(" draft");
+  const saved = JSON.parse(
+    await tool.storage_write_file.execute(
+      { ...source, mode: "replace", content: "Agent saved", version: read.version },
+      context,
+    ),
+  );
+  expect(saved.result.ok).toBe(true);
+  expect(
+    JSON.parse(
+      await tool.storage_write_file.execute(
+        { ...source, mode: "replace", content: "Stale", version: read.version },
+        context,
+      ),
+    ).code,
+  ).toBe("storage_conflict");
+  expect(
+    JSON.parse(
+      await tool.storage_write_file.execute({ ...source, mode: "replace", content: "Missing version" }, context),
+    ).code,
+  ).toBe("storage_version_required");
+  const downloaded = JSON.parse(await tool.storage_read_file.execute({ ...source, format: "download" }, context));
+  expect(await readFile(join(temporary, downloaded.local_path), "utf8")).toBe("Agent saved");
+  await writeFile(join(temporary, downloaded.local_path), "Edited local document");
+  expect(
+    JSON.parse(
+      await tool.storage_write_file.execute(
+        { ...source, mode: "replace", local_path: downloaded.local_path, version: downloaded.version },
+        context,
+      ),
+    ).result.ok,
+  ).toBe(true);
+  expect(JSON.parse(await tool.storage_read_file.execute(source, context)).text).toBe("Edited local document");
+  expect(
+    JSON.parse(await tool.storage_create_folder.execute({ connection_id: id, path: `${folder}/agent-folder` }, context))
+      .result.ok,
+  ).toBe(true);
+  expect(
+    JSON.parse(await tool.storage_list_folder.execute({ connection_id: id, path: `${folder}/agent-folder` }, context))
+      .page.entries,
+  ).toEqual([]);
+  const outside = JSON.parse(
+    await tool.storage_write_file.execute({ ...source, mode: "create", local_path: process.execPath }, context),
+  );
+  expect(outside.code).toBe("storage_local_path_outside_workspace");
+  const connection = await new StorageStore(config).get("storage-test", id);
+  await api("PUT", `/${id}`, { ...connection, readOnly: true });
+  expect(
+    JSON.parse(await tool.storage_get_capabilities.execute({ connection_id: id }, context)).capabilities.write,
+  ).toBe(false);
+  expect(
+    JSON.parse(await tool.storage_write_file.execute({ ...source, mode: "create", content: "Read only" }, context))
+      .code,
+  ).toBe("storage_read_only");
+  await api("PUT", `/${id}`, { ...connection, readOnly: false });
+  process.env.LEGALWORK_SERVER_TOKEN = viewerToken;
+  expect(
+    JSON.parse(await tool.storage_get_capabilities.execute({ connection_id: id }, context)).capabilities.write,
+  ).toBe(false);
+  expect(
+    JSON.parse(await tool.storage_write_file.execute({ ...source, mode: "create", content: "Viewer" }, context)).ok,
+  ).toBe(false);
+  process.env.LEGALWORK_SERVER_TOKEN = config.token;
 }
 
 describe.skipIf(process.env.LEGALWORK_STORAGE_INTEGRATION !== "1")("real storage reference services", () => {

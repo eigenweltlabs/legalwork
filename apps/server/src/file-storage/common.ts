@@ -1,6 +1,12 @@
 import { createHash } from "node:crypto";
 import { Readable, Writable } from "node:stream";
-import type { StorageEntry, StoragePage } from "@legalwork/types/file-storage";
+import type {
+  StorageEntry,
+  StoragePage,
+  StorageSearch,
+  StorageSearchPage,
+  StorageCapabilities,
+} from "@legalwork/types/file-storage";
 import { STORAGE_MAX_FILE_BYTES, STORAGE_PAGE_SIZE } from "./schema.js";
 import { ApiError } from "../errors.js";
 
@@ -9,6 +15,8 @@ export type FileData = FileInfo & { data: Buffer };
 export type WriteCondition = { version?: string; createOnly?: boolean };
 export interface StorageAdapter {
   list(path: string, cursor?: string): Promise<StoragePage>;
+  searchCapabilities?(): Promise<StorageCapabilities["search"]>;
+  search?(input: StorageSearch): Promise<StorageSearchPage>;
   stat(path: string): Promise<FileInfo | null>;
   read(path: string): Promise<FileData>;
   write(path: string, data: Buffer, contentType: string, condition: WriteCondition): Promise<void>;
@@ -150,4 +158,19 @@ export async function missingAsNull<T>(fn: () => Promise<T>): Promise<T | null> 
     if (providerError(error).status === 404) return null;
     throw error;
   }
+}
+
+export function unsupportedSearch(): never {
+  throw new ApiError(
+    400,
+    "storage_search_unsupported",
+    "This connection does not support that search mode. Check its capabilities or browse folders instead.",
+  );
+}
+
+/** Prefix queries may end in /, but cannot escape the selected folder/root. */
+export function searchPrefix(input: StorageSearch): string {
+  const query = input.query.replace(/\/$/, "");
+  storagePath(query, false);
+  return (input.path ? `${input.path}/` : "") + input.query;
 }
