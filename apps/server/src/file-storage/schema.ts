@@ -3,6 +3,7 @@
 export {
   storageInputSchema,
   storageSearchSchema,
+  storageFilenameSearchSchema,
   storageSecretKeys,
   STORAGE_MAX_FILE_BYTES,
   STORAGE_PAGE_SIZE,

@@ -5,7 +5,8 @@ import { Readable } from "node:stream";
 import { workingCopy, snapshotWorkspaceFile, keepWorkspaceCopy } from "../file-storage/working-copy.js";
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
-import { storageInputSchema, storageSearchSchema, STORAGE_MAX_FILE_BYTES } from "../file-storage/schema.js";
+import { storageInputSchema, storageSearchSchema, storageFilenameSearchSchema, STORAGE_MAX_FILE_BYTES } from "../file-storage/schema.js";
+import { searchFilenames } from "../file-storage/filename-search.js";
 import { recordAudit } from "../audit.js";
 import { ApiError } from "../errors.js";
 import {
@@ -168,6 +169,15 @@ export function registerStorageRoutes({
     const cursor = ctx.url.searchParams.get("cursor") ?? undefined;
     if (cursor && cursor.length > 16_384) throw new ApiError(400, "invalid_storage_cursor", "Invalid folder page.");
     return jsonResponse(await withStorage(connection, (adapter) => adapter.list(path, cursor)));
+  });
+  addRoute(routes, "POST", `${base}/:storageId/filename-search`, "client", async (ctx) => {
+    const connection = await selected(ctx);
+    const parsed = storageFilenameSearchSchema.safeParse(await readJsonBodyLimited(ctx.request, 128 * 1024));
+    if (!parsed.success) throw new ApiError(400, "invalid_storage_search", "Enter a filename to search for.");
+    storagePath(parsed.data.path);
+    return jsonResponse(await withStorage(connection, (adapter) =>
+      searchFilenames(adapter, parsed.data, `${connection.id}:${connection.updatedAt}`, ctx.request.signal),
+    ));
   });
   addRoute(routes, "GET", `${base}/:storageId/file`, "client", async (ctx) => {
     const connection = await selected(ctx);

@@ -14,7 +14,7 @@ import {
 } from "@azure/storage-blob";
 import { Storage } from "@google-cloud/storage";
 import { z } from "zod";
-import type { StorageInput } from "@legalwork/types/file-storage";
+import type { StorageInput, StoragePage } from "@legalwork/types/file-storage";
 import { STORAGE_PAGE_SIZE } from "./schema.js";
 import { ApiError } from "../errors.js";
 import {
@@ -73,30 +73,40 @@ export function s3Adapter(input: StorageInput): StorageAdapter {
       signal(),
     );
   };
+  const listFiles = async (
+    prefix: string,
+    cursor?: string,
+    pageSize = STORAGE_PAGE_SIZE,
+    abort?: AbortSignal,
+  ): Promise<StoragePage> => {
+    const page = await client.send(
+      new ListObjectsV2Command({
+        Bucket: config.bucket,
+        Prefix: prefix,
+        MaxKeys: pageSize,
+        ContinuationToken: cursor,
+      }),
+      {
+        abortSignal: AbortSignal.any([AbortSignal.timeout(90_000), ...(abort ? [abort] : [])]),
+      },
+    );
+    return {
+      entries: (page.Contents ?? []).flatMap((item) =>
+        item.Key?.startsWith(prefix) && !item.Key.endsWith("/")
+          ? [entry(item.Key.slice(root.length), "file", item.Size ?? null, item.LastModified?.toISOString() ?? null)]
+          : [],
+      ),
+      nextCursor: page.NextContinuationToken,
+    };
+  };
   return {
     async searchCapabilities() {
       return { modes: ["path_prefix"], pagination: true };
     },
+    listFiles: (path, cursor, abort) => listFiles(root + (path ? `${path}/` : ""), cursor, 1000, abort),
     async search(input) {
       if (input.mode !== "path_prefix") unsupportedSearch();
-      const prefix = key(searchPrefix(input));
-      const page = await client.send(
-        new ListObjectsV2Command({
-          Bucket: config.bucket,
-          Prefix: prefix,
-          MaxKeys: STORAGE_PAGE_SIZE,
-          ContinuationToken: input.cursor,
-        }),
-        signal(),
-      );
-      return {
-        entries: (page.Contents ?? []).flatMap((item) =>
-          item.Key?.startsWith(prefix) && !item.Key.endsWith("/")
-            ? [entry(item.Key.slice(root.length), "file", item.Size ?? null, item.LastModified?.toISOString() ?? null)]
-            : [],
-        ),
-        nextCursor: page.NextContinuationToken,
-      };
+      return listFiles(root + searchPrefix(input), input.cursor);
     },
     async list(path, cursor) {
       const prefix = key(path ? `${path}/` : "");
@@ -185,30 +195,38 @@ export function azureAdapter(input: StorageInput): StorageAdapter {
       conditions: { ifMatch: condition.version, ifNoneMatch: condition.createOnly ? "*" : undefined },
     });
   };
+  const listFiles = async (
+    prefix: string,
+    cursor?: string,
+    pageSize = STORAGE_PAGE_SIZE,
+    abort?: AbortSignal,
+  ): Promise<StoragePage> => {
+    const pages = client
+      .listBlobsFlat({ prefix, abortSignal: abort })
+      .byPage({ maxPageSize: pageSize, continuationToken: cursor });
+    const page: ContainerListBlobFlatSegmentResponse | undefined = (await pages.next()).value;
+    return {
+      entries: (page?.segment.blobItems ?? [])
+        .filter((item) => item.name.startsWith(prefix) && !item.name.endsWith("/"))
+        .map((item) =>
+          entry(
+            item.name.slice(root.length),
+            "file",
+            item.properties.contentLength ?? null,
+            item.properties.lastModified?.toISOString() ?? null,
+          ),
+        ),
+      nextCursor: page?.continuationToken || undefined,
+    };
+  };
   return {
     async searchCapabilities() {
       return { modes: ["path_prefix"], pagination: true };
     },
+    listFiles: (path, cursor, abort) => listFiles(root + (path ? `${path}/` : ""), cursor, 1000, abort),
     async search(input) {
       if (input.mode !== "path_prefix") unsupportedSearch();
-      const prefix = root + searchPrefix(input);
-      const pages = client
-        .listBlobsFlat({ prefix })
-        .byPage({ maxPageSize: STORAGE_PAGE_SIZE, continuationToken: input.cursor });
-      const page: ContainerListBlobFlatSegmentResponse | undefined = (await pages.next()).value;
-      return {
-        entries: (page?.segment.blobItems ?? [])
-          .filter((item) => item.name.startsWith(prefix) && !item.name.endsWith("/"))
-          .map((item) =>
-            entry(
-              item.name.slice(root.length),
-              "file",
-              item.properties.contentLength ?? null,
-              item.properties.lastModified?.toISOString() ?? null,
-            ),
-          ),
-        nextCursor: page?.continuationToken || undefined,
-      };
+      return listFiles(root + searchPrefix(input), input.cursor);
     },
     async list(path, cursor) {
       const prefix = root + (path ? `${path}/` : "");
@@ -305,6 +323,28 @@ export function gcsAdapter(input: StorageInput): StorageAdapter {
     );
   };
   return {
+    async listFiles(path, cursor) {
+      const prefix = root + (path ? `${path}/` : "");
+      const [files, nextQuery] = await bucket.getFiles({
+        prefix,
+        maxResults: 1000,
+        pageToken: cursor,
+        autoPaginate: false,
+      });
+      return {
+        entries: files
+          .filter((item) => item.name.startsWith(prefix) && !item.name.endsWith("/"))
+          .map((item) =>
+            entry(
+              item.name.slice(root.length),
+              "file",
+              item.metadata.size == null ? null : Number(item.metadata.size),
+              item.metadata.updated ?? null,
+            ),
+          ),
+        nextCursor: nextQuery?.pageToken,
+      };
+    },
     async searchCapabilities() {
       return { modes: ["path_prefix", "name"], pagination: true };
     },

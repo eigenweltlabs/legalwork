@@ -112,6 +112,7 @@ afterAll(async () => {
 
 describe("storage API access and validation", () => {
   test("requires authentication and owner access for managing connections", async () => {
+    expect((await api("POST", "/missing/filename-search", { query: "file" }, "none")).status).toBe(401);
     expect((await api("GET", "/roots", undefined, "none")).status).toBe(401);
     expect((await api("POST", "", offlineInput(), "collaborator")).status).toBe(401);
     expect((await api("GET", "", undefined, "viewer")).status).toBe(401);
@@ -323,6 +324,7 @@ describe("storage API access and validation", () => {
     expect(rootSchema.parse(await (await api("GET", "/roots")).json()).roots.some((root) => root.id === id)).toBe(
       false,
     );
+    expect((await api("POST", `/${id}/filename-search`, { query: "file" })).status).toBe(409);
     expect((await api("GET", `/${id}/children`)).status).toBe(409);
     await api("DELETE", `/${id}`);
     expect((await api("GET", `/${id}/children`)).status).toBe(404);
@@ -371,6 +373,7 @@ describe("storage API access and validation", () => {
   test("rejects traversal, malformed credentials and oversized uploads before provider access", async () => {
     const id = await connect(offlineInput());
     for (const path of ["../outside", "/absolute", "a/../b", "a\\b", "a//b", "a\nDELE x"]) {
+      expect((await api("POST", `/${id}/filename-search`, { query: "file", path })).status).toBe(400);
       expect(() => storagePath(path)).toThrow();
       expect((await api("GET", `/${id}/children?${new URLSearchParams({ path })}`)).status).toBe(400);
     }
@@ -465,6 +468,26 @@ async function roundTrip(input: StorageInput) {
     }),
   ).toBe(107);
   expect(listing.nested.entries.map((item) => item.name)).toEqual(["hidden.txt"]);
+  // Filename lookup must reach unopened descendants, even on prefix-only S3.
+  const filenameResults = await api("POST", `/${id}/filename-search`, { query: "IDDEN", path: folder }, "viewer");
+  expect(filenameResults.status).toBe(200);
+  const filenamePage = await filenameResults.json();
+  expect(filenamePage.entries.map((item: { path: string }) => item.path)).toEqual([`${folder}/nested/hidden.txt`]);
+  let filenameCursor = filenamePage.nextCursor;
+  let checkedFiles = filenamePage.scanned;
+  while (filenameCursor) {
+    const next = await api("POST", `/${id}/filename-search`, { query: "IDDEN", path: folder, cursor: filenameCursor }, "viewer");
+    expect(next.status).toBe(200);
+    const page = await next.json();
+    expect(page.entries).toEqual([]);
+    checkedFiles += page.scanned;
+    filenameCursor = page.nextCursor;
+  }
+  expect(checkedFiles).toBe(input.config.kind === "gcs" ? 107 : 2);
+  const { tool: filenameTools } = await LegalWorkStorageTools();
+  const filenameToolResults = JSON.parse(await filenameTools.storage_search_filenames.execute({ connection_ids: [id, "missing-connection"], query: "IDDEN", path: folder }, { directory: temporary }));
+  expect(filenameToolResults.results[0].page.entries).toEqual(filenamePage.entries);
+  expect(filenameToolResults.results[1].ok).toBe(false);
   const capabilities = await (await api("GET", `/${id}/capabilities`)).json();
   expect(capabilities.write).toBe(true);
   if (["s3", "azure", "gcs"].includes(input.config.kind)) {
