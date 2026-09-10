@@ -1,4 +1,4 @@
-import type { StorageInput, StorageWorkingCopy, StorageConnection, StorageRoot, StoragePage, StorageFile } from "@legalwork/types/file-storage";
+import type { StorageInput, StorageWorkingCopy, StorageConnection, StorageRoot, StoragePage, StorageFilenameSearch, StorageFilenameSearchPage, StorageFile } from "@legalwork/types/file-storage";
 import type { Message, Part, Session, Todo } from "@opencode-ai/sdk/v2/client";
 import { desktopFetch } from "./desktop";
 import { isDesktopRuntime } from "./runtime-env";
@@ -1179,7 +1179,7 @@ async function fetchWithTimeout(
 
   const controller = typeof AbortController !== "undefined" ? new AbortController() : null;
   const signal = controller?.signal;
-  const initWithSignal = signal && !init.signal ? { ...init, signal } : init;
+  const initWithSignal = signal ? { ...init, signal: init.signal ? AbortSignal.any([signal, init.signal]) : signal } : init;
 
   let timeoutId: ReturnType<typeof setTimeout> | null = null;
   const timeoutPromise = new Promise<never>((_, reject) => {
@@ -1197,6 +1197,7 @@ async function fetchWithTimeout(
     return await Promise.race([fetchImpl(url, initWithSignal), timeoutPromise]);
   } catch (error) {
     const name = (error && typeof error === "object" && "name" in error ? (error as any).name : "") as string;
+    if (init.signal?.aborted) throw error;
     if (name === "AbortError") {
       throw new Error(t("app.request_timed_out"));
     }
@@ -1209,10 +1210,11 @@ async function fetchWithTimeout(
 async function requestJson<T>(
   baseUrl: string,
   path: string,
-  options: { method?: string; token?: string; hostToken?: string; body?: unknown; timeoutMs?: number } = {},
+  options: { method?: string; token?: string; hostToken?: string; body?: unknown; timeoutMs?: number; signal?: AbortSignal } = {},
 ): Promise<T> {
   const url = `${baseUrl}${path}`;
-  const fetchImpl = resolveFetch(url);
+  // The desktop text bridge cannot cancel an in-flight search request.
+  const fetchImpl = options.signal ? globalThis.fetch.bind(globalThis) : resolveFetch(url);
   const response = await fetchWithTimeout(
     fetchImpl,
     url,
@@ -1220,6 +1222,7 @@ async function requestJson<T>(
       method: options.method ?? "GET",
       headers: buildHeaders(options.token, options.hostToken),
       body: options.body ? JSON.stringify(options.body) : undefined,
+      signal: options.signal,
     },
     options.timeoutMs ?? DEFAULT_LEGALWORK_SERVER_TIMEOUT_MS,
   );
@@ -1988,6 +1991,8 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
       requestJson<{ roots: StorageRoot[] }>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/storage/roots`, { token, hostToken }),
     storageChildren: (workspaceId: string, id: string, path: string, cursor?: string) =>
       requestJson<StoragePage>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/storage/${encodeURIComponent(id)}/children?${new URLSearchParams({ path, ...(cursor ? { cursor } : {}) })}`, { token, hostToken, timeoutMs: 90_000 }),
+    storageFilenameSearch: (workspaceId: string, id: string, input: StorageFilenameSearch, signal?: AbortSignal) =>
+      requestJson<StorageFilenameSearchPage>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/storage/${encodeURIComponent(id)}/filename-search`, { token, hostToken, method: "POST", body: input, signal, timeoutMs: 90_000 }),
     readStorageFile: (workspaceId: string, id: string, path: string) =>
       requestJson<StorageFile>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/storage/${encodeURIComponent(id)}/file?${new URLSearchParams({ path })}`, { token, hostToken, timeoutMs: 120_000 }),
     checkoutStorageFile: (workspaceId: string, id: string, path: string) =>

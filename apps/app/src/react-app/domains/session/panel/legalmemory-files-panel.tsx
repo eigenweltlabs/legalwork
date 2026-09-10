@@ -1,5 +1,6 @@
 /** @jsxImportSource react */
 import { StorageDriveTree } from "./storage-drive-tree";
+import { StorageDriveSearch } from "./storage-drive-search";
 import type { StorageEntry, StorageRoot } from "@legalwork/types/file-storage";
 import { STORAGE_CHANGED_EVENT } from "../../settings/pages/storage-providers";
 import { MemoryDriveIcon } from "./memory-drive-icon";
@@ -132,7 +133,7 @@ export function LegalMemoryFilesPanel({
       if (!client || !workspaceId) throw new Error(t("legalmemory.workspace_not_connected"));
       return client.legalMemoryTreeSearch(workspaceId, { query: searchQuery, limit: 100 });
     },
-    enabled: Boolean(client && workspaceId && searchQuery),
+    enabled: Boolean(client && workspaceId && searchQuery && rootsQuery.data?.roots.length),
     staleTime: 15_000,
     refetchOnWindowFocus: false,
   });
@@ -295,7 +296,7 @@ export function LegalMemoryFilesPanel({
     void storageQueryClient.invalidateQueries({ queryKey: ["storage-children", workspaceId] });
     void storageRoots.refetch();
     void rootsQuery.refetch();
-    if (searchQuery) void search.refetch();
+    if (searchQuery && rootsQuery.data?.roots.length) void search.refetch();
   }, [rootsQuery, search, searchQuery, storageRoots, storageQueryClient, workspaceId]);
 
   const roots = rootsQuery.data?.roots ?? [];
@@ -324,10 +325,11 @@ export function LegalMemoryFilesPanel({
           </Tooltip>
         </PanelHeader>
 
-        {!notConfigured ? <div className="shrink-0 border-b border-border/50 bg-muted/20 p-3">
+        {!notConfigured || hasStorage ? <div className="shrink-0 border-b border-border/50 bg-muted/20 p-3">
           <div className="relative">
             <Search className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
             <input
+              maxLength={512}
               value={query}
               onChange={(event) => setQuery(event.currentTarget.value)}
               placeholder={t("legalmemory.search_placeholder")}
@@ -349,7 +351,10 @@ export function LegalMemoryFilesPanel({
 
         {client && workspaceId && hasStorage ? (
           <div className={cn("min-h-0 overflow-y-auto", rootsQuery.data?.roots.length ? "max-h-[60%] shrink-0 border-b border-border/50" : "flex-1")}>
+            {searchQuery ? <StorageDriveSearch key={`${workspaceId}:${searchQuery}:${storageRevision}`} client={client} workspaceId={workspaceId} roots={storageRoots.data!.roots} query={searchQuery} refreshKey={storageRevision} onOpenFile={onOpenStorageFile} /> : null}
+            <div hidden={Boolean(searchQuery)}>
             <StorageDriveTree key={workspaceId} client={client} workspaceId={workspaceId} roots={storageRoots.data!.roots} refreshKey={storageRevision} onOpenFile={onOpenStorageFile} />
+            </div>
           </div>
         ) : null}
         {storageRoots.isError ? <div role="alert" className="px-4 py-2 text-xs text-destructive">{storageRoots.error.message}<Button variant="ghost" size="sm" onClick={() => void storageRoots.refetch()}>{t("storage.retry")}</Button></div> : null}
@@ -374,10 +379,11 @@ export function LegalMemoryFilesPanel({
           <PanelEmptyState icon={<AlertCircle />} title={t("legalmemory.unable_to_open")} description={rootsQuery.error instanceof Error ? rootsQuery.error.message : t("legalmemory.load_failed")}>
             <Button variant="outline" size="sm" onClick={() => void rootsQuery.refetch()}>{t("legalmemory.try_again")}</Button>
           </PanelEmptyState>
-        ) : roots.length === 0 && !searchQuery && hasStorage ? null : roots.length === 0 && !searchQuery ? (
+        ) : roots.length === 0 && hasStorage ? null : roots.length === 0 && !searchQuery ? (
           <PanelEmptyState icon={<FolderIcon open />} title={t("legalmemory.empty_title")} description={t("legalmemory.empty_body")} />
         ) : (
           <div ref={scrollRef} className="min-h-0 flex-1 overflow-auto px-2 py-2">
+            {searchQuery && hasStorage ? <h3 className="px-2 py-2 text-xs font-medium text-muted-foreground">LegalMemory</h3> : null}
             <div className="relative w-full" style={{ height: virtualizer.getTotalSize() }}>
               {virtualizer.getVirtualItems().map((item) => {
                 const row = rows[item.index];

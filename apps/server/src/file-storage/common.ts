@@ -19,6 +19,8 @@ export type DownloadedFile = FileInfo & { sha256: string };
 export type WriteCondition = { version?: string; createOnly?: boolean };
 export interface StorageAdapter {
   list(path: string, cursor?: string): Promise<StoragePage>;
+  /** Flat metadata listing for object stores; avoids walking virtual folders. */
+  listFiles?(path: string, cursor?: string, signal?: AbortSignal): Promise<StoragePage>;
   searchCapabilities?(): Promise<StorageCapabilities["search"]>;
   search?(input: StorageSearch): Promise<StorageSearchPage>;
   stat(path: string): Promise<FileInfo | null>;

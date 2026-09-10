@@ -11,7 +11,7 @@ configuration only; it does not delete source files.
 | Type | Configuration and authentication | Directory behavior |
 | --- | --- | --- |
 | Network share (SMB) | Network address, share name, optional folder prefix/domain, port (445 default), username/password. SMB 2.1/3 with required signing and optional required encryption. | Direct directory listing and native filename matching. |
-| WebDAV | HTTP(S) endpoint, optional username/password. Works with standards-compliant WebDAV file servers. | Depth-one PROPFIND; never recursively traverses the share. |
+| WebDAV | HTTP(S) endpoint, optional username/password. Works with standards-compliant WebDAV file servers. | Depth-one PROPFIND for browsing; explicit filename search walks descendants. |
 | S3-compatible | Bucket, region, optional endpoint/prefix/path-style, access key + secret and optional session token; alternatively server AWS credentials. | ListObjectsV2 with `/` delimiter and continuation tokens. Covers AWS S3 and compatible APIs such as MinIO. |
 | Azure Blob Storage | Account, container, optional endpoint/prefix, account key or container SAS. | Hierarchical blob listing with continuation tokens. |
 | Google Cloud Storage | Bucket, project, prefix, optional service-account JSON; otherwise server application-default credentials. Custom endpoint for emulators. | Objects list with delimiter and page tokens. |
@@ -136,6 +136,7 @@ authentication and role model.
 | `GET /roots` | Enabled root metadata, no provider access |
 | `GET /:storageId/capabilities` | Read/write access and supported native search modes |
 | `GET /:storageId/search?mode=…&query=…&path=…&cursor=…` | Scoped native search with provider pagination or truncation |
+| `POST /:storageId/filename-search` | Literal, case-insensitive filename search across descendants: `{query, path?, cursor?}`; returns matches, `scanned`, and `nextCursor` while unfinished |
 | `GET /:storageId/children?path=…&cursor=…` | One folder page, optional continuation cursor |
 | `POST /:storageId/checkout` | Stream a source into a workspace working copy: `{path}`; returns local path, version, size and write capabilities |
 | `POST/PUT /:storageId/content?path=…&version=…` | Raw streaming upload/create or versioned replacement |
@@ -161,6 +162,7 @@ The bundled agent uses one tool set across all providers and multiple connection
 | `storage_get_capabilities` | Discover a connection's supported operations and native search modes |
 | `storage_list_folder` | Read one folder page; pass its cursor to continue |
 | `storage_search` | Search selected `connection_ids`; each source returns its own results, cursor or error |
+| `storage_search_filenames` | Find filename text across descendants on any provider, using metadata listings; separate continuation cursor per connection |
 | `storage_read_file` | Read bounded UTF-8 text or download a document into the workspace for existing document tools |
 | `storage_write_file` | Create from text/a workspace file, or replace using the version returned by a read |
 | `storage_create_folder` | Create a folder within a writable connection |
@@ -180,12 +182,38 @@ never included in tool results.
 | SMB | `name`: native literal filename matching in immediate children of the supplied folder, with 100-result pages |
 | SFTP, FTP/FTPS | No standard search; browse folders |
 
-Search respects the configured connection root and optional folder scope. It
+Native search respects the configured connection root and optional folder scope. It
 does not build a LegalMemory index, extract matter/entity metadata, perform RAG,
 or silently crawl folders. WebDAV content search follows the connected system's
 semantics. WebDAV has no standard continuation cursor: partial or capped results
 are marked `truncated`, and the agent must narrow the query. An unavailable or
 unsupported source is an explicit per-connection error, never an empty success.
+
+Memory Drive's **Search filenames** searches LegalMemory and every enabled
+storage connection, including unopened folders. Results are grouped by connection
+and show their relative path; opening a match uses the same workspace-copy viewer
+as browsing. Search remains available when only external storage is connected.
+
+The sidebar and `storage_search_filenames` use literal, case-insensitive substring
+matching. S3, Azure and GCS enumerate flat metadata pages; directory protocols
+walk folder listings. No file contents are downloaded or indexed. Each request
+checks at most ten listing pages and returns at most 100 matches. An empty page
+with `nextCursor` is unfinished. The sidebar continues until a display page is
+ready or the source is exhausted; **Load more** continues longer result sets.
+Changing the query stops the previous scan. Ordinary browsing remains lazy.
+Large or distant connections can take longer; failures remain visible per source.
+Listings are live, so concurrent external changes can affect pagination; refresh
+to rerun the search. These filename scans are distinct from provider-native
+content search and LegalMemory's indexed search.
+
+Filename-search regression checks (2026-09-10):
+
+- `pnpm --filter legalwork-server test`: 601 passed, 17 skipped.
+- `pnpm --filter @legalwork/app test`: 413 passed.
+- With the reference services running, `LEGALWORK_STORAGE_INTEGRATION=1 NODE_EXTRA_CA_CERTS=/tmp/legalwork-storage-fixtures/ftps-cert.pem pnpm --filter legalwork-server exec bun test src/file-storage.e2e.test.ts src/file-storage/filename-search.test.ts src/opencode-plugins/legalwork-storage-tools.test.ts`: 28 passed on Bun 1.4.2.
+- Server build, app typecheck, `test:i18n`, and `pnpm build:ui` passed.
+- Native Electron verification: mixed-source filename results, S3 result opening
+  in the existing sidebar, spreadsheet rendering, and local/remote save choices.
 
 ## References and verification
 
