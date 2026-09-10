@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { chmod, mkdtemp, mkdir, readFile, rm, stat, symlink, truncate, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { z } from "zod";
@@ -29,7 +29,8 @@ const idSchema = z.object({ connection: z.object({ id: z.string() }) });
 const fileSchema = z.object({ dataBase64: z.string(), version: z.string(), writable: z.boolean() });
 const rootSchema = z.object({ roots: z.array(z.object({ id: z.string(), name: z.string(), writable: z.boolean() })) });
 const tokenSchema = z.object({ token: z.string() });
-const localInput = () => storageInputSchema.parse({ name: "Firm share", config: { kind: "local", rootPath } });
+const offlineInput = () =>
+  storageInputSchema.parse({ name: "Firm WebDAV", config: { kind: "webdav", endpoint: "http://127.0.0.1:1" } });
 
 async function api(
   method: string,
@@ -58,8 +59,7 @@ async function connect(input: StorageInput) {
 beforeAll(async () => {
   temporary = await mkdtemp(join(tmpdir(), "legalwork-storage-tests-"));
   rootPath = join(temporary, "share");
-  await mkdir(join(rootPath, "Matters", "nested"), { recursive: true });
-  await writeFile(join(rootPath, "Matters", "nested", "secret.txt"), "nested data");
+  await mkdir(rootPath, { recursive: true });
   for (const key of [
     "LEGALWORK_STORAGE_STORE",
     "LEGALWORK_TOKEN_STORE",
@@ -107,10 +107,10 @@ afterAll(async () => {
   Object.assign(process.env, priorEnv);
 });
 
-describe("storage API and filesystem boundary", () => {
+describe("storage API access and validation", () => {
   test("requires authentication and owner access for managing connections", async () => {
     expect((await api("GET", "/roots", undefined, "none")).status).toBe(401);
-    expect((await api("POST", "", localInput(), "collaborator")).status).toBe(401);
+    expect((await api("POST", "", offlineInput(), "collaborator")).status).toBe(401);
     expect((await api("GET", "", undefined, "viewer")).status).toBe(401);
   });
   test("keeps roots lazy even if a provider is offline, and scopes them to a workspace", async () => {
@@ -156,9 +156,6 @@ describe("storage API and filesystem boundary", () => {
     expect((await new StorageStore(config).get("storage-test", id)).secrets.secretAccessKey).toBe("private");
     await api("DELETE", `/${id}`);
   });
-  test("uploads, reads, edits, detects conflicts, paginates and creates folders", async () => {
-    await roundTrip(localInput());
-  });
   test("allows reading a WebDAV file with a weak ETag without offering unsafe edits", async () => {
     const dav = Bun.serve({
       hostname: "127.0.0.1",
@@ -195,23 +192,72 @@ describe("storage API and filesystem boundary", () => {
       await dav.stop(true);
     }
   });
-  test("serializes concurrent saves and preserves file permissions", async () => {
-    const id = await connect(localInput());
-    const path = "concurrent.txt";
-    await writeFile(join(rootPath, path), "Original");
-    await chmod(join(rootPath, path), 0o660);
-    const first = fileSchema.parse(await (await api("GET", `/${id}/file?path=${path}`)).json());
-    const results = await Promise.all(
-      ["First writer", "Second writer"].map((text) =>
-        api("PUT", `/${id}/file`, { path, version: first.version, dataBase64: Buffer.from(text).toString("base64") }),
-      ),
+  test("rejects local folder connections and ignores legacy records without breaking other storage", async () => {
+    const input = offlineInput();
+    const id = await connect(input);
+    const local = { name: "Removed local folder", config: { kind: "local", rootPath } };
+    expect(storageInputSchema.safeParse(local).success).toBe(false);
+    expect((await api("POST", "", local)).status).toBe(400);
+    expect((await api("POST", "/test", local)).status).toBe(400);
+    expect((await api("PUT", `/${id}`, local)).status).toBe(400);
+    const store = new StorageStore(config);
+    const entries = z.array(z.unknown()).parse(JSON.parse(await readFile(store.path, "utf8")));
+    const legacyId = "8d59f1d1-f435-4515-b0f1-06f50eeef487";
+    await writeFile(
+      store.path,
+      JSON.stringify([
+        ...entries,
+        {
+          ...local,
+          id: legacyId,
+          workspaceId: "storage-test",
+          updatedAt: Date.now(),
+          secrets: {},
+          enabled: true,
+          readOnly: false,
+        },
+      ]),
     );
-    expect(results.map((result) => result.status).sort()).toEqual([200, 409]);
-    expect((await stat(join(rootPath, path))).mode & 0o777).toBe(0o660);
+    expect((await store.list("storage-test")).map((item) => item.id)).toEqual([id]);
+    expect(rootSchema.parse(await (await api("GET", "/roots")).json()).roots.map((item) => item.id)).toEqual([id]);
+    expect((await api("GET", `/${legacyId}/children`)).status).toBe(404);
+    expect((await api("GET", `/${legacyId}/file?path=anything.txt`)).status).toBe(404);
+    await api("PUT", `/${id}`, input);
+    expect(await readFile(store.path, "utf8")).not.toContain(legacyId);
     await api("DELETE", `/${id}`);
   });
+  test("rejects oversized WebDAV metadata before downloading the file", async () => {
+    let downloads = 0;
+    const dav = Bun.serve({
+      hostname: "127.0.0.1",
+      port: 0,
+      fetch(request) {
+        if (request.method === "PROPFIND")
+          return new Response(
+            `<?xml version="1.0"?><d:multistatus xmlns:d="DAV:"><d:response><d:href>/large.bin</d:href><d:propstat><d:prop><d:resourcetype/><d:getcontentlength>${STORAGE_MAX_FILE_BYTES + 1}</d:getcontentlength><d:getetag>"large"</d:getetag></d:prop><d:status>HTTP/1.1 200 OK</d:status></d:propstat></d:response></d:multistatus>`,
+            { status: 207, headers: { "content-type": "application/xml" } },
+          );
+        downloads++;
+        return new Response(null, { status: 500 });
+      },
+    });
+    let id: string | undefined;
+    try {
+      id = await connect(
+        storageInputSchema.parse({
+          name: "Oversized response fixture",
+          config: { kind: "webdav", endpoint: `http://127.0.0.1:${dav.port}` },
+        }),
+      );
+      expect((await api("GET", `/${id}/file?path=large.bin`)).status).toBe(413);
+      expect(downloads).toBe(0);
+    } finally {
+      if (id) await api("DELETE", `/${id}`);
+      await dav.stop(true);
+    }
+  });
   test("enforces read-only and viewer permissions, disabled connections and removal", async () => {
-    const input = localInput();
+    const input = offlineInput();
     const id = await connect(input);
     expect((await api("POST", `/${id}/folders`, { path: "forbidden" }, "viewer")).status).toBe(403);
     expect(
@@ -231,19 +277,13 @@ describe("storage API and filesystem boundary", () => {
     expect((await api("GET", `/${id}/children`)).status).toBe(409);
     await api("DELETE", `/${id}`);
     expect((await api("GET", `/${id}/children`)).status).toBe(404);
-    expect(await readFile(join(rootPath, "Matters", "nested", "secret.txt"), "utf8")).toBe("nested data");
   });
-  test("rejects traversal, symlink escapes, malformed credentials and oversized transfers", async () => {
-    const id = await connect(localInput());
+  test("rejects traversal, malformed credentials and oversized uploads before provider access", async () => {
+    const id = await connect(offlineInput());
     for (const path of ["../outside", "/absolute", "a/../b", "a\\b", "a//b", "a\nDELE x"]) {
       expect(() => storagePath(path)).toThrow();
       expect((await api("GET", `/${id}/children?${new URLSearchParams({ path })}`)).status).toBe(400);
     }
-    await writeFile(join(temporary, "outside.txt"), "outside");
-    await symlink(temporary, join(rootPath, "escape"));
-    expect((await api("GET", `/${id}/children?path=escape`)).status).toBe(403);
-    expect((await api("GET", `/${id}/file?path=escape/outside.txt`)).status).toBe(403);
-    expect((await api("POST", `/${id}/file`, { path: "escape/write.txt", dataBase64: "eA==" })).status).toBe(403);
     expect((await api("POST", `/${id}/file`, { path: "broken.txt", dataBase64: "%%%" })).status).toBe(400);
     expect((await api("PUT", `/${id}/file`, { path: "broken.txt", dataBase64: "eA==" })).status).toBe(400);
     const rejected = await api("POST", "", {
@@ -253,9 +293,6 @@ describe("storage API and filesystem boundary", () => {
     expect(rejected.status).toBe(400);
     expect(await rejected.text()).not.toContain("user:secret");
     expect(providerError(new Error("https://secret-token@server")).message).not.toContain("secret-token");
-    await writeFile(join(rootPath, "oversized.bin"), "");
-    await truncate(join(rootPath, "oversized.bin"), STORAGE_MAX_FILE_BYTES + 1);
-    expect((await api("GET", `/${id}/file?path=oversized.bin`)).status).toBe(413);
     expect(
       (
         await api("POST", `/${id}/file`, {
@@ -296,6 +333,12 @@ async function roundTrip(input: StorageInput) {
   expect(conflict.status).toBe(409);
   const read = fileSchema.parse(await (await api("GET", `/${id}/file?${new URLSearchParams({ path })}`)).json());
   expect(Buffer.from(read.dataBase64, "base64").toString()).toBe("Updated by a partner");
+  const saves = await Promise.all(
+    ["First writer", "Second writer"].map((text) =>
+      api("PUT", `/${id}/file`, { path, version: read.version, dataBase64: Buffer.from(text).toString("base64") }),
+    ),
+  );
+  expect(saves.map((result) => result.status).sort()).toEqual([200, 409]);
   const listing = await withStorage(input, async (adapter) => {
     await adapter.mkdir(`${folder}/nested`);
     await adapter.write(`${folder}/nested/hidden.txt`, Buffer.from("hidden"), "text/plain", { createOnly: true });

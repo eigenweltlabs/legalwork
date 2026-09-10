@@ -33,7 +33,7 @@ usePanelTabStore.persist.setOptions({
   })),
 });
 
-const root: StorageRoot = { id: "firm-files", name: "Firm files", kind: "local", writable: true };
+const root: StorageRoot = { id: "firm-files", name: "Firm files", kind: "webdav", writable: true };
 const file: StorageEntry = {
   path: "Matters/Contract.docx",
   name: "Contract.docx",

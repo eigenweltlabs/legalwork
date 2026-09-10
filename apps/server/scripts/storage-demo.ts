@@ -12,7 +12,6 @@ import { withStorage } from "../src/file-storage/service.js";
 const fixtures = process.env.LEGALWORK_STORAGE_FIXTURES ?? "/tmp/legalwork-storage-fixtures";
 const bucket = `legalwork-demo-${Date.now()}`;
 const accountKey = Buffer.alloc(32, 7).toString("base64");
-const documents = join(fixtures, "demo-documents");
 const server = "http://127.0.0.1:19287";
 const headers = {
   authorization: "Bearer storage-dev-client",
@@ -29,7 +28,7 @@ const existing = z
   .parse(await (await fetch(`${server}/workspace/${workspaceId}/storage`, { headers })).json());
 const configs: StorageInput[] = [
   storageInputSchema.parse({
-    name: "S3 · Matter archive",
+    name: "Test · S3 (MinIO)",
     config: {
       kind: "s3",
       endpoint: "http://127.0.0.1:19290",
@@ -42,7 +41,7 @@ const configs: StorageInput[] = [
     secrets: { secretAccessKey: "fixture-password" },
   }),
   storageInputSchema.parse({
-    name: "Azure · Documents",
+    name: "Test · Azure (Azurite)",
     config: {
       kind: "azure",
       endpoint: "http://127.0.0.1:19000/legalwork",
@@ -53,16 +52,16 @@ const configs: StorageInput[] = [
     secrets: { accountKey },
   }),
   storageInputSchema.parse({
-    name: "Google Cloud · Research",
+    name: "Test · Google Cloud (emulator)",
     config: { kind: "gcs", endpoint: "http://127.0.0.1:19444", projectId: "legalwork-test", bucket, prefix: "lawfirm" },
   }),
   storageInputSchema.parse({
-    name: "WebDAV · Team documents",
+    name: "Test · WebDAV",
     config: { kind: "webdav", endpoint: "http://127.0.0.1:19280/Demo", username: "legalwork" },
     secrets: { password: "fixture-password" },
   }),
   storageInputSchema.parse({
-    name: "SFTP · Secure exchange",
+    name: "Test · SFTP",
     config: {
       kind: "sftp",
       host: "127.0.0.1",
@@ -74,7 +73,7 @@ const configs: StorageInput[] = [
     secrets: { password: "fixture-password" },
   }),
   storageInputSchema.parse({
-    name: "FTPS · Legacy archive",
+    name: "Test · FTPS",
     config: { kind: "ftp", host: "127.0.0.1", port: 19243, username: "legalwork", rootPath: "/Demo", security: "tls" },
     secrets: { password: "fixture-password" },
     readOnly: true,
@@ -106,11 +105,14 @@ const docx = Buffer.from(
     ),
   }),
 );
-for (const root of [documents, join(fixtures, "files", "Demo")]) {
-  await mkdir(join(root, "Matters", "Acquisition"), { recursive: true });
-  await writeFile(join(root, "Welcome.txt"), "Connected files are loaded only when you open them.\n");
-  await writeFile(join(root, "Matters", "Acquisition", "Draft agreement.docx"), docx);
-}
+const sharedFiles = join(fixtures, "files", "Demo");
+await mkdir(join(sharedFiles, "Matters", "Acquisition"), { recursive: true });
+await writeFile(join(sharedFiles, "Welcome.txt"), "Connected files are loaded only when you open them.\n");
+await writeFile(
+  join(sharedFiles, "Matters", "Acquisition", "Deal notes.txt"),
+  "Review the draft agreement before Friday.\n",
+);
+await writeFile(join(sharedFiles, "Matters", "Acquisition", "Draft agreement.docx"), docx);
 for (const input of configs) {
   if (existing.connections.some((connection) => connection.name === input.name)) continue;
   if (["s3", "azure", "gcs"].includes(input.config.kind))
