@@ -237,7 +237,7 @@ export function registerStorageRoutes({
   addRoute(routes, "POST", `${base}/:storageId/filename-search`, "client", async (ctx) => {
     const connection = await selected(ctx);
     const parsed = storageFilenameSearchSchema.safeParse(await readJsonBodyLimited(ctx.request, 128 * 1024));
-    if (!parsed.success) throw new ApiError(400, "invalid_storage_search", "Enter a filename to search for.");
+    if (!parsed.success) throw new ApiError(400, "invalid_storage_search", "Enter a filename or path to search for.");
     storagePath(parsed.data.path);
     return jsonResponse(
       await withStorage(connection, (adapter) =>

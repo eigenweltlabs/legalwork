@@ -4,6 +4,65 @@ import { entry } from "./common.js";
 import { searchFilenames } from "./filename-search.js";
 
 describe("connected storage filename search", () => {
+  test("finds matter identifiers in full paths on flat object stores and directory protocols", async () => {
+    const first = entry("Firm DMS/MAT-00005/Correspondence/Letter.txt", "file");
+    const second = entry("Firm DMS/MAT-00005/Reports/Activity.txt", "file");
+    const other = entry("Firm DMS/MAT-00006/Activity.txt", "file");
+    const folders: Record<string, StoragePage> = {
+      "": { entries: [entry("Firm DMS", "folder")] },
+      "Firm DMS": { entries: [entry("Firm DMS/MAT-00005", "folder"), entry("Firm DMS/MAT-00006", "folder")] },
+      "Firm DMS/MAT-00005": {
+        entries: [entry("Firm DMS/MAT-00005/Correspondence", "folder"), entry("Firm DMS/MAT-00005/Reports", "folder")],
+      },
+      "Firm DMS/MAT-00005/Correspondence": { entries: [first] },
+      "Firm DMS/MAT-00005/Reports": { entries: [second] },
+      "Firm DMS/MAT-00006": { entries: [other] },
+    };
+    const hierarchical = { list: async (path: string) => folders[path]! };
+    const flat = {
+      list: async () => {
+        throw new Error("Object stores should use flat listings");
+      },
+      listFiles: async () => ({ entries: [first, second, other] }),
+    };
+    for (const adapter of [flat, hierarchical]) {
+      const found = await searchFilenames(adapter, { query: "mat-00005", path: "", match: "path" }, "revision");
+      expect(found).toEqual({ entries: [first, second], scanned: 3, complete: true });
+      // The filename-only sidebar search keeps its existing meaning.
+      expect((await searchFilenames(adapter, { query: "mat-00005", path: "" }, "revision")).entries).toEqual([]);
+      expect(await searchFilenames(adapter, { query: "mat-00008", path: "", match: "path" }, "revision")).toEqual({
+        entries: [],
+        scanned: 3,
+        complete: true,
+      });
+    }
+    expect(
+      (
+        await searchFilenames(
+          hierarchical,
+          { query: "mat-00005", path: "Firm DMS/MAT-00005", match: "path" },
+          "revision",
+        )
+      ).entries,
+    ).toEqual([first, second]);
+  });
+
+  test("resumes path matches without dropping files and binds cursors to the match mode", async () => {
+    const entries = Array.from({ length: 215 }, (_, i) => entry(`Archive/MAT-00005/Document-${i}.txt`, "file"));
+    const adapter = { list: async () => ({ entries: [] }), listFiles: async () => ({ entries }) };
+    const input = { query: "MAT-00005", path: "", match: "path" } satisfies Parameters<typeof searchFilenames>[1];
+    const first = await searchFilenames(adapter, input, "revision");
+    expect(first.complete).toBe(false);
+    expect(first.entries).toHaveLength(100);
+    const second = await searchFilenames(adapter, { ...input, cursor: first.nextCursor }, "revision");
+    const third = await searchFilenames(adapter, { ...input, cursor: second.nextCursor }, "revision");
+    expect([...first.entries, ...second.entries, ...third.entries]).toEqual(entries);
+    expect(third.complete).toBe(true);
+    await expect(
+      searchFilenames(adapter, { ...input, match: "filename", cursor: first.nextCursor }, "revision"),
+    ).rejects.toMatchObject({ code: "invalid_storage_cursor" });
+  });
+
   test("finds literal case-insensitive substrings in unopened nested folders, not folder names", async () => {
     const folders: Record<string, StoragePage> = {
       "": {
@@ -47,6 +106,7 @@ describe("connected storage filename search", () => {
     expect(requests).toBe(10);
     expect(page.entries).toEqual([]);
     expect(page.nextCursor).toBeDefined();
+    expect(page.complete).toBe(false);
     let scanned = page.scanned;
     while (page.nextCursor) {
       const previousRequests = requests;
@@ -55,6 +115,7 @@ describe("connected storage filename search", () => {
       scanned += page.scanned;
     }
     expect(scanned).toBe(9287);
+    expect(page.complete).toBe(true);
     expect(page.entries[0]?.name).toBe("Late-Competitor.xlsx");
   });
 

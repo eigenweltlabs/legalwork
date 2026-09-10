@@ -116,14 +116,15 @@ export type StorageEntry = {
   modifiedAt: string | null;
 };
 export type StoragePage = { entries: StorageEntry[]; nextCursor?: string };
-/** Literal, case-insensitive filename search over listings, including unopened folders. */
+/** Literal, case-insensitive metadata search over files, including unopened folders. */
 export const storageFilenameSearchSchema = z.object({
   query: z.string().trim().min(1).max(512),
   path: z.string().max(4096).default(""),
+  match: z.enum(["filename", "path"]).optional(),
   cursor: z.string().min(1).max(65_536).optional(),
 });
 export type StorageFilenameSearch = z.infer<typeof storageFilenameSearchSchema>;
-export type StorageFilenameSearchPage = StoragePage & { scanned: number };
+export type StorageFilenameSearchPage = StoragePage & { scanned: number; complete: boolean };
 export type StorageFile = { dataBase64: string; contentType: string; version: string; writable: boolean };
 export type StorageWorkingCopy = {
   localPath: string;

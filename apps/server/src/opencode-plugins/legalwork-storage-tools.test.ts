@@ -61,6 +61,33 @@ async function fixture(
             : { nextCursor: `next-${url.pathname.includes("/one/") ? "one" : "two"}` }),
         });
       }
+      if (url.pathname.endsWith("/filename-search")) {
+        if (url.pathname.includes("/offline/"))
+          return Response.json({ code: "storage_unavailable", message: "Storage is unavailable." }, { status: 502 });
+        const cursor = body && typeof body === "object" && "cursor" in body ? body.cursor : undefined;
+        return Response.json(
+          cursor
+            ? {
+                entries: [
+                  {
+                    path: "Firm DMS/MAT-00005/Activity.txt",
+                    name: "Activity.txt",
+                    kind: "file",
+                    size: 42,
+                    modifiedAt: null,
+                  },
+                ],
+                scanned: 1,
+                complete: true,
+              }
+            : {
+                entries: [],
+                scanned: 1000,
+                complete: false,
+                nextCursor: `next-${url.pathname.includes("/one/") ? "one" : "two"}`,
+              },
+        );
+      }
       if (url.pathname.endsWith("/capabilities"))
         return Response.json({
           read: true,
@@ -166,6 +193,48 @@ test("searches multiple sources with distinct identity, errors and continuation 
     );
     expect(next.results.every((item: { page: { nextCursor?: string } }) => !item.page.nextCursor)).toBe(true);
     expect(calls.slice(-2).map((call) => call.url.searchParams.get("cursor"))).toEqual(["next-one", "next-two"]);
+  });
+});
+
+test("defaults matter discovery to recursive paths across providers without native capability checks", async () => {
+  await fixture(async ({ plugin, directory, calls }) => {
+    const args = { connection_ids: ["one", "two", "one", "offline"], query: "MAT-00005" };
+    const first = JSON.parse(await plugin.tool.storage_search.execute(args, { directory }));
+    expect(first).toMatchObject({ query: "MAT-00005", mode: "path", path: "", content_searched: false });
+    expect(first.results).toHaveLength(3);
+    expect(first.results[0]).toMatchObject({
+      connection_id: "one",
+      ok: true,
+      page: { entries: [], complete: false, nextCursor: "next-one" },
+    });
+    expect(first.results[2]).toMatchObject({ connection_id: "offline", ok: false, code: "storage_unavailable" });
+    expect(calls.filter((call) => call.method === "POST").map((call) => call.body)).toEqual(
+      Array.from({ length: 3 }, () => ({ query: "MAT-00005", path: "", match: "path" })),
+    );
+    expect(
+      calls.some((call) => call.url.pathname.endsWith("/capabilities") || call.url.pathname.endsWith("/search")),
+    ).toBe(false);
+    const next = JSON.parse(
+      await plugin.tool.storage_search.execute(
+        { ...args, connection_ids: ["one", "two"], cursors: { one: "next-one", two: "next-two" } },
+        { directory },
+      ),
+    );
+    expect(
+      next.results.map((item: { connection_id: string; page: { complete: boolean } }) => [
+        item.connection_id,
+        item.page.complete,
+      ]),
+    ).toEqual([
+      ["one", true],
+      ["two", true],
+    ]);
+    expect(calls.slice(-2).map((call) => call.body)).toEqual([
+      { query: "MAT-00005", path: "", match: "path", cursor: "next-one" },
+      { query: "MAT-00005", path: "", match: "path", cursor: "next-two" },
+    ]);
+    await plugin.tool.storage_search_filenames.execute({ query: "Activity", connection_ids: ["one"] }, { directory });
+    expect(calls.at(-1)?.body).toEqual({ query: "Activity", path: "" });
   });
 });
 

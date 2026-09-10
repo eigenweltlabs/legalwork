@@ -120,6 +120,39 @@ afterAll(async () => {
 });
 
 describe("team storage sync", () => {
+  test("keeps optional discovery quiet before any shared connections have been configured", async () => {
+    for (const unavailable of [403, 404, 503]) {
+      const team = new TeamStorage(config);
+      status = unavailable;
+      const before = calls;
+      expect(await team.list("storage-team")).toEqual({
+        connections: [],
+        status: { connected: false, canManage: false },
+      });
+      await team.list("storage-team");
+      expect(calls - before).toBe(1);
+      // An explicitly requested admin operation must still report its failure.
+      await expect(team.request("storage-team", "POST", "", input())).rejects.toMatchObject({ status: unavailable });
+    }
+  });
+  test("clears warnings after all shared connections are removed or the firm changes", async () => {
+    const team = new TeamStorage(config);
+    await team.list("storage-team");
+    status = 503;
+    expect((await team.list("storage-team", true)).status.error).toBeDefined();
+    expect((await team.list("storage-team", true)).connections).toEqual([]);
+    status = 200;
+    payload = { ...snapshot(), connections: [] };
+    expect((await team.list("storage-team", true)).status.error).toBeUndefined();
+    status = 503;
+    expect((await team.list("storage-team", true)).status.error).toBeUndefined();
+    status = 200;
+    payload = snapshot();
+    await team.list("storage-team", true);
+    await signIn("storage-team", "firm-two", "second-token");
+    status = 503;
+    expect((await team.list("storage-team", true)).status.error).toBeUndefined();
+  });
   test("loads lazily, caches a bounded lease, and replaces updates and deletions", async () => {
     const team = new TeamStorage(config);
     expect(calls).toBe(0);

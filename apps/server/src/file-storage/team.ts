@@ -40,6 +40,7 @@ export function teamStorageId(id: string) {
  */
 export class TeamStorage {
   private cache = new Map<string, { identity: Identity; at: number; snapshot: Snapshot }>();
+  private configured = new Map<string, string>();
   private pending = new Map<string, Promise<Snapshot>>();
   private generations = new Map<string, number>();
   constructor(private config: ServerConfig) {}
@@ -106,12 +107,15 @@ export class TeamStorage {
     return run;
   }
   private async load(workspaceId: string, generation: number): Promise<Snapshot> {
+    let identity: Identity | null = null;
     try {
-      const identity = await this.identity(workspaceId);
+      identity = await this.identity(workspaceId);
       if (!identity) {
         this.cache.delete(workspaceId);
+        this.configured.delete(workspaceId);
         return empty();
       }
+      if (this.configured.get(workspaceId) !== identity.orgId) this.configured.delete(workspaceId);
       const cached = this.cache.get(workspaceId);
       if (
         cached?.identity.orgId === identity.orgId &&
@@ -143,14 +147,24 @@ export class TeamStorage {
           workspaceId,
           configuredSecrets: item.configuredSecrets,
           updatedAt: Date.parse(item.updatedAt),
-          team: { orgId: identity.orgId, version: item.version },
+          team: { orgId: current.orgId, version: item.version },
         })),
       };
+      if (snapshot.connections.length) this.configured.set(workspaceId, identity.orgId);
+      else this.configured.delete(workspaceId);
       this.cache.set(workspaceId, { identity, snapshot, at: Date.now() });
       return snapshot;
     } catch (error) {
       if (generation !== (this.generations.get(workspaceId) ?? 0)) return empty();
       this.cache.delete(workspaceId);
+      // Optional discovery is quiet until this firm actually has shared
+      // connections. An unavailable feed must not make personal storage look
+      // broken. Explicit admin mutations still return their errors via request.
+      if (!this.configured.has(workspaceId)) {
+        const snapshot = empty();
+        if (identity) this.cache.set(workspaceId, { identity, snapshot, at: Date.now() });
+        return snapshot;
+      }
       return {
         connections: [],
         status: {
