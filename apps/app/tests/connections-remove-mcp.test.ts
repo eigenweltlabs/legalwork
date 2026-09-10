@@ -18,6 +18,8 @@ afterEach(() => {
 describe("desktop MCP removal", () => {
   test("also removes the LegalWork server runtime entry", async () => {
     const desktopCalls: DesktopCall[] = [];
+    const removalOrder: string[] = [];
+    let disconnectError = false;
     const browserWindow = new EventTarget() as EventTarget & {
       __LEGALWORK_ELECTRON__?: {
         invokeDesktop: (command: string, ...args: unknown[]) => Promise<unknown>;
@@ -30,6 +32,7 @@ describe("desktop MCP removal", () => {
           return { path: "/tmp/opencode.jsonc", exists: false, content: null };
         }
         if (command === "mergeRuntimeMcpServer") {
+          removalOrder.push("disk");
           return { ok: true, status: 0, stdout: "removed", stderr: "" };
         }
         throw new Error(`Unexpected desktop command: ${command}`);
@@ -43,6 +46,8 @@ describe("desktop MCP removal", () => {
     const serverCalls: Array<{ workspaceId: string; name: string }> = [];
     const legalworkClient = {
       removeMcp: async (workspaceId: string, name: string) => {
+        removalOrder.push("engine");
+        if (disconnectError) throw new Error("Could not disconnect the running integration");
         serverCalls.push({ workspaceId, name });
         return { items: [] };
       },
@@ -86,6 +91,12 @@ describe("desktop MCP removal", () => {
       args: ["legalmemory", null],
     });
     expect(queryClient.getQueryData(["legalmemory-tree-roots", "ws-runtime"])).toBeUndefined();
+    expect(connectionChanges).toBe(1);
+    expect(removalOrder).toEqual(["disk", "engine"]);
+
+    disconnectError = true;
+    await store.removeMcp("legalmemory");
+    expect(store.getSnapshot().mcpStatus).toBe("Could not disconnect the running integration");
     expect(connectionChanges).toBe(1);
   });
 });

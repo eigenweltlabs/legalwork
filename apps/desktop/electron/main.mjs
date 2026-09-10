@@ -34,7 +34,7 @@ import { PowerLifecycle, PowerSessions } from "./power-lifecycle.mjs";
 import { AppTray } from "./tray.mjs";
 import { pinWindowsProcessQoS } from "./windows-qos.mjs";
 import { registerMigrationIpc } from "./migration.mjs";
-import { createRuntimeManager, resolveLegalworkServerConfigPath } from "./runtime.mjs";
+import { createRuntimeManager, mergeRuntimeMcpConfig, resolveLegalworkServerConfigPath } from "./runtime.mjs";
 import { createMcpOAuthCallbackBroker, watchMcpOAuthOwner } from "./mcp-oauth-callback.mjs";
 import { buildSupportBundleText, defaultSupportBundleFileName } from "./support-bundle.mjs";
 import {
@@ -2218,7 +2218,7 @@ const desktopCommandHandlers = {
   "readOpencodeConfig": async (event, ...args) => {
       return readOpencodeConfig(String(args[0] ?? "").trim(), String(args[1] ?? "").trim());
   },
-  // One MCP server in ~/.config/legalwork/runtime-opencode-config.json — the
+  // One MCP entry in the active profile’s runtime-opencode-config.json — the
   // file the packaged engine reads for every workspace instance (its log lists
   // it on each rebuild), which is what makes a connector global. The global
   // opencode config is not on that list, and the workspace config only covers
@@ -2228,24 +2228,7 @@ const desktopCommandHandlers = {
       const name = String(args[0] ?? "").trim();
       if (!name) return execResult(false, "MCP name is required");
       const config = args[1] && typeof args[1] === "object" ? args[1] : null;
-      const dir = path.join(os.homedir(), ".config", "legalwork");
-      const file = path.join(dir, "runtime-opencode-config.json");
-      let current = {};
-      try {
-        current = JSON.parse(await readFile(file, "utf8"));
-      } catch {
-        // Absent or unreadable: start from empty and create it.
-      }
-      if (typeof current !== "object" || current === null || Array.isArray(current)) current = {};
-      const mcp = typeof current.mcp === "object" && current.mcp !== null && !Array.isArray(current.mcp) ? current.mcp : {};
-      if (config) mcp[name] = config;
-      else delete mcp[name];
-      const next = { ...current, mcp };
-      await mkdir(dir, { recursive: true });
-      // Atomic, so the engine never reads a partial file mid-rebuild.
-      const tmp = `${file}.${Date.now()}.tmp`;
-      await writeFile(tmp, `${JSON.stringify(next, null, 2)}\n`, "utf8");
-      await rename(tmp, file);
+      const file = await mergeRuntimeMcpConfig(name, config);
       return execResult(true, `Merged ${name} into ${file}`);
   },
   "writeOpencodeConfig": async (event, ...args) => {

@@ -267,3 +267,20 @@ creation, text and DOCX saves verified in the source files, stale-write
 conflicts retaining drafts, unsaved-change confirmation, and read-only FTPS. Sidebar regression checks cover opening storage tabs outside
 a chat, source isolation, tab deduplication, transcript refreshes, and cancellation
 of tab close/switch with an unsaved draft. The September 10 follow-up also verified a 51 MiB upload through the browser file picker, SMB text local-save/source-unchanged followed by explicit publish, a CSV cell edit published through the shared Save menu, a DOCX edit verified in the Samba source, and opening the latest source into a fresh working copy.
+
+
+The disconnect regression now covers the active Electron profile, immediate
+revocation within an existing turn, and failures reported by the running engine.
+Large LegalMemory JSON pages and storage tool results retain line breaks so the
+agent can search saved output. The checks use synthetic data.
+
+To exercise the real engine with deterministic local MCP/model fixtures, run
+`pnpm --filter legalwork-server build`, then
+`LEGALWORK_OPENCODE_BIN=/path/to/opencode pnpm --filter legalwork-server exec bun ../../scripts/storage-fixtures/agent-lifecycle-check.ts`.
+The check verifies a large result, grep of its saved output, and a rejected call
+following disconnect with no second request reaching the MCP fixture.
+
+Validation: `pnpm --filter legalwork-server test` (613 passed, 17 optional tests
+skipped), `pnpm --filter @legalwork/app test` (413 passed),
+`node --test apps/desktop/electron/runtime.test.mjs` (17 passed), server build,
+server/app typechecks, and the real-engine check above passed.

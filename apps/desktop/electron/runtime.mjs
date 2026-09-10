@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { spawn, spawnSync } from "node:child_process";
 import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
-import { chmod, mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { chmod, mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import net from "node:net";
 import os from "node:os";
 import path from "node:path";
@@ -80,6 +80,36 @@ export function resolveLegalworkServerConfigPath(env = process.env) {
   const xdgConfigHome = String(env.XDG_CONFIG_HOME ?? "").trim();
   const root = xdgConfigHome || path.join(os.homedir(), ".config");
   return path.join(root, "legalwork", "server.json");
+}
+
+// Use the same location as the embedded server, including the dev profile,
+// explicit config path and runtime DB override. os.homedir() alone points at
+// a different file in dev mode and leaves removed connections enabled.
+export async function mergeRuntimeMcpConfig(name, config, env = process.env) {
+  const dbPath = String(env.LEGALWORK_RUNTIME_DB ?? "").trim();
+  const dir = path.dirname(dbPath ? path.resolve(dbPath) : resolveLegalworkServerConfigPath(env));
+  const file = path.join(dir, "runtime-opencode-config.json");
+  let current = {};
+  try {
+    current = JSON.parse(await readFile(file, "utf8"));
+  } catch (error) {
+    if (error.code !== "ENOENT") throw error;
+  }
+  if (!current || typeof current !== "object" || Array.isArray(current)) {
+    throw new Error("Invalid runtime configuration");
+  }
+  const mcp = { ...current.mcp };
+  if (config) mcp[name] = config;
+  else delete mcp[name];
+  await mkdir(dir, { recursive: true });
+  const tmp = `${file}.${randomUUID()}.tmp`;
+  try {
+    await writeFile(tmp, `${JSON.stringify({ ...current, mcp }, null, 2)}\n`, { encoding: "utf8", mode: 0o600 });
+    await rename(tmp, file);
+  } finally {
+    await rm(tmp, { force: true });
+  }
+  return file;
 }
 
 export function seedWorkspacePathsForEmbeddedServer(workspacePaths, serverConfigExists) {
