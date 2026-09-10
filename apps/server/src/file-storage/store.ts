@@ -14,7 +14,7 @@ const storedSchema = storageInputSchema.extend({
   updatedAt: z.number(),
 });
 export type StoredStorage = z.infer<typeof storedSchema> & {
-  team?: { orgId: string; version: number };
+  team?: { orgId: string; version: number; installed: boolean };
   configuredSecrets?: StorageSecretKey[];
 };
 const pending = new Map<string, Promise<unknown>>();

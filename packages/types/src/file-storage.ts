@@ -93,6 +93,8 @@ export const storageInputSchema = z.object({
   config: configSchema,
   readOnly: z.boolean().default(false),
   enabled: z.boolean().default(true),
+  // Older shared connections were always installed automatically.
+  teamInstallation: z.enum(["automatic", "optional"]).optional(),
   secrets: z.partialRecord(z.enum(storageSecretKeys), z.string().max(32_768)).default({}),
 });
 
@@ -104,7 +106,7 @@ export type StorageConnection = Omit<StorageInput, "secrets"> & {
   id: string;
   updatedAt: number;
   configuredSecrets: StorageSecretKey[];
-  team?: { orgId: string; version: number };
+  team?: { orgId: string; version: number; installed: boolean };
 };
 export type StorageTeamStatus = { connected: boolean; canManage: boolean; error?: string };
 export type StorageRoot = { id: string; name: string; kind: StorageKind; writable: boolean; revision?: string };

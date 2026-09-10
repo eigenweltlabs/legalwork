@@ -6,6 +6,7 @@ import {
   ArrowUpRight,
   Check,
   ChevronRight,
+  Download,
   Loader2,
   Pencil,
   Plus,
@@ -46,6 +47,8 @@ import {
   storageLabel,
   storageSecretFields,
 } from "./storage-providers";
+import { useHubScope } from "./hub-scope-context";
+import { storageConnectionsForScope } from "./storage-scope";
 
 export function FileStorageView({
   client,
@@ -55,6 +58,7 @@ export function FileStorageView({
   workspaceId: string | null;
 }) {
   const queryClient = useQueryClient();
+  const scope = useHubScope() ?? "local";
   const [editor, setEditor] = useState<{ kind: StorageKind; connection?: StorageConnection } | null>(null);
   const [removing, setRemoving] = useState<StorageConnection | null>(null);
   const [busy, setBusy] = useState(false);
@@ -67,6 +71,8 @@ export function FileStorageView({
     retry: false,
     refetchInterval: 30_000,
   });
+  const visibleConnections = storageConnectionsForScope(connections.data?.connections ?? [], scope);
+  const canAdd = scope === "local" || connections.data?.team?.canManage === true;
   const refresh = () => {
     void queryClient.invalidateQueries({ queryKey: ["storage-connections"] });
     void queryClient.invalidateQueries({ queryKey: ["storage-roots"] });
@@ -77,7 +83,7 @@ export function FileStorageView({
     setEditor(null);
     setRemoving(null);
     setError("");
-  }, [client, workspaceId]);
+  }, [client, workspaceId, scope]);
   useEffect(() => {
     const listener = () => {
       void connections.refetch();
@@ -96,12 +102,16 @@ export function FileStorageView({
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div className="max-w-xl space-y-2">
           <h3 className="text-xl font-medium tracking-tight">{t("storage.heading")}</h3>
-          <p className="text-sm leading-6 text-muted-foreground">{t("storage.intro")}</p>
+          <p className="text-sm leading-6 text-muted-foreground">
+            {t(scope === "team" ? "storage.team_intro" : "storage.local_intro")}
+          </p>
         </div>
-        <Button onClick={() => addSection.current?.scrollIntoView({ behavior: "smooth", block: "start" })}>
-          <Plus className="size-4" />
-          {t("storage.add")}
-        </Button>
+        {canAdd && (
+          <Button onClick={() => addSection.current?.scrollIntoView({ behavior: "smooth", block: "start" })}>
+            <Plus className="size-4" />
+            {t("storage.add")}
+          </Button>
+        )}
       </div>
       {(error || connections.error) && (
         <p
@@ -112,15 +122,9 @@ export function FileStorageView({
           {error || connections.error?.message}
         </p>
       )}
-      {connections.data?.team?.error ? (
+      {scope === "team" && connections.data?.team?.error ? (
         <p role="alert" className="text-sm text-destructive">
           {connections.data.team.error}
-        </p>
-      ) : null}
-      {connections.data?.team?.connected ? (
-        <p className="flex items-center gap-2 text-sm text-muted-foreground">
-          <Users className="size-4" />
-          {t("storage.team_sync_description")}
         </p>
       ) : null}
       {connections.isLoading ? (
@@ -129,13 +133,13 @@ export function FileStorageView({
           {t("storage.loading")}
         </div>
       ) : null}
-      {connections.data?.connections.length ? (
+      {visibleConnections.length ? (
         <section className="space-y-3">
           <h4 className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
-            {t("storage.connected", { count: connections.data.connections.length })}
+            {t(scope === "team" ? "storage.shared_count" : "storage.connected", { count: visibleConnections.length })}
           </h4>
           <div className="divide-y divide-border rounded-2xl border border-border bg-background">
-            {connections.data.connections.map((connection) => {
+            {visibleConnections.map((connection) => {
               const Icon = storageIcons[connection.config.kind];
               return (
                 <div key={connection.id} className="flex flex-wrap items-center gap-3 p-4">
@@ -145,7 +149,13 @@ export function FileStorageView({
                   <div className="min-w-0 flex-1">
                     <p className="truncate text-sm font-medium">{connection.name}</p>
                     {connection.team ? (
-                      <p className="mt-1 text-xs text-muted-foreground">{t("storage.team_managed")}</p>
+                      <p className="mt-1 text-xs text-muted-foreground">
+                        {t(
+                          connection.teamInstallation === "optional"
+                            ? "storage.team_optional"
+                            : "storage.team_automatic",
+                        )}
+                      </p>
                     ) : null}
                     <p className="mt-1 text-xs text-muted-foreground">
                       {storageLabel(connection.config.kind)} <span className="mx-1">·</span>{" "}
@@ -161,7 +171,10 @@ export function FileStorageView({
                         setBusy(true);
                         setError("");
                         try {
-                          await client.saveTeamStorageConnection(workspaceId, { localId: connection.id });
+                          await client.saveTeamStorageConnection(workspaceId, {
+                            localId: connection.id,
+                            teamInstallation: "optional",
+                          });
                           refresh();
                         } catch (cause) {
                           setError(cause instanceof Error ? cause.message : t("storage.failed"));
@@ -174,71 +187,107 @@ export function FileStorageView({
                       {t("storage.make_team")}
                     </Button>
                   ) : null}
+                  {connection.team && connection.teamInstallation === "optional" && (
+                    <Button
+                      variant={connection.team.installed ? "outline" : "default"}
+                      size="sm"
+                      disabled={busy || (!connection.enabled && !connection.team.installed)}
+                      onClick={async () => {
+                        setBusy(true);
+                        setError("");
+                        try {
+                          await client.setTeamStorageInstalled(workspaceId, connection.id, !connection.team?.installed);
+                          refresh();
+                        } catch (cause) {
+                          setError(cause instanceof Error ? cause.message : t("storage.failed"));
+                        } finally {
+                          setBusy(false);
+                        }
+                      }}
+                    >
+                      {!connection.team.installed && <Download className="size-3.5" />}
+                      {t(connection.team.installed ? "storage.remove_local" : "storage.install")}
+                    </Button>
+                  )}
                   <span
                     className={cn(
                       "rounded-full px-2.5 py-1 text-[11px]",
                       connection.enabled ? "bg-green-3 text-green-11" : "bg-muted text-muted-foreground",
                     )}
                   >
-                    {connection.enabled ? t("storage.enabled") : t("storage.paused")}
+                    {t(
+                      !connection.enabled
+                        ? "storage.paused"
+                        : connection.team?.installed === false
+                          ? "storage.available"
+                          : "storage.enabled",
+                    )}
                   </span>
-                  <Button
-                    disabled={Boolean(connection.team && !connections.data?.team?.canManage)}
-                    variant="ghost"
-                    size="icon-sm"
-                    aria-label={t("storage.edit_connection", { name: connection.name })}
-                    onClick={() => setEditor({ kind: connection.config.kind, connection })}
-                  >
-                    <Pencil className="size-3.5" />
-                  </Button>
-                  <Button
-                    disabled={Boolean(connection.team && !connections.data?.team?.canManage)}
-                    variant="ghost"
-                    size="icon-sm"
-                    aria-label={t("storage.remove_connection", { name: connection.name })}
-                    onClick={() => setRemoving(connection)}
-                  >
-                    <Trash2 className="size-3.5" />
-                  </Button>
+                  {(!connection.team || (scope === "team" && connections.data?.team?.canManage)) && (
+                    <>
+                      <Button
+                        variant="ghost"
+                        size="icon-sm"
+                        aria-label={t("storage.edit_connection", { name: connection.name })}
+                        onClick={() => setEditor({ kind: connection.config.kind, connection })}
+                      >
+                        <Pencil className="size-3.5" />
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="icon-sm"
+                        aria-label={t("storage.remove_connection", { name: connection.name })}
+                        onClick={() => setRemoving(connection)}
+                      >
+                        <Trash2 className="size-3.5" />
+                      </Button>
+                    </>
+                  )}
                 </div>
               );
             })}
           </div>
         </section>
+      ) : !connections.isLoading && !connections.error ? (
+        <div className="rounded-2xl border border-dashed border-border p-6 text-sm text-muted-foreground">
+          {t(scope === "team" ? "storage.team_empty" : "storage.local_empty")}
+        </div>
       ) : null}
-      <section ref={addSection} className="scroll-mt-6 space-y-3">
-        <div className="flex items-center gap-2">
-          <Plus className="size-4 text-muted-foreground" />
-          <h4 className="text-sm font-medium">{t("storage.add")}</h4>
-        </div>
-        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-          {storageKinds.map((kind) => {
-            const Icon = storageIcons[kind];
-            return (
-              <button
-                key={kind}
-                type="button"
-                onClick={() => setEditor({ kind })}
-                className="group flex flex-col rounded-2xl border border-border bg-background p-5 text-left transition-colors hover:border-foreground/25 hover:bg-muted/25 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-              >
-                <div className="mb-4 flex w-full items-center justify-between">
-                  <Icon className="size-5 text-muted-foreground" />
-                  <ArrowUpRight className="size-4 text-muted-foreground/40 transition-colors group-hover:text-foreground" />
-                </div>
-                <span className="text-sm font-medium">{storageLabel(kind)}</span>
-                <span className="mt-1.5 text-xs leading-5 text-muted-foreground">{storageDescription(kind)}</span>
-              </button>
-            );
-          })}
-        </div>
-      </section>
+      {canAdd && (
+        <section ref={addSection} className="scroll-mt-6 space-y-3">
+          <div className="flex items-center gap-2">
+            <Plus className="size-4 text-muted-foreground" />
+            <h4 className="text-sm font-medium">{t("storage.add")}</h4>
+          </div>
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            {storageKinds.map((kind) => {
+              const Icon = storageIcons[kind];
+              return (
+                <button
+                  key={kind}
+                  type="button"
+                  onClick={() => setEditor({ kind })}
+                  className="group flex flex-col rounded-2xl border border-border bg-background p-5 text-left transition-colors hover:border-foreground/25 hover:bg-muted/25 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                >
+                  <div className="mb-4 flex w-full items-center justify-between">
+                    <Icon className="size-5 text-muted-foreground" />
+                    <ArrowUpRight className="size-4 text-muted-foreground/40 transition-colors group-hover:text-foreground" />
+                  </div>
+                  <span className="text-sm font-medium">{storageLabel(kind)}</span>
+                  <span className="mt-1.5 text-xs leading-5 text-muted-foreground">{storageDescription(kind)}</span>
+                </button>
+              );
+            })}
+          </div>
+        </section>
+      )}
       {editor && (
         <StorageConnectionDialog
           client={client}
           workspaceId={workspaceId}
           kind={editor.kind}
           connection={editor.connection}
-          canManageTeam={connections.data?.team?.canManage ?? false}
+          forTeam={Boolean(editor.connection?.team) || scope === "team"}
           onClose={() => setEditor(null)}
           onSaved={refresh}
         />
@@ -294,7 +343,7 @@ function StorageConnectionDialog({
   workspaceId,
   kind,
   connection,
-  canManageTeam,
+  forTeam,
   onClose,
   onSaved,
 }: {
@@ -302,11 +351,11 @@ function StorageConnectionDialog({
   workspaceId: string;
   kind: StorageKind;
   connection?: StorageConnection;
-  canManageTeam: boolean;
+  forTeam: boolean;
   onClose: () => void;
   onSaved: () => void;
 }) {
-  const [forTeam, setForTeam] = useState(Boolean(connection?.team));
+  const [automatic, setAutomatic] = useState(connection ? connection.teamInstallation !== "optional" : false);
   const [name, setName] = useState(connection?.name ?? "");
   const [values, setValues] = useState<Record<string, string>>(() =>
     connection
@@ -338,6 +387,7 @@ function StorageConnectionDialog({
       secrets,
       readOnly,
       enabled,
+      ...(forTeam ? { teamInstallation: automatic ? "automatic" : "optional" } : {}),
     });
     if (!input.success) {
       setError(t("storage.check_fields") + " " + input.error.issues.map((issue) => issue.path.join(".")).join(", "));
@@ -371,6 +421,8 @@ function StorageConnectionDialog({
         <DialogHeader className="shrink-0 border-b border-border p-6 pr-12">
           <div className="mb-3 flex items-center gap-2 text-xs text-muted-foreground">
             <span>{t("storage.tab")}</span>
+            <ChevronRight className="size-3" />
+            <span>{t(forTeam ? "firm_hub.scope_team" : "firm_hub.scope_local")}</span>
             <ChevronRight className="size-3" />
             <span>{storageLabel(kind)}</span>
           </div>
@@ -548,10 +600,13 @@ function StorageConnectionDialog({
               ))}
             </section>
           )}
-          {!connection && canManageTeam ? (
+          {forTeam ? (
             <label className="flex items-center justify-between gap-4 rounded-xl border border-border p-4">
-              <span className="text-sm">{t("storage.available_team")}</span>
-              <Switch checked={forTeam} onCheckedChange={setForTeam} disabled={Boolean(busy)} />
+              <span>
+                <span className="block text-sm font-medium">{t("storage.automatic_label")}</span>
+                <span className="mt-1 block text-xs text-muted-foreground">{t("storage.automatic_help")}</span>
+              </span>
+              <Switch checked={automatic} onCheckedChange={setAutomatic} disabled={Boolean(busy)} />
             </label>
           ) : null}
           {forTeam ? <p className="text-xs text-muted-foreground">{t("storage.team_save_description")}</p> : null}
@@ -565,7 +620,9 @@ function StorageConnectionDialog({
             </label>
             <label className="flex items-center justify-between gap-4 border-t border-border pt-4">
               <span>
-                <span className="block text-sm font-medium">{t("storage.show_drive")}</span>
+                <span className="block text-sm font-medium">
+                  {t(forTeam ? "storage.available_team" : "storage.show_drive")}
+                </span>
                 <span className="mt-1 block text-xs text-muted-foreground">{t("storage.show_drive_help")}</span>
               </span>
               <Switch checked={enabled} onCheckedChange={setEnabled} disabled={Boolean(busy)} />

@@ -1987,8 +1987,10 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
       requestJson<{ ok: true }>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/storage/test${id ? `?connectionId=${encodeURIComponent(id)}` : ""}`, { token, hostToken, method: "POST", body: input, timeoutMs: 90_000 }),
     removeStorageConnection: (workspaceId: string, id: string, version?: number) =>
       requestJson<{ ok: true }>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/storage/${encodeURIComponent(id)}${version ? `?version=${version}` : ""}`, { token, hostToken, method: "DELETE", timeoutMs: 30_000 }),
-    saveTeamStorageConnection: (workspaceId: string, input: StorageInput | { localId: string }) =>
+    saveTeamStorageConnection: (workspaceId: string, input: StorageInput | { localId: string; teamInstallation?: "automatic" | "optional" }) =>
       requestJson<{ ok: true }>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/storage/team`, { token, hostToken, method: "POST", body: input, timeoutMs: 30_000 }),
+    setTeamStorageInstalled: (workspaceId: string, id: string, installed: boolean) =>
+      requestJson<{ ok: true }>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/storage/${encodeURIComponent(id)}/installation`, { token, hostToken, method: "POST", body: { installed }, timeoutMs: 30_000 }),
     storageRoots: (workspaceId: string) =>
       requestJson<{ roots: StorageRoot[]; teamError?: string }>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/storage/roots`, { token, hostToken, timeoutMs: 30_000 }),
     storageChildren: (workspaceId: string, id: string, path: string, cursor?: string) =>

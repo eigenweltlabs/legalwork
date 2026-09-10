@@ -8,6 +8,7 @@ import type { ServerConfig } from "../types.js";
 import { storageInputSchema } from "./schema.js";
 import { TeamStorage } from "./team.js";
 import { StorageStore } from "./store.js";
+import { StorageInstallations } from "./installations.js";
 
 const priorEnv = { ...process.env };
 let temporary: string;
@@ -19,6 +20,7 @@ let status = 200;
 let payload: unknown;
 let release: (() => void) | undefined;
 let hold = false;
+let tokenSequence = 0;
 const id = "af506b2e-82eb-40cd-936a-fef613abc765";
 const input = () =>
   storageInputSchema.parse({
@@ -107,7 +109,7 @@ beforeEach(async () => {
   hold = false;
   release = undefined;
   payload = snapshot();
-  await signIn();
+  await signIn("storage-team", "firm-one", `desktop-token-${++tokenSequence}`);
 });
 afterAll(async () => {
   setSystemTime();
@@ -120,6 +122,57 @@ afterAll(async () => {
 });
 
 describe("team storage sync", () => {
+  test("optional connections require local installation and removal revokes file and search access", async () => {
+    payload = {
+      ...snapshot(),
+      canManage: false,
+      connections: [{ ...snapshot().connections[0], input: { ...input(), teamInstallation: "optional" } }],
+    };
+    expect(
+      (await (await api("GET", "/roots")).json()).roots.some((root: { id: string }) => root.id === `team:${id}`),
+    ).toBe(false);
+    const catalog = await (await api("GET")).json();
+    expect(catalog.connections.find((item: { id: string }) => item.id === `team:${id}`).team.installed).toBe(false);
+    expect((await api("GET", `/team:${id}/children`)).status).toBe(409);
+    expect((await api("POST", `/team:${id}/installation`, { installed: true })).status).toBe(200);
+    expect(
+      (await (await api("GET", "/roots")).json()).roots.some((root: { id: string }) => root.id === `team:${id}`),
+    ).toBe(true);
+    expect((await new TeamStorage(config).list("storage-team")).connections[0].team?.installed).toBe(true);
+    const saved = await readFile(new StorageInstallations(config).path, "utf8");
+    expect(JSON.parse(saved)).toEqual([{ workspaceId: "storage-team", orgId: "firm-one", id }]);
+    expect(saved).not.toContain("team-secret-not-on-disk");
+    await signIn("other-workspace");
+    expect((await new TeamStorage(config).list("other-workspace")).connections[0].team?.installed).toBe(false);
+    await signIn("storage-team", "firm-two", "other-firm-token");
+    payload = {
+      ...snapshot(1, "firm-two"),
+      connections: [{ ...snapshot().connections[0], input: { ...input(), teamInstallation: "optional" } }],
+    };
+    expect((await new TeamStorage(config).list("storage-team")).connections[0].team?.installed).toBe(false);
+    await signIn();
+    payload = {
+      ...snapshot(),
+      connections: [{ ...snapshot().connections[0], input: { ...input(), teamInstallation: "optional" } }],
+    };
+    expect((await api("POST", `/team:${id}/installation`, { installed: false })).status).toBe(200);
+    expect(
+      (await (await api("GET", "/roots")).json()).roots.some((root: { id: string }) => root.id === `team:${id}`),
+    ).toBe(false);
+    expect((await api("POST", `/team:${id}/filename-search`, { query: "matter" })).status).toBe(409);
+    expect((await api("GET", `/team:${id}/file?path=notes.txt`)).status).toBe(409);
+  });
+  test("automatic connections cannot be removed locally and unused optional catalogs fail quietly", async () => {
+    expect((await api("POST", `/team:${id}/installation`, { installed: false })).status).toBe(409);
+    const team = new TeamStorage(config);
+    payload = {
+      ...snapshot(),
+      connections: [{ ...snapshot().connections[0], input: { ...input(), teamInstallation: "optional" } }],
+    };
+    expect((await team.list("storage-team")).connections[0].team?.installed).toBe(false);
+    status = 503;
+    expect((await team.list("storage-team", true)).status.error).toBeUndefined();
+  });
   test("keeps optional discovery quiet before any shared connections have been configured", async () => {
     for (const unavailable of [403, 404, 503]) {
       const team = new TeamStorage(config);
