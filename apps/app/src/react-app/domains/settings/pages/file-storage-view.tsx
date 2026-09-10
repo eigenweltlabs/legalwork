@@ -11,6 +11,7 @@ import {
   Plus,
   RefreshCw,
   Trash2,
+  Users,
 } from "lucide-react";
 import {
   storageInputSchema,
@@ -64,6 +65,7 @@ export function FileStorageView({
     queryFn: () => client!.storageConnections(workspaceId!),
     enabled: Boolean(client && workspaceId),
     retry: false,
+    refetchInterval: 30_000,
   });
   const refresh = () => {
     void queryClient.invalidateQueries({ queryKey: ["storage-connections"] });
@@ -110,6 +112,17 @@ export function FileStorageView({
           {error || connections.error?.message}
         </p>
       )}
+      {connections.data?.team?.error ? (
+        <p role="alert" className="text-sm text-destructive">
+          {connections.data.team.error}
+        </p>
+      ) : null}
+      {connections.data?.team?.connected ? (
+        <p className="flex items-center gap-2 text-sm text-muted-foreground">
+          <Users className="size-4" />
+          {t("storage.team_sync_description")}
+        </p>
+      ) : null}
       {connections.isLoading ? (
         <div className="flex items-center gap-2 text-sm text-muted-foreground">
           <Loader2 className="size-4 animate-spin" />
@@ -131,11 +144,36 @@ export function FileStorageView({
                   </div>
                   <div className="min-w-0 flex-1">
                     <p className="truncate text-sm font-medium">{connection.name}</p>
+                    {connection.team ? (
+                      <p className="mt-1 text-xs text-muted-foreground">{t("storage.team_managed")}</p>
+                    ) : null}
                     <p className="mt-1 text-xs text-muted-foreground">
                       {storageLabel(connection.config.kind)} <span className="mx-1">·</span>{" "}
                       {connection.readOnly ? t("storage.read_only") : t("storage.read_write")}
                     </p>
                   </div>
+                  {!connection.team && connections.data?.team?.canManage ? (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      disabled={busy}
+                      onClick={async () => {
+                        setBusy(true);
+                        setError("");
+                        try {
+                          await client.saveTeamStorageConnection(workspaceId, { localId: connection.id });
+                          refresh();
+                        } catch (cause) {
+                          setError(cause instanceof Error ? cause.message : t("storage.failed"));
+                        } finally {
+                          setBusy(false);
+                        }
+                      }}
+                    >
+                      <Users className="size-3.5" />
+                      {t("storage.make_team")}
+                    </Button>
+                  ) : null}
                   <span
                     className={cn(
                       "rounded-full px-2.5 py-1 text-[11px]",
@@ -145,6 +183,7 @@ export function FileStorageView({
                     {connection.enabled ? t("storage.enabled") : t("storage.paused")}
                   </span>
                   <Button
+                    disabled={Boolean(connection.team && !connections.data?.team?.canManage)}
                     variant="ghost"
                     size="icon-sm"
                     aria-label={t("storage.edit_connection", { name: connection.name })}
@@ -153,6 +192,7 @@ export function FileStorageView({
                     <Pencil className="size-3.5" />
                   </Button>
                   <Button
+                    disabled={Boolean(connection.team && !connections.data?.team?.canManage)}
                     variant="ghost"
                     size="icon-sm"
                     aria-label={t("storage.remove_connection", { name: connection.name })}
@@ -198,6 +238,7 @@ export function FileStorageView({
           workspaceId={workspaceId}
           kind={editor.kind}
           connection={editor.connection}
+          canManageTeam={connections.data?.team?.canManage ?? false}
           onClose={() => setEditor(null)}
           onSaved={refresh}
         />
@@ -210,8 +251,10 @@ export function FileStorageView({
       >
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>{t("storage.remove_title")}</DialogTitle>
-            <DialogDescription>{t("storage.remove_body", { name: removing?.name ?? "" })}</DialogDescription>
+            <DialogTitle>{t(removing?.team ? "storage.remove_team_title" : "storage.remove_title")}</DialogTitle>
+            <DialogDescription>
+              {t(removing?.team ? "storage.remove_team_body" : "storage.remove_body", { name: removing?.name ?? "" })}
+            </DialogDescription>
           </DialogHeader>
           <DialogFooter>
             <Button variant="outline" disabled={busy} onClick={() => setRemoving(null)}>
@@ -225,7 +268,7 @@ export function FileStorageView({
                 setBusy(true);
                 setError("");
                 try {
-                  await client.removeStorageConnection(workspaceId, removing.id);
+                  await client.removeStorageConnection(workspaceId, removing.id, removing.team?.version);
                   setRemoving(null);
                   refresh();
                 } catch (cause) {
@@ -251,6 +294,7 @@ function StorageConnectionDialog({
   workspaceId,
   kind,
   connection,
+  canManageTeam,
   onClose,
   onSaved,
 }: {
@@ -258,9 +302,11 @@ function StorageConnectionDialog({
   workspaceId: string;
   kind: StorageKind;
   connection?: StorageConnection;
+  canManageTeam: boolean;
   onClose: () => void;
   onSaved: () => void;
 }) {
+  const [forTeam, setForTeam] = useState(Boolean(connection?.team));
   const [name, setName] = useState(connection?.name ?? "");
   const [values, setValues] = useState<Record<string, string>>(() =>
     connection
@@ -303,7 +349,8 @@ function StorageConnectionDialog({
         await client.testStorageConnection(workspaceId, input.data, connection?.id);
         setTested(true);
       } else {
-        await client.saveStorageConnection(workspaceId, input.data, connection?.id);
+        if (forTeam && !connection) await client.saveTeamStorageConnection(workspaceId, input.data);
+        else await client.saveStorageConnection(workspaceId, input.data, connection?.id, connection?.team?.version);
         onSaved();
         onClose();
       }
@@ -398,8 +445,12 @@ function StorageConnectionDialog({
           {kind === "smb" && (
             <div className="space-y-2">
               <FieldLabel htmlFor="storage-encryption">{t("storage.encryption")}</FieldLabel>
-              <select id="storage-encryption" className="w-full rounded-md border bg-background px-3 py-2 text-sm"
-                value={values.encryption} onChange={(event) => change("encryption", event.target.value)}>
+              <select
+                id="storage-encryption"
+                className="w-full rounded-md border bg-background px-3 py-2 text-sm"
+                value={values.encryption}
+                onChange={(event) => change("encryption", event.target.value)}
+              >
                 <option value="if-offered">{t("storage.encryption_available")}</option>
                 <option value="required">{t("storage.encryption_required")}</option>
               </select>
@@ -497,6 +548,13 @@ function StorageConnectionDialog({
               ))}
             </section>
           )}
+          {!connection && canManageTeam ? (
+            <label className="flex items-center justify-between gap-4 rounded-xl border border-border p-4">
+              <span className="text-sm">{t("storage.available_team")}</span>
+              <Switch checked={forTeam} onCheckedChange={setForTeam} disabled={Boolean(busy)} />
+            </label>
+          ) : null}
+          {forTeam ? <p className="text-xs text-muted-foreground">{t("storage.team_save_description")}</p> : null}
           <div className="space-y-4 rounded-xl border border-border bg-muted/20 p-4">
             <label className="flex items-center justify-between gap-4">
               <span>
@@ -536,7 +594,7 @@ function StorageConnectionDialog({
           </Button>
           <Button type="submit" form="storage-connection-form" disabled={Boolean(busy)}>
             {busy === "save" && <Loader2 className="size-4 animate-spin" />}
-            {connection ? t("storage.save_connection") : t("storage.add")}
+            {forTeam ? t("storage.save_team") : connection ? t("storage.save_connection") : t("storage.add")}
           </Button>
         </DialogFooter>
       </DialogContent>

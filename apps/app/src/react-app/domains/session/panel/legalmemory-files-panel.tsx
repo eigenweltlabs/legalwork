@@ -99,6 +99,7 @@ export function LegalMemoryFilesPanel({
     queryKey: ["storage-roots", workspaceId],
     queryFn: () => client!.storageRoots(workspaceId!),
     enabled: Boolean(client && workspaceId),
+    refetchInterval: 30_000,
     staleTime: 30_000,
     refetchOnWindowFocus: false,
     retry: false,
@@ -108,6 +109,8 @@ export function LegalMemoryFilesPanel({
     window.addEventListener(STORAGE_CHANGED_EVENT, refreshStorage);
     return () => window.removeEventListener(STORAGE_CHANGED_EVENT, refreshStorage);
   }, [storageRoots.refetch]);
+  const storageCatalogRevision = JSON.stringify(storageRoots.data?.roots.map((root) => [root.id, root.revision, root.writable]));
+  const storageRefreshKey = `${storageRevision}:${storageCatalogRevision}`;
   const hasStorage = Boolean(storageRoots.data?.roots.length);
 
   const rootsQuery = useQuery({
@@ -351,12 +354,13 @@ export function LegalMemoryFilesPanel({
 
         {client && workspaceId && hasStorage ? (
           <div className={cn("min-h-0 overflow-y-auto", rootsQuery.data?.roots.length ? "max-h-[60%] shrink-0 border-b border-border/50" : "flex-1")}>
-            {searchQuery ? <StorageDriveSearch key={`${workspaceId}:${searchQuery}:${storageRevision}`} client={client} workspaceId={workspaceId} roots={storageRoots.data!.roots} query={searchQuery} refreshKey={storageRevision} onOpenFile={onOpenStorageFile} /> : null}
+            {searchQuery ? <StorageDriveSearch key={`${workspaceId}:${searchQuery}:${storageRefreshKey}`} client={client} workspaceId={workspaceId} roots={storageRoots.data!.roots} query={searchQuery} refreshKey={storageRefreshKey} onOpenFile={onOpenStorageFile} /> : null}
             <div hidden={Boolean(searchQuery)}>
-            <StorageDriveTree key={workspaceId} client={client} workspaceId={workspaceId} roots={storageRoots.data!.roots} refreshKey={storageRevision} onOpenFile={onOpenStorageFile} />
+            <StorageDriveTree key={`${workspaceId}:${storageCatalogRevision}`} client={client} workspaceId={workspaceId} roots={storageRoots.data!.roots} refreshKey={storageRefreshKey} onOpenFile={onOpenStorageFile} />
             </div>
           </div>
         ) : null}
+        {storageRoots.data?.teamError ? <p role="alert" className="px-4 py-2 text-xs text-destructive">{storageRoots.data.teamError}</p> : null}
         {storageRoots.isError ? <div role="alert" className="px-4 py-2 text-xs text-destructive">{storageRoots.error.message}<Button variant="ghost" size="sm" onClick={() => void storageRoots.refetch()}>{t("storage.retry")}</Button></div> : null}
         {storageRoots.isLoading && !hasStorage ? <div className="flex items-center gap-2 px-4 py-2 text-xs text-muted-foreground"><Loader2 className="size-3 animate-spin" />{t("storage.loading")}</div> : null}
 

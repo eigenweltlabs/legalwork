@@ -25,6 +25,7 @@ const sourceArgs = z.object({
 });
 const workspaceSchema = z.object({ items: z.array(z.object({ id: z.string(), path: z.string() })) });
 const rootsSchema = z.object({
+  teamError: z.string().optional(),
   roots: z.array(z.object({ id: z.string(), name: z.string(), kind: z.string(), writable: z.boolean() })),
 });
 const fileSchema = z.object({
@@ -146,8 +147,8 @@ export const LegalWorkStorageTools = async () => ({
       z.object({}),
       async (_args, context) => {
         const current = await workspace(context);
-        const { roots } = rootsSchema.parse(await request(`${base(current.id)}/roots`));
-        return { connections: roots.map(({ id, ...metadata }) => ({ connection_id: id, ...metadata })) };
+        const { roots, teamError } = rootsSchema.parse(await request(`${base(current.id)}/roots`));
+        return { connections: roots.map(({ id, ...metadata }) => ({ connection_id: id, ...metadata })), ...(teamError ? { team_sync_error: teamError } : {}) };
       },
     ),
     storage_get_capabilities: defineTool(

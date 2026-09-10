@@ -13,7 +13,10 @@ const storedSchema = storageInputSchema.extend({
   workspaceId: z.string(),
   updatedAt: z.number(),
 });
-export type StoredStorage = z.infer<typeof storedSchema>;
+export type StoredStorage = z.infer<typeof storedSchema> & {
+  team?: { orgId: string; version: number };
+  configuredSecrets?: StorageSecretKey[];
+};
 const pending = new Map<string, Promise<unknown>>();
 const removedLocalConnection = z.object({ config: z.object({ kind: z.literal("local") }) });
 
@@ -86,7 +89,8 @@ export class StorageStore {
 
 export function publicConnection(item: StoredStorage): StorageConnection {
   const { secrets, workspaceId: _workspaceId, ...publicFields } = item;
-  const configuredSecrets: StorageSecretKey[] = storageSecretKeys.filter((key) => Boolean(secrets[key]));
+  const configuredSecrets: StorageSecretKey[] =
+    item.configuredSecrets ?? storageSecretKeys.filter((key) => Boolean(secrets[key]));
   return { ...publicFields, configuredSecrets };
 }
 

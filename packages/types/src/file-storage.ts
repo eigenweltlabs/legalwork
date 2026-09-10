@@ -104,8 +104,10 @@ export type StorageConnection = Omit<StorageInput, "secrets"> & {
   id: string;
   updatedAt: number;
   configuredSecrets: StorageSecretKey[];
+  team?: { orgId: string; version: number };
 };
-export type StorageRoot = { id: string; name: string; kind: StorageKind; writable: boolean };
+export type StorageTeamStatus = { connected: boolean; canManage: boolean; error?: string };
+export type StorageRoot = { id: string; name: string; kind: StorageKind; writable: boolean; revision?: string };
 export type StorageEntry = {
   path: string;
   name: string;

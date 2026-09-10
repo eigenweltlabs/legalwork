@@ -40,6 +40,7 @@ async function fixture(
         });
       if (url.pathname.endsWith("/roots"))
         return Response.json({
+          teamError: "Team connections could not sync.",
           roots: [
             { id: "one", name: "Same name", kind: "s3", writable: true },
             { id: "two", name: "Same name", kind: "webdav", writable: false },
@@ -109,6 +110,7 @@ test("discovers stable connection IDs in the closest workspace without exposing 
       await plugin.tool.storage_list_connections.execute({}, { directory: join(directory, "nested") }),
     );
     expect(result.connections.map((item: { connection_id: string }) => item.connection_id)).toEqual(["one", "two"]);
+    expect(result.team_sync_error).toBe("Team connections could not sync.");
     expect(calls.at(-1)?.url.pathname).toBe("/workspace/inner/storage/roots");
     expect(calls).toHaveLength(2);
     const missing = JSON.parse(await plugin.tool.storage_list_connections.execute({}, { directory: outside }));

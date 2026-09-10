@@ -5,6 +5,14 @@
 
 export default {
   "storage.tab": "File storage",
+  "storage.team_sync_description": "Your firm’s connections sync automatically. Admins can manage them here or on the platform.",
+  "storage.team_managed": "Managed by your firm",
+  "storage.make_team": "Make available to team",
+  "storage.available_team": "Available to everyone in my firm",
+  "storage.team_save_description": "Changes apply to everyone in your firm. Credentials are encrypted on the platform.",
+  "storage.save_team": "Save for everyone",
+  "storage.remove_team_title": "Remove from the team?",
+  "storage.remove_team_body": "Remove {name} from everyone’s Memory Drive? Files stay where they are.",
   "storage.heading": "Your files, connected",
   "storage.intro": "Connect your firm's files to Memory Drive. Browse folders, upload documents, and edit files in one place.",
   "storage.connect_workspace": "Connect a workspace to manage its file storage.",
