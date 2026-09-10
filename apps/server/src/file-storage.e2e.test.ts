@@ -147,7 +147,7 @@ describe("storage API access and validation", () => {
     const input = storageInputSchema.parse({
       name: "Credentials",
       config: { kind: "s3", bucket: "test", region: "eu-central-1", accessKeyId: "test" },
-      secrets: { secretAccessKey: "private" },
+      secrets: { secretAccessKey: "private", requestHeaders: "X-Api-Key: private-header-value" },
     });
     const id = await connect(input);
     const store = new StorageStore(config);
@@ -156,6 +156,16 @@ describe("storage API access and validation", () => {
     expect(mergeStorageSecrets({ ...input, secrets: { secretAccessKey: "" } }, previous).secrets.secretAccessKey).toBe(
       "",
     );
+    expect(previous.secrets.requestHeaders).toBe("X-Api-Key: private-header-value");
+    expect(mergeStorageSecrets({ ...input, secrets: {} }, previous).secrets.requestHeaders).toBe(
+      previous.secrets.requestHeaders,
+    );
+    expect(mergeStorageSecrets({ ...input, secrets: { requestHeaders: "" } }, previous).secrets.requestHeaders).toBe(
+      "",
+    );
+    const settings = await (await api("GET", "")).text();
+    expect(settings).not.toContain("private-header-value");
+    expect(settings).toContain('"requestHeaders"');
     expect((await stat(store.path)).mode & 0o777).toBe(0o600);
     expect((await new StorageStore(config).get("storage-test", id)).secrets.secretAccessKey).toBe("private");
     await api("DELETE", `/${id}`);

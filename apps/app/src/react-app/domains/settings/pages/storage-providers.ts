@@ -61,6 +61,7 @@ const fieldLabels = {
   passphrase: () => t("storage.field_passphrase"),
   secretAccessKey: () => t("storage.field_secretAccessKey"),
   sessionToken: () => t("storage.field_sessionToken"),
+  requestHeaders: () => t("storage.field_requestHeaders"),
   accountKey: () => t("storage.field_accountKey"),
   sasToken: () => t("storage.field_sasToken"),
   serviceAccount: () => t("storage.field_serviceAccount"),
@@ -70,7 +71,13 @@ export const storageDescription = (kind: StorageKind) => providerDescriptions[ki
 export const storageAuthDescription = (kind: StorageKind) => authDescriptions[kind]();
 
 type ConfigField = { key: string; label: string; placeholder?: string; optional?: boolean; type?: "number" | "url" };
-type SecretField = { key: StorageSecretKey; label: string; multiline?: boolean };
+type SecretField = {
+  key: StorageSecretKey;
+  label: string;
+  multiline?: boolean;
+  placeholder?: string;
+  description?: string;
+};
 const field = (
   key: keyof typeof fieldLabels,
   placeholder?: string,
@@ -152,7 +159,15 @@ export function storageSecretFields(kind: StorageKind): SecretField[] {
     case "sftp":
       return [secret("password"), secret("privateKey", true), secret("passphrase")];
     case "s3":
-      return [secret("secretAccessKey"), secret("sessionToken")];
+      return [
+        secret("secretAccessKey"),
+        secret("sessionToken"),
+        {
+          ...secret("requestHeaders", true),
+          placeholder: "X-Return-Missing-Metadata: true",
+          description: t("storage.request_headers_help"),
+        },
+      ];
     case "azure":
       return [secret("accountKey"), secret("sasToken")];
     case "gcs":

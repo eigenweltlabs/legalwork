@@ -104,7 +104,7 @@ try {
       prefix: "",
       accessKeyId,
     },
-    secrets: { secretAccessKey },
+    secrets: { secretAccessKey, requestHeaders: "X-Return-Missing-Metadata: true\nX-Api-Key: fixture-header-secret" },
   };
   assert.equal((await api("admin", "POST", "/team", input)).status, 201);
   assert.equal((await api("member", "POST", "/team", input)).status, 403);
@@ -131,6 +131,8 @@ try {
   const settings = await (await api("admin", "GET", "")).json();
   assert.equal(settings.connections[0].team.version, 1);
   assert(!JSON.stringify(settings).includes(secretAccessKey));
+  assert(!JSON.stringify(settings).includes("fixture-header-secret"));
+  assert(settings.connections[0].configuredSecrets.includes("requestHeaders"));
   const updated = await api("admin", "PUT", `/${connectionId}?version=1`, {
     ...input,
     name: "Updated by admin",
@@ -192,7 +194,7 @@ try {
   const local = await readFile(process.env.LEGALWORK_STORAGE_STORE!, "utf8").catch(() => "[]");
   assert(!local.includes(secretAccessKey));
   console.log(
-    "PASS: app admin create/update/delete -> encrypted team settings, automatic/optional installation, local promotion, real S3 agent list/search/read/write, read-only rules, sign-out and removal.",
+    "PASS: app admin create/update/delete -> encrypted team settings, automatic/optional installation, local promotion, real S3 agent list/search/read/write with signed custom headers, read-only rules, sign-out and removal.",
   );
 } finally {
   await app.stop();

@@ -78,12 +78,65 @@ const configSchema = z.discriminatedUnion("kind", [
   }),
 ]);
 
+// These remain under secrets: gateways may require private API keys in headers.
+// SDK-managed headers must not override signing, transport or conditional saves.
+const reservedHeaders = new Set([
+  "authorization",
+  "host",
+  "date",
+  "connection",
+  "content-length",
+  "content-type",
+  "content-encoding",
+  "content-md5",
+  "transfer-encoding",
+  "trailer",
+  "te",
+  "expect",
+  "upgrade",
+  "proxy-authorization",
+  "proxy-connection",
+  "range",
+]);
+export const storageRequestHeadersSchema = z
+  .string()
+  .max(16_384)
+  .transform((text, ctx) => {
+    const headers = new Map<string, string>();
+    for (const line of text.split(/\r?\n/).filter((line) => line.trim())) {
+      const separator = line.indexOf(":");
+      const name = line.slice(0, separator).trim().toLowerCase();
+      const value = line.slice(separator + 1).trim();
+      if (
+        separator < 1 ||
+        !/^[!#$%&'*+.^_`|~a-z0-9-]+$/.test(name) ||
+        /[^\t\x20-\x7e]/.test(line) ||
+        !value ||
+        headers.has(name) ||
+        headers.size >= 20
+      ) {
+        ctx.addIssue({ code: "custom", message: "Enter up to 20 unique headers, one Name: value per line." });
+        return z.NEVER;
+      }
+      if (reservedHeaders.has(name) || name.startsWith("x-amz-") || name.startsWith("if-")) {
+        ctx.addIssue({
+          code: "custom",
+          message: "Authentication, transport and conditional headers are managed automatically.",
+        });
+        return z.NEVER;
+      }
+      headers.set(name, value);
+    }
+    return Object.fromEntries(headers);
+  });
+
 export const storageSecretKeys = [
   "password",
   "privateKey",
   "passphrase",
   "secretAccessKey",
   "sessionToken",
+  "requestHeaders",
   "accountKey",
   "sasToken",
   "serviceAccount",
@@ -95,7 +148,16 @@ export const storageInputSchema = z.object({
   enabled: z.boolean().default(true),
   // Older shared connections were always installed automatically.
   teamInstallation: z.enum(["automatic", "optional"]).optional(),
-  secrets: z.partialRecord(z.enum(storageSecretKeys), z.string().max(32_768)).default({}),
+  secrets: z
+    .partialRecord(z.enum(storageSecretKeys), z.string().max(32_768))
+    .superRefine((secrets, ctx) => {
+      if (secrets.requestHeaders === undefined) return;
+      const result = storageRequestHeadersSchema.safeParse(secrets.requestHeaders);
+      if (!result.success)
+        for (const issue of result.error.issues)
+          ctx.addIssue({ code: "custom", path: ["requestHeaders"], message: issue.message });
+    })
+    .default({}),
 });
 
 export type StorageInput = z.infer<typeof storageInputSchema>;
