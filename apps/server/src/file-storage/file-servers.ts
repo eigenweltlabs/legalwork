@@ -1,7 +1,6 @@
 import { webdavSearch } from "./webdav-search.js";
 import { posix } from "node:path";
 import { randomUUID } from "node:crypto";
-import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import { createClient } from "webdav";
 import SftpClient from "ssh2-sftp-client";
@@ -10,6 +9,10 @@ import type { StorageInput } from "@legalwork/types/file-storage";
 import { ApiError } from "../errors.js";
 import {
   boundedSink,
+  receiveFile,
+  receiveWith,
+  sourceStream,
+  sourceSize,
   checkCondition,
   collectStream,
   conflict,
@@ -33,7 +36,7 @@ export function webdavAdapter(input: StorageInput): StorageAdapter {
     password: input.secrets.password || undefined,
   });
   const remote = (path: string) => `/${path}`;
-  const options = { signal: AbortSignal.timeout(60_000) };
+  const options = { signal: AbortSignal.timeout(900_000) };
   const fileStat = (path: string) =>
     missingAsNull(async () => {
       const result = await client.stat(remote(path), options);
@@ -41,6 +44,26 @@ export function webdavAdapter(input: StorageInput): StorageAdapter {
       if (info.type !== "file") throw new ApiError(400, "storage_not_a_file", "Choose a file.");
       return { size: info.size, version: info.etag || "", contentType: info.mime };
     });
+  const download = async (path: string, destination?: string) => {
+    const info = await fileStat(path);
+    if (!info) throw new ApiError(404, "storage_not_found", "File not found.");
+    const received = await receiveFile(
+      client.createReadStream(remote(path), {
+        ...options,
+        headers: info.version && !info.version.startsWith("W/") ? { "If-Match": quoteEtag(info.version) } : {},
+      }),
+      destination,
+    );
+    return {
+      ...info,
+      ...received,
+      version: !info.version
+        ? `sha256:${received.sha256}`
+        : info.version.startsWith("W/")
+          ? info.version
+          : `davhash:${received.sha256}:${Buffer.from(info.version).toString("base64url")}`,
+    };
+  };
   const read = async (path: string) => {
     const info = await fileStat(path);
     if (!info) throw new ApiError(404, "storage_not_found", "File not found.");
@@ -62,6 +85,33 @@ export function webdavAdapter(input: StorageInput): StorageAdapter {
           : `davhash:${hashVersion(data)}:${Buffer.from(info.version).toString("base64url")}`,
     };
   };
+  const upload = async (path: string, data: Buffer | string, contentType: string, condition: WriteCondition) => {
+    if (condition.version?.startsWith("sha256:") || condition.version?.startsWith("W/")) {
+      throw new ApiError(
+        409,
+        "storage_version_unavailable",
+        "This storage does not support safe updates to existing files. Upload a new file instead.",
+      );
+    }
+    let etag = condition.version;
+    if (etag?.startsWith("davhash:")) {
+      // Some implementations derive ETags from coarse timestamps and file size.
+      // Check the bytes too, then retain the provider's atomic If-Match guard.
+      if ((await download(path)).version !== etag) conflict();
+      etag = Buffer.from(etag.slice(etag.lastIndexOf(":") + 1), "base64url").toString("utf8");
+    }
+    const result = await client.putFileContents(remote(path), sourceStream(data), {
+      ...options,
+      overwrite: !condition.createOnly,
+      headers: {
+        "Content-Type": contentType,
+        "Content-Length": String(await sourceSize(data)),
+        ...(etag ? { "If-Match": quoteEtag(etag) } : {}),
+        ...(condition.createOnly ? { "If-None-Match": "*" } : {}),
+      },
+    });
+    if (!result) conflict();
+  };
   return {
     ...webdavSearch(client, input.config.endpoint),
     async list(path, cursor) {
@@ -81,32 +131,9 @@ export function webdavAdapter(input: StorageInput): StorageAdapter {
     },
     stat: fileStat,
     read,
-    async write(path, data, contentType, condition) {
-      if (condition.version?.startsWith("sha256:") || condition.version?.startsWith("W/")) {
-        throw new ApiError(
-          409,
-          "storage_version_unavailable",
-          "This storage does not support safe updates to existing files. Upload a new file instead.",
-        );
-      }
-      let etag = condition.version;
-      if (etag?.startsWith("davhash:")) {
-        // Some implementations derive ETags from coarse timestamps and file size.
-        // Check the bytes too, then retain the provider's atomic If-Match guard.
-        if ((await read(path)).version !== etag) conflict();
-        etag = Buffer.from(etag.slice(etag.lastIndexOf(":") + 1), "base64url").toString("utf8");
-      }
-      const result = await client.putFileContents(remote(path), data, {
-        ...options,
-        overwrite: !condition.createOnly,
-        headers: {
-          "Content-Type": contentType,
-          ...(etag ? { "If-Match": quoteEtag(etag) } : {}),
-          ...(condition.createOnly ? { "If-None-Match": "*" } : {}),
-        },
-      });
-      if (!result) conflict();
-    },
+    download,
+    write: upload,
+    upload,
     async mkdir(path) {
       await client.createDirectory(remote(path), options);
     },
@@ -159,10 +186,34 @@ export async function sftpAdapter(input: StorageInput): Promise<StorageAdapter> 
       const data = sink.data();
       return { data, size: data.length, version: hashVersion(data) };
     };
+    const download = async (path: string, destination?: string) => {
+      const target = await remote(path);
+      const info = await client.stat(target);
+      if (!info.isFile) throw new ApiError(400, "storage_not_a_file", "Choose a file.");
+      const received = await receiveWith((sink) => client.get(target, sink), destination);
+      return { ...received, version: received.sha256 };
+    };
     const fileStat = async (path: string) => {
       if (!(await client.exists(posix.join(root, path)))) return null;
-      const { data: _data, ...info } = await read(path);
-      return info;
+      return download(path);
+    };
+    const upload = async (path: string, data: Buffer | string, contentType: string, condition: WriteCondition) => {
+      const target = await remote(path, true);
+      checkCondition(await fileStat(path), condition);
+      const temporary = posix.join(posix.dirname(target), `.legalwork-${randomUUID()}.tmp`);
+      try {
+        await pipeline(sourceStream(data), client.createWriteStream(temporary, { flags: "wx", mode: 0o600 }));
+        checkCondition(await fileStat(path), condition);
+        if (condition.createOnly) await client.rename(temporary, target);
+        else {
+          await client.chmod(temporary, (await client.stat(target)).mode & 0o777);
+          // OpenSSH's extension replaces the file atomically. If unsupported,
+          // fail while preserving the original instead of truncating it.
+          await client.posixRename(temporary, target);
+        }
+      } finally {
+        await client.delete(temporary, true).catch(() => undefined);
+      }
     };
     return {
       async list(path, cursor) {
@@ -183,24 +234,9 @@ export async function sftpAdapter(input: StorageInput): Promise<StorageAdapter> 
       },
       stat: fileStat,
       read,
-      async write(path, data, _contentType, condition) {
-        const target = await remote(path, true);
-        checkCondition(await fileStat(path), condition);
-        const temporary = posix.join(posix.dirname(target), `.legalwork-${randomUUID()}.tmp`);
-        try {
-          await pipeline(Readable.from(data), client.createWriteStream(temporary, { flags: "wx", mode: 0o600 }));
-          checkCondition(await fileStat(path), condition);
-          if (condition.createOnly) await client.rename(temporary, target);
-          else {
-            await client.chmod(temporary, (await client.stat(target)).mode & 0o777);
-            // OpenSSH's extension replaces the file atomically. If unsupported,
-            // fail while preserving the original instead of truncating it.
-            await client.posixRename(temporary, target);
-          }
-        } finally {
-          await client.delete(temporary, true).catch(() => undefined);
-        }
-      },
+      download,
+      write: upload,
+      upload,
       async mkdir(path) {
         await client.mkdir(await remote(path, true));
       },
@@ -252,11 +288,29 @@ export async function ftpAdapter(input: StorageInput): Promise<StorageAdapter> {
       const data = sink.data();
       return { data, size: data.length, version: hashVersion(data) };
     };
+    const download = async (path: string, destination?: string) => {
+      const { name, existing } = await parent(path);
+      if (!existing?.isFile) throw new ApiError(404, "storage_not_found", "File not found.");
+      const received = await receiveWith((sink) => client.downloadTo(sink, name), destination);
+      return { ...received, version: received.sha256 };
+    };
     const fileStat = (path: string) =>
       missingAsNull(async () => {
-        const { data: _data, ...info } = await read(path);
-        return info;
+        return download(path);
       });
+    const upload = async (path: string, data: Buffer | string, contentType: string, condition: WriteCondition) => {
+      checkCondition(await fileStat(path), condition);
+      const { name } = await parent(path);
+      const temporary = `.legalwork-${randomUUID()}.tmp`;
+      try {
+        await client.uploadFrom(sourceStream(data), temporary);
+        checkCondition(await fileStat(path), condition);
+        await parent(path);
+        await client.rename(temporary, name);
+      } finally {
+        await client.remove(temporary, true).catch(() => undefined);
+      }
+    };
     return {
       async list(path, cursor) {
         await client.cd(root);
@@ -279,19 +333,9 @@ export async function ftpAdapter(input: StorageInput): Promise<StorageAdapter> {
       },
       stat: fileStat,
       read,
-      async write(path, data, _contentType, condition) {
-        checkCondition(await fileStat(path), condition);
-        const { name } = await parent(path);
-        const temporary = `.legalwork-${randomUUID()}.tmp`;
-        try {
-          await client.uploadFrom(Readable.from(data), temporary);
-          checkCondition(await fileStat(path), condition);
-          await parent(path);
-          await client.rename(temporary, name);
-        } finally {
-          await client.remove(temporary, true).catch(() => undefined);
-        }
-      },
+      download,
+      write: upload,
+      upload,
       async mkdir(path) {
         const { name, existing } = await parent(path);
         if (existing) conflict();

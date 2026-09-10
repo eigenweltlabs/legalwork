@@ -1,6 +1,7 @@
 import type { StorageInput } from "@legalwork/types/file-storage";
 import { ApiError } from "../errors.js";
 import { azureAdapter, gcsAdapter, s3Adapter } from "./object-storage.js";
+import { smbAdapter } from "./smb.js";
 import { ftpAdapter, sftpAdapter, webdavAdapter } from "./file-servers.js";
 import { objectPrefix, providerError, type StorageAdapter } from "./common.js";
 
@@ -14,6 +15,9 @@ export async function withStorage<T>(
     if ((input.config.kind === "sftp" || input.config.kind === "ftp") && !input.config.rootPath.startsWith("/"))
       throw new ApiError(400, "invalid_storage_root", "Use an absolute path for the storage root.");
     switch (input.config.kind) {
+      case "smb":
+        adapter = await smbAdapter(input);
+        break;
       case "s3":
         adapter = s3Adapter(input);
         break;

@@ -1,0 +1,267 @@
+diff --git a/dist/client.d.ts b/dist/client.d.ts
+index 901130ffade2fe09ab5395da595cb31fc00e3c69..017dc01da568400ef05828ea07c59dd13f690739 100644
+--- a/dist/client.d.ts
++++ b/dist/client.d.ts
+@@ -15,19 +15,20 @@ export declare class Client {
+     readdir(path: string): Promise<string[]>;
+     readdir(path: string, opts: {
+         withFileTypes: true;
++        pattern?: string;
+     }): Promise<Dirent[]>;
+-    stat(path: string): Promise<FileStat>;
++    stat(path: string, opts?: { followSymlinks?: boolean }): Promise<FileStat>;
+     mkdir(path: string): Promise<void>;
+     rm(path: string): Promise<void>;
+     rmdir(path: string): Promise<void>;
+-    rename(from: string, to: string): Promise<void>;
++    rename(from: string, to: string, opts?: { replace?: boolean }): Promise<void>;
+     watch(path: string, opts?: {
+         recursive?: boolean;
+         signal?: AbortSignal;
+     }): AsyncGenerator<ChangeEvent>;
+     createReadStream(path: string): Readable;
+     private _beginReadStream;
+-    createWriteStream(path: string): Writable;
++    createWriteStream(path: string, opts?: { exclusive?: boolean }): Writable;
+     private _beginWriteStream;
+     listShares(): Promise<ShareInfo[]>;
+     private _pipeTransceive;
+diff --git a/dist/client.js b/dist/client.js
+index 8998d79e324d0ea2d2a0d8b96f9bfcb70bcb582f..223a1eee0895324cf04dc79dedd0addab2d6b140 100644
+--- a/dist/client.js
++++ b/dist/client.js
+@@ -36,6 +36,7 @@ export class Client {
+             timeoutMs: this.opts.connectTimeout ?? 10_000,
+         });
+         this.conn = new Connection(transport);
++        transport.socket.setTimeout(this.opts.requestTimeout ?? 30_000, () => transport.socket.destroy(new Error("SMB request timed out")));
+         const encryption = this.opts.encryption ?? "if-offered";
+         const signing = this.opts.signing ?? "if-offered";
+         const ciphers = encryption === "disabled"
+@@ -106,20 +107,21 @@ export class Client {
+             createOptions: 1, // DIRECTORY_FILE
+             fileAttributes: 0,
+         }, async (open) => {
+-            const entries = await readdirAll(open);
++            const entries = await readdirAll(open, opts?.pattern ?? "*");
+             if (!opts?.withFileTypes)
+                 return entries.map((e) => e.fileName);
+             return entries.map((e) => {
+                 const isDir = (e.fileAttributes & FileAttribute.DIRECTORY) !== 0;
+                 return {
+                     name: e.fileName,
++                    attributes: e.fileAttributes,
+                     isFile: () => !isDir,
+                     isDirectory: () => isDir,
+                 };
+             });
+         });
+     }
+-    async stat(path) {
++    async stat(path, opts = {}) {
+         const { share, rest } = splitSharePath(path);
+         const tree = await this.treeFor(share);
+         return Open.withOpen(tree, {
+@@ -127,7 +129,7 @@ export class Client {
+             desiredAccess: FileAccess.FILE_READ_ATTRIBUTES,
+             shareAccess: ShareAccess.READ | ShareAccess.WRITE | ShareAccess.DELETE,
+             createDisposition: CreateDisposition.OPEN,
+-            createOptions: 0,
++            createOptions: opts.followSymlinks === false ? 0x00200000 : 0, // OPEN_REPARSE_POINT
+             fileAttributes: 0,
+         }, async (open) => metaToStat(open.meta));
+     }
+@@ -167,7 +169,7 @@ export class Client {
+             fileAttributes: 0,
+         }, async () => undefined);
+     }
+-    async rename(from, to) {
++    async rename(from, to, opts = {}) {
+         const f = splitSharePath(from);
+         const t = splitSharePath(to);
+         if (f.share !== t.share) {
+@@ -183,7 +185,7 @@ export class Client {
+             fileAttributes: 0,
+         }, async (open) => {
+             const inner = encodeFileRenameInformation({
+-                replaceIfExists: false,
++                replaceIfExists: opts.replace ?? false,
+                 fileName: toSmbPath(t.rest),
+             });
+             const body = encodeSetInfoRequest({
+@@ -254,22 +256,26 @@ export class Client {
+                 desiredAccess: FileAccess.FILE_READ_DATA | FileAccess.FILE_READ_ATTRIBUTES,
+                 shareAccess: ShareAccess.READ | ShareAccess.WRITE | ShareAccess.DELETE,
+                 createDisposition: CreateDisposition.OPEN,
+-                createOptions: CreateOptions.NON_DIRECTORY_FILE,
++                createOptions: CreateOptions.NON_DIRECTORY_FILE | 0x00200000,
+                 fileAttributes: 0,
+             });
++            if (open.meta.fileAttributes & 0x400) {
++                await open.close();
++                throw new Error("SMB reparse points cannot be read");
++            }
+             const inner = openCreateReadStream(open);
+             inner.on("end", async () => { try {
+                 await open.close();
+             }
+             catch { /* ignore */ } });
+-            inner.on("error", () => { open.close().catch(() => undefined); });
++            inner.on("close", () => { open.close().catch(() => undefined); });
+             cbs.onReady(inner);
+         }
+         catch (err) {
+             cbs.onError(err);
+         }
+     }
+-    createWriteStream(path) {
++    createWriteStream(path, opts = {}) {
+         let inner = null;
+         let connectError = null;
+         const pending = [];
+@@ -304,7 +310,7 @@ export class Client {
+                 cb(err);
+             },
+         });
+-        void this._beginWriteStream(path, {
++        void this._beginWriteStream(path, opts, {
+             onReady: (i) => {
+                 inner = i;
+                 // Drain pending writes in order, then handle pendingFinal
+@@ -337,7 +343,7 @@ export class Client {
+         });
+         return proxy;
+     }
+-    async _beginWriteStream(path, cbs) {
++    async _beginWriteStream(path, opts, cbs) {
+         try {
+             const { share, rest } = splitSharePath(path);
+             const tree = await this.treeFor(share);
+@@ -345,7 +351,7 @@ export class Client {
+                 filename: toSmbPath(rest),
+                 desiredAccess: FileAccess.GENERIC_WRITE | FileAccess.FILE_READ_ATTRIBUTES,
+                 shareAccess: ShareAccess.READ | ShareAccess.WRITE | ShareAccess.DELETE,
+-                createDisposition: CreateDisposition.OVERWRITE_IF,
++                createDisposition: opts.exclusive ? CreateDisposition.CREATE : CreateDisposition.OVERWRITE_IF,
+                 createOptions: CreateOptions.NON_DIRECTORY_FILE,
+                 fileAttributes: 0,
+             });
+diff --git a/dist/connection/connection.js b/dist/connection/connection.js
+index 28949615d752da1428e8772833b16b0ff25477c1..23de2407b81ab3f28321856299474404b7618150 100644
+--- a/dist/connection/connection.js
++++ b/dist/connection/connection.js
+@@ -80,9 +80,11 @@ export class Connection extends EventEmitter {
+         if (this.closed)
+             throw new SmbProtocolError({ status: 0, message: "connection closed" });
+         const charge = opts.creditCharge ?? 1;
+-        if (charge > 0)
+-            await this.credits.take(charge);
+-        const messageId = this.nextMessageId++;
++        // NEGOTIATE encodes zero charge but consumes the initial message credit.
++        await this.credits.take(Math.max(1, charge));
++        if (this.closed) throw new SmbProtocolError({ status: 0, message: "connection closed" });
++        const messageId = this.nextMessageId;
++        this.nextMessageId += BigInt(Math.max(1, charge));
+         const flags = opts.flags ?? 0;
+         const wantEncrypt = opts.encrypt === true && this.encryptor !== null;
+         let header = encodeHeader({
+@@ -269,6 +271,7 @@ export class Connection extends EventEmitter {
+         this.fail(new SmbProtocolError({ status: 0, message: err.message, cause: err }));
+     }
+     fail(err) {
++        this.credits.fail(err);
+         for (const p of this.pendingByMessageId.values())
+             p.reject(err);
+         for (const p of this.pendingByAsyncId.values())
+diff --git a/dist/connection/credits.js b/dist/connection/credits.js
+index 19f6e1bfac3026f0492fe27322376c0f20434600..3e981965ce50e393ca1e39a5e464e33e22c5de46 100644
+--- a/dist/connection/credits.js
++++ b/dist/connection/credits.js
+@@ -14,10 +14,13 @@ export class CreditWindow {
+             this.credits -= n;
+             return Promise.resolve();
+         }
+-        return new Promise((resolve) => {
+-            this.waiters.push({ n, resolve });
++        return new Promise((resolve, reject) => {
++            this.waiters.push({ n, resolve, reject });
+         });
+     }
++    fail(error) {
++        for (const waiter of this.waiters.splice(0)) waiter.reject(error);
++    }
+     release(n) {
+         if (n <= 0)
+             return;
+diff --git a/dist/open/readStream.js b/dist/open/readStream.js
+index 940e4c7e40f001f3e09da582b18598eebc0121b6..a4933cae8c83407a27ae6bdb72754ce34581ec2e 100644
+--- a/dist/open/readStream.js
++++ b/dist/open/readStream.js
+@@ -7,7 +7,7 @@ export function createReadStream(open, opts = {}) {
+         return Readable.from([], { objectMode: false });
+     }
+     const max = open.tree.conn.state?.maxReadSize ?? 65536;
+-    const chunkSize = Math.min(max, opts.highWaterMark ?? max);
++    const chunkSize = Math.min(max, opts.highWaterMark ?? 65536);
+     const concurrency = Math.max(1, Math.min(opts.concurrency ?? 4, 8));
+     let nextOffset = start;
+     let outOffset = start; // next offset we may push
+@@ -23,6 +23,7 @@ export function createReadStream(open, opts = {}) {
+         },
+     });
+     function drain() {
++        if (stream.destroyed) return;
+         while (pushing && buffers.has(outOffset.toString())) {
+             const k = outOffset.toString();
+             const buf = buffers.get(k);
+@@ -35,7 +36,7 @@ export function createReadStream(open, opts = {}) {
+             stream.push(null);
+             return;
+         }
+-        while (inFlight < concurrency && nextOffset <= totalEnd) {
++        while (pushing && inFlight + buffers.size < concurrency && nextOffset <= totalEnd) {
+             const remaining = totalEnd - nextOffset + 1n;
+             const want = remaining > BigInt(chunkSize) ? BigInt(chunkSize) : remaining;
+             const offset = nextOffset;
+@@ -44,6 +45,7 @@ export function createReadStream(open, opts = {}) {
+             inFlight++;
+             readAt(open, offset, length).then((buf) => {
+                 inFlight--;
++                if (buf.length !== length) { stream.destroy(new Error("SMB file changed during download")); return; }
+                 buffers.set(offset.toString(), buf);
+                 drain();
+             }, (err) => {
+diff --git a/dist/open/readdir.js b/dist/open/readdir.js
+index 37bef080bb1cd7be5e045d7e64789dbeeac74ba6..98d3ceb6b264bbe7f104d19e6fff37e3a1181924 100644
+--- a/dist/open/readdir.js
++++ b/dist/open/readdir.js
+@@ -11,7 +11,7 @@ export async function readdirAll(open, pattern = "*") {
+             flags: first ? QueryDirectoryFlag.RESTART_SCANS : 0,
+             fileIndex: 0,
+             fileId: open.fileId,
+-            searchPattern: first ? pattern : "",
++            searchPattern: pattern,
+             outputBufferLength: 65536,
+         });
+         first = false;
+@@ -23,7 +23,7 @@ export async function readdirAll(open, pattern = "*") {
+             encrypt: open.tree.encryptRequired,
+             creditCharge: 1,
+         });
+-        if (resp.header.status === NTStatus.STATUS_NO_MORE_FILES)
++        if (resp.header.status === NTStatus.STATUS_NO_MORE_FILES || resp.header.status === 0xC000000F)
+             break;
+         if (!isSuccess(resp.header.status)) {
+             throw new SmbError({ status: resp.header.status, message: `QUERY_DIRECTORY failed: ${statusName(resp.header.status)}` });
+diff --git a/dist/types.d.ts b/dist/types.d.ts
+index 98924c9aa586157f00d47cb6664b42f6dfbb78a3..1cd8c5a45354febe057e12fb019bec1ba1830d03 100644
+--- a/dist/types.d.ts
++++ b/dist/types.d.ts
+@@ -13,6 +13,7 @@ export interface FileStat {
+     changeTime: Date;
+ }
+ export interface Dirent {
++    attributes: number;
+     name: string;
+     isFile: () => boolean;
+     isDirectory: () => boolean;

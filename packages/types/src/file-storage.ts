@@ -14,7 +14,23 @@ const host = z
   .max(253)
   .regex(/^[a-zA-Z0-9.:[\]-]+$/);
 const port = z.number().int().min(1).max(65535);
+const smbName = z
+  .string()
+  .min(1)
+  .max(255)
+  .regex(/^[^<>:"/\\|?*\x00-\x1f]+$/)
+  .refine((v) => !/[. ]$/.test(v) && v !== "." && v !== "..");
 const configSchema = z.discriminatedUnion("kind", [
+  z.object({
+    kind: z.literal("smb"),
+    host,
+    port: port.default(445),
+    share: smbName,
+    prefix,
+    domain: z.string().default(""),
+    username: z.string().min(1),
+    encryption: z.enum(["required", "if-offered"]).default("if-offered"),
+  }),
   z.object({ kind: z.literal("webdav"), endpoint, username: z.string().default("") }),
   z.object({
     kind: z.literal("s3"),
@@ -99,6 +115,16 @@ export type StorageEntry = {
 };
 export type StoragePage = { entries: StorageEntry[]; nextCursor?: string };
 export type StorageFile = { dataBase64: string; contentType: string; version: string; writable: boolean };
+export type StorageWorkingCopy = {
+  localPath: string;
+  contentType: string;
+  version: string;
+  size: number;
+  updatedAt: number;
+  writable: boolean;
+  localWritable: boolean;
+};
+/** Only legacy inline/base64 responses are bounded; file transfers stream. */
 export const STORAGE_MAX_FILE_BYTES = 50 * 1024 * 1024;
 export const STORAGE_PAGE_SIZE = 100;
 
@@ -112,10 +138,10 @@ export const storageSearchSchema = z.object({
 });
 export type StorageSearchMode = z.infer<typeof storageSearchModeSchema>;
 export type StorageSearch = z.infer<typeof storageSearchSchema>;
-export type StorageSearchPage = StoragePage & { truncated?: boolean };
+export type StorageSearchPage = StoragePage & { truncated?: boolean; scope?: "folder" | "subtree"; path?: string };
 export type StorageCapabilities = {
   read: boolean;
   write: boolean;
   createFolder: boolean;
-  search: { modes: StorageSearchMode[]; pagination: boolean };
+  search: { modes: StorageSearchMode[]; pagination: boolean; scope?: "folder" | "subtree" };
 };

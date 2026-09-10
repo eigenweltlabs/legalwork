@@ -284,7 +284,7 @@ function StorageConnectionDialog({
     setTested(false);
     const config: Record<string, unknown> = { ...values, kind };
     if (!config.endpoint) delete config.endpoint;
-    if (kind === "sftp" || kind === "ftp") config.port = Number(values.port);
+    for (const field of storageFields(kind)) if (field.type === "number") config[field.key] = Number(values[field.key]);
     if (kind === "s3") config.forcePathStyle = values.forcePathStyle === "true";
     const input = storageInputSchema.safeParse({
       name: testing && !name.trim() ? storageLabel(kind) : name,
@@ -394,6 +394,16 @@ function StorageConnectionDialog({
               />
               {t("storage.path_style")}
             </label>
+          )}
+          {kind === "smb" && (
+            <div className="space-y-2">
+              <FieldLabel htmlFor="storage-encryption">{t("storage.encryption")}</FieldLabel>
+              <select id="storage-encryption" className="w-full rounded-md border bg-background px-3 py-2 text-sm"
+                value={values.encryption} onChange={(event) => change("encryption", event.target.value)}>
+                <option value="if-offered">{t("storage.encryption_available")}</option>
+                <option value="required">{t("storage.encryption_required")}</option>
+              </select>
+            </div>
           )}
           {kind === "ftp" && (
             <Field>

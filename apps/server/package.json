@@ -57,6 +57,7 @@
     "jsonc-parser": "^3.2.1",
     "minimatch": "^10.0.1",
     "openai": "^7.8.0",
+    "smb3-client": "0.2.0",
     "ssh2-sftp-client": "^12.1.1",
     "webdav": "^5.10.0",
     "yaml": "^2.6.1",

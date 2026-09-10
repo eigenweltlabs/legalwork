@@ -10,6 +10,7 @@ configuration only; it does not delete source files.
 
 | Type | Configuration and authentication | Directory behavior |
 | --- | --- | --- |
+| Network share (SMB) | Network address, share name, optional folder prefix/domain, port (445 default), username/password. SMB 2.1/3 with required signing and optional required encryption. | Direct directory listing and native filename matching. |
 | WebDAV | HTTP(S) endpoint, optional username/password. Works with standards-compliant WebDAV file servers. | Depth-one PROPFIND; never recursively traverses the share. |
 | S3-compatible | Bucket, region, optional endpoint/prefix/path-style, access key + secret and optional session token; alternatively server AWS credentials. | ListObjectsV2 with `/` delimiter and continuation tokens. Covers AWS S3 and compatible APIs such as MinIO. |
 | Azure Blob Storage | Account, container, optional endpoint/prefix, account key or container SAS. | Hierarchical blob listing with continuation tokens. |
@@ -19,8 +20,7 @@ configuration only; it does not delete source files.
 
 Cloud roots target existing buckets/containers. Folder creation uses zero-byte
 directory markers. Account-based Drive/Dropbox/OneDrive connectors remain in the
-existing Connectors tab. Local folders and OS-mounted SMB/NFS shares are not
-providers in this tab. Older local-folder connection records are ignored and
+existing Connectors tab. SMB connects directly without mounting the share. Local folders and NFS are not providers in this tab. Older local-folder connection records are ignored and
 removed on the next settings write; their source files are untouched.
 
 When using Bun, FTPS requires a server built/run with **Bun 1.4.2+**. The desktop's
@@ -33,36 +33,77 @@ use that version, and older servers return an explicit FTPS runtime error.
 
 Root metadata comes from the local configuration store without touching any
 provider. Expanding a folder fetches that folder only. S3, Azure and GCS use
-provider pagination; WebDAV, SFTP and FTP return a direct-directory
+provider pagination; SMB, WebDAV, SFTP and FTP return a direct-directory
 listing and paginate it into 100-item UI pages. A provider failure is shown on
 the affected folder with Retry, and does not block other roots.
 
 Select a writable folder to upload multiple files, drop files onto it, or create
-a child folder. New uploads reject existing names. Open a file in the existing document sidebar to preview,
-download, replace, or edit it. Connected files use the same document tabs,
-resizable pane, expand control, and unsaved-change protection as workspace files. Text files use a text editor; DOCX, XLSX and PPTX
-reuse the app's existing Office editors and save back to the connected source.
-PDF, image, audio and video files have previews. Other formats can be downloaded
-or replaced. Office-format fidelity follows the existing editors' capabilities.
+a child folder. New uploads reject existing names. Opening a file downloads a working
+copy under `.legalwork/storage-downloads/` in the workspace and opens it in the
+existing document sidebar, with the usual live editing tools and external-app
+controls. Text, DOCX, XLSX and PPTX use the existing editors; PDF, image, audio
+and video have previews. Office-format fidelity follows those editors.
 
-Transfers are limited to **50 MiB per file**, enforced in the UI and server.
-The sidebar's existing LegalMemory search searches indexed LegalMemory sources;
-these direct storage connections are browsed lazily and are not automatically
-indexed or copied into a workspace. Writes affect the source immediately.
+Edits and editor/agent automatic saves update the working copy. **Save…** offers
+**Save to [connection]** to publish it back, or **Save local copy…** to keep a
+separate named file in the workspace. Local save never changes the connected
+file; existing local names are protected. Read-only sources can still be edited
+as local copies when the workspace permits writing. Working copies are retained
+so drafts survive closing the viewer. **Open latest from [connection]** saves the current working copy locally and opens a fresh copy of the source, allowing recovery after a conflict.
+
+Uploads and downloads stream through disk with bounded buffers; the artificial
+50 MiB transfer limit is removed. Provider limits still apply (S3 currently uses
+single PUT, with the provider's 5 GB limit). The legacy base64 API alone retains
+a 50 MiB inline-response limit. The UI and agent use streaming/working-copy
+endpoints. Preview/editor capabilities remain those of the existing viewers;
+large text is paged by the agent without buffering the entire text in memory.
+These connections are not automatically indexed in LegalMemory.
 
 Every edit includes the version read when opening the file. S3/Azure use ETags,
 GCS uses generations, and WebDAV requires a strong ETag for editing and also
 checks a content hash to catch implementations that reuse ETags for rapid edits. A WebDAV
 server without one remains browsable and supports new-file uploads.
-SFTP and FTP saves compare content hashes before replacement. SFTP/FTP
+SMB, SFTP and FTP saves compare content hashes before replacement. SMB/SFTP/FTP
 stage replacements before renaming, and this server serializes mutations of
 each connected path. SFTP servers lacking POSIX rename preserve the original
 and reject replacement rather than truncating it. File-server protocols cannot
 provide atomic compare-and-swap against external writers; an external change
 between the final hash check and rename can still race. Cloud preconditions
 provide stronger concurrency guarantees. Conflicts retain the editor's draft,
-which can be downloaded before reloading. Closing or reloading a dirty editor
+which remains in the workspace copy. Closing or reloading a dirty editor
 requires an explicit discard.
+
+## SMB and RA-MICRO shares
+
+For a path like `\\OFFICE-PC\RA-MICRO\Documents`, enter address `OFFICE-PC`,
+share `RA-MICRO`, prefix `Documents`, and the account that can access that share.
+Enter the Windows domain separately when required. Signing is always required;
+SMB 3 encryption can be required in Settings. NTLMv2 accounts are supported;
+Kerberos-only authentication, DFS referrals and SMB 1 are not implemented.
+Use the actual share address rather than a DFS namespace.
+
+The agent's native `name` search uses SMB QUERY_DIRECTORY and reports
+`search.scope: "folder"`. It matches names in the selected directory, with
+100-result pages; it does not claim recursive or full-text search. The agent can
+search multiple configured connections and must identify each folder searched.
+SMB junctions/reparse points are excluded, and Windows traversal, device names,
+alternate data streams and wildcard file paths are rejected.
+
+This provides file access to shared RA-MICRO folders. It does not interpret
+RA-MICRO databases, matter metadata or application-level permissions, and does
+not register new files in E-Akte. Actual RA-MICRO/Windows installations were not
+available for testing. Use share/account permissions appropriate to the files.
+Staged replacements require directory rename/delete permissions and inherit
+that directory's ACL, like a new uploaded file; external writers can still race
+the final content check. Busy/locked files fail without truncating the original.
+
+The pinned `smb3-client` dependency is alpha software. The checked-in pnpm patch
+adds native search patterns, no-follow metadata, exclusive staging and replace
+rename, fixes Samba directory continuation and no-match handling, and corrects
+stream backpressure and initial credit accounting. It also applies idle timeouts
+and releases cancelled streams/credit waiters. Both server and Electron package
+include the patched dependency. Reference tests use real Samba 4.17.12 with
+required SMB 3 encryption; a separate SMB 2.1 share verified required signing.
 
 ## Ownership and credentials
 
@@ -96,6 +137,10 @@ authentication and role model.
 | `GET /:storageId/capabilities` | Read/write access and supported native search modes |
 | `GET /:storageId/search?mode=…&query=…&path=…&cursor=…` | Scoped native search with provider pagination or truncation |
 | `GET /:storageId/children?path=…&cursor=…` | One folder page, optional continuation cursor |
+| `POST /:storageId/checkout` | Stream a source into a workspace working copy: `{path}`; returns local path, version, size and write capabilities |
+| `POST/PUT /:storageId/content?path=…&version=…` | Raw streaming upload/create or versioned replacement |
+| `POST /:storageId/from-workspace` | Publish `{path, localPath, mode, version?, contentType?}` from a workspace file |
+| `POST /:storageId/local-copy` | Keep `{localPath, targetPath}` exclusively inside the workspace; does not write the source |
 | `GET /:storageId/file?path=…` | Base64 content, content type, version and writable flag |
 | `POST /:storageId/file` | New upload: `{path, dataBase64, contentType}` |
 | `PUT /:storageId/file` | Edit: same body plus required `version` |
@@ -132,6 +177,7 @@ never included in tool results.
 | S3-compatible, Azure Blob | `path_prefix`: case-sensitive start of a relative object path, with continuation pages |
 | Google Cloud Storage | `path_prefix`, plus literal filename `name` matching via `matchGlob`, with continuation pages |
 | WebDAV | `name` and/or `content` when discovered through RFC 5323; optional operators are probed if schema discovery is unavailable |
+| SMB | `name`: native literal filename matching in immediate children of the supplied folder, with 100-result pages |
 | SFTP, FTP/FTPS | No standard search; browse folders |
 
 Search respects the configured connection root and optional folder scope. It
@@ -145,6 +191,7 @@ unsupported source is an explicit per-connection error, never an empty success.
 
 The adapters follow the providers' reference APIs and use their maintained SDKs:
 
+- [SMB QUERY_DIRECTORY](https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-smb2/10906442-294c-46d3-8515-c277efe1f752) and [smb3-client](https://github.com/euricojardim/smb3-client)
 - [S3 ListObjectsV2](https://docs.aws.amazon.com/AmazonS3/latest/API/API_ListObjectsV2.html)
 - [Azure Blob hierarchical listing](https://learn.microsoft.com/en-us/azure/storage/blobs/storage-blobs-list-javascript)
 - [GCS objects.list](https://docs.cloud.google.com/storage/docs/json_api/v1/objects/list)
@@ -154,7 +201,7 @@ The adapters follow the providers' reference APIs and use their maintained SDKs:
 - [basic-ftp](https://github.com/patrickjuchli/basic-ftp)
 
 See [reference fixture setup](../scripts/storage-fixtures/README.md) for MinIO,
-Azurite, fake-gcs-server, WsgiDAV, AsyncSSH and FTP/FTPS servers, integration
+Azurite, fake-gcs-server, Samba, WsgiDAV, AsyncSSH and FTP/FTPS services, integration
 tests, an isolated dev app with seeded documents, and their backing data locations.
 The dev app makes actual protocol requests to running reference services: MinIO,
 WsgiDAV, AsyncSSH, and pyftpdlib. Azure and GCS tests use Azurite and
@@ -166,23 +213,24 @@ files. WebDAV SEARCH discovery, native query construction and partial results
 use HTTP contract fixtures; WsgiDAV does not implement SEARCH. Agent tests cover
 multiple sources, per-source failures/cursors and workspace path confinement.
 The live reference tests also run agent create/read/edit/download/save-back flows
-over all seven protocol variants. These test fixtures are separate from the dev
+over all eight protocol variants, including 51 MiB transfers, explicit local/remote saves and conflict retention. These test fixtures are separate from the dev
 app connections.
 
 Validation on Bun 1.4.2 (September 9–10, 2026):
 
 | Check | Result |
 | --- | --- |
-| `pnpm --filter legalwork-server test` | 591 passed; 16 optional tests skipped |
+| `pnpm --filter legalwork-server test` | 595 passed; 17 optional tests skipped |
 | `pnpm --filter @legalwork/app test` | 410 passed |
 | `pnpm --filter @legalwork/desktop test` | 101 passed; 1 skipped |
-| Reference fixtures with `LEGALWORK_STORAGE_INTEGRATION=1` | 16 passed, covering six provider types and both FTP/FTPS |
+| Reference fixtures with `LEGALWORK_STORAGE_INTEGRATION=1` | 18 passed, covering seven provider types and both FTP/FTPS |
+| Working-copy/path tests | 3 passed; workspace escape, interrupted downloads, existing-file protection, Windows names |
 | WebDAV SEARCH and agent contract tests | 10 passed; multiple sources, partial failures, cursors, scoped queries and document save-back |
 | Server/app typechecks, app `test:i18n`, and `node scripts/i18n-audit.mjs --ci` | Passed |
 | `pnpm test:e2e` | Passed with an isolated workspace and OpenCode sidecar |
 | Server `build`, `build:bin`, and `pnpm build:ui` | Passed; existing UI chunk-size warnings remain |
-| Built Node modules with TypeScript stripping disabled | Imported successfully; all six adapters listed/read fixture files |
-| Built storage plugin + running OpenCode engine | All seven tools registered with argument schemas; packaged Node plugin queried six fixture connections and searched multiple sources |
+| Built Node modules with TypeScript stripping disabled | Imported successfully; seven adapters verified, including encrypted SMB with a 51 MiB hash check and versioned writes |
+| Built storage plugin + running OpenCode engine | All seven tools registered with argument schemas; packaged Node plugin searched SMB and GCS together and read the SMB working copy |
 | Compiled server HTTP smoke test | All six roots listed/read successfully |
 
 Browser verification covered adding/testing/editing settings while retaining
@@ -190,18 +238,19 @@ hidden credentials, lazy nested folder requests, sidebar upload and folder
 creation, text and DOCX saves verified in the source files, stale-write
 conflicts retaining drafts, unsaved-change confirmation, and read-only FTPS. Sidebar regression checks cover opening storage tabs outside
 a chat, source isolation, tab deduplication, transcript refreshes, and cancellation
-of tab close/switch with an unsaved draft. Text and DOCX edits were also saved
-from the sidebar and verified in the original files.
+of tab close/switch with an unsaved draft. The September 10 follow-up also verified a 51 MiB upload through the browser file picker, SMB text local-save/source-unchanged followed by explicit publish, a CSV cell edit published through the shared Save menu, a DOCX edit verified in the Samba source, and opening the latest source into a fresh working copy.
 ## Screenshots
 
-The reference workspace contains six connections, explicitly named **Test**. The settings page manages
+The reference workspace contains seven connections, explicitly named **Test**. The settings page manages
 connections and permissions; Memory Drive loads folders as they are opened.
 
 ![File storage settings with connected providers](images/file-storage/settings.png)
 
 ![Memory Drive with a nested matter folder, upload, and new-folder controls](images/file-storage/memory-drive.png)
 
-![A connected document open and saved in the existing sidebar](images/file-storage/document-sidebar.png)
+![SMB configuration](images/file-storage/smb-settings.png)
+
+![A connected file with explicit remote/local save choice](images/file-storage/working-copy-save.png)
 
 Additional screenshots and a browser recording are saved locally under
 `output/playwright/`.

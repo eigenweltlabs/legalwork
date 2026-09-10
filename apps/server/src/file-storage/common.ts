@@ -1,5 +1,8 @@
 import { createHash } from "node:crypto";
-import { Readable, Writable } from "node:stream";
+import { createReadStream, createWriteStream } from "node:fs";
+import { stat, unlink } from "node:fs/promises";
+import { pipeline } from "node:stream/promises";
+import { Readable, Transform, Writable } from "node:stream";
 import type {
   StorageEntry,
   StoragePage,
@@ -12,6 +15,7 @@ import { ApiError } from "../errors.js";
 
 export type FileInfo = { size: number; version: string; contentType?: string };
 export type FileData = FileInfo & { data: Buffer };
+export type DownloadedFile = FileInfo & { sha256: string };
 export type WriteCondition = { version?: string; createOnly?: boolean };
 export interface StorageAdapter {
   list(path: string, cursor?: string): Promise<StoragePage>;
@@ -19,7 +23,9 @@ export interface StorageAdapter {
   search?(input: StorageSearch): Promise<StorageSearchPage>;
   stat(path: string): Promise<FileInfo | null>;
   read(path: string): Promise<FileData>;
+  download(path: string, destination?: string): Promise<DownloadedFile>;
   write(path: string, data: Buffer, contentType: string, condition: WriteCondition): Promise<void>;
+  upload(path: string, source: string, contentType: string, condition: WriteCondition): Promise<void>;
   mkdir(path: string): Promise<void>;
   close?(): Promise<void>;
 }
@@ -69,7 +75,12 @@ export function pageEntries(entries: StorageEntry[], cursor?: string): StoragePa
 }
 
 export function ensureFileSize(size: number) {
-  if (size > STORAGE_MAX_FILE_BYTES) throw new ApiError(413, "storage_file_too_large", "Files can be up to 50 MiB.");
+  if (size > STORAGE_MAX_FILE_BYTES)
+    throw new ApiError(
+      413,
+      "storage_file_too_large",
+      "This file is too large for an inline response. Open a workspace copy or use a streaming transfer.",
+    );
 }
 
 export function boundedSink() {
@@ -79,7 +90,13 @@ export function boundedSink() {
     write(chunk: Buffer, _encoding, callback) {
       size += chunk.length;
       if (size > STORAGE_MAX_FILE_BYTES)
-        return callback(new ApiError(413, "storage_file_too_large", "Files can be up to 50 MiB."));
+        return callback(
+          new ApiError(
+            413,
+            "storage_file_too_large",
+            "This file is too large for an inline response. Open a workspace copy instead.",
+          ),
+        );
       chunks.push(Buffer.from(chunk));
       callback();
     },
@@ -104,6 +121,50 @@ export async function collectStream(stream: AsyncIterable<Uint8Array | string>):
 }
 
 export const hashVersion = (data: Buffer) => createHash("sha256").update(data).digest("hex");
+
+/** Both callback-based protocols and Node streams share the same bounded sink. */
+export async function receiveWith(produce: (sink: Writable) => Promise<unknown>, destination?: string) {
+  const hash = createHash("sha256");
+  let size = 0;
+  let created = false;
+  const meter = new Transform({
+    transform(chunk: Buffer, _encoding, callback) {
+      size += chunk.length;
+      hash.update(chunk);
+      callback(null, chunk);
+    },
+  });
+  const sink = destination
+    ? createWriteStream(destination, { flags: "wx", mode: 0o600 })
+    : new Writable({
+        write(_chunk, _encoding, callback) {
+          callback();
+        },
+      });
+  sink.once("open", () => {
+    created = true;
+  });
+  const completed = pipeline(meter, sink);
+  // Attach a handler before the producer starts so early disk failures are observed.
+  completed.catch(() => undefined);
+  try {
+    await produce(meter);
+    meter.end();
+    await completed;
+    return { size, sha256: hash.digest("hex") };
+  } catch (error) {
+    meter.destroy(error instanceof Error ? error : new Error("Transfer failed"));
+    await completed.catch(() => undefined);
+    if (created && destination) await unlink(destination).catch(() => undefined);
+    throw error;
+  }
+}
+export const receiveFile = (stream: AsyncIterable<Uint8Array | string>, destination?: string) =>
+  receiveWith((sink) => pipeline(stream, sink), destination);
+export const sourceStream = (source: Buffer | string) =>
+  typeof source === "string" ? createReadStream(source) : Readable.from(source);
+export const sourceSize = async (source: Buffer | string) =>
+  typeof source === "string" ? (await stat(source)).size : source.length;
 export function conflict(): never {
   throw new ApiError(
     409,
@@ -128,7 +189,12 @@ export function providerError(error: unknown): ApiError {
           : undefined;
   const metadata =
     "$metadata" in record && typeof record.$metadata === "object" && record.$metadata !== null ? record.$metadata : {};
-  const httpStatus = "httpStatusCode" in metadata ? metadata.httpStatusCode : status;
+  const httpStatus =
+    "httpStatusCode" in metadata
+      ? metadata.httpStatusCode
+      : "code" in record && typeof record.code === "string" && record.code.startsWith("E")
+        ? record.code
+        : status;
   if (["409", "412", "EEXIST", "PreconditionFailed"].includes(String(httpStatus)))
     return new ApiError(
       409,

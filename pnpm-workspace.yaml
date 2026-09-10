@@ -38,3 +38,4 @@ patchedDependencies:
   '@eigenpal/docx-editor-core@1.8.3': patches/@eigenpal__docx-editor-core@1.8.3.patch
   '@eigenpal/docx-editor-react@1.8.3': patches/@eigenpal__docx-editor-react@1.8.3.patch
   pptx-react-viewer@3.5.4: patches/pptx-react-viewer@3.5.4.patch
+  smb3-client@0.2.0: patches/smb3-client@0.2.0.patch

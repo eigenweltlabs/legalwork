@@ -17,6 +17,7 @@ patchedDependencies:
   '@eigenpal/docx-editor-core@1.8.3': a852dfc46ccb55254be612de43b0993f2bb75043a7164a1221d6904f45f5c87a
   '@eigenpal/docx-editor-react@1.8.3': 0d08ecc710bd4527a6d0c3627ff58df001629bdd3a64408dc1b956a7ef4d1457
   pptx-react-viewer@3.5.4: 20b354d293c6d6a9e93e8210d1d7798e269979150b9bad56607c7077173994ae
+  smb3-client@0.2.0: 6750c79b7b43bafb5401de9ce8b3aaddd1332b0bc77dccc00e118c2e1d064a9d
 
 importers:
 
@@ -331,6 +332,9 @@ importers:
       sherpa-onnx-node:
         specifier: 1.13.3
         version: 1.13.3
+      smb3-client:
+        specifier: 0.2.0
+        version: 0.2.0(patch_hash=6750c79b7b43bafb5401de9ce8b3aaddd1332b0bc77dccc00e118c2e1d064a9d)
       ssh2-sftp-client:
         specifier: ^12.1.1
         version: 12.1.1
@@ -475,6 +479,9 @@ importers:
       openai:
         specifier: ^7.8.0
         version: 7.8.0(@aws-sdk/credential-provider-node@3.972.82)(@smithy/signature-v4@5.7.3)(zod@4.3.6)
+      smb3-client:
+        specifier: 0.2.0
+        version: 0.2.0(patch_hash=6750c79b7b43bafb5401de9ce8b3aaddd1332b0bc77dccc00e118c2e1d064a9d)
       ssh2-sftp-client:
         specifier: ^12.1.1
         version: 12.1.1
@@ -7684,6 +7691,10 @@ packages:
   smart-buffer@4.2.0:
     resolution: {integrity: sha512-94hK0Hh8rPqQl2xXc3HsaBoOXKV20MToPkcXvwbISWLEs+64sBq5kFgn2kJDHb1Pry9yrP0dxrCI9RRci7RXKg==}
     engines: {node: '>= 6.0.0', npm: '>= 3.0.0'}
+
+  smb3-client@0.2.0:
+    resolution: {integrity: sha512-IqgVczNjD1CcUgA1u4VwXGYxH6mxgwUATYUM+QiSkpW662s/kiWlxs5xnYoilTqQFHg0Xe7GO+QDQZImORau8g==}
+    engines: {node: '>=20'}
 
   socks-proxy-agent@7.0.0:
     resolution: {integrity: sha512-Fgl0YPZ902wEsAyiQ+idGd1A7rSFx/ayC1CQVMw5P+EQx2V0SgpGtf6OKFhVjPflPUl9YMmEOnmfjCdMUsygww==}
@@ -17008,6 +17019,8 @@ snapshots:
     optional: true
 
   smart-buffer@4.2.0: {}
+
+  smb3-client@0.2.0(patch_hash=6750c79b7b43bafb5401de9ce8b3aaddd1332b0bc77dccc00e118c2e1d064a9d): {}
 
   socks-proxy-agent@7.0.0:
     dependencies:

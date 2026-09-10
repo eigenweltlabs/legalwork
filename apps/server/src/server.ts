@@ -1423,7 +1423,7 @@ function createRoutes(
   benchmarkRunner: BenchmarkRunner,
 ): Route[] {
   const routes: Route[] = [];
-  registerStorageRoutes({ routes, config, jsonResponse, readJsonBodyLimited, ensureWritable, requireClientScope, resolveWorkspace });
+  registerStorageRoutes({ routes, config, jsonResponse, readJsonBodyLimited, ensureWritable, requireApproval, requireClientScope, resolveWorkspace });
 
   registerCoreRoutes({
     routes,

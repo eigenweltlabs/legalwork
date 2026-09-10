@@ -1,5 +1,5 @@
 /** @jsxImportSource react */
-import { useEffect, useMemo, useState } from "react";
+import { type RefObject, useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { Loader2, Plus } from "lucide-react";
 
@@ -9,7 +9,13 @@ import { cn } from "@/lib/utils";
 import type { Data } from "./open-target";
 import { t } from "@/i18n";
 
+export type SpreadsheetEditorApi = { save: () => Promise<boolean> };
+
 type ArtifactSpreadsheetEditorProps = {
+  apiRef?: RefObject<SpreadsheetEditorApi | null>;
+  onDirtyChange?: (dirty: boolean) => void;
+  readOnly?: boolean;
+  hideSave?: boolean;
   className?: string;
   name: string;
   content: Data;
@@ -55,7 +61,7 @@ function useSpreadsheet({ name, content, onSave }: UseSpreadsheetProps) {
     setBaseRows(cloneRows(data));
   }, [data]);
 
-  const { mutate: save, isPending: isSaving } = useMutation({
+  const { mutate: save, mutateAsync: saveAsync, isPending: isSaving } = useMutation({
     mutationFn: async () => {
       const serialized = await serializeSpreadsheet(name, rows);
 
@@ -81,12 +87,24 @@ function useSpreadsheet({ name, content, onSave }: UseSpreadsheetProps) {
   const addColumn = () => setRows((current) => current.map((row) => [...row, ""]));
   const discard = () => setRows(cloneRows(baseRows));
 
-  return { rows, error, isLoading, updateCell, addRow, addColumn, discard, isDirty, save, isSaving };
+  return { rows, error, isLoading, updateCell, addRow, addColumn, discard, isDirty, save, saveAsync, isSaving };
 }
 
 export function ArtifactSpreadsheetEditor(props: ArtifactSpreadsheetEditorProps) {
-  const { rows, error, isLoading, updateCell, addRow, addColumn, discard, isDirty, save, isSaving } = useSpreadsheet(props);
+  const { rows, error, isLoading, updateCell, addRow, addColumn, discard, isDirty, save, saveAsync, isSaving } = useSpreadsheet(props);
   const saving = props.saving || isSaving;
+
+  useEffect(() => { props.onDirtyChange?.(isDirty); }, [isDirty, props.onDirtyChange]);
+  useEffect(() => {
+    if (!props.apiRef) return;
+    props.apiRef.current = { save: async () => {
+      if (props.readOnly || isLoading || saving) return false;
+      if (isDirty) await saveAsync();
+      props.onDirtyChange?.(false);
+      return true;
+    } };
+    return () => { if (props.apiRef) props.apiRef.current = null; };
+  }, [props.apiRef, props.readOnly, props.onDirtyChange, isLoading, saving, isDirty, saveAsync]);
 
   if (isLoading) {
     return (
@@ -106,13 +124,13 @@ export function ArtifactSpreadsheetEditor(props: ArtifactSpreadsheetEditorProps)
 
   return (
     <div className={cn("flex h-full min-h-0 flex-col", props.className)}>
-      <div className="flex shrink-0 items-center gap-2 px-3 py-2 border-b border-border">
-        <Button variant="ghost" size="xs" onClick={addRow}><Plus className="size-3" /> Row</Button>
-        <Button variant="ghost" size="xs" onClick={addColumn}><Plus className="size-3" /> Column</Button>
+      {!props.readOnly && <div className="flex shrink-0 items-center gap-2 px-3 py-2 border-b border-border">
+        <Button variant="ghost" size="xs" onClick={addRow} disabled={saving}><Plus className="size-3" /> Row</Button>
+        <Button variant="ghost" size="xs" onClick={addColumn} disabled={saving}><Plus className="size-3" /> Column</Button>
         <div className="min-w-0 flex-1" />
         <Button variant="ghost" size="xs" onClick={discard} disabled={!isDirty || saving}>Discard</Button>
-        <Button variant="default" size="xs" onClick={() => save()} disabled={!isDirty || saving}>{saving ? "Saving" : "Save"}</Button>
-      </div>
+        {!props.hideSave && <Button variant="default" size="xs" onClick={() => save()} disabled={!isDirty || saving}>{saving ? "Saving" : "Save"}</Button>}
+      </div>}
       <div className="min-h-0 flex-1 overflow-auto">
         <table className="w-full border-collapse text-xs">
           <tbody>
@@ -122,6 +140,8 @@ export function ArtifactSpreadsheetEditor(props: ArtifactSpreadsheetEditorProps)
                   <td key={columnIndex} className="border-b not-first:border-l border-border p-0 align-top">
                     <input
                       className="h-8 w-full min-w-[120px] bg-transparent px-2 text-foreground outline-none focus:bg-muted/50"
+                      readOnly={props.readOnly}
+                      disabled={saving}
                       value={cell}
                       onChange={(event) => updateCell(rowIndex, columnIndex, event.target.value)}
                     />
