@@ -118,7 +118,6 @@ const de = {
   "storage.creating_folder": "Ordner wird erstellt…",
   "storage.invalid_name": "Geben Sie einen Ordnernamen ohne Schrägstriche oder Pfadwechsel an.",
   "storage.upload_progress": "Upload {current}/{total}: {name}",
-  "storage.select_folder": "Öffnen Sie einen Ordner, um Dateien hochzuladen oder einen Ordner zu erstellen. Sie können Dateien auch auf einen beschreibbaren Ordner ziehen.",
   "storage.refresh_folder": "{name} aktualisieren",
   "storage.empty_folder": "Dieser Ordner ist leer.",
   "storage.load_more": "Weitere laden",
