@@ -958,12 +958,6 @@ export function createConnectionsStore(options: {
         await resolveWritableLegalworkTarget();
 
       if (isDesktopRuntime()) {
-        // The shared connector store lives on the LegalWork server, which also
-        // hot-disconnects the server from every workspace's engine instance.
-        if (legalworkClient && legalworkWorkspaceId) {
-          await legalworkClient.removeMcp(legalworkWorkspaceId, name);
-        }
-
         const formattingOptions = { insertSpaces: true, tabSize: 2, eol: "\n" };
         // Earlier desktop builds wrote connectors into the user's global opencode
         // config. Strip a copy left there, or it resurfaces as a read-only entry.
@@ -976,6 +970,12 @@ export function createConnectionsStore(options: {
           await writeOpencodeConfig("global", "", updated.endsWith("\n") ? updated : `${updated}\n`);
         }
 
+        // Remove legacy disk copies before the shared store disconnects every
+        // workspace, so an engine rebuild cannot reconnect a surviving entry.
+        if (legalworkClient && legalworkWorkspaceId) {
+          await legalworkClient.removeMcp(legalworkWorkspaceId, name);
+        }
+
         // The server removal hot-disconnects its engine. Also disconnect the
         // active desktop client directly for configurations that were sourced
         // only from a local file and therefore had no server runtime row.
@@ -983,9 +983,11 @@ export function createConnectionsStore(options: {
         const projectDir = options.projectDir().trim();
         if (activeClient && projectDir) {
           try {
-            await activeClient.mcp.disconnect({ directory: projectDir, name });
-          } catch {
-            // A missing/already-disconnected client is the desired end state.
+            unwrap(await activeClient.mcp.disconnect({ directory: projectDir, name }));
+          } catch (error) {
+            // The server already confirmed disconnection for its engine. With
+            // no server target, do not claim success on a failed direct call.
+            if (!legalworkClient || !legalworkWorkspaceId) throw error;
           }
         }
       } else if (canUseLegalworkServer && legalworkClient && legalworkWorkspaceId) {

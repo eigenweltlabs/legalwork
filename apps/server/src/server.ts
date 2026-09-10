@@ -3478,9 +3478,13 @@ function createRoutes(
       summary: `Removed MCP ${name}`,
       timestamp: Date.now(),
     });
+    // Retry even after persistence was removed: a failed disconnect must not
+    // leave cached clients usable in this workspace or other shared instances.
+    await disconnectMcpFromOpencodeEngine(config, workspace, name);
+    if (removedScopes.includes("global") || removedScopes.length === 0) {
+      await disconnectSharedMcpFromOtherWorkspaces(config, workspace, name);
+    }
     if (removedScopes.length > 0) {
-      await disconnectMcpFromOpencodeEngine(config, workspace, name).catch(() => undefined);
-      if (removedScopes.includes("global")) await disconnectSharedMcpFromOtherWorkspaces(config, workspace, name);
       emitReloadEvent(ctx.reloadEvents, workspace, "mcp", {
         type: "mcp",
         name,
@@ -3515,7 +3519,7 @@ function createRoutes(
     if (!updated) {
       throw new ApiError(404, "mcp_not_found", `MCP ${name} not found in workspace config`);
     }
-    await syncRuntimeMcpToOpencodeEngine(config, workspace, [name]).catch(() => undefined);
+    await syncRuntimeMcpToOpencodeEngine(config, workspace, [name]);
     await recordAudit(workspace.path, {
       id: shortId(),
       workspaceId: workspace.id,
@@ -4305,15 +4309,19 @@ async function disconnectSharedMcpFromOtherWorkspaces(
   name: string,
 ): Promise<void> {
   await Promise.all(
-    otherLocalWorkspaces(config, origin).map((workspace) =>
-      disconnectMcpFromOpencodeEngine(config, workspace, name).catch(() => undefined),
-    ),
+    otherLocalWorkspaces(config, origin).map(async (workspace) => {
+      // A workspace-specific connector with the same name is independent of
+      // the removed shared entry, including when retrying a failed removal.
+      const items = await listMcp(config, workspace.id, workspace.path);
+      if (items.some((item) => item.name === name)) return;
+      await disconnectMcpFromOpencodeEngine(config, workspace, name);
+    }),
   );
 }
 
 // Counterpart of syncRuntimeMcpToOpencodeEngine for removals: tell the engine
 // to drop the MCP's client so deleted MCPs stop serving tools immediately
-// instead of lingering until the next engine restart. Best-effort.
+// instead of lingering until the next engine restart. Failures reach the UI.
 async function disconnectMcpFromOpencodeEngine(
   config: ServerConfig,
   workspace: WorkspaceInfo,
@@ -4332,7 +4340,7 @@ async function disconnectMcpFromOpencodeEngine(
   if (connection.authHeader) headers.Authorization = connection.authHeader;
 
   const response = await fetch(url, { method: "POST", headers, signal: AbortSignal.timeout(15_000) });
-  if (!response.ok) {
+  if (!response.ok && response.status !== 404) {
     const body = parseOpencodeErrorBody(await response.text());
     throw new ApiError(502, "opencode_mcp_disconnect_failed", `Failed to disconnect MCP ${name} from the engine`, {
       status: response.status,

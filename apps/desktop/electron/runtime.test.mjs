@@ -2,9 +2,12 @@ import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 
 import path from "node:path";
+import os from "node:os";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 
 import {
   commandMatchesPackagedSidecar,
+  mergeRuntimeMcpConfig,
   nodeShimFileName,
   nodeShimScriptContent,
   opencodeHomeEnvFromRoot,
@@ -135,4 +138,39 @@ describe("node shim", () => {
       '@echo off\r\nset ELECTRON_RUN_AS_NODE=1\r\n"C:\\Program Files\\LegalWork\\LegalWork.exe" %*\r\n',
     );
   });
+});
+
+
+describe("runtime MCP config removal", () => {
+  for (const kind of ["xdg", "config", "database"]) {
+    it(`removes from the engine's ${kind} path and preserves other settings`, async () => {
+      const root = await mkdtemp(path.join(os.tmpdir(), "legalwork-mcp-profile-"));
+      const env = kind === "database"
+        ? { LEGALWORK_RUNTIME_DB: path.join(root, "runtime.sqlite") }
+        : kind === "config"
+          ? { LEGALWORK_SERVER_CONFIG: path.join(root, "server.json") }
+          : process.platform === "win32" ? { APPDATA: root } : { XDG_CONFIG_HOME: root };
+      try {
+        const file = await mergeRuntimeMcpConfig("legalmemory", { type: "remote", url: "https://example.test/mcp", enabled: true }, env);
+        assert.equal(file, path.join(root, ...(kind === "xdg" ? ["legalwork"] : []), "runtime-opencode-config.json"));
+        const current = JSON.parse(await readFile(file, "utf8"));
+        current.plugin = ["file:///test/plugin.js"];
+        current.mcp.other = { type: "remote", url: "https://other.test/mcp" };
+        await writeFile(file, JSON.stringify(current));
+        await mergeRuntimeMcpConfig("legalmemory", null, env);
+        const result = JSON.parse(await readFile(file, "utf8"));
+        assert.equal(result.mcp.legalmemory, undefined);
+        assert.deepEqual(result.mcp.other, current.mcp.other);
+        assert.deepEqual(result.plugin, current.plugin);
+        // Retrying a removal must stay disconnected.
+        await mergeRuntimeMcpConfig("legalmemory", null, env);
+        assert.deepEqual(JSON.parse(await readFile(file, "utf8")), result);
+        await writeFile(file, "{broken");
+        await assert.rejects(mergeRuntimeMcpConfig("legalmemory", null, env));
+        assert.equal(await readFile(file, "utf8"), "{broken");
+      } finally {
+        await rm(root, { recursive: true, force: true });
+      }
+    });
+  }
 });

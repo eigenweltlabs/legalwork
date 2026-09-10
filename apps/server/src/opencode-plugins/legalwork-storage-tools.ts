@@ -103,7 +103,7 @@ function defineTool<T extends z.ZodRawShape>(
     args: args.shape,
     async execute(raw: unknown, context: OpenCodeContext) {
       try {
-        return JSON.stringify(await execute(args.parse(raw ?? {}), context));
+        return JSON.stringify(await execute(args.parse(raw ?? {}), context), null, 2);
       } catch (error) {
         if (error instanceof z.ZodError)
           return JSON.stringify({

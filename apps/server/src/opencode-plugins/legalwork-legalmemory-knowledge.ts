@@ -19,8 +19,6 @@
  * guidance below silently never loads. */
 const LEGALMEMORY_SERVER_NAMES = ["legalmemory", "knowledge-index"];
 
-const CONNECTED_CACHE_MS = 30_000;
-
 const LEGALMEMORY_CONNECTED_INSTRUCTION = `## LegalMemory is connected — the firm's knowledge index
 
 LegalMemory (Knowledge Index) is Eigenwelt Labs' knowledge appliance and LegalWork's sibling product: a continuously synced shadow index of the firm's matters, documents, version chains, decision records, entities, and billing, with source permissions mirrored. It is connected to this workspace right now as an MCP server.
@@ -66,54 +64,49 @@ function connectedServerNames(statusResult: unknown): Set<string> {
   return names;
 }
 
-/** How many servers the status result described, connected or not. Zero means
- * the call told us nothing, not that nothing is configured. */
-function serverCount(statusResult: unknown): number {
-  if (!statusResult || typeof statusResult !== "object") return 0;
-  const data: unknown = "data" in statusResult ? statusResult.data : statusResult;
-  return data && typeof data === "object" ? Object.keys(data).length : 0;
-}
-
 export const LegalWorkLegalMemoryKnowledge = async (pluginInput?: {
   directory?: string;
   client?: McpStatusClient;
 }) => {
-  let connectedCache: { at: number; connected: boolean } | null = null;
-
-  /**
-   * Is LegalMemory connected?
-   *
-   * Fails open. The gate exists so guidance does not dangle over tools that are
-   * not there, which is a cosmetic problem; staying silent when the appliance IS
-   * connected costs the entire feature, which is not. If the status call throws,
-   * returns nothing, or reports no servers at all, we cannot tell — and the
-   * expensive mistake in that situation is silence, so we speak.
-   *
-   * Only a status map that lists servers and does not list LegalMemory among the
-   * connected ones is treated as a real negative.
-   */
-  const legalMemoryConnected = async (): Promise<boolean> => {
-    if (connectedCache?.connected && Date.now() - connectedCache.at < CONNECTED_CACHE_MS) return true;
-    let connected = true;
+  const connected = async (): Promise<Set<string>> => {
     try {
-      const status = await pluginInput?.client?.mcp?.status?.({ directory: pluginInput?.directory });
-      const names = connectedServerNames(status);
-      const knownServers = serverCount(status);
-      // A populated map that omits LegalMemory is the one case we can trust.
-      if (knownServers > 0) {
-        connected = LEGALMEMORY_SERVER_NAMES.some((name) => names.has(name));
-      }
+      return connectedServerNames(await pluginInput?.client?.mcp?.status?.({ directory: pluginInput?.directory }));
     } catch {
-      connected = true;
+      return new Set();
     }
-    connectedCache = { at: Date.now(), connected };
-    return connected;
   };
+  const serverForTool = (tool: string) => LEGALMEMORY_SERVER_NAMES.find(
+    (name) => tool.startsWith(`${name}_`) || tool.startsWith(`${name.replaceAll("-", "_")}_`),
+  );
 
   return {
     "experimental.chat.system.transform": async (_input: unknown, output: { system: string[] }) => {
-      if (await legalMemoryConnected()) {
+      const names = await connected();
+      if (LEGALMEMORY_SERVER_NAMES.some((name) => names.has(name))) {
         output.system.push(LEGALMEMORY_CONNECTED_INSTRUCTION);
+      }
+    },
+    // Tool definitions can survive inside an already-running turn. Check the
+    // live connection again before each call, without a positive cache.
+    "tool.execute.before": async (input: { tool: string }) => {
+      const name = serverForTool(input.tool);
+      if (name && !(await connected()).has(name)) {
+        throw new Error("LegalMemory is disconnected. Reconnect it in Settings before using its tools.");
+      }
+    },
+    // MCP results reach this hook before OpenCode saves oversized output. A
+    // compact JSON page can exceed ripgrep's 64 KiB record limit by itself.
+    "tool.execute.after": async (input: { tool: string }, output: { content?: unknown }) => {
+      if (!serverForTool(input.tool) || !Array.isArray(output.content)) return;
+      for (const item of output.content) {
+        if (!item || typeof item !== "object" || item.type !== "text" || typeof item.text !== "string") continue;
+        if (item.text.length < 16_384) continue;
+        try {
+          const value: unknown = JSON.parse(item.text);
+          if (value && typeof value === "object") item.text = JSON.stringify(value, null, 2);
+        } catch {
+          // Plain text and incomplete JSON must remain verbatim.
+        }
       }
     },
   };
