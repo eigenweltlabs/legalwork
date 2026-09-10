@@ -6,9 +6,7 @@ import {
   ArrowUpRight,
   Check,
   ChevronRight,
-  FolderTree,
   Loader2,
-  LockKeyhole,
   Pencil,
   Plus,
   RefreshCw,
@@ -102,22 +100,6 @@ export function FileStorageView({
           <Plus className="size-4" />
           {t("storage.add")}
         </Button>
-      </div>
-      <div className="grid gap-4 rounded-2xl border border-border/70 bg-muted/20 p-5 sm:grid-cols-2">
-        <div className="flex gap-3">
-          <FolderTree className="mt-0.5 size-5 shrink-0 text-muted-foreground" />
-          <div>
-            <p className="text-sm font-medium">{t("storage.lazy_title")}</p>
-            <p className="mt-1 text-xs leading-5 text-muted-foreground">{t("storage.lazy_body")}</p>
-          </div>
-        </div>
-        <div className="flex gap-3">
-          <LockKeyhole className="mt-0.5 size-5 shrink-0 text-muted-foreground" />
-          <div>
-            <p className="text-sm font-medium">{t("storage.private_title")}</p>
-            <p className="mt-1 text-xs leading-5 text-muted-foreground">{t("storage.private_body")}</p>
-          </div>
-        </div>
       </div>
       {(error || connections.error) && (
         <p

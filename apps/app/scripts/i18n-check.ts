@@ -37,6 +37,8 @@ const placeholders = (value: string): string[] =>
  * Everything else matching English is an untranslated string.
  */
 const GERMAN_KEEPS_ENGLISH = new Set<string>([
+  // Storage protocol names and the shared technical term "Port".
+  "storage.provider_webdav", "storage.provider_sftp", "storage.provider_ftp", "storage.field_port",
   // Tool transcript: loanwords and identical tokens
   "terminal.region_label", "message_list.skill_badge", "benchmark.run_name_placeholder",
   "provider_auth.name", "hub_share.skills", "hub_share.plugins",

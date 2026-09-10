@@ -3,6 +3,7 @@ import { confirmDiscardDocuments } from "../artifacts/docx-document-state";
 import { createJSONStorage, persist } from "zustand/middleware";
 
 import { isCollectibleArtifactTarget, type OpenTarget, type OpenTargetPreview } from "../artifacts/open-target";
+import type { StorageFileSource } from "./storage-file-tab";
 
 export const PERSISTED_PANEL_TAB_STORE_KEY = "legalwork:panel-tabs:v1";
 
@@ -27,6 +28,7 @@ export type ArtifactPanelTab = {
   value?: string;
   size?: number;
   updatedAt?: number;
+  storage?: StorageFileSource;
 }
 
 export type PanelTab = BrowserPanelTab | ArtifactPanelTab;
@@ -103,10 +105,9 @@ function reconcileOpenArtifactTabs(
       const target = targetMap.get(tab.id);
 
       if (!target) {
-        // Tabs opened from the workspace file browser carry their own path and
-        // are not derived from the transcript — reconciling against transcript
-        // targets must not close them.
-        return tab.value ? tab : null;
+        // Workspace and connected-storage tabs carry their own source. A
+        // transcript update must not close directly opened files.
+        return tab.value || tab.storage ? tab : null;
       }
 
       return {
@@ -150,7 +151,8 @@ function isSameTab(left: PanelTab, right: PanelTab) {
     return (
       left.label === right.label &&
       left.preview === right.preview &&
-      left.value === right.value
+      left.value === right.value &&
+      left.storage === right.storage
     );
   }
 

@@ -57,7 +57,7 @@ const configs: StorageInput[] = [
     config: { kind: "gcs", endpoint: "http://127.0.0.1:19444", projectId: "legalwork-test", bucket, prefix: "lawfirm" },
   }),
   storageInputSchema.parse({
-    name: "WebDAV · Firm server",
+    name: "WebDAV · Team documents",
     config: { kind: "webdav", endpoint: "http://127.0.0.1:19280/Demo", username: "legalwork" },
     secrets: { password: "fixture-password" },
   }),

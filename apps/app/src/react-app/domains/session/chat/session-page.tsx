@@ -68,6 +68,8 @@ import { MemoryDriveIcon } from "../panel/memory-drive-icon";
 import { LegalMemoryFilesPanel } from "../panel/legalmemory-files-panel";
 import { TerminalDock } from "../terminal/terminal-dock";
 import { EVALS_PANEL_SESSION_ID, useActivePanelTab, usePanelTabStore } from "../panel/panel-tab-store";
+import { storageFileTab } from "../panel/storage-file-tab";
+import type { StorageEntry, StorageRoot } from "@legalwork/types/file-storage";
 import { useWorkspaceShellLayout } from "../../../shell/workspace-shell-layout";
 import { useControlAction, type LegalworkControlAction } from "../../../shell/control/control-provider";
 import { cn } from "@/lib/utils";
@@ -589,6 +591,14 @@ export function SessionPage(props: SessionPageProps) {
     preserveSidePanelOnPanelOpenRef.current = true;
     setCurrentSidePanel("panel");
   }, [downloadOpenTarget, openTab, props.selectedSessionId, props.selectedWorkspaceDisplay.workspaceType, props.selectedWorkspaceRoot, setCurrentSidePanel]);
+  const openStorageFile = useCallback((root: StorageRoot, file: StorageEntry) => {
+    if (!props.runtimeWorkspaceId) return;
+    const tab = storageFileTab(props.runtimeWorkspaceId, root, file);
+    openTab(panelStateSessionId, tab);
+    if (usePanelTabStore.getState().sessions[panelStateSessionId]?.activeTabId !== tab.id) return;
+    preserveSidePanelOnPanelOpenRef.current = true;
+    setCurrentSidePanel("panel");
+  }, [openTab, panelStateSessionId, props.runtimeWorkspaceId, setCurrentSidePanel]);
   const openLegalMemoryFile = useCallback(async (file: LegalMemoryTreeFile) => {
     const client = props.legalworkServerClient;
     const workspaceId = props.runtimeWorkspaceId;
@@ -871,6 +881,7 @@ export function SessionPage(props: SessionPageProps) {
             client={props.legalworkServerClient}
             workspaceId={props.runtimeWorkspaceId}
             onOpenFile={openLegalMemoryFile}
+            onOpenStorageFile={openStorageFile}
             onConnectLegalMemory={() => {
               closeRightPane();
               props.sidebar.onShowExtensions?.();

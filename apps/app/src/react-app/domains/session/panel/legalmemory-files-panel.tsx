@@ -1,5 +1,6 @@
 /** @jsxImportSource react */
 import { StorageDriveTree } from "./storage-drive-tree";
+import type { StorageEntry, StorageRoot } from "@legalwork/types/file-storage";
 import { STORAGE_CHANGED_EVENT } from "../../settings/pages/storage-providers";
 import { MemoryDriveIcon } from "./memory-drive-icon";
 import * as React from "react";
@@ -50,6 +51,7 @@ type LegalMemoryFilesPanelProps = {
   client: LegalworkServerClient | null;
   workspaceId: string | null;
   onOpenFile: (file: LegalMemoryTreeFile) => Promise<void> | void;
+  onOpenStorageFile: (root: StorageRoot, file: StorageEntry) => void;
   onConnectLegalMemory?: () => void;
   onClose: () => void;
 };
@@ -60,6 +62,7 @@ export function LegalMemoryFilesPanel({
   client,
   workspaceId,
   onOpenFile,
+  onOpenStorageFile,
   onConnectLegalMemory,
   onClose,
 }: LegalMemoryFilesPanelProps) {
@@ -346,7 +349,7 @@ export function LegalMemoryFilesPanel({
 
         {client && workspaceId && hasStorage ? (
           <div className={cn("min-h-0 overflow-y-auto", rootsQuery.data?.roots.length ? "max-h-[60%] shrink-0 border-b border-border/50" : "flex-1")}>
-            <StorageDriveTree key={workspaceId} client={client} workspaceId={workspaceId} roots={storageRoots.data!.roots} refreshKey={storageRevision} />
+            <StorageDriveTree key={workspaceId} client={client} workspaceId={workspaceId} roots={storageRoots.data!.roots} refreshKey={storageRevision} onOpenFile={onOpenStorageFile} />
           </div>
         ) : null}
         {storageRoots.isError ? <div role="alert" className="px-4 py-2 text-xs text-destructive">{storageRoots.error.message}<Button variant="ghost" size="sm" onClick={() => void storageRoots.refetch()}>{t("storage.retry")}</Button></div> : null}

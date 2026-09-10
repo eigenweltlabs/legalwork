@@ -20,7 +20,7 @@ configuration only; it does not delete source files.
 
 Cloud roots target existing buckets/containers. Folder creation uses zero-byte
 directory markers. Native SMB and NFS authentication stays with the operating
-system: mount the share on the LegalWork server, then select **Folder or file share**.
+system: mount the share on the LegalWork server, then select **Folder or network drive**.
 Account-based Drive/Dropbox/OneDrive connectors remain in the existing Connectors tab;
 this tab is for storage protocols and server connections.
 
@@ -39,8 +39,9 @@ listing and paginate it into 100-item UI pages. A provider failure is shown on
 the affected folder with Retry, and does not block other roots.
 
 Select a writable folder to upload multiple files, drop files onto it, or create
-a child folder. New uploads reject existing names. Open a file to preview,
-download, replace, or edit it. Text files use a text editor; DOCX, XLSX and PPTX
+a child folder. New uploads reject existing names. Open a file in the existing document sidebar to preview,
+download, replace, or edit it. Connected files use the same document tabs,
+resizable pane, expand control, and unsaved-change protection as workspace files. Text files use a text editor; DOCX, XLSX and PPTX
 reuse the app's existing Office editors and save back to the connected source.
 PDF, image, audio and video files have previews. Other formats can be downloaded
 or replaced. Office-format fidelity follows the existing editors' capabilities.
@@ -118,15 +119,15 @@ See [reference fixture setup](../scripts/storage-fixtures/README.md) for MinIO,
 Azurite, fake-gcs-server, WsgiDAV, AsyncSSH and FTP/FTPS servers, integration
 tests, and an isolated dev app with seeded documents.
 
-Validation on Bun 1.4.2 (September 9, 2026):
+Validation on Bun 1.4.2 (September 9–10, 2026):
 
 | Check | Result |
 | --- | --- |
 | `pnpm --filter legalwork-server test` | 580 passed; 16 optional tests skipped |
-| `pnpm --filter @legalwork/app test` | 406 passed |
+| `pnpm --filter @legalwork/app test` | 410 passed |
 | `pnpm --filter @legalwork/desktop test` | 101 passed; 1 skipped |
 | Reference fixtures with `LEGALWORK_STORAGE_INTEGRATION=1` | 15 passed, including all seven protocol adapters |
-| Server/app typechecks and app `test:i18n` | Passed |
+| Server/app typechecks, app `test:i18n`, and `node scripts/i18n-audit.mjs --ci` | Passed |
 | `pnpm test:e2e` | Passed with an isolated workspace and OpenCode sidecar |
 | Server `build`, `build:bin`, and `pnpm build:ui` | Passed; existing UI chunk-size warnings remain |
 | Built Node modules with TypeScript stripping disabled | Imported successfully; all seven adapters listed/read fixture files |
@@ -135,7 +136,10 @@ Validation on Bun 1.4.2 (September 9, 2026):
 Browser verification covered adding/testing/editing settings while retaining
 hidden credentials, lazy nested folder requests, sidebar upload and folder
 creation, text and DOCX saves verified in the source files, stale-write
-conflicts retaining drafts, unsaved-change confirmation, and read-only FTPS.
+conflicts retaining drafts, unsaved-change confirmation, and read-only FTPS. Sidebar regression checks cover opening storage tabs outside
+a chat, source isolation, tab deduplication, transcript refreshes, and cancellation
+of tab close/switch with an unsaved draft. Text and DOCX edits were also saved
+from the sidebar and verified in the original files.
 ## Screenshots
 
 The reference workspace contains seven connected roots. The settings page manages
@@ -144,6 +148,8 @@ connections and permissions; Memory Drive loads folders as they are opened.
 ![File storage settings with connected providers](images/file-storage/settings.png)
 
 ![Memory Drive with a nested matter folder, upload, and new-folder controls](images/file-storage/memory-drive.png)
+
+![A connected document open and saved in the existing sidebar](images/file-storage/document-sidebar.png)
 
 Additional screenshots and a browser recording are saved locally under
 `output/playwright/`.

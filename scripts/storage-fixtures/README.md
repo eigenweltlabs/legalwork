@@ -79,7 +79,7 @@ pnpm --filter legalwork-server exec bun scripts/storage-demo.ts
 ```
 
 Open the settings URL printed by the seed script at `http://localhost:15273`.
-Add a **Folder or file share** named `Firm files` pointing at
+Add a **Folder or network drive** named `Firm files` pointing at
 `/tmp/legalwork-storage-fixtures/demo-documents` to test configuration through
 the UI. The other six connections are seeded; FTPS is read-only to demonstrate
 the disabled write controls.
