@@ -108,7 +108,6 @@ export default {
   "storage.creating_folder": "Creating folder…",
   "storage.invalid_name": "Enter a folder name without slashes or traversal segments.",
   "storage.upload_progress": "Uploading {current}/{total}: {name}",
-  "storage.select_folder": "Open a folder to upload files or create a folder. You can also drop files onto a writable folder.",
   "storage.refresh_folder": "Refresh {name}",
   "storage.empty_folder": "This folder is empty.",
   "storage.load_more": "Load more",

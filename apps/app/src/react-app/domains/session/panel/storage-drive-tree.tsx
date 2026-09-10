@@ -156,9 +156,6 @@ export function StorageDriveTree({ client, workspaceId, roots, refreshKey, onOpe
           busy={Boolean(busy)}
         />
       ))}
-      {!selected && roots.length > 0 && (
-        <p className="px-2 pt-2 text-[11px] leading-4 text-muted-foreground">{t("storage.select_folder")}</p>
-      )}
       <Dialog
         open={newFolder}
         onOpenChange={(open) => {
