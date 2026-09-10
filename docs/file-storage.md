@@ -161,7 +161,7 @@ The bundled agent uses one tool set across all providers and multiple connection
 | `storage_list_connections` | Discover enabled connections in the task's workspace; returns `connection_id`, name, type and write access without scanning files |
 | `storage_get_capabilities` | Discover a connection's supported operations and native search modes |
 | `storage_list_folder` | Read one folder page; pass its cursor to continue |
-| `storage_search` | Search selected `connection_ids`; each source returns its own results, cursor or error |
+| `storage_search` | Default `path` mode finds text anywhere in full file paths, including matter/client folders, on every provider; native modes remain available. Each connection returns its own page or error |
 | `storage_search_filenames` | Find filename text across descendants on any provider, using metadata listings; separate continuation cursor per connection |
 | `storage_read_file` | Read bounded UTF-8 text or download a document into the workspace for existing document tools |
 | `storage_write_file` | Create from text/a workspace file, or replace using the version returned by a read |
@@ -173,6 +173,24 @@ to `.legalwork/storage-downloads/`; editing this copy does not update the source
 until `storage_write_file` succeeds. Read-only connections and viewer permissions
 apply to agent writes just as they do to the sidebar. Provider credentials are
 never included in tool results.
+
+For matter questions, the agent searches connected firm records first. It uses
+`storage_search` with `mode=path` for identifiers whose folder location is unknown,
+then reads the matching documents before describing the work performed. This
+metadata scan matches literal text case-insensitively; it does not read contents
+or discover empty folders. Each page reports `scanned`, `complete`, and an optional
+`nextCursor`. Continue unfinished connections before reporting no matches.
+`storage_search_filenames` still matches only filenames, as does the sidebar.
+A completed scan with no matches means no matching file paths were found in the
+searched sources, not that the matter does not exist. Session history is reserved
+for explicit chat-history requests; app databases, logs and disconnected-source
+caches are not substitutes for connected records.
+
+Optional team discovery stays quiet before this running app has loaded shared
+connections for the signed-in firm. Failures no longer add a warning to personal
+storage or agent discovery in that state. A failed refresh after shared
+connections were loaded still reports their unavailability and discards their
+credentials; explicitly requested admin changes still report errors.
 
 | Provider | Native search exposed |
 | --- | --- |
@@ -284,3 +302,11 @@ Validation: `pnpm --filter legalwork-server test` (613 passed, 17 optional tests
 skipped), `pnpm --filter @legalwork/app test` (413 passed),
 `node --test apps/desktop/electron/runtime.test.mjs` (17 passed), server build,
 server/app typechecks, and the real-engine check above passed.
+
+Matter-search follow-up validation:
+
+- `pnpm --filter legalwork-server test`: 622 passed, 11 optional tests skipped.
+- `pnpm --filter @legalwork/app test`: 413 passed; server build and app typecheck passed.
+- `LEGALWORK_STORAGE_INTEGRATION=1 NODE_EXTRA_CA_CERTS=/tmp/legalwork-storage-fixtures/ftps-cert.pem pnpm --filter legalwork-server exec bun test src/file-storage.e2e.test.ts` (Bun 1.4.2): 18 passed against all eight reference services, including recursive agent path searches.
+- Two manual replays with the original model and live connected storage: an existing matter was found via path search and source documents were read; an absent identifier finished after connection discovery and one complete path scan, without searching session history or internal app data. Python was used only to extract downloaded Word documents. These observations are not a deterministic model-routing guarantee. Private transcripts and corpus files are not included here.
+- In the normal dev profile, Settings and Memory Drive returned no initial team-sync warning, personal storage remained searchable, and LegalMemory remained disconnected.

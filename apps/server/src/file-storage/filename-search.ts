@@ -30,9 +30,10 @@ export async function searchFilenames(
 ): Promise<StorageFilenameSearchPage> {
   const root = storagePath(input.path);
   const query = fold(input.query);
+  const match = input.match ?? "filename";
   const flat = Boolean(adapter.listFiles);
   const scope = createHash("sha256")
-    .update(JSON.stringify([connectionRevision, root, query, flat]))
+    .update(JSON.stringify([connectionRevision, root, query, flat, match]))
     .digest("hex");
   let frames: z.infer<typeof frameSchema>[] = [{ name: "", offset: 0 }];
   if (input.cursor) {
@@ -89,11 +90,12 @@ export async function searchFilenames(
       if (!flat) frames.push({ name: relative, offset: 0 });
     } else {
       scanned++;
-      if (fold(item.path.split("/").at(-1)!).includes(query)) entries.push(item);
+      const candidate = match === "path" ? item.path : item.path.split("/").at(-1)!;
+      if (fold(candidate).includes(query)) entries.push(item);
     }
   }
   const nextCursor = frames.length ? Buffer.from(JSON.stringify({ scope, frames })).toString("base64url") : undefined;
   if (nextCursor && nextCursor.length > 65_536)
     throw new ApiError(422, "storage_search_too_deep", "Search within a smaller folder to continue.");
-  return { entries, scanned, ...(nextCursor ? { nextCursor } : {}) };
+  return { entries, scanned, complete: !nextCursor, ...(nextCursor ? { nextCursor } : {}) };
 }

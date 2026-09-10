@@ -476,7 +476,12 @@ async function roundTrip(input: StorageInput) {
   let filenameCursor = filenamePage.nextCursor;
   let checkedFiles = filenamePage.scanned;
   while (filenameCursor) {
-    const next = await api("POST", `/${id}/filename-search`, { query: "IDDEN", path: folder, cursor: filenameCursor }, "viewer");
+    const next = await api(
+      "POST",
+      `/${id}/filename-search`,
+      { query: "IDDEN", path: folder, cursor: filenameCursor },
+      "viewer",
+    );
     expect(next.status).toBe(200);
     const page = await next.json();
     expect(page.entries).toEqual([]);
@@ -485,7 +490,12 @@ async function roundTrip(input: StorageInput) {
   }
   expect(checkedFiles).toBe(input.config.kind === "gcs" ? 107 : 2);
   const { tool: filenameTools } = await LegalWorkStorageTools();
-  const filenameToolResults = JSON.parse(await filenameTools.storage_search_filenames.execute({ connection_ids: [id, "missing-connection"], query: "IDDEN", path: folder }, { directory: temporary }));
+  const filenameToolResults = JSON.parse(
+    await filenameTools.storage_search_filenames.execute(
+      { connection_ids: [id, "missing-connection"], query: "IDDEN", path: folder },
+      { directory: temporary },
+    ),
+  );
   expect(filenameToolResults.results[0].page.entries).toEqual(filenamePage.entries);
   expect(filenameToolResults.results[1].ok).toBe(false);
   const capabilities = await (await api("GET", `/${id}/capabilities`)).json();
@@ -607,6 +617,25 @@ async function agentRoundTrip(id: string, folder: string) {
     await tool.storage_write_file.execute({ ...source, mode: "create", content: "Agent draft" }, context),
   );
   expect(made.result.ok).toBe(true);
+  let cursor: string | undefined;
+  const paths: string[] = [];
+  do {
+    const result = JSON.parse(
+      await tool.storage_search.execute(
+        {
+          connection_ids: [id],
+          query: folder,
+          ...(cursor ? { cursors: { [id]: cursor } } : {}),
+        },
+        context,
+      ),
+    ).results[0];
+    expect(result.ok).toBe(true);
+    paths.push(...result.page.entries.map((item: { path: string }) => item.path));
+    cursor = result.page.nextCursor;
+    expect(result.page.complete).toBe(!cursor);
+  } while (cursor);
+  expect(paths).toContain(source.path);
   const read = JSON.parse(await tool.storage_read_file.execute({ ...source, max_chars: 5 }, context));
   expect(read.text).toBe("Agent");
   expect(read.next_offset).toBe(5);

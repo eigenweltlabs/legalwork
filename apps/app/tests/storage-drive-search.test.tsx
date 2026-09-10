@@ -39,6 +39,7 @@ describe("Memory Drive filename search", () => {
     for (const root of roots)
       seed(cache, root.id, {
         scanned: 1,
+        complete: true,
         entries: [{ name: "contract.docx", path: "nested/contract.docx", kind: "file", size: 20, modifiedAt: null }],
       });
     const html = renderSearch(cache);
@@ -50,7 +51,8 @@ describe("Memory Drive filename search", () => {
   });
   test("does not call an unfinished empty page no matches", () => {
     const cache = new QueryClient();
-    for (const root of roots) seed(cache, root.id, { scanned: 1000, entries: [], nextCursor: "continue" });
+    for (const root of roots)
+      seed(cache, root.id, { scanned: 1000, entries: [], complete: false, nextCursor: "continue" });
     const html = renderSearch(cache);
     expect(html).toContain("files checked");
     expect(html).not.toContain("No matching files");
