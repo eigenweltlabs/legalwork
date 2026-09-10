@@ -14,7 +14,7 @@ type Props = {
   workspaceId: string;
   roots: StorageRoot[];
   query: string;
-  refreshKey: number;
+  refreshKey: number | string;
   onOpenFile: (root: StorageRoot, file: StorageEntry) => void;
 };
 

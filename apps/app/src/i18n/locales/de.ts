@@ -15,6 +15,14 @@
 
 const de = {
   "storage.tab": "Dateispeicher",
+  "storage.team_sync_description": "Die Verbindungen Ihrer Kanzlei werden automatisch synchronisiert. Admins können sie hier oder auf der Plattform verwalten.",
+  "storage.team_managed": "Von Ihrer Kanzlei verwaltet",
+  "storage.make_team": "Für das Team bereitstellen",
+  "storage.available_team": "Für alle in meiner Kanzlei verfügbar",
+  "storage.team_save_description": "Änderungen gelten für alle in Ihrer Kanzlei. Zugangsdaten werden auf der Plattform verschlüsselt.",
+  "storage.save_team": "Für alle speichern",
+  "storage.remove_team_title": "Aus dem Team entfernen?",
+  "storage.remove_team_body": "{name} aus dem Memory Drive aller Teammitglieder entfernen? Die Dateien bleiben an ihrem Speicherort.",
   "storage.heading": "Ihre Dateien, verbunden",
   "storage.intro": "Verbinden Sie Ihre Kanzleidateien mit Memory Drive. Durchsuchen Sie Ordner, laden Sie Dokumente hoch und bearbeiten Sie Dateien an einem Ort.",
   "storage.connect_workspace": "Verbinden Sie einen Arbeitsbereich, um dessen Dateispeicher zu verwalten.",

@@ -1,4 +1,4 @@
-import type { StorageInput, StorageWorkingCopy, StorageConnection, StorageRoot, StoragePage, StorageFilenameSearch, StorageFilenameSearchPage, StorageFile } from "@legalwork/types/file-storage";
+import type { StorageInput, StorageTeamStatus, StorageWorkingCopy, StorageConnection, StorageRoot, StoragePage, StorageFilenameSearch, StorageFilenameSearchPage, StorageFile } from "@legalwork/types/file-storage";
 import type { Message, Part, Session, Todo } from "@opencode-ai/sdk/v2/client";
 import { desktopFetch } from "./desktop";
 import { isDesktopRuntime } from "./runtime-env";
@@ -1980,15 +1980,17 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
         { token, hostToken, method: "POST", body: {}, timeoutMs: timeouts.config },
       ),
     storageConnections: (workspaceId: string) =>
-      requestJson<{ connections: StorageConnection[] }>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/storage`, { token, hostToken }),
-    saveStorageConnection: (workspaceId: string, input: StorageInput, id?: string) =>
-      requestJson<{ connection: StorageConnection }>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/storage${id ? `/${encodeURIComponent(id)}` : ""}`, { token, hostToken, method: id ? "PUT" : "POST", body: input }),
+      requestJson<{ connections: StorageConnection[]; team?: StorageTeamStatus }>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/storage`, { token, hostToken, timeoutMs: 30_000 }),
+    saveStorageConnection: (workspaceId: string, input: StorageInput, id?: string, version?: number) =>
+      requestJson<{ connection: StorageConnection }>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/storage${id ? `/${encodeURIComponent(id)}` : ""}${version ? `?version=${version}` : ""}`, { token, hostToken, method: id ? "PUT" : "POST", body: input, timeoutMs: 60_000 }),
     testStorageConnection: (workspaceId: string, input: StorageInput, id?: string) =>
       requestJson<{ ok: true }>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/storage/test${id ? `?connectionId=${encodeURIComponent(id)}` : ""}`, { token, hostToken, method: "POST", body: input, timeoutMs: 90_000 }),
-    removeStorageConnection: (workspaceId: string, id: string) =>
-      requestJson<{ ok: true }>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/storage/${encodeURIComponent(id)}`, { token, hostToken, method: "DELETE" }),
+    removeStorageConnection: (workspaceId: string, id: string, version?: number) =>
+      requestJson<{ ok: true }>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/storage/${encodeURIComponent(id)}${version ? `?version=${version}` : ""}`, { token, hostToken, method: "DELETE", timeoutMs: 30_000 }),
+    saveTeamStorageConnection: (workspaceId: string, input: StorageInput | { localId: string }) =>
+      requestJson<{ ok: true }>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/storage/team`, { token, hostToken, method: "POST", body: input, timeoutMs: 30_000 }),
     storageRoots: (workspaceId: string) =>
-      requestJson<{ roots: StorageRoot[] }>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/storage/roots`, { token, hostToken }),
+      requestJson<{ roots: StorageRoot[]; teamError?: string }>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/storage/roots`, { token, hostToken, timeoutMs: 30_000 }),
     storageChildren: (workspaceId: string, id: string, path: string, cursor?: string) =>
       requestJson<StoragePage>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/storage/${encodeURIComponent(id)}/children?${new URLSearchParams({ path, ...(cursor ? { cursor } : {}) })}`, { token, hostToken, timeoutMs: 90_000 }),
     storageFilenameSearch: (workspaceId: string, id: string, input: StorageFilenameSearch, signal?: AbortSignal) =>

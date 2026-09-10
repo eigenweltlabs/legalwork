@@ -25,7 +25,7 @@ type TreeProps = {
   client: LegalworkServerClient;
   workspaceId: string;
   roots: StorageRoot[];
-  refreshKey: number;
+  refreshKey: number | string;
   onOpenFile: (root: StorageRoot, file: StorageEntry) => void;
 };
 export function StorageDriveTree({ client, workspaceId, roots, refreshKey, onOpenFile }: TreeProps) {
@@ -241,7 +241,7 @@ function StorageFolder(props: FolderProps) {
   const [open, setOpen] = useState(false);
   const [dragging, setDragging] = useState(false);
   const children = useInfiniteQuery({
-    queryKey: ["storage-children", workspaceId, root.id, path],
+    queryKey: ["storage-children", workspaceId, root.id, path, root.revision],
     queryFn: ({ pageParam }) => client.storageChildren(workspaceId, root.id, path, pageParam),
     initialPageParam: ((): string | undefined => undefined)(),
     getNextPageParam: (page) => page.nextCursor,

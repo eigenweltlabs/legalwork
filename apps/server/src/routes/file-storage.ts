@@ -5,7 +5,12 @@ import { Readable } from "node:stream";
 import { workingCopy, snapshotWorkspaceFile, keepWorkspaceCopy } from "../file-storage/working-copy.js";
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
-import { storageInputSchema, storageSearchSchema, storageFilenameSearchSchema, STORAGE_MAX_FILE_BYTES } from "../file-storage/schema.js";
+import {
+  storageInputSchema,
+  storageSearchSchema,
+  storageFilenameSearchSchema,
+  STORAGE_MAX_FILE_BYTES,
+} from "../file-storage/schema.js";
 import { searchFilenames } from "../file-storage/filename-search.js";
 import { recordAudit } from "../audit.js";
 import { ApiError } from "../errors.js";
@@ -18,6 +23,7 @@ import {
   unsupportedSearch,
 } from "../file-storage/common.js";
 import { withStorage } from "../file-storage/service.js";
+import { TeamStorage, isTeamStorage, teamStorageId } from "../file-storage/team.js";
 import { mergeStorageSecrets, publicConnection, StorageStore } from "../file-storage/store.js";
 import type { ApprovalRequest, ServerConfig, TokenScope, WorkspaceInfo } from "../types.js";
 import { addRoute, type RequestContext, type Route } from "./registry.js";
@@ -55,6 +61,7 @@ export function registerStorageRoutes({
   resolveWorkspace,
 }: Options) {
   const store = new StorageStore(config);
+  const team = new TeamStorage(config);
   // File-server protocols lack conditional writes. Serialize this server's
   // mutations so two LegalWork saves cannot both pass the same version check.
   const pendingWrites = new Map<string, Promise<unknown>>();
@@ -72,8 +79,16 @@ export function registerStorageRoutes({
   const canWrite = (ctx: RequestContext) =>
     !config.readOnly &&
     (ctx.actor?.type === "host" || ctx.actor?.scope === "owner" || ctx.actor?.scope === "collaborator");
+  const lookup = async (workspaceId: string, id: string) => {
+    const item = isTeamStorage(id)
+      ? (await team.list(workspaceId)).connections.find((item) => item.id === id)
+      : await store.get(workspaceId, id);
+    if (!item)
+      throw new ApiError(404, "storage_not_found", "This team connection is unavailable. Refresh Memory Drive.");
+    return item;
+  };
   const selected = async (ctx: RequestContext, writing = false) => {
-    const item = await store.get(await workspace(ctx), ctx.params.storageId);
+    const item = await lookup(await workspace(ctx), ctx.params.storageId);
     if (!item.enabled)
       throw new ApiError(409, "storage_disabled", "Enable this storage connection in Integrations first.");
     if (writing) {
@@ -96,21 +111,30 @@ export function registerStorageRoutes({
         "invalid_storage_configuration",
         parsed.error.issues.map((issue) => `${issue.path.join(".")}: ${issue.message}`).join("; "),
       );
-    const previous = id ? await store.get(await workspace(ctx), id) : undefined;
+    const previous = id ? await lookup(await workspace(ctx), id) : undefined;
     return mergeStorageSecrets(parsed.data, previous);
   };
   addRoute(routes, "GET", base, "host", async (ctx) => {
     requireClientScope(ctx, "owner");
-    return jsonResponse({ connections: (await store.list(await workspace(ctx))).map(publicConnection) });
+    const workspaceId = await workspace(ctx);
+    const shared = await team.list(workspaceId);
+    return jsonResponse({
+      connections: [...(await store.list(workspaceId)), ...shared.connections].map(publicConnection),
+      team: shared.status,
+    });
   });
   addRoute(routes, "GET", `${base}/roots`, "client", async (ctx) => {
-    const connections = await store.list(await workspace(ctx));
+    const workspaceId = await workspace(ctx);
+    const shared = await team.list(workspaceId);
+    const connections = [...(await store.list(workspaceId)), ...shared.connections];
     return jsonResponse({
+      ...(shared.status.error ? { teamError: shared.status.error } : {}),
       roots: connections
         .filter((item) => item.enabled)
         .map((item) => ({
           id: item.id,
           name: item.name,
+          revision: item.team ? `${item.team.orgId}:${item.team.version}` : String(item.updatedAt),
           kind: item.config.kind,
           writable: !item.readOnly && canWrite(ctx),
         })),
@@ -121,12 +145,45 @@ export function registerStorageRoutes({
       requireClientScope(ctx, "owner");
       ensureWritable(config);
       const input = await parsedInput(ctx, ctx.params.storageId);
+      if (method === "PUT" && isTeamStorage(ctx.params.storageId)) {
+        const version = z.coerce.number().int().positive().safeParse(ctx.url.searchParams.get("version"));
+        if (!version.success)
+          throw new ApiError(400, "storage_version_required", "Refresh and reopen this team connection before saving.");
+        const workspaceId = await workspace(ctx);
+        await team.request(workspaceId, "PUT", `/${teamStorageId(ctx.params.storageId)}`, {
+          input,
+          version: version.data,
+        });
+        team.invalidate(workspaceId);
+        const connection = (await team.list(workspaceId, true)).connections.find(
+          (item) => item.id === ctx.params.storageId,
+        );
+        if (!connection)
+          throw new ApiError(503, "storage_team_unavailable", "Saved for your firm. Refresh to sync this connection.");
+        return jsonResponse({ connection: publicConnection(connection) });
+      }
       // Test on demand; saving an unavailable connection is useful for offline networks.
       // Credentials are never tested by writing a probe into a customer's storage.
       const connection = await store.save(await workspace(ctx), input, ctx.params.storageId);
       return jsonResponse({ connection }, method === "POST" ? 201 : 200);
     });
   }
+  addRoute(routes, "POST", `${base}/team`, "host", async (ctx) => {
+    requireClientScope(ctx, "owner");
+    ensureWritable(config);
+    const workspaceId = await workspace(ctx);
+    const raw = await readJsonBodyLimited(ctx.request, 128 * 1024);
+    const localId = typeof raw.localId === "string" ? raw.localId : undefined;
+    const input = localId ? await store.get(workspaceId, localId) : storageInputSchema.safeParse(raw);
+    if ("success" in input && !input.success)
+      throw new ApiError(400, "invalid_storage_configuration", "Check the connection fields.");
+    await team.request(workspaceId, "POST", "", "success" in input ? input.data : input);
+    // Promotion is explicit and the platform save has succeeded. Remove only
+    // this local copy so it does not appear twice in the administrator's app.
+    if (localId) await store.remove(workspaceId, localId);
+    team.invalidate(workspaceId);
+    return jsonResponse({ ok: true }, 201);
+  });
   addRoute(routes, "POST", `${base}/test`, "host", async (ctx) => {
     requireClientScope(ctx, "owner");
     const id = ctx.url.searchParams.get("connectionId") ?? undefined;
@@ -137,7 +194,14 @@ export function registerStorageRoutes({
   addRoute(routes, "DELETE", `${base}/:storageId`, "host", async (ctx) => {
     requireClientScope(ctx, "owner");
     ensureWritable(config);
-    await store.remove(await workspace(ctx), ctx.params.storageId);
+    const workspaceId = await workspace(ctx);
+    if (isTeamStorage(ctx.params.storageId)) {
+      const version = z.coerce.number().int().positive().safeParse(ctx.url.searchParams.get("version"));
+      if (!version.success)
+        throw new ApiError(400, "storage_version_required", "Refresh this team connection before removing it.");
+      await team.request(workspaceId, "DELETE", `/${teamStorageId(ctx.params.storageId)}`, { version: version.data });
+      team.invalidate(workspaceId);
+    } else await store.remove(workspaceId, ctx.params.storageId);
     return jsonResponse({ ok: true });
   });
   addRoute(routes, "GET", `${base}/:storageId/capabilities`, "client", async (ctx) => {
@@ -175,9 +239,11 @@ export function registerStorageRoutes({
     const parsed = storageFilenameSearchSchema.safeParse(await readJsonBodyLimited(ctx.request, 128 * 1024));
     if (!parsed.success) throw new ApiError(400, "invalid_storage_search", "Enter a filename to search for.");
     storagePath(parsed.data.path);
-    return jsonResponse(await withStorage(connection, (adapter) =>
-      searchFilenames(adapter, parsed.data, `${connection.id}:${connection.updatedAt}`, ctx.request.signal),
-    ));
+    return jsonResponse(
+      await withStorage(connection, (adapter) =>
+        searchFilenames(adapter, parsed.data, `${connection.id}:${connection.updatedAt}`, ctx.request.signal),
+      ),
+    );
   });
   addRoute(routes, "GET", `${base}/:storageId/file`, "client", async (ctx) => {
     const connection = await selected(ctx);
