@@ -89,6 +89,8 @@ export function registerStorageRoutes({
   };
   const selected = async (ctx: RequestContext, writing = false) => {
     const item = await lookup(await workspace(ctx), ctx.params.storageId);
+    if (item.team?.installed === false)
+      throw new ApiError(409, "storage_not_installed", "Add this connection from the Team tab in File storage first.");
     if (!item.enabled)
       throw new ApiError(409, "storage_disabled", "Enable this storage connection in Integrations first.");
     if (writing) {
@@ -130,7 +132,7 @@ export function registerStorageRoutes({
     return jsonResponse({
       ...(shared.status.error ? { teamError: shared.status.error } : {}),
       roots: connections
-        .filter((item) => item.enabled)
+        .filter((item) => item.enabled && item.team?.installed !== false)
         .map((item) => ({
           id: item.id,
           name: item.name,
@@ -177,7 +179,24 @@ export function registerStorageRoutes({
     const input = localId ? await store.get(workspaceId, localId) : storageInputSchema.safeParse(raw);
     if ("success" in input && !input.success)
       throw new ApiError(400, "invalid_storage_configuration", "Check the connection fields.");
-    await team.request(workspaceId, "POST", "", "success" in input ? input.data : input);
+    const parsed = storageInputSchema.safeParse({
+      ...("success" in input ? input.data : input),
+      ...(localId && raw.teamInstallation !== undefined ? { teamInstallation: raw.teamInstallation } : {}),
+    });
+    if (!parsed.success) throw new ApiError(400, "invalid_storage_configuration", "Check the connection fields.");
+    const value = parsed.data;
+    const saved = await team.request(workspaceId, "POST", "", value);
+    team.invalidate(workspaceId);
+    if (localId && value.teamInstallation === "optional") {
+      const result = z.object({ connection: z.object({ id: z.string().uuid() }) }).safeParse(saved);
+      if (!result.success)
+        throw new ApiError(
+          502,
+          "storage_team_unavailable",
+          "Shared with your firm. Refresh to add the team connection.",
+        );
+      await team.setInstalled(workspaceId, `team:${result.data.connection.id}`, true);
+    }
     // Promotion is explicit and the platform save has succeeded. Remove only
     // this local copy so it does not appear twice in the administrator's app.
     if (localId) await store.remove(workspaceId, localId);
@@ -189,6 +208,15 @@ export function registerStorageRoutes({
     const id = ctx.url.searchParams.get("connectionId") ?? undefined;
     const input = await parsedInput(ctx, id);
     await withStorage(input, (adapter) => adapter.list(""));
+    return jsonResponse({ ok: true });
+  });
+  addRoute(routes, "POST", `${base}/:storageId/installation`, "host", async (ctx) => {
+    requireClientScope(ctx, "owner");
+    ensureWritable(config);
+    const input = z.object({ installed: z.boolean() }).safeParse(await readJsonBodyLimited(ctx.request, 1024));
+    if (!input.success)
+      throw new ApiError(400, "invalid_storage_installation", "Choose whether to add this connection.");
+    await team.setInstalled(await workspace(ctx), ctx.params.storageId, input.data.installed);
     return jsonResponse({ ok: true });
   });
   addRoute(routes, "DELETE", `${base}/:storageId`, "host", async (ctx) => {

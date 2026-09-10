@@ -95,8 +95,9 @@ export function ExtensionsView(props: ExtensionsViewProps) {
   // Local | Team is the OUTER toggle for the whole Integrations page; the
   // Connectors/Skills/Plugins tabs sit inside it. The sub-views follow this
   // scope via HubScopeContext.
-  const [hubScope, setHubScope] = useState<HubScope>("local");
+  const [selectedScope, setHubScope] = useState<HubScope>("local");
   const teamHub = props.hasTeamHub === true;
+  const hubScope = teamHub || tab === "storage" ? selectedScope : "local";
   const pluginCount = useMemo(() => props.extensions.pluginList().length, [props.extensions]);
 
   const selectTab = (next: ExtensionsTab) => {
@@ -110,10 +111,10 @@ export function ExtensionsView(props: ExtensionsViewProps) {
   return (
     <section className="space-y-7 max-w-5xl w-full animate-in fade-in duration-300">
       {/* Local | Team is the page-level toggle; Connectors/Skills/Plugins sit inside it. */}
-      {teamHub && tab !== "storage" ? (
+      {teamHub || tab === "storage" ? (
         <div className="flex items-center justify-between gap-3">
           <HubScopeToggle scope={hubScope} onChange={setHubScope} />
-          {hubScope === "team" && props.onOpenTeamShare ? (
+          {hubScope === "team" && tab !== "storage" && props.onOpenTeamShare ? (
             <Button variant="outline" onClick={props.onOpenTeamShare}>
               {t("extensions.share_with_firm")}
             </Button>

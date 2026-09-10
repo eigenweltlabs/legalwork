@@ -316,3 +316,12 @@ Viewer/navigation follow-up validation:
 - `pnpm --filter @legalwork/app test`: 416 passed, including independent pane state and migration of saved layouts.
 - `pnpm --filter @legalwork/app typecheck` and `pnpm build:ui`: passed; existing bundle warnings remain.
 - Native Electron: opened nested storage and workspace files with the viewer to the left of navigation; switched sidebars, closed/reopened each pane, and resized/reopened the viewer. Expanded storage folders, the workspace folder, and viewer width were retained. Navigation panes stay mounted after their first use; expanded folders are retained during these interactions, not across an app restart.
+
+Local/Team installation follow-up:
+
+- File storage uses the same Local/Team scope control as the other integrations. Local lists personal and installed team connections; Team lists the firm's shared catalog. Optional connections are installed per workspace. Admins can instead add a connection automatically for everyone from LegalWork or the platform. Existing shared connections retain their automatic behavior.
+- Uninstalling an optional connection removes its root and rejects subsequent file/search calls. Shared credentials are never copied into the local installation record. Changes to installed team configuration continue to sync; missing optional discovery stays quiet.
+- `pnpm --filter @legalwork/app test`: 417 passed. `pnpm --filter legalwork-server test` on Bun 1.4.2: 624 passed, 11 optional tests skipped. App/server typechecks, app `test:i18n`, server build and `pnpm build:ui` passed. An initial Bun 1.3.9 run timed out starting the unrelated OAuth fixture; the complete rerun passed.
+- The platform's cross-repository integration suite passed all 35 tests against real PostgreSQL and MinIO, including optional install/uninstall, agent search/read revocation, automatic policy enforcement and local promotion. Native Electron verified the scope tabs and empty state; synthetic UI fixtures verified member/admin controls.
+
+Tresorit compatibility has been reviewed against its [API reference](https://github.com/tresorit/s3-api#technical-limitations), but is not verified or fully supported yet. The current S3 adapter supports path-style addressing and single-request uploads. Tresorit additionally requires a custom header to discover existing files, has restricted folder listing and cannot create empty folders. These differences need compatibility handling and live-account verification before advertising the complete Memory Drive and agent-search flow as supported.

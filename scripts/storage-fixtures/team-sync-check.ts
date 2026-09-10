@@ -112,6 +112,7 @@ try {
   assert.equal(roots.roots.length, 1);
   const connectionId: string = roots.roots[0].id;
   assert(connectionId.startsWith("team:"));
+  assert.equal((await api("member", "POST", `/${connectionId}/installation`, { installed: false })).status, 409);
   const { tool } = await LegalWorkStorageTools();
   const context = { directory: join(temporary, "member") };
   const connected = JSON.parse(await tool.storage_list_connections.execute({}, context));
@@ -156,10 +157,42 @@ try {
     account: { userId: "member", orgId, orgName: "Test Firm", userEmail: null, userName: null },
   });
   assert.equal((await (await api("member", "GET", "/roots")).json()).roots.length, 0);
+  // Optional catalog entries are available to members only after local opt-in.
+  assert.equal((await api("admin", "POST", "/team", { ...input, teamInstallation: "optional" })).status, 201);
+  const optionalCatalog = await (await api("admin", "GET", "")).json();
+  const optionalId: string = optionalCatalog.connections[0].id;
+  assert.equal(JSON.parse(await tool.storage_list_connections.execute({}, context)).connections.length, 0);
+  assert.equal((await api("member", "POST", `/${optionalId}/installation`, { installed: true })).status, 200);
+  const optionalSource = { ...source, connection_id: optionalId };
+  assert.equal(JSON.parse(await tool.storage_read_file.execute(optionalSource, context)).text, "Shared draft");
+  assert(
+    JSON.stringify(
+      JSON.parse(
+        await tool.storage_search_filenames.execute({ query: "agreement", connection_ids: [optionalId] }, context),
+      ),
+    ).includes("Nested/Agreement.txt"),
+  );
+  assert.equal((await api("member", "POST", `/${optionalId}/installation`, { installed: false })).status, 200);
+  assert.equal(JSON.parse(await tool.storage_list_connections.execute({}, context)).connections.length, 0);
+  assert.equal(JSON.parse(await tool.storage_read_file.execute(optionalSource, context)).ok, false);
+  assert.equal((await api("member", "POST", `/${optionalId}/filename-search`, { query: "agreement" })).status, 409);
+  // Publishing an existing local connection keeps it installed for its owner.
+  const localConnection = await (await api("admin", "POST", "", { ...input, name: "Promoted fixture" })).json();
+  assert.equal(
+    (await api("admin", "POST", "/team", { localId: localConnection.connection.id, teamInstallation: "optional" }))
+      .status,
+    201,
+  );
+  const promotedCatalog = await (await api("admin", "GET", "")).json();
+  assert(!promotedCatalog.connections.some((item: { id: string }) => item.id === localConnection.connection.id));
+  assert.equal(
+    promotedCatalog.connections.find((item: { name: string }) => item.name === "Promoted fixture").team.installed,
+    true,
+  );
   const local = await readFile(process.env.LEGALWORK_STORAGE_STORE!, "utf8").catch(() => "[]");
   assert(!local.includes(secretAccessKey));
   console.log(
-    "PASS: app admin create/update/delete -> encrypted platform -> member auto-sync -> real S3 -> agent list/search/read/write; read-only enforcement, sign-out and removal.",
+    "PASS: app admin create/update/delete -> encrypted team settings, automatic/optional installation, local promotion, real S3 agent list/search/read/write, read-only rules, sign-out and removal.",
   );
 } finally {
   await app.stop();

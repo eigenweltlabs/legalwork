@@ -7,6 +7,7 @@ import type { ServerConfig } from "../types.js";
 import type { StorageTeamStatus } from "@legalwork/types/file-storage";
 import { storageInputSchema, storageSecretKeys } from "./schema.js";
 import type { StoredStorage } from "./store.js";
+import { StorageInstallations } from "./installations.js";
 
 const snapshotSchema = z.object({
   schemaVersion: z.literal(1),
@@ -43,7 +44,22 @@ export class TeamStorage {
   private configured = new Map<string, string>();
   private pending = new Map<string, Promise<Snapshot>>();
   private generations = new Map<string, number>();
-  constructor(private config: ServerConfig) {}
+  private installations: StorageInstallations;
+  constructor(private config: ServerConfig) {
+    this.installations = new StorageInstallations(config);
+  }
+  async setInstalled(workspaceId: string, storageId: string, installed: boolean) {
+    const id = teamStorageId(storageId);
+    const connection = (await this.list(workspaceId, true)).connections.find((item) => item.id === storageId);
+    if (!connection?.team) throw new ApiError(404, "storage_not_found", "This team connection is unavailable.");
+    if (connection.teamInstallation !== "optional") {
+      if (!installed)
+        throw new ApiError(409, "storage_team_required", "Your admin adds this connection automatically.");
+      return;
+    }
+    await this.installations.set({ workspaceId, orgId: connection.team.orgId, id }, installed);
+    this.invalidate(workspaceId);
+  }
   private async identity(workspaceId: string): Promise<Identity | null> {
     const token = await ensureFreshPlatformToken(this.config, workspaceId);
     const connection = await readEigenweltConnection(this.config, workspaceId);
@@ -131,6 +147,7 @@ export class TeamStorage {
         new Set(parsed.data.connections.map((item) => item.id)).size !== parsed.data.connections.length
       )
         throw new ApiError(502, "storage_team_unavailable", "The team connection response was invalid.");
+      const installations = await this.installations.list();
       const current = await this.identity(workspaceId);
       if (
         !current ||
@@ -147,10 +164,22 @@ export class TeamStorage {
           workspaceId,
           configuredSecrets: item.configuredSecrets,
           updatedAt: Date.parse(item.updatedAt),
-          team: { orgId: current.orgId, version: item.version },
+          team: {
+            orgId: current.orgId,
+            version: item.version,
+            installed:
+              item.input.teamInstallation !== "optional" ||
+              installations.some(
+                (installed) =>
+                  installed.workspaceId === workspaceId &&
+                  installed.orgId === current.orgId &&
+                  installed.id === item.id,
+              ),
+          },
         })),
       };
-      if (snapshot.connections.length) this.configured.set(workspaceId, identity.orgId);
+      if (snapshot.connections.some((item) => item.enabled && item.team?.installed))
+        this.configured.set(workspaceId, identity.orgId);
       else this.configured.delete(workspaceId);
       this.cache.set(workspaceId, { identity, snapshot, at: Date.now() });
       return snapshot;
