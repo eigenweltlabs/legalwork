@@ -1,11 +1,10 @@
-import { Cloud, Database, FolderOpen, Globe, HardDrive, KeyRound, Network } from "lucide-react";
+import { Cloud, Database, Globe, HardDrive, KeyRound, Network } from "lucide-react";
 import type { StorageKind, StorageSecretKey } from "@legalwork/types/file-storage";
 import { t } from "@/i18n";
 
 export const STORAGE_CHANGED_EVENT = "legalwork:file-storage-changed";
-export const storageKinds: StorageKind[] = ["local", "webdav", "s3", "azure", "gcs", "sftp", "ftp"];
+export const storageKinds: StorageKind[] = ["webdav", "s3", "azure", "gcs", "sftp", "ftp"];
 export const storageIcons = {
-  local: FolderOpen,
   webdav: Globe,
   s3: Database,
   azure: Cloud,
@@ -14,7 +13,6 @@ export const storageIcons = {
   ftp: Network,
 };
 const providerLabels = {
-  local: () => t("storage.provider_local"),
   webdav: () => t("storage.provider_webdav"),
   s3: () => t("storage.provider_s3"),
   azure: () => t("storage.provider_azure"),
@@ -23,7 +21,6 @@ const providerLabels = {
   ftp: () => t("storage.provider_ftp"),
 };
 const providerDescriptions = {
-  local: () => t("storage.description_local"),
   webdav: () => t("storage.description_webdav"),
   s3: () => t("storage.description_s3"),
   azure: () => t("storage.description_azure"),
@@ -32,7 +29,6 @@ const providerDescriptions = {
   ftp: () => t("storage.description_ftp"),
 };
 const authDescriptions = {
-  local: () => "",
   webdav: () => t("storage.auth_webdav"),
   s3: () => t("storage.auth_s3"),
   azure: () => t("storage.auth_azure"),
@@ -83,8 +79,6 @@ const field = (
 });
 export function storageFields(kind: StorageKind): ConfigField[] {
   switch (kind) {
-    case "local":
-      return [field("rootPath", "/Volumes/Firm documents")];
     case "webdav":
       return [
         field("endpoint", "https://files.example.com/remote.php/dav/files/user/", false, "url"),
@@ -136,8 +130,6 @@ export function storageSecretFields(kind: StorageKind): SecretField[] {
     multiline,
   });
   switch (kind) {
-    case "local":
-      return [];
     case "webdav":
     case "ftp":
       return [secret("password")];

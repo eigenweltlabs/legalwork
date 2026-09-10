@@ -15,7 +15,6 @@ const host = z
   .regex(/^[a-zA-Z0-9.:[\]-]+$/);
 const port = z.number().int().min(1).max(65535);
 const configSchema = z.discriminatedUnion("kind", [
-  z.object({ kind: z.literal("local"), rootPath: z.string().min(1) }),
   z.object({ kind: z.literal("webdav"), endpoint, username: z.string().default("") }),
   z.object({
     kind: z.literal("s3"),

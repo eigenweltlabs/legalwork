@@ -10,7 +10,6 @@ configuration only; it does not delete source files.
 
 | Type | Configuration and authentication | Directory behavior |
 | --- | --- | --- |
-| Server folder | Absolute path on the LegalWork server. This includes OS-mounted SMB/NFS shares. | Direct filesystem children; symlinks excluded and paths confined to the configured root. |
 | WebDAV | HTTP(S) endpoint, optional username/password. Works with standards-compliant WebDAV file servers. | Depth-one PROPFIND; never recursively traverses the share. |
 | S3-compatible | Bucket, region, optional endpoint/prefix/path-style, access key + secret and optional session token; alternatively server AWS credentials. | ListObjectsV2 with `/` delimiter and continuation tokens. Covers AWS S3 and compatible APIs such as MinIO. |
 | Azure Blob Storage | Account, container, optional endpoint/prefix, account key or container SAS. | Hierarchical blob listing with continuation tokens. |
@@ -19,10 +18,10 @@ configuration only; it does not delete source files.
 | FTP / FTPS | Host, port, login, root, explicit TLS (default), implicit TLS, or plain FTP. | Direct FTP directory listing. Certificate validation remains enabled for FTPS. |
 
 Cloud roots target existing buckets/containers. Folder creation uses zero-byte
-directory markers. Native SMB and NFS authentication stays with the operating
-system: mount the share on the LegalWork server, then select **Folder or network drive**.
-Account-based Drive/Dropbox/OneDrive connectors remain in the existing Connectors tab;
-this tab is for storage protocols and server connections.
+directory markers. Account-based Drive/Dropbox/OneDrive connectors remain in the
+existing Connectors tab. Local folders and OS-mounted SMB/NFS shares are not
+providers in this tab. Older local-folder connection records are ignored and
+removed on the next settings write; their source files are untouched.
 
 When using Bun, FTPS requires a server built/run with **Bun 1.4.2+**. The desktop's
 Node runtime is also supported. Bun 1.3.9 intermittently
@@ -34,7 +33,7 @@ use that version, and older servers return an explicit FTPS runtime error.
 
 Root metadata comes from the local configuration store without touching any
 provider. Expanding a folder fetches that folder only. S3, Azure and GCS use
-provider pagination; filesystem, WebDAV, SFTP and FTP return a direct-directory
+provider pagination; WebDAV, SFTP and FTP return a direct-directory
 listing and paginate it into 100-item UI pages. A provider failure is shown on
 the affected folder with Retry, and does not block other roots.
 
@@ -53,8 +52,8 @@ indexed or copied into a workspace. Writes affect the source immediately.
 
 Every edit includes the version read when opening the file. S3/Azure use ETags,
 GCS uses generations, and WebDAV requires a strong ETag for editing. A WebDAV
-server without one remains browsable and supports new-file uploads. Local,
-SFTP and FTP saves compare content hashes before replacement. Local/SFTP/FTP
+server without one remains browsable and supports new-file uploads.
+SFTP and FTP saves compare content hashes before replacement. SFTP/FTP
 stage replacements before renaming, and this server serializes mutations of
 each connected path. SFTP servers lacking POSIX rename preserve the original
 and reject replacement rather than truncating it. File-server protocols cannot
@@ -117,7 +116,14 @@ The adapters follow the providers' reference APIs and use their maintained SDKs:
 
 See [reference fixture setup](../scripts/storage-fixtures/README.md) for MinIO,
 Azurite, fake-gcs-server, WsgiDAV, AsyncSSH and FTP/FTPS servers, integration
-tests, and an isolated dev app with seeded documents.
+tests, an isolated dev app with seeded documents, and their backing data locations.
+The dev app makes actual protocol requests to running reference services: MinIO,
+WsgiDAV, AsyncSSH, and pyftpdlib. Azure and GCS tests use Azurite and
+fake-gcs-server emulators, not live cloud accounts. This verifies protocol behavior
+against those implementations; live-cloud credentials, IAM policies, and deployment
+behavior still require testing with the target account. The normal API test suite
+also uses controlled HTTP fixtures for edge cases such as weak ETags and oversized
+files. These fixtures are separate from the dev app connections.
 
 Validation on Bun 1.4.2 (September 9–10, 2026):
 
@@ -126,12 +132,12 @@ Validation on Bun 1.4.2 (September 9–10, 2026):
 | `pnpm --filter legalwork-server test` | 580 passed; 16 optional tests skipped |
 | `pnpm --filter @legalwork/app test` | 410 passed |
 | `pnpm --filter @legalwork/desktop test` | 101 passed; 1 skipped |
-| Reference fixtures with `LEGALWORK_STORAGE_INTEGRATION=1` | 15 passed, including all seven protocol adapters |
+| Reference fixtures with `LEGALWORK_STORAGE_INTEGRATION=1` | 15 passed, covering six provider types and both FTP/FTPS |
 | Server/app typechecks, app `test:i18n`, and `node scripts/i18n-audit.mjs --ci` | Passed |
 | `pnpm test:e2e` | Passed with an isolated workspace and OpenCode sidecar |
 | Server `build`, `build:bin`, and `pnpm build:ui` | Passed; existing UI chunk-size warnings remain |
-| Built Node modules with TypeScript stripping disabled | Imported successfully; all seven adapters listed/read fixture files |
-| Compiled server HTTP smoke test | All seven roots listed/read successfully |
+| Built Node modules with TypeScript stripping disabled | Imported successfully; all six adapters listed/read fixture files |
+| Compiled server HTTP smoke test | All six roots listed/read successfully |
 
 Browser verification covered adding/testing/editing settings while retaining
 hidden credentials, lazy nested folder requests, sidebar upload and folder
@@ -142,7 +148,7 @@ of tab close/switch with an unsaved draft. Text and DOCX edits were also saved
 from the sidebar and verified in the original files.
 ## Screenshots
 
-The reference workspace contains seven connected roots. The settings page manages
+The reference workspace contains six connections, explicitly named **Test**. The settings page manages
 connections and permissions; Memory Drive loads folders as they are opened.
 
 ![File storage settings with connected providers](images/file-storage/settings.png)

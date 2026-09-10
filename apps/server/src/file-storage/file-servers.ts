@@ -1,6 +1,4 @@
-import { constants } from "node:fs";
-import { lstat, mkdir, open, readdir, realpath, rename, stat, unlink } from "node:fs/promises";
-import { dirname, isAbsolute, join, relative, sep, posix } from "node:path";
+import { posix } from "node:path";
 import { randomUUID } from "node:crypto";
 import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
@@ -26,96 +24,6 @@ import {
 const inRoot = (root: string, path: string) => path === root || path.startsWith(root.endsWith("/") ? root : root + "/");
 const denied = () =>
   new ApiError(403, "storage_path_outside_root", "This path resolves outside the configured storage folder.");
-
-export async function localAdapter(input: StorageInput): Promise<StorageAdapter> {
-  if (input.config.kind !== "local" || !isAbsolute(input.config.rootPath))
-    throw new ApiError(400, "invalid_storage_root", "Enter the full path to a folder available to this workspace.");
-  const root = await realpath(input.config.rootPath);
-  if (!(await stat(root)).isDirectory())
-    throw new ApiError(400, "invalid_storage_root", "Choose a folder for this storage.");
-  const resolvePath = async (path: string, creating = false) => {
-    const target = join(root, path);
-    const actual = await realpath(creating ? dirname(target) : target);
-    const rel = relative(root, actual);
-    if (rel === ".." || rel.startsWith(`..${sep}`) || isAbsolute(rel)) throw denied();
-    if (creating) {
-      const existing = await missingAsNull(() => lstat(target));
-      if (existing?.isSymbolicLink()) throw denied();
-    }
-    return target;
-  };
-  const read = async (path: string) => {
-    const target = await resolvePath(path);
-    const file = await open(target, constants.O_RDONLY | constants.O_NOFOLLOW);
-    try {
-      const info = await file.stat();
-      if (!info.isFile()) throw new ApiError(400, "storage_not_a_file", "Choose a file.");
-      ensureFileSize(info.size);
-      const data = await collectStream(file.createReadStream({ autoClose: false }));
-      return { data, size: data.length, version: hashVersion(data) };
-    } finally {
-      await file.close();
-    }
-  };
-  const fileStat = (path: string) =>
-    missingAsNull(async () => {
-      const { data: _data, ...info } = await read(path);
-      return info;
-    });
-  return {
-    async list(path, cursor) {
-      const dir = await resolvePath(path);
-      const items = await readdir(dir, { withFileTypes: true });
-      const page = pageEntries(
-        items
-          .filter((item) => item.isFile() || item.isDirectory())
-          .map((item) => entry(path ? `${path}/${item.name}` : item.name, item.isDirectory() ? "folder" : "file")),
-        cursor,
-      );
-      // Only stat the visible page; never inspect the contents of child folders.
-      page.entries = await Promise.all(
-        page.entries.map(async (item) => {
-          const info = await lstat(join(root, item.path));
-          return { ...item, size: item.kind === "file" ? info.size : null, modifiedAt: info.mtime.toISOString() };
-        }),
-      );
-      return page;
-    },
-    stat: fileStat,
-    read,
-    async write(path, data, _contentType, condition) {
-      const target = await resolvePath(path, true);
-      await checkCondition(await fileStat(path), condition);
-      if (condition.createOnly) {
-        const handle = await open(target, "wx", 0o600);
-        try {
-          await handle.writeFile(data);
-        } finally {
-          await handle.close();
-        }
-        return;
-      }
-      const temporary = join(dirname(target), `.legalwork-${randomUUID()}.tmp`);
-      try {
-        const existing = await stat(target);
-        const handle = await open(temporary, "wx", existing.mode & 0o777);
-        try {
-          await handle.writeFile(data);
-          await handle.chmod(existing.mode & 0o777);
-        } finally {
-          await handle.close();
-        }
-        checkCondition(await fileStat(path), condition);
-        await rename(temporary, target);
-      } finally {
-        await unlink(temporary).catch(() => undefined);
-      }
-    },
-    async mkdir(path) {
-      await mkdir(await resolvePath(path, true));
-    },
-  };
-}
 
 export function webdavAdapter(input: StorageInput): StorageAdapter {
   if (input.config.kind !== "webdav") throw new Error("Invalid WebDAV configuration");

@@ -15,6 +15,7 @@ const storedSchema = storageInputSchema.extend({
 });
 export type StoredStorage = z.infer<typeof storedSchema>;
 const pending = new Map<string, Promise<unknown>>();
+const removedLocalConnection = z.object({ config: z.object({ kind: z.literal("local") }) });
 
 export class StorageStore {
   readonly path: string;
@@ -28,7 +29,10 @@ export class StorageStore {
   }
   private async all(): Promise<StoredStorage[]> {
     try {
-      return z.array(storedSchema).parse(JSON.parse(await readFile(this.path, "utf8")));
+      const entries = z.array(z.unknown()).parse(JSON.parse(await readFile(this.path, "utf8")));
+      // Ignore the removed provider when reading older configuration. The next
+      // settings write removes its record without touching the source folder.
+      return z.array(storedSchema).parse(entries.filter((item) => !removedLocalConnection.safeParse(item).success));
     } catch (error) {
       if (error instanceof Error && "code" in error && error.code === "ENOENT") return [];
       throw new ApiError(500, "storage_configuration_unreadable", "The saved storage configuration could not be read.");
