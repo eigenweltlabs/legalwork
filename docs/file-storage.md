@@ -310,3 +310,9 @@ Matter-search follow-up validation:
 - `LEGALWORK_STORAGE_INTEGRATION=1 NODE_EXTRA_CA_CERTS=/tmp/legalwork-storage-fixtures/ftps-cert.pem pnpm --filter legalwork-server exec bun test src/file-storage.e2e.test.ts` (Bun 1.4.2): 18 passed against all eight reference services, including recursive agent path searches.
 - Two manual replays with the original model and live connected storage: an existing matter was found via path search and source documents were read; an absent identifier finished after connection discovery and one complete path scan, without searching session history or internal app data. Python was used only to extract downloaded Word documents. These observations are not a deterministic model-routing guarantee. Private transcripts and corpus files are not included here.
 - In the normal dev profile, Settings and Memory Drive returned no initial team-sync warning, personal storage remained searchable, and LegalMemory remained disconnected.
+
+Viewer/navigation follow-up validation:
+
+- `pnpm --filter @legalwork/app test`: 416 passed, including independent pane state and migration of saved layouts.
+- `pnpm --filter @legalwork/app typecheck` and `pnpm build:ui`: passed; existing bundle warnings remain.
+- Native Electron: opened nested storage and workspace files with the viewer to the left of navigation; switched sidebars, closed/reopened each pane, and resized/reopened the viewer. Expanded storage folders, the workspace folder, and viewer width were retained. Navigation panes stay mounted after their first use; expanded folders are retained during these interactions, not across an app restart.

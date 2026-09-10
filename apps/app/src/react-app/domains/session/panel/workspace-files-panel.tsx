@@ -29,8 +29,7 @@ type WorkspaceFilesPanelProps = {
 
 const SKELETON_ROW_WIDTHS = ["56%", "72%", "44%", "64%", "38%", "52%"];
 
-// The panel unmounts whenever the user switches to the preview or another rail
-// pane; remember the folder per workspace so reopening lands where they left off.
+// Remember the folder when navigating away from a workspace and back.
 const lastPathByWorkspace = new Map<string, string>();
 
 function workspaceDisplayName(workspaceRoot: string): string {

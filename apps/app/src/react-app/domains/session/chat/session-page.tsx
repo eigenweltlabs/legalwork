@@ -2,7 +2,6 @@
 import type { CSSProperties } from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { usePanelRef } from "react-resizable-panels";
 import { AppWindowMac, Columns2, Folder, PanelsTopLeft, Settings2, X, Zap } from "lucide-react";
 
 import { t } from "../../../../i18n";
@@ -64,6 +63,7 @@ import { confirmDiscardDocuments } from "../artifacts/docx-document-state";
 import type { OpenTargetOptions } from "@/lib/target-provider";
 import { SidePanel } from "../panel/side-panel";
 import { WorkspaceFilesPanel } from "../panel/workspace-files-panel";
+import { FileSidebars } from "../panel/file-sidebars";
 import { MemoryDriveIcon } from "../panel/memory-drive-icon";
 import { LegalMemoryFilesPanel } from "../panel/legalmemory-files-panel";
 import { TerminalDock } from "../terminal/terminal-dock";
@@ -311,6 +311,8 @@ export function SessionPage(props: SessionPageProps) {
   const voiceSidePanelOpen = useUiStateStore((state) => state.sidePanelState[GLOBAL_VOICE_SIDE_PANEL_KEY] === "voice");
   const setSidePanelState = useUiStateStore((state) => state.setSidePanelState);
   const toggleSidePanelState = useUiStateStore((state) => state.toggleSidePanelState);
+  const fileSidebar = useUiStateStore((state) => state.fileSidebarState[panelStateSessionId] ?? null);
+  const setFileSidebarState = useUiStateStore((state) => state.setFileSidebarState);
   const openTab = usePanelTabStore((state) => state.openTab);
   const closeTab = usePanelTabStore((state) => state.closeTab);
   const transcriptTargets = usePanelTabStore((state) => (
@@ -328,10 +330,10 @@ export function SessionPage(props: SessionPageProps) {
   );
   // Ignore a previously persisted settings pane; settings now live at the cog.
   const activeSidePanel = sessionSidePanel === "extensions" ? null : sessionSidePanel;
-  const driveOpen = activeSidePanel === "memory";
-  const sidePanelOpen = activeSidePanel !== null;
+  const driveOpen = fileSidebar === "memory";
+  const sidePanelOpen = activeSidePanel === "panel";
   const panelRailActive = activeSidePanel === "panel";
-  const filesRailActive = activeSidePanel === "files";
+  const filesRailActive = fileSidebar === "files";
   const openAiProviderConnected = props.providerConnectedIds.includes("openai");
   const voiceCapabilityQuery = useQuery({
     queryKey: ["voice-realtime-capability", props.runtimeWorkspaceId, props.providerConnectedIds.join("|")],
@@ -363,30 +365,41 @@ export function SessionPage(props: SessionPageProps) {
   const [createGroupOpen, setCreateGroupOpen] = useState(false);
   const [createGroupLabel, setCreateGroupLabel] = useState("");
   const [createGroupWorkspaceId, setCreateGroupWorkspaceId] = useState<string | null>(null);
-  const browserPanelRef = usePanelRef();
   const preserveSidePanelOnPanelOpenRef = useRef(false);
 
   const setCurrentSidePanel = useCallback((panel: SidePanelItem | null) => {
+    if (panel === "files" || panel === "memory") {
+      setFileSidebarState(panelStateSessionId, panel);
+      return;
+    }
     if (panel === "voice") {
       setSidePanelState(GLOBAL_VOICE_SIDE_PANEL_KEY, "voice");
       return;
     }
     if (activeSidePanel === "panel" && panel !== "panel" && !confirmDiscardDocuments()) return;
     setSidePanelState(panelStateSessionId, panel);
-  }, [activeSidePanel, panelStateSessionId, setSidePanelState]);
+  }, [activeSidePanel, panelStateSessionId, setSidePanelState, setFileSidebarState]);
+
+  const closeFileSidebar = useCallback(() => {
+    setFileSidebarState(panelStateSessionId, null);
+  }, [panelStateSessionId, setFileSidebarState]);
 
   const closeVoicePanel = useCallback(() => {
     setSidePanelState(GLOBAL_VOICE_SIDE_PANEL_KEY, null);
   }, [setSidePanelState]);
 
   const toggleCurrentSidePanel = useCallback((panel: SidePanelItem) => {
+    if (panel === "files" || panel === "memory") {
+      setFileSidebarState(panelStateSessionId, fileSidebar === panel ? null : panel);
+      return;
+    }
     if (panel === "voice") {
       toggleSidePanelState(GLOBAL_VOICE_SIDE_PANEL_KEY, "voice");
       return;
     }
     if (activeSidePanel === "panel" && !confirmDiscardDocuments()) return;
     toggleSidePanelState(panelStateSessionId, panel);
-  }, [activeSidePanel, panelStateSessionId, toggleSidePanelState]);
+  }, [activeSidePanel, panelStateSessionId, toggleSidePanelState, fileSidebar, setFileSidebarState]);
 
   // When the agent calls a built-in browser tool, the main process opens
   // the WebContentsView and sends panel-opened; when hide_browser is called
@@ -427,10 +440,6 @@ export function SessionPage(props: SessionPageProps) {
   useEffect(() => {
     props.onAccessibleTargetsChange?.(accessibleTargets);
   }, [accessibleTargets, props.onAccessibleTargetsChange]);
-  const commitBrowserPanelWidth = useCallback(() => {
-    const size = browserPanelRef.current?.getSize();
-    if (size?.inPixels) setBrowserPanelWidth(Math.round(size.inPixels));
-  }, [browserPanelRef, setBrowserPanelWidth]);
   const browserUrlForTarget = useCallback((target: OpenTarget) => {
     if (/^wss?:\/\//i.test(target.value)) return target.value.replace(/^ws:/i, "http:").replace(/^wss:/i, "https:");
     return target.value;
@@ -578,8 +587,7 @@ export function SessionPage(props: SessionPageProps) {
       }
       return;
     }
-    if (!props.selectedSessionId) return;
-    openTab(props.selectedSessionId, {
+    openTab(panelStateSessionId, {
       id: `file:${entry.path.toLowerCase()}`,
       type: "artifact",
       label: entry.name,
@@ -590,7 +598,7 @@ export function SessionPage(props: SessionPageProps) {
     });
     preserveSidePanelOnPanelOpenRef.current = true;
     setCurrentSidePanel("panel");
-  }, [downloadOpenTarget, openTab, props.selectedSessionId, props.selectedWorkspaceDisplay.workspaceType, props.selectedWorkspaceRoot, setCurrentSidePanel]);
+  }, [downloadOpenTarget, openTab, panelStateSessionId, props.selectedWorkspaceDisplay.workspaceType, props.selectedWorkspaceRoot, setCurrentSidePanel]);
   const openStorageFile = useCallback((root: StorageRoot, file: StorageEntry) => {
     if (!props.runtimeWorkspaceId) return;
     const tab = storageFileTab(props.runtimeWorkspaceId, root, file);
@@ -875,20 +883,36 @@ export function SessionPage(props: SessionPageProps) {
     }
   };
 
-  const memoryDrivePanel = !props.detached && driveOpen ? (
-          <LegalMemoryFilesPanel
-            key={props.runtimeWorkspaceId ?? "__no_workspace__"}
-            client={props.legalworkServerClient}
-            workspaceId={props.runtimeWorkspaceId}
-            onOpenFile={openLegalMemoryFile}
-            onOpenStorageFile={openStorageFile}
-            onConnectLegalMemory={() => {
-              closeRightPane();
-              props.sidebar.onShowExtensions?.();
-            }}
-            onClose={() => closeRightPane()}
-          />
-        ) : null;
+  const memoryDrivePanel = !props.detached ? (
+    <LegalMemoryFilesPanel
+      client={props.legalworkServerClient}
+      workspaceId={props.runtimeWorkspaceId}
+      onOpenFile={openLegalMemoryFile}
+      onOpenStorageFile={openStorageFile}
+      onConnectLegalMemory={() => {
+        closeFileSidebar();
+        props.sidebar.onShowExtensions?.();
+      }}
+      onClose={closeFileSidebar}
+    />
+  ) : null;
+  const fileSidebars = !props.detached ? (
+    <FileSidebars
+      key={props.runtimeWorkspaceId ?? "__no_workspace__"}
+      active={fileSidebar}
+      onClose={closeFileSidebar}
+      memory={memoryDrivePanel}
+      files={(
+        <WorkspaceFilesPanel
+          client={props.legalworkServerClient}
+          workspaceId={props.runtimeWorkspaceId}
+          workspaceRoot={props.selectedWorkspaceRoot}
+          onOpenFile={openWorkspaceFileEntry}
+          onClose={closeFileSidebar}
+        />
+      )}
+    />
+  ) : null;
 
   return (
     <div className="flex h-full min-h-0 flex-col bg-[var(--lw-canvas)] text-dls-text mac:bg-transparent">
@@ -952,7 +976,7 @@ export function SessionPage(props: SessionPageProps) {
           <SidebarInset className="min-h-0 overflow-hidden bg-background mac:bg-background/80 mac:[&_.lw-session-header]:transition-[padding-left] mac:[&_.lw-session-header]:duration-200 mac:[&_.lw-session-header]:ease-linear mac:peer-data-[state=collapsed]:[&_.lw-session-header]:pl-28 mac:max-md:[&_.lw-session-header]:pl-28">
             <div className="flex min-h-0 flex-1">
             <ResizablePanelGroup orientation="horizontal" className="min-h-0 flex-1">
-              <ResizablePanel minSize="360px" className="min-w-0">
+              <ResizablePanel id="session-content" minSize="360px" className="min-w-0">
             <main className="flex h-full min-w-0 flex-1 flex-col overflow-hidden">
               <header className="lw-session-header z-10 flex h-11 shrink-0 items-center justify-between border-b border-border px-4 md:px-6 mac:titlebar-drag mac:backdrop-blur-2xl mac:backdrop-saturate-150">
                 <div className="flex min-w-0 items-center gap-3">
@@ -984,26 +1008,28 @@ export function SessionPage(props: SessionPageProps) {
               ) : null}
             </main>
               </ResizablePanel>
-              {activeSidePanel === "panel" || driveOpen ? (
+              {sidePanelOpen ? (
                 <>
                   <ResizableHandle withHandle className="hidden lg:flex" />
                   <ResizablePanel
+                    id="document-viewer"
                     defaultSize="480px"
                     minSize="320px"
                     maxSize="70%"
                     className="min-h-0 overflow-hidden lg:flex lg:flex-col"
                   >
-                    {driveOpen ? memoryDrivePanel : <SidePanel
+                    <SidePanel
                       sessionId={EVALS_PANEL_SESSION_ID}
                       client={props.legalworkServerClient}
                       workspaceId={props.runtimeWorkspaceId}
                       workspaceRoot={props.selectedWorkspaceRoot}
                       isRemoteWorkspace={props.selectedWorkspaceDisplay.workspaceType === "remote"}
                       onClose={closeRightPane}
-                    />}
+                    />
                   </ResizablePanel>
                 </>
               ) : null}
+              {fileSidebars}
             </ResizablePanelGroup>
             {/* Same right icon rail as the session view. */}
             <aside aria-label={t("session.workspace_tools")} className="lw-session-rail flex w-12 shrink-0 flex-col items-center gap-2 border-l border-border px-1.5 py-3 text-muted-foreground mac:titlebar-no-drag">
@@ -1038,10 +1064,9 @@ export function SessionPage(props: SessionPageProps) {
           <div className="flex min-h-0 flex-1">
           <ResizablePanelGroup
             orientation="horizontal"
-            onLayoutChanged={sidePanelOpen ? commitBrowserPanelWidth : undefined}
             className="min-h-0 flex-1"
           >
-            <ResizablePanel minSize="360px" className="min-w-0">
+            <ResizablePanel id="session-content" minSize="360px" className="min-w-0">
               <main className="flex h-full min-w-0 flex-col overflow-hidden border-r border-border">
           <header className={cn("lw-session-header z-10 flex h-11 shrink-0 items-center justify-between border-b border-border px-4 md:px-6 mac:titlebar-drag mac:backdrop-blur-2xl mac:backdrop-saturate-150 @container/titlebar", props.detached && "mac:pl-20")}>
             <div className="flex min-w-0 items-center gap-3">
@@ -1355,34 +1380,27 @@ export function SessionPage(props: SessionPageProps) {
               <>
                 <ResizableHandle withHandle className="hidden lg:flex" />
                 <ResizablePanel
-                  panelRef={browserPanelRef}
+                  id="document-viewer"
                   defaultSize={`${browserPanelDefaultWidth}px`}
                   minSize="320px"
                   maxSize="70%"
+                  onResize={(size, _id, previous) => {
+                    if (previous && size.inPixels > 0) setBrowserPanelWidth(Math.round(size.inPixels));
+                  }}
                   className="min-h-0 overflow-hidden lg:flex lg:flex-col"
                 >
-                  {driveOpen ? memoryDrivePanel : activeSidePanel === "files" ? (
-                    <WorkspaceFilesPanel
-                      key={props.runtimeWorkspaceId ?? "__no_workspace__"}
-                      client={props.legalworkServerClient}
-                      workspaceId={props.runtimeWorkspaceId}
-                      workspaceRoot={props.selectedWorkspaceRoot}
-                      onOpenFile={openWorkspaceFileEntry}
-                      onClose={closeRightPane}
-                    />
-                  ) : activeSidePanel === "panel" ? (
-                    <SidePanel
-                      sessionId={panelStateSessionId}
-                      client={props.legalworkServerClient}
-                      workspaceId={props.runtimeWorkspaceId}
-                      workspaceRoot={props.selectedWorkspaceRoot}
-                      isRemoteWorkspace={props.surface?.isRemoteWorkspace ?? false}
-                      onClose={closeRightPane}
-                    />
-                  ) : null}
+                  <SidePanel
+                    sessionId={panelStateSessionId}
+                    client={props.legalworkServerClient}
+                    workspaceId={props.runtimeWorkspaceId}
+                    workspaceRoot={props.selectedWorkspaceRoot}
+                    isRemoteWorkspace={props.surface?.isRemoteWorkspace ?? false}
+                    onClose={closeRightPane}
+                  />
                 </ResizablePanel>
               </>
             ) : null}
+          {fileSidebars}
           </ResizablePanelGroup>
           {shellConfig.panelRail ? (
           <aside aria-label={t("session.workspace_tools")} className="lw-session-rail flex w-12 shrink-0 flex-col items-center gap-2 border-l border-border px-1.5 py-3 text-muted-foreground mac:titlebar-no-drag">
