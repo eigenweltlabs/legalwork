@@ -267,18 +267,3 @@ creation, text and DOCX saves verified in the source files, stale-write
 conflicts retaining drafts, unsaved-change confirmation, and read-only FTPS. Sidebar regression checks cover opening storage tabs outside
 a chat, source isolation, tab deduplication, transcript refreshes, and cancellation
 of tab close/switch with an unsaved draft. The September 10 follow-up also verified a 51 MiB upload through the browser file picker, SMB text local-save/source-unchanged followed by explicit publish, a CSV cell edit published through the shared Save menu, a DOCX edit verified in the Samba source, and opening the latest source into a fresh working copy.
-## Screenshots
-
-The reference workspace contains seven connections, explicitly named **Test**. The settings page manages
-connections and permissions; Memory Drive loads folders as they are opened.
-
-![File storage settings with connected providers](images/file-storage/settings.png)
-
-![Memory Drive with a nested matter folder, upload, and new-folder controls](images/file-storage/memory-drive.png)
-
-![SMB configuration](images/file-storage/smb-settings.png)
-
-![A connected file with explicit remote/local save choice](images/file-storage/working-copy-save.png)
-
-Additional screenshots and a browser recording are saved locally under
-`output/playwright/`.

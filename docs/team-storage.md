@@ -19,6 +19,4 @@ Deploy the platform storage API and database migration first. It requires the pl
 
 Run the cross-project test from the platform checkout with `TEST_DATABASE_URL`, `LEGALWORK_TEAM_SYNC_CHECK` pointing to this checkout's `scripts/storage-fixtures/team-sync-check.ts`, and optionally `LEGALWORK_BUN_BIN`; then `pnpm --filter platform test:integration`. MinIO defaults to the storage fixture on port 19290. Override it using `STORAGE_TEST_S3_ENDPOINT`, `STORAGE_TEST_S3_ACCESS_KEY` and `STORAGE_TEST_S3_SECRET_KEY`.
 
-UI checks use synthetic catalog responses; the cross-project test exercises the actual APIs. Screenshots are in `output/playwright/team-storage/`.
-
-[Settings screenshot](../output/playwright/team-storage/app-settings.png) · [Admin editor](../output/playwright/team-storage/app-editor.png)
+UI checks use synthetic catalog responses; the cross-project test exercises the actual APIs. Visual evidence is kept outside the source changes.
