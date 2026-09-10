@@ -8,7 +8,7 @@ Files travel directly between the member's app and the connected storage. Intern
 
 ## Rollout
 
-Deploy the platform storage API and database migration first. It requires the platform's existing versioned `HUB_SECRET_ENC_KEY` key ring. Team storage is gated by the `admin_hub` entitlement, and only current firm admins can change the catalog. This app change builds on the file storage integrations branch.
+Deploy the platform storage API and database migration first. It requires the platform's existing versioned `HUB_SECRET_ENC_KEY` key ring. Team storage is gated by the `admin_hub` entitlement, and only current firm admins can change the catalog. Team synchronization ships with the file storage integrations.
 
 ## Verification
 
