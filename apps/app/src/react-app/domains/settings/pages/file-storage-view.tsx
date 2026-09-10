@@ -390,7 +390,11 @@ function StorageConnectionDialog({
       ...(forTeam ? { teamInstallation: automatic ? "automatic" : "optional" } : {}),
     });
     if (!input.success) {
-      setError(t("storage.check_fields") + " " + input.error.issues.map((issue) => issue.path.join(".")).join(", "));
+      setError(
+        input.error.issues.some((issue) => issue.path.at(-1) === "requestHeaders")
+          ? t("storage.invalid_headers")
+          : t("storage.check_fields") + " " + input.error.issues.map((issue) => issue.path.join(".")).join(", "),
+      );
       return;
     }
     setBusy(testing ? "test" : "save");
@@ -537,9 +541,13 @@ function StorageConnectionDialog({
                   {field.multiline ? (
                     <Textarea
                       id={`storage-${field.key}`}
+                      aria-describedby={field.description ? `storage-${field.key}-help` : undefined}
+                      aria-invalid={field.key === "requestHeaders" && error === t("storage.invalid_headers")}
+                      autoComplete="off"
                       value={secrets[field.key] ?? ""}
                       onChange={(event) => {
                         setTested(false);
+                        setError("");
                         const value = event.target.value;
                         setSecrets((current) => {
                           const next = { ...current };
@@ -551,7 +559,7 @@ function StorageConnectionDialog({
                       placeholder={
                         connection?.configuredSecrets.includes(field.key) && secrets[field.key] !== ""
                           ? t("storage.secret_saved")
-                          : undefined
+                          : field.placeholder
                       }
                       className="min-h-20 font-mono text-xs"
                       disabled={Boolean(busy)}
@@ -580,6 +588,11 @@ function StorageConnectionDialog({
                       }
                       disabled={Boolean(busy)}
                     />
+                  )}
+                  {field.description && (
+                    <p id={`storage-${field.key}-help`} className="text-xs leading-5 text-muted-foreground">
+                      {field.description}
+                    </p>
                   )}
                   {connection?.configuredSecrets.includes(field.key) && secrets[field.key] !== "" && (
                     <Button

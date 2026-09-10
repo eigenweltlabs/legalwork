@@ -15,7 +15,7 @@ import {
 import { Storage } from "@google-cloud/storage";
 import { z } from "zod";
 import type { StorageInput, StoragePage } from "@legalwork/types/file-storage";
-import { STORAGE_PAGE_SIZE } from "./schema.js";
+import { STORAGE_PAGE_SIZE, storageRequestHeadersSchema } from "./schema.js";
 import { ApiError } from "../errors.js";
 import {
   collectStream,
@@ -34,6 +34,7 @@ import {
 export function s3Adapter(input: StorageInput): StorageAdapter {
   if (input.config.kind !== "s3") throw new Error("Invalid S3 configuration");
   const config = input.config;
+  const requestHeaders = storageRequestHeadersSchema.parse(input.secrets.requestHeaders ?? "");
   if (Boolean(config.accessKeyId) !== Boolean(input.secrets.secretAccessKey))
     throw new ApiError(
       400,
@@ -53,6 +54,25 @@ export function s3Adapter(input: StorageInput): StorageAdapter {
         }
       : undefined,
   });
+  if (Object.keys(requestHeaders).length) {
+    // Build runs before SigV4 signing, including on retries and streamed uploads.
+    client.middlewareStack.add(
+      (next) => async (args) => {
+        const request = args.request;
+        if (
+          typeof request === "object" &&
+          request !== null &&
+          "headers" in request &&
+          typeof request.headers === "object" &&
+          request.headers !== null
+        ) {
+          Object.assign(request.headers, requestHeaders);
+        }
+        return next(args);
+      },
+      { step: "build", name: "storageRequestHeaders" },
+    );
+  }
   const root = objectPrefix(config.prefix);
   const key = (path: string) => root + path;
   const conditions = (value: WriteCondition) => ({
