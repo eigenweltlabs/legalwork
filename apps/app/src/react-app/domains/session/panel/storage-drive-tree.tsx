@@ -19,14 +19,18 @@ import { t } from "@/i18n";
 import { FolderIcon } from "@/react-app/design-system/folder-icon";
 import { ArtifactIcon } from "../artifacts/artifact-icon";
 import { classifyOpenTarget } from "../artifacts/open-target";
-import { StorageFileDialog } from "./storage-file-dialog";
 
 type Location = { root: StorageRoot; path: string };
-type TreeProps = { client: LegalworkServerClient; workspaceId: string; roots: StorageRoot[]; refreshKey: number };
-export function StorageDriveTree({ client, workspaceId, roots, refreshKey }: TreeProps) {
+type TreeProps = {
+  client: LegalworkServerClient;
+  workspaceId: string;
+  roots: StorageRoot[];
+  refreshKey: number;
+  onOpenFile: (root: StorageRoot, file: StorageEntry) => void;
+};
+export function StorageDriveTree({ client, workspaceId, roots, refreshKey, onOpenFile }: TreeProps) {
   const queryClient = useQueryClient();
   const [selected, setSelected] = useState<Location | null>(null);
-  const [file, setFile] = useState<{ root: StorageRoot; entry: StorageEntry } | null>(null);
   const [newFolder, setNewFolder] = useState(false);
   const [folderName, setFolderName] = useState("");
   const [busy, setBusy] = useState("");
@@ -148,23 +152,13 @@ export function StorageDriveTree({ client, workspaceId, roots, refreshKey }: Tre
           depth={0}
           selected={selected}
           onSelect={setSelected}
-          onFile={(entry) => setFile({ root, entry })}
+          onFile={(entry) => onOpenFile(root, entry)}
           onUpload={upload}
           busy={Boolean(busy)}
         />
       ))}
       {!selected && roots.length > 0 && (
         <p className="px-2 pt-2 text-[11px] leading-4 text-muted-foreground">{t("storage.select_folder")}</p>
-      )}
-      {file && (
-        <StorageFileDialog
-          key={`${file.root.id}:${file.entry.path}`}
-          client={client}
-          workspaceId={workspaceId}
-          root={file.root}
-          file={file.entry}
-          onClose={() => setFile(null)}
-        />
       )}
       <Dialog
         open={newFolder}

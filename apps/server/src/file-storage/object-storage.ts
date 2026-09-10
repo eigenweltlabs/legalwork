@@ -31,7 +31,7 @@ export function s3Adapter(input: StorageInput): StorageAdapter {
     throw new ApiError(
       400,
       "storage_credentials_required",
-      "Provide both an access key ID and secret, or leave both empty to use the server's AWS credentials.",
+      "Enter both an access key ID and secret key, or leave both empty if AWS access is already configured.",
     );
   const client = new S3Client({
     region: config.region,

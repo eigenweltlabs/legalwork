@@ -48,7 +48,7 @@ const configSchema = z.discriminatedUnion("kind", [
     rootPath: z.string().default("/"),
     hostFingerprint: z
       .string()
-      .regex(/^(?:SHA256:[A-Za-z0-9+/]{43}=?|[a-fA-F0-9]{64})$/, "Enter the server's SHA256 host key fingerprint."),
+      .regex(/^(?:SHA256:[A-Za-z0-9+/]{43}=?|[a-fA-F0-9]{64})$/, "Enter the SHA256 connection fingerprint provided by your IT team."),
   }),
   z.object({
     kind: z.literal("ftp"),

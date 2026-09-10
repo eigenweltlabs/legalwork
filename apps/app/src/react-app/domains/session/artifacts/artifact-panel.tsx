@@ -39,6 +39,7 @@ const ArtifactXlsxEditor = lazy(() => import("./artifact-xlsx-editor").then((mod
 const ArtifactMarkdownPanel = lazy(() => import("./artifact-markdown-panel").then((module) => ({ default: module.ArtifactMarkdownPanel })));
 
 const EMPTY_TRANSCRIPT_TARGETS: OpenTarget[] = [];
+const StorageFilePanel = lazy(() => import("../panel/storage-file-panel").then((module) => ({ default: module.StorageFilePanel })));
 
 type ArtifactPanelProps = {
   sessionId: string;
@@ -102,6 +103,20 @@ export function ArtifactPanel({ sessionId, tab, client, workspaceId, workspaceRo
     size: tab.size,
     updatedAt: tab.updatedAt,
   } satisfies OpenTarget : null);
+
+  if (tab.storage && client && workspaceId === tab.storage.workspaceId) {
+    return <OfficeEditorBoundary key={tab.id}><Suspense fallback={<PreviewLoading />}>
+      <StorageFilePanel
+        sessionId={sessionId}
+        tabId={tab.id}
+        client={client}
+        workspaceId={tab.storage.workspaceId}
+        root={tab.storage.root}
+        file={tab.storage.file}
+        onClose={onClose}
+      />
+    </Suspense></OfficeEditorBoundary>;
+  }
 
   if (!target || !client || !workspaceId) {
     return null;

@@ -1,7 +1,7 @@
 /** @jsxImportSource react */
 import { lazy, Suspense, useEffect, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { AlertCircle, Download, Loader2, Pencil, RefreshCw, Save, Upload } from "lucide-react";
+import { AlertCircle, Download, Loader2, Pencil, RefreshCw, Save, Upload, X } from "lucide-react";
 import {
   STORAGE_MAX_FILE_BYTES,
   type StorageEntry,
@@ -10,14 +10,13 @@ import {
 } from "@legalwork/types/file-storage";
 import type { LegalworkServerClient } from "@/app/lib/legalwork-server";
 import { Button } from "@/components/ui/button";
+import { ArtifactFrame } from "../artifacts/artifact-frame";
+import { ArtifactIcon } from "../artifacts/artifact-icon";
 import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
+  artifactDocumentKey,
+  confirmDiscardDocuments,
+  registerUnsavedDocument,
+} from "../artifacts/docx-document-state";
 import { t } from "@/i18n";
 import { classifyOpenTarget } from "../artifacts/open-target";
 import { OfficeEditorBoundary } from "../artifacts/office-editor-boundary";
@@ -34,13 +33,17 @@ const PptxEditor = lazy(() =>
   import("../artifacts/artifact-pptx-editor").then((module) => ({ default: module.ArtifactPptxEditor })),
 );
 
-export function StorageFileDialog({
+export function StorageFilePanel({
+  sessionId,
+  tabId,
   client,
   workspaceId,
   root,
   file,
   onClose,
 }: {
+  sessionId: string;
+  tabId: string;
   client: LegalworkServerClient;
   workspaceId: string;
   root: StorageRoot;
@@ -49,7 +52,25 @@ export function StorageFileDialog({
 }) {
   const [dirty, setDirty] = useState(false);
   const [busy, setBusy] = useState(false);
-  const [confirm, setConfirm] = useState<"close" | "reload" | null>(null);
+  const dirtyRef = useRef(false);
+  const documentKey = artifactDocumentKey(workspaceId, sessionId, tabId);
+  const onDirtyChange = (value: boolean) => {
+    dirtyRef.current = value;
+    setDirty(value);
+  };
+  useEffect(
+    () =>
+      registerUnsavedDocument(
+        documentKey,
+        file.name,
+        () => dirtyRef.current,
+        () => {
+          dirtyRef.current = false;
+          setDirty(false);
+        },
+      ),
+    [documentKey, file.name],
+  );
   const [revision, setRevision] = useState(0);
   const query = useQuery({
     queryKey: ["storage-file", workspaceId, root.id, file.path, revision],
@@ -71,89 +92,54 @@ export function StorageFileDialog({
     return () => window.removeEventListener("beforeunload", listener);
   }, [dirty]);
   const reload = () => {
-    setDirty(false);
+    if (busy || !confirmDiscardDocuments(documentKey)) return;
+    onDirtyChange(false);
     setRevision((value) => value + 1);
   };
+  if (query.data && !query.error) {
+    return (
+      <StorageFileEditor
+        key={revision}
+        client={client}
+        workspaceId={workspaceId}
+        root={root}
+        file={file}
+        initial={query.data}
+        dirty={dirty}
+        onClose={onClose}
+        onDirtyChange={onDirtyChange}
+        onBusyChange={setBusy}
+        onReload={reload}
+      />
+    );
+  }
   return (
-    <>
-      <Dialog
-        open
-        onOpenChange={(open) => {
-          if (!open && !busy) {
-            if (dirty) setConfirm("close");
-            else onClose();
-          }
-        }}
-      >
-        <DialogContent className="flex h-[88dvh] max-w-[1200px] flex-col gap-0 p-0 sm:max-w-[1200px]">
-          <DialogHeader className="shrink-0 border-b border-border px-5 py-4 pr-12">
-            <DialogTitle className="truncate text-base">
-              {file.name}
-              {dirty ? " *" : ""}
-            </DialogTitle>
-            <DialogDescription className="truncate">
-              {root.name} / {file.path}
-            </DialogDescription>
-          </DialogHeader>
-          {query.isLoading ? (
-            <div className="grid flex-1 place-items-center">
-              <Loader2 className="size-6 animate-spin text-muted-foreground" />
-            </div>
-          ) : query.error ? (
-            <div className="flex flex-1 flex-col items-center justify-center gap-4 p-6">
-              <AlertCircle className="size-6 text-muted-foreground" />
-              <p role="alert" className="max-w-lg text-center text-sm">
-                {query.error.message}
-              </p>
-              <Button variant="outline" onClick={reload}>
-                {t("storage.retry")}
-              </Button>
-            </div>
-          ) : query.data ? (
-            <StorageFileEditor
-              key={revision}
-              client={client}
-              workspaceId={workspaceId}
-              root={root}
-              file={file}
-              initial={query.data}
-              onDirtyChange={setDirty}
-              onBusyChange={setBusy}
-              onReload={() => (dirty ? setConfirm("reload") : reload())}
-            />
-          ) : null}
-        </DialogContent>
-      </Dialog>
-      <Dialog
-        open={Boolean(confirm)}
-        onOpenChange={(open) => {
-          if (!open) setConfirm(null);
-        }}
-      >
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>{t("storage.unsaved_title")}</DialogTitle>
-            <DialogDescription>{t("storage.unsaved_body")}</DialogDescription>
-          </DialogHeader>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setConfirm(null)}>
-              {t("storage.keep_editing")}
-            </Button>
-            <Button
-              variant="destructive"
-              onClick={() => {
-                const action = confirm;
-                setConfirm(null);
-                if (action === "close") onClose();
-                else reload();
-              }}
-            >
-              {t("storage.discard")}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-    </>
+    <ArtifactFrame
+      title={file.name}
+      icon={<ArtifactIcon type={classifyOpenTarget(file.name, "file")} />}
+      expandable
+      actions={
+        <Button variant="ghost" size="icon-sm" onClick={onClose} aria-label={t("side_panel.close_preview")}>
+          <X />
+        </Button>
+      }
+    >
+      {query.error ? (
+        <div className="flex flex-1 flex-col items-center justify-center gap-4 p-6">
+          <AlertCircle className="size-6 text-muted-foreground" />
+          <p role="alert" className="max-w-lg text-center text-sm">
+            {query.error.message}
+          </p>
+          <Button variant="outline" onClick={reload}>
+            {t("storage.retry")}
+          </Button>
+        </div>
+      ) : (
+        <div className="grid flex-1 place-items-center">
+          <Loader2 className="size-6 animate-spin text-muted-foreground" />
+        </div>
+      )}
+    </ArtifactFrame>
   );
 }
 
@@ -163,6 +149,8 @@ function StorageFileEditor({
   root,
   file,
   initial,
+  dirty,
+  onClose,
   onDirtyChange,
   onBusyChange,
   onReload,
@@ -172,6 +160,8 @@ function StorageFileEditor({
   root: StorageRoot;
   file: StorageEntry;
   initial: StorageFile;
+  dirty: boolean;
+  onClose: () => void;
   onDirtyChange: (dirty: boolean) => void;
   onBusyChange: (busy: boolean) => void;
   onReload: () => void;
@@ -247,67 +237,100 @@ function StorageFileEditor({
     window.setTimeout(() => URL.revokeObjectURL(url), 1000);
   };
   return (
-    <div className="flex min-h-0 flex-1 flex-col">
-      <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-border bg-muted/20 px-4 py-2.5">
-        <span className="mr-auto text-xs text-muted-foreground">
-          {writable ? t("storage.save_back") : t("storage.read_only")}
+    <ArtifactFrame
+      title={`${file.name}${dirty ? " *" : ""}`}
+      icon={<ArtifactIcon type={preview} />}
+      expandable
+      actions={
+        <>
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            disabled={busy}
+            onClick={onReload}
+            title={t("storage.reload")}
+            aria-label={t("storage.reload")}
+          >
+            <RefreshCw className="size-3.5" />
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            title={t("storage.download")}
+            aria-label={t("storage.download")}
+            onClick={() =>
+              void download().catch((cause: unknown) =>
+                setError(cause instanceof Error ? cause.message : t("storage.failed")),
+              )
+            }
+          >
+            <Download className="size-3.5" />
+          </Button>
+          {writable && !isOffice && (
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              title={t("storage.replace")}
+              aria-label={t("storage.replace")}
+              disabled={busy || dirtyRef.current}
+              onClick={() => replacement.current?.click()}
+            >
+              <Upload className="size-3.5" />
+            </Button>
+          )}
+          {writable && isText && !editing && (
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              onClick={() => setEditing(true)}
+              title={t("storage.edit")}
+              aria-label={t("storage.edit")}
+            >
+              <Pencil className="size-3.5" />
+            </Button>
+          )}
+          {writable && (isOffice || editing) && (
+            <Button
+              size="sm"
+              aria-label={t("storage.save")}
+              title={t("storage.save")}
+              disabled={busy}
+              onClick={() => {
+                if (isText)
+                  void save(new TextEncoder().encode(draft).buffer)
+                    .then(() => setEditing(false))
+                    .catch(() => undefined);
+                else
+                  void (preview === "word" ? docx.current : office.current)
+                    ?.save()
+                    .catch((cause: unknown) => setError(cause instanceof Error ? cause.message : t("storage.failed")));
+              }}
+            >
+              {busy ? <Loader2 className="size-3.5 animate-spin" /> : <Save className="size-3.5" />}
+              {t("common.save")}
+            </Button>
+          )}
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            disabled={busy}
+            onClick={onClose}
+            aria-label={t("side_panel.close_preview")}
+          >
+            <X />
+          </Button>
+        </>
+      }
+    >
+      <div className="flex shrink-0 items-center gap-2 border-b border-border/70 px-4 py-2 text-[11px] text-muted-foreground">
+        <span className="min-w-0 flex-1 truncate" title={`${root.name} / ${file.path}`}>
+          {root.name} / {file.path}
         </span>
+        {!writable && <span className="shrink-0">{t("storage.read_only")}</span>}
         {saved && (
-          <span role="status" className="text-xs text-green-11">
+          <span role="status" className="shrink-0 text-green-11">
             {t("storage.saved")}
           </span>
-        )}
-        <Button variant="ghost" size="sm" disabled={busy} onClick={onReload}>
-          <RefreshCw className="size-3.5" />
-          {t("storage.reload")}
-        </Button>
-        <Button
-          variant="ghost"
-          size="sm"
-          onClick={() =>
-            void download().catch((cause: unknown) =>
-              setError(cause instanceof Error ? cause.message : t("storage.failed")),
-            )
-          }
-        >
-          <Download className="size-3.5" />
-          {t("storage.download")}
-        </Button>
-        {writable && !isOffice && (
-          <Button
-            variant="outline"
-            size="sm"
-            disabled={busy || dirtyRef.current}
-            onClick={() => replacement.current?.click()}
-          >
-            <Upload className="size-3.5" />
-            {t("storage.replace")}
-          </Button>
-        )}
-        {writable && isText && !editing && (
-          <Button variant="outline" size="sm" onClick={() => setEditing(true)}>
-            <Pencil className="size-3.5" />
-            {t("storage.edit")}
-          </Button>
-        )}
-        {writable && (isOffice || editing) && (
-          <Button
-            size="sm"
-            disabled={busy}
-            onClick={() => {
-              if (isText)
-                void save(new TextEncoder().encode(draft).buffer)
-                  .then(() => setEditing(false))
-                  .catch(() => undefined);
-              else
-                void (preview === "word" ? docx.current : office.current)
-                  ?.save()
-                  .catch((cause: unknown) => setError(cause instanceof Error ? cause.message : t("storage.failed")));
-            }}
-          >
-            {busy ? <Loader2 className="size-3.5 animate-spin" /> : <Save className="size-3.5" />}
-            {t("storage.save")}
-          </Button>
         )}
       </div>
       <input
@@ -412,6 +435,6 @@ function StorageFileEditor({
           </Suspense>
         </OfficeEditorBoundary>
       </div>
-    </div>
+    </ArtifactFrame>
   );
 }

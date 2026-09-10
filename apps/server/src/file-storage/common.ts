@@ -139,7 +139,7 @@ export function providerError(error: unknown): ApiError {
   return new ApiError(
     502,
     "storage_unavailable",
-    "Could not reach the storage or complete the request. Check the endpoint, credentials, server fingerprint, and folder permissions, then retry.",
+    "Could not connect to this storage or complete the request. Check the address, sign-in details, connection fingerprint, and folder permissions, then retry.",
   );
 }
 

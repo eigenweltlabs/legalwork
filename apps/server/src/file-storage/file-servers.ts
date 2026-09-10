@@ -29,7 +29,7 @@ const denied = () =>
 
 export async function localAdapter(input: StorageInput): Promise<StorageAdapter> {
   if (input.config.kind !== "local" || !isAbsolute(input.config.rootPath))
-    throw new ApiError(400, "invalid_storage_root", "Choose an absolute folder path on the LegalWork server.");
+    throw new ApiError(400, "invalid_storage_root", "Enter the full path to a folder available to this workspace.");
   const root = await realpath(input.config.rootPath);
   if (!(await stat(root)).isDirectory())
     throw new ApiError(400, "invalid_storage_root", "Choose a folder for this storage.");
@@ -166,7 +166,7 @@ export function webdavAdapter(input: StorageInput): StorageAdapter {
         throw new ApiError(
           409,
           "storage_version_unavailable",
-          "This WebDAV server does not expose a strong ETag for safe editing. Upload a new file instead.",
+          "This storage does not support safe updates to existing files. Upload a new file instead.",
         );
       }
       const result = await client.putFileContents(remote(path), data, {
@@ -296,7 +296,7 @@ export async function ftpAdapter(input: StorageInput): Promise<StorageAdapter> {
     throw new ApiError(
       503,
       "storage_runtime_upgrade_required",
-      "FTPS requires a LegalWork server built with Bun 1.4.2 or newer. Update the server, or use Bun 1.4.2+ when running from source.",
+      "Update LegalWork to use encrypted FTP connections.",
     );
   }
   const client = new FtpClient(30_000);
