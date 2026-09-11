@@ -89,6 +89,7 @@ export async function mergeRuntimeMcpConfig(name, config, env = process.env) {
   const dbPath = String(env.LEGALWORK_RUNTIME_DB ?? "").trim();
   const dir = path.dirname(dbPath ? path.resolve(dbPath) : resolveLegalworkServerConfigPath(env));
   const file = path.join(dir, "runtime-opencode-config.json");
+  /** @type {{ mcp?: Record<string, unknown> } & Record<string, unknown>} */
   let current = {};
   try {
     current = JSON.parse(await readFile(file, "utf8"));
