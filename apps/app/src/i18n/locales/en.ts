@@ -2546,6 +2546,7 @@ export default {
   "session.legalmemory_folder_failed": "Could not copy the folder “{name}”",
   "session.legalmemory_folder_empty": "No documents were copied from “{name}”",
   "session.legalmemory_folder_partial": "Copied {count} documents from “{name}”. Some were skipped or left out.",
+  "session.storage_download_failed": "Storage download failed",
   "session.open_failed": "Could not open {name}",
   "session.that_document": "that document",
   "session.shared_folder_upload_failed": "Shared folder upload failed",

@@ -17,6 +17,11 @@ import {
   type LegalMemoryFileDragItem,
   type LegalMemoryFolderDragItem,
 } from "@/app/lib/legalmemory-file";
+import {
+  hasStorageFileDrag,
+  readStorageFileDrag,
+  type StorageFileDragItem,
+} from "@/app/lib/storage-file-drag";
 import type { ComposerAttachment, McpServerEntry, McpStatusMap, ModelRef, SkillCard, SlashCommandOption } from "@/app/types";
 import { formatBytes, isMacPlatform } from "@/app/utils";
 import { t } from "@/i18n";
@@ -108,6 +113,7 @@ type ComposerProps = {
   onUnsupportedFileLinks: (links: string[]) => void;
   onDropLegalMemoryFile: (file: LegalMemoryFileDragItem) => void | Promise<void>;
   onDropLegalMemoryFolder: (folder: LegalMemoryFolderDragItem) => void | Promise<void>;
+  onDropStorageFile: (file: StorageFileDragItem) => void | Promise<void>;
   pastedText: PastedTextChip[];
   onExpandPastedText: (id: string) => void;
   onRemovePastedText: (id: string) => void;
@@ -1187,7 +1193,10 @@ export function ReactSessionComposer(props: ComposerProps) {
                   if (dropzoneKind !== "memory-folder") setDropzoneKind("memory-folder");
                   return;
                 }
-                if (event.dataTransfer && hasLegalMemoryFileDrag(event.dataTransfer)) {
+                if (
+                  event.dataTransfer &&
+                  (hasLegalMemoryFileDrag(event.dataTransfer) || hasStorageFileDrag(event.dataTransfer))
+                ) {
                   event.preventDefault();
                   event.dataTransfer.dropEffect = "copy";
                   if (dropzoneKind !== "memory") setDropzoneKind("memory");
@@ -1206,6 +1215,7 @@ export function ReactSessionComposer(props: ComposerProps) {
               onDrop={(event) => {
                 const memoryFolder = event.dataTransfer ? readLegalMemoryFolderDrag(event.dataTransfer) : null;
                 const memoryFile = event.dataTransfer ? readLegalMemoryFileDrag(event.dataTransfer) : null;
+                const storageFile = event.dataTransfer ? readStorageFileDrag(event.dataTransfer) : null;
                 setDropzoneKind(null);
                 if (memoryFolder) {
                   event.preventDefault();
@@ -1215,6 +1225,11 @@ export function ReactSessionComposer(props: ComposerProps) {
                 if (memoryFile) {
                   event.preventDefault();
                   void props.onDropLegalMemoryFile(memoryFile);
+                  return;
+                }
+                if (storageFile) {
+                  event.preventDefault();
+                  void props.onDropStorageFile(storageFile);
                   return;
                 }
                 const files = Array.from(event.dataTransfer?.files ?? []);

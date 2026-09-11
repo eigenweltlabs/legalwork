@@ -36,6 +36,10 @@ import {
   type LegalMemoryFileDragItem,
   type LegalMemoryFolderDragItem,
 } from "@/app/lib/legalmemory-file";
+import {
+  materializeStorageFile,
+  type StorageFileDragItem,
+} from "@/app/lib/storage-file-drag";
 import type {
   LegalworkServerClient,
   LegalworkSessionSnapshot,
@@ -70,6 +74,9 @@ import {
   encodeComposerMentionValue,
   legalMemoryComposerInstruction,
   legalMemoryComposerDisplayText,
+  createStorageComposerMention,
+  storageComposerInstruction,
+  storageComposerDisplayText,
   type ComposerMentionKind,
 } from "./composer/mention-encoding";
 import { desktopBridge } from "@/app/lib/desktop";
@@ -1113,6 +1120,10 @@ export function SessionSurface(props: SessionSurfaceProps) {
           modelContexts.push(legalMemoryComposerInstruction(value));
           return [{ type: "text", text: legalMemoryComposerDisplayText(value) } satisfies ComposerDraft["parts"][number]];
         }
+        if (kind === "storage") {
+          modelContexts.push(storageComposerInstruction(value));
+          return [{ type: "text", text: storageComposerDisplayText(value) } satisfies ComposerDraft["parts"][number]];
+        }
         if (kind === "app") return [{ type: "app", name: value } satisfies ComposerDraft["parts"][number]];
       }
       return [{ type: "text", text: segment } satisfies ComposerDraft["parts"][number]];
@@ -1127,7 +1138,13 @@ export function SessionSurface(props: SessionSurfaceProps) {
     for (const [value, kind] of Object.entries(mentions)) {
       resolved = resolved.replaceAll(
         `@${encodeComposerMentionValue(value)}`,
-        kind === "memory" ? legalMemoryComposerDisplayText(value) : kind === "upload" ? workspaceAttachmentDisplayText(value) : `@${value}`,
+        kind === "memory"
+          ? legalMemoryComposerDisplayText(value)
+          : kind === "storage"
+            ? storageComposerDisplayText(value)
+            : kind === "upload"
+              ? workspaceAttachmentDisplayText(value)
+              : `@${value}`,
       );
     }
     const slashCommand = parseSlashCommandInvocation(resolved);
@@ -1555,6 +1572,31 @@ export function SessionSurface(props: SessionSurfaceProps) {
       toast.dismiss(pending);
       toast.error(t("session.legalmemory_folder_failed", { name: folder.name }), {
         description: error instanceof Error ? error.message : t("session.legalmemory_download_failed"),
+      });
+    }
+  };
+
+  const handleDropStorageFile = async (file: StorageFileDragItem) => {
+    try {
+      // Check the object out, then insert a storage pill that carries the
+      // workspace path as metadata. Same contract as the LegalMemory pill: the
+      // agent is told to open the copy with a format-appropriate tool, so an
+      // xlsx is never handed to a plain-text reader, and the badge shows the
+      // filename instead of the checkout path.
+      const copy = await materializeStorageFile(props.client, props.workspaceId, file);
+      const reference = createStorageComposerMention(file.connectionId, file.path, file.name, copy.localPath);
+      const composerState = useComposerStateStore.getState();
+      const currentDraft = getComposerDraft(composerState, props.sessionId);
+      const currentMentions = getComposerMentions(composerState, props.sessionId);
+      const separator = currentDraft && !/\s$/.test(currentDraft) ? " " : "";
+      setComposerDraft(
+        props.sessionId,
+        `${currentDraft}${separator}@${encodeComposerMentionValue(reference)} `,
+      );
+      setComposerMentions(props.sessionId, { ...currentMentions, [reference]: "storage" });
+    } catch (error) {
+      toast.error(t("session.download_failed", { name: file.name }), {
+        description: error instanceof Error ? error.message : t("session.storage_download_failed"),
       });
     }
   };
@@ -2081,6 +2123,7 @@ export function SessionSurface(props: SessionSurfaceProps) {
         onInsertMention={handleInsertMention}
         onDropLegalMemoryFile={handleDropLegalMemoryFile}
         onDropLegalMemoryFolder={handleDropLegalMemoryFolder}
+        onDropStorageFile={handleDropStorageFile}
         inputHistory={inputHistory}
         onPasteText={handlePasteText}
         onUnsupportedFileLinks={handleUnsupportedFileLinks}

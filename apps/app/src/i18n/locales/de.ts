@@ -2844,6 +2844,7 @@ const de = {
   "session.legalmemory_folder_failed": "Der Ordner „{name}“ konnte nicht kopiert werden",
   "session.legalmemory_folder_empty": "Aus „{name}“ wurden keine Dokumente kopiert",
   "session.legalmemory_folder_partial": "{count} Dokumente aus „{name}“ kopiert. Einige wurden übersprungen oder ausgelassen.",
+  "session.storage_download_failed": "Der Download aus dem Speicher ist fehlgeschlagen",
   "session.open_failed": "{name} konnte nicht geöffnet werden",
   "session.that_document": "dieses Dokument",
   "session.shared_folder_upload_failed": "Der Upload in den geteilten Ordner ist fehlgeschlagen",
