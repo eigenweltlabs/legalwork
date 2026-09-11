@@ -30,6 +30,8 @@ import { buildLegalworkWorkspaceBaseUrl, createLegalworkServerClient } from "../
 import { writeActiveWorkspaceId, writeLastSessionFor } from "./session-memory";
 import { workspaceSessionRoute } from "./workspace-routes";
 import { ensureDesktopLocalLegalworkConnection } from "./desktop-local-legalwork";
+import { markTranscriptionIntroSeen } from "./transcription-intro";
+import { markAllWhatsNewSeen } from "./whats-new";
 
 function folderNameFromPath(path: string) {
   const normalized = path.replace(/\\/g, "/").replace(/\/+$/, "");
@@ -226,6 +228,10 @@ export function WelcomeRoute() {
           hasCompletedOnboarding: true,
           onboardingStage: "ai",
         }));
+        // A new user never gets the post-update announcements: the covers
+        // already walk them through Office and transcription.
+        markAllWhatsNewSeen();
+        markTranscriptionIntroSeen();
         captureAnalyticsEvent("workspace_created", { source: "onboarding", surface: analyticsSurface() });
         // The consent choice just persisted: an opt-out sends its single
         // anonymous marker (and purges everything queued, including the

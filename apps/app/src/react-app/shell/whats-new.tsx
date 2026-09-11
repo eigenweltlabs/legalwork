@@ -7,8 +7,9 @@
  *   Each announcement has a stable id; once dismissed (CTA, Got it, Esc,
  *   or backdrop) that id never shows again. No nagging.
  * - Fresh installs never see announcements: to a new user everything is
- *   new, so while onboarding is incomplete all pending announcements are
- *   absorbed silently.
+ *   new, so starting onboarding marks every announcement seen
+ *   (markAllWhatsNewSeen), and a profile still inside onboarding absorbs
+ *   any pending one silently.
  * - At most one announcement per app start, shown after a short delay so
  *   it never competes with boot.
  * - `when` gates platform-specific features (e.g. desktop only).
@@ -83,6 +84,12 @@ function markSeen(ids: string[]): void {
   }
 }
 
+/** Mark every announcement seen without showing it. Called when a new user
+ *  starts onboarding: the covers already walk them through the features. */
+export function markAllWhatsNewSeen(): void {
+  markSeen(WHATS_NEW_ANNOUNCEMENTS.map((entry) => entry.id));
+}
+
 /** Whether any platform-eligible announcement is still unseen (so a first-run
  *  modal can defer and not stack on top of the "What's new" dialog). */
 export function hasPendingWhatsNew(): boolean {
@@ -146,7 +153,7 @@ export function WhatsNewDialog(props: { hasWorkspaces: boolean; workspacesReady:
 
     if (isFreshInstall) {
       // Fresh install: everything is new to this user, absorb silently.
-      markSeen(WHATS_NEW_ANNOUNCEMENTS.map((entry) => entry.id));
+      markAllWhatsNewSeen();
       return;
     }
 
