@@ -8,6 +8,7 @@ import {
   probeMcpServer,
   protectedResourceMetadataCandidates,
   resourceMetadataFromChallenge,
+  siblingEndpointCandidates,
 } from "./mcp-probe.js";
 import { startServer } from "./server.js";
 import type { ServerConfig } from "./types.js";
@@ -139,12 +140,43 @@ describe("probeMcpServer", () => {
     expect(result).toMatchObject({ reachable: true, transport: "sse", auth: "none" });
   });
 
+  test("a pasted host finds its /mcp endpoint, and a pasted /mcp finds a root endpoint", async () => {
+    const underMcp = serve((request, url) => (url.pathname === "/mcp" && request.method === "POST" ? rpcResult() : null));
+    const found = await probeMcpServer(`${underMcp.origin}/`);
+    expect(found).toMatchObject({ auth: "none", url: `${underMcp.origin}/mcp` });
+    expect(found.steps[0].detail).toContain("found at");
+
+    const atRoot = serve((request, url) =>
+      url.pathname === "/" && request.method === "POST" ? Response.json({ error: "unauthorized" }, { status: 401 }) : null,
+    );
+    const root = await probeMcpServer(`${atRoot.origin}/mcp`);
+    expect(root.url).toBe(`${atRoot.origin}/`);
+    expect(root.auth).toBe("credentials");
+  });
+
+  test("a 403 without a sign-in challenge is a refusal, not a request for an API key", async () => {
+    const refusing = serve((request, url) =>
+      url.pathname === "/mcp" && request.method === "POST" ? new Response("forbidden", { status: 403 }) : null,
+    );
+    const refused = await probeMcpServer(`${refusing.origin}/mcp`);
+    expect(refused).toMatchObject({ reachable: true, auth: "unknown" });
+    expect(refused.steps[0]).toMatchObject({ status: 403, ok: false });
+
+    const scoped = serve((request, url) =>
+      url.pathname === "/mcp" && request.method === "POST"
+        ? new Response("", { status: 403, headers: { "www-authenticate": 'Bearer error="insufficient_scope", scope="files:write"' } })
+        : null,
+    );
+    expect((await probeMcpServer(`${scoped.origin}/mcp`)).auth).toBe("credentials");
+  });
+
   test("a web page or a missing endpoint is reachable but unknown", async () => {
     const fake = serve((request, url) => (url.pathname === "/" ? new Response("<html>hi</html>", { headers: { "content-type": "text/html" } }) : null));
     expect(await probeMcpServer(`${fake.origin}/`)).toMatchObject({ reachable: true, auth: "unknown" });
     const missing = await probeMcpServer(`${fake.origin}/nothing`);
     expect(missing).toMatchObject({ reachable: true, auth: "unknown" });
     expect(missing.steps[0]).toMatchObject({ id: "connect", status: 404, ok: false });
+    expect(missing.url).toBe(`${fake.origin}/nothing`);
   });
 
   test("a server that cannot be reached is reported as such", async () => {
@@ -170,6 +202,17 @@ describe("discovery helpers", () => {
       .toBe("https://mcp.example.com/.well-known/oauth-protected-resource");
     expect(resourceMetadataFromChallenge("Bearer realm=\"x\"")).toBeNull();
     expect(resourceMetadataFromChallenge(null)).toBeNull();
+  });
+
+  test("tries the usual sibling endpoints, never the pasted one twice", () => {
+    expect(siblingEndpointCandidates(new URL("https://mcp.example.com/"))).toEqual([
+      "https://mcp.example.com/mcp",
+      "https://mcp.example.com/sse",
+    ]);
+    expect(siblingEndpointCandidates(new URL("https://mcp.example.com/mcp/"))).toEqual([
+      "https://mcp.example.com/sse",
+      "https://mcp.example.com/",
+    ]);
   });
 
   test("orders well-known locations as the spec does", () => {

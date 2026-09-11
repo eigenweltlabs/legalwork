@@ -21,6 +21,7 @@ import {
   DEFAULT_API_KEY_HEADER,
   defaultOAuthClient,
   MCP_OAUTH_REDIRECT_URI,
+  normalizeCustomConnectorUrl,
   probeVerdict,
   type CustomConnectorForm,
   type CustomConnectorProbe,
@@ -216,7 +217,9 @@ export function AddMcpModal(props: AddMcpModalProps) {
   const check = async () => {
     setError(null);
     if (!form.name.trim()) return setError(t("mcp.name_required"));
-    if (!form.url.trim()) return setError(t("mcp.url_or_command_required"));
+    const url = normalizeCustomConnectorUrl(form.url);
+    if (!url) return setError(t("mcp.url_or_command_required"));
+    patch({ url });
     if (!props.onProbe) {
       setProbe(null);
       setStep("configure");
@@ -225,7 +228,7 @@ export function AddMcpModal(props: AddMcpModalProps) {
     const id = ++attempt.current;
     setStep("checking");
     try {
-      const result = await props.onProbe(form.url.trim());
+      const result = await props.onProbe(url);
       if (id !== attempt.current) return;
       setProbe(result);
       patch({ oauthClient: defaultOAuthClient(result) });
@@ -341,6 +344,9 @@ export function AddMcpModal(props: AddMcpModalProps) {
               <div className="space-y-1">
                 <p className="text-sm font-medium">{form.name.trim()}</p>
                 <p className="break-all font-mono text-xs text-dls-secondary">{form.url.trim()}</p>
+                {probe && probe.reachable && probe.auth !== "unknown" && probe.url !== form.url.trim() ? (
+                  <p className="break-all text-xs text-dls-secondary">{t("add_mcp.found_at", { url: probe.url })}</p>
+                ) : null}
               </div>
               {probe ? <CustomConnectorCheck probe={probe} /> : (
                 <div className="flex gap-3 rounded-xl border border-amber-6 bg-amber-2 px-4 py-3 text-sm text-amber-11" role="status">
