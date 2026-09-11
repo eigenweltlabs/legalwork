@@ -4,6 +4,7 @@ import {
   apiKeyHeaderValue,
   buildCustomConnectorEntry,
   defaultOAuthClient,
+  normalizeCustomConnectorUrl,
   probeVerdict,
   type CustomConnectorForm,
   type CustomConnectorProbe,
@@ -81,6 +82,21 @@ describe("custom connector: what gets saved", () => {
   test("name and address are required", () => {
     expect(() => buildCustomConnectorEntry({ ...form, name: " " }, null)).toThrow();
     expect(() => buildCustomConnectorEntry({ ...form, url: "" }, null)).toThrow();
+  });
+
+  test("a pasted host gets https, a loopback address http, and a full address is kept", () => {
+    expect(normalizeCustomConnectorUrl("mcp.fibery.io/mcp")).toBe("https://mcp.fibery.io/mcp");
+    expect(normalizeCustomConnectorUrl("localhost:8080/mcp")).toBe("http://localhost:8080/mcp");
+    expect(normalizeCustomConnectorUrl("127.0.0.1:3000/mcp")).toBe("http://127.0.0.1:3000/mcp");
+    expect(normalizeCustomConnectorUrl("  http://intranet.firm/mcp  ")).toBe("http://intranet.firm/mcp");
+    expect(normalizeCustomConnectorUrl("")).toBe("");
+  });
+
+  test("the address the check answered at is the one saved", () => {
+    const moved = probe({ auth: "none", url: "https://mcp.example.com/mcp" });
+    expect(buildCustomConnectorEntry({ ...form, url: "mcp.example.com" }, moved).url).toBe("https://mcp.example.com/mcp");
+    // Not when the check found nothing: the typed address stands, normalised.
+    expect(buildCustomConnectorEntry({ ...form, url: "mcp.example.com" }, probe({ reachable: false, url: "https://mcp.example.com/" })).url).toBe("https://mcp.example.com");
   });
 
   test("bearer prefixing applies to the Authorization header only", () => {

@@ -45,6 +45,19 @@ export function defaultOAuthClient(probe: CustomConnectorProbe | null): CustomCo
   return probe?.oauth?.dynamicRegistration ? "automatic" : "own";
 }
 
+/**
+ * What people paste is rarely a complete address: a host without a scheme is
+ * https, or http for a loopback address, which is a local deployment and is
+ * almost never on TLS.
+ */
+export function normalizeCustomConnectorUrl(value: string): string {
+  const trimmed = value.trim();
+  if (!trimmed || /^[a-z][a-z0-9+.-]*:\/\//i.test(trimmed)) return trimmed;
+  const host = trimmed.split("/")[0].replace(/:\d+$/, "").toLowerCase();
+  const loopback = host === "localhost" || host === "[::1]" || /^127\./.test(host);
+  return `${loopback ? "http" : "https"}://${trimmed}`;
+}
+
 /** A bare key in the Authorization header is a bearer token; a value naming its scheme is kept. */
 export function apiKeyHeaderValue(header: string, value: string): string {
   const trimmed = value.trim();
@@ -63,10 +76,12 @@ function apiKeyHeaders(form: CustomConnectorForm): Record<string, string> | unde
 export function buildCustomConnectorEntry(form: CustomConnectorForm, probe: CustomConnectorProbe | null): McpDirectoryInfo {
   const name = form.name.trim();
   if (!name) throw new Error(t("mcp.name_required"));
-  const url = form.url.trim();
-  if (!url) throw new Error(t("mcp.url_or_command_required"));
-  const entry: McpDirectoryInfo = { name, description: "", type: "remote", url };
+  const typed = normalizeCustomConnectorUrl(form.url);
+  if (!typed) throw new Error(t("mcp.url_or_command_required"));
   const verdict = probe ? probeVerdict(probe) : "unknown";
+  // The check may have found the server at a sibling address; that one is saved.
+  const url = probe && verdict !== "unreachable" && verdict !== "unknown" ? probe.url : typed;
+  const entry: McpDirectoryInfo = { name, description: "", type: "remote", url };
 
   if (verdict === "signin") {
     if (form.oauthClient === "automatic" && probe?.oauth?.dynamicRegistration) return { ...entry, oauth: true };

@@ -385,9 +385,14 @@ export function createConnectionsStore(options: {
       const serverResult = await listMcpFromLegalworkServer(projectDir);
       if (serverResult) {
         // Surface engine registration failures instead of leaving users
-        // staring at an MCP that silently shows as disconnected.
+        // staring at an MCP that silently shows as disconnected. A server the
+        // engine reports on anyway made it in through a later registration,
+        // so a stale failure for it is not worth a warning.
         const failedNames = serverResult.engineSync?.status === "failed"
-          ? serverResult.engineSync.failures.map((failure) => failure.name).join(", ")
+          ? serverResult.engineSync.failures
+              .map((failure) => failure.name)
+              .filter((name) => !(name in serverResult.nextStatuses))
+              .join(", ")
           : "";
         mutateState((current) => ({
           ...current,

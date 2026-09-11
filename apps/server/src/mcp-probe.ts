@@ -19,7 +19,15 @@
  *   `client_id_metadata_document_supported` (CIMD, which the engine does not
  *   speak), or neither, in which case only a pre-registered client works.
  * - 401 with no OAuth metadata anywhere is outside the OAuth flow: the server
- *   expects a static credential such as an API key in a request header.
+ *   expects a static credential such as an API key in a request header. A 403
+ *   without any challenge is not read that way — that is a refusal, not a
+ *   request for credentials.
+ *
+ * People paste what a vendor's page shows, which is not always the endpoint:
+ * some servers live at `/mcp` or `/sse` under the pasted host, others at the
+ * root of the host whose `/mcp` returns 404. When the pasted address does not
+ * answer like an MCP endpoint, those siblings are tried and the address that
+ * answered is reported back.
  *
  * Nothing here is persisted and no registration is performed; the engine's own
  * discovery runs again when the user signs in.
@@ -40,6 +48,7 @@ export type McpProbeStep = {
 export type McpProbeAuth = "none" | "oauth" | "credentials" | "unknown";
 
 export type McpProbeResult = {
+  /** The address that answered — the pasted one, or a sibling path that did. */
   url: string;
   reachable: boolean;
   transport: "streamable-http" | "sse" | null;
@@ -119,6 +128,13 @@ export function authorizationServerMetadataCandidates(issuer: URL): string[] {
   return [`${issuer.origin}/.well-known/oauth-authorization-server`, `${issuer.origin}/.well-known/openid-configuration`];
 }
 
+/** Sibling addresses worth trying when the pasted one does not answer like an MCP endpoint. */
+export function siblingEndpointCandidates(url: URL): string[] {
+  const path = url.pathname.replace(/\/+$/, "");
+  const siblings = ["/mcp", "/sse", ""].filter((candidate) => candidate !== path);
+  return siblings.map((candidate) => `${url.origin}${candidate || "/"}`);
+}
+
 function contentType(response: Response): string {
   return (response.headers.get("content-type") ?? "").toLowerCase();
 }
@@ -156,89 +172,110 @@ export async function probeMcpServer(input: string, options: McpProbeOptions = {
   };
 
   // 1. The MCP endpoint itself: an anonymous `initialize`.
-  let challenge: string | null = null;
-  let authRequired = false;
-  try {
-    const response = await request(url.toString(), {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-        accept: "application/json, text/event-stream",
-        "mcp-protocol-version": PROTOCOL_VERSION,
-        ...(options.headers ?? {}),
-      },
-      body: JSON.stringify({
-        jsonrpc: "2.0",
-        id: 1,
-        method: "initialize",
-        params: { protocolVersion: PROTOCOL_VERSION, capabilities: {}, clientInfo: { name: "LegalWork", version: "probe" } },
-      }),
-    });
-    result.reachable = true;
-    const type = contentType(response);
-    if (response.ok && (type.includes("application/json") || type.includes("text/event-stream"))) {
-      await discardBody(response);
-      result.transport = "streamable-http";
-      result.auth = "none";
-      steps.push({ id: "connect", status: response.status, ok: true });
-      return result;
-    }
-    if (response.status === 401 || response.status === 403) {
-      challenge = response.headers.get("www-authenticate");
-      authRequired = true;
-      await discardBody(response);
-      steps.push({ id: "connect", status: response.status, ok: true, detail: "sign-in required" });
-    } else if (response.status === 404 || response.status === 405) {
-      await discardBody(response);
-      // Legacy HTTP+SSE servers only answer GET on their SSE endpoint.
-      const sse = await request(url.toString(), {
-        method: "GET",
-        headers: { accept: "text/event-stream", ...(options.headers ?? {}) },
+  type Attempt =
+    | { kind: "open"; status: number; transport: "streamable-http" | "sse" }
+    | { kind: "auth"; status: number; challenge: string | null }
+    | { kind: "refused"; status: number }
+    | { kind: "not_mcp"; status: number; detail: string }
+    | { kind: "unreachable"; message: string };
+  const attempt = async (target: string): Promise<Attempt> => {
+    try {
+      const response = await request(target, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          accept: "application/json, text/event-stream",
+          "mcp-protocol-version": PROTOCOL_VERSION,
+          ...(options.headers ?? {}),
+        },
+        body: JSON.stringify({
+          jsonrpc: "2.0",
+          id: 1,
+          method: "initialize",
+          params: { protocolVersion: PROTOCOL_VERSION, capabilities: {}, clientInfo: { name: "LegalWork", version: "probe" } },
+        }),
       });
-      const sseType = contentType(sse);
-      await discardBody(sse);
-      if (sse.ok && sseType.includes("text/event-stream")) {
-        result.transport = "sse";
-        result.auth = "none";
-        steps.push({ id: "connect", status: sse.status, ok: true });
-        return result;
-      }
-      if (sse.status === 401 || sse.status === 403) {
-        challenge = sse.headers.get("www-authenticate");
-        authRequired = true;
-        steps.push({ id: "connect", status: sse.status, ok: true, detail: "sign-in required" });
-      } else {
-        steps.push({ id: "connect", status: response.status, ok: false, detail: "no MCP endpoint answered here" });
-        result.error = `The server answered HTTP ${response.status} and does not look like an MCP endpoint.`;
-        return result;
-      }
-    } else {
+      const type = contentType(response);
       await discardBody(response);
-      steps.push({
-        id: "connect",
+      if (response.ok && (type.includes("application/json") || type.includes("text/event-stream"))) {
+        return { kind: "open", status: response.status, transport: "streamable-http" };
+      }
+      if (response.status === 401) return { kind: "auth", status: 401, challenge: response.headers.get("www-authenticate") };
+      if (response.status === 403) {
+        const challenge = response.headers.get("www-authenticate");
+        return challenge ? { kind: "auth", status: 403, challenge } : { kind: "refused", status: 403 };
+      }
+      if (response.status === 404 || response.status === 405) {
+        // Legacy HTTP+SSE servers only answer GET on their SSE endpoint.
+        const sse = await request(target, { method: "GET", headers: { accept: "text/event-stream", ...(options.headers ?? {}) } });
+        const sseType = contentType(sse);
+        await discardBody(sse);
+        if (sse.ok && sseType.includes("text/event-stream")) return { kind: "open", status: sse.status, transport: "sse" };
+        if (sse.status === 401 || (sse.status === 403 && sse.headers.get("www-authenticate"))) {
+          return { kind: "auth", status: sse.status, challenge: sse.headers.get("www-authenticate") };
+        }
+        return { kind: "not_mcp", status: response.status, detail: "no MCP endpoint answered here" };
+      }
+      return {
+        kind: "not_mcp",
         status: response.status,
-        ok: false,
         detail: response.ok ? "unexpected content type" : `HTTP ${response.status}`,
-      });
-      result.error = response.ok
-        ? "The server answered, but not with an MCP response."
-        : `The server answered HTTP ${response.status}.`;
-      return result;
+      };
+    } catch (error) {
+      return { kind: "unreachable", message: error instanceof Error ? error.message : String(error) };
     }
-  } catch (error) {
-    steps.push({ id: "connect", status: null, ok: false, detail: error instanceof Error ? error.message : String(error) });
-    result.error = error instanceof Error ? error.message : String(error);
+  };
+
+  let outcome = await attempt(url.toString());
+  let answered = url;
+  if (outcome.kind === "not_mcp") {
+    for (const sibling of siblingEndpointCandidates(url)) {
+      const alternative = await attempt(sibling);
+      if (alternative.kind === "not_mcp" || alternative.kind === "unreachable") continue;
+      outcome = alternative;
+      answered = new URL(sibling);
+      break;
+    }
+  }
+  result.url = answered.toString();
+  const foundElsewhere = answered.toString() !== url.toString() ? `found at ${answered.toString()}` : undefined;
+
+  if (outcome.kind === "unreachable") {
+    steps.push({ id: "connect", status: null, ok: false, detail: outcome.message });
+    result.error = outcome.message;
     return result;
   }
-  if (!authRequired) return result;
+  result.reachable = true;
+  if (outcome.kind === "open") {
+    result.transport = outcome.transport;
+    result.auth = "none";
+    steps.push({ id: "connect", status: outcome.status, ok: true, detail: foundElsewhere });
+    return result;
+  }
+  if (outcome.kind === "refused") {
+    steps.push({ id: "connect", status: outcome.status, ok: false, detail: "refused without a sign-in challenge" });
+    result.error = "The server refused the request (HTTP 403) without saying how to sign in.";
+    return result;
+  }
+  if (outcome.kind === "not_mcp") {
+    steps.push({ id: "connect", status: outcome.status, ok: false, detail: outcome.detail });
+    result.error = outcome.detail === "unexpected content type"
+      ? "The server answered, but not with an MCP response."
+      : `The server answered HTTP ${outcome.status} and does not look like an MCP endpoint.`;
+    return result;
+  }
+  const challenge = outcome.challenge;
+  steps.push({ id: "connect", status: outcome.status, ok: true, detail: foundElsewhere ?? "sign-in required" });
+  const resource = answered;
+
 
   // 2. Protected resource metadata → the authorization server. Servers from
   // before protected resource metadata host the authorization server on the
   // MCP origin, which is where the search ends up without metadata.
   let resourceMetadataUrl: string | null = null;
-  let authorizationServer = new URL(url.origin);
+  let authorizationServer = new URL(resource.origin);
   let lastStatus: number | null = null;
-  for (const candidate of protectedResourceMetadataCandidates(url, resourceMetadataFromChallenge(challenge))) {
+  for (const candidate of protectedResourceMetadataCandidates(resource, resourceMetadataFromChallenge(challenge))) {
     const { status, json } = await readJson(candidate);
     lastStatus = status || lastStatus;
     const servers = json?.authorization_servers;

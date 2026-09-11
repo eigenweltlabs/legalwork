@@ -4020,27 +4020,35 @@ async function reloadOpencodeEngine(config: ServerConfig, workspace: WorkspaceIn
   await syncRuntimeMcpToOpencodeEngine(config, workspace).catch(() => undefined);
 }
 
-// The engine rebuilds a disposed instance lazily on its next request and drops
-// the connections that were open during the dispose. Asking for the instance's
-// MCP status once, on a fresh connection, makes the re-registration below land
-// on a live instance rather than being recorded as "fetch failed" against a
-// half-built one. Best-effort: a silent engine just falls through to the sync.
-async function awaitEngineInstance(baseUrl: string, authHeader: string | null, directory: string | null): Promise<void> {
+// The engine answers a workspace's MCP status only once that instance exists:
+// right after start the process may not even be listening yet, and after a
+// dispose the instance is rebuilt lazily on the next request while the
+// connections open during the dispose are dropped. Asking for the status on a
+// fresh connection, and asking again while the engine cannot be reached at
+// all, makes the registration that follows land on a live instance instead of
+// being recorded as "fetch failed". Any HTTP answer means the engine is there;
+// only a silent engine is waited for, and only up to the deadline.
+async function awaitEngineInstance(
+  baseUrl: string,
+  authHeader: string | null,
+  directory: string | null,
+  deadlineMs = 30_000,
+): Promise<void> {
   const url = new URL(baseUrl);
   url.pathname = "/mcp";
   url.search = "";
   if (directory) url.searchParams.set("directory", directory);
   const headers: Record<string, string> = {};
   if (authHeader) headers.Authorization = authHeader;
-  for (let attempt = 0; attempt < 3; attempt += 1) {
+  const deadline = Date.now() + deadlineMs;
+  while (Date.now() < deadline) {
     try {
       const response = await fetch(url, { headers, signal: AbortSignal.timeout(20_000) });
       await response.text().catch(() => undefined);
-      if (response.ok) return;
+      return;
     } catch {
-      // Still rebuilding.
+      await new Promise((resolve) => setTimeout(resolve, engineMcpSyncRetryDelayMs()));
     }
-    await new Promise((resolve) => setTimeout(resolve, engineMcpSyncRetryDelayMs()));
   }
 }
 
@@ -4171,6 +4179,12 @@ export function engineMcpSyncState(workspaceId: string): EngineMcpSyncState | nu
 // something re-syncs them. Best-effort.
 export async function syncAllWorkspacesRuntimeMcpToEngine(config: ServerConfig): Promise<void> {
   for (const workspace of config.workspaces) {
+    // Right after start the engine is still building instances; registering
+    // into a half-built one is recorded as a failure the UI then shows.
+    const connection = resolveWorkspaceOpencodeConnection(config, workspace);
+    if (connection.baseUrl?.trim()) {
+      await awaitEngineInstance(connection.baseUrl.trim(), connection.authHeader ?? null, resolveOpencodeDirectory(workspace));
+    }
     await syncRuntimeMcpToOpencodeEngine(config, workspace).catch(() => undefined);
   }
 }

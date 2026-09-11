@@ -3290,6 +3290,7 @@ const de = {
   "add_mcp.local_toggle": "Statt einer URL einen lokalen Befehl ausführen",
   "add_mcp.url_toggle": "Stattdessen eine Server-URL verwenden",
   "add_mcp.connect_failed": "Verbindung nicht möglich. Prüfen Sie die Angaben und versuchen Sie es erneut.",
+  "add_mcp.found_at": "Gefunden unter {url}. Diese Adresse wird gespeichert.",
   "benchmark.legal_agent_benchmark": "Legal Agent Benchmark",
   "context_panel.add_folder": "Ordner hinzufügen",
   "google_workspace.oauth_setup_hint":

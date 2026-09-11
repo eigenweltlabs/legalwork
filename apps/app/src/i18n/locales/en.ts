@@ -2944,6 +2944,7 @@ export default {
   "add_mcp.local_toggle": "Run a local command instead of a URL",
   "add_mcp.url_toggle": "Use a server URL instead",
   "add_mcp.connect_failed": "Could not connect. Check the details and try again.",
+  "add_mcp.found_at": "Found at {url}. That address will be saved.",
   "benchmark.legal_agent_benchmark": "Legal Agent Benchmark",
   "context_panel.add_folder": "Add folder",
   "google_workspace.oauth_setup_hint":
