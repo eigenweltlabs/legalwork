@@ -213,6 +213,21 @@ export const GLOBAL_TOOL_PERMISSIONS_ID = "__global_tool_permissions__";
 /** Host-wide personalisation shared by every workspace served on this device. */
 export const GLOBAL_PERSONALIZATION_ID = "__global_personalization__";
 
+/**
+ * Connectors (MCP servers) shared by every workspace this server hosts. On
+ * desktop a connected app is meant to be available everywhere, and the
+ * engine's OAuth tokens for it are already global (keyed by server name), so
+ * the configuration lives in one row too: the runtime config file the engine
+ * reads on every instance build is derived from this row plus the
+ * workspace's own row, and the same map is hot-added into running instances.
+ */
+export const GLOBAL_MCP_ID = "__global_mcp__";
+
+/** The shared connector map, keyed by server name. */
+export async function readGlobalMcpMap(config: ServerConfig): Promise<Record<string, Record<string, unknown>>> {
+  return runtimeMcpMap(await readRuntimeOpencodeConfig(config, GLOBAL_MCP_ID));
+}
+
 export async function readGlobalPersonalizationSettings(
   config: ServerConfig,
 ): Promise<PersonalizationSettings> {

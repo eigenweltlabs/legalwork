@@ -101,7 +101,69 @@ const POSTHOG_CONFIG = {
   oauth: {},
 };
 
+async function startLegalworkServerWithWorkspaces(roots: string[], opencodeBaseUrl: string) {
+  const config: ServerConfig = {
+    host: "127.0.0.1",
+    port: 0,
+    token: "owt_test_token",
+    hostToken: "owt_host_token",
+    approval: { mode: "auto", timeoutMs: 1000 },
+    corsOrigins: ["*"],
+    workspaces: roots.map((path, index) => ({
+      id: `ws_${index + 1}`,
+      name: `Workspace ${index + 1}`,
+      path,
+      preset: "starter",
+      workspaceType: "local",
+      baseUrl: opencodeBaseUrl,
+    })),
+    authorizedRoots: roots,
+    readOnly: false,
+    startedAt: Date.now(),
+    tokenSource: "cli",
+    hostTokenSource: "cli",
+    logFormat: "pretty",
+    logRequests: false,
+  };
+  const server = await startServer(config) as Served;
+  stops.push(() => server.stop(true));
+  return { base: `http://127.0.0.1:${server.port}`, token: config.token };
+}
+
 describe("runtime MCP engine sync", () => {
+  test("a shared connector is hot-added into every local workspace's engine instance, and dropped from all on removal", async () => {
+    const rootA = await createWorkspaceRoot();
+    const rootB = await createWorkspaceRoot();
+    const previousDb = process.env.LEGALWORK_RUNTIME_DB;
+    process.env.LEGALWORK_RUNTIME_DB = join(rootA, "runtime.sqlite");
+    try {
+      const mock = startMockOpencode();
+      const legalwork = await startLegalworkServerWithWorkspaces([rootA, rootB], `http://127.0.0.1:${mock.server.port}`);
+
+      const response = await fetch(`${legalwork.base}/workspace/ws_1/mcp`, {
+        method: "POST",
+        headers: auth(legalwork.token),
+        body: JSON.stringify({ name: "posthog", config: POSTHOG_CONFIG, scope: "global" }),
+      });
+      expect(response.status).toBe(200);
+      const adds = mock.requests.filter((entry) => entry.method === "POST" && entry.pathname === "/mcp");
+      expect(adds.map((entry) => new URLSearchParams(entry.search).get("directory")).sort()).toEqual([rootA, rootB].sort());
+      expect(adds.every((entry) => JSON.stringify(entry.body) === JSON.stringify({ name: "posthog", config: POSTHOG_CONFIG }))).toBe(true);
+
+      mock.requests.length = 0;
+      const removal = await fetch(`${legalwork.base}/workspace/ws_2/mcp/posthog`, {
+        method: "DELETE",
+        headers: auth(legalwork.token),
+      });
+      expect(removal.status).toBe(200);
+      const disconnects = mock.requests.filter((entry) => entry.pathname === "/mcp/posthog/disconnect");
+      expect(disconnects.map((entry) => new URLSearchParams(entry.search).get("directory")).sort()).toEqual([rootA, rootB].sort());
+    } finally {
+      if (previousDb === undefined) delete process.env.LEGALWORK_RUNTIME_DB;
+      else process.env.LEGALWORK_RUNTIME_DB = previousDb;
+    }
+  });
+
   test("hot-adds a runtime MCP into the running engine when added", async () => {
     const workspaceRoot = await createWorkspaceRoot();
     const previousDb = process.env.LEGALWORK_RUNTIME_DB;

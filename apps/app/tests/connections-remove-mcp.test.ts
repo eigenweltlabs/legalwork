@@ -29,9 +29,6 @@ describe("desktop MCP removal", () => {
         if (command === "readOpencodeConfig") {
           return { path: "/tmp/opencode.jsonc", exists: false, content: null };
         }
-        if (command === "mergeRuntimeMcpServer") {
-          return { ok: true, status: 0, stdout: "removed", stderr: "" };
-        }
         throw new Error(`Unexpected desktop command: ${command}`);
       },
     };
@@ -81,10 +78,9 @@ describe("desktop MCP removal", () => {
     await store.removeMcp("legalmemory");
 
     expect(serverCalls).toEqual([{ workspaceId: "ws-runtime", name: "legalmemory" }]);
-    expect(desktopCalls).toContainEqual({
-      command: "mergeRuntimeMcpServer",
-      args: ["legalmemory", null],
-    });
+    // The server's shared row is the only store; the desktop no longer merges
+    // into the engine config file (the server rebuilds it from the DB).
+    expect(desktopCalls.map((call) => call.command)).toEqual(["readOpencodeConfig"]);
     expect(queryClient.getQueryData(["legalmemory-tree-roots", "ws-runtime"])).toBeUndefined();
     expect(connectionChanges).toBe(1);
   });

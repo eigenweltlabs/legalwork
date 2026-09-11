@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 
 import { addMcp, listMcp, removeMcp } from "./mcp.js";
-import { readRuntimeOpencodeConfig } from "./runtime-opencode-config-store.js";
+import { readGlobalMcpMap, readRuntimeOpencodeConfig } from "./runtime-opencode-config-store.js";
 import type { ServerConfig } from "./types.js";
 
 const WORKSPACE_ID = "ws_mcp_remote";
@@ -56,10 +56,12 @@ describe("mcp remote connect flow", () => {
 
       await expect(readFile(join(workspaceRoot, "opencode.jsonc"), "utf8")).rejects.toThrow();
       await expect(stat(join(workspaceRoot, ".opencode", "legalwork.json"))).rejects.toThrow();
-      expect((await readRuntimeOpencodeConfig(config, WORKSPACE_ID)).mcp?.["simple-remote"]?.url).toBe("https://example.com/mcp");
+      // Shared by default: stored once, for every workspace.
+      expect((await readGlobalMcpMap(config))["simple-remote"]?.url).toBe("https://example.com/mcp");
+      expect((await readRuntimeOpencodeConfig(config, WORKSPACE_ID)).mcp).toBeUndefined();
 
       const removed = await removeMcp(config, WORKSPACE_ID, "simple-remote");
-      expect(removed).toBe(true);
+      expect(removed).toEqual(["global"]);
 
       const listedAfterRemove = await listMcp(config, WORKSPACE_ID, workspaceRoot);
       expect(listedAfterRemove.some((entry) => entry.name === "simple-remote")).toBe(false);

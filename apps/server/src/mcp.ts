@@ -6,9 +6,23 @@ import type { McpItem, ServerConfig } from "./types.js";
 import { readJsoncFile } from "./jsonc.js";
 import { opencodeConfigPath } from "./workspace-files.js";
 import { validateMcpConfig, validateMcpName } from "./validators.js";
-import { readRuntimeOpencodeConfig, runtimeMcpMap, writeRuntimeOpencodeConfig } from "./runtime-opencode-config-store.js";
+import {
+  GLOBAL_MCP_ID,
+  readRuntimeOpencodeConfig,
+  runtimeMcpMap,
+  writeRuntimeOpencodeConfig,
+  type RuntimeOpencodeConfig,
+} from "./runtime-opencode-config-store.js";
 
-function globalOpenCodeConfigPath(): string {
+/**
+ * Where a runtime (LegalWork-owned) MCP entry lives. Connecting an app means
+ * connecting it for every workspace, so "global" is the default everywhere;
+ * "workspace" is for entries that belong to one workspace by construction,
+ * such as the MCPs a plugin installed there brings along.
+ */
+export type McpScope = "workspace" | "global";
+
+export function globalOpenCodeConfigPath(): string {
   // Respect XDG_CONFIG_HOME so we read the SAME global config the engine does. The
   // desktop dev harness points XDG_CONFIG_HOME at its own data dir; hardcoding
   // ~/.config here made the server read a different file than the engine, so global
@@ -21,6 +35,32 @@ function globalOpenCodeConfigPath(): string {
   if (existsSync(jsonc)) return jsonc;
   if (existsSync(json)) return json;
   return jsonc; // fall back to jsonc (readJsoncFile handles missing files gracefully)
+}
+
+function hasOwn(map: Record<string, unknown>, name: string): boolean {
+  return Object.prototype.hasOwnProperty.call(map, name);
+}
+
+async function readMcpRows(serverConfig: ServerConfig, workspaceId: string) {
+  const [globalRow, workspaceRow] = await Promise.all([
+    readRuntimeOpencodeConfig(serverConfig, GLOBAL_MCP_ID),
+    readRuntimeOpencodeConfig(serverConfig, workspaceId),
+  ]);
+  return { global: runtimeMcpMap(globalRow), workspace: runtimeMcpMap(workspaceRow) };
+}
+
+/**
+ * The runtime MCPs a workspace's engine instance should carry: the shared
+ * connectors, overridden by the workspace's own entries of the same name. This
+ * is the map the engine config file is built from and the map hot-added into
+ * a running instance, so the two can never disagree.
+ */
+export async function runtimeMcpMapForWorkspace(
+  serverConfig: ServerConfig,
+  workspaceId: string,
+): Promise<Record<string, Record<string, unknown>>> {
+  const rows = await readMcpRows(serverConfig, workspaceId);
+  return { ...rows.global, ...rows.workspace };
 }
 
 function getMcpConfig(config: Record<string, unknown>): Record<string, Record<string, unknown>> {
@@ -50,14 +90,17 @@ export async function listMcp(serverConfig: ServerConfig, workspaceId: string, w
 
   const projectMcpMap = getMcpConfig(config);
   const globalMcpMap = getMcpConfig(globalConfig);
-  const runtimeConfig = await readRuntimeOpencodeConfig(serverConfig, workspaceId);
-  const runtimeMap = runtimeMcpMap(runtimeConfig);
+  const runtimeMap = await runtimeMcpMapForWorkspace(serverConfig, workspaceId);
 
   const items: McpItem[] = [];
 
-  // Global MCPs first; project-level entries override global ones with the same name.
+  // Global MCPs first; project-level entries override global ones with the
+  // same name. A runtime entry of the same name wins too: earlier desktop
+  // builds wrote every connector into the user's global opencode config, and
+  // the startup migration imports those into the shared runtime row, so the
+  // file copy must not show up as a second, read-only card.
   for (const [name, entry] of Object.entries(globalMcpMap)) {
-    if (Object.prototype.hasOwnProperty.call(projectMcpMap, name)) continue;
+    if (hasOwn(projectMcpMap, name) || hasOwn(runtimeMap, name)) continue;
     items.push({
       name,
       config: entry,
@@ -69,7 +112,7 @@ export async function listMcp(serverConfig: ServerConfig, workspaceId: string, w
 
   // Project MCPs (highest priority).
   for (const [name, entry] of Object.entries(projectMcpMap)) {
-    if (Object.prototype.hasOwnProperty.call(runtimeMap, name)) continue;
+    if (hasOwn(runtimeMap, name)) continue;
     items.push({
       name,
       config: entry,
@@ -91,38 +134,63 @@ export async function listMcp(serverConfig: ServerConfig, workspaceId: string, w
   return items;
 }
 
+function withoutMcp(name: string) {
+  return (current: RuntimeOpencodeConfig): RuntimeOpencodeConfig => {
+    const mcp = { ...runtimeMcpMap(current) };
+    delete mcp[name];
+    return { ...current, mcp };
+  };
+}
+
 export async function addMcp(
   serverConfig: ServerConfig,
   workspaceId: string,
   name: string,
   config: Record<string, unknown>,
+  scope: McpScope = "global",
 ): Promise<{ action: "added" | "updated" }> {
   validateMcpName(name);
   validateMcpConfig(config);
-  const runtimeConfig = await readRuntimeOpencodeConfig(serverConfig, workspaceId);
-  const mcpMap = { ...runtimeMcpMap(runtimeConfig) };
-  const existed = Object.prototype.hasOwnProperty.call(mcpMap, name);
-  mcpMap[name] = config;
-  await writeRuntimeOpencodeConfig(serverConfig, workspaceId, (current) => ({ ...current, mcp: mcpMap }));
+  const rows = await readMcpRows(serverConfig, workspaceId);
+  const existed = hasOwn(rows.global, name) || hasOwn(rows.workspace, name);
+  const rowId = scope === "global" ? GLOBAL_MCP_ID : workspaceId;
+  await writeRuntimeOpencodeConfig(serverConfig, rowId, (current) => ({
+    ...current,
+    mcp: { ...runtimeMcpMap(current), [name]: config },
+  }));
+  // A workspace copy of the same name would shadow the shared entry in this
+  // workspace's engine config.
+  if (scope === "global" && hasOwn(rows.workspace, name)) {
+    await writeRuntimeOpencodeConfig(serverConfig, workspaceId, withoutMcp(name));
+  }
   return { action: existed ? "updated" : "added" };
 }
 
-export async function removeMcp(serverConfig: ServerConfig, workspaceId: string, name: string): Promise<boolean> {
-  const runtimeConfig = await readRuntimeOpencodeConfig(serverConfig, workspaceId);
-  const mcpMap = { ...runtimeMcpMap(runtimeConfig) };
-  if (!Object.prototype.hasOwnProperty.call(mcpMap, name)) return false;
-  delete mcpMap[name];
-  await writeRuntimeOpencodeConfig(serverConfig, workspaceId, (current) => ({ ...current, mcp: mcpMap }));
-  return true;
+/**
+ * Remove a runtime MCP wherever it is stored. Returns the scopes it was
+ * removed from; empty means nothing was stored under that name. Removing from
+ * both rows is deliberate: the user is disconnecting the app, not editing a
+ * particular row, and a surviving copy in the other row would resurrect it.
+ */
+export async function removeMcp(serverConfig: ServerConfig, workspaceId: string, name: string): Promise<McpScope[]> {
+  const rows = await readMcpRows(serverConfig, workspaceId);
+  const removed: McpScope[] = [];
+  if (hasOwn(rows.workspace, name)) {
+    await writeRuntimeOpencodeConfig(serverConfig, workspaceId, withoutMcp(name));
+    removed.push("workspace");
+  }
+  if (hasOwn(rows.global, name)) {
+    await writeRuntimeOpencodeConfig(serverConfig, GLOBAL_MCP_ID, withoutMcp(name));
+    removed.push("global");
+  }
+  return removed;
 }
 
-// Flips `enabled` on a workspace MCP entry. Returns false for "toggle does
-// not apply": missing, non-object, or malformed enough that OpenCode would
-// fail to load it. The HTTP layer maps false to 404. Globals are out of
-// scope by design — only workspace-level entries.
-//
-// `updateJsoncPath` (vs `updateJsoncTopLevel`) preserves inline comments
-// inside the MCP entry — see the regression that motivated #1444.
+// Flips `enabled` on a runtime MCP entry, in whichever row holds it (the
+// workspace's own row shadows the shared one, so it is checked first).
+// Returns false for "toggle does not apply": missing, non-object, or malformed
+// enough that OpenCode would fail to load it. The HTTP layer maps false to
+// 404. Entries from the user's own config files are out of scope by design.
 export async function setMcpEnabled(
   serverConfig: ServerConfig,
   workspaceId: string,
@@ -130,17 +198,19 @@ export async function setMcpEnabled(
   enabled: boolean,
 ): Promise<boolean> {
   validateMcpName(name);
-  const runtimeConfig = await readRuntimeOpencodeConfig(serverConfig, workspaceId);
-  const mcpMap = { ...runtimeMcpMap(runtimeConfig) };
-  if (!Object.prototype.hasOwnProperty.call(mcpMap, name)) return false;
-  const current = mcpMap[name];
+  const rows = await readMcpRows(serverConfig, workspaceId);
+  const rowId = hasOwn(rows.workspace, name) ? workspaceId : hasOwn(rows.global, name) ? GLOBAL_MCP_ID : null;
+  if (!rowId) return false;
+  const current = (rowId === workspaceId ? rows.workspace : rows.global)[name];
   if (!current || typeof current !== "object" || Array.isArray(current)) return false;
   try {
-    validateMcpConfig({ ...(current as Record<string, unknown>), enabled });
+    validateMcpConfig({ ...current, enabled });
   } catch {
     return false;
   }
-  mcpMap[name] = { ...(current as Record<string, unknown>), enabled };
-  await writeRuntimeOpencodeConfig(serverConfig, workspaceId, (currentConfig) => ({ ...currentConfig, mcp: mcpMap }));
+  await writeRuntimeOpencodeConfig(serverConfig, rowId, (currentConfig) => ({
+    ...currentConfig,
+    mcp: { ...runtimeMcpMap(currentConfig), [name]: { ...current, enabled } },
+  }));
   return true;
 }

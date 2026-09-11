@@ -1,6 +1,6 @@
 import { useSyncExternalStore } from "react";
 
-import { applyEdits, modify, parse, printParseErrorCode } from "jsonc-parser";
+import { applyEdits, modify } from "jsonc-parser";
 
 import { t } from "../../../i18n";
 import {
@@ -21,7 +21,6 @@ import { mcpAuthEntryFromServer, mcpConnectOutcome } from "../../../app/mcp-conn
 import { getMcpOAuthErrorMessage } from "../../../app/mcp-oauth-errors";
 import { finishPerf, perfNow, recordPerfLog } from "../../../app/lib/perf-log";
 import {
-  mergeRuntimeMcpServer,
   readOpencodeConfig,
   writeOpencodeConfig,
   type OpencodeConfigFile,
@@ -85,6 +84,8 @@ export function createConnectionsStore(options: {
   let lastProjectDir = "";
   let pendingMcpAuthGeneration = 0;
   let connectingMcpGeneration = 0;
+  // The engine reload connectMcp owes once its sign-in is over (see there).
+  let pendingReloadTrigger: ReloadTrigger | null = null;
   let snapshot: ConnectionsStoreSnapshot;
 
   let state: MutableState = {
@@ -375,60 +376,23 @@ export function createConnectionsStore(options: {
     const projectDir = options.projectDir().trim();
     const isRemoteWorkspace = options.workspaceType() === "remote";
 
-    // Desktop, local workspace: MCP servers are GLOBAL — read the shared opencode config
-    // so the list is identical in every workspace and needs no workspace selected.
-    if (isDesktopRuntime() && !isRemoteWorkspace) {
-      try {
-        setStateField("mcpStatus", null);
-        const globalConfig = (await readOpencodeConfig("global", "")) as OpencodeConfigFile;
-        const globalServers = globalConfig.exists && globalConfig.content
-          ? parseMcpServersFromContent(globalConfig.content).map((entry) => ({
-              ...entry,
-              source: "config.global" as const,
-            }))
-          : [];
-        const globalNames = new Set(globalServers.map((entry) => entry.name));
-        const runtimeServers = state.mcpServers.filter(
-          (entry) => entry.source === "config.remote" && !globalNames.has(entry.name),
-        );
-        const next = [...globalServers, ...runtimeServers];
-        let nextStatuses = state.mcpStatuses;
-        const activeClient = options.client();
-        if (activeClient && projectDir) {
-          try {
-            const status = unwrap(await activeClient.mcp.status({ directory: projectDir }));
-            nextStatuses = filterConfiguredStatuses(status as McpStatusMap, next);
-          } catch {
-            nextStatuses = {};
-          }
-        }
-        mutateState((current) => ({
-          ...current,
-          mcpServers: next,
-          mcpLastUpdatedAt: Date.now(),
-          mcpStatuses: nextStatuses,
-          mcpStatus: next.length ? null : t("mcp.no_servers_configured_workspace"),
-        }));
-        return;
-      } catch (error) {
-        mutateState((current) => ({
-          ...current,
-          mcpServers: [],
-          mcpStatuses: {},
-          mcpStatus: error instanceof Error ? error.message : t("mcp.load_servers_failed"),
-        }));
-        return;
-      }
-    }
-
+    // Desktop included: the LegalWork server owns the connector list (its shared
+    // row plus the user's config files), so every workspace reads the same list.
+    // The file-based fallback below only serves the moment before the embedded
+    // server is reachable.
     try {
       setStateField("mcpStatus", null);
       const serverResult = await listMcpFromLegalworkServer(projectDir);
       if (serverResult) {
         // Surface engine registration failures instead of leaving users
-        // staring at an MCP that silently shows as disconnected.
+        // staring at an MCP that silently shows as disconnected. A server the
+        // engine reports on anyway made it in through a later registration,
+        // so a stale failure for it is not worth a warning.
         const failedNames = serverResult.engineSync?.status === "failed"
-          ? serverResult.engineSync.failures.map((failure) => failure.name).join(", ")
+          ? serverResult.engineSync.failures
+              .map((failure) => failure.name)
+              .filter((name) => !(name in serverResult.nextStatuses))
+              .join(", ")
           : "";
         mutateState((current) => ({
           ...current,
@@ -704,66 +668,14 @@ export function createConnectionsStore(options: {
         }
       }
 
-      if (isDesktopRuntime() && !isRemoteWorkspace) {
-        // Persist to the GLOBAL opencode config so the MCP loads in every workspace
-        // (opencode reads its global config for all projects). The engine hot-add below
-        // connects it immediately in the active workspace.
-        const configFile = await readOpencodeConfig("global", "") as OpencodeConfigFile;
-
-        const raw = configFile.exists && configFile.content?.trim()
-          ? configFile.content
-          : '{\n  "$schema": "https://opencode.ai/config.json"\n}\n';
-
-        const parseErrors: Array<{ error: number; offset: number; length: number }> = [];
-        parse(raw, parseErrors, { allowTrailingComma: true });
-        if (parseErrors.length > 0) {
-          const details = parseErrors
-            .map((entry) => printParseErrorCode(entry.error))
-            .join(", ");
-          throw new Error(`Failed to parse opencode config: ${details}`);
-        }
-
-        let updated = raw;
-        const formattingOptions = { insertSpaces: true, tabSize: 2, eol: "\n" };
-        updated = applyEdits(
-          updated,
-          modify(updated, ["$schema"], "https://opencode.ai/config.json", { formattingOptions }),
-        );
-        updated = applyEdits(
-          updated,
-          modify(updated, ["mcp", slug], mcpEntryConfig, { formattingOptions }),
-        );
-
-        const writeResult = await writeOpencodeConfig(
-          "global",
-          "",
-          updated.endsWith("\n") ? updated : `${updated}\n`,
-        ) as { ok: boolean; stderr?: string; stdout?: string };
-        if (!writeResult.ok) {
-          throw new Error(writeResult.stderr || writeResult.stdout || t("connections.write_global_failed"));
-        }
-
-        // The global file is not what the packaged engine reads. On a config
-        // change it disposes the workspace instance and rebuilds it from the
-        // runtime opencode config plus the workspace's own files — the global
-        // config is not among them (verified from the engine log, which lists
-        // every path an instance loads). Merging into the runtime config makes
-        // the connector global: every workspace, old and new, gets it on the
-        // next instance build.
-        const runtimeWrite = await mergeRuntimeMcpServer(slug, mcpEntryConfig);
-        if (!runtimeWrite.ok) {
-          throw new Error(runtimeWrite.stderr || runtimeWrite.stdout || "Failed to update the runtime MCP config");
-        }
-        // And the runtime store, for setups where a LegalWork server manages
-        // the engine (remote/hosted); no server client exists on plain desktop.
-        if (legalworkClient && legalworkWorkspaceId) {
-          await legalworkClient.addMcp(legalworkWorkspaceId, { name: slug, config: mcpEntryConfig });
-        }
-      } else if (canUseLegalworkServer && legalworkClient && legalworkWorkspaceId) {
-        await legalworkClient.addMcp(legalworkWorkspaceId, {
-          name: slug,
-          config: mcpEntryConfig,
-        });
+      // One store for every workspace: the LegalWork server's shared connector
+      // row (its default scope), which the engine config file and the hot-add
+      // sync are built from. Earlier desktop builds also wrote the user's global
+      // opencode config and merged into the engine config file directly; the
+      // engine reads the first once per process and the server rebuilds the
+      // second from its DB, so neither made a connector visible everywhere.
+      if (canUseLegalworkServer && legalworkClient && legalworkWorkspaceId) {
+        await legalworkClient.addMcp(legalworkWorkspaceId, { name: slug, config: mcpEntryConfig });
       } else {
         throw new Error(t("mcp.connect_server_first"));
       }
@@ -830,7 +742,6 @@ export function createConnectionsStore(options: {
       // Saving remains authorized after the setup dialog closes. Its eventual
       // completion must not reopen sign-in or attach it to a different workspace.
       if (!authRequestIsCurrent()) return true;
-      options.markReloadRequired?.("mcp", { type: "mcp", name: slug, action });
       await refreshMcpServers();
 
       let outcome = mcpConnectOutcome(entry, snapshot.mcpStatuses[slug], Boolean(resolvedHeaders));
@@ -841,6 +752,16 @@ export function createConnectionsStore(options: {
       }
       engineHasMcp ||= Boolean(snapshot.mcpStatuses[slug]);
       if (!authRequestIsCurrent()) return true;
+
+      // Other workspaces pick the connector up from the rebuilt engine config,
+      // so a reload is due — but not while signing in. The engine keeps a
+      // sign-in's client registration in the instance that started it; an
+      // instance rebuild during the browser round-trip replaces it, and the
+      // provider then rejects the code exchange ("client ID does not match the
+      // authorize request"). The reload waits until sign-in ends either way.
+      const reloadTrigger: ReloadTrigger = { type: "mcp", name: slug, action };
+      if (outcome === "auth") pendingReloadTrigger = reloadTrigger;
+      else options.markReloadRequired?.("mcp", reloadTrigger);
 
       if (outcome === "auth") {
         if (!engineHasMcp && engineAddError) throw engineAddError;
@@ -889,6 +810,15 @@ export function createConnectionsStore(options: {
         setStateField("mcpConnectingName", null);
       }
     }
+  }
+
+  /** Ask the server how a remote MCP server signs in, before saving anything. */
+  async function probeMcp(url: string) {
+    const { legalworkClient, legalworkWorkspaceId, canUseLegalworkServer } = await resolveMcpLegalworkTarget("read");
+    if (!canUseLegalworkServer || !legalworkClient || !legalworkWorkspaceId) {
+      throw new Error(t("mcp.connect_server_first"));
+    }
+    return legalworkClient.probeMcp(legalworkWorkspaceId, { url });
   }
 
   function authorizeMcp(entry: McpServerEntry) {
@@ -1027,16 +957,15 @@ export function createConnectionsStore(options: {
         await resolveWritableLegalworkTarget();
 
       if (isDesktopRuntime()) {
-        // Desktop connect persists the same entry in both local config and the
-        // LegalWork server's runtime store. Removing only the local copies makes
-        // the integration look disconnected while server-owned features (such
-        // as LegalMemory Drive) can still use the surviving runtime entry.
+        // The shared connector store lives on the LegalWork server, which also
+        // hot-disconnects the server from every workspace's engine instance.
         if (legalworkClient && legalworkWorkspaceId) {
           await legalworkClient.removeMcp(legalworkWorkspaceId, name);
         }
 
         const formattingOptions = { insertSpaces: true, tabSize: 2, eol: "\n" };
-        // Remove from the GLOBAL opencode config (applies to every workspace).
+        // Earlier desktop builds wrote connectors into the user's global opencode
+        // config. Strip a copy left there, or it resurfaces as a read-only entry.
         const configFile = await readOpencodeConfig("global", "") as OpencodeConfigFile;
         if (configFile.exists && configFile.content?.trim()) {
           const updated = applyEdits(
@@ -1044,14 +973,6 @@ export function createConnectionsStore(options: {
             modify(configFile.content, ["mcp", name], undefined, { formattingOptions }),
           );
           await writeOpencodeConfig("global", "", updated.endsWith("\n") ? updated : `${updated}\n`);
-        }
-
-        // Connect merges into the runtime opencode config (the file the
-        // packaged engine reads for every workspace), so removal deletes from
-        // the same place or the server resurrects on the next instance build.
-        const runtimeRemoval = await mergeRuntimeMcpServer(name, null);
-        if (!runtimeRemoval.ok) {
-          throw new Error(runtimeRemoval.stderr || runtimeRemoval.stdout || t("connections.remove_runtime_failed"));
         }
 
         // The server removal hot-disconnects its engine. Also disconnect the
@@ -1167,6 +1088,10 @@ export function createConnectionsStore(options: {
       mcpAuthEntry: null,
       mcpAuthNeedsReload: false,
     }));
+    // Sign-in is over, finished or not; the connector is saved either way.
+    const trigger = pendingReloadTrigger;
+    pendingReloadTrigger = null;
+    if (trigger) options.markReloadRequired?.("mcp", trigger);
   }
 
   async function completeMcpAuthModal() {
@@ -1257,6 +1182,7 @@ export function createConnectionsStore(options: {
     readMcpConfigFile,
     refreshMcpServers,
     connectMcp,
+    probeMcp,
     cancelPendingMcpAuth,
     authorizeMcp,
     logoutMcpAuth,

@@ -21,7 +21,8 @@ import type { ApprovalRequest, Capabilities, ServerConfig, WorkspaceInfo, Actor,
 import { ApprovalService } from "./approvals.js";
 import { addPlugin, listPlugins, normalizePluginSpec, removePlugin } from "./plugins.js";
 import { sanitizePortableOpencodeConfig } from "./portable-opencode.js";
-import { addMcp, listMcp, removeMcp, setMcpEnabled } from "./mcp.js";
+import { addMcp, listMcp, removeMcp, runtimeMcpMapForWorkspace, setMcpEnabled, type McpScope } from "./mcp.js";
+import { probeMcpServer } from "./mcp-probe.js";
 import { deleteSkill, listSkills, resolveHubSkillKind, skillsDirForScope, upsertSkill } from "./skills.js";
 import {
   deleteSkillResource,
@@ -96,6 +97,7 @@ import {
   readGlobalPersonalizationSettings,
   readGlobalToolPermissions,
   readRuntimeOpencodeConfig,
+  GLOBAL_MCP_ID,
   runtimeMcpMap,
   type RuntimeOpencodeConfig,
   writeRuntimeOpencodeConfig,
@@ -1816,9 +1818,20 @@ function createRoutes(
       return jsonResponse({ migrated: false, keys: [], legacyKeys: [], userOpencodeKeys: [], updatedAt: null, legacyError: legalwork.error });
     }
 
+    // Connectors are shared by every workspace, so migrated MCP entries land
+    // in the shared row; everything else stays with this workspace.
+    const { mcp: legacyMcp, ...legacyRest } = legacy.config;
+    const { mcp: userMcp, ...userRest } = user.config;
     await writeRuntimeOpencodeConfig(config, workspace.id, (current) => (
-      mergeLegacyRuntimeConfig(mergeLegacyRuntimeConfig(current, legacy.config), user.config)
+      mergeLegacyRuntimeConfig(mergeLegacyRuntimeConfig(current, legacyRest), userRest)
     ));
+    const migratedMcp = { ...(legacyMcp ?? {}), ...(userMcp ?? {}) };
+    if (Object.keys(migratedMcp).length) {
+      await writeRuntimeOpencodeConfig(config, GLOBAL_MCP_ID, (current) => ({
+        ...current,
+        mcp: { ...runtimeMcpMap(current), ...migratedMcp },
+      }));
+    }
     if (legacy.keys.length && !legalwork.error) {
       await writeLegalworkConfig(workspace.path, removeLegacyRuntimeConfig(legalwork.data), false);
     }
@@ -3304,6 +3317,24 @@ function createRoutes(
     return jsonResponse({ items, engineSync: engineMcpSyncState(workspace.id) });
   });
 
+  // Ask a remote MCP server how it signs in, before anything is saved.
+  addRoute(routes, "POST", "/workspace/:id/mcp/probe", "client", async (ctx) => {
+    requireClientScope(ctx, "collaborator");
+    await resolveWorkspace(config, ctx.params.id);
+    const body = await readJsonBody(ctx.request);
+    const headers: Record<string, string> = {};
+    if (body.headers !== undefined) {
+      if (!isRecord(body.headers)) throw new ApiError(400, "invalid_payload", "headers must be an object");
+      for (const [name, value] of Object.entries(body.headers)) {
+        if (typeof value !== "string" || !/^[A-Za-z0-9-]+$/.test(name)) {
+          throw new ApiError(400, "invalid_payload", "headers must map header names to strings");
+        }
+        headers[name] = value;
+      }
+    }
+    return jsonResponse(await probeMcpServer(typeof body.url === "string" ? body.url : "", { headers }));
+  });
+
   addRoute(routes, "POST", "/workspace/:id/mcp", "client", async (ctx) => {
     ensureWritable(config);
     requireClientScope(ctx, "collaborator");
@@ -3320,10 +3351,12 @@ function createRoutes(
       summary: `Add MCP ${name}`,
       paths: [legalworkConfigPath(workspace.path)],
     });
-    const result = await addMcp(config, workspace.id, name, configPayload);
+    const scope = parseMcpScope(body.scope);
+    const result = await addMcp(config, workspace.id, name, configPayload, scope);
     // Hot-add into the running engine so connect/auth works immediately,
     // without waiting for an engine instance rebuild.
     await syncRuntimeMcpToOpencodeEngine(config, workspace, [name]).catch(() => undefined);
+    if (scope === "global") await syncSharedMcpToOtherWorkspaces(config, workspace, [name]);
     await recordAudit(workspace.path, {
       id: shortId(),
       workspaceId: workspace.id,
@@ -3353,7 +3386,7 @@ function createRoutes(
       summary: `Remove MCP ${name}`,
       paths: [legalworkConfigPath(workspace.path)],
     });
-    const removed = await removeMcp(config, workspace.id, name);
+    const removedScopes = await removeMcp(config, workspace.id, name);
     await recordAudit(workspace.path, {
       id: shortId(),
       workspaceId: workspace.id,
@@ -3363,8 +3396,9 @@ function createRoutes(
       summary: `Removed MCP ${name}`,
       timestamp: Date.now(),
     });
-    if (removed) {
+    if (removedScopes.length > 0) {
       await disconnectMcpFromOpencodeEngine(config, workspace, name).catch(() => undefined);
+      if (removedScopes.includes("global")) await disconnectSharedMcpFromOtherWorkspaces(config, workspace, name);
       emitReloadEvent(ctx.reloadEvents, workspace, "mcp", {
         type: "mcp",
         name,
@@ -3982,7 +4016,40 @@ async function reloadOpencodeEngine(config: ServerConfig, workspace: WorkspaceIn
   // configs (including the server-managed runtime config file for the
   // primary workspace), but other workspaces' runtime MCPs only reach the
   // engine through this dynamic push.
+  await awaitEngineInstance(baseUrl, auth, directory);
   await syncRuntimeMcpToOpencodeEngine(config, workspace).catch(() => undefined);
+}
+
+// The engine answers a workspace's MCP status only once that instance exists:
+// right after start the process may not even be listening yet, and after a
+// dispose the instance is rebuilt lazily on the next request while the
+// connections open during the dispose are dropped. Asking for the status on a
+// fresh connection, and asking again while the engine cannot be reached at
+// all, makes the registration that follows land on a live instance instead of
+// being recorded as "fetch failed". Any HTTP answer means the engine is there;
+// only a silent engine is waited for, and only up to the deadline.
+async function awaitEngineInstance(
+  baseUrl: string,
+  authHeader: string | null,
+  directory: string | null,
+  deadlineMs = 30_000,
+): Promise<void> {
+  const url = new URL(baseUrl);
+  url.pathname = "/mcp";
+  url.search = "";
+  if (directory) url.searchParams.set("directory", directory);
+  const headers: Record<string, string> = {};
+  if (authHeader) headers.Authorization = authHeader;
+  const deadline = Date.now() + deadlineMs;
+  while (Date.now() < deadline) {
+    try {
+      const response = await fetch(url, { headers, signal: AbortSignal.timeout(20_000) });
+      await response.text().catch(() => undefined);
+      return;
+    } catch {
+      await new Promise((resolve) => setTimeout(resolve, engineMcpSyncRetryDelayMs()));
+    }
+  }
 }
 
 // Push runtime-DB MCP entries into the running OpenCode engine via its dynamic
@@ -3999,8 +4066,7 @@ async function syncRuntimeMcpToOpencodeEngine(
   const baseUrl = connection.baseUrl?.trim() ?? "";
   if (!baseUrl) return;
 
-  const runtimeConfig = await readRuntimeOpencodeConfig(config, workspace.id);
-  const entries = Object.entries(runtimeMcpMap(runtimeConfig)).filter(
+  const entries = Object.entries(await runtimeMcpMapForWorkspace(config, workspace.id)).filter(
     ([name]) => !onlyNames || onlyNames.includes(name),
   );
   if (entries.length === 0) return;
@@ -4113,8 +4179,54 @@ export function engineMcpSyncState(workspaceId: string): EngineMcpSyncState | nu
 // something re-syncs them. Best-effort.
 export async function syncAllWorkspacesRuntimeMcpToEngine(config: ServerConfig): Promise<void> {
   for (const workspace of config.workspaces) {
+    // Right after start the engine is still building instances; registering
+    // into a half-built one is recorded as a failure the UI then shows.
+    const connection = resolveWorkspaceOpencodeConnection(config, workspace);
+    if (connection.baseUrl?.trim()) {
+      await awaitEngineInstance(connection.baseUrl.trim(), connection.authHeader ?? null, resolveOpencodeDirectory(workspace));
+    }
     await syncRuntimeMcpToOpencodeEngine(config, workspace).catch(() => undefined);
   }
+}
+
+function parseMcpScope(value: unknown): McpScope {
+  if (value === undefined || value === "global") return "global";
+  if (value === "workspace") return "workspace";
+  throw new ApiError(400, "invalid_payload", 'scope must be "global" or "workspace"');
+}
+
+function otherLocalWorkspaces(config: ServerConfig, origin: WorkspaceInfo): WorkspaceInfo[] {
+  return config.workspaces.filter((workspace) => workspace.id !== origin.id && workspace.workspaceType !== "remote");
+}
+
+// Local workspaces share one managed engine, so a shared connector is
+// hot-added into each of their instances now rather than on their next
+// rebuild. Awaited on purpose: the client starts sign-in only after this
+// request returns, and every connect attempt for the server must be over by
+// then — an engine instance connecting the same server mid-sign-in replaces
+// the pending flow's client registration and the code exchange fails.
+async function syncSharedMcpToOtherWorkspaces(
+  config: ServerConfig,
+  origin: WorkspaceInfo,
+  names: string[],
+): Promise<void> {
+  await Promise.all(
+    otherLocalWorkspaces(config, origin).map((workspace) =>
+      syncRuntimeMcpToOpencodeEngine(config, workspace, names).catch(() => undefined),
+    ),
+  );
+}
+
+async function disconnectSharedMcpFromOtherWorkspaces(
+  config: ServerConfig,
+  origin: WorkspaceInfo,
+  name: string,
+): Promise<void> {
+  await Promise.all(
+    otherLocalWorkspaces(config, origin).map((workspace) =>
+      disconnectMcpFromOpencodeEngine(config, workspace, name).catch(() => undefined),
+    ),
+  );
 }
 
 // Counterpart of syncRuntimeMcpToOpencodeEngine for removals: tell the engine
