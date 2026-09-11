@@ -1,5 +1,7 @@
-/** What a composer `@token` refers to: an agent, a workspace file, an uploaded file, a LegalMemory file, or a macOS app. */
-export type ComposerMentionKind = "agent" | "file" | "memory" | "upload" | "app";
+import { buildStorageRefUri, parseStorageRef, type StorageRef } from "@/components/markdown/storage-ref";
+
+/** What a composer `@token` refers to: an agent, a workspace file, an uploaded file, a LegalMemory file, a connected-storage file, or a macOS app. */
+export type ComposerMentionKind = "agent" | "file" | "memory" | "upload" | "storage" | "app";
 
 /**
  * Percent-encode a mention value so it can be embedded in the draft as a single `@token` with no spaces.
@@ -65,6 +67,43 @@ export function legalMemoryComposerInstruction(value: string): string {
     return `Read the downloaded LegalMemory copy at workspace path "${mention.localPath}" before answering. It is "${mention.label}" (${mention.uri}, document_id ${mention.documentId}). Use a document-capable tool appropriate for its format (for example, extract or convert DOCX rather than reading it as plain text). This is a local path reference, not a binary chat attachment.`;
   }
   return `Use LegalMemory to fetch and read "${mention.label}" (${mention.uri}, document_id ${mention.documentId}) before answering. This is a LegalMemory reference, not a local workspace file.`;
+}
+
+export type StorageComposerMention = StorageRef;
+
+/** A connected-storage object has no LegalMemory document id, so it is addressed
+ * by connection plus path. Parsing lives in storage-ref.ts so the composer, the
+ * user-turn chip and the markdown renderer all read the same shape. */
+export function createStorageComposerMention(
+  connectionId: string,
+  path: string,
+  label: string,
+  localPath?: string,
+): string {
+  return buildStorageRefUri(connectionId, path, label, localPath);
+}
+
+export function parseStorageComposerMention(value: string): StorageComposerMention | null {
+  return parseStorageRef(value);
+}
+
+export function storageComposerInstruction(value: string): string {
+  const mention = parseStorageComposerMention(value);
+  if (!mention) return value;
+  if (mention.localPath) {
+    return `Read the downloaded storage copy at workspace path "${mention.localPath}" before answering. It is "${mention.label}" from the connected storage connection ${mention.connectionId} (${mention.uri}). Use a document-capable tool appropriate for its format (for example, extract or convert XLSX or DOCX rather than reading it as plain text). This is a local path reference, not a binary chat attachment.`;
+  }
+  return `Use the storage tools to fetch and read "${mention.label}" from connection ${mention.connectionId} (${mention.uri}) before answering. This is a connected-storage reference, not a local workspace file.`;
+}
+
+/** Visible representation persisted in the user turn, rendered as a chip by the
+ * user-turn renderer exactly like the LegalMemory citation. The checked-out
+ * copy stays in the query so the chip can open it without another round-trip. */
+export function storageComposerDisplayText(value: string): string {
+  const mention = parseStorageComposerMention(value);
+  if (!mention) return value;
+  const label = mention.label.replaceAll("[", "").replaceAll("]", "");
+  return `[${label || mention.path}](${buildStorageRefUri(mention.connectionId, mention.path, undefined, mention.localPath)})`;
 }
 
 /** Visible representation persisted in the user turn. The transcript renderer

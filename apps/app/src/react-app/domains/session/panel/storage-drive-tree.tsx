@@ -4,6 +4,7 @@ import { useInfiniteQuery, useQueryClient } from "@tanstack/react-query";
 import { AlertCircle, ChevronRight, FolderPlus, Loader2, LockKeyhole, RefreshCw, Upload } from "lucide-react";
 import { type StorageEntry, type StorageRoot } from "@legalwork/types/file-storage";
 import type { LegalworkServerClient } from "@/app/lib/legalwork-server";
+import { writeStorageFileDrag } from "@/app/lib/storage-file-drag";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -336,6 +337,8 @@ function StorageFolder(props: FolderProps) {
               <button
                 key={`file:${entry.path}`}
                 type="button"
+                draggable
+                onDragStart={(event) => writeStorageFileDrag(event.dataTransfer, root, entry)}
                 onClick={() => onFile(entry)}
                 title={entry.path}
                 style={{ paddingLeft: 40 + depth * 15 }}

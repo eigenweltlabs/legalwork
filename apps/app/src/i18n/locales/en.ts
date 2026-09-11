@@ -2548,6 +2548,7 @@ export default {
   "session.file_upload_failed": "File upload failed",
   "session.download_failed": "Could not download {name}",
   "session.legalmemory_download_failed": "LegalMemory download failed",
+  "session.storage_download_failed": "Storage download failed",
   "session.open_failed": "Could not open {name}",
   "session.that_document": "that document",
   "session.shared_folder_upload_failed": "Shared folder upload failed",

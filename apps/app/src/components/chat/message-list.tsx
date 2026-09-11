@@ -103,6 +103,7 @@ import { useOpenTargets } from "@/lib/target-provider"
 import { resolveFilePartOpenTarget, resolvePathOpenTarget } from "@/react-app/domains/session/artifacts/open-target"
 import { WORKSPACE_ATTACHMENT_LINK_SOURCE, parseWorkspaceAttachmentLink } from "@/react-app/domains/session/surface/composer/workspace-attachment"
 import { LEGALMEMORY_OPEN_EVENT, parseLegalMemoryRef } from "@/components/markdown/legalmemory-ref"
+import { STORAGE_LINK_SOURCE, STORAGE_OPEN_EVENT, parseStorageRefLink, type StorageRef } from "@/components/markdown/storage-ref"
 import { groupMessages, isMessageGroup, getLastTextPart, getAssistantRenderGroups, getFileTitle, getMediaBadge, getMessageCreated, formatMessageTimestamp, type UIMessageWithIndex, getMessagesText } from "./utils"
 import { t } from "@/i18n";
 
@@ -448,7 +449,7 @@ type UserMessageProps = {
 }
 
 const LEGACY_USER_MEMORY_INSTRUCTION_RE = /Read the downloaded LegalMemory copy at workspace path "[^"]+" before answering\. It is "([^"]+)" \((legalmemory:\/\/document\/[\w.:-]+), document_id [^)]+\)\. Use a document-capable tool appropriate for its format \(for example, extract or convert DOCX rather than reading it as plain text\)\. This is a local path reference, not a binary chat attachment\.\s*/g
-const USER_RICH_TOKEN_RE = new RegExp(String.raw`(Load \[skill [^\]]+\] and follow its instructions\.|\[skill [^\]]+\]|\[[^\]\n]+\]\(legalmemory:\/\/document\/[\w.:-]+\)|${WORKSPACE_ATTACHMENT_LINK_SOURCE})`)
+const USER_RICH_TOKEN_RE = new RegExp(String.raw`(Load \[skill [^\]]+\] and follow its instructions\.|\[skill [^\]]+\]|\[[^\]\n]+\]\(legalmemory:\/\/document\/[\w.:-]+\)|${STORAGE_LINK_SOURCE}|${WORKSPACE_ATTACHMENT_LINK_SOURCE})`)
 
 function cleanUserMessageText(text: string) {
   return text.replace(
@@ -484,6 +485,34 @@ function UserLegalMemoryChip(props: { label: string; documentId: string }) {
   )
 }
 
+function UserStorageChip(props: { refItem: StorageRef }) {
+  const { openTargets, onOpenTarget } = useOpenTargets()
+  const { refItem } = props
+  return (
+    <button
+      type="button"
+      className="mx-0.5 inline-flex max-w-72 items-center gap-1.5 rounded-full border border-indigo-6/60 bg-indigo-2/55 px-2.5 py-1 text-xs font-medium text-indigo-11 align-middle transition-colors hover:bg-indigo-3/70"
+      title={t("message_list.open_item", { label: refItem.label })}
+      onClick={() => {
+        // Prefer the copy already checked out into the workspace; fall back to
+        // asking the surface to open it from the connection.
+        const target = refItem.localPath ? resolvePathOpenTarget(refItem.localPath, openTargets, "attachment") : null
+        if (target) {
+          onOpenTarget?.(target)
+          return
+        }
+        window.dispatchEvent(new CustomEvent(STORAGE_OPEN_EVENT, {
+          detail: { connectionId: refItem.connectionId, path: refItem.path, label: refItem.label },
+        }))
+      }}
+    >
+      <FileIcon className="size-3.5 shrink-0" />
+      <span className="truncate">{refItem.label}</span>
+      <ArrowUpRight className="size-3.5 shrink-0 opacity-70" />
+    </button>
+  )
+}
+
 function UserWorkspaceAttachmentChip(props: { name: string; path: string }) {
   const { openTargets, onOpenTarget } = useOpenTargets()
   return (
@@ -514,6 +543,8 @@ function renderUserTextWithReferenceChips(rawText: string) {
     if (attachment) return <UserWorkspaceAttachmentChip key={key} {...attachment} />
     const skillMatch = segment.match(/^(?:Load )?\[skill ([^\]]+)\](?: and follow its instructions\.)?$/)
     if (skillMatch?.[1]) return <UserSkillChip key={key} name={skillMatch[1]} />
+    const storageRef = parseStorageRefLink(segment)
+    if (storageRef) return <UserStorageChip key={key} refItem={storageRef} />
     const memoryMatch = segment.match(/^\[([^\]\n]+)\]\((legalmemory:\/\/document\/[\w.:-]+)\)$/)
     if (memoryMatch?.[1] && memoryMatch[2]) {
       const ref = parseLegalMemoryRef(memoryMatch[2])

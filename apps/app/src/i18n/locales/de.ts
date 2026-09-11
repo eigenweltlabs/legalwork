@@ -2850,6 +2850,7 @@ const de = {
   "session.file_upload_failed": "Der Datei-Upload ist fehlgeschlagen",
   "session.download_failed": "{name} konnte nicht heruntergeladen werden",
   "session.legalmemory_download_failed": "Der Download aus LegalMemory ist fehlgeschlagen",
+  "session.storage_download_failed": "Der Download aus dem Speicher ist fehlgeschlagen",
   "session.open_failed": "{name} konnte nicht geöffnet werden",
   "session.that_document": "dieses Dokument",
   "session.shared_folder_upload_failed": "Der Upload in den geteilten Ordner ist fehlgeschlagen",
