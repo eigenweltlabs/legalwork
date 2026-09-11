@@ -32,7 +32,9 @@ import { t } from "@/i18n";
 import { readWorkspaceImports, type ImportedPlugin } from "@/app/lib/extension-imports";
 import {
   materializeLegalMemoryFile,
+  materializeLegalMemoryFolder,
   type LegalMemoryFileDragItem,
+  type LegalMemoryFolderDragItem,
 } from "@/app/lib/legalmemory-file";
 import type {
   LegalworkServerClient,
@@ -63,6 +65,7 @@ import {
 import { collectVoiceActivity } from "@/react-app/domains/session/voice/voice-activity";
 import {
   createLegalMemoryComposerMention,
+  createLegalMemoryFolderComposerMention,
   decodeComposerMentionValue,
   encodeComposerMentionValue,
   legalMemoryComposerInstruction,
@@ -1505,24 +1508,52 @@ export function SessionSurface(props: SessionSurfaceProps) {
     }
   };
 
+  /** Insert a memory pill without disturbing the draft the user is typing. */
+  const appendMemoryMention = (reference: string) => {
+    const composerState = useComposerStateStore.getState();
+    const currentDraft = getComposerDraft(composerState, props.sessionId);
+    const currentMentions = getComposerMentions(composerState, props.sessionId);
+    const separator = currentDraft && !/\s$/.test(currentDraft) ? " " : "";
+    setComposerDraft(props.sessionId, `${currentDraft}${separator}@${encodeComposerMentionValue(reference)} `);
+    setComposerMentions(props.sessionId, { ...currentMentions, [reference]: "memory" });
+  };
+
   const handleDropLegalMemoryFile = async (file: LegalMemoryFileDragItem) => {
     try {
       // Materialize the authorized original before inserting the pill. Only its
       // workspace path is sent to the agent; the binary is deliberately not
       // added to ComposerDraft.attachments or emitted as a file part.
       const result = await materializeLegalMemoryFile(props.client, props.workspaceId, file.document_id);
-      const reference = createLegalMemoryComposerMention(file.document_id, file.name, result.path);
-      const composerState = useComposerStateStore.getState();
-      const currentDraft = getComposerDraft(composerState, props.sessionId);
-      const currentMentions = getComposerMentions(composerState, props.sessionId);
-      const separator = currentDraft && !/\s$/.test(currentDraft) ? " " : "";
-      setComposerDraft(
-        props.sessionId,
-        `${currentDraft}${separator}@${encodeComposerMentionValue(reference)} `,
-      );
-      setComposerMentions(props.sessionId, { ...currentMentions, [reference]: "memory" });
+      appendMemoryMention(createLegalMemoryComposerMention(file.document_id, file.name, result.path));
     } catch (error) {
       toast.error(t("session.download_failed", { name: file.name }), {
+        description: error instanceof Error ? error.message : t("session.legalmemory_download_failed"),
+      });
+    }
+  };
+
+  const handleDropLegalMemoryFolder = async (folder: LegalMemoryFolderDragItem) => {
+    // A folder is many downloads, so unlike a single file it needs to say it is
+    // working; the toast is dismissed by id once the copy lands.
+    const pending = toast.info(t("session.legalmemory_folder_downloading", { name: folder.name }), {
+      duration: Infinity,
+    });
+    try {
+      const result = await materializeLegalMemoryFolder(props.client, props.workspaceId, folder);
+      toast.dismiss(pending);
+      if (!result.files) {
+        toast.error(t("session.legalmemory_folder_empty", { name: folder.name }));
+        return;
+      }
+      appendMemoryMention(
+        createLegalMemoryFolderComposerMention(folder.source_id, folder.name, result.path, result.files),
+      );
+      if (result.truncated || result.skipped) {
+        toast.warning(t("session.legalmemory_folder_partial", { name: folder.name, count: String(result.files) }));
+      }
+    } catch (error) {
+      toast.dismiss(pending);
+      toast.error(t("session.legalmemory_folder_failed", { name: folder.name }), {
         description: error instanceof Error ? error.message : t("session.legalmemory_download_failed"),
       });
     }
@@ -2049,6 +2080,7 @@ export function SessionSurface(props: SessionSurfaceProps) {
         searchFiles={props.searchFiles}
         onInsertMention={handleInsertMention}
         onDropLegalMemoryFile={handleDropLegalMemoryFile}
+        onDropLegalMemoryFolder={handleDropLegalMemoryFolder}
         inputHistory={inputHistory}
         onPasteText={handlePasteText}
         onUnsupportedFileLinks={handleUnsupportedFileLinks}
