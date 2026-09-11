@@ -5,7 +5,7 @@ import { join } from "node:path";
 
 import { startServer } from "./server.js";
 import type { ServerConfig } from "./types.js";
-import { readRuntimeOpencodeConfig } from "./runtime-opencode-config-store.js";
+import { readGlobalMcpMap, readRuntimeOpencodeConfig } from "./runtime-opencode-config-store.js";
 
 type Served = {
   port: number;
@@ -108,8 +108,10 @@ describe("runtime-config migrate route", () => {
     expect(body.migrated).toBe(true);
     expect(Array.isArray(body.userOpencodeKeys) && body.userOpencodeKeys.includes("mcp")).toBe(true);
 
-    const runtime = await readRuntimeOpencodeConfig(config, "ws_1");
-    expect(runtime.mcp?.["nova-mail"]?.url).toBe("https://example.com/mcp/mail");
+    // Connectors are shared by every workspace: the migrated MCP lands in the
+    // shared row, not in this workspace's own.
+    expect((await readGlobalMcpMap(config))["nova-mail"]?.url).toBe("https://example.com/mcp/mail");
+    expect((await readRuntimeOpencodeConfig(config, "ws_1")).mcp?.["nova-mail"]).toBeUndefined();
 
     const parsed = asRecord(JSON.parse(await readFile(join(workspaceRoot, "opencode.jsonc"), "utf8")));
     expect(parsed.mcp).toBeUndefined();

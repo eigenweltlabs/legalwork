@@ -593,6 +593,22 @@ function cloudPluginMcpNameFromPath(path: string): string | null {
   return OPENCODE_MCP_NAME_RE.test(name) ? name : null;
 }
 
+/**
+ * MCPs the plugins installed in a workspace brought along. They belong to
+ * that workspace like the plugin does, not to the shared connector row.
+ */
+export async function installedCloudPluginMcpNames(config: ServerConfig, workspaceId: string): Promise<Set<string>> {
+  const imports = await readInstalledCloudPlugins(config, workspaceId);
+  const names = new Set<string>();
+  for (const plugin of Object.values(imports.plugins)) {
+    for (const file of plugin.files) {
+      const name = file.objectType === "mcp" ? cloudPluginMcpNameFromPath(file.path) : null;
+      if (name) names.add(name);
+    }
+  }
+  return names;
+}
+
 export async function installCloudPlugin(input: {
   serverConfig: ServerConfig;
   workspaceId: string;
@@ -614,7 +630,8 @@ export async function installCloudPlugin(input: {
     if (object.objectType === "mcp") {
       const configs = pluginMcpConfigsFromPayload(object, namespace);
       for (const config of configs) {
-        await addMcp(input.serverConfig, input.workspaceId, config.name, config.config);
+        // Plugins are installed per workspace, so the MCPs they bring stay with it.
+        await addMcp(input.serverConfig, input.workspaceId, config.name, config.config, "workspace");
         files.push({
           configObjectId: object.id,
           versionId: version?.id ?? null,

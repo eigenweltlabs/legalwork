@@ -46,6 +46,7 @@ import { t } from "../../../../i18n";
 import { Button } from "@/components/ui/button";
 import { ConfirmModal } from "../../../design-system/modals/confirm-modal";
 import { AddMcpModal } from "../../connections/modals/add-mcp-modal";
+import type { LegalworkMcpProbeResult } from "../../../../app/lib/legalwork-server";
 import { McpConnectorSetupModal } from "../../connections/modals/mcp-connector-setup-modal";
 import {
   isLegalWorkExtensionEnabled,
@@ -105,6 +106,8 @@ export type McpViewProps = {
   setSelectedMcp: (name: string | null) => void;
   quickConnect: McpDirectoryInfo[];
   connectMcp: (entry: McpDirectoryInfo) => boolean | void | Promise<boolean | void>;
+  /** Check how a remote MCP server signs in before it is added (custom connectors). */
+  probeMcp?: (url: string) => Promise<LegalworkMcpProbeResult>;
   cancelPendingMcpAuth?: () => void;
   authorizeMcp: (entry: McpServerEntry) => void;
   logoutMcpAuth: (name: string) => Promise<void> | void;
@@ -788,6 +791,7 @@ export function McpView(props: McpViewProps) {
         open={addMcpModalOpen}
         onClose={() => setAddMcpModalOpen(false)}
         onAdd={(entry) => props.connectMcp(entry)}
+        onProbe={props.probeMcp}
         busy={props.busy}
         isRemoteWorkspace={props.isRemoteWorkspace}
       />

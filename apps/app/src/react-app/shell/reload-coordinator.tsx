@@ -12,6 +12,7 @@ import {
 
 import type { ReloadReason, ReloadTrigger } from "@/app/types";
 import { t } from "@/i18n";
+import { useMcpSignInActivityStore } from "@/react-app/domains/connections/mcp-sign-in-activity";
 import {
   useSessionActivityStore,
   type SessionActivityStatus,
@@ -229,11 +230,15 @@ export function ReloadCoordinatorProvider({ children }: { children: ReactNode })
   const activityBlocked = useSessionActivityStore((state) =>
     hasLiveSessionActivity(state.statusesByWorkspaceId),
   );
+  // An engine rebuild during an MCP sign-in replaces the pending flow's
+  // client registration, and the provider then rejects the code exchange.
+  const signInBlocked = useMcpSignInActivityStore((state) => state.active > 0);
 
   const reloadIdle =
     systemState.reload.reloadPending &&
     activeSessions.length === 0 &&
-    !activityBlocked;
+    !activityBlocked &&
+    !signInBlocked;
 
   // Auto-reload when idle. Reloading is a cheap in-process engine rebuild
   // (no window reload, drafts survive), so instead of nagging with a
@@ -267,9 +272,12 @@ export function ReloadCoordinatorProvider({ children }: { children: ReactNode })
       lastAutoReloadAtRef.current + AUTO_RELOAD_COOLDOWN_MS - Date.now(),
     );
     const timer = window.setTimeout(() => {
-      // Re-check at fire time: a task may have started during the debounce
-      // window. The effect re-runs when activity ends and reschedules.
-      if (hasLiveSessionActivity(useSessionActivityStore.getState().statusesByWorkspaceId)) {
+      // Re-check at fire time: a task or a sign-in may have started during the
+      // debounce window. The effect re-runs when activity ends and reschedules.
+      if (
+        hasLiveSessionActivity(useSessionActivityStore.getState().statusesByWorkspaceId) ||
+        useMcpSignInActivityStore.getState().active > 0
+      ) {
         return;
       }
       lastAutoReloadAtRef.current = Date.now();

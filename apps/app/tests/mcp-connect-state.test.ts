@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
 
 import { mcpAuthEntryFromServer, mcpConnectOutcome } from "../src/app/mcp-connect-state";
 import type { McpDirectoryInfo } from "../src/app/constants";
-import type { McpStatusMap } from "../src/app/types";
+import type { McpStatusMap, ReloadReason, ReloadTrigger } from "../src/app/types";
 import { createClient } from "../src/app/lib/opencode";
 import { createLegalworkServerClient } from "../src/app/lib/legalwork-server";
 import * as analytics from "../src/app/lib/analytics";
@@ -55,10 +55,10 @@ const originalFetch = globalThis.fetch;
 const browserWindow = new EventTarget();
 let config = "{}";
 let status: McpStatusMap = {};
-let runtimeError = "";
-let runtimeWrites = 0;
+let saveError = "";
 let serverAdds: unknown[] = [];
 let analyticsEvents: string[] = [];
+let reloads: Array<{ reason: ReloadReason; trigger?: ReloadTrigger }> = [];
 let restoreAnalytics = () => {};
 let selectedWorkspaceId = "local";
 let remoteSaveWait: Promise<void> | undefined;
@@ -71,10 +71,6 @@ Object.assign(browserWindow, {
       if (command === "writeOpencodeConfig") {
         config = String(args[2]);
         return { ok: true };
-      }
-      if (command === "mergeRuntimeMcpServer") {
-        runtimeWrites += 1;
-        return { ok: !runtimeError, stderr: runtimeError };
       }
       throw new Error(`Unexpected desktop command: ${command}`);
     },
@@ -93,7 +89,9 @@ function makeStore(remote = false) {
     createRemoteWorkspaceFlow: async () => false,
   });
   const localServerSnapshot = legalworkServer.getSnapshot();
-  const remoteServer: typeof legalworkServer = {
+  // Desktop and remote alike save through the LegalWork server; on desktop it
+  // is the embedded one, owning the shared connector store.
+  const connectedServer: typeof legalworkServer = {
     ...legalworkServer,
     getSnapshot: () => ({
       ...localServerSnapshot,
@@ -108,9 +106,10 @@ function makeStore(remote = false) {
     selectedWorkspaceId: () => selectedWorkspaceId,
     selectedWorkspaceRoot: () => "/tmp/workspace",
     workspaceType: () => remote ? "remote" : "local",
-    legalworkServer: remote ? remoteServer : legalworkServer,
+    legalworkServer: connectedServer,
     runtimeWorkspaceId: () => remote ? "remote" : null,
     developerMode: () => false,
+    markReloadRequired: (reason, trigger) => { reloads.push({ reason, trigger }); },
   });
 }
 
@@ -120,10 +119,10 @@ describe("connection store success reporting", () => {
   beforeEach(() => {
     config = "{}";
     status = { "test-server": { status: "connected" } };
-    runtimeError = "";
-    runtimeWrites = 0;
+    saveError = "";
     serverAdds = [];
     analyticsEvents = [];
+    reloads = [];
     selectedWorkspaceId = "local";
     remoteSaveWait = undefined;
     remoteSaveStarted = undefined;
@@ -134,15 +133,17 @@ describe("connection store success reporting", () => {
       configurable: true,
       value: async (input: RequestInfo | URL, init?: RequestInit) => {
         const request = new Request(input, init);
-        if (new URL(request.url).pathname === "/workspace/remote/mcp") {
+        const pathname = new URL(request.url).pathname;
+        if (/^\/workspace\/[^/]+\/mcp$/.test(pathname)) {
           if (request.method === "POST") {
             serverAdds.push(await request.json());
             remoteSaveStarted?.();
             await remoteSaveWait;
+            if (saveError) return Response.json({ code: "runtime_unavailable", message: saveError }, { status: 500 });
           }
-          return Response.json({ items: [{ name: "test-server", config: { type: "remote", url: entry.url } }] });
+          return Response.json({ items: [{ name: "test-server", config: { type: "remote", url: entry.url }, source: "config.remote" }] });
         }
-        if (new URL(request.url).pathname !== "/mcp") throw new Error(`Unexpected request: ${request.url}`);
+        if (pathname !== "/mcp") throw new Error(`Unexpected request: ${request.url}`);
         return Response.json(status);
       },
     });
@@ -161,18 +162,28 @@ describe("connection store success reporting", () => {
     expect(store.getSnapshot().mcpAuthModalOpen).toBe(true);
     expect(connectedEvents()).toHaveLength(0);
     expect(store.getSnapshot().mcpStatus).not.toBe("Connected");
+    // Saved once, into the server's shared row; the user's global opencode
+    // config is left alone.
+    expect(serverAdds).toEqual([{ name: "test-server", config: { type: "remote", url: entry.url, enabled: true, oauth: {} } }]);
+    expect(config).toBe("{}");
+    // No engine rebuild while the browser round-trip is pending: the engine
+    // would lose the sign-in's client registration.
+    expect(reloads).toHaveLength(0);
     await store.completeMcpAuthModal();
     await store.completeMcpAuthModal();
     expect(connectedEvents()).toHaveLength(1);
     expect(store.getSnapshot().mcpStatus).toBe("Connected");
+    expect(reloads).toEqual([{ reason: "mcp", trigger: { type: "mcp", name: "test-server", action: "added" } }]);
   });
 
-  test("closing sign-in never emits a success event", async () => {
+  test("closing sign-in never emits a success event, but still applies the saved connector", async () => {
     const store = makeStore();
     await store.connectMcp({ ...entry, oauth: true });
+    expect(reloads).toHaveLength(0);
     store.closeMcpAuthModal();
     await store.completeMcpAuthModal();
     expect(connectedEvents()).toHaveLength(0);
+    expect(reloads).toHaveLength(1);
   });
 
   test("a failed custom connection retains its engine error and never emits success", async () => {
@@ -183,12 +194,13 @@ describe("connection store success reporting", () => {
     expect(connectedEvents()).toHaveLength(0);
   });
 
-  test("a failed runtime config write cannot silently report success", async () => {
-    runtimeError = "Runtime config is unavailable";
+  test("a failed save cannot silently report success", async () => {
+    saveError = "Runtime config is unavailable";
     const store = makeStore();
     expect(await store.connectMcp(entry)).toBe(false);
-    expect(store.getSnapshot().mcpStatus).toBe(runtimeError);
+    expect(store.getSnapshot().mcpStatus).toContain(saveError);
     expect(connectedEvents()).toHaveLength(0);
+    expect(reloads).toHaveLength(0);
   });
 
   test("a successful non-OAuth connection reports success after its engine status is known", async () => {
@@ -197,6 +209,8 @@ describe("connection store success reporting", () => {
     expect(store.getSnapshot().mcpAuthModalOpen).toBe(false);
     expect(store.getSnapshot().mcpStatus).toBe("Connected");
     expect(connectedEvents()).toHaveLength(1);
+    // Nothing to wait for: other workspaces get the connector on the reload.
+    expect(reloads).toHaveLength(1);
   });
 
   test("remote workspace OAuth credentials are saved on the selected server, without local config writes or a spurious reload", async () => {
@@ -205,7 +219,7 @@ describe("connection store success reporting", () => {
     expect(await store.connectMcp({ ...entry, oauthConfig: { clientId: "remote-client", clientSecret: "remote-secret" } })).toBe(true);
     expect(serverAdds).toEqual([{ name: "test-server", config: { type: "remote", url: entry.url, enabled: true, oauth: { clientId: "remote-client", clientSecret: "remote-secret" } } }]);
     expect(config).toBe("{}");
-    expect(runtimeWrites).toBe(0);
+    expect(reloads).toHaveLength(0);
     expect(store.getSnapshot().mcpAuthModalOpen).toBe(true);
     expect(store.getSnapshot().mcpAuthNeedsReload).toBe(false);
     expect(connectedEvents()).toHaveLength(0);

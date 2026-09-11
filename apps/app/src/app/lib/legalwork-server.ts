@@ -514,6 +514,27 @@ export type LegalworkMcpItem = {
   disabledByTools?: boolean;
 };
 
+/** What a remote MCP server told the server about signing in (see apps/server/src/mcp-probe.ts). */
+export type LegalworkMcpProbeResult = {
+  url: string;
+  reachable: boolean;
+  transport: "streamable-http" | "sse" | null;
+  auth: "none" | "oauth" | "credentials" | "unknown";
+  oauth?: {
+    resourceMetadataUrl: string | null;
+    authorizationServer: string | null;
+    dynamicRegistration: boolean;
+    clientIdMetadataDocuments: boolean;
+  };
+  steps: Array<{
+    id: "connect" | "resource_metadata" | "authorization_server";
+    status: number | null;
+    ok: boolean;
+    detail?: string;
+  }>;
+  error?: string;
+};
+
 export type LegalworkMcpEngineSync = {
   status: "ok" | "failed";
   at: number;
@@ -2202,7 +2223,19 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
         `/workspace/${workspaceId}/mcp`,
         { token, hostToken },
       ),
-    addMcp: (workspaceId: string, payload: { name: string; config: Record<string, unknown> }) =>
+    probeMcp: (workspaceId: string, payload: { url: string; headers?: Record<string, string> }) =>
+      requestJson<LegalworkMcpProbeResult>(baseUrl, `/workspace/${workspaceId}/mcp/probe`, {
+        token,
+        hostToken,
+        method: "POST",
+        body: payload,
+      }),
+    // Connectors are shared by every workspace the server hosts unless a
+    // caller asks for one workspace's own entry.
+    addMcp: (
+      workspaceId: string,
+      payload: { name: string; config: Record<string, unknown>; scope?: "global" | "workspace" },
+    ) =>
       requestJson<{ items: LegalworkMcpItem[] }>(baseUrl, `/workspace/${workspaceId}/mcp`, {
         token,
         hostToken,

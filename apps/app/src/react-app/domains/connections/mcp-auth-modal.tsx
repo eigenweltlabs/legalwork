@@ -16,6 +16,7 @@ import type { Client } from "@/app/types";
 import { isDesktopRuntime, normalizeDirectoryPath } from "@/app/utils";
 import { t } from "@/i18n";
 import { TextInput } from "../../design-system/text-input";
+import { useMcpSignInActivityStore } from "./mcp-sign-in-activity";
 
 export type McpAuthModalProps = {
   open: boolean;
@@ -195,6 +196,13 @@ export function McpAuthModal(props: McpAuthModalProps) {
       };
     },
   }));
+
+  // Hold engine rebuilds while an attempt is in flight (see mcp-sign-in-activity.ts).
+  const signingIn = state.phase === "preparing" || state.phase === "waiting" || state.phase === "completing";
+  useEffect(() => {
+    if (!signingIn) return;
+    return useMcpSignInActivityStore.getState().begin();
+  }, [signingIn]);
 
   const identity = props.entry ? getMcpIdentityKey(props.entry) : "";
   const ready = Boolean(props.client && props.entry);

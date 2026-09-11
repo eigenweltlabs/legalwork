@@ -9,6 +9,7 @@ import { addPlugin, listPlugins, removePlugin } from "./plugins.js";
 import {
   applyGlobalToolPermissions,
   GLOBAL_TOOL_PERMISSIONS_ID,
+  readGlobalMcpMap,
   readGlobalToolPermissions,
   readRuntimeOpencodeConfig,
   writeRuntimeOpencodeConfig,
@@ -73,7 +74,7 @@ describe("runtime OpenCode config store", () => {
 
       expect(await readFile(opencodePath, "utf8")).toBe(opencode);
       await expectMissing(join(root, ".opencode", "legalwork.json"));
-      expect((await readRuntimeOpencodeConfig(config, WORKSPACE_ID)).mcp?.runtime?.enabled).toBe(false);
+      expect((await readGlobalMcpMap(config)).runtime?.enabled).toBe(false);
 
       const items = await listMcp(config, WORKSPACE_ID, root);
       expect(items.map((item) => `${item.name}:${item.source}`)).toContain("project:config.project");
@@ -280,7 +281,9 @@ describe("runtime OpenCode config store", () => {
 
         const runtime = await readRuntimeOpencodeConfig(config, WORKSPACE_ID);
         expect(runtime.plugin).toEqual(["legacy-plugin"]);
-        expect(runtime.mcp?.legacy?.url).toBe("https://legacy.example/mcp");
+        // Connectors are shared by every workspace: the migrated MCP lands in the shared row.
+        expect((await readGlobalMcpMap(config)).legacy?.url).toBe("https://legacy.example/mcp");
+        expect(runtime.mcp?.legacy).toBeUndefined();
         expect(runtime.permission?.external_directory?.["/legacy/*"]).toBe("allow");
         expect(runtime.provider?.legacy).toEqual({ npm: "legacy-provider" });
 
@@ -300,15 +303,18 @@ describe("runtime OpenCode config store", () => {
           effectiveRuntime: Record<string, unknown>;
           sources: Record<string, { exists?: boolean; keys: string[]; config?: Record<string, unknown> }>;
         };
+        // The migrated MCP lives in the shared connector row, so it is absent
+        // from this workspace's own row but present in what the engine gets.
         expect(status).toMatchObject({
-          runtimeKeys: ["plugin", "mcp", "permission", "provider"],
+          runtimeKeys: ["plugin", "permission", "provider"],
           sources: {
             projectOpencode: { exists: false, keys: [] },
-            runtimeDatabase: { keys: ["plugin", "mcp", "permission", "provider"] },
+            runtimeDatabase: { keys: ["plugin", "permission", "provider"] },
           },
           legacyLegalwork: { keys: [] },
           userOpencode: { exists: false, keys: [] },
         });
+        expect(status.effectiveRuntime.mcp).toMatchObject({ legacy: { url: "https://legacy.example/mcp" } });
         expect(status.effectiveRuntime.default_agent).toBe("legalwork");
         expect(status.effectiveRuntime.agent).toMatchObject({ legalwork: { mode: "primary" } });
         expect(status.effectiveRuntime.provider).toMatchObject({ legacy: { npm: "legacy-provider" } });
@@ -325,7 +331,8 @@ describe("runtime OpenCode config store", () => {
     await withWorkspace(async ({ root, config }) => {
       await mkdir(join(root, ".opencode"), { recursive: true });
       await writeFile(join(root, ".opencode", "legalwork.json"), "{ invalid\n", "utf8");
-      await addMcp(config, WORKSPACE_ID, "runtime", { type: "remote", url: "https://runtime.example/mcp" });
+      // The status reports this workspace's own row, so give it an entry of its own.
+      await addMcp(config, WORKSPACE_ID, "runtime", { type: "remote", url: "https://runtime.example/mcp" }, "workspace");
 
       const server = await startServer(config) as Served;
       try {
