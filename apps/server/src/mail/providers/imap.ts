@@ -186,7 +186,15 @@ export class ImapReadTransport {
     /** The caller persists its dispatch boundary synchronously before any write command. */
     async mutate(input: MailMutation, signal: AbortSignal, dispatch: () => void): Promise<'confirmed' | 'unknown' | 'unsupported' | 'conflict'> {
         return this.operation(signal, async () => {
-            const change = input.change;
+            let change = input.change;
+            if (change.kind === 'special') {
+                const special = {archive:'\\Archive',trash:'\\Trash',spam:'\\Junk',inbox:'\\Inbox'}[change.operation];
+                const listed = await this.client.list();
+                if (listed.length > 1000) throw new ImapError('too_large');
+                const targets = listed.filter(folder => !folder.flags.has('\\Noselect') && (special === '\\Inbox' ? folder.path.toUpperCase() === 'INBOX' : folder.specialUse === special));
+                if (targets.length !== 1) return 'unsupported';
+                change = {kind:'move',destination:targets[0]!.path};
+            }
             if (change.kind === 'mailbox') {
                 if (input.precondition !== 'imap-mailbox-v1' || /[\r\n\0]/.test(change.path + (change.destination ?? '')))
                     return 'conflict';
@@ -195,13 +203,15 @@ export class ImapReadTransport {
                 const listed = await this.client.list();
                 if (listed.length > 1000)
                     throw new ImapError('too_large');
-                const existing = listed.some(folder => folder.path === change.path);
-                if ((change.operation === 'create') === existing || change.path.toUpperCase() === 'INBOX')
+                const existing = listed.find(folder => folder.path === change.path);
+                if ((change.operation === 'create') === !!existing || change.path.toUpperCase() === 'INBOX')
                     return 'conflict';
+                if (existing?.specialUse) return 'unsupported';
                 if (change.operation === 'rename' && (!change.destination || listed.some(folder => folder.path === change.destination)))
                     return 'conflict';
                 // Never DELETE a nonempty mailbox: message deletion is explicit and UID scoped.
                 if (change.operation === 'delete') {
+                    if (listed.some(folder => folder.parentPath === change.path)) return 'conflict';
                     const status = await this.client.status(change.path, { messages: true });
                     if (status.messages !== 0)
                         return 'conflict';

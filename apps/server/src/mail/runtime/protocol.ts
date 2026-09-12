@@ -62,7 +62,7 @@ export type WorkerCommand =
   | { operation: "credentials.update"; credentials: WorkerCredentials };
 
 export type WorkerAccount = { id: string; provider: "gmail" | "graph" | "imap"; displayName: string; personal?: boolean; identity?: GraphMailboxIdentity };
-export type WorkerFolder = { id: string; name: string; kind: "folder" | "label"; parentId: string | null; role?: "inbox" };
+export type WorkerFolder = { id: string; name: string; kind: "folder" | "label"; parentId: string | null; mutationPrecondition?: string | null; role?: "inbox" };
 export type WorkerResult =
   | {savedSearch:SavedSearchResult}
   | {extraction:MailExtractionStatus}
@@ -166,7 +166,7 @@ function account(value: unknown): value is WorkerAccount {
     && (value.provider === "gmail" || value.provider === "graph" || value.provider === "imap") && typeof value.displayName === "string";
 }
 function folder(value: unknown): value is WorkerFolder {
-  return record(value) && exact(value, value.role === undefined ? ["id", "name", "kind", "parentId"] : ["id", "name", "kind", "parentId", "role"]) && (value.role === undefined || value.role === "inbox") && id(value.id)
+  return record(value) && exact(value, ["id", "name", "kind", "parentId", ...(value.role === undefined ? [] : ["role"]), ...(value.mutationPrecondition === undefined ? [] : ["mutationPrecondition"])]) && (value.mutationPrecondition === undefined || value.mutationPrecondition === null || typeof value.mutationPrecondition === "string" && value.mutationPrecondition.length <= 100) && (value.role === undefined || value.role === "inbox") && id(value.id)
     && typeof value.name === "string" && (value.kind === "folder" || value.kind === "label") && cursor(value.parentId);
 }
 function result(value: unknown): value is WorkerResult {

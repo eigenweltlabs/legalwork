@@ -58,7 +58,7 @@ export class ImapBackfill {
             throw new ImapError('cancelled');
     }
     discovery(accountId: string, after?: string) {
-        const credential = this.custody.read(accountId), rows = this.options.database.all('SELECT path,delimiter,special_use,selected,selectable FROM mail_imap_folders WHERE account_id=? AND path>? ORDER BY path LIMIT 51', [accountId, after ?? '']), selected = rows.slice(0, 50);
+        const credential = this.custody.read(accountId), rows = this.options.database.all('SELECT path,delimiter,special_use,selected,selectable FROM mail_imap_folders i WHERE account_id=? AND path>? AND EXISTS(SELECT 1 FROM mail_folders f WHERE f.account_id=i.account_id AND f.id=i.path) ORDER BY path LIMIT 51', [accountId, after ?? '']), selected = rows.slice(0, 50);
         const result = imapDiscoverySchema.parse({ accountId, settings: credential.settings, capabilities: JSON.parse(z.string().parse(this.options.database.get('SELECT capabilities_json FROM mail_imap_runs WHERE account_id=?', [accountId])?.capabilities_json ?? '[]')), folders: selected.map(row => ({ path: row.path, delimiter: row.delimiter, specialUse: row.special_use, selected: row.selected === 1, selectable: row.selectable === 1 })), nextCursor: rows.length > 50 ? selected.at(-1)?.path : null });
         while (Buffer.byteLength(JSON.stringify(result)) > 48 * 1024 && result.folders.length) {
             result.folders.pop();
@@ -408,6 +408,8 @@ export class ImapBackfill {
                 this.schedule(session);
                 return;
             }
+            // Retire absent navigation folders after the bounded removal sweep. Keep UID history and raw originals.
+            db.transaction(() => { this.assert(session); db.run('DELETE FROM mail_folders WHERE account_id=? AND id IN (SELECT path FROM mail_imap_folders WHERE account_id=? AND generation IS NOT ?)', [accountId,accountId,session.run.generation]); });
             if (!status.checkpoint.discoveryComplete)
                 this.journal.commitPage({ ...scope, expectedCursor: status.checkpoint.cursor, expectedRevision: status.checkpoint.revision, nextCursor: null, discoveryComplete: true, jobs: [] }, () => this.assert(session));
             this.change(session, () => { db.run("UPDATE mail_imap_runs SET poll_at=?,epoch_resets=0,error=NULL WHERE account_id=?", [Date.now() + (this.options.pollMs ?? 60000), accountId]); });

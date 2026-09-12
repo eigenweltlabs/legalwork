@@ -1,3 +1,5 @@
+import {MailActionBar,mailItemId,optimisticMail} from './mail-actions';
+import type {ActionEntry} from './mail-actions-client';
 import {MailComposer,MailDrafts,type ComposeSelection} from "./mail-composer";
 import {addresses,emptyCompose,replyCompose,type ComposeMode} from "./mail-compose-model";
 import {uploadComposeFile} from "./mail-compose-client";
@@ -6,7 +8,7 @@ import { mailPreviewType, openMailPreview } from "../session/artifacts/mail-prev
 import {MailSearch} from './mail-search';
 /** @jsxImportSource react */
 import { useEffect, useRef, useState } from 'react';
-import { Inbox, Archive, ChevronLeft, ChevronRight, Folder, Mail, Search, RefreshCw, Settings2, Paperclip, Download, FileText, Printer, MessagesSquare, X, PanelLeft, CircleAlert, Check, Pause, Play, SquarePen, Reply, ReplyAll, Forward } from 'lucide-react';
+import { Flag, Inbox, Archive, ChevronLeft, ChevronRight, Folder, Mail, Search, RefreshCw, Settings2, Paperclip, Download, FileText, Printer, MessagesSquare, X, PanelLeft, CircleAlert, Check, Pause, Play, SquarePen, Reply, ReplyAll, Forward } from 'lucide-react';
 import './mail-reader.css';
 import { Button } from '@/components/ui/button';
 import { resolveLegalworkConnection } from '../../shell/legalwork-connection';
@@ -24,6 +26,9 @@ export function MailRoute() {
     const [compose,setCompose]=useState<ComposeSelection>();
     const [draftsOpen,setDraftsOpen]=useState(false);
     const [foldersOpen, setFoldersOpen] = useState(false);
+    const [checked,setChecked]=useState<Set<string>>(new Set());
+    const [actionEntries,setActionEntries]=useState<ActionEntry[]>([]);
+    const [actionPulse,setActionPulse]=useState(0);
     const navigate = useNavigate();
     const openSettings = () => navigate('/settings/mail-accounts', { state: { from: '/mail' } });
     const [searchQuery, setSearchQuery] = useState('');
@@ -35,6 +40,7 @@ export function MailRoute() {
     const [account, setAccount] = useState('');
     const [folders, setFolders] = useState<MailFolderView[]>([]);
     const [folder, setFolder] = useState('');
+    useEffect(()=>setChecked(new Set()),[account,folder,searchQuery,savedSearchName]);
     const [inbox, setInbox] = useState(true);
     const [items, setItems] = useState<MailMessageView[]>([]);
     const [selected, setSelected] = useState<MailMessageView>();
@@ -169,7 +175,9 @@ export function MailRoute() {
                 const statuses = Object.fromEntries(entries);
                 setAccountSync(statuses);
                 setSync(account ? statuses[account] : undefined);
-                const signature = JSON.stringify(entries.map(([id, value]) => [id, value.projected, value.downloaded, value.state]));
+                const cursors=await Promise.all(visible.map(value=>client.changeCursor(value.id,abort.signal).catch(()=>null)));
+                if(abort.signal.aborted)return;
+                const signature = JSON.stringify([entries.map(([id, value]) => [id, value.projected, value.downloaded, value.state]),cursors]);
                 if (signature !== previous && !searching) {
                     const stream = new UnifiedMailPages(client, visible, folder || undefined, thread, inbox && !thread && !folder);
                     const version = ++messageRequest.current;
@@ -177,6 +185,7 @@ export function MailRoute() {
                     if (abort.signal.aborted || version !== messageRequest.current) return;
                     pager.current = stream;
                     setItems(rows);
+                    setSelected(current=>current?(rows.find(item=>mailItemId(item)===mailItemId(current))??current):current);
                     setMore(stream.hasMore);
                     if (account) {
                         const collected: MailFolderView[] = [];
@@ -195,7 +204,7 @@ export function MailRoute() {
         void poll();
         const timer = setInterval(() => void poll(), 3000);
         return () => { abort.abort(); clearInterval(timer); };
-    }, [client, accounts, account, locked, folder, thread, inbox, searching]);
+    }, [client, accounts, account, locked, folder, thread, inbox, searching,actionPulse]);
     async function control(operation: 'start' | 'pause', accountId = account) { if (!client || !accountId)
         return; const signal = request.current.signal; try {
         const status = await client.sync(accountId, signal, operation);
@@ -228,6 +237,7 @@ export function MailRoute() {
         </header>
 
         {error && <div role="alert" className="mail-notice"><CircleAlert size={15}/><span>{error}</span><button aria-label="Dismiss message" onClick={() => setError('')}><X size={14}/></button></div>}
+        {!locked&&client&&<MailActionBar client={client} accounts={accounts} accountId={account} selected={(checked.size?items.filter(item=>checked.has(mailItemId(item))):selected?[selected]:[]).map(item=>optimisticMail(item,actionEntries))} folder={folders.find(item=>item.id===folder)} folders={folders} onEntries={setActionEntries} onRefresh={()=>setActionPulse(value=>value+1)}/>}
         {locked ? <div className="mail-empty"><div className="mail-empty-icon"><Mail size={24}/></div><h2 role="status">{error ? 'Mail is unavailable' : 'Opening your mail…'}</h2>{error && <Button variant="outline" size="sm" onClick={refresh}>Try again</Button>}</div>
           : <div className={`mail-grid ${selected||compose||draftsOpen ? 'has-selection' : ''} ${foldersOpen ? 'folders-open' : ''}`}>
             <nav aria-label="Mail accounts and folders" className="mail-folders">
@@ -251,7 +261,7 @@ export function MailRoute() {
             </nav>
             <section aria-label="Messages" className="mail-message-list">
               {searching && client ? <MailSearch client={client} accounts={accounts} toolbarQuery={searchQuery.trim()} onSavedQuery={(text, name) => { setSearchQuery(text); setSavedSearchName(name); }} onOpen={setSelected}/> : <>
-              <div className="mail-list-heading"><div><h2>{title}</h2><p>{account ? accounts.find(value => value.id === account)?.displayName : 'All accounts'}</p></div><button className="mail-icon-button" title="Newest messages" aria-label="Newest messages" onClick={() => setRevision(value => value + 1)}><RefreshCw size={14}/></button></div>
+              <div className="mail-list-heading"><input type="checkbox" aria-label="Select all messages on this page" checked={items.length>0&&items.every(item=>checked.has(mailItemId(item)))} onChange={event=>setChecked(event.target.checked?new Set(items.map(mailItemId)):new Set())}/><div><h2>{title}</h2><p>{account ? accounts.find(value => value.id === account)?.displayName : 'All accounts'}</p></div><button className="mail-icon-button" title="Newest messages" aria-label="Newest messages" onClick={() => setRevision(value => value + 1)}><RefreshCw size={14}/></button></div>
               {accounts.filter(value => !account || value.id === account).map(value => {
                 const progress = accountSync[value.id];
                 if (!progress || progress.state === 'complete') return null;
@@ -265,11 +275,11 @@ export function MailRoute() {
               })}
               {thread && <button className="mail-back" onClick={() => setThread(undefined)}><ChevronLeft size={14}/>Back to inbox</button>}
               <div className="mail-message-scroll">
-                {items.map(value => <button key={value.accountId + '|' + value.key} className={`mail-message-row ${selected?.accountId === value.accountId && selected.key === value.key ? 'is-selected' : ''} ${value.isRead === false ? 'is-unread' : ''}`} onClick={() => setSelected(value)} aria-pressed={selected?.accountId === value.accountId && selected.key === value.key}>
+                {items.map(observed => {const value=optimisticMail(observed,actionEntries);return <div key={mailItemId(value)} className="mail-message-select-row"><input type="checkbox" aria-label={`Select ${value.subject||'message'}`} checked={checked.has(mailItemId(value))} onChange={event=>{const enabled=event.target.checked;setChecked(current=>{const next=new Set(current);if(enabled)next.add(mailItemId(value));else next.delete(mailItemId(value));return next;});}}/><button className={`mail-message-row ${selected?.accountId === value.accountId && selected.key === value.key ? 'is-selected' : ''} ${value.isRead === false ? 'is-unread' : ''}`} onClick={() => setSelected(value)} aria-pressed={selected?.accountId === value.accountId && selected.key === value.key}>
                   <span className="mail-row-top"><span className="mail-sender">{senderName(value.metadata?.from)}</span><time>{shortDate(value.receivedAt)}</time></span>
-                  <span className="mail-row-subject">{value.isRead === false && <span className="mail-unread-dot" aria-label="Unread"/>}{value.subject || '(No subject)'}</span>
+                  <span className="mail-row-subject">{value.isRead === false && <span className="mail-unread-dot" aria-label="Unread"/>}{value.isFlagged&&<Flag size={11} aria-label="Flagged"/>}{value.subject || '(No subject)'}</span>
                   <span className="mail-row-bottom"><span>{accounts.find(entry => entry.id === value.accountId)?.displayName}</span>{value.contentState !== 'complete' && <span title={value.contentState === 'downloading' ? 'Content is downloading' : 'Content is unavailable'}><CircleAlert size={12}/></span>}</span>
-                </button>)}
+                </button></div>})}
                 {!busy && !items.length && <div className="mail-list-empty"><Inbox size={25} strokeWidth={1.2}/><p>{accounts.length ? 'No messages here yet' : 'Your inbox starts here'}</p><small>{accounts.length ? 'Messages will appear here as they download.' : 'Add an account to bring your mail together.'}</small>{!accounts.length && <Button size="sm" variant="outline" onClick={openSettings}>Add account</Button>}</div>}
                 {busy && <p role="status" className="mail-loading">Loading messages…</p>}
               </div>

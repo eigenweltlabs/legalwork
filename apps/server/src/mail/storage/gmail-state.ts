@@ -24,6 +24,13 @@ function view(row:z.infer<typeof runRow>):GmailRun{return{phase:row.phase,histor
 /** Current Gmail backfill generation. Journal scopes own cursors and distinct job progress. */
 export class GmailRunStore {
   private readonly ownerId:string;
+  replaceLabels(accountId:string, labels:readonly {id:string;name:string}[]):void { safe(()=>this.database.transaction(()=>{
+    this.account(accountId);
+    const ids = new Set(labels.map(label=>label.id));
+    for (const label of labels) this.database.run("INSERT INTO mail_folders(account_id,id,name,kind,parent_id,role) VALUES(?,?,?,'label',NULL,?) ON CONFLICT(account_id,id) DO UPDATE SET name=excluded.name,role=excluded.role", [accountId,label.id,label.name,label.id==='INBOX'?'inbox':null]);
+    // Only label relations disappear. Stored messages, originals and draft/file references survive.
+    for (const row of this.database.all('SELECT id FROM mail_folders WHERE account_id=?',[accountId])) if (typeof row.id==='string'&&!ids.has(row.id)) this.database.run('DELETE FROM mail_folders WHERE account_id=? AND id=?',[accountId,row.id]);
+  })); }
   constructor(private readonly database:MailDatabase,ownerId:string,private readonly now:()=>number=Date.now){this.ownerId=input(id,ownerId);}
   private account(accountId:string):void{const row=this.database.get("SELECT provider FROM mail_accounts WHERE id=? AND owner_id=?",[input(id,accountId),this.ownerId]);if(!row)throw new GmailStateError("not_found");if(row.provider!=="gmail")throw new GmailStateError("provider_mismatch");}
   read(accountId:string):GmailRun|null{return safe(()=>{this.account(accountId);const row=this.database.get("SELECT * FROM mail_gmail_runs WHERE account_id=?",[accountId]);return row?view(runRow.parse(row)):null;});}

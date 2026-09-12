@@ -1,4 +1,6 @@
 import { performance } from "node:perf_hooks";
+import { MailHttpActionRunner } from './http-action-runner.js';
+import { MailHttpActions } from './http-actions.js';
 import { MimeProjectionError } from "../mime/project.js";
 import type { MailDatabase } from "../storage/database-interface.js";
 import { MailContentStore, type MailContentReference } from "../storage/content-store.js";
@@ -16,6 +18,7 @@ export class GmailBackfillError extends Error {
 export type GmailProjectionInput = { accountId: string; locator: ProviderMessageLocator; reference: MailContentReference;
   source: Iterable<Uint8Array> | AsyncIterable<Uint8Array>; work: MailSyncWork; assertCurrent(): void };
 export type GmailBackfillOptions = { database: MailDatabase; ownerId: string; access: Pick<MailAccessCoordinator, "acquire">;
+  mutationTransport?: (token: string, scopes: readonly string[]) => Pick<MailHttpActions, 'mutate'>;
   projectRaw?: (input: GmailProjectionInput) => Promise<void>;
   transport?: (accessToken: string) => Pick<GmailReadTransport, "listLabels" | "listMessages" | "consumeRaw" | "getProfile" | "listHistory" | "getMetadata">;
   jobsPerTurn?: number; pageSize?: number; operationTimeoutMs?: number; turnDelayMs?: number; pollIntervalMs?: number };
@@ -62,6 +65,7 @@ export class GmailBackfill {
   private readonly credentials: MailCredentialRepository;
   private readonly content: MailContentStore;
   private readonly executor: MailSyncExecutor;
+  private readonly actions: MailHttpActionRunner;
   private readonly pageSize: number;
   private readonly operationTimeout: number;
   private readonly turnDelay: number;
@@ -75,6 +79,7 @@ export class GmailBackfill {
     this.turnDelay = bounded(options.turnDelayMs, 0, 0, 1000);
     this.pollInterval = bounded(options.pollIntervalMs, 60000, 1000, 3600000);
     this.runs = new GmailRunStore(options.database, options.ownerId);
+    this.actions = new MailHttpActionRunner(options.database, options.ownerId);
     this.journal = new MailSyncJournal(options.database, options.ownerId);
     this.credentials = new MailCredentialRepository(options.database, options.ownerId);
     this.content = new MailContentStore(options.database, options.ownerId);
@@ -119,6 +124,12 @@ export class GmailBackfill {
     try { if (run && run.state !== "paused") this.runs.setState(accountId, this.stamp(run), "paused"); }
     finally { if (this.current?.run.accountId === accountId) this.stop(this.current); }
     return this.status(accountId);
+  }
+  wake(accountId: string): void {
+    const session = this.current;
+    if (!session || session.run.accountId !== accountId || session.abort.signal.aborted) return;
+    this.assert(session);
+    if (!session.pumping) { clearTimeout(session.timer); this.schedule(session, 0); }
   }
   private stop(session: Session): void {
     session.abort.abort(); clearTimeout(session.timer); this.executor.pause(session.run.accountId);
@@ -165,13 +176,21 @@ export class GmailBackfill {
   }
   private async access(session: Session) {
     const access = await this.boundedOperation(session, () => this.options.access.acquire(session.run.accountId)); this.assert(session, access.version);
-    if (!access.grantedScopes?.includes("https://www.googleapis.com/auth/gmail.modify")) throw new MailAccessError("reconsent_required");
+    if (!access.grantedScopes?.some(scope => scope === "https://www.googleapis.com/auth/gmail.modify" || scope === "https://mail.google.com/")) throw new MailAccessError("reconsent_required");
     return { access, transport: this.options.transport?.(access.accessToken) ?? new GmailReadTransport({ accessToken: access.accessToken, timeoutMs: this.operationTimeout }) };
   }
   private async turn(session: Session): Promise<void> {
     try {
       this.assert(session);
       if (session.run.nextRetryAt !== null && session.run.nextRetryAt > Date.now()) { this.schedule(session, session.run.nextRetryAt - Date.now()); return; }
+      if (this.actions.ready(session.run.accountId)) {
+        const { access } = await this.access(session);
+        const transport = this.options.mutationTransport?.(access.accessToken, access.grantedScopes ?? []) ?? new MailHttpActions({ provider: 'gmail', accessToken: access.accessToken, grantedScopes: access.grantedScopes ?? [] });
+        await this.boundedOperation(session, signal => this.actions.turn(session.run.accountId, access.version, transport, signal, () => this.assert(session, access.version)));
+        this.assert(session, access.version);
+        session.labelsLoaded = false;
+        if (session.run.phase === 'history') session.run = this.runs.advanceHistory(session.run.accountId, this.stamp(session.run), { pageToken: session.run.historyPageToken, pollAt: null });
+      }
       if (session.run.historyId === null) {
         const { access, transport } = await this.access(session);
         const profile = await this.boundedOperation(session, signal => transport.getProfile({ signal })); this.assert(session, access.version);
@@ -185,7 +204,7 @@ export class GmailBackfill {
         const { labels } = await this.boundedOperation(session, signal => transport.listLabels({ signal })); this.assert(session, access.version);
         this.options.database.transaction(() => {
           this.assert(session, access.version);
-          for (const label of labels) this.options.database.run("INSERT INTO mail_folders(account_id,id,name,kind,parent_id) VALUES(?,?,?,'label',NULL) ON CONFLICT(account_id,id) DO UPDATE SET name=excluded.name", [session.run.accountId, label.id, label.name]);
+          this.runs.replaceLabels(session.run.accountId, labels);
         }); session.labelsLoaded = true;
         session.run = this.runs.setState(session.run.accountId, this.stamp(session.run), "active", { failureCount: 0 });
       }
@@ -275,7 +294,7 @@ export class GmailBackfill {
     const { labels } = await this.boundedOperation(session, signal => transport.listLabels({ signal })); this.assert(session, access.version);
     this.options.database.transaction(() => {
       this.assert(session, access.version);
-      for (const label of labels) this.options.database.run("INSERT INTO mail_folders(account_id,id,name,kind,parent_id) VALUES(?,?,?,'label',NULL) ON CONFLICT(account_id,id) DO UPDATE SET name=excluded.name", [scope.accountId, label.id, label.name]);
+      this.runs.replaceLabels(scope.accountId, labels);
     });
     if (session.run.historyId === null) throw new GmailBackfillError("configuration_invalid");
     let page;

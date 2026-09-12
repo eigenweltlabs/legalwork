@@ -3,7 +3,7 @@ import type { GraphMailboxInput } from './graph-mailbox-view.js';
 import type {SavedSearchInput} from './saved-search-view.js';
 import type {ImapConnection} from './providers/imap-config.js';
 import type {MailExtractionRequest,MailExtractionRead} from "./extraction-view.js";
-import type { MailActionCancel, MailActionPage, MailDraftAttachment, MailDraftAttachmentView, MailDraftDelete, MailDraftPage, MailDraftRead, MailDraftSave, MailDraftSummary, MailDraftView, MailEventPage, MailEventQuery, MailLocalAction, MailLocalPage, MailMutation, MailSubmission } from "./local-view.js";
+import type { MailActionCancel, MailActionPage, MailDraftAttachment, MailDraftAttachmentView, MailDraftDelete, MailDraftPage, MailDraftRead, MailDraftSave, MailDraftSummary, MailDraftView, MailEventPage, MailEventQuery, MailLocalAction, MailLocalPage, MailActionPageInput, MailMutation, MailSubmission } from "./local-view.js";
 import type { MailSearchInput, MailSearchRebuildInput } from "./search-view.js";
 import { MailWorkerClient, type MailWorkerOptions } from "./runtime/client.js";
 import type { WorkerCommand, WorkerResult } from "./runtime/protocol.js";
@@ -183,7 +183,7 @@ export class LocalMailService implements MailService {
     const result=await this.request({operation:"mail.local.action.read",accountId,input:{actionId}});
     if(!("local" in result)||result.local.operation!=="mail.local.action.read")throw new MailServiceError("unavailable");return result.local.value;
   }
-  async listActions(accountId:string,input:MailLocalPage){
+  async listActions(accountId:string,input:MailActionPageInput){
     const result=await this.request({operation:"mail.local.action.list",accountId,input:input});
     if(!("local" in result)||result.local.operation!=="mail.local.action.list")throw new MailServiceError("unavailable");return result.local.value;
   }
