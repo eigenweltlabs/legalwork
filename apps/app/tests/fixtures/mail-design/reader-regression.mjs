@@ -50,10 +50,12 @@ try {
  await configure({messageId:currentId,contentState:'complete'});
  await until("!document.querySelector('#mail-print-root .mail-content-warning')&&document.querySelector('#mail-print-root iframe')?.getBoundingClientRect().height>80");
  await until("document.querySelector('[aria-label=\"Mark unread\"]:not(:disabled)')!==null");
- await run("document.querySelector('[aria-label=\"Mark unread\"]').click()");
  const state=()=>fetch('http://127.0.0.1:5483/fixture/state',{signal:deadline}).then(response=>response.json());
- await pause(200);
- const unread=await state();
+ const beforeUnread=await state();
+ await run("document.querySelector('[aria-label=\"Mark unread\"]').click()");
+ let unread=await state();
+ for(let attempt=0;unread.mutations.length===beforeUnread.mutations.length&&attempt<100;attempt++){await pause(40);unread=await state();}
+ assert.equal(unread.mutations.length,beforeUnread.mutations.length+1,'Explicit Mark unread should queue exactly one action');
  await run("window.readerProbeFrames=[...document.querySelectorAll('iframe')];window.readerProbeDocs=readerProbeFrames.map(frame=>frame.srcdoc);window.readerProbeIdleLoads=readerProbeLoads;document.querySelector('.mail-reader-pane').scrollTop=50;window.readerProbeScroll=document.querySelector('.mail-reader-pane').scrollTop");
  await pause(11500);
  assert.equal(await run("readerProbeFrames.every((frame,index)=>frame===document.querySelectorAll('iframe')[index]&&frame.srcdoc===readerProbeDocs[index])"),true);
@@ -61,7 +63,23 @@ try {
  assert.equal(await run("document.querySelector('.mail-reader-pane').scrollTop===readerProbeScroll"),true);
  const afterIdle=await state();assert.equal(afterIdle.mutations.length,unread.mutations.length,'Idle polling must not requeue read after explicit Mark unread');
  await call('/capture',{name:'eig-139-after-idle',width:1440,height:960});
- await writeFile('/tmp/eig-139-reader-regression.json',JSON.stringify({result:'pass',opens:20,plainBoundaries:5,idleMs:11500,evidence},null,2));
+ const longResponse=await fetch('http://127.0.0.1:5483/fixture/conversation',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({count:55}),signal:deadline});
+ assert.equal(longResponse.ok,true);
+ await run("document.querySelector('[aria-label=\"Refresh mail\"]').click()");
+ await until("[...document.querySelectorAll('.mail-message-row')].some(row=>row.textContent.includes('Synthetic extended conversation'))");
+ await run("[...document.querySelectorAll('.mail-message-row')].find(row=>row.textContent.includes('Synthetic extended conversation')).click()");
+ await until("document.querySelectorAll('.mail-conversation-message').length===25");
+ await run("[...document.querySelectorAll('.mail-conversation button')].find(button=>button.textContent==='Load earlier messages').click()");
+ await until("document.querySelectorAll('.mail-conversation-message').length===50");
+ await pause(5500);
+ await run("[...document.querySelectorAll('.mail-conversation button')].find(button=>button.textContent==='Load earlier messages').click()");
+ await until("document.querySelectorAll('.mail-conversation-message').length===55");
+ await pause(5500);
+ assert.equal(await run("[...document.querySelectorAll('.mail-conversation button')].some(button=>button.textContent==='Load earlier messages')"),false);
+ assert.equal(await run("document.querySelectorAll('.mail-conversation iframe').length"),1);
+ await fetch('http://127.0.0.1:5483/fixture/reset',{method:'POST',signal:deadline});
+ await run("document.querySelector('[aria-label=\"Refresh mail\"]').click()");
+ await writeFile('/tmp/eig-139-reader-regression.json',JSON.stringify({result:'pass',opens:20,plainBoundaries:5,idleMs:11500,conversationPages:[25,50,55],evidence},null,2));
  console.log('EIG-139 synthetic reader: 20 first/rapid opens, 5 plain/HTML boundaries and unchanged idle frames passed.');
 } catch(error) {
  await call('/capture',{name:'eig-139-failure-preserved',width:1440,height:960}).catch(()=>{});
