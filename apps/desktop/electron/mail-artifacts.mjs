@@ -4,7 +4,7 @@ import {join} from 'node:path';
 import {tmpdir} from 'node:os';
 import {z} from 'zod';
 const id=z.string().min(1).max(4096);
-const requestSchema=z.object({accountId:id,locator:z.union([z.object({provider:z.literal('gmail'),messageId:id}).strict(),z.object({provider:z.literal('graph'),messageId:id}).strict(),z.object({provider:z.literal('imap'),mailboxId:id,uidValidity:z.number().int().positive(),uid:z.number().int().positive()}).strict()]),kind:z.enum(['raw','attachment']),partId:z.string().max(4096),referenceId:id,operation:z.enum(['open','save'])}).strict();
+const requestSchema=z.object({accountId:id,locator:z.union([z.object({provider:z.literal('archive'),namespace:id,entryId:id}).strict(),z.object({provider:z.literal('gmail'),messageId:id}).strict(),z.object({provider:z.literal('graph'),messageId:id}).strict(),z.object({provider:z.literal('imap'),mailboxId:id,uidValidity:z.number().int().positive(),uid:z.number().int().positive()}).strict()]),kind:z.enum(['raw','attachment']),partId:z.string().max(4096),referenceId:id,operation:z.enum(['open','save'])}).strict();
 const safeName=value=>{const name=value.replace(/[\\/\x00-\x1f\x7f<>:"|?*]/g,'_').replace(/[. ]+$/g,'').slice(0,160);return !name||/^(con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\.|$)/i.test(name)?'mail-'+(name||'attachment.bin'):name;};
 /** Renderer supplies only an existing reference; the trusted main process re-reads bytes and metadata. */
 export function createMailArtifacts({connection,dialog,shell,privateDirectory}){
