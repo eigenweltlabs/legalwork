@@ -17,6 +17,6 @@ Focused evidence:
 - `pnpm exec bun test apps/server/src/mail/storage/notification-schema.test.ts apps/server/src/mail/storage/notifications.test.ts`
 - `pnpm exec bun test apps/server/src/mail/runtime/desktop-lifecycle.test.ts apps/server/src/mail/runtime/protocol.test.ts`
 - `pnpm exec node --test apps/desktop/electron/mail-desktop.test.mjs`
-- `pnpm exec bun test apps/app/tests/mail-desktop.test.ts apps/app/tests/mail-worker-recovery-render.test.ts`
+- `pnpm exec bun test apps/app/tests/mail-desktop.test.ts apps/app/tests/mail-worker-recovery-render.test.ts apps/app/tests/mail-notification-open-render.test.ts`
 
 Fixtures use encrypted temporary stores, synthetic providers and hidden isolated renderer windows. Native notification classes and power events are fake; no real email details enter OS notification tests. Actual macOS/Windows notification-center delivery and final provider/platform certification remain the end-of-integration EIG-173/174 passes.
