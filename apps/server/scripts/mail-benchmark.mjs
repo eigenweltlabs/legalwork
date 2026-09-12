@@ -6,9 +6,9 @@ import { createRequire } from 'node:module';
 import { dirname, join, resolve, relative } from 'node:path';
 import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
-const args = process.argv.slice(2), count = Number(args[0] ?? 1000), report = resolve(args[1] ?? 'mail-benchmark.json');
-if (!Number.isSafeInteger(count) || count < 100 || count > 100000)
-    throw Error('Usage: pnpm exec node apps/server/scripts/mail-benchmark.mjs <100..100000 messages> <report.json>');
+const args = process.argv.slice(2), retained = args[0] === '--retained', count = Number(args[0] ?? 1000), report = resolve(args[retained ? 2 : 1] ?? 'mail-benchmark.json');
+if (retained ? !args[1] || !args[2] : !Number.isSafeInteger(count) || count < 100 || count > 100000)
+    throw Error('Usage: pnpm exec node apps/server/scripts/mail-benchmark.mjs <100..100000 messages> <report.json> OR --retained <synthetic-profile> <new-report.json>');
 if (process.versions.bun || Number(process.versions.node.split('.')[0]) < 22)
     throw Error('Actual Node22+ required');
 const server = resolve(dirname(fileURLToPath(import.meta.url)), '..'), require = createRequire(join(server, 'package.json')), root = await mkdtemp(join(tmpdir(), 'legalwork-mail-bench-build-'));
@@ -39,7 +39,7 @@ try {
         await mkdir(dirname(target), { recursive: true });
         await copyFile(path, target);
     }
-    await run([join(build, 'mail/testing/large-mailbox-benchmark.mjs'), String(count), report]);
+    await run([join(build, retained ? 'mail/testing/retained-mailbox-benchmark.mjs' : 'mail/testing/large-mailbox-benchmark.mjs'), retained ? resolve(args[1]) : String(count), report]);
 }
 finally {
     await rm(root, { recursive: true, force: true, maxRetries: 3 });
