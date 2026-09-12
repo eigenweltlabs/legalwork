@@ -1,0 +1,18 @@
+import assert from 'node:assert/strict';
+const call=async(path,input)=>{const response=await fetch('http://127.0.0.1:5484/'+path,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(input),signal:AbortSignal.timeout(15000)});if(!response.ok)throw Error(await response.text());return response.json();};
+const run=code=>call('eval',{code});
+const until=async code=>{for(let i=0;i<100;i++){if(await run(code))return;await new Promise(r=>setTimeout(r,50));}throw Error(code);};
+const button=label=>run(`Array.from(document.querySelectorAll('button')).find(e=>e.textContent.trim()===${JSON.stringify(label)}).click()`);
+const tab=label=>run(`Array.from(document.querySelectorAll('[role=tab]')).find(e=>e.textContent===${JSON.stringify(label)}).click()`);
+const select=async(label,option)=>{await run(`document.querySelector(${JSON.stringify('[aria-label="'+label+'"]')}).click()`);await until(`Array.from(document.querySelectorAll('[role=option]')).some(e=>e.textContent===${JSON.stringify(option)})`);await run(`(()=>{const item=Array.from(document.querySelectorAll('[role=option]')).find(e=>e.textContent===${JSON.stringify(option)}&&e.getBoundingClientRect().height>0);item.dispatchEvent(new PointerEvent('pointerdown',{pointerType:'touch',bubbles:true}));item.click();})()`);await until(`document.querySelector(${JSON.stringify('[aria-label=\"'+label+'\"]')}).textContent.includes(${JSON.stringify(option)})`);};
+const capture=name=>call('capture',{name:'rework-'+name,width:1440,height:920});
+await run('location.hash="/settings/mail-accounts"');await until("Array.from(document.querySelectorAll('[role=tab]')).some(e=>e.textContent==='Accounts')");
+await tab('Accounts');assert.equal(await run("document.querySelectorAll('[aria-label=Provider]').length"),0);await capture('settings-accounts');
+await button('Add account');await until("!!document.querySelector('[aria-label=Provider]')");await select('Provider','iCloud Mail');await until("!!document.querySelector('form input[autocomplete=username]')");await capture('settings-add-account');await button('Cancel setup');
+await run("document.querySelector('[aria-label=\"Account options for Mira Chen\"]').click()");await until("Array.from(document.querySelectorAll('[role=menuitem]')).some(e=>e.textContent==='Reconnect')");await run("document.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',bubbles:true}))");
+await tab('Notifications');await until("!document.querySelector('[aria-label=\"Desktop mail notifications\"]').disabled");await select('Notification preview','Sender only');await until("document.querySelector('[aria-label=\"Notification preview\"]').textContent.includes('Sender only')");await select('Notification preview','No message details');await capture('settings-notifications');
+await tab('Sending');await until("!!document.querySelector('[aria-label=\"Signature for mira@example.test\"]')");await capture('settings-sending');
+await tab('Data & access');await select('Agent mail account','Mira Chen <mira@example.test>');await select('Agent workspace','Aster · Commercial');assert.equal(await run("Array.from(document.querySelectorAll('button')).find(e=>e.textContent==='Grant access').disabled"),true);await capture('settings-access');
+await run("Array.from(document.querySelectorAll('h3')).find(e=>e.textContent==='Retention and encrypted recovery').scrollIntoView({block:'start'})");await capture('settings-retention');
+await run("Array.from(document.querySelectorAll('h3')).find(e=>e.textContent==='Import and export mail').scrollIntoView({block:'start'})");await capture('settings-portability');
+await run('location.hash="/mail"');console.log('SHARED_SETTINGS_CONTROLS_PASS');

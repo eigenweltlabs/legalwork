@@ -46,7 +46,8 @@ test('actual renderer completes browser onboarding and confines iCloud passwords
       await until("!!document.querySelector('form')");
       await run("document.querySelector('form').requestSubmit()");await until('window.__changed===1');
       assert.equal(await run('window.__opened.length'),1);
-      await run("document.querySelector('select').value='icloud';document.querySelector('select').dispatchEvent(new Event('change',{bubbles:true}))");
+      await run("document.querySelector('[aria-label=Provider]').click()");await until("!!document.querySelector('[role=option]')");await run("(()=>{const option=Array.from(document.querySelectorAll('[role=option]')).find(e=>e.textContent==='iCloud Mail'&&e.getBoundingClientRect().height>0);option.dispatchEvent(new PointerEvent('pointerdown',{pointerType:'touch',bubbles:true}));option.click();})()");
+      await until("document.querySelector('[aria-label=Provider]').textContent.includes('iCloud Mail')");
       await until("!!document.querySelector('input[type=password]')");
       await run("(()=>{const setter=Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set;for(const [selector,value] of [['input[autocomplete=username]','demo@icloud.com'],['input[type=password]','synthetic-app-password']]){const el=document.querySelector(selector);setter.call(el,value);el.dispatchEvent(new Event('input',{bubbles:true}));}})()");
       await run("document.querySelector('form').requestSubmit()");await until("document.body.textContent.includes('Connecting…')");
