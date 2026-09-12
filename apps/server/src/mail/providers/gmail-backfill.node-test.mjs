@@ -133,3 +133,27 @@ test('untyped history caps collected metadata and keeps the page unacknowledged'
  })});
  e.start('a');await until(()=>e.status('a').state==='attention');assert.equal(e.status('a').error,'content_incomplete');assert.equal(f.db.get('SELECT history_id FROM mail_gmail_runs').history_id,'1');assert.equal(f.db.get("SELECT count(*) AS n FROM mail_sync_scopes WHERE scope_id='gmail:history'").n,0);
 }));
+
+test('authoritative Gmail manifest and never-opened MIME parts survive history replay, expiry reconciliation and offline reopen',()=>fixture(async f=>{
+ const {createStoredMimeProjector}=await import('../storage/mime-projection.js');let phase=0,expired=false;const rawReads=[];
+ const labels=id=>phase===2?(id==='recent'?['INBOX','Contracts']:['Archive']):id==='old'?['Archive']:id==='recent'&&phase===1?['INBOX','Contracts']:['INBOX'];
+ const original=id=>Buffer.from(`From: Sender <sender@example.test>\r\nSubject: ${id}\r\nMessage-ID: <duplicate@example.test>\r\nMIME-Version: 1.0\r\nContent-Type: multipart/mixed; boundary=x\r\n\r\n--x\r\nContent-Type: text/plain\r\n\r\nHistorical ${id} body\r\n--x\r\nContent-Type: application/octet-stream\r\nContent-Disposition: attachment; filename="${id}.bin"\r\nContent-Transfer-Encoding: base64\r\n\r\nAQID\r\n--x--\r\n`);
+ const remote={...f.transport,
+  async getProfile(){return{historyId:phase===2?'100':'1'};},
+  async listLabels(){return{labels:['INBOX','Archive','Contracts'].map(id=>({id,name:id,type:id==='INBOX'?'system':'user'}))};},
+  async listMessages(input){return{messages:(input.recentAfterSeconds?['recent']:phase===2?['recent','new']:['recent','middle','old']).map(id=>({id,threadId:'thread'})),nextPageToken:null};},
+  async getMetadata(id){return{id,threadId:'thread',labelIds:labels(id),historyId:phase===2?'100':phase===1?'10':'1',internalDate:'946684800000'};},
+  async consumeRaw(id,sink){rawReads.push(id);const bytes=original(id);await sink(bytes);return{id,threadId:'thread',labelIds:labels(id),historyId:phase===2?'100':phase===1?'10':'1',internalDate:'946684800000',sizeEstimate:bytes.length,rawBytes:bytes.length};},
+  async listHistory(input){if(phase===2&&!expired){expired=true;throw new GmailTransportError('not_found');}return{historyId:phase===2?'100':phase===1?'10':input.startHistoryId,nextPageToken:null,records:phase===1?[{id:'10',changes:[{kind:'labelsAdded',messageId:'recent',threadId:'thread',labelIds:['Contracts']},{kind:'added',messageId:'new',threadId:'thread',labelIds:['INBOX']},{kind:'deleted',messageId:'middle',threadId:'thread',labelIds:[]}]}]:[]};}
+ };
+ const e=f.make({transport:()=>remote,projectRaw:createStoredMimeProjector({database:f.db,ownerId:'owner'}),pollIntervalMs:1000});
+ const manifest=()=>f.db.all("SELECT m.message_key,mm.folder_id FROM mail_messages m JOIN mail_gmail_presence p ON p.account_id=m.account_id AND p.message_key=m.message_key LEFT JOIN mail_memberships mm ON mm.account_id=m.account_id AND mm.message_key=m.message_key WHERE m.account_id='a' AND p.remote_present=1 ORDER BY m.message_key,mm.folder_id").map(row=>[JSON.parse(row.message_key)[1],row.folder_id]);
+ const expected=ids=>ids.flatMap(id=>labels(id).map(label=>[id,label])).sort((a,b)=>JSON.stringify(a).localeCompare(JSON.stringify(b)));
+ const check=ids=>assert.deepEqual(manifest().sort((a,b)=>JSON.stringify(a).localeCompare(JSON.stringify(b))),expected(ids));
+ e.start('a');await until(()=>e.status('a').state==='complete');check(['recent','middle','old']);assert.equal(rawReads.length,3);
+ for(const next of [1,1,2]){e.pause('a');await delay(20);phase=next;f.db.run('UPDATE mail_gmail_runs SET poll_at=0');e.start('a');await until(()=>e.status('a').state==='complete'&&(phase===2?expired&&e.status('a').enumerated===2:e.status('a').removed===1));check(phase===2?['recent','new']:['recent','old','new']);}
+ assert.equal(rawReads.length,4);assert.equal(new Set(rawReads).size,4);assert.equal(e.status('a').retained,2);await f.reopen();
+ const content=new MailContentStore(f.db,'owner'),projections=new MimeProjectionStore(f.db,'owner');
+ for(const id of ['recent','middle','old','new']){const locator={provider:'gmail',messageId:id},raw=f.db.get("SELECT ref_id FROM mail_content_manifests WHERE account_id='a' AND message_key=? AND kind='raw'",[JSON.stringify(['gmail',id])]);assert.deepEqual(Buffer.concat([...content.read('a',raw.ref_id)]),original(id));const projection=projections.read('a',locator);assert.equal(projection.attachments.length,1);assert.deepEqual(Buffer.concat([...content.read('a',projection.attachments[0].reference.id)]),Buffer.from([1,2,3]));assert.match(Buffer.concat([...content.read('a',projection.body.id)]).toString(),new RegExp('Historical '+id+' body'));}
+ assert.equal(rawReads.length,4);
+}));

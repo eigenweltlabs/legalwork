@@ -280,3 +280,18 @@ test('publication callbacks reject asynchronous work and roll back callback muta
     assert.equal(store.listStaging('a').length,0);
   }
 }));
+
+test('actual SQLITE_FULL retains the prior raw and unfinished checkpoint job through reopen, then retry publishes once',async()=>fixture(async({repository,store,db,reopen})=>{
+ seed(repository);const original=await store.writePart('a',locator('one'),{kind:'raw',maxBytes:3},[Buffer.from('old')]);
+ const scope={accountId:'a',scopeId:'disk-full',generation:'disk-full'},journal=new MailSyncJournal(db,'owner-a',()=>1000);
+ journal.commitPage({...scope,expectedCursor:null,expectedRevision:0,nextCursor:'page-1',discoveryComplete:true,jobs:[{kind:'raw',locator:locator('one')}]},()=>{});
+ const [job]=journal.claim(scope,1,1000),checkpoint=journal.readCheckpoint(scope);let published=0;
+ db.exec('PRAGMA wal_checkpoint(TRUNCATE)');const pages=db.get('PRAGMA page_count').page_count;db.exec('PRAGMA max_page_count='+pages);
+ await assert.rejects(store.writePart('a',locator('one'),{kind:'raw',maxBytes:32*CHUNK},generated(32),()=>{published++;journal.succeed('a',job.id,job.lease_token,()=>{});}),error=>error.code==='SQLITE_FULL');
+ assert.equal(published,0);assert.equal(journal.readJob('a',job.id).state,'running');assert.deepEqual(journal.readCheckpoint(scope),checkpoint);
+ assert.equal(db.get("SELECT ref_id FROM mail_content_manifests WHERE account_id='a' AND kind='raw'").ref_id,original.id);assert.equal(readHash(store,'a',original.id).sha256,digest(Buffer.from('old')));
+ db=await reopen();db.exec('PRAGMA max_page_count=4294967294');let now=3000;const recovered=new MailSyncJournal(db,'owner-a',()=>now),content=new MailContentStore(db,'owner-a');
+ recovered.claim(scope,1,1000);now=100000;const [retry]=recovered.claim(scope,1,1000);assert.equal(retry.id,job.id);
+ const replacement=await content.writePart('a',locator('one'),{kind:'raw',maxBytes:32*CHUNK},generated(32),()=>{published++;recovered.succeed('a',retry.id,retry.lease_token,()=>{});});
+ assert.equal(published,1);assert.equal(readHash(content,'a',replacement.id).sha256,generatedHash(32));assert.equal(recovered.readJob('a',job.id).state,'succeeded');assert.deepEqual(recovered.readCheckpoint(scope),checkpoint);assert.deepEqual(db.all('PRAGMA foreign_key_check'),[]);
+}));

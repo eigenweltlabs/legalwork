@@ -1,0 +1,54 @@
+bun test v1.3.9 (cf6cdbbb)
+
+apps/server/src/mail/provider-config.test.ts:
+(pass) mail provider configuration readiness > valid settings never claim authorization or echo identifiers [0.80ms]
+(pass) mail provider configuration readiness > existing Google read/compose grant does not satisfy full mail operations [0.03ms]
+(pass) mail provider configuration readiness > Google identity discovery requires explicit OIDC scopes [0.11ms]
+(pass) mail provider configuration readiness > Google direct exchange requires configured installed client secret [0.02ms]
+(pass) mail provider configuration readiness > rejects network, credential-bearing, ambiguous and parameter-bearing callbacks [0.27ms]
+(pass) mail provider configuration readiness > provider-specific IPv6 support [0.04ms]
+(pass) mail provider configuration readiness > Graph requires send separately from read/write [0.03ms]
+(pass) mail provider configuration readiness > Graph explicit personal authority is supported [0.02ms]
+(pass) mail provider configuration readiness > Graph pilot disallows broad authorities and injected tenant paths [0.08ms]
+(pass) mail provider configuration readiness > Graph callback matching preserves host/path and literal-IP port [0.05ms]
+(pass) mail provider configuration readiness > invalid settings report constant errors without reflecting input [0.03ms]
+
+apps/server/src/mail/providers/development-config.test.ts:
+(pass) standard installed client becomes fixed mail configuration; web/redirect/endpoint substitutions fail safely [2.19ms]
+(pass) private config loader bounds reads and rejects unsafe files without exposing secret or path [5.63ms]
+(pass) actual Node rejects a private FIFO without waiting for a writer [65.91ms]
+
+apps/server/src/mail/providers/gmail.test.ts:
+(pass) labels return bounded unique metadata without mutation calls [2.92ms]
+(pass) message pagination includes spam/trash, encodes opaque token and does not infer completeness from estimates [0.39ms]
+(pass) invalid page IDs, duplicate rows, continuation cycles and null arrays never silently skip [0.60ms]
+(pass) raw MIME bytes are exact and await each bounded sink chunk [6.77ms]
+(pass) canonical base64url padded/unpadded accepted; malformed bits/padding/identity rejected before sink [1.40ms]
+(pass) raw decoded/envelope byte limits fail explicitly with zero sink writes [0.60ms]
+(pass) typed access/reconsent/rate/quota errors never reflect Google descriptions or IDs [1.28ms]
+(pass) bounded JSON and redacted transport failure; cancellation stops late network/sink delivery [38.37ms]
+(pass) compiled gmail module passes actual Node tests [1150.72ms]
+(pass) elapsed deadline prevents sinks even when synchronous response work delays timer [20.27ms]
+(pass) opaque IDs stay path data, invalid options and invalid UTF-8 reject safely [0.54ms]
+(pass) fixed recent window uses numeric Gmail after query and retains spam/trash [0.25ms]
+(pass) history preserves large sequence IDs, specific events and exact fixed endpoint pagination [0.63ms]
+(pass) history rejects backwards IDs, malformed events and oversized event fanout without checkpointing [1.07ms]
+(pass) profile anchor and minimal snapshots remain bounded and validate requested identity [0.31ms]
+(pass) history accepts untyped message references, deduplicates specific events and bounds reconciliation [0.61ms]
+
+apps/server/src/mail/providers/draft-adapter.test.ts:
+(pass) Gmail stable draft ID and replacing message ID use draft API with base64url and bounded lookup [1.84ms]
+(pass) Graph shared target uses MIME create, immutable IDs and conditional draft deletion; no MIME patch [0.35ms]
+(pass) provider failures and hostile continuation never report success or leak credentials [0.25ms]
+(pass) every HTTP mutation rechecks custody before issuing a request [0.11ms]
+
+apps/server/src/mail/mime/compose.test.ts:
+(pass) shared MIME round trips Unicode, alternatives, inline images, files and attached message without leaking BCC [20.83ms]
+(pass) MIME rejects unauthorized sender, header injection, missing recipients and oversized attachments [1.06ms]
+(pass) SMTPUTF8 mailboxes and non-ASCII message IDs are rejected instead of truncated [0.54ms]
+(pass) private draft MIME permits missing recipients and safely projects incomplete input without weakening sending [0.69ms]
+
+ 38 pass
+ 0 fail
+ 272 expect() calls
+Ran 38 tests across 5 files. [1422.00ms]

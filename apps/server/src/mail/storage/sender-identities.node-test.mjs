@@ -5,7 +5,8 @@ import {mkdtemp,rm} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {openEncryptedMailDatabase} from './database.js';
-import {migrateMailSchema} from './schema.js';
+import {migrateMailSchema,MAIL_SCHEMA_VERSION} from './schema.js';
+import {removeLaterMailSchema} from '../testing/legacy-schema.mjs';
 import {MailRepository} from './repository.js';
 import {MailCredentialRepository} from './credentials.js';
 import {SenderIdentityRepository} from './sender-identities.js';
@@ -43,10 +44,10 @@ test('IMAP requires explicit configuration, supports removal, and never inherits
 }));
 
 test('schema 19 upgrades atomically to sender identities without changing connected accounts',async()=>fixture(async({db,credentials})=>{
- const before=credentials.status('gmail');db.exec('DROP TABLE mail_sender_identities');db.run('UPDATE mail_schema_version SET version=19');
+ const before=credentials.status('gmail');removeLaterMailSchema(db,19);db.run('UPDATE mail_schema_version SET version=19');
  const failing={...db,exec(sql){if(sql.includes('CREATE TABLE mail_sender_identities'))throw Error('synthetic migration failure');db.exec(sql);}};
  assert.throws(()=>migrateMailSchema(failing));assert.equal(db.get('SELECT version FROM mail_schema_version').version,19);assert.equal(db.get("SELECT name FROM sqlite_master WHERE name='mail_sender_identities'"),undefined);
- migrateMailSchema(db);assert.equal(db.get('SELECT version FROM mail_schema_version').version,20);assert.deepEqual(credentials.status('gmail'),before);migrateMailSchema(db);
+ migrateMailSchema(db);assert.equal(db.get('SELECT version FROM mail_schema_version').version,MAIL_SCHEMA_VERSION);assert.deepEqual(credentials.status('gmail'),before);migrateMailSchema(db);
 }));
 
 test('worker refreshes authenticated aliases and preserves sender preferences across relaunch',async()=>{
