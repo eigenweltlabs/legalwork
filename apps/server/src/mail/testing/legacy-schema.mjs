@@ -1,6 +1,7 @@
 /** Test fixtures only: remove later additions before reconstructing an older
  * database. Keep production migrations additive; never call this on user data. */
 export function removeLaterMailSchema(db, version) {
+  if(version<28)db.exec('DROP INDEX IF EXISTS mail_sync_scope_job_lookup');
   if(version<27)db.exec('DROP TABLE IF EXISTS mail_agent_proposals; DROP TABLE IF EXISTS mail_agent_drafts; DROP TABLE IF EXISTS mail_agent_grants');
   if(version<26)db.exec('DROP TABLE IF EXISTS mail_storage_save_parts; DROP TABLE IF EXISTS mail_storage_saves');
   if(version<25)db.exec('DROP TABLE IF EXISTS mail_recovery_quarantine; DROP TABLE IF EXISTS mail_retention_settings');
