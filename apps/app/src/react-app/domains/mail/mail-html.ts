@@ -22,7 +22,7 @@ export function mailDocument(html:string,inline:ReadonlyMap<string,string>=new M
   let replacement=cid?inline.get(cid):undefined;
   if(!cid){const url=mailLink(value);if(url&&/^https?:/.test(url)){if(resources.size<100)resources.add(url);replacement=remote.get(url);}}
   if(!replacement||replacement.length>6*1024*1024||imageBytes+replacement.length>imageBudget||!raster.test(replacement))return null;
-  if(!dimensions.has(replacement)){try{const bytes=Uint8Array.from(atob(replacement.slice(replacement.indexOf(',')+1)),char=>char.charCodeAt(0)),size=rasterDimensions(bytes);dimensions.set(replacement,size.width*size.height);}catch{dimensions.set(replacement,0);}}
+  if(!dimensions.has(replacement)){try{const bytes=Uint8Array.from(atob(replacement.slice(replacement.indexOf(',')+1)),char=>char.charCodeAt(0)),size=rasterDimensions(bytes);dimensions.set(replacement,size.pixels);}catch{dimensions.set(replacement,0);}}
   const pixels=dimensions.get(replacement)??0;if(!pixels||imagePixels+pixels>imageBudget)return null;imagePixels+=pixels;imageBytes+=replacement.length;return replacement;
  };
  for(const element of elements){

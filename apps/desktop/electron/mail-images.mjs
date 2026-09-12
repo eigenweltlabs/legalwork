@@ -55,7 +55,7 @@ export function createMailImages({connection,decode,download=fetchMailImage}){
   const urls=messageImageUrls(envelope.bodies),items=[];let failed=Math.max(0,urls.length-30),size=0,pixels=0;
   let attempted=0;for(const url of urls.slice(0,30)){attempted++;try{
    await post('content',{locator:input.locator,request:{...request,offset:0,limit:1}});
-   const bytes=await download(url,abort.signal);size+=bytes.length;if(size>8*1024*1024)throw Error('mail_image_limit');const expected=rasterDimensions(bytes);pixels+=expected.width*expected.height;if(pixels>16*1024*1024)throw Error('mail_image_limit');const actual=decode(bytes);if(!(actual.width===expected.width&&actual.height===expected.height||actual.width===expected.height&&actual.height===expected.width))throw Error('mail_image_decode');
+   const bytes=await download(url,abort.signal);size+=bytes.length;if(size>8*1024*1024)throw Error('mail_image_limit');const expected=rasterDimensions(bytes);pixels+=expected.pixels;if(pixels>16*1024*1024)throw Error('mail_image_limit');const actual=decode(bytes);if(!(actual.width===expected.width&&actual.height===expected.height||actual.width===expected.height&&actual.height===expected.width))throw Error('mail_image_decode');
    items.push({url,data:`data:image/${expected.type};base64,${bytes.toString('base64')}`});
   }catch{failed++;}if(abort.signal.aborted||size>8*1024*1024||pixels>16*1024*1024){failed+=Math.min(30,urls.length)-attempted;break;}}
   await post('content',{locator:input.locator,request:{...request,offset:0,limit:1}});if(abort.signal.aborted)throw Error('mail_image_cancelled');return {items,failed:Math.max(0,failed)};
