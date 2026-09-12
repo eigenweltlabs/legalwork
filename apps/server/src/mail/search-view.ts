@@ -11,7 +11,7 @@ export const mailSearchInputSchema = z.object({
 }).strict().refine(x => !x.afterDate || !x.beforeDate || x.afterDate < x.beforeDate);
 export type MailSearchInput = z.infer<typeof mailSearchInputSchema>;
 export const mailSearchResultSchema = z.object({
-  items: z.array(z.object({accountId:id, locator:providerMessageLocatorSchema, subject:z.string().max(512), snippet:z.string().max(512), date:z.string().datetime().nullable(), hasAttachment:z.boolean().nullable(),attachmentMatches:z.array(z.object({partId:id,referenceId:id,section:z.number().int().nonnegative(),offset:z.number().int().nonnegative(),source:z.string().max(512)}).strict()).max(8).optional(),attachmentSources:z.array(z.object({partId:id,referenceId:id}).strict()).max(8).optional()}).strict()).max(25),
+  items: z.array(z.object({accountId:id, locator:providerMessageLocatorSchema, subject:z.string().max(512), sender:z.string().max(512).optional(), snippet:z.string().max(512), date:z.string().datetime().nullable(), hasAttachment:z.boolean().nullable(),attachmentMatches:z.array(z.object({partId:id,referenceId:id,section:z.number().int().nonnegative(),offset:z.number().int().nonnegative(),source:z.string().max(512)}).strict()).max(8).optional(),attachmentSources:z.array(z.object({partId:id,referenceId:id}).strict()).max(8).optional()}).strict()).max(25),
   total:z.number().int().nonnegative(), pending:z.number().int().nonnegative(), incomplete:z.number().int().nonnegative(), nextOffset:z.number().int().nonnegative().nullable(),
 }).strict();
 export type MailSearchResult = z.infer<typeof mailSearchResultSchema>;
