@@ -99,7 +99,7 @@ export class GraphBackfill {
         this.state.account(accountId);
         const run = this.state.read(accountId);
         try {
-            if (run?.state === "active")
+            if (run && run.state !== "paused")
                 this.state.update(run, "paused");
         }
         finally {

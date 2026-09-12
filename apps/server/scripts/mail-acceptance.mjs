@@ -10,18 +10,21 @@ import { fileURLToPath } from 'node:url';
 const args = process.argv.slice(2);
 let concurrency = '2';
 let suite = null;
+let testNamePattern = null;
 const seen = new Set();
 for (let index = 0; index < args.length; index += 2) {
   const option = args[index], value = args[index + 1];
   if (seen.has(option) || value === undefined ||
-      (option !== '--concurrency' && option !== '--suite') ||
+      (option !== '--concurrency' && option !== '--suite' && option !== '--test-name-pattern') ||
       (option === '--concurrency' && !/^[1-8]$/.test(value)) ||
-      (option === '--suite' && !/^[a-z][a-z0-9/-]*$/.test(value))) {
-    throw new Error('Usage: node apps/server/scripts/mail-acceptance.mjs [--concurrency 1..8] [--suite storage/database]');
+      (option === '--suite' && !/^[a-z][a-z0-9/-]*$/.test(value)) ||
+      (option === '--test-name-pattern' && (!value.length || value.length > 256 || value.includes('\0')))) {
+    throw new Error('Usage: node apps/server/scripts/mail-acceptance.mjs [--concurrency 1..8] [--suite storage/database] [--test-name-pattern pattern]');
   }
   seen.add(option);
   if (option === '--concurrency') concurrency = value;
-  else suite = value;
+  else if (option === '--suite') suite = value;
+  else testNamePattern = value;
 }
 if (process.versions.bun || Number(process.versions.node.split('.')[0]) < 22) {
   throw new Error('Mail acceptance requires actual Node 22 or newer; native addons must not load in Bun.');
@@ -86,7 +89,8 @@ try {
   const suites = fixtures.map(path => join(build, relative(source, path)));
   if (suites.length === 0) throw new Error('No native mail suites found.');
   console.log(`Running ${suite === null ? 'all ' : 'selected '}${suites.length} native mail suites (no provider network or real credentials).`);
-  await run(['--test', `--test-concurrency=${concurrency}`, ...suites], 300_000);
+  if (testNamePattern) console.log(`Test name filter: ${testNamePattern}`);
+  await run(['--test', `--test-concurrency=${concurrency}`, ...(testNamePattern ? [`--test-name-pattern=${testNamePattern}`] : []), ...suites], 300_000);
   console.log(`Mail acceptance passed in ${((performance.now() - started) / 1000).toFixed(1)}s.`);
 } finally {
   await rm(output, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });

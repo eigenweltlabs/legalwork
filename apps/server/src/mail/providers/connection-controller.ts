@@ -24,6 +24,7 @@ export type MailConnectionControllerOptions = {
   database: MailDatabase; ownerId: string;
   /** Trusted internal test seams, never supplied by RPC or HTTP. */
   oauth?: typeof startMailOAuth; identity?: typeof discoverMailIdentity;
+  onConnected?: (accountId: string, settings: MailOAuthSettings) => void | Promise<void>;
   lifetimeMs?: number; retentionMs?: number; maxRetained?: number;
 };
 function bound(value: number | undefined, fallback: number, maximum: number): number {
@@ -57,8 +58,10 @@ export class MailConnectionController {
   private readonly lifetime: number;
   private readonly retention: number;
   private readonly capacity: number;
+  private readonly onConnected: MailConnectionControllerOptions["onConnected"];
   private closed = false;
   constructor(options: MailConnectionControllerOptions) {
+    this.onConnected = options.onConnected;
     this.lifetime = bound(options.lifetimeMs, 300000, 600000);
     this.retention = bound(options.retentionMs, 600000, 86400000);
     this.capacity = options.maxRetained ?? 32;
@@ -144,6 +147,7 @@ export class MailConnectionController {
           grantedScopes: tokens.grantedScopes, refreshToken: tokens.refreshToken === null ? { action: "clear" } : { action: "replace", value: tokens.refreshToken } });
         if (!this.usable(entry)) throw new MailConnectionError("expired");
       });
+      await this.onConnected?.(accountId, settings);
       this.finish(entry, { ...this.base(entry), state: "connected", accountId, renewable: tokens.refreshToken !== null });
     } catch (error) {
       if (!this.usable(entry)) return;

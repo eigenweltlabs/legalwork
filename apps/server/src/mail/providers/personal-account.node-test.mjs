@@ -31,7 +31,7 @@ test('personal OAuth callback, encrypted immutable identity, restart refresh and
  const worker=join(dir,'offline-worker.mjs');await writeFile(worker,`globalThis.fetch=async()=>{throw Error('Synthetic worker forbids provider network')};await import(${JSON.stringify(new URL('../runtime/worker.js',import.meta.url).href)});`);
  const kinds=[];service=new LocalMailService({ownerId:'owner',databasePath:path,loadKey:async()=>Buffer.from(key),loadProviderSettings:async(provider,personal)=>{kinds.push(personal);return {...settings,tenantId:personal?'consumers':'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee'};},executable:{kind:'node',path:process.execPath},entryPoint:worker});await service.unlock();
  // Real worker discovers persisted authority before loading trusted connection configuration.
- await service.startSync(accountId);await service.pauseSync(accountId);await service.startSync('org');await service.pauseSync('org');assert.deepEqual(kinds,[true,false]);
+ await service.pauseSync(accountId);await service.pauseSync('org');assert.deepEqual(kinds,[true,false]);
  const listed=(await service.listAccounts({limit:10})).items;assert.equal(listed.find(item=>item.id===accountId).personal,true);assert.equal(listed.find(item=>item.id==='org').personal,false);
  await service.disconnectAccount('org');
  const orgReconnect=await service.beginConnection('graph','org',true);assert.equal(new URL(orgReconnect.authorizationUrl).pathname,'/aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee/oauth2/v2.0/authorize');await service.cancelConnection(orgReconnect.connectionId);

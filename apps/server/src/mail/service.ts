@@ -90,6 +90,12 @@ export class LocalMailService implements MailService {
         await this.worker.start();
         if (this.phase !== "unlocking" || this.stopped) throw new MailServiceError("locked");
         this.phase = "open";
+        let cursor: string | undefined;
+        do {
+          const page = await this.listAccounts({ limit: 100, ...(cursor ? {after: cursor} : {}) });
+          await Promise.all(page.items.map(account => this.startSync(account.id, true).catch(() => {})));
+          cursor = page.nextCursor ?? undefined;
+        } while (cursor && this.phase === "open");
       } catch (error) {
         await this.worker.stop();
         if (this.phase === "unlocking") this.phase = "locked";
@@ -253,7 +259,8 @@ export class LocalMailService implements MailService {
   async imapDiscovery(accountId:string,after?:string){const result=await this.request({operation:"mail.imap.discovery",accountId,...(after===undefined?{}:{after})});if(!("imapDiscovery" in result))throw new MailServiceError("unavailable");return result.imapDiscovery;}
   async cancelImapConnection(requestId:string){await this.request({operation:"mail.imap.cancel",requestId});}
   async connectImap(input:ImapConnection,requestId?:string){const result=await this.request({operation:"mail.imap.connect",input,...(requestId?{requestId}:{})});if(!("imapConnection" in result))throw new MailServiceError("unavailable");return result.imapConnection;}
-  async startSync(accountId: string) {
+  async startSync(accountId: string, automatic = false) {
+    const operation = automatic ? "mail.sync.resume" : "mail.sync.start";
     if (this.stopped) throw new MailServiceError("unavailable");
     if (this.phase !== "open") throw new MailServiceError("locked");
     const epoch = this.epoch;
@@ -261,14 +268,15 @@ export class LocalMailService implements MailService {
     try {
       const provider = await this.request({ operation: "mail.sync.provider", accountId });
       if (!("syncProvider" in provider)) throw new MailServiceError("unavailable");
-      if(provider.syncProvider==='imap'){if(epoch!==this.epoch)throw new MailServiceError('locked');const result=await this.request({operation:'mail.sync.start',accountId});if(!('sync' in result))throw new MailServiceError('unavailable');return result.sync;}
+      if (automatic && provider.connected === false) return this.syncStatus(accountId);
+      if(provider.syncProvider==='imap'){if(epoch!==this.epoch)throw new MailServiceError('locked');const result=await this.request({operation,accountId});if(!('sync' in result))throw new MailServiceError('unavailable');return result.sync;}
       if(!this.loadProviderSettings)throw new MailServiceError('unavailable');
       settings = await this.loadProviderSettings(provider.syncProvider, provider.personal);
       if (settings.provider !== provider.syncProvider) throw new MailServiceError("unavailable");
     }
     catch { throw new MailServiceError("unavailable"); }
     if (epoch !== this.epoch) throw new MailServiceError("locked");
-    const result = await this.request({ operation: "mail.sync.start", accountId, settings });
+    const result = await this.request({ operation, accountId, settings });
     if (!("sync" in result)) throw new MailServiceError("unavailable");
     return result.sync;
   }
