@@ -71,6 +71,42 @@ test("stop forbids reactivation and new requests before asynchronous cleanup fin
   await stopping;
 });
 
+test("account enumeration failure closes the opening generation and can be retried", async () => {
+  const { service } = await setup();
+  const request = spyOn(MailWorkerClient.prototype, "request").mockRejectedValueOnce(new Error("synthetic enumeration failure"));
+  try {
+    const opening = service.unlock();
+    expect(service.unlock()).toBe(opening);
+    await expect(opening).rejects.toThrow("mail_unavailable");
+    expect(service.status().state).toBe("locked");
+    await expect(service.listAccounts({})).rejects.toThrow("mail_locked");
+    await service.unlock();
+    expect(service.status().state).toBe("ready");
+    expect(await service.listAccounts({})).toEqual({ items: [], nextCursor: null });
+  } finally { request.mockRestore(); }
+});
+test("late enumeration failure cannot overwrite a concurrent lock or the next opening", async () => {
+  const { service } = await setup();
+  let entered = () => {};
+  const enumerating = new Promise<void>(resolve => { entered = resolve; });
+  let fail: (error: Error) => void = () => {};
+  const delayed = new Promise<WorkerResult>((_, reject) => { fail = reject; });
+  const request = spyOn(MailWorkerClient.prototype, "request").mockImplementationOnce(() => { entered(); return delayed; });
+  try {
+    const opening = service.unlock().then(() => "opened", () => "failed");
+    await enumerating;
+    const closing = service.lock();
+    await expect(service.unlock()).rejects.toThrow("mail_locked");
+    fail(new Error("synthetic late enumeration failure"));
+    expect(await opening).toBe("failed");
+    await closing;
+    expect(service.status().state).toBe("locked");
+    await service.unlock();
+    expect(service.status().state).toBe("ready");
+    expect(await service.listAccounts({})).toEqual({ items: [], nextCursor: null });
+  } finally { request.mockRestore(); }
+});
+
 test("already pending read responses cannot cross a lock and new worker generation", async () => {
   const { service } = await setup(); await service.unlock();
   let deliver: (value: WorkerResult) => void = () => {};
