@@ -6,7 +6,13 @@ import {MailFilingStore} from './filing-store.js';
 import {MailCredentialRepository} from './credentials.js';
 import type {MailDatabase} from './database-interface.js';
 const text=z.string();
-function boundedFilename(value:string,bytes:number){let result='',used=0;for(const point of value){const size=Buffer.byteLength(point);if(used+size>bytes)break;result+=point;used+=size;}return result.replace(/[. ]+$/,'')||'Attachment';}
+function boundedFilename(value:string,bytes:number){
+ if(Buffer.byteLength(value)<=bytes)return value;
+ // Reserve a conventional final extension so truncated names retain their file type.
+ const extension=value.match(/\.[a-z0-9]{1,16}$/i)?.[0]??'',stem=extension?value.slice(0,-extension.length):value,budget=bytes-Buffer.byteLength(extension);
+ let result='',used=0;for(const point of stem){const size=Buffer.byteLength(point);if(used+size>budget)break;result+=point;used+=size;}
+ return (result.replace(/[. ]+$/,'')||'Attachment')+extension;
+}
 export class MailStorageSaveStore {
  constructor(private readonly db:MailDatabase,private readonly ownerId:string){}
  private generation(accountId:string){const row=this.db.get('SELECT provider FROM mail_accounts WHERE id=? AND owner_id=?',[accountId,this.ownerId]);if(!row)throw new MailServiceError('not_found');const access=new MailCredentialRepository(this.db,this.ownerId).status(accountId);if(row.provider!=='archive'&&(access.state!=='connected'||access.archiveLocked))throw new MailServiceError('locked');return access.state==='connected'?access.version.generation:'offline:'+accountId;}
