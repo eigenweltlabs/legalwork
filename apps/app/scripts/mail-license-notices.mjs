@@ -24,8 +24,8 @@ function visit(name,from){
  for(const dependency of Object.keys(pkg.dependencies??{}).sort())visit(dependency,directory);
 }
 for(const name of ['dompurify','css-tree','jszip','@eigenpal/docx-editor-agents'])visit(name,app);
-for(const name of ['@zone-eu/mailsplit','better-sqlite3-multiple-ciphers','fflate','iconv-lite','libmime','nodemailer','imapflow','saxes','pdf-lib','pdfjs-dist','tesseract.js','@tesseract.js-data/deu','@tesseract.js-data/eng','@napi-rs/canvas'])visit(name,join(app,'../server'));
-visit('parse5',join(app,'../desktop'));
+for(const name of ['@zone-eu/mailsplit','better-sqlite3-multiple-ciphers','fflate','iconv-lite','libmime','nodemailer','imapflow','saxes','pdfjs-dist','tesseract.js','@tesseract.js-data/deu','@tesseract.js-data/eng','@napi-rs/canvas'])visit(name,join(app,'../server'));
+for(const name of ['parse5','pdf-lib'])visit(name,join(app,'../desktop'));
 entries.sort((a,b)=>a.key.localeCompare(b.key,'en'));
 const directory=join(app,'public/third-party/mail');mkdirSync(directory,{recursive:true});
 writeFileSync(join(directory,'DEPENDENCY_LICENSES.txt'),('LegalWork mail dependency licenses and notices\nGenerated from the pinned installed production dependency graph (optional platform binaries retain their bundled notices).\nFor dual licenses offering MIT, this distribution uses MIT; DOMPurify uses Apache-2.0.\nNo GPL source from reference mail applications was copied. Package declarations without notice files are identified explicitly below.\n\n'+entries.map(entry=>'===== '+entry.key+' ('+JSON.stringify(entry.license)+') =====\nSource: '+JSON.stringify(entry.source)+'\n'+entry.text).join('\n\n')).replace(/\r\n/g,'\n').replace(/[ \t]+$/gm,''));

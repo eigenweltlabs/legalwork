@@ -2,7 +2,6 @@ name: LegalWork Tests
 
 on:
   pull_request:
-    types: [opened, synchronize, reopened, ready_for_review]
     branches:
       - dev
   push:
@@ -14,8 +13,6 @@ permissions:
 
 jobs:
   legalwork-tests:
-    # The mail project runs feature tests while its tracking PR is still a draft.
-    if: ${{ github.event_name != 'pull_request' || github.head_ref != 'feat/local-mail-client' || !github.event.pull_request.draft }}
     runs-on: ${{ matrix.os }}
 
     strategy:
