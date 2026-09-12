@@ -37,3 +37,9 @@ test('native transport reads bounded raster bytes and rejects oversized or encod
  await assert.rejects(fetchMailImage('https://images.example.test/a',new AbortController().signal,resolve,transport([Buffer.alloc(4*1024*1024),Buffer.alloc(1)])),/limit/);
  await assert.rejects(fetchMailImage('https://images.example.test/a',new AbortController().signal,resolve,transport([png],{'content-encoding':'gzip'})),/response/);
 });
+test('aggregate decoded pixels stop before another compressed image reaches the decoder',async()=>{
+ const large=Buffer.from(png);large.writeUInt32BE(2048,16);large.writeUInt32BE(2048,20);const body=Buffer.from(JSON.stringify({version:1,bodies:[{contentType:'text/html',text:Array.from({length:5},(_,i)=>'<img src="https://images.example.test/'+i+'">').join('')}]})),hash=createHash('sha256').update(body).digest('hex');let decoded=0;
+ const server=createServer(async(req,res)=>{let text='';for await(const data of req)text+=data;const offset=JSON.parse(text).request.offset,limit=JSON.parse(text).request.limit,bytes=body.subarray(offset,offset+limit);res.setHeader('Content-Type','application/json');res.end(JSON.stringify({accountId:'a',offset,totalBytes:body.length,referenceId:'sha256:'+hash,sha256:hash,data:bytes.toString('base64'),nextOffset:offset+bytes.length===body.length?null:offset+bytes.length}));});await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));
+ const api=createMailImages({connection:async()=>({running:true,baseUrl:'http://127.0.0.1:'+server.address().port,hostToken:'synthetic'}),decode:()=>{decoded++;return {width:2048,height:2048};},download:async()=>large});
+ try{const result=await api.perform({accountId:'a',locator:{provider:'gmail',messageId:'one'},referenceId:'sha256:'+hash,partId:''});assert.equal(decoded,4);assert.equal(result.items.length,4);assert.equal(result.failed,1);}finally{api.cancel();await new Promise(resolve=>server.close(resolve));}
+});
