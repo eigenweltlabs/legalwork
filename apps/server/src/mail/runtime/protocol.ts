@@ -55,7 +55,7 @@ export type WorkerCommand =
   | { operation: "mail.content.read"; accountId: string; locator: ProviderMessageLocator; request: MailContentReadInput }
   | { operation: "mail.status"; accountId: string }
   | { operation: "mail.sync.provider"; accountId: string }
-  | { operation: "mail.sync.start"; accountId: string; settings?: MailOAuthSettings }
+  | { operation: "mail.sync.start" | "mail.sync.resume"; accountId: string; settings?: MailOAuthSettings }
   | { operation: "mail.sync.stop"; accountId: string }
   | { operation: "credentials.update"; credentials: WorkerCredentials };
 
@@ -79,7 +79,7 @@ export type WorkerResult =
   | { state: "idle" | "syncing"; syncSupported: boolean }
   | { encrypted: true; schemaVersion: number; syncSupported: boolean }
   | { sync: MailSyncView }
-  | { syncProvider: "gmail" | "graph" | "imap"; personal?: boolean }
+  | { syncProvider: "gmail" | "graph" | "imap"; personal?: boolean; connected?: boolean }
   | { accounts: WorkerAccount[]; nextCursor: string | null }
   | { folders: WorkerFolder[]; nextCursor: string | null }
   | { messages: { accountId: string; items: MailMessageView[]; nextCursor: string | null } }
@@ -180,7 +180,7 @@ function result(value: unknown): value is WorkerResult {
     || (exact(value, ["disconnected"]) && value.disconnected === true)
     || (exact(value, ["state", "syncSupported"]) && (value.state === "idle" || value.state === "syncing") && typeof value.syncSupported === "boolean")
     || (exact(value, ["encrypted", "schemaVersion", "syncSupported"]) && value.encrypted === true && typeof value.syncSupported === "boolean" && Number.isSafeInteger(value.schemaVersion) && typeof value.schemaVersion === "number" && value.schemaVersion > 0)
-    || (Object.keys(value).every(key => ["syncProvider", "personal"].includes(key)) && (value.personal === undefined || (value.syncProvider === "graph" && typeof value.personal === "boolean")) && (value.syncProvider === "gmail" || value.syncProvider === "graph" || value.syncProvider === "imap"))
+    || (Object.keys(value).every(key => ["syncProvider", "personal", "connected"].includes(key)) && (value.connected === undefined || typeof value.connected === "boolean") && (value.personal === undefined || (value.syncProvider === "graph" && typeof value.personal === "boolean")) && (value.syncProvider === "gmail" || value.syncProvider === "graph" || value.syncProvider === "imap"))
     || (exact(value, ["sync"]) && mailSyncViewSchema.safeParse(value.sync).success)
     || (exact(value, ["messages"]) && mailMessageListSchema.safeParse(value.messages).success)
     || (exact(value, ["message"]) && mailMessageViewSchema.safeParse(value.message).success)
@@ -251,6 +251,7 @@ export function resultMatchesCommand(command: WorkerCommand, value: WorkerResult
     case "mail.sync.provider": return "syncProvider" in value;
     case "mail.status": return "sync" in value && value.sync.accountId === command.accountId;
     case "credentials.update": return "updated" in value;
+    case "mail.sync.resume":
     case "mail.sync.start":
     case "mail.sync.stop": return "sync" in value && value.sync.accountId === command.accountId;
   }
@@ -269,7 +270,7 @@ export function validWorkerCommand(value: unknown): value is WorkerCommand {
   if(value.operation==="mail.imap.discovery")return Object.keys(value).every(key=>["operation","accountId","after"].includes(key))&&id(value.accountId)&&(!Object.hasOwn(value,"after")||id(value.after));
   if(value.operation==="mail.imap.cancel")return exact(value,["operation","requestId"])&&uuid(value.requestId);
   if(value.operation==="mail.imap.connect")return Object.keys(value).every(key=>["operation","input","requestId"].includes(key))&&(value.requestId===undefined||uuid(value.requestId))&&imapConnectionSchema.safeParse(value.input).success;
-  if (value.operation === "mail.sync.start") return (exact(value,["operation","accountId"])||exact(value, ["operation", "accountId", "settings"])&&settings(value.settings))&&id(value.accountId);
+  if (value.operation === "mail.sync.start" || value.operation === "mail.sync.resume") return (exact(value,["operation","accountId"])||exact(value, ["operation", "accountId", "settings"])&&settings(value.settings))&&id(value.accountId);
   if (value.operation === "mail.connection.begin") return Object.keys(value).every(key => ["operation", "settings", "reconnectAccountId"].includes(key))
     && settings(value.settings) && (!Object.hasOwn(value, "reconnectAccountId") || id(value.reconnectAccountId));
   if (value.operation === "mail.connection.poll" || value.operation === "mail.connection.cancel") return exact(value, ["operation", "connectionId"]) && uuid(value.connectionId);

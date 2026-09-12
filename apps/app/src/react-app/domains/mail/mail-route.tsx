@@ -42,9 +42,11 @@ export function MailRoute() {
     const connectionIdentity = useRef('');
     const [more, setMore] = useState(false);
     const [sync, setSync] = useState<SyncStatus>();
+    const [accountSync, setAccountSync] = useState<Record<string, SyncStatus>>({});
+    const messageRequest = useRef(0);
     const pager = useRef<UnifiedMailPages | undefined>(undefined);
     const request = useRef(new AbortController());
-    const purge = () => { request.current.abort(); request.current = new AbortController(); pager.current = undefined; setItems([]); setSelected(undefined); setSync(undefined); setMore(false); };
+    const purge = () => { messageRequest.current++; request.current.abort(); request.current = new AbortController(); pager.current = undefined; setItems([]); setSelected(undefined); setSync(undefined); setMore(false); };
     useEffect(() => {
         const controller = new AbortController();
         void resolveLegalworkConnection().then(connection => {
@@ -116,7 +118,7 @@ export function MailRoute() {
             setError(textError(error));
     } })(); return () => controller.abort(); }, [client, account]);
     useEffect(() => { if (searching) { request.current.abort(); pager.current = undefined; setBusy(false); return; } purge(); if (!client || locked || !accounts.length)
-        return; const controller = request.current; const signal = controller.signal; const stream = new UnifiedMailPages(client, account ? accounts.filter(item => item.id === account) : accounts, folder || undefined, thread, inbox && !thread && !folder); pager.current = stream; setBusy(true); setError(''); void stream.next(signal).then(rows => { if (!signal.aborted) {
+        return; const controller = request.current; const signal = controller.signal; const stream = new UnifiedMailPages(client, account ? accounts.filter(item => item.id === account) : accounts, folder || undefined, thread, inbox && !thread && !folder); pager.current = stream; const version = ++messageRequest.current; setBusy(true); setError(''); void stream.next(signal).then(rows => { if (!signal.aborted && version === messageRequest.current) {
         setItems(rows);
         setMore(stream.hasMore);
         if (stream.exclusions.length)
@@ -125,9 +127,9 @@ export function MailRoute() {
         setError(textError(error)); }).finally(() => { if (!signal.aborted)
         setBusy(false); }); return () => controller.abort(); }, [client, accounts, account, folder, thread, inbox, locked, revision, searching]);
     async function loadMore() { const signal = request.current.signal, stream = pager.current; if (!stream)
-        return; setBusy(true); try {
+        return; const version = ++messageRequest.current; setBusy(true); try {
         const rows = await stream.next(signal);
-        if (!signal.aborted) {
+        if (!signal.aborted && version === messageRequest.current) {
             setSelected(undefined);
             setItems(rows);
             setMore(stream.hasMore);
@@ -143,15 +145,55 @@ export function MailRoute() {
         if (!signal.aborted)
             setBusy(false);
     } }
-    useEffect(() => { if (!client || !account || locked)
-        return; const abort = new AbortController(); let pending = false; const poll = setInterval(() => { if (pending)
-        return; pending = true; void client.sync(account, abort.signal).then(value => { if (!abort.signal.aborted)
-        setSync(value); }).catch(error => { if (!abort.signal.aborted)
-        setError(textError(error)); }).finally(() => { pending = false; }); }, 3000); return () => { abort.abort(); clearInterval(poll); }; }, [client, account, locked]);
-    async function control(operation: 'start' | 'pause') { if (!client || !account)
+    useEffect(() => {
+        if (!client || locked || !accounts.length) return;
+        const abort = new AbortController();
+        let pending = false;
+        let previous = '';
+        const poll = async () => {
+            if (pending) return;
+            pending = true;
+            try {
+                const visible = account ? accounts.filter(value => value.id === account) : accounts;
+                const entries = await Promise.all(visible.map(async (value): Promise<[string, SyncStatus]> => {
+                    try { return [value.id, await client.sync(value.id, abort.signal)]; }
+                    catch { return [value.id, {state: 'attention', enumerated: 0, downloaded: 0, projected: 0, failed: 0, pending: 0, error: 'account_unavailable'}]; }
+                }));
+                if (abort.signal.aborted) return;
+                const statuses = Object.fromEntries(entries);
+                setAccountSync(statuses);
+                setSync(account ? statuses[account] : undefined);
+                const signature = JSON.stringify(entries.map(([id, value]) => [id, value.projected, value.downloaded, value.state]));
+                if (signature !== previous && !searching) {
+                    const stream = new UnifiedMailPages(client, visible, folder || undefined, thread, inbox && !thread && !folder);
+                    const version = ++messageRequest.current;
+                    const rows = await stream.next(abort.signal);
+                    if (abort.signal.aborted || version !== messageRequest.current) return;
+                    pager.current = stream;
+                    setItems(rows);
+                    setMore(stream.hasMore);
+                    if (account) {
+                        const collected: MailFolderView[] = [];
+                        let next: string | undefined;
+                        do {
+                            const page = await client.folders(account, abort.signal, next);
+                            collected.push(...page.items); next = page.nextCursor ?? undefined;
+                        } while (next && collected.length <= 2000);
+                        if (!abort.signal.aborted) setFolders(collected);
+                    }
+                }
+                previous = signature;
+            } catch (error) { if (!abort.signal.aborted) setError(textError(error)); }
+            finally { pending = false; }
+        };
+        void poll();
+        const timer = setInterval(() => void poll(), 3000);
+        return () => { abort.abort(); clearInterval(timer); };
+    }, [client, accounts, account, locked, folder, thread, inbox, searching]);
+    async function control(operation: 'start' | 'pause', accountId = account) { if (!client || !accountId)
         return; const signal = request.current.signal; try {
-        const status = await client.sync(account, signal, operation);
-        if (!signal.aborted) setSync(status);
+        const status = await client.sync(accountId, signal, operation);
+        if (!signal.aborted) { setAccountSync(values => ({...values, [accountId]: status})); if (accountId === account) setSync(status); }
     }
     catch (error) {
         if (!signal.aborted) setError(textError(error));
@@ -200,6 +242,17 @@ export function MailRoute() {
             <section aria-label="Messages" className="mail-message-list">
               {searching && client ? <MailSearch client={client} accounts={accounts} toolbarQuery={searchQuery.trim()} onSavedQuery={(text, name) => { setSearchQuery(text); setSavedSearchName(name); }} onOpen={setSelected}/> : <>
               <div className="mail-list-heading"><div><h2>{title}</h2><p>{account ? accounts.find(value => value.id === account)?.displayName : 'All accounts'}</p></div><button className="mail-icon-button" title="Newest messages" aria-label="Newest messages" onClick={() => setRevision(value => value + 1)}><RefreshCw size={14}/></button></div>
+              {accounts.filter(value => !account || value.id === account).map(value => {
+                const progress = accountSync[value.id];
+                if (!progress || progress.state === 'complete') return null;
+                const attention = progress.state === 'attention' || Boolean(progress.error);
+                return <div key={value.id} role="status" className="mail-sync-progress">
+                  <span>{value.displayName}: {progress.state === 'syncing' ? 'Downloading mail' : progress.state === 'waiting' ? 'Waiting to retry — connection unavailable' : progress.state === 'paused' ? 'Sync paused' : attention ? 'Sync needs attention' : 'Preparing sync'} · {progress.projected} messages available</span>
+                  {progress.error && <span>{progress.error.replaceAll('_', ' ')}</span>}
+                  {(attention || progress.state === 'waiting' || progress.state === 'paused' || progress.state === 'idle') && <button onClick={() => control('start', value.id)}>{progress.state === 'paused' ? 'Resume' : 'Retry sync'}</button>}
+                  {(progress.error?.includes('auth') || progress.error?.includes('reconsent') || progress.error?.includes('credential') || progress.error === 'account_unavailable') && <button onClick={openSettings}>Reconnect account</button>}
+                </div>;
+              })}
               {thread && <button className="mail-back" onClick={() => setThread(undefined)}><ChevronLeft size={14}/>Back to inbox</button>}
               <div className="mail-message-scroll">
                 {items.map(value => <button key={value.accountId + '|' + value.key} className={`mail-message-row ${selected?.accountId === value.accountId && selected.key === value.key ? 'is-selected' : ''} ${value.isRead === false ? 'is-unread' : ''}`} onClick={() => setSelected(value)} aria-pressed={selected?.accountId === value.accountId && selected.key === value.key}>
@@ -207,7 +260,7 @@ export function MailRoute() {
                   <span className="mail-row-subject">{value.isRead === false && <span className="mail-unread-dot" aria-label="Unread"/>}{value.subject || '(No subject)'}</span>
                   <span className="mail-row-bottom"><span>{accounts.find(entry => entry.id === value.accountId)?.displayName}</span>{value.contentState !== 'complete' && <span title={value.contentState === 'downloading' ? 'Content is downloading' : 'Content is unavailable'}><CircleAlert size={12}/></span>}</span>
                 </button>)}
-                {!busy && !items.length && <div className="mail-list-empty"><Inbox size={25} strokeWidth={1.2}/><p>{accounts.length ? 'No messages here yet' : 'Your inbox starts here'}</p><small>{accounts.length ? 'Try another folder or resume sync.' : 'Add an account to bring your mail together.'}</small>{!accounts.length && <Button size="sm" variant="outline" onClick={openSettings}>Add account</Button>}</div>}
+                {!busy && !items.length && <div className="mail-list-empty"><Inbox size={25} strokeWidth={1.2}/><p>{accounts.length ? 'No messages here yet' : 'Your inbox starts here'}</p><small>{accounts.length ? 'Messages will appear here as they download.' : 'Add an account to bring your mail together.'}</small>{!accounts.length && <Button size="sm" variant="outline" onClick={openSettings}>Add account</Button>}</div>}
                 {busy && <p role="status" className="mail-loading">Loading messages…</p>}
               </div>
               {more && <div className="mail-pagination"><button disabled={busy} onClick={loadMore}>Next page<ChevronRight size={14}/></button></div>}

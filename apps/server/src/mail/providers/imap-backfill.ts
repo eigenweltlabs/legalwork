@@ -83,7 +83,7 @@ export class ImapBackfill {
                 db.run('UPDATE mail_folders SET role=? WHERE account_id=? AND id=?', [folder.path.toUpperCase() === 'INBOX' || folder.specialUse === '\\Inbox' ? 'inbox' : null, accountId, folder.path]);
             if (folder.parent && paths.has(folder.parent))
                 this.repo.putFolder(accountId, { id: folder.path, name: folder.path, kind: 'folder', parentId: folder.parent });
-            db.run('INSERT INTO mail_imap_folders(account_id,path,delimiter,special_use,selectable,selected,generation) VALUES(?,?,?,?,?,?,?) ON CONFLICT(account_id,path) DO UPDATE SET delimiter=excluded.delimiter,special_use=excluded.special_use,selectable=excluded.selectable,selected=excluded.selected,generation=excluded.generation,uid_next=NULL,after_uid=0,uid_span=1000,done=0', [accountId, folder.path, folder.delimiter, folder.specialUse, folder.selectable ? 1 : 0, folder.selectable && (!settings.folders || settings.folders.includes(folder.path)) ? 1 : 0, generation]);
+            db.run('INSERT INTO mail_imap_folders(account_id,path,delimiter,special_use,selectable,selected,generation) VALUES(?,?,?,?,?,?,?) ON CONFLICT(account_id,path) DO UPDATE SET delimiter=excluded.delimiter,special_use=excluded.special_use,selectable=excluded.selectable,selected=excluded.selected,generation=excluded.generation,uid_next=CASE WHEN generation=excluded.generation THEN uid_next ELSE NULL END,after_uid=CASE WHEN generation=excluded.generation THEN after_uid ELSE 0 END,uid_span=CASE WHEN generation=excluded.generation THEN uid_span ELSE 1000 END,done=CASE WHEN generation=excluded.generation THEN done ELSE 0 END', [accountId, folder.path, folder.delimiter, folder.specialUse, folder.selectable ? 1 : 0, folder.selectable && (!settings.folders || settings.folders.includes(folder.path)) ? 1 : 0, generation]);
         }
     }
     async connect(input: ImapConnection): Promise<{
@@ -112,8 +112,9 @@ export class ImapBackfill {
                 if (this.closed || flow.abort.signal.aborted)
                     throw new ImapError('cancelled');
                 const accountId = this.custody.connect(settings, password, reconnectAccountId, expected);
-                this.folders(accountId, settings, discovery.folders, 'configuration');
-                this.options.database.run("INSERT INTO mail_imap_runs(account_id,generation,state,capabilities_json) VALUES(?,?,'paused',?) ON CONFLICT(account_id) DO UPDATE SET generation=excluded.generation,revision=revision+1,state='paused',discovered=0,epoch_resets=0,poll_at=NULL,retry_at=NULL,error=NULL,failures=0,capabilities_json=excluded.capabilities_json", [accountId, randomUUID(), JSON.stringify(discovery.capabilities)]);
+                if (settings.folders?.some(path => !discovery.folders.some(folder => folder.path === path))) throw new ImapError('invalid_input');
+                this.folders(accountId, settings, discovery.folders, this.read(accountId)?.generation ?? 'configuration');
+                this.options.database.run("INSERT INTO mail_imap_runs(account_id,generation,state,capabilities_json) VALUES(?,?,'active',?) ON CONFLICT(account_id) DO UPDATE SET revision=revision+1,capabilities_json=excluded.capabilities_json", [accountId, randomUUID(), JSON.stringify(discovery.capabilities)]);
                 return { accountId, provider: 'imap' };
             });
         }
@@ -227,7 +228,7 @@ export class ImapBackfill {
     pause(accountId: string) {
         this.custody.account(accountId);
         try {
-            this.options.database.run("UPDATE mail_imap_runs SET state='paused',revision=revision+1 WHERE account_id=? AND state='active'", [accountId]);
+            this.options.database.run("UPDATE mail_imap_runs SET state='paused',revision=revision+1 WHERE account_id=? AND state!='paused'", [accountId]);
         }
         finally {
             if (this.current?.run.account_id === accountId)

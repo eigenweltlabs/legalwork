@@ -75,7 +75,7 @@ test("already pending read responses cannot cross a lock and new worker generati
   const { service } = await setup(); await service.unlock();
   let deliver: (value: WorkerResult) => void = () => {};
   const delayed = new Promise<WorkerResult>(resolve => { deliver = resolve; });
-  const request = spyOn(MailWorkerClient.prototype, "request").mockImplementation(() => delayed);
+  const request = spyOn(MailWorkerClient.prototype, "request").mockImplementationOnce(() => delayed);
   try {
     const reading = service.listAccounts({});
     const rejected = reading.then(() => false, error => error instanceof Error && error.message === "mail_locked");
@@ -154,7 +154,8 @@ test("disconnect fences reconnect waiting for private configuration", async () =
   const key = randomBytes(32);
   let supply: (settings: MailOAuthSettings) => void = () => {};
   const delayed = new Promise<MailOAuthSettings>(resolve => { supply = resolve; });
-  const { service, databasePath } = await setup(async () => new Uint8Array(key), async () => delayed);
+  let configured = false;
+  const { service, databasePath } = await setup(async () => new Uint8Array(key), async () => { if (!configured) { configured = true; throw Error("synthetic automatic configuration unavailable"); } return delayed; });
   const script = `
     import {readFileSync} from 'node:fs';
     import {openEncryptedMailDatabase} from ${JSON.stringify(pathToFileURL(join(directory, "build/mail/storage/database.js")).href)};

@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { openDesktopUrl } from '@/app/lib/desktop';
-import { MailClient, type MailAccountView } from './mail-client';
+import { MailClient, type MailAccountView, type SyncStatus } from './mail-client';
 import { MailOnboardingClient, authorizationUrl, type AccountChoice } from './mail-onboarding-client';
 
 const choices: { id: AccountChoice; label: string }[] = [
@@ -23,6 +23,26 @@ function errorText(code: string) { return errors[code] ?? 'The account could not
 export function MailOnboarding({ client, accounts, onChanged, onClose }: {
   client: MailClient; accounts: MailAccountView[]; onChanged: () => void; onClose?: () => void;
 }) {
+  const [progress, setProgress] = useState<Record<string, SyncStatus>>({});
+  useEffect(() => {
+    const controller = new AbortController(); let pending = false;
+    const poll = async () => {
+      if (pending) return; pending = true;
+      try {
+        const entries = await Promise.all(accounts.map(async (account): Promise<[string, SyncStatus] | null> => {
+          try { return [account.id, await client.sync(account.id, controller.signal)]; }
+          catch { return null; }
+        }));
+        if (!controller.signal.aborted) setProgress(Object.fromEntries(entries.filter(entry => entry !== null)));
+      } finally { pending = false; }
+    };
+    void poll(); const timer = setInterval(() => void poll(), 3000);
+    return () => { controller.abort(); clearInterval(timer); };
+  }, [client, accounts]);
+  async function retrySync(accountId: string) {
+    try { const value = await client.sync(accountId, AbortSignal.timeout(15000), 'start'); setProgress(current => ({...current, [accountId]: value})); }
+    catch { setFailure('Sync could not be started. Check your connection or reconnect the account.'); }
+  }
   const api = useRef(new MailOnboardingClient(client)).current;
   const [choice, setChoice] = useState<AccountChoice>('gmail');
   const [reconnect, setReconnect] = useState('');
@@ -64,7 +84,7 @@ export function MailOnboarding({ client, accounts, onChanged, onClose }: {
         if (signal.aborted) return;
         imapRequest.current=undefined;
         if ('error' in result) throw Error(errorText(result.error));
-        setNotice('Connected. Your folders are ready; choose Resume in the account to download mail.'); onChanged(); return;
+        setNotice('Connected. Mail downloads automatically unless you previously paused this account.'); onChanged(); return;
       }
       const flow = await api.begin(choice, signal, reconnect || undefined);
       if (signal.aborted) { void api.cancel(flow.connectionId).catch(() => {}); return; }
@@ -76,7 +96,7 @@ export function MailOnboarding({ client, accounts, onChanged, onClose }: {
         if (signal.aborted) return;
         if (value.state === 'connected') {
           connection.current = undefined; setSignInUrl('');
-          setNotice(value.renewable ? 'Connected. Select the account and Resume to download your mail.' : 'Connected for this session. The provider did not grant background renewal.'); onChanged(); return;
+          setNotice(value.renewable ? 'Connected. Mail downloads automatically unless you previously paused this account.' : 'Connected for this session. The provider did not grant background renewal.'); onChanged(); return;
         }
         if (value.state === 'failed') throw Error(errorText(value.error));
         if (value.state === 'cancelled' || value.state === 'expired') throw Error(errorText(value.state));
@@ -107,7 +127,7 @@ export function MailOnboarding({ client, accounts, onChanged, onClose }: {
       <div className="flex items-center justify-between gap-4">{onClose && <h2 className="text-lg font-semibold">Mail accounts</h2>}{onClose && <Button variant="outline" onClick={() => { reset(); onClose(); }}>Close setup</Button>}</div>
       <p className="mt-2 text-sm text-muted-foreground">Connect directly to your provider. Mail stays in the encrypted store on this computer.</p>
       {accounts.length > 0 && <ul className="my-4 space-y-2">{accounts.map(account => (
-        <li key={account.id} className="flex flex-wrap items-center gap-2"><span className="flex-1 break-words">{account.displayName}</span><Button size="sm" variant="outline" disabled={busy} onClick={() => void selectReconnect(account)}>Reconnect</Button><Button size="sm" variant="outline" disabled={busy} onClick={() => void disconnect(account)}>Disconnect</Button></li>
+        <li key={account.id} className="flex flex-wrap items-center gap-2"><span className="flex-1 break-words">{account.displayName}{progress[account.id] && <small className="block text-muted-foreground" role="status">{progress[account.id].state === 'syncing' ? 'Downloading mail' : progress[account.id].state === 'waiting' ? 'Waiting to retry' : progress[account.id].state === 'paused' ? 'Sync paused' : progress[account.id].state === 'complete' ? 'Up to date' : 'Sync needs attention'} · {progress[account.id].projected} messages available{progress[account.id].error && ` · ${progress[account.id].error?.replaceAll('_', ' ')}`}</small>}</span>{progress[account.id] && ['paused','waiting','attention','idle'].includes(progress[account.id].state) && <Button size="sm" variant="outline" disabled={busy} onClick={() => void retrySync(account.id)}>{progress[account.id].state === 'paused' ? 'Resume' : 'Retry sync'}</Button>}<Button size="sm" variant="outline" disabled={busy} onClick={() => void selectReconnect(account)}>Reconnect</Button><Button size="sm" variant="outline" disabled={busy} onClick={() => void disconnect(account)}>Disconnect</Button></li>
       ))}</ul>}
       <form className="mt-4 max-w-xl space-y-4" onSubmit={event => { event.preventDefault(); void connect(); }}>
         <label className="block text-sm font-medium">Provider
