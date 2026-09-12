@@ -102,6 +102,12 @@ class TransportWhitespaceSplitter extends Splitter {
 
 /** One pass from already durable original bytes. Sink writes are provisional until this promise resolves.
  * No filesystem, accounts, network, HTML rewriting, image expansion or original mutation. */
+/** Adapt an already bounded MIME buffer to the parser's maximum source-chunk size. */
+export function* mimeInputChunks(bytes: Uint8Array): Generator<Uint8Array> {
+  for (let offset = 0; offset < bytes.byteLength; offset += 65536) {
+    yield bytes.subarray(offset, offset + 65536);
+  }
+}
 export async function projectMime(input: MimeProjectionInput): Promise<MimeProjection> {
   const budget = limits(input.limits);
   if (!/^[a-f0-9]{64}$/.test(input.originalSha256) || typeof input.onAttachment !== "function" || !input.source
