@@ -13,3 +13,10 @@ test('animation count, canvas amplification, truncated containers and hidden fra
  const large=Buffer.from(png);large.writeUInt32BE(2048,16);large.writeUInt32BE(2048,20);assert.throws(()=>rasterDimensions(animatedPng(large)),/animation/);
  const malformed=animatedPng(png);const offset=malformed.indexOf(Buffer.from('acTL'));malformed.writeUInt32BE(1,offset+4);assert.throws(()=>rasterDimensions(malformed),/container/);
 });
+
+test('APNG subframes and PNG header identity cannot bypass checked canvas dimensions',()=>{
+ for(const [field,value] of [[4,100000],[8,100000],[12,73],[16,41],[4,0]]){const image=animatedPng(png),offset=image.indexOf(Buffer.from('fcTL'))+4;image.writeUInt32BE(value,offset+field);assert.throws(()=>rasterDimensions(image),/dimensions/);}
+ const wrong=Buffer.from(png);wrong.write('fake',12);assert.throws(()=>rasterDimensions(wrong),/container/);
+ const length=Buffer.from(png);length.writeUInt32BE(12,8);assert.throws(()=>rasterDimensions(length),/container/);
+ const duplicate=Buffer.concat([png.subarray(0,33),png.subarray(8)]);assert.throws(()=>rasterDimensions(duplicate),/container/);
+});
