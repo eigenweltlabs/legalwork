@@ -8,6 +8,10 @@ export const ARCHIVE_SCHEMA_SQL=`
  DROP TABLE mail_accounts;
  ALTER TABLE mail_accounts_archive_upgrade RENAME TO mail_accounts;
  CREATE INDEX mail_accounts_owner ON mail_accounts(owner_id);
+ -- A table rebuild removes its triggers as well as its indexes.
+ CREATE TRIGGER mail_local_account_insert AFTER INSERT ON mail_accounts BEGIN
+  INSERT INTO mail_local_event_streams VALUES(NEW.id,lower(hex(randomblob(16))));
+ END;
  CREATE TABLE mail_portability_jobs (
   id TEXT PRIMARY KEY NOT NULL,account_id TEXT NOT NULL,direction TEXT NOT NULL CHECK(direction IN ('import','export')),
   format TEXT NOT NULL CHECK(format IN ('eml','mboxrd','bundle')),path TEXT NOT NULL,namespace TEXT NOT NULL,
