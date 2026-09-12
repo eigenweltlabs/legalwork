@@ -1,3 +1,4 @@
+import {removeLaterMailSchema} from '../testing/legacy-schema.mjs';
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {randomBytes,randomUUID} from 'node:crypto';
@@ -53,7 +54,7 @@ test('mailbox-level 403 revokes shared access without touching the signed-in cre
 }));
 
 test('schema17 migration is atomic and idempotent',async()=>fixture(async({db})=>{
- db.exec('DROP VIEW mail_account_access;DROP TABLE mail_graph_mailboxes;UPDATE mail_schema_version SET version=16');const broken={...db,exec(sql){db.exec(sql);if(sql.includes('CREATE VIEW mail_account_access'))throw Error('fault');}};assert.throws(()=>migrateMailSchema(broken));assert.equal(db.get('SELECT version FROM mail_schema_version').version,16);assert.equal(db.get("SELECT name FROM sqlite_schema WHERE name='mail_graph_mailboxes'"),undefined);migrateMailSchema(db);migrateMailSchema(db);assert.equal(db.get('SELECT version FROM mail_schema_version').version,MAIL_SCHEMA_VERSION);
+ removeLaterMailSchema(db,16);db.exec('DROP VIEW mail_account_access;DROP TABLE mail_graph_mailboxes;UPDATE mail_schema_version SET version=16');const broken={...db,exec(sql){db.exec(sql);if(sql.includes('CREATE VIEW mail_account_access'))throw Error('fault');}};assert.throws(()=>migrateMailSchema(broken));assert.equal(db.get('SELECT version FROM mail_schema_version').version,16);assert.equal(db.get("SELECT name FROM sqlite_schema WHERE name='mail_graph_mailboxes'"),undefined);migrateMailSchema(db);migrateMailSchema(db);assert.equal(db.get('SELECT version FROM mail_schema_version').version,MAIL_SCHEMA_VERSION);
 }));
 
 test('worker configures two shared mailboxes with independent sync and restores identity from storage',async()=>fixture(async({db,dir,path,key,close})=>{
