@@ -1,5 +1,5 @@
 import { afterEach, expect, test } from "bun:test";
-import { mkdtemp, readFile, rm, stat } from "node:fs/promises";
+import { mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { StorageOAuth, tokenBindings } from "./session.js";
@@ -18,6 +18,10 @@ test("vault encrypts tokens, rejects tampering and serializes updates", async ()
   expect((await vault.get("a"))?.refreshToken).toBe("private-refresh");
   expect((await vault.get("b"))?.accessToken).toBe("b");
   await vault.set("a"); expect(await vault.get("a")).toBeUndefined();
+  const tampered = await readFile(path);
+  tampered[tampered.length - 1] = tampered.at(-1)! ^ 1;
+  await writeFile(path, tampered);
+  await expect(vault.get("b")).rejects.toThrow("Saved sign-ins could not be opened");
 });
 test("PKCE callback validates state, persists locally, and disconnect closes access", async () => {
   let exchanges = 0;
@@ -61,4 +65,29 @@ test("removed connection cannot accept an otherwise valid callback", async () =>
     expect((await fetch(callback)).status).toBe(400);
     expect((await oauth.status(key)).connected).toBe(false);
   } finally { await oauth.disconnect(key); tokenServer.stop(true); oauthProviders.splice(oauthProviders.indexOf(provider), 1); }
+});
+
+test("disconnect waits for an in-flight refresh and prevents grant resurrection", async () => {
+  const started = Promise.withResolvers<void>();
+  const release = Promise.withResolvers<void>();
+  const tokenServer = Bun.serve({ port: 0, fetch: async () => {
+    started.resolve(); await release.promise;
+    return Response.json({ access_token: "refreshed", refresh_token: "rotated", expires_in: 3600 });
+  } });
+  const provider: OAuthProvider = { id: "test-refresh", name: "Test", rootHint: "", clientId: "public", authorizeUrl: "https://example.com/authorize", tokenUrl: `http://localhost:${tokenServer.port}`, scopes: () => [], adapter: () => { throw new Error("unused"); } };
+  oauthProviders.push(provider);
+  const oauth = new StorageOAuth(await setup());
+  const input = storageInputSchema.parse({ name: "Test", config: { kind: "oauth", provider: provider.id } });
+  const key = oauth.key("workspace", "connection", input);
+  try {
+    await oauth.vault.set(key, { accessToken: "expired", refreshToken: "old-refresh", expiresAt: 0 });
+    oauth.bind("workspace", "connection", input);
+    const refreshing = tokenBindings.get(input)!();
+    await started.promise;
+    const disconnecting = oauth.disconnect(key);
+    release.resolve();
+    await Promise.all([refreshing, disconnecting]);
+    expect(await oauth.vault.get(key)).toBeUndefined();
+    await expect(tokenBindings.get(input)!()).rejects.toThrow("Sign in");
+  } finally { release.resolve(); await oauth.disconnect(key); tokenServer.stop(true); oauthProviders.splice(oauthProviders.indexOf(provider), 1); }
 });
