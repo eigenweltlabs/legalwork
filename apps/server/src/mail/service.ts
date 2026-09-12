@@ -1,3 +1,4 @@
+import type {QualificationInput} from './qualification-view.js';
 import type {AgentControl,AgentControlResult} from './agent-view.js';
 import type {StorageSaveInput,StorageSaveResult} from './storage-save-view.js';
 import type {FilingInput,FilingResult} from './filing-view.js';
@@ -83,6 +84,7 @@ export class LocalMailService implements MailService {
   async removeSmtp(accountId:string){const result=await this.request({operation:'mail.smtp.remove',accountId});if('outboxFailure' in result)throw new OutboxError(result.outboxFailure);if(!('smtp' in result))throw new MailServiceError('unavailable');return result.smtp;}
   async retention(command:RetentionCommand){const result=await this.request(command);if('retentionFailure' in result)throw new MailRetentionError(result.retentionFailure);if(!('retention' in result))throw new MailServiceError('unavailable');return result.retention;}
   /** Desktop-only: deliberately absent from MailService and HTTP routing. */
+  async qualification(input:QualificationInput){const result=await this.request({operation:'mail.qualification',input});if(!('qualification' in result))throw new MailServiceError('unavailable');return result.qualification;}
   async agentControl(input:AgentControl):Promise<AgentControlResult>{const result=await this.request({operation:'mail.agent.control',input});if(!('agent' in result))throw new MailServiceError('unavailable');return result.agent;}
   async storageSave(input:StorageSaveInput):Promise<StorageSaveResult>{const result=await this.request({operation:"mail.storage.save",input});if(!("storageSave" in result))throw new MailServiceError("unavailable");return result.storageSave;}
   async filing(input:FilingInput):Promise<FilingResult>{const result=await this.request({operation:"mail.filing",input});if(!("filing" in result))throw new MailServiceError("unavailable");return result.filing;}
