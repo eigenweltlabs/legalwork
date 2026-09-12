@@ -1,6 +1,6 @@
 # Mail provider readiness (EIG-120)
 
-> Historical implementation checkpoint. Current setup and real-provider evidence are tracked in [EIG-173 qualification](live-provider-qualification.md); later automatic sync, SMTP/outbox and personal Microsoft support supersede earlier future-work statements below.
+> Historical implementation checkpoint. The current scope/ownership/data-flow and unchanged acceptance gates are reconciled in [EIG-120 approval handoff](oauth-approval-reconciliation.md). The [live-provider record](live-provider-qualification.md) supersedes old untested/future-work statements below; this historical section must not be used as the current runtime setup guide.
 
 Reviewed 9 September 2026 against official documentation and baseline `c4b338e85`. This is engineering prerequisite work, not a verified connection to either provider. No registration console, credentials, real mailbox, consent flow, or sending was accessed.
 

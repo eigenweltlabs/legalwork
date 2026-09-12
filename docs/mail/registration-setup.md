@@ -1,6 +1,6 @@
 # Fresh Legalwork Mail development registrations
 
-EIG-120 remains **incomplete**: the new Microsoft development app and Google Desktop OAuth client/project/Gmail API are created and verified. Provider consent, dedicated test mailboxes and live acceptance remain open. Do not reuse or modify existing Google Workspace registrations. Updated 9 September 2026.
+EIG-120 remains **incomplete**: the new Microsoft development app and Google Desktop OAuth client/project/Gmail API are created and verified. Provider consent, dedicated test mailboxes and live acceptance remain open. Do not reuse or modify existing Google Workspace registrations. Updated 9 September 2026. This is a dated registration record; the [12 September acceptance reconciliation](oauth-approval-reconciliation.md) records current live evidence, scopes, ownership and external approval gates. Statements below about no prior consent apply to that earlier checkpoint.
 
 ## Verified development setup
 
