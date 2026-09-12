@@ -1,5 +1,5 @@
-import {linkTestModules} from '../../../scripts/mail/link-test-modules.mjs';
 #!/usr/bin/env node
+import {linkTestModules} from '../../../scripts/mail/link-test-modules.mjs';
 /** Compile once and run the real Node mail suites, including native encrypted SQLite. */
 import { createHash } from 'node:crypto';
 import { spawn } from 'node:child_process';
