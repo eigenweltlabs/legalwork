@@ -26,6 +26,8 @@ const size = z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER);
 const hash = z.string().regex(/^[0-9a-f]{64}$/);
 // Static identifiers only. Never interpolate provider values or schema-discovered names into SQL.
 const requiredColumns: Record<string, string[]> = {
+  mail_retention_settings:['account_id','removed_days','revision'],
+  mail_recovery_quarantine:['account_id','kind','entity_id','restored_at'],
   mail_portability_jobs:["id","account_id","direction","format","path","namespace","state","source_hash","checkpoint","completed","failed"],
   mail_archive_messages:["account_id","message_key","namespace","entry_id","received_at","provenance_json"],
   mail_portability_folders:["job_id","id","manifest_json","state"],
@@ -91,6 +93,9 @@ const requiredColumns: Record<string, string[]> = {
   mail_sync_jobs: ["account_id", "id", "kind", "message_key", "part_id", "generation", "state", "attempts", "max_attempts", "retry_base_ms", "retry_max_ms", "available_at", "lease_token", "lease_until", "last_error"],
   mail_sync_scope_jobs: ["account_id", "scope_id", "generation", "job_id"],
 };
+
+/** Static schema-owned table names only; never identifiers supplied by a caller or database row. */
+export const mailAccountTables=Object.entries(requiredColumns).filter(([,columns])=>columns.includes('account_id')).map(([table])=>table);
 
 function schemaIssue(database: MailDatabase): MailConsistencyCode | undefined {
   if (!database.get("SELECT name FROM sqlite_schema WHERE type='table' AND name='mail_schema_version'")) return "schema-missing";
