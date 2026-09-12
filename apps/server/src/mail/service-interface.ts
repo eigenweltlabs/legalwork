@@ -1,6 +1,7 @@
 import type {MailNotificationPoll,MailNotificationBatch} from './notification-view.js';
-import type {DraftSyncRequest,DraftSyncStatus} from "./draft-sync-view.js";
+import type {OutboxItem,SmtpStatus,SmtpConfigure} from './outbox-view.js';
 import type {SenderIdentity,SenderSettings,SenderConfigure} from './sender-view.js';
+import type {DraftSyncRequest,DraftSyncStatus} from "./draft-sync-view.js";
 import type {MailUpload,MailUploadView} from "./local-view.js";
 import type { GraphMailboxInput, GraphMailboxIdentity } from './graph-mailbox-view.js';
 import type {SavedSearchInput,SavedSearchResult} from './saved-search-view.js';
@@ -26,6 +27,12 @@ export interface MailService {
   pollNotifications(input:MailNotificationPoll):Promise<MailNotificationBatch>;
   setLifecycleSuspended(suspended:boolean):Promise<{state:'running'|'suspended'}>;
   lifecycleStatus():Promise<{state:'running'|'suspended'}>;
+  outbox(accountId:string):Promise<OutboxItem[]>;
+  queueOutbox(accountId:string,input:MailSubmission):Promise<OutboxItem>;
+  outboxAction(accountId:string,input:{actionId:string;action:'cancel'|'retry'|'reconcile'}):Promise<OutboxItem>;
+  smtpStatus(accountId:string):Promise<SmtpStatus>;
+  configureSmtp(accountId:string,input:SmtpConfigure):Promise<SmtpStatus>;
+  removeSmtp(accountId:string):Promise<SmtpStatus>;
   senders(accountId:string):Promise<SenderIdentity[]>;
   refreshSenders(accountId:string):Promise<SenderIdentity[]>;
   configureSender(accountId:string,input:SenderConfigure):Promise<SenderIdentity[]>;
