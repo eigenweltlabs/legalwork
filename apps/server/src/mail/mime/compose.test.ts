@@ -1,8 +1,8 @@
 import { test, expect } from 'bun:test';
 import { createHash } from 'node:crypto';
-import { buildMailMime } from './compose';
-import { mailDraftContentSchema } from '../local-view';
-import { projectMime } from './project';
+import { buildMailMime } from './compose.js';
+import { mailDraftContentSchema } from '../local-view.js';
+import { projectMime } from './project.js';
 const draft=()=>mailDraftContentSchema.parse({from:'lawyer@example.test',to:['client@example.test'],cc:['colleague@example.test'],bcc:['private@example.test'],subject:'Prüfung 秘密 🧑‍⚖️',text:'Guten Tag\n秘密 🧑‍⚖️',html:'<p>Guten <b>Tag</b> 秘密</p><img src="cid:picture@test">',inReplyTo:'<parent@example.test>',references:['<root@example.test>','<parent@example.test>']});
 test('shared MIME round trips Unicode, alternatives, inline images, files and attached message without leaking BCC',async()=>{
  const content=draft();content.attachments=[{locator:null,partId:'1',referenceId:'local1',filename:'Bild.png',contentType:'image/png',contentId:'picture@test',disposition:'inline'},{locator:null,partId:'2',referenceId:'local2',filename:'秘密-Vertrag.txt',contentType:'text/plain',contentId:null,disposition:'attachment'},{locator:null,partId:'3',referenceId:'local3',filename:'Original.eml',contentType:'message/rfc822',contentId:null,disposition:'attachment'}];
