@@ -74,6 +74,9 @@ export class GmailReadTransport {
   private readonly fetch: OAuthFetch;
   private readonly timeoutMs: number;
   private readonly maxRawBytes: number;
+  private readonly pending = new Set<Promise<unknown>>();
+  /** Diagnostic owners can retain their slot until aborted physical work settles. */
+  async settled(): Promise<void> { await Promise.allSettled([...this.pending]); }
   constructor(options: { accessToken: string; fetch?: OAuthFetch; timeoutMs?: number; maxRawBytes?: number }) {
     this.timeoutMs = options.timeoutMs ?? 30000; this.maxRawBytes = options.maxRawBytes ?? 64 * MiB;
     if (typeof options.accessToken !== "string" || !/^[\x21-\x7e]{1,16384}$/.test(options.accessToken)
@@ -94,7 +97,10 @@ export class GmailReadTransport {
     const abort = () => { controller.abort(); rejectDeadline(new GmailTransportError("cancelled")); };
     signal?.addEventListener("abort", abort, { once: true });
     const timer = setTimeout(() => { timedOut = true; controller.abort(); rejectDeadline(new GmailTransportError("timeout")); }, this.timeoutMs);
-    try { const result = await Promise.race([work(controller.signal, checkpoint), deadline]); checkpoint(); return result; }
+    const operation = work(controller.signal, checkpoint);
+    this.pending.add(operation);
+    void operation.then(() => this.pending.delete(operation), () => this.pending.delete(operation));
+    try { const result = await Promise.race([operation, deadline]); checkpoint(); return result; }
     catch (error) {
       if (timedOut) return reject("timeout"); if (signal?.aborted) return reject("cancelled");
       if (error instanceof GmailTransportError) throw error;
