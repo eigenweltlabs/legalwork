@@ -6,6 +6,7 @@ export class MailListWindow<T> {
   get rows():T[]{return this.windows[this.index]?.rows??[];}
   get scroll(){return this.windows[this.index]?.scroll??0;}
   set scroll(value:number){const window=this.windows[this.index];if(window)window.scroll=Math.max(0,value);}
+  get retained(){return this.windows.flatMap(window=>window.rows);}
   get canBack(){return this.index>0;}
   get canForward(){return this.index<this.windows.length-1;}
   get expanded(){return this.windows.length>1||this.rows.length>25;}
