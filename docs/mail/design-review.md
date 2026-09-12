@@ -36,13 +36,13 @@ The fixture title is **LegalWork — Synthetic design fixture**. It stays hidden
 
 ## Retained visual matrix
 
-All images are synthetic captures of the actual shared shell. The 760px reader remains split; at 600px the list hides while reading and Inbox restores the list. Native capture and DOM visibility assertions verified both paths. Screenshot pixels are doubled on this Retina host.
+All images are synthetic captures of the actual shared shell. The 760px reader remains split; at 600px the list hides while reading and Inbox restores the list. Native capture and DOM visibility assertions verified both paths. A 600px follow-up verified the full HTML body (325px iframe) and outer scrolling to the attachment (676px scroll height / 542px viewport). The initial resize capture preceded the opaque frame repaint; settled evidence replaces it, and the fixture now allows 500ms for native repaint. Screenshot pixels are doubled on this Retina host.
 
 | State | Evidence |
 | --- | --- |
 | Default mailbox / keyboard focus / bulk | [Mailbox](evidence/eig-172/after-mailbox.png), [focus](evidence/eig-172/after-keyboard-focus.png), [250-row bulk](evidence/eig-172/after-large-bulk.png) |
 | Reader / conversation | [Reader](evidence/eig-172/after-reader.png), [conversation](evidence/eig-172/after-conversation.png) |
-| Reader sizes | [1100](evidence/eig-172/after-reader-1100.png), [900](evidence/eig-172/after-reader-900.png), [760](evidence/eig-172/after-reader-760.png), [600 reader](evidence/eig-172/after-reader-600.png), [600 back](evidence/eig-172/after-list-600.png) |
+| Reader sizes | [1100](evidence/eig-172/after-reader-1100.png), [900](evidence/eig-172/after-reader-900.png), [760](evidence/eig-172/after-reader-760.png), [600 reader](evidence/eig-172/after-reader-600.png), [600 back](evidence/eig-172/after-list-600.png), [600 scrolled](evidence/eig-172/after-reader-600-scrolled.png) |
 | Inline search | [Search](evidence/eig-172/after-search.png), [1100](evidence/eig-172/after-search-1100.png), [bulk](evidence/eig-172/after-search-bulk.png) |
 | Compose / attachment / actual chat composer | [Compose](evidence/eig-172/after-compose.png), [1100](evidence/eig-172/after-compose-1100.png), [chooser](evidence/eig-172/after-attachment-chooser.png), [Lexical source chip](evidence/eig-172/after-chat-composer.png) |
 | Settings | [Accounts](evidence/eig-172/after-settings.png), [notifications](evidence/eig-172/after-settings-notifications.png) |
