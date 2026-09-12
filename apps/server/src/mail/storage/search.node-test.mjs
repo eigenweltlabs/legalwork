@@ -76,3 +76,36 @@ test('unclosed repeated script tags have bounded extraction and an invalid recei
  f.seed();const html='<script>'.repeat(250000),raw=Buffer.from('Subject: Adversarial\r\nContent-Type: text/html\r\n\r\n'+html);await f.project(await f.raw(raw));assert.equal(f.projection.read('a',locator).state,'complete');f.db.run("INSERT INTO mail_gmail_metadata(account_id,message_key,internal_date,thread_id,label_ids_json) SELECT account_id,message_key,9000000000000000,'thread','[]' FROM mail_messages WHERE account_id='a'");
  f.repository.ingestMessage('a',{locator:{provider:'gmail',messageId:'following'},rfcMessageId:null,subject:'Following',memberships:[]});const search=new MailSearchStore(f.db,'owner'),started=performance.now();const result=search.rebuild({accountId:'a'});assert.ok(performance.now()-started<1500,'2MiB unmatched tags must not stall the worker');assert.equal(result.pending,0);assert.equal(search.search({keywords:['Following']}).total,1);assert.equal(search.search({keywords:['script']}).total,0);assert.ok(result.incomplete>=1);
 }));
+
+test('trigram candidates preserve arbitrary literal substrings, Unicode and GLOB metacharacters',async()=>fixture(async f=>{
+ f.seed();await f.project(await f.raw(Buffer.from('Subject: PrefixAZ-12/34.5Suffix\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nMünchen literal [*?] marker aßb')));const search=new MailSearchStore(f.db,'owner');search.rebuild({accountId:'a'});
+ for(const literal of ['AZ-12/34.5','12/34','[','*','?','[*?]','MÜNCHEN','Mu\u0308nchen','ß','aßb'])assert.equal(search.search({literal}).total,1,literal);
+ for(const literal of ['AZ 12 34 5','[??]','MUNCHEN','PrefixAZ-12/34.6'])assert.equal(search.search({literal}).total,0,literal);
+ await f.reopen();assert.equal(new MailSearchStore(f.db,'owner').search({literal:'12/34'}).total,1);
+}));
+
+test('paged FTS snippets retain deterministic order and exact structured filtering',async()=>fixture(async f=>{
+ f.seed();const search=new MailSearchStore(f.db,'owner');
+ for(let n=0;n<75;n++){const identity={provider:'gmail',messageId:'ordered-'+String(n).padStart(2,'0')};f.repository.ingestMessage('a',{locator:identity,rfcMessageId:null,subject:'Common',memberships:[]});f.runs.putGmailMetadata('a',identity,{internalDate:Date.parse('2001-01-01T00:00:00Z')+n*86400000,threadId:'t'+n,labelIds:[]});}
+ while(search.rebuild({accountId:'a',limit:25}).pending){}
+ const first=search.search({keywords:['Common'],limit:20}),second=search.search({keywords:['Common'],offset:20,limit:20});assert.equal(first.total,75);assert.equal(first.items[0].locator.messageId,'ordered-74');assert.equal(second.items[0].locator.messageId,'ordered-54');assert.equal(new Set([...first.items,...second.items].map(row=>row.locator.messageId)).size,40);
+ assert.equal(search.search({beforeDate:'2001-01-11T00:00:00Z'}).total,10);
+}));
+
+test('schema 19 atomically builds substring candidates for existing encrypted documents',async()=>fixture(async f=>{
+ f.seed();await f.project(await f.raw(Buffer.from('Subject: Existing AZ-12/34.5\r\n\r\nRetained text')));new MailSearchStore(f.db,'owner').rebuild({accountId:'a'});
+ f.db.exec('DROP TRIGGER mail_search_trigram_insert; DROP TRIGGER mail_search_trigram_delete; DROP TABLE mail_search_trigram; DROP INDEX mail_search_embedded_nul; DROP INDEX mail_search_identity; DROP INDEX mail_search_incomplete; DROP INDEX mail_search_date; UPDATE mail_schema_version SET version=18');
+ const interrupted={...f.db,exec(sql){f.db.exec(sql);if(sql.includes('CREATE VIRTUAL TABLE mail_search_trigram'))throw Error('interrupted migration');}};
+ assert.throws(()=>migrateMailSchema(interrupted));assert.equal(f.db.get('SELECT version FROM mail_schema_version').version,18);assert.equal(f.db.get("SELECT name FROM sqlite_schema WHERE name='mail_search_trigram'"),undefined);
+ migrateMailSchema(f.db);migrateMailSchema(f.db);assertMailSchema(f.db);assert.equal(new MailSearchStore(f.db,'owner').search({literal:'12/34'}).total,1);
+ await f.raw(Buffer.from('Subject: Replaced\r\n\r\nReplacement'));assert.equal(new MailSearchStore(f.db,'owner').search({literal:'12/34'}).total,0);
+}));
+
+test('substring candidates find text following embedded NUL',async()=>fixture(async f=>{
+ f.seed();await f.project(await f.raw(Buffer.from('Subject: File\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nbefore\0afterneedle')));const search=new MailSearchStore(f.db,'owner');search.rebuild({accountId:'a'});assert.equal(search.search({literal:'afterneedle'}).total,1);assert.equal(search.search({literal:'before\0after'}).total,1);
+}));
+
+test('exact filename candidates retain JavaScript Unicode case normalization',async()=>fixture(async f=>{
+ f.seed();await f.project(await f.raw(Buffer.from(mime.toString().replace('filename="brief.bin"',"filename*=UTF-8''%C4%B0nvoice.pdf"))));const search=new MailSearchStore(f.db,'owner');search.rebuild({accountId:'a'});
+ assert.equal(search.search({filename:'İnvoice.PDF'}).total,1);assert.equal(search.search({filename:'i\u0307nvoice.pdf'}).total,1);assert.equal(search.search({filename:'invoice.pdf'}).total,0);
+}));
