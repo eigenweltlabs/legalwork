@@ -1,6 +1,7 @@
 import type {MailNotificationPoll} from './notification-view.js';
-import type {DraftSyncRequest} from "./draft-sync-view.js";
+import {OutboxError,type SmtpConfigure} from './outbox-view.js';
 import type {SenderSettings,SenderConfigure} from './sender-view.js';
+import type {DraftSyncRequest} from "./draft-sync-view.js";
 import type {MailUpload} from "./local-view.js";
 import type { GraphMailboxInput } from './graph-mailbox-view.js';
 import type {SavedSearchInput} from './saved-search-view.js';
@@ -68,6 +69,12 @@ export class LocalMailService implements MailService {
       },
     });
   }
+  async outbox(accountId:string){const result=await this.request({operation:'mail.outbox.list',accountId});if('outboxFailure' in result)throw new OutboxError(result.outboxFailure);if(!('outbox' in result))throw new MailServiceError('unavailable');return result.outbox;}
+  async queueOutbox(accountId:string,input:MailSubmission){await this.startSync(accountId,true);const result=await this.request({operation:'mail.outbox.queue',accountId,input});if('outboxFailure' in result)throw new OutboxError(result.outboxFailure);if(!('outboxItem' in result))throw new MailServiceError('unavailable');return result.outboxItem;}
+  async outboxAction(accountId:string,input:{actionId:string;action:'cancel'|'retry'|'reconcile'}){const result=await this.request({operation:'mail.outbox.action',accountId,input});if('outboxFailure' in result)throw new OutboxError(result.outboxFailure);if(!('outboxItem' in result))throw new MailServiceError('unavailable');return result.outboxItem;}
+  async smtpStatus(accountId:string){const result=await this.request({operation:'mail.smtp.status',accountId});if('outboxFailure' in result)throw new OutboxError(result.outboxFailure);if(!('smtp' in result))throw new MailServiceError('unavailable');return result.smtp;}
+  async configureSmtp(accountId:string,input:SmtpConfigure){const result=await this.request({operation:'mail.smtp.configure',accountId,input});if('outboxFailure' in result)throw new OutboxError(result.outboxFailure);if(!('smtp' in result))throw new MailServiceError('unavailable');return result.smtp;}
+  async removeSmtp(accountId:string){const result=await this.request({operation:'mail.smtp.remove',accountId});if('outboxFailure' in result)throw new OutboxError(result.outboxFailure);if(!('smtp' in result))throw new MailServiceError('unavailable');return result.smtp;}
   async senders(accountId:string){const result=await this.request({operation:'mail.senders.list',accountId});if(!('senders' in result))throw new MailServiceError('unavailable');return result.senders.length?result.senders:this.refreshSenders(accountId);}
   async refreshSenders(accountId:string){
     const epoch=this.epoch,provider=await this.request({operation:'mail.sync.provider',accountId});if(!('syncProvider' in provider))throw new MailServiceError('unavailable');
@@ -187,10 +194,7 @@ export class LocalMailService implements MailService {
     const result=await this.request({operation:"mail.local.draft.list",accountId,input:input});
     if(!("local" in result)||result.local.operation!=="mail.local.draft.list")throw new MailServiceError("unavailable");return result.local.value;
   }
-  async enqueueSubmission(accountId:string,input:MailSubmission){
-    const result=await this.request({operation:"mail.local.action.submission",accountId,input:input});
-    if(!("local" in result)||result.local.operation!=="mail.local.action.submission")throw new MailServiceError("unavailable");return result.local.value;
-  }
+  async enqueueSubmission(accountId:string,input:MailSubmission){const item=await this.queueOutbox(accountId,input);return this.readAction(accountId,item.id);}
   async enqueueMutation(accountId:string,input:MailMutation){
     const result=await this.request({operation:"mail.local.action.mutation",accountId,input:input});
     if(!("local" in result)||result.local.operation!=="mail.local.action.mutation")throw new MailServiceError("unavailable");return result.local.value;

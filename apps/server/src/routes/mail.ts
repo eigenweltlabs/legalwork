@@ -1,3 +1,4 @@
+import {OutboxError,outboxActionSchema,smtpConfigureSchema} from '../mail/outbox-view.js';
 import {draftSyncRequestSchema,draftSyncReadSchema} from "../mail/draft-sync-view.js";
 import {senderSettingsSchema,senderConfigureSchema} from '../mail/sender-view.js';
 import {mailUploadSchema} from "../mail/local-view.js";
@@ -32,6 +33,7 @@ function pageInput(ctx: RequestContext, paginated: boolean): MailPageInput {
   return page;
 }
 function safeError(error: unknown): ApiError {
+  if(error instanceof OutboxError)return new ApiError(409,'mail_outbox_'+error.code,'Submission needs attention');
   if (error instanceof MailServiceError) {
     switch (error.code) {
       case "conflict": return new ApiError(409,"mail_conflict","Mail state changed; reload before retrying");
@@ -89,6 +91,12 @@ export function registerMailRoutes(routes: Route[], host: string, service?: Mail
       } catch (error) { throw safeError(error); }
     });
   }
+  route('GET','/accounts/:accountId/outbox',false,ctx=>service.outbox(ctx.params.accountId));
+  route('GET','/accounts/:accountId/smtp',false,ctx=>service.smtpStatus(ctx.params.accountId));
+  route('POST','/accounts/:accountId/smtp/remove',false,ctx=>service.removeSmtp(ctx.params.accountId));
+  query('smtp/configure',smtpConfigureSchema,(accountId,input)=>service.configureSmtp(accountId,input));
+  query('outbox/queue',mailSubmissionSchema,(accountId,input)=>service.queueOutbox(accountId,input));
+  query('outbox/action',outboxActionSchema,(accountId,input)=>service.outboxAction(accountId,input));
   route('GET','/accounts/:accountId/senders',false,ctx=>service.senders(ctx.params.accountId));
   route('POST','/accounts/:accountId/senders/refresh',false,ctx=>service.refreshSenders(ctx.params.accountId));
   query('senders/settings',senderSettingsSchema,(accountId,input)=>service.senderSettings(accountId,input));

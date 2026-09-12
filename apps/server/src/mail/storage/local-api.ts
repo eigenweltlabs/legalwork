@@ -89,7 +89,7 @@ export class MailLocalApiStore{
    if(intent.success){const {kind,...content}=intent.data;mutation=content;}
   }catch{/* Legacy opaque intent is not dispatchable by this API. */}
   const credentials=this.credentials.status(accountId);
-  return mailLocalActionSchema.parse({...status,mutation,executionSupported:status.kind==='mutation'&&mutation!==null,providerResult:this.db.get('SELECT result FROM mail_imap_action_results WHERE account_id=? AND id=?',[accountId,actionId])?.result??null,credentialCurrent:credentials.state==='connected'&&generation===credentials.version.generation});
+  return mailLocalActionSchema.parse({...status,mutation,executionSupported:status.kind==='submission'&&!!this.db.get('SELECT action_id FROM mail_outbox WHERE account_id=? AND action_id=?',[accountId,actionId])||status.kind==='mutation'&&mutation!==null,providerResult:this.db.get('SELECT result FROM mail_imap_action_results WHERE account_id=? AND id=?',[accountId,actionId])?.result??null,credentialCurrent:credentials.state==='connected'&&generation===credentials.version.generation});
  }
  private enqueue(accountId:string,kind:'submission'|'mutation',replayKey:string,intent:object,validate:()=>void,precondition:string|null){
   this.account(accountId);const existing=this.db.get('SELECT id,kind,payload_json FROM mail_action_jobs WHERE account_id=? AND replay_key=?',[accountId,replayKey]);
