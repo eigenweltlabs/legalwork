@@ -1,3 +1,4 @@
+import {MailRetentionView} from './mail-retention-view';
 import {MailDesktopPreferences} from '../../mail/mail-desktop';
 import {MailSmtpView} from './mail-smtp-view';
 import {MailPortabilityView} from './mail-portability-view';
@@ -79,6 +80,7 @@ export function MailAccountControls({ client }: { client: MailClient }) {
   return <>
     {error && <p role="alert">{error}</p>}
     <div><Button variant="outline" onClick={() => setRevision(value => value + 1)}>Refresh accounts</Button></div>
+    <MailRetentionView client={client} accounts={accounts} onChanged={() => setRevision(value => value + 1)} />
     <MailPortabilityView accounts={accounts} onChanged={() => setRevision(value => value + 1)} />
     <GraphMailboxesView client={client} accounts={accounts} onChanged={() => setRevision(value => value + 1)} />
     <MailSendersView client={client} accounts={accounts.filter(account=>account.provider!=='archive')} />

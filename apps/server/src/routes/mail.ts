@@ -1,3 +1,5 @@
+import {mailMaintenanceReportSchema} from '../mail/maintenance-view.js';
+import {retentionScopeSchema,retentionApplySchema,retentionSettingsSchema,MailRetentionError} from '../mail/retention-view.js';
 import {OutboxError,outboxActionSchema,smtpConfigureSchema} from '../mail/outbox-view.js';
 import {draftSyncRequestSchema,draftSyncReadSchema} from "../mail/draft-sync-view.js";
 import {senderSettingsSchema,senderConfigureSchema} from '../mail/sender-view.js';
@@ -33,6 +35,7 @@ function pageInput(ctx: RequestContext, paginated: boolean): MailPageInput {
   return page;
 }
 function safeError(error: unknown): ApiError {
+  if(error instanceof MailRetentionError)return new ApiError(error.code==='not_found'?404:409,'mail_retention_'+error.code,'Review a fresh local deletion preview; pause Mail and resolve blockers first');
   if(error instanceof OutboxError)return new ApiError(409,'mail_outbox_'+error.code,'Submission needs attention');
   if (error instanceof MailServiceError) {
     switch (error.code) {
@@ -95,6 +98,7 @@ export function registerMailRoutes(routes: Route[], host: string, service?: Mail
   route('GET','/accounts/:accountId/smtp',false,ctx=>service.smtpStatus(ctx.params.accountId));
   route('POST','/accounts/:accountId/smtp/remove',false,ctx=>service.removeSmtp(ctx.params.accountId));
   query('smtp/configure',smtpConfigureSchema,(accountId,input)=>service.configureSmtp(accountId,input));
+  if(service.retention){route('GET','/accounts/:accountId/retention/settings',false,ctx=>service.retention!({operation:'mail.retention.read',accountId:ctx.params.accountId}));query('retention/preview',retentionScopeSchema,(accountId,input)=>service.retention!({operation:'mail.retention.preview',accountId,input}));query('retention/apply',retentionApplySchema,(accountId,input)=>service.retention!({operation:'mail.retention.apply',accountId,input}));query('retention/settings',retentionSettingsSchema,(accountId,input)=>service.retention!({operation:'mail.retention.settings',accountId,input}));}
   query('outbox/queue',mailSubmissionSchema,(accountId,input)=>service.queueOutbox(accountId,input));
   query('outbox/action',outboxActionSchema,(accountId,input)=>service.outboxAction(accountId,input));
   route('GET','/accounts/:accountId/senders',false,ctx=>service.senders(ctx.params.accountId));
@@ -148,7 +152,7 @@ export function registerMailRoutes(routes: Route[], host: string, service?: Mail
           if (!parsed.success || Buffer.byteLength(parsed.data.passphrase) > 1024) throw new ApiError(400, "mail_invalid_request", "Invalid mail request");
           passphrase = parsed.data.passphrase;
         }
-        try { await service.maintain?.(operation, passphrase); return Response.json({ completed: true, state: "locked" }, { headers: { "Cache-Control": "no-store" } }); }
+        try { const result=await service.maintain?.(operation, passphrase, ctx.request.signal); return Response.json({ completed: true, state: "locked", report:result?mailMaintenanceReportSchema.parse(result):null }, { headers: { "Cache-Control": "no-store" } }); }
         catch (error) { throw safeError(error); }
       });
     }

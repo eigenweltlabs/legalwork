@@ -37,8 +37,9 @@ export async function createDesktopMailService({ app, embeddedPath, safeStorage 
       const { dialog } = await import("electron");
       const chosen = await dialog.showOpenDialog({ title: operation === "backup" ? "Choose a folder for a new encrypted mail backup" : "Choose an encrypted mail backup", properties: ["openDirectory"] });
       if (chosen.canceled || chosen.filePaths.length !== 1 || signal.aborted) throw new Error("mail_maintenance_failed");
-      if (operation === "backup") await maintenance.exportBackup(join(chosen.filePaths[0], `legalwork-mail-backup-${Date.now()}`), passphrase, signal);
-      else await maintenance.restoreBackup(chosen.filePaths[0], passphrase, signal);
+      const result=operation === "backup"?await maintenance.exportBackup(join(chosen.filePaths[0], `legalwork-mail-backup-${Date.now()}`), passphrase, signal):await maintenance.restoreBackup(chosen.filePaths[0], passphrase, signal);
+      const {accounts,messages,references,bytes,retainedRecords,retainedParts,incompleteParts}=result.inventory;
+      return {accounts,messages,references,bytes,retainedRecords,retainedParts,incompleteParts,schemaVersion:result.schemaVersion};
     },
     loadStore: async () => {
       if (!app.isReady()) throw new Error("mail_key_backend_unavailable");
