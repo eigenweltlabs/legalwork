@@ -1,3 +1,4 @@
+import {linkTestModules} from '../../../scripts/mail/link-test-modules.mjs';
 import {test,expect} from 'bun:test';
 import {mkdtemp,writeFile,rm,symlink} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
@@ -24,7 +25,7 @@ test('actual renderer completes browser onboarding and confines iCloud passwords
   return Response.json(value,{headers});
  }});
  try {
-  await symlink(join(app,'node_modules'),join(root,'node_modules'),process.platform==='win32'?'junction':'dir');
+  await linkTestModules(join(app,'node_modules'),join(root,'node_modules'));
   const entry=join(root,'entry.tsx');await writeFile(entry,`
     import React from ${JSON.stringify(join(app,'node_modules/react/index.js'))};
     import {createRoot} from ${JSON.stringify(join(app,'node_modules/react-dom/client.js'))};

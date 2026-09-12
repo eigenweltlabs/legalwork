@@ -1,3 +1,4 @@
+import {linkTestModules} from '../../../../../scripts/mail/link-test-modules.mjs';
 import { afterAll, afterEach, beforeAll, expect, test } from "bun:test";
 import { randomBytes } from "node:crypto";
 import { execFileSync, spawn } from "node:child_process";
@@ -24,7 +25,7 @@ beforeAll(async () => {
   root = await mkdtemp(join(tmpdir(), "legalwork-real-mail-worker-"));
   await writeFile(join(root, "package.json"), '{"type":"module"}');
   // Native module resolution follows the built module location, never NODE_PATH or Bun.
-  await symlink(join(serverRoot, "node_modules"), join(root, "node_modules"));
+  await linkTestModules(join(serverRoot, "node_modules"), join(root, "node_modules"));
   execFileSync("pnpm", ["exec", "tsc", "--outDir", join(root, "build"), "--rootDir", "src", "--module", "NodeNext", "--moduleResolution", "NodeNext", "--target", "ES2022", "--strict", "--skipLibCheck", "--types", "node,bun-types", "src/mail/runtime/worker.ts"], { cwd: serverRoot, stdio: "pipe", timeout: 30_000 });
   entryPoint = join(root, "build", "mail", "runtime", "worker.js");
 }, 30_000);
