@@ -37,7 +37,7 @@ export function createMailDesktopController({ service, Notification, powerMonito
             const current = await service.readMessage(item.target.accountId, item.target.locator);
             if (current.removed || current.isRead === true || stopped || generation !== revision || sleeping || screenLocked)
                 return;
-            const notice = new Notification({ title: total > 1 ? `${total} new mail messages` : item.title, body: total > 1 ? 'Open the newest message in LegalWork.' : item.body, silent: !settings.sound });
+            const notice = new Notification({ title: total > 1 ? `${total} new mail messages` : item.title, body: total > 1 ? 'Open a new message in LegalWork.' : item.body, silent: !settings.sound });
             notice.on('click', () => { if (stopped || generation !== revision)
                 return; void service.readMessage(item.target.accountId, item.target.locator).then(message => { if (!message.removed && !stopped && generation === revision)
                 onOpen(item.target); }).catch(() => { }); });

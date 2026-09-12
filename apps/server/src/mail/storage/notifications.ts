@@ -15,10 +15,12 @@ export class MailNotificationStore {
         let suppressed = 0, remainingEvents = 1000;
         return this.db.transaction(() => {
             const credentials = new MailCredentialRepository(this.db, this.ownerId), reads = new MailReadStore(this.db, this.ownerId);
-            for (const account of this.db.all('SELECT id,provider FROM mail_accounts WHERE owner_id=? ORDER BY id LIMIT 200', [this.ownerId])) {
-                const accountId = text.parse(account.id), status = credentials.status(accountId);
-                if (status.state !== 'connected' || status.archiveLocked)
+            const accounts = this.db.all("SELECT id,provider FROM mail_accounts WHERE owner_id=? AND provider IN ('gmail','graph','imap') ORDER BY id LIMIT 200", [this.ownerId]).map(account => ({ account, status: credentials.status(text.parse(account.id)) })).filter(({ status }) => status.state === 'connected' && !status.archiveLocked);
+            const perAccount = Math.max(1, Math.floor(1000 / Math.max(1, accounts.length)));
+            for (const { account, status } of accounts) {
+                if (!status.version)
                     continue;
+                const accountId = text.parse(account.id);
                 const eventGeneration = text.parse(this.db.get('SELECT generation FROM mail_local_event_streams WHERE account_id=?', [accountId])?.generation), head = number.parse(this.db.get('SELECT coalesce(max(sequence),0) n FROM mail_local_events WHERE account_id=?', [accountId])?.n);
                 const previous = this.db.get('SELECT * FROM mail_notification_accounts WHERE account_id=?', [accountId]);
                 // Arm only after the account's first discovery finishes. Arrival timestamps alone
@@ -34,7 +36,7 @@ export class MailNotificationStore {
                 }
                 if (remainingEvents <= 0)
                     continue;
-                const baseline = number.parse(previous.baseline_at), after = number.parse(previous.after_sequence), events = this.db.all('SELECT sequence,kind,entity_id FROM mail_local_events WHERE account_id=? AND sequence>? ORDER BY sequence LIMIT ?', [accountId, after, remainingEvents]);
+                const baseline = number.parse(previous.baseline_at), after = number.parse(previous.after_sequence), events = this.db.all('SELECT sequence,kind,entity_id FROM mail_local_events WHERE account_id=? AND sequence>? ORDER BY sequence LIMIT ?', [accountId, after, Math.min(perAccount, remainingEvents)]);
                 remainingEvents -= events.length;
                 const seen = new Set<string>();
                 for (const event of events) {
