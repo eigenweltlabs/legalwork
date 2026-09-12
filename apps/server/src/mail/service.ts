@@ -151,7 +151,10 @@ export class LocalMailService implements MailService {
   }
   /** Reinstall provider configuration after a supervised worker restart; journals retain mutation outcomes. */
   private async restoreConnectedAccounts(){const epoch=this.epoch;let cursor:string|undefined;do{if(this.phase!=='open'||epoch!==this.epoch)return;const page=await this.listAccounts({limit:100,...(cursor?{after:cursor}:{})});await Promise.all(page.items.filter(account=>account.provider!=="archive").map(account=>this.startSync(account.id,true).catch(()=>{})));cursor=page.nextCursor??undefined;}while(cursor&&this.phase==='open'&&epoch===this.epoch);}
+  private readonly lockListeners=new Set<()=>void>();
+  onLock(listener:()=>void){this.lockListeners.add(listener);return()=>this.lockListeners.delete(listener);}
   lock(): Promise<void> {
+    for(const listener of this.lockListeners)listener();
     this.maintenanceAbort?.abort();
     if (this.closing) return this.closing;
     this.epoch++;

@@ -6,13 +6,15 @@ export const storageFolderViewSchema=z.object({entries:z.array(z.object({path:z.
 export const storageSavePartSchema=z.object({ordinal:size,partIndex:z.number().int().min(-1),path:z.string().max(240),bytes:size,sha256:hash,mimeType:z.string(),state:z.enum(['queued','uploading','uncertain','saved']),version:z.string().nullable()});
 export const storageSaveSchema=z.object({id:uuid,snapshotId:uuid,accountId:id,workspaceId:id,storageId:id,rootRevision:z.string(),folderPath:z.string(),selection:z.array(size).min(1).max(101),state:z.enum(['queued','uploading','uncertain','complete','cancelled']),generation:z.string(),currentGeneration:z.string(),revision:size,error:z.string().nullable(),quarantined:z.boolean(),parts:z.array(storageSavePartSchema).max(102)});
 export const storageSaveInputSchema=z.discriminatedUnion('action',[
- z.object({action:z.literal('create'),accountId:id,snapshotId:uuid,workspaceId:id,storageId:id,rootRevision:z.string().min(1).max(4096),folderPath:z.string().max(2048),selection:z.array(size.max(100)).min(1).max(101)}).strict(),
+ z.object({action:z.literal('create'),accountId:id,snapshotId:uuid,workspaceId:id,storageId:id,rootRevision:z.string().min(1).max(4096),folderPath:z.string().max(2048),selection:z.array(size.max(100)).min(1).max(101),fresh:z.boolean().optional()}).strict(),
+ z.object({action:z.literal('cancel'),accountId:id,id:uuid}).strict(),
  z.object({action:z.literal('read'),accountId:id,id:uuid}).strict(),
  z.object({action:z.literal('list'),accountIds:z.array(id).min(1).max(100),workspaceId:id,after:uuid.optional()}).strict(),
  z.object({action:z.literal('part'),accountId:id,id:uuid,revision:size,generation:z.string(),ordinal:size.max(101),state:z.enum(['uploading','uncertain','saved']),version:z.string().min(1).max(1000).nullable(),error:z.string().max(100).nullable()}).strict(),
 ]);
 export const storageSaveResultSchema=z.discriminatedUnion('action',[
  z.object({action:z.literal('create'),save:storageSaveSchema}),
+ z.object({action:z.literal('cancel'),save:storageSaveSchema}),
  z.object({action:z.literal('read'),save:storageSaveSchema}),
  z.object({action:z.literal('part'),save:storageSaveSchema}),
  z.object({action:z.literal('list'),items:z.array(storageSaveSchema).max(50),nextCursor:uuid.nullable()}),
@@ -24,7 +26,7 @@ export function storageSaveFolder(path:string){if(path&&(/[\\\x00-\x1f\x7f]/.tes
 export function storageSaveResultMatches(input:StorageSaveInput,result:StorageSaveResult):boolean{
  if(input.action!==result.action)return false;
  if(input.action==='list'&&result.action==='list')return result.items.every(item=>input.accountIds.includes(item.accountId)&&item.workspaceId===input.workspaceId);
- if(input.action==='create'&&result.action==='create')return result.save.accountId===input.accountId&&result.save.snapshotId===input.snapshotId&&result.save.workspaceId===input.workspaceId&&result.save.storageId===input.storageId&&result.save.rootRevision===input.rootRevision;
- if((input.action==='read'||input.action==='part')&&(result.action==='read'||result.action==='part'))return result.save.accountId===input.accountId&&result.save.id===input.id;
+ if(input.action==='create'&&result.action==='create')return result.save.accountId===input.accountId&&(input.fresh||result.save.snapshotId===input.snapshotId)&&result.save.workspaceId===input.workspaceId&&result.save.storageId===input.storageId&&result.save.rootRevision===input.rootRevision;
+ if((input.action==='read'||input.action==='part'||input.action==='cancel')&&(result.action==='read'||result.action==='part'||result.action==='cancel'))return result.save.accountId===input.accountId&&result.save.id===input.id;
  return false;
 }
