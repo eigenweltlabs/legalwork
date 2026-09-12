@@ -1,5 +1,7 @@
 import { GraphMailboxRepository } from '../storage/graph-mailboxes.js';
 import { randomUUID } from "node:crypto";
+import { MailHttpActionRunner } from './http-action-runner.js';
+import { MailHttpActions } from './http-actions.js';
 import { GraphDeltaState, graphDeltaSchema } from "../storage/graph-delta.js";
 import { providerMessageKey } from "../model.js";
 import { performance } from "node:perf_hooks";
@@ -36,6 +38,7 @@ export class GraphBackfill {
     private readonly content: MailContentStore;
     private readonly credentials: MailCredentialRepository;
     private readonly executor: MailSyncExecutor;
+    private readonly actions: MailHttpActionRunner;
     private readonly project: ReturnType<typeof createStoredMimeProjector>;
     private current?: Session;
     private closed = false;
@@ -46,6 +49,7 @@ export class GraphBackfill {
         ownerId: string;
         access: Pick<MailAccessCoordinator, "acquire">;
         transport?: (token: string) => Transport;
+        mutationTransport?: (token: string, scopes: readonly string[]) => Pick<MailHttpActions, 'mutate'>;
         operationTimeoutMs?: number;
         pollIntervalMs?: number;
     }) {
@@ -53,6 +57,7 @@ export class GraphBackfill {
         if (!Number.isSafeInteger(this.pollInterval) || this.pollInterval < 10 || this.pollInterval > 3600000)
             throw new Error("mail_graph_invalid_poll_interval");
         this.delta = new GraphDeltaState(options.database, options.ownerId);
+        this.actions = new MailHttpActionRunner(options.database, options.ownerId);
         this.timeout = options.operationTimeoutMs ?? 120000;
         if (!Number.isSafeInteger(this.timeout) || this.timeout < 10 || this.timeout > 120000)
             throw new Error("mail_graph_invalid_timeout");
@@ -115,6 +120,12 @@ export class GraphBackfill {
         this.executor.pause(session.run.account_id);
         if (!session.pumping && this.current === session)
             this.current = undefined;
+    }
+    wake(accountId: string): void {
+        const session = this.current;
+        if (!session || session.run.account_id !== accountId || session.abort.signal.aborted) return;
+        this.assert(session);
+        if (!session.pumping) { clearTimeout(session.timer); this.schedule(session); }
     }
     async close() {
         this.closed = true;
@@ -189,7 +200,7 @@ export class GraphBackfill {
         const permitted = target.mailboxAddress ? ['Mail.Read.Shared','Mail.ReadWrite.Shared'] : ['Mail.Read','Mail.ReadWrite'];
         if (!access.grantedScopes?.some(scope => permitted.some(item => scope === item || scope === 'https://graph.microsoft.com/'+item)))
             throw new MailAccessError("reconsent_required");
-        return { version: access.version, transport: this.options.transport?.(access.accessToken) ?? new GraphReadTransport({ accessToken: access.accessToken, mailboxAddress: target.mailboxAddress, timeoutMs: this.timeout }) };
+        return { access, version: access.version, transport: this.options.transport?.(access.accessToken) ?? new GraphReadTransport({ accessToken: access.accessToken, mailboxAddress: target.mailboxAddress, timeoutMs: this.timeout }) };
     }
     private async turn(session: Session) {
         try {
@@ -199,6 +210,13 @@ export class GraphBackfill {
                 return;
             }
             const db = this.options.database, accountId = session.run.account_id;
+            if (this.actions.ready(accountId)) {
+                const { access } = await this.access(session);
+                const transport = this.options.mutationTransport?.(access.accessToken, access.grantedScopes ?? []) ?? new MailHttpActions({ provider: 'graph', mailboxAddress: new GraphMailboxRepository(db,this.options.ownerId).target(accountId).mailboxAddress, accessToken: access.accessToken, grantedScopes: access.grantedScopes ?? [] });
+                await this.operation(session, signal => this.actions.turn(accountId, access.version, transport, signal, () => this.assert(session, access.version)));
+                this.assert(session, access.version);
+                db.run('UPDATE mail_graph_poll SET poll_at=0 WHERE account_id=?', [accountId]);
+            }
             const polling = this.delta.read(accountId);
             if (polling?.phase === 'idle') {
                 if (polling.poll_at !== null && polling.poll_at > Date.now()) {
