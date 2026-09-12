@@ -51,11 +51,17 @@ export class MailReadStore {
       : typeof flags?.flags_json === 'string' ? z.array(z.string()).parse(JSON.parse(flags.flags_json)).includes('\\Flagged')
       : typeof graph?.metadata_json === 'string' ? z.object({flag:z.object({flagStatus:z.string()}).optional()}).parse(JSON.parse(graph.metadata_json)).flag?.flagStatus === 'flagged' : null;
     const observed = this.database.get('SELECT is_read FROM mail_messages WHERE account_id=? AND message_key=?',[accountId,message.message_key]);
+    const received=this.database.get(`SELECT coalesce(ar.received_at,im.internal_date,gm.internal_date,
+      CAST(unixepoch(json_extract(gr.metadata_json,'$.receivedDateTime'),'subsec')*1000 AS INTEGER)) AS received_at
+      FROM mail_messages m LEFT JOIN mail_archive_messages ar ON ar.account_id=m.account_id AND ar.message_key=m.message_key
+      LEFT JOIN mail_imap_messages im ON im.account_id=m.account_id AND im.message_key=m.message_key
+      LEFT JOIN mail_gmail_metadata gm ON gm.account_id=m.account_id AND gm.message_key=m.message_key
+      LEFT JOIN mail_graph_messages gr ON gr.account_id=m.account_id AND gr.message_key=m.message_key WHERE m.account_id=? AND m.message_key=?`,[accountId,message.message_key]);
     const mutationPrecondition=storedMutationPrecondition(this.database,accountId,locator);
     return mailMessageViewSchema.parse({ accountId, key: message.message_key, locator: message.locator, subject: message.subject,
       rfcMessageId: message.rfc_message_id, threadId: message.thread_id, memberships: message.memberships, removed, contentState: message.contentState, rawReferenceId: message.content.find(part=>part.kind==='raw')?.ref_id??null, metadata, isFlagged,
       isRead: locator.provider === 'gmail' ? (mutationPrecondition === null ? null : !message.memberships.includes('UNREAD')) : observed?.is_read == null ? null : observed.is_read === 1,
-      mutationPrecondition });
+      receivedAt:typeof received?.received_at==='number'&&received.received_at>=0?received.received_at:null, mutationPrecondition });
   }
   list(accountId: string, supplied: MailMessagePageInput) {
     // This bounded owner check precedes cursor/filter handling and every result query.
@@ -64,9 +70,9 @@ export class MailReadStore {
     if (page.order === "received") {
       const cursor = page.after ? z.tuple([z.number().int().nonnegative().nullable(), z.string().min(1).max(32768)]).parse(JSON.parse(page.after)) : null;
       const rows = this.database.all(`WITH received AS (
-        SELECT m.*, CASE WHEN im.internal_date >= 0 THEN im.internal_date WHEN gm.internal_date >= 0 THEN gm.internal_date
+        SELECT m.*, CASE WHEN ar.received_at >= 0 THEN ar.received_at WHEN im.internal_date >= 0 THEN im.internal_date WHEN gm.internal_date >= 0 THEN gm.internal_date
           WHEN unixepoch(json_extract(gr.metadata_json,'$.receivedDateTime'),'subsec')>=0 THEN CAST(unixepoch(json_extract(gr.metadata_json,'$.receivedDateTime'),'subsec')*1000 AS INTEGER) ELSE NULL END AS received_at
-        FROM mail_messages m LEFT JOIN mail_gmail_metadata gm ON gm.account_id=m.account_id AND gm.message_key=m.message_key
+        FROM mail_messages m LEFT JOIN mail_archive_messages ar ON ar.account_id=m.account_id AND ar.message_key=m.message_key LEFT JOIN mail_gmail_metadata gm ON gm.account_id=m.account_id AND gm.message_key=m.message_key
         LEFT JOIN mail_imap_messages im ON im.account_id=m.account_id AND im.message_key=m.message_key
         LEFT JOIN mail_graph_messages gr ON gr.account_id=m.account_id AND gr.message_key=m.message_key WHERE m.account_id=?
       ) SELECT m.message_key,m.locator_json,m.received_at,m.is_read FROM received m

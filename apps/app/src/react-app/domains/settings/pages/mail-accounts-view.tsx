@@ -1,5 +1,6 @@
 import {MailDesktopPreferences} from '../../mail/mail-desktop';
 import {MailSmtpView} from './mail-smtp-view';
+import {MailPortabilityView} from './mail-portability-view';
 /** @jsxImportSource react */
 import { useEffect, useRef, useState } from 'react';
 import { Button } from '@/components/ui/button';
@@ -78,10 +79,11 @@ export function MailAccountControls({ client }: { client: MailClient }) {
   return <>
     {error && <p role="alert">{error}</p>}
     <div><Button variant="outline" onClick={() => setRevision(value => value + 1)}>Refresh accounts</Button></div>
+    <MailPortabilityView accounts={accounts} onChanged={() => setRevision(value => value + 1)} />
     <GraphMailboxesView client={client} accounts={accounts} onChanged={() => setRevision(value => value + 1)} />
-    <MailSendersView client={client} accounts={accounts} />
-    <MailSmtpView client={client} accounts={accounts} />
-    <MailOnboarding client={client} accounts={accounts} onChanged={() => setRevision(value => value + 1)} />
+    <MailSendersView client={client} accounts={accounts.filter(account=>account.provider!=='archive')} />
+    <MailSmtpView client={client} accounts={accounts.filter(account=>account.provider!=='archive')} />
+    <MailOnboarding client={client} accounts={accounts.filter(account=>account.provider!=='archive')} onChanged={() => setRevision(value => value + 1)} />
   </>;
 }
 
