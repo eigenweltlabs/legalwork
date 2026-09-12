@@ -1,3 +1,4 @@
+import { setTimeout as wait } from 'node:timers/promises';
 import { performance } from "node:perf_hooks";
 import { MailHttpActionRunner } from './http-action-runner.js';
 import { MailHttpActions } from './http-actions.js';
@@ -73,6 +74,7 @@ export class GmailBackfill {
   private current?: Session;
   private closed = false;
   private pendingOperation?: Promise<unknown>;
+  private nextMessageReadAt = 0;
   constructor(private readonly options: GmailBackfillOptions) {
     this.pageSize = bounded(options.pageSize, 100, 1, 500);
     this.operationTimeout = bounded(options.operationTimeoutMs, 60000, 10, 120000);
@@ -85,6 +87,17 @@ export class GmailBackfill {
     this.content = new MailContentStore(options.database, options.ownerId);
     this.executor = new MailSyncExecutor({ journal: this.journal, handler: work => this.handle(work), maxConcurrentAccounts: 1,
       maxJobsPerRun: bounded(options.jobsPerTurn, 5, 1, 25), jobTimeoutMs: this.operationTimeout });
+  }
+  /** messages.get costs 20 units on new-project quotas; leave headroom below 6000/minute. */
+  private async paceMessageRead(session: Session, signal: AbortSignal): Promise<void> {
+    signal.throwIfAborted();
+    this.assert(session);
+    const now = performance.now();
+    const due = Math.max(now, this.nextMessageReadAt);
+    this.nextMessageReadAt = due + 250;
+    if (due > now) await wait(due - now, undefined, { signal });
+    signal.throwIfAborted();
+    this.assert(session);
   }
   private stamp(run: GmailRun) { return { generation: run.generation, revision: run.revision }; }
   private account(accountId: string): void {
@@ -324,7 +337,7 @@ export class GmailBackfill {
     for (const record of page.records) for (const change of record.changes) {
       if (change.kind !== "changed" || snapshots.has(change.messageId)) continue;
       try {
-        const metadata = await this.boundedOperation(session, signal => transport.getMetadata(change.messageId, { signal }));
+        const metadata = await this.boundedOperation(session, async signal => { await this.paceMessageRead(session, signal); return transport.getMetadata(change.messageId, { signal }); });
         this.assert(session, access.version);
         snapshotBytes += Buffer.byteLength(JSON.stringify(metadata));
         if (snapshotBytes > 4 * 1024 * 1024) throw new GmailTransportError("response_too_large");
@@ -390,6 +403,7 @@ export class GmailBackfill {
       if (work.job.kind === "raw") {
         if (this.rawReference(work.job.account_id, locator)) {
           try {
+            await this.paceMessageRead(session, work.signal);
             const metadata = await transport.getMetadata(locator.messageId, { signal: work.signal }); assertSnapshot(metadata.historyId);
             const previous = this.runs.readGmailMetadata(work.job.account_id, locator);
             work.complete(() => { this.assert(session, access.version); const known = this.runs.readMessageHistoryId(work.job.account_id, locator); if (known !== null && BigInt(metadata.historyId) < BigInt(known)) throw new GmailTransportError("transient"); if (!this.runs.putGmailMetadata(work.job.account_id, locator, { threadId: metadata.threadId, labelIds: metadata.labelIds, historyId: metadata.historyId, internalDate: metadata.internalDate === null ? previous?.internalDate ?? 0 : Number(metadata.internalDate) })) throw new GmailTransportError("transient"); }, [{ kind: "body", locator }]);
@@ -401,9 +415,11 @@ export class GmailBackfill {
         }
         let metadata: GmailRawMetadata | undefined;
         const source = chunks(async consume => {
+          await this.paceMessageRead(session, work.signal);
           metadata = await transport.consumeRaw(locator.messageId, async chunk => { assertCurrent(); await consume(chunk); }, { signal: work.signal });
           assertCurrent(); const known = this.runs.readMessageHistoryId(work.job.account_id, locator);
           if (known !== null && BigInt(metadata.historyId) < BigInt(known)) {
+            await this.paceMessageRead(session, work.signal);
             const current = await transport.getMetadata(locator.messageId, { signal: work.signal }); assertSnapshot(current.historyId);
             metadata = { ...metadata, threadId: current.threadId, labelIds: current.labelIds, historyId: current.historyId, internalDate: current.internalDate ?? metadata.internalDate };
           }
