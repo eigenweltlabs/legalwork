@@ -32,7 +32,7 @@ export function registerMailFilingRoutes(routes:Route[],host:string,mail:MailSer
     case 'capture':result=await mail.filing({action:'capture',accountId:request.accountId,locator:request.locator});break;
     case 'file':result={item:await coordinator.file(request.workspaceId,request.accountId,request.snapshotId,request.matterId,binding)};break;
     case 'list':result=await coordinator.list(request.workspaceId,request.accountIds,binding,request.after);break;
-    case 'search':result=await coordinator.search(request.workspaceId,request.accountIds,request.matterId,request.input,binding);break;
+    case 'search':result=await coordinator.search(request.workspaceId,request.accountIds,request.matterId,request.input,binding,ctx.request.signal);break;
    }
    return Response.json(result,{headers:{'Cache-Control':'no-store'}});
   }catch(error){if(error instanceof ApiError)throw error;throw new ApiError(409,'mail_filing_attention','Filing is unavailable. Check the account and matter access, then retry.');}
