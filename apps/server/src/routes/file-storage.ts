@@ -1,5 +1,5 @@
 import { mkdtemp, rm, stat } from "node:fs/promises";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { tmpdir } from "node:os";
 import { Readable } from "node:stream";
 import { workingCopy, snapshotWorkspaceFile, keepWorkspaceCopy } from "../file-storage/working-copy.js";
@@ -23,6 +23,8 @@ import {
   unsupportedSearch,
 } from "../file-storage/common.js";
 import { withStorage } from "../file-storage/service.js";
+import { StorageOAuth } from "../file-storage/oauth/session.js";
+import { oauthProviders } from "../file-storage/oauth/providers.js";
 import { TeamStorage, isTeamStorage, teamStorageId } from "../file-storage/team.js";
 import { mergeStorageSecrets, publicConnection, StorageStore } from "../file-storage/store.js";
 import type { ApprovalRequest, ServerConfig, TokenScope, WorkspaceInfo } from "../types.js";
@@ -62,6 +64,7 @@ export function registerStorageRoutes({
 }: Options) {
   const store = new StorageStore(config);
   const team = new TeamStorage(config);
+  const oauth = new StorageOAuth(join(dirname(store.path), "storage-oauth.vault"));
   // File-server protocols lack conditional writes. Serialize this server's
   // mutations so two LegalWork saves cannot both pass the same version check.
   const pendingWrites = new Map<string, Promise<unknown>>();
@@ -103,6 +106,7 @@ export function registerStorageRoutes({
           "This storage is read-only. Change its access in Integrations to write files.",
         );
     }
+    oauth.bind(await workspace(ctx), item.id, item);
     return item;
   };
   const parsedInput = async (ctx: RequestContext, id?: string) => {
@@ -114,8 +118,41 @@ export function registerStorageRoutes({
         parsed.error.issues.map((issue) => `${issue.path.join(".")}: ${issue.message}`).join("; "),
       );
     const previous = id ? await lookup(await workspace(ctx), id) : undefined;
-    return mergeStorageSecrets(parsed.data, previous);
+    const input = mergeStorageSecrets(parsed.data, previous);
+    if (id) oauth.bind(await workspace(ctx), id, input);
+    return input;
   };
+  addRoute(routes, "GET", `${base}/oauth/providers`, "host", async (ctx) => {
+    requireClientScope(ctx, "owner");
+    return jsonResponse({ providers: oauthProviders.filter((p) => p.clientId).map(({ id, name, rootHint }) => ({ id, name, rootHint })) });
+  });
+  addRoute(routes, "GET", `${base}/:storageId/oauth`, "host", async (ctx) => {
+    requireClientScope(ctx, "owner");
+    const id = await workspace(ctx);
+    const item = await lookup(id, ctx.params.storageId);
+    return jsonResponse(await oauth.status(oauth.key(id, item.id, item)));
+  });
+  addRoute(routes, "POST", `${base}/:storageId/oauth`, "host", async (ctx) => {
+    requireClientScope(ctx, "owner");
+    ensureWritable(config);
+    const item = await selected(ctx);
+    const id = await workspace(ctx);
+    const key = oauth.key(id, item.id, item);
+    return jsonResponse(await oauth.start(key, item, async () => {
+      try {
+        const current = await lookup(id, item.id);
+        return current.enabled && current.team?.installed !== false && oauth.key(id, current.id, current) === key;
+      } catch { return false; }
+    }));
+  });
+  addRoute(routes, "DELETE", `${base}/:storageId/oauth`, "host", async (ctx) => {
+    requireClientScope(ctx, "owner");
+    ensureWritable(config);
+    const id = await workspace(ctx);
+    const item = await lookup(id, ctx.params.storageId);
+    await oauth.disconnect(oauth.key(id, item.id, item));
+    return jsonResponse({ ok: true });
+  });
   addRoute(routes, "GET", base, "host", async (ctx) => {
     requireClientScope(ctx, "owner");
     const workspaceId = await workspace(ctx);
@@ -147,6 +184,12 @@ export function registerStorageRoutes({
       requireClientScope(ctx, "owner");
       ensureWritable(config);
       const input = await parsedInput(ctx, ctx.params.storageId);
+      if (ctx.params.storageId) {
+        const id = await workspace(ctx);
+        const previous = await lookup(id, ctx.params.storageId);
+        if (JSON.stringify(previous.config) !== JSON.stringify(input.config) || previous.readOnly !== input.readOnly || !input.enabled)
+          await oauth.disconnect(oauth.key(id, previous.id, previous));
+      }
       if (method === "PUT" && isTeamStorage(ctx.params.storageId)) {
         const version = z.coerce.number().int().positive().safeParse(ctx.url.searchParams.get("version"));
         if (!version.success)
@@ -229,7 +272,11 @@ export function registerStorageRoutes({
         throw new ApiError(400, "storage_version_required", "Refresh this team connection before removing it.");
       await team.request(workspaceId, "DELETE", `/${teamStorageId(ctx.params.storageId)}`, { version: version.data });
       team.invalidate(workspaceId);
-    } else await store.remove(workspaceId, ctx.params.storageId);
+    } else {
+      const item = await store.get(workspaceId, ctx.params.storageId);
+      await oauth.disconnect(oauth.key(workspaceId, item.id, item));
+      await store.remove(workspaceId, ctx.params.storageId);
+    }
     return jsonResponse({ ok: true });
   });
   addRoute(routes, "GET", `${base}/:storageId/capabilities`, "client", async (ctx) => {
