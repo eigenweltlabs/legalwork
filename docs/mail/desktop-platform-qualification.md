@@ -24,6 +24,26 @@ The runner keeps the real OS HOME and vault environment for the vault probe, cha
 
 ## Qualification status and limits
 
-Preparation only: syntax and diff checks have passed; the final integration gate has not yet opened, and no broad platform/app execution is claimed in this document. Populate exact workflow/run/artifact links and local results after execution; record any failure and correction against its source SHA rather than replacing old evidence.
+The first gate opened at `aa2dd5d8b`. The first full matrix ran at tree-identical marker `4a2077a80a7f6844d860d0552581688d14911518`: [run 34702156017](https://github.com/eigenweltlabs/legalwork/actions/runs/34702156017). All three jobs failed; this is **not a platform pass**. Product changes subsequently reopened, so broad requalification is paused until the next explicit integration gate.
+
+Initial evidence, retained without overwriting failed runs:
+
+| Scope | As-run outcome |
+| --- | --- |
+| Local normal app, missing Electron prerequisite | 433 pass, 28 fail |
+| Local normal app after installing the locked Electron binary | 455 pass, 6 fail |
+| Local normal desktop | 115 pass, 1 fail, 1 platform skip |
+| Local supplemental desktop mail | 36 pass |
+| macOS arm64 native mail | 444 pass, 1 fail |
+| macOS x64 native mail | 443 pass, 2 fail |
+| Both macOS vault and supplemental stages | Vault passed, supplemental 36 pass each |
+| Both macOS directory builds | Vite exhausted its approximately 2 GiB heap; built-app probes consequently unavailable |
+| Windows x64 | Directory build passed; vault/native/module, desktop fixture, app and packaged ACL checks failed |
+
+Local fixture repairs were verified with focused tests: current HTML sandbox/CSP, retention copy and search selection; explicit Zod resolution; actual minimal ASAR dependency closure; fresh Electron native-window activation; checked-in historical HTML baseline (byte-identical to `a4118bcca`); current HTTP outbox prerequisites; actual platform ACL adapters and portable Node/TypeScript invocation. Intel's additional connection case observed the legitimate transient `syncing` state directly after reopen; it now awaits `waiting` and verifies the offline error, with a focused actual worker pass. Build heap adjustment remains unverified on CI. These focused passes do not replace the original full-command denominators or constitute a rerun of the complete integrated application.
+
+Windows prerequisite diagnostics are isolated from the broad matrix and require a distinct `[mail-platform-diagnostics]` marker. [Run 34703086770](https://github.com/eigenweltlabs/legalwork/actions/runs/34703086770) reproduced missing package paths through temporary junctions and separately recorded production ACL-process noncompletion and inherited PowerShell module-autoload failure. Diagnosis is ongoing; a successful diagnostic job means evidence was collected, not that custody is certified. The Windows Office certificate assertion also fails on unchanged `origin/dev` source (`ed882fe84dbf8dc5f07abaa0ec0c0ee0f4d9e5b8`): its documented signature/expiry-only Node validator accepts the synthetic signed non-localhost leaf, while OpenSSL's constrained chain verifier rejects it. No Office production change or constraint-validation claim is made here.
+
+Downloaded initial platform logs are retained at `/tmp/legalwork-eig152-ci-macos-arm64`, `/tmp/legalwork-eig152-ci-macos-intel` and `/tmp/legalwork-eig152-ci-windows`; local source-stamped stage logs/JSON remain in the qualification worktree's `mail-qualification-evidence`. Final durable evidence publication and qualification remain outstanding.
 
 Unsigned directory builds do **not** establish signed installer/update/uninstall behavior, Gatekeeper/notarization, signature-dependent vault identity across application updates, or retention after an actual OS uninstall. Actual suspend/resume and login/background startup need controlled device/session testing; hosted/mock lifecycle results must be labeled separately. Reference 16 GiB performance remains distinct from arbitrary CI runner RAM. No installer, release or destructive OS-session operation may be substituted silently for these unavailable gates.
