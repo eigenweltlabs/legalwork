@@ -25,6 +25,7 @@ function probe(body) {
       decryptString(bytes){const value=wrapped.get(bytes.toString('base64'));if(!value)throw new Error('mock locked');return value;},
     };
     const source=${JSON.stringify(source)};
+    const {mailTestWindowsAcl}=await import(${JSON.stringify(new URL('../../../scripts/mail/windows-test-acl.mjs',import.meta.url).href)});
     try { ${body} } finally { await fs.promises.rm(root,{recursive:true,force:true}); }
   `], { encoding: "utf8", timeout: 15_000 });
   assert.equal(result.error, undefined);
@@ -47,11 +48,11 @@ test("reader fsyncs key publication and parent before returning during creator p
   };
   syncBuiltinESMExports();
   const {createMailKeyStore}=await import(source);
-  const creating=createMailKeyStore({directory,safeStorage}).load({allowCreate:true});
+  const creating=createMailKeyStore({directory,safeStorage,windowsAcl:mailTestWindowsAcl}).load({allowCreate:true});
   try {
     await published;
     assert.equal(synced.has(directory),false);
-    const key=await createMailKeyStore({directory,safeStorage}).load();
+    const key=await createMailKeyStore({directory,safeStorage,windowsAcl:mailTestWindowsAcl}).load();
     // The creator is still blocked before its own directory sync.
     assert.ok(synced.has(directory),'reader returned before syncing the published key');
     assert.ok(synced.has(dirname(directory)),'reader returned before syncing the new directory');
@@ -79,10 +80,10 @@ test("initializer rereads the winner when another activation creates the databas
   };
   syncBuiltinESMExports();
   const {createMailKeyStore}=await import(source);
-  const delayed=createMailKeyStore({directory,safeStorage}).load({allowCreate:true});
+  const delayed=createMailKeyStore({directory,safeStorage,windowsAcl:mailTestWindowsAcl}).load({allowCreate:true});
   try {
     await missing;
-    const winner=await createMailKeyStore({directory,safeStorage}).load({allowCreate:true});
+    const winner=await createMailKeyStore({directory,safeStorage,windowsAcl:mailTestWindowsAcl}).load({allowCreate:true});
     await fs.promises.writeFile(join(directory,'mail.sqlite'),'synthetic existing store',{mode:0o600});
     release();
     const key=await delayed;
