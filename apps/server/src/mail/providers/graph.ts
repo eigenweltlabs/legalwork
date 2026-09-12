@@ -9,7 +9,8 @@ export const graphFolderSchema = z.object({ id, displayName: text, parentFolderI
 export const graphMessageSchema = z.object({ id, parentFolderId: id, conversationId: id.nullable().optional(), subject: text,
     internetMessageId: text.nullable().optional(), receivedDateTime: text, sentDateTime: text.nullable().optional(),
     isRead: z.boolean(), isDraft: z.boolean(), hasAttachments: z.boolean(), importance: z.enum(["low", "normal", "high"]),
-    categories: z.array(text).max(1000), lastModifiedDateTime: text, changeKey: id });
+    categories: z.array(text).max(1000), lastModifiedDateTime: text, changeKey: id,
+    flag: z.object({flagStatus:z.enum(['notFlagged','complete','flagged'])}).optional() });
 export const graphAttachmentSchema = z.object({ id, name: text, contentType: text.nullable().optional(), size: count, isInline: z.boolean(), contentId: text.nullable().optional(),
     "@odata.type": z.enum(["#microsoft.graph.fileAttachment", "#microsoft.graph.itemAttachment", "#microsoft.graph.referenceAttachment"]) });
 export type GraphFolder = z.infer<typeof graphFolderSchema>;
@@ -254,9 +255,9 @@ export class GraphReadTransport {
         return { items: parsed.data.value, nextLink: next ?? null, deltaLink: delta ?? null };
     }
     listFolders(parentId: string | null, nextLink?: string, signal?: AbortSignal) { return this.page(parentId === null ? "/mailFolders" : `/mailFolders/${segment(parentId)}/childFolders`, "includeHiddenFolders=true&$top=100&$select=id,displayName,parentFolderId,childFolderCount,isHidden", graphFolderSchema, nextLink, signal); }
-    listMessages(nextLink?: string, signal?: AbortSignal) { return this.page("/messages", "$top=100&$select=id,parentFolderId,conversationId,subject,internetMessageId,receivedDateTime,sentDateTime,isRead,isDraft,hasAttachments,importance,categories,lastModifiedDateTime,changeKey", graphMessageSchema, nextLink, signal); }
+    listMessages(nextLink?: string, signal?: AbortSignal) { return this.page("/messages", "$top=100&$select=id,parentFolderId,conversationId,subject,internetMessageId,receivedDateTime,sentDateTime,isRead,isDraft,hasAttachments,importance,categories,lastModifiedDateTime,changeKey,flag", graphMessageSchema, nextLink, signal); }
     async getMessage(messageId: string, signal?: AbortSignal) {
-        const value = graphMessageSchema.safeParse(await this.json(`${this.base}/messages/${segment(messageId)}?$select=id,parentFolderId,conversationId,subject,internetMessageId,receivedDateTime,sentDateTime,isRead,isDraft,hasAttachments,importance,categories,lastModifiedDateTime,changeKey`, signal));
+        const value = graphMessageSchema.safeParse(await this.json(`${this.base}/messages/${segment(messageId)}?$select=id,parentFolderId,conversationId,subject,internetMessageId,receivedDateTime,sentDateTime,isRead,isDraft,hasAttachments,importance,categories,lastModifiedDateTime,changeKey,flag`, signal));
         if (!value.success || value.data.id !== messageId)
             fail("invalid_response");
         return value.data;

@@ -3,7 +3,7 @@ import { graphMailboxInputSchema } from '../mail/graph-mailbox-view.js';
 import {savedSearchInputSchema} from '../mail/saved-search-view.js';
 import {imapConnectionSchema} from '../mail/providers/imap-config.js';
 import {extractionRequestSchema,extractionReadSchema} from "../mail/extraction-view.js";
-import { mailActionCancelSchema, mailActionReadSchema, mailDraftAttachmentSchema, mailDraftDeleteSchema, mailDraftReadSchema, mailDraftSaveSchema, mailEventQuerySchema, mailLocalPageSchema, mailMutationSchema, mailSubmissionSchema } from "../mail/local-view.js";
+import { mailActionCancelSchema, mailActionReadSchema, mailDraftAttachmentSchema, mailDraftDeleteSchema, mailDraftReadSchema, mailDraftSaveSchema, mailEventQuerySchema, mailLocalPageSchema, mailActionPageInputSchema, mailMutationSchema, mailSubmissionSchema } from "../mail/local-view.js";
 import { mailSearchInputSchema, mailSearchRebuildInputSchema } from "../mail/search-view.js";
 import { ApiError } from "../errors.js";
 import { z } from "zod";
@@ -202,7 +202,7 @@ export function registerMailRoutes(routes: Route[], host: string, service?: Mail
   query("actions/submission", mailSubmissionSchema, (accountId,input)=>service.enqueueSubmission(accountId,input));
   query("actions/mutation", mailMutationSchema, (accountId,input)=>service.enqueueMutation(accountId,input));
   query("actions/read", mailActionReadSchema, (accountId,input)=>service.readAction(accountId,input.actionId));
-  query("actions/query", mailLocalPageSchema, (accountId,input)=>service.listActions(accountId,input));
+  query("actions/query", mailActionPageInputSchema, (accountId,input)=>service.listActions(accountId,input));
   query("actions/cancel", mailActionCancelSchema, (accountId,input)=>service.cancelAction(accountId,input));
   query("events/query", mailEventQuerySchema, (accountId,input)=>service.listEvents(accountId,input));
 

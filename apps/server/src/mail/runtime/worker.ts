@@ -1,6 +1,7 @@
 import { MailSyncLifecycle } from "./sync-lifecycle.js";
 import { GraphMailboxRepository } from '../storage/graph-mailboxes.js';
 import { GraphReadTransport, GraphTransportError } from '../providers/graph.js';
+import {storedFolderMutationPrecondition} from '../storage/mutation-precondition.js';
 import {MailSavedSearchStore,SavedSearchError} from '../storage/saved-search.js';
 import {ImapError} from '../providers/imap-config.js';
 import {ImapBackfill} from '../providers/imap-backfill.js';
@@ -207,7 +208,7 @@ async function request(message: Extract<ParentMessage, { kind: "request" }>): Pr
       case "mail.local.draft.attachment": if(!local)throw locked;result={local:{operation:command.operation,accountId:command.accountId,value:local.readDraftAttachment(command.accountId,command.input)}};break;
       case "mail.local.draft.list": if(!local)throw locked;result={local:{operation:command.operation,accountId:command.accountId,value:local.listDrafts(command.accountId,command.input)}};break;
       case "mail.local.action.submission": if(!local)throw locked;result={local:{operation:command.operation,accountId:command.accountId,value:local.enqueueSubmission(command.accountId,command.input)}};break;
-      case "mail.local.action.mutation": if(!local)throw locked;result={local:{operation:command.operation,accountId:command.accountId,value:local.enqueueMutation(command.accountId,command.input)}};if(database.get('SELECT provider FROM mail_accounts WHERE id=?',[command.accountId])?.provider==='imap'){const engine=syncLifecycle.engine(command.accountId);if(engine instanceof ImapBackfill)engine.wake(command.accountId);};break;
+      case "mail.local.action.mutation": if(!local)throw locked;result={local:{operation:command.operation,accountId:command.accountId,value:local.enqueueMutation(command.accountId,command.input)}};syncLifecycle.engine(command.accountId).wake(command.accountId);break;
       case "mail.local.action.read": if(!local)throw locked;result={local:{operation:command.operation,accountId:command.accountId,value:local.readAction(command.accountId,command.input.actionId)}};break;
       case "mail.local.action.list": if(!local)throw locked;result={local:{operation:command.operation,accountId:command.accountId,value:local.listActions(command.accountId,command.input)}};break;
       case "mail.local.action.cancel": if(!local)throw locked;result={local:{operation:command.operation,accountId:command.accountId,value:local.cancelAction(command.accountId,command.input)}};break;
@@ -255,9 +256,10 @@ async function request(message: Extract<ParentMessage, { kind: "request" }>): Pr
         break;
       }
       case "mail.folders.list": {
+        const folderDatabase=database;
         if (credentials.status(command.accountId).state === "disconnected") throw locked;
         const page = repository.listFoldersPage(command.accountId, { limit: command.limit, after: command.after });
-        result = pageResult(message.id, page.items.map((folder) => ({ id: folder.id, name: folder.name, kind: folder.kind, parentId: folder.parent_id, ...(folder.role ? {role: folder.role} : {}) })), page.hasMore, true);
+        result = pageResult(message.id, page.items.map((folder) => ({ id: folder.id, name: folder.name, kind: folder.kind, parentId: folder.parent_id, mutationPrecondition:storedFolderMutationPrecondition(folderDatabase,command.accountId,folder.id), ...(folder.role ? {role: folder.role} : {}) })), page.hasMore, true);
         break;
       }
       case "mail.sync.provider":
