@@ -2,7 +2,7 @@ import {test,expect} from 'bun:test';
 import {mkdtemp,writeFile,rm} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join,resolve} from 'node:path';
-import {spawn} from 'node:child_process';
+import {spawn,spawnSync} from 'node:child_process';
 import {createRequire} from 'node:module';
 
 test('Settings preserves explicit shared grants and composer binds the mailbox From identity',async()=>{
@@ -20,7 +20,8 @@ test('Settings preserves explicit shared grants and composer binds the mailbox F
  throw Error('Unexpected fixture request');});
  function Fixture(){const[accounts,setAccounts]=useState([parent]),[compose,setCompose]=useState(false);window.__compose=()=>setCompose(true);return compose?React.createElement(MailComposer,{client,accounts,initial:{account:'shared',id:'22222222-2222-4222-8222-222222222222',version:null,content:emptyCompose(selected.identity.address)},onClose:()=>{},onSwitch:()=>{}}):React.createElement(GraphMailboxesView,{client,accounts,onChanged:()=>setAccounts([parent,selected])});}
  createRoot(document.getElementById('root')).render(React.createElement(Fixture));`);
- const built=await Bun.build({entrypoints:[entry],outdir:dir,target:'browser',alias:{'@':join(app,'src')},plugins:[{name:'fixture-zod',setup(build){build.onResolve({filter:/^zod$/},()=>({path:join(app,'../server/node_modules/zod/index.js')}));}}],minify:true});if(!built.success)throw Error(built.logs.map(String).join('\n'));
+ const builder=join(dir,'build.mjs');await writeFile(builder,`const built=await Bun.build({entrypoints:[${JSON.stringify(entry)}],outdir:${JSON.stringify(dir)},target:'browser',alias:{'@':${JSON.stringify(join(app,'src'))}},plugins:[{name:'fixture-zod',setup(build){build.onResolve({filter:/^zod$/},()=>({path:${JSON.stringify(join(app,'../server/node_modules/zod/index.js'))}}));}}],minify:true});if(!built.success)throw Error(built.logs.map(String).join('\\n'));`);
+ const built=spawnSync(process.execPath,[builder],{encoding:'utf8',timeout:10000});if(built.status!==0)throw Error(built.stderr||built.stdout);
  await writeFile(join(dir,'index.html'),'<meta charset="utf-8"><div id="root"></div><script src="entry.js"></script>');
  const probe=join(dir,'probe.cjs');await writeFile(probe,`
  const{app,BrowserWindow}=require('electron'),assert=require('node:assert/strict');app.setPath('userData',${JSON.stringify(join(dir,'profile'))});app.whenReady().then(async()=>{const win=new BrowserWindow({show:false,webPreferences:{sandbox:true,contextIsolation:true,nodeIntegration:false}});await win.loadFile(${JSON.stringify(join(dir,'index.html'))});const run=code=>win.webContents.executeJavaScript(code);const until=async code=>{for(let i=0;i<250;i++){if(await run(code))return;await new Promise(r=>setTimeout(r,20));}throw Error('UI timeout '+code);};

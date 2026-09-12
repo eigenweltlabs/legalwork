@@ -66,7 +66,7 @@ export class LocalMailService implements MailService {
       },
     });
   }
-  async senders(accountId:string){const result=await this.request({operation:'mail.senders.list',accountId});if(!('senders' in result))throw new MailServiceError('unavailable');return result.senders;}
+  async senders(accountId:string){const result=await this.request({operation:'mail.senders.list',accountId});if(!('senders' in result))throw new MailServiceError('unavailable');return result.senders.length?result.senders:this.refreshSenders(accountId);}
   async refreshSenders(accountId:string){
     const epoch=this.epoch,provider=await this.request({operation:'mail.sync.provider',accountId});if(!('syncProvider' in provider))throw new MailServiceError('unavailable');
     const settings=provider.syncProvider==='imap'?undefined:await this.loadProviderSettings?.(provider.syncProvider,provider.personal);
