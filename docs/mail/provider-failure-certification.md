@@ -54,3 +54,16 @@ The new outbound cases span queue → production runner/adapter → lost acknowl
 - Shared file-storage provider branches and the separate LegalMemory deployment remain external dependencies. Passing local mail restore/search/scope checks does not certify those unmerged/deployed services.
 
 No unresolved silent-loss or duplicate-send defect was observed in the exercised synthetic matrix. This conclusion is limited to the source and scenarios above; overall release/provider acceptance remains gated by the untested live and platform capabilities.
+
+## Scope-freeze acceptance reconciliation — 12 September 2026
+
+This records the current EIG-153 criteria without changing them or rerunning the matrix. The retained 352 native cases and 38 contract cases remain evidence for their recorded source baseline, not a claim that every later application change was re-certified by that run.
+
+| Original acceptance requirement | Evidence and remaining boundary |
+|---|---|
+| Provider-visible manifests and sampled hashes after backfill, replay and full reconciliation | Synthetic authoritative/replay/reconciliation coverage is recorded above. The separate real Workspace backfill observation now passes: all 609 identities and memberships, 14 labels, sampled 10 originals/10 bodies/17 attachments. Real cross-provider replay/full-reconciliation qualification remains open through EIG-173. |
+| Expired cursors, UIDVALIDITY resets, missed events, conflicts, disk full, throttling, revoked auth and crash checkpoints | Accepted synthetic production-engine/native/TLS evidence above. This does not claim real provider policy behavior or every filesystem/power-loss failure. |
+| Offline old bodies and never-opened attachments; uncertain Gmail/Graph/SMTP sends | Accepted synthetic encrypted-reopen and production-adapter evidence above. No actual provider send, recipient delivery or real Sent-folder placement is inferred. |
+| Publish capability results, exclusions and unresolved defects; reject silent loss/duplicate-send defects | Published matrix, source digest, complete raw logs and initial failure accounting retained. The demonstrated replay-trigger defect was repaired, not excluded. Missing live accounts and controlled outbound permissions remain explicit gates. |
+
+The precise account and user inputs are listed in [EIG-173's acceptance reconciliation](live-provider-qualification.md#scope-freeze-acceptance-reconciliation--12-september-2026). No new live mailbox access, authentication, mutation, model call or repeated Gmail diagnostic was performed for this update. EIG-152 remains the authority for its separate desktop/package evidence; that evidence cannot substitute for provider qualification. EIG-153's documented synthetic criteria are complete, but its original full acceptance remains **open for the retained real-provider and authorized outbound gates**. Stop at these external dependencies rather than relabeling unverified providers as passed.
