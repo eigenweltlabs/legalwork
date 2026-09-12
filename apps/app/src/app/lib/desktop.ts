@@ -49,6 +49,9 @@ export type BrowserProxyState = {
 declare global {
   interface Window {
     __LEGALWORK_ELECTRON__?: {
+      mailDesktopSettings?:()=>Promise<unknown>;
+      mailDesktopSettingsSave?:(value:unknown)=>Promise<unknown>;
+      mailNotificationTarget?:()=>Promise<unknown>;
       mailDraftRecoveryWrite?: (value:unknown)=>Promise<unknown>;
       mailDraftRecoveryList?: ()=>Promise<unknown>;
       mailDraftRecoveryRemove?: (value:{id:string;revision:number})=>Promise<unknown>;

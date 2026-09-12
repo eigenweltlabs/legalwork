@@ -1,3 +1,4 @@
+import type {MailNotificationPoll,MailNotificationBatch} from './notification-view.js';
 import type {DraftSyncRequest,DraftSyncStatus} from "./draft-sync-view.js";
 import type {SenderIdentity,SenderSettings,SenderConfigure} from './sender-view.js';
 import type {MailUpload,MailUploadView} from "./local-view.js";
@@ -22,6 +23,9 @@ export class MailServiceError extends Error {
 
 /** Bound to one trusted owner at construction; no request supplies an owner ID. */
 export interface MailService {
+  pollNotifications(input:MailNotificationPoll):Promise<MailNotificationBatch>;
+  setLifecycleSuspended(suspended:boolean):Promise<{state:'running'|'suspended'}>;
+  lifecycleStatus():Promise<{state:'running'|'suspended'}>;
   senders(accountId:string):Promise<SenderIdentity[]>;
   refreshSenders(accountId:string):Promise<SenderIdentity[]>;
   configureSender(accountId:string,input:SenderConfigure):Promise<SenderIdentity[]>;

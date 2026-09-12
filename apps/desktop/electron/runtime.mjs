@@ -1,3 +1,4 @@
+import {configureMailDesktop} from './mail-desktop.mjs';
 import { configureMailBadge } from "./app-badge.mjs";
 import { randomUUID } from "node:crypto";
 import { spawn, spawnSync } from "node:child_process";
@@ -1329,9 +1330,10 @@ export function createRuntimeManager({ app, desktopRoot, listLocalWorkspacePaths
     const { startEmbeddedServer } = await import(pathToFileURL(embeddedPath).href);
     let mail;
     if (!options.remoteAccessEnabled) {
-      const { safeStorage, nativeImage, BrowserWindow } = await import("electron");
+      const { safeStorage, nativeImage, BrowserWindow, Notification, powerMonitor } = await import("electron");
       mail = await createDesktopMailService({ app, embeddedPath, safeStorage });
       await configureMailBadge({ app, nativeImage, BrowserWindow, service: mail });
+      await configureMailDesktop({app,service:mail,Notification,powerMonitor});
       // Reuse normal keychain preflight/unlock for existing profiles, including rotated stores.
       const mailDirectory = path.join(app.getPath("userData"), "mail");
       if (existsSync(path.join(mailDirectory, "mail.sqlite")) || existsSync(path.join(mailDirectory, "active-store-v1.json"))) void mail.unlock().catch(() => {});
