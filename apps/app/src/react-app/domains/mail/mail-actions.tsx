@@ -1,3 +1,4 @@
+import {mailShortcutProps} from './mail-keyboard';
 /** @jsxImportSource react */
 import {useEffect,useRef,useState} from 'react';
 import {Archive,Trash2,Flag,Mail,MailOpen,FolderInput,Tag,MoreHorizontal,Undo2,FolderPlus,X} from 'lucide-react';
@@ -17,7 +18,7 @@ export function optimisticMail(item:MailMessageView,entries:ActionEntry[]):MailM
  }
  return current;
 }
-export function MailActionBar({client,accounts,accountId,selected,folder,folders,onEntries,onRefresh}:{client:MailClient;accounts:MailAccountView[];accountId:string;selected:MailMessageView[];folder?:MailFolderView;folders:MailFolderView[];onEntries:(entries:ActionEntry[])=>void;onRefresh:()=>void}){
+export function MailActionBar({blocked=false,client,accounts,accountId,selected,folder,folders,onEntries,onRefresh}:{blocked?:boolean;client:MailClient;accounts:MailAccountView[];accountId:string;selected:MailMessageView[];folder?:MailFolderView;folders:MailFolderView[];onEntries:(entries:ActionEntry[])=>void;onRefresh:()=>void}){
  const [entries,setEntries]=useState<ActionEntry[]>([]),[busy,setBusy]=useState(false),[errors,setErrors]=useState<string[]>([]),[showActivity,setShowActivity]=useState(false),[next,setNext]=useState<string|null>(null);
  const [dialog,setDialog]=useState<'delete'|'create'|'rename'|'delete-folder'|null>(null),[name,setName]=useState(''),[destinations,setDestinations]=useState<MailFolderView[]>([]);
  const api=useRef(new MailActionsClient(client)),store=useRef(new Map<string,ActionEntry>()),abort=useRef(new AbortController()),refresh=useRef(onRefresh),notify=useRef(onEntries);refresh.current=onRefresh;notify.current=onEntries;
@@ -49,22 +50,22 @@ export function MailActionBar({client,accounts,accountId,selected,folder,folders
   const result=await api.current.mutate(accountId,{replayKey:crypto.randomUUID(),precondition,change},signal);if(signal.aborted)return;remember({...result,accountId});publish();setDialog(null);setShowActivity(true);
  }catch(error){if(!signal.aborted)setErrors([error instanceof Error?error.message:'Could not queue folder change.']);}finally{if(!signal.aborted)setBusy(false);}}
  const hasPending=selected.some(item=>entries.some(entry=>entry.accountId===item.accountId&&pendingAction(entry.state)&&JSON.stringify(entry.mutation?.locator)===JSON.stringify(item.locator)));
- const disabled=busy||!selected.length||hasPending;
+ const disabled=blocked||busy||!selected.length||hasPending;
  const singleAccount=selected.length>0&&selected.every(item=>item.accountId===selected[0].accountId),gmail=singleAccount&&selected[0].locator.provider==='gmail';
  const activity=entries.filter(entry=>entry.kind==='mutation'&&(entry.accountId===accountId||!accountId||selected.some(item=>item.accountId===entry.accountId)));
  return <div className="mail-action-area">
   <div className="mail-bulk-toolbar" role="toolbar" aria-label="Mailbox actions">
    <span>{selected.length?`${selected.length} selected`:''}</span>
-   <button className="mail-icon-button" aria-label="Mark read" title="Mark read" disabled={disabled} onClick={()=>void apply({kind:'read',read:true})}><MailOpen size={15}/></button>
-   <button className="mail-icon-button" aria-label="Mark unread" title="Mark unread" disabled={disabled} onClick={()=>void apply({kind:'read',read:false})}><Mail size={15}/></button>
-   <button className="mail-icon-button" aria-label={selected.every(item=>item.isFlagged)?'Unflag':'Flag'} title="Flag or unflag" disabled={disabled} onClick={()=>void apply({kind:'flags',add:selected.every(item=>item.isFlagged)?[]:['\\Flagged'],remove:selected.every(item=>item.isFlagged)?['\\Flagged']:[]})}><Flag size={15}/></button>
-   <button className="mail-icon-button" aria-label="Archive" title="Archive" disabled={disabled} onClick={()=>void apply({kind:'special',operation:'archive'})}><Archive size={15}/></button>
-   <button className="mail-icon-button" aria-label="Move to Trash" title="Move to Trash" disabled={disabled} onClick={()=>void apply({kind:'special',operation:'trash'})}><Trash2 size={15}/></button>
-   <label className="mail-action-select" title={gmail?'Apply label':'Move to folder'}>{gmail?<Tag size={15}/>:<FolderInput size={15}/>}<select aria-label={gmail?'Apply label':'Move to folder'} disabled={disabled||!singleAccount} value="" onChange={event=>{if(event.target.value)void apply(gmail?{kind:'memberships',add:[event.target.value],remove:[]}:{kind:'move',destination:event.target.value});}}><option value="">{gmail?'Label':'Move'}</option>{destinations.filter(value=>value.kind!=='label'||!['INBOX','UNREAD','STARRED','SENT','DRAFT','TRASH','SPAM','CHAT','IMPORTANT'].includes(value.id)).map(value=><option key={value.id} value={value.id}>{value.name}</option>)}</select></label>
+   <button className="mail-icon-button" data-mail-command="read" aria-label="Mark read" {...mailShortcutProps('read','Mark read')} disabled={disabled} onClick={()=>void apply({kind:'read',read:true})}><MailOpen size={15}/></button>
+   <button className="mail-icon-button" data-mail-command="unread" aria-label="Mark unread" {...mailShortcutProps('unread','Mark unread')} disabled={disabled} onClick={()=>void apply({kind:'read',read:false})}><Mail size={15}/></button>
+   <button className="mail-icon-button" data-mail-command="flag" aria-label={selected.every(item=>item.isFlagged)?'Unflag':'Flag'} {...mailShortcutProps('flag','Flag or unflag')} disabled={disabled} onClick={()=>void apply({kind:'flags',add:selected.every(item=>item.isFlagged)?[]:['\\Flagged'],remove:selected.every(item=>item.isFlagged)?['\\Flagged']:[]})}><Flag size={15}/></button>
+   <button className="mail-icon-button" data-mail-command="archive" aria-label="Archive" {...mailShortcutProps('archive','Archive')} disabled={disabled} onClick={()=>void apply({kind:'special',operation:'archive'})}><Archive size={15}/></button>
+   <button className="mail-icon-button" data-mail-command="trash" aria-label="Move to Trash" {...mailShortcutProps('trash','Move to Trash')} disabled={disabled} onClick={()=>void apply({kind:'special',operation:'trash'})}><Trash2 size={15}/></button>
+   <label className="mail-action-select" title={gmail?'Apply label':'Move to folder'}>{gmail?<Tag size={15}/>:<FolderInput size={15}/>}<select data-mail-command="move" aria-label={gmail?'Apply label':'Move to folder'} disabled={disabled||!singleAccount} value="" onChange={event=>{if(event.target.value)void apply(gmail?{kind:'memberships',add:[event.target.value],remove:[]}:{kind:'move',destination:event.target.value});}}><option value="">{gmail?'Label':'Move'}</option>{destinations.filter(value=>value.kind!=='label'||!['INBOX','UNREAD','STARRED','SENT','DRAFT','TRASH','SPAM','CHAT','IMPORTANT'].includes(value.id)).map(value=><option key={value.id} value={value.id}>{value.name}</option>)}</select></label>
    <details className="mail-more-actions" onClick={event=>{if(event.target instanceof Element&&event.target.closest('button:not(:disabled)'))event.currentTarget.open=false;}}><summary aria-label="More mailbox actions" title="More actions"><MoreHorizontal size={16}/></summary><div>
     <button disabled={disabled} onClick={()=>void apply({kind:'special',operation:'spam'})}>Mark as spam</button><button disabled={disabled} onClick={()=>void apply({kind:'special',operation:'inbox'})}>Move to Inbox</button>
     {gmail&&folder?.kind==='label'&&<button disabled={disabled} onClick={()=>void apply({kind:'memberships',add:[],remove:[folder.id]})}>Remove this label</button>}
-    <button disabled={disabled} onClick={()=>setDialog('delete')}>Permanently delete…</button>
+    <button data-mail-command="delete" aria-label="Permanently delete…" disabled={disabled} onClick={()=>setDialog('delete')}>Permanently delete…</button>
     <button disabled={!accountId||busy} onClick={()=>{setName('');setDialog('create');}}><FolderPlus size={13}/>New folder or label…</button>
     <button disabled={!folder?.mutationPrecondition||busy} onClick={()=>{setName(folder?.name??'');setDialog('rename');}}>Rename folder or label…</button>
     <button disabled={!folder?.mutationPrecondition||busy} onClick={()=>setDialog('delete-folder')}>Delete folder or label…</button>
