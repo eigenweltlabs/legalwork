@@ -1,7 +1,10 @@
 import {useEffect,useMemo,useRef,useState} from 'react';
 import {z} from 'zod';
+import {mailReaderKeyAllowed} from './mail-reader-keys';
+import {mailPlatform} from './mail-keyboard';
 import {mailDocument,mailLink} from './mail-html';
 import type {MailMessageView,MailPartView} from './mail-client';
+const readerKey=z.object({type:z.literal('mail-reader-key'),token:z.string(),key:z.string().max(12),ctrlKey:z.boolean(),metaKey:z.boolean(),altKey:z.boolean(),shiftKey:z.boolean()}).strict();
 const imageResult=z.object({items:z.array(z.object({url:z.string().max(4096),data:z.string().max(6*1024*1024)})).max(30),failed:z.number().int().min(0).max(100)});
 type FrameProps={html:string;inline:ReadonlyMap<string,string>;item:MailMessageView;bodyPart?:MailPartView;signal:AbortSignal;imageBudget?:number};
 /** Legacy envelopes lack MIME ancestry: retain every section rather than guessing away text. */
@@ -9,7 +12,7 @@ export function MailHtmlParts({bodies,...props}:{bodies:{text:string;presentatio
  const [page,setPage]=useState(0),visible=bodies.filter(body=>body.presentation!==false),shown=visible.slice(page*10,page*10+10);
  return <>{shown.map((body,index)=><section key={page*10+index}>{visible.length>1&&<p className="mail-html-part-label">Message part {page*10+index+1} of {visible.length}</p>}<MailHtmlFrame {...props} imageBudget={Math.floor(16*1024*1024/shown.length)} html={body.text}/></section>)}{visible.length>10&&<nav aria-label="Message parts"><button disabled={!page} onClick={()=>setPage(value=>value-1)}>Previous parts</button><button disabled={(page+1)*10>=visible.length} onClick={()=>setPage(value=>value+1)}>Next parts</button></nav>}</>;
 }
-/** Opaque origin, no sender script. Only the nonce-bearing sizing/link bridge runs. */
+/** Opaque origin, no sender script. Only the nonce-bearing sizing/link/reader-key bridge runs. */
 export function MailHtmlFrame({html,inline,item,bodyPart,signal,imageBudget}:FrameProps){
  const frame=useRef<HTMLIFrameElement>(null),[height,setHeight]=useState(160),[images,setImages]=useState<ReadonlyMap<string,string>>(new Map()),[loading,setLoading]=useState(false),[error,setError]=useState(''),[link,setLink]=useState<string|null>(null);
  const nonce=useMemo(()=>crypto.randomUUID(),[html,inline,images,item.accountId,item.key]);
@@ -17,6 +20,7 @@ export function MailHtmlFrame({html,inline,item,bodyPart,signal,imageBudget}:Fra
  useEffect(()=>{setHeight(160);const listener=(event:MessageEvent)=>{
   if(signal.aborted||event.source!==frame.current?.contentWindow||event.origin!=='null')return;
   const value:unknown=event.data;if(!value||typeof value!=='object'||!('token' in value)||value.token!==nonce||!('type' in value))return;
+  if(value.type==='mail-reader-key'&&document.activeElement===frame.current&&!document.querySelector('[role=dialog],[role=alertdialog],[role=menu]')){const parsed=readerKey.safeParse(value);if(parsed.success&&mailReaderKeyAllowed(parsed.data,mailPlatform()==='mac'))frame.current?.dispatchEvent(new KeyboardEvent('keydown',{...parsed.data,bubbles:true,cancelable:true}));}
   if(value.type==='mail-size'&&'height' in value&&typeof value.height==='number'&&Number.isInteger(value.height)&&value.height>=80&&value.height<=20000)setHeight(value.height);
   if(value.type==='mail-link'&&'index' in value&&typeof value.index==='number'&&Number.isSafeInteger(value.index)&&value.index>=0&&value.index<rendered.links.length)setLink(rendered.links[value.index]);
  };window.addEventListener('message',listener);return()=>window.removeEventListener('message',listener);},[nonce,rendered,signal]);
