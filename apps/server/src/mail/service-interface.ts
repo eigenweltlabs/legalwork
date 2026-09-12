@@ -1,3 +1,5 @@
+import type {StorageSaveInput,StorageSaveResult} from './storage-save-view.js';
+import type {FilingInput,FilingResult} from './filing-view.js';
 import type {MailMaintenanceReport} from './maintenance-view.js';
 import type {RetentionCommand,RetentionPreview} from './retention-view.js';
 import type {MailNotificationPoll,MailNotificationBatch} from './notification-view.js';
@@ -26,6 +28,8 @@ export class MailServiceError extends Error {
 
 /** Bound to one trusted owner at construction; no request supplies an owner ID. */
 export interface MailService {
+  storageSave(input:StorageSaveInput):Promise<StorageSaveResult>;
+  filing(input:FilingInput):Promise<FilingResult>;
   pollNotifications(input:MailNotificationPoll):Promise<MailNotificationBatch>;
   setLifecycleSuspended(suspended:boolean):Promise<{state:'running'|'suspended'}>;
   lifecycleStatus():Promise<{state:'running'|'suspended'}>;

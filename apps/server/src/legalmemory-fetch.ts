@@ -320,7 +320,7 @@ function legalMemoryToolPayload(value: unknown): unknown {
   throw new Error("LegalMemory returned no structured tool content");
 }
 
-async function callLegalMemoryTool(
+export async function callLegalMemoryTool(
   server: LegalMemoryServer,
   name: string,
   args: Record<string, unknown>,

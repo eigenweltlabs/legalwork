@@ -1,3 +1,5 @@
+import {MailStorageSaveStore} from '../storage/storage-save-store.js';
+import {MailFilingStore} from '../storage/filing-store.js';
 import {MailRetentionStore} from '../storage/retention.js';
 import {MailRetentionError} from '../retention-view.js';
 import {MailNotificationStore} from '../storage/notifications.js';
@@ -151,6 +153,9 @@ async function initialize(value: WorkerInitialization): Promise<void> {
     migrateMailSchema(database);
     assertMailSchema(database);
     ownerId=value.ownerId;
+    database.run("UPDATE mail_storage_saves SET state='uncertain',error='restart_review',revision=revision+1 WHERE state IN ('queued','uploading')");
+    database.run("UPDATE mail_storage_save_parts SET state='uncertain' WHERE state='uploading'");
+    database.run("UPDATE mail_matter_filings SET state='uncertain',error='restart_review',revision=revision+1 WHERE state IN ('queued','uploading')");
     portability=new MailPortabilityStore(database,value.ownerId);retention=new MailRetentionStore(database,value.ownerId);
     repository = new MailRepository(database, value.ownerId);
     local=new MailLocalApiStore(database,value.ownerId);
@@ -212,6 +217,8 @@ async function request(message: Extract<ParentMessage, { kind: "request" }>): Pr
   try {
     let result: WorkerResult | undefined;
     switch (command.operation) {
+      case "mail.storage.save":result={storageSave:new MailStorageSaveStore(database,ownerId).execute(command.input)};break;
+      case "mail.filing":result={filing:new MailFilingStore(database,ownerId).execute(command.input)};break;
       case 'mail.notifications.poll':result={notifications:lifecycleSuspended?{items:[],suppressed:0}:new MailNotificationStore(database,ownerId).poll(command.input)};break;
       case 'mail.lifecycle.status':result={lifecycle:{state:lifecycleSuspended?'suspended':'running'}};break;
       case 'mail.lifecycle.set':{

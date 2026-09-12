@@ -1,3 +1,5 @@
+import {registerMailStorageSaveRoutes} from './routes/mail-storage-save.js';
+import {registerMailFilingRoutes} from './routes/mail-filing.js';
 import { existsSync } from "node:fs";
 import { lstat, mkdir, readFile, writeFile, rm } from "node:fs/promises";
 import { homedir, hostname } from "node:os";
@@ -692,6 +694,7 @@ export type StartedServer = ServeResult & {
 };
 
 export async function startServer(config: ServerConfig, dependencies: { mail?: MailService } = {}): Promise<StartedServer> {
+  let mailStoragePort=config.port;
   const approvals = new ApprovalService(config.approval);
   const reloadEvents = new ReloadEventStore();
   const tokens = new TokenService(config);
@@ -716,6 +719,18 @@ export async function startServer(config: ServerConfig, dependencies: { mail?: M
   });
   const routes = createRoutes(config, approvals, tokens, env, officeTools, restartReloadWatchers, benchmarkRunner);
   registerMailRoutes(routes, config.host, dependencies.mail);
+  registerMailStorageSaveRoutes({routes,host:config.host,mail:dependencies.mail,workspaces:()=>config.workspaces.flatMap(workspace=>workspace.id?[{id:workspace.id,name:workspace.name||workspace.id}]:[]),resolveWorkspace:async id=>{await resolveWorkspace(config,id);},request:async(path,input)=>{
+    const origin=`http://${config.host==='::1'?'[::1]':config.host}:${mailStoragePort}`;
+    const options={method:input?.method??'GET',headers:{Authorization:`Bearer ${config.token}`,...input?.contentType?{'Content-Type':input.contentType}:{}},body:input?.body,duplex:'half',redirect:'error',signal:AbortSignal.timeout(900000)};
+    return fetch(origin+path,{...options,redirect:'error'});
+  }});
+
+  registerMailFilingRoutes(routes,config.host,dependencies.mail,()=>config.workspaces.flatMap(workspace=>workspace.id?[{id:workspace.id,name:workspace.name||workspace.id}]:[]),async workspaceId=>{
+    const workspace=await resolveWorkspace(config,workspaceId);
+    const server=resolveLegalMemoryServer(await listMcp(config,workspace.id,workspace.path));
+    if(!server)throw new ApiError(409,'legalmemory_not_configured','Configure LegalMemory for the selected workspace in Settings.');
+    return {server,bearer:await engineAccessToken(server.name)};
+  });
 
   const serverOptions: {
     hostname: string;
@@ -879,6 +894,8 @@ export async function startServer(config: ServerConfig, dependencies: { mail?: M
     ...serverOptions,
     idleTimeout: 120,
   });
+
+  mailStoragePort=server.port;
 
   // Optional HTTPS listener for the Word add-in. It shares the exact same
   // fetch handler (API, OpenCode proxy, and /word-addin static hosting), so
