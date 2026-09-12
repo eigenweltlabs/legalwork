@@ -312,8 +312,8 @@ test('onboarding HTTP forwards explicit personal selection and bounded cancellab
 
 test('draft synchronization HTTP enforces host authorization, exact version and conflict hash contracts',async()=>{
  const mock=mockService(),draftId=crypto.randomUUID(),expected={generation:crypto.randomUUID(),revision:1};let calls=0;
- mock.service.requestDraftSync=async(accountId,input)=>{calls++;return{accountId,draftId:input.draftId,state:'queued',enabled:true,dirty:true,revision:1,remote:null,remoteHash:null,error:null,operation:'upsert',updatedAt:1};};
- mock.service.draftSyncStatus=async(accountId,input)=>({accountId,draftId:input.draftId,state:'local',enabled:false,dirty:true,revision:0,remote:null,remoteHash:null,error:null,operation:'upsert',updatedAt:0});
+ mock.service.requestDraftSync=async(accountId,input)=>{calls++;return{accountId,draftId:input.draftId,recipientInputLocalOnly:false,state:'queued',enabled:true,dirty:true,revision:1,remote:null,remoteHash:null,error:null,operation:'upsert',updatedAt:1};};
+ mock.service.draftSyncStatus=async(accountId,input)=>({accountId,draftId:input.draftId,recipientInputLocalOnly:false,state:'local',enabled:false,dirty:true,revision:0,remote:null,remoteHash:null,error:null,operation:'upsert',updatedAt:0});
  const{base}=await boot(mock.service),post=(suffix:string,body:unknown,headers:Record<string,string>=auth)=>fetch(base+'/accounts/local/drafts/sync/'+suffix,{method:'POST',headers:{...headers,'Content-Type':'application/json'},body:JSON.stringify(body)});
  expect((await post('request',{draftId,expected,action:'sync'},{})).status).toBe(401);
  expect((await post('request',{draftId,expected,action:'sync'},{authorization:'Bearer synthetic-mail-collaborator'})).status).toBe(401);
