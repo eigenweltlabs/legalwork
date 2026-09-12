@@ -1,3 +1,4 @@
+import {linkTestModules} from './link-test-modules.mjs';
 import {execFileSync} from 'node:child_process';
 import {createRequire} from 'node:module';
 import {mkdtemp,writeFile,readFile,mkdir,copyFile,symlink,rm} from 'node:fs/promises';
@@ -9,7 +10,7 @@ const require=createRequire(join(desktop,'package.json')),serverRequire=createRe
 const folder=await mkdtemp(join(tmpdir(),'legalwork-platform-')),build=join(folder,'build'),profile=join(folder,"profile space ü $ apostrophe'",'nested-'+'p'.repeat(100),'nested-'+'q'.repeat(100));
 try {
   await mkdir(profile,{recursive:true,mode:0o700});await writeFile(join(folder,'package.json'),'{"type":"module"}');
-  await symlink(join(server,'node_modules'),join(folder,'node_modules'),process.platform==='win32'?'junction':'dir');
+  await linkTestModules(join(server,'node_modules'),join(folder,'node_modules'));
   execFileSync(process.execPath,[serverRequire.resolve('typescript/bin/tsc'),'--outDir',build,'--rootDir','src','--module','NodeNext','--moduleResolution','NodeNext','--target','ES2022','--strict','--skipLibCheck','--types','node,bun-types','src/mail/runtime/maintenance-worker.ts','src/mail/storage/search.ts'],{cwd:server,stdio:'inherit',timeout:60000});
   for(const name of ['mail-key-store.mjs','mail-store-maintenance.mjs'])await copyFile(join(desktop,'electron',name),join(build,name));
   const electronEnv={};for(const name of ['HOME','USERPROFILE','SystemRoot','WINDIR','PATH','TMP','TEMP','TMPDIR','LOCALAPPDATA','APPDATA'])if(process.env[name])electronEnv[name]=process.env[name];

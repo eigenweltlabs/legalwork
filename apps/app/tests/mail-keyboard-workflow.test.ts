@@ -1,3 +1,4 @@
+import {linkTestModules} from '../../../scripts/mail/link-test-modules.mjs';
 import {test,expect} from 'bun:test';
 import {mkdtemp,writeFile,rm,symlink} from 'node:fs/promises';
 import {tmpdir} from 'node:os';import {join,resolve} from 'node:path';import {createRequire} from 'node:module';import {spawn} from 'node:child_process';import {pathToFileURL} from 'node:url';import {randomUUID,createHash} from 'node:crypto';
@@ -33,7 +34,7 @@ test('Mail keyboard workflows preserve shell/typing, select bulk ranges, restore
   return Response.json(value,{headers});
  }});
  try{
-  await symlink(join(appRoot,'node_modules'),join(root,'node_modules'),process.platform==='win32'?'junction':'dir');const entry=join(root,'entry.tsx');
+  await linkTestModules(join(appRoot,'node_modules'),join(root,'node_modules'));const entry=join(root,'entry.tsx');
   await writeFile(entry,`import React from 'react';import {createRoot} from 'react-dom/client';import {MemoryRouter} from 'react-router-dom';import {MailRoute} from ${JSON.stringify(join(appRoot,'src/react-app/domains/mail/mail-route.tsx'))};import {mailKeyboard,mailShortcut} from ${JSON.stringify(join(appRoot,'src/react-app/domains/mail/mail-keyboard.ts'))};
 localStorage.setItem('legalwork.server.urlOverride','http://127.0.0.1:${server.port}');localStorage.setItem('legalwork.server.hostToken','synthetic');localStorage.setItem('legalwork.server.token','synthetic');window.platform='windows';Object.defineProperty(navigator,'platform',{get:()=>window.platform==='mac'?'MacIntel':'Win32'});window.shellKeys=[];window.addEventListener('keydown',event=>{if(!event.defaultPrevented&&(event.ctrlKey||event.metaKey))window.shellKeys.push(event.key)});window.keys=(selector,key,extra={})=>{const target=typeof selector==='string'?document.querySelector(selector):document.activeElement;if(!target)throw Error('Missing '+selector);target.focus();const event=new KeyboardEvent('keydown',{key,bubbles:true,cancelable:true,...extra});if(extra.altGraph)Object.defineProperty(event,'getModifierState',{value:name=>name==='AltGraph'});target.dispatchEvent(event);return event.defaultPrevented;};window.shortcut=mailShortcut;createRoot(document.getElementById('root')).render(<MemoryRouter><MailRoute/></MemoryRouter>);`);
   const build=await Bun.build({entrypoints:[entry],target:'browser',outdir:root,alias:{'@':join(appRoot,'src')},minify:true,plugins:[{name:'zod',setup(build){build.onResolve({filter:/composer-state-store$/},()=>({path:join(appRoot,'src/react-app/domains/session/surface/composer-state-store.ts')}));build.onResolve({filter:/^zod$/},()=>({path:join(appRoot,'node_modules/zod/index.js')}));}}]});if(!build.success)throw Error(build.logs.map(String).join('\n'));
