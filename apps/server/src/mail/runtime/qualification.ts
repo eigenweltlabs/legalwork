@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { z } from 'zod';
-import { qualificationInputSchema, type QualificationInput, type QualificationReport } from '../qualification-view.js';
+import { qualificationInputSchema, qualificationTransportCodeSchema, type QualificationInput, type QualificationReport } from '../qualification-view.js';
 import type { MailDatabase } from '../storage/database-interface.js';
 import { MailCredentialRepository } from '../storage/credentials.js';
 import { MailReadStore } from '../storage/read-store.js';
@@ -89,7 +89,10 @@ export class MailQualification {
             downloadedSampleBytes: 0,
             providerStable: null,
             localStable: null,
-            error: null
+            error: null,
+            transportCode: null,
+            retryAfterMs: null,
+            failedPhase: null
         };
         const abort = new AbortController(), job = {
             accountId: input.accountId,
@@ -100,6 +103,14 @@ export class MailQualification {
         this.job = job;
         const timer = setTimeout(() => abort.abort('deadline'), this.options.timeoutMs ?? 180000);
         job.done = this.run(input.accountId, report, abort.signal, status.version.generation).catch(error => {
+            if (report.phase !== 'finished') report.failedPhase = report.phase;
+            if (error instanceof GmailTransportError) {
+                const code = qualificationTransportCodeSchema.safeParse(error.code);
+                report.transportCode = code.success ? code.data : null;
+                const retryAfter = error.retryAfterMs;
+                report.retryAfterMs = typeof retryAfter === 'number' && Number.isSafeInteger(retryAfter) && retryAfter >= 0
+                    ? retryAfter : null;
+            }
             if (abort.signal.aborted) {
                 const deadline = abort.signal.reason === 'deadline';
                 report.state = deadline ? 'limited' : 'cancelled';
