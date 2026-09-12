@@ -1,3 +1,4 @@
+import {MAIL_FILING_SCHEMA_SQL} from "./filing-schema.js";
 import {ARCHIVE_SCHEMA_SQL} from "./archive-schema.js";
 import {MAIL_NOTIFICATION_SCHEMA_SQL} from './notification-schema.js';
 import {OUTBOX_SCHEMA_SQL} from './outbox-schema.js';
@@ -15,7 +16,7 @@ import { MAIL_LOCAL_SCHEMA_SQL } from "./local-schema.js";
 import { GRAPH_SCHEMA_SQL } from "./graph-state.js";
 import type { MailDatabase } from "./database-interface.js";
 
-export const MAIL_SCHEMA_VERSION = 23;
+export const MAIL_SCHEMA_VERSION = 24;
 
 /** Dedicated mail database only. Every DDL/version write shares one transaction. */
 export function migrateMailSchema(database: MailDatabase): void {
@@ -289,6 +290,7 @@ export function migrateMailSchema(database: MailDatabase): void {
     if(version<21)database.exec(OUTBOX_SCHEMA_SQL);
     if(version<22)database.exec(MAIL_NOTIFICATION_SCHEMA_SQL);
     if(version<23) { database.exec(ARCHIVE_SCHEMA_SQL); if(database.all("PRAGMA foreign_key_check").length)throw new Error("Archive migration violated foreign keys"); }
+    if(version<24)database.exec(MAIL_FILING_SCHEMA_SQL);
     database.run("INSERT INTO mail_schema_version(singleton,version) VALUES(1,?) ON CONFLICT(singleton) DO UPDATE SET version=excluded.version", [MAIL_SCHEMA_VERSION]);
   }); } finally { if(rebuild)database.exec("PRAGMA legacy_alter_table=OFF; PRAGMA foreign_keys=ON"); }
   if(database.get("PRAGMA foreign_keys")?.foreign_keys!==1)throw new Error("Mail foreign keys were not restored");
