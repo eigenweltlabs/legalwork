@@ -1,6 +1,7 @@
 import {MailStorageSavePanel} from './mail-storage-save';
 import {MailFilingPanel} from './mail-filing';
-import {mailKeyboard} from './mail-keyboard';
+import {mailKeyboard,mailShortcutProps} from './mail-keyboard';
+import {MailKeyboardHelp} from './mail-keyboard-help';
 import {MailBackgroundStatus} from './mail-desktop';
 import {mailNotificationOpenSchema} from '../../../../../server/src/mail/notification-view';
 import {MailActionBar,mailItemId,optimisticMail} from './mail-actions';
@@ -221,23 +222,25 @@ export function MailRoute() {
     } }
     const title = thread ? 'Conversation' : folder ? folders.find(value => value.id === folder)?.name ?? folder : inbox ? 'Inbox' : 'All mail';
     const refresh = () => { purge(); setConnectionRevision(value => value + 1); setRevision(value => value + 1); };
-    const openCompose=(value:ComposeSelection)=>{setCompose(value);setDraftsOpen(false);setOutboxOpen(false);};
-    const reader = filingOpen&&client ? (matterFiling?<MailFilingPanel client={client} accountIds={account?[account]:accounts.map(value=>value.id)} message={selected} onClose={()=>setFilingOpen(false)}/>:<MailStorageSavePanel client={client} accountIds={account?[account]:accounts.map(value=>value.id)} message={selected} onClose={()=>setFilingOpen(false)} onMatter={()=>setMatterFiling(true)}/>) : compose&&client ? <MailComposer key={compose.account+compose.id} client={client} accounts={accounts.filter(value=>value.provider!=='archive')} initial={compose} onClose={()=>setCompose(undefined)} onSwitch={openCompose} onQueued={()=>{setCompose(undefined);setOutboxOpen(true);}}/> : outboxOpen&&client ? <MailOutbox client={client} accounts={accounts.filter(value=>value.provider!=='archive')} onClose={()=>setOutboxOpen(false)}/> : draftsOpen&&client ? <MailDrafts client={client} accounts={accounts.filter(value=>value.provider!=='archive')} onOpen={openCompose} onClose={()=>setDraftsOpen(false)}/> : selected && client ? <MailReader key={selected.accountId + '|' + selected.key} client={client} item={selected}
+    const composeReturn=useRef<HTMLElement|null>(null),mailRoot=useRef<HTMLElement|null>(null);
+    const closeCompose=()=>{setCompose(undefined);requestAnimationFrame(()=>{const target=composeReturn.current;if(target?.isConnected)target.focus();else mailRoot.current?.querySelector<HTMLButtonElement>('.mail-message-row[aria-pressed="true"],.mail-message-row')?.focus();});};
+    const openCompose=(value:ComposeSelection)=>{if(!compose&&document.activeElement instanceof HTMLElement)composeReturn.current=document.activeElement;setCompose(value);setDraftsOpen(false);setOutboxOpen(false);};
+    const reader = filingOpen&&client ? (matterFiling?<MailFilingPanel client={client} accountIds={account?[account]:accounts.map(value=>value.id)} message={selected} onClose={()=>setFilingOpen(false)}/>:<MailStorageSavePanel client={client} accountIds={account?[account]:accounts.map(value=>value.id)} message={selected} onClose={()=>setFilingOpen(false)} onMatter={()=>setMatterFiling(true)}/>) : compose&&client ? <MailComposer key={compose.account+compose.id} client={client} accounts={accounts.filter(value=>value.provider!=='archive')} initial={compose} onClose={closeCompose} onSwitch={openCompose} onQueued={()=>{setCompose(undefined);setOutboxOpen(true);}}/> : outboxOpen&&client ? <MailOutbox client={client} accounts={accounts.filter(value=>value.provider!=='archive')} onClose={()=>setOutboxOpen(false)}/> : draftsOpen&&client ? <MailDrafts client={client} accounts={accounts.filter(value=>value.provider!=='archive')} onOpen={openCompose} onClose={()=>setDraftsOpen(false)}/> : selected && client ? <MailReader key={selected.accountId + '|' + selected.key} client={client} item={selected}
       onCompose={openCompose}
       account={accounts.find(value => value.id === selected.accountId)?.displayName ?? selected.accountId}
       onUnavailable={() => { purge(); setError('Mail access changed. Please refresh.'); }}
       onThread={() => { setSearching(false); setAccount(selected.accountId); setThread(selected.threadId ?? undefined); }}/>
       : <div className="mail-empty"><div className="mail-empty-icon"><Mail size={26} strokeWidth={1.3}/></div><h2>Select a message</h2><p>Conversations and attachments.<br/>Available wherever you work.</p></div>;
     return (
-      <main className="mail-workspace" aria-label="Local mail" onKeyDown={event=>mailKeyboard(event.nativeEvent,event.currentTarget)}>
+      <main ref={mailRoot} tabIndex={-1} className="mail-workspace" aria-label="Local mail" onKeyDown={event=>mailKeyboard(event.nativeEvent,event.currentTarget,{showFolders:()=>setFoldersOpen(true)})}>
         <header className="mail-toolbar">
           <button className="mail-icon-button mail-folder-toggle" aria-label="Toggle mail folders" onClick={() => setFoldersOpen(value => !value)}><PanelLeft size={17}/></button>
-          <h1>Mail</h1><button className="mail-icon-button" aria-label="Save mail to connected storage" title="Save mail / retained originals" disabled={!client||locked} onClick={()=>{setMatterFiling(false);setFilingOpen(true);}}><FolderPlus size={15}/></button><MailBackgroundStatus/><details className="mail-shortcuts"><summary aria-label="Mail keyboard shortcuts" title="Mail keyboard shortcuts">?</summary><span>Focus the message list: ↑ / ↓ or Home / End to open messages. / to search, C to compose, R to reply, Shift+R to reply all. Escape clears search. Shortcuts pause while typing.</span></details>
+          <h1>Mail</h1><button className="mail-icon-button" aria-label="Save mail to connected storage" title="Save mail / retained originals" disabled={!client||locked} onClick={()=>{setMatterFiling(false);setFilingOpen(true);}}><FolderPlus size={15}/></button><MailBackgroundStatus/><MailKeyboardHelp/>
           <div className="mail-toolbar-actions">
-            <button className="mail-icon-button" title="Compose (C)" aria-keyshortcuts="C" aria-label="Compose" disabled={locked||!accounts.some(value=>value.provider!=='archive')||!!compose} onClick={()=>{const selectedAccount=accounts.find(value=>value.id===account&&value.provider!=='archive')??accounts.find(value=>value.provider!=='archive');if(!selectedAccount)return;openCompose({account:selectedAccount.id,id:crypto.randomUUID(),version:null,content:emptyCompose(selectedAccount.identity?.address??addresses(selectedAccount.displayName)[0]??'')});}}><SquarePen size={16}/></button>
+            <button className="mail-icon-button" {...mailShortcutProps('compose','Compose')} aria-label="Compose" disabled={locked||!accounts.some(value=>value.provider!=='archive')||!!compose} onClick={()=>{const selectedAccount=accounts.find(value=>value.id===account&&value.provider!=='archive')??accounts.find(value=>value.provider!=='archive');if(!selectedAccount)return;openCompose({account:selectedAccount.id,id:crypto.randomUUID(),version:null,content:emptyCompose(selectedAccount.identity?.address??addresses(selectedAccount.displayName)[0]??'')});}}><SquarePen size={16}/></button>
             <button className="mail-icon-button" title="Outbox" aria-label="Open outbox" disabled={locked||!!compose} onClick={()=>{setDraftsOpen(false);setOutboxOpen(true);}}><SendHorizontal size={16}/></button>
             <button className="mail-icon-button" title="Drafts" aria-label="Open drafts" disabled={locked||!!compose} onClick={()=>{setOutboxOpen(false);setDraftsOpen(true);}}><FileText size={16}/></button>
-            <label className="mail-toolbar-search"><Search size={15}/><input aria-label="Search mail" placeholder={savedSearchName ? `Saved: ${savedSearchName}` : 'Search'} disabled={locked} value={searchQuery} onChange={event => { setSearchQuery(event.target.value); setSavedSearchName(''); }}/>{searching && <button aria-label="Clear search" onClick={() => setSearching(false)}><X size={13}/></button>}</label>
+            <label className="mail-toolbar-search"><Search size={15}/><input {...mailShortcutProps('search','Search mail')} aria-label="Search mail" placeholder={savedSearchName ? `Saved: ${savedSearchName}` : 'Search'} disabled={locked} value={searchQuery} onChange={event => { setSearchQuery(event.target.value); setSavedSearchName(''); }}/>{searching && <button aria-label="Clear search" onClick={() => setSearching(false)}><X size={13}/></button>}</label>
             <button className="mail-icon-button" title="Refresh mail" aria-label="Refresh mail" onClick={refresh}><RefreshCw size={16}/></button>
             <button className="mail-icon-button" title="Mail accounts" aria-label="Mail accounts" onClick={openSettings}><Settings2 size={17}/></button>
           </div>
@@ -247,7 +250,7 @@ export function MailRoute() {
         {!locked&&client&&accounts.find(value=>value.id===account)?.provider!=='archive'&&!items.filter(item=>checked.has(mailItemId(item))).some(item=>item.locator.provider==='archive')&&selected?.locator.provider!=='archive'&&<MailActionBar client={client} accounts={accounts} accountId={account} selected={(checked.size?items.filter(item=>checked.has(mailItemId(item))):selected?[selected]:[]).map(item=>optimisticMail(item,actionEntries))} folder={folders.find(item=>item.id===folder)} folders={folders} onEntries={setActionEntries} onRefresh={()=>setActionPulse(value=>value+1)}/>}
         {locked ? <div className="mail-empty"><div className="mail-empty-icon"><Mail size={24}/></div><h2 role="status">{error ? 'Mail is unavailable' : 'Opening your mail…'}</h2>{error && <Button variant="outline" size="sm" onClick={refresh}>Try again</Button>}</div>
           : <div className={`mail-grid ${selected||compose||draftsOpen||outboxOpen ? 'has-selection' : ''} ${foldersOpen ? 'folders-open' : ''}`}>
-            <nav aria-label="Mail accounts and folders" className="mail-folders">
+            <nav tabIndex={-1} aria-label="Mail accounts and folders" className="mail-folders">
               <div className="mail-nav-caption">Mailboxes</div>
               <button className={`mail-nav-row ${!account && inbox ? 'is-active' : ''}`} onClick={() => { setSearching(false); setThread(undefined); setFolder(''); setInbox(true); setAccount(''); setFoldersOpen(false); }}><Inbox size={16}/><span>Inbox</span></button>
               <button className={`mail-nav-row ${!account && !inbox ? 'is-active' : ''}`} onClick={() => { setSearching(false); setThread(undefined); setFolder(''); setInbox(false); setAccount(''); setFoldersOpen(false); }}><Archive size={16}/><span>All mail</span></button>
@@ -266,7 +269,7 @@ export function MailRoute() {
                 </details>
               </>}
             </nav>
-            <section aria-label="Messages" className="mail-message-list">
+            <section tabIndex={-1} aria-label="Messages" className="mail-message-list">
               {searching && client ? <MailSearch client={client} accounts={accounts} toolbarQuery={searchQuery.trim()} onSavedQuery={(text, name) => { setSearchQuery(text); setSavedSearchName(name); }} onOpen={setSelected}/> : <>
               <div className="mail-list-heading"><input type="checkbox" aria-label="Select all messages on this page" checked={items.length>0&&items.every(item=>checked.has(mailItemId(item)))} onChange={event=>setChecked(event.target.checked?new Set(items.map(mailItemId)):new Set())}/><div><h2>{title}</h2><p>{account ? accounts.find(value => value.id === account)?.displayName : 'All accounts'}</p></div><button className="mail-icon-button" title="Newest messages" aria-label="Newest messages" onClick={() => setRevision(value => value + 1)}><RefreshCw size={14}/></button></div>
               {accounts.filter(value => !account || value.id === account).map(value => {
@@ -294,7 +297,7 @@ export function MailRoute() {
               {more && <div className="mail-pagination"><button disabled={busy} onClick={loadMore}>Next page<ChevronRight size={14}/></button></div>}
               </>}
             </section>
-            <section aria-label="Message reader" className="mail-reader-pane">{selected && <button className="mail-back" onClick={() => setSelected(undefined)}><ChevronLeft size={15}/>Inbox</button>}{reader}</section>
+            <section tabIndex={-1} aria-label="Message reader" className="mail-reader-pane">{selected && <button className="mail-back" onClick={() => setSelected(undefined)}><ChevronLeft size={15}/>Inbox</button>}{reader}</section>
           </div>}
       </main>
     );
@@ -422,9 +425,9 @@ function MailReader({ client, item, account, onThread, onUnavailable, onCompose 
       <article id="mail-print-root" className="mail-message" tabIndex={-1}>
         <style>{`@media print{body *{visibility:hidden}#mail-print-root,#mail-print-root *{visibility:visible}#mail-print-root{position:absolute;inset:0;overflow:visible}#mail-print-root button,#mail-print-root iframe,#mail-print-root .mail-message-actions,#mail-print-root .mail-attachments,#mail-print-root>section,#mail-print-content>:not(.mail-print-copy){display:none}#mail-print-root .mail-print-copy{display:block!important;white-space:pre-wrap}}`}</style>
         <div className="mail-message-actions">
-          <button title="Reply (R)" aria-keyshortcuts="R" aria-label="Reply" disabled={busy||!bodies.length||item.locator.provider==='archive'} onClick={()=>void composeMessage('reply')}><Reply size={15}/></button>
-          <button title="Reply all (Shift+R)" aria-keyshortcuts="Shift+R" aria-label="Reply all" disabled={busy||!bodies.length||item.locator.provider==='archive'} onClick={()=>void composeMessage('reply-all')}><ReplyAll size={15}/></button>
-          <button title="Forward" aria-label="Forward" disabled={busy||!bodies.length||item.locator.provider==='archive'} onClick={()=>void composeMessage('forward')}><Forward size={15}/></button>
+          <button {...mailShortcutProps('reply','Reply')} aria-label="Reply" disabled={busy||!bodies.length||item.locator.provider==='archive'} onClick={()=>void composeMessage('reply')}><Reply size={15}/></button>
+          <button {...mailShortcutProps('replyAll','Reply all')} aria-label="Reply all" disabled={busy||!bodies.length||item.locator.provider==='archive'} onClick={()=>void composeMessage('reply-all')}><ReplyAll size={15}/></button>
+          <button {...mailShortcutProps('forward','Forward')} aria-label="Forward" disabled={busy||!bodies.length||item.locator.provider==='archive'} onClick={()=>void composeMessage('forward')}><Forward size={15}/></button>
           <button title="Forward as attached message" aria-label="Forward as attached message" disabled={busy||!raw?.bytesAvailable||item.locator.provider==='archive'} onClick={()=>void composeMessage('forward-attachment')}><Paperclip size={15}/></button>
           {item.threadId && <button title="View conversation" onClick={onThread}><MessagesSquare size={15}/><span>Conversation</span></button>}
           <div/>
