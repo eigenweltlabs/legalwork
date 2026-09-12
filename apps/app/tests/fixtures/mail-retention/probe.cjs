@@ -20,7 +20,7 @@ app.whenReady().then(async()=>{
  await click('Choose backup destination');await until("document.body.textContent.includes('Encrypted backup verified')");
  assert.equal(await run('document.querySelector("[aria-label=\\"Mail recovery passphrase\\"]").value'),'');
  assert.equal(await run("document.body.textContent.includes('2 parts were not stored')"),true);
- assert.equal(await run("document.body.textContent.includes('does not back up external matter files')"),true);
+ assert.equal(await run("document.body.textContent.includes('does not back up external files in any connected storage system')"),true);
  assert.equal(await run("window.calls.find(v=>v.path?.includes('/security/')).timeout===null"),true);
  await run('window.delayMaintenance=true');await input('Mail recovery passphrase','synthetic-passphrase-for-testing');await input('Confirm mail recovery passphrase','synthetic-passphrase-for-testing');await until("[...document.querySelectorAll('button')].find(b=>b.textContent.includes('Choose backup destination')).disabled===false");await click('Choose backup destination');await until("document.body.textContent.includes('Cancel recovery operation')");await click('Cancel recovery operation');await until('window.maintenanceAborted===true');
  console.log('RETENTION_UI_PASS');win.destroy();app.quit();

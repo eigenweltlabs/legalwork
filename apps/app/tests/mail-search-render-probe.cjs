@@ -19,7 +19,7 @@ app.whenReady().then(async()=>{
  await fill('Literal text','AZ-12/34.5');await click('Search');await contains('21 matches');
  assert.equal(await act(()=>document.body.textContent.includes('Some content is not searchable.')),true);
  await act(()=>{document.querySelector('[aria-label="Search results"] button').focus();document.activeElement.dispatchEvent(new KeyboardEvent('keydown',{key:'ArrowDown',bubbles:true}));});
- assert.equal(await act(()=>document.activeElement.textContent),'Second keyboard result');
+ assert.equal(await act(()=>document.activeElement.querySelector('.mail-row-subject')?.textContent),'Second keyboard result');
  await click('Matching attachment: page:3');await contains('Kündigung attachment page three');
  await act(async origin=>{await fetch(origin+'/revoke',{method:'POST',headers:{'X-LegalWork-Host-Token':'synthetic','Content-Type':'application/json'},body:'{}'});},process.argv[3]);
  await contains('No local matches');assert.equal(await act(()=>document.body.textContent.includes('Kündigung attachment page three')),false);
