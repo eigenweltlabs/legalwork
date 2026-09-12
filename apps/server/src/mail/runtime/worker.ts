@@ -1,3 +1,5 @@
+import {MailRetentionStore} from '../storage/retention.js';
+import {MailRetentionError} from '../retention-view.js';
 import {MailNotificationStore} from '../storage/notifications.js';
 import {MailPortabilityStore} from "../storage/portability.js";
 import {DraftSyncRunner} from "./draft-sync.js";
@@ -43,6 +45,7 @@ let outboxStore:OutboxStore|undefined,outboxRunner:OutboxRunner|undefined;
 let closingOutbox:Promise<void>|undefined,closingDraftSync:Promise<void>|undefined;
 let draftSyncStore:DraftSyncStore|undefined,draftSyncRunner:DraftSyncRunner|undefined;
 let ownerId='';
+let retention:MailRetentionStore|undefined;
 let portability:MailPortabilityStore|undefined;
 let closingPortability:Promise<void>|undefined;
 let database: MailDatabase | undefined;
@@ -148,7 +151,7 @@ async function initialize(value: WorkerInitialization): Promise<void> {
     migrateMailSchema(database);
     assertMailSchema(database);
     ownerId=value.ownerId;
-    portability=new MailPortabilityStore(database,value.ownerId);
+    portability=new MailPortabilityStore(database,value.ownerId);retention=new MailRetentionStore(database,value.ownerId);
     repository = new MailRepository(database, value.ownerId);
     local=new MailLocalApiStore(database,value.ownerId);
     reads = new MailReadStore(database, value.ownerId);
@@ -223,10 +226,15 @@ async function request(message: Extract<ParentMessage, { kind: "request" }>): Pr
       case 'mail.outbox.list':if(!outboxStore)throw locked;result={outbox:outboxStore.list(command.accountId)};break;
       case 'mail.outbox.queue':if(!outboxStore)throw locked;result={outboxItem:await outboxStore.queue(command.accountId,command.input)};if(!lifecycleSuspended)void outboxRunner?.run().catch(()=>{});break;
       case 'mail.outbox.action':if(!outboxStore||!outboxRunner)throw locked;result={outboxItem:command.input.action==='reconcile'?await outboxRunner.reconcile(command.accountId,command.input.actionId):command.input.action==='retry'?outboxStore.retry(command.accountId,command.input.actionId):outboxStore.cancel(command.accountId,command.input.actionId)};if(!lifecycleSuspended)void outboxRunner.run().catch(()=>{});break;
+      case 'mail.retention.read':if(!retention)throw locked;result={retention:retention.settings(command.accountId)};break;
+      case 'mail.retention.preview':if(!retention)throw locked;result={retention:retention.preview(command.accountId,command.input)};break;
+      case 'mail.retention.settings':if(!retention)throw locked;result={retention:retention.settings(command.accountId,command.input)};break;
+      case 'mail.retention.apply':if(!retention||!lifecycleSuspended)throw new MailRetentionError('locked');await lifecycleChange;if(!lifecycleSuspended||isClosing()||portability?.busy())throw locked;result={retention:retention.apply(command.accountId,command.input)};break;
       case 'mail.portability.list':if(!portability)throw locked;result={portability:portability.list()};break;
       case 'mail.portability.import':if(!portability)throw locked;result={portability:await portability.startImport(command.path,command.format,command.label)};break;
       case 'mail.portability.export':if(!portability)throw locked;result={portability:await portability.startExport(command.path,command.accountId,command.format)};break;
       case 'mail.portability.resume':if(!portability)throw locked;result={portability:portability.resume(command.id)};break;
+      case 'mail.portability.abandon':if(!portability)throw locked;result={portability:portability.abandon(command.id)};break;
       case 'mail.portability.pause':if(!portability)throw locked;result={portability:portability.pause(command.id)};break;
       case 'mail.senders.list': result={senders:new SenderIdentityRepository(database,ownerId).list(command.accountId)};break;
       case 'mail.senders.configure': result={senders:new SenderIdentityRepository(database,ownerId).configure(command.accountId,command.input)};break;
@@ -411,6 +419,7 @@ async function request(message: Extract<ParentMessage, { kind: "request" }>): Pr
     }
     if (!write({ kind: "response", id: message.id, ok: true, result })) write({ kind: "response", id: message.id, ok: false, code: "operation_failed" });
   } catch (error) {
+    if(error instanceof MailRetentionError&&!isClosing()){write({kind:'response',id:message.id,ok:true,result:{retentionFailure:error.code}});return;}
     if(error instanceof OutboxError&&!isClosing()&&(command.operation.startsWith('mail.outbox.')||command.operation.startsWith('mail.smtp.'))){write({kind:'response',id:message.id,ok:true,result:{outboxFailure:error.code}});return;}
     // Do not echo SQLite/provider errors, row contents, supplied IDs, paths or key material.
     if (isClosing()) return;

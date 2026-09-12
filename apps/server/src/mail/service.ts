@@ -1,3 +1,5 @@
+import type {MailMaintenanceReport} from './maintenance-view.js';
+import {MailRetentionError,type RetentionCommand} from './retention-view.js';
 import type {MailNotificationPoll} from './notification-view.js';
 import {OutboxError,type SmtpConfigure} from './outbox-view.js';
 import type {PortabilityCommand} from "./portability-view.js";
@@ -24,7 +26,7 @@ export type LocalMailServiceOptions = Pick<MailWorkerOptions, "executable" | "en
   /** Main process OS vault callback. Called only on unlock/restart, never startup. */
   loadKey: () => Promise<Uint8Array>;
   loadStore?: () => Promise<{ databasePath: string; key: Uint8Array }>;
-  maintain?: (operation: "rotate" | "backup" | "restore", passphrase: string | undefined, signal: AbortSignal) => Promise<void>;
+  maintain?: (operation: "rotate" | "backup" | "restore", passphrase: string | undefined, signal: AbortSignal) => Promise<MailMaintenanceReport|void>;
   /** Trusted main-process configuration; HTTP callers select only a provider. */
   loadProviderSettings?: (provider: "gmail" | "graph", personal?: boolean) => Promise<MailOAuthSettings>;
 };
@@ -46,7 +48,7 @@ export class LocalMailService implements MailService {
   private readonly worker: MailWorkerClient;
   private phase: "locked" | "unlocking" | "open" | "locking" = "locked";
   private stopped = false;
-  private maintenance?: Promise<void>;
+  private maintenance?: Promise<MailMaintenanceReport|void>;
   private maintenanceAbort?: AbortController;
   private readonly maintenanceHandler: LocalMailServiceOptions["maintain"];
   private epoch = 0;
@@ -76,6 +78,7 @@ export class LocalMailService implements MailService {
   async smtpStatus(accountId:string){const result=await this.request({operation:'mail.smtp.status',accountId});if('outboxFailure' in result)throw new OutboxError(result.outboxFailure);if(!('smtp' in result))throw new MailServiceError('unavailable');return result.smtp;}
   async configureSmtp(accountId:string,input:SmtpConfigure){const result=await this.request({operation:'mail.smtp.configure',accountId,input});if('outboxFailure' in result)throw new OutboxError(result.outboxFailure);if(!('smtp' in result))throw new MailServiceError('unavailable');return result.smtp;}
   async removeSmtp(accountId:string){const result=await this.request({operation:'mail.smtp.remove',accountId});if('outboxFailure' in result)throw new OutboxError(result.outboxFailure);if(!('smtp' in result))throw new MailServiceError('unavailable');return result.smtp;}
+  async retention(command:RetentionCommand){const result=await this.request(command);if('retentionFailure' in result)throw new MailRetentionError(result.retentionFailure);if(!('retention' in result))throw new MailServiceError('unavailable');return result.retention;}
   /** Desktop-only: deliberately absent from MailService and HTTP routing. */
   async portability(command:PortabilityCommand){const result=await this.request(command);if(!("portability" in result))throw new MailServiceError("unavailable");return result.portability;}
   async senders(accountId:string){const result=await this.request({operation:'mail.senders.list',accountId});if(!('senders' in result))throw new MailServiceError('unavailable');return result.senders.length?result.senders:this.refreshSenders(accountId);}
@@ -329,21 +332,24 @@ export class LocalMailService implements MailService {
     if (!("sync" in result)) throw new MailServiceError("unavailable");
     return result.sync;
   }
-  maintain(operation: "rotate" | "backup" | "restore", passphrase?: string): Promise<void> {
+  maintain(operation: "rotate" | "backup" | "restore", passphrase?: string, cancellation?: AbortSignal): Promise<MailMaintenanceReport|void> {
     if (this.stopped || !this.maintenanceHandler) return Promise.reject(new MailServiceError("unavailable"));
     if (this.maintenance) return Promise.reject(new MailServiceError("locked"));
     const signal = new AbortController();
+    const cancel = () => signal.abort();
+    if(cancellation?.aborted)return Promise.reject(new MailServiceError("locked"));
+    cancellation?.addEventListener("abort",cancel,{once:true});
     const closing = this.lock();
     this.maintenanceAbort = signal;
     const operationTask = (async () => {
       try {
         await closing;
         if (signal.signal.aborted || this.stopped) throw new MailServiceError("locked");
-        await this.maintenanceHandler?.(operation, passphrase, signal.signal);
+        return await this.maintenanceHandler?.(operation, passphrase, signal.signal);
       } catch { throw new MailServiceError("unavailable"); }
     })();
     this.maintenance = operationTask;
-    void operationTask.finally(() => { if (this.maintenance === operationTask) { this.maintenance = undefined; this.maintenanceAbort = undefined; } }).catch(() => {});
+    void operationTask.finally(() => { cancellation?.removeEventListener("abort",cancel); if (this.maintenance === operationTask) { this.maintenance = undefined; this.maintenanceAbort = undefined; } }).catch(() => {});
     return operationTask;
   }
   async stop(): Promise<void> {

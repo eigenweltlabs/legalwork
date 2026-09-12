@@ -1,3 +1,5 @@
+import type {MailMaintenanceReport} from './maintenance-view.js';
+import type {RetentionCommand,RetentionPreview} from './retention-view.js';
 import type {MailNotificationPoll,MailNotificationBatch} from './notification-view.js';
 import type {OutboxItem,SmtpStatus,SmtpConfigure} from './outbox-view.js';
 import type {SenderIdentity,SenderSettings,SenderConfigure} from './sender-view.js';
@@ -27,6 +29,7 @@ export interface MailService {
   pollNotifications(input:MailNotificationPoll):Promise<MailNotificationBatch>;
   setLifecycleSuspended(suspended:boolean):Promise<{state:'running'|'suspended'}>;
   lifecycleStatus():Promise<{state:'running'|'suspended'}>;
+  retention?(command:RetentionCommand):Promise<RetentionPreview|{removedDays:number|null}|{accountId:string;removedAccount:boolean;messages:number;references:number;bytes:number;protectedReferences:number}>;
   outbox(accountId:string):Promise<OutboxItem[]>;
   queueOutbox(accountId:string,input:MailSubmission):Promise<OutboxItem>;
   outboxAction(accountId:string,input:{actionId:string;action:'cancel'|'retry'|'reconcile'}):Promise<OutboxItem>;
@@ -78,7 +81,7 @@ export interface MailService {
   startSync(accountId: string): Promise<MailSyncView>;
   pauseSync(accountId: string): Promise<MailSyncView>;
   syncStatus(accountId: string): Promise<MailSyncView>;
-  maintain?(operation: "rotate" | "backup" | "restore", passphrase?: string): Promise<void>;
+  maintain?(operation: "rotate" | "backup" | "restore", passphrase?: string, cancellation?: AbortSignal): Promise<MailMaintenanceReport|void>;
   stop(): Promise<void>;
 }
 import type { MailConnectionStatus } from "./providers/connection-controller.js";

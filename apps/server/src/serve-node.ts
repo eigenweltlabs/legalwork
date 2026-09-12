@@ -184,6 +184,8 @@ export function serve(options: ServeOptions): Promise<ServeResult> {
       console.error("[serve-node] Response stream error:", error);
     });
 
+    const socket = nodeReq.socket;
+    socket.once("close", close);
     try {
       const webReq = toWebRequest(nodeReq, hostname, boundPort, scheme, controller.signal);
       const webRes = await fetchHandler(webReq);
@@ -204,6 +206,7 @@ export function serve(options: ServeOptions): Promise<ServeResult> {
     } finally {
       nodeReq.off("aborted", abort);
       nodeRes.off("close", close);
+      socket.off("close", close);
     }
   };
 

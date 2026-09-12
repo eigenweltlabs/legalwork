@@ -59,10 +59,10 @@ function htmlText(value:string):string{
 }
 /** Search and rebuild are synchronous worker operations over encrypted, locally published content only. */
 export class MailSearchStore {
-  constructor(private readonly db:MailDatabase,private readonly ownerId:string){}
+  constructor(private readonly db:MailDatabase,private readonly ownerId:string,private readonly trusted:{offlineMaintenance?:boolean}={}){}
   private account(accountId:string){
     const row=this.db.get("SELECT a.provider,coalesce(c.state,i.state) AS state FROM mail_accounts a LEFT JOIN mail_account_access c ON c.account_id=a.id LEFT JOIN mail_imap_credentials i ON i.account_id=a.id WHERE a.id=? AND a.owner_id=?",[accountId,this.ownerId]);
-    if(!row)throw new MailSearchError("not_found");if(row.state==='disconnected')throw new MailSearchError("locked");return row;
+    if(!row)throw new MailSearchError("not_found");if(row.state==='disconnected'&&!this.trusted.offlineMaintenance)throw new MailSearchError("locked");return row;
   }
   private safe<T>(fn:()=>T):T{try{return fn();}catch(error){if(error instanceof MailSearchError)throw error;throw new MailSearchError("unavailable");}}
   private stats(accounts:string[]){const marks=accounts.map(()=>'?').join(',');if(!accounts.length)return{pending:0,incomplete:0};return{

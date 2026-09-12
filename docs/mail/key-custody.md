@@ -54,15 +54,15 @@ the backup, migrates and validates the copy, and wraps a fresh key in the curren
 vault before atomic promotion. It works in a clean profile with the same trusted
 local owner identity. Original bytes, drafts, metadata and action records survive.
 Credentials become disconnected and require explicit reconnect; pending submissions
-and other pending actions become uncertain for manual reconciliation, never automatic
-replay. Gmail and installed v9 Graph runs pause, Graph revisions advance, and obsolete running leases are cleared. Wrong passphrase,
+and other pending actions become uncertain, never automatic
+replay. EIG-151 permanently quarantines restored submission IDs, preserves accepted evidence, and fences old remote draft/file/filing work even after reconnect; see `retention-and-recovery.md`. Gmail and installed v9 Graph runs pause, Graph revisions advance, and obsolete running leases are cleared. Wrong passphrase,
 corruption, unsupported schema or failed verification cannot replace the active
 store. No automatic purge of the old store follows recovery.
 
 ### Qualification evidence and remaining release gates
 
 Actual Node tests exercise native cipher rekey, SQLite/WAL plaintext-marker absence,
-in-memory SQLite temporary storage, the actual schema-v8 MailSearchStore FTS index and dirty-queue retention, raw/attachment digest reads,
+in-memory SQLite temporary storage, the actual schema-v8 MailSearchStore FTS index and current offline search rebuilding, raw/attachment digest reads,
 wrong keys, wrong backup digest, unchanged backup bytes, credential disconnection,
 submission quarantine, generation promotion, cancellation and portable key unwrap.
 The desktop integration additionally uses an actual Electron child to rotate and
@@ -144,3 +144,5 @@ restored sequence numbers cannot silently continue an unrelated pre-recovery fee
 The actual encrypted recovery regression verifies both draft revisions, exact pinned
 attachment bytes, a quarantined submission and reset behavior after explicit
 synthetic reconnect. Disconnected draft reads remain denied.
+
+EIG-151 writes recovery envelope version 2 with an authenticated verified blob/retained-record inventory, accepts historical version 1, and exposes native backup/restore plus explicit reference-aware purge in Mail Settings. See `retention-and-recovery.md` for controls, no-replay fences, failure behavior and the unpublished privacy-notice review draft.

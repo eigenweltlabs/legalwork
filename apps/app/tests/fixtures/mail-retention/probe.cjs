@@ -1,0 +1,27 @@
+const {app,BrowserWindow}=require('electron');
+const assert=require('node:assert/strict');
+app.setPath('userData',process.argv[2]);
+app.whenReady().then(async()=>{
+ const win=new BrowserWindow({show:false,webPreferences:{sandbox:true,contextIsolation:true,nodeIntegration:false}});
+ await win.loadFile(process.argv[3]);
+ const run=s=>win.webContents.executeJavaScript(s);
+ const until=async s=>{for(let n=0;n<150;n++){if(await run(s))return;await new Promise(r=>setTimeout(r,20));}throw Error('UI timeout');};
+ const click=label=>run(`[...document.querySelectorAll('button')].find(b=>b.textContent.includes(${JSON.stringify(label)})).click()`);
+ const input=(label,value)=>run(`(()=>{const e=document.querySelector('[aria-label="'+${JSON.stringify(label)}+'"]');Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(e,${JSON.stringify(value)});e.dispatchEvent(new Event('input',{bubbles:true}));})()`);
+ await until("document.querySelector('input[type=number]')?.value==='30'");
+ await click('Save retention');await until("document.body.textContent.includes('1 protected references')");
+ assert.equal(await run("[...document.querySelectorAll('button')].find(b=>b.textContent.includes('Delete selected')).disabled"),true);
+ await input('Deletion confirmation for Synthetic account','DELETE LOCAL COPIES');
+ await until("[...document.querySelectorAll('button')].find(b=>b.textContent.includes('Delete selected')).disabled===false");
+ await click('Delete selected');await until("document.body.textContent.includes('Mail remains paused')");
+ assert.equal(await run("window.calls.findIndex(v=>v.pause===true)<window.calls.findIndex(v=>v.path?.endsWith('/apply'))"),true);
+ await input('Mail recovery passphrase','synthetic-passphrase-for-testing');await input('Confirm mail recovery passphrase','synthetic-passphrase-for-testing');
+ await until("[...document.querySelectorAll('button')].find(b=>b.textContent.includes('Choose backup destination')).disabled===false");
+ await click('Choose backup destination');await until("document.body.textContent.includes('Encrypted backup verified')");
+ assert.equal(await run('document.querySelector("[aria-label=\\"Mail recovery passphrase\\"]").value'),'');
+ assert.equal(await run("document.body.textContent.includes('2 parts were not stored')"),true);
+ assert.equal(await run("document.body.textContent.includes('does not back up external matter files')"),true);
+ assert.equal(await run("window.calls.find(v=>v.path?.includes('/security/')).timeout===null"),true);
+ await run('window.delayMaintenance=true');await input('Mail recovery passphrase','synthetic-passphrase-for-testing');await input('Confirm mail recovery passphrase','synthetic-passphrase-for-testing');await until("[...document.querySelectorAll('button')].find(b=>b.textContent.includes('Choose backup destination')).disabled===false");await click('Choose backup destination');await until("document.body.textContent.includes('Cancel recovery operation')");await click('Cancel recovery operation');await until('window.maintenanceAborted===true');
+ console.log('RETENTION_UI_PASS');win.destroy();app.quit();
+}).catch(error=>{console.error(error);app.exit(1);});

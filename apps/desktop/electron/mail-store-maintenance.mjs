@@ -17,6 +17,7 @@ async function writePrivate(path, value) { const file = await open(path, constan
 async function jsonFile(path) { const info = await privateEntry(path); if (!info.size || info.size > 16384) throw fail(); const file = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW); try { const bytes = Buffer.alloc(16385); const read = await file.read(bytes, 0, bytes.length, 0); if (read.bytesRead !== info.size) throw fail(); return JSON.parse(bytes.subarray(0, read.bytesRead).toString('utf8')); } finally { await file.close(); } }
 async function digest(path) { await privateEntry(path); const file = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW); try { const hash = createHash('sha256'); for await (const chunk of file.createReadStream({autoClose:false})) hash.update(chunk); return hash.digest('hex'); } finally { await file.close(); } }
 function decode(value, size) { if (typeof value !== 'string') throw fail(); const bytes = Buffer.from(value, 'base64'); if (bytes.length !== size || bytes.toString('base64') !== value) throw fail(); return bytes; }
+function inventory(value){return value&&Object.keys(value).sort().join(',')==='accounts,bytes,digest,incompleteParts,messages,references,retainedParts,retainedRecords,version'&&value.version===1&&/^[a-f0-9]{64}$/.test(value.digest)&&['accounts','bytes','incompleteParts','messages','references','retainedParts','retainedRecords'].every(key=>Number.isSafeInteger(value[key])&&value[key]>=0);}
 function password(value) { if (typeof value !== 'string' || value.length < 16 || Buffer.byteLength(value) > 1024) throw fail(); }
 /** Main-process only; caller must hold LocalMailService maintenance barrier and desktop single-instance lock.
  * All paths originate in app data or a trusted native file chooser, never renderer input.
@@ -60,13 +61,13 @@ export function createMailStoreMaintenance({ directory, safeStorage, executable,
         reapTimer = setTimeout(() => finish(true), 5000);
       };
       signal?.addEventListener('abort', abort, { once: true });
-      const timer = setTimeout(abort, 120000);
+      const timer = setTimeout(abort, 20 * 60 * 1000);
       child.stdout.on('data', bytes => { if (failed) return; output += bytes.toString('utf8'); if (output.length > 4096) abort(); });
       child.stderr.resume(); // Never forward native errors or private data to app diagnostics.
       child.on('error', abort); child.stdin.on('error', abort);
       child.on('close', code => {
         physicalPending = false;
-        try { const result = JSON.parse(output); if (failed || code !== 0 || result.ok !== true || Object.keys(result).sort().join(',') !== 'accounts,messages,ok,references,schemaVersion' || !['accounts','messages','references','schemaVersion'].every(key => Number.isSafeInteger(result[key]) && result[key] >= 0)) throw fail(); finish(false, result); } catch { finish(true); }
+        try { const result = JSON.parse(output); if (failed || code !== 0 || result.ok !== true || Object.keys(result).sort().join(',') !== 'accounts,inventory,messages,ok,references,schemaVersion' || !inventory(result.inventory) || !['accounts','messages','references','schemaVersion'].every(key => Number.isSafeInteger(result[key]) && result[key] >= 0)) throw fail(); finish(false, result); } catch { finish(true); }
       });
       child.stdin.end(JSON.stringify({ ...input, sourceKey: input.sourceKey.toString('base64'), destinationKey: input.destinationKey.toString('base64'), ownerId }));
     });
@@ -109,27 +110,28 @@ export function createMailStoreMaintenance({ directory, safeStorage, executable,
         const databasePath = join(destination, 'mail.sqlite'); const result = await worker({ sourcePath: before.databasePath, destinationPath: databasePath, sourceKey: before.key, destinationKey: before.key, restore: false, expectedSha256: null }, signal);
         const sha256 = await digest(databasePath), salt = randomBytes(16), nonce = randomBytes(12);
         wrapping = await derive(passphrase, salt);
-        const cipher = createCipheriv('aes-256-gcm', wrapping, nonce); cipher.setAAD(Buffer.from(`legalwork-mail-recovery-v1:${sha256}`));
-        const payload = Buffer.from(JSON.stringify({ key: before.key.toString('base64'), ownerId, schemaVersion: result.schemaVersion }));
+        const cipher = createCipheriv('aes-256-gcm', wrapping, nonce); cipher.setAAD(Buffer.from(`legalwork-mail-recovery-v2:${sha256}`));
+        const payload = Buffer.from(JSON.stringify({ key: before.key.toString('base64'), ownerId, schemaVersion: result.schemaVersion, createdAt:Date.now(), inventory:result.inventory }));
         let encrypted; try { encrypted = Buffer.concat([cipher.update(payload), cipher.final()]); } finally { payload.fill(0); }
         if (signal?.aborted) throw fail();
-        await writePrivate(join(destination, 'recovery.json'), JSON.stringify({ version: 1, sha256, salt: salt.toString('base64'), nonce: nonce.toString('base64'), tag: cipher.getAuthTag().toString('base64'), encrypted: encrypted.toString('base64') }));
+        await writePrivate(join(destination, 'recovery.json'), JSON.stringify({ version: 2, sha256, salt: salt.toString('base64'), nonce: nonce.toString('base64'), tag: cipher.getAuthTag().toString('base64'), encrypted: encrypted.toString('base64') }));
         await syncDirectory(destination); return { ...result, backupPath: destination };
       } finally { before.key.fill(0); wrapping?.fill(0); }
     }); },
     restoreBackup(source, passphrase, signal) { password(passphrase); return exclusive(async () => {
       if (!isAbsolute(source)) throw fail(); const envelope = await jsonFile(join(source, 'recovery.json'));
-      if (!envelope || Object.keys(envelope).sort().join(',') !== 'encrypted,nonce,salt,sha256,tag,version' || envelope.version !== 1 || !/^[a-f0-9]{64}$/.test(envelope.sha256) || typeof envelope.encrypted !== 'string' || envelope.encrypted.length > 8192) throw fail();
+      if (!envelope || Object.keys(envelope).sort().join(',') !== 'encrypted,nonce,salt,sha256,tag,version' || ![1,2].includes(envelope.version) || !/^[a-f0-9]{64}$/.test(envelope.sha256) || typeof envelope.encrypted !== 'string' || envelope.encrypted.length > 8192) throw fail();
       if (await digest(join(source, 'mail.sqlite')) !== envelope.sha256) throw fail();
       let wrapping, key, payload, next;
       try {
         wrapping = await derive(passphrase, decode(envelope.salt,16));
-        const decipher = createDecipheriv('aes-256-gcm', wrapping, decode(envelope.nonce,12)); decipher.setAAD(Buffer.from(`legalwork-mail-recovery-v1:${envelope.sha256}`)); decipher.setAuthTag(decode(envelope.tag,16));
+        const decipher = createDecipheriv('aes-256-gcm', wrapping, decode(envelope.nonce,12)); decipher.setAAD(Buffer.from(`legalwork-mail-recovery-v${envelope.version}:${envelope.sha256}`)); decipher.setAuthTag(decode(envelope.tag,16));
         const encrypted = Buffer.from(envelope.encrypted, 'base64'); if (!encrypted.length || encrypted.toString('base64') !== envelope.encrypted) throw fail();
         payload = Buffer.concat([decipher.update(encrypted),decipher.final()]); const value = JSON.parse(payload.toString('utf8'));
-        if (!value || Object.keys(value).sort().join(',') !== 'key,ownerId,schemaVersion' || !Number.isSafeInteger(value.schemaVersion) || value.schemaVersion < 1 || value.ownerId !== ownerId) throw fail(); key = decode(value.key,32);
+        if (!value || Object.keys(value).sort().join(',') !== (envelope.version===1?'key,ownerId,schemaVersion':'createdAt,inventory,key,ownerId,schemaVersion') || envelope.version===2&&(!inventory(value.inventory)||!Number.isSafeInteger(value.createdAt)||value.createdAt<1) || !Number.isSafeInteger(value.schemaVersion) || value.schemaVersion < 1 || value.ownerId !== ownerId) throw fail(); key = decode(value.key,32);
         const previous = await selected(); next = await candidate();
         const result = await worker({ sourcePath: join(source,'mail.sqlite'), destinationPath: next.databasePath, sourceKey:key,destinationKey:next.key,restore:true,expectedSha256:envelope.sha256 }, signal);
+        if(envelope.version===2&&JSON.stringify(result.inventory)!==JSON.stringify(value.inventory))throw fail();
         await promote(next, previous, signal); return { ...result, generation:next.generation, credentials:'disconnected', submissions:'quarantined' };
       } finally { wrapping?.fill(0); key?.fill(0); payload?.fill(0); next?.key.fill(0); }
     }); },
