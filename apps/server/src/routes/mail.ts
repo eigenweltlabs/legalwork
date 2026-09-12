@@ -52,7 +52,7 @@ function safeError(error: unknown): ApiError {
   // native and keychain failures here so paths/secrets cannot reach that logger.
   return new ApiError(503, "mail_unavailable", "Mail storage is unavailable");
 }
-async function readMailBody(request: Request, maxBytes = 0): Promise<string> {
+export async function readMailBody(request: Request, maxBytes = 0): Promise<string> {
   if (!request.body) return "";
   const reader = request.body.getReader();
   const chunks: Uint8Array[] = [];

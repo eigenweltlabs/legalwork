@@ -38,6 +38,8 @@ import { recordingAccess } from "./recording-access.js";
 import { registerSystemOneRoutes } from "./routes/systemone.js";
 import { registerCloudTranscriptionRoutes } from "./routes/cloud-transcription.js";
 import { SystemOneConfigurationSchema } from "./systemone-schema.js";
+import {registerMailStorageSaveRoutes} from './routes/mail-storage-save.js';
+import {registerMailFilingRoutes} from './routes/mail-filing.js';
 import { existsSync } from "node:fs";
 import { lstat, mkdir, readFile, realpath, writeFile, rm, stat } from "node:fs/promises";
 import { homedir, hostname } from "node:os";
@@ -970,6 +972,19 @@ export async function startServer(config: ServerConfig, runtimeOptions: ServerRu
   });
   const routes = createRoutes(config, approvals, tokens, env, officeTools, restartReloadWatchers, benchmarkRunner, ocr, preparation, reviews, corpus, scheduledTasks, wikiStore, wikiSync);
   registerMailRoutes(routes, config.host, runtimeOptions.mail);
+  registerMailStorageSaveRoutes({routes,host:config.host,mail:runtimeOptions.mail,workspaces:()=>config.workspaces.flatMap(workspace=>workspace.id?[{id:workspace.id,name:workspace.name||workspace.id}]:[]),resolveWorkspace:async id=>{await resolveWorkspace(config,id);},request:async(path,input)=>{
+    const origin=`http://${config.host==='::1'?'[::1]':config.host}:${config.port}`;
+    const options={method:input?.method??'GET',headers:{Authorization:`Bearer ${config.token}`,...input?.contentType?{'Content-Type':input.contentType}:{}},body:input?.body,duplex:'half',redirect:'error',signal:AbortSignal.timeout(900000)};
+    return fetch(origin+path,{...options,redirect:'error'});
+  }});
+
+  registerMailFilingRoutes(routes,config.host,runtimeOptions.mail,()=>config.workspaces.flatMap(workspace=>workspace.id?[{id:workspace.id,name:workspace.name||workspace.id}]:[]),async workspaceId=>{
+    const workspace=await resolveWorkspace(config,workspaceId);
+    const server=resolveLegalMemoryServer(await listMcp(config,workspace.id,workspace.path));
+    if(!server)throw new ApiError(409,'legalmemory_not_configured','Configure LegalMemory for the selected workspace in Settings.');
+    return {server,bearer:await engineAccessToken(server.name)};
+  });
+
   await assistantRuntime.register(routes, { jsonResponse, readJsonBodyLimited, ensureWritable, requireClientScope, requireApproval });
   registerToolImageOriginalRoutes({ routes, config, raster: toolImageRaster, jsonResponse, resolveWorkspace, ensureWritable, requireClientScope, requireApproval });
   configureWikiAgentSessionLookup(config, async (workspace, sessionID, directory, signal) => {
