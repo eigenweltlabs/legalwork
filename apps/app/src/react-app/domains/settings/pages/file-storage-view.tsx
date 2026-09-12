@@ -17,6 +17,7 @@ import {
 import {
   storageInputSchema,
   type StorageConnection,
+  type StorageOAuthProvider,
   type StorageKind,
   type StorageSecretKey,
 } from "@legalwork/types/file-storage";
@@ -47,6 +48,7 @@ import {
   storageLabel,
   storageSecretFields,
 } from "./storage-providers";
+import { StorageOAuthSignIn } from "./storage-oauth-signin";
 import { useHubScope } from "./hub-scope-context";
 import { storageConnectionsForScope } from "./storage-scope";
 
@@ -59,7 +61,7 @@ export function FileStorageView({
 }) {
   const queryClient = useQueryClient();
   const scope = useHubScope() ?? "local";
-  const [editor, setEditor] = useState<{ kind: StorageKind; connection?: StorageConnection } | null>(null);
+  const [editor, setEditor] = useState<{ kind: StorageKind; connection?: StorageConnection; provider?: StorageOAuthProvider } | null>(null);
   const [removing, setRemoving] = useState<StorageConnection | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -70,6 +72,11 @@ export function FileStorageView({
     enabled: Boolean(client && workspaceId),
     retry: false,
     refetchInterval: 30_000,
+  });
+  const providers = useQuery({
+    queryKey: ["storage-oauth-providers", workspaceId],
+    queryFn: () => client!.storageOAuthProviders(workspaceId!),
+    enabled: Boolean(client && workspaceId),
   });
   const visibleConnections = storageConnectionsForScope(connections.data?.connections ?? [], scope);
   const canAdd = scope === "local" || connections.data?.team?.canManage === true;
@@ -158,10 +165,13 @@ export function FileStorageView({
                       </p>
                     ) : null}
                     <p className="mt-1 text-xs text-muted-foreground">
-                      {storageLabel(connection.config.kind)} <span className="mx-1">·</span>{" "}
+                      {connection.config.kind === "oauth" ? providers.data?.providers.find((p) => connection.config.kind === "oauth" && p.id === connection.config.provider)?.name ?? connection.config.provider : storageLabel(connection.config.kind)} <span className="mx-1">·</span>{" "}
                       {connection.readOnly ? t("storage.read_only") : t("storage.read_write")}
                     </p>
                   </div>
+                  {connection.config.kind === "oauth" && connection.enabled && connection.team?.installed !== false && (
+                    <StorageOAuthSignIn client={client} workspaceId={workspaceId} connectionId={connection.id} onChanged={refresh} />
+                  )}
                   {!connection.team && connections.data?.team?.canManage ? (
                     <Button
                       variant="ghost"
@@ -260,6 +270,14 @@ export function FileStorageView({
             <h4 className="text-sm font-medium">{t("storage.add")}</h4>
           </div>
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            {providers.data?.providers.map((provider) => (
+              <button key={provider.id} type="button" onClick={() => setEditor({ kind: "oauth", provider })}
+                className="group flex flex-col rounded-2xl border border-border bg-background p-5 text-left transition-colors hover:border-foreground/25 hover:bg-muted/25 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+                <ArrowUpRight className="mb-4 size-5 text-muted-foreground" />
+                <span className="text-sm font-medium">{provider.name}</span>
+                <span className="mt-1.5 text-xs leading-5 text-muted-foreground">{t("storage.oauth_description")}</span>
+              </button>
+            ))}
             {storageKinds.map((kind) => {
               const Icon = storageIcons[kind];
               return (
@@ -286,6 +304,7 @@ export function FileStorageView({
           client={client}
           workspaceId={workspaceId}
           kind={editor.kind}
+          provider={editor.provider ?? providers.data?.providers.find((p) => editor.connection?.config.kind === "oauth" && editor.connection.config.provider === p.id)}
           connection={editor.connection}
           forTeam={Boolean(editor.connection?.team) || scope === "team"}
           onClose={() => setEditor(null)}
@@ -342,6 +361,7 @@ function StorageConnectionDialog({
   client,
   workspaceId,
   kind,
+  provider,
   connection,
   forTeam,
   onClose,
@@ -350,17 +370,18 @@ function StorageConnectionDialog({
   client: LegalworkServerClient;
   workspaceId: string;
   kind: StorageKind;
+  provider?: StorageOAuthProvider;
   connection?: StorageConnection;
   forTeam: boolean;
   onClose: () => void;
   onSaved: () => void;
 }) {
   const [automatic, setAutomatic] = useState(connection ? connection.teamInstallation !== "optional" : false);
-  const [name, setName] = useState(connection?.name ?? "");
+  const [name, setName] = useState(connection?.name ?? provider?.name ?? "");
   const [values, setValues] = useState<Record<string, string>>(() =>
     connection
       ? Object.fromEntries(Object.entries(connection.config).map(([key, value]) => [key, String(value)]))
-      : storageDefaults(kind),
+      : kind === "oauth" ? { provider: provider?.id ?? "", root: "" } : storageDefaults(kind),
   );
   const [secrets, setSecrets] = useState<Partial<Record<StorageSecretKey, string>>>({});
   const [readOnly, setReadOnly] = useState(connection?.readOnly ?? false);
@@ -457,6 +478,11 @@ function StorageConnectionDialog({
             />
             <FieldDescription>{t("storage.name_help")}</FieldDescription>
           </Field>
+          {kind === "oauth" && <Field>
+            <FieldLabel htmlFor="storage-oauth-root">{t("storage.oauth_root")}</FieldLabel>
+            <Input id="storage-oauth-root" value={values.root ?? ""} onChange={(event) => change("root", event.target.value)} placeholder={provider?.rootHint} />
+            <FieldDescription>{provider?.rootHint ?? t("storage.oauth_root_hint")} {t("storage.oauth_edit_root")}</FieldDescription>
+          </Field>}
           <div className="grid gap-4 sm:grid-cols-2">
             {storageFields(kind).map((field) => (
               <Field
