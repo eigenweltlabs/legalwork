@@ -5,6 +5,7 @@ const count = z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER);
 
 /** Provider identity is independent of RFC Message-ID, MIME hashes and threads. */
 export const providerMessageLocatorSchema = z.discriminatedUnion("provider", [
+  z.object({ provider: z.literal("archive"), namespace: opaqueId, entryId: opaqueId }).strict(),
   z.object({ provider: z.literal("gmail"), messageId: opaqueId }).strict(),
   z.object({ provider: z.literal("graph"), messageId: opaqueId }).strict(),
   z.object({
@@ -20,7 +21,9 @@ export type ProviderMessageLocator = z.infer<typeof providerMessageLocatorSchema
 /** Canonical arrays avoid delimiter collisions; callers must still scope by account. */
 export function providerMessageKey(input: ProviderMessageLocator): string {
   const locator = providerMessageLocatorSchema.parse(input);
-  return locator.provider === "imap"
+  return locator.provider === "archive"
+    ? JSON.stringify(["archive", locator.namespace, locator.entryId])
+    : locator.provider === "imap"
     ? JSON.stringify(["imap", locator.mailboxId, locator.uidValidity, locator.uid])
     : JSON.stringify([locator.provider, locator.messageId]);
 }

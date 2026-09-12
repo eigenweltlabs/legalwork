@@ -1,5 +1,6 @@
 import type {MailNotificationPoll} from './notification-view.js';
 import {OutboxError,type SmtpConfigure} from './outbox-view.js';
+import type {PortabilityCommand} from "./portability-view.js";
 import type {SenderSettings,SenderConfigure} from './sender-view.js';
 import type {DraftSyncRequest} from "./draft-sync-view.js";
 import type {MailUpload} from "./local-view.js";
@@ -75,6 +76,8 @@ export class LocalMailService implements MailService {
   async smtpStatus(accountId:string){const result=await this.request({operation:'mail.smtp.status',accountId});if('outboxFailure' in result)throw new OutboxError(result.outboxFailure);if(!('smtp' in result))throw new MailServiceError('unavailable');return result.smtp;}
   async configureSmtp(accountId:string,input:SmtpConfigure){const result=await this.request({operation:'mail.smtp.configure',accountId,input});if('outboxFailure' in result)throw new OutboxError(result.outboxFailure);if(!('smtp' in result))throw new MailServiceError('unavailable');return result.smtp;}
   async removeSmtp(accountId:string){const result=await this.request({operation:'mail.smtp.remove',accountId});if('outboxFailure' in result)throw new OutboxError(result.outboxFailure);if(!('smtp' in result))throw new MailServiceError('unavailable');return result.smtp;}
+  /** Desktop-only: deliberately absent from MailService and HTTP routing. */
+  async portability(command:PortabilityCommand){const result=await this.request(command);if(!("portability" in result))throw new MailServiceError("unavailable");return result.portability;}
   async senders(accountId:string){const result=await this.request({operation:'mail.senders.list',accountId});if(!('senders' in result))throw new MailServiceError('unavailable');return result.senders.length?result.senders:this.refreshSenders(accountId);}
   async refreshSenders(accountId:string){
     const epoch=this.epoch,provider=await this.request({operation:'mail.sync.provider',accountId});if(!('syncProvider' in provider))throw new MailServiceError('unavailable');
@@ -140,7 +143,7 @@ export class LocalMailService implements MailService {
     return attempt;
   }
   /** Reinstall provider configuration after a supervised worker restart; journals retain mutation outcomes. */
-  private async restoreConnectedAccounts(){const epoch=this.epoch;let cursor:string|undefined;do{if(this.phase!=='open'||epoch!==this.epoch)return;const page=await this.listAccounts({limit:100,...(cursor?{after:cursor}:{})});await Promise.all(page.items.map(account=>this.startSync(account.id,true).catch(()=>{})));cursor=page.nextCursor??undefined;}while(cursor&&this.phase==='open'&&epoch===this.epoch);}
+  private async restoreConnectedAccounts(){const epoch=this.epoch;let cursor:string|undefined;do{if(this.phase!=='open'||epoch!==this.epoch)return;const page=await this.listAccounts({limit:100,...(cursor?{after:cursor}:{})});await Promise.all(page.items.filter(account=>account.provider!=="archive").map(account=>this.startSync(account.id,true).catch(()=>{})));cursor=page.nextCursor??undefined;}while(cursor&&this.phase==='open'&&epoch===this.epoch);}
   lock(): Promise<void> {
     this.maintenanceAbort?.abort();
     if (this.closing) return this.closing;

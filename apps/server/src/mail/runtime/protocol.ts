@@ -1,5 +1,6 @@
 import {mailDesktopCommandSchema,mailNotificationBatchSchema,mailLifecycleStatusSchema,type MailDesktopCommand,type MailNotificationBatch} from '../notification-view.js';
 import {outboxCommandSchema,outboxItemSchema,outboxErrorSchema,smtpStatusSchema,type OutboxCommand,type OutboxItem,type OutboxErrorCode,type SmtpStatus} from '../outbox-view.js';
+import {portabilityCommandSchema,portabilityStatusSchema,type PortabilityCommand,type PortabilityStatus} from "../portability-view.js";
 import {senderListSchema,senderSettingsSchema,senderConfigureSchema,type SenderIdentity,type SenderSettings,type SenderConfigure} from '../sender-view.js';
 import {draftSyncCommandSchema,draftSyncStatusSchema,type DraftSyncCommand,type DraftSyncStatus} from "../draft-sync-view.js";
 import { graphMailboxInputSchema, graphMailboxIdentitySchema, graphMailboxResultSchema, type GraphMailboxInput, type GraphMailboxIdentity } from '../graph-mailbox-view.js';
@@ -39,6 +40,7 @@ export type WorkerInitialization = {
 type Page = { limit?: number; after?: string };
 export type WorkerCommand = MailDesktopCommand
   | OutboxCommand
+  | PortabilityCommand
   | DraftSyncCommand
   | {operation:"mail.senders.list";accountId:string}
   | {operation:"mail.senders.refresh";accountId:string;settings?:MailOAuthSettings}
@@ -72,9 +74,10 @@ export type WorkerCommand = MailDesktopCommand
   | { operation: "mail.sync.stop"; accountId: string }
   | { operation: "credentials.update"; credentials: WorkerCredentials };
 
-export type WorkerAccount = { id: string; provider: "gmail" | "graph" | "imap"; displayName: string; personal?: boolean; identity?: GraphMailboxIdentity };
+export type WorkerAccount = { id: string; provider: "gmail" | "graph" | "imap" | "archive"; displayName: string; personal?: boolean; identity?: GraphMailboxIdentity };
 export type WorkerFolder = { id: string; name: string; kind: "folder" | "label"; parentId: string | null; mutationPrecondition?: string | null; role?: "inbox" };
 export type WorkerResult = {notifications:MailNotificationBatch}|{lifecycle:{state:"running"|"suspended"}}
+  | {portability:PortabilityStatus[]}
   | {draftSync:DraftSyncStatus}
   | {outbox:OutboxItem[]} | {outboxItem:OutboxItem} | {smtp:SmtpStatus} | {outboxFailure:OutboxErrorCode}
   | {senders:SenderIdentity[]}
@@ -177,14 +180,14 @@ function started(value: unknown): boolean {
 }
 function account(value: unknown): value is WorkerAccount {
   return record(value) && exact(value, ["id", "provider", "displayName", ...(value.personal === undefined ? [] : ["personal"]), ...(value.identity === undefined ? [] : ["identity"])]) && (value.identity === undefined || value.provider === "graph" && graphMailboxIdentitySchema.safeParse(value.identity).success) && (value.personal === undefined || value.provider === "graph" && typeof value.personal === "boolean") && id(value.id)
-    && (value.provider === "gmail" || value.provider === "graph" || value.provider === "imap") && typeof value.displayName === "string";
+    && (value.provider === "gmail" || value.provider === "graph" || value.provider === "imap" || value.provider === "archive") && typeof value.displayName === "string";
 }
 function folder(value: unknown): value is WorkerFolder {
   return record(value) && exact(value, ["id", "name", "kind", "parentId", ...(value.role === undefined ? [] : ["role"]), ...(value.mutationPrecondition === undefined ? [] : ["mutationPrecondition"])]) && (value.mutationPrecondition === undefined || value.mutationPrecondition === null || typeof value.mutationPrecondition === "string" && value.mutationPrecondition.length <= 100) && (value.role === undefined || value.role === "inbox") && id(value.id)
     && typeof value.name === "string" && (value.kind === "folder" || value.kind === "label") && cursor(value.parentId);
 }
 function result(value: unknown): value is WorkerResult {
-  return record(value) && ((exact(value,["outbox"])&&Array.isArray(value.outbox)&&value.outbox.length<=100&&value.outbox.every(item=>outboxItemSchema.safeParse(item).success)) || (exact(value,["outboxItem"])&&outboxItemSchema.safeParse(value.outboxItem).success) || (exact(value,["smtp"])&&smtpStatusSchema.safeParse(value.smtp).success) || (exact(value,["outboxFailure"])&&outboxErrorSchema.safeParse(value.outboxFailure).success) || (exact(value,["savedSearch"])&&savedSearchResultSchema.safeParse(value.savedSearch).success)||(exact(value,["extraction"])&&extractionStatusSchema.safeParse(value.extraction).success)||(exact(value,["extractionText"])&&extractionTextSchema.safeParse(value.extractionText).success)||(exact(value,["local"]) && mailLocalResultSchema.safeParse(value.local).success)
+  return record(value) && ((exact(value,["portability"])&&Array.isArray(value.portability)&&value.portability.length<=100&&value.portability.every(item=>portabilityStatusSchema.safeParse(item).success)) || (exact(value,["outbox"])&&Array.isArray(value.outbox)&&value.outbox.length<=100&&value.outbox.every(item=>outboxItemSchema.safeParse(item).success)) || (exact(value,["outboxItem"])&&outboxItemSchema.safeParse(value.outboxItem).success) || (exact(value,["smtp"])&&smtpStatusSchema.safeParse(value.smtp).success) || (exact(value,["outboxFailure"])&&outboxErrorSchema.safeParse(value.outboxFailure).success) || (exact(value,["savedSearch"])&&savedSearchResultSchema.safeParse(value.savedSearch).success)||(exact(value,["extraction"])&&extractionStatusSchema.safeParse(value.extraction).success)||(exact(value,["extractionText"])&&extractionTextSchema.safeParse(value.extractionText).success)||(exact(value,["local"]) && mailLocalResultSchema.safeParse(value.local).success)
     || (exact(value, ["search"]) && mailSearchResultSchema.safeParse(value.search).success)
     || (exact(value, ["rebuilt"]) && mailSearchRebuildResultSchema.safeParse(value.rebuilt).success)
     || (exact(value,["imapDiscovery"])&&imapDiscoverySchema.safeParse(value.imapDiscovery).success)
@@ -239,6 +242,7 @@ export function resultMatchesCommand(command: WorkerCommand, value: WorkerResult
     case 'mail.outbox.action':return 'outboxFailure' in value || 'outboxItem' in value&&value.outboxItem.accountId===command.accountId&&value.outboxItem.id===command.input.actionId;
     case 'mail.outbox.list':return 'outboxFailure' in value || 'outbox' in value&&value.outbox.every(item=>item.accountId===command.accountId);
     case 'mail.smtp.status':case 'mail.smtp.configure':case 'mail.smtp.remove':return 'smtp' in value||'outboxFailure' in value;
+    case "mail.portability.list":case "mail.portability.import":case "mail.portability.export":case "mail.portability.resume":case "mail.portability.pause":return "portability" in value;
     case "mail.draft.sync.read":case "mail.draft.sync.request":return "draftSync" in value&&value.draftSync.accountId===command.accountId&&value.draftSync.draftId===command.input.draftId;
     case "mail.graph.mailbox.configure": return "graphMailbox" in value && value.graphMailbox.identity.credentialAccountId === command.input.credentialAccountId && value.graphMailbox.identity.address === command.input.address.toLowerCase();
     case "mail.senders.list": case "mail.senders.refresh": case "mail.senders.settings": case "mail.senders.configure": return "senders" in value && value.senders.every(sender=>sender.accountId===command.accountId);
@@ -292,6 +296,7 @@ export function validWorkerCommand(value: unknown): value is WorkerCommand {
   if (!record(value)) return false;
   if(typeof value.operation==="string"&&(value.operation.startsWith("mail.notifications.")||value.operation.startsWith("mail.lifecycle.")))return mailDesktopCommandSchema.safeParse(value).success;
   if(typeof value.operation==="string"&&(value.operation.startsWith("mail.outbox.")||value.operation.startsWith("mail.smtp.")))return outboxCommandSchema.safeParse(value).success;
+  if(typeof value.operation==="string"&&value.operation.startsWith("mail.portability."))return portabilityCommandSchema.safeParse(value).success;
   if(typeof value.operation==="string"&&value.operation.startsWith("mail.draft.sync."))return draftSyncCommandSchema.safeParse(value).success;
   if(typeof value.operation==="string"&&value.operation.startsWith("mail.extraction."))return extractionCommandSchema.safeParse(value).success;
   if(typeof value.operation==="string"&&value.operation.startsWith("mail.local."))return mailLocalCommandSchema.safeParse(value).success;

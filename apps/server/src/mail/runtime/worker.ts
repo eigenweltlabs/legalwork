@@ -1,4 +1,5 @@
 import {MailNotificationStore} from '../storage/notifications.js';
+import {MailPortabilityStore} from "../storage/portability.js";
 import {DraftSyncRunner} from "./draft-sync.js";
 import {DraftSyncStore,DraftSyncError} from "../storage/draft-sync.js";
 import {OutboxStore} from '../storage/outbox.js';
@@ -42,6 +43,7 @@ let outboxStore:OutboxStore|undefined,outboxRunner:OutboxRunner|undefined;
 let closingOutbox:Promise<void>|undefined,closingDraftSync:Promise<void>|undefined;
 let draftSyncStore:DraftSyncStore|undefined,draftSyncRunner:DraftSyncRunner|undefined;
 let ownerId='';
+let portability:MailPortabilityStore|undefined;
 let database: MailDatabase | undefined;
 let repository: MailRepository | undefined;
 let local:MailLocalApiStore|undefined;
@@ -87,6 +89,7 @@ function write(message: WorkerMessage): boolean {
 async function finish(): Promise<void> {
   try{await(closingOutbox??outboxRunner?.close());}catch{exitCode=1;}
   try{await(closingDraftSync??draftSyncRunner?.close());}catch{exitCode=1;}
+  await portability?.close();
   try{await(closingExtraction??extractionRunner?.close());}catch{exitCode=1;}
   try { await (closingController ?? controller?.close()); } catch { exitCode = 1; }
   try { await (closingSync ?? syncLifecycle?.close()); } catch { exitCode = 1; }
@@ -143,6 +146,7 @@ async function initialize(value: WorkerInitialization): Promise<void> {
     migrateMailSchema(database);
     assertMailSchema(database);
     ownerId=value.ownerId;
+    portability=new MailPortabilityStore(database,value.ownerId);
     repository = new MailRepository(database, value.ownerId);
     local=new MailLocalApiStore(database,value.ownerId);
     reads = new MailReadStore(database, value.ownerId);
@@ -217,6 +221,11 @@ async function request(message: Extract<ParentMessage, { kind: "request" }>): Pr
       case 'mail.outbox.list':if(!outboxStore)throw locked;result={outbox:outboxStore.list(command.accountId)};break;
       case 'mail.outbox.queue':if(!outboxStore)throw locked;result={outboxItem:await outboxStore.queue(command.accountId,command.input)};if(!lifecycleSuspended)void outboxRunner?.run().catch(()=>{});break;
       case 'mail.outbox.action':if(!outboxStore||!outboxRunner)throw locked;result={outboxItem:command.input.action==='reconcile'?await outboxRunner.reconcile(command.accountId,command.input.actionId):command.input.action==='retry'?outboxStore.retry(command.accountId,command.input.actionId):outboxStore.cancel(command.accountId,command.input.actionId)};if(!lifecycleSuspended)void outboxRunner.run().catch(()=>{});break;
+      case 'mail.portability.list':if(!portability)throw locked;result={portability:portability.list()};break;
+      case 'mail.portability.import':if(!portability)throw locked;result={portability:await portability.startImport(command.path,command.format,command.label)};break;
+      case 'mail.portability.export':if(!portability)throw locked;result={portability:await portability.startExport(command.path,command.accountId,command.format)};break;
+      case 'mail.portability.resume':if(!portability)throw locked;result={portability:portability.resume(command.id)};break;
+      case 'mail.portability.pause':if(!portability)throw locked;result={portability:portability.pause(command.id)};break;
       case 'mail.senders.list': result={senders:new SenderIdentityRepository(database,ownerId).list(command.accountId)};break;
       case 'mail.senders.configure': result={senders:new SenderIdentityRepository(database,ownerId).configure(command.accountId,command.input)};break;
       case 'mail.senders.settings': result={senders:new SenderIdentityRepository(database,ownerId).settings(command.accountId,command.input)};break;
@@ -331,6 +340,11 @@ async function request(message: Extract<ParentMessage, { kind: "request" }>): Pr
       case "mail.sync.stop": {
         const credentialStatus = credentials.status(command.accountId);
         const provider = database.get("SELECT provider FROM mail_accounts WHERE id=?", [command.accountId])?.provider;
+        if(provider==='archive'&&command.operation==='mail.status'){
+          const job=database.get("SELECT state,completed,failed FROM mail_portability_jobs WHERE account_id=? AND direction='import' ORDER BY rowid DESC LIMIT 1",[command.accountId]);
+          const count=typeof job?.completed==='number'?job.completed:0,failed=typeof job?.failed==='number'?job.failed:0;
+          result={sync:{accountId:command.accountId,provider:'archive',state:job?.state==='running'?'syncing':job?.state==='paused'||job?.state==='interrupted'?'paused':job?.state==='attention'?'attention':'complete',enumerated:count,downloaded:count,projected:Math.max(0,count-failed),removed:0,retained:count,failed,pending:0,nextRetryAt:null,error:failed?'content_incomplete':null}};break;
+        }
         if (provider !== "gmail" && provider !== "graph" && provider !== "imap") throw unsupported;
         if (command.operation === "mail.sync.provider") { result = { syncProvider: provider, connected: credentialStatus.state === "connected", ...(provider === "graph" && credentialStatus.version ? {personal: credentials.getBinding(command.accountId).authority === "https://login.microsoftonline.com/consumers/v2.0"} : {}) }; break; }
         if (credentialStatus.state === 'disconnected') throw locked;
