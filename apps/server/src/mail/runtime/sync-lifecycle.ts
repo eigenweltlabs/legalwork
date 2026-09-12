@@ -8,7 +8,7 @@ import { createStoredMimeProjector } from '../storage/mime-projection.js';
 
 /** Each connected account owns one idempotent session; durable run state owns pause intent. */
 export class MailSyncLifecycle {
-  private closed = false;
+  private closed = false;private suspended=false;
   private readonly engines = new Map<string, GmailBackfill | GraphBackfill | ImapBackfill>();
   constructor(private readonly database: MailDatabase, private readonly ownerId: string, private readonly access: MailAccessCoordinator) {}
   engine(accountId: string) {
@@ -34,8 +34,11 @@ export class MailSyncLifecycle {
     if (!table) throw new Error('mail_worker_not_found');
     const run = this.database.get(`SELECT state FROM ${table} WHERE account_id=?`, [accountId]);
     const engine = this.engine(accountId);
-    if (run?.state === 'paused' || new MailCredentialRepository(this.database, this.ownerId).status(accountId).state !== 'connected') return engine.status(accountId);
+    const credential=new MailCredentialRepository(this.database,this.ownerId).status(accountId);
+    if (this.suspended || run?.state === 'paused' || credential.state !== 'connected' || credential.archiveLocked) return engine.status(accountId);
     return engine.start(accountId);
   }
+  async suspendAll(){this.suspended=true;const engines=[...this.engines.values()];this.engines.clear();await Promise.all(engines.map(engine=>engine.close()));}
+  resumeAll(){if(this.closed)return;this.suspended=false;for(const row of this.database.all('SELECT id FROM mail_accounts WHERE owner_id=?',[this.ownerId]))if(typeof row.id==='string'){try{this.resume(row.id);}catch{/* One unavailable account must not block other accounts from resuming. */}}}
   async close() { this.closed = true; await Promise.all([...this.engines.values()].map(engine => engine.close())); this.engines.clear(); }
 }

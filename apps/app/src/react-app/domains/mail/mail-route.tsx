@@ -1,3 +1,6 @@
+import {mailKeyboard} from './mail-keyboard';
+import {MailBackgroundStatus} from './mail-desktop';
+import {mailNotificationOpenSchema} from '../../../../../server/src/mail/notification-view';
 import {MailActionBar,mailItemId,optimisticMail} from './mail-actions';
 import type {ActionEntry} from './mail-actions-client';
 import {MailComposer,MailDrafts,type ComposeSelection} from "./mail-composer";
@@ -13,7 +16,7 @@ import './mail-reader.css';
 import { Button } from '@/components/ui/button';
 import { resolveLegalworkConnection } from '../../shell/legalwork-connection';
 import { MailClient, UnifiedMailPages, bodyEnvelope, type MailAccountView, type MailFolderView, type MailMessageView, type MailPartView, type SyncStatus } from './mail-client';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { mailHtml, rasterType, safeFilename } from './mail-html';
 const accountLabel = (provider: string) => provider === 'gmail' ? 'Google' : provider === 'graph' ? 'Microsoft' : 'IMAP';
 const shortDate = (value?: number | null) => value ? new Date(value).toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) : '';
@@ -29,7 +32,9 @@ export function MailRoute() {
     const [checked,setChecked]=useState<Set<string>>(new Set());
     const [actionEntries,setActionEntries]=useState<ActionEntry[]>([]);
     const [actionPulse,setActionPulse]=useState(0);
-    const navigate = useNavigate();
+    const navigate = useNavigate(),location=useLocation();
+    const notificationOpened=useRef<unknown>(null);
+
     const openSettings = () => navigate('/settings/mail-accounts', { state: { from: '/mail' } });
     const [searchQuery, setSearchQuery] = useState('');
     const [savedSearchName, setSavedSearchName] = useState('');
@@ -47,6 +52,7 @@ export function MailRoute() {
     const [thread, setThread] = useState<string>();
     const [error, setError] = useState('');
     const [locked, setLocked] = useState(true);
+    useEffect(()=>{if(!client||locked)return;const state=location.state;if(!state||typeof state!=='object')return;const raw=Reflect.get(state,'mailNotificationTarget'),parsed=mailNotificationOpenSchema.safeParse(raw);if(!parsed.success||notificationOpened.current===raw)return;if(new URL(connectionIdentity.current.split('\n')[0]).origin!==parsed.data.serverOrigin){setError('Open the local server connection in Settings to view this notification.');return;}const controller=new AbortController();notificationOpened.current=raw;void client.readLocator(parsed.data.accountId,parsed.data.locator,controller.signal).then(message=>{if(controller.signal.aborted)return;setSelected(message);setCompose(undefined);setDraftsOpen(false);}).catch(()=>{if(!controller.signal.aborted)setError('This notification’s message is unavailable. Review the account connection in Settings.');});return()=>controller.abort();},[client,locked,location.state]);
     useEffect(()=>{if(locked){setCompose(undefined);setDraftsOpen(false);}},[locked]);
     useEffect(()=>{setCompose(undefined);setDraftsOpen(false);},[client]);
     const [busy, setBusy] = useState(false);
@@ -102,13 +108,7 @@ export function MailRoute() {
         if (!controller.signal.aborted)
             { setLocked(true); setError(textError(error)); }
     } })(); return () => controller.abort(); }, [client, revision]);
-    useEffect(() => { if (!client || locked)
-        return; const controller = new AbortController(); const poll = setInterval(() => { void client.status(controller.signal).then(status => { if (!controller.signal.aborted && status.state !== 'ready') {
-        purge();
-        setLocked(true);
-        setAccounts([]);
-        setError('Mail service is unavailable. Please retry.');
-    } }).catch(() => { if (!controller.signal.aborted) { purge(); setLocked(true); setError('Mail service is unavailable. Please retry.'); } }); }, 5000); return () => { clearInterval(poll); controller.abort(); }; }, [client, locked]);
+    useEffect(()=>{if(!client)return;const controller=new AbortController();let busy=false;const poll=setInterval(()=>{if(busy)return;busy=true;void client.status(controller.signal).then(status=>{if(controller.signal.aborted)return;if(status.state==='ready'&&locked){setError('');setRevision(value=>value+1);}else if(status.state!=='ready'&&!locked){purge();setLocked(true);setAccounts([]);setError('Mail is reconnecting. Local drafts remain saved.');}}).catch(()=>{if(!controller.signal.aborted&&!locked){purge();setLocked(true);setError('Mail connection is unavailable. Check the local server in Settings.');}}).finally(()=>{busy=false;});},3000);return()=>{clearInterval(poll);controller.abort();};},[client,locked]);
     useEffect(() => { purge(); setFolder(''); setFolders([]); if (!client || !account)
         return; const controller = new AbortController(); void (async () => { try {
         const result: MailFolderView[] = [];
@@ -224,12 +224,12 @@ export function MailRoute() {
       onThread={() => { setSearching(false); setAccount(selected.accountId); setThread(selected.threadId ?? undefined); }}/>
       : <div className="mail-empty"><div className="mail-empty-icon"><Mail size={26} strokeWidth={1.3}/></div><h2>Select a message</h2><p>Conversations and attachments.<br/>Available wherever you work.</p></div>;
     return (
-      <main className="mail-workspace" aria-label="Local mail">
+      <main className="mail-workspace" aria-label="Local mail" onKeyDown={event=>mailKeyboard(event.nativeEvent,event.currentTarget)}>
         <header className="mail-toolbar">
           <button className="mail-icon-button mail-folder-toggle" aria-label="Toggle mail folders" onClick={() => setFoldersOpen(value => !value)}><PanelLeft size={17}/></button>
-          <h1>Mail</h1>
+          <h1>Mail</h1><MailBackgroundStatus/><details className="mail-shortcuts"><summary aria-label="Mail keyboard shortcuts" title="Mail keyboard shortcuts">?</summary><span>Focus the message list: ↑ / ↓ or Home / End to open messages. / to search, C to compose, R to reply, Shift+R to reply all. Escape clears search. Shortcuts pause while typing.</span></details>
           <div className="mail-toolbar-actions">
-            <button className="mail-icon-button" title="Compose" aria-label="Compose" disabled={locked||!accounts.length||!!compose} onClick={()=>{const selectedAccount=accounts.find(value=>value.id===account)??accounts[0];openCompose({account:selectedAccount.id,id:crypto.randomUUID(),version:null,content:emptyCompose(selectedAccount.identity?.address??addresses(selectedAccount.displayName)[0]??'')});}}><SquarePen size={16}/></button>
+            <button className="mail-icon-button" title="Compose (C)" aria-keyshortcuts="C" aria-label="Compose" disabled={locked||!accounts.length||!!compose} onClick={()=>{const selectedAccount=accounts.find(value=>value.id===account)??accounts[0];openCompose({account:selectedAccount.id,id:crypto.randomUUID(),version:null,content:emptyCompose(selectedAccount.identity?.address??addresses(selectedAccount.displayName)[0]??'')});}}><SquarePen size={16}/></button>
             <button className="mail-icon-button" title="Drafts" aria-label="Open drafts" disabled={locked||!!compose} onClick={()=>setDraftsOpen(true)}><FileText size={16}/></button>
             <label className="mail-toolbar-search"><Search size={15}/><input aria-label="Search mail" placeholder={savedSearchName ? `Saved: ${savedSearchName}` : 'Search'} disabled={locked} value={searchQuery} onChange={event => { setSearchQuery(event.target.value); setSavedSearchName(''); }}/>{searching && <button aria-label="Clear search" onClick={() => setSearching(false)}><X size={13}/></button>}</label>
             <button className="mail-icon-button" title="Refresh mail" aria-label="Refresh mail" onClick={refresh}><RefreshCw size={16}/></button>
@@ -275,8 +275,8 @@ export function MailRoute() {
                 </div>;
               })}
               {thread && <button className="mail-back" onClick={() => setThread(undefined)}><ChevronLeft size={14}/>Back to inbox</button>}
-              <div className="mail-message-scroll">
-                {items.map(observed => {const value=optimisticMail(observed,actionEntries);return <div key={mailItemId(value)} className="mail-message-select-row"><input type="checkbox" aria-label={`Select ${value.subject||'message'}`} checked={checked.has(mailItemId(value))} onChange={event=>{const enabled=event.target.checked;setChecked(current=>{const next=new Set(current);if(enabled)next.add(mailItemId(value));else next.delete(mailItemId(value));return next;});}}/><button className={`mail-message-row ${selected?.accountId === value.accountId && selected.key === value.key ? 'is-selected' : ''} ${value.isRead === false ? 'is-unread' : ''}`} onClick={() => setSelected(value)} aria-pressed={selected?.accountId === value.accountId && selected.key === value.key}>
+              <div className="mail-message-scroll" aria-label="Message navigation: Up and Down browse, Enter opens">
+                {items.map(observed => {const value=optimisticMail(observed,actionEntries);return <div key={mailItemId(value)} className="mail-message-select-row"><input type="checkbox" aria-label={`Select ${value.subject||'message'}`} checked={checked.has(mailItemId(value))} onChange={event=>{const enabled=event.target.checked;setChecked(current=>{const next=new Set(current);if(enabled)next.add(mailItemId(value));else next.delete(mailItemId(value));return next;});}}/><button className={`mail-message-row ${selected?.accountId === value.accountId && selected.key === value.key ? 'is-selected' : ''} ${value.isRead === false ? 'is-unread' : ''}`} tabIndex={items.some(item=>item.accountId===selected?.accountId&&item.key===selected?.key)?selected?.accountId===value.accountId&&selected.key===value.key?0:-1:items[0]?.accountId===value.accountId&&items[0]?.key===value.key?0:-1} onClick={() => setSelected(value)} aria-pressed={selected?.accountId === value.accountId && selected.key === value.key}>
                   <span className="mail-row-top"><span className="mail-sender">{senderName(value.metadata?.from)}</span><time>{shortDate(value.receivedAt)}</time></span>
                   <span className="mail-row-subject">{value.isRead === false && <span className="mail-unread-dot" aria-label="Unread"/>}{value.isFlagged&&<Flag size={11} aria-label="Flagged"/>}{value.subject || '(No subject)'}</span>
                   <span className="mail-row-bottom"><span>{accounts.find(entry => entry.id === value.accountId)?.displayName}</span>{value.contentState !== 'complete' && <span title={value.contentState === 'downloading' ? 'Content is downloading' : 'Content is unavailable'}><CircleAlert size={12}/></span>}</span>
@@ -414,8 +414,8 @@ function MailReader({ client, item, account, onThread, onUnavailable, onCompose 
       <article id="mail-print-root" className="mail-message">
         <style>{`@media print{body *{visibility:hidden}#mail-print-root,#mail-print-root *{visibility:visible}#mail-print-root{position:absolute;inset:0;overflow:visible}#mail-print-root button,#mail-print-root iframe,#mail-print-root .mail-message-actions,#mail-print-root .mail-attachments,#mail-print-root>section,#mail-print-content>:not(.mail-print-copy){display:none}#mail-print-root .mail-print-copy{display:block!important;white-space:pre-wrap}}`}</style>
         <div className="mail-message-actions">
-          <button title="Reply" aria-label="Reply" disabled={busy||!bodies.length} onClick={()=>void composeMessage('reply')}><Reply size={15}/></button>
-          <button title="Reply all" aria-label="Reply all" disabled={busy||!bodies.length} onClick={()=>void composeMessage('reply-all')}><ReplyAll size={15}/></button>
+          <button title="Reply (R)" aria-keyshortcuts="R" aria-label="Reply" disabled={busy||!bodies.length} onClick={()=>void composeMessage('reply')}><Reply size={15}/></button>
+          <button title="Reply all (Shift+R)" aria-keyshortcuts="Shift+R" aria-label="Reply all" disabled={busy||!bodies.length} onClick={()=>void composeMessage('reply-all')}><ReplyAll size={15}/></button>
           <button title="Forward" aria-label="Forward" disabled={busy||!bodies.length} onClick={()=>void composeMessage('forward')}><Forward size={15}/></button>
           <button title="Forward as attached message" aria-label="Forward as attached message" disabled={busy||!raw?.bytesAvailable} onClick={()=>void composeMessage('forward-attachment')}><Paperclip size={15}/></button>
           {item.threadId && <button title="View conversation" onClick={onThread}><MessagesSquare size={15}/><span>Conversation</span></button>}
