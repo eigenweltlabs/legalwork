@@ -170,7 +170,7 @@ export function FileStorageView({
                     </p>
                   </div>
                   {connection.config.kind === "oauth" && connection.enabled && connection.team?.installed !== false && (
-                    <StorageOAuthSignIn client={client} workspaceId={workspaceId} connectionId={connection.id} onChanged={refresh} />
+                    <StorageOAuthSignIn client={client} workspaceId={workspaceId} connectionId={connection.id} revision={connection.updatedAt} onChanged={refresh} />
                   )}
                   {!connection.team && connections.data?.team?.canManage ? (
                     <Button
