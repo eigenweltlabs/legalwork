@@ -26,8 +26,8 @@ export function registerMailStorageSaveRoutes(options:{routes:Route[];host:strin
    if(request.action==='workspaces')return Response.json({items:options.workspaces()},{headers:{'Cache-Control':'no-store'}});
    await options.resolveWorkspace(request.workspaceId);let result:unknown;
    switch(request.action){
-    case 'roots':result=await coordinator.roots(request.workspaceId);break;
-    case 'folders':result=await coordinator.folders(request.workspaceId,request.storageId,request.path,request.cursor);break;
+    case 'roots':result=await coordinator.roots(request.workspaceId,ctx.request.signal);break;
+    case 'folders':result=await coordinator.folders(request.workspaceId,request.storageId,request.path,request.cursor,ctx.request.signal);break;
     case 'capture':result=await mail.filing({action:'capture',accountId:request.accountId,locator:request.locator});break;
     case 'snapshot':result=await mail.filing({action:'snapshot',accountId:request.accountId,snapshotId:request.snapshotId});break;
     case 'chunk':result=await mail.filing({action:'chunk',accountId:request.accountId,snapshotId:request.snapshotId,part:request.part,offset:request.offset,limit:request.limit});break;

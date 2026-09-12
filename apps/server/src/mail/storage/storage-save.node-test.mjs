@@ -15,7 +15,7 @@ import {MailSearchStore} from './search.js';
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {randomBytes} from 'node:crypto';
-import {mkdtemp,rm,readFile} from 'node:fs/promises';
+import {mkdtemp,rm,readFile,writeFile} from 'node:fs/promises';
 import {join} from 'node:path';
 import {tmpdir} from 'node:os';
 import {GmailRunStore} from './gmail-state.js';
@@ -167,4 +167,19 @@ test('host route authorizes workspace before shared credentials and forwards a r
 
 test('provider-native attachment publication invalidates old source scope and is included in a fresh retained snapshot',async()=>fixture(async f=>{
  const snapshot=await prepared(f);await matterFixture(f,async c=>{seedReceipt(f,c,snapshot);const version=await c.coordinator.authorizeSource('workspace','a',locator,'matter',c.resolve);const secret=Buffer.from('Unfiled native attachment');await f.content.writePart('a',locator,{kind:'attachment',partId:'provider-extra',maxBytes:secret.length},[secret]);await assert.rejects(c.coordinator.assertSourceVersion('a',locator,version));await assert.rejects(c.coordinator.authorizeSource('workspace','a',locator,'matter',c.resolve));const fresh=(await c.mail.filing({action:'capture',accountId:'a',locator})).snapshot;assert.equal(fresh.manifest.parts.length,3);assert.ok(fresh.manifest.parts.some(part=>part.sha256===createHash('sha256').update(secret).digest('hex')));});
+}));
+
+test('cancel between authorization batches drops its one-shot scope and never starts a mail query',async()=>fixture(async f=>{
+ const snapshot=await prepared(f);await matterFixture(f,async c=>{for(let i=0;i<201;i++)seedReceipt(f,c,snapshot);const original=c.mail.filing;let queries=0,drops=0,controller;
+  c.mail.filing=async input=>{const result=await original(input);if(input.action==='scope-add')controller?.abort();if(input.action==='scope-drop')drops++;if(input.action==='search')queries++;return result;};
+  for(let i=0;i<5;i++){controller=new AbortController();await assert.rejects(c.coordinator.search('workspace',['a'],'matter',{keywords:['private']},c.resolve,controller.signal));}
+  assert.equal(drops,5);assert.equal(queries,0);assert.equal(c.calls.filter(call=>call.name==='authorized_mail_filings').length,5);
+  const aborted=new AbortController();aborted.abort();await assert.rejects(c.coordinator.authorizeSource('workspace','a',locator,'matter',c.resolve,aborted.signal));
+  controller=undefined;new MailSearchStore(f.db,'owner').rebuild({accountId:'a',limit:25});assert.equal((await c.coordinator.search('workspace',['a'],'matter',{keywords:['private']},c.resolve)).total,1);
+ });
+}));
+
+test('long Unicode attachment names fit portable filename byte limits on a real temporary filesystem',async()=>fixture(async f=>{
+ const snapshot=await prepared(f);snapshot.manifest.parts[1].filename='秘密😀'.repeat(100)+'.pdf';const json=JSON.stringify(snapshot.manifest);f.db.run('UPDATE mail_filing_snapshots SET manifest_json=?,manifest_hash=? WHERE id=?',[json,createHash('sha256').update(json).digest('hex'),snapshot.id]);const save=new MailStorageSaveStore(f.db,'owner').execute({action:'create',accountId:'a',snapshotId:snapshot.id,workspaceId:'workspace',storageId:'sftp',rootRevision:'one',folderPath:'',selection:[1]}).save;
+ const directory=await mkdtemp(join(tmpdir(),'mail-unicode-filename-'));try{const path=save.parts[0].path;assert.ok(Buffer.byteLength(path)<=255);assert.ok(path.length<=240);assert.equal(path.includes('�'),false);await writeFile(join(directory,path),Buffer.from([1,2,3,4]));assert.deepEqual(await readFile(join(directory,path)),Buffer.from([1,2,3,4]));}finally{await rm(directory,{recursive:true,force:true});}
 }));
