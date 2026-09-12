@@ -1,5 +1,6 @@
+import {publishNewMailFile} from './mail-file-publication.mjs';
 import {createHash,randomUUID} from 'node:crypto';
-import {mkdtemp,open,rm,copyFile,lstat,rename,link} from 'node:fs/promises';
+import {mkdtemp,open,rm,copyFile,lstat,rename} from 'node:fs/promises';
 import {join,dirname} from 'node:path';
 import {tmpdir} from 'node:os';
 import {z} from 'zod';
@@ -41,7 +42,7 @@ export function createMailArtifacts({connection,dialog,shell,privateDirectory}){
         const durable=await open(publication,'r+');try{await durable.sync();}finally{await durable.close();}
         if(abort.signal.aborted||await version(destination)!==destinationVersion)throw Error('mail_destination_changed');
         // Native Save authorizes replacing an existing selection. Never truncate it while downloading.
-        if(destinationVersion===null){await link(publication,destination);await rm(publication);}
+        if(destinationVersion===null){await publishNewMailFile(publication,destination,abort.signal);await rm(publication);}
         else await rename(publication,destination);
         publication=undefined;return {saved:true};
       }
