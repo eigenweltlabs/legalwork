@@ -8,7 +8,7 @@ import { MailReadStore } from '../storage/read-store.js';
 import type { MailAccessCoordinator } from '../providers/access-coordinator.js';
 import { GmailReadTransport, GmailTransportError } from '../providers/gmail.js';
 import { MimeProjectionStore } from '../storage/mime-projection-store.js';
-import { projectMime, MimeProjectionError } from '../mime/project.js';
+import { projectMime, MimeProjectionError, mimeInputChunks } from '../mime/project.js';
 const hash = (value: string | Uint8Array) => createHash('sha256').update(value).digest('hex');
 const locator = (messageId: string) => ({
     provider: 'gmail',
@@ -359,7 +359,7 @@ export class MailQualification {
                 let projected: Awaited<ReturnType<typeof projectMime>>;
                 try {
                     projected = await projectMime({
-                        source: [raw],
+                        source: mimeInputChunks(raw),
                         originalSha256: rawHash,
                         signal,
                         limits: {
