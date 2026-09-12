@@ -1,0 +1,45 @@
+{"additionalDesktopQualificationSuites":["mail-artifacts.test.mjs","mail-desktop.test.mjs","mail-draft-recovery.test.mjs","mail-file-publication.test.mjs","mail-image-dimensions.test.mjs","mail-images.test.mjs","mail-keychain-preflight.test.mjs","mail-menu-shortcuts.test.mjs","mail-portability.test.mjs"]}
+✔ save and open re-read stored references, verify chunks and confine filenames to a generated path (104.34624ms)
+✔ corrupt bytes and locked accounts cannot publish attachments (26.442504ms)
+✔ account-switch cancellation fences a late save dialog, and message-supplied destination is rejected (40.669011ms)
+✔ offline archive locators save verified originals and attachments without provider credentials (34.450005ms)
+✔ native cancellation preserves an existing selected file and creates no publication (9.713143ms)
+✔ native replacement publishes verified bytes only after download and rejects a changed destination (46.078217ms)
+✔ native Unicode names retain their extension within portable filesystem byte limits (20.45553ms)
+✔ private defaults, bounded burst and account recheck before click (6.805211ms)
+✔ late polls cannot expose preview after privacy change, lock, or quit (1.73631ms)
+✔ suspend and persistent user pause fence resume; new epoch on reconnect (2.005586ms)
+✔ unavailable accounts and read messages never show native previews (1.26544ms)
+✔ encrypted fsync recovery survives host failure/reopen; stale acknowledgment cannot remove newer edits (49.762466ms)
+✔ preflight denial, hostile path and invalid or oversized records fail closed (6.098064ms)
+✔ list checks authorization once per account per call and never caches across calls (71.993883ms)
+✔ unsupported hard links fall back to exclusive creation and exact verified bytes (18.81222ms)
+✔ fallback never overwrites an existing or racing destination (6.64239ms)
+✔ cancellation and write errors clean only the partial file owned by this operation (9.047702ms)
+✔ cancellation cleanup preserves a replacement created by another operation (6.144812ms)
+✔ cancellation before fallback creates no destination (3.004031ms)
+✔ small GIF/APNG animations remain supported and charge their complete frame canvas budget (2.568119ms)
+✔ animation count, canvas amplification, truncated containers and hidden frame declarations fail before decode (5.779291ms)
+✔ APNG subframes and PNG header identity cannot bypass checked canvas dimensions (0.710024ms)
+✔ mail image addresses reject private, mapped, local, documentation, credential and unusual-port targets (5.387614ms)
+✔ HTML/CSS resources decode entities and CSS escapes without treating unrelated text as a resource (6.968255ms)
+✔ native image download pins checked DNS, blocks redirect-to-private and sends no ambient credentials (1.598213ms)
+✔ encoded dimensions reject bombs before raster decode (0.610556ms)
+✔ native image grants read the current stored body, bound returned bytes, and reject caller URLs or a lock (45.908728ms)
+✔ cancellation ends a stalled DNS lookup before any connection (0.409995ms)
+✔ native transport reads bounded raster bytes and rejects oversized or encoded responses (1.852553ms)
+✔ aggregate decoded pixels stop before another compressed image reaches the decoder (20.289156ms)
+✔ embedded server keeps the OS home while child environment remains isolated (0.960494ms)
+✔ missing or redirected macOS keychains fail before native vault access (1.72552ms)
+✔ native reply timeout does not execute a late command or request reload (302.683943ms)
+✔ native reply drops route/focus changes and never invents fallback after errors (0.6393ms)
+✔ native queued dispatch checks renderer focus before opening and coalesces accelerators (0.985877ms)
+✔ native archive grants paths only from dialogs; rejects forged paths and stale service (2.022414ms)
+ℹ tests 36
+ℹ suites 0
+ℹ pass 36
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 1037.928296
