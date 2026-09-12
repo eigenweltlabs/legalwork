@@ -1,5 +1,7 @@
 # Mail account onboarding — EIG-135 / EIG-120
 
+The current standards-provider capability/limit matrix and exact EIG-135 external gates are in [standards-provider acceptance](standards-provider-matrix.md). Manual setup is available; Yahoo/Fastmail and unnamed generic hosts are not certified.
+
 Current live evidence and remaining account requirements: [EIG-173 qualification](live-provider-qualification.md).
 
 The Mail section in app Settings connects Google, personal Outlook/Hotmail, the configured Microsoft organizational tenant, iCloud, and manual direct-TLS IMAP. Mail opens through the local OS keychain automatically; there is no user-facing mail lock control. Provider passwords and OAuth tokens are never copied into renderer storage. Google/Microsoft sign-in opens the system browser; the existing loopback state/S256 flow, authenticated identity discovery and atomic credential repository perform connection. Setup polls fixed status fields, supports cancellation and explicit reconnect, and explains missing permission/identity errors. Folder selection is optional for IMAP. Successful connections start eligible sync automatically. Connected sessions resume after reopen unless explicitly paused.
