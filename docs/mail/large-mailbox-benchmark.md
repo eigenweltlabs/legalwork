@@ -123,3 +123,30 @@ The 12-test search run used `--test-name-pattern` and **excluded** the legacy `v
 Current schema-28 focused verification ran the complete `storage/search` suite (**14/14**, no exclusions) and complete `storage/sync-journal` suite (**20/20**, no exclusions), each through `pnpm exec node apps/server/scripts/mail-acceptance.mjs --suite <suite>`. This includes the repaired v7 fixture, the new phrase total/empty-page/account/source-scope/dirty/reopen fixture, schema-28 DDL fault rollback/idempotency/reopen/foreign-key preservation, and existing raw followup inheritance plus before/after SIGKILL cases. The legacy downgrade helper now removes the reverse index before recreating pre-28 schemas. The current compiler also passed in both retained benchmark runs. No full app or platform suite was added.
 
 Review follow-up adds combined phrase + unread/folder/date/literal/sender/filename/attachment filters to the existing lexical fixture, with positive and negative exact results. The existing agent source-version fixture now performs a positive phrase/literal search through a valid V1 filing receipt, then confirms the V2 phrase is excluded after source replacement. Both changed fixtures passed individually after the complete-suite runs above; no broad suite or benchmark was repeated for these test-only additions.
+
+## Conversation-page regression review (EIG-139 integration)
+
+The new whole-account conversation window query was measured against a disposable encrypted clone of the same retained 100k corpus. Account `benchmark-a` contains 33,334 messages and 33,334 distinct threads; this is not a 100k-single-account or long-thread workload. The query must select the latest member across the whole account even when it is outside Inbox, while preserving conversation counts and current pending-read intents. Inbox refresh is gated by cursor/signature/action changes, not unconditionally executed every five seconds; each changed-account refresh still incurs this work.
+
+The initial query at `16d5bc743` took 325–340 ms for warm all-mail pages and 357–395 ms for Inbox pages, including 25 production read payloads. The flat list took 26–28 ms and 121–128 ms respectively. The subsequent authoritative pending-read query at `3e0a8dd3d` was used as the optimization comparator. Its whole-account windows carried all message columns and sorted for incompatible ordered/unordered frames.
+
+The shipped change carries only the identity/locator/date and computed fields needed by the window, and gives row number, count, unread sum and scope maximum the same ordered **full-partition frame**. It removes one temporary sort without a new schema, persistent cache or authorization shortcut. The full frame is important: a representative outside Inbox may precede a tied Inbox member. Exact account/pending-read binding, full-thread counts, canonical tie ordering and cursor predicates are unchanged.
+
+| Same-clone samples, first sample excluded from warm range | Final139 comparator | Shipped shared window |
+| --- | --- | --- |
+| All mail: SQL + 25 read payloads | 349–369 ms | 300–317 ms |
+| Inbox: SQL + 25 read payloads | 353–432 ms | 322–336 ms |
+
+This is a modest improvement with a material **residual full-account cost**. Four samples per case do not establish a p95, a quiet-host benchmark or reference-hardware acceptance. The earlier frozen 100k and schema28 search results remain unchanged. The process-cold/startup/RSS/ingestion measurements in those reports are not replaced by this query-only review. The active M3 Max/36GiB host was not reserved exclusively.
+
+All exact returned rows matched the comparator on both retained-corpus page cases. The complete native `storage/read-order` suite passed 2/2 after the query change. Its conversation case was then extended and passed individually with equal-date representatives, a later tied Inbox member, unknown dates, tombstones/includeRemoved, alongside existing whole-thread pagination, cross-account isolation, queued read/unread, cancellation and provider-refresh/no-double-subtraction assertions. The first extension attempt used a null Gmail metadata date despite its NOT NULL constraint; the fixture was corrected to represent unavailable metadata by its absence, as production does. No production change was needed for that fixture error. No Electron test ran.
+
+Raw comparator/candidate reports and the exact pre-change source are retained under [benchmarks/conversation-query](benchmarks/conversation-query/shared-window.json). Grouped and selected-page-count alternatives are preserved as investigation evidence; neither was shipped because they did not establish a convincing further gain. No further query shapes were explored after this checkpoint.
+
+Reproduce the same bounded query comparison with an already-built current mail server (no ingestion or Electron):
+
+```sh
+node scripts/mail/conversation-query-probe.mjs /absolute/retained-synthetic-profile /tmp/new-conversation-report.json
+```
+
+An optional third argument supplies a compiled `dist/mail` directory. The CLI rejects a non-synthetic/non-100k profile, clones it, checks ownership/counts, uses the checked-in baseline SQL source plus the current query, verifies exact rows and original size/mtime, and removes its clone. The published measurements used the equivalent isolated precursor script with explicit local paths; the reusable CLI's path handling was syntax-checked without rerunning the retained corpus. It records first-call/cache effects separately in each four-sample sequence; it does not flush the OS cache or render the application. Keep the private profile key outside source control and uploaded evidence.

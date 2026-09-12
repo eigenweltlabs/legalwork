@@ -77,7 +77,7 @@ export class MailReadStore {
           AND state IN ('queued','running','dispatching','retry')
           AND json_extract(payload_json,'$.intent.change.kind')='read'
       ), source AS (
-        SELECT m.message_key,m.locator_json,coalesce(ar.received_at,im.internal_date,gm.internal_date,
+        SELECT m.*,coalesce(ar.received_at,im.internal_date,gm.internal_date,
           CAST(unixepoch(json_extract(gr.metadata_json,'$.receivedDateTime'),'subsec')*1000 AS INTEGER)) received_at,
           CASE WHEN m.thread_id IS NULL THEN json_array('message',m.message_key) ELSE json_array('thread',m.thread_id) END conversation_key,
           CASE WHEN pending.read IS NOT NULL THEN NOT pending.read WHEN m.provider='gmail' THEN EXISTS(SELECT 1 FROM mail_memberships u WHERE u.account_id=m.account_id AND u.message_key=m.message_key AND u.folder_id='UNREAD') ELSE m.is_read=0 END unread,
@@ -90,12 +90,10 @@ export class MailReadStore {
           LEFT JOIN mail_graph_messages gr ON gr.account_id=m.account_id AND gr.message_key=m.message_key
         WHERE m.account_id=? AND (?=1 OR NOT EXISTS(SELECT 1 FROM mail_tombstones t WHERE t.account_id=m.account_id AND t.message_key=m.message_key))
       ), ranked AS (
-        SELECT *,row_number() OVER conversation position,
-          count(*) OVER conversation conversation_count,
-          sum(coalesce(unread,0)) OVER conversation unread_count,
-          max(in_scope) OVER conversation scope_match FROM source
-        WINDOW conversation AS (PARTITION BY conversation_key ORDER BY coalesce(received_at,-1) DESC,message_key
-          ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING)
+        SELECT *,row_number() OVER(PARTITION BY conversation_key ORDER BY coalesce(received_at,-1) DESC,message_key) position,
+          count(*) OVER(PARTITION BY conversation_key) conversation_count,
+          sum(coalesce(unread,0)) OVER(PARTITION BY conversation_key) unread_count,
+          max(in_scope) OVER(PARTITION BY conversation_key) scope_match FROM source
       ) SELECT locator_json,received_at,conversation_count,unread_count FROM ranked
         WHERE position=1 AND scope_match=1 AND (? IS NULL OR coalesce(received_at,-1)<? OR (coalesce(received_at,-1)=? AND message_key>?))
         ORDER BY coalesce(received_at,-1) DESC,message_key LIMIT ?`,
