@@ -219,6 +219,14 @@ export class MailSyncJournal {
       this.retire(this.leased(accountId, jobId, token, now), now, retryable ? "retryable" : "permanent", retryAfterMs);
     });
   }
+  /** An account-level provider outage is not evidence that this original is unreadable. */
+  defer(accountId: string, jobId: string, token: string, retryAfterMs: number): void {
+    this.operation(); z.number().int().min(1000).max(Number.MAX_SAFE_INTEGER).parse(retryAfterMs);
+    this.database.transaction(() => {
+      const now=this.time(), job=this.leased(accountId,jobId,token,now);
+      this.database.run("UPDATE mail_sync_jobs SET state=?,attempts=?,available_at=?,lease_token=NULL,lease_until=NULL,last_error='retryable' WHERE account_id=? AND id=?",[job.attempts<=1?'queued':'retry',Math.max(0,job.attempts-1),Math.min(Number.MAX_SAFE_INTEGER,now+retryAfterMs),accountId,jobId]);
+    });
+  }
   renew(accountId: string, jobId: string, token: string, leaseMs = 30000): void {
     this.operation();
     z.number().int().min(1).max(300000).parse(leaseMs);
