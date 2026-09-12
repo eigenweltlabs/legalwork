@@ -1,3 +1,4 @@
+import { dropboxProvider } from "./dropbox.js";
 import type { StorageInput, StorageOAuthProvider } from "@legalwork/types/file-storage";
 import type { StorageAdapter } from "../common.js";
 import { ApiError } from "../../errors.js";
@@ -16,7 +17,7 @@ export type OAuthProvider = StorageOAuthProvider & {
   adapter: (config: OAuthConfig, token: AccessToken) => Promise<StorageAdapter> | StorageAdapter;
 };
 // Each provider branch adds its own registration to this shared entry point.
-export const oauthProviders: OAuthProvider[] = [];
+export const oauthProviders: OAuthProvider[] = [dropboxProvider];
 export function oauthProvider(id: string) {
   const provider = oauthProviders.find((item) => item.id === id);
   if (!provider?.clientId)
