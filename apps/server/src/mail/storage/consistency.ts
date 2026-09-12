@@ -44,6 +44,7 @@ const requiredColumns: Record<string, string[]> = {
   mail_gmail_presence: ["account_id","message_key","seen_generation","remote_present","history_id"],
   mail_gmail_runs: ["account_id","generation","revision","state","recent_after","next_retry_at","error","failure_count","phase","history_id","history_page_token","poll_at"],
   mail_search_documents: ["id","account_id","message_key","subject","body","names","addresses","senders_json","recipients_json","filenames_json","date","incomplete","normalized_text","has_attachment"],
+  mail_search_trigram: ["normalized_text"],
   mail_search_fts: ["subject","body","names","addresses"],
   mail_search_dirty: ["account_id","message_key"],
   mail_gmail_metadata: ["account_id","message_key","internal_date","thread_id","label_ids_json"],
