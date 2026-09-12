@@ -28,4 +28,21 @@ The native connection test uses real OAuth loopback callbacks, the encrypted SQL
 
 The Graph suite had a misplaced fixture statement at module scope. It now runs inside its legacy migration fixture; the startup test above is selected explicitly. Unrelated legacy migration tests and full platform/app suites remain for final integration.
 
-No live mailbox or regular development app was used. The already-connected Google account still needs the integration owner's live check. Final real-account certification for every provider and final design/integration review remain EIG-172/EIG-173/EIG-174 gates.
+Lead dev check on 12 September opened the regular profile and verified existing session history and today's Gmail arrival without pressing Resume. A real rate-limit response exposed exhausted discovery/download retry budgets, addressed by persisted account cooldowns. This is a targeted Google startup/recovery check, not full provider qualification. Final real-account certification for every provider and final design/integration review remain EIG-172/EIG-173/EIG-174 gates.
+
+
+## Rate-limit recovery found in the dev account
+
+Gmail account-level rate limits and transient outages now defer download jobs without
+consuming their content-failure budget. The executor ends that batch and the account
+waits at least a minute, or the longer provider Retry-After. Discovery keeps a bounded
+cooldown after its quick retry budget. Both deadlines persist across worker restart;
+explicit pauses and authentication failures still stop appropriately. Legacy raw
+downloads exhausted by transient failures are requeued on restart when the persisted
+account error indicates a provider outage. Permanent content failures remain visible.
+
+Focused cases:
+
+```sh
+pnpm exec node apps/server/scripts/mail-acceptance.mjs --suite providers/gmail-backfill --test-name-pattern 'provider retry floor|rate limits enter|uncooperative discovery timeout|authentication rejection|download throttling|restart recovers legacy'
+```

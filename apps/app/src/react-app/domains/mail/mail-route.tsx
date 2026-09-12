@@ -267,7 +267,7 @@ export function MailRoute() {
                 if (!progress || progress.state === 'complete') return null;
                 const attention = progress.state === 'attention' || Boolean(progress.error);
                 return <div key={value.id} role="status" className="mail-sync-progress">
-                  <span>{value.displayName}: {progress.state === 'syncing' ? 'Downloading mail' : progress.state === 'waiting' ? 'Waiting to retry — connection unavailable' : progress.state === 'paused' ? 'Sync paused' : attention ? 'Sync needs attention' : 'Preparing sync'} · {progress.projected} messages available</span>
+                  <span>{value.displayName}: {progress.state === 'syncing' ? 'Downloading mail' : progress.state === 'waiting' ? progress.error === 'rate_limited' ? 'Waiting for provider rate limit' : 'Waiting to retry — connection unavailable' : progress.state === 'paused' ? 'Sync paused' : attention ? 'Sync needs attention' : 'Preparing sync'} · {progress.projected} messages available</span>
                   {progress.error && <span>{progress.error.replaceAll('_', ' ')}</span>}
                   {(attention || progress.state === 'waiting' || progress.state === 'paused' || progress.state === 'idle') && <button onClick={() => control('start', value.id)}>{progress.state === 'paused' ? 'Resume' : 'Retry sync'}</button>}
                   {(progress.error?.includes('auth') || progress.error?.includes('reconsent') || progress.error?.includes('credential') || progress.error === 'account_unavailable') && <button onClick={openSettings}>Reconnect account</button>}
