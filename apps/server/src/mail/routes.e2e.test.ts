@@ -1,3 +1,4 @@
+import {linkTestModules} from '../../../../scripts/mail/link-test-modules.mjs';
 import { createRequire } from 'node:module';
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import { mkdtemp, rm, mkdir, realpath, symlink, writeFile } from "node:fs/promises";
@@ -113,7 +114,7 @@ test("local HTTP reads complete encrypted originals and attachments offline with
   if (!executable) throw new Error("Actual Node required");
   const runtime = join(directory, "runtime"), serverRoot = fileURLToPath(new URL("../../", import.meta.url));
   await mkdir(runtime); await writeFile(join(runtime, "package.json"), '{"type":"module"}');
-  await symlink(await realpath(join(serverRoot, "node_modules")), join(runtime, "node_modules"), process.platform === "win32" ? "junction" : "dir");
+  await linkTestModules(await realpath(join(serverRoot, "node_modules")), join(runtime, "node_modules"));
   execFileSync(executable, [createRequire(import.meta.url).resolve("typescript/bin/tsc"), "--outDir", join(runtime, "build"), "--rootDir", "src", "--module", "NodeNext", "--moduleResolution", "NodeNext", "--target", "ES2022", "--strict", "--skipLibCheck", "--types", "node,bun-types", "src/mail/runtime/worker.ts"], { cwd: serverRoot, stdio: "pipe", timeout: 30000 });
   const privateDir = join(directory, "private"); await mkdir(privateDir, { mode: 0o700 });
   const databasePath = join(privateDir, "mail.sqlite"), key = randomBytes(32), locator = { provider: "gmail", messageId: "m1" } satisfies import("./model.js").ProviderMessageLocator;

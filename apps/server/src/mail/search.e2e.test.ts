@@ -1,3 +1,4 @@
+import {linkTestModules} from '../../../../scripts/mail/link-test-modules.mjs';
 import { createRequire } from 'node:module';
 import {setTimeout as delay} from 'node:timers/promises';
 import {test,expect} from 'bun:test';
@@ -18,7 +19,7 @@ test('actual HTTP -> service -> Node worker -> encrypted local search, authoriza
  let service:LocalMailService|undefined;let server:Awaited<ReturnType<typeof startServer>>|undefined;
  try{
   const nodePath=Bun.which('node');if(!nodePath)throw Error('Node required');
-  await writeFile(join(root,'package.json'),'{"type":"module"}');await symlink(await realpath(join(serverRoot,'node_modules')),join(root,'node_modules'),process.platform==='win32'?'junction':'dir');
+  await writeFile(join(root,'package.json'),'{"type":"module"}');await linkTestModules(await realpath(join(serverRoot,'node_modules')),join(root,'node_modules'));
   execFileSync(nodePath,[createRequire(import.meta.url).resolve('typescript/bin/tsc'),'--outDir',join(root,'build'),'--rootDir','src','--module','NodeNext','--moduleResolution','NodeNext','--target','ES2022','--strict','--skipLibCheck','--types','node,bun-types','src/mail/runtime/worker.ts'],{cwd:serverRoot,timeout:30000});
   const module=(path:string)=>JSON.stringify(pathToFileURL(join(root,'build/mail',path+'.js')).href);
   const seed=`import {readFileSync} from 'node:fs';import {openEncryptedMailDatabase} from ${module('storage/database')};import {migrateMailSchema} from ${module('storage/schema')};import {MailRepository} from ${module('storage/repository')};const input=JSON.parse(readFileSync(0,'utf8'));const key=Buffer.from(input.key,'base64');const db=await openEncryptedMailDatabase({path:input.path,key});key.fill(0);migrateMailSchema(db);for(const [owner,id,subject] of [['owner','a','Prüfung AZ-12/34.5'],['foreign-owner','foreign','Foreign secret']]){const repo=new MailRepository(db,owner);repo.createAccount({id,provider:'gmail',displayName:id});repo.ingestMessage(id,{locator:{provider:'gmail',messageId:'one'},rfcMessageId:null,subject,memberships:[]});}db.close();`;

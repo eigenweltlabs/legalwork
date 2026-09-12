@@ -1,3 +1,4 @@
+import {linkTestModules} from '../../../scripts/mail/link-test-modules.mjs';
 import {test,expect} from 'bun:test';
 import {mkdtemp,writeFile,rm,symlink} from 'node:fs/promises';import {tmpdir} from 'node:os';import {join,resolve} from 'node:path';import {createRequire} from 'node:module';import {spawn} from 'node:child_process';import {randomUUID} from 'node:crypto';
 
@@ -25,7 +26,7 @@ test('mailbox UI queues independent bulk actions, shows partial failure, safely 
   }else value={};return Response.json(value,{headers});
  }});
  try{
-  await symlink(join(appRoot,'node_modules'),join(root,'node_modules'),process.platform==='win32'?'junction':'dir');
+  await linkTestModules(join(appRoot,'node_modules'),join(root,'node_modules'));
   const entry=join(root,'entry.tsx');await writeFile(entry,`import React from 'react';import {createRoot} from 'react-dom/client';import {MemoryRouter} from 'react-router-dom';import {MailRoute} from ${JSON.stringify(join(appRoot,'src/react-app/domains/mail/mail-route.tsx'))};localStorage.setItem('legalwork.server.urlOverride','http://127.0.0.1:${server.port}');localStorage.setItem('legalwork.server.hostToken','synthetic');localStorage.setItem('legalwork.server.token','synthetic');createRoot(document.getElementById('root')).render(<MemoryRouter><MailRoute/></MemoryRouter>);`);
   const build=await Bun.build({entrypoints:[entry],target:'browser',outdir:root,alias:{'@':join(appRoot,'src')},minify:true,plugins:[{name:'fixture-zod',setup(build){build.onResolve({filter:/^zod$/},()=>({path:join(appRoot,'node_modules/zod/index.js')}));}}]});if(!build.success)throw Error(build.logs.map(String).join('\n'));
   await writeFile(join(root,'index.html'),'<html><head><meta charset="utf-8"><link rel="stylesheet" href="entry.css"><style>:root{--border:#dedfe4;--muted:#f4f4f5;--muted-foreground:#6b6f78;--background:#fff;--foreground:#20222a;--popover:#fff;--popover-foreground:#20222a;--primary:#46536a;--destructive:#a83737}body{margin:0;font-family:system-ui}button,input,select{font:inherit}#root{height:100vh}button{cursor:pointer;border:0;background:transparent;color:inherit}</style></head><body><div id="root"></div><script src="entry.js"></script></body></html>');

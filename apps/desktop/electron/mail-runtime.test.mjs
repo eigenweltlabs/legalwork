@@ -1,3 +1,4 @@
+import {linkTestModules} from '../../../scripts/mail/link-test-modules.mjs';
 import {createRequire} from 'node:module';
 import { test } from "node:test";
 import assert from "node:assert/strict";
@@ -28,7 +29,7 @@ test("desktop binding unlocks the built encrypted worker and reopens the same OS
   try {
     await mkdir(userData, { mode: 0o700 });
     await writeFile(join(root, "package.json"), '{"type":"module"}');
-    await symlink(join(serverRoot, "node_modules"), join(root, "node_modules"),process.platform==='win32'?'junction':'dir');
+    await linkTestModules(join(serverRoot, "node_modules"), join(root, "node_modules"));
     execFileSync(process.execPath, [createRequire(join(serverRoot, "package.json")).resolve("typescript/bin/tsc"), "--outDir", join(root, "build"), "--rootDir", "src", "--target", "ES2022", "--module", "NodeNext", "--moduleResolution", "NodeNext", "--strict", "--skipLibCheck", "--types", "node,bun-types", "src/mail/runtime/maintenance-worker.ts", "src/mail/service.ts", "src/mail/runtime/worker.ts", "src/mail/providers/development-config.ts"], { cwd: serverRoot, stdio: "pipe", timeout: 30_000 });
     const googleConfig = join(userData, "synthetic-google-client.json");
     await writeFile(googleConfig, JSON.stringify({ installed: { client_id: "123456-synthetic.apps.googleusercontent.com", project_id: "synthetic-mail-project",
