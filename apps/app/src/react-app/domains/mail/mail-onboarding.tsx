@@ -1,3 +1,9 @@
+import {DropdownMenu,DropdownMenuTrigger,DropdownMenuContent,DropdownMenuItem} from '@/components/ui/dropdown-menu';
+import {Mail,Plus,MoreHorizontal} from 'lucide-react';
+import {SettingsSection,SettingsSectionHeader,SettingsSectionHeaderContent,SettingsSectionHeaderTitle,SettingsNotice,SettingsStatusBadge} from '../settings/settings-section';
+import {Textarea} from '@/components/ui/textarea';
+import {Input} from '@/components/ui/input';
+import {MailSettingsSelect} from '../settings/pages/mail-settings-controls';
 import { useEffect, useRef, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { openDesktopUrl } from '@/app/lib/desktop';
@@ -23,6 +29,7 @@ function errorText(code: string) { return errors[code] ?? 'The account could not
 export function MailOnboarding({ client, accounts, onChanged, onClose }: {
   client: MailClient; accounts: MailAccountView[]; onChanged: () => void; onClose?: () => void;
 }) {
+  const [formOpen,setFormOpen]=useState(false);
   const [progress, setProgress] = useState<Record<string, SyncStatus>>({});
   useEffect(() => {
     const controller = new AbortController(); let pending = false;
@@ -108,7 +115,7 @@ export function MailOnboarding({ client, accounts, onChanged, onClose }: {
     } finally { if (!signal.aborted) { setBusy(false); setPassword(''); } }
   }
   async function selectReconnect(account: MailAccountView) {
-    reset(); setReconnect(account.id); setFailure(''); setNotice('Reconnect must use the same mailbox identity.');
+    reset(); setFormOpen(true); setReconnect(account.id); setFailure(''); setNotice('Reconnect must use the same mailbox identity.');
     setChoice(account.provider === 'gmail' ? 'gmail' : account.provider === 'graph' ? (account.personal ? 'outlook' : 'microsoft-work') : 'manual');
     if (account.provider === 'imap') {
       const signal = abort.current.signal;
@@ -123,31 +130,32 @@ export function MailOnboarding({ client, accounts, onChanged, onClose }: {
     finally { if (!signal.aborted) setBusy(false); }
   }
   return (
-    <section aria-label="Mail account setup" className="mail-onboarding bg-background">
-      <div className="flex items-center justify-between gap-4">{onClose && <h2 className="text-lg font-semibold">Mail accounts</h2>}{onClose && <Button variant="outline" onClick={() => { reset(); onClose(); }}>Close setup</Button>}</div>
-      <p className="mt-2 text-sm text-muted-foreground">Connect directly to your provider. Mail stays in the encrypted store on this computer.</p>
-      {accounts.length > 0 && <ul className="my-4 space-y-2">{accounts.map(account => (
-        <li key={account.id} className="flex flex-wrap items-center gap-2"><span className="flex-1 break-words">{account.displayName}{progress[account.id] && <small className="block text-muted-foreground" role="status">{progress[account.id].state === 'syncing' ? 'Downloading mail' : progress[account.id].state === 'waiting' ? 'Waiting to retry' : progress[account.id].state === 'paused' ? 'Sync paused' : progress[account.id].state === 'complete' ? 'Up to date' : 'Sync needs attention'} · {progress[account.id].projected} messages available{progress[account.id].error && ` · ${progress[account.id].error?.replaceAll('_', ' ')}`}</small>}</span>{progress[account.id] && ['paused','waiting','attention','idle'].includes(progress[account.id].state) && <Button size="sm" variant="outline" disabled={busy} onClick={() => void retrySync(account.id)}>{progress[account.id].state === 'paused' ? 'Resume' : 'Retry sync'}</Button>}{!account.identity&&<Button size="sm" variant="outline" disabled={busy} onClick={() => void selectReconnect(account)}>Reconnect</Button>}<Button size="sm" variant="outline" disabled={busy} onClick={() => void disconnect(account)}>Disconnect</Button></li>
-      ))}</ul>}
-      <form className="mt-4 max-w-xl space-y-4" onSubmit={event => { event.preventDefault(); void connect(); }}>
+    <SettingsSection>
+      {onClose&&<SettingsSectionHeader><SettingsSectionHeaderContent><SettingsSectionHeaderTitle>Mail accounts</SettingsSectionHeaderTitle></SettingsSectionHeaderContent><Button variant="ghost" onClick={()=>{reset();onClose();}}>Close setup</Button></SettingsSectionHeader>}
+      <section aria-label="Mail account setup" className="overflow-hidden rounded-2xl border border-subtle bg-surface">
+        <div className="flex items-center justify-between gap-3 border-b border-subtle bg-sunken/40 px-5 py-3"><div className="flex items-center gap-2 text-sm font-medium"><Mail size={16}/><span>Connected accounts</span><SettingsStatusBadge tone={accounts.length?'ready':'neutral'} label={`${accounts.length} ${accounts.length===1?'account':'accounts'}`}/></div><Button size="sm" variant="outline" onClick={()=>{reset();setReconnect('');setFormOpen(true);}}><Plus size={14}/>Add account</Button></div>
+        {accounts.length>0?<ul className="divide-y divide-subtle">{accounts.map(account=>{const status=progress[account.id],match=account.displayName.match(/^(.*?)\s*<([^>]+)>$/),name=match?.[1]?.trim()||account.displayName,address=match?.[2];return <li key={account.id} className="flex flex-wrap items-center gap-3 px-5 py-4"><div className="flex size-10 shrink-0 items-center justify-center rounded-xl border border-subtle bg-sunken text-muted-foreground"><Mail size={18}/></div><div className="min-w-0 flex-1"><div className="truncate text-sm font-medium" title={account.displayName}>{name}</div>{address&&<div className="truncate text-xs text-muted-foreground" title={address}>{address}</div>}<div className="mt-0.5 text-xs text-muted-foreground">{account.provider==='gmail'?'Google':account.provider==='graph'?'Microsoft':'IMAP'}{status&&<span role="status"> · {status.state==='complete'?'Up to date':status.state==='syncing'?'Syncing':status.state==='paused'?'Paused':status.state==='waiting'?'Waiting to retry':'Needs attention'}</span>}</div></div><div className="flex items-center gap-1">{status&&['paused','waiting','attention','idle'].includes(status.state)&&<Button size="sm" variant="outline" disabled={busy} onClick={()=>void retrySync(account.id)}>{status.state==='paused'?'Resume':'Retry sync'}</Button>}<DropdownMenu><DropdownMenuTrigger render={<Button size="icon-sm" variant="ghost" disabled={busy} aria-label={`Account options for ${name}`}><MoreHorizontal size={16}/></Button>}/><DropdownMenuContent align="end">{!account.identity&&<DropdownMenuItem onClick={()=>void selectReconnect(account)}>Reconnect</DropdownMenuItem>}<DropdownMenuItem onClick={()=>void disconnect(account)}>Disconnect</DropdownMenuItem></DropdownMenuContent></DropdownMenu></div></li>;})}</ul>:<div className="px-5 py-6 text-sm text-muted-foreground">Connect an account to start reading and writing mail.</div>}
+      </section>
+      {(formOpen||!accounts.length)&&<div className="rounded-2xl border border-subtle bg-surface p-5"><div className="mb-4 flex items-center justify-between"><h3 className="text-sm font-medium">{reconnect?'Reconnect account':'Add a mail account'}</h3>{accounts.length>0&&<Button size="sm" variant="ghost" onClick={()=>{reset();setFormOpen(false);}}>Cancel setup</Button>}</div>
+      <form className="space-y-4" onSubmit={event => { event.preventDefault(); void connect(); }}>
         <label className="block text-sm font-medium">Provider
-          <select className="mt-1 block w-full rounded border bg-background p-2" value={choice} disabled={busy} onChange={event => { const selected = choices.find(item => item.id === event.target.value); if (selected) { setChoice(selected.id); setPassword(''); } }}>
+          <MailSettingsSelect aria-label="Provider" className="mt-1 block w-full rounded border bg-background p-2" value={choice} disabled={busy} onChange={value => { const selected = choices.find(item => item.id === value); if (selected) { setChoice(selected.id); setPassword(''); } }}>
             {choices.map(value => <option key={value.id} value={value.id}>{value.label}</option>)}
-          </select>
+          </MailSettingsSelect>
         </label>
         {reconnect && <p className="text-sm">Reconnecting {accounts.find(account => account.id === reconnect)?.displayName}. <button type="button" className="underline" disabled={busy} onClick={() => setReconnect('')}>Add a different account</button></p>}
         {imap ? <>
           <p className="text-sm">{choice === 'icloud' ? 'Use an app-specific password created in your Apple Account, not your main Apple password. Apple requires two-factor authentication. The username is usually the part before @icloud.com; try the full address if needed.' : 'Use the server’s direct TLS port. Certificate validation is always enabled; STARTTLS and insecure connections are not supported.'}</p>
-          <label className="block text-sm font-medium">Email / IMAP username<input required autoComplete="username" className="mt-1 block w-full rounded border bg-background p-2" value={username} onChange={event => setUsername(event.target.value)} disabled={busy}/></label>
-          {choice === 'manual' && <div className="grid grid-cols-[1fr_90px] gap-3"><label className="text-sm font-medium">IMAP server<input required className="mt-1 block w-full rounded border bg-background p-2" placeholder="imap.example.com" value={host} onChange={event => setHost(event.target.value)} disabled={busy}/></label><label className="text-sm font-medium">TLS port<input type="number" required min={1} max={65535} className="mt-1 block w-full rounded border bg-background p-2" value={port} onChange={event => setPort(Number(event.target.value))} disabled={busy}/></label></div>}
-          <label className="block text-sm font-medium">App-specific password<input required type="password" autoComplete="new-password" className="mt-1 block w-full rounded border bg-background p-2" value={password} onChange={event => setPassword(event.target.value)} disabled={busy}/></label>
-          <details><summary className="cursor-pointer text-sm">Folder selection (optional)</summary><label className="block text-sm">One exact folder path per line. Leave blank for all selectable folders.<textarea className="mt-1 block w-full rounded border bg-background p-2" value={folderText} onChange={event => setFolderText(event.target.value)} disabled={busy}/></label></details>
-        </> : <p className="text-sm">Sign in securely in your browser. LegalWork never asks for your Google or Microsoft password.{choice === 'microsoft-work' && ' This installation uses its configured organizational tenant.'}</p>}
+          <label className="block text-sm font-medium">Email / IMAP username<Input required autoComplete="username" className="mt-1" value={username} onChange={event => setUsername(event.target.value)} disabled={busy}/></label>
+          {choice === 'manual' && <div className="grid grid-cols-[1fr_90px] gap-3"><label className="text-sm font-medium">IMAP server<Input required className="mt-1" placeholder="imap.example.com" value={host} onChange={event => setHost(event.target.value)} disabled={busy}/></label><label className="text-sm font-medium">TLS port<Input type="number" required min={1} max={65535} className="mt-1" value={port} onChange={event => setPort(Number(event.target.value))} disabled={busy}/></label></div>}
+          <label className="block text-sm font-medium">App-specific password<Input required type="password" autoComplete="new-password" className="mt-1" value={password} onChange={event => setPassword(event.target.value)} disabled={busy}/></label>
+          <details><summary className="cursor-pointer text-sm">Folder selection (optional)</summary><label className="block text-sm">One exact folder path per line. Leave blank for all selectable folders.<Textarea className="mt-1 min-h-24" value={folderText} onChange={event => setFolderText(event.target.value)} disabled={busy}/></label></details>
+        </> : <p className="text-xs text-muted-foreground">Sign in securely in your browser. LegalWork never asks for your Google or Microsoft password.{choice === 'microsoft-work' && ' This installation uses its configured organizational tenant.'}</p>}
         <div className="flex gap-2"><Button type="submit" disabled={busy}>{busy ? 'Connecting…' : reconnect ? 'Reconnect account' : imap ? 'Connect securely' : 'Continue in browser'}</Button>{busy && <Button type="button" variant="outline" onClick={() => { reset(); setNotice('Cancellation requested. If connection had already finished, the account may still appear. Refresh accounts to check.'); }}>Cancel</Button>}</div>
-      </form>
+      </form></div>}
       {signInUrl && <Button variant="outline" className="mt-3" onClick={() => void openDesktopUrl(signInUrl)}>Open sign-in again</Button>}
-      {notice && <p role="status" className="mt-3 text-sm">{notice}</p>}
-      {failure && <p role="alert" className="mt-3 text-sm text-destructive">{failure}</p>}
-    </section>
+      {notice && <SettingsNotice><span role="status">{notice}</span></SettingsNotice>}
+      {failure && <SettingsNotice tone="error"><span role="alert">{failure}</span></SettingsNotice>}
+    </SettingsSection>
   );
 }

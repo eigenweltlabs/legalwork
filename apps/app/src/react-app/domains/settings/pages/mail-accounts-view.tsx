@@ -12,7 +12,9 @@ import { Switch } from '@/components/ui/switch';
 import { resolveLegalworkConnection } from '@/react-app/shell/legalwork-connection';
 import { MailClient, type MailAccountView } from '../../mail/mail-client';
 import { MailOnboarding } from '../../mail/mail-onboarding';
-import { SettingsStack } from '../settings-section';
+import { SettingsStack,SettingsNotice } from '../settings-section';
+import {Tabs,TabsList,TabsTrigger,TabsContent} from '@/components/ui/tabs';
+import {MailSettingsSection} from './mail-settings-controls';
 
 /** Resolve the host independently of the selected workspace. Repeated desktop
  * announcements retain active sign-in; a different resolved identity retires it. */
@@ -51,7 +53,6 @@ export function MailAccountsView() {
     return () => controller.abort();
   }, [revision]);
   return <SettingsStack>
-    <details className="rounded-lg border p-4"><summary className="cursor-pointer text-sm font-medium">Notifications, app badge and background mail</summary><div className="space-y-6 pt-4"><MailBadgePreference /><MailDesktopPreferences /></div></details>
     {client ? <MailAccountControls key={clientVersion} client={client} /> : error ? <div role="alert">{error} <Button variant="outline" onClick={() => setRevision(value => value + 1)}>Retry</Button></div> : <p role="status">Opening mail accounts…</p>}
   </SettingsStack>;
 }
@@ -77,16 +78,18 @@ export function MailAccountControls({ client }: { client: MailClient }) {
     })();
     return () => controller.abort();
   }, [client, revision]);
-  return <>
-    {error && <p role="alert">{error}</p>}
-    <div><Button variant="outline" onClick={() => setRevision(value => value + 1)}>Refresh accounts</Button></div>
-    <MailOnboarding client={client} accounts={accounts.filter(account=>account.provider!=='archive')} onChanged={() => setRevision(value => value + 1)} />
-    <details className="rounded-lg border p-4"><summary className="cursor-pointer text-sm font-medium">Agent access and requests</summary><div className="pt-4"><MailAgentAccessView client={client} accounts={accounts} /></div></details>
-    <details className="rounded-lg border p-4"><summary className="cursor-pointer text-sm font-medium">Sender identities and signatures</summary><div className="pt-4"><MailSendersView client={client} accounts={accounts.filter(account=>account.provider!=='archive')} /></div></details>
-    <details className="rounded-lg border p-4"><summary className="cursor-pointer text-sm font-medium">Shared mailboxes and outgoing SMTP</summary><div className="space-y-6 pt-4"><GraphMailboxesView client={client} accounts={accounts} onChanged={() => setRevision(value => value + 1)} /><MailSmtpView client={client} accounts={accounts.filter(account=>account.provider!=='archive')} /></div></details>
-    <details className="rounded-lg border p-4"><summary className="cursor-pointer text-sm font-medium">Retention, encrypted backup and restore</summary><div className="pt-4"><MailRetentionView client={client} accounts={accounts} onChanged={() => setRevision(value => value + 1)} /></div></details>
-    <details className="rounded-lg border p-4"><summary className="cursor-pointer text-sm font-medium">Import and export</summary><div className="pt-4"><MailPortabilityView accounts={accounts} onChanged={() => setRevision(value => value + 1)} /></div></details>
-  </>;
+  return <Tabs defaultValue="accounts" className="gap-6">
+    <TabsList variant="line" aria-label="Mail settings sections"><TabsTrigger value="accounts">Accounts</TabsTrigger><TabsTrigger value="notifications">Notifications</TabsTrigger><TabsTrigger value="sending">Sending</TabsTrigger><TabsTrigger value="data">Data & access</TabsTrigger></TabsList>
+    {error && <SettingsNotice tone="error"><span role="alert">{error}</span><Button size="sm" variant="ghost" onClick={()=>setRevision(value=>value+1)}>Retry</Button></SettingsNotice>}
+    <TabsContent value="accounts" keepMounted className="space-y-6">
+      <MailOnboarding client={client} accounts={accounts.filter(account=>account.provider!=='archive')} onChanged={() => setRevision(value => value + 1)} />
+      <GraphMailboxesView client={client} accounts={accounts} onChanged={() => setRevision(value => value + 1)} />
+    </TabsContent>
+    <TabsContent value="notifications" keepMounted className="space-y-6"><MailSettingsSection title="App icon" description="Keep your unread count in view."><MailBadgePreference /></MailSettingsSection><MailDesktopPreferences /></TabsContent>
+    <TabsContent value="sending" keepMounted className="space-y-6"><MailSendersView client={client} accounts={accounts.filter(account=>account.provider!=='archive')} /><MailSmtpView client={client} accounts={accounts.filter(account=>account.provider!=='archive')} /></TabsContent>
+    <TabsContent value="data" keepMounted className="space-y-6"><MailAgentAccessView client={client} accounts={accounts} /><MailRetentionView client={client} accounts={accounts} onChanged={() => setRevision(value => value + 1)} /><MailPortabilityView accounts={accounts} onChanged={() => setRevision(value => value + 1)} /></TabsContent>
+  </Tabs>;
+
 }
 
 function MailBadgePreference() {
