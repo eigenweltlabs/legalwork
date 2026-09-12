@@ -173,3 +173,21 @@ test('rejects unknown/plaintext native modules before creating a target file', a
     await assert.rejects(stat(path),{code:'ENOENT'});
   }
 }));
+
+test('reused statements preserve bindings, eviction, schema changes and rollback', async () => fixture(async path => {
+ const db=await openEncryptedMailDatabase({path,key:privateKey()});
+ try {
+  db.exec('CREATE TABLE cache_probe(id INTEGER PRIMARY KEY,value TEXT)');
+  for(let id=0;id<300;id++)db.run('INSERT INTO cache_probe VALUES(?,?)',[id,'value-'+id]);
+  for(let id=0;id<300;id++)assert.equal(db.get('SELECT value FROM cache_probe WHERE id=?',[id]).value,'value-'+id);
+  for(let id=0;id<200;id++)assert.equal(db.get('SELECT '+id+' AS value').value,id);
+  assert.equal(db.all('SELECT value FROM cache_probe WHERE id=?',[299])[0].value,'value-299');
+  assert.throws(()=>db.transaction(()=>{db.run('UPDATE cache_probe SET value=? WHERE id=?',['rollback',299]);throw Error('rollback');}));
+  assert.equal(db.get('SELECT value FROM cache_probe WHERE id=?',[299]).value,'value-299');
+  db.exec('DROP TABLE cache_probe; CREATE TABLE cache_probe(id INTEGER PRIMARY KEY,value INTEGER)');
+  db.run('INSERT INTO cache_probe VALUES(?,?)',[299,42]);
+  assert.equal(db.get('SELECT value FROM cache_probe WHERE id=?',[299]).value,42);
+  const replacement=privateKey();db.rekey(replacement);assert.equal(db.get('SELECT value FROM cache_probe WHERE id=?',[299]).value,42);
+  const reopened=await openEncryptedMailDatabase({path,key:replacement});try{assert.equal(reopened.get('SELECT value FROM cache_probe WHERE id=?',[299]).value,42);}finally{reopened.close();replacement.fill(0);}
+ }finally{db.close();}
+}));

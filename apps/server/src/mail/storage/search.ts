@@ -69,7 +69,10 @@ export class MailSearchStore {
     pending:count.parse(this.db.get(`SELECT count(*) AS n FROM mail_search_dirty WHERE account_id IN (${marks})`,accounts)?.n),
     incomplete:count.parse(this.db.get(`SELECT count(*) AS n FROM mail_search_documents d WHERE account_id IN (${marks}) AND incomplete=1 AND NOT EXISTS(SELECT 1 FROM mail_search_dirty q WHERE q.account_id=d.account_id AND q.message_key=d.message_key)`,accounts)?.n),
   };}
-  rebuild(supplied:MailSearchRebuildInput){return this.safe(()=>this.db.transaction(()=>{
+  /** Background turns do not recount the entire mailbox after every document. */
+  indexNext(accountId:string){return this.processBatch({accountId,limit:1});}
+  rebuild(supplied:MailSearchRebuildInput){return this.safe(()=>this.db.transaction(()=>({processed:this.processBatch(supplied),...this.stats([supplied.accountId])})));}
+  private processBatch(supplied:MailSearchRebuildInput){return this.safe(()=>this.db.transaction(()=>{
     const parsed=mailSearchRebuildInputSchema.safeParse(supplied);if(!parsed.success)throw new MailSearchError("invalid_input");const input=parsed.data;this.account(input.accountId);
     if(input.reset)this.db.run("INSERT OR IGNORE INTO mail_search_dirty SELECT account_id,message_key FROM mail_messages WHERE account_id=?",[input.accountId]);
     const rows=this.db.all("SELECT m.message_key,m.locator_json,m.subject FROM mail_search_dirty q JOIN mail_messages m ON m.account_id=q.account_id AND m.message_key=q.message_key WHERE q.account_id=? ORDER BY q.message_key LIMIT ?",[input.accountId,input.limit??10]);
@@ -103,7 +106,7 @@ export class MailSearchStore {
       this.db.run('INSERT INTO mail_search_documents(account_id,message_key,subject,body,names,addresses,senders_json,recipients_json,filenames_json,date,incomplete,normalized_text,has_attachment) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)',[input.accountId,key,subject.normalize('NFC'),body.normalize('NFC'),names.join('\n').normalize('NFC'),[...senders,...recipients].join(' '),JSON.stringify(senders),JSON.stringify(recipients),JSON.stringify(names.map(normalize)),date,incomplete,normalize(subject+"\n"+body+"\n"+names.join("\n")),hasAttachment]);
       this.db.run('DELETE FROM mail_search_dirty WHERE account_id=? AND message_key=?',[input.accountId,key]);
     }
-    return{processed:rows.length,...this.stats([input.accountId])};
+    return rows.length;
   }));}
   private attachmentMatches(accountId:string,messageKey:string,input:MailSearchInput){
     const terms=[input.literal,input.matterIdentifier,input.phrase,...(input.keywords??[])].filter((value):value is string=>typeof value==='string');
@@ -125,19 +128,38 @@ export class MailSearchStore {
     const accounts=input.accountIds??this.db.all("SELECT a.id FROM mail_accounts a LEFT JOIN mail_account_access c ON c.account_id=a.id LEFT JOIN mail_imap_credentials i ON i.account_id=a.id WHERE a.owner_id=? AND (coalesce(c.state,i.state) IS NULL OR coalesce(c.state,i.state)!='disconnected') ORDER BY a.id",[this.ownerId]).map(row=>string.parse(row.id));
     for(const account of accounts)this.account(account);
     if(!accounts.length)return{items:[],total:0,pending:0,incomplete:0,nextOffset:null};
-    const where=[`d.account_id IN (${accounts.map(()=>'?').join(',')})`,'a.owner_id=?',"(coalesce(c.state,i.state) IS NULL OR coalesce(c.state,i.state)!='disconnected')",'NOT EXISTS(SELECT 1 FROM mail_search_dirty q WHERE q.account_id=d.account_id AND q.message_key=d.message_key)'];const params:MailSqlValue[]=[...accounts,this.ownerId];
-    const terms=[...(input.keywords??[]).map(quote),...(input.phrase?[quote(input.phrase)]:[])];const match=terms.join(' AND ');
+    // Account access was checked above inside this same synchronous transaction.
+    // Avoid repeating credential-view joins for every matching document.
+    const where=[`d.account_id IN (${accounts.map(()=>'?').join(',')})`,'NOT EXISTS(SELECT 1 FROM mail_search_dirty q WHERE q.account_id=d.account_id AND q.message_key=d.message_key)'];const params:MailSqlValue[]=[...accounts];
+    const terms=[...(input.keywords??[]).map(quote),...(input.phrase?[quote(input.phrase)]:[])];
+    for(const [column,value] of [['addresses',input.sender],['addresses',input.recipient]])if(value!==undefined&&/[a-z0-9]/i.test(value))terms.push(column+' : '+quote(normalize(value)));
+    const match=terms.join(' AND ');
     if(match){where.push('mail_search_fts MATCH ?');params.push(match);}
     for(const [field,value] of [['senders_json',input.sender],['recipients_json',input.recipient],['filenames_json',input.filename]])if(value!==undefined){where.push(`EXISTS(SELECT 1 FROM json_each(d.${field}) WHERE value=?)`);params.push(normalize(value));}
-    for(const value of [input.literal,input.matterIdentifier])if(value!==undefined){where.push("instr(d.normalized_text,?)>0");params.push(normalize(value));}
+    for(const value of [input.literal,input.matterIdentifier,input.filename])if(value!==undefined){
+      const normalized=normalize(value);
+      // GLOB's escaped metacharacters retain arbitrary substring semantics. FTS5
+      // uses compact trigrams when possible and safely scans for shorter literals.
+      // SQLite GLOB stops at NUL; retain those rare documents as exact-check candidates.
+      where.push("d.id IN (SELECT rowid FROM mail_search_trigram WHERE normalized_text GLOB ? UNION SELECT id FROM mail_search_documents WHERE instr(normalized_text,char(0))>0)");params.push('*'+normalized.replace(/[?*\[]/g,char=>char==='['?'[[]':'['+char+']')+'*');
+      where.push("instr(d.normalized_text,?)>0");params.push(normalized);
+    }
     if(input.afterDate){where.push('d.date>=?');params.push(new Date(input.afterDate).toISOString());}if(input.beforeDate){where.push('d.date<?');params.push(new Date(input.beforeDate).toISOString());}
     if(input.folderId){where.push('EXISTS(SELECT 1 FROM mail_memberships mm WHERE mm.account_id=d.account_id AND mm.message_key=d.message_key AND mm.folder_id=?)');params.push(input.folderId);}
     if(input.unread!==undefined){where.push(`((a.provider='gmail' AND ${input.unread?'':'NOT '}EXISTS(SELECT 1 FROM mail_memberships mm WHERE mm.account_id=d.account_id AND mm.message_key=d.message_key AND mm.folder_id='UNREAD')) OR (a.provider!='gmail' AND m.is_read=${input.unread?0:1}))`);}
     if(input.hasAttachment!==undefined){where.push(`d.has_attachment=${input.hasAttachment?1:0}`);}
-    const from=`FROM mail_search_documents d JOIN mail_accounts a ON a.id=d.account_id LEFT JOIN mail_account_access c ON c.account_id=a.id LEFT JOIN mail_imap_credentials i ON i.account_id=a.id JOIN mail_messages m ON m.account_id=d.account_id AND m.message_key=d.message_key ${match?'JOIN mail_search_fts ON mail_search_fts.rowid=d.id':''} WHERE ${where.join(' AND ')}`;
+    const coveringMatch=match&&!input.sender&&!input.recipient&&!input.filename&&!input.literal&&!input.matterIdentifier;
+    const from=`FROM mail_search_documents d ${coveringMatch?'INDEXED BY mail_search_identity':!match&&(input.afterDate||input.beforeDate)?'INDEXED BY mail_search_date':''} ${input.unread!==undefined?'JOIN mail_accounts a ON a.id=d.account_id JOIN mail_messages m ON m.account_id=d.account_id AND m.message_key=d.message_key':''} ${match?'JOIN mail_search_fts ON mail_search_fts.rowid=d.id':''} WHERE ${where.join(' AND ')}`;
     const total=count.parse(this.db.get(`SELECT count(*) AS n ${from}`,params)?.n),limit=input.limit??20,offset=input.offset??0;
     const literalSnippet=input.literal??input.matterIdentifier;
-    const rows=this.db.all(`SELECT d.account_id,d.message_key,m.locator_json,d.subject,d.date,d.has_attachment,${match?"snippet(mail_search_fts,1,'','',' … ',32)":literalSnippet?"substr(d.normalized_text,max(1,instr(d.normalized_text,?)-80),320)":"substr(d.body,1,512)"} AS snippet ${from} ORDER BY d.date DESC,d.account_id,d.message_key LIMIT ? OFFSET ?`,[...(!match&&literalSnippet?[normalize(literalSnippet)]:[]),...params,limit,offset]);
+    const columns="d.account_id,d.message_key,m.locator_json,d.subject,d.date,d.has_attachment";
+    // Materialize only the page identities before building FTS snippets. A broad
+    // match must not tokenize every matching body while sorting for twenty rows.
+    const snippet=match?"snippet(mail_search_fts,1,'','',' … ',32)":literalSnippet?"substr(d.normalized_text,max(1,instr(d.normalized_text,?)-80),320)":"substr(d.body,1,512)";
+    const rows=this.db.all(`WITH page AS MATERIALIZED (SELECT d.id ${from} ORDER BY d.date DESC,d.account_id,d.message_key LIMIT ? OFFSET ?)
+      SELECT ${columns},${snippet} AS snippet
+      FROM page CROSS JOIN mail_search_documents d ON d.id=page.id CROSS JOIN mail_messages m ON m.account_id=d.account_id AND m.message_key=d.message_key
+      ${match?'CROSS JOIN mail_search_fts ON mail_search_fts.rowid=d.id WHERE mail_search_fts MATCH ?':''} ORDER BY d.date DESC,d.account_id,d.message_key`,[...params,limit,offset,...(!match&&literalSnippet?[normalize(literalSnippet)]:[]),...(match?[match]:[])]);
     const result=mailSearchResultSchema.parse({items:rows.map(row=>({accountId:row.account_id,locator:JSON.parse(string.parse(row.locator_json)),subject:string.parse(row.subject).slice(0,512),snippet:string.parse(row.snippet).slice(0,512),date:row.date,hasAttachment:row.has_attachment===null?null:row.has_attachment===1,attachmentMatches:this.attachmentMatches(string.parse(row.account_id),string.parse(row.message_key),input),attachmentSources:this.db.all(`SELECT e.part_id,e.ref_id,e.state FROM mail_attachment_extractions e JOIN mail_content_manifests m ON m.account_id=e.account_id AND m.message_key=e.message_key AND m.kind='attachment' AND m.part_id=e.part_id AND m.ref_id=e.ref_id AND m.state='stored' WHERE e.account_id=? AND e.message_key=? AND e.extractor='local-text-v1' ORDER BY e.part_id LIMIT 8`,[string.parse(row.account_id),string.parse(row.message_key)]).filter(source=>source.state==='complete').map(source=>({partId:source.part_id,referenceId:source.ref_id}))})),total,...this.stats(accounts),nextOffset:offset+rows.length<total?offset+rows.length:null});
     while(Buffer.byteLength(JSON.stringify(result))>48*1024&&result.items.length>1)result.items.pop();
     result.nextOffset=offset+result.items.length<total?offset+result.items.length:null;return result;
