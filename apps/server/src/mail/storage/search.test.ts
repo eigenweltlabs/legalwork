@@ -1,6 +1,6 @@
 import { test, expect } from "bun:test";
 import { spawnSync } from "node:child_process";
-import { copyFileSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { copyFileSync, mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 
@@ -14,6 +14,8 @@ test("Local search runs against encrypted Node storage", () => {
     if (compiled.status !== 0) throw new Error(`${compiled.stdout}\n${compiled.stderr}`);
     writeFileSync(join(output, "package.json"), '{"type":"module"}');
     symlinkSync(realpathSync(join(server, "node_modules")), join(output, "node_modules"), "dir");
+    mkdirSync(join(output,"mail/testing"),{recursive:true});
+    copyFileSync(join(server,"src/mail/testing/legacy-schema.mjs"),join(output,"mail/testing/legacy-schema.mjs"));
     const target = join(output, "mail/storage/search.node-test.mjs");
     copyFileSync(join(import.meta.dir, "search.node-test.mjs"), target);
     const result = spawnSync("node", ["--test", target], { encoding: "utf8", timeout: 60000 });
