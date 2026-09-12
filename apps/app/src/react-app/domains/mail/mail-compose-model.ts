@@ -33,7 +33,7 @@ export function selectComposeSender(content:ComposeContent,identity:SenderIdenti
  const suffix=previousSignature?'\n\n-- \n'+previousSignature:'';
  let text=content.text;if(suffix&&text.endsWith(suffix))text=text.slice(0,-suffix.length);
  const signature=identity.signature?'\n\n-- \n'+identity.signature:'';
- const escape=(value:string)=>value.replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;').replaceAll('"','&quot;').replaceAll('\n','<br>');
+ const escape=(value:string)=>value.replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;').replaceAll('\n','<br>');
  let html=content.html;
  if(html!==null){const old=previousSignature?'<div data-mail-signature="true">'+escape(suffix)+'</div>':'';if(old&&html.endsWith(old))html=html.slice(0,-old.length);if(signature)html+='<div data-mail-signature="true">'+escape(signature)+'</div>';}
  return {...content,senderIdentityId:identity.id,senderSignature:identity.signature,from:identity.address,text:text+signature,html,...(content.editor?{editor:{...content.editor,from:identity.address}}:{})};
@@ -42,7 +42,7 @@ export function defaultComposeSender(identities:SenderIdentity[],reply:boolean){
 
 /** Mark only an exact inserted suffix when changing editor mode; edited signatures remain ordinary body. */
 export function composeTextHtml(content:ComposeContent):string {
- const escape=(value:string)=>value.replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;').replaceAll('"','&quot;').replaceAll('\n','<br>');
+ const escape=(value:string)=>value.replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;').replaceAll('\n','<br>');
  const suffix=content.senderSignature?'\n\n-- \n'+content.senderSignature:'';
  return suffix&&content.text.endsWith(suffix)?escape(content.text.slice(0,-suffix.length))+'<div data-mail-signature="true">'+escape(suffix)+'</div>':escape(content.text);
 }

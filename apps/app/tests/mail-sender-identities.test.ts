@@ -12,7 +12,7 @@ test('Settings saves identity signatures and composer selects permitted aliases 
  import React,{useState} from ${JSON.stringify(join(app,'node_modules/react/index.js'))};import{createRoot}from ${JSON.stringify(join(app,'node_modules/react-dom/client.js'))};
  import{MailSendersView}from ${JSON.stringify(join(app,'src/react-app/domains/settings/pages/mail-senders-view.tsx'))};import{MailComposer}from ${JSON.stringify(join(app,'src/react-app/domains/mail/mail-composer.tsx'))};import{emptyCompose}from ${JSON.stringify(join(app,'src/react-app/domains/mail/mail-compose-model.ts'))};import{MailClient}from ${JSON.stringify(join(app,'src/react-app/domains/mail/mail-client.ts'))};
  const account={id:'gmail',provider:'gmail',displayName:'Mailbox'};
- let identities=[{id:'self',accountId:'gmail',address:'self@example.com',displayName:'',source:'provider_verified',available:true,signature:'Self signature',defaultNew:true,defaultReply:false,sendMode:'self'},{id:'alias',accountId:'gmail',address:'alias@example.com',displayName:'',source:'provider_verified',available:true,signature:'Alias signature',defaultNew:false,defaultReply:true,sendMode:'self'}];
+ let identities=[{id:'self',accountId:'gmail',address:'self@example.com',displayName:'',source:'provider_verified',available:true,signature:'Self signature',defaultNew:true,defaultReply:false,sendMode:'self'},{id:'alias',accountId:'gmail',address:'alias@example.com',displayName:'',source:'provider_verified',available:true,signature:'Alice '+String.fromCharCode(34)+'A'+String.fromCharCode(34)+' & Partners',defaultNew:false,defaultReply:true,sendMode:'self'}];
  const client=new MailClient('http://127.0.0.1:43111','synthetic',async(url,init)=>{const body=init.body?JSON.parse(init.body):{};const path=new URL(url).pathname;
  if(path.endsWith('/senders/settings')){window.__settings=body;identities=identities.map(value=>value.id===body.identityId?{...value,signature:body.signature,defaultNew:body.defaultNew,defaultReply:body.defaultReply}:value);return Response.json(identities.map(({identityId,...value})=>value));}
  if(path.endsWith('/senders')||path.endsWith('/senders/refresh'))return Response.json(identities);
@@ -33,14 +33,14 @@ await until("!!window.__settings");assert.equal(await run("window.__settings.sig
 await run("window.__compose()");await until("!!document.querySelector('[aria-label=\\"Sender identity\\"]')");await until("window.__draft?.senderIdentityId==='self'");
 assert.equal(await run("!!document.querySelector('input[aria-label=\\"Sender email\\"]')"),false);
 await run("(()=>{const el=document.querySelector('[aria-label=\\"Sender identity\\"]');el.value='alias';el.dispatchEvent(new Event('change',{bubbles:true}));})()");await until("window.__draft?.senderIdentityId==='alias'");
-assert.equal(await run("window.__draft.from"),'alias@example.com');assert.equal(await run("window.__draft.text.includes('Alias signature')"),true);
+assert.equal(await run("window.__draft.senderSignature"),'Alice '+String.fromCharCode(34)+'A'+String.fromCharCode(34)+' & Partners');assert.equal(await run("window.__draft.from"),'alias@example.com');assert.equal(await run("window.__draft.text.includes('Alice ')"),true);
 await run("document.querySelector('[aria-label=\\"Toggle rich text\\"]').click()");
 await until("window.__draft.html!==null");
 await run("(()=>{const el=document.querySelector('[aria-label=\\"Rich message body\\"]');el.insertAdjacentHTML('afterbegin','<p>Edited body</p>');el.dispatchEvent(new Event('input',{bubbles:true}));})()");
 await until("window.__draft.html.includes('Edited body')");
 await run("(()=>{const el=document.querySelector('[aria-label=\\"Sender identity\\"]');el.value='self';el.dispatchEvent(new Event('change',{bubbles:true}));})()");
 await until("window.__draft.senderIdentityId==='self'");
-assert.equal(await run("window.__draft.html.includes('Alias signature')"),false);assert.equal(await run("window.__draft.html.includes('Edited body')"),true);
+assert.equal(await run("window.__draft.html.includes('Alice ')"),false);assert.equal(await run("window.__draft.html.includes('Edited body')"),true);
 await run("document.querySelector('[aria-label=\\"Toggle rich text\\"]').click()");
 await until("window.__draft.html===null");
 await run("document.querySelector('[aria-label=\\"Toggle rich text\\"]').click()");
@@ -48,7 +48,7 @@ await until("window.__draft.html!==null");
 await run("(()=>{const el=document.querySelector('[aria-label=\\"Sender identity\\"]');el.value='alias';el.dispatchEvent(new Event('change',{bubbles:true}));})()");
 await until("window.__draft.senderIdentityId==='alias'");
 assert.equal(await run("window.__draft.html.includes('Saved signature')"),false);
-await run("(()=>{const el=document.querySelector('[aria-label=\\"Rich message body\\"]');el.innerHTML=el.innerHTML.replace('Alias signature','User-edited signature');el.dispatchEvent(new Event('input',{bubbles:true}));})()");
+await run("(()=>{const el=document.querySelector('[aria-label=\\"Rich message body\\"]');el.innerHTML=el.innerHTML.replace(/Alice .*?Partners/,'User-edited signature');el.dispatchEvent(new Event('input',{bubbles:true}));})()");
 await until("window.__draft.html.includes('User-edited signature')");
 await run("(()=>{const el=document.querySelector('[aria-label=\\"Sender identity\\"]');el.value='self';el.dispatchEvent(new Event('change',{bubbles:true}));})()");
 await until("window.__draft.senderIdentityId==='self'");
