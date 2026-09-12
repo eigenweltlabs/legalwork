@@ -52,9 +52,15 @@ jobs:
       - name: Actual loopback HTTP mail APIs
         if: ${{ !cancelled() }}
         run: node scripts/mail/qualification-step.mjs http bun test apps/server/src/mail/routes.e2e.test.ts apps/server/src/mail/search.e2e.test.ts apps/server/src/mail/local.e2e.test.ts
-      - name: Desktop mail, lifecycle, session and package boundaries
+      - name: Normal shared app tests
         if: ${{ !cancelled() }}
-        run: node scripts/mail/qualification-step.mjs desktop node scripts/mail/desktop-qualification-tests.mjs
+        run: node scripts/mail/qualification-step.mjs app pnpm --filter @legalwork/app test
+      - name: Normal desktop tests
+        if: ${{ !cancelled() }}
+        run: node scripts/mail/qualification-step.mjs desktop pnpm --filter @legalwork/desktop test
+      - name: Additional mail desktop boundaries
+        if: ${{ !cancelled() }}
+        run: node scripts/mail/qualification-step.mjs desktop-mail node scripts/mail/desktop-qualification-tests.mjs
       - name: Build complete desktop package without publication
         if: ${{ !cancelled() }}
         run: node scripts/mail/qualification-step.mjs build pnpm --dir apps/desktop run package:electron:dir --publish never
