@@ -4,7 +4,7 @@
 // and Windows/Linux menu-bar visibility. Extracted from main.mjs as a
 // factory (createRuntimeManager pattern); the NATIVE_MENU_* channels are
 // consumed by the preload bridge.
-import { BrowserWindow, Menu } from "electron";
+import { BrowserWindow, Menu, webContents } from "electron";
 import { dispatchMailReply } from "./mail-menu-shortcuts.mjs";
 
 const NATIVE_MENU_OPEN_SETTINGS_EVENT = "legalwork:native-menu:open-settings";
@@ -62,9 +62,10 @@ export function createApplicationMenu({ appName, getWindow, collectSupportLogs }
   async function reloadFromNativeMenu(targetWindow, event, force) {
     const win = targetWindow ?? BrowserWindow.getFocusedWindow();
     if (!win || win.isDestroyed()) return;
-    const contents = win.webContents;
+    const focused = webContents.getFocusedWebContents();
+    const contents = focused && BrowserWindow.fromWebContents(focused) === win ? focused : win.webContents;
     if (event?.triggeredByAccelerator) {
-      const result = await dispatchMailReply(contents, force, () => BrowserWindow.getFocusedWindow() === win);
+      const result = await dispatchMailReply(contents, force, () => BrowserWindow.getFocusedWindow() === win && webContents.getFocusedWebContents() === contents);
       if (result !== 'unused') return;
     }
     if (!contents.isDestroyed()) {
