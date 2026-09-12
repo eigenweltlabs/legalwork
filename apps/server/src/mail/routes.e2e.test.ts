@@ -43,6 +43,7 @@ function mockService() {
   let calls = 0;
   let stops = 0;
   const service: MailService = {
+    async configureGraphMailbox(){throw new MailServiceError("unsupported");},
     async savedSearch(){throw new MailServiceError("unavailable");},
     async imapDiscovery(){throw new MailServiceError("unsupported");},
     async cancelImapConnection(){},
