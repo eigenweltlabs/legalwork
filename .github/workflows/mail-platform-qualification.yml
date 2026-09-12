@@ -2,6 +2,9 @@ name: Mail final platform qualification (non-release)
 on:
   # Run after all mail tickets are complete; ticket work uses feature-specific tests.
   workflow_dispatch:
+  # Bootstrap this PR-only workflow after the final integration gate.
+  push:
+    branches: [qualify/mail-eig-152-final]
 permissions:
   contents: read
 concurrency:
@@ -9,6 +12,7 @@ concurrency:
   cancel-in-progress: true
 jobs:
   qualify:
+    if: github.event_name == 'workflow_dispatch' || contains(github.event.head_commit.message, '[mail-platform-qualification]')
     strategy:
       fail-fast: false
       matrix:
@@ -23,7 +27,7 @@ jobs:
             arch: x64
             application: apps/desktop/dist-electron/win-unpacked
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 25
+    timeout-minutes: 60
     env:
       MAIL_EXPECT_ARCH: ${{ matrix.arch }}
     steps:
@@ -41,19 +45,32 @@ jobs:
       - name: Install locked dependencies
         run: pnpm install --frozen-lockfile
       - name: Actual Electron vault, ACL, cipher and recovery
-        run: node scripts/mail/platform-qualification.mjs
+        run: node scripts/mail/qualification-step.mjs vault node scripts/mail/platform-qualification.mjs
       - name: Actual Node mail acceptance
-        run: node apps/server/scripts/mail-acceptance.mjs
+        if: ${{ !cancelled() }}
+        run: node scripts/mail/qualification-step.mjs native node apps/server/scripts/mail-acceptance.mjs
       - name: Actual loopback HTTP mail APIs
-        run: bun test apps/server/src/mail/routes.e2e.test.ts apps/server/src/mail/search.e2e.test.ts apps/server/src/mail/local.e2e.test.ts
-      - name: Actual isolated Electron ASAR native loading and rotation
-        run: node --test apps/desktop/electron/mail-packaging.test.mjs
+        if: ${{ !cancelled() }}
+        run: node scripts/mail/qualification-step.mjs http bun test apps/server/src/mail/routes.e2e.test.ts apps/server/src/mail/search.e2e.test.ts apps/server/src/mail/local.e2e.test.ts
+      - name: Desktop mail, lifecycle, session and package boundaries
+        if: ${{ !cancelled() }}
+        run: node scripts/mail/qualification-step.mjs desktop node scripts/mail/desktop-qualification-tests.mjs
       - name: Build complete desktop package without publication
-        run: pnpm --dir apps/desktop run package:electron:dir --publish never
+        if: ${{ !cancelled() }}
+        run: node scripts/mail/qualification-step.mjs build pnpm --dir apps/desktop run package:electron:dir --publish never
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: 'false'
           MACOS_NOTARIZE: 'false'
           LEGALWORK_COMPUTER_USE_SIGN_IDENTITY: '-'
           LEGALWORK_COMPUTER_USE_CODESIGN_IDENTITY: '-'
       - name: Verify mail from the built application
-        run: node scripts/mail/verify-built-application.mjs "${{ matrix.application }}"
+        if: ${{ !cancelled() }}
+        run: node scripts/mail/qualification-step.mjs packaged node scripts/mail/verify-built-application.mjs "${{ matrix.application }}"
+      - name: Archive bounded source-stamped qualification evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mail-qualification-${{ matrix.os }}-${{ matrix.arch }}-${{ github.sha }}
+          path: mail-qualification-evidence/
+          if-no-files-found: error
+          retention-days: 14
