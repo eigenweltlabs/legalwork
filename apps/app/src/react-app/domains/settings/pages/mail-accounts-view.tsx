@@ -1,3 +1,4 @@
+import {MailDesktopPreferences} from '../../mail/mail-desktop';
 /** @jsxImportSource react */
 import { useEffect, useRef, useState } from 'react';
 import { Button } from '@/components/ui/button';
@@ -47,6 +48,7 @@ export function MailAccountsView() {
   }, [revision]);
   return <SettingsStack>
     <MailBadgePreference />
+    <MailDesktopPreferences />
     {client ? <MailAccountControls key={clientVersion} client={client} /> : error ? <div role="alert">{error} <Button variant="outline" onClick={() => setRevision(value => value + 1)}>Retry</Button></div> : <p role="status">Opening mail accounts…</p>}
   </SettingsStack>;
 }

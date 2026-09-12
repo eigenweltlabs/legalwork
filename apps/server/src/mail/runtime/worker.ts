@@ -1,3 +1,4 @@
+import {MailNotificationStore} from '../storage/notifications.js';
 import {DraftSyncRunner} from "./draft-sync.js";
 import {DraftSyncStore,DraftSyncError} from "../storage/draft-sync.js";
 import {SenderIdentityRepository} from '../storage/sender-identities.js';
@@ -60,6 +61,8 @@ const providerSettings = new Map<string, MailOAuthSettings>();
 const requests = new Set<Promise<void>>();
 const locked = new Error("mail_archive_locked");
 const unsupported = new Error("mail_provider_unsupported");
+let lifecycleSuspended=false;
+let lifecycleChange:Promise<void>=Promise.resolve();
 let phase: "waiting" | "opening" | "ready" | "closing" = "waiting";
 let input = Buffer.alloc(0);
 let opening: Promise<void> | undefined;
@@ -151,11 +154,12 @@ async function initialize(value: WorkerInitialization): Promise<void> {
       return selected;
     } });
     syncLifecycle = new MailSyncLifecycle(database, value.ownerId, access);
+    lifecycleSuspended=value.lifecycleSuspended===true;if(lifecycleSuspended)await syncLifecycle.suspendAll();
     imap=new ImapBackfill({database,ownerId:value.ownerId});
 
     draftSyncStore=new DraftSyncStore(database,value.ownerId);draftSyncRunner=new DraftSyncRunner({database,ownerId:value.ownerId,access});
     phase = "ready";
-    draftSyncRunner.start();
+    if(!lifecycleSuspended)draftSyncRunner.start();else await draftSyncRunner.suspend();
     searchIndexer?.start();extractionRunner?.start();
     write({ kind: "ready", protocol: 1, runtime: "node", nodeVersion: process.versions.node });
   } catch {
@@ -188,6 +192,14 @@ async function request(message: Extract<ParentMessage, { kind: "request" }>): Pr
   try {
     let result: WorkerResult | undefined;
     switch (command.operation) {
+      case 'mail.notifications.poll':result={notifications:lifecycleSuspended?{items:[],suppressed:0}:new MailNotificationStore(database,ownerId).poll(command.input)};break;
+      case 'mail.lifecycle.status':result={lifecycle:{state:lifecycleSuspended?'suspended':'running'}};break;
+      case 'mail.lifecycle.set':{
+        lifecycleSuspended=command.input.suspended;
+        const suspended=command.input.suspended;
+        lifecycleChange=lifecycleChange.catch(()=>{}).then(async()=>{if(phase==='closing')return;if(suspended){await Promise.all([syncLifecycle?.suspendAll(),draftSyncRunner?.suspend()]);}else{syncLifecycle?.resumeAll();draftSyncRunner?.resume();}});
+        await lifecycleChange;result={lifecycle:{state:lifecycleSuspended?'suspended':'running'}};break;
+      }
       case 'mail.senders.list': result={senders:new SenderIdentityRepository(database,ownerId).list(command.accountId)};break;
       case 'mail.senders.configure': result={senders:new SenderIdentityRepository(database,ownerId).configure(command.accountId,command.input)};break;
       case 'mail.senders.settings': result={senders:new SenderIdentityRepository(database,ownerId).settings(command.accountId,command.input)};break;
@@ -232,7 +244,7 @@ async function request(message: Extract<ParentMessage, { kind: "request" }>): Pr
       case "mail.search": if (!search) throw locked; result = {search:search.search(command.input)}; break;
       case "mail.search.rebuild": if (!search) throw locked; result = {rebuilt:search.rebuild(command.input)}; break;
       case "mail.draft.sync.read":if(!draftSyncStore)throw locked;result={draftSync:draftSyncStore.status(command.accountId,command.input.draftId)};break;
-      case "mail.draft.sync.request":if(!draftSyncStore)throw locked;result={draftSync:draftSyncStore.request(command.accountId,command.input)};draftSyncRunner?.wake();break;
+      case "mail.draft.sync.request":if(!draftSyncStore)throw locked;result={draftSync:draftSyncStore.request(command.accountId,command.input)};if(!lifecycleSuspended)draftSyncRunner?.wake();break;
       case "mail.local.draft.upload": if(!local)throw locked;result={local:{operation:command.operation,accountId:command.accountId,value:local.uploadDraft(command.accountId,command.input)}};break;
       case "mail.local.draft.save": if(!local)throw locked;result={local:{operation:command.operation,accountId:command.accountId,value:local.saveDraft(command.accountId,command.input)}};break;
       case "mail.local.draft.read": if(!local)throw locked;result={local:{operation:command.operation,accountId:command.accountId,value:local.readDraft(command.accountId,command.input)}};break;
@@ -240,7 +252,7 @@ async function request(message: Extract<ParentMessage, { kind: "request" }>): Pr
       case "mail.local.draft.attachment": if(!local)throw locked;result={local:{operation:command.operation,accountId:command.accountId,value:local.readDraftAttachment(command.accountId,command.input)}};break;
       case "mail.local.draft.list": if(!local)throw locked;result={local:{operation:command.operation,accountId:command.accountId,value:local.listDrafts(command.accountId,command.input)}};break;
       case "mail.local.action.submission": if(!local)throw locked;result={local:{operation:command.operation,accountId:command.accountId,value:local.enqueueSubmission(command.accountId,command.input)}};break;
-      case "mail.local.action.mutation": if(!local)throw locked;result={local:{operation:command.operation,accountId:command.accountId,value:local.enqueueMutation(command.accountId,command.input)}};syncLifecycle.engine(command.accountId).wake(command.accountId);break;
+      case "mail.local.action.mutation": if(!local)throw locked;result={local:{operation:command.operation,accountId:command.accountId,value:local.enqueueMutation(command.accountId,command.input)}};if(!lifecycleSuspended)syncLifecycle.engine(command.accountId).wake(command.accountId);break;
       case "mail.local.action.read": if(!local)throw locked;result={local:{operation:command.operation,accountId:command.accountId,value:local.readAction(command.accountId,command.input.actionId)}};break;
       case "mail.local.action.list": if(!local)throw locked;result={local:{operation:command.operation,accountId:command.accountId,value:local.listActions(command.accountId,command.input)}};break;
       case "mail.local.action.cancel": if(!local)throw locked;result={local:{operation:command.operation,accountId:command.accountId,value:local.cancelAction(command.accountId,command.input)}};break;
@@ -305,6 +317,7 @@ async function request(message: Extract<ParentMessage, { kind: "request" }>): Pr
         if (command.operation === "mail.sync.provider") { result = { syncProvider: provider, connected: credentialStatus.state === "connected", ...(provider === "graph" && credentialStatus.version ? {personal: credentials.getBinding(command.accountId).authority === "https://login.microsoftonline.com/consumers/v2.0"} : {}) }; break; }
         if (credentialStatus.state === 'disconnected') throw locked;
         const engine = syncLifecycle.engine(command.accountId);
+        if(lifecycleSuspended&&command.operation==='mail.sync.start'){result={sync:engine.status(command.accountId)};break;}
         if(provider==='imap'){result={sync:command.operation==='mail.sync.resume'?syncLifecycle.resume(command.accountId):command.operation==='mail.sync.start'?engine.start(command.accountId):command.operation==='mail.sync.stop'?engine.pause(command.accountId):engine.status(command.accountId)};break;}
 
         if (command.operation === "mail.sync.start" || command.operation === "mail.sync.resume") {

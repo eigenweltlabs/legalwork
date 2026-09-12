@@ -105,3 +105,16 @@ test("search continuations above 10000 remain valid requests",()=>{
   expect(parent({operation:"mail.search",input:{offset:parsed.result.search.nextOffset}})).toBeDefined();
   expect(parent({operation:"mail.search",input:{offset:Number.MAX_SAFE_INTEGER+1}})).toBeUndefined();
 });
+
+test("desktop commands validate bounded private targets and reject extra authority",()=>{
+ const input={sessionId:'11111111-1111-4111-8111-111111111111',enabled:true,preview:'none'};
+ expect(parent({operation:'mail.notifications.poll',input})).toBeDefined();
+ expect(parent({operation:'mail.notifications.poll',input:{...input,ownerId:'other'}})).toBeUndefined();
+ expect(parent({operation:'mail.lifecycle.set',input:{suspended:true}})).toBeDefined();
+ expect(parent({operation:'mail.lifecycle.set',input:{suspended:'true'}})).toBeUndefined();
+ const item={id:input.sessionId,target:{accountId:'a',locator:{provider:'gmail',messageId:'one'}},title:'New mail',body:'Open LegalWork'};
+ expect(response({notifications:{items:[item],suppressed:0}})).toBeDefined();
+ expect(response({notifications:{items:Array(6).fill(item),suppressed:0}})).toBeUndefined();
+ expect(response({notifications:{items:[{...item,body:'x'.repeat(301)}],suppressed:0}})).toBeUndefined();
+ expect(response({lifecycle:{state:'running'}})).toBeDefined();
+});
