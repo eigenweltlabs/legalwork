@@ -6,9 +6,9 @@ import {join,resolve} from 'node:path';
 import {fileURLToPath} from 'node:url';
 const root=fileURLToPath(new URL('../../',import.meta.url)),server=join(root,'apps/server'),desktop=join(root,'apps/desktop');
 const require=createRequire(join(desktop,'package.json')),serverRequire=createRequire(join(server,'package.json'));
-const folder=await mkdtemp(join(tmpdir(),'legalwork-platform-')),build=join(folder,'build'),profile=join(folder,"profile space ü $ apostrophe'");
+const folder=await mkdtemp(join(tmpdir(),'legalwork-platform-')),build=join(folder,'build'),profile=join(folder,"profile space ü $ apostrophe'",'nested-'+'p'.repeat(100),'nested-'+'q'.repeat(100));
 try {
-  await mkdir(profile,{mode:0o700});await writeFile(join(folder,'package.json'),'{"type":"module"}');
+  await mkdir(profile,{recursive:true,mode:0o700});await writeFile(join(folder,'package.json'),'{"type":"module"}');
   await symlink(join(server,'node_modules'),join(folder,'node_modules'),process.platform==='win32'?'junction':'dir');
   execFileSync(process.execPath,[serverRequire.resolve('typescript/bin/tsc'),'--outDir',build,'--rootDir','src','--module','NodeNext','--moduleResolution','NodeNext','--target','ES2022','--strict','--skipLibCheck','--types','node,bun-types','src/mail/runtime/maintenance-worker.ts','src/mail/storage/search.ts'],{cwd:server,stdio:'inherit',timeout:60000});
   for(const name of ['mail-key-store.mjs','mail-store-maintenance.mjs'])await copyFile(join(desktop,'electron',name),join(build,name));
