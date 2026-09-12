@@ -10,23 +10,33 @@ const textPart = (type: string, text: string) => `Content-Type: ${type}; charset
 const multipart = (kind: string, parts: string[], boundary: string) => `Content-Type: multipart/${kind}; boundary="${boundary}"\r\n\r\n${parts.map(part=>`--${boundary}\r\n${part}\r\n`).join('')}--${boundary}--`;
 /** Provider-neutral bytes and separate envelope. Dispatch must pin the draft version,
  * supply account-authorized senders, and read verified immutable attachment bytes. */
-export async function buildMailMime(content: MailComposeContent, options: {
+type ComposeOptions = {
  authorizedSenders: readonly string[];
  attachment: (part: MailComposeContent['attachments'][number], ordinal: number) => Promise<Uint8Array>;
  messageId?: string; date?: Date;
-}): Promise<{raw:Uint8Array;envelope:{from:string;to:string[]};messageId:string;requiresSmtpUtf8:boolean;requires8BitMime:boolean}> {
+};
+export async function buildMailMime(content:MailComposeContent,options:ComposeOptions){return serialize(content,options,false);}
+export function projectDraftRecipients(content:MailComposeContent){
+ const draft=mailDraftContentSchema.parse(content);let recipientInputLocalOnly=false;
+ if(draft.editor)for(const field of ['to','cc','bcc'] as const){const parts=draft.editor[field].split(/[,;]/).filter(value=>value.trim());const valid:string[]=[];for(const part of parts){const value=(part.match(/<([^<>]+)>/)?.[1]??part).trim();if(mailAddressSchema.safeParse(value).success&&!/[^\x00-\x7f]/.test(value))valid.push(value);else recipientInputLocalOnly=true;}draft[field]=valid;}
+ return{content:draft,recipientInputLocalOnly};
+}
+/** Private provider-draft MIME. No submission envelope is exposed. Invalid editable
+ * recipient fragments remain only in the immutable local draft and recovery journal. */
+export async function buildDraftMailMime(content:MailComposeContent,options:ComposeOptions){const projected=projectDraftRecipients(content),built=await serialize(projected.content,options,true);const raw=Buffer.concat([Buffer.from(projected.content.bcc.length?'Bcc: '+projected.content.bcc.join(', ')+'\r\n':''),built.raw]);if(raw.length>MAIL_MESSAGE_LIMIT)throw Error('The encoded draft exceeds 30 MiB.');return{raw,messageId:built.messageId,recipientInputLocalOnly:projected.recipientInputLocalOnly};}
+async function serialize(content:MailComposeContent,options:ComposeOptions,draftMode:boolean): Promise<{raw:Uint8Array;envelope:{from:string;to:string[]};messageId:string;requiresSmtpUtf8:boolean;requires8BitMime:boolean}> {
  // This serializer supports ASCII mailbox/header identifiers; Unicode display content
  // is encoded separately. Never truncate an SMTPUTF8 mailbox through the byte-string path.
  if([content.from??'',...content.to,...content.cc,...content.bcc].some(value=>/[^\x00-\x7f]/.test(value)))throw Error('SMTPUTF8 mailbox addresses are not supported. Use an ASCII mailbox address.');
  if([content.inReplyTo??'',...content.references,options.messageId??''].some(value=>/[^\x00-\x7f]/.test(value)))throw Error('Message identifiers must contain ASCII characters only.');
  const draft=mailDraftContentSchema.parse(content),from=mailAddressSchema.parse(draft.from);
- if(draft.editor){for(const field of ['to','cc','bcc']){const text=field==='to'?draft.editor.to:field==='cc'?draft.editor.cc:draft.editor.bcc,expected=field==='to'?draft.to:field==='cc'?draft.cc:draft.bcc;
+ if(draft.editor){if(!draftMode)for(const field of ['to','cc','bcc']){const text=field==='to'?draft.editor.to:field==='cc'?draft.editor.cc:draft.editor.bcc,expected=field==='to'?draft.to:field==='cc'?draft.cc:draft.bcc;
   const values=text.split(/[,;]/).filter(value=>value.trim()).map(value=>(value.match(/<([^<>]+)>/)?.[1]??value).trim());if(values.some(value=>!mailAddressSchema.safeParse(value).success)||JSON.stringify(values)!==JSON.stringify(expected))throw Error('Complete every recipient address before sending.');}
   if(draft.editor.from!==from)throw Error('Complete the sender address before sending.');}
 
  if(!options.authorizedSenders.some(sender=>sender.toLowerCase()===from.toLowerCase()))throw Error('The sender is not authorized for this account.');
  const recipients=[...new Map([...draft.to,...draft.cc,...draft.bcc].map(value=>[value.toLowerCase(),value])).values()];
- if(!recipients.length)throw Error('Add at least one recipient.');
+ if(!draftMode&&!recipients.length)throw Error('Add at least one recipient.');
  const messageId=options.messageId??`<${randomUUID()}@legalwork.local>`;
  if(!/^<[^<>\s@]+@[^<>\s@]+>$/.test(messageId))throw Error('Invalid message ID.');
  const date=options.date??new Date();if(!Number.isFinite(date.getTime()))throw Error('Invalid message date.');

@@ -11,13 +11,14 @@ import {MailAccessCoordinator} from '../providers/access-coordinator.js';
 import {HttpDraftAdapter,DraftProviderError,type DraftAdapter,type RemoteDraft} from '../providers/draft-adapter.js';
 import {ImapDraftAdapter} from '../providers/imap-drafts.js';
 import {draftRemoteRefSchema,type DraftRemoteRef} from '../draft-sync-view.js';
-import {buildMailMime} from '../mime/compose.js';
+import {buildDraftMailMime} from '../mime/compose.js';
 import {projectMime} from '../mime/project.js';
 import {mailDraftContentSchema,mailAddressSchema} from '../local-view.js';
 const ref=(value:string|null)=>value?draftRemoteRefSchema.parse(JSON.parse(value)):null;
 const hash=(value:Uint8Array)=>createHash('sha256').update(value).digest('hex');
 const messageId=(draftId:string,dispatchId:string)=>`<${draftId}.${dispatchId}@legalwork.local>`;
 function hasId(raw:Uint8Array,id:string){return Buffer.from(raw).toString('latin1').split(/\r?\n\r?\n/,1)[0].match(/^Message-ID:[ \t]*(.+)$/im)?.[1].trim()===id;}
+export function assertDraftCredentialActive(credentials:MailCredentialRepository,accountId:string,generation:string,signal:AbortSignal){const status=credentials.status(accountId);if(signal.aborted||status.state!=='connected'||status.archiveLocked||status.version.generation!==generation)throw new DraftProviderError('permission');}
 export class DraftSyncRunner{
  private store:DraftSyncStore;private local:MailLocalApiStore;private timer:ReturnType<typeof setInterval>|undefined;private running:Promise<void>|undefined;private controller=new AbortController();
  constructor(private options:{database:MailDatabase;ownerId:string;access:MailAccessCoordinator;adapter?:(accountId:string,signal:AbortSignal)=>Promise<{adapter:DraftAdapter;generation:string;fence:()=>void}>}){this.store=new DraftSyncStore(options.database,options.ownerId);this.local=new MailLocalApiStore(options.database,options.ownerId);}
@@ -25,9 +26,9 @@ export class DraftSyncRunner{
  wake(){if(!this.running&&!this.controller.signal.aborted)this.running=this.run().catch(()=>{}).finally(()=>{this.running=undefined;});}
  async close(){clearInterval(this.timer);this.controller.abort();await this.running;}
  private async adapter(accountId:string,signal:AbortSignal){if(this.options.adapter)return this.options.adapter(accountId,signal);const {database:db,ownerId}=this.options,provider=z.enum(['gmail','graph','imap']).parse(db.get('SELECT provider FROM mail_accounts WHERE id=? AND owner_id=?',[accountId,ownerId])?.provider);
-  if(provider==='imap'){const custody=new ImapCustody(db,ownerId),credential=custody.read(accountId),adapter=new ImapDraftAdapter(credential.settings,credential.password);try{await adapter.connect(signal);}catch(error){adapter.close();throw error;}return{adapter,generation:credential.version.generation,fence:()=>{if(signal.aborted)throw Error('cancelled');custody.assert(accountId,credential.version);}};}
+  if(provider==='imap'){const custody=new ImapCustody(db,ownerId),credential=custody.read(accountId),adapter=new ImapDraftAdapter(credential.settings,credential.password,undefined,()=>{if(signal.aborted)throw new DraftProviderError('permission');custody.assert(accountId,credential.version);});try{await adapter.connect(signal);}catch(error){adapter.close();throw error;}return{adapter,generation:credential.version.generation,fence:()=>{if(signal.aborted)throw Error('cancelled');custody.assert(accountId,credential.version);}};}
   const graph=new GraphMailboxRepository(db,ownerId);if(provider==='graph')graph.assertWrite(accountId);const access=await this.options.access.acquire(accountId);if(provider==='gmail'&&!access.grantedScopes?.some(scope=>['https://mail.google.com/','https://www.googleapis.com/auth/gmail.modify','https://www.googleapis.com/auth/gmail.compose'].includes(scope)))throw new DraftProviderError('permission');const credentials=new MailCredentialRepository(db,ownerId);
-  return{adapter:new HttpDraftAdapter(provider,access.accessToken,provider==='graph'?graph.target(accountId).basePath:'/me'),generation:access.version.generation,fence:()=>{if(signal.aborted||credentials.status(accountId).version?.generation!==access.version.generation)throw Error('credentials_changed');if(provider==='graph')graph.assertWrite(accountId);}};
+  const fence=()=>{assertDraftCredentialActive(credentials,accountId,access.version.generation,signal);if(provider==='graph')graph.assertWrite(accountId);};return{adapter:new HttpDraftAdapter(provider,access.accessToken,provider==='graph'?graph.target(accountId).basePath:'/me',undefined,fence),generation:access.version.generation,fence};
  }
  async run(){for(const item of this.store.work()){if(this.controller.signal.aborted)return;await this.turn(item.accountId,item.draftId);}}
  private conflict(accountId:string,draftId:string,remote:RemoteDraft|null){this.store.problem(accountId,draftId,'conflict',remote?'remote_changed':'remote_missing',remote?.raw,remote?.hash,remote?.ref);}
@@ -55,7 +56,7 @@ export class DraftSyncRunner{
    const head=this.store.head(accountId,draftId);if(row.state==='synced'&&row.generation===head.generation&&row.local_revision===head.revision){this.options.database.run('UPDATE mail_draft_sync SET updated_at=? WHERE account_id=? AND draft_id=?',[Date.now(),accountId,draftId]);return;}
    const draft=this.local.readDraft(accountId,{draftId});version=row.operation==='cleanup'&&row.generation&&row.local_revision?{generation:row.generation,revision:row.local_revision}:draft.version;
    const id=randomUUID();let raw=new Uint8Array();if(row.operation==='upsert'){
-    try{const built=await buildMailMime(draft.content,{authorizedSenders:draft.content.from?[draft.content.from]:[],messageId:messageId(draftId,id),attachment:async part=>Buffer.concat([...new MailContentStore(this.options.database,this.options.ownerId).read(accountId,part.referenceId)])});raw=Buffer.concat([Buffer.from(draft.content.bcc.length?'Bcc: '+draft.content.bcc.join(', ')+'\r\n':''),built.raw]);if(raw.byteLength>30*1024*1024)throw new DraftProviderError('unsupported');}catch{this.store.problem(accountId,draftId,'error','incomplete');return;}
+    try{const built=await buildDraftMailMime(draft.content,{authorizedSenders:draft.content.from?[draft.content.from]:[],messageId:messageId(draftId,id),attachment:async part=>Buffer.concat([...new MailContentStore(this.options.database,this.options.ownerId).read(accountId,part.referenceId)])});raw=built.raw;if(raw.byteLength>30*1024*1024)throw new DraftProviderError('unsupported');}catch{this.store.problem(accountId,draftId,'error','incomplete');return;}
    }
    fence();this.store.prepare(accountId,draftId,{id,raw,version,credentialGeneration:generation});dispatched=true;
    if(row.operation==='delete'||row.operation==='cleanup'){if(original)await adapter.remove(original.ref,signal);fence();this.store.result(accountId,draftId,null,null,version,true);await this.removeLocalIfSame(accountId,draftId,version);return;}
@@ -63,7 +64,7 @@ export class DraftSyncRunner{
    if(!hasId(changed.raw,messageId(draftId,id)))throw new DraftProviderError('provider_rejected');
    if(original&&adapter.replaceMode==='copy_then_delete'){this.store.replacement(accountId,draftId,changed.ref,changed.hash);const beforeDelete=await adapter.read(original.ref,signal);fence();if(beforeDelete&&beforeDelete.hash!==original.hash){this.conflict(accountId,draftId,beforeDelete);return;}if(beforeDelete)await adapter.remove(beforeDelete.ref,signal);fence();}
    this.store.result(accountId,draftId,changed.ref,changed.hash,version);
-  }catch(error){try{connection?.fence();this.store.account(accountId);const latest=this.store.row(accountId,draftId);this.store.problem(accountId,draftId,dispatched?'uncertain':'error',dispatched?'dispatch_unknown':error instanceof DraftProviderError?error.code==='remote_changed'?'remote_changed':error.code:'retryable',latest?.operation==='adopt'?latest.conflict_raw??undefined:undefined,latest?.operation==='adopt'?latest.conflict_hash??undefined:undefined);}catch{/* Revoked custody leaves the durable dispatch for explicit recovery. */}}
+  }catch(error){try{connection?.fence();this.store.account(accountId);const latest=this.store.row(accountId,draftId);this.store.problem(accountId,draftId,dispatched?'uncertain':'error',dispatched?'dispatch_unknown':error instanceof DraftProviderError?error.code==='remote_changed'?'remote_changed':error.code:'retryable',latest?.operation==='adopt'?latest.conflict_raw??undefined:undefined,latest?.operation==='adopt'?latest.conflict_hash??undefined:undefined);}catch{/* Retain the dispatch ambiguity even when custody no longer permits content access. */if(dispatched)this.options.database.run("UPDATE mail_draft_sync SET state='uncertain',error='permission',revision=revision+1 WHERE account_id=? AND draft_id=? AND EXISTS(SELECT 1 FROM mail_accounts WHERE id=? AND owner_id=?)",[accountId,draftId,accountId,this.options.ownerId]);}}
   finally{connection?.adapter.close?.();}
  }
 }
