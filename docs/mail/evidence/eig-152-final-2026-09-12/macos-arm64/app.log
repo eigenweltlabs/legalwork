@@ -1,0 +1,1081 @@
+$ bun test tests/
+bun test v1.3.9 (cf6cdbbb)
+
+::group::tests/mention-encoding.test.ts:
+(pass) mention-encoding > round-trips paths with spaces
+(pass) mention-encoding > preserves literal percent-encoded sequences in paths [0.36ms]
+(pass) mention-encoding > round-trips percent signs
+(pass) mention-encoding > keeps a memory filename for the pill and a canonical URI for the agent [0.29ms]
+(pass) mention-encoding > keeps a downloaded workspace path as memory metadata instead of an attachment [0.07ms]
+
+::endgroup::
+
+::group::tests/skill-resources.test.ts:
+(pass) syncAttachedFilesSection > appends the server block when the editor content has none [0.25ms]
+(pass) syncAttachedFilesSection > replaces a stale block with the server one [0.05ms]
+(pass) syncAttachedFilesSection > removes the block when the server content has none [0.05ms]
+(pass) syncAttachedFilesSection > preserves unsaved user edits outside the block
+(pass) syncAttachedFilesSection > is idempotent
+(pass) syncAttachedFilesSection > matches the server content exactly for a clean editor
+
+::endgroup::
+
+::group::tests/mcp-oauth-flow.test.ts:
+(pass) MCP OAuth attempt ownership > duplicate starts share the current preparation and never request a second authorization link
+(pass) MCP OAuth attempt ownership > reopening uses the same authorization URL and callback listener [1.24ms]
+(pass) MCP OAuth attempt ownership > a preparation finishing after cancel is disposed without opening a browser [0.21ms]
+(pass) MCP OAuth attempt ownership > a stale preparation is disposed before a newer attempt can acquire its resources [0.21ms]
+(pass) MCP OAuth attempt ownership > quick retry waits for asynchronous callback-port disposal before binding again [0.14ms]
+(pass) MCP OAuth attempt ownership > cancelled preparation waits for its late listener cleanup before preparing a retry [0.14ms]
+(pass) MCP OAuth attempt ownership > cancellation at the preparation handoff still waits for callback-port cleanup [1.88ms]
+(pass) MCP OAuth attempt ownership > retry waits for an abandoned engine start and ignores its late authorization URL [0.22ms]
+(pass) MCP OAuth attempt ownership > retry also waits for an abandoned code exchange and ignores its late success [0.28ms]
+(pass) MCP OAuth attempt ownership > timed-out starts cannot open their late browser link [22.58ms]
+(pass) MCP OAuth attempt ownership > timed-out exchanges cannot publish a late success [23.10ms]
+(pass) MCP OAuth browser and callback completion > registers the callback before opening the browser and succeeds only after code exchange [0.33ms]
+(pass) MCP OAuth browser and callback completion > missing or unsafe authorization links never count as authentication [0.30ms]
+(pass) MCP OAuth browser and callback completion > browser-launch failure retains the link and permits reopening without restarting OAuth [0.28ms]
+(pass) MCP OAuth browser and callback completion > a mismatched callback is rejected without losing the current attempt [0.21ms]
+(pass) MCP OAuth browser and callback completion > manual and automatic completion racing exchange the code once [0.12ms]
+(pass) MCP OAuth browser and callback completion > denied automatic authorization terminates the attempt with an actionable error [0.16ms]
+(pass) MCP OAuth browser and callback completion > an abandoned callback cannot fail a newer attempt [0.15ms]
+(pass) MCP OAuth browser and callback completion > failed code exchange preserves the provider error without claiming success [0.20ms]
+(pass) MCP OAuth browser and callback completion > a rejected callback exchange retains nested SDK errors [0.16ms]
+(pass) MCP OAuth manual callback validation > accepts an opaque code and a matching callback URL [0.03ms]
+(pass) MCP OAuth manual callback validation > rejects wrong or missing state, callback origin, and callback path [0.73ms]
+(pass) MCP OAuth manual callback validation > denial and malformed input cannot become authorization codes [0.17ms]
+
+::endgroup::
+
+::group::tests/mail-portability-render.test.ts:
+4 | import {LayoutSection,LayoutSectionHeader,LayoutSectionTitle,LayoutSectionDescription} from '../settings-layout';
+                                                                                                ^
+error: Could not resolve: "../settings-layout"
+    at /Users/runner/work/legalwork/legalwork/apps/app/src/react-app/domains/settings/pages/mail-settings-controls.tsx:4:93
+
+5 | import {SettingsInset} from '../settings-section';
+                                ^
+error: Could not resolve: "../settings-section"
+    at /Users/runner/work/legalwork/legalwork/apps/app/src/react-app/domains/settings/pages/mail-settings-controls.tsx:5:29
+(fail) Settings native import shows durable progress and resume without accepting renderer paths [55.85ms]
+
+::endgroup::
+
+::group::tests/mail-keyboard-workflow.test.ts:
+63 | await until("!document.querySelector('[aria-label=Reply]').disabled");await key('.mail-message-row','r',{ctrlKey:true});await until("!!document.querySelector('[aria-label=\\"Compose message\\"]')");await until("!document.querySelector('[aria-label=Send]').disabled");await key('[aria-label="Message body"]','s',{ctrlKey:true});await key(null,'Enter',{ctrlKey:true});await until("!!document.querySelector('[role=dialog]')");await until("document.activeElement.textContent==='Cancel'");await key(null,'Enter',{ctrlKey:true});await until("document.activeElement.textContent==='Cancel'");await key(null,'Escape');await until("!document.querySelector('[role=dialog]')");await until("document.activeElement.getAttribute('aria-label')==='Message body'");
+64 | await run("window.platform='mac'");for(const [k,extra] of [['j',{metaKey:true}],['t',{metaKey:true}],['q',{metaKey:true}],['n',{metaKey:true}],['f',{metaKey:true,shiftKey:true}]])assert.equal(await key('[aria-label="Message body"]',k,extra),false);
+65 | await key('[aria-label="Message body"]','Enter',{metaKey:true});await until("!!document.querySelector('[role=dialog]')");await until("document.activeElement.textContent==='Cancel'");await run("[...document.querySelector('[role=dialog]').querySelectorAll('button')].find(b=>b.textContent==='Confirm send').focus()");win.show();win.focus();await new Promise(r=>setTimeout(r,80));await run("[...document.querySelector('[role=dialog]').querySelectorAll('button')].find(b=>b.textContent==='Confirm send').focus()");assert.equal(await run('document.activeElement.disabled'),false);await win.webContents.sendInputEvent({type:'keyDown',keyCode:'Return'});await win.webContents.sendInputEvent({type:'char',keyCode:'\\r'});await win.webContents.sendInputEvent({type:'keyUp',keyCode:'Return'});await until("!!document.querySelector('[aria-label=Outbox]')");
+66 | await key('.mail-message-row','f',{metaKey:true,altKey:true});assert.equal(await run("document.activeElement.getAttribute('aria-label')"),'Search mail');assert.equal(await run("window.shortcut('forward','mac').hint"),'Shift+F');await run("window.reloadMarker=true;document.querySelector('#outside').focus()");win.show();if(process.platform==='darwin')app.focus({steal:true});win.focus();win.webContents.focus();for(let attempt=0;attempt<100&&BrowserWindow.getFocusedWindow()!==win;attempt++)await new Promise(r=>setTimeout(r,20));assert.equal(BrowserWindow.getFocusedWindow()===win,true);await until('document.hasFocus()');Menu.getApplicationMenu().getMenuItemById('app-reload').click({triggeredByAccelerator:true},win);await until('!window.reloadMarker');await until("document.querySelectorAll('.mail-message-row').length===3");await run("window.reloadMarker=true;document.querySelector('.mail-message-row').focus()");Menu.getApplicationMenu().getMenuItemById('app-reload').click({},win);await until('!window.reloadMarker')
+67 | `);
+68 |   const require=createRequire(resolve(appRoot,'../desktop/package.json'));const result=await new Promise<{code:number|null;output:string}>((done,reject)=>{const child=spawn(require('electron'),[probe],{env:{HOME:process.env.HOME,PATH:process.env.PATH,...process.platform==='win32'?{SystemRoot:process.env.SystemRoot,WINDIR:process.env.WINDIR}:{}},stdio:['ignore','pipe','pipe']});let output='';const timer=setTimeout(()=>{child.kill();reject(Error(output));},25000);child.stdout.on('data',value=>output+=value);child.stderr.on('data',value=>output+=value);child.on('error',reject);child.on('close',code=>{clearTimeout(timer);done({code,output});});});if(result.code!==0)throw Error(result.output);expect(result.output).toContain('MAIL_KEYBOARD_WORKFLOW_PASS');expect(mutations).toHaveLength(9);expect(submissions).toHaveLength(1);
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               ^
+error: expect(received).toHaveLength(expected)
+
+Expected length: 9
+Received length: 15
+
+      at <anonymous> (/Users/runner/work/legalwork/legalwork/apps/app/tests/mail-keyboard-workflow.test.ts:68:779)
+
+::error file=apps/app/tests/mail-keyboard-workflow.test.ts,line=68,col=779,title=error: expect(received).toHaveLength(expected)::Expected length: 9%0AReceived length: 15%0A%0A      at <anonymous> (/Users/runner/work/legalwork/legalwork/apps/app/tests/mail-keyboard-workflow.test.ts:68:779)
+(fail) Mail keyboard workflows preserve shell/typing, select bulk ranges, restore focus and review sends on both platforms [8260.89ms]
+
+::endgroup::
+
+::group::tests/office-agent-tools.test.ts:
+(pass) Office agent edit validation > bounds ranges before allocating cell matrices [2.11ms]
+(pass) Office agent edit validation > replaces across styled text runs while keeping untouched styling [0.10ms]
+(pass) Office agent edit validation > rejects stale, ambiguous and complex paragraph edits [0.04ms]
+(pass) Office agent edit validation > keeps literal replacement tokens as text
+
+::endgroup::
+
+::group::tests/mcp-logout-truthfulness.test.ts:
+(pass) logout truthfulness > a transport can reconnect after credentials are removed [0.12ms]
+(pass) logout truthfulness > a reconnect a beat later is still a reconnect [0.18ms]
+(pass) logout truthfulness > a server asking to sign in again means the logout worked [0.05ms]
+(pass) logout truthfulness > needs_client_registration also means the logout worked [0.05ms]
+(pass) logout truthfulness > never reaching connected within the probe means the logout worked [0.04ms]
+(pass) logout truthfulness > needs_auth is terminal — a later connect does not overturn it [0.03ms]
+(pass) logout truthfulness > the probe must actually reconnect before judging [0.04ms]
+(pass) logout truthfulness > a reconnect the engine refuses falls back to the ordinary message [0.13ms]
+(pass) logout truthfulness > an unreadable status falls back to the ordinary message [0.13ms]
+(pass) logout truthfulness > a server missing from the snapshot is not a silent reconnect
+(pass) logout truthfulness > cancellation stops the probe without accusing the logout [0.07ms]
+(pass) logout truthfulness > each snapshot is handed back so the caller can refresh its badges
+
+::endgroup::
+
+::group::tests/mail-retention-render.test.ts:
+(pass) retention Settings confirms deletion, pauses Mail and clears backup passphrase [960.52ms]
+
+::endgroup::
+
+::group::tests/mail-context-render.test.ts:
+23 |  else value={items:[],nextCursor:null};return Response.json(value,{headers});}});
+24 |  try{await linkTestModules(join(appRoot,'node_modules'),join(root,'node_modules'));await writeFile(join(root,'entry.tsx'),`import React from 'react';import{createRoot}from'react-dom/client';import{MemoryRouter}from'react-router-dom';import{MailRoute}from${JSON.stringify(join(appRoot,'src/react-app/domains/mail/mail-route.tsx'))};localStorage.setItem('legalwork.server.urlOverride','http://127.0.0.1:${server.port}');localStorage.setItem('legalwork.server.hostToken','synthetic');localStorage.setItem('legalwork.server.token','synthetic');createRoot(document.getElementById('root')).render(<MemoryRouter><MailRoute/></MemoryRouter>);`);
+25 |  const built=await Bun.build({entrypoints:[join(root,'entry.tsx')],target:'browser',outdir:root,alias:{'@':join(appRoot,'src')},minify:true,plugins:[{name:'zod',setup(build){build.onResolve({filter:/^zod$/},()=>({path:join(appRoot,'node_modules/zod/index.js')}));}}]});if(!built.success)throw Error(built.logs.map(String).join('\n'));
+26 |  const appRequire=createRequire(join(appRoot,'package.json'));const {compile}=await import(appRequire.resolve('@tailwindcss/node',{paths:[dirname(appRequire.resolve('@tailwindcss/vite'))]}));const css=await compile('@import \"tailwindcss\";',{base:appRoot,onDependency:()=>{}});await writeFile(join(root,'preflight.css'),css.build(['isolate','z-50','relative']));
+27 |  await writeFile(join(root,'index.html'),'<meta charset="utf-8"><link rel="stylesheet" href="preflight.css"><style>:root{--foreground:#252525;--background:#fff;--popover:#fff;--muted:#f4f4f4;--muted-foreground:#777;--border:#e5e5e5}body{font:14px system-ui;margin:0}#root{height:100vh}button{font:inherit}</style><link rel="stylesheet" href="entry.css"><div id="root"></div><script src="entry.js"></script>');
+28 |  const require=createRequire(resolve(appRoot,'../desktop/package.json'));const result=await new Promise<{code:number|null;output:string}>((done,reject)=>{const child=spawn(process.env.LEGALWORK_TEST_ELECTRON??require('electron'),[join(import.meta.dir,'fixtures/mail-context/probe.cjs'),join(root,'index.html')],{env:{HOME:process.env.HOME,PATH:process.env.PATH,...(process.platform==='win32'?{SystemRoot:process.env.SystemRoot,WINDIR:process.env.WINDIR}:{})},stdio:['ignore','pipe','pipe']});let output='';const timer=setTimeout(()=>{child.kill();reject(Error(output));},35000);child.stdout.on('data',v=>output+=v);child.stderr.on('data',v=>output+=v);child.once('error',reject);child.once('close',code=>{clearTimeout(timer);done({code,output});});});if(result.code!==0)throw Error(result.output);expect(result.output).toContain('CONTEXT_PASS');expect(calls).toHaveLength(6);expect(calls[3]).toEqual(expect.objectContaining({account:'a',input:expect.objectContaining({change:{kind:'memberships',add:['Legal'],remove:[]}})}))
+
+error: 2026-09-12 16:40:29.534 Electron Helper[11375:35083] XPC error for connection com.apple.backupd.sandbox.xpc: Connection invalid
+2026-09-12 16:40:29.534 Electron Helper[11375:35080] XPC error for connection com.apple.backupd.sandbox.xpc: Connection invalid
+2026-09-12 16:40:29.537 Electron Helper[11375:35083] XPC error for connection com.apple.backupd.sandbox.xpc: Connection invalid
+2026-09-12 16:40:29.694 Electron Helper[11375:35080] XPC error for connection com.apple.backupd.sandbox.xpc: Connection invalid
+2026-09-12 16:40:29.695 Electron Helper[11375:35080] XPC error for connection com.apple.backupd.sandbox.xpc: Connection invalid
+2026-09-12 16:40:29.696 Electron Helper[11375:35080] XPC error for connection com.apple.backupd.sandbox.xpc: Connection invalid
+
+      at <anonymous> (/Users/runner/work/legalwork/legalwork/apps/app/tests/mail-context-render.test.ts:28:555)
+
+::error file=apps/app/tests/mail-context-render.test.ts,line=28,col=555,title=error: 2026-09-12 16:40:29.534 Electron Helper[11375:35083] XPC error for connection com.apple.backupd.sandbox.xpc: Connection invalid::2026-09-12 16:40:29.537 Electron Helper[11375:35083] XPC error for connection com.apple.backupd.sandbox.xpc: Connection invalid%0A2026-09-12 16:40:29.694 Electron Helper[11375:35080] XPC error for connection com.apple.backupd.sandbox.xpc: Connection invalid%0A2026-09-12 16:40:29.695 Electron Helper[11375:35080] XPC error for connection com.apple.backupd.sandbox.xpc: Connection invalid%0A2026-09-12 16:40:29.696 Electron Helper[11375:35080] XPC error for connection com.apple.backupd.sandbox.xpc: Connection invalid%0A%0A      at <anonymous> (/Users/runner/work/legalwork/legalwork/apps/app/tests/mail-context-render.test.ts:28:555)
+(fail) actual mailbox and search context menus preserve selection and share journal, undo and permissions [35285.44ms]
+
+::endgroup::
+
+::group::tests/docx-roundtrip.test.ts:
+(pass) clean export accepts changes and removes comments without altering the source [121.71ms]
+(pass) clean export refuses unsupported review markup in a header [8.70ms]
+(pass) overlapping comments coexist in the ProseMirror schema
+(pass) comment replies survive editor conversion, revision rejection and a second save [27.79ms]
+
+::endgroup::
+
+::group::tests/mail-compose.test.ts:
+(pass) reply-all excludes sender/duplicates/BCC and preserves reference chain; forwarding clears reply headers [1.90ms]
+(pass) isolated compose UI saves/reopens incomplete work, formats safely, attaches files and keeps Send unavailable [2687.87ms]
+
+::endgroup::
+
+::group::tests/env-context.test.ts:
+(pass) buildLegalworkEnvSystemContext > lists configured key names without inventing secret values [2.53ms]
+(pass) buildLegalworkEnvSystemContext > caches key context per session [0.16ms]
+(pass) buildLegalworkEnvSystemContext > does not truncate long key lists [0.66ms]
+(pass) buildLegalworkEnvSystemContext > skips context while environment changes are pending [0.38ms]
+
+::endgroup::
+
+::group::tests/legalmemory-activity.test.ts:
+(pass) legalMemoryToolName > strips whichever server name the firm connected under
+(pass) legalMemoryToolName > rejects tools the appliance does not register [0.44ms]
+(pass) legalMemoryActivityLabel > names the query being searched [0.17ms]
+(pass) legalMemoryActivityLabel > falls back when the query has not streamed in yet [0.02ms]
+(pass) legalMemoryActivityLabel > distinguishes a final-versions-only filter, the behavior that matters [0.03ms]
+(pass) legalMemoryActivityLabel > describes graph and precedence work as such
+(pass) legalMemoryActivityLabel > groups the ontology tools under one line [0.11ms]
+(pass) legalMemoryActivityLabel > returns null for a tool that is not LegalMemory's
+(pass) isLegalMemoryToolPart > covers the whole appliance tool surface [0.06ms]
+(pass) isLegalMemoryToolPart > does not claim unrelated tools
+
+::endgroup::
+
+::group::tests/sidebar-primitives.test.ts:
+(pass) sidebar accessibility > session actions are native buttons and expose the current page [7.30ms]
+(pass) sidebar accessibility > folder assets keep their paint references isolated in a list [1.41ms]
+
+::endgroup::
+
+::group::tests/markdown-draft.test.ts:
+(pass) Markdown draft preservation > opening retains exact whitespace and markup
+(pass) Markdown draft preservation > incoming disk changes cannot overwrite a draft or advance its save version
+(pass) Markdown draft preservation > edits made during a save survive and remain dirty
+(pass) Markdown draft preservation > agent replacements reject stale/ambiguous matches and preserve literal dollar signs
+
+::endgroup::
+
+::group::tests/onboarding-consent-default.test.ts:
+(pass) onboarding consent default > fresh install (no stored prefs): toggle defaults on, no explicit consent recorded [1.31ms]
+(pass) onboarding consent default > after LocalProvider persists the null default: still counts as unset [2.93ms]
+(pass) onboarding consent default > regression: a persisted concrete false would defeat the default (old bug) [0.04ms]
+(pass) onboarding consent default > explicit opt-out is preserved on re-entry
+(pass) onboarding consent default > explicit opt-in is honoured [0.04ms]
+
+::endgroup::
+
+::group::tests/mail-auto-sync-render.test.ts:
+26 |   await linkTestModules(join(appRoot,'node_modules'),join(root,'node_modules'));
+27 |   const entry=join(root,'entry.tsx');await writeFile(entry,`import React from ${JSON.stringify(join(appRoot,'node_modules/react/index.js'))};import {createRoot} from ${JSON.stringify(join(appRoot,'node_modules/react-dom/client.js'))};import {MemoryRouter} from ${JSON.stringify(join(appRoot,'node_modules/react-router-dom/dist/index.mjs'))};import {MailRoute} from ${JSON.stringify(join(appRoot,'src/react-app/domains/mail/mail-route.tsx'))};localStorage.setItem('legalwork.server.urlOverride','http://127.0.0.1:${server.port}');localStorage.setItem('legalwork.server.token','synthetic');localStorage.setItem('legalwork.server.hostToken','synthetic');createRoot(document.getElementById('root')).render(<MemoryRouter><MailRoute/></MemoryRouter>);`);
+28 |   const build=await Bun.build({entrypoints:[entry],target:'browser',outdir:root,alias:{'@':join(appRoot,'src')},minify:true,plugins:[{name:'fixture-zod',setup(build){build.onResolve({filter:/^zod$/},()=>({path:join(appRoot,'node_modules/zod/index.js')}));}}]});if(!build.success)throw Error(build.logs.map(String).join('\n'));
+29 |   await writeFile(join(root,'index.html'),'<html><head><meta charset="utf-8"></head><body><div id="root"></div><script src="entry.js"></script></body></html>');
+30 |   const probe=join(root,'probe.cjs');await writeFile(probe,`const {app,BrowserWindow}=require('electron');const assert=require('node:assert/strict');app.setPath('userData',${JSON.stringify(join(root,'profile'))});app.whenReady().then(async()=>{const win=new BrowserWindow({show:false,webPreferences:{nodeIntegration:false,contextIsolation:true,sandbox:true}});win.webContents.on('console-message',(_event,_level,message)=>console.log(message));await win.loadFile(${JSON.stringify(join(root,'index.html'))});const run=s=>win.webContents.executeJavaScript(s);const until=async s=>{for(let i=0;i<300;i++){if(await run(s))return;await new Promise(r=>setTimeout(r,50));}throw Error('renderer deadline '+s+' BODY '+await run('document.body.textContent'))};await until("document.body.textContent.includes('Downloading mail')");assert.equal(await run("document.querySelectorAll('.mail-message-row').length"),0);await until("document.body.textContent.includes('Automatically downloaded')");await until("document.body.textContent.incl
+31 |   const require=createRequire(resolve(appRoot,'../desktop/package.json'));const result=await new Promise<{code:number|null;output:string}>((resolveResult,reject)=>{const child=spawn(require('electron'),[probe],{env:{PATH:process.env.PATH,...(process.platform==='win32'?{SystemRoot:process.env.SystemRoot,WINDIR:process.env.WINDIR}:{})},stdio:['ignore','pipe','pipe']});let output='';const timer=setTimeout(()=>{child.kill();reject(Error('renderer deadline '+output));},30000);child.stdout.on('data',chunk=>output+=chunk);child.stderr.on('data',chunk=>output+=chunk);child.on('error',reject);child.on('close',code=>{clearTimeout(timer);resolveResult({code,output});});});if(result.code!==0)throw Error(result.output);expect(result.output).toContain('MAIL_AUTO_SYNC_PASS');expect(retries).toBe(1);
+
+error: renderer deadline 2026-09-12 16:41:07.941 Electron Helper[12466:38485] XPC error for connection com.apple.backupd.sandbox.xpc: Connection invalid
+2026-09-12 16:41:07.941 Electron Helper[12466:38488] XPC error for connection com.apple.backupd.sandbox.xpc: Connection invalid
+2026-09-12 16:41:07.945 Electron Helper[12466:38485] XPC error for connection com.apple.backupd.sandbox.xpc: Connection invalid
+(electron) 'console-message' arguments are deprecated and will be removed. Please use Event<WebContentsConsoleMessageEventParams> object instead.
+%cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools
+You might need to use a local HTTP server (instead of file://): https://react.dev/link/react-devtools-faq font-weight:bold
+2026-09-12 16:41:08.104 Electron Helper[12466:38485] XPC error for connection com.apple.backupd.sandbox.xpc: Connection invalid
+2026-09-12 16:41:08.104 Electron Helper[12466:38485] XPC error for connection com.apple.backupd.sandbox.xpc: Connection invalid
+2026-09-12 16:41:08.105 Electron Helper[12466:38485] XPC error for connection com.apple.backupd.sandbox.xpc: Connection invalid
+%cElectron Security Warning (Insecure Content-Security-Policy) font-weight: bold; This renderer process has either no Content Security
+  Policy set or a policy with "unsafe-eval" enabled. This exposes users of
+  this app to unnecessary security risks.
+
+For more information and help, consult
+https://electronjs.org/docs/tutorial/security.
+This warning will not show up
+once the app is packaged.
+
+      at <anonymous> (/Users/runner/work/legalwork/legalwork/apps/app/tests/mail-auto-sync-render.test.ts:31:432)
+
+::error file=apps/app/tests/mail-auto-sync-render.test.ts,line=31,col=432,title=error: renderer deadline 2026-09-12 16:41:07.941 Electron Helper[12466:38485] XPC error for connection com.apple.backupd.sandbox.xpc: Connection invalid::2026-09-12 16:41:07.945 Electron Helper[12466:38485] XPC error for connection com.apple.backupd.sandbox.xpc: Connection invalid%0A(electron) 'console-message' arguments are deprecated and will be removed. Please use Event<WebContentsConsoleMessageEventParams> object instead.%0A%cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools%0AYou might need to use a local HTTP server (instead of file://): https://react.dev/link/react-devtools-faq font-weight:bold%0A2026-09-12 16:41:08.104 Electron Helper[12466:38485] XPC error for connection com.apple.backupd.sandbox.xpc: Connection invalid%0A2026-09-12 16:41:08.104 Electron Helper[12466:38485] XPC error for connection com.apple.backupd.sandbox.xpc: Connection invalid%0A2026-09-12 16:41:08.105 Electron Helper[12466:38485] XPC error for connection com.apple.backupd.sandbox.xpc: Connection invalid%0A%cElectron Security Warning (Insecure Content-Security-Policy) font-weight: bold; This renderer process has either no Content Security%0A  Policy set or a policy with "unsafe-eval" enabled. This exposes users of%0A  this app to unnecessary security risks.%0A%0AFor more information and help, consult%0Ahttps://electronjs.org/docs/tutorial/security.%0AThis warning will not show up%0Aonce the app is packaged.%0A%0A      at <anonymous> (/Users/runner/work/legalwork/legalwork/apps/app/tests/mail-auto-sync-render.test.ts:31:432)
+(fail) actual renderer automatically displays sync progress, downloaded inbox messages and retry without navigation [30223.51ms]
+
+::endgroup::
+
+::group::tests/mail-journey-render.test.ts:
+(pass) mail attachment opens internally, prepares a chosen chat and returns to its source [5818.69ms]
+
+::endgroup::
+
+::group::tests/session-sync-tool-parts.test.ts:
+(pass) tool part mapper > defers in-progress tools with empty input [0.67ms]
+(pass) tool part mapper > maps in-progress tools with partial input as input-streaming [0.31ms]
+(pass) tool part mapper > maps completed tools [0.08ms]
+(pass) tool part mapper > maps env var request tools for rich chat rendering [0.04ms]
+(pass) tool part mapper > skips empty structured output while streaming [0.26ms]
+(pass) tool part mapper > keeps completed structured output even when input is {} [0.18ms]
+(pass) tool part mapper > session sync defers empty in-progress write tools until input arrives [2.03ms]
+
+::endgroup::
+
+::group::tests/word-addin-run-code.test.ts:
+(pass) runOfficeCode > runs the snippet with context and returns the serialized result
+(pass) runOfficeCode > captures console output as logs [0.80ms]
+(pass) runOfficeCode > shadows pane globals so snippets cannot reach them [0.14ms]
+(pass) runOfficeCode > functions in results serialize as placeholders instead of failing [0.12ms]
+(pass) runOfficeCode > enriches Office.js-style errors with debugInfo [0.41ms]
+(pass) runOfficeCode > rejects empty code [0.06ms]
+
+::endgroup::
+
+::group::tests/engine-error-leak.test.ts:
+(pass) engine error leakage > the exact payload users were shown is caught
+(pass) engine error leakage > other serialized failures are caught too [0.16ms]
+(pass) engine error leakage > a real sentence is left alone [0.03ms]
+
+::endgroup::
+
+::group::tests/custom-provider-config.test.ts:
+(pass) custom provider model config > a context limit always produces a limit block with BOTH keys [0.04ms]
+(pass) custom provider model config > an edited model keeps the output limit it was stored with [0.06ms]
+(pass) custom provider model config > no context limit means no limit block at all
+(pass) custom provider model config > reading a stored entry back preserves both limits through a save round trip [0.09ms]
+(pass) custom provider model config > a stored entry with a broken limit is repaired on the next save [0.01ms]
+
+::endgroup::
+
+::group::tests/prompt-file-parts.test.ts:
+(pass) first-line local file parts > detects tilde paths in the first line [0.40ms]
+(pass) first-line local file parts > only detects paths from the first line
+(pass) first-line local file parts > does not treat URL paths as local files [0.06ms]
+(pass) first-line local file parts > detects Windows absolute paths in the first line [0.09ms]
+(pass) slash-command parsing > parses command invocations [0.06ms]
+(pass) slash-command parsing > does not parse absolute file paths as commands [0.04ms]
+
+::endgroup::
+
+::group::tests/legalmemory-citation.test.ts:
+(pass) citedDocuments > reads the markdown citation the model emits
+(pass) citedDocuments > keeps prose order across a list of sources [0.24ms]
+(pass) citedDocuments > dedupes by id, first title wins
+(pass) citedDocuments > still accepts the bracket form for anything already written [0.06ms]
+(pass) citedDocuments > ignores a half-streamed citation rather than mangling it [0.02ms]
+(pass) citedDocuments > returns nothing when the answer cites nothing
+
+::endgroup::
+
+::group::tests/mail-actions.test.ts:
+(pass) mailbox UI queues independent bulk actions, shows partial failure, safely undoes and confirms permanent deletion [2014.24ms]
+
+::endgroup::
+
+::group::tests/mail-sender-identities.test.ts:
+(pass) Settings saves identity signatures and composer selects permitted aliases without arbitrary From [965.23ms]
+
+::endgroup::
+
+::group::tests/notification-store.test.ts:
+(pass) notification store > add creates an unread entry
+(pass) notification store > dedupeKey coalesces into the existing unread entry [0.34ms]
+(pass) notification store > read entries do not absorb new events [0.13ms]
+(pass) notification store > coalescing keeps merged fields when the update omits them [0.05ms]
+(pass) notification store > markAllRead is a no-op when everything is read [0.03ms]
+(pass) notification store > clearAll empties the list [0.08ms]
+(pass) notification store > caps the list at 100 entries [4.95ms]
+
+::endgroup::
+
+::group::tests/question-modal.test.tsx:
+(pass) QuestionPanel > shows custom answer input when custom is omitted [3.76ms]
+(pass) QuestionPanel > hides custom answer input when custom is false [0.57ms]
+
+::endgroup::
+
+::group::tests/legalmemory-documents.test.ts:
+(pass) collectLegalMemoryDocuments > pulls the document straight out of a real search result [0.19ms]
+(pass) collectLegalMemoryDocuments > accepts the serialized form the tool part actually carries [0.04ms]
+(pass) collectLegalMemoryDocuments > dedupes a document that several chunks matched [0.03ms]
+(pass) collectLegalMemoryDocuments > keeps the matter id, not the connector name [0.13ms]
+(pass) collectLegalMemoryDocuments > handles the find_related_documents shape, root first [0.06ms]
+(pass) collectLegalMemoryDocuments > collects across several tool results in order [0.08ms]
+(pass) collectLegalMemoryDocuments > ignores payloads that name no document [0.07ms]
+(pass) isAuthoritativeStatus > marks operative versions, not drafts [0.05ms]
+
+::endgroup::
+
+::group::tests/mail-list-window.test.ts:
+(pass) incremental lists retain only four 250-row windows and preserve back/forward ordering [1.09ms]
+
+::endgroup::
+
+::group::tests/mail-docx-security.test.ts:
+(pass) stored Word text preview does not load sender-selected fonts or external relationships [489.09ms]
+
+::endgroup::
+
+::group::tests/mail-agent-render.test.ts:
+ 6 |  try{
+ 7 |   const built=await Bun.build({entrypoints:[join(fixtures,'entry.tsx')],target:'browser',outdir:directory,alias:{'@':join(appRoot,'src'),'react/jsx-dev-runtime':join(appRoot,'node_modules/react/jsx-dev-runtime.js'),'react/jsx-runtime':join(appRoot,'node_modules/react/jsx-runtime.js')},minify:true,plugins:[{name:'zod',setup(build){build.onResolve({filter:/^zod$/},()=>({path:join(appRoot,'node_modules/zod/index.js')}));}}]});
+ 8 |   if(!built.success)throw Error(built.logs.map(String).join('\n'));await writeFile(join(directory,'index.html'),'<div id="root"></div><script src="entry.js"></script>');
+ 9 |   const require=createRequire(resolve(appRoot,'../desktop/package.json'));
+10 |   const result=await new Promise<{code:number|null;output:string}>((done,reject)=>{const child=spawn(require('electron'),[join(fixtures,'probe.cjs'),join(directory,'profile'),join(directory,'index.html')],{env:{HOME:process.env.HOME,PATH:process.env.PATH,...(process.platform==='win32'?{SystemRoot:process.env.SystemRoot,WINDIR:process.env.WINDIR}:{})},stdio:['ignore','pipe','pipe']});let output='';const timer=setTimeout(()=>{child.kill();reject(Error(output));},15000);child.stdout.on('data',v=>output+=v);child.stderr.on('data',v=>output+=v);child.once('error',reject);child.once('close',code=>{clearTimeout(timer);done({code,output});});});
+11 |   if(result.code!==0)throw Error(result.output);expect(result.output).toContain('AGENT_UI_PASS');
+                                ^
+error: 2026-09-12 16:41:47.593 Electron Helper[13683:42331] XPC error for connection com.apple.backupd.sandbox.xpc: Connection invalid
+2026-09-12 16:41:47.593 Electron Helper[13683:42329] XPC error for connection com.apple.backupd.sandbox.xpc: Connection invalid
+2026-09-12 16:41:47.594 Electron Helper[13683:42331] XPC error for connection com.apple.backupd.sandbox.xpc: Connection invalid
+Error: Script failed to execute, this normally means an error was thrown. Check the renderer console for the error.
+    at node:electron/js2c/sandbox_bundle:2:127868
+    at IpcRendererInternal.<anonymous> (node:electron/js2c/sandbox_bundle:2:122136)
+    at IpcRendererInternal.emit (node:electron/js2c/sandbox_bundle:2:45997)
+    at Object.onMessage (node:electron/js2c/sandbox_bundle:2:121195)
+
+      at <anonymous> (/Users/runner/work/legalwork/legalwork/apps/app/tests/mail-agent-render.test.ts:11:28)
+
+::error file=apps/app/tests/mail-agent-render.test.ts,line=11,col=28,title=error: 2026-09-12 16:41:47.593 Electron Helper[13683:42331] XPC error for connection com.apple.backupd.sandbox.xpc: Connection invalid::2026-09-12 16:41:47.594 Electron Helper[13683:42331] XPC error for connection com.apple.backupd.sandbox.xpc: Connection invalid%0AError: Script failed to execute, this normally means an error was thrown. Check the renderer console for the error.%0A    at node:electron/js2c/sandbox_bundle:2:127868%0A    at IpcRendererInternal.<anonymous> (node:electron/js2c/sandbox_bundle:2:122136)%0A    at IpcRendererInternal.emit (node:electron/js2c/sandbox_bundle:2:45997)%0A    at Object.onMessage (node:electron/js2c/sandbox_bundle:2:121195)%0A%0A      at <anonymous> (/Users/runner/work/legalwork/legalwork/apps/app/tests/mail-agent-render.test.ts:11:28)
+(fail) agent Settings requires deliberate scope confirmation and separate exact send review [686.09ms]
+
+::endgroup::
+
+::group::tests/docx-document-state.test.ts:
+(pass) DOCX document lifetime > an agent refresh retains a dirty draft and its original conflict baseline [0.70ms]
+(pass) DOCX document lifetime > a clean document picks up externally changed content [0.02ms]
+(pass) DOCX document lifetime > a successful save advances conflict baseline without changing editor identity
+(pass) DOCX close protection > recovery is discarded only after the user confirms leaving [0.27ms]
+(pass) DOCX close protection > only closing dirty documents prompts, and cancelling prevents close [0.12ms]
+(pass) DOCX close protection > closing the pane checks every registered dirty document [0.03ms]
+
+::endgroup::
+
+::group::tests/legalmemory-graph.test.ts:
+(pass) parseLegalMemoryGraph > builds nodes and edges from the appliance payload [0.33ms]
+(pass) parseLegalMemoryGraph > accepts the payload as serialized JSON, as MCP delivers it [0.21ms]
+(pass) parseLegalMemoryGraph > keeps stored legal relations distinct from shared-matter context
+(pass) parseLegalMemoryGraph > a stored relation wins when the same pair also arrives as context [0.13ms]
+(pass) parseLegalMemoryGraph > rings a document reachable only through another document outward [0.06ms]
+(pass) parseLegalMemoryGraph > drops edge endpoints that are not documents [0.02ms]
+(pass) parseLegalMemoryGraph > fits the viewBox to the nodes so small graphs carry no dead space [0.11ms]
+(pass) parseLegalMemoryGraph > returns null rather than a blank card when the payload is unusable [0.03ms]
+(pass) isLegalMemoryGraphToolPart > matches whichever server name the firm connected under [0.12ms]
+(pass) isLegalMemoryGraphToolPart > does not swallow other tools
+(pass) formatEdgeKind > reads as prose in the edge label [0.02ms]
+
+::endgroup::
+
+::group::tests/session-sync-permissions.test.ts:
+(pass) session permission sync > seeds only permissions for the selected session [0.50ms]
+(pass) session permission sync > preserves received time when refreshing an existing permission [0.19ms]
+(pass) session permission sync > keeps live permissions that arrive after a snapshot starts [0.09ms]
+(pass) session permission sync > drops stale permissions that predate a fresh snapshot [0.09ms]
+(pass) session permission sync > seeds v2 permissions for the selected session [0.03ms]
+(pass) session permission sync > adds and removes live v2 permission events
+(pass) session question sync > seeds only questions for the selected session [0.57ms]
+(pass) session question sync > adds and removes live question events [0.37ms]
+(pass) session transcript sync > invalidates cached artifact previews when an agent run finishes [0.48ms]
+(pass) session transcript sync > coalesces token-sized deltas by transcript part [0.06ms]
+(pass) session transcript sync > keeps live-only messages when an idle snapshot is stale [0.77ms]
+(pass) session transcript sync > keeps longer live text when an idle snapshot lags the event stream [0.25ms]
+(pass) session transcript sync > continues accepting stream deltas for a recently unselected session [0.52ms]
+(pass) session transcript sync > keeps workspace stream alive while retained sessions remain after route unmount [1.28ms]
+
+::endgroup::
+
+::group::tests/reasoning-display.test.ts:
+(pass) reasoning display > defaults reasoning visibility off
+(pass) reasoning display > a store that only carried the old 'on' default is turned off [0.12ms]
+(pass) reasoning display > a value the user chose survives a default change
+(pass) reasoning display > a store already on the current default generation is left alone
+
+::endgroup::
+
+::group::tests/mail-attachment-render.test.ts:
+(pass) stored attachments use shared preview sources and reject unsafe document content [2402.04ms]
+
+::endgroup::
+
+::group::tests/docx-history-performance.test.ts:
+(pass) known ProseMirror changes reach history without serializing either document [0.76ms]
+(pass) equivalent external documents remain no-ops in history [0.28ms]
+(pass) external document changes still use comparison and retain undo history [0.32ms]
+
+::endgroup::
+
+::group::tests/mcp-connector-url.test.ts:
+(pass) resolveConnectorUrl > defaults a scheme-less on-prem template to https
+(pass) resolveConnectorUrl > keeps a host:port appliance address intact [0.29ms]
+(pass) resolveConnectorUrl > honors an explicit http:// appliance behind an internal proxy
+(pass) resolveConnectorUrl > does not double up a pasted trailing slash against the template path
+(pass) resolveConnectorUrl > leaves vendor templates that hardcode their own scheme alone [0.04ms]
+(pass) resolveConnectorUrl > leaves unfilled placeholders in place so submit can reject them
+(pass) resolveConnectorUrl: what people actually paste > uses a pasted endpoint verbatim [0.05ms]
+(pass) resolveConnectorUrl: what people actually paste > adds a scheme to a pasted path that omits one, without touching the path [0.01ms]
+(pass) resolveConnectorUrl: what people actually paste > appends the endpoint only when just a host was given
+(pass) resolveConnectorUrl: what people actually paste > defaults loopback to http, everything else to https [0.03ms]
+(pass) resolveConnectorUrl: what people actually paste > an explicit scheme always wins
+
+::endgroup::
+
+::group::tests/word-addin-workspace-match.test.ts:
+(pass) matchWorkspaceForDocument > matches a document inside a workspace folder
+(pass) matchWorkspaceForDocument > picks the deepest (most specific) nested workspace [0.16ms]
+(pass) matchWorkspaceForDocument > falls back to the parent workspace when not in the nested one
+(pass) matchWorkspaceForDocument > is case-insensitive (mac/windows filesystems)
+(pass) matchWorkspaceForDocument > returns null for a document outside every workspace [0.04ms]
+(pass) matchWorkspaceForDocument > does not match on a partial folder-name prefix
+(pass) matchWorkspaceForDocument > returns null for unsaved / cloud / empty inputs [0.02ms]
+(pass) matchWorkspaceForDocument > ignores workspaces without a local path
+
+::endgroup::
+
+::group::tests/benchmark-format.test.ts:
+(pass) format helpers > formatScorePercent
+(pass) format helpers > formatCellScore uses pass counts [0.17ms]
+(pass) format helpers > run/item activity [0.06ms]
+(pass) format helpers > status tones [0.04ms]
+(pass) aggregateByTag > means rubric pass rate per tag × model, most-tested first, multi-tag membership [0.36ms]
+(pass) aggregateByTag > ignores unjudged items [0.02ms]
+(pass) aggregateByTag under ablation > keeps each arm as its own column instead of averaging them together [0.10ms]
+(pass) aggregateByTag under ablation > items without an arm fall back to the baseline column [0.05ms]
+
+::endgroup::
+
+::group::tests/legalmemory-download.test.ts:
+(pass) parseLegalMemoryDownload > reads the structured metadata the tool returns
+(pass) parseLegalMemoryDownload > accepts the payload as serialized JSON [0.28ms]
+(pass) parseLegalMemoryDownload > finds the link inside MCP resource-link content
+(pass) parseLegalMemoryDownload > falls back to the save_command text when that is all that arrives [0.11ms]
+(pass) parseLegalMemoryDownload > returns null when there is no download link to find [0.04ms]
+(pass) parseLegalMemoryDownload > ignores a link that is not the appliance download route
+(pass) formatExportSize > reads at a glance [0.07ms]
+(pass) formatExportSize > says nothing when the size is unknown
+(pass) isLegalMemoryDownloadToolPart > matches under any server name [0.07ms]
+(pass) isLegalMemoryDownloadToolPart > does not swallow get_document
+
+::endgroup::
+
+::group::tests/tool-permissions-panel-state.test.ts:
+(pass) toolPermissionsReducer > load lifecycle populates the model from config
+(pass) toolPermissionsReducer > loadError clears the model and surfaces the message [0.27ms]
+(pass) toolPermissionsReducer > edit swaps the model and clears stale notices [0.06ms]
+(pass) toolPermissionsReducer > saveSuccess commits the applied patch as the new loaded state [0.11ms]
+(pass) toolPermissionsReducer > saveError reverts the optimistic edit to the loaded permission
+(pass) toolPermissionsReducer > reset returns to the initial state [0.07ms]
+
+::endgroup::
+
+::group::tests/mail-accounts-settings.test.ts:
+(pass) settings persists the app badge toggle and preserves same-host OAuth, cancels replaced hosts, refreshes accounts and cancels IMAP on exit [1782.91ms]
+
+::endgroup::
+
+::group::tests/composer-state-store.test.ts:
+(pass) composer state store > scopes queued drafts by session [0.11ms]
+(pass) composer state store > clearing composer input does not clear queued drafts [0.15ms]
+(pass) composer state store > remove and clear only affect the target session [0.25ms]
+
+::endgroup::
+
+::group::tests/onboarding-funnel-events.test.ts:
+(pass) onboarding funnel events > opting out at the end still reports the start, so the funnel is measurable
+(pass) onboarding funnel events > the opt-out still purges anything not yet flushed [0.76ms]
+(pass) onboarding funnel events > staying opted in reports intent and success separately [0.15ms]
+
+::endgroup::
+
+::group::tests/mail-worker-recovery-render.test.ts:
+(pass) actual reader reconnects safe reads after worker unavailability without mutation retry [7218.24ms]
+
+::endgroup::
+
+::group::tests/mail-notification-open-render.test.ts:
+(pass) native notification target opens in shared shell and rejects a different server origin [1455.47ms]
+
+::endgroup::
+
+::group::tests/mail-sender-model.test.ts:
+(pass) new/reply defaults are independent and unavailable identities are excluded
+(pass) selected identity and signature survive draft recovery and switching replaces exact inserted signature
+(pass) signatures are escaped in rich compose and sender switching preserves recipient/body data
+(pass) plain-to-rich conversion retains replaceable unchanged signatures but does not mark edited text [1.87ms]
+(pass) text-node signature quotes remain literal while ampersands and markup stay escaped [0.60ms]
+
+::endgroup::
+
+::group::tests/mcp-connect-state.test.ts:
+(pass) MCP connection outcomes > explicit OAuth cannot complete from an anonymous transport handshake
+(pass) MCP connection outcomes > custom MCPs detect OAuth and client registration requirements
+(pass) MCP connection outcomes > token connections and explicitly disabled OAuth never launch authorization
+(pass) MCP connection outcomes > failed, disabled and missing engine entries do not report success [0.23ms]
+(pass) MCP connection outcomes > manual sign-in retains the saved server identity, endpoint and complete OAuth configuration [0.25ms]
+(pass) connection store success reporting > OAuth waits for verified completion, emits once, and retains the final success message [11.34ms]
+(pass) connection store success reporting > closing sign-in never emits a success event [1.80ms]
+[mcp.connect] failed test-server 853 |       } else if (outcome === "connected") {
+854 |         setStateField("mcpStatus", t("mcp.connected"));
+855 |         captureAnalyticsEvent("integration_connected", {});
+856 |       } else {
+857 |         const status = snapshot.mcpStatuses[slug];
+858 |         throw engineAddError ?? new Error(
+                                          ^
+error: MCP endpoint returned 503
+      at connectMcp (/Users/runner/work/legalwork/legalwork/apps/app/src/react-app/domains/connections/store.ts:858:37)
+      at /Users/runner/work/legalwork/legalwork/apps/app/tests/mcp-connect-state.test.ts:195:19
+      at processTicksAndRejections (native:7:39)
+
+(pass) connection store success reporting > a failed custom connection retains its engine error and never emits success [3.14ms]
+[mcp.connect] failed test-server 750 |         // every path an instance loads). Merging into the runtime config makes
+751 |         // the connector global: every workspace, old and new, gets it on the
+752 |         // next instance build.
+753 |         const runtimeWrite = await mergeRuntimeMcpServer(slug, mcpEntryConfig);
+754 |         if (!runtimeWrite.ok) {
+755 |           throw new Error(runtimeWrite.stderr || runtimeWrite.stdout || "Failed to update the runtime MCP config");
+                          ^
+error: Runtime config is unavailable
+      at connectMcp (/Users/runner/work/legalwork/legalwork/apps/app/src/react-app/domains/connections/store.ts:755:21)
+      at /Users/runner/work/legalwork/legalwork/apps/app/tests/mcp-connect-state.test.ts:204:19
+      at processTicksAndRejections (native:7:39)
+
+(pass) connection store success reporting > a failed runtime config write cannot silently report success [0.60ms]
+(pass) connection store success reporting > a successful non-OAuth connection reports success after its engine status is known [2.90ms]
+(pass) connection store success reporting > remote workspace OAuth credentials are saved on the selected server, without local config writes or a spurious reload [1.92ms]
+(pass) connection store success reporting > explicitly disabled OAuth stays disabled in persisted config even when old client settings exist [0.35ms]
+(pass) connection store success reporting > cancelling setup during a save keeps the config but cannot reopen OAuth when it finishes [0.16ms]
+(pass) connection store success reporting > a save that finishes after switching workspaces cannot start OAuth for the new selection [0.15ms]
+
+::endgroup::
+
+::group::tests/mail-search-render.test.ts:
+(pass) actual isolated search renderer applies filters, navigates sections/pages, saves privately and cancels stale requests [7398.04ms]
+
+::endgroup::
+
+::group::tests/mail-animation-security.test.ts:
+(pass) actual Chromium decodes the safe two-frame GIF and APNG security fixtures [452.39ms]
+
+::endgroup::
+
+::group::tests/mail-search.test.ts:
+(pass) search carries exact punctuation and structured scope only through authenticated local POST; late generations are cancelled [0.98ms]
+(pass) saved queries reject pagination and invented matter associations before HTTP [1.50ms]
+
+::endgroup::
+
+::group::tests/mail-onboarding.test.ts:
+(pass) authorization links cannot escape fixed provider/account-type endpoints [0.28ms]
+(pass) actual renderer completes browser onboarding and confines iCloud passwords to the local request [1175.40ms]
+
+::endgroup::
+
+::group::tests/tool-permissions-config.test.ts:
+(pass) parseToolPermissions > parses plain string actions [0.07ms]
+(pass) parseToolPermissions > parses the object form with a wildcard fallback and pattern rules
+(pass) parseToolPermissions > parses the object form without a wildcard entry
+(pass) parseToolPermissions > ignores invalid values
+(pass) parseToolPermissions > readPermissionRecord tolerates missing or invalid permission keys [0.20ms]
+(pass) serializeToolPermissionsPatch > writes the minimal string form when a tool has no rules [0.10ms]
+(pass) serializeToolPermissionsPatch > writes the object form with a wildcard fallback when bash has rules
+(pass) serializeToolPermissionsPatch > omits the wildcard entry when no default action is set [0.05ms]
+(pass) serializeToolPermissionsPatch > never includes external_directory or unknown permission keys
+(pass) serializeToolPermissionsPatch > emits null to remove a managed key that was previously configured
+(pass) serializeToolPermissionsPatch > omits managed keys that are unset and were never configured
+(pass) serializeToolPermissionsPatch > round-trips both permission forms through parse and serialize [0.07ms]
+(pass) applyPermissionPatch > applies values, removes null keys, and preserves everything else
+(pass) quick toggles > derives checked state from the model [0.07ms]
+(pass) quick toggles > deny also reads as checked for the ask toggles
+(pass) quick toggles > toggle mapping round-trips through the model and config [0.11ms]
+(pass) quick toggles > toggling shell keeps existing bash pattern rules
+
+::endgroup::
+
+::group::tests/voice-activity.test.ts:
+(pass) collectVoiceActivity > keeps only structured, human-readable task activity [0.27ms]
+(pass) collectVoiceActivity > updates an existing activity instead of duplicating streamed tool events [0.18ms]
+(pass) collectVoiceActivity > uses LegalMemory's user-facing activity language
+(pass) collectVoiceActivity > limits the trail to the latest activities [0.16ms]
+
+::endgroup::
+
+::group::tests/mail-reader-render.test.ts:
+20 |   const shellClose=visual ? '</SidebarInset></SidebarProvider></ShellConfigProvider>' : '';
+21 |   const entry=join(root,'entry.tsx');await writeFile(entry,`${shellImports}import React from ${JSON.stringify(join(appRoot,'node_modules/react/index.js'))};import {createRoot} from ${JSON.stringify(join(appRoot,'node_modules/react-dom/client.js'))};import {MemoryRouter} from ${JSON.stringify(join(appRoot,'node_modules/react-router-dom/dist/index.mjs'))};import {MailRoute} from ${JSON.stringify(join(appRoot,'src/react-app/domains/mail/mail-route.tsx'))};localStorage.setItem('legalwork.server.urlOverride','http://127.0.0.1:${server.port}');localStorage.setItem('legalwork.server.token','synthetic');localStorage.setItem('legalwork.server.hostToken','synthetic');createRoot(document.getElementById('root')).render(<MemoryRouter>${shellOpen}<MailRoute/>${shellClose}</MemoryRouter>);`);
+22 |   const build=await Bun.build({entrypoints:[entry],target:'browser',outdir:root,alias:{'@':join(appRoot,'src'),'zod':join(appRoot,'node_modules/zod/index.js')},minify:true,plugins:[{name:'fixture-zod',setup(build){build.onResolve({filter:/^zod$/},()=>({path:join(appRoot,'node_modules/zod/index.js')}));}}]});if(!build.success)throw Error(build.logs.map(String).join('\n'));
+23 |   await writeFile(join(root,'index.html'),`<html><head><meta charset="utf-8">${visual?'<link rel="stylesheet" href="http://127.0.0.1:5174/src/app/index.css?direct">':'<style>:root{--foreground:#252525;--background:#fff;--muted:#f4f4f4;--muted-foreground:#777;--border:#e5e5e5}body{font:14px system-ui;margin:0}#root{height:100vh}button{font:inherit}</style>'}<link rel="stylesheet" href="entry.css"></head><body><div id="root"></div><script src="entry.js"></script></body></html>`);
+24 |   const probe=join(root,'probe.cjs');await writeFile(probe,`const {app,BrowserWindow}=require('electron');const assert=require('node:assert/strict');const fs=require('node:fs');app.setPath('userData',${JSON.stringify(join(root,'profile'))});app.whenReady().then(async()=>{const win=new BrowserWindow({show:false,width:1300,height:900,webPreferences:{nodeIntegration:false,contextIsolation:true,sandbox:true}});win.webContents.on('console-message',(_event,_level,message)=>console.log('renderer:',message));const requests=[];win.webContents.session.webRequest.onBeforeRequest((details,cb)=>{if(/^https?:/.test(details.url)&&!details.url.startsWith('http://127.0.0.1:${server.port}/') && !details.url.startsWith('http://127.0.0.1:5174/'))requests.push(details.url);cb({});});await win.loadFile(${JSON.stringify(join(root,'index.html'))});const run=code=>win.webContents.executeJavaScript(code);const until=async code=>{for(let i=0;i<400;i++){if(await run(code))return;await new Promise(r=>setTimeout(r,20));}throw Error('rende
+25 |   const require=createRequire(resolve(appRoot,'../desktop/package.json'));const result=await new Promise<{code:number|null;output:string}>((resolveResult,reject)=>{const child=spawn(require('electron'),[probe],{env:{PATH:process.env.PATH,...(process.platform==='win32'?{SystemRoot:process.env.SystemRoot,WINDIR:process.env.WINDIR}:{})},stdio:['ignore','pipe','pipe']});let output='';const timer=setTimeout(()=>{child.kill();reject(Error('renderer test timed out: '+output));},30000);child.stdout.on('data',chunk=>output+=chunk);child.stderr.on('data',chunk=>output+=chunk);child.on('error',reject);child.on('close',code=>{clearTimeout(timer);resolveResult({code,output});});});if(result.code!==0)throw Error(result.output);expect(result.output).toContain('MAIL_RENDER_PASS');expect(contentReads).toBe(2);await writeFile((visual?'/tmp/legalwork-mail-redesign-reader.png':join(tmpdir(),'legalwork-mail-reader-preview.png')),await readFile(join(root,'reader.png')));
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 ^
+error: expect(received).toBe(expected)
+
+Expected: 2
+Received: 4
+
+      at <anonymous> (/Users/runner/work/legalwork/legalwork/apps/app/tests/mail-reader-render.test.ts:25:797)
+
+::error file=apps/app/tests/mail-reader-render.test.ts,line=25,col=797,title=error: expect(received).toBe(expected)::Expected: 2%0AReceived: 4%0A%0A      at <anonymous> (/Users/runner/work/legalwork/legalwork/apps/app/tests/mail-reader-render.test.ts:25:797)
+(fail) isolated actual renderer opens mail automatically and blocks hostile HTML, resource URLs and child privileges [3128.40ms]
+
+::endgroup::
+
+::group::tests/docx-measurement-performance.test.ts:
+(pass) repeated characters reuse exact widths across typing transactions [2.66ms]
+(pass) cached widths preserve letter spacing, CJK and UTF-16 surrogate positions [0.49ms]
+(pass) font size, canvas shaping state and loaded fonts invalidate cached widths [0.25ms]
+(pass) the character cache stays bounded and evicted widths are remeasured [5.42ms]
+
+::endgroup::
+
+::group::tests/mail-conversation-render.test.ts:
+Synthetic Electron PID 14391
+34 |   const entry=join(root,'entry.tsx');await writeFile(entry,`import React from ${JSON.stringify(join(appRoot,'node_modules/react/index.js'))};import {createRoot} from ${JSON.stringify(join(appRoot,'node_modules/react-dom/client.js'))};import {MemoryRouter} from ${JSON.stringify(join(appRoot,'node_modules/react-router-dom/dist/index.mjs'))};import {MailRoute} from ${JSON.stringify(join(appRoot,'src/react-app/domains/mail/mail-route.tsx'))};localStorage.setItem('legalwork.server.urlOverride','http://127.0.0.1:${server.port}');localStorage.setItem('legalwork.server.token','synthetic');localStorage.setItem('legalwork.server.hostToken','synthetic');window.fixtureLoads=0;window.fixtureMessages=[];document.addEventListener('load',e=>{if(e.target instanceof HTMLIFrameElement)window.fixtureLoads++},true);window.addEventListener('message',e=>{if(e.data?.type==='mail-size')window.fixtureMessages.push({origin:e.origin,height:e.data.height,source:[...document.querySelectorAll('iframe')].some(f=>f.contentWindow===e.source),
+35 |   const build=await Bun.build({entrypoints:[entry],target:'browser',outdir:root,alias:{'@':join(appRoot,'src'),'../session/surface/composer-state-store':join(appRoot,'src/react-app/domains/session/surface/composer-state-store.ts')},minify:true,plugins:[{name:'fixture-zod',setup(build){build.onResolve({filter:/composer-state-store$/},()=>({path:join(appRoot,'src/react-app/domains/session/surface/composer-state-store.ts')}));build.onResolve({filter:/^zod$/},()=>({path:join(appRoot,'node_modules/zod/index.js')}));}}]});if(!build.success)throw Error(build.logs.map(String).join('\n'));
+36 |   if(process.env.MAIL_FIXTURE_BUILD_ONLY==='1')return;
+37 |   await writeFile(join(root,'index.html'),'<html><head><meta charset="utf-8"><link rel="stylesheet" href="entry.css"><style>html,body,#root{height:100%;margin:0}</style></head><body><div id="root"></div><script src="entry.js"></script></body></html>');
+38 |   const probe=join(root,'probe.cjs');await writeFile(probe,`const {app,BrowserWindow}=require('electron');const assert=require('node:assert/strict');app.setPath('userData',${JSON.stringify(join(root,'profile'))});app.whenReady().then(async()=>{const win=new BrowserWindow({width:1200,height:850,show:false,webPreferences:{nodeIntegration:false,contextIsolation:true,sandbox:true}});win.webContents.on('console-message',(_event,_level,message)=>console.log(message));await win.loadFile(${JSON.stringify(join(root,'index.html'))});const run=s=>win.webContents.executeJavaScript(s);const until=async s=>{for(let i=0;i<300;i++){if(await run(s))return;await new Promise(r=>setTimeout(r,50));}require('node:fs').writeFileSync(${JSON.stringify(join(appRoot,'../../docs/mail/evidence/eig-139-conversation-first-open.png'))},(await win.webContents.capturePage()).toPNG());console.log('BRIDGE_METRICS',await run('JSON.stringify({loads:window.fixtureLoads,messages:window.fixtureMessages})'));console.log('FRAME_METRICS',JSON.stringify
+39 |   const require=createRequire(resolve(appRoot,'../desktop/package.json'));const result=await new Promise<{code:number|null;output:string}>((resolveResult,reject)=>{const child=spawn(require('electron'),[probe],{env:{PATH:process.env.PATH,HOME:process.env.HOME,...(process.platform==='win32'?{SystemRoot:process.env.SystemRoot,WINDIR:process.env.WINDIR}:{})},stdio:['ignore','pipe','pipe']});console.log('Synthetic Electron PID',child.pid);let output='';const timer=setTimeout(()=>{child.kill();reject(Error('renderer deadline '+output));},30000);child.stdout.on('data',chunk=>output+=chunk);child.stderr.on('data',chunk=>output+=chunk);child.on('error',reject);child.on('close',code=>{clearTimeout(timer);resolveResult({code,output});});});if(result.code!==0)throw Error(result.output);expect(result.output).toContain('MAIL_AUTO_SYNC_PASS');expect(mutations).toHaveLength(2);expect(polls).toBeGreaterThan(2);
+
+error: renderer deadline 2026-09-12 16:42:13.683 Electron Helper[14395:44984] XPC error for connection com.apple.backupd.sandbox.xpc: Connection invalid
+2026-09-12 16:42:13.683 Electron Helper[14395:44980] XPC error for connection com.apple.backupd.sandbox.xpc: Connection invalid
+2026-09-12 16:42:13.685 Electron Helper[14395:44984] XPC error for connection com.apple.backupd.sandbox.xpc: Connection invalid
+(electron) 'console-message' arguments are deprecated and will be removed. Please use Event<WebContentsConsoleMessageEventParams> object instead.
+%cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools
+You might need to use a local HTTP server (instead of file://): https://react.dev/link/react-devtools-faq font-weight:bold
+2026-09-12 16:42:13.843 Electron Helper[14395:44980] XPC error for connection com.apple.backupd.sandbox.xpc: Connection invalid
+2026-09-12 16:42:13.843 Electron Helper[14395:44980] XPC error for connection com.apple.backupd.sandbox.xpc: Connection invalid
+2026-09-12 16:42:13.844 Electron Helper[14395:44980] XPC error for connection com.apple.backupd.sandbox.xpc: Connection invalid
+%cElectron Security Warning (Insecure Content-Security-Policy) font-weight: bold; This renderer process has either no Content Security
+  Policy set or a policy with "unsafe-eval" enabled. This exposes users of
+  this app to unnecessary security risks.
+
+For more information and help, consult
+https://electronjs.org/docs/tutorial/security.
+This warning will not show up
+once the app is packaged.
+
+      at <anonymous> (/Users/runner/work/legalwork/legalwork/apps/app/tests/mail-conversation-render.test.ts:39:502)
+
+::error file=apps/app/tests/mail-conversation-render.test.ts,line=39,col=502,title=error: renderer deadline 2026-09-12 16:42:13.683 Electron Helper[14395:44984] XPC error for connection com.apple.backupd.sandbox.xpc: Connection invalid::2026-09-12 16:42:13.685 Electron Helper[14395:44984] XPC error for connection com.apple.backupd.sandbox.xpc: Connection invalid%0A(electron) 'console-message' arguments are deprecated and will be removed. Please use Event<WebContentsConsoleMessageEventParams> object instead.%0A%cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools%0AYou might need to use a local HTTP server (instead of file://): https://react.dev/link/react-devtools-faq font-weight:bold%0A2026-09-12 16:42:13.843 Electron Helper[14395:44980] XPC error for connection com.apple.backupd.sandbox.xpc: Connection invalid%0A2026-09-12 16:42:13.843 Electron Helper[14395:44980] XPC error for connection com.apple.backupd.sandbox.xpc: Connection invalid%0A2026-09-12 16:42:13.844 Electron Helper[14395:44980] XPC error for connection com.apple.backupd.sandbox.xpc: Connection invalid%0A%cElectron Security Warning (Insecure Content-Security-Policy) font-weight: bold; This renderer process has either no Content Security%0A  Policy set or a policy with "unsafe-eval" enabled. This exposes users of%0A  this app to unnecessary security risks.%0A%0AFor more information and help, consult%0Ahttps://electronjs.org/docs/tutorial/security.%0AThis warning will not show up%0Aonce the app is packaged.%0A%0A      at <anonymous> (/Users/runner/work/legalwork/legalwork/apps/app/tests/mail-conversation-render.test.ts:39:502)
+(fail) conversation open queues read once and preserves first HTML layout across idle polls [30169.52ms]
+
+::endgroup::
+
+::group::tests/legalmemory-sources-card.test.tsx:
+(pass) LegalMemorySourcesCard > shows five sources per page with pagination controls [4.25ms]
+(pass) LegalMemorySourcesCard > does not show pagination for five or fewer sources [0.31ms]
+
+::endgroup::
+
+::group::tests/legalmemory-ref.test.ts:
+(pass) LegalMemory reference links > parses document and matter URIs [0.27ms]
+(pass) LegalMemory reference links > tolerates missing slashes, trailing slash, and case [0.06ms]
+(pass) LegalMemory reference links > rejects other schemes, kinds, and malformed ids [0.06ms]
+(pass) LegalMemory reference links > URI pattern matches only the legalmemory scheme [0.07ms]
+(pass) LegalMemory reference links > document prompt carries the id and drives the export round-trip [0.15ms]
+(pass) LegalMemory reference links > matter prompt asks for a preview and falls back to the id label [0.09ms]
+
+::endgroup::
+
+::group::tests/benchmark-custom-task-validation.test.ts:
+(pass) validateCustomTask > valid draft normalizes into the wire input [0.23ms]
+(pass) validateCustomTask > requires title, instructions and at least one criterion [0.94ms]
+(pass) validateCustomTask > whitespace-only criteria are rejected [0.08ms]
+(pass) validateCustomTask > deliverables with path separators are rejected [0.08ms]
+
+::endgroup::
+
+::group::tests/mail-chat.test.ts:
+(pass) chosen chat preserves existing draft, copies original plus provenance without submitting [4.77ms]
+(pass) repeat filenames use distinct bounded Windows-safe paths without overwrite flags [0.96ms]
+(pass) cancelled in-flight copy never adds provenance, draft or navigation [0.43ms]
+(pass) changed source, foreign chat and failed provenance prevent staging [0.48ms]
+(pass) return links contain only source scope and reject extra authority [0.46ms]
+(pass) hash mismatch is rejected before any workspace write [0.13ms]
+(pass) IMAP mailbox Unicode and parentheses survive a Markdown-safe return link [0.46ms]
+(pass) durable source link is unchanged when the trusted local server restarts on another port
+
+::endgroup::
+
+::group::tests/mail-outbox.test.ts:
+(pass) SMTP Settings, durable composer queue and uncertain Outbox recovery render in isolated Electron [1316.55ms]
+
+::endgroup::
+
+::group::tests/model-connect-notice.test.ts:
+(pass) connect-AI notice vs. the model-unavailable label > signed in: the model resolves and the provider counts
+(pass) connect-AI notice vs. the model-unavailable label > signed out: the model is gone AND the count is 0 in the same read
+(pass) connect-AI notice vs. the model-unavailable label > a stale selection with another provider still connected keeps the label [0.06ms]
+(pass) connect-AI notice vs. the model-unavailable label > a disabled provider is not something to switch to [0.12ms]
+(pass) connect-AI notice vs. the model-unavailable label > no list yet counts nothing [0.04ms]
+
+::endgroup::
+
+::group::tests/mail-preview-security.test.ts:
+(pass) mail image preview rejects decoded dimension bombs and spoofed types before replacing the verified tab [1.59ms]
+
+::endgroup::
+
+::group::tests/connections-remove-mcp.test.ts:
+(pass) desktop MCP removal > also removes the LegalWork server runtime entry [2.09ms]
+
+::endgroup::
+
+::group::tests/benchmark-store.test.ts:
+(pass) benchmark store > actions are inert without an attached context [0.24ms]
+(pass) benchmark store > refreshTasks loads the task table and prunes stale selection [0.46ms]
+(pass) benchmark store > selection toggles single and all [0.11ms]
+(pass) benchmark store > importSelected posts keys, clears selection and refreshes tasks [0.23ms]
+(pass) benchmark store > import failures surface as importError [0.20ms]
+(pass) benchmark store > createTask prepends to the table [0.15ms]
+(pass) benchmark store > createRun posts selected task ids and resets draft + selection [0.53ms]
+(pass) benchmark store > createRun without selection or models is a no-op [0.15ms]
+(pass) benchmark store > run completion triggers a task-table refresh [0.51ms]
+(pass) benchmark store > loadRun + abort updates active run state [0.31ms]
+(pass) benchmark store > catalog loads for the import modal [0.14ms]
+(pass) benchmark store > attaching a different workspace resets state [0.14ms]
+
+::endgroup::
+
+::group::tests/mail-desktop.test.ts:
+ 5 | createRoot(document.getElementById('settings')).render(React.createElement(MailDesktopPreferences));const root=document.getElementById('mail');root.addEventListener('keydown',event=>mailKeyboard(event,root));for(const button of root.querySelectorAll('button'))button.addEventListener('click',()=>window.last=button.getAttribute('aria-label')||button.textContent);window.key=(selector,key,extra={})=>{const target=document.querySelector(selector);target.focus();const event=new KeyboardEvent('keydown',{key,bubbles:true,cancelable:true,...extra});target.dispatchEvent(event);return event.defaultPrevented;};
+ 6 | `);const built=await Bun.build({entrypoints:[entry],outdir:dir,target:'browser',format:'esm',naming:'fixture.js'});if(!built.success)throw Error(built.logs.join('\n'));await writeFile(join(dir,'index.html'),`<div id="settings"></div><main id="mail" tabindex="0"><input aria-label="Search mail"><button aria-label="Clear search">Clear</button><button aria-label="Compose">Compose</button><button aria-label="Reply">Reply</button><button aria-label="Reply all">Reply all</button><textarea></textarea><div contenteditable="true">Typing</div><div class="mail-message-scroll"><button class="mail-message-row">One</button><button class="mail-message-row">Two</button></div></main><input id="outside"><script type="module" src="fixture.js"></script>`);const probe=join(dir,'probe.cjs');await writeFile(probe,`
+ 7 | const{app,BrowserWindow}=require('electron'),assert=require('node:assert/strict');app.setPath('userData',${JSON.stringify(join(dir,'profile'))});app.whenReady().then(async()=>{const win=new BrowserWindow({show:false,webPreferences:{contextIsolation:true}});await win.loadFile(${JSON.stringify(join(dir,'index.html'))});const run=code=>win.webContents.executeJavaScript(code),until=async code=>{for(let n=0;n<100;n++){if(await run(code))return;await new Promise(r=>setTimeout(r,20));}throw Error('timeout '+code);};await until("!!window.key&&document.querySelectorAll('[role=switch]').length>0");
+ 8 | assert.equal(await run("window.key('#mail','c')"),true);assert.equal(await run('window.last'),'Compose');for(const selector of ['textarea','[contenteditable]','#outside'])assert.equal(await run('window.key('+JSON.stringify(selector)+',"c")'),false);assert.equal(await run("window.key('#mail','c',{ctrlKey:true})"),false);assert.equal(await run("window.key('#mail','r',{shiftKey:true})"),true);assert.equal(await run('window.last'),'Reply all');await run("window.key('#mail','/')");assert.equal(await run("document.activeElement.getAttribute('aria-label')"),'Search mail');assert.equal(await run("window.key('[aria-label=\\\"Search mail\\\"]','Escape')"),true);await run("window.key('.mail-message-row','ArrowDown')");assert.equal(await run('document.activeElement.textContent'),'Two');assert.equal(await run("window.key('#mail','c',{isComposing:true})"),false);
+ 9 | await run("document.querySelector('[role=switch]').click()");await until('window.calls.length===1');assert.equal(await run('window.calls[0].enabled'),true);assert.equal(await run('window.calls[0].preview'),'none');await run("[...document.querySelectorAll('button')].find(button=>button.textContent.includes('Pause')).click()");await until('window.calls.length===2');assert.equal(await run('window.calls[1].paused'),true);assert.equal(await run("document.body.textContent.includes('off')"),true);await win.capturePage().then(image=>require('node:fs').writeFileSync(${JSON.stringify(join(dir,'settings.png'))},image.toPNG()));console.log('MAIL_DESKTOP_PASS');app.exit(0);}).catch(error=>{console.error(error);app.exit(1)});
+10 | `);const require=createRequire(resolve(appRoot,'../desktop/package.json'));const outcome=await new Promise<{code:number|null;output:string}>((done,reject)=>{const child=spawn(require('electron'),[probe],{env:{PATH:process.env.PATH,HOME:process.env.HOME,...(process.platform==='win32'?{SystemRoot:process.env.SystemRoot,WINDIR:process.env.WINDIR}:{})},stdio:['ignore','pipe','pipe']});let output='';const timer=setTimeout(()=>{child.kill();reject(Error(output+' fixture timeout'));},20000);child.stdout.on('data',value=>output+=value);child.stderr.on('data',value=>output+=value);child.on('error',reject);child.on('close',code=>{clearTimeout(timer);done({code,output});});});if(outcome.code!==0)throw Error(outcome.output);expect(outcome.output).toContain('MAIL_DESKTOP_PASS');if(process.env.EIG147_SCREENSHOT)await copyFile(join(dir,'settings.png'),process.env.EIG147_SCREENSHOT);}finally{await rm(dir,{recursive:true,force:true});}},30000);
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 ^
+error: 2026-09-12 16:42:45.294 Electron Helper[15246:47319] XPC error for connection com.apple.backupd.sandbox.xpc: Connection invalid
+2026-09-12 16:42:45.294 Electron Helper[15246:47317] XPC error for connection com.apple.backupd.sandbox.xpc: Connection invalid
+2026-09-12 16:42:45.295 Electron Helper[15246:47319] XPC error for connection com.apple.backupd.sandbox.xpc: Connection invalid
+AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+
+false !== true
+
+    at /private/var/folders/nj/vtw8zd2j31d1gdrtntc5y4600000gn/T/mail-desktop-ui-gbHro2/probe.cjs:4:429 {
+  generatedMessage: true,
+  code: 'ERR_ASSERTION',
+  actual: false,
+  expected: true,
+  operator: 'strictEqual'
+}
+
+      at <anonymous> (/Users/runner/work/legalwork/legalwork/apps/app/tests/mail-desktop.test.ts:10:701)
+
+::error file=apps/app/tests/mail-desktop.test.ts,line=10,col=701,title=error: 2026-09-12 16:42:45.294 Electron Helper[15246:47319] XPC error for connection com.apple.backupd.sandbox.xpc: Connection invalid::2026-09-12 16:42:45.295 Electron Helper[15246:47319] XPC error for connection com.apple.backupd.sandbox.xpc: Connection invalid%0AAssertionError [ERR_ASSERTION]: Expected values to be strictly equal:%0A%0Afalse !== true%0A%0A    at /private/var/folders/nj/vtw8zd2j31d1gdrtntc5y4600000gn/T/mail-desktop-ui-gbHro2/probe.cjs:4:429 {%0A  generatedMessage: true,%0A  code: 'ERR_ASSERTION',%0A  actual: false,%0A  expected: true,%0A  operator: 'strictEqual'%0A}%0A%0A      at <anonymous> (/Users/runner/work/legalwork/legalwork/apps/app/tests/mail-desktop.test.ts:10:701)
+(fail) isolated Mail settings and scoped keyboard preserve typing and shell commands [699.56ms]
+
+::endgroup::
+
+::group::tests/eigenwelt-trial.test.ts:
+(pass) eigenweltTrialState > no entitlements or no trial on record -> none
+(pass) eigenweltTrialState > malformed trialEndsAt -> none [0.16ms]
+(pass) eigenweltTrialState > trialing -> active with ceil'd days left [0.02ms]
+(pass) eigenweltTrialState > trialing just past the end (webhook lag) clamps to 0, not negative
+(pass) eigenweltTrialState > converted to a paid subscription -> none
+(pass) eigenweltTrialState > entitled statuses gate plan displays; lapsed ones do not [0.14ms]
+(pass) eigenweltTrialState > lapsed after a trial -> ended (canceled during the trial included) [0.05ms]
+(pass) eigenweltPlanWithoutModels > a subscribed firm whose plan lacks premium_models (Knowledge Hub) [0.08ms]
+(pass) eigenweltPlanWithoutModels > Plus firms (premium_models present) and unentitled firms are not [0.03ms]
+
+::endgroup::
+
+::group::tests/voice-completion-delivery.test.ts:
+(pass) voice completion delivery > counts a completion only after a completed response finishes playback [0.05ms]
+(pass) voice completion delivery > supports playback finishing before response.done arrives [0.07ms]
+(pass) voice completion delivery > does not count a token-limited response as delivered
+(pass) voice completion delivery > does not count interrupted or silent output as delivered
+
+::endgroup::
+
+::group::tests/extension-items.test.ts:
+(pass) extension item projection > keeps unconnected built-ins out of My Extensions quick connect
+
+::endgroup::
+
+::group::tests/mail-storage-save-render.test.ts:
+(pass) Connected-storage save picker uses writable roots and fences late workspace changes [3119.34ms]
+
+::endgroup::
+
+::group::tests/mail-reader.test.ts:
+(pass) literal loopback validation precedes token forwarding and rejects URL normalization tricks
+(pass) unified merge replenishes exhausted heads before choosing a page; tied and unknown dates never disappear [36.77ms]
+(pass) never-opened stored content is fetched in bounded verified chunks and rejects swapped references [12.40ms]
+(pass) unsafe names and SVG disguised as raster are never accepted as inline images [0.76ms]
+
+::endgroup::
+
+::group::tests/app-mentions.test.ts:
+(pass) app-mentions > instruction names the app and steers to a computer-use snapshot [0.09ms]
+(pass) app-mentions > app names with spaces round-trip through mention encoding [0.01ms]
+
+::endgroup::
+
+::group::tests/benchmark-arm-summary.test.ts:
+(pass) armRestrictions > the baseline arm restricts nothing
+(pass) armRestrictions > lists only the tools actually switched off [0.33ms]
+(pass) armRestrictions > an allow-list of nothing means no skills, not 'only nothing' [0.02ms]
+(pass) armRestrictions > a deny-list of nothing denies nothing
+(pass) armRestrictions > named policies survive normalization
+(pass) armRestrictions > mode 'all' and 'none' pass through [0.01ms]
+(pass) armRestrictions > a tool and a skill ablation read as one line [0.02ms]
+(pass) armRestrictions > an arm with any restriction is not unrestricted [0.02ms]
+
+::endgroup::
+
+::group::tests/permission-approval-modal.test.ts:
+(pass) permission approval modal helpers > surfaces risk-bearing metadata as review rows
+(pass) permission approval modal helpers > deduplicates alternate file metadata keys [0.27ms]
+(pass) permission approval modal helpers > summarizes apply-patch file metadata [0.08ms]
+(pass) permission approval modal helpers > keeps keyboard order on the safer one-shot approval before session approval [3.37ms]
+(pass) permission approval modal helpers > uses readable labels for generic permission titles [1.15ms]
+
+::endgroup::
+
+::group::tests/mail-draft-recovery.test.ts:
+(pass) failed mail save remains recoverable after navigation and acknowledges only the recovered version [3.03ms]
+(pass) rapid recovery burst keeps one in-flight and one latest pending snapshot with exact acknowledgments [6.36ms]
+
+::endgroup::
+
+::group::tests/mail-shared-identities.test.ts:
+27 |  const{app,BrowserWindow}=require('electron'),assert=require('node:assert/strict');app.setPath('userData',${JSON.stringify(join(dir,'profile'))});app.whenReady().then(async()=>{const win=new BrowserWindow({show:false,webPreferences:{sandbox:true,contextIsolation:true,nodeIntegration:false}});await win.loadFile(${JSON.stringify(join(dir,'index.html'))});const run=code=>win.webContents.executeJavaScript(code);const until=async code=>{for(let i=0;i<250;i++){if(await run(code))return;await new Promise(r=>setTimeout(r,20));}throw Error('UI timeout '+code);};
+28 |  await until("!!document.querySelector('form')");assert.equal(await run("document.querySelector('[aria-label=\\\"Administrator-confirmed sender permission\\\"]').value"),'none');
+29 |  await run("(()=>{const el=document.querySelector('input[type=email]');Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(el,'team@example.com');el.dispatchEvent(new Event('input',{bubbles:true}));})()");
+30 |  await run("document.querySelector('form').requestSubmit()");await until("!!window.__configured");assert.equal(await run('window.__configured.writeConfirmed'),false);assert.equal(await run('window.__configured.sendMode'),'none');
+31 |  await until("document.body.textContent.includes('Mailbox access verified')");await run('window.__compose()');await until("!!document.querySelector('[aria-label=\\\"Sender identity\\\"]')");assert.equal(await run("document.querySelector('[aria-label=\\\"Sender identity\\\"]').tagName"),'SELECT');assert.equal(await run("document.querySelector('[aria-label=\\\"Sender identity\\\"]').value"),'');assert.equal(await run("document.body.textContent.includes('Sending from this mailbox is not authorized')"),true);assert.equal(await run("document.body.textContent.includes('Sent Items are saved in the signed-in Microsoft account')"),true);console.log('SHARED_IDENTITY_PASS');win.destroy();app.quit();}).catch(error=>{console.error(error);app.exit(1)});`);
+32 |  const require=createRequire(resolve(app,'../desktop/package.json'));const result=await new Promise<{code:number|null;output:string}>((done,reject)=>{const child=spawn(require('electron'),[probe],{env:{...process.env},stdio:['ignore','pipe','pipe']});let output='';const timer=setTimeout(()=>{child.kill();reject(Error(output+' renderer timeout'));},15000);child.stdout.on('data',value=>output+=value);child.stderr.on('data',value=>output+=value);child.on('error',reject);child.on('close',code=>{clearTimeout(timer);done({code,output});});});if(result.code!==0)throw Error(result.output);expect(result.output).toContain('SHARED_IDENTITY_PASS');
+
+error: 2026-09-12 16:42:49.228 Electron Helper[15498:48083] XPC error for connection com.apple.backupd.sandbox.xpc: Connection invalid
+2026-09-12 16:42:49.228 Electron Helper[15498:48080] XPC error for connection com.apple.backupd.sandbox.xpc: Connection invalid
+2026-09-12 16:42:49.230 Electron Helper[15498:48080] XPC error for connection com.apple.backupd.sandbox.xpc: Connection invalid
+ renderer timeout
+      at <anonymous> (/Users/runner/work/legalwork/legalwork/apps/app/tests/mail-shared-identities.test.ts:32:314)
+
+::error file=apps/app/tests/mail-shared-identities.test.ts,line=32,col=314,title=error: 2026-09-12 16:42:49.228 Electron Helper[15498:48083] XPC error for connection com.apple.backupd.sandbox.xpc: Connection invalid::2026-09-12 16:42:49.230 Electron Helper[15498:48080] XPC error for connection com.apple.backupd.sandbox.xpc: Connection invalid%0A renderer timeout%0A      at <anonymous> (/Users/runner/work/legalwork/legalwork/apps/app/tests/mail-shared-identities.test.ts:32:314)
+(fail) Settings preserves explicit shared grants and composer binds the mailbox From identity [15108.52ms]
+
+::endgroup::
+
+::group::tests/fusion-routing.test.ts:
+(pass) fusion task-tool prompts > uses subagents for substantive legal judgment, not file search [0.57ms]
+(pass) fusion task-tool prompts > does not expose numbered candidate agent types as valid agents [0.12ms]
+(pass) fusion task-tool prompts > candidate agent prompt forbids clarification-only replies [0.06ms]
+
+::endgroup::
+
+::group::tests/mcp-auth-identity.test.ts:
+(pass) mcp sign-in identity > a display name with a space still resolves to the registered server name [0.52ms]
+(pass) mcp sign-in identity > sign-in never rejects a display name the add-connector form accepts [0.27ms]
+(pass) mcp sign-in identity > underscores survive, because that is what connect wrote [0.06ms]
+(pass) mcp sign-in identity > every built-in connector can be signed into [1.34ms]
+(pass) mcp sign-in identity > a declared serverName wins over the display name [0.12ms]
+(pass) mcp sign-in identity > an explicit id wins over both
+(pass) mcp sign-in identity > deriving a server name always produces one opencode accepts [0.19ms]
+
+::endgroup::
+
+::group::tests/legalmemory-connection.test.ts:
+(pass) LegalMemory MCP identity > matches every server name accepted by the LegalMemory routes [0.06ms]
+(pass) LegalMemory MCP identity > does not reset Drive for unrelated MCP removals [0.02ms]
+
+::endgroup::
+
+::group::tests/workspace-attachment.test.ts:
+(pass) workspace attachments > contract.docx uploads unchanged bytes and becomes a path reference [0.63ms]
+(pass) workspace attachments > schedule.xlsx uploads unchanged bytes and becomes a path reference [0.99ms]
+(pass) workspace attachments > scan.pdf uploads unchanged bytes and becomes a path reference [0.12ms]
+(pass) workspace attachments > photo.png uploads unchanged bytes and becomes a path reference
+(pass) workspace attachments > unknown.bin uploads unchanged bytes and becomes a path reference [0.72ms]
+(pass) workspace attachments > same-named uploads have distinct paths; special filenames remain one safe badge [2.41ms]
+(pass) workspace attachments > upload failures never produce a usable reference [0.29ms]
+
+::endgroup::
+
+::group::tests/mail-pdf-security.test.ts:
+(pass) built-in mail PDF preview does not follow document open actions to external resources [1338.45ms]
+
+::endgroup::
+
+::group::tests/eigenwelt-budget.test.ts:
+(pass) isEigenweltBudgetError > matches only the eigenwelt provider with a budget message [0.19ms]
+(pass) isEigenweltBudgetError > never matches other providers — their retry behavior is untouched [0.15ms]
+(pass) isEigenweltBudgetError > never matches other error kinds for eigenwelt [0.06ms]
+(pass) shouldStopEigenweltBudgetRetry > allows exactly the configured attempts, then stops
+(pass) shouldStopEigenweltBudgetRetry > never stops other providers regardless of attempts
+(pass) terminal error text > round-trips through the matcher [0.12ms]
+(pass) terminal error text > does not match the raw gateway error or unrelated errors [0.02ms]
+(pass) retry banner action > defaults to the prod billing page when no platform is connected [0.09ms]
+(pass) retry banner action > uses the connected platform's billing URL when provided [0.04ms]
+(pass) plan-aware limit display > offers Plus users an upgrade to Pro [0.05ms]
+(pass) pending-stop registry > consume is single-use [0.06ms]
+(pass) pending-stop registry > unmarked sessions never consume [0.05ms]
+(pass) pending-stop registry > marks expire after the TTL [0.01ms]
+(pass) pending-stop registry > marks within the TTL are honored
+
+::endgroup::
+
+::group::tests/mail-html-render.test.ts:
+error: EISDIR reading file: "/Users/runner/work/legalwork/legalwork/node_modules/.pnpm/zod@4.5.4/node_modules/zod/index.js"
+    at /Users/runner/work/legalwork/legalwork/node_modules/.pnpm/zod@4.5.4/node_modules/zod/index.js
+(fail) isolated mail preserves responsive layout, blocks active content and resizes long threads [24.04ms]
+
+::endgroup::
+
+::group::tests/mail-archive-reader-render.test.ts:
+(pass) archive account opens historical mail outside Inbox and offers no provider sync or compose [1211.05ms]
+
+::endgroup::
+
+::group::tests/legalwork-env-runtime.test.ts:
+(pass) legalwork env runtime > persists pending changes across browser sessions [0.33ms]
+(pass) legalwork env runtime > reads legacy sessionStorage pending state
+(pass) legalwork env runtime > clears pending changes after the runtime changes [0.05ms]
+(pass) legalwork env runtime > builds a stable runtime key from server identity [0.17ms]
+
+::endgroup::
+
+::group::tests/eigenwelt-provider-error.test.ts:
+(pass) isEigenweltModelDisabledError > recognizes the gateway's team_model_access_denied body [0.34ms]
+(pass) isEigenweltModelDisabledError > a 403 for a model the firm turned off reads as such, not as an expired sign-in [0.45ms]
+(pass) isEigenweltSignInExpiredError > recognizes LiteLLM's dead-key body wherever it appears [0.08ms]
+(pass) isEigenweltSignInExpiredError > treats any 401/403 from the eigenwelt provider as an expired sign-in [0.02ms]
+(pass) isEigenweltSignInExpiredError > leaves other providers and other failures alone
+(pass) describeOpencodeSessionError > replaces the raw 401 body with the sign-in-again message [0.07ms]
+(pass) describeOpencodeSessionError > handles the body arriving as a plain Error message [0.03ms]
+(pass) describeOpencodeSessionError > keeps unrelated provider errors verbatim [0.08ms]
+
+::endgroup::
+
+::group::tests/mail-draft-sync.test.ts:
+(pass) isolated draft UI exposes provider conflict decisions and uncertain recovery without enabling send [9229.02ms]
+
+::endgroup::
+
+::group::tests/mcp-oauth-errors.test.ts:
+(pass) MCP OAuth errors > recognizes Dropbox's actual rejection through a serialized SDK error [0.53ms]
+(pass) MCP OAuth errors > recognizes registration restrictions without depending on a provider name [0.22ms]
+(pass) MCP OAuth errors > preserves provider details and invalid_client in OAuth response bodies [0.19ms]
+(pass) MCP OAuth errors > extracts only error fields rather than exposing SDK request headers or credentials
+(pass) MCP OAuth errors > handles causes, duplicate messages, and circular errors [0.17ms]
+(pass) MCP OAuth errors > keeps unsupported OAuth separate from registration restrictions and transient failures [0.01ms]
+
+::endgroup::
+
+::group::tests/analytics-consent.test.ts:
+(pass) analytics consent gating > pending choice sends under the default-on model [1.01ms]
+(pass) analytics consent gating > opt-out purges the queue and silences later captures [0.05ms]
+(pass) analytics consent gating > the opt-out marker is the single send after refusal, and drops the queue [0.08ms]
+(pass) analytics consent gating > opt-in sends captures on flush [0.12ms]
+
+::endgroup::
+
+::group::tests/provider-local-templates.test.ts:
+(pass) local runtime templates > has the expected runtimes with unique ids
+(pass) local runtime templates > every template autofills a base URL (regression: Ollama/LM Studio must not be blank) [0.61ms]
+(pass) local runtime templates > all templates route through the chat-completions SDK [0.06ms]
+(pass) local runtime templates > only the engine auto-detected runtimes are flagged [0.05ms]
+(pass) slugifyProviderId > slugifies "Ollama" -> "ollama" [0.09ms]
+(pass) slugifyProviderId > slugifies "llama.cpp" -> "llama-cpp"
+(pass) slugifyProviderId > slugifies "LM Studio" -> "lm-studio"
+(pass) slugifyProviderId > slugifies "vLLM" -> "vllm"
+(pass) slugifyProviderId > slugifies "  My  Provider  " -> "my-provider"
+(pass) slugifyProviderId > slugifies "" -> "custom-provider"
+(pass) slugifyProviderId > slugifies "   " -> "custom-provider"
+(pass) slugifyProviderId > slugifies "***" -> "custom-provider"
+(pass) resolveTemplateName > fills a blank name with the template name [0.11ms]
+(pass) resolveTemplateName > replaces a name that is still another template's default [0.03ms]
+(pass) resolveTemplateName > preserves a name the user typed themselves
+
+::endgroup::
+
+::group::tests/benchmark-filter-tasks.test.ts:
+(pass) filterTaskRows > empty filters return everything [0.10ms]
+(pass) filterTaskRows > work-type and tag facets are AND across, OR within [0.05ms]
+(pass) filterTaskRows > search covers title, tags and instructions [0.01ms]
+(pass) filterTaskRows > collectTaskTags dedupes and orders by frequency [0.17ms]
+(pass) filterCatalogTasks > empty filters return everything
+(pass) filterCatalogTasks > tag facet is OR within, AND across facets; practice area doubles as a tag [0.11ms]
+(pass) filterCatalogTasks > work-type facet excludes unhydrated items while active [0.03ms]
+(pass) filterCatalogTasks > search is case-insensitive across title, name, vertical and instructions
+
+::endgroup::
+
+::group::tests/import-viewer-file.test.ts:
+(pass) viewer working copies > preserves bytes, separates duplicate names and selects the matching viewer [0.44ms]
+(pass) viewer working copies > failed copies do not create usable tabs [0.30ms]
+
+::endgroup::
+
+::group::tests/mail-preview-source.test.ts:
+(pass) mail previews use ephemeral panel sources and retire on access loss, replacement and tab close [0.38ms]
+(pass) supported source classification leaves unsafe or unsupported formats explicit [0.33ms]
+
+::endgroup::
+
+::group::tests/mcp-catalog-auth.test.ts:
+(pass) MCP catalog authentication > each server has one setup policy, so catalog lookup cannot select a conflicting entry [0.33ms]
+(pass) MCP catalog authentication > Dropbox collects its registered app credentials before trying to open OAuth [0.07ms]
+(pass) MCP catalog authentication > interactive CourtListener and Everlaw connectors use OAuth rather than token-only setup [0.12ms]
+(pass) MCP catalog authentication > LegalMemory discovers auth requirements for its firm's deployment [0.44ms]
+
+::endgroup::
+
+::group::tests/word-revision-ooxml.test.ts:
+(pass) revisionOoxml > replace = deletion of the old text plus insertion of the new text
+(pass) revisionOoxml > empty parts are dropped, so a pure deletion has no w:ins [0.52ms]
+(pass) revisionOoxml > XML metacharacters in document text are escaped
+(pass) revisionOoxml > newlines in inserted text become w:br line breaks
+(pass) revisionOoxml > package is a single-paragraph Flat OPC document [0.15ms]
+(pass) revisionOoxml > revision ids are unique across calls [0.10ms]
+
+::endgroup::
+
+::group::tests/mail-frame-privileges.test.ts:
+(pass) opaque mail frame has no production preload, Node, parent storage or native mail privileges [679.79ms]
+
+::endgroup::
+
+::group::tests/sonner-toast-dismiss.test.ts:
+(pass) sonner toast wrapper > the stored toast carries the id the wrapper returns (X button can dismiss it)
+(pass) sonner toast wrapper > an explicit toast id is preserved [0.52ms]
+
+::endgroup::
+
+10 tests failed:
+(fail) Settings native import shows durable progress and resume without accepting renderer paths [55.85ms]
+(fail) Mail keyboard workflows preserve shell/typing, select bulk ranges, restore focus and review sends on both platforms [8260.89ms]
+(fail) actual mailbox and search context menus preserve selection and share journal, undo and permissions [35285.44ms]
+(fail) actual renderer automatically displays sync progress, downloaded inbox messages and retry without navigation [30223.51ms]
+(fail) agent Settings requires deliberate scope confirmation and separate exact send review [686.09ms]
+(fail) isolated actual renderer opens mail automatically and blocks hostile HTML, resource URLs and child privileges [3128.40ms]
+(fail) conversation open queues read once and preserves first HTML layout across idle polls [30169.52ms]
+(fail) isolated Mail settings and scoped keyboard preserve typing and shell commands [699.56ms]
+(fail) Settings preserves explicit shared grants and composer binds the mailbox From identity [15108.52ms]
+(fail) isolated mail preserves responsive layout, blocks active content and resizes long threads [24.04ms]
+
+ 452 pass
+ 10 fail
+ 1456 expect() calls
+Ran 462 tests across 100 files. [177.03s]
+/Users/runner/work/legalwork/legalwork/apps/app:
+[ERR_PNPM_RECURSIVE_RUN_FIRST_FAIL] @legalwork/app@0.0.0 test: `bun test tests/`
+Exit status 1

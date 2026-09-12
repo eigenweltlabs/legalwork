@@ -1,0 +1,2 @@
+mail_other_os_user_denied
+{"platform":"darwin","arch":"x64","electron":"35.7.5","vault":true,"cipher":true,"wal":true,"tempMemory":true,"fts":true,"rotation":true,"recovery":true,"automaticKeyReopen":true,"largeAttachmentBytes":8388608,"longPathCharacters":398,"otherUserDenied":true}
