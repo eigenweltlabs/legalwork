@@ -27,6 +27,8 @@ const hash = z.string().regex(/^[0-9a-f]{64}$/);
 // Static identifiers only. Never interpolate provider values or schema-discovered names into SQL.
 const requiredColumns: Record<string, string[]> = {
   mail_smtp_credentials:["account_id","generation","revision","account_generation","settings_json","password"],
+  mail_notification_accounts:["account_id","session_id","credential_generation","event_generation","baseline_at","after_sequence"],
+  mail_notification_claims:["account_id","message_key","claimed_at"],
   mail_outbox:["account_id","action_id","draft_id","draft_generation","draft_revision","message_id","mime_bytes","api_mime_bytes","envelope_json","content_json","credential_generation","smtp_generation","preparation_json","result_json","error","created_at","updated_at"],
   mail_outbox_attempts:["account_id","action_id","attempt","started_at","finished_at","phase","error"],
   mail_sender_identities:["account_id","id","address","display_name","source","generation","active","signature","default_new","default_reply"],
