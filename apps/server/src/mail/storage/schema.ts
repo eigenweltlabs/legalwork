@@ -1,3 +1,4 @@
+import {ARCHIVE_SCHEMA_SQL} from "./archive-schema.js";
 import {MAIL_NOTIFICATION_SCHEMA_SQL} from './notification-schema.js';
 import {OUTBOX_SCHEMA_SQL} from './outbox-schema.js';
 import {SENDER_IDENTITY_SQL} from './sender-identities.js';
@@ -14,13 +15,20 @@ import { MAIL_LOCAL_SCHEMA_SQL } from "./local-schema.js";
 import { GRAPH_SCHEMA_SQL } from "./graph-state.js";
 import type { MailDatabase } from "./database-interface.js";
 
-export const MAIL_SCHEMA_VERSION = 22;
+export const MAIL_SCHEMA_VERSION = 23;
 
 /** Dedicated mail database only. Every DDL/version write shares one transaction. */
 export function migrateMailSchema(database: MailDatabase): void {
   database.exec("PRAGMA foreign_keys = ON");
   if (database.get("PRAGMA foreign_keys")?.foreign_keys !== 1) throw new Error("Mail storage requires foreign keys");
-  database.transaction(() => {
+  // SQLite requires FK enforcement disabled outside the transaction for a parent-table rebuild.
+  // All child references keep the original name; validation happens before commit.
+  const current = database.get("SELECT name FROM sqlite_schema WHERE type='table' AND name='mail_schema_version'")
+    ? database.get("SELECT version FROM mail_schema_version WHERE singleton=1")?.version : 0;
+  const rebuild = typeof current === "number" && current < 23;
+  if (rebuild) { database.exec("PRAGMA foreign_keys=OFF; PRAGMA legacy_alter_table=ON");
+    if(database.get("PRAGMA foreign_keys")?.foreign_keys!==0)throw new Error("Cannot fence archive migration"); }
+  try { database.transaction(() => {
     database.exec("CREATE TABLE IF NOT EXISTS mail_schema_version (singleton INTEGER PRIMARY KEY CHECK(singleton = 1), version INTEGER NOT NULL CHECK(version >= 0))");
     const row = database.get("SELECT version FROM mail_schema_version WHERE singleton = 1");
     const version = row?.version ?? 0;
@@ -280,6 +288,8 @@ export function migrateMailSchema(database: MailDatabase): void {
     if(version<20)database.exec(SENDER_IDENTITY_SQL);
     if(version<21)database.exec(OUTBOX_SCHEMA_SQL);
     if(version<22)database.exec(MAIL_NOTIFICATION_SCHEMA_SQL);
+    if(version<23) { database.exec(ARCHIVE_SCHEMA_SQL); if(database.all("PRAGMA foreign_key_check").length)throw new Error("Archive migration violated foreign keys"); }
     database.run("INSERT INTO mail_schema_version(singleton,version) VALUES(1,?) ON CONFLICT(singleton) DO UPDATE SET version=excluded.version", [MAIL_SCHEMA_VERSION]);
-  });
+  }); } finally { if(rebuild)database.exec("PRAGMA legacy_alter_table=OFF; PRAGMA foreign_keys=ON"); }
+  if(database.get("PRAGMA foreign_keys")?.foreign_keys!==1)throw new Error("Mail foreign keys were not restored");
 }
