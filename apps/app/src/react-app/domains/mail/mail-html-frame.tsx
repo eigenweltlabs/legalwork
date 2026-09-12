@@ -1,4 +1,4 @@
-import {useEffect,useMemo,useRef,useState} from 'react';
+import {useEffect,useLayoutEffect,useMemo,useRef,useState} from 'react';
 import {z} from 'zod';
 import {mailReaderKeyAllowed} from './mail-reader-keys';
 import {mailPlatform} from './mail-keyboard';
@@ -17,13 +17,13 @@ export function MailHtmlFrame({html,inline,item,bodyPart,signal,imageBudget}:Fra
  const frame=useRef<HTMLIFrameElement>(null),[height,setHeight]=useState(160),[images,setImages]=useState<ReadonlyMap<string,string>>(new Map()),[loading,setLoading]=useState(false),[error,setError]=useState(''),[link,setLink]=useState<string|null>(null);
  const nonce=useMemo(()=>crypto.randomUUID(),[html,inline,images,item.accountId,item.key]);
  const rendered=useMemo(()=>mailDocument(html,inline,images,nonce,imageBudget),[html,inline,images,nonce,imageBudget]);
- useEffect(()=>{setHeight(160);const listener=(event:MessageEvent)=>{
+ useLayoutEffect(()=>{const listener=(event:MessageEvent)=>{
   if(signal.aborted||event.source!==frame.current?.contentWindow||event.origin!=='null')return;
   const value:unknown=event.data;if(!value||typeof value!=='object'||!('token' in value)||value.token!==nonce||!('type' in value))return;
   if(value.type==='mail-reader-key'&&document.activeElement===frame.current&&!document.querySelector('[role=dialog],[role=alertdialog],[role=menu]')){const parsed=readerKey.safeParse(value);if(parsed.success&&mailReaderKeyAllowed(parsed.data,mailPlatform()==='mac'))frame.current?.dispatchEvent(new KeyboardEvent('keydown',{...parsed.data,bubbles:true,cancelable:true}));}
   if(value.type==='mail-size'&&'height' in value&&typeof value.height==='number'&&Number.isInteger(value.height)&&value.height>=80&&value.height<=20000)setHeight(value.height);
   if(value.type==='mail-link'&&'index' in value&&typeof value.index==='number'&&Number.isSafeInteger(value.index)&&value.index>=0&&value.index<rendered.links.length)setLink(rendered.links[value.index]);
- };window.addEventListener('message',listener);return()=>window.removeEventListener('message',listener);},[nonce,rendered,signal]);
+ };window.addEventListener('message',listener);frame.current?.contentWindow?.postMessage({type:'mail-measure',token:nonce},'*');return()=>window.removeEventListener('message',listener);},[nonce,rendered,signal]);
  useEffect(()=>()=>{void window.__LEGALWORK_ELECTRON__?.mailImagesCancel?.();},[]);
  async function load(){if(!bodyPart?.referenceId||!window.__LEGALWORK_ELECTRON__?.mailImages)return;setLoading(true);setError('');try{
   const result=imageResult.parse(await window.__LEGALWORK_ELECTRON__.mailImages({accountId:item.accountId,locator:item.locator,referenceId:bodyPart.referenceId,partId:bodyPart.partId}));
@@ -34,6 +34,6 @@ export function MailHtmlFrame({html,inline,item,bodyPart,signal,imageBudget}:Fra
   {error&&<p role="status">{error}</p>}
   {link&&<div className="mail-link-controls" role="dialog" aria-label="Open message link"><span>{link}</span><button onClick={()=>{const url=mailLink(link);if(url)void window.__LEGALWORK_ELECTRON__?.shell?.openExternal?.(url);setLink(null);}}>Open link</button><button onClick={()=>setLink(null)}>Cancel</button></div>}
   {height>=20000&&<p>Long message: scroll within the message to read the remaining content.</p>}
-  <iframe ref={frame} title="Message HTML" sandbox="allow-scripts" referrerPolicy="no-referrer" srcDoc={rendered.html} style={{height,minHeight:80}}/>
+  <iframe onLoad={()=>frame.current?.contentWindow?.postMessage({type:'mail-measure',token:nonce},'*')} ref={frame} title="Message HTML" sandbox="allow-scripts" referrerPolicy="no-referrer" srcDoc={rendered.html} style={{height,minHeight:80}}/>
  </div>;
 }
