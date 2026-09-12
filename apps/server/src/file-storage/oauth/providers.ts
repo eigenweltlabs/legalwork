@@ -1,3 +1,4 @@
+import { microsoftProviders } from "./microsoft.js";
 import type { StorageInput, StorageOAuthProvider } from "@legalwork/types/file-storage";
 import type { StorageAdapter } from "../common.js";
 import { ApiError } from "../../errors.js";
@@ -10,13 +11,13 @@ export type OAuthProvider = StorageOAuthProvider & {
   clientSecret?: string;
   authorizeUrl: string;
   tokenUrl: string;
-  scopes: (readOnly: boolean) => string[];
+  scopes: (readOnly: boolean, config?: OAuthConfig) => string[];
   authorizeParams?: Record<string, string>;
   port?: number;
   adapter: (config: OAuthConfig, token: AccessToken) => Promise<StorageAdapter> | StorageAdapter;
 };
 // Each provider branch adds its own registration to this shared entry point.
-export const oauthProviders: OAuthProvider[] = [];
+export const oauthProviders: OAuthProvider[] = [...microsoftProviders];
 export function oauthProvider(id: string) {
   const provider = oauthProviders.find((item) => item.id === id);
   if (!provider?.clientId)
