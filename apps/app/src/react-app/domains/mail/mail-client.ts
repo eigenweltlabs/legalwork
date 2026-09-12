@@ -8,7 +8,7 @@ import type { MailAccountView, MailFolderView, MailPage } from '../../../../../s
 const id = z.string().min(1).max(32768);
 const metadata = z.object({ subject: z.string().nullable(), from: z.string().nullable(), to: z.string().nullable(), cc: z.string().nullable(), bcc: z.string().nullable(), replyTo: z.string().nullable(), date: z.string().nullable(), messageId: z.string().nullable() });
 export const locator = z.discriminatedUnion('provider', [z.object({provider:z.literal('archive'),namespace:id,entryId:id}), z.object({ provider: z.literal('gmail'), messageId: id }), z.object({ provider: z.literal('graph'), messageId: id }), z.object({ provider: z.literal('imap'), mailboxId: id, uidValidity: z.number().int().positive(), uid: z.number().int().positive() })]);
-const message = z.object({ accountId: id, key: id, locator, subject: z.string(), rawReferenceId: id.nullable().optional(), receivedAt: z.number().nullable().optional(), isRead: z.boolean().nullable().optional(), isFlagged:z.boolean().nullable().optional(), mutationPrecondition:z.string().nullable().optional(), threadId: id.nullable(), rfcMessageId: z.string().nullable(), removed: z.boolean(), memberships: z.array(id), contentState: z.enum(['complete', 'downloading', 'attention']), metadata: metadata.nullable() });
+const message = z.object({ accountId: id, key: id, locator, subject: z.string(), rawReferenceId: id.nullable().optional(), receivedAt: z.number().nullable().optional(), isRead: z.boolean().nullable().optional(), isFlagged:z.boolean().nullable().optional(), mutationPrecondition:z.string().nullable().optional(), threadId: id.nullable(), rfcMessageId: z.string().nullable(), removed: z.boolean(), conversation:z.object({count:z.number().int().positive(),unreadCount:z.number().int().nonnegative()}).optional(), memberships: z.array(id), contentState: z.enum(['complete', 'downloading', 'attention']), metadata: metadata.nullable() });
 const part = z.object({ key: id, kind: z.enum(['raw', 'body', 'attachment']), partId: z.string(), state: z.enum(['stored', 'pending', 'unavailable']), referenceId: id.nullable(), bytes: z.number().int().nonnegative().nullable(), sha256: id.nullable(), bytesAvailable: z.boolean(), filename: z.string().nullable(), contentType: z.string().nullable(), contentId: z.string().nullable() });
 const account = z.object({ id, provider: z.enum(['gmail', 'graph', 'imap', 'archive']), displayName: z.string(), personal: z.boolean().optional(), identity: graphMailboxIdentitySchema.optional() });
 const folder = z.object({ id, name: z.string(), kind: z.enum(['folder', 'label']), parentId: id.nullable(), mutationPrecondition:z.string().nullable().optional(), role: z.literal("inbox").optional() });
@@ -26,6 +26,9 @@ export function mailOrigin(value: string): string {
         throw Error('Invalid local mail endpoint.');
     return url.origin;
 }
+export class MailRequestError extends Error {
+    constructor(readonly status: number, message: string) { super(message); }
+}
 export class MailClient {
     private readonly origin: string;
     constructor(base: string, private readonly token: string, private readonly transport: typeof fetch = (input, init) => fetch(input, init)) { this.origin = mailOrigin(base); if (!token)
@@ -35,7 +38,7 @@ export class MailClient {
         const response = await this.transport(this.origin + '/mail/v1' + path, { method: body !== undefined || post ? 'POST' : 'GET', headers: { 'X-LegalWork-Host-Token': this.token, ...(body === undefined ? {} : { 'Content-Type': 'application/json' }) }, body: body === undefined ? undefined : JSON.stringify(body), signal: timeoutMs===null?signal:AbortSignal.any([signal, AbortSignal.timeout(timeoutMs)]), redirect: 'error', cache: 'no-store', credentials: 'omit' });
         if (!response.ok) {
             if(response.status===409){const value=await response.clone().json().catch(()=>null);const parsed=outboxErrorSchema.safeParse(typeof value?.error?.code==='string'?value.error.code.replace(/^mail_outbox_/,''):typeof value?.code==='string'?value.code.replace(/^mail_outbox_/,''):'');if(parsed.success)throw Error(outboxErrors[parsed.data]);}
-            throw Error(response.status === 423 ? 'Mail is temporarily unavailable. Please retry.' : response.status === 404 ? 'This account or message is unavailable.' : response.status === 401 ? 'Local host authentication expired.' : `Mail request failed (${response.status}).`);
+            throw new MailRequestError(response.status, response.status === 423 ? 'Mail is temporarily unavailable. Please retry.' : response.status === 404 ? 'This account or message is unavailable.' : response.status === 401 ? 'Local host authentication expired.' : `Mail request failed (${response.status}).`);
         }
         return schema.parse(await response.json());
     }
@@ -54,6 +57,7 @@ export class MailClient {
         folderId?: string;
         threadId?: string;
         inboxOnly?: boolean;
+        conversations?: boolean;
     }, signal: AbortSignal) { return this.request(`/accounts/${encodeURIComponent(accountId)}/messages/query`, page(message), signal, { ...input, limit: 25, order: 'received' }); }
     readLocator(accountId:string, locator:MailMessageView["locator"], signal:AbortSignal){return this.request(`/accounts/${encodeURIComponent(accountId)}/messages/read`,message,signal,{locator});}
     check(item: MailMessageView, signal: AbortSignal) { return this.request(`/accounts/${encodeURIComponent(item.accountId)}/messages/read`, message, signal, { locator: item.locator }); }
@@ -110,7 +114,7 @@ export class UnifiedMailPages {
             for (const stream of this.streams)
                 if (!stream.buffer.length && (!stream.started || stream.cursor !== null)) {
                     try {
-                        const response = await this.client.messages(stream.accountId, { ...(stream.cursor ? { after: stream.cursor } : {}), ...(this.folderId ? { folderId: this.folderId } : {}), ...(this.threadId ? { threadId: this.threadId } : {}), inboxOnly: this.inboxOnly }, signal);
+                        const response = await this.client.messages(stream.accountId, { ...(stream.cursor ? { after: stream.cursor } : {}), ...(this.folderId ? { folderId: this.folderId } : {}), ...(this.threadId ? { threadId: this.threadId } : {}), inboxOnly: this.inboxOnly,conversations:!this.threadId }, signal);
                         stream.buffer = response.items;
                         stream.cursor = response.nextCursor;
                         stream.started = true;

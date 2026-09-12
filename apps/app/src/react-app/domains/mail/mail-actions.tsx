@@ -18,7 +18,7 @@ export function optimisticMail(item:MailMessageView,entries:ActionEntry[]):MailM
  }
  return current;
 }
-export function MailActionBar({reading=false,blocked=false,client,accounts,accountId,selected,folder,folders,onEntries,onRefresh}:{reading?:boolean;blocked?:boolean;client:MailClient;accounts:MailAccountView[];accountId:string;selected:MailMessageView[];folder?:MailFolderView;folders:MailFolderView[];onEntries:(entries:ActionEntry[])=>void;onRefresh:()=>void}){
+export function MailActionBar({enqueued,reading=false,blocked=false,client,accounts,accountId,selected,folder,folders,onEntries,onRefresh}:{enqueued?:ActionEntry[];reading?:boolean;blocked?:boolean;client:MailClient;accounts:MailAccountView[];accountId:string;selected:MailMessageView[];folder?:MailFolderView;folders:MailFolderView[];onEntries:(entries:ActionEntry[])=>void;onRefresh:()=>void}){
  const [entries,setEntries]=useState<ActionEntry[]>([]),[busy,setBusy]=useState(false),[errors,setErrors]=useState<string[]>([]),[showActivity,setShowActivity]=useState(false),[next,setNext]=useState<string|null>(null);
  const [dialog,setDialog]=useState<'delete'|'create'|'rename'|'delete-folder'|null>(null),[name,setName]=useState(''),[destinations,setDestinations]=useState<MailFolderView[]>([]);
  const api=useRef(new MailActionsClient(client)),store=useRef(new Map<string,ActionEntry>()),abort=useRef(new AbortController()),refresh=useRef(onRefresh),notify=useRef(onEntries);refresh.current=onRefresh;notify.current=onEntries;
@@ -34,6 +34,7 @@ export function MailActionBar({reading=false,blocked=false,client,accounts,accou
   }catch{if(!signal.aborted)setErrors(['Action status is unavailable. Existing queued changes are preserved.']);}finally{running=false;}};
   void poll();const timer=setInterval(()=>void poll(),2000);return()=>{clearInterval(timer);abort.current.abort();};
  },[client,watched]);
+ useEffect(()=>{if(enqueued){for(const entry of enqueued)if(!store.current.has(entry.id))remember(entry);publish();}},[enqueued]);
  const targetAccount=selected.length&&selected.every(item=>item.accountId===selected[0].accountId)?selected[0].accountId:accountId;
  useEffect(()=>{const controller=new AbortController();setDestinations([]);if(!targetAccount)return;void(async()=>{const result:MailFolderView[]=[];let after:string|undefined;do{const page=await client.folders(targetAccount,controller.signal,after);result.push(...page.items);after=page.nextCursor??undefined;if(result.length>2000)throw Error('Too many folders');}while(after);if(!controller.signal.aborted)setDestinations(result);})().catch(()=>{});return()=>controller.abort();},[client,targetAccount,folders]);
  async function apply(change:MailMutation['change']){
