@@ -1,0 +1,1 @@
+{"passed":true,"platform":"darwin","arch":"arm64","electron":"35.7.5","node":"22.16.0","checks":["packaged-HTTP-host-auth-worker","packaged-dependencies","MIME","encrypted-FTS","worker-status-search","reopen","rotation","wrong-key-refusal","ciphertext-marker-absence"]}

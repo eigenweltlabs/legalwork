@@ -47,3 +47,24 @@ Windows prerequisite diagnostics are isolated from the broad matrix and require 
 Downloaded initial platform logs are retained at `/tmp/legalwork-eig152-ci-macos-arm64`, `/tmp/legalwork-eig152-ci-macos-intel` and `/tmp/legalwork-eig152-ci-windows`; local source-stamped stage logs/JSON remain in the qualification worktree's `mail-qualification-evidence`. Final durable evidence publication and qualification remain outstanding.
 
 Unsigned directory builds do **not** establish signed installer/update/uninstall behavior, Gatekeeper/notarization, signature-dependent vault identity across application updates, or retention after an actual OS uninstall. Actual suspend/resume and login/background startup need controlled device/session testing; hosted/mock lifecycle results must be labeled separately. Reference 16 GiB performance remains distinct from arbitrary CI runner RAM. No installer, release or destructive OS-session operation may be substituted silently for these unavailable gates.
+
+## Final run and end-of-day stop — 12 September 2026
+
+The final integrated run [34705758095](https://github.com/eigenweltlabs/legalwork/actions/runs/34705758095) completed with failure at marker `9a6f3482007bad1ff24850d8311f2556d2f39353`, tree-identical to `ad06fba7b01966bdc00e432341fdcb21b48ea668`. This supersedes the earlier paused-gate status, not the retained failure evidence. Root independently read the stage records and key logs.
+
+| Stage | macOS arm64 | macOS x64 | Windows x64 |
+| --- | --- | --- | --- |
+| Actual vault/cipher/recovery | PASS | PASS | FAIL: initial long-path database open, `SQLITE_CANTOPEN` |
+| Native mail | PASS, 447 cases | PASS | FAIL: 300-second runner timeout; observed failures and incomplete tail |
+| Loopback HTTP | PASS | PASS | PASS |
+| Shared app | FAIL, 452 pass / 10 fail | FAIL | FAIL |
+| Normal desktop | PASS | PASS | FAIL, 111 pass / 3 fail / 3 platform skips |
+| Supplemental mail | PASS | PASS | PASS |
+| Full unsigned application build | PASS | PASS | PASS |
+| Built application probe | PASS | PASS | FAIL at rotation |
+
+The repaired build heap and both actual macOS packaged probes now have passing evidence. Windows ordinary-path ACL prerequisites passed earlier; that result does not close its long-path, maintenance, startup or packaged gates. The Windows native timeout prevented complete final failure reporting. The unchanged Office certificate baseline failure remains separately identified above.
+
+At the user's stop request, agent checkpoint `bba54ee72` contains only fixture/diagnostic changes: isolated Bun child builds for portability and HTML fixtures, an obsolete Settings warning assertion updated to current copy, and an **unexecuted** Windows fsync/long-path probe. Two bundles passed build-only checks; their Electron assertions and all Windows hypotheses remain unverified. No Windows product repair or further CI dispatch occurred. In particular, read-only-handle fsync is a hypothesis for maintenance failure, not an established cause.
+
+All agents and remote watchers are stopped. Only the normal local dev app remains, using the existing profile/session. Stage records and failed-stage logs are retained in [final-run evidence](evidence/eig-152-final-2026-09-12/); complete original GitHub artifacts and local downloads `/tmp/eig-152-final-{macos-arm64,macos-intel,windows}` are also retained. EIG-152 and EIG-126 remain open. Resume only on a new user instruction, starting with failed checks narrowly rather than another full matrix.

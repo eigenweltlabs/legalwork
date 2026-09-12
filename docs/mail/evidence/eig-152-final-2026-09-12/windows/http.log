@@ -1,0 +1,31 @@
+bun test v1.3.9 (cf6cdbbb)
+
+::group::apps\server\src\mail\local.e2e.test.ts:
+(pass) actual HTTP drafts, immutable submission replay, events and encrypted worker restart [11171.00ms]
+
+::endgroup::
+
+::group::apps\server\src\mail\routes.e2e.test.ts:
+(pass) local HTTP reads complete encrypted originals and attachments offline with scope, lock and page bounds [9125.00ms]
+(pass) mail routes are absent by default and when sharing binds all interfaces [47.00ms]
+(pass) sync controls require a local host token and reject settings in bodies or query strings [16.00ms]
+(pass) connection routes accept provider selection but reject credentials, paths, owners and excess input [16.00ms]
+(pass) only host-token auth can access mail; all remote bearer scopes are denied [31.00ms]
+(pass) request bodies, owner overrides and malformed pagination cannot reach mail service [31.00ms]
+(pass) lock/unlock and bounded pagination flow through injected service; account errors are indistinguishable [16.00ms]
+(pass) native/keychain errors are redacted and server shutdown stops the service [15.00ms]
+(pass) security maintenance accepts only host-bound operations and redacts backup secrets [16.00ms]
+(pass) onboarding HTTP forwards explicit personal selection and bounded cancellable TLS input only for host [16.00ms]
+(pass) draft synchronization HTTP enforces host authorization, exact version and conflict hash contracts [15.00ms]
+
+::endgroup::
+
+::group::apps\server\src\mail\search.e2e.test.ts:
+(pass) actual HTTP -> service -> Node worker -> encrypted local search, authorization, restart and rebuild [9031.00ms]
+
+::endgroup::
+
+ 13 pass
+ 0 fail
+ 214 expect() calls
+Ran 13 tests across 3 files. [29.98s]

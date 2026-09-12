@@ -4,6 +4,8 @@ Branch: `feat/local-mail-client`. Draft [PR #130](https://github.com/eigenweltla
 
 The user froze work to the nine tickets that were already In Progress. Complete their existing implementation and acceptance work where inputs permit, then stop. Do not start backlog tickets or broaden the scope.
 
+**End-of-day stop:** the user subsequently requested that all work stop and the current state be committed. No further test run or CI dispatch is to start from this checkpoint. Unfinished qualification below is a handoff, not authorization to continue working after the stop.
+
 ## Accepted product changes
 
 EIG-139 is Done. Explicit message opens enqueue durable read actions; Gmail/Graph account-scoped conversations have chronological cards and bounded earlier-message pagination. Pending read intent participates in authoritative thread totals. Reader content survives ordinary polling and transient validation failures. Initial HTML sizing uses a synchronous authenticated handshake, and request ownership survives StrictMode cleanup. The [reader evidence](reader-conversations-2026-09-12.md) retains the phased passing checks and the earlier failed attempts; it does not claim one uninterrupted green run.
@@ -35,5 +37,9 @@ All temporary design/reader Electron previews, API/Vite servers and their helper
 ## Remote evidence boundary
 
 The final integrated matrix is [run 34705758095](https://github.com/eigenweltlabs/legalwork/actions/runs/34705758095), marker `9a6f3482007bad1ff24850d8311f2556d2f39353`, tree-identical to product source `ad06fba7b01966bdc00e432341fdcb21b48ea668`. Subsequent integration commits at the initial checkpoint contain documentation and no-launch diagnostic scripts, not new product behavior. Preserve failed stage results and identify any later targeted rerun source separately. A narrow rerun does not retroactively make the original full command green.
+
+The run has completed with failure. Both macOS architectures passed vault, native mail, HTTP, normal desktop, supplemental mail, unsigned build and packaged-application checks; the shared app suite failed. Windows passed HTTP, supplemental mail and the unsigned build. Its vault failed opening the deliberately long database path; native acceptance reached the 300-second runner deadline with earlier maintenance failures; normal app/desktop and packaged rotation checks also failed. Original source-stamped logs are retained; no complete platform pass is claimed.
+
+Initial fixes to two browser-fixture build setups and an obsolete Settings-copy assertion are checkpointed separately as **not yet remotely validated**. No Windows product fix was accepted at the stop. Resume, only when requested, with the existing EIG-152 failures and narrow checks; do not rerun the whole matrix or the completed Gmail comparison by default.
 
 Attachment saves still depend on the shared connected-storage work in separate PRs; all connected writable roots are supported through that interface. The separate LegalMemory backend is optional matter filing and remains unmerged/undeployed. This checkpoint does not merge or certify those external changes.

@@ -1,0 +1,25 @@
+{
+  "name": "http",
+  "source": "9a6f3482007bad1ff24850d8311f2556d2f39353",
+  "dirty": false,
+  "started": "2026-09-12T16:40:04.806Z",
+  "finished": "2026-09-12T16:40:19.236Z",
+  "platform": "darwin",
+  "arch": "arm64",
+  "osRelease": "24.6.0",
+  "node": "24.11.0",
+  "memoryBytes": 7516192768,
+  "cpu": "Apple M1 (Virtual)",
+  "command": [
+    "bun",
+    "test",
+    "apps/server/src/mail/routes.e2e.test.ts",
+    "apps/server/src/mail/search.e2e.test.ts",
+    "apps/server/src/mail/local.e2e.test.ts"
+  ],
+  "code": 0,
+  "signal": null,
+  "overflow": false,
+  "spawnError": false,
+  "passed": true
+}

@@ -1,0 +1,1724 @@
+$ bun test tests/
+bun test v1.3.9 (cf6cdbbb)
+
+::group::tests\analytics-consent.test.ts:
+(pass) analytics consent gating > pending choice sends under the default-on model
+(pass) analytics consent gating > opt-out purges the queue and silences later captures
+(pass) analytics consent gating > the opt-out marker is the single send after refusal, and drops the queue
+(pass) analytics consent gating > opt-in sends captures on flush
+
+::endgroup::
+
+::group::tests\app-mentions.test.ts:
+(pass) app-mentions > instruction names the app and steers to a computer-use snapshot
+(pass) app-mentions > app names with spaces round-trip through mention encoding
+
+::endgroup::
+
+::group::tests\benchmark-arm-summary.test.ts:
+(pass) armRestrictions > the baseline arm restricts nothing [16.00ms]
+(pass) armRestrictions > lists only the tools actually switched off
+(pass) armRestrictions > an allow-list of nothing means no skills, not 'only nothing'
+(pass) armRestrictions > a deny-list of nothing denies nothing
+(pass) armRestrictions > named policies survive normalization
+(pass) armRestrictions > mode 'all' and 'none' pass through
+(pass) armRestrictions > a tool and a skill ablation read as one line
+(pass) armRestrictions > an arm with any restriction is not unrestricted
+
+::endgroup::
+
+::group::tests\benchmark-custom-task-validation.test.ts:
+(pass) validateCustomTask > valid draft normalizes into the wire input
+(pass) validateCustomTask > requires title, instructions and at least one criterion
+(pass) validateCustomTask > whitespace-only criteria are rejected
+(pass) validateCustomTask > deliverables with path separators are rejected
+
+::endgroup::
+
+::group::tests\benchmark-filter-tasks.test.ts:
+(pass) filterTaskRows > empty filters return everything
+(pass) filterTaskRows > work-type and tag facets are AND across, OR within
+(pass) filterTaskRows > search covers title, tags and instructions
+(pass) filterTaskRows > collectTaskTags dedupes and orders by frequency
+(pass) filterCatalogTasks > empty filters return everything
+(pass) filterCatalogTasks > tag facet is OR within, AND across facets; practice area doubles as a tag
+(pass) filterCatalogTasks > work-type facet excludes unhydrated items while active
+(pass) filterCatalogTasks > search is case-insensitive across title, name, vertical and instructions
+
+::endgroup::
+
+::group::tests\benchmark-format.test.ts:
+(pass) format helpers > formatScorePercent
+(pass) format helpers > formatCellScore uses pass counts
+(pass) format helpers > run/item activity
+(pass) format helpers > status tones
+(pass) aggregateByTag > means rubric pass rate per tag × model, most-tested first, multi-tag membership
+(pass) aggregateByTag > ignores unjudged items
+(pass) aggregateByTag under ablation > keeps each arm as its own column instead of averaging them together
+(pass) aggregateByTag under ablation > items without an arm fall back to the baseline column
+
+::endgroup::
+
+::group::tests\benchmark-store.test.ts:
+(pass) benchmark store > actions are inert without an attached context
+(pass) benchmark store > refreshTasks loads the task table and prunes stale selection
+(pass) benchmark store > selection toggles single and all
+(pass) benchmark store > importSelected posts keys, clears selection and refreshes tasks
+(pass) benchmark store > import failures surface as importError
+(pass) benchmark store > createTask prepends to the table
+(pass) benchmark store > createRun posts selected task ids and resets draft + selection
+(pass) benchmark store > createRun without selection or models is a no-op
+(pass) benchmark store > run completion triggers a task-table refresh
+(pass) benchmark store > loadRun + abort updates active run state
+(pass) benchmark store > catalog loads for the import modal
+(pass) benchmark store > attaching a different workspace resets state
+
+::endgroup::
+
+::group::tests\composer-state-store.test.ts:
+(pass) composer state store > scopes queued drafts by session
+(pass) composer state store > clearing composer input does not clear queued drafts
+(pass) composer state store > remove and clear only affect the target session
+
+::endgroup::
+
+::group::tests\connections-remove-mcp.test.ts:
+(pass) desktop MCP removal > also removes the LegalWork server runtime entry [31.00ms]
+
+::endgroup::
+
+::group::tests\custom-provider-config.test.ts:
+(pass) custom provider model config > a context limit always produces a limit block with BOTH keys
+(pass) custom provider model config > an edited model keeps the output limit it was stored with
+(pass) custom provider model config > no context limit means no limit block at all
+(pass) custom provider model config > reading a stored entry back preserves both limits through a save round trip
+(pass) custom provider model config > a stored entry with a broken limit is repaired on the next save
+
+::endgroup::
+
+::group::tests\docx-document-state.test.ts:
+(pass) DOCX document lifetime > an agent refresh retains a dirty draft and its original conflict baseline
+(pass) DOCX document lifetime > a clean document picks up externally changed content
+(pass) DOCX document lifetime > a successful save advances conflict baseline without changing editor identity
+(pass) DOCX close protection > recovery is discarded only after the user confirms leaving
+(pass) DOCX close protection > only closing dirty documents prompts, and cancelling prevents close
+(pass) DOCX close protection > closing the pane checks every registered dirty document
+
+::endgroup::
+
+::group::tests\docx-history-performance.test.ts:
+(pass) known ProseMirror changes reach history without serializing either document
+(pass) equivalent external documents remain no-ops in history
+(pass) external document changes still use comparison and retain undo history
+
+::endgroup::
+
+::group::tests\docx-measurement-performance.test.ts:
+(pass) repeated characters reuse exact widths across typing transactions
+(pass) cached widths preserve letter spacing, CJK and UTF-16 surrogate positions
+(pass) font size, canvas shaping state and loaded fonts invalidate cached widths
+(pass) the character cache stays bounded and evicted widths are remeasured
+
+::endgroup::
+
+::group::tests\docx-roundtrip.test.ts:
+(pass) clean export accepts changes and removes comments without altering the source [79.00ms]
+(pass) clean export refuses unsupported review markup in a header [15.00ms]
+(pass) overlapping comments coexist in the ProseMirror schema
+(pass) comment replies survive editor conversion, revision rejection and a second save [47.00ms]
+
+::endgroup::
+
+::group::tests\eigenwelt-budget.test.ts:
+(pass) isEigenweltBudgetError > matches only the eigenwelt provider with a budget message
+(pass) isEigenweltBudgetError > never matches other providers — their retry behavior is untouched
+(pass) isEigenweltBudgetError > never matches other error kinds for eigenwelt
+(pass) shouldStopEigenweltBudgetRetry > allows exactly the configured attempts, then stops
+(pass) shouldStopEigenweltBudgetRetry > never stops other providers regardless of attempts
+(pass) terminal error text > round-trips through the matcher
+(pass) terminal error text > does not match the raw gateway error or unrelated errors
+(pass) retry banner action > defaults to the prod billing page when no platform is connected
+(pass) retry banner action > uses the connected platform's billing URL when provided
+(pass) plan-aware limit display > offers Plus users an upgrade to Pro
+(pass) pending-stop registry > consume is single-use
+(pass) pending-stop registry > unmarked sessions never consume
+(pass) pending-stop registry > marks expire after the TTL [16.00ms]
+(pass) pending-stop registry > marks within the TTL are honored
+
+::endgroup::
+
+::group::tests\eigenwelt-provider-error.test.ts:
+(pass) isEigenweltModelDisabledError > recognizes the gateway's team_model_access_denied body
+(pass) isEigenweltModelDisabledError > a 403 for a model the firm turned off reads as such, not as an expired sign-in
+(pass) isEigenweltSignInExpiredError > recognizes LiteLLM's dead-key body wherever it appears
+(pass) isEigenweltSignInExpiredError > treats any 401/403 from the eigenwelt provider as an expired sign-in
+(pass) isEigenweltSignInExpiredError > leaves other providers and other failures alone
+(pass) describeOpencodeSessionError > replaces the raw 401 body with the sign-in-again message
+(pass) describeOpencodeSessionError > handles the body arriving as a plain Error message
+(pass) describeOpencodeSessionError > keeps unrelated provider errors verbatim
+
+::endgroup::
+
+::group::tests\eigenwelt-trial.test.ts:
+(pass) eigenweltTrialState > no entitlements or no trial on record -> none
+(pass) eigenweltTrialState > malformed trialEndsAt -> none
+(pass) eigenweltTrialState > trialing -> active with ceil'd days left
+(pass) eigenweltTrialState > trialing just past the end (webhook lag) clamps to 0, not negative
+(pass) eigenweltTrialState > converted to a paid subscription -> none
+(pass) eigenweltTrialState > entitled statuses gate plan displays; lapsed ones do not
+(pass) eigenweltTrialState > lapsed after a trial -> ended (canceled during the trial included)
+(pass) eigenweltPlanWithoutModels > a subscribed firm whose plan lacks premium_models (Knowledge Hub)
+(pass) eigenweltPlanWithoutModels > Plus firms (premium_models present) and unentitled firms are not
+
+::endgroup::
+
+::group::tests\engine-error-leak.test.ts:
+(pass) engine error leakage > the exact payload users were shown is caught
+(pass) engine error leakage > other serialized failures are caught too
+(pass) engine error leakage > a real sentence is left alone
+
+::endgroup::
+
+::group::tests\env-context.test.ts:
+(pass) buildLegalworkEnvSystemContext > lists configured key names without inventing secret values
+(pass) buildLegalworkEnvSystemContext > caches key context per session
+(pass) buildLegalworkEnvSystemContext > does not truncate long key lists
+(pass) buildLegalworkEnvSystemContext > skips context while environment changes are pending
+
+::endgroup::
+
+::group::tests\extension-items.test.ts:
+(pass) extension item projection > keeps unconnected built-ins out of My Extensions quick connect
+
+::endgroup::
+
+::group::tests\fusion-routing.test.ts:
+(pass) fusion task-tool prompts > uses subagents for substantive legal judgment, not file search
+(pass) fusion task-tool prompts > does not expose numbered candidate agent types as valid agents
+(pass) fusion task-tool prompts > candidate agent prompt forbids clarification-only replies
+
+::endgroup::
+
+::group::tests\import-viewer-file.test.ts:
+(pass) viewer working copies > preserves bytes, separates duplicate names and selects the matching viewer
+(pass) viewer working copies > failed copies do not create usable tabs
+
+::endgroup::
+
+::group::tests\legalmemory-activity.test.ts:
+(pass) legalMemoryToolName > strips whichever server name the firm connected under
+(pass) legalMemoryToolName > rejects tools the appliance does not register
+(pass) legalMemoryActivityLabel > names the query being searched
+(pass) legalMemoryActivityLabel > falls back when the query has not streamed in yet
+(pass) legalMemoryActivityLabel > distinguishes a final-versions-only filter, the behavior that matters
+(pass) legalMemoryActivityLabel > describes graph and precedence work as such
+(pass) legalMemoryActivityLabel > groups the ontology tools under one line
+(pass) legalMemoryActivityLabel > returns null for a tool that is not LegalMemory's
+(pass) isLegalMemoryToolPart > covers the whole appliance tool surface
+(pass) isLegalMemoryToolPart > does not claim unrelated tools
+
+::endgroup::
+
+::group::tests\legalmemory-citation.test.ts:
+(pass) citedDocuments > reads the markdown citation the model emits
+(pass) citedDocuments > keeps prose order across a list of sources
+(pass) citedDocuments > dedupes by id, first title wins
+(pass) citedDocuments > still accepts the bracket form for anything already written
+(pass) citedDocuments > ignores a half-streamed citation rather than mangling it
+(pass) citedDocuments > returns nothing when the answer cites nothing
+
+::endgroup::
+
+::group::tests\legalmemory-connection.test.ts:
+(pass) LegalMemory MCP identity > matches every server name accepted by the LegalMemory routes
+(pass) LegalMemory MCP identity > does not reset Drive for unrelated MCP removals
+
+::endgroup::
+
+::group::tests\legalmemory-documents.test.ts:
+(pass) collectLegalMemoryDocuments > pulls the document straight out of a real search result
+(pass) collectLegalMemoryDocuments > accepts the serialized form the tool part actually carries
+(pass) collectLegalMemoryDocuments > dedupes a document that several chunks matched
+(pass) collectLegalMemoryDocuments > keeps the matter id, not the connector name
+(pass) collectLegalMemoryDocuments > handles the find_related_documents shape, root first
+(pass) collectLegalMemoryDocuments > collects across several tool results in order
+(pass) collectLegalMemoryDocuments > ignores payloads that name no document
+(pass) isAuthoritativeStatus > marks operative versions, not drafts
+
+::endgroup::
+
+::group::tests\legalmemory-download.test.ts:
+(pass) parseLegalMemoryDownload > reads the structured metadata the tool returns
+(pass) parseLegalMemoryDownload > accepts the payload as serialized JSON
+(pass) parseLegalMemoryDownload > finds the link inside MCP resource-link content
+(pass) parseLegalMemoryDownload > falls back to the save_command text when that is all that arrives
+(pass) parseLegalMemoryDownload > returns null when there is no download link to find
+(pass) parseLegalMemoryDownload > ignores a link that is not the appliance download route
+(pass) formatExportSize > reads at a glance
+(pass) formatExportSize > says nothing when the size is unknown
+(pass) isLegalMemoryDownloadToolPart > matches under any server name
+(pass) isLegalMemoryDownloadToolPart > does not swallow get_document
+
+::endgroup::
+
+::group::tests\legalmemory-graph.test.ts:
+(pass) parseLegalMemoryGraph > builds nodes and edges from the appliance payload
+(pass) parseLegalMemoryGraph > accepts the payload as serialized JSON, as MCP delivers it
+(pass) parseLegalMemoryGraph > keeps stored legal relations distinct from shared-matter context
+(pass) parseLegalMemoryGraph > a stored relation wins when the same pair also arrives as context
+(pass) parseLegalMemoryGraph > rings a document reachable only through another document outward
+(pass) parseLegalMemoryGraph > drops edge endpoints that are not documents
+(pass) parseLegalMemoryGraph > fits the viewBox to the nodes so small graphs carry no dead space
+(pass) parseLegalMemoryGraph > returns null rather than a blank card when the payload is unusable
+(pass) isLegalMemoryGraphToolPart > matches whichever server name the firm connected under
+(pass) isLegalMemoryGraphToolPart > does not swallow other tools
+(pass) formatEdgeKind > reads as prose in the edge label
+
+::endgroup::
+
+::group::tests\legalmemory-ref.test.ts:
+(pass) LegalMemory reference links > parses document and matter URIs
+(pass) LegalMemory reference links > tolerates missing slashes, trailing slash, and case
+(pass) LegalMemory reference links > rejects other schemes, kinds, and malformed ids
+(pass) LegalMemory reference links > URI pattern matches only the legalmemory scheme
+(pass) LegalMemory reference links > document prompt carries the id and drives the export round-trip
+(pass) LegalMemory reference links > matter prompt asks for a preview and falls back to the id label
+
+::endgroup::
+
+::group::tests\legalmemory-sources-card.test.tsx:
+(pass) LegalMemorySourcesCard > shows five sources per page with pagination controls
+(pass) LegalMemorySourcesCard > does not show pagination for five or fewer sources
+
+::endgroup::
+
+::group::tests\legalwork-env-runtime.test.ts:
+(pass) legalwork env runtime > persists pending changes across browser sessions
+(pass) legalwork env runtime > reads legacy sessionStorage pending state
+(pass) legalwork env runtime > clears pending changes after the runtime changes
+(pass) legalwork env runtime > builds a stable runtime key from server identity
+
+::endgroup::
+
+::group::tests\mail-accounts-settings.test.ts:
+(pass) settings persists the app badge toggle and preserves same-host OAuth, cancels replaced hosts, refreshes accounts and cancels IMAP on exit [1734.00ms]
+
+::endgroup::
+
+::group::tests\mail-actions.test.ts:
+45 |   await run("[...document.querySelectorAll('button')].find(b=>b.textContent==='New folder or label…').click()");await until("!!document.querySelector('[aria-label=\\"Folder or label name\\"]')");
+46 |   await run("(()=>{const input=document.querySelector('[aria-label=\\"Folder or label name\\"]');Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(input,'Litigation');input.dispatchEvent(new Event('input',{bubbles:true}));})()");
+47 |   await run("[...document.querySelector('[role=dialog]').querySelectorAll('button')].find(b=>b.textContent==='Create').click()");await until("!document.querySelector('[role=dialog]')");assert.equal(await run("!!document.querySelector('.mail-action-activity')"),false);await run("document.querySelector('.mail-activity-toggle').click()");await until("document.body.textContent.includes('Create folder')");
+48 |   fs.writeFileSync('/tmp/eig144-mail-actions.png',(await win.webContents.capturePage()).toPNG());console.log('MAIL_ACTIONS_PASS');win.destroy();app.quit();}).catch(error=>{console.error(error);app.exit(1)});
+49 |   `);
+50 |   const require=createRequire(resolve(appRoot,'../desktop/package.json'));const result=await new Promise<{code:number|null;output:string}>((done,reject)=>{const child=spawn(require('electron'),[probe],{env:{HOME:process.env.HOME,PATH:process.env.PATH,...(process.platform==='win32'?{SystemRoot:process.env.SystemRoot,WINDIR:process.env.WINDIR}:{})},stdio:['ignore','pipe','pipe']});let output='';const timer=setTimeout(()=>{child.kill();reject(Error(output+' renderer timeout'));},20000);child.stdout.on('data',value=>output+=value);child.stderr.on('data',value=>output+=value);child.on('error',reject);child.on('close',code=>{clearTimeout(timer);done({code,output});});});if(result.code!==0)throw Error(result.output);expect(result.output).toContain('MAIL_ACTIONS_PASS');expect(mutations.filter(item=>(item.change as {kind:string}).kind==='read')).toHaveLength(2);expect(mutations.some(item=>(item.change as {kind:string}).kind==='delete')).toBe(false);expect(mutations.at(-1)).toMatchObject({change:{kind:'mailbox',operati
+
+error: 
+Error: ENOENT: no such file or directory, open 'D:\tmp\eig144-mail-actions.png'
+    at Object.openSync (node:fs:562:18)
+    at Object.func [as openSync] (node:electron/js2c/node_init:2:2569)
+    at Object.writeFileSync (node:fs:2440:35)
+    at C:\Users\RUNNER~1\AppData\Local\Temp\mail-actions-render-HrW56P\probe.cjs:16:6 {
+  errno: -4058,
+  code: 'ENOENT',
+  syscall: 'open',
+  path: 'D:\\tmp\\eig144-mail-actions.png'
+}
+
+      at <anonymous> (D:\a\legalwork\legalwork\apps\app\tests\mail-actions.test.ts:50:699)
+
+::error file=apps\app\tests\mail-actions.test.ts,line=50,col=699,title=error: ::    at Object.openSync (node:fs:562:18)%0A    at Object.func [as openSync] (node:electron/js2c/node_init:2:2569)%0A    at Object.writeFileSync (node:fs:2440:35)%0A    at C:\Users\RUNNER~1\AppData\Local\Temp\mail-actions-render-HrW56P\probe.cjs:16:6 {%0A  errno: -4058,%0A  code: 'ENOENT',%0A  syscall: 'open',%0A  path: 'D:\\tmp\\eig144-mail-actions.png'%0A}%0A%0A      at <anonymous> (D:\a\legalwork\legalwork\apps\app\tests\mail-actions.test.ts:50:699)
+(fail) mailbox UI queues independent bulk actions, shows partial failure, safely undoes and confirms permanent deletion [3171.00ms]
+
+::endgroup::
+
+::group::tests\mail-agent-render.test.ts:
+error: Unexpected reading file: "D:\a\legalwork\legalwork\node_modules\.pnpm\react@19.2.4\node_modules\react\index.js"
+    at D:\a\legalwork\legalwork\node_modules\.pnpm\react@19.2.4\node_modules\react\index.js
+
+error: Unexpected reading file: "D:\a\legalwork\legalwork\node_modules\.pnpm\class-variance-authority@0.7.1\node_modules\class-variance-authority\dist\index.mjs"
+    at D:\a\legalwork\legalwork\node_modules\.pnpm\class-variance-authority@0.7.1\node_modules\class-variance-authority\dist\index.mjs
+
+error: Unexpected reading file: "D:\a\legalwork\legalwork\node_modules\.pnpm\lucide-react@0.577.0_react@19.2.4\node_modules\lucide-react\dist\esm\lucide-react.js"
+    at D:\a\legalwork\legalwork\node_modules\.pnpm\lucide-react@0.577.0_react@19.2.4\node_modules\lucide-react\dist\esm\lucide-react.js
+
+error: Unexpected reading file: "D:\a\legalwork\legalwork\node_modules\.pnpm\tailwind-merge@3.5.0\node_modules\tailwind-merge\dist\bundle-mjs.mjs"
+    at D:\a\legalwork\legalwork\node_modules\.pnpm\tailwind-merge@3.5.0\node_modules\tailwind-merge\dist\bundle-mjs.mjs
+
+error: Unexpected reading file: "D:\a\legalwork\legalwork\node_modules\.pnpm\clsx@2.1.1\node_modules\clsx\dist\clsx.mjs"
+    at D:\a\legalwork\legalwork\node_modules\.pnpm\clsx@2.1.1\node_modules\clsx\dist\clsx.mjs
+
+error: Unexpected reading file: "D:\a\legalwork\legalwork\node_modules\.pnpm\@floating-ui+utils@0.2.11\node_modules\@floating-ui\utils\dist\floating-ui.utils.dom.mjs"
+    at D:\a\legalwork\legalwork\node_modules\.pnpm\@floating-ui+utils@0.2.11\node_modules\@floating-ui\utils\dist\floating-ui.utils.dom.mjs
+
+error: Unexpected reading file: "D:\a\legalwork\legalwork\node_modules\.pnpm\@base-ui+utils@0.2.8_@types_c9551430b09515194bf4d31e244bbed7\node_modules\@base-ui\utils\esm\empty.js"
+    at D:\a\legalwork\legalwork\node_modules\.pnpm\@base-ui+utils@0.2.8_@types_c9551430b09515194bf4d31e244bbed7\node_modules\@base-ui\utils\esm\empty.js
+
+error: Unexpected reading file: "D:\a\legalwork\legalwork\node_modules\.pnpm\@base-ui+utils@0.2.8_@types_c9551430b09515194bf4d31e244bbed7\node_modules\@base-ui\utils\esm\warn.js"
+    at D:\a\legalwork\legalwork\node_modules\.pnpm\@base-ui+utils@0.2.8_@types_c9551430b09515194bf4d31e244bbed7\node_modules\@base-ui\utils\esm\warn.js
+
+error: Unexpected reading file: "D:\a\legalwork\legalwork\node_modules\.pnpm\react@19.2.4\node_modules\react\jsx-runtime.js"
+    at D:\a\legalwork\legalwork\node_modules\.pnpm\react@19.2.4\node_modules\react\jsx-runtime.js
+
+error: Unexpected reading file: "D:\a\legalwork\legalwork\node_modules\.pnpm\@base-ui+utils@0.2.8_@types_c9551430b09515194bf4d31e244bbed7\node_modules\@base-ui\utils\esm\store\index.js"
+    at D:\a\legalwork\legalwork\node_modules\.pnpm\@base-ui+utils@0.2.8_@types_c9551430b09515194bf4d31e244bbed7\node_modules\@base-ui\utils\esm\store\index.js
+
+error: Unexpected reading file: "D:\a\legalwork\legalwork\node_modules\.pnpm\@floating-ui+utils@0.2.11\node_modules\@floating-ui\utils\dist\floating-ui.utils.mjs"
+    at D:\a\legalwork\legalwork\node_modules\.pnpm\@floating-ui+utils@0.2.11\node_modules\@floating-ui\utils\dist\floating-ui.utils.mjs
+
+error: Unexpected reading file: "D:\a\legalwork\legalwork\node_modules\.pnpm\@floating-ui+react-dom@2.1._f1e75c639f17217fdb8333873ebffdf9\node_modules\@floating-ui\react-dom\dist\floating-ui.react-dom.mjs"
+    at D:\a\legalwork\legalwork\node_modules\.pnpm\@floating-ui+react-dom@2.1._f1e75c639f17217fdb8333873ebffdf9\node_modules\@floating-ui\react-dom\dist\floating-ui.react-dom.mjs
+(fail) agent Settings requires deliberate scope confirmation and separate exact send review [47.00ms]
+
+::endgroup::
+
+::group::tests\mail-animation-security.test.ts:
+(pass) actual Chromium decodes the safe two-frame GIF and APNG security fixtures [531.00ms]
+
+::endgroup::
+
+::group::tests\mail-archive-reader-render.test.ts:
+error: Unexpected reading file: "D:\a\legalwork\legalwork\node_modules\.pnpm\lucide-react@0.577.0_react@19.2.4\node_modules\lucide-react\dist\esm\lucide-react.js"
+    at D:\a\legalwork\legalwork\node_modules\.pnpm\lucide-react@0.577.0_react@19.2.4\node_modules\lucide-react\dist\esm\lucide-react.js
+
+error: Unexpected reading file: "D:\a\legalwork\legalwork\node_modules\.pnpm\class-variance-authority@0.7.1\node_modules\class-variance-authority\dist\index.mjs"
+    at D:\a\legalwork\legalwork\node_modules\.pnpm\class-variance-authority@0.7.1\node_modules\class-variance-authority\dist\index.mjs
+
+error: Unexpected reading file: "D:\a\legalwork\legalwork\node_modules\.pnpm\jszip@3.10.1\node_modules\jszip\lib\index.js"
+    at D:\a\legalwork\legalwork\node_modules\.pnpm\jszip@3.10.1\node_modules\jszip\lib\index.js
+
+error: Unexpected reading file: "D:\a\legalwork\legalwork\node_modules\.pnpm\@eigenpal+docx-editor-agent_d3617b458bd51493a2de9af9f88c624c\node_modules\@eigenpal\docx-editor-agents\dist\index.mjs"
+    at D:\a\legalwork\legalwork\node_modules\.pnpm\@eigenpal+docx-editor-agent_d3617b458bd51493a2de9af9f88c624c\node_modules\@eigenpal\docx-editor-agents\dist\index.mjs
+
+error: Unexpected reading file: "D:\a\legalwork\legalwork\node_modules\.pnpm\zustand@5.0.12_@types+react_f59f9c7a86a9aa8438ed25a66ca04dad\node_modules\zustand\esm\index.mjs"
+    at D:\a\legalwork\legalwork\node_modules\.pnpm\zustand@5.0.12_@types+react_f59f9c7a86a9aa8438ed25a66ca04dad\node_modules\zustand\esm\index.mjs
+
+error: Unexpected reading file: "D:\a\legalwork\legalwork\node_modules\.pnpm\clsx@2.1.1\node_modules\clsx\dist\clsx.mjs"
+    at D:\a\legalwork\legalwork\node_modules\.pnpm\clsx@2.1.1\node_modules\clsx\dist\clsx.mjs
+
+error: Unexpected reading file: "D:\a\legalwork\legalwork\node_modules\.pnpm\tailwind-merge@3.5.0\node_modules\tailwind-merge\dist\bundle-mjs.mjs"
+    at D:\a\legalwork\legalwork\node_modules\.pnpm\tailwind-merge@3.5.0\node_modules\tailwind-merge\dist\bundle-mjs.mjs
+
+error: Unexpected reading file: "D:\a\legalwork\legalwork\node_modules\.pnpm\@base-ui+utils@0.2.8_@types_c9551430b09515194bf4d31e244bbed7\node_modules\@base-ui\utils\esm\empty.js"
+    at D:\a\legalwork\legalwork\node_modules\.pnpm\@base-ui+utils@0.2.8_@types_c9551430b09515194bf4d31e244bbed7\node_modules\@base-ui\utils\esm\empty.js
+
+error: Unexpected reading file: "D:\a\legalwork\legalwork\node_modules\.pnpm\@base-ui+utils@0.2.8_@types_c9551430b09515194bf4d31e244bbed7\node_modules\@base-ui\utils\esm\warn.js"
+    at D:\a\legalwork\legalwork\node_modules\.pnpm\@base-ui+utils@0.2.8_@types_c9551430b09515194bf4d31e244bbed7\node_modules\@base-ui\utils\esm\warn.js
+
+error: Unexpected reading file: "D:\a\legalwork\legalwork\node_modules\.pnpm\@floating-ui+utils@0.2.11\node_modules\@floating-ui\utils\dist\floating-ui.utils.dom.mjs"
+    at D:\a\legalwork\legalwork\node_modules\.pnpm\@floating-ui+utils@0.2.11\node_modules\@floating-ui\utils\dist\floating-ui.utils.dom.mjs
+
+error: Unexpected reading file: "D:\a\legalwork\legalwork\node_modules\.pnpm\react@19.2.4\node_modules\react\jsx-runtime.js"
+    at D:\a\legalwork\legalwork\node_modules\.pnpm\react@19.2.4\node_modules\react\jsx-runtime.js
+
+error: Unexpected reading file: "D:\a\legalwork\legalwork\node_modules\.pnpm\@floating-ui+react-dom@2.1._f1e75c639f17217fdb8333873ebffdf9\node_modules\@floating-ui\react-dom\dist\floating-ui.react-dom.mjs"
+    at D:\a\legalwork\legalwork\node_modules\.pnpm\@floating-ui+react-dom@2.1._f1e75c639f17217fdb8333873ebffdf9\node_modules\@floating-ui\react-dom\dist\floating-ui.react-dom.mjs
+
+error: Unexpected reading file: "D:\a\legalwork\legalwork\node_modules\.pnpm\@base-ui+utils@0.2.8_@types_c9551430b09515194bf4d31e244bbed7\node_modules\@base-ui\utils\esm\store\index.js"
+    at D:\a\legalwork\legalwork\node_modules\.pnpm\@base-ui+utils@0.2.8_@types_c9551430b09515194bf4d31e244bbed7\node_modules\@base-ui\utils\esm\store\index.js
+
+error: Unseekable reading file: "D:\a\legalwork\legalwork\node_modules\.pnpm\@floating-ui+utils@0.2.11\node_modules\@floating-ui\utils\dist\floating-ui.utils.mjs"
+    at D:\a\legalwork\legalwork\node_modules\.pnpm\@floating-ui+utils@0.2.11\node_modules\@floating-ui\utils\dist\floating-ui.utils.mjs
+(fail) archive account opens historical mail outside Inbox and offers no provider sync or compose [172.00ms]
+
+::endgroup::
+
+::group::tests\mail-attachment-render.test.ts:
+error: Unexpected reading file: "D:\a\legalwork\legalwork\node_modules\.pnpm\jszip@3.10.1\node_modules\jszip\lib\index.js"
+    at D:\a\legalwork\legalwork\node_modules\.pnpm\jszip@3.10.1\node_modules\jszip\lib\index.js
+
+error: Unexpected reading file: "D:\a\legalwork\legalwork\node_modules\.pnpm\react@19.2.4\node_modules\react\index.js"
+    at D:\a\legalwork\legalwork\node_modules\.pnpm\react@19.2.4\node_modules\react\index.js
+
+error: Unexpected reading file: "D:\a\legalwork\legalwork\node_modules\.pnpm\@eigenpal+docx-editor-agent_d3617b458bd51493a2de9af9f88c624c\node_modules\@eigenpal\docx-editor-agents\dist\index.mjs"
+    at D:\a\legalwork\legalwork\node_modules\.pnpm\@eigenpal+docx-editor-agent_d3617b458bd51493a2de9af9f88c624c\node_modules\@eigenpal\docx-editor-agents\dist\index.mjs
+
+error: Unexpected reading file: "D:\a\legalwork\legalwork\node_modules\.pnpm\zustand@5.0.12_@types+react_f59f9c7a86a9aa8438ed25a66ca04dad\node_modules\zustand\esm\index.mjs"
+    at D:\a\legalwork\legalwork\node_modules\.pnpm\zustand@5.0.12_@types+react_f59f9c7a86a9aa8438ed25a66ca04dad\node_modules\zustand\esm\index.mjs
+
+error: Unexpected reading file: "D:\a\legalwork\legalwork\node_modules\.pnpm\lucide-react@0.577.0_react@19.2.4\node_modules\lucide-react\dist\esm\lucide-react.js"
+    at D:\a\legalwork\legalwork\node_modules\.pnpm\lucide-react@0.577.0_react@19.2.4\node_modules\lucide-react\dist\esm\lucide-react.js
+
+error: Unexpected reading file: "D:\a\legalwork\legalwork\node_modules\.pnpm\tailwind-merge@3.5.0\node_modules\tailwind-merge\dist\bundle-mjs.mjs"
+    at D:\a\legalwork\legalwork\node_modules\.pnpm\tailwind-merge@3.5.0\node_modules\tailwind-merge\dist\bundle-mjs.mjs
+
+error: Unexpected reading file: "D:\a\legalwork\legalwork\node_modules\.pnpm\clsx@2.1.1\node_modules\clsx\dist\clsx.mjs"
+    at D:\a\legalwork\legalwork\node_modules\.pnpm\clsx@2.1.1\node_modules\clsx\dist\clsx.mjs
+
+error: Unexpected reading file: "D:\a\legalwork\legalwork\node_modules\.pnpm\class-variance-authority@0.7.1\node_modules\class-variance-authority\dist\index.mjs"
+    at D:\a\legalwork\legalwork\node_modules\.pnpm\class-variance-authority@0.7.1\node_modules\class-variance-authority\dist\index.mjs
+
+error: Unexpected reading file: "D:\a\legalwork\legalwork\node_modules\.pnpm\@floating-ui+utils@0.2.11\node_modules\@floating-ui\utils\dist\floating-ui.utils.dom.mjs"
+    at D:\a\legalwork\legalwork\node_modules\.pnpm\@floating-ui+utils@0.2.11\node_modules\@floating-ui\utils\dist\floating-ui.utils.dom.mjs
+
+error: Unexpected reading file: "D:\a\legalwork\legalwork\node_modules\.pnpm\@base-ui+utils@0.2.8_@types_c9551430b09515194bf4d31e244bbed7\node_modules\@base-ui\utils\esm\empty.js"
+    at D:\a\legalwork\legalwork\node_modules\.pnpm\@base-ui+utils@0.2.8_@types_c9551430b09515194bf4d31e244bbed7\node_modules\@base-ui\utils\esm\empty.js
+
+error: Unexpected reading file: "D:\a\legalwork\legalwork\node_modules\.pnpm\@base-ui+utils@0.2.8_@types_c9551430b09515194bf4d31e244bbed7\node_modules\@base-ui\utils\esm\warn.js"
+    at D:\a\legalwork\legalwork\node_modules\.pnpm\@base-ui+utils@0.2.8_@types_c9551430b09515194bf4d31e244bbed7\node_modules\@base-ui\utils\esm\warn.js
+
+error: Unexpected reading file: "D:\a\legalwork\legalwork\node_modules\.pnpm\react@19.2.4\node_modules\react\jsx-runtime.js"
+    at D:\a\legalwork\legalwork\node_modules\.pnpm\react@19.2.4\node_modules\react\jsx-runtime.js
+
+error: Unexpected reading file: "D:\a\legalwork\legalwork\node_modules\.pnpm\@base-ui+utils@0.2.8_@types_c9551430b09515194bf4d31e244bbed7\node_modules\@base-ui\utils\esm\owner.js"
+    at D:\a\legalwork\legalwork\node_modules\.pnpm\@base-ui+utils@0.2.8_@types_c9551430b09515194bf4d31e244bbed7\node_modules\@base-ui\utils\esm\owner.js
+
+error: Unexpected reading file: "D:\a\legalwork\legalwork\node_modules\.pnpm\@floating-ui+react-dom@2.1._f1e75c639f17217fdb8333873ebffdf9\node_modules\@floating-ui\react-dom\dist\floating-ui.react-dom.mjs"
+    at D:\a\legalwork\legalwork\node_modules\.pnpm\@floating-ui+react-dom@2.1._f1e75c639f17217fdb8333873ebffdf9\node_modules\@floating-ui\react-dom\dist\floating-ui.react-dom.mjs
+
+error: Unexpected reading file: "D:\a\legalwork\legalwork\node_modules\.pnpm\@base-ui+utils@0.2.8_@types_c9551430b09515194bf4d31e244bbed7\node_modules\@base-ui\utils\esm\store\index.js"
+    at D:\a\legalwork\legalwork\node_modules\.pnpm\@base-ui+utils@0.2.8_@types_c9551430b09515194bf4d31e244bbed7\node_modules\@base-ui\utils\esm\store\index.js
+
+error: Unexpected reading file: "D:\a\legalwork\legalwork\node_modules\.pnpm\@floating-ui+utils@0.2.11\node_modules\@floating-ui\utils\dist\floating-ui.utils.mjs"
+    at D:\a\legalwork\legalwork\node_modules\.pnpm\@floating-ui+utils@0.2.11\node_modules\@floating-ui\utils\dist\floating-ui.utils.mjs
+(fail) stored attachments use shared preview sources and reject unsafe document content [250.00ms]
+
+::endgroup::
+
+::group::tests\mail-auto-sync-render.test.ts:
+error: Unexpected reading file: "D:\a\legalwork\legalwork\node_modules\.pnpm\lucide-react@0.577.0_react@19.2.4\node_modules\lucide-react\dist\esm\lucide-react.js"
+    at D:\a\legalwork\legalwork\node_modules\.pnpm\lucide-react@0.577.0_react@19.2.4\node_modules\lucide-react\dist\esm\lucide-react.js
+
+error: Unexpected reading file: "D:\a\legalwork\legalwork\node_modules\.pnpm\class-variance-authority@0.7.1\node_modules\class-variance-authority\dist\index.mjs"
+    at D:\a\legalwork\legalwork\node_modules\.pnpm\class-variance-authority@0.7.1\node_modules\class-variance-authority\dist\index.mjs
+
+error: Unexpected reading file: "D:\a\legalwork\legalwork\node_modules\.pnpm\jszip@3.10.1\node_modules\jszip\lib\index.js"
+    at D:\a\legalwork\legalwork\node_modules\.pnpm\jszip@3.10.1\node_modules\jszip\lib\index.js
+
+error: Unexpected reading file: "D:\a\legalwork\legalwork\node_modules\.pnpm\@eigenpal+docx-editor-agent_d3617b458bd51493a2de9af9f88c624c\node_modules\@eigenpal\docx-editor-agents\dist\index.mjs"
+    at D:\a\legalwork\legalwork\node_modules\.pnpm\@eigenpal+docx-editor-agent_d3617b458bd51493a2de9af9f88c624c\node_modules\@eigenpal\docx-editor-agents\dist\index.mjs
+
+error: Unexpected reading file: "D:\a\legalwork\legalwork\node_modules\.pnpm\zustand@5.0.12_@types+react_f59f9c7a86a9aa8438ed25a66ca04dad\node_modules\zustand\esm\index.mjs"
+    at D:\a\legalwork\legalwork\node_modules\.pnpm\zustand@5.0.12_@types+react_f59f9c7a86a9aa8438ed25a66ca04dad\node_modules\zustand\esm\index.mjs
+
+error: Unexpected reading file: "D:\a\legalwork\legalwork\node_modules\.pnpm\tailwind-merge@3.5.0\node_modules\tailwind-merge\dist\bundle-mjs.mjs"
+    at D:\a\legalwork\legalwork\node_modules\.pnpm\tailwind-merge@3.5.0\node_modules\tailwind-merge\dist\bundle-mjs.mjs
+
+error: Unexpected reading file: "D:\a\legalwork\legalwork\node_modules\.pnpm\clsx@2.1.1\node_modules\clsx\dist\clsx.mjs"
+    at D:\a\legalwork\legalwork\node_modules\.pnpm\clsx@2.1.1\node_modules\clsx\dist\clsx.mjs
+
+error: Unexpected reading file: "D:\a\legalwork\legalwork\node_modules\.pnpm\@base-ui+utils@0.2.8_@types_c9551430b09515194bf4d31e244bbed7\node_modules\@base-ui\utils\esm\empty.js"
+    at D:\a\legalwork\legalwork\node_modules\.pnpm\@base-ui+utils@0.2.8_@types_c9551430b09515194bf4d31e244bbed7\node_modules\@base-ui\utils\esm\empty.js
+
+error: Unexpected reading file: "D:\a\legalwork\legalwork\node_modules\.pnpm\@base-ui+utils@0.2.8_@types_c9551430b09515194bf4d31e244bbed7\node_modules\@base-ui\utils\esm\warn.js"
+    at D:\a\legalwork\legalwork\node_modules\.pnpm\@base-ui+utils@0.2.8_@types_c9551430b09515194bf4d31e244bbed7\node_modules\@base-ui\utils\esm\warn.js
+
+error: Unexpected reading file: "D:\a\legalwork\legalwork\node_modules\.pnpm\react@19.2.4\node_modules\react\jsx-runtime.js"
+    at D:\a\legalwork\legalwork\node_modules\.pnpm\react@19.2.4\node_modules\react\jsx-runtime.js
+
+error: Unexpected reading file: "D:\a\legalwork\legalwork\node_modules\.pnpm\@base-ui+utils@0.2.8_@types_c9551430b09515194bf4d31e244bbed7\node_modules\@base-ui\utils\esm\owner.js"
+    at D:\a\legalwork\legalwork\node_modules\.pnpm\@base-ui+utils@0.2.8_@types_c9551430b09515194bf4d31e244bbed7\node_modules\@base-ui\utils\esm\owner.js
+
+4 | import { getFloatingFocusElement } from "../utils/element.js";
+                                            ^
+error: Could not resolve: "../utils/element.js"
+    at D:\a\legalwork\legalwork\node_modules\.pnpm\@floating-ui+react-dom@2.1._f1e75c639f17217fdb8333873ebffdf9\node_modules\@floating-ui\react-dom\dist\floating-ui.react-dom.mjs:4:41
+
+5 | import { useFloatingParentNodeId } from "../components/FloatingTree.js";
+                                            ^
+error: Could not resolve: "../components/FloatingTree.js"
+    at D:\a\legalwork\legalwork\node_modules\.pnpm\@floating-ui+react-dom@2.1._f1e75c639f17217fdb8333873ebffdf9\node_modules\@floating-ui\react-dom\dist\floating-ui.react-dom.mjs:5:41
+
+error: Unexpected reading file: "D:\a\legalwork\legalwork\node_modules\.pnpm\@base-ui+utils@0.2.8_@types_c9551430b09515194bf4d31e244bbed7\node_modules\@base-ui\utils\esm\store\index.js"
+    at D:\a\legalwork\legalwork\node_modules\.pnpm\@base-ui+utils@0.2.8_@types_c9551430b09515194bf4d31e244bbed7\node_modules\@base-ui\utils\esm\store\index.js
+
+error: Unexpected reading file: "D:\a\legalwork\legalwork\node_modules\.pnpm\@floating-ui+utils@0.2.11\node_modules\@floating-ui\utils\dist\floating-ui.utils.mjs"
+    at D:\a\legalwork\legalwork\node_modules\.pnpm\@floating-ui+utils@0.2.11\node_modules\@floating-ui\utils\dist\floating-ui.utils.mjs
+(fail) actual renderer automatically displays sync progress, downloaded inbox messages and retry without navigation [172.00ms]
+
+::endgroup::
+
+::group::tests\mail-chat.test.ts:
+(pass) chosen chat preserves existing draft, copies original plus provenance without submitting [16.00ms]
+(pass) repeat filenames use distinct bounded Windows-safe paths without overwrite flags
+(pass) cancelled in-flight copy never adds provenance, draft or navigation
+(pass) changed source, foreign chat and failed provenance prevent staging
+(pass) return links contain only source scope and reject extra authority
+(pass) hash mismatch is rejected before any workspace write
+(pass) IMAP mailbox Unicode and parentheses survive a Markdown-safe return link
+(pass) durable source link is unchanged when the trusted local server restarts on another port
+
+::endgroup::
+
+::group::tests\mail-compose.test.ts:
+(pass) reply-all excludes sender/duplicates/BCC and preserves reference chain; forwarding clears reply headers [15.00ms]
+error: Unexpected reading file: "D:\a\legalwork\legalwork\node_modules\.pnpm\react@19.2.4\node_modules\react\index.js"
+    at D:\a\legalwork\legalwork\node_modules\.pnpm\react@19.2.4\node_modules\react\index.js
+
+error: Unexpected reading file: "D:\a\legalwork\legalwork\node_modules\.pnpm\react@19.2.4\node_modules\react\jsx-dev-runtime.js"
+    at D:\a\legalwork\legalwork\node_modules\.pnpm\react@19.2.4\node_modules\react\jsx-dev-runtime.js
+
+error: EISDIR reading file: "D:\a\legalwork\legalwork\node_modules\.pnpm\lucide-react@0.577.0_react@19.2.4\node_modules\lucide-react\dist\esm\lucide-react.js"
+    at D:\a\legalwork\legalwork\node_modules\.pnpm\lucide-react@0.577.0_react@19.2.4\node_modules\lucide-react\dist\esm\lucide-react.js
+
+error: Unexpected reading file: "D:\a\legalwork\legalwork\node_modules\.pnpm\class-variance-authority@0.7.1\node_modules\class-variance-authority\dist\index.mjs"
+    at D:\a\legalwork\legalwork\node_modules\.pnpm\class-variance-authority@0.7.1\node_modules\class-variance-authority\dist\index.mjs
+
+error: Unexpected reading file: "D:\a\legalwork\legalwork\node_modules\.pnpm\tailwind-merge@3.5.0\node_modules\tailwind-merge\dist\bundle-mjs.mjs"
+    at D:\a\legalwork\legalwork\node_modules\.pnpm\tailwind-merge@3.5.0\node_modules\tailwind-merge\dist\bundle-mjs.mjs
+
+error: Unexpected reading file: "D:\a\legalwork\legalwork\node_modules\.pnpm\clsx@2.1.1\node_modules\clsx\dist\clsx.mjs"
+    at D:\a\legalwork\legalwork\node_modules\.pnpm\clsx@2.1.1\node_modules\clsx\dist\clsx.mjs
+
+error: Unseekable reading file: "D:\a\legalwork\legalwork\node_modules\.pnpm\react@19.2.4\node_modules\react\jsx-runtime.js"
+    at D:\a\legalwork\legalwork\node_modules\.pnpm\react@19.2.4\node_modules\react\jsx-runtime.js
+
+error: EISDIR reading file: "D:\a\legalwork\legalwork\node_modules\.pnpm\@base-ui+utils@0.2.8_@types_c9551430b09515194bf4d31e244bbed7\node_modules\@base-ui\utils\esm\empty.js"
+    at D:\a\legalwork\legalwork\node_modules\.pnpm\@base-ui+utils@0.2.8_@types_c9551430b09515194bf4d31e244bbed7\node_modules\@base-ui\utils\esm\empty.js
+
+error: Unexpected reading file: "D:\a\legalwork\legalwork\node_modules\.pnpm\@base-ui+utils@0.2.8_@types_c9551430b09515194bf4d31e244bbed7\node_modules\@base-ui\utils\esm\warn.js"
+    at D:\a\legalwork\legalwork\node_modules\.pnpm\@base-ui+utils@0.2.8_@types_c9551430b09515194bf4d31e244bbed7\node_modules\@base-ui\utils\esm\warn.js
+
+error: Unexpected reading file: "D:\a\legalwork\legalwork\node_modules\.pnpm\@base-ui+utils@0.2.8_@types_c9551430b09515194bf4d31e244bbed7\node_modules\@base-ui\utils\esm\store\index.js"
+    at D:\a\legalwork\legalwork\node_modules\.pnpm\@base-ui+utils@0.2.8_@types_c9551430b09515194bf4d31e244bbed7\node_modules\@base-ui\utils\esm\store\index.js
+
+7 | import { useFloatingParentNodeId } from "../components/FloatingTree.js";
+                                            ^
+error: Could not resolve: "../components/FloatingTree.js"
+    at D:\a\legalwork\legalwork\node_modules\.pnpm\@floating-ui+react-dom@2.1._f1e75c639f17217fdb8333873ebffdf9\node_modules\@floating-ui\react-dom\dist\floating-ui.react-dom.mjs:7:41
+
+8 | import { FloatingRootStore } from "../components/FloatingRootStore.js";
+                                      ^
+error: Could not resolve: "../components/FloatingRootStore.js"
+    at D:\a\legalwork\legalwork\node_modules\.pnpm\@floating-ui+react-dom@2.1._f1e75c639f17217fdb8333873ebffdf9\node_modules\@floating-ui\react-dom\dist\floating-ui.react-dom.mjs:8:35
+
+error: Unexpected reading file: "D:\a\legalwork\legalwork\node_modules\.pnpm\@floating-ui+utils@0.2.11\node_modules\@floating-ui\utils\dist\floating-ui.utils.dom.mjs"
+    at D:\a\legalwork\legalwork\node_modules\.pnpm\@floating-ui+utils@0.2.11\node_modules\@floating-ui\utils\dist\floating-ui.utils.dom.mjs
+
+error: Unexpected reading file: "D:\a\legalwork\legalwork\node_modules\.pnpm\@floating-ui+utils@0.2.11\node_modules\@floating-ui\utils\dist\floating-ui.utils.mjs"
+    at D:\a\legalwork\legalwork\node_modules\.pnpm\@floating-ui+utils@0.2.11\node_modules\@floating-ui\utils\dist\floating-ui.utils.mjs
+(fail) isolated compose UI saves/reopens incomplete work, formats safely, attaches files and keeps Send unavailable [47.00ms]
+
+::endgroup::
+
+::group::tests\mail-context-render.test.ts:
+error: EISDIR reading file: "D:\a\legalwork\legalwork\node_modules\.pnpm\lucide-react@0.577.0_react@19.2.4\node_modules\lucide-react\dist\esm\lucide-react.js"
+    at D:\a\legalwork\legalwork\node_modules\.pnpm\lucide-react@0.577.0_react@19.2.4\node_modules\lucide-react\dist\esm\lucide-react.js
+
+error: Unexpected reading file: "D:\a\legalwork\legalwork\node_modules\.pnpm\class-variance-authority@0.7.1\node_modules\class-variance-authority\dist\index.mjs"
+    at D:\a\legalwork\legalwork\node_modules\.pnpm\class-variance-authority@0.7.1\node_modules\class-variance-authority\dist\index.mjs
+
+error: Unexpected reading file: "D:\a\legalwork\legalwork\node_modules\.pnpm\jszip@3.10.1\node_modules\jszip\lib\index.js"
+    at D:\a\legalwork\legalwork\node_modules\.pnpm\jszip@3.10.1\node_modules\jszip\lib\index.js
+
+error: Unexpected reading file: "D:\a\legalwork\legalwork\node_modules\.pnpm\@eigenpal+docx-editor-agent_d3617b458bd51493a2de9af9f88c624c\node_modules\@eigenpal\docx-editor-agents\dist\index.mjs"
+    at D:\a\legalwork\legalwork\node_modules\.pnpm\@eigenpal+docx-editor-agent_d3617b458bd51493a2de9af9f88c624c\node_modules\@eigenpal\docx-editor-agents\dist\index.mjs
+
+error: Unexpected reading file: "D:\a\legalwork\legalwork\node_modules\.pnpm\zustand@5.0.12_@types+react_f59f9c7a86a9aa8438ed25a66ca04dad\node_modules\zustand\esm\index.mjs"
+    at D:\a\legalwork\legalwork\node_modules\.pnpm\zustand@5.0.12_@types+react_f59f9c7a86a9aa8438ed25a66ca04dad\node_modules\zustand\esm\index.mjs
+
+error: Unexpected reading file: "D:\a\legalwork\legalwork\node_modules\.pnpm\tailwind-merge@3.5.0\node_modules\tailwind-merge\dist\bundle-mjs.mjs"
+    at D:\a\legalwork\legalwork\node_modules\.pnpm\tailwind-merge@3.5.0\node_modules\tailwind-merge\dist\bundle-mjs.mjs
+
+error: Unexpected reading file: "D:\a\legalwork\legalwork\node_modules\.pnpm\clsx@2.1.1\node_modules\clsx\dist\clsx.mjs"
+    at D:\a\legalwork\legalwork\node_modules\.pnpm\clsx@2.1.1\node_modules\clsx\dist\clsx.mjs
+
+error: EISDIR reading file: "D:\a\legalwork\legalwork\node_modules\.pnpm\@base-ui+utils@0.2.8_@types_c9551430b09515194bf4d31e244bbed7\node_modules\@base-ui\utils\esm\empty.js"
+    at D:\a\legalwork\legalwork\node_modules\.pnpm\@base-ui+utils@0.2.8_@types_c9551430b09515194bf4d31e244bbed7\node_modules\@base-ui\utils\esm\empty.js
+
+error: Unexpected reading file: "D:\a\legalwork\legalwork\node_modules\.pnpm\@base-ui+utils@0.2.8_@types_c9551430b09515194bf4d31e244bbed7\node_modules\@base-ui\utils\esm\warn.js"
+    at D:\a\legalwork\legalwork\node_modules\.pnpm\@base-ui+utils@0.2.8_@types_c9551430b09515194bf4d31e244bbed7\node_modules\@base-ui\utils\esm\warn.js
+
+error: Unexpected reading file: "D:\a\legalwork\legalwork\node_modules\.pnpm\@floating-ui+utils@0.2.11\node_modules\@floating-ui\utils\dist\floating-ui.utils.dom.mjs"
+    at D:\a\legalwork\legalwork\node_modules\.pnpm\@floating-ui+utils@0.2.11\node_modules\@floating-ui\utils\dist\floating-ui.utils.dom.mjs
+
+error: Unexpected reading file: "D:\a\legalwork\legalwork\node_modules\.pnpm\react@19.2.4\node_modules\react\jsx-runtime.js"
+    at D:\a\legalwork\legalwork\node_modules\.pnpm\react@19.2.4\node_modules\react\jsx-runtime.js
+
+error: Unexpected reading file: "D:\a\legalwork\legalwork\node_modules\.pnpm\@base-ui+utils@0.2.8_@types_c9551430b09515194bf4d31e244bbed7\node_modules\@base-ui\utils\esm\owner.js"
+    at D:\a\legalwork\legalwork\node_modules\.pnpm\@base-ui+utils@0.2.8_@types_c9551430b09515194bf4d31e244bbed7\node_modules\@base-ui\utils\esm\owner.js
+
+error: Unexpected reading file: "D:\a\legalwork\legalwork\node_modules\.pnpm\@base-ui+utils@0.2.8_@types_c9551430b09515194bf4d31e244bbed7\node_modules\@base-ui\utils\esm\store\index.js"
+    at D:\a\legalwork\legalwork\node_modules\.pnpm\@base-ui+utils@0.2.8_@types_c9551430b09515194bf4d31e244bbed7\node_modules\@base-ui\utils\esm\store\index.js
+
+error: Unexpected reading file: "D:\a\legalwork\legalwork\node_modules\.pnpm\@floating-ui+react-dom@2.1._f1e75c639f17217fdb8333873ebffdf9\node_modules\@floating-ui\react-dom\dist\floating-ui.react-dom.mjs"
+    at D:\a\legalwork\legalwork\node_modules\.pnpm\@floating-ui+react-dom@2.1._f1e75c639f17217fdb8333873ebffdf9\node_modules\@floating-ui\react-dom\dist\floating-ui.react-dom.mjs
+
+error: Unexpected reading file: "D:\a\legalwork\legalwork\node_modules\.pnpm\@floating-ui+utils@0.2.11\node_modules\@floating-ui\utils\dist\floating-ui.utils.mjs"
+    at D:\a\legalwork\legalwork\node_modules\.pnpm\@floating-ui+utils@0.2.11\node_modules\@floating-ui\utils\dist\floating-ui.utils.mjs
+(fail) actual mailbox and search context menus preserve selection and share journal, undo and permissions [172.00ms]
+
+::endgroup::
+
+::group::tests\mail-conversation-render.test.ts:
+error: Could not resolve: "react/jsx-dev-runtime". Maybe you need to "bun install"?
+    at C:\Users\RUNNER~1\AppData\Local\Temp\mail-conversation-render-ZEjpqM\entry.tsx
+(fail) conversation open queues read once and preserves first HTML layout across idle polls [16.00ms]
+
+::endgroup::
+
+::group::tests\mail-desktop.test.ts:
+error: Unexpected reading file: "D:\a\legalwork\legalwork\node_modules\.pnpm\react@19.2.4\node_modules\react\index.js"
+    at D:\a\legalwork\legalwork\node_modules\.pnpm\react@19.2.4\node_modules\react\index.js
+
+error: Unexpected reading file: "D:\a\legalwork\legalwork\node_modules\.pnpm\react@19.2.4\node_modules\react\jsx-dev-runtime.js"
+    at D:\a\legalwork\legalwork\node_modules\.pnpm\react@19.2.4\node_modules\react\jsx-dev-runtime.js
+
+error: Unexpected reading file: "D:\a\legalwork\legalwork\node_modules\.pnpm\class-variance-authority@0.7.1\node_modules\class-variance-authority\dist\index.mjs"
+    at D:\a\legalwork\legalwork\node_modules\.pnpm\class-variance-authority@0.7.1\node_modules\class-variance-authority\dist\index.mjs
+
+error: EISDIR reading file: "D:\a\legalwork\legalwork\node_modules\.pnpm\lucide-react@0.577.0_react@19.2.4\node_modules\lucide-react\dist\esm\lucide-react.js"
+    at D:\a\legalwork\legalwork\node_modules\.pnpm\lucide-react@0.577.0_react@19.2.4\node_modules\lucide-react\dist\esm\lucide-react.js
+
+error: Unexpected reading file: "D:\a\legalwork\legalwork\node_modules\.pnpm\tailwind-merge@3.5.0\node_modules\tailwind-merge\dist\bundle-mjs.mjs"
+    at D:\a\legalwork\legalwork\node_modules\.pnpm\tailwind-merge@3.5.0\node_modules\tailwind-merge\dist\bundle-mjs.mjs
+
+error: Unexpected reading file: "D:\a\legalwork\legalwork\node_modules\.pnpm\clsx@2.1.1\node_modules\clsx\dist\clsx.mjs"
+    at D:\a\legalwork\legalwork\node_modules\.pnpm\clsx@2.1.1\node_modules\clsx\dist\clsx.mjs
+
+error: Unexpected reading file: "D:\a\legalwork\legalwork\node_modules\.pnpm\@base-ui+react@1.4.1_@types_bf6a27bfe7c944d33b05ef5c074fb210\node_modules\@base-ui\react\esm\tooltip\index.js"
+    at D:\a\legalwork\legalwork\node_modules\.pnpm\@base-ui+react@1.4.1_@types_bf6a27bfe7c944d33b05ef5c074fb210\node_modules\@base-ui\react\esm\tooltip\index.js
+
+error: Unexpected reading file: "D:\a\legalwork\legalwork\node_modules\.pnpm\react@19.2.4\node_modules\react\jsx-runtime.js"
+    at D:\a\legalwork\legalwork\node_modules\.pnpm\react@19.2.4\node_modules\react\jsx-runtime.js
+
+error: EISDIR reading file: "D:\a\legalwork\legalwork\node_modules\.pnpm\@base-ui+utils@0.2.8_@types_c9551430b09515194bf4d31e244bbed7\node_modules\@base-ui\utils\esm\empty.js"
+    at D:\a\legalwork\legalwork\node_modules\.pnpm\@base-ui+utils@0.2.8_@types_c9551430b09515194bf4d31e244bbed7\node_modules\@base-ui\utils\esm\empty.js
+
+error: Unexpected reading file: "D:\a\legalwork\legalwork\node_modules\.pnpm\@base-ui+utils@0.2.8_@types_c9551430b09515194bf4d31e244bbed7\node_modules\@base-ui\utils\esm\warn.js"
+    at D:\a\legalwork\legalwork\node_modules\.pnpm\@base-ui+utils@0.2.8_@types_c9551430b09515194bf4d31e244bbed7\node_modules\@base-ui\utils\esm\warn.js
+
+error: Unexpected reading file: "D:\a\legalwork\legalwork\node_modules\.pnpm\@floating-ui+utils@0.2.11\node_modules\@floating-ui\utils\dist\floating-ui.utils.dom.mjs"
+    at D:\a\legalwork\legalwork\node_modules\.pnpm\@floating-ui+utils@0.2.11\node_modules\@floating-ui\utils\dist\floating-ui.utils.dom.mjs
+
+error: Unexpected reading file: "D:\a\legalwork\legalwork\node_modules\.pnpm\@base-ui+utils@0.2.8_@types_c9551430b09515194bf4d31e244bbed7\node_modules\@base-ui\utils\esm\store\index.js"
+    at D:\a\legalwork\legalwork\node_modules\.pnpm\@base-ui+utils@0.2.8_@types_c9551430b09515194bf4d31e244bbed7\node_modules\@base-ui\utils\esm\store\index.js
+
+error: Unexpected reading file: "D:\a\legalwork\legalwork\node_modules\.pnpm\@base-ui+utils@0.2.8_@types_c9551430b09515194bf4d31e244bbed7\node_modules\@base-ui\utils\esm\owner.js"
+    at D:\a\legalwork\legalwork\node_modules\.pnpm\@base-ui+utils@0.2.8_@types_c9551430b09515194bf4d31e244bbed7\node_modules\@base-ui\utils\esm\owner.js
+
+error: Unexpected reading file: "D:\a\legalwork\legalwork\node_modules\.pnpm\@floating-ui+utils@0.2.11\node_modules\@floating-ui\utils\dist\floating-ui.utils.mjs"
+    at D:\a\legalwork\legalwork\node_modules\.pnpm\@floating-ui+utils@0.2.11\node_modules\@floating-ui\utils\dist\floating-ui.utils.mjs
+
+7 | import { contains, getTarget } from "../utils/element.js";
+                                        ^
+error: Could not resolve: "../utils/element.js"
+    at D:\a\legalwork\legalwork\node_modules\.pnpm\@floating-ui+react-dom@2.1._f1e75c639f17217fdb8333873ebffdf9\node_modules\@floating-ui\react-dom\dist\floating-ui.react-dom.mjs:7:37
+
+8 | import { isMouseLikePointerType } from "../utils/event.js";
+                                           ^
+error: Could not resolve: "../utils/event.js"
+    at D:\a\legalwork\legalwork\node_modules\.pnpm\@floating-ui+react-dom@2.1._f1e75c639f17217fdb8333873ebffdf9\node_modules\@floating-ui\react-dom\dist\floating-ui.react-dom.mjs:8:40
+(fail) isolated Mail settings and scoped keyboard preserve typing and shell commands [31.00ms]
+
+::endgroup::
+
+::group::tests\mail-docx-security.test.ts:
+error: Unexpected reading file: "D:\a\legalwork\legalwork\node_modules\.pnpm\jszip@3.10.1\node_modules\jszip\lib\index.js"
+    at D:\a\legalwork\legalwork\node_modules\.pnpm\jszip@3.10.1\node_modules\jszip\lib\index.js
+
+error: Unexpected reading file: "D:\a\legalwork\legalwork\node_modules\.pnpm\@eigenpal+docx-editor-agent_d3617b458bd51493a2de9af9f88c624c\node_modules\@eigenpal\docx-editor-agents\dist\index.mjs"
+    at D:\a\legalwork\legalwork\node_modules\.pnpm\@eigenpal+docx-editor-agent_d3617b458bd51493a2de9af9f88c624c\node_modules\@eigenpal\docx-editor-agents\dist\index.mjs
+(fail) stored Word text preview does not load sender-selected fonts or external relationships [16.00ms]
+
+::endgroup::
+
+::group::tests\mail-draft-recovery.test.ts:
+(pass) failed mail save remains recoverable after navigation and acknowledges only the recovered version
+(pass) rapid recovery burst keeps one in-flight and one latest pending snapshot with exact acknowledgments [16.00ms]
+
+::endgroup::
+
+::group::tests\mail-draft-sync.test.ts:
+(pass) isolated draft UI exposes provider conflict decisions and uncertain recovery without enabling send [9219.00ms]
+
+::endgroup::
+
+::group::tests\mail-frame-privileges.test.ts:
+(pass) opaque mail frame has no production preload, Node, parent storage or native mail privileges [578.00ms]
+
+::endgroup::
+
+::group::tests\mail-html-render.test.ts:
+error: Unexpected reading file: "D:\a\legalwork\legalwork\node_modules\.pnpm\react@19.2.4\node_modules\react\jsx-dev-runtime.js"
+    at D:\a\legalwork\legalwork\node_modules\.pnpm\react@19.2.4\node_modules\react\jsx-dev-runtime.js
+
+error: Unexpected reading file: "D:\a\legalwork\legalwork\node_modules\.pnpm\react@19.2.4\node_modules\react\index.js"
+    at D:\a\legalwork\legalwork\node_modules\.pnpm\react@19.2.4\node_modules\react\index.js
+
+error: Unexpected reading file: "D:\a\legalwork\legalwork\node_modules\.pnpm\zod@4.5.4\node_modules\zod\index.js"
+    at D:\a\legalwork\legalwork\node_modules\.pnpm\zod@4.5.4\node_modules\zod\index.js
+(fail) isolated mail preserves responsive layout, blocks active content and resizes long threads [31.00ms]
+
+::endgroup::
+
+::group::tests\mail-journey-render.test.ts:
+error: EISDIR reading file: "D:\a\legalwork\legalwork\node_modules\.pnpm\react@19.2.4\node_modules\react\index.js"
+    at D:\a\legalwork\legalwork\node_modules\.pnpm\react@19.2.4\node_modules\react\index.js
+
+error: EISDIR reading file: "D:\a\legalwork\legalwork\node_modules\.pnpm\react@19.2.4\node_modules\react\jsx-dev-runtime.js"
+    at D:\a\legalwork\legalwork\node_modules\.pnpm\react@19.2.4\node_modules\react\jsx-dev-runtime.js
+
+error: EISDIR reading file: "D:\a\legalwork\legalwork\node_modules\.pnpm\zustand@5.0.12_@types+react_f59f9c7a86a9aa8438ed25a66ca04dad\node_modules\zustand\esm\index.mjs"
+    at D:\a\legalwork\legalwork\node_modules\.pnpm\zustand@5.0.12_@types+react_f59f9c7a86a9aa8438ed25a66ca04dad\node_modules\zustand\esm\index.mjs
+
+error: EISDIR reading file: "D:\a\legalwork\legalwork\node_modules\.pnpm\lucide-react@0.577.0_react@19.2.4\node_modules\lucide-react\dist\esm\lucide-react.js"
+    at D:\a\legalwork\legalwork\node_modules\.pnpm\lucide-react@0.577.0_react@19.2.4\node_modules\lucide-react\dist\esm\lucide-react.js
+
+error: EISDIR reading file: "D:\a\legalwork\legalwork\node_modules\.pnpm\tailwind-merge@3.5.0\node_modules\tailwind-merge\dist\bundle-mjs.mjs"
+    at D:\a\legalwork\legalwork\node_modules\.pnpm\tailwind-merge@3.5.0\node_modules\tailwind-merge\dist\bundle-mjs.mjs
+
+1 | import { createRequire } from "module";
+                                  ^
+error: Browser build cannot import Node.js builtin: "module". To use Node.js builtins, set target to 'node' or 'bun'
+    at D:\a\legalwork\legalwork\node_modules\.pnpm\clsx@2.1.1\node_modules\clsx\dist\clsx.mjs:1:31
+
+error: EISDIR reading file: "D:\a\legalwork\legalwork\node_modules\.pnpm\jszip@3.10.1\node_modules\jszip\lib\index.js"
+    at D:\a\legalwork\legalwork\node_modules\.pnpm\jszip@3.10.1\node_modules\jszip\lib\index.js
+
+error: EISDIR reading file: "D:\a\legalwork\legalwork\node_modules\.pnpm\@eigenpal+docx-editor-agent_d3617b458bd51493a2de9af9f88c624c\node_modules\@eigenpal\docx-editor-agents\dist\index.mjs"
+    at D:\a\legalwork\legalwork\node_modules\.pnpm\@eigenpal+docx-editor-agent_d3617b458bd51493a2de9af9f88c624c\node_modules\@eigenpal\docx-editor-agents\dist\index.mjs
+
+error: EISDIR reading file: "D:\a\legalwork\legalwork\node_modules\.pnpm\class-variance-authority@0.7.1\node_modules\class-variance-authority\dist\index.mjs"
+    at D:\a\legalwork\legalwork\node_modules\.pnpm\class-variance-authority@0.7.1\node_modules\class-variance-authority\dist\index.mjs
+
+error: EISDIR reading file: "D:\a\legalwork\legalwork\node_modules\.pnpm\@floating-ui+utils@0.2.11\node_modules\@floating-ui\utils\dist\floating-ui.utils.dom.mjs"
+    at D:\a\legalwork\legalwork\node_modules\.pnpm\@floating-ui+utils@0.2.11\node_modules\@floating-ui\utils\dist\floating-ui.utils.dom.mjs
+
+error: EISDIR reading file: "D:\a\legalwork\legalwork\node_modules\.pnpm\@base-ui+utils@0.2.8_@types_c9551430b09515194bf4d31e244bbed7\node_modules\@base-ui\utils\esm\warn.js"
+    at D:\a\legalwork\legalwork\node_modules\.pnpm\@base-ui+utils@0.2.8_@types_c9551430b09515194bf4d31e244bbed7\node_modules\@base-ui\utils\esm\warn.js
+
+error: EISDIR reading file: "D:\a\legalwork\legalwork\node_modules\.pnpm\@base-ui+utils@0.2.8_@types_c9551430b09515194bf4d31e244bbed7\node_modules\@base-ui\utils\esm\empty.js"
+    at D:\a\legalwork\legalwork\node_modules\.pnpm\@base-ui+utils@0.2.8_@types_c9551430b09515194bf4d31e244bbed7\node_modules\@base-ui\utils\esm\empty.js
+
+error: EISDIR reading file: "D:\a\legalwork\legalwork\node_modules\.pnpm\@base-ui+utils@0.2.8_@types_c9551430b09515194bf4d31e244bbed7\node_modules\@base-ui\utils\esm\owner.js"
+    at D:\a\legalwork\legalwork\node_modules\.pnpm\@base-ui+utils@0.2.8_@types_c9551430b09515194bf4d31e244bbed7\node_modules\@base-ui\utils\esm\owner.js
+
+error: EISDIR reading file: "D:\a\legalwork\legalwork\node_modules\.pnpm\@floating-ui+react-dom@2.1._f1e75c639f17217fdb8333873ebffdf9\node_modules\@floating-ui\react-dom\dist\floating-ui.react-dom.mjs"
+    at D:\a\legalwork\legalwork\node_modules\.pnpm\@floating-ui+react-dom@2.1._f1e75c639f17217fdb8333873ebffdf9\node_modules\@floating-ui\react-dom\dist\floating-ui.react-dom.mjs
+
+error: EISDIR reading file: "D:\a\legalwork\legalwork\node_modules\.pnpm\@base-ui+utils@0.2.8_@types_c9551430b09515194bf4d31e244bbed7\node_modules\@base-ui\utils\esm\store\index.js"
+    at D:\a\legalwork\legalwork\node_modules\.pnpm\@base-ui+utils@0.2.8_@types_c9551430b09515194bf4d31e244bbed7\node_modules\@base-ui\utils\esm\store\index.js
+
+error: EISDIR reading file: "D:\a\legalwork\legalwork\node_modules\.pnpm\@floating-ui+utils@0.2.11\node_modules\@floating-ui\utils\dist\floating-ui.utils.mjs"
+    at D:\a\legalwork\legalwork\node_modules\.pnpm\@floating-ui+utils@0.2.11\node_modules\@floating-ui\utils\dist\floating-ui.utils.mjs
+(fail) mail attachment opens internally, prepares a chosen chat and returns to its source [172.00ms]
+
+::endgroup::
+
+::group::tests\mail-keyboard-workflow.test.ts:
+error: EISDIR reading file: "D:\a\legalwork\legalwork\node_modules\.pnpm\lucide-react@0.577.0_react@19.2.4\node_modules\lucide-react\dist\esm\lucide-react.js"
+    at D:\a\legalwork\legalwork\node_modules\.pnpm\lucide-react@0.577.0_react@19.2.4\node_modules\lucide-react\dist\esm\lucide-react.js
+
+error: EISDIR reading file: "D:\a\legalwork\legalwork\node_modules\.pnpm\class-variance-authority@0.7.1\node_modules\class-variance-authority\dist\index.mjs"
+    at D:\a\legalwork\legalwork\node_modules\.pnpm\class-variance-authority@0.7.1\node_modules\class-variance-authority\dist\index.mjs
+
+error: EISDIR reading file: "D:\a\legalwork\legalwork\node_modules\.pnpm\jszip@3.10.1\node_modules\jszip\lib\index.js"
+    at D:\a\legalwork\legalwork\node_modules\.pnpm\jszip@3.10.1\node_modules\jszip\lib\index.js
+
+error: EISDIR reading file: "D:\a\legalwork\legalwork\node_modules\.pnpm\@eigenpal+docx-editor-agent_d3617b458bd51493a2de9af9f88c624c\node_modules\@eigenpal\docx-editor-agents\dist\index.mjs"
+    at D:\a\legalwork\legalwork\node_modules\.pnpm\@eigenpal+docx-editor-agent_d3617b458bd51493a2de9af9f88c624c\node_modules\@eigenpal\docx-editor-agents\dist\index.mjs
+
+error: EISDIR reading file: "D:\a\legalwork\legalwork\node_modules\.pnpm\zustand@5.0.12_@types+react_f59f9c7a86a9aa8438ed25a66ca04dad\node_modules\zustand\esm\index.mjs"
+    at D:\a\legalwork\legalwork\node_modules\.pnpm\zustand@5.0.12_@types+react_f59f9c7a86a9aa8438ed25a66ca04dad\node_modules\zustand\esm\index.mjs
+
+error: EISDIR reading file: "D:\a\legalwork\legalwork\node_modules\.pnpm\tailwind-merge@3.5.0\node_modules\tailwind-merge\dist\bundle-mjs.mjs"
+    at D:\a\legalwork\legalwork\node_modules\.pnpm\tailwind-merge@3.5.0\node_modules\tailwind-merge\dist\bundle-mjs.mjs
+
+error: Unexpected reading file: "D:\a\legalwork\legalwork\node_modules\.pnpm\clsx@2.1.1\node_modules\clsx\dist\clsx.mjs"
+    at D:\a\legalwork\legalwork\node_modules\.pnpm\clsx@2.1.1\node_modules\clsx\dist\clsx.mjs
+
+error: EISDIR reading file: "D:\a\legalwork\legalwork\node_modules\.pnpm\@base-ui+utils@0.2.8_@types_c9551430b09515194bf4d31e244bbed7\node_modules\@base-ui\utils\esm\warn.js"
+    at D:\a\legalwork\legalwork\node_modules\.pnpm\@base-ui+utils@0.2.8_@types_c9551430b09515194bf4d31e244bbed7\node_modules\@base-ui\utils\esm\warn.js
+
+error: EISDIR reading file: "D:\a\legalwork\legalwork\node_modules\.pnpm\@base-ui+utils@0.2.8_@types_c9551430b09515194bf4d31e244bbed7\node_modules\@base-ui\utils\esm\empty.js"
+    at D:\a\legalwork\legalwork\node_modules\.pnpm\@base-ui+utils@0.2.8_@types_c9551430b09515194bf4d31e244bbed7\node_modules\@base-ui\utils\esm\empty.js
+
+error: EISDIR reading file: "D:\a\legalwork\legalwork\node_modules\.pnpm\@floating-ui+utils@0.2.11\node_modules\@floating-ui\utils\dist\floating-ui.utils.dom.mjs"
+    at D:\a\legalwork\legalwork\node_modules\.pnpm\@floating-ui+utils@0.2.11\node_modules\@floating-ui\utils\dist\floating-ui.utils.dom.mjs
+
+error: EISDIR reading file: "D:\a\legalwork\legalwork\node_modules\.pnpm\react@19.2.4\node_modules\react\jsx-runtime.js"
+    at D:\a\legalwork\legalwork\node_modules\.pnpm\react@19.2.4\node_modules\react\jsx-runtime.js
+
+error: EISDIR reading file: "D:\a\legalwork\legalwork\node_modules\.pnpm\@base-ui+utils@0.2.8_@types_c9551430b09515194bf4d31e244bbed7\node_modules\@base-ui\utils\esm\owner.js"
+    at D:\a\legalwork\legalwork\node_modules\.pnpm\@base-ui+utils@0.2.8_@types_c9551430b09515194bf4d31e244bbed7\node_modules\@base-ui\utils\esm\owner.js
+
+error: EISDIR reading file: "D:\a\legalwork\legalwork\node_modules\.pnpm\@floating-ui+react-dom@2.1._f1e75c639f17217fdb8333873ebffdf9\node_modules\@floating-ui\react-dom\dist\floating-ui.react-dom.mjs"
+    at D:\a\legalwork\legalwork\node_modules\.pnpm\@floating-ui+react-dom@2.1._f1e75c639f17217fdb8333873ebffdf9\node_modules\@floating-ui\react-dom\dist\floating-ui.react-dom.mjs
+
+error: EISDIR reading file: "D:\a\legalwork\legalwork\node_modules\.pnpm\@base-ui+utils@0.2.8_@types_c9551430b09515194bf4d31e244bbed7\node_modules\@base-ui\utils\esm\store\index.js"
+    at D:\a\legalwork\legalwork\node_modules\.pnpm\@base-ui+utils@0.2.8_@types_c9551430b09515194bf4d31e244bbed7\node_modules\@base-ui\utils\esm\store\index.js
+
+error: EISDIR reading file: "D:\a\legalwork\legalwork\node_modules\.pnpm\@floating-ui+utils@0.2.11\node_modules\@floating-ui\utils\dist\floating-ui.utils.mjs"
+    at D:\a\legalwork\legalwork\node_modules\.pnpm\@floating-ui+utils@0.2.11\node_modules\@floating-ui\utils\dist\floating-ui.utils.mjs
+(fail) Mail keyboard workflows preserve shell/typing, select bulk ranges, restore focus and review sends on both platforms [187.00ms]
+
+::endgroup::
+
+::group::tests\mail-list-window.test.ts:
+(pass) incremental lists retain only four 250-row windows and preserve back/forward ordering [16.00ms]
+
+::endgroup::
+
+::group::tests\mail-notification-open-render.test.ts:
+error: EISDIR reading file: "D:\a\legalwork\legalwork\node_modules\.pnpm\react@19.2.4\node_modules\react\index.js"
+    at D:\a\legalwork\legalwork\node_modules\.pnpm\react@19.2.4\node_modules\react\index.js
+
+error: EISDIR reading file: "D:\a\legalwork\legalwork\node_modules\.pnpm\zustand@5.0.12_@types+react_f59f9c7a86a9aa8438ed25a66ca04dad\node_modules\zustand\esm\index.mjs"
+    at D:\a\legalwork\legalwork\node_modules\.pnpm\zustand@5.0.12_@types+react_f59f9c7a86a9aa8438ed25a66ca04dad\node_modules\zustand\esm\index.mjs
+
+error: EISDIR reading file: "D:\a\legalwork\legalwork\node_modules\.pnpm\lucide-react@0.577.0_react@19.2.4\node_modules\lucide-react\dist\esm\lucide-react.js"
+    at D:\a\legalwork\legalwork\node_modules\.pnpm\lucide-react@0.577.0_react@19.2.4\node_modules\lucide-react\dist\esm\lucide-react.js
+
+error: EISDIR reading file: "D:\a\legalwork\legalwork\node_modules\.pnpm\jszip@3.10.1\node_modules\jszip\lib\index.js"
+    at D:\a\legalwork\legalwork\node_modules\.pnpm\jszip@3.10.1\node_modules\jszip\lib\index.js
+
+error: EISDIR reading file: "D:\a\legalwork\legalwork\node_modules\.pnpm\@eigenpal+docx-editor-agent_d3617b458bd51493a2de9af9f88c624c\node_modules\@eigenpal\docx-editor-agents\dist\index.mjs"
+    at D:\a\legalwork\legalwork\node_modules\.pnpm\@eigenpal+docx-editor-agent_d3617b458bd51493a2de9af9f88c624c\node_modules\@eigenpal\docx-editor-agents\dist\index.mjs
+
+error: EISDIR reading file: "D:\a\legalwork\legalwork\node_modules\.pnpm\class-variance-authority@0.7.1\node_modules\class-variance-authority\dist\index.mjs"
+    at D:\a\legalwork\legalwork\node_modules\.pnpm\class-variance-authority@0.7.1\node_modules\class-variance-authority\dist\index.mjs
+
+error: Unseekable reading file: "D:\a\legalwork\legalwork\node_modules\.pnpm\clsx@2.1.1\node_modules\clsx\dist\clsx.mjs"
+    at D:\a\legalwork\legalwork\node_modules\.pnpm\clsx@2.1.1\node_modules\clsx\dist\clsx.mjs
+
+error: EISDIR reading file: "D:\a\legalwork\legalwork\node_modules\.pnpm\tailwind-merge@3.5.0\node_modules\tailwind-merge\dist\bundle-mjs.mjs"
+    at D:\a\legalwork\legalwork\node_modules\.pnpm\tailwind-merge@3.5.0\node_modules\tailwind-merge\dist\bundle-mjs.mjs
+
+error: EISDIR reading file: "D:\a\legalwork\legalwork\node_modules\.pnpm\react@19.2.4\node_modules\react\jsx-runtime.js"
+    at D:\a\legalwork\legalwork\node_modules\.pnpm\react@19.2.4\node_modules\react\jsx-runtime.js
+
+error: EISDIR reading file: "D:\a\legalwork\legalwork\node_modules\.pnpm\@base-ui+utils@0.2.8_@types_c9551430b09515194bf4d31e244bbed7\node_modules\@base-ui\utils\esm\empty.js"
+    at D:\a\legalwork\legalwork\node_modules\.pnpm\@base-ui+utils@0.2.8_@types_c9551430b09515194bf4d31e244bbed7\node_modules\@base-ui\utils\esm\empty.js
+
+error: EISDIR reading file: "D:\a\legalwork\legalwork\node_modules\.pnpm\@base-ui+utils@0.2.8_@types_c9551430b09515194bf4d31e244bbed7\node_modules\@base-ui\utils\esm\warn.js"
+    at D:\a\legalwork\legalwork\node_modules\.pnpm\@base-ui+utils@0.2.8_@types_c9551430b09515194bf4d31e244bbed7\node_modules\@base-ui\utils\esm\warn.js
+
+error: EISDIR reading file: "D:\a\legalwork\legalwork\node_modules\.pnpm\@floating-ui+utils@0.2.11\node_modules\@floating-ui\utils\dist\floating-ui.utils.dom.mjs"
+    at D:\a\legalwork\legalwork\node_modules\.pnpm\@floating-ui+utils@0.2.11\node_modules\@floating-ui\utils\dist\floating-ui.utils.dom.mjs
+
+error: EISDIR reading file: "D:\a\legalwork\legalwork\node_modules\.pnpm\@base-ui+utils@0.2.8_@types_c9551430b09515194bf4d31e244bbed7\node_modules\@base-ui\utils\esm\owner.js"
+    at D:\a\legalwork\legalwork\node_modules\.pnpm\@base-ui+utils@0.2.8_@types_c9551430b09515194bf4d31e244bbed7\node_modules\@base-ui\utils\esm\owner.js
+
+error: EISDIR reading file: "D:\a\legalwork\legalwork\node_modules\.pnpm\@floating-ui+react-dom@2.1._f1e75c639f17217fdb8333873ebffdf9\node_modules\@floating-ui\react-dom\dist\floating-ui.react-dom.mjs"
+    at D:\a\legalwork\legalwork\node_modules\.pnpm\@floating-ui+react-dom@2.1._f1e75c639f17217fdb8333873ebffdf9\node_modules\@floating-ui\react-dom\dist\floating-ui.react-dom.mjs
+
+error: EISDIR reading file: "D:\a\legalwork\legalwork\node_modules\.pnpm\@base-ui+utils@0.2.8_@types_c9551430b09515194bf4d31e244bbed7\node_modules\@base-ui\utils\esm\store\index.js"
+    at D:\a\legalwork\legalwork\node_modules\.pnpm\@base-ui+utils@0.2.8_@types_c9551430b09515194bf4d31e244bbed7\node_modules\@base-ui\utils\esm\store\index.js
+
+error: EISDIR reading file: "D:\a\legalwork\legalwork\node_modules\.pnpm\@floating-ui+utils@0.2.11\node_modules\@floating-ui\utils\dist\floating-ui.utils.mjs"
+    at D:\a\legalwork\legalwork\node_modules\.pnpm\@floating-ui+utils@0.2.11\node_modules\@floating-ui\utils\dist\floating-ui.utils.mjs
+(fail) native notification target opens in shared shell and rejects a different server origin [187.00ms]
+
+::endgroup::
+
+::group::tests\mail-onboarding.test.ts:
+(pass) authorization links cannot escape fixed provider/account-type endpoints
+error: EISDIR reading file: "D:\a\legalwork\legalwork\node_modules\.pnpm\lucide-react@0.577.0_react@19.2.4\node_modules\lucide-react\dist\esm\lucide-react.js"
+    at D:\a\legalwork\legalwork\node_modules\.pnpm\lucide-react@0.577.0_react@19.2.4\node_modules\lucide-react\dist\esm\lucide-react.js
+
+error: EISDIR reading file: "D:\a\legalwork\legalwork\node_modules\.pnpm\class-variance-authority@0.7.1\node_modules\class-variance-authority\dist\index.mjs"
+    at D:\a\legalwork\legalwork\node_modules\.pnpm\class-variance-authority@0.7.1\node_modules\class-variance-authority\dist\index.mjs
+
+error: EISDIR reading file: "D:\a\legalwork\legalwork\node_modules\.pnpm\tailwind-merge@3.5.0\node_modules\tailwind-merge\dist\bundle-mjs.mjs"
+    at D:\a\legalwork\legalwork\node_modules\.pnpm\tailwind-merge@3.5.0\node_modules\tailwind-merge\dist\bundle-mjs.mjs
+
+error: Unexpected reading file: "D:\a\legalwork\legalwork\node_modules\.pnpm\clsx@2.1.1\node_modules\clsx\dist\clsx.mjs"
+    at D:\a\legalwork\legalwork\node_modules\.pnpm\clsx@2.1.1\node_modules\clsx\dist\clsx.mjs
+
+error: EISDIR reading file: "D:\a\legalwork\legalwork\node_modules\.pnpm\@base-ui+react@1.4.1_@types_bf6a27bfe7c944d33b05ef5c074fb210\node_modules\@base-ui\react\esm\tooltip\index.js"
+    at D:\a\legalwork\legalwork\node_modules\.pnpm\@base-ui+react@1.4.1_@types_bf6a27bfe7c944d33b05ef5c074fb210\node_modules\@base-ui\react\esm\tooltip\index.js
+
+error: EISDIR reading file: "D:\a\legalwork\legalwork\node_modules\.pnpm\react@19.2.4\node_modules\react\jsx-runtime.js"
+    at D:\a\legalwork\legalwork\node_modules\.pnpm\react@19.2.4\node_modules\react\jsx-runtime.js
+
+error: EISDIR reading file: "D:\a\legalwork\legalwork\node_modules\.pnpm\@base-ui+utils@0.2.8_@types_c9551430b09515194bf4d31e244bbed7\node_modules\@base-ui\utils\esm\warn.js"
+    at D:\a\legalwork\legalwork\node_modules\.pnpm\@base-ui+utils@0.2.8_@types_c9551430b09515194bf4d31e244bbed7\node_modules\@base-ui\utils\esm\warn.js
+
+error: EISDIR reading file: "D:\a\legalwork\legalwork\node_modules\.pnpm\@base-ui+utils@0.2.8_@types_c9551430b09515194bf4d31e244bbed7\node_modules\@base-ui\utils\esm\empty.js"
+    at D:\a\legalwork\legalwork\node_modules\.pnpm\@base-ui+utils@0.2.8_@types_c9551430b09515194bf4d31e244bbed7\node_modules\@base-ui\utils\esm\empty.js
+
+error: EISDIR reading file: "D:\a\legalwork\legalwork\node_modules\.pnpm\@base-ui+utils@0.2.8_@types_c9551430b09515194bf4d31e244bbed7\node_modules\@base-ui\utils\esm\owner.js"
+    at D:\a\legalwork\legalwork\node_modules\.pnpm\@base-ui+utils@0.2.8_@types_c9551430b09515194bf4d31e244bbed7\node_modules\@base-ui\utils\esm\owner.js
+
+error: EISDIR reading file: "D:\a\legalwork\legalwork\node_modules\.pnpm\@floating-ui+utils@0.2.11\node_modules\@floating-ui\utils\dist\floating-ui.utils.dom.mjs"
+    at D:\a\legalwork\legalwork\node_modules\.pnpm\@floating-ui+utils@0.2.11\node_modules\@floating-ui\utils\dist\floating-ui.utils.dom.mjs
+
+error: EISDIR reading file: "D:\a\legalwork\legalwork\node_modules\.pnpm\@base-ui+utils@0.2.8_@types_c9551430b09515194bf4d31e244bbed7\node_modules\@base-ui\utils\esm\store\index.js"
+    at D:\a\legalwork\legalwork\node_modules\.pnpm\@base-ui+utils@0.2.8_@types_c9551430b09515194bf4d31e244bbed7\node_modules\@base-ui\utils\esm\store\index.js
+
+error: EISDIR reading file: "D:\a\legalwork\legalwork\node_modules\.pnpm\@floating-ui+react-dom@2.1._f1e75c639f17217fdb8333873ebffdf9\node_modules\@floating-ui\react-dom\dist\floating-ui.react-dom.mjs"
+    at D:\a\legalwork\legalwork\node_modules\.pnpm\@floating-ui+react-dom@2.1._f1e75c639f17217fdb8333873ebffdf9\node_modules\@floating-ui\react-dom\dist\floating-ui.react-dom.mjs
+
+error: EISDIR reading file: "D:\a\legalwork\legalwork\node_modules\.pnpm\react-dom@19.2.4_react@19.2.4\node_modules\react-dom\index.js"
+    at D:\a\legalwork\legalwork\node_modules\.pnpm\react-dom@19.2.4_react@19.2.4\node_modules\react-dom\index.js
+
+error: EISDIR reading file: "D:\a\legalwork\legalwork\node_modules\.pnpm\@floating-ui+utils@0.2.11\node_modules\@floating-ui\utils\dist\floating-ui.utils.mjs"
+    at D:\a\legalwork\legalwork\node_modules\.pnpm\@floating-ui+utils@0.2.11\node_modules\@floating-ui\utils\dist\floating-ui.utils.mjs
+(fail) actual renderer completes browser onboarding and confines iCloud passwords to the local request [157.00ms]
+
+::endgroup::
+
+::group::tests\mail-outbox.test.ts:
+24 |  if(path.endsWith('/outbox/action')){window.__actions.push(body);return Response.json(item);}
+25 |  throw Error('Unexpected fixture request');});
+26 |  function Fixture(){const[mode,setMode]=useState('settings');window.__compose=()=>setMode('compose');return mode==='settings'?React.createElement(MailSmtpView,{client,accounts:[account]}):mode==='outbox'?React.createElement(MailOutbox,{client,accounts:[account],onClose:()=>{}}):React.createElement(MailComposer,{client,accounts:[account],initial:{account:'imap',id:item.draftId,version:null,content:emptyCompose('')},onClose:()=>{},onSwitch:()=>{},onQueued:()=>setMode('outbox')});}
+27 |  createRoot(document.getElementById('root')).render(React.createElement(Fixture));`);
+28 |  const builder=join(dir,'build.mjs');await writeFile(builder,`const built=await Bun.build({entrypoints:[${JSON.stringify(entry)}],outdir:${JSON.stringify(dir)},target:'browser',alias:{'@':${JSON.stringify(join(app,'src'))}},plugins:[{name:'fixture-zod',setup(build){build.onResolve({filter:/^zod$/},()=>({path:${JSON.stringify(join(app,'../server/node_modules/zod/index.js'))}}));}}],minify:true});if(!built.success)throw Error(built.logs.map(String).join('\\n'));`);
+29 |  const built=spawnSync(process.execPath,[builder],{encoding:'utf8',timeout:10000});if(built.status!==0)throw Error(built.stderr||built.stdout);
+                                                                                                                  ^
+Error: 
+      at <anonymous> (D:\a\legalwork\legalwork\apps\app\tests\mail-outbox.test.ts:29:110)
+
+::error file=apps\app\tests\mail-outbox.test.ts,line=29,col=110,title=error::%0A      at <anonymous> (D:\a\legalwork\legalwork\apps\app\tests\mail-outbox.test.ts:29:110)
+(fail) SMTP Settings, durable composer queue and uncertain Outbox recovery render in isolated Electron [15.00ms]
+
+::endgroup::
+
+::group::tests\mail-pdf-security.test.ts:
+(pass) built-in mail PDF preview does not follow document open actions to external resources [1125.00ms]
+
+::endgroup::
+
+::group::tests\mail-portability-render.test.ts:
+error: EISDIR reading file: "D:\a\legalwork\legalwork\node_modules\.pnpm\react@19.2.4\node_modules\react\index.js"
+    at D:\a\legalwork\legalwork\node_modules\.pnpm\react@19.2.4\node_modules\react\index.js
+
+error: EISDIR reading file: "D:\a\legalwork\legalwork\node_modules\.pnpm\class-variance-authority@0.7.1\node_modules\class-variance-authority\dist\index.mjs"
+    at D:\a\legalwork\legalwork\node_modules\.pnpm\class-variance-authority@0.7.1\node_modules\class-variance-authority\dist\index.mjs
+
+error: EISDIR reading file: "D:\a\legalwork\legalwork\node_modules\.pnpm\lucide-react@0.577.0_react@19.2.4\node_modules\lucide-react\dist\esm\lucide-react.js"
+    at D:\a\legalwork\legalwork\node_modules\.pnpm\lucide-react@0.577.0_react@19.2.4\node_modules\lucide-react\dist\esm\lucide-react.js
+
+error: EISDIR reading file: "D:\a\legalwork\legalwork\node_modules\.pnpm\tailwind-merge@3.5.0\node_modules\tailwind-merge\dist\bundle-mjs.mjs"
+    at D:\a\legalwork\legalwork\node_modules\.pnpm\tailwind-merge@3.5.0\node_modules\tailwind-merge\dist\bundle-mjs.mjs
+
+error: EISDIR reading file: "D:\a\legalwork\legalwork\node_modules\.pnpm\clsx@2.1.1\node_modules\clsx\dist\clsx.mjs"
+    at D:\a\legalwork\legalwork\node_modules\.pnpm\clsx@2.1.1\node_modules\clsx\dist\clsx.mjs
+
+error: EISDIR reading file: "D:\a\legalwork\legalwork\node_modules\.pnpm\@base-ui+react@1.4.1_@types_bf6a27bfe7c944d33b05ef5c074fb210\node_modules\@base-ui\react\esm\tooltip\index.js"
+    at D:\a\legalwork\legalwork\node_modules\.pnpm\@base-ui+react@1.4.1_@types_bf6a27bfe7c944d33b05ef5c074fb210\node_modules\@base-ui\react\esm\tooltip\index.js
+
+error: EISDIR reading file: "D:\a\legalwork\legalwork\node_modules\.pnpm\react@19.2.4\node_modules\react\jsx-runtime.js"
+    at D:\a\legalwork\legalwork\node_modules\.pnpm\react@19.2.4\node_modules\react\jsx-runtime.js
+
+error: EISDIR reading file: "D:\a\legalwork\legalwork\node_modules\.pnpm\@base-ui+utils@0.2.8_@types_c9551430b09515194bf4d31e244bbed7\node_modules\@base-ui\utils\esm\warn.js"
+    at D:\a\legalwork\legalwork\node_modules\.pnpm\@base-ui+utils@0.2.8_@types_c9551430b09515194bf4d31e244bbed7\node_modules\@base-ui\utils\esm\warn.js
+
+error: EISDIR reading file: "D:\a\legalwork\legalwork\node_modules\.pnpm\@base-ui+utils@0.2.8_@types_c9551430b09515194bf4d31e244bbed7\node_modules\@base-ui\utils\esm\empty.js"
+    at D:\a\legalwork\legalwork\node_modules\.pnpm\@base-ui+utils@0.2.8_@types_c9551430b09515194bf4d31e244bbed7\node_modules\@base-ui\utils\esm\empty.js
+
+error: EISDIR reading file: "D:\a\legalwork\legalwork\node_modules\.pnpm\@floating-ui+utils@0.2.11\node_modules\@floating-ui\utils\dist\floating-ui.utils.dom.mjs"
+    at D:\a\legalwork\legalwork\node_modules\.pnpm\@floating-ui+utils@0.2.11\node_modules\@floating-ui\utils\dist\floating-ui.utils.dom.mjs
+
+error: EISDIR reading file: "D:\a\legalwork\legalwork\node_modules\.pnpm\@base-ui+utils@0.2.8_@types_c9551430b09515194bf4d31e244bbed7\node_modules\@base-ui\utils\esm\store\index.js"
+    at D:\a\legalwork\legalwork\node_modules\.pnpm\@base-ui+utils@0.2.8_@types_c9551430b09515194bf4d31e244bbed7\node_modules\@base-ui\utils\esm\store\index.js
+
+error: EISDIR reading file: "D:\a\legalwork\legalwork\node_modules\.pnpm\@floating-ui+utils@0.2.11\node_modules\@floating-ui\utils\dist\floating-ui.utils.mjs"
+    at D:\a\legalwork\legalwork\node_modules\.pnpm\@floating-ui+utils@0.2.11\node_modules\@floating-ui\utils\dist\floating-ui.utils.mjs
+
+error: EISDIR reading file: "D:\a\legalwork\legalwork\node_modules\.pnpm\@base-ui+utils@0.2.8_@types_c9551430b09515194bf4d31e244bbed7\node_modules\@base-ui\utils\esm\owner.js"
+    at D:\a\legalwork\legalwork\node_modules\.pnpm\@base-ui+utils@0.2.8_@types_c9551430b09515194bf4d31e244bbed7\node_modules\@base-ui\utils\esm\owner.js
+
+error: EISDIR reading file: "D:\a\legalwork\legalwork\node_modules\.pnpm\@floating-ui+react-dom@2.1._f1e75c639f17217fdb8333873ebffdf9\node_modules\@floating-ui\react-dom\dist\floating-ui.react-dom.mjs"
+    at D:\a\legalwork\legalwork\node_modules\.pnpm\@floating-ui+react-dom@2.1._f1e75c639f17217fdb8333873ebffdf9\node_modules\@floating-ui\react-dom\dist\floating-ui.react-dom.mjs
+
+error: EISDIR reading file: "D:\a\legalwork\legalwork\node_modules\.pnpm\react-dom@19.2.4_react@19.2.4\node_modules\react-dom\index.js"
+    at D:\a\legalwork\legalwork\node_modules\.pnpm\react-dom@19.2.4_react@19.2.4\node_modules\react-dom\index.js
+(fail) Settings native import shows durable progress and resume without accepting renderer paths [157.00ms]
+
+::endgroup::
+
+::group::tests\mail-preview-security.test.ts:
+[zustand persist middleware] Unable to update item 'legalwork:panel-tabs:v1', the given storage is currently unavailable.
+[zustand persist middleware] Unable to update item 'legalwork:panel-tabs:v1', the given storage is currently unavailable.
+(pass) mail image preview rejects decoded dimension bombs and spoofed types before replacing the verified tab
+
+::endgroup::
+
+::group::tests\mail-preview-source.test.ts:
+[zustand persist middleware] Unable to update item 'legalwork:panel-tabs:v1', the given storage is currently unavailable.
+ 8 |   const signal = new AbortController();
+ 9 |   const source = {name:'synthetic.txt',bytes:new TextEncoder().encode('private fixture'),type:'text' as const,mime:'text/plain'};
+10 |   openMailPreview(source, signal.signal);
+11 |   const id = usePanelTabStore.getState().sessions[EVALS_PANEL_SESSION_ID].activeTabId!;
+12 |   expect(readMailPreview(id)).toBe(source);
+13 |   const persisted = usePanelTabStore.persist.getOptions().partialize!(usePanelTabStore.getState());
+                                          ^
+TypeError: undefined is not an object (evaluating 'usePanelTabStore.persist.getOptions')
+      at <anonymous> (D:\a\legalwork\legalwork\apps\app\tests\mail-preview-source.test.ts:13:38)
+
+::error file=apps\app\tests\mail-preview-source.test.ts,line=13,col=38,title=TypeError: undefined is not an object (evaluating 'usePanelTabStore.persist.getOptions')::%0A      at <anonymous> (D:\a\legalwork\legalwork\apps\app\tests\mail-preview-source.test.ts:13:38)
+(fail) mail previews use ephemeral panel sources and retire on access loss, replacement and tab close
+(pass) supported source classification leaves unsafe or unsupported formats explicit
+
+::endgroup::
+
+::group::tests\mail-reader-render.test.ts:
+error: EISDIR reading file: "D:\a\legalwork\legalwork\node_modules\.pnpm\lucide-react@0.577.0_react@19.2.4\node_modules\lucide-react\dist\esm\lucide-react.js"
+    at D:\a\legalwork\legalwork\node_modules\.pnpm\lucide-react@0.577.0_react@19.2.4\node_modules\lucide-react\dist\esm\lucide-react.js
+
+error: EISDIR reading file: "D:\a\legalwork\legalwork\node_modules\.pnpm\class-variance-authority@0.7.1\node_modules\class-variance-authority\dist\index.mjs"
+    at D:\a\legalwork\legalwork\node_modules\.pnpm\class-variance-authority@0.7.1\node_modules\class-variance-authority\dist\index.mjs
+
+error: EISDIR reading file: "D:\a\legalwork\legalwork\node_modules\.pnpm\jszip@3.10.1\node_modules\jszip\lib\index.js"
+    at D:\a\legalwork\legalwork\node_modules\.pnpm\jszip@3.10.1\node_modules\jszip\lib\index.js
+
+error: EISDIR reading file: "D:\a\legalwork\legalwork\node_modules\.pnpm\@eigenpal+docx-editor-agent_d3617b458bd51493a2de9af9f88c624c\node_modules\@eigenpal\docx-editor-agents\dist\index.mjs"
+    at D:\a\legalwork\legalwork\node_modules\.pnpm\@eigenpal+docx-editor-agent_d3617b458bd51493a2de9af9f88c624c\node_modules\@eigenpal\docx-editor-agents\dist\index.mjs
+
+error: EISDIR reading file: "D:\a\legalwork\legalwork\node_modules\.pnpm\zustand@5.0.12_@types+react_f59f9c7a86a9aa8438ed25a66ca04dad\node_modules\zustand\esm\index.mjs"
+    at D:\a\legalwork\legalwork\node_modules\.pnpm\zustand@5.0.12_@types+react_f59f9c7a86a9aa8438ed25a66ca04dad\node_modules\zustand\esm\index.mjs
+
+error: EISDIR reading file: "D:\a\legalwork\legalwork\node_modules\.pnpm\tailwind-merge@3.5.0\node_modules\tailwind-merge\dist\bundle-mjs.mjs"
+    at D:\a\legalwork\legalwork\node_modules\.pnpm\tailwind-merge@3.5.0\node_modules\tailwind-merge\dist\bundle-mjs.mjs
+
+error: EISDIR reading file: "D:\a\legalwork\legalwork\node_modules\.pnpm\clsx@2.1.1\node_modules\clsx\dist\clsx.mjs"
+    at D:\a\legalwork\legalwork\node_modules\.pnpm\clsx@2.1.1\node_modules\clsx\dist\clsx.mjs
+
+error: EISDIR reading file: "D:\a\legalwork\legalwork\node_modules\.pnpm\@base-ui+utils@0.2.8_@types_c9551430b09515194bf4d31e244bbed7\node_modules\@base-ui\utils\esm\empty.js"
+    at D:\a\legalwork\legalwork\node_modules\.pnpm\@base-ui+utils@0.2.8_@types_c9551430b09515194bf4d31e244bbed7\node_modules\@base-ui\utils\esm\empty.js
+
+error: EISDIR reading file: "D:\a\legalwork\legalwork\node_modules\.pnpm\@base-ui+utils@0.2.8_@types_c9551430b09515194bf4d31e244bbed7\node_modules\@base-ui\utils\esm\warn.js"
+    at D:\a\legalwork\legalwork\node_modules\.pnpm\@base-ui+utils@0.2.8_@types_c9551430b09515194bf4d31e244bbed7\node_modules\@base-ui\utils\esm\warn.js
+
+error: EISDIR reading file: "D:\a\legalwork\legalwork\node_modules\.pnpm\@floating-ui+utils@0.2.11\node_modules\@floating-ui\utils\dist\floating-ui.utils.dom.mjs"
+    at D:\a\legalwork\legalwork\node_modules\.pnpm\@floating-ui+utils@0.2.11\node_modules\@floating-ui\utils\dist\floating-ui.utils.dom.mjs
+
+error: EISDIR reading file: "D:\a\legalwork\legalwork\node_modules\.pnpm\react@19.2.4\node_modules\react\jsx-runtime.js"
+    at D:\a\legalwork\legalwork\node_modules\.pnpm\react@19.2.4\node_modules\react\jsx-runtime.js
+
+error: EISDIR reading file: "D:\a\legalwork\legalwork\node_modules\.pnpm\@base-ui+utils@0.2.8_@types_c9551430b09515194bf4d31e244bbed7\node_modules\@base-ui\utils\esm\owner.js"
+    at D:\a\legalwork\legalwork\node_modules\.pnpm\@base-ui+utils@0.2.8_@types_c9551430b09515194bf4d31e244bbed7\node_modules\@base-ui\utils\esm\owner.js
+
+error: EISDIR reading file: "D:\a\legalwork\legalwork\node_modules\.pnpm\@base-ui+utils@0.2.8_@types_c9551430b09515194bf4d31e244bbed7\node_modules\@base-ui\utils\esm\store\index.js"
+    at D:\a\legalwork\legalwork\node_modules\.pnpm\@base-ui+utils@0.2.8_@types_c9551430b09515194bf4d31e244bbed7\node_modules\@base-ui\utils\esm\store\index.js
+
+error: EISDIR reading file: "D:\a\legalwork\legalwork\node_modules\.pnpm\@floating-ui+react-dom@2.1._f1e75c639f17217fdb8333873ebffdf9\node_modules\@floating-ui\react-dom\dist\floating-ui.react-dom.mjs"
+    at D:\a\legalwork\legalwork\node_modules\.pnpm\@floating-ui+react-dom@2.1._f1e75c639f17217fdb8333873ebffdf9\node_modules\@floating-ui\react-dom\dist\floating-ui.react-dom.mjs
+
+error: EISDIR reading file: "D:\a\legalwork\legalwork\node_modules\.pnpm\@floating-ui+utils@0.2.11\node_modules\@floating-ui\utils\dist\floating-ui.utils.mjs"
+    at D:\a\legalwork\legalwork\node_modules\.pnpm\@floating-ui+utils@0.2.11\node_modules\@floating-ui\utils\dist\floating-ui.utils.mjs
+(fail) isolated actual renderer opens mail automatically and blocks hostile HTML, resource URLs and child privileges [172.00ms]
+
+::endgroup::
+
+::group::tests\mail-reader.test.ts:
+(pass) literal loopback validation precedes token forwarding and rejects URL normalization tricks
+(pass) unified merge replenishes exhausted heads before choosing a page; tied and unknown dates never disappear [16.00ms]
+(pass) never-opened stored content is fetched in bounded verified chunks and rejects swapped references [15.00ms]
+(pass) unsafe names and SVG disguised as raster are never accepted as inline images
+
+::endgroup::
+
+::group::tests\mail-retention-render.test.ts:
+error: EISDIR reading file: "D:\a\legalwork\legalwork\node_modules\.pnpm\react@19.2.4\node_modules\react\jsx-dev-runtime.js"
+    at D:\a\legalwork\legalwork\node_modules\.pnpm\react@19.2.4\node_modules\react\jsx-dev-runtime.js
+
+error: EISDIR reading file: "D:\a\legalwork\legalwork\node_modules\.pnpm\react@19.2.4\node_modules\react\index.js"
+    at D:\a\legalwork\legalwork\node_modules\.pnpm\react@19.2.4\node_modules\react\index.js
+
+error: EISDIR reading file: "D:\a\legalwork\legalwork\node_modules\.pnpm\class-variance-authority@0.7.1\node_modules\class-variance-authority\dist\index.mjs"
+    at D:\a\legalwork\legalwork\node_modules\.pnpm\class-variance-authority@0.7.1\node_modules\class-variance-authority\dist\index.mjs
+
+error: EISDIR reading file: "D:\a\legalwork\legalwork\node_modules\.pnpm\lucide-react@0.577.0_react@19.2.4\node_modules\lucide-react\dist\esm\lucide-react.js"
+    at D:\a\legalwork\legalwork\node_modules\.pnpm\lucide-react@0.577.0_react@19.2.4\node_modules\lucide-react\dist\esm\lucide-react.js
+
+error: EISDIR reading file: "D:\a\legalwork\legalwork\node_modules\.pnpm\tailwind-merge@3.5.0\node_modules\tailwind-merge\dist\bundle-mjs.mjs"
+    at D:\a\legalwork\legalwork\node_modules\.pnpm\tailwind-merge@3.5.0\node_modules\tailwind-merge\dist\bundle-mjs.mjs
+
+error: EISDIR reading file: "D:\a\legalwork\legalwork\node_modules\.pnpm\clsx@2.1.1\node_modules\clsx\dist\clsx.mjs"
+    at D:\a\legalwork\legalwork\node_modules\.pnpm\clsx@2.1.1\node_modules\clsx\dist\clsx.mjs
+
+error: EISDIR reading file: "D:\a\legalwork\legalwork\node_modules\.pnpm\@base-ui+react@1.4.1_@types_bf6a27bfe7c944d33b05ef5c074fb210\node_modules\@base-ui\react\esm\tooltip\index.js"
+    at D:\a\legalwork\legalwork\node_modules\.pnpm\@base-ui+react@1.4.1_@types_bf6a27bfe7c944d33b05ef5c074fb210\node_modules\@base-ui\react\esm\tooltip\index.js
+
+error: EISDIR reading file: "D:\a\legalwork\legalwork\node_modules\.pnpm\react@19.2.4\node_modules\react\jsx-runtime.js"
+    at D:\a\legalwork\legalwork\node_modules\.pnpm\react@19.2.4\node_modules\react\jsx-runtime.js
+
+error: EISDIR reading file: "D:\a\legalwork\legalwork\node_modules\.pnpm\@base-ui+utils@0.2.8_@types_c9551430b09515194bf4d31e244bbed7\node_modules\@base-ui\utils\esm\empty.js"
+    at D:\a\legalwork\legalwork\node_modules\.pnpm\@base-ui+utils@0.2.8_@types_c9551430b09515194bf4d31e244bbed7\node_modules\@base-ui\utils\esm\empty.js
+
+error: EISDIR reading file: "D:\a\legalwork\legalwork\node_modules\.pnpm\@base-ui+utils@0.2.8_@types_c9551430b09515194bf4d31e244bbed7\node_modules\@base-ui\utils\esm\warn.js"
+    at D:\a\legalwork\legalwork\node_modules\.pnpm\@base-ui+utils@0.2.8_@types_c9551430b09515194bf4d31e244bbed7\node_modules\@base-ui\utils\esm\warn.js
+
+error: EISDIR reading file: "D:\a\legalwork\legalwork\node_modules\.pnpm\@floating-ui+utils@0.2.11\node_modules\@floating-ui\utils\dist\floating-ui.utils.dom.mjs"
+    at D:\a\legalwork\legalwork\node_modules\.pnpm\@floating-ui+utils@0.2.11\node_modules\@floating-ui\utils\dist\floating-ui.utils.dom.mjs
+
+error: EISDIR reading file: "D:\a\legalwork\legalwork\node_modules\.pnpm\@base-ui+utils@0.2.8_@types_c9551430b09515194bf4d31e244bbed7\node_modules\@base-ui\utils\esm\store\index.js"
+    at D:\a\legalwork\legalwork\node_modules\.pnpm\@base-ui+utils@0.2.8_@types_c9551430b09515194bf4d31e244bbed7\node_modules\@base-ui\utils\esm\store\index.js
+
+error: EISDIR reading file: "D:\a\legalwork\legalwork\node_modules\.pnpm\@base-ui+utils@0.2.8_@types_c9551430b09515194bf4d31e244bbed7\node_modules\@base-ui\utils\esm\owner.js"
+    at D:\a\legalwork\legalwork\node_modules\.pnpm\@base-ui+utils@0.2.8_@types_c9551430b09515194bf4d31e244bbed7\node_modules\@base-ui\utils\esm\owner.js
+
+error: EISDIR reading file: "D:\a\legalwork\legalwork\node_modules\.pnpm\@floating-ui+utils@0.2.11\node_modules\@floating-ui\utils\dist\floating-ui.utils.mjs"
+    at D:\a\legalwork\legalwork\node_modules\.pnpm\@floating-ui+utils@0.2.11\node_modules\@floating-ui\utils\dist\floating-ui.utils.mjs
+
+error: EISDIR reading file: "D:\a\legalwork\legalwork\node_modules\.pnpm\@floating-ui+react-dom@2.1._f1e75c639f17217fdb8333873ebffdf9\node_modules\@floating-ui\react-dom\dist\floating-ui.react-dom.mjs"
+    at D:\a\legalwork\legalwork\node_modules\.pnpm\@floating-ui+react-dom@2.1._f1e75c639f17217fdb8333873ebffdf9\node_modules\@floating-ui\react-dom\dist\floating-ui.react-dom.mjs
+
+error: EISDIR reading file: "D:\a\legalwork\legalwork\node_modules\.pnpm\react-dom@19.2.4_react@19.2.4\node_modules\react-dom\index.js"
+    at D:\a\legalwork\legalwork\node_modules\.pnpm\react-dom@19.2.4_react@19.2.4\node_modules\react-dom\index.js
+(fail) retention Settings confirms deletion, pauses Mail and clears backup passphrase [47.00ms]
+
+::endgroup::
+
+::group::tests\mail-search-render.test.ts:
+error: EISDIR reading file: "D:\a\legalwork\legalwork\node_modules\.pnpm\react@19.2.4\node_modules\react\index.js"
+    at D:\a\legalwork\legalwork\node_modules\.pnpm\react@19.2.4\node_modules\react\index.js
+
+error: EISDIR reading file: "D:\a\legalwork\legalwork\node_modules\.pnpm\lucide-react@0.577.0_react@19.2.4\node_modules\lucide-react\dist\esm\lucide-react.js"
+    at D:\a\legalwork\legalwork\node_modules\.pnpm\lucide-react@0.577.0_react@19.2.4\node_modules\lucide-react\dist\esm\lucide-react.js
+
+error: EISDIR reading file: "D:\a\legalwork\legalwork\node_modules\.pnpm\class-variance-authority@0.7.1\node_modules\class-variance-authority\dist\index.mjs"
+    at D:\a\legalwork\legalwork\node_modules\.pnpm\class-variance-authority@0.7.1\node_modules\class-variance-authority\dist\index.mjs
+
+error: EISDIR reading file: "D:\a\legalwork\legalwork\node_modules\.pnpm\tailwind-merge@3.5.0\node_modules\tailwind-merge\dist\bundle-mjs.mjs"
+    at D:\a\legalwork\legalwork\node_modules\.pnpm\tailwind-merge@3.5.0\node_modules\tailwind-merge\dist\bundle-mjs.mjs
+
+error: EISDIR reading file: "D:\a\legalwork\legalwork\node_modules\.pnpm\clsx@2.1.1\node_modules\clsx\dist\clsx.mjs"
+    at D:\a\legalwork\legalwork\node_modules\.pnpm\clsx@2.1.1\node_modules\clsx\dist\clsx.mjs
+
+error: EISDIR reading file: "D:\a\legalwork\legalwork\node_modules\.pnpm\@base-ui+utils@0.2.8_@types_c9551430b09515194bf4d31e244bbed7\node_modules\@base-ui\utils\esm\warn.js"
+    at D:\a\legalwork\legalwork\node_modules\.pnpm\@base-ui+utils@0.2.8_@types_c9551430b09515194bf4d31e244bbed7\node_modules\@base-ui\utils\esm\warn.js
+
+error: EISDIR reading file: "D:\a\legalwork\legalwork\node_modules\.pnpm\@base-ui+utils@0.2.8_@types_c9551430b09515194bf4d31e244bbed7\node_modules\@base-ui\utils\esm\empty.js"
+    at D:\a\legalwork\legalwork\node_modules\.pnpm\@base-ui+utils@0.2.8_@types_c9551430b09515194bf4d31e244bbed7\node_modules\@base-ui\utils\esm\empty.js
+
+error: EISDIR reading file: "D:\a\legalwork\legalwork\node_modules\.pnpm\@floating-ui+utils@0.2.11\node_modules\@floating-ui\utils\dist\floating-ui.utils.dom.mjs"
+    at D:\a\legalwork\legalwork\node_modules\.pnpm\@floating-ui+utils@0.2.11\node_modules\@floating-ui\utils\dist\floating-ui.utils.dom.mjs
+
+error: EISDIR reading file: "D:\a\legalwork\legalwork\node_modules\.pnpm\react@19.2.4\node_modules\react\jsx-runtime.js"
+    at D:\a\legalwork\legalwork\node_modules\.pnpm\react@19.2.4\node_modules\react\jsx-runtime.js
+
+error: EISDIR reading file: "D:\a\legalwork\legalwork\node_modules\.pnpm\@base-ui+utils@0.2.8_@types_c9551430b09515194bf4d31e244bbed7\node_modules\@base-ui\utils\esm\owner.js"
+    at D:\a\legalwork\legalwork\node_modules\.pnpm\@base-ui+utils@0.2.8_@types_c9551430b09515194bf4d31e244bbed7\node_modules\@base-ui\utils\esm\owner.js
+
+error: EISDIR reading file: "D:\a\legalwork\legalwork\node_modules\.pnpm\@floating-ui+react-dom@2.1._f1e75c639f17217fdb8333873ebffdf9\node_modules\@floating-ui\react-dom\dist\floating-ui.react-dom.mjs"
+    at D:\a\legalwork\legalwork\node_modules\.pnpm\@floating-ui+react-dom@2.1._f1e75c639f17217fdb8333873ebffdf9\node_modules\@floating-ui\react-dom\dist\floating-ui.react-dom.mjs
+
+error: EISDIR reading file: "D:\a\legalwork\legalwork\node_modules\.pnpm\react-dom@19.2.4_react@19.2.4\node_modules\react-dom\index.js"
+    at D:\a\legalwork\legalwork\node_modules\.pnpm\react-dom@19.2.4_react@19.2.4\node_modules\react-dom\index.js
+
+error: EISDIR reading file: "D:\a\legalwork\legalwork\node_modules\.pnpm\@floating-ui+utils@0.2.11\node_modules\@floating-ui\utils\dist\floating-ui.utils.mjs"
+    at D:\a\legalwork\legalwork\node_modules\.pnpm\@floating-ui+utils@0.2.11\node_modules\@floating-ui\utils\dist\floating-ui.utils.mjs
+
+error: EISDIR reading file: "D:\a\legalwork\legalwork\node_modules\.pnpm\@base-ui+utils@0.2.8_@types_c9551430b09515194bf4d31e244bbed7\node_modules\@base-ui\utils\esm\store\index.js"
+    at D:\a\legalwork\legalwork\node_modules\.pnpm\@base-ui+utils@0.2.8_@types_c9551430b09515194bf4d31e244bbed7\node_modules\@base-ui\utils\esm\store\index.js
+(fail) actual isolated search renderer applies filters, navigates sections/pages, saves privately and cancels stale requests [172.00ms]
+
+::endgroup::
+
+::group::tests\mail-search.test.ts:
+(pass) search carries exact punctuation and structured scope only through authenticated local POST; late generations are cancelled [16.00ms]
+(pass) saved queries reject pagination and invented matter associations before HTTP
+
+::endgroup::
+
+::group::tests\mail-sender-identities.test.ts:
+(pass) Settings saves identity signatures and composer selects permitted aliases without arbitrary From [1000.00ms]
+
+::endgroup::
+
+::group::tests\mail-sender-model.test.ts:
+(pass) new/reply defaults are independent and unavailable identities are excluded
+(pass) selected identity and signature survive draft recovery and switching replaces exact inserted signature
+(pass) signatures are escaped in rich compose and sender switching preserves recipient/body data
+(pass) plain-to-rich conversion retains replaceable unchanged signatures but does not mark edited text
+(pass) text-node signature quotes remain literal while ampersands and markup stay escaped
+
+::endgroup::
+
+::group::tests\mail-shared-identities.test.ts:
+27 |  const{app,BrowserWindow}=require('electron'),assert=require('node:assert/strict');app.setPath('userData',${JSON.stringify(join(dir,'profile'))});app.whenReady().then(async()=>{const win=new BrowserWindow({show:false,webPreferences:{sandbox:true,contextIsolation:true,nodeIntegration:false}});await win.loadFile(${JSON.stringify(join(dir,'index.html'))});const run=code=>win.webContents.executeJavaScript(code);const until=async code=>{for(let i=0;i<250;i++){if(await run(code))return;await new Promise(r=>setTimeout(r,20));}throw Error('UI timeout '+code);};
+28 |  await until("!!document.querySelector('form')");assert.equal(await run("document.querySelector('[aria-label=\\\"Administrator-confirmed sender permission\\\"]').value"),'none');
+29 |  await run("(()=>{const el=document.querySelector('input[type=email]');Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(el,'team@example.com');el.dispatchEvent(new Event('input',{bubbles:true}));})()");
+30 |  await run("document.querySelector('form').requestSubmit()");await until("!!window.__configured");assert.equal(await run('window.__configured.writeConfirmed'),false);assert.equal(await run('window.__configured.sendMode'),'none');
+31 |  await until("document.body.textContent.includes('Mailbox access verified')");await run('window.__compose()');await until("!!document.querySelector('[aria-label=\\\"Sender identity\\\"]')");assert.equal(await run("document.querySelector('[aria-label=\\\"Sender identity\\\"]').tagName"),'SELECT');assert.equal(await run("document.querySelector('[aria-label=\\\"Sender identity\\\"]').value"),'');assert.equal(await run("document.body.textContent.includes('Sending from this mailbox is not authorized')"),true);assert.equal(await run("document.body.textContent.includes('Sent Items are saved in the signed-in Microsoft account')"),true);console.log('SHARED_IDENTITY_PASS');win.destroy();app.quit();}).catch(error=>{console.error(error);app.exit(1)});`);
+32 |  const require=createRequire(resolve(app,'../desktop/package.json'));const result=await new Promise<{code:number|null;output:string}>((done,reject)=>{const child=spawn(require('electron'),[probe],{env:{...process.env},stdio:['ignore','pipe','pipe']});let output='';const timer=setTimeout(()=>{child.kill();reject(Error(output+' renderer timeout'));},15000);child.stdout.on('data',value=>output+=value);child.stderr.on('data',value=>output+=value);child.on('error',reject);child.on('close',code=>{clearTimeout(timer);done({code,output});});});if(result.code!==0)throw Error(result.output);expect(result.output).toContain('SHARED_IDENTITY_PASS');
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            ^
+error: 
+Error: UI timeout !!document.querySelector('form')
+    at until (C:\Users\RUNNER~1\AppData\Local\Temp\shared-mail-ui-AhGUTn\probe.cjs:2:606)
+    at async C:\Users\RUNNER~1\AppData\Local\Temp\shared-mail-ui-AhGUTn\probe.cjs:3:2
+
+      at <anonymous> (D:\a\legalwork\legalwork\apps\app\tests\mail-shared-identities.test.ts:32:568)
+
+::error file=apps\app\tests\mail-shared-identities.test.ts,line=32,col=568,title=error: ::    at until (C:\Users\RUNNER~1\AppData\Local\Temp\shared-mail-ui-AhGUTn\probe.cjs:2:606)%0A    at async C:\Users\RUNNER~1\AppData\Local\Temp\shared-mail-ui-AhGUTn\probe.cjs:3:2%0A%0A      at <anonymous> (D:\a\legalwork\legalwork\apps\app\tests\mail-shared-identities.test.ts:32:568)
+(fail) Settings preserves explicit shared grants and composer binds the mailbox From identity [7313.00ms]
+
+::endgroup::
+
+::group::tests\mail-storage-save-render.test.ts:
+error: EISDIR reading file: "D:\a\legalwork\legalwork\node_modules\.pnpm\react@19.2.4\node_modules\react\index.js"
+    at D:\a\legalwork\legalwork\node_modules\.pnpm\react@19.2.4\node_modules\react\index.js
+
+error: EISDIR reading file: "D:\a\legalwork\legalwork\node_modules\.pnpm\lucide-react@0.577.0_react@19.2.4\node_modules\lucide-react\dist\esm\lucide-react.js"
+    at D:\a\legalwork\legalwork\node_modules\.pnpm\lucide-react@0.577.0_react@19.2.4\node_modules\lucide-react\dist\esm\lucide-react.js
+(fail) Connected-storage save picker uses writable roots and fences late workspace changes [141.00ms]
+
+::endgroup::
+
+::group::tests\mail-worker-recovery-render.test.ts:
+error: EISDIR reading file: "D:\a\legalwork\legalwork\node_modules\.pnpm\lucide-react@0.577.0_react@19.2.4\node_modules\lucide-react\dist\esm\lucide-react.js"
+    at D:\a\legalwork\legalwork\node_modules\.pnpm\lucide-react@0.577.0_react@19.2.4\node_modules\lucide-react\dist\esm\lucide-react.js
+
+error: EISDIR reading file: "D:\a\legalwork\legalwork\node_modules\.pnpm\class-variance-authority@0.7.1\node_modules\class-variance-authority\dist\index.mjs"
+    at D:\a\legalwork\legalwork\node_modules\.pnpm\class-variance-authority@0.7.1\node_modules\class-variance-authority\dist\index.mjs
+
+error: EISDIR reading file: "D:\a\legalwork\legalwork\node_modules\.pnpm\jszip@3.10.1\node_modules\jszip\lib\index.js"
+    at D:\a\legalwork\legalwork\node_modules\.pnpm\jszip@3.10.1\node_modules\jszip\lib\index.js
+
+error: EISDIR reading file: "D:\a\legalwork\legalwork\node_modules\.pnpm\@eigenpal+docx-editor-agent_d3617b458bd51493a2de9af9f88c624c\node_modules\@eigenpal\docx-editor-agents\dist\index.mjs"
+    at D:\a\legalwork\legalwork\node_modules\.pnpm\@eigenpal+docx-editor-agent_d3617b458bd51493a2de9af9f88c624c\node_modules\@eigenpal\docx-editor-agents\dist\index.mjs
+
+error: EISDIR reading file: "D:\a\legalwork\legalwork\node_modules\.pnpm\zustand@5.0.12_@types+react_f59f9c7a86a9aa8438ed25a66ca04dad\node_modules\zustand\esm\index.mjs"
+    at D:\a\legalwork\legalwork\node_modules\.pnpm\zustand@5.0.12_@types+react_f59f9c7a86a9aa8438ed25a66ca04dad\node_modules\zustand\esm\index.mjs
+
+error: EISDIR reading file: "D:\a\legalwork\legalwork\node_modules\.pnpm\tailwind-merge@3.5.0\node_modules\tailwind-merge\dist\bundle-mjs.mjs"
+    at D:\a\legalwork\legalwork\node_modules\.pnpm\tailwind-merge@3.5.0\node_modules\tailwind-merge\dist\bundle-mjs.mjs
+
+error: EISDIR reading file: "D:\a\legalwork\legalwork\node_modules\.pnpm\clsx@2.1.1\node_modules\clsx\dist\clsx.mjs"
+    at D:\a\legalwork\legalwork\node_modules\.pnpm\clsx@2.1.1\node_modules\clsx\dist\clsx.mjs
+
+error: EISDIR reading file: "D:\a\legalwork\legalwork\node_modules\.pnpm\@base-ui+utils@0.2.8_@types_c9551430b09515194bf4d31e244bbed7\node_modules\@base-ui\utils\esm\warn.js"
+    at D:\a\legalwork\legalwork\node_modules\.pnpm\@base-ui+utils@0.2.8_@types_c9551430b09515194bf4d31e244bbed7\node_modules\@base-ui\utils\esm\warn.js
+
+error: EISDIR reading file: "D:\a\legalwork\legalwork\node_modules\.pnpm\@base-ui+utils@0.2.8_@types_c9551430b09515194bf4d31e244bbed7\node_modules\@base-ui\utils\esm\empty.js"
+    at D:\a\legalwork\legalwork\node_modules\.pnpm\@base-ui+utils@0.2.8_@types_c9551430b09515194bf4d31e244bbed7\node_modules\@base-ui\utils\esm\empty.js
+
+error: EISDIR reading file: "D:\a\legalwork\legalwork\node_modules\.pnpm\@floating-ui+utils@0.2.11\node_modules\@floating-ui\utils\dist\floating-ui.utils.dom.mjs"
+    at D:\a\legalwork\legalwork\node_modules\.pnpm\@floating-ui+utils@0.2.11\node_modules\@floating-ui\utils\dist\floating-ui.utils.dom.mjs
+
+error: EISDIR reading file: "D:\a\legalwork\legalwork\node_modules\.pnpm\react@19.2.4\node_modules\react\jsx-runtime.js"
+    at D:\a\legalwork\legalwork\node_modules\.pnpm\react@19.2.4\node_modules\react\jsx-runtime.js
+
+error: EISDIR reading file: "D:\a\legalwork\legalwork\node_modules\.pnpm\@base-ui+utils@0.2.8_@types_c9551430b09515194bf4d31e244bbed7\node_modules\@base-ui\utils\esm\owner.js"
+    at D:\a\legalwork\legalwork\node_modules\.pnpm\@base-ui+utils@0.2.8_@types_c9551430b09515194bf4d31e244bbed7\node_modules\@base-ui\utils\esm\owner.js
+
+error: EISDIR reading file: "D:\a\legalwork\legalwork\node_modules\.pnpm\@floating-ui+react-dom@2.1._f1e75c639f17217fdb8333873ebffdf9\node_modules\@floating-ui\react-dom\dist\floating-ui.react-dom.mjs"
+    at D:\a\legalwork\legalwork\node_modules\.pnpm\@floating-ui+react-dom@2.1._f1e75c639f17217fdb8333873ebffdf9\node_modules\@floating-ui\react-dom\dist\floating-ui.react-dom.mjs
+
+error: EISDIR reading file: "D:\a\legalwork\legalwork\node_modules\.pnpm\@base-ui+utils@0.2.8_@types_c9551430b09515194bf4d31e244bbed7\node_modules\@base-ui\utils\esm\store\index.js"
+    at D:\a\legalwork\legalwork\node_modules\.pnpm\@base-ui+utils@0.2.8_@types_c9551430b09515194bf4d31e244bbed7\node_modules\@base-ui\utils\esm\store\index.js
+
+error: EISDIR reading file: "D:\a\legalwork\legalwork\node_modules\.pnpm\@floating-ui+utils@0.2.11\node_modules\@floating-ui\utils\dist\floating-ui.utils.mjs"
+    at D:\a\legalwork\legalwork\node_modules\.pnpm\@floating-ui+utils@0.2.11\node_modules\@floating-ui\utils\dist\floating-ui.utils.mjs
+(fail) actual reader reconnects safe reads after worker unavailability without mutation retry [172.00ms]
+
+::endgroup::
+
+::group::tests\markdown-draft.test.ts:
+(pass) Markdown draft preservation > opening retains exact whitespace and markup
+(pass) Markdown draft preservation > incoming disk changes cannot overwrite a draft or advance its save version
+(pass) Markdown draft preservation > edits made during a save survive and remain dirty
+(pass) Markdown draft preservation > agent replacements reject stale/ambiguous matches and preserve literal dollar signs
+
+::endgroup::
+
+::group::tests\mcp-auth-identity.test.ts:
+(pass) mcp sign-in identity > a display name with a space still resolves to the registered server name [15.00ms]
+(pass) mcp sign-in identity > sign-in never rejects a display name the add-connector form accepts
+(pass) mcp sign-in identity > underscores survive, because that is what connect wrote
+(pass) mcp sign-in identity > every built-in connector can be signed into
+(pass) mcp sign-in identity > a declared serverName wins over the display name
+(pass) mcp sign-in identity > an explicit id wins over both
+(pass) mcp sign-in identity > deriving a server name always produces one opencode accepts
+
+::endgroup::
+
+::group::tests\mcp-catalog-auth.test.ts:
+(pass) MCP catalog authentication > each server has one setup policy, so catalog lookup cannot select a conflicting entry
+(pass) MCP catalog authentication > Dropbox collects its registered app credentials before trying to open OAuth
+(pass) MCP catalog authentication > interactive CourtListener and Everlaw connectors use OAuth rather than token-only setup
+(pass) MCP catalog authentication > LegalMemory discovers auth requirements for its firm's deployment
+
+::endgroup::
+
+::group::tests\mcp-connect-state.test.ts:
+(pass) MCP connection outcomes > explicit OAuth cannot complete from an anonymous transport handshake
+(pass) MCP connection outcomes > custom MCPs detect OAuth and client registration requirements
+(pass) MCP connection outcomes > token connections and explicitly disabled OAuth never launch authorization
+(pass) MCP connection outcomes > failed, disabled and missing engine entries do not report success
+(pass) MCP connection outcomes > manual sign-in retains the saved server identity, endpoint and complete OAuth configuration
+(pass) connection store success reporting > OAuth waits for verified completion, emits once, and retains the final success message [16.00ms]
+(pass) connection store success reporting > closing sign-in never emits a success event
+[mcp.connect] failed test-server 853 |       } else if (outcome === "connected") {
+854 |         setStateField("mcpStatus", t("mcp.connected"));
+855 |         captureAnalyticsEvent("integration_connected", {});
+856 |       } else {
+857 |         const status = snapshot.mcpStatuses[slug];
+858 |         throw engineAddError ?? new Error(
+                                          ^
+error: MCP endpoint returned 503
+      at connectMcp (D:\a\legalwork\legalwork\apps\app\src\react-app\domains\connections\store.ts:858:37)
+      at D:\a\legalwork\legalwork\apps\app\tests\mcp-connect-state.test.ts:195:19
+      at processTicksAndRejections (native:7:39)
+
+(pass) connection store success reporting > a failed custom connection retains its engine error and never emits success
+[mcp.connect] failed test-server 750 |         // every path an instance loads). Merging into the runtime config makes
+751 |         // the connector global: every workspace, old and new, gets it on the
+752 |         // next instance build.
+753 |         const runtimeWrite = await mergeRuntimeMcpServer(slug, mcpEntryConfig);
+754 |         if (!runtimeWrite.ok) {
+755 |           throw new Error(runtimeWrite.stderr || runtimeWrite.stdout || "Failed to update the runtime MCP config");
+                          ^
+error: Runtime config is unavailable
+      at connectMcp (D:\a\legalwork\legalwork\apps\app\src\react-app\domains\connections\store.ts:755:21)
+      at D:\a\legalwork\legalwork\apps\app\tests\mcp-connect-state.test.ts:204:19
+      at processTicksAndRejections (native:7:39)
+
+(pass) connection store success reporting > a failed runtime config write cannot silently report success
+(pass) connection store success reporting > a successful non-OAuth connection reports success after its engine status is known
+(pass) connection store success reporting > remote workspace OAuth credentials are saved on the selected server, without local config writes or a spurious reload [16.00ms]
+(pass) connection store success reporting > explicitly disabled OAuth stays disabled in persisted config even when old client settings exist
+(pass) connection store success reporting > cancelling setup during a save keeps the config but cannot reopen OAuth when it finishes
+(pass) connection store success reporting > a save that finishes after switching workspaces cannot start OAuth for the new selection
+
+::endgroup::
+
+::group::tests\mcp-connector-url.test.ts:
+(pass) resolveConnectorUrl > defaults a scheme-less on-prem template to https [15.00ms]
+(pass) resolveConnectorUrl > keeps a host:port appliance address intact
+(pass) resolveConnectorUrl > honors an explicit http:// appliance behind an internal proxy
+(pass) resolveConnectorUrl > does not double up a pasted trailing slash against the template path
+(pass) resolveConnectorUrl > leaves vendor templates that hardcode their own scheme alone
+(pass) resolveConnectorUrl > leaves unfilled placeholders in place so submit can reject them
+(pass) resolveConnectorUrl: what people actually paste > uses a pasted endpoint verbatim
+(pass) resolveConnectorUrl: what people actually paste > adds a scheme to a pasted path that omits one, without touching the path
+(pass) resolveConnectorUrl: what people actually paste > appends the endpoint only when just a host was given
+(pass) resolveConnectorUrl: what people actually paste > defaults loopback to http, everything else to https
+(pass) resolveConnectorUrl: what people actually paste > an explicit scheme always wins
+
+::endgroup::
+
+::group::tests\mcp-logout-truthfulness.test.ts:
+(pass) logout truthfulness > a transport can reconnect after credentials are removed
+(pass) logout truthfulness > a reconnect a beat later is still a reconnect
+(pass) logout truthfulness > a server asking to sign in again means the logout worked
+(pass) logout truthfulness > needs_client_registration also means the logout worked
+(pass) logout truthfulness > never reaching connected within the probe means the logout worked
+(pass) logout truthfulness > needs_auth is terminal — a later connect does not overturn it
+(pass) logout truthfulness > the probe must actually reconnect before judging
+(pass) logout truthfulness > a reconnect the engine refuses falls back to the ordinary message
+(pass) logout truthfulness > an unreadable status falls back to the ordinary message
+(pass) logout truthfulness > a server missing from the snapshot is not a silent reconnect
+(pass) logout truthfulness > cancellation stops the probe without accusing the logout
+(pass) logout truthfulness > each snapshot is handed back so the caller can refresh its badges
+
+::endgroup::
+
+::group::tests\mcp-oauth-errors.test.ts:
+(pass) MCP OAuth errors > recognizes Dropbox's actual rejection through a serialized SDK error
+(pass) MCP OAuth errors > recognizes registration restrictions without depending on a provider name
+(pass) MCP OAuth errors > preserves provider details and invalid_client in OAuth response bodies
+(pass) MCP OAuth errors > extracts only error fields rather than exposing SDK request headers or credentials
+(pass) MCP OAuth errors > handles causes, duplicate messages, and circular errors
+(pass) MCP OAuth errors > keeps unsupported OAuth separate from registration restrictions and transient failures
+
+::endgroup::
+
+::group::tests\mcp-oauth-flow.test.ts:
+(pass) MCP OAuth attempt ownership > duplicate starts share the current preparation and never request a second authorization link [16.00ms]
+(pass) MCP OAuth attempt ownership > reopening uses the same authorization URL and callback listener
+(pass) MCP OAuth attempt ownership > a preparation finishing after cancel is disposed without opening a browser
+(pass) MCP OAuth attempt ownership > a stale preparation is disposed before a newer attempt can acquire its resources
+(pass) MCP OAuth attempt ownership > quick retry waits for asynchronous callback-port disposal before binding again
+(pass) MCP OAuth attempt ownership > cancelled preparation waits for its late listener cleanup before preparing a retry
+(pass) MCP OAuth attempt ownership > cancellation at the preparation handoff still waits for callback-port cleanup [16.00ms]
+(pass) MCP OAuth attempt ownership > retry waits for an abandoned engine start and ignores its late authorization URL
+(pass) MCP OAuth attempt ownership > retry also waits for an abandoned code exchange and ignores its late success
+(pass) MCP OAuth attempt ownership > timed-out starts cannot open their late browser link [31.00ms]
+(pass) MCP OAuth attempt ownership > timed-out exchanges cannot publish a late success [31.00ms]
+(pass) MCP OAuth browser and callback completion > registers the callback before opening the browser and succeeds only after code exchange
+(pass) MCP OAuth browser and callback completion > missing or unsafe authorization links never count as authentication
+(pass) MCP OAuth browser and callback completion > browser-launch failure retains the link and permits reopening without restarting OAuth
+(pass) MCP OAuth browser and callback completion > a mismatched callback is rejected without losing the current attempt
+(pass) MCP OAuth browser and callback completion > manual and automatic completion racing exchange the code once
+(pass) MCP OAuth browser and callback completion > denied automatic authorization terminates the attempt with an actionable error
+(pass) MCP OAuth browser and callback completion > an abandoned callback cannot fail a newer attempt
+(pass) MCP OAuth browser and callback completion > failed code exchange preserves the provider error without claiming success
+(pass) MCP OAuth browser and callback completion > a rejected callback exchange retains nested SDK errors
+(pass) MCP OAuth manual callback validation > accepts an opaque code and a matching callback URL
+(pass) MCP OAuth manual callback validation > rejects wrong or missing state, callback origin, and callback path
+(pass) MCP OAuth manual callback validation > denial and malformed input cannot become authorization codes
+
+::endgroup::
+
+::group::tests\mention-encoding.test.ts:
+(pass) mention-encoding > round-trips paths with spaces
+(pass) mention-encoding > preserves literal percent-encoded sequences in paths
+(pass) mention-encoding > round-trips percent signs
+(pass) mention-encoding > keeps a memory filename for the pill and a canonical URI for the agent
+(pass) mention-encoding > keeps a downloaded workspace path as memory metadata instead of an attachment
+
+::endgroup::
+
+::group::tests\model-connect-notice.test.ts:
+(pass) connect-AI notice vs. the model-unavailable label > signed in: the model resolves and the provider counts
+(pass) connect-AI notice vs. the model-unavailable label > signed out: the model is gone AND the count is 0 in the same read
+(pass) connect-AI notice vs. the model-unavailable label > a stale selection with another provider still connected keeps the label
+(pass) connect-AI notice vs. the model-unavailable label > a disabled provider is not something to switch to
+(pass) connect-AI notice vs. the model-unavailable label > no list yet counts nothing
+
+::endgroup::
+
+::group::tests\notification-store.test.ts:
+
+# Unhandled error between tests
+-------------------------------
+14 |   key: (index: number) => [...storage.keys()][index] ?? null,
+15 |   get length() {
+16 |     return storage.size;
+17 |   },
+18 | };
+19 | Object.defineProperty(globalThis, "localStorage", {
+            ^
+TypeError: Attempting to change configurable attribute of unconfigurable property.
+      at D:\a\legalwork\legalwork\apps\app\tests\notification-store.test.ts:19:8
+
+::error file=apps\app\tests\notification-store.test.ts,line=19,col=8,title=TypeError: Attempting to change configurable attribute of unconfigurable property.::%0A      at D:\a\legalwork\legalwork\apps\app\tests\notification-store.test.ts:19:8
+-------------------------------
+
+
+::group::tests\office-agent-tools.test.ts:
+(pass) Office agent edit validation > bounds ranges before allocating cell matrices
+(pass) Office agent edit validation > replaces across styled text runs while keeping untouched styling
+(pass) Office agent edit validation > rejects stale, ambiguous and complex paragraph edits
+(pass) Office agent edit validation > keeps literal replacement tokens as text
+
+::endgroup::
+
+::group::tests\onboarding-consent-default.test.ts:
+(pass) onboarding consent default > fresh install (no stored prefs): toggle defaults on, no explicit consent recorded
+(pass) onboarding consent default > after LocalProvider persists the null default: still counts as unset
+(pass) onboarding consent default > regression: a persisted concrete false would defeat the default (old bug)
+(pass) onboarding consent default > explicit opt-out is preserved on re-entry
+(pass) onboarding consent default > explicit opt-in is honoured
+
+::endgroup::
+
+::group::tests\onboarding-funnel-events.test.ts:
+(pass) onboarding funnel events > opting out at the end still reports the start, so the funnel is measurable
+(pass) onboarding funnel events > the opt-out still purges anything not yet flushed
+(pass) onboarding funnel events > staying opted in reports intent and success separately
+
+::endgroup::
+
+::group::tests\permission-approval-modal.test.ts:
+(pass) permission approval modal helpers > surfaces risk-bearing metadata as review rows
+(pass) permission approval modal helpers > deduplicates alternate file metadata keys
+(pass) permission approval modal helpers > summarizes apply-patch file metadata
+(pass) permission approval modal helpers > keeps keyboard order on the safer one-shot approval before session approval [16.00ms]
+(pass) permission approval modal helpers > uses readable labels for generic permission titles
+
+::endgroup::
+
+::group::tests\prompt-file-parts.test.ts:
+(pass) first-line local file parts > detects tilde paths in the first line
+(pass) first-line local file parts > only detects paths from the first line
+(pass) first-line local file parts > does not treat URL paths as local files
+(pass) first-line local file parts > detects Windows absolute paths in the first line
+(pass) slash-command parsing > parses command invocations
+(pass) slash-command parsing > does not parse absolute file paths as commands
+
+::endgroup::
+
+::group::tests\provider-local-templates.test.ts:
+(pass) local runtime templates > has the expected runtimes with unique ids
+(pass) local runtime templates > every template autofills a base URL (regression: Ollama/LM Studio must not be blank)
+(pass) local runtime templates > all templates route through the chat-completions SDK
+(pass) local runtime templates > only the engine auto-detected runtimes are flagged
+(pass) slugifyProviderId > slugifies "Ollama" -> "ollama"
+(pass) slugifyProviderId > slugifies "llama.cpp" -> "llama-cpp"
+(pass) slugifyProviderId > slugifies "LM Studio" -> "lm-studio"
+(pass) slugifyProviderId > slugifies "vLLM" -> "vllm"
+(pass) slugifyProviderId > slugifies "  My  Provider  " -> "my-provider"
+(pass) slugifyProviderId > slugifies "" -> "custom-provider"
+(pass) slugifyProviderId > slugifies "   " -> "custom-provider"
+(pass) slugifyProviderId > slugifies "***" -> "custom-provider"
+(pass) resolveTemplateName > fills a blank name with the template name
+(pass) resolveTemplateName > replaces a name that is still another template's default
+(pass) resolveTemplateName > preserves a name the user typed themselves
+
+::endgroup::
+
+::group::tests\question-modal.test.tsx:
+(pass) QuestionPanel > shows custom answer input when custom is omitted
+(pass) QuestionPanel > hides custom answer input when custom is false
+
+::endgroup::
+
+::group::tests\reasoning-display.test.ts:
+(pass) reasoning display > defaults reasoning visibility off
+(pass) reasoning display > a store that only carried the old 'on' default is turned off
+(pass) reasoning display > a value the user chose survives a default change
+(pass) reasoning display > a store already on the current default generation is left alone
+
+::endgroup::
+
+::group::tests\session-sync-permissions.test.ts:
+(pass) session permission sync > seeds only permissions for the selected session
+(pass) session permission sync > preserves received time when refreshing an existing permission
+(pass) session permission sync > keeps live permissions that arrive after a snapshot starts
+(pass) session permission sync > drops stale permissions that predate a fresh snapshot
+(pass) session permission sync > seeds v2 permissions for the selected session
+(pass) session permission sync > adds and removes live v2 permission events [16.00ms]
+(pass) session question sync > seeds only questions for the selected session
+(pass) session question sync > adds and removes live question events
+(pass) session transcript sync > invalidates cached artifact previews when an agent run finishes
+(pass) session transcript sync > coalesces token-sized deltas by transcript part
+(pass) session transcript sync > keeps live-only messages when an idle snapshot is stale
+(pass) session transcript sync > keeps longer live text when an idle snapshot lags the event stream
+(pass) session transcript sync > continues accepting stream deltas for a recently unselected session
+(pass) session transcript sync > keeps workspace stream alive while retained sessions remain after route unmount
+
+::endgroup::
+
+::group::tests\session-sync-tool-parts.test.ts:
+(pass) tool part mapper > defers in-progress tools with empty input
+(pass) tool part mapper > maps in-progress tools with partial input as input-streaming
+(pass) tool part mapper > maps completed tools
+(pass) tool part mapper > maps env var request tools for rich chat rendering
+(pass) tool part mapper > skips empty structured output while streaming
+(pass) tool part mapper > keeps completed structured output even when input is {}
+(pass) tool part mapper > session sync defers empty in-progress write tools until input arrives [15.00ms]
+
+::endgroup::
+
+::group::tests\sidebar-primitives.test.ts:
+(pass) sidebar accessibility > session actions are native buttons and expose the current page
+(pass) sidebar accessibility > folder assets keep their paint references isolated in a list
+
+::endgroup::
+
+::group::tests\skill-resources.test.ts:
+(pass) syncAttachedFilesSection > appends the server block when the editor content has none
+(pass) syncAttachedFilesSection > replaces a stale block with the server one
+(pass) syncAttachedFilesSection > removes the block when the server content has none
+(pass) syncAttachedFilesSection > preserves unsaved user edits outside the block
+(pass) syncAttachedFilesSection > is idempotent
+(pass) syncAttachedFilesSection > matches the server content exactly for a clean editor
+
+::endgroup::
+
+::group::tests\sonner-toast-dismiss.test.ts:
+(pass) sonner toast wrapper > the stored toast carries the id the wrapper returns (X button can dismiss it)
+(pass) sonner toast wrapper > an explicit toast id is preserved
+
+::endgroup::
+
+::group::tests\tool-permissions-config.test.ts:
+(pass) parseToolPermissions > parses plain string actions
+(pass) parseToolPermissions > parses the object form with a wildcard fallback and pattern rules
+(pass) parseToolPermissions > parses the object form without a wildcard entry
+(pass) parseToolPermissions > ignores invalid values
+(pass) parseToolPermissions > readPermissionRecord tolerates missing or invalid permission keys
+(pass) serializeToolPermissionsPatch > writes the minimal string form when a tool has no rules
+(pass) serializeToolPermissionsPatch > writes the object form with a wildcard fallback when bash has rules
+(pass) serializeToolPermissionsPatch > omits the wildcard entry when no default action is set
+(pass) serializeToolPermissionsPatch > never includes external_directory or unknown permission keys
+(pass) serializeToolPermissionsPatch > emits null to remove a managed key that was previously configured
+(pass) serializeToolPermissionsPatch > omits managed keys that are unset and were never configured
+(pass) serializeToolPermissionsPatch > round-trips both permission forms through parse and serialize
+(pass) applyPermissionPatch > applies values, removes null keys, and preserves everything else
+(pass) quick toggles > derives checked state from the model
+(pass) quick toggles > deny also reads as checked for the ask toggles
+(pass) quick toggles > toggle mapping round-trips through the model and config
+(pass) quick toggles > toggling shell keeps existing bash pattern rules
+
+::endgroup::
+
+::group::tests\tool-permissions-panel-state.test.ts:
+(pass) toolPermissionsReducer > load lifecycle populates the model from config
+(pass) toolPermissionsReducer > loadError clears the model and surfaces the message
+(pass) toolPermissionsReducer > edit swaps the model and clears stale notices
+(pass) toolPermissionsReducer > saveSuccess commits the applied patch as the new loaded state
+(pass) toolPermissionsReducer > saveError reverts the optimistic edit to the loaded permission
+(pass) toolPermissionsReducer > reset returns to the initial state
+
+::endgroup::
+
+::group::tests\voice-activity.test.ts:
+(pass) collectVoiceActivity > keeps only structured, human-readable task activity
+(pass) collectVoiceActivity > updates an existing activity instead of duplicating streamed tool events
+(pass) collectVoiceActivity > uses LegalMemory's user-facing activity language
+(pass) collectVoiceActivity > limits the trail to the latest activities
+
+::endgroup::
+
+::group::tests\voice-completion-delivery.test.ts:
+(pass) voice completion delivery > counts a completion only after a completed response finishes playback
+(pass) voice completion delivery > supports playback finishing before response.done arrives
+(pass) voice completion delivery > does not count a token-limited response as delivered
+(pass) voice completion delivery > does not count interrupted or silent output as delivered
+
+::endgroup::
+
+::group::tests\word-addin-run-code.test.ts:
+(pass) runOfficeCode > runs the snippet with context and returns the serialized result
+(pass) runOfficeCode > captures console output as logs
+(pass) runOfficeCode > shadows pane globals so snippets cannot reach them
+(pass) runOfficeCode > functions in results serialize as placeholders instead of failing
+(pass) runOfficeCode > enriches Office.js-style errors with debugInfo
+(pass) runOfficeCode > rejects empty code
+
+::endgroup::
+
+::group::tests\word-addin-workspace-match.test.ts:
+(pass) matchWorkspaceForDocument > matches a document inside a workspace folder
+(pass) matchWorkspaceForDocument > picks the deepest (most specific) nested workspace
+(pass) matchWorkspaceForDocument > falls back to the parent workspace when not in the nested one
+(pass) matchWorkspaceForDocument > is case-insensitive (mac/windows filesystems)
+(pass) matchWorkspaceForDocument > returns null for a document outside every workspace
+(pass) matchWorkspaceForDocument > does not match on a partial folder-name prefix
+(pass) matchWorkspaceForDocument > returns null for unsaved / cloud / empty inputs
+(pass) matchWorkspaceForDocument > ignores workspaces without a local path
+
+::endgroup::
+
+::group::tests\word-revision-ooxml.test.ts:
+(pass) revisionOoxml > replace = deletion of the old text plus insertion of the new text
+(pass) revisionOoxml > empty parts are dropped, so a pure deletion has no w:ins
+(pass) revisionOoxml > XML metacharacters in document text are escaped
+(pass) revisionOoxml > newlines in inserted text become w:br line breaks
+(pass) revisionOoxml > package is a single-paragraph Flat OPC document
+(pass) revisionOoxml > revision ids are unique across calls
+
+::endgroup::
+
+::group::tests\workspace-attachment.test.ts:
+(pass) workspace attachments > contract.docx uploads unchanged bytes and becomes a path reference
+(pass) workspace attachments > schedule.xlsx uploads unchanged bytes and becomes a path reference
+(pass) workspace attachments > scan.pdf uploads unchanged bytes and becomes a path reference
+(pass) workspace attachments > photo.png uploads unchanged bytes and becomes a path reference
+(pass) workspace attachments > unknown.bin uploads unchanged bytes and becomes a path reference
+(pass) workspace attachments > same-named uploads have distinct paths; special filenames remain one safe badge [16.00ms]
+(pass) workspace attachments > upload failures never produce a usable reference
+
+::endgroup::
+
+25 tests failed:
+(fail) mailbox UI queues independent bulk actions, shows partial failure, safely undoes and confirms permanent deletion [3171.00ms]
+(fail) agent Settings requires deliberate scope confirmation and separate exact send review [47.00ms]
+(fail) archive account opens historical mail outside Inbox and offers no provider sync or compose [172.00ms]
+(fail) stored attachments use shared preview sources and reject unsafe document content [250.00ms]
+(fail) actual renderer automatically displays sync progress, downloaded inbox messages and retry without navigation [172.00ms]
+(fail) isolated compose UI saves/reopens incomplete work, formats safely, attaches files and keeps Send unavailable [47.00ms]
+(fail) actual mailbox and search context menus preserve selection and share journal, undo and permissions [172.00ms]
+(fail) conversation open queues read once and preserves first HTML layout across idle polls [16.00ms]
+(fail) isolated Mail settings and scoped keyboard preserve typing and shell commands [31.00ms]
+(fail) stored Word text preview does not load sender-selected fonts or external relationships [16.00ms]
+(fail) isolated mail preserves responsive layout, blocks active content and resizes long threads [31.00ms]
+(fail) mail attachment opens internally, prepares a chosen chat and returns to its source [172.00ms]
+(fail) Mail keyboard workflows preserve shell/typing, select bulk ranges, restore focus and review sends on both platforms [187.00ms]
+(fail) native notification target opens in shared shell and rejects a different server origin [187.00ms]
+(fail) actual renderer completes browser onboarding and confines iCloud passwords to the local request [157.00ms]
+(fail) SMTP Settings, durable composer queue and uncertain Outbox recovery render in isolated Electron [15.00ms]
+(fail) Settings native import shows durable progress and resume without accepting renderer paths [157.00ms]
+(fail) mail previews use ephemeral panel sources and retire on access loss, replacement and tab close
+(fail) isolated actual renderer opens mail automatically and blocks hostile HTML, resource URLs and child privileges [172.00ms]
+(fail) retention Settings confirms deletion, pauses Mail and clears backup passphrase [47.00ms]
+(fail) actual isolated search renderer applies filters, navigates sections/pages, saves privately and cancels stale requests [172.00ms]
+(fail) Settings preserves explicit shared grants and composer binds the mailbox From identity [7313.00ms]
+(fail) Connected-storage save picker uses writable roots and fences late workspace changes [141.00ms]
+(fail) actual reader reconnects safe reads after worker unavailability without mutation retry [172.00ms]
+
+ 431 pass
+ 25 fail
+ 1 error
+ 1356 expect() calls
+Ran 456 tests across 100 files. [29.04s]
+D:\a\legalwork\legalwork\apps\app:
+[ERR_PNPM_RECURSIVE_RUN_FIRST_FAIL] @legalwork/app@0.0.0 test: `bun test tests/`
+Exit status 1
