@@ -110,3 +110,25 @@ test('exact filename candidates retain JavaScript Unicode case normalization',as
  f.seed();await f.project(await f.raw(Buffer.from(mime.toString().replace('filename="brief.bin"',"filename*=UTF-8''%C4%B0nvoice.pdf"))));const search=new MailSearchStore(f.db,'owner');search.rebuild({accountId:'a'});
  assert.equal(search.search({filename:'İnvoice.PDF'}).total,1);assert.equal(search.search({filename:'i\u0307nvoice.pdf'}).total,1);assert.equal(search.search({filename:'invoice.pdf'}).total,0);
 }));
+
+
+test('single phrase scan retains exact totals, empty pages, source scope and dirty exclusion',async()=>fixture(async f=>{
+ f.seed();const search=new MailSearchStore(f.db,'owner');
+ for(const accountId of ['a','b','foreign']){
+  const repository=new MailRepository(f.db,accountId==='foreign'?'other':'owner');
+  if(accountId!=='a')repository.createAccount({id:accountId,provider:'gmail',displayName:'Synthetic'});
+  for(let n=0;n<4;n++)repository.ingestMessage(accountId,{locator:{provider:'gmail',messageId:'phrase-'+n},rfcMessageId:null,subject:'Common legal phrase',memberships:[]});
+  new MailSearchStore(f.db,accountId==='foreign'?'other':'owner').rebuild({accountId});
+ }
+ const input={phrase:'Common legal phrase',limit:3},first=search.search(input),second=search.search({...input,offset:3});
+ assert.equal(first.total,8);assert.equal(first.items.length,3);assert.equal(second.total,8);
+ assert.equal(new Set([...first.items,...second.items].map(row=>row.accountId+row.locator.messageId)).size,6);
+ assert.deepEqual(search.search({...input,offset:8}),{items:[],total:8,pending:0,incomplete:9,nextOffset:null});
+ assert.equal(search.search({...input,accountIds:['b']}).total,4);
+ assert.equal(search.search({...input,phrase:'phrase legal Common'}).total,0);
+ assert.throws(()=>search.search({...input,accountIds:['foreign']}),{code:'not_found'});
+ for(const filingIds of [[],['invented']]){const scoped=search.search(input,{filingIds});assert.equal(scoped.total,0);assert.deepEqual(scoped.items,[]);assert.equal(scoped.incomplete,0);}
+ f.repository.ingestMessage('b',{locator:{provider:'gmail',messageId:'phrase-0'},rfcMessageId:null,subject:'Replacement',memberships:[]});
+ assert.equal(search.search(input).total,7);assert.equal(search.search(input).pending,1);
+ await f.reopen();assert.equal(new MailSearchStore(f.db,'owner').search(input).total,7);
+}));
