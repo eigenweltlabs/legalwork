@@ -96,3 +96,40 @@ test('restart recovers legacy transiently exhausted downloads without reviving p
  const engine=f.make();engine.start('a');await until(()=>engine.status('a').state==='complete');engine.pause('a');await delay(20);
  f.db.run("UPDATE mail_sync_jobs SET state='failed',attempts=max_attempts,last_error=CASE WHEN message_key=? THEN 'permanent' ELSE 'retryable' END WHERE kind='raw'",[JSON.stringify(['gmail','old'])]);f.db.run("UPDATE mail_gmail_runs SET state='attention',error='rate_limited',next_retry_at=NULL");await f.reopen();const resumed=f.make();resumed.start('a');assert.equal(f.db.get("SELECT count(*) AS n FROM mail_sync_jobs WHERE state='failed' AND last_error='retryable'").n,0);assert.equal(f.db.get("SELECT count(*) AS n FROM mail_sync_jobs WHERE state='failed' AND last_error='permanent'").n,1);assert.ok(resumed.status('a').nextRetryAt>Date.now()+59000);
 }));
+
+test('untyped history refreshes current labels, downloads unknown mail and retains a 404 original',()=>fixture(async f=>{
+ const minimal=[],raw=[];const e=f.make({transport:()=>({...f.transport,
+  async listHistory(){return{historyId:'30',nextPageToken:null,records:[{id:'20',changes:['recent','new','middle'].map(messageId=>({kind:'changed',messageId,threadId:'thread',labelIds:[]}))}]};},
+  async getMetadata(id){minimal.push(id);if(id==='middle')throw new GmailTransportError('not_found');return{id,threadId:'fresh-thread',historyId:'30',internalDate:null,labelIds:['INBOX','UNREAD']};},
+  async consumeRaw(id,sink){raw.push(id);return{...await f.transport.consumeRaw(id,sink),historyId:id==='new'?'30':'1',labelIds:id==='new'?['INBOX','UNREAD']:['INBOX']};}
+ })});
+ e.start('a');await until(()=>e.status('a').state==='complete');assert.equal(e.status('a').error,null);assert.deepEqual(minimal,['recent','new','middle']);assert.deepEqual(raw,['recent','middle','old','new']);
+ const repo=new MailRepository(f.db,'owner'),key=JSON.stringify(['gmail','recent']);assert.deepEqual(repo.readMessage('a',{provider:'gmail',messageId:'recent'}).memberships,['INBOX','UNREAD']);assert.equal(f.db.get('SELECT internal_date FROM mail_gmail_metadata WHERE message_key=?',[key]).internal_date,1000);
+ assert.equal(f.db.get('SELECT history_id FROM mail_gmail_runs').history_id,'30');assert.equal(e.status('a').retained,1);assert.equal(e.status('a').failed,0);assert.equal(f.db.get("SELECT count(*) AS n FROM mail_content_manifests WHERE kind='raw'").n,4);
+ await f.reopen();assert.deepEqual(new MailRepository(f.db,'owner').readMessage('a',{provider:'gmail',messageId:'recent'}).memberships,['INBOX','UNREAD']);
+}));
+
+test('untyped history read failure preserves cursor and applies the whole page after restart',()=>fixture(async f=>{
+ let fail=true;const factory=()=>({...f.transport,
+  async listHistory(){return{historyId:'20',nextPageToken:null,records:[{id:'20',changes:['recent','old'].map(messageId=>({kind:'changed',messageId,threadId:'thread',labelIds:[]}))}]};},
+  async getMetadata(id){if(fail&&id==='old')throw new GmailTransportError('transient');return{id,threadId:'thread',historyId:'20',internalDate:'1000',labelIds:['UNREAD']};}
+ });
+ const e=f.make({transport:factory});e.start('a');await until(()=>e.status('a').state==='waiting');assert.equal(f.db.get('SELECT history_id FROM mail_gmail_runs').history_id,'1');assert.equal(f.db.get("SELECT count(*) AS n FROM mail_memberships WHERE folder_id='UNREAD'").n,0);
+ await f.reopen();fail=false;const now=Date.now;Date.now=()=>now()+65000;try{const next=f.make({transport:factory});next.start('a');await until(()=>next.status('a').state==='complete');assert.equal(f.db.get('SELECT history_id FROM mail_gmail_runs').history_id,'20');assert.equal(f.db.get("SELECT count(*) AS n FROM mail_memberships WHERE folder_id='UNREAD'").n,2);}finally{Date.now=now;}
+}));
+
+test('untyped history pause fences late snapshots and never checkpoints their page',()=>fixture(async f=>{
+ const gate=defer(),entered=defer();const e=f.make({transport:()=>({...f.transport,
+  async listHistory(){return{historyId:'20',nextPageToken:null,records:[{id:'20',changes:[{kind:'changed',messageId:'recent',threadId:'thread',labelIds:[]}]}]};},
+  async getMetadata(id){entered.resolve();await gate.promise;return{id,threadId:'thread',historyId:'20',internalDate:'1000',labelIds:['UNREAD']};}
+ })});
+ e.start('a');await entered.promise;e.pause('a');gate.resolve();await delay(30);assert.equal(f.db.get('SELECT history_id FROM mail_gmail_runs').history_id,'1');assert.equal(f.db.get("SELECT count(*) AS n FROM mail_memberships WHERE folder_id='UNREAD'").n,0);assert.equal(e.status('a').state,'paused');
+}));
+
+test('untyped history caps collected metadata and keeps the page unacknowledged',()=>fixture(async f=>{
+ const e=f.make({transport:()=>({...f.transport,
+  async listHistory(){return{historyId:'20',nextPageToken:null,records:[{id:'20',changes:Array.from({length:6},(_,i)=>({kind:'changed',messageId:'bulk-'+i,threadId:'thread',labelIds:[]}))}]};},
+  async getMetadata(id){return{id,threadId:'thread',historyId:'20',internalDate:'1000',labelIds:Array.from({length:4000},(_,i)=>String(i)+'x'.repeat(245))};}
+ })});
+ e.start('a');await until(()=>e.status('a').state==='attention');assert.equal(e.status('a').error,'content_incomplete');assert.equal(f.db.get('SELECT history_id FROM mail_gmail_runs').history_id,'1');assert.equal(f.db.get("SELECT count(*) AS n FROM mail_sync_scopes WHERE scope_id='gmail:history'").n,0);
+}));

@@ -46,3 +46,34 @@ Focused cases:
 ```sh
 pnpm exec node apps/server/scripts/mail-acceptance.mjs --suite providers/gmail-backfill --test-name-pattern 'provider retry floor|rate limits enter|uncooperative discovery timeout|authentication rejection|download throttling|restart recovers legacy'
 ```
+
+## Untyped Gmail history references
+
+The connected dev account exposed a valid history record containing `messages[]`
+without a specific add/delete/label event. The old parser stopped on that record.
+The transport now prefers specific events and emits a reconciliation reference for
+remaining message IDs, including mixed records. The engine reads current metadata
+before committing the page: existing messages get current labels, unknown messages
+get durable original-download jobs, and a fenced 404 retains any stored original.
+A failed or interrupted read leaves the page cursor unchanged. Reads are sequential,
+reference counts remain bounded, and collected snapshots are capped at 4 MiB.
+Message history versions still prevent an older snapshot replacing newer state.
+
+Google documents `messages[]` as changed references that may duplicate specific
+change fields: [users.history.list](https://developers.google.com/workspace/gmail/api/reference/rest/v1/users.history/list).
+
+Focused regressions:
+
+```sh
+pnpm exec bun test apps/server/src/mail/providers/gmail.test.ts --test-name-pattern 'history'
+pnpm exec node apps/server/scripts/mail-acceptance.mjs --suite providers/gmail-backfill --test-name-pattern 'untyped history|history pages durably|pause/reopen between history|history checkpoint transaction'
+```
+
+Three parser cases and seven native encrypted-sync cases passed on macOS arm64,
+using synthetic provider responses. These are feature checks, not full-provider or
+platform certification.
+
+Live dev verification after the fix: the previously stopped account reached
+`complete` with 609 originals / 609 readable projections, zero pending or failed
+jobs and no sync error. Its retained provider history was applied without sending
+or deleting any provider mail. Existing session data was preserved.
