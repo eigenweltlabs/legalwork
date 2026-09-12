@@ -125,14 +125,30 @@ export async function openEncryptedMailDatabase(options: EncryptedMailDatabaseOp
     if (native.pragma("synchronous", { simple: true }) !== 2) throw new Error("Encrypted mail durability configuration failed");
     native.defaultSafeIntegers(true);
     const db = native;
+    // Bound native statement retention; repeated MIME/index jobs otherwise
+    // allocate a fresh native statement for every identical point lookup.
+    const statements = new Map<string, ReturnType<NativeDatabase["prepare"]>>();
+    const prepare = (sql: string) => {
+      let statement = statements.get(sql);
+      if (statement) statements.delete(sql);
+      else {
+        statement = db.prepare(sql);
+        if (statements.size >= 128) {
+          const oldest = statements.keys().next().value;
+          if (oldest !== undefined) statements.delete(oldest);
+        }
+      }
+      statements.set(sql, statement);
+      return statement;
+    };
     return {
-      exec(sql) { db.exec(sql); },
-      run(sql, parameters = []) { return { changes: db.prepare(sql).run(...parameters).changes }; },
+      exec(sql) { statements.clear(); db.exec(sql); },
+      run(sql, parameters = []) { return { changes: prepare(sql).run(...parameters).changes }; },
       get(sql, parameters = []) {
-        const value = db.prepare(sql).get(...parameters);
+        const value = prepare(sql).get(...parameters);
         return value === undefined ? undefined : row(value);
       },
-      all(sql, parameters = []) { return db.prepare(sql).all(...parameters).map(row); },
+      all(sql, parameters = []) { return prepare(sql).all(...parameters).map(row); },
       transaction<T>(body: () => T): T {
         if (Object.prototype.toString.call(body) === "[object AsyncFunction]") throw new Error("Mail transactions must be synchronous");
         return db.transaction(() => {
@@ -156,7 +172,7 @@ export async function openEncryptedMailDatabase(options: EncryptedMailDatabaseOp
           if (db.pragma("journal_mode=WAL", { simple: true }) !== "wal") throw new Error("Mail rekey durability failed");
         } finally { replacement.fill(0); }
       },
-      close() { db.close(); },
+      close() { statements.clear(); db.close(); },
     };
   } catch (error) {
     native?.close();

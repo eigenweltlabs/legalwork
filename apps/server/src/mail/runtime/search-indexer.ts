@@ -18,8 +18,8 @@ export class MailSearchIndexer {
         AND NOT EXISTS(SELECT 1 FROM mail_account_access c WHERE c.account_id=a.id AND c.state='disconnected')
         AND EXISTS(SELECT 1 FROM mail_search_dirty d WHERE d.account_id=a.id) ORDER BY a.id LIMIT 1`,[this.ownerId,after]);
       const row=select(this.after)??select("");
-      if(row&&typeof row.id==='string'){this.after=row.id;this.search.rebuild({accountId:row.id,limit:1});busy=true;}
+      if(row&&typeof row.id==='string'){this.after=row.id;this.search.indexNext(row.id);busy=true;}
     }catch{/* Keep failures private; leave durable work queued and try another account. */}
-    if(!this.closed)this.schedule(busy?25:1000);
+    if(!this.closed)this.schedule(busy?1:1000);
   }
 }

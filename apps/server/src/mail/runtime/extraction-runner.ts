@@ -11,6 +11,7 @@ export class MailExtractionRunner {
     private active: Promise<void> | undefined;
     private after = '';
     private activeAccount: string | undefined;
+    private nextDelay = 1000;
     constructor(database: MailDatabase, ownerId: string) { this.store = new MailExtractionStore(database, ownerId); }
     start() { if (!this.closed && !this.timer && !this.active)
         this.schedule(0); }
@@ -18,13 +19,15 @@ export class MailExtractionRunner {
         this.abort?.abort(); }
     async close() { this.closed = true; clearTimeout(this.timer); this.timer = undefined; this.abort?.abort(); await this.active; }
     private schedule(ms: number) { this.timer = setTimeout(() => { this.timer = undefined; this.active = this.tick().finally(() => { this.active = undefined; if (!this.closed)
-        this.schedule(250); }); }, ms); this.timer.unref(); }
+        this.schedule(this.nextDelay); }); }, ms); this.timer.unref(); }
     private async tick() {
         let lease: ExtractionLease | null = null;
+        this.nextDelay = 1000;
         try {
             lease = this.store.claim(this.after);
             if (!lease)
                 return;
+            this.nextDelay = 10;
             this.after = lease.accountId;
             this.activeAccount = lease.accountId;
             this.abort = new AbortController();
