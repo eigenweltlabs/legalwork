@@ -18,7 +18,7 @@ export function optimisticMail(item:MailMessageView,entries:ActionEntry[]):MailM
  }
  return current;
 }
-export function MailActionBar({blocked=false,client,accounts,accountId,selected,folder,folders,onEntries,onRefresh}:{blocked?:boolean;client:MailClient;accounts:MailAccountView[];accountId:string;selected:MailMessageView[];folder?:MailFolderView;folders:MailFolderView[];onEntries:(entries:ActionEntry[])=>void;onRefresh:()=>void}){
+export function MailActionBar({reading=false,blocked=false,client,accounts,accountId,selected,folder,folders,onEntries,onRefresh}:{reading?:boolean;blocked?:boolean;client:MailClient;accounts:MailAccountView[];accountId:string;selected:MailMessageView[];folder?:MailFolderView;folders:MailFolderView[];onEntries:(entries:ActionEntry[])=>void;onRefresh:()=>void}){
  const [entries,setEntries]=useState<ActionEntry[]>([]),[busy,setBusy]=useState(false),[errors,setErrors]=useState<string[]>([]),[showActivity,setShowActivity]=useState(false),[next,setNext]=useState<string|null>(null);
  const [dialog,setDialog]=useState<'delete'|'create'|'rename'|'delete-folder'|null>(null),[name,setName]=useState(''),[destinations,setDestinations]=useState<MailFolderView[]>([]);
  const api=useRef(new MailActionsClient(client)),store=useRef(new Map<string,ActionEntry>()),abort=useRef(new AbortController()),refresh=useRef(onRefresh),notify=useRef(onEntries);refresh.current=onRefresh;notify.current=onEntries;
@@ -55,7 +55,7 @@ export function MailActionBar({blocked=false,client,accounts,accountId,selected,
  const activity=entries.filter(entry=>entry.kind==='mutation'&&(entry.accountId===accountId||!accountId||selected.some(item=>item.accountId===entry.accountId)));
  return <div className="mail-action-area">
   <div className="mail-bulk-toolbar" role="toolbar" aria-busy={busy||blocked} aria-label="Mailbox actions">
-   <span>{selected.length?`${selected.length} selected`:''}</span>
+   <span>{selected.length?reading?'Message':`${selected.length} selected`:''}</span>
    <button className="mail-icon-button" data-mail-command="read" aria-label="Mark read" {...mailShortcutProps('read','Mark read')} disabled={disabled} onClick={()=>void apply({kind:'read',read:true})}><MailOpen size={15}/></button>
    <button className="mail-icon-button" data-mail-command="unread" aria-label="Mark unread" {...mailShortcutProps('unread','Mark unread')} disabled={disabled} onClick={()=>void apply({kind:'read',read:false})}><Mail size={15}/></button>
    <button className="mail-icon-button" data-mail-command="flag" aria-label={selected.every(item=>item.isFlagged)?'Unflag':'Flag'} {...mailShortcutProps('flag','Flag or unflag')} disabled={disabled} onClick={()=>void apply({kind:'flags',add:selected.every(item=>item.isFlagged)?[]:['\\Flagged'],remove:selected.every(item=>item.isFlagged)?['\\Flagged']:[]})}><Flag size={15}/></button>
