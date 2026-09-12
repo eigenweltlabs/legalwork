@@ -140,6 +140,29 @@ export class GmailReadTransport {
       return { labels };
     });
   }
+  /** Pending aliases are deliberately not usable sender identities. No provider HTML is imported. */
+  listSendAs(options: { signal?: AbortSignal } = {}): Promise<{ address: string; displayName: string; primary: boolean; default: boolean }[]> {
+    return this.run(options.signal, async signal => {
+      const data = await this.get(`${BASE}/settings/sendAs`, 256 * 1024, signal);
+      if (!Array.isArray(data.sendAs) || data.sendAs.length > 100 || data.nextPageToken !== undefined) return reject("invalid_response");
+      const seen = new Set<string>();
+      const result = data.sendAs.flatMap(value => {
+        if (!record(value) || typeof value.sendAsEmail !== 'string' || value.sendAsEmail.length > 254
+          || !/^[A-Za-z0-9.!#$%&'*+/=?^_`{|}~-]+@[A-Za-z0-9.-]+$/.test(value.sendAsEmail)
+          || value.sendAsEmail.includes('..') || (value.isPrimary !== undefined && typeof value.isPrimary !== 'boolean')
+          || (value.isDefault !== undefined && typeof value.isDefault !== 'boolean')
+          || (value.verificationStatus !== undefined && value.verificationStatus !== 'accepted' && value.verificationStatus !== 'pending')
+          || (value.displayName !== undefined && (typeof value.displayName !== 'string' || value.displayName.length > 512 || /[\u0000-\u001f\u007f]/.test(value.displayName)))) return reject('invalid_response');
+        const address = value.sendAsEmail.toLowerCase();
+        if (seen.has(address)) return reject('invalid_response');
+        seen.add(address);
+        if (value.verificationStatus === 'pending' || (value.isPrimary !== true && value.verificationStatus !== 'accepted')) return [];
+        return [{address, displayName: typeof value.displayName === 'string' ? value.displayName : '', primary: value.isPrimary === true, default: value.isDefault === true}];
+      });
+      if (result.filter(value => value.primary).length !== 1 || result.filter(value => value.default).length > 1) return reject('invalid_response');
+      return result;
+    });
+  }
   getProfile(options: { signal?: AbortSignal } = {}): Promise<{ historyId: string }> {
     return this.run(options.signal, async signal => {
       const data = await this.get(`${BASE}/profile`, 65536, signal);

@@ -1,3 +1,4 @@
+import {SenderIdentityRepository} from '../storage/sender-identities.js';
 import { createHash, randomUUID } from "node:crypto";
 import type { MailDatabase } from "../storage/database-interface.js";
 import { MailRepository } from "../storage/repository.js";
@@ -145,6 +146,9 @@ export class MailConnectionController {
         }
         this.credentials.connect(accountId, binding, expected, { accessToken: tokens.accessToken, expiresAt: tokens.expiresAt,
           grantedScopes: tokens.grantedScopes, refreshToken: tokens.refreshToken === null ? { action: "clear" } : { action: "replace", value: tokens.refreshToken } });
+        const senderVersion=this.credentials.status(accountId).version;
+        if(!senderVersion)throw new MailConnectionError('persistence_failed');
+        new SenderIdentityRepository(this.database,this.ownerId).replace(accountId,senderVersion.generation,[{address:identity.email,displayName:identity.displayName??'',primary:true,default:true}]);
         if (!this.usable(entry)) throw new MailConnectionError("expired");
       });
       await this.onConnected?.(accountId, settings);

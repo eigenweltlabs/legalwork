@@ -1,4 +1,5 @@
 import type {DraftSyncRequest} from "./draft-sync-view.js";
+import type {SenderSettings,SenderConfigure} from './sender-view.js';
 import type {MailUpload} from "./local-view.js";
 import type { GraphMailboxInput } from './graph-mailbox-view.js';
 import type {SavedSearchInput} from './saved-search-view.js';
@@ -65,6 +66,15 @@ export class LocalMailService implements MailService {
       },
     });
   }
+  async senders(accountId:string){const result=await this.request({operation:'mail.senders.list',accountId});if(!('senders' in result))throw new MailServiceError('unavailable');return result.senders;}
+  async refreshSenders(accountId:string){
+    const epoch=this.epoch,provider=await this.request({operation:'mail.sync.provider',accountId});if(!('syncProvider' in provider))throw new MailServiceError('unavailable');
+    const settings=provider.syncProvider==='imap'?undefined:await this.loadProviderSettings?.(provider.syncProvider,provider.personal);
+    if(epoch!==this.epoch)throw new MailServiceError('locked');
+    const result=await this.request({operation:'mail.senders.refresh',accountId,...(settings?{settings}:{})});if(!('senders' in result))throw new MailServiceError('unavailable');return result.senders;
+  }
+  async configureSender(accountId:string,input:SenderConfigure){const result=await this.request({operation:'mail.senders.configure',accountId,input});if(!('senders' in result))throw new MailServiceError('unavailable');return result.senders;}
+  async senderSettings(accountId:string,input:SenderSettings){const result=await this.request({operation:'mail.senders.settings',accountId,input});if(!('senders' in result))throw new MailServiceError('unavailable');return result.senders;}
   async configureGraphMailbox(input:GraphMailboxInput) {
     const result=await this.request({operation:'mail.graph.mailbox.configure',input});
     if(!('graphMailbox' in result))throw new MailServiceError('unavailable');
