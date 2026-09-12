@@ -374,6 +374,8 @@ export type OfficeAddinOpenAppResult = {
 // ---------------------------------------------------------------------------
 
 export type DesktopCommandMap = {
+  getMailBadgeEnabled: { args: []; result: boolean };
+  setMailBadgeEnabled: { args: [enabled: boolean]; result: boolean };
   // Native windows
   openSessionWindow: {
     args: [input: { workspaceId: string; sessionId: string; title?: string }];

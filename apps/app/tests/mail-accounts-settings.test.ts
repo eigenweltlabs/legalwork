@@ -4,7 +4,7 @@ import {tmpdir} from 'node:os';
 import {join,resolve} from 'node:path';
 import {spawn,spawnSync} from 'node:child_process';
 import {createRequire} from 'node:module';
-test('settings page preserves same-host OAuth, cancels replaced hosts, refreshes accounts and cancels IMAP on exit',async()=>{
+test('settings persists the app badge toggle and preserves same-host OAuth, cancels replaced hosts, refreshes accounts and cancels IMAP on exit',async()=>{
  const root=await mkdtemp(join(tmpdir(),'mail-onboarding-')),app=resolve(import.meta.dir,'..');const calls:{path:string;body:Record<string,unknown>}[]=[];let release:()=>void=()=>{};let begins=0;
  const server=Bun.serve({hostname:'127.0.0.1',port:0,fetch:async request=>{
   const headers={'Access-Control-Allow-Origin':'*','Access-Control-Allow-Headers':'X-LegalWork-Host-Token,Content-Type','Access-Control-Allow-Methods':'GET,POST,OPTIONS'};
@@ -23,7 +23,7 @@ test('settings page preserves same-host OAuth, cancels replaced hosts, refreshes
     import React from ${JSON.stringify(join(app,'node_modules/react/index.js'))};
     import {createRoot} from ${JSON.stringify(join(app,'node_modules/react-dom/client.js'))};
     import {MailAccountsView} from ${JSON.stringify(join(app,'src/react-app/domains/settings/pages/mail-accounts-view.tsx'))};
-    window.__host='synthetic';window.__opened=[];window.__changed=0;window.__LEGALWORK_ELECTRON__={shell:{openExternal:async url=>window.__opened.push(url)}};
+    window.__host='synthetic';window.__opened=[];window.__changed=0;window.__badge=false;window.__LEGALWORK_ELECTRON__={invokeDesktop:async(command,value)=>{if(command==='setMailBadgeEnabled')window.__badge=value;return window.__badge;},shell:{openExternal:async url=>window.__opened.push(url)}};
     const root=createRoot(document.getElementById('root'));window.__leave=()=>root.unmount();root.render(React.createElement(MailAccountsView));
   `);
   const resolver=join(root,'connection.ts');await writeFile(resolver,`export async function resolveLegalworkConnection(){return {normalizedBaseUrl:'http://127.0.0.1:${server.port}',resolvedHostToken:window.__host}}`);
@@ -37,6 +37,11 @@ test('settings page preserves same-host OAuth, cancels replaced hosts, refreshes
       const win=new BrowserWindow({show:false,webPreferences:{sandbox:true,contextIsolation:true,nodeIntegration:false}});
       await win.loadFile(${JSON.stringify(join(root,'index.html'))});const run=code=>win.webContents.executeJavaScript(code);
       const until=async code=>{for(let i=0;i<200;i++){if(await run(code))return;await new Promise(r=>setTimeout(r,20));}throw Error('UI timeout '+code+' '+await run('document.body.textContent'))};
+      await until("!!document.querySelector('[role=switch]')&&!document.querySelector('[role=switch]').disabled");
+      assert.equal(await run("document.querySelector('[role=switch]').getAttribute('aria-checked')"),'false');
+      await run("document.querySelector('[role=switch]').click()");
+      await until("window.__badge===true&&!document.querySelector('[role=switch]').disabled");
+      assert.equal(await run("document.querySelector('[role=switch]').getAttribute('aria-checked')"),'true');
       await until("!!document.querySelector('form')");
       await run("document.querySelector('form').requestSubmit()");await until("document.body.textContent.includes('Finish sign-in')");
       await run("window.dispatchEvent(new Event('legalwork-server-settings-changed'))");await new Promise(r=>setTimeout(r,150));assert.equal(await run("document.body.textContent.includes('Connecting…')"),true);
@@ -57,7 +62,7 @@ test('settings page preserves same-host OAuth, cancels replaced hosts, refreshes
   `);
   const require=createRequire(resolve(app,'../desktop/package.json'));
   const result=await new Promise<{code:number|null;output:string}>((done,reject)=>{
-   const child=spawn(require('electron'),[probe],{env:{PATH:process.env.PATH,...(process.platform==='win32'?{SystemRoot:process.env.SystemRoot,WINDIR:process.env.WINDIR}:{})},stdio:['ignore','pipe','pipe']});let output='';
+   const child=spawn(require('electron'),[probe],{env:{HOME:process.env.HOME,PATH:process.env.PATH,...(process.platform==='win32'?{SystemRoot:process.env.SystemRoot,WINDIR:process.env.WINDIR}:{})},stdio:['ignore','pipe','pipe']});let output='';
    const timer=setTimeout(()=>{child.kill();reject(Error(output+' renderer timeout'));},15000);
    child.stdout.on('data',value=>output+=value);child.stderr.on('data',value=>output+=value);child.on('error',reject);child.on('close',code=>{clearTimeout(timer);done({code,output});});
   });if(result.code!==0)throw Error(result.output);expect(result.output).toContain('ONBOARDING_PASS');

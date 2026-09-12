@@ -37,6 +37,7 @@ export type WorkerCommand =
   | {operation:"mail.search.saved";input:SavedSearchInput}
   | { operation: "mail.search"; input: MailSearchInput }
   | { operation: "mail.search.rebuild"; input: MailSearchRebuildInput }
+  | { operation: "mail.badge.count" }
   | { operation: "ping" }
   | { operation: "mail.storage.status" }
   | {operation:"mail.imap.discovery";accountId:string;after?:string}
@@ -67,6 +68,7 @@ export type WorkerResult =
   | {local:MailLocalResult}
   | { search: MailSearchResult }
   | { rebuilt: MailSearchRebuildResult }
+  | { unreadInboxCount: number }
   | { pong: true }
   | {imapDiscovery:ImapDiscovery}
   | {imapConnection:ImapConnectionResult}
@@ -170,6 +172,7 @@ function result(value: unknown): value is WorkerResult {
     || (exact(value, ["rebuilt"]) && mailSearchRebuildResultSchema.safeParse(value.rebuilt).success)
     || (exact(value,["imapDiscovery"])&&imapDiscoverySchema.safeParse(value.imapDiscovery).success)
     || (exact(value,["imapConnection"]) && imapConnectionResultSchema.safeParse(value.imapConnection).success)
+    || (exact(value, ["unreadInboxCount"]) && typeof value.unreadInboxCount === "number" && Number.isSafeInteger(value.unreadInboxCount) && value.unreadInboxCount >= 0)
     || (exact(value, ["pong"]) && value.pong === true)
     || (exact(value, ["connectionStarted"]) && started(value.connectionStarted))
     || (exact(value, ["connection"]) && connection(value.connection))
@@ -208,6 +211,7 @@ export function parseWorkerMessage(line: string): WorkerMessage | undefined {
 }
 export function resultMatchesCommand(command: WorkerCommand, value: WorkerResult): boolean {
   switch (command.operation) {
+    case "mail.badge.count": return "unreadInboxCount" in value;
     case 'mail.extraction.status':case 'mail.extraction.reset':return 'extraction' in value&&value.extraction.accountId===command.accountId&&JSON.stringify(value.extraction.locator)===JSON.stringify(command.input.locator)&&value.extraction.partId===command.input.partId&&value.extraction.referenceId===command.input.referenceId;
     case 'mail.extraction.read':return 'extractionText' in value&&value.extractionText.status.accountId===command.accountId&&JSON.stringify(value.extractionText.status.locator)===JSON.stringify(command.input.locator)&&value.extractionText.status.partId===command.input.partId&&value.extractionText.status.referenceId===command.input.referenceId&&value.extractionText.section===(command.input.section??0)&&value.extractionText.offset===(command.input.offset??0)&&value.extractionText.text.length<=(command.input.limit??4096);
 
@@ -270,7 +274,7 @@ export function validWorkerCommand(value: unknown): value is WorkerCommand {
     && settings(value.settings) && (!Object.hasOwn(value, "reconnectAccountId") || id(value.reconnectAccountId));
   if (value.operation === "mail.connection.poll" || value.operation === "mail.connection.cancel") return exact(value, ["operation", "connectionId"]) && uuid(value.connectionId);
   if (value.operation === "mail.account.disconnect") return exact(value, ["operation", "accountId"]) && id(value.accountId);
-  if (value.operation === "ping" || value.operation === "mail.storage.status") return exact(value, ["operation"]);
+  if (value.operation === "mail.badge.count" || value.operation === "ping" || value.operation === "mail.storage.status") return exact(value, ["operation"]);
   if (value.operation === "credentials.update") {
     const credentials = value.credentials;
     return exact(value, ["operation", "credentials"]) && record(credentials)

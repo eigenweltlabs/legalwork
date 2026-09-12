@@ -62,6 +62,11 @@ export class LocalMailService implements MailService {
       },
     });
   }
+  async unreadInboxCount(): Promise<number> {
+    const result = await this.request({ operation: "mail.badge.count" });
+    if (!("unreadInboxCount" in result)) throw new MailServiceError("unavailable");
+    return result.unreadInboxCount;
+  }
   status(): MailServiceStatus {
     let state: MailServiceStatus["state"];
     if (this.stopped) state = "stopped";

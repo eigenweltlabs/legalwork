@@ -1,6 +1,7 @@
 /** @jsxImportSource react */
 import { useEffect, useRef, useState } from 'react';
 import { Button } from '@/components/ui/button';
+import { Switch } from '@/components/ui/switch';
 import { resolveLegalworkConnection } from '@/react-app/shell/legalwork-connection';
 import { MailClient, type MailAccountView } from '../../mail/mail-client';
 import { MailOnboarding } from '../../mail/mail-onboarding';
@@ -43,6 +44,7 @@ export function MailAccountsView() {
     return () => controller.abort();
   }, [revision]);
   return <SettingsStack>
+    <MailBadgePreference />
     {client ? <MailAccountControls key={clientVersion} client={client} /> : error ? <div role="alert">{error} <Button variant="outline" onClick={() => setRevision(value => value + 1)}>Retry</Button></div> : <p role="status">Opening mail accounts…</p>}
   </SettingsStack>;
 }
@@ -73,4 +75,27 @@ export function MailAccountControls({ client }: { client: MailClient }) {
     <div><Button variant="outline" onClick={() => setRevision(value => value + 1)}>Refresh accounts</Button></div>
     <MailOnboarding client={client} accounts={accounts} onChanged={() => setRevision(value => value + 1)} />
   </>;
+}
+
+function MailBadgePreference() {
+  const invoke = window.__LEGALWORK_ELECTRON__?.invokeDesktop;
+  const [enabled, setEnabled] = useState<boolean>();
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  useEffect(() => {
+    let active = true;
+    void invoke?.('getMailBadgeEnabled').then(value => { if (active) setEnabled(value); }).catch(() => { if (active) setError('App icon badge settings are unavailable.'); });
+    return () => { active = false; };
+  }, [invoke]);
+  if (!invoke) return null;
+  return <div className="space-y-2">
+    <div className="flex items-center justify-between gap-4 text-sm"><span>Show unread mail count on app icon</span><Switch aria-label="Show unread mail count on app icon" checked={enabled ?? true} disabled={busy || enabled === undefined} onCheckedChange={async next => {
+      setBusy(true); setError('');
+      try { setEnabled(await invoke('setMailBadgeEnabled', next)); }
+      catch { setError('The app icon badge setting could not be saved. Try again.'); }
+      finally { setBusy(false); }
+    }} /></div>
+    <p className="text-xs text-muted-foreground">Unread Inbox messages across connected accounts. Notification banners and sounds are controlled separately.</p>
+    {error && <p role="alert">{error}</p>}
+  </div>;
 }
