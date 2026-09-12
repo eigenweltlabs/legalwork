@@ -66,7 +66,7 @@ export async function googleDriveAdapter(config: OAuthConfig, token: AccessToken
     return parent;
   };
   const info = (item: DriveFile) => ({ name: displayName(item).replace(/[\/\\\x00-\x1f\x7f]/g, "_"), size: item.size, version: item.headRevisionId ?? item.version, contentType: exports.get(item.mimeType)?.type ?? item.mimeType, writable: !exports.has(item.mimeType) && item.capabilities?.canEdit !== false });
-  const toEntry = (item: DriveFile, parent: string): StorageEntry => ({ path: `${parent ? `${parent}/` : ""}${segment(item)}`, name: displayName(item), kind: item.mimeType === folderType ? "folder" : "file", size: item.size, modifiedAt: item.modifiedTime ?? null });
+  const toEntry = (item: DriveFile, parent: string): StorageEntry => ({ path: `${parent ? `${parent}/` : ""}${segment(item)}`, displayPath: [...parent.split("/").filter(Boolean).map((part) => /^[\w-]+~/.test(part) ? decodeURIComponent(part.slice(part.indexOf("~") + 1)) : part), displayName(item)].join("/"), name: displayName(item), kind: item.mimeType === folderType ? "folder" : "file", size: item.size, modifiedAt: item.modifiedTime ?? null });
   const parentPath = async (item: DriveFile, ancestor: DriveFile, prefix: string) => {
     let current = item; const parts: string[] = []; const seen = new Set<string>();
     while (current.id !== ancestor.id) {
