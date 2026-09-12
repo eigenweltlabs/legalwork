@@ -1,0 +1,13 @@
+import {test,expect} from 'bun:test';
+import {ComposeSaveQueue} from '../src/react-app/domains/mail/mail-compose-client';
+import {MailClient} from '../src/react-app/domains/mail/mail-client';
+import {recoveryDrafts,recoverySchema,type DraftRecovery} from '../src/react-app/domains/mail/mail-draft-recovery';
+import {mailDraftSaveSchema} from '../../server/src/mail/local-view';
+import {emptyCompose} from '../src/react-app/domains/mail/mail-compose-model';
+test('failed mail save remains recoverable after navigation and acknowledges only the recovered version',async()=>{
+ const records=new Map<string,DraftRecovery>(),original=Object.getOwnPropertyDescriptor(globalThis,'window');let available=false;
+ Object.defineProperty(globalThis,'window',{configurable:true,value:{__LEGALWORK_ELECTRON__:{async mailDraftRecoveryWrite(input:unknown){const parsed=recoverySchema.parse({...Object(input),revision:Reflect.get(Object(input),'expected')+1,updatedAt:Date.now()});expect((records.get(parsed.id)?.revision??0)+1).toBe(parsed.revision);records.set(parsed.id,parsed);return{id:parsed.id,revision:parsed.revision};},async mailDraftRecoveryList(){return [...records.values()];},async mailDraftRecoveryRemove(token:{id:string;revision:number}){const removed=records.get(token.id)?.revision===token.revision;if(removed)records.delete(token.id);return{removed};}}}});
+ try{const transport=Object.assign(async(_input:string|URL|Request,init?:RequestInit)=>{if(!available)return new Response(null,{status:503});const request=mailDraftSaveSchema.parse(JSON.parse(String(init?.body)));return Response.json({id:request.draftId,version:{generation:crypto.randomUUID(),revision:1},updatedAt:Date.now(),deleted:false,subject:request.content.subject,content:request.content});},{preconnect(){}}),client=new MailClient('http://127.0.0.1:12345','synthetic',transport),id=crypto.randomUUID(),queue=new ComposeSaveQueue(client,'a',id,null,()=>{});
+ const draft={...emptyCompose('me@example.test'),text:'Recovery survives navigation 秘密',editor:{to:'unfinished@',cc:'',bcc:'private@example.test',from:'me@example.test'}};await queue.save(draft);expect(queue.error).not.toBe('');expect(queue.recovered).toBe(true);const [saved]=await recoveryDrafts();expect(saved.content.text).toBe(draft.text);expect(saved.content.editor?.to).toBe('unfinished@');available=true;const recovered=new ComposeSaveQueue(client,'a',id,saved.version,()=>{},saved);await recovered.save(saved.content);expect(recovered.error).toBe('');expect(await recoveryDrafts()).toEqual([]);
+ }finally{if(original)Object.defineProperty(globalThis,'window',original);else Reflect.deleteProperty(globalThis,'window');}
+});

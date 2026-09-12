@@ -1,3 +1,5 @@
+import {DraftSyncRunner} from "./draft-sync.js";
+import {DraftSyncStore,DraftSyncError} from "../storage/draft-sync.js";
 import { MailSyncLifecycle } from "./sync-lifecycle.js";
 import { GraphMailboxRepository } from '../storage/graph-mailboxes.js';
 import { GraphReadTransport, GraphTransportError } from '../providers/graph.js';
@@ -28,6 +30,7 @@ import { assertMailSchema } from "../storage/consistency.js";
 import { MAX_WORKER_MESSAGE_BYTES, parseParentMessage, parseWorkerMessage,
   type ParentMessage, type WorkerInitialization, type WorkerMessage, type WorkerResult, type WorkerAccount, type WorkerFolder } from "./protocol.js";
 
+let draftSyncStore:DraftSyncStore|undefined,draftSyncRunner:DraftSyncRunner|undefined;
 let database: MailDatabase | undefined;
 let repository: MailRepository | undefined;
 let local:MailLocalApiStore|undefined;
@@ -69,6 +72,7 @@ function write(message: WorkerMessage): boolean {
   return true;
 }
 async function finish(): Promise<void> {
+  try{await draftSyncRunner?.close();}catch{exitCode=1;}
   try{await(closingExtraction??extractionRunner?.close());}catch{exitCode=1;}
   try { await (closingController ?? controller?.close()); } catch { exitCode = 1; }
   try { await (closingSync ?? syncLifecycle?.close()); } catch { exitCode = 1; }
@@ -144,7 +148,9 @@ async function initialize(value: WorkerInitialization): Promise<void> {
     syncLifecycle = new MailSyncLifecycle(database, value.ownerId, access);
     imap=new ImapBackfill({database,ownerId:value.ownerId});
 
+    draftSyncStore=new DraftSyncStore(database,value.ownerId);draftSyncRunner=new DraftSyncRunner({database,ownerId:value.ownerId,access});
     phase = "ready";
+    draftSyncRunner.start();
     searchIndexer?.start();extractionRunner?.start();
     write({ kind: "ready", protocol: 1, runtime: "node", nodeVersion: process.versions.node });
   } catch {
@@ -201,6 +207,8 @@ async function request(message: Extract<ParentMessage, { kind: "request" }>): Pr
       case "mail.search.saved":if(!savedSearch)throw locked;result={savedSearch:savedSearch.execute(command.input)};break;
       case "mail.search": if (!search) throw locked; result = {search:search.search(command.input)}; break;
       case "mail.search.rebuild": if (!search) throw locked; result = {rebuilt:search.rebuild(command.input)}; break;
+      case "mail.draft.sync.read":if(!draftSyncStore)throw locked;result={draftSync:draftSyncStore.status(command.accountId,command.input.draftId)};break;
+      case "mail.draft.sync.request":if(!draftSyncStore)throw locked;result={draftSync:draftSyncStore.request(command.accountId,command.input)};draftSyncRunner?.wake();break;
       case "mail.local.draft.upload": if(!local)throw locked;result={local:{operation:command.operation,accountId:command.accountId,value:local.uploadDraft(command.accountId,command.input)}};break;
       case "mail.local.draft.save": if(!local)throw locked;result={local:{operation:command.operation,accountId:command.accountId,value:local.saveDraft(command.accountId,command.input)}};break;
       case "mail.local.draft.read": if(!local)throw locked;result={local:{operation:command.operation,accountId:command.accountId,value:local.readDraft(command.accountId,command.input)}};break;
@@ -334,7 +342,7 @@ async function request(message: Extract<ParentMessage, { kind: "request" }>): Pr
   } catch (error) {
     // Do not echo SQLite/provider errors, row contents, supplied IDs, paths or key material.
     if (isClosing()) return;
-    const code = error instanceof SavedSearchError?error.code:error instanceof MailExtractionStorageError&&error.code==="locked"?"locked":error instanceof MailExtractionStorageError&&error.code==="not_found"?"not_found":error instanceof ImapError&&error.code==="locked"?"locked":error instanceof ImapError&&error.code==="too_large"?"response_too_large":error instanceof ImapError&&error.code==="invalid_input"?"invalid_input":error instanceof MailLocalError&&error.code==="conflict"?"conflict":error instanceof MailLocalError&&error.code==="invalid_input"?"invalid_input":error instanceof MailLocalError&&error.code==="locked"?"locked":error instanceof MailLocalError&&error.code==="not_found"?"not_found":error === unsupported || (error instanceof MailSearchError && error.code === "unsupported") ? "unsupported" : error === locked || (error instanceof MailSearchError && error.code === "locked") || ((error instanceof GmailBackfillError || error instanceof GraphBackfillError) && error.code === "locked")
+    const code = error instanceof DraftSyncError?error.code:error instanceof SavedSearchError?error.code:error instanceof MailExtractionStorageError&&error.code==="locked"?"locked":error instanceof MailExtractionStorageError&&error.code==="not_found"?"not_found":error instanceof ImapError&&error.code==="locked"?"locked":error instanceof ImapError&&error.code==="too_large"?"response_too_large":error instanceof ImapError&&error.code==="invalid_input"?"invalid_input":error instanceof MailLocalError&&error.code==="conflict"?"conflict":error instanceof MailLocalError&&error.code==="invalid_input"?"invalid_input":error instanceof MailLocalError&&error.code==="locked"?"locked":error instanceof MailLocalError&&error.code==="not_found"?"not_found":error === unsupported || (error instanceof MailSearchError && error.code === "unsupported") ? "unsupported" : error === locked || (error instanceof MailSearchError && error.code === "locked") || ((error instanceof GmailBackfillError || error instanceof GraphBackfillError) && error.code === "locked")
       || (error instanceof MailCredentialError && error.code === "disconnected") ? "locked" :
       (error instanceof MailConnectionError && (error.code === "not_found" || error.code === "account_not_found"))
       || (error instanceof MailCredentialError && error.code === "account_not_found")

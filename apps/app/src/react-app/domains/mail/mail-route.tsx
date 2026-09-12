@@ -48,6 +48,7 @@ export function MailRoute() {
     const [error, setError] = useState('');
     const [locked, setLocked] = useState(true);
     useEffect(()=>{if(locked){setCompose(undefined);setDraftsOpen(false);}},[locked]);
+    useEffect(()=>{setCompose(undefined);setDraftsOpen(false);},[client]);
     const [busy, setBusy] = useState(false);
     const [revision, setRevision] = useState(0);
     const [connectionRevision, setConnectionRevision] = useState(0);
