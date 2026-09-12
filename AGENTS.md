@@ -64,4 +64,6 @@ When uncertain, prefer: Tailwind, TypeScript, React, shadcn/ui (Base UI), TanSta
 
 ### Workflow
 
+- Keep at most one local Electron application instance running across the entire agent team. The lead owns launch/stop coordination; agents must reuse the allocated instance. Stop temporary preview API/Vite servers and helpers when validation finishes. Do not start a preview alongside the user's normal dev app.
+- During ticket implementation, run feature-specific checks. Run the full Electron/application/platform suites once at final integration, using remote CI when available. Fix and rerun failed checks narrowly instead of repeating the whole platform matrix after each ticket.
 - If asked to do too much work at once, stop and state that clearly.
