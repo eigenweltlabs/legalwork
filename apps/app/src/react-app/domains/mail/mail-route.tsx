@@ -74,7 +74,6 @@ export function MailRoute({chatBridge}:{chatBridge?:MailChatBridge}) {
     const [thread, setThread] = useState<string>();
     const [enqueued,setEnqueued]=useState<ActionEntry[]>([]);
     const opening=useRef(new Set<string>());
-    const openedVersions=useRef(new Map<string,MailMessageView>());
     const markOpened=useCallback(async(item:MailMessageView)=>{
       if(!client||item.locator.provider==='archive')return;
       const id=mailItemId(item);
@@ -84,10 +83,9 @@ export function MailRoute({chatBridge}:{chatBridge?:MailChatBridge}) {
       try {
         const current=await client.check(item,signal);
         if(signal.aborted||current.isRead!==false||current.removed||!current.mutationPrecondition)return;
-        openedVersions.current.set(id,current);
         const result=await new MailActionsClient(client).mutate(item.accountId,{replayKey:crypto.randomUUID(),locator:current.locator,precondition:current.mutationPrecondition,change:{kind:'read',read:true}},signal);
         if(signal.aborted)return;
-        setEnqueued(previous=>[...previous,{...result,accountId:item.accountId}]);
+        setEnqueued(previous=>[...previous,{...result,accountId:item.accountId}]);setActionPulse(value=>value+1);
       } catch(error) {if(!signal.aborted)setError(textError(error));}
       finally {opening.current.delete(id);}
     },[client]);
@@ -122,7 +120,7 @@ export function MailRoute({chatBridge}:{chatBridge?:MailChatBridge}) {
     const messageRequest = useRef(0);
     const pager = useRef<UnifiedMailPages | undefined>(undefined);
     const request = useRef(new AbortController());
-    const purge = () => { openedVersions.current.clear();setEnqueued([]);messageRequest.current++; request.current.abort(); request.current = new AbortController(); pager.current = undefined; listWindow.current.reset();setNewerAvailable(false);setItems([]); setSelected(undefined); setSync(undefined); setMore(false); };
+    const purge = () => { setEnqueued([]);messageRequest.current++; request.current.abort(); request.current = new AbortController(); pager.current = undefined; listWindow.current.reset();setNewerAvailable(false);setItems([]); setSelected(undefined); setSync(undefined); setMore(false); };
     useEffect(() => {
         const controller = new AbortController();
         void resolveLegalworkConnection().then(connection => {
@@ -277,7 +275,7 @@ export function MailRoute({chatBridge}:{chatBridge?:MailChatBridge}) {
     const composeReturn=useRef<HTMLElement|null>(null),mailRoot=useRef<HTMLElement|null>(null);
     const closeCompose=()=>{setCompose(undefined);requestAnimationFrame(()=>{const target=composeReturn.current;if(target?.isConnected)target.focus();else mailRoot.current?.querySelector<HTMLButtonElement>('.mail-message-row[aria-pressed="true"],.mail-message-row')?.focus();});};
     const openCompose=(value:ComposeSelection)=>{if(!compose&&document.activeElement instanceof HTMLElement)composeReturn.current=document.activeElement;setCompose(value);setDraftsOpen(false);setOutboxOpen(false);};
-    const reader = filingOpen&&client ? (matterFiling?<MailFilingPanel client={client} accountIds={account?[account]:accounts.map(value=>value.id)} message={selected} onClose={()=>setFilingOpen(false)}/>:<MailStorageSavePanel client={client} accountIds={account?[account]:accounts.map(value=>value.id)} message={selected} onClose={()=>setFilingOpen(false)} onMatter={()=>setMatterFiling(true)}/>) : compose&&client ? <MailComposer key={compose.account+compose.id} client={client} accounts={accounts.filter(value=>value.provider!=='archive')} initial={compose} onClose={closeCompose} onSwitch={openCompose} onQueued={()=>{setCompose(undefined);setOutboxOpen(true);}}/> : outboxOpen&&client ? <MailOutbox client={client} accounts={accounts.filter(value=>value.provider!=='archive')} onClose={()=>setOutboxOpen(false)}/> : draftsOpen&&client ? <MailDrafts client={client} accounts={accounts.filter(value=>value.provider!=='archive')} onOpen={openCompose} onClose={()=>setDraftsOpen(false)}/> : selected && client ? <MailConversation grouped={!searching} key={conversationId(selected)+String(searching)} client={client} item={selected} onOpen={openMessage} onInitialOpen={markOpened} entries={actionEntries} render={(message,active)=><MailReader client={client} item={message} active={active} chatBridge={chatBridge}
+    const reader = filingOpen&&client ? (matterFiling?<MailFilingPanel client={client} accountIds={account?[account]:accounts.map(value=>value.id)} message={selected} onClose={()=>setFilingOpen(false)}/>:<MailStorageSavePanel client={client} accountIds={account?[account]:accounts.map(value=>value.id)} message={selected} onClose={()=>setFilingOpen(false)} onMatter={()=>setMatterFiling(true)}/>) : compose&&client ? <MailComposer key={compose.account+compose.id} client={client} accounts={accounts.filter(value=>value.provider!=='archive')} initial={compose} onClose={closeCompose} onSwitch={openCompose} onQueued={()=>{setCompose(undefined);setOutboxOpen(true);}}/> : outboxOpen&&client ? <MailOutbox client={client} accounts={accounts.filter(value=>value.provider!=='archive')} onClose={()=>setOutboxOpen(false)}/> : draftsOpen&&client ? <MailDrafts client={client} accounts={accounts.filter(value=>value.provider!=='archive')} onOpen={openCompose} onClose={()=>setDraftsOpen(false)}/> : selected && client ? <MailConversation grouped={!searching} key={conversationId(selected)+String(searching)} client={client} item={selected} onOpen={openMessage} onInitialOpen={markOpened} entries={actionEntries} render={(message,active,onRemoved)=><MailReader onRemoved={onRemoved} client={client} item={message} active={active} chatBridge={chatBridge}
       onCompose={openCompose} account={accounts.find(value=>value.id===message.accountId)?.displayName??message.accountId}
       onUnavailable={()=>{purge();setError('Mail access changed. Please refresh.');}}
       onThread={()=>{setSearching(false);setAccount(message.accountId);setThread(message.threadId??undefined);}}/>}/>
@@ -337,11 +335,9 @@ export function MailRoute({chatBridge}:{chatBridge?:MailChatBridge}) {
               })}
               {thread && <button className="mail-back" onClick={() => setThread(undefined)}><ChevronLeft size={14}/>Back to inbox</button>}
               <div ref={listScroll} className="mail-message-scroll" aria-label="Message navigation: Up and Down browse, Enter opens">
-                {items.map(observed => {let value=optimisticMail(observed,actionEntries);
-                  if(value.conversation&&value.threadId){let unreadCount=value.conversation.unreadCount;for(const known of openedVersions.current.values()){if(known.accountId!==value.accountId||known.threadId!==value.threadId)continue;const optimistic=optimisticMail(known,actionEntries);if(known.isRead!==null&&optimistic.isRead!==known.isRead)unreadCount+=optimistic.isRead?-1:1;}value={...value,conversation:{...value.conversation,unreadCount:Math.max(0,unreadCount)}};}
-                  return <MailRowMenu key={mailItemId(value)} prepare={()=>{const targets=checked.has(mailItemId(value))?items.filter(item=>checked.has(mailItemId(item))):[value];if(!checked.has(mailItemId(value)))setChecked(new Set([mailItemId(value)]));return{signature:mailSelectionSignature(targets),count:targets.length,archive:targets.some(item=>item.locator.provider==='archive'),mixed:targets.some(item=>item.accountId!==targets[0].accountId)};}} onOpen={()=>openMessage(value)}><div className="mail-message-select-row"><input type="checkbox" aria-label={`Select ${value.subject||'message'}`} checked={checked.has(mailItemId(value))} onChange={event=>{const enabled=event.target.checked;setChecked(current=>{const next=new Set(current);if(enabled)next.add(mailItemId(value));else next.delete(mailItemId(value));return next;});}}/><button className={`mail-message-row ${!!selected && conversationId(selected) === conversationId(value) ? 'is-selected' : ''} ${(value.conversation ? value.conversation.unreadCount>0 : value.isRead===false) ? 'is-unread' : ''}`} tabIndex={items.some(item=>selected&&conversationId(item)===conversationId(selected))?selected&&conversationId(value)===conversationId(selected)?0:-1:items[0]?.accountId===value.accountId&&items[0]?.key===value.key?0:-1} onClick={event => {const id=mailItemId(value),anchor=selectionAnchor.current;if(event.metaKey||event.ctrlKey||event.shiftKey){setChecked(current=>{const next=new Set(current);if(event.shiftKey&&anchor){const from=items.findIndex(item=>mailItemId(item)===anchor),to=items.findIndex(item=>mailItemId(item)===id);if(from>=0)items.slice(Math.min(from,to),Math.max(from,to)+1).forEach(item=>next.add(mailItemId(item)));else next.add(id);}else if(next.has(id))next.delete(id);else next.add(id);return next;});}else openMessage(value);selectionAnchor.current=id;}} aria-pressed={!!selected && conversationId(selected) === conversationId(value)}>
+                {items.map(observed => {const value=optimisticMail(observed,actionEntries);return <MailRowMenu key={mailItemId(value)} prepare={()=>{const targets=checked.has(mailItemId(value))?items.filter(item=>checked.has(mailItemId(item))):[value];if(!checked.has(mailItemId(value)))setChecked(new Set([mailItemId(value)]));return{signature:mailSelectionSignature(targets),count:targets.length,archive:targets.some(item=>item.locator.provider==='archive'),mixed:targets.some(item=>item.accountId!==targets[0].accountId)};}} onOpen={()=>openMessage(value)}><div className="mail-message-select-row"><input type="checkbox" aria-label={`Select ${value.subject||'message'}`} checked={checked.has(mailItemId(value))} onChange={event=>{const enabled=event.target.checked;setChecked(current=>{const next=new Set(current);if(enabled)next.add(mailItemId(value));else next.delete(mailItemId(value));return next;});}}/><button className={`mail-message-row ${!!selected && conversationId(selected) === conversationId(value) ? 'is-selected' : ''} ${(value.conversation ? value.conversation.unreadCount>0 : value.isRead===false) ? 'is-unread' : ''}`} tabIndex={items.some(item=>selected&&conversationId(item)===conversationId(selected))?selected&&conversationId(value)===conversationId(selected)?0:-1:items[0]?.accountId===value.accountId&&items[0]?.key===value.key?0:-1} onClick={event => {const id=mailItemId(value),anchor=selectionAnchor.current;if(event.metaKey||event.ctrlKey||event.shiftKey){setChecked(current=>{const next=new Set(current);if(event.shiftKey&&anchor){const from=items.findIndex(item=>mailItemId(item)===anchor),to=items.findIndex(item=>mailItemId(item)===id);if(from>=0)items.slice(Math.min(from,to),Math.max(from,to)+1).forEach(item=>next.add(mailItemId(item)));else next.add(id);}else if(next.has(id))next.delete(id);else next.add(id);return next;});}else openMessage(value);selectionAnchor.current=id;}} aria-pressed={!!selected && conversationId(selected) === conversationId(value)}>
                   <span className="mail-row-top"><span className="mail-sender">{senderName(value.metadata?.from)}</span><span className="mail-row-context">{!account&&<span className="mail-row-account" title={accounts.find(entry=>entry.id===value.accountId)?.displayName}>{senderName(accounts.find(entry=>entry.id===value.accountId)?.displayName)}</span>}<time>{shortDate(value.receivedAt)}</time></span></span>
-                  <span className="mail-row-subject">{value.isRead === false && <span className="mail-unread-dot" aria-label="Unread"/>}{value.isFlagged&&<Flag size={11} aria-label="Flagged"/>}{value.subject || '(No subject)'}{value.conversation&&value.conversation.count>1&&<span className="mail-thread-count" aria-label={`${value.conversation.count} messages`}> ({value.conversation.count})</span>}</span>
+                  <span className="mail-row-subject">{(value.conversation?value.conversation.unreadCount>0:value.isRead===false) && <span className="mail-unread-dot" aria-label="Unread"/>}{value.isFlagged&&<Flag size={11} aria-label="Flagged"/>}{value.subject || '(No subject)'}{value.conversation&&value.conversation.count>1&&<span className="mail-thread-count" aria-label={`${value.conversation.count} messages`}> ({value.conversation.count})</span>}</span>
                   <span className="mail-row-bottom">{value.contentState !== 'complete' && <span title={value.contentState === 'downloading' ? 'Content is downloading' : 'Content is unavailable'}><CircleAlert size={12}/></span>}</span>
                 </button></div></MailRowMenu>})}
                 {!busy && !items.length && !error && <div className="mail-list-empty"><Inbox size={25} strokeWidth={1.2}/><p>{accounts.length ? 'No messages here yet' : 'Your inbox starts here'}</p><small>{accounts.length ? 'Messages will appear here as they download.' : 'Add an account to bring your mail together.'}</small>{!accounts.length && <Button size="sm" variant="outline" onClick={openSettings}>Add account</Button>}</div>}
@@ -356,7 +352,7 @@ export function MailRoute({chatBridge}:{chatBridge?:MailChatBridge}) {
     );
 }
 
-function MailReader({ active=true, chatBridge, client, item:observedItem, account, onThread, onUnavailable, onCompose }: {
+function MailReader({ active=true, chatBridge, client, item:observedItem, account, onThread, onUnavailable, onRemoved, onCompose }: {
     active?:boolean;
     chatBridge?:MailChatBridge;
     client: MailClient;
@@ -364,6 +360,7 @@ function MailReader({ active=true, chatBridge, client, item:observedItem, accoun
     account: string;
     onThread: () => void;
     onUnavailable: () => void;
+    onRemoved: () => void;
     onCompose:(value:ComposeSelection)=>void;
 }) {
     const [contentItem,setContentItem]=useState(observedItem),[contentRevision,setContentRevision]=useState(0);
@@ -374,8 +371,14 @@ function MailReader({ active=true, chatBridge, client, item:observedItem, accoun
         text: string;
         presentation?: boolean;
     }[]>([]), [inline, setInline] = useState<ReadonlyMap<string, string>>(new Map()), [error, setError] = useState(''), [busy, setBusy] = useState(true), [plain, setPlain] = useState(false);
+    const [validationError,setValidationError]=useState('');
+    const unavailable=useRef(onUnavailable);unavailable.current=onUnavailable;
+    const removed=useRef(onRemoved);removed.current=onRemoved;
     const controller = useRef(new AbortController());
     useEffect(() => { const abort = new AbortController(); controller.current = abort; void (async () => { try {
+        const current=await client.check(item,abort.signal);
+        if(abort.signal.aborted)return;
+        if(current.removed){removed.current();return;}
         const values: MailPartView[] = [];
         let next: string | null = null;
         do {
@@ -410,25 +413,27 @@ function MailReader({ active=true, chatBridge, client, item:observedItem, accoun
         if (!abort.signal.aborted) {setParts(values);setBodies(nextBodies);setInline(images);setError('');}
     }
     catch (error) {
-        if (!abort.signal.aborted)
-            setError(textError(error));
+        if (!abort.signal.aborted) {
+            if(error instanceof MailRequestError&&[401,403,404,423].includes(error.status)){setParts([]);setBodies([]);setInline(new Map());unavailable.current();}
+            else setError(textError(error));
+        }
     }
     finally {
         if (!abort.signal.aborted)
             setBusy(false);
     } })(); return () => { abort.abort(); void window.__LEGALWORK_ELECTRON__?.mailArtifactCancel?.(); }; }, [client, item.accountId, item.key, item.rawReferenceId, item.contentState, contentRevision]);
     const latest=useRef(item);latest.current=item;
-    const unavailable=useRef(onUnavailable);unavailable.current=onUnavailable;
     useEffect(()=>{
       const abort=new AbortController();let pending=false;
       const poll=setInterval(()=>{if(pending)return;pending=true;void client.check(latest.current,abort.signal).then(current=>{
         if(abort.signal.aborted)return;
-        if(current.removed){unavailable.current();return;}
+        setValidationError('');
+        if(current.removed){removed.current();return;}
         if(current.rawReferenceId!==latest.current.rawReferenceId||current.contentState!==latest.current.contentState){latest.current=current;setContentItem(current);setContentRevision(value=>value+1);}
       }).catch(error=>{
         if(abort.signal.aborted)return;
         if(error instanceof MailRequestError&&[401,403,404,423].includes(error.status)){setParts([]);setBodies([]);setInline(new Map());unavailable.current();}
-        else setError('Could not check for updates. Showing the downloaded message; retrying shortly.');
+        else setValidationError('Could not check for updates. Showing the downloaded message; retrying shortly.');
       }).finally(()=>{pending=false;});},5000);
       return()=>{abort.abort();clearInterval(poll);};
     },[client,item.accountId,item.key]);
@@ -504,7 +509,7 @@ function MailReader({ active=true, chatBridge, client, item:observedItem, accoun
           <div className="mail-correspondent"><span className="mail-avatar">{senderName(item.metadata?.from).slice(0, 1).toUpperCase()}</span><div><p>{item.metadata?.from ?? 'Sender not downloaded'}</p><small>To: {item.metadata?.to ?? 'Not downloaded'}</small></div><time>{shortDate(item.receivedAt)}</time></div>
           {item.contentState !== 'complete' && <p className="mail-content-warning"><CircleAlert size={13}/>This message is not fully downloaded yet.</p>}
         </header>
-        {error && <p role="alert" className="mail-notice">{error}</p>}{busy && <p role="status" className="mail-loading">Opening message…</p>}
+        {validationError&&<p role="status" className="mail-validation-notice">{validationError}</p>}{error && <p role="alert" className="mail-notice">{error}</p>}{busy && <p role="status" className="mail-loading">Opening message…</p>}
         <div id={active?"mail-print-content":undefined} className="mail-message-body">
           <pre className="mail-print-copy" style={{display:'none'}}>{(texts.length ? texts.map(body => body.text) : html.map(body => new DOMParser().parseFromString(mailHtml(body.text), 'text/html').body.textContent)).join('\n\n')}</pre>
           {html.length > 0 && <div className="mail-body-options"><button onClick={() => setPlain(value => !value)}>{plain ? 'Formatted view' : 'Plain text'}</button></div>}

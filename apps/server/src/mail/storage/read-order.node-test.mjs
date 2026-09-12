@@ -10,6 +10,7 @@ import {migrateMailSchema,MAIL_SCHEMA_VERSION} from './schema.js';
 import {MailRepository} from './repository.js';
 import {MAIL_READER_SCHEMA_SQL} from './reader-schema.js';
 import {MailReadStore} from './read-store.js';
+import {MailActionJournal} from './action-journal.js';
 import {LocalMailService} from '../service.js';
 
 test('provider received order, real inbox roles, unknown dates and large-frame continuations survive worker pagination',async()=>{
@@ -41,5 +42,15 @@ test('conversation pages group the whole account thread, preserve singletons and
   const rest=store.list('a',{conversations:true,order:'received',inboxOnly:true,limit:10,after:first.nextCursor});assert.deepEqual(rest.items.map(value=>value.locator.messageId),['solo1','solo2']);
   assert.deepEqual(store.list('b',{conversations:true,order:'received',inboxOnly:true}).items[0].conversation,{count:1,unreadCount:1});
   assert.equal(store.list('a',{threadId:'shared-thread',order:'received',limit:100}).items.length,31);
+  const journal=new MailActionJournal(db,'owner');
+  const queue=(id,read,replayKey)=>journal.enqueue('a',{kind:'mutation',replayKey,payloadJson:JSON.stringify({version:1,intent:{kind:'mutation',locator:{provider:'gmail',messageId:id},change:{kind:'read',read}},credentialGeneration:'00000000-0000-4000-8000-000000000001'}),precondition:'observed',conflictPolicy:'manual'});
+  const count=()=>store.list('a',{conversations:true,order:'received',inboxOnly:true}).items[0].conversation.unreadCount;
+  const read0=queue('reply0',true,'read0');assert.equal(count(),1);
+  db.run("DELETE FROM mail_memberships WHERE account_id='a' AND message_key=? AND folder_id='UNREAD'",[JSON.stringify(['gmail','reply0'])]);assert.equal(count(),1,'provider refresh must not subtract the same read twice');
+  const read1=queue('reply1',true,'read1');assert.equal(count(),0);
+  db.run("UPDATE mail_action_jobs SET state='succeeded' WHERE account_id='a' AND id=?",[read0.id]);assert.equal(count(),0);
+  db.run("UPDATE mail_action_jobs SET state='cancelled' WHERE account_id='a' AND id=?",[read1.id]);assert.equal(count(),1,'cancelling an optimistic read restores the remaining unread');
+  queue('reply0',false,'unread0');assert.equal(count(),2,'explicit pending unread counts independently of provider state');
+
  }finally{db?.close();key.fill(0);await rm(dir,{recursive:true,force:true});}
 });
