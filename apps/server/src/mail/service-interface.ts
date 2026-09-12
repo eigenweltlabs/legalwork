@@ -1,4 +1,5 @@
 import type {DraftSyncRequest,DraftSyncStatus} from "./draft-sync-view.js";
+import type {SenderIdentity,SenderSettings,SenderConfigure} from './sender-view.js';
 import type {MailUpload,MailUploadView} from "./local-view.js";
 import type { GraphMailboxInput, GraphMailboxIdentity } from './graph-mailbox-view.js';
 import type {SavedSearchInput,SavedSearchResult} from './saved-search-view.js';
@@ -21,6 +22,10 @@ export class MailServiceError extends Error {
 
 /** Bound to one trusted owner at construction; no request supplies an owner ID. */
 export interface MailService {
+  senders(accountId:string):Promise<SenderIdentity[]>;
+  refreshSenders(accountId:string):Promise<SenderIdentity[]>;
+  configureSender(accountId:string,input:SenderConfigure):Promise<SenderIdentity[]>;
+  senderSettings(accountId:string,input:SenderSettings):Promise<SenderIdentity[]>;
   configureGraphMailbox(input:GraphMailboxInput):Promise<{accountId:string;identity:GraphMailboxIdentity}>;
   savedSearch(input:SavedSearchInput):Promise<SavedSearchResult>;
   imapDiscovery(accountId:string,after?:string):Promise<ImapDiscovery>;

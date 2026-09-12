@@ -1,4 +1,5 @@
 import {draftSyncRequestSchema,draftSyncReadSchema} from "../mail/draft-sync-view.js";
+import {senderSettingsSchema,senderConfigureSchema} from '../mail/sender-view.js';
 import {mailUploadSchema} from "../mail/local-view.js";
 import { graphMailboxInputSchema } from '../mail/graph-mailbox-view.js';
 import {savedSearchInputSchema} from '../mail/saved-search-view.js';
@@ -88,7 +89,11 @@ export function registerMailRoutes(routes: Route[], host: string, service?: Mail
       } catch (error) { throw safeError(error); }
     });
   }
-  addRoute(routes,'POST','/mail/v1/graph/mailboxes','host-token',async ctx=>{
+  route('GET','/accounts/:accountId/senders',false,ctx=>service.senders(ctx.params.accountId));
+  route('POST','/accounts/:accountId/senders/refresh',false,ctx=>service.refreshSenders(ctx.params.accountId));
+  query('senders/settings',senderSettingsSchema,(accountId,input)=>service.senderSettings(accountId,input));
+  query('senders/configure',senderConfigureSchema,(accountId,input)=>service.configureSender(accountId,input));
+  addRoute(routes,'POST','/mail/v1/graph/mailboxes' ,'host-token',async ctx=>{
     if(ctx.actor?.type!=='host')throw new ApiError(401,'unauthorized','Invalid host token');
     pageInput(ctx,false);
     if(ctx.request.headers.get('content-type')?.split(';')[0]?.trim().toLowerCase()!=='application/json')throw new ApiError(400,'mail_invalid_request','Invalid mail request');

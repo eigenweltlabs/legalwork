@@ -1,3 +1,4 @@
+import {senderListSchema,type SenderSettings,type SenderConfigure} from '../../../../../server/src/mail/sender-view';
 import { graphMailboxIdentitySchema, graphMailboxResultSchema, type GraphMailboxInput } from '../../../../../server/src/mail/graph-mailbox-view';
 import { z } from 'zod';
 import type { MailMessageView, MailPartView } from '../../../../../server/src/mail/read-view';
@@ -37,6 +38,9 @@ export class MailClient {
     status(signal: AbortSignal) { return this.request('/status', z.object({ state: z.string() }), signal); }
     unlock(signal: AbortSignal) { return this.request('/unlock', z.object({ state: z.string() }), signal, undefined, true); }
     lock(signal: AbortSignal) { return this.request('/lock', z.object({ state: z.string() }), signal, undefined, true); }
+    senders(accountId:string,signal:AbortSignal,refresh=false){return this.request(`/accounts/${encodeURIComponent(accountId)}/senders${refresh?'/refresh':''}`,senderListSchema,signal,undefined,refresh,90000);}
+    senderSettings(accountId:string,input:SenderSettings,signal:AbortSignal){return this.request(`/accounts/${encodeURIComponent(accountId)}/senders/settings`,senderListSchema,signal,input);}
+    configureSender(accountId:string,input:SenderConfigure,signal:AbortSignal){return this.request(`/accounts/${encodeURIComponent(accountId)}/senders/configure`,senderListSchema,signal,input);}
     configureGraphMailbox(input:GraphMailboxInput,signal:AbortSignal){return this.request('/graph/mailboxes',graphMailboxResultSchema,signal,input);}
     accounts(signal: AbortSignal, after?: string) { return this.request('/accounts?limit=100' + (after ? '&after=' + encodeURIComponent(after) : ''), page(account), signal); }
     folders(accountId: string, signal: AbortSignal, after?: string) { return this.request(`/accounts/${encodeURIComponent(accountId)}/folders?limit=100` + (after ? '&after=' + encodeURIComponent(after) : ''), page(folder), signal); }

@@ -1,5 +1,8 @@
 import {DraftSyncRunner} from "./draft-sync.js";
 import {DraftSyncStore,DraftSyncError} from "../storage/draft-sync.js";
+import {SenderIdentityRepository} from '../storage/sender-identities.js';
+import {discoverMailIdentity} from '../providers/identity.js';
+import {GmailReadTransport} from '../providers/gmail.js';
 import { MailSyncLifecycle } from "./sync-lifecycle.js";
 import { GraphMailboxRepository } from '../storage/graph-mailboxes.js';
 import { GraphReadTransport, GraphTransportError } from '../providers/graph.js';
@@ -31,6 +34,7 @@ import { MAX_WORKER_MESSAGE_BYTES, parseParentMessage, parseWorkerMessage,
   type ParentMessage, type WorkerInitialization, type WorkerMessage, type WorkerResult, type WorkerAccount, type WorkerFolder } from "./protocol.js";
 
 let draftSyncStore:DraftSyncStore|undefined,draftSyncRunner:DraftSyncRunner|undefined;
+let ownerId='';
 let database: MailDatabase | undefined;
 let repository: MailRepository | undefined;
 let local:MailLocalApiStore|undefined;
@@ -125,6 +129,7 @@ async function initialize(value: WorkerInitialization): Promise<void> {
     if (phase === "closing") return;
     migrateMailSchema(database);
     assertMailSchema(database);
+    ownerId=value.ownerId;
     repository = new MailRepository(database, value.ownerId);
     local=new MailLocalApiStore(database,value.ownerId);
     reads = new MailReadStore(database, value.ownerId);
@@ -183,6 +188,25 @@ async function request(message: Extract<ParentMessage, { kind: "request" }>): Pr
   try {
     let result: WorkerResult | undefined;
     switch (command.operation) {
+      case 'mail.senders.list': result={senders:new SenderIdentityRepository(database,ownerId).list(command.accountId)};break;
+      case 'mail.senders.configure': result={senders:new SenderIdentityRepository(database,ownerId).configure(command.accountId,command.input)};break;
+      case 'mail.senders.settings': result={senders:new SenderIdentityRepository(database,ownerId).settings(command.accountId,command.input)};break;
+      case 'mail.senders.refresh': {
+        const senders=new SenderIdentityRepository(database,ownerId);
+        const provider=database.get('SELECT provider FROM mail_accounts WHERE id=? AND owner_id=?',[command.accountId,ownerId])?.provider;
+        if(provider==='imap'||provider==='graph'&&mailboxes?.read(command.accountId)){result={senders:senders.list(command.accountId)};break;}
+        if(!access)throw locked;
+        senders.invalidate(command.accountId);
+        const binding=credentials.getBinding(command.accountId);
+        if(command.settings){if(command.settings.provider!==provider||binding.clientId!==command.settings.clientId||binding.authority!==(command.settings.provider==='gmail'?'https://accounts.google.com':`https://login.microsoftonline.com/${command.settings.tenantId}/v2.0`))throw unsupported;providerSettings.set(`${binding.provider}:${binding.clientId}:${binding.authority}`,command.settings);}
+        const granted=await access.acquire(command.accountId);
+        const settings=providerSettings.get(`${binding.provider}:${binding.clientId}:${binding.authority}`);if(!settings)throw unsupported;
+        const identity=await discoverMailIdentity({settings,accessToken:granted.accessToken,grantedScopes:granted.grantedScopes});
+        if(identity.providerSubject!==binding.providerSubject||identity.authority!==binding.authority)throw locked;
+        const found=provider==='gmail'?await new GmailReadTransport({accessToken:granted.accessToken}).listSendAs():[{address:identity.email,displayName:identity.displayName??'',primary:true,default:true}];
+        if(!found.some(value=>value.primary&&value.address.toLowerCase()===identity.email.toLowerCase()))throw locked;
+        result={senders:senders.replace(command.accountId,granted.version.generation,found)};break;
+      }
       case 'mail.graph.mailbox.configure': {
         if(!mailboxes||!access)throw locked;
         if(mailboxes.read(command.input.credentialAccountId))throw locked;
