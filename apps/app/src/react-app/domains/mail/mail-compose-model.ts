@@ -22,7 +22,7 @@ export function safeComposeHtml(source:string):string {
   const cid=node.getAttribute('data-mail-cid');if(node.tagName==='IMG'&&cid&&/^[a-zA-Z0-9._@-]{1,200}$/.test(cid))node.setAttribute('src','cid:'+cid);
   if(['SCRIPT','STYLE','IFRAME','OBJECT','SVG','MATH','FORM','INPUT'].includes(node.tagName)){node.remove();continue;}
   if(!['P','DIV','BR','B','STRONG','I','EM','U','UL','OL','LI','BLOCKQUOTE','IMG','A'].includes(node.tagName)){node.replaceWith(...node.childNodes);continue;}
-  for(const attribute of Array.from(node.attributes)){if(node.tagName==='IMG'&&attribute.name==='src'&&/^cid:[a-zA-Z0-9._@-]{1,200}$/.test(attribute.value))continue;if(node.tagName==='A'&&attribute.name==='href'&&/^https?:\/\//i.test(attribute.value))continue;node.removeAttribute(attribute.name);}
+  for(const attribute of Array.from(node.attributes)){if(node.tagName==='DIV'&&attribute.name==='data-mail-signature'&&attribute.value==='true')continue;if(node.tagName==='IMG'&&attribute.name==='src'&&/^cid:[a-zA-Z0-9._@-]{1,200}$/.test(attribute.value))continue;if(node.tagName==='A'&&attribute.name==='href'&&/^https?:\/\//i.test(attribute.value))continue;node.removeAttribute(attribute.name);}
   if(node.tagName==='IMG'&&!node.hasAttribute('src'))node.remove();
  }
  return doc.body.innerHTML;
@@ -39,3 +39,10 @@ export function selectComposeSender(content:ComposeContent,identity:SenderIdenti
  return {...content,senderIdentityId:identity.id,senderSignature:identity.signature,from:identity.address,text:text+signature,html,...(content.editor?{editor:{...content.editor,from:identity.address}}:{})};
 }
 export function defaultComposeSender(identities:SenderIdentity[],reply:boolean){return identities.find(value=>value.available&&(reply?value.defaultReply:value.defaultNew))??identities.find(value=>value.available);}
+
+/** Mark only an exact inserted suffix when changing editor mode; edited signatures remain ordinary body. */
+export function composeTextHtml(content:ComposeContent):string {
+ const escape=(value:string)=>value.replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;').replaceAll('"','&quot;').replaceAll('\n','<br>');
+ const suffix=content.senderSignature?'\n\n-- \n'+content.senderSignature:'';
+ return suffix&&content.text.endsWith(suffix)?escape(content.text.slice(0,-suffix.length))+'<div data-mail-signature="true">'+escape(suffix)+'</div>':escape(content.text);
+}
