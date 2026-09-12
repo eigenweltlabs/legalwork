@@ -12,7 +12,7 @@ IMAP requests carry a generated cancellation ID outside account settings. The wo
 
 | Provider | Implemented and synthetic evidence | Live qualification |
 |---|---|---|
-| Gmail | Browser onboarding, state/PKCE loopback, identity, encrypted credentials and existing refresh flow | Workspace connection observed with 609 complete local original/body projections; independent provider qualification pending |
+| Gmail | Browser onboarding, state/PKCE loopback, identity, encrypted credentials and existing refresh flow | Workspace read-only live comparison passed: 609 IDs/all memberships and 14 labels; sampled 10 originals/10 bodies/17 attachments matched. Other live gates remain in EIG-173. |
 | Personal Outlook | Consumers callback, authenticated opaque identity, encrypted reopen/refresh, persisted account kind, same-client authority isolation | App registration audience/token-version read-back verified by lead; actual user consent and mailbox behavior pending |
 | Configured Microsoft organization | Existing tenant identity constraints preserved; explicit UI selection | Registration available; actual organization consent/mailbox behavior pending |
 | iCloud | Fixed endpoint/password form, direct TLS engine, request-ID cancellation and late-publication fence | App-specific password and live mailbox qualification pending |
