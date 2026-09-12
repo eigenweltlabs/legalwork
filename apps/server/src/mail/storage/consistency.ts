@@ -26,6 +26,7 @@ const size = z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER);
 const hash = z.string().regex(/^[0-9a-f]{64}$/);
 // Static identifiers only. Never interpolate provider values or schema-discovered names into SQL.
 const requiredColumns: Record<string, string[]> = {
+  mail_draft_sync:["account_id","draft_id","state","revision","remote_json","dispatch_id","dispatch_raw","dispatch_generation","dispatch_revision","conflict_raw"],
   mail_graph_poll: ["account_id","phase","root_id","apply_after","poll_at"],
   mail_graph_delta: ["account_id","folder_id","next_link","delta_link","baseline","refresh","removed","phase","sweep_after","metadata_json","reset_count"],
   mail_graph_delta_seen: ["account_id","folder_id","message_key","generation"],
