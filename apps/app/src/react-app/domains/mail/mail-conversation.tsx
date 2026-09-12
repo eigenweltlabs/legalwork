@@ -18,7 +18,7 @@ export function MailConversation({grouped=true,client,item,entries,onOpen,onInit
    setMessages(previous=>{const merged=new Map(previous.map(value=>[value.key,value]));for(const value of page.items)merged.set(value.key,value);return [...merged.values()];});
    // Only a deliberate conversation open/load exposes unread cards. Polling never expands them again.
    const unread=page.items.filter(value=>value.isRead===false);
-   if(expose){setExpanded(previous=>new Set([...previous,...unread.map(value=>value.key)]));for(const value of unread)open.current(value);}
+   if(expose){const latest=!cursor?page.items[0]:undefined;setExpanded(previous=>new Set([...previous,...unread.map(value=>value.key),...(latest?[latest.key]:[])]));for(const value of unread)open.current(value);}
    if(expose)setAfter(page.nextCursor);setError('');
   }catch(error){if(!signal.aborted)setError(error instanceof Error?error.message:'Conversation unavailable.');}
   finally{loading.current=false;if(!signal.aborted)setBusy(false);}
