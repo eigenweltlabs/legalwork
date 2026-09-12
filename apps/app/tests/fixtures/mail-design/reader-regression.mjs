@@ -69,7 +69,10 @@ try {
  await run("document.querySelectorAll('.mail-message-row')[1].click()");
  await until("document.querySelector('#mail-print-root .mail-notice')!==null");
  await until("document.querySelector('#mail-print-root iframe')?.getBoundingClientRect().height>80&&!document.querySelector('#mail-print-root .mail-notice')",300);
- const recovered=await call('/frames');assert.ok(recovered.some(frame=>frame.text?.includes(currentId)),'Initial content failure must recover without changing raw/state');
+ let recovered=[];const recoveryObservations=[];const recoveryStarted=Date.now();
+ for(let attempt=0;attempt<100;attempt++){recovered=await call('/frames');recoveryObservations.push({elapsedMs:Date.now()-recoveryStarted,frames:recovered});if(recovered.some(frame=>frame.text?.includes(currentId)&&frame.bodyHeight>0&&frame.viewport>=frame.scrollHeight-1))break;await pause(40);}
+ evidence.push({phase:'initial-content-recovery',selected:currentId,observations:recoveryObservations});
+ assert.ok(recovered.some(frame=>frame.text?.includes(currentId)&&frame.bodyHeight>0&&frame.viewport>=frame.scrollHeight-1),'Initial content failure must recover without changing raw/state');
  const longResponse=await fetch('http://127.0.0.1:5483/fixture/conversation',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({count:55}),signal:deadline});
  assert.equal(longResponse.ok,true);
  await run("document.querySelector('[aria-label=\"Refresh mail\"]').click()");
