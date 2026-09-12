@@ -13,7 +13,7 @@ import type {
 import { STORAGE_MAX_FILE_BYTES, STORAGE_PAGE_SIZE } from "./schema.js";
 import { ApiError } from "../errors.js";
 
-export type FileInfo = { size: number; version: string; contentType?: string };
+export type FileInfo = { size: number; version: string; contentType?: string; writable?: boolean; name?: string };
 export type FileData = FileInfo & { data: Buffer };
 export type DownloadedFile = FileInfo & { sha256: string };
 export type WriteCondition = { version?: string; createOnly?: boolean };

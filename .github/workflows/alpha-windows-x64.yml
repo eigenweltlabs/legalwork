@@ -145,6 +145,7 @@ jobs:
           TARGET: x86_64-pc-windows-msvc
           # The renderer bundle (vite build) peaks above Node's default heap.
           NODE_OPTIONS: --max-old-space-size=6144
+          LEGALWORK_STORAGE_GOOGLE_CLIENT_SECRET: ${{ secrets.LEGALWORK_STORAGE_GOOGLE_CLIENT_SECRET }}
         run: pnpm --filter @legalwork/desktop build:electron
 
       - name: Package Electron alpha (Windows)
