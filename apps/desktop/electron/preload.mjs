@@ -50,6 +50,9 @@ function installMenuOverlayDismissListeners() {
 }
 
 contextBridge.exposeInMainWorld("__LEGALWORK_ELECTRON__", {
+  mailDraftRecoveryWrite(value) { return ipcRenderer.invoke("legalwork:mail:draft-recovery:write",value); },
+  mailDraftRecoveryList() { return ipcRenderer.invoke("legalwork:mail:draft-recovery:list"); },
+  mailDraftRecoveryRemove(value) { return ipcRenderer.invoke("legalwork:mail:draft-recovery:remove",value); },
   mailArtifactCancel() { return ipcRenderer.invoke("legalwork:mail:artifact:cancel"); },
   mailArtifact(value) { return ipcRenderer.invoke("legalwork:mail:artifact", value); },
   invokeDesktop(command, ...args) {

@@ -1,3 +1,4 @@
+import {draftSyncRequestSchema,draftSyncReadSchema} from "../mail/draft-sync-view.js";
 import {mailUploadSchema} from "../mail/local-view.js";
 import { graphMailboxInputSchema } from '../mail/graph-mailbox-view.js';
 import {savedSearchInputSchema} from '../mail/saved-search-view.js';
@@ -193,6 +194,8 @@ export function registerMailRoutes(routes: Route[], host: string, service?: Mail
   query("messages/read", z.object({ locator: providerMessageLocatorSchema }).strict(), (accountId, input) => service.readMessage(accountId, input.locator));
   query("messages/parts", z.object({ locator: providerMessageLocatorSchema, page: mailPartPageSchema.default({ limit: 50 }) }).strict(), (accountId, input) => service.listParts(accountId, input.locator, input.page));
   query("messages/content", z.object({ locator: providerMessageLocatorSchema, request: mailContentReadSchema }).strict(), (accountId, input) => service.readContent(accountId, input.locator, input.request));
+  query("drafts/sync/status",draftSyncReadSchema,(accountId,input)=>service.draftSyncStatus(accountId,input.draftId));
+  query("drafts/sync/request",draftSyncRequestSchema,(accountId,input)=>service.requestDraftSync(accountId,input));
   query("drafts/upload",mailUploadSchema,(accountId,input)=>service.uploadDraft(accountId,input));
   query("drafts/save", mailDraftSaveSchema, (accountId,input)=>service.saveDraft(accountId,input));
   query("drafts/read", mailDraftReadSchema, (accountId,input)=>service.readDraft(accountId,input));

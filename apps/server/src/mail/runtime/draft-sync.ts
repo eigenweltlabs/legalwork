@@ -1,0 +1,69 @@
+import {createHash,randomUUID} from 'node:crypto';
+import {z} from 'zod';
+import type {MailDatabase} from '../storage/database-interface.js';
+import {DraftSyncStore,type DraftSyncRow} from '../storage/draft-sync.js';
+import {MailLocalApiStore} from '../storage/local-api.js';
+import {MailContentStore} from '../storage/content-store.js';
+import {MailCredentialRepository} from '../storage/credentials.js';
+import {GraphMailboxRepository} from '../storage/graph-mailboxes.js';
+import {ImapCustody} from '../storage/imap-custody.js';
+import {MailAccessCoordinator} from '../providers/access-coordinator.js';
+import {HttpDraftAdapter,DraftProviderError,type DraftAdapter,type RemoteDraft} from '../providers/draft-adapter.js';
+import {ImapDraftAdapter} from '../providers/imap-drafts.js';
+import {draftRemoteRefSchema,type DraftRemoteRef} from '../draft-sync-view.js';
+import {buildMailMime} from '../mime/compose.js';
+import {projectMime} from '../mime/project.js';
+import {mailDraftContentSchema,mailAddressSchema} from '../local-view.js';
+const ref=(value:string|null)=>value?draftRemoteRefSchema.parse(JSON.parse(value)):null;
+const hash=(value:Uint8Array)=>createHash('sha256').update(value).digest('hex');
+const messageId=(draftId:string,dispatchId:string)=>`<${draftId}.${dispatchId}@legalwork.local>`;
+function hasId(raw:Uint8Array,id:string){return Buffer.from(raw).toString('latin1').split(/\r?\n\r?\n/,1)[0].match(/^Message-ID:[ \t]*(.+)$/im)?.[1].trim()===id;}
+export class DraftSyncRunner{
+ private store:DraftSyncStore;private local:MailLocalApiStore;private timer:ReturnType<typeof setInterval>|undefined;private running:Promise<void>|undefined;private controller=new AbortController();
+ constructor(private options:{database:MailDatabase;ownerId:string;access:MailAccessCoordinator;adapter?:(accountId:string,signal:AbortSignal)=>Promise<{adapter:DraftAdapter;generation:string;fence:()=>void}>}){this.store=new DraftSyncStore(options.database,options.ownerId);this.local=new MailLocalApiStore(options.database,options.ownerId);}
+ start(){this.store.recover();this.timer=setInterval(()=>this.wake(),5000);this.timer.unref();this.wake();}
+ wake(){if(!this.running&&!this.controller.signal.aborted)this.running=this.run().catch(()=>{}).finally(()=>{this.running=undefined;});}
+ async close(){clearInterval(this.timer);this.controller.abort();await this.running;}
+ private async adapter(accountId:string,signal:AbortSignal){if(this.options.adapter)return this.options.adapter(accountId,signal);const {database:db,ownerId}=this.options,provider=z.enum(['gmail','graph','imap']).parse(db.get('SELECT provider FROM mail_accounts WHERE id=? AND owner_id=?',[accountId,ownerId])?.provider);
+  if(provider==='imap'){const custody=new ImapCustody(db,ownerId),credential=custody.read(accountId),adapter=new ImapDraftAdapter(credential.settings,credential.password);try{await adapter.connect(signal);}catch(error){adapter.close();throw error;}return{adapter,generation:credential.version.generation,fence:()=>{if(signal.aborted)throw Error('cancelled');custody.assert(accountId,credential.version);}};}
+  const graph=new GraphMailboxRepository(db,ownerId);if(provider==='graph')graph.assertWrite(accountId);const access=await this.options.access.acquire(accountId);if(provider==='gmail'&&!access.grantedScopes?.some(scope=>['https://mail.google.com/','https://www.googleapis.com/auth/gmail.modify','https://www.googleapis.com/auth/gmail.compose'].includes(scope)))throw new DraftProviderError('permission');const credentials=new MailCredentialRepository(db,ownerId);
+  return{adapter:new HttpDraftAdapter(provider,access.accessToken,provider==='graph'?graph.target(accountId).basePath:'/me'),generation:access.version.generation,fence:()=>{if(signal.aborted||credentials.status(accountId).version?.generation!==access.version.generation)throw Error('credentials_changed');if(provider==='graph')graph.assertWrite(accountId);}};
+ }
+ async run(){for(const item of this.store.work()){if(this.controller.signal.aborted)return;await this.turn(item.accountId,item.draftId);}}
+ private conflict(accountId:string,draftId:string,remote:RemoteDraft|null){this.store.problem(accountId,draftId,'conflict',remote?'remote_changed':'remote_missing',remote?.raw,remote?.hash,remote?.ref);}
+ private async adopt(accountId:string,draftId:string,row:DraftSyncRow){if(!row.conflict_raw||!row.conflict_hash)throw new DraftProviderError('unsupported');const current=this.local.readDraft(accountId,{draftId});if(current.version.generation!==row.dispatch_generation||current.version.revision!==row.dispatch_revision){this.store.problem(accountId,draftId,'conflict','local_changed',row.conflict_raw,row.conflict_hash);return;}const content=mailDraftContentSchema.parse({subject:'',to:[],text:''}),parts:typeof content.attachments=[];const parsed=await projectMime({source:[row.conflict_raw],originalSha256:row.conflict_hash,limits:{maxInputBytes:30*1024*1024,maxBodyBytes:24000,maxAttachmentBytes:10*1024*1024,maxTotalAttachmentBytes:20*1024*1024,maxAttachments:20},onAttachment:async(meta,source)=>{const chunks:Uint8Array[]=[];for await(const bytes of source)chunks.push(bytes);const data=Buffer.concat(chunks),uploadId=randomUUID(),digest=hash(data);let published:string|null=null;for(let offset=0;offset<data.length||offset===0;offset+=16384){const chunk=data.subarray(offset,offset+16384);published=this.local.uploadDraft(accountId,{uploadId,offset,totalBytes:data.length,sha256:digest,data:chunk.toString('base64'),complete:offset+chunk.length===data.length}).referenceId;if(offset+chunk.length===data.length)break;}if(!published)throw Error('attachment_missing');parts.push({locator:null,partId:uploadId,referenceId:published,filename:meta.filename??'attachment',contentType:meta.contentType,contentId:meta.contentId??null,disposition:meta.disposition==='inline'?'inline':'attachment',bytes:data.length});}});
+  const addresses=(value:string|null)=>value?.split(/[,;]/).map(part=>(part.match(/<([^<>]+)>/)?.[1]??part).trim()).filter(value=>mailAddressSchema.safeParse(value).success)??[];content.subject=parsed.metadata.subject??'';content.to=addresses(parsed.metadata.to);content.cc=addresses(parsed.metadata.cc);content.bcc=addresses(parsed.metadata.bcc);content.from=addresses(parsed.metadata.from)[0]??null;content.text=parsed.bodies.filter(body=>body.contentType==='text/plain').map(body=>body.text).join('\n');content.html=parsed.bodies.find(body=>body.contentType==='text/html')?.text??null;content.attachments=parts;content.editor={to:parsed.metadata.to??'',cc:parsed.metadata.cc??'',bcc:parsed.metadata.bcc??'',from:parsed.metadata.from??''};const headers=Buffer.from(row.conflict_raw).toString('latin1').split(/\r?\n\r?\n/,1)[0].replace(/\r?\n[ \t]+/g,' ');content.inReplyTo=headers.match(/^In-Reply-To:[ \t]*(.+)$/im)?.[1].trim()??null;content.references=headers.match(/^References:[ \t]*(.+)$/im)?.[1].trim().split(/\s+/)??[];
+  const saved=this.local.saveDraft(accountId,{draftId,expected:current.version,content});this.store.result(accountId,draftId,ref(row.remote_json),row.conflict_hash,saved.version);
+ }
+ private async removeLocalIfSame(accountId:string,draftId:string,version:{generation:string;revision:number}){const head=this.store.head(accountId,draftId);if(!head.deleted&&head.generation===version.generation&&head.revision===version.revision)this.local.deleteDraft(accountId,{draftId,expected:version});}
+ async turn(accountId:string,draftId:string){let connection:Awaited<ReturnType<DraftSyncRunner['adapter']>>|undefined;let dispatched=false;const signal=AbortSignal.any([this.controller.signal,AbortSignal.timeout(120000)]);
+  try{this.store.account(accountId);let row=this.store.row(accountId,draftId);if(!row||!row.enabled)return;dispatched=row.state==='uncertain'||!!row.replacement_json;if(row.operation==='delete'&&!row.remote_json&&!row.dispatch_id&&!row.replacement_json){const head=this.store.head(accountId,draftId),version={generation:head.generation,revision:head.revision};this.store.result(accountId,draftId,null,null,version,true);await this.removeLocalIfSame(accountId,draftId,version);return;}
+      connection=await this.adapter(accountId,signal);const{adapter,fence,generation}=connection;fence();
+   if(row.operation==='adopt'){const remote=ref(row.remote_json);const latest=remote?await adapter.read(remote,signal):null;fence();if(!latest||latest.hash!==row.conflict_hash){this.conflict(accountId,draftId,latest);return;}if(row.replacement_json){const replacement=await adapter.read(ref(row.replacement_json)!,signal);fence();if(replacement){if(replacement.hash!==row.replacement_hash)throw new DraftProviderError('remote_changed');dispatched=true;await adapter.remove(replacement.ref,signal);fence();}}await this.adopt(accountId,draftId,row);return;}
+   let remoteRef=ref(row.remote_json),version={generation:row.dispatch_generation??this.store.head(accountId,draftId).generation,revision:row.dispatch_revision??this.store.head(accountId,draftId).revision};
+   if(row.state==='uncertain'){
+    if(row.credential_generation!==generation){this.store.problem(accountId,draftId,'uncertain','permission');return;}
+    if(row.operation==='delete'||row.operation==='cleanup'){const remote=remoteRef?await adapter.read(remoteRef,signal):null;fence();if(!remote){this.store.result(accountId,draftId,null,null,version,true);await this.removeLocalIfSame(accountId,draftId,version);}else this.conflict(accountId,draftId,remote);return;}
+    if(!row.dispatch_id)return;const found=await adapter.find(messageId(draftId,row.dispatch_id),signal);fence();if(found.length!==1||!row.dispatch_raw){this.store.problem(accountId,draftId,'uncertain','dispatch_unknown');return;}
+    if(found[0].hash!==hash(row.dispatch_raw)){if(adapter.replaceMode==='in_place')this.conflict(accountId,draftId,found[0]);else this.store.problem(accountId,draftId,'uncertain','dispatch_unknown');return;}
+    if(adapter.replaceMode==='copy_then_delete'&&remoteRef&&remoteRef.id!==found[0].ref.id){this.store.replacement(accountId,draftId,found[0].ref,found[0].hash);row=this.store.row(accountId,draftId)!;}
+    else{this.store.result(accountId,draftId,found[0].ref,found[0].hash,version);return;}
+   }
+   if(row.replacement_json){const replacement=await adapter.read(ref(row.replacement_json)!,signal);if(!replacement||replacement.hash!==row.replacement_hash){this.store.problem(accountId,draftId,'uncertain','dispatch_unknown');return;}const old=remoteRef?await adapter.read(remoteRef,signal):null;fence();if(old&&old.hash!==row.baseline_hash){this.conflict(accountId,draftId,old);return;}if(old){dispatched=true;await adapter.remove(old.ref,signal);fence();}this.store.result(accountId,draftId,replacement.ref,replacement.hash,version);return;}
+   const original=remoteRef?await adapter.read(remoteRef,signal):null;fence();
+   if(remoteRef&&(!original||original.hash!==row.baseline_hash)){if(!original&&(row.operation==='delete'||row.operation==='cleanup')){this.store.result(accountId,draftId,null,null,version,true);await this.removeLocalIfSame(accountId,draftId,version);return;}this.conflict(accountId,draftId,original);return;}
+   const head=this.store.head(accountId,draftId);if(row.state==='synced'&&row.generation===head.generation&&row.local_revision===head.revision){this.options.database.run('UPDATE mail_draft_sync SET updated_at=? WHERE account_id=? AND draft_id=?',[Date.now(),accountId,draftId]);return;}
+   const draft=this.local.readDraft(accountId,{draftId});version=row.operation==='cleanup'&&row.generation&&row.local_revision?{generation:row.generation,revision:row.local_revision}:draft.version;
+   const id=randomUUID();let raw=new Uint8Array();if(row.operation==='upsert'){
+    try{const built=await buildMailMime(draft.content,{authorizedSenders:draft.content.from?[draft.content.from]:[],messageId:messageId(draftId,id),attachment:async part=>Buffer.concat([...new MailContentStore(this.options.database,this.options.ownerId).read(accountId,part.referenceId)])});raw=Buffer.concat([Buffer.from(draft.content.bcc.length?'Bcc: '+draft.content.bcc.join(', ')+'\r\n':''),built.raw]);if(raw.byteLength>30*1024*1024)throw new DraftProviderError('unsupported');}catch{this.store.problem(accountId,draftId,'error','incomplete');return;}
+   }
+   fence();this.store.prepare(accountId,draftId,{id,raw,version,credentialGeneration:generation});dispatched=true;
+   if(row.operation==='delete'||row.operation==='cleanup'){if(original)await adapter.remove(original.ref,signal);fence();this.store.result(accountId,draftId,null,null,version,true);await this.removeLocalIfSame(accountId,draftId,version);return;}
+   const changed=original&&adapter.replaceMode==='in_place'?await adapter.replace(original.ref,raw,signal):await adapter.create(raw,signal);fence();
+   if(!hasId(changed.raw,messageId(draftId,id)))throw new DraftProviderError('provider_rejected');
+   if(original&&adapter.replaceMode==='copy_then_delete'){this.store.replacement(accountId,draftId,changed.ref,changed.hash);const beforeDelete=await adapter.read(original.ref,signal);fence();if(beforeDelete&&beforeDelete.hash!==original.hash){this.conflict(accountId,draftId,beforeDelete);return;}if(beforeDelete)await adapter.remove(beforeDelete.ref,signal);fence();}
+   this.store.result(accountId,draftId,changed.ref,changed.hash,version);
+  }catch(error){try{connection?.fence();this.store.account(accountId);const latest=this.store.row(accountId,draftId);this.store.problem(accountId,draftId,dispatched?'uncertain':'error',dispatched?'dispatch_unknown':error instanceof DraftProviderError?error.code==='remote_changed'?'remote_changed':error.code:'retryable',latest?.operation==='adopt'?latest.conflict_raw??undefined:undefined,latest?.operation==='adopt'?latest.conflict_hash??undefined:undefined);}catch{/* Revoked custody leaves the durable dispatch for explicit recovery. */}}
+  finally{connection?.adapter.close?.();}
+ }
+}
