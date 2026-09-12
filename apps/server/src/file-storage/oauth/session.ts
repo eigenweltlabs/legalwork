@@ -99,7 +99,7 @@ export class StorageOAuth {
     redirectUri = `http://localhost:${address.port}/callback`;
     this.flows.set(key, flow);
     const url = new URL(provider.authorizeUrl);
-    url.search = new URLSearchParams({ ...provider.authorizeParams, response_type: "code", client_id: provider.clientId, redirect_uri: redirectUri, state, code_challenge: challenge, code_challenge_method: "S256", scope: provider.scopes(input.readOnly).join(" ") }).toString();
+    url.search = new URLSearchParams({ ...provider.authorizeParams, response_type: "code", client_id: provider.clientId, redirect_uri: redirectUri, state, code_challenge: challenge, code_challenge_method: "S256", scope: provider.scopes(input.readOnly, input.config).join(" ") }).toString();
     return { authUrl: url.toString() };
   }
 }
