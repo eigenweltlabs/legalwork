@@ -177,14 +177,30 @@ export class GraphReadTransport {
             return fail("invalid_response");
         }
     }
+    /** Normalize only the single mailbox segment, never the collection or opaque cursor. */
+    private continuationPath(value: string): string {
+        const raw = value.slice('https://graph.microsoft.com'.length).split(/[?#]/, 1)[0];
+        graphContinuation(value, raw); // Reject parser normalization, foreign hosts and traversal first.
+        if (!this.options.mailboxAddress) return raw;
+        const mailbox = /^\/v1\.0\/users\/([^/]+)(\/.*)$/.exec(raw);
+        if (!mailbox) return fail('invalid_input');
+        let address: string;
+        try { address = decodeURIComponent(mailbox[1]); } catch { return fail('invalid_input'); }
+        if (/[\/\\\x00-\x20\x7f]/.test(address) || address.toLowerCase() !== this.options.mailboxAddress.toLowerCase()) return fail('invalid_input');
+        return this.scope + mailbox[2];
+    }
+    private collectionContinuation(value: string, path: string): string {
+        if (this.continuationPath(value) !== this.scope + path) return fail('invalid_input');
+        return value;
+    }
     private async page<T>(path: string, query: string, schema: z.ZodType<T>, nextLink?: string, signal?: AbortSignal) {
-        const url = nextLink === undefined ? `${this.base}${path}?${query}` : graphContinuation(nextLink, `${this.scope}${path}`);
+        const url = nextLink === undefined ? `${this.base}${path}?${query}` : this.collectionContinuation(nextLink, path);
         const parsed = z.object({ value: z.array(schema).max(500), "@odata.nextLink": z.string().min(1).max(32768).optional() }).safeParse(await this.json(url, signal));
         if (!parsed.success)
             fail("invalid_response");
         const next = parsed.data["@odata.nextLink"];
         if (next !== undefined) {
-            graphContinuation(next, `${this.scope}${path}`);
+            this.collectionContinuation(next, path);
             if (next === url)
                 fail("invalid_response");
         }
@@ -200,9 +216,9 @@ export class GraphReadTransport {
             // and slash keys, with either literal or percent-encoded base64 padding.
             if (!value.startsWith('https://graph.microsoft.com/'))
                 return fail('invalid_response');
-            const raw = value.slice('https://graph.microsoft.com'.length).split(/[?#]/, 1)[0]!;
+            let raw: string;
             try {
-                graphContinuation(value, raw);
+                raw = this.continuationPath(value);
             }
             catch {
                 return fail('invalid_response');

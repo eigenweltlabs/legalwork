@@ -80,3 +80,37 @@ test('worker configures two shared mailboxes with independent sync and restores 
  await service.disconnectAccount('parent');assert.equal((await service.listAccounts()).items.find(row=>row.id===b.accountId).identity.read,false);await assert.rejects(service.listMessages(b.accountId,{}));
  }finally{await service.stop();}
 }));
+
+test('shared list and delta continuations accept canonical mailbox encodings without changing opaque tokens',async()=>{
+ const origin='https://graph.microsoft.com';
+ for(const address of ['team@example.com','TEAM%40EXAMPLE.COM','%74eam%40example%2ecom','team%40example%2Ecom']){
+  const visited=[];const collection='/v1.0/users/'+address+'/messages';
+  const next=origin+collection+'?$skiptoken=A%2BB%2F%3D';
+  const delta=origin+'/v1.0/users/'+address+'/mailFolders/inbox/messages/delta?$deltatoken=A%2BB%2F%3D';
+  const transport=new GraphReadTransport({accessToken:'synthetic',mailboxAddress:'team@example.com',fetch:async url=>{
+   visited.push(String(url));return Response.json(String(url).includes('/messages/delta')?{value:[],'@odata.deltaLink':delta}:String(url)===next?{value:[]}:{value:[],'@odata.nextLink':next});
+  }});
+  assert.equal((await transport.listMessages()).nextLink,next);await transport.listMessages(next);assert.equal(visited.at(-1),next);
+  assert.equal((await transport.messageDelta('inbox')).deltaLink,delta);await transport.messageDelta('inbox',delta);assert.equal(visited.at(-1),delta);
+ }
+ const visited=[];const transport=new GraphReadTransport({accessToken:'synthetic',mailboxAddress:'team@example.com',fetch:async url=>{visited.push(String(url));return Response.json({value:[]});}});
+ for(const scope of ['/v1.0/me','/v1.0/users/foreign@example.com','/v1.0/users/team%2540example.com','/v1.0/users/team@example.com%2f..','/v1.0/users/team@example.com%5c..','/v1.0/users/team@example.com/../foreign@example.com','/v1.0/users/team@example.com/%2e%2e/foreign@example.com','/v1.0/users/team%00@example.com']){
+  await assert.rejects(transport.listMessages(origin+scope+'/messages?$skiptoken=x'));
+  await assert.rejects(transport.messageDelta('inbox',origin+scope+'/mailFolders/inbox/messages/delta?$deltatoken=x'));
+ }
+ await assert.rejects(transport.listMessages(origin+'/v1.0/users/team@example.com/mailFolders?$skiptoken=x'));
+ assert.equal(visited.length,0);
+});
+
+test('a parent archive lock fails shared access closed even with connected state and scopes',async()=>fixture(async({db,credentials,mailboxes})=>{
+ const shared=mailboxes.configure(config('locked@example.com',{writeConfirmed:true,sendMode:'send_as'}));
+ assert.equal(mailboxes.identity(shared.accountId).sendAllowed,true);
+ // Deliberately inject inconsistent custody; normal SQL constraints disallow this state.
+ db.exec("PRAGMA ignore_check_constraints=ON;UPDATE mail_account_credentials SET archive_locked=1 WHERE account_id='parent';PRAGMA ignore_check_constraints=OFF");
+ const identity=mailboxes.identity(shared.accountId);assert.equal(identity.state,'disconnected');for(const field of ['read','write','sendAs','sendOnBehalf','sendAllowed'])assert.equal(identity[field],false);
+ assert.equal(credentials.status(shared.accountId).state,'disconnected');assert.equal(credentials.status(shared.accountId).archiveLocked,true);
+ assert.deepEqual(db.get('SELECT state,archive_locked FROM mail_account_access WHERE account_id=?',[shared.accountId]),{state:'disconnected',archive_locked:1});
+ assert.throws(()=>mailboxes.configure(config('another@example.com')));assert.throws(()=>credentials.readAccess(shared.accountId,binding));assert.throws(()=>mailboxes.assertWrite(shared.accountId));assert.throws(()=>mailboxes.assertSender(shared.accountId,'locked@example.com'));
+ const access=new MailAccessCoordinator({database:db,ownerId:'owner',loadProviderSettings:async()=>settings});try{await assert.rejects(access.acquire(shared.accountId));}finally{await access.close();}
+ db.run("UPDATE mail_account_credentials SET archive_locked=0 WHERE account_id='parent'");assert.equal(mailboxes.identity(shared.accountId).read,true);
+}));
