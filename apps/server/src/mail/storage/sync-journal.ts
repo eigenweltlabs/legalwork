@@ -96,11 +96,13 @@ export class MailSyncJournal {
     return id.parse(found?.id);
   }
   /** Same-message body/attachment work is the raw job's dependency closure, including later discovery/scopes. */
+  // Start with the exact raw parent before enumerating its indexed scopes; the
+  // planner otherwise scans every account scope membership for each new message.
   private linkMessageChildren(accountId: string, generation: string, messageKey: string): void {
     this.database.run(`INSERT INTO mail_sync_scope_jobs(account_id,scope_id,generation,job_id)
       SELECT s.account_id,s.scope_id,s.generation,c.id FROM mail_sync_jobs p
-      JOIN mail_sync_scope_jobs s ON s.account_id=p.account_id AND s.job_id=p.id AND s.generation=p.generation
-      JOIN mail_sync_jobs c ON c.account_id=p.account_id AND c.generation=p.generation AND c.message_key=p.message_key
+      CROSS JOIN mail_sync_scope_jobs s ON s.account_id=p.account_id AND s.job_id=p.id AND s.generation=p.generation
+      CROSS JOIN mail_sync_jobs c ON c.account_id=p.account_id AND c.generation=p.generation AND c.message_key=p.message_key
       WHERE p.account_id=? AND p.generation=? AND p.message_key=? AND p.kind='raw' AND c.kind IN ('body','attachment')
       ON CONFLICT DO NOTHING`, [accountId, generation, messageKey]);
   }
