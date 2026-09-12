@@ -13,7 +13,7 @@ export class GmailTransportError extends Error {
 export type GmailLabel = { id: string; name: string; type: "system" | "user" };
 export type GmailMessagePage = { messages: { id: string; threadId: string }[]; nextPageToken: string | null; resultSizeEstimate: number | null };
 export type GmailRawMetadata = { id: string; threadId: string; labelIds: string[]; historyId: string; internalDate: string; sizeEstimate: number; rawBytes: number };
-export type GmailHistoryChange = { kind: "added" | "deleted" | "labelsAdded" | "labelsRemoved"; messageId: string; threadId: string; labelIds: string[] };
+export type GmailHistoryChange = { kind: "added" | "deleted" | "labelsAdded" | "labelsRemoved" | "changed"; messageId: string; threadId: string; labelIds: string[] };
 export type GmailHistoryPage = { historyId: string; nextPageToken: string | null; records: { id: string; changes: GmailHistoryChange[] }[] };
 export type GmailMetadata = { id: string; threadId: string; labelIds: string[]; historyId: string; internalDate: string | null };
 const BASE = "https://gmail.googleapis.com/gmail/v1/users/me";
@@ -180,7 +180,7 @@ export class GmailReadTransport {
       return { id: messageId, threadId: data.threadId, labelIds: [...new Set(labels)], historyId: data.historyId, internalDate: typeof data.internalDate === "string" ? data.internalDate : null };
     });
   }
-  /** Specific events only; Gmail's cumulative messages field duplicates those events. */
+  /** Prefer specific events; references without one require a current metadata read. */
   listHistory(options: { startHistoryId: string; pageToken?: string; pageSize?: number; signal?: AbortSignal }): Promise<GmailHistoryPage> {
     const size = options.pageSize ?? 100;
     if (!decimal(options.startHistoryId) || !Number.isInteger(size) || size < 1 || size > 500 || (options.pageToken !== undefined && !pageToken(options.pageToken))) return Promise.reject(new GmailTransportError("invalid_input"));
@@ -206,8 +206,18 @@ export class GmailReadTransport {
             changes.push({ kind, messageId: event.message.id, threadId: event.message.threadId, labelIds: [...new Set(labels)] });
           }
         }
-        // Unknown future history-only records cannot be silently checkpointed.
-        if (changes.length === 0 && Array.isArray(value.messages) && value.messages.length > 0) return reject("invalid_response");
+        // Gmail can return messages[] without a specific event. Preserve those
+        // references for reconciliation instead of rejecting or skipping the page.
+        const referenced = value.messages === undefined ? [] : value.messages;
+        if (!Array.isArray(referenced) || referenced.length > 1000) return reject("invalid_response");
+        const described = new Set(changes.map(change => change.messageId));
+        for (const message of referenced) {
+          if (!record(message) || !id(message.id) || !id(message.threadId)) return reject("invalid_response");
+          if (described.has(message.id)) continue;
+          if (++changesCount > 1000) return reject("invalid_response");
+          described.add(message.id);
+          changes.push({ kind: "changed", messageId: message.id, threadId: message.threadId, labelIds: [] });
+        }
         records.push({ id: value.id, changes });
       }
       return { historyId: data.historyId, nextPageToken: typeof data.nextPageToken === "string" ? data.nextPageToken : null, records };
