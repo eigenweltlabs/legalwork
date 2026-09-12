@@ -372,10 +372,11 @@ function MailReader({ active=true, chatBridge, client, item:observedItem, accoun
         presentation?: boolean;
     }[]>([]), [inline, setInline] = useState<ReadonlyMap<string, string>>(new Map()), [error, setError] = useState(''), [busy, setBusy] = useState(true), [plain, setPlain] = useState(false);
     const [validationError,setValidationError]=useState('');
+    const reloadAfterValidation=useRef(false),loadingContent=useRef(false);
     const unavailable=useRef(onUnavailable);unavailable.current=onUnavailable;
     const removed=useRef(onRemoved);removed.current=onRemoved;
     const controller = useRef(new AbortController());
-    useEffect(() => { const abort = new AbortController(); controller.current = abort; void (async () => { try {
+    useEffect(() => { const abort = new AbortController(); controller.current = abort;loadingContent.current=true;reloadAfterValidation.current=false; void (async () => { try {
         const current=await client.check(item,abort.signal);
         if(abort.signal.aborted)return;
         if(current.removed){removed.current();return;}
@@ -415,12 +416,11 @@ function MailReader({ active=true, chatBridge, client, item:observedItem, accoun
     catch (error) {
         if (!abort.signal.aborted) {
             if(error instanceof MailRequestError&&[401,403,404,423].includes(error.status)){setParts([]);setBodies([]);setInline(new Map());unavailable.current();}
-            else setError(textError(error));
+            else {reloadAfterValidation.current=error instanceof MailRequestError?(error.status===429||error.status>=500):error instanceof TypeError||error instanceof DOMException&&error.name==='TimeoutError';setError(textError(error));}
         }
     }
     finally {
-        if (!abort.signal.aborted)
-            setBusy(false);
+        if (!abort.signal.aborted){loadingContent.current=false;setBusy(false);}
     } })(); return () => { abort.abort(); void window.__LEGALWORK_ELECTRON__?.mailArtifactCancel?.(); }; }, [client, item.accountId, item.key, item.rawReferenceId, item.contentState, contentRevision]);
     const latest=useRef(item);latest.current=item;
     useEffect(()=>{
@@ -430,6 +430,7 @@ function MailReader({ active=true, chatBridge, client, item:observedItem, accoun
         setValidationError('');
         if(current.removed){removed.current();return;}
         if(current.rawReferenceId!==latest.current.rawReferenceId||current.contentState!==latest.current.contentState){latest.current=current;setContentItem(current);setContentRevision(value=>value+1);}
+        else if(reloadAfterValidation.current&&!loadingContent.current){reloadAfterValidation.current=false;setContentRevision(value=>value+1);}
       }).catch(error=>{
         if(abort.signal.aborted)return;
         if(error instanceof MailRequestError&&[401,403,404,423].includes(error.status)){setParts([]);setBodies([]);setInline(new Map());unavailable.current();}

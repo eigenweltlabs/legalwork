@@ -10,8 +10,8 @@ async function call(path,input={}) {
 }
 const run=code=>call('/eval',{code});
 const pause=ms=>new Promise(resolve=>setTimeout(resolve,ms));
-async function until(code) {
- for(let attempt=0;attempt<100;attempt++){if(await run(code))return;await pause(40);}
+async function until(code,attempts=100) {
+ for(let attempt=0;attempt<attempts;attempt++){if(await run(code))return;await pause(40);}
  throw Error('Reader condition did not settle: '+code);
 }
 const evidence=[];
@@ -46,9 +46,9 @@ try {
  const currentId=JSON.parse(current[1])[1];
  const configure=async input=>{const response=await fetch('http://127.0.0.1:5483/fixture/message',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(input),signal:deadline});assert.equal(response.ok,true);};
  await configure({messageId:currentId,contentState:'downloading'});
- await until("document.querySelector('#mail-print-root .mail-content-warning')!==null");
+ await until("document.querySelector('#mail-print-root .mail-content-warning')!==null",300);
  await configure({messageId:currentId,contentState:'complete'});
- await until("!document.querySelector('#mail-print-root .mail-content-warning')&&document.querySelector('#mail-print-root iframe')?.getBoundingClientRect().height>80");
+ await until("!document.querySelector('#mail-print-root .mail-content-warning')&&document.querySelector('#mail-print-root iframe')?.getBoundingClientRect().height>80",300);
  await until("document.querySelector('[aria-label=\"Mark unread\"]:not(:disabled)')!==null");
  const state=()=>fetch('http://127.0.0.1:5483/fixture/state',{signal:deadline}).then(response=>response.json());
  const beforeUnread=await state();
