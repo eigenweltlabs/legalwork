@@ -10,7 +10,7 @@ app.setName('Legalwork Mail Platform Qualification'); app.setPath('userData', pr
 app.whenReady().then(async () => {
   app.dock?.hide();
   const load = path => import(pathToFileURL(join(build, path)).href);
-  let key, opened;
+  let key, opened, stage='vault';
   try {
     assert.equal(process.arch, expectedArch);
     assert.equal(safeStorage.isEncryptionAvailable(), true);
@@ -25,9 +25,9 @@ app.whenReady().then(async () => {
     const { createMailStoreMaintenance } = await load('mail-store-maintenance.mjs');
     const directory = join(profile, 'mail');
     const manager = createMailStoreMaintenance({directory,safeStorage,windowsAcl:enforceMailWindowsAcl,executable:{kind:'electron',path:process.execPath},entryPoint:join(build,'mail/runtime/maintenance-worker.js'),ownerId:'qualification'});
-    const initial = await manager.loadStore(); key=initial.key;
+    stage='initial-store';const initial = await manager.loadStore(); key=initial.key;
     opened = await openEncryptedMailDatabase({path:initial.databasePath,key}); migrateMailSchema(opened);
-    const repository=new MailRepository(opened,'qualification');repository.createAccount({id:'a',provider:'gmail',displayName:'Synthetic'});
+    stage='encrypted-content';const repository=new MailRepository(opened,'qualification');repository.createAccount({id:'a',provider:'gmail',displayName:'Synthetic'});
     const locator={provider:'gmail',messageId:'m'};repository.ingestMessage('a',{locator,subject:marker,rfcMessageId:null,memberships:[]});
     const content=new MailContentStore(opened,'qualification'); const raw=await content.writePart('a',locator,{kind:'raw',maxBytes:1024},[Buffer.from(marker)]);
     const chunk=Buffer.alloc(65536,42), expectedHash=createHash('sha256');
@@ -36,17 +36,17 @@ app.whenReady().then(async () => {
     new MailSearchStore(opened,'qualification').rebuild({accountId:'a'});
     for(const path of [initial.databasePath,initial.databasePath+'-wal'])assert.equal((await fs.readFile(path)).includes(Buffer.from(marker)),false);
     assert.equal(opened.get('PRAGMA temp_store').temp_store,2);opened.close();opened=undefined;
-    const reopenedManager=createMailStoreMaintenance({directory,safeStorage,windowsAcl:enforceMailWindowsAcl,executable:{kind:'electron',path:process.execPath},entryPoint:join(build,'mail/runtime/maintenance-worker.js'),ownerId:'qualification'});
+    stage='automatic-key-reopen';const reopenedManager=createMailStoreMaintenance({directory,safeStorage,windowsAcl:enforceMailWindowsAcl,executable:{kind:'electron',path:process.execPath},entryPoint:join(build,'mail/runtime/maintenance-worker.js'),ownerId:'qualification'});
     const reopened=await reopenedManager.loadStore();assert.deepEqual(reopened.key,key);reopened.key.fill(0);
-    await manager.rotate();const rotated=await manager.loadStore();
+    stage='rotation';await manager.rotate();const rotated=await manager.loadStore();
     await assert.rejects(openEncryptedMailDatabase({path:rotated.databasePath,key}));key.fill(0);key=rotated.key;
-    const backup=join(profile,'backup');await manager.exportBackup(backup,'synthetic qualification recovery passphrase');
+    stage='backup';const backup=join(profile,'backup');await manager.exportBackup(backup,'synthetic qualification recovery passphrase');
     const clean=createMailStoreMaintenance({directory:join(profile,'recovered'),safeStorage,windowsAcl:enforceMailWindowsAcl,executable:{kind:'electron',path:process.execPath},entryPoint:join(build,'mail/runtime/maintenance-worker.js'),ownerId:'qualification'});
-    await clean.restoreBackup(backup,'synthetic qualification recovery passphrase');const restored=await clean.loadStore();key.fill(0);key=restored.key;
+    stage='restore';await clean.restoreBackup(backup,'synthetic qualification recovery passphrase');const restored=await clean.loadStore();key.fill(0);key=restored.key;
     opened=await openEncryptedMailDatabase({path:restored.databasePath,key});
     assert.equal(Buffer.concat([...new MailContentStore(opened,'qualification').read('a',raw.id)]).toString(),marker);
     assert.equal(opened.get("SELECT count(*) AS n FROM mail_search_fts WHERE mail_search_fts MATCH 'synthetic_mail_platform_private_marker'").n,1);
-    const destination=join(profile,'never-opened-'+'証拠'.repeat(30)+'.bin'),output=await fs.open(destination,'wx',0o600);
+    stage='large-attachment-path';const destination=join(profile,'never-opened-'+'証拠'.repeat(30)+'.bin'),output=await fs.open(destination,'wx',0o600);
     const restoredHash=createHash('sha256');let restoredBytes=0;
     try{for(const bytes of new MailContentStore(opened,'qualification').read('a',attachment.id)){assert(bytes.length<=65536);await output.writeFile(bytes);restoredHash.update(bytes);restoredBytes+=bytes.length;}await output.sync();}finally{await output.close();}
     assert.equal(restoredBytes,8*1024*1024);assert.equal(restoredHash.digest('hex'),expectedHash.digest('hex'));
@@ -54,6 +54,6 @@ app.whenReady().then(async () => {
     opened.close();opened=undefined;
     await fs.writeFile(join(profile,'qualification-result.json'),JSON.stringify({platform:process.platform,arch:process.arch,electron:process.versions.electron,vault:true,cipher:true,wal:true,tempMemory:true,fts:true,rotation:true,recovery:true,automaticKeyReopen:true,largeAttachmentBytes:restoredBytes,longPathCharacters:destination.length,privatePath:restored.databasePath}));
     app.exit(0);
-  } catch { process.stderr.write('mail_platform_qualification_failed\n');app.exit(1); }
+  } catch(error) { const code=typeof error?.code==='string'&&/^[A-Z_0-9]{1,64}$/.test(error.code)?error.code:null;process.stderr.write(JSON.stringify({error:'mail_platform_qualification_failed',stage,code})+'\n');app.exit(1); }
   finally {opened?.close();key?.fill(0);}
 }).catch(()=>app.exit(1));
