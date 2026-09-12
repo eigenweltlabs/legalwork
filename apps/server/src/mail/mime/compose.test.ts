@@ -20,3 +20,13 @@ test('MIME rejects unauthorized sender, header injection, missing recipients and
  await expect(buildMailMime({...draft(),to:[],cc:[],bcc:[]},options)).rejects.toThrow('recipient');
  const content=draft();content.attachments=[{locator:null,partId:'1',referenceId:'x',filename:'large',contentType:'application/octet-stream',contentId:null,disposition:'attachment'}];await expect(buildMailMime(content,{...options,attachment:async()=>new Uint8Array(10*1024*1024+1)})).rejects.toThrow('limit');
 });
+
+test('SMTPUTF8 mailboxes and non-ASCII message IDs are rejected instead of truncated',async()=>{
+ const options={authorizedSenders:['lawyer@example.test','büro@example.test'],attachment:async()=>new Uint8Array()};
+ for(const content of [{...draft(),from:'büro@example.test'},{...draft(),to:['律师@example.test']},{...draft(),cc:['client@例子.test']},{...draft(),bcc:['büro@example.test']}])await expect(buildMailMime(content,options)).rejects.toThrow('SMTPUTF8 mailbox addresses are not supported');
+ await expect(buildMailMime({...draft(),inReplyTo:'<秘密@example.test>'},options)).rejects.toThrow('ASCII');
+ await expect(buildMailMime(draft(),{...options,messageId:'<büro@example.test>'})).rejects.toThrow('ASCII');
+ const content=draft();content.attachments=[{locator:null,partId:'1',referenceId:'raw',filename:'Original.eml',contentType:'message/rfc822',contentId:null,disposition:'attachment'}];
+ const original=Buffer.concat([Buffer.from('From: source@example.test\r\nContent-Type: application/octet-stream\r\nContent-Transfer-Encoding: 8bit\r\n\r\n'),Buffer.from([0x80,0xe9,0xff])]);
+ const result=await buildMailMime(content,{...options,attachment:async()=>original});expect(result.requiresSmtpUtf8).toBe(false);expect(result.requires8BitMime).toBe(true);expect(Buffer.from(result.raw).includes(original)).toBe(true);
+});

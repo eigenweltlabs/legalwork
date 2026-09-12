@@ -1,6 +1,6 @@
 import { mailDraftViewSchema, mailDraftPageSchema, mailDraftAttachmentViewSchema, mailUploadViewSchema, type MailDraftView, type MailDraftSave } from '../../../../../server/src/mail/local-view';
 import { MailClient } from './mail-client';
-export const draftRead=(client:MailClient,account:string,id:string)=>client.request(`/accounts/${encodeURIComponent(account)}/drafts/read`,mailDraftViewSchema,new AbortController().signal,{draftId:id});
+export const draftRead=(client:MailClient,account:string,id:string,signal:AbortSignal=new AbortController().signal)=>client.request(`/accounts/${encodeURIComponent(account)}/drafts/read`,mailDraftViewSchema,signal,{draftId:id});
 export const draftPage=(client:MailClient,account:string,after?:string)=>client.request(`/accounts/${encodeURIComponent(account)}/drafts/query`,mailDraftPageSchema,new AbortController().signal,{limit:25,...(after?{after}:{})});
 /** Serial CAS queue survives component navigation; never writes plaintext browser storage. */
 export class ComposeSaveQueue {

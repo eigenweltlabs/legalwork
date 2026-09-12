@@ -54,6 +54,9 @@ export class MailLocalApiStore{
   if(input.cancel){this.db.run("DELETE FROM mail_blob_objects WHERE account_id=? AND id=? AND state='staging'",[accountId,objectId]);return{uploadId:input.uploadId,nextOffset:0,bytes:0,referenceId:null};}
   if(data.toString('base64')!==input.data||data.length>16384||input.offset+data.length>10*1024*1024||(!data.length&&!input.complete))throw new MailLocalError('invalid_input');
   let row=this.db.get('SELECT state,bytes,chunk_count FROM mail_blob_objects WHERE account_id=? AND id=?',[accountId,objectId]);
+  // A duplicate publication removes its staging object. Recognize a retried final
+  // chunk from the account-owned verified publication without recreating an orphan.
+  if(!row&&input.complete&&input.offset+data.length===input.totalBytes){const referenceId='draft:sha256:'+input.sha256;const published=this.db.get('SELECT r.bytes FROM mail_blob_publications p JOIN mail_content_refs r ON r.account_id=p.account_id AND r.id=p.ref_id WHERE p.account_id=? AND p.ref_id=?',[accountId,referenceId]);if(published){if(published.bytes!==input.totalBytes)throw new MailLocalError('invalid_input');const store=new MailContentStore(this.db,this.ownerId);for(const _chunk of store.read(accountId,referenceId)){}const stored=store.readRange(accountId,referenceId,input.offset,Math.max(1,data.length));if(!Buffer.from(stored.data,'base64').equals(data))throw new MailLocalError('conflict');return{uploadId:input.uploadId,nextOffset:input.totalBytes,bytes:input.totalBytes,referenceId};}}
   if(!row){if(input.offset!==0)throw new MailLocalError('conflict');const used=z.number().parse(this.db.get("SELECT coalesce(sum(bytes),0) n FROM mail_blob_objects WHERE account_id=? AND state='staging'",[accountId])?.n);if(used+data.length>50*1024*1024)throw new MailLocalError('invalid_input');this.db.run("INSERT INTO mail_blob_objects(account_id,id,state) VALUES(?,?,'staging')",[accountId,objectId]);row={state:'staging',bytes:0,chunk_count:0};}
   const size=z.number().parse(row.bytes);
   const staged=z.number().parse(this.db.get("SELECT coalesce(sum(bytes),0) n FROM mail_blob_objects WHERE account_id=? AND state='staging'",[accountId])?.n);if(staged+Math.max(0,input.offset+data.length-size)>50*1024*1024)throw new MailLocalError('invalid_input');
@@ -65,8 +68,9 @@ export class MailLocalApiStore{
   let referenceId:string|null=null;
   if(input.complete){const hash=createHash('sha256');for(let at=0;at<bytes;at+=65536)hash.update(readSlice(at,Math.min(65536,bytes-at)));const digest=hash.digest('hex');if(bytes!==input.totalBytes||digest!==input.sha256)throw new MailLocalError('invalid_input');referenceId='draft:sha256:'+digest;
    this.db.run('INSERT INTO mail_content_refs(account_id,id,bytes,sha256) VALUES(?,?,?,?) ON CONFLICT(account_id,id) DO NOTHING',[accountId,referenceId,bytes,digest]);
-   this.db.run("UPDATE mail_blob_objects SET state='published' WHERE account_id=? AND id=?",[accountId,objectId]);
-   this.db.run('INSERT INTO mail_blob_publications(account_id,ref_id,object_id) VALUES(?,?,?) ON CONFLICT(account_id,ref_id) DO NOTHING',[accountId,referenceId,objectId]);
+   const published=this.db.get('SELECT object_id FROM mail_blob_publications WHERE account_id=? AND ref_id=?',[accountId,referenceId]);
+   if(published){for(const _chunk of new MailContentStore(this.db,this.ownerId).read(accountId,referenceId)){}if(published.object_id!==objectId)this.db.run("DELETE FROM mail_blob_objects WHERE account_id=? AND id=? AND state='staging'",[accountId,objectId]);}
+   else{this.db.run("UPDATE mail_blob_objects SET state='published' WHERE account_id=? AND id=?",[accountId,objectId]);this.db.run('INSERT INTO mail_blob_publications(account_id,ref_id,object_id) VALUES(?,?,?)',[accountId,referenceId,objectId]);}
   }
   return{uploadId:input.uploadId,nextOffset:bytes,bytes,referenceId};
  });}

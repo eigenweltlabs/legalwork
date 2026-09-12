@@ -1,5 +1,5 @@
 /** @jsxImportSource react */
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { Bold, Italic, Paperclip, Image, Save, X, Send, Pencil, FileText } from 'lucide-react';
 import { mailAddressSchema, mailDraftContentSchema, type MailDraftView, type MailDraftSummary } from '../../../../../server/src/mail/local-view';
 import { MailClient, type MailAccountView } from './mail-client';
@@ -9,9 +9,12 @@ function editorHtml(element:HTMLDivElement){const copy=element.cloneNode(true);i
 const recipientFields:('to'|'cc'|'bcc')[]=['to','cc','bcc'];
 export type ComposeSelection={account:string;id:string;content:ComposeContent;version:MailDraftView['version']|null};
 export function MailDrafts({client,accounts,onOpen,onClose}:{client:MailClient;accounts:MailAccountView[];onOpen:(value:ComposeSelection)=>void;onClose:()=>void}){
+ const openRequest=useRef<AbortController|null>(null);
+ useLayoutEffect(()=>{const controller=new AbortController();openRequest.current=controller;setItems([]);setError('');return()=>controller.abort();},[client,accounts]);
+ async function openDraft(account:string,id:string){const controller=openRequest.current;if(!controller||controller.signal.aborted)return;try{const draft=await draftRead(client,account,id,controller.signal);if(!controller.signal.aborted&&openRequest.current===controller)onOpen({account,id:draft.id,content:draft.content,version:draft.version});}catch(error){if(!controller.signal.aborted&&openRequest.current===controller)setError(String(error));}}
  const [items,setItems]=useState<{account:string;name:string;draft:MailDraftSummary}[]>([]),[error,setError]=useState('');
  useEffect(()=>{let active=true;void(async()=>{const result:typeof items=[];for(const account of accounts){let after:string|undefined;do{const page=await draftPage(client,account.id,after);for(const draft of page.items)result.push({account:account.id,name:account.displayName,draft});after=page.nextCursor??undefined;if(result.length>5000)throw Error('Too many drafts to list.');}while(after);}if(active)setItems(result.sort((a,b)=>b.draft.updatedAt-a.draft.updatedAt));})().catch(error=>{if(active)setError(String(error));});return()=>{active=false;};},[client,accounts]);
- return <section className="mail-composer" aria-label="Saved drafts"><header><h2>Drafts</h2><button aria-label="Close drafts" onClick={onClose}><X size={16}/></button></header>{error&&<p role="alert">{error}</p>}{items.map(item=><button className="mail-draft-row" key={item.account+item.draft.id} onClick={()=>void draftRead(client,item.account,item.draft.id).then(draft=>onOpen({account:item.account,id:draft.id,content:draft.content,version:draft.version})).catch(error=>setError(String(error)))}><strong>{item.draft.subject||'(No subject)'}</strong><small>{item.name} · {new Date(item.draft.updatedAt).toLocaleString()}</small></button>)}{!items.length&&!error&&<p>No saved drafts.</p>}</section>;
+ return <section className="mail-composer" aria-label="Saved drafts"><header><h2>Drafts</h2><button aria-label="Close drafts" onClick={()=>{openRequest.current?.abort();onClose();}}><X size={16}/></button></header>{error&&<p role="alert">{error}</p>}{items.map(item=><button className="mail-draft-row" key={item.account+item.draft.id} onClick={()=>void openDraft(item.account,item.draft.id)}><strong>{item.draft.subject||'(No subject)'}</strong><small>{item.name} · {new Date(item.draft.updatedAt).toLocaleString()}</small></button>)}{!items.length&&!error&&<p>No saved drafts.</p>}</section>;
 }
 export function MailComposer({client,accounts,initial,onClose,onSwitch}:{client:MailClient;accounts:MailAccountView[];initial:ComposeSelection;onClose:()=>void;onSwitch:(value:ComposeSelection)=>void}){
  const [content,setContent]=useState(initial.content),[,redraw]=useState(0),[error,setError]=useState(''),[uploading,setUploading]=useState(false),[history,setHistory]=useState<string[]>([]);

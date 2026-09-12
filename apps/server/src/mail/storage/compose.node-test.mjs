@@ -20,3 +20,19 @@ test('upload retries, scope, verification, cleanup, pinned bytes and restart',()
  const interrupted={...bad,complete:false};f.api.uploadDraft('a',interrupted);assert.throws(()=>f.api.uploadDraft('a',{...interrupted,data:Buffer.from('new').toString('base64')}),{code:'conflict'});f.api.uploadDraft('a',{...bad,cancel:true,data:''});assert.equal(f.db.get('SELECT id FROM mail_blob_objects WHERE id=?',['draft-upload:'+bad.uploadId]),undefined);
  for(const path of [f.path,f.path+'-wal'])assert.equal((await readFile(path)).includes(Buffer.from('PRIVATE_DRAFT_BODY_MARKER')),false);
 }));
+
+test('same-content uploads reuse verified publication without orphan objects; final retries survive reopen',()=>fixture(async f=>{
+ const bytes=Buffer.alloc(40000,83),sha256=createHash('sha256').update(bytes).digest('hex');let referenceId;
+ for(let attempt=0;attempt<3;attempt++){
+  const uploadId=randomUUID();let final;
+  for(let offset=0;offset<bytes.length;offset+=16384){const chunk=bytes.subarray(offset,offset+16384);final={uploadId,totalBytes:bytes.length,sha256,offset,data:chunk.toString('base64'),complete:offset+chunk.length===bytes.length};referenceId=f.api.uploadDraft('a',final).referenceId;}
+  await f.reopen();assert.equal(f.api.uploadDraft('a',final).referenceId,referenceId);
+  assert.equal(f.db.get("SELECT count(*) n FROM mail_blob_objects WHERE account_id='a'").n,1);
+  assert.equal(f.db.get("SELECT count(*) n FROM mail_blob_chunks WHERE account_id='a'").n,1);
+  assert.equal(f.db.get("SELECT count(*) n FROM mail_blob_publications WHERE account_id='a'").n,1);
+ }
+ assert.deepEqual(Buffer.concat([...f.content.read('a',referenceId)]),bytes);
+ // A digest label is not enough: corruption of the dedup target must stop reuse.
+ f.db.run("UPDATE mail_blob_chunks SET data=? WHERE account_id='a'",[Buffer.alloc(40000,84)]);
+ assert.throws(()=>f.api.uploadDraft('a',{uploadId:randomUUID(),totalBytes:bytes.length,sha256,offset:32768,data:bytes.subarray(32768).toString('base64'),complete:true}),{code:'unavailable'});
+}));
