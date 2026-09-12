@@ -1,3 +1,4 @@
+import { GRAPH_MAILBOX_SCHEMA_SQL } from './graph-mailbox-schema.js';
 import {IMAP_INCREMENTAL_SQL} from './imap-incremental.js';
 import {SAVED_SEARCH_SCHEMA_SQL} from './saved-search-schema.js';
 import {IMAP_SCHEMA_SQL} from './imap-custody.js';
@@ -8,7 +9,7 @@ import { MAIL_LOCAL_SCHEMA_SQL } from "./local-schema.js";
 import { GRAPH_SCHEMA_SQL } from "./graph-state.js";
 import type { MailDatabase } from "./database-interface.js";
 
-export const MAIL_SCHEMA_VERSION = 16;
+export const MAIL_SCHEMA_VERSION = 17;
 
 /** Dedicated mail database only. Every DDL/version write shares one transaction. */
 export function migrateMailSchema(database: MailDatabase): void {
@@ -268,6 +269,7 @@ export function migrateMailSchema(database: MailDatabase): void {
     if (version < 14) database.exec(EXTRACTION_SCHEMA_SQL);
     if (version < 15) database.exec(IMAP_INCREMENTAL_SQL);
     if(version<16)database.exec(SAVED_SEARCH_SCHEMA_SQL);
+    if(version<17)database.exec(GRAPH_MAILBOX_SCHEMA_SQL);
     database.run("INSERT INTO mail_schema_version(singleton,version) VALUES(1,?) ON CONFLICT(singleton) DO UPDATE SET version=excluded.version", [MAIL_SCHEMA_VERSION]);
   });
 }

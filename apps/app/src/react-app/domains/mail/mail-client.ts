@@ -1,3 +1,4 @@
+import { graphMailboxIdentitySchema, graphMailboxResultSchema, type GraphMailboxInput } from '../../../../../server/src/mail/graph-mailbox-view';
 import { z } from 'zod';
 import type { MailMessageView, MailPartView } from '../../../../../server/src/mail/read-view';
 import type { MailAccountView, MailFolderView, MailPage } from '../../../../../server/src/mail/service-interface';
@@ -6,7 +7,7 @@ const metadata = z.object({ subject: z.string().nullable(), from: z.string().nul
 const locator = z.discriminatedUnion('provider', [z.object({ provider: z.literal('gmail'), messageId: id }), z.object({ provider: z.literal('graph'), messageId: id }), z.object({ provider: z.literal('imap'), mailboxId: id, uidValidity: z.number().int().positive(), uid: z.number().int().positive() })]);
 const message = z.object({ accountId: id, key: id, locator, subject: z.string(), rawReferenceId: id.nullable().optional(), receivedAt: z.number().nullable().optional(), isRead: z.boolean().nullable().optional(), threadId: id.nullable(), rfcMessageId: z.string().nullable(), removed: z.boolean(), memberships: z.array(id), contentState: z.enum(['complete', 'downloading', 'attention']), metadata: metadata.nullable() });
 const part = z.object({ key: id, kind: z.enum(['raw', 'body', 'attachment']), partId: z.string(), state: z.enum(['stored', 'pending', 'unavailable']), referenceId: id.nullable(), bytes: z.number().int().nonnegative().nullable(), sha256: id.nullable(), bytesAvailable: z.boolean(), filename: z.string().nullable(), contentType: z.string().nullable(), contentId: z.string().nullable() });
-const account = z.object({ id, provider: z.enum(['gmail', 'graph', 'imap']), displayName: z.string(), personal: z.boolean().optional() });
+const account = z.object({ id, provider: z.enum(['gmail', 'graph', 'imap']), displayName: z.string(), personal: z.boolean().optional(), identity: graphMailboxIdentitySchema.optional() });
 const folder = z.object({ id, name: z.string(), kind: z.enum(['folder', 'label']), parentId: id.nullable(), role: z.literal("inbox").optional() });
 const page = <T extends z.ZodType>(item: T) => z.object({ items: z.array(item), nextCursor: id.nullable() });
 export const bodyEnvelope = z.object({ version: z.literal(1), bodies: z.array(z.object({ partId: z.string(), contentType: z.enum(['text/plain', 'text/html']), text: z.string() })).max(2000) });
@@ -35,6 +36,7 @@ export class MailClient {
     status(signal: AbortSignal) { return this.request('/status', z.object({ state: z.string() }), signal); }
     unlock(signal: AbortSignal) { return this.request('/unlock', z.object({ state: z.string() }), signal, undefined, true); }
     lock(signal: AbortSignal) { return this.request('/lock', z.object({ state: z.string() }), signal, undefined, true); }
+    configureGraphMailbox(input:GraphMailboxInput,signal:AbortSignal){return this.request('/graph/mailboxes',graphMailboxResultSchema,signal,input);}
     accounts(signal: AbortSignal, after?: string) { return this.request('/accounts?limit=100' + (after ? '&after=' + encodeURIComponent(after) : ''), page(account), signal); }
     folders(accountId: string, signal: AbortSignal, after?: string) { return this.request(`/accounts/${encodeURIComponent(accountId)}/folders?limit=100` + (after ? '&after=' + encodeURIComponent(after) : ''), page(folder), signal); }
     messages(accountId: string, input: {

@@ -1,0 +1,26 @@
+# EIG-132 — Microsoft shared and delegated mailboxes
+
+Settings → Mail accounts accepts a shared/delegated mailbox address and signed-in organizational Microsoft account. It verifies mailbox-root read access through Graph before creating or updating the binding. Each mailbox receives its own account ID, folder/message namespace, delta cursors, sync run, drafts and action journal. Personal Microsoft accounts cannot parent this configuration. The feature supports explicit configuration, not directory-wide discovery: Microsoft Graph cannot enumerate which mailboxes the user has sender rights for. [Microsoft sender permissions](https://learn.microsoft.com/en-us/graph/outlook-send-mail-from-other-user)
+
+Read, write, Send As and Send on Behalf are separate capabilities. Organizational sign-in requests `Mail.ReadWrite.Shared` and `Mail.Send.Shared` in addition to existing primary-mail scopes. Existing primary connections without these scopes remain usable; shared setup explains the need to reconsent. Read access is probed. Write and sender grants require explicit administrator-confirmed declarations, defaulting to unknown/off. The UI does not call these declarations server-verified. Actual Exchange rights remain authoritative on each operation; read access never enables sending. [Shared read/write scopes](https://learn.microsoft.com/en-us/graph/outlook-share-messages-folders)
+
+Exchange chooses the effective sender from its grants; selecting Send on Behalf does not override a stronger Send As grant. The submission contract uses `/me`, an explicit `from`, and `saveToSentItems: true`, saving in the signed-in user's Sent Items. Exchange administrator policy may additionally retain a shared-mailbox copy. We do not use `/users/{shared}/sendMail`, which would add a Full Access requirement. [Microsoft sender and Sent Items behavior](https://learn.microsoft.com/en-us/graph/outlook-send-mail-from-other-user)
+
+## Internal contracts
+
+- `GraphMailboxRepository(database, ownerId).target(accountId)` returns the credential parent, optional mailbox address, and `/me` or encoded `/users/{address}` base path. Graph transport uses the target for all reads, MIME/attachments and delta collections. Continuations cannot switch between primary/shared mailboxes or other users.
+- `.identity(accountId)` returns the optional account-list identity with read/write/send booleans, declaration source, missing-grant explanations, state, revision, and the Sent policy. Composer seeds and locks shared From to this address, and explains unavailable send permission. EIG-146 still owns actual submission enablement and dispatch.
+- `.assertWrite(accountId)` gates shared mutations/draft synchronization independently of send rights. `.assertSender(accountId, address)` gates queue submission. `.submission(accountId, address)` supplies the signed-in send path, explicit From and Sent policy after checking the declaration and OAuth scope. Dispatchers must recheck rights after acquiring access and use the existing credential-generation fence; they must never rewrite a shared operation to the primary mailbox.
+- `.revoke(accountId)` revokes only that shared/delegated binding. Mailbox-level 403 during sync or access verification closes its session. Parent sign-in, other mailboxes and their credentials remain intact.
+
+Schema 17 stores nonsecret mailbox bindings. Tokens remain solely in the signed-in parent row. `MailAccessCoordinator.acquire(sharedId)` coalesces refresh through the parent and returns an effective shared credential version. Shared configuration/revocation and parent reconnect/scope changes fence stale actions. The nonsecret `mail_account_access` view applies inherited access to search, extraction and unread badges, including revocation and missing shared-read scopes. Parent disconnect suspends dependent sessions; reconnect resumes eligible children while preserving explicit pause intent.
+
+## Focused verification
+
+- `pnpm exec node apps/server/scripts/mail-acceptance.mjs --suite storage/graph-mailboxes`: five encrypted native tests covering distinct scopes, explicit rights and forged From rejection, parent/shared revocation, scope loss, Sent contract, strict continuation routing, actual worker configure/reopen and independent pause/sync, and atomic schema-17 migration.
+- `pnpm exec node apps/server/scripts/mail-acceptance.mjs --suite storage/credentials`: nine credential regression tests, including real two-process CAS and the historical migration fixture.
+- `pnpm exec node apps/server/scripts/mail-acceptance.mjs --suite providers/access-coordinator`: 18 access coordinator regressions.
+- `pnpm exec node apps/server/scripts/mail-acceptance.mjs --suite storage/unread-badge`: encrypted badge regression with valid synthetic organizational bindings.
+- `pnpm exec bun test apps/app/tests/mail-shared-identities.test.ts apps/app/tests/mail-accounts-settings.test.ts`: isolated Electron Settings/composer interaction and existing account-settings lifecycle.
+
+No live providers, user profile, keychain, actual messages or platform packaging were exercised. EIG-173 owns actual Microsoft shared/delegated account certification, including tenant consent, Exchange permission changes, sender appearance and Sent Items copies. Final whole-app/platform checks remain at the integration gate.

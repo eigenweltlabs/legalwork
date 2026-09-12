@@ -61,7 +61,7 @@ function htmlText(value:string):string{
 export class MailSearchStore {
   constructor(private readonly db:MailDatabase,private readonly ownerId:string){}
   private account(accountId:string){
-    const row=this.db.get("SELECT a.provider,coalesce(c.state,i.state) AS state FROM mail_accounts a LEFT JOIN mail_account_credentials c ON c.account_id=a.id LEFT JOIN mail_imap_credentials i ON i.account_id=a.id WHERE a.id=? AND a.owner_id=?",[accountId,this.ownerId]);
+    const row=this.db.get("SELECT a.provider,coalesce(c.state,i.state) AS state FROM mail_accounts a LEFT JOIN mail_account_access c ON c.account_id=a.id LEFT JOIN mail_imap_credentials i ON i.account_id=a.id WHERE a.id=? AND a.owner_id=?",[accountId,this.ownerId]);
     if(!row)throw new MailSearchError("not_found");if(row.state==='disconnected')throw new MailSearchError("locked");return row;
   }
   private safe<T>(fn:()=>T):T{try{return fn();}catch(error){if(error instanceof MailSearchError)throw error;throw new MailSearchError("unavailable");}}
@@ -122,7 +122,7 @@ export class MailSearchStore {
   }
   search(supplied:MailSearchInput){return this.safe(()=>this.db.transaction(()=>{
     const parsed=mailSearchInputSchema.safeParse(supplied);if(!parsed.success)throw new MailSearchError('invalid_input');const input=parsed.data;
-    const accounts=input.accountIds??this.db.all("SELECT a.id FROM mail_accounts a LEFT JOIN mail_account_credentials c ON c.account_id=a.id LEFT JOIN mail_imap_credentials i ON i.account_id=a.id WHERE a.owner_id=? AND (coalesce(c.state,i.state) IS NULL OR coalesce(c.state,i.state)!='disconnected') ORDER BY a.id",[this.ownerId]).map(row=>string.parse(row.id));
+    const accounts=input.accountIds??this.db.all("SELECT a.id FROM mail_accounts a LEFT JOIN mail_account_access c ON c.account_id=a.id LEFT JOIN mail_imap_credentials i ON i.account_id=a.id WHERE a.owner_id=? AND (coalesce(c.state,i.state) IS NULL OR coalesce(c.state,i.state)!='disconnected') ORDER BY a.id",[this.ownerId]).map(row=>string.parse(row.id));
     for(const account of accounts)this.account(account);
     if(!accounts.length)return{items:[],total:0,pending:0,incomplete:0,nextOffset:null};
     const where=[`d.account_id IN (${accounts.map(()=>'?').join(',')})`,'a.owner_id=?',"(coalesce(c.state,i.state) IS NULL OR coalesce(c.state,i.state)!='disconnected')",'NOT EXISTS(SELECT 1 FROM mail_search_dirty q WHERE q.account_id=d.account_id AND q.message_key=d.message_key)'];const params:MailSqlValue[]=[...accounts,this.ownerId];
@@ -134,7 +134,7 @@ export class MailSearchStore {
     if(input.folderId){where.push('EXISTS(SELECT 1 FROM mail_memberships mm WHERE mm.account_id=d.account_id AND mm.message_key=d.message_key AND mm.folder_id=?)');params.push(input.folderId);}
     if(input.unread!==undefined){where.push(`((a.provider='gmail' AND ${input.unread?'':'NOT '}EXISTS(SELECT 1 FROM mail_memberships mm WHERE mm.account_id=d.account_id AND mm.message_key=d.message_key AND mm.folder_id='UNREAD')) OR (a.provider!='gmail' AND m.is_read=${input.unread?0:1}))`);}
     if(input.hasAttachment!==undefined){where.push(`d.has_attachment=${input.hasAttachment?1:0}`);}
-    const from=`FROM mail_search_documents d JOIN mail_accounts a ON a.id=d.account_id LEFT JOIN mail_account_credentials c ON c.account_id=a.id LEFT JOIN mail_imap_credentials i ON i.account_id=a.id JOIN mail_messages m ON m.account_id=d.account_id AND m.message_key=d.message_key ${match?'JOIN mail_search_fts ON mail_search_fts.rowid=d.id':''} WHERE ${where.join(' AND ')}`;
+    const from=`FROM mail_search_documents d JOIN mail_accounts a ON a.id=d.account_id LEFT JOIN mail_account_access c ON c.account_id=a.id LEFT JOIN mail_imap_credentials i ON i.account_id=a.id JOIN mail_messages m ON m.account_id=d.account_id AND m.message_key=d.message_key ${match?'JOIN mail_search_fts ON mail_search_fts.rowid=d.id':''} WHERE ${where.join(' AND ')}`;
     const total=count.parse(this.db.get(`SELECT count(*) AS n ${from}`,params)?.n),limit=input.limit??20,offset=input.offset??0;
     const literalSnippet=input.literal??input.matterIdentifier;
     const rows=this.db.all(`SELECT d.account_id,d.message_key,m.locator_json,d.subject,d.date,d.has_attachment,${match?"snippet(mail_search_fts,1,'','',' … ',32)":literalSnippet?"substr(d.normalized_text,max(1,instr(d.normalized_text,?)-80),320)":"substr(d.body,1,512)"} AS snippet ${from} ORDER BY d.date DESC,d.account_id,d.message_key LIMIT ? OFFSET ?`,[...(!match&&literalSnippet?[normalize(literalSnippet)]:[]),...params,limit,offset]);

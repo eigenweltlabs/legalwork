@@ -1,3 +1,4 @@
+import { graphMailboxInputSchema, graphMailboxIdentitySchema, graphMailboxResultSchema, type GraphMailboxInput, type GraphMailboxIdentity } from '../graph-mailbox-view.js';
 import {savedSearchInputSchema,savedSearchResultSchema,savedSearchResultMatches,type SavedSearchInput,type SavedSearchResult} from '../saved-search-view.js';
 import {imapDiscoverySchema,type ImapDiscovery,imapConnectionSchema,imapConnectionResultSchema,type ImapConnection,type ImapConnectionResult} from '../providers/imap-config.js';
 import {extractionCommandSchema,extractionStatusSchema,extractionTextSchema,type MailExtractionCommand,type MailExtractionStatus,type MailExtractionText} from "../extraction-view.js";
@@ -37,6 +38,7 @@ export type WorkerCommand =
   | {operation:"mail.search.saved";input:SavedSearchInput}
   | { operation: "mail.search"; input: MailSearchInput }
   | { operation: "mail.search.rebuild"; input: MailSearchRebuildInput }
+  | { operation: "mail.graph.mailbox.configure"; input: GraphMailboxInput }
   | { operation: "mail.badge.count" }
   | { operation: "ping" }
   | { operation: "mail.storage.status" }
@@ -59,7 +61,7 @@ export type WorkerCommand =
   | { operation: "mail.sync.stop"; accountId: string }
   | { operation: "credentials.update"; credentials: WorkerCredentials };
 
-export type WorkerAccount = { id: string; provider: "gmail" | "graph" | "imap"; displayName: string; personal?: boolean };
+export type WorkerAccount = { id: string; provider: "gmail" | "graph" | "imap"; displayName: string; personal?: boolean; identity?: GraphMailboxIdentity };
 export type WorkerFolder = { id: string; name: string; kind: "folder" | "label"; parentId: string | null; role?: "inbox" };
 export type WorkerResult =
   | {savedSearch:SavedSearchResult}
@@ -68,6 +70,7 @@ export type WorkerResult =
   | {local:MailLocalResult}
   | { search: MailSearchResult }
   | { rebuilt: MailSearchRebuildResult }
+  | { graphMailbox: {accountId:string;identity:GraphMailboxIdentity} }
   | { unreadInboxCount: number }
   | { pong: true }
   | {imapDiscovery:ImapDiscovery}
@@ -111,7 +114,7 @@ function uuid(value: unknown): value is string { return typeof value === "string
 function time(value: unknown): value is number { return typeof value === "number" && Number.isSafeInteger(value) && value > 0; }
 function mailScopes(value: unknown, provider: "gmail" | "graph"): value is string[] {
   const expected = provider === "gmail" ? GMAIL_MAIL_SCOPES : GRAPH_MAIL_SCOPES;
-  return Array.isArray(value) && value.length === expected.length && new Set(value).size === value.length && value.every(scope => expected.includes(scope));
+  return Array.isArray(value) && value.length <= expected.length + 2 && new Set(value).size === value.length && expected.every(scope => value.includes(scope)) && value.every(scope => expected.includes(scope) || provider === 'graph' && ['Mail.ReadWrite.Shared','Mail.Send.Shared'].includes(scope));
 }
 /** Settings are a trusted parent-only transport; no endpoint, fetch, owner, token or redirect overrides. */
 function settings(value: unknown): value is MailOAuthSettings {
@@ -159,7 +162,7 @@ function started(value: unknown): boolean {
   return record(value) && exact(value, ["connectionId", "authorizationUrl", "expiresAt"]) && uuid(value.connectionId) && time(value.expiresAt) && authorizationUrl(value.authorizationUrl);
 }
 function account(value: unknown): value is WorkerAccount {
-  return record(value) && exact(value, value.personal === undefined ? ["id", "provider", "displayName"] : ["id", "provider", "displayName", "personal"]) && (value.personal === undefined || value.provider === "graph" && typeof value.personal === "boolean") && id(value.id)
+  return record(value) && exact(value, ["id", "provider", "displayName", ...(value.personal === undefined ? [] : ["personal"]), ...(value.identity === undefined ? [] : ["identity"])]) && (value.identity === undefined || value.provider === "graph" && graphMailboxIdentitySchema.safeParse(value.identity).success) && (value.personal === undefined || value.provider === "graph" && typeof value.personal === "boolean") && id(value.id)
     && (value.provider === "gmail" || value.provider === "graph" || value.provider === "imap") && typeof value.displayName === "string";
 }
 function folder(value: unknown): value is WorkerFolder {
@@ -172,6 +175,7 @@ function result(value: unknown): value is WorkerResult {
     || (exact(value, ["rebuilt"]) && mailSearchRebuildResultSchema.safeParse(value.rebuilt).success)
     || (exact(value,["imapDiscovery"])&&imapDiscoverySchema.safeParse(value.imapDiscovery).success)
     || (exact(value,["imapConnection"]) && imapConnectionResultSchema.safeParse(value.imapConnection).success)
+    || (exact(value, ["graphMailbox"]) && graphMailboxResultSchema.safeParse(value.graphMailbox).success)
     || (exact(value, ["unreadInboxCount"]) && typeof value.unreadInboxCount === "number" && Number.isSafeInteger(value.unreadInboxCount) && value.unreadInboxCount >= 0)
     || (exact(value, ["pong"]) && value.pong === true)
     || (exact(value, ["connectionStarted"]) && started(value.connectionStarted))
@@ -211,6 +215,7 @@ export function parseWorkerMessage(line: string): WorkerMessage | undefined {
 }
 export function resultMatchesCommand(command: WorkerCommand, value: WorkerResult): boolean {
   switch (command.operation) {
+    case "mail.graph.mailbox.configure": return "graphMailbox" in value && value.graphMailbox.identity.credentialAccountId === command.input.credentialAccountId && value.graphMailbox.identity.address === command.input.address.toLowerCase();
     case "mail.badge.count": return "unreadInboxCount" in value;
     case 'mail.extraction.status':case 'mail.extraction.reset':return 'extraction' in value&&value.extraction.accountId===command.accountId&&JSON.stringify(value.extraction.locator)===JSON.stringify(command.input.locator)&&value.extraction.partId===command.input.partId&&value.extraction.referenceId===command.input.referenceId;
     case 'mail.extraction.read':return 'extractionText' in value&&value.extractionText.status.accountId===command.accountId&&JSON.stringify(value.extractionText.status.locator)===JSON.stringify(command.input.locator)&&value.extractionText.status.partId===command.input.partId&&value.extractionText.status.referenceId===command.input.referenceId&&value.extractionText.section===(command.input.section??0)&&value.extractionText.offset===(command.input.offset??0)&&value.extractionText.text.length<=(command.input.limit??4096);
@@ -276,6 +281,7 @@ export function validWorkerCommand(value: unknown): value is WorkerCommand {
     && settings(value.settings) && (!Object.hasOwn(value, "reconnectAccountId") || id(value.reconnectAccountId));
   if (value.operation === "mail.connection.poll" || value.operation === "mail.connection.cancel") return exact(value, ["operation", "connectionId"]) && uuid(value.connectionId);
   if (value.operation === "mail.account.disconnect") return exact(value, ["operation", "accountId"]) && id(value.accountId);
+  if (value.operation === "mail.graph.mailbox.configure") return exact(value,["operation","input"]) && graphMailboxInputSchema.safeParse(value.input).success;
   if (value.operation === "mail.badge.count" || value.operation === "ping" || value.operation === "mail.storage.status") return exact(value, ["operation"]);
   if (value.operation === "credentials.update") {
     const credentials = value.credentials;

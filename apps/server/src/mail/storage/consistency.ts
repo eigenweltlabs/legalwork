@@ -35,6 +35,7 @@ const requiredColumns: Record<string, string[]> = {
   mail_local_action_drafts: ["account_id","action_id","draft_id","generation","revision"],
   mail_local_event_streams: ["account_id","generation"],
   mail_local_events: ["account_id","sequence","kind","entity_id","state","generation","revision"],
+  mail_graph_mailboxes:["account_id","credential_account_id","mailbox_address","kind","state","generation","revision","write_confirmed","send_mode"],
   mail_graph_runs:["account_id","generation","revision","state","failures","retry_at","error"],
   mail_graph_folder_queue:["account_id","id","parent_id","depth","metadata_json","cursor","done","error"],
   mail_graph_messages:["account_id","message_key","metadata_json","raw_change_key","parts_complete","error"],
@@ -84,6 +85,7 @@ function schemaIssue(database: MailDatabase): MailConsistencyCode | undefined {
   const version = database.get("SELECT version FROM mail_schema_version WHERE singleton=1")?.version;
   if (typeof version === "number" && Number.isInteger(version) && version >= 1 && version < MAIL_SCHEMA_VERSION) return "schema-upgrade-required";
   if (version !== MAIL_SCHEMA_VERSION) return "unsupported-schema-version";
+  if(!database.get("SELECT name FROM sqlite_schema WHERE type='view' AND name='mail_account_access'"))return "schema-incomplete";
   for (const [table, columns] of Object.entries(requiredColumns)) {
     if (!database.get("SELECT name FROM sqlite_schema WHERE type='table' AND name=?", [table])) return "schema-incomplete";
     for (const column of columns) {
