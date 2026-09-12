@@ -1,0 +1,892 @@
+{
+  "result": "failed",
+  "error": "AssertionError [ERR_ASSERTION]: Initial content failure must recover without changing raw/state",
+  "evidence": [
+    {
+      "open": 1,
+      "selected": "message-0",
+      "observations": [
+        {
+          "elapsedMs": 2,
+          "selected": "[\"gmail\",\"[\\\"gmail\\\",\\\"message-0\\\"]\",null,false,false,false]",
+          "frames": []
+        },
+        {
+          "elapsedMs": 56,
+          "selected": "[\"gmail\",\"[\\\"gmail\\\",\\\"message-0\\\"]\",null,false,false,false]",
+          "frames": [
+            {
+              "nonce": "5a607444-d899-4c8e-bcd3-96a7bc0eee89",
+              "parentHeight": 160,
+              "parentRect": {
+                "x": 825,
+                "y": 322.796875,
+                "width": 518,
+                "height": 160,
+                "top": 322.796875,
+                "right": 1343,
+                "bottom": 482.796875,
+                "left": 825
+              },
+              "styleHeight": "160px",
+              "bodyHeight": 306.1875,
+              "scrollHeight": 306,
+              "text": "Synthetic message-0Hi Mira,Please review the final comments in the attached agreement. The revised notice period is highlighted in section 4.Open pointProposed positionNotice period60 daysCould you confirm our position before tomorrow’s call?Best,Nora",
+              "viewport": 160,
+              "parentMatched": true
+            }
+          ]
+        },
+        {
+          "elapsedMs": 100,
+          "selected": "[\"gmail\",\"[\\\"gmail\\\",\\\"message-0\\\"]\",null,false,false,false]",
+          "frames": [
+            {
+              "nonce": "5a607444-d899-4c8e-bcd3-96a7bc0eee89",
+              "parentHeight": 355,
+              "parentRect": {
+                "x": 825,
+                "y": 322.796875,
+                "width": 518,
+                "height": 355,
+                "top": 322.796875,
+                "right": 1343,
+                "bottom": 677.796875,
+                "left": 825
+              },
+              "styleHeight": "355px",
+              "bodyHeight": 306.1875,
+              "scrollHeight": 306,
+              "text": "Synthetic message-0Hi Mira,Please review the final comments in the attached agreement. The revised notice period is highlighted in section 4.Open pointProposed positionNotice period60 daysCould you confirm our position before tomorrow’s call?Best,Nora",
+              "viewport": 355,
+              "parentMatched": true
+            }
+          ]
+        }
+      ],
+      "loads": 1
+    },
+    {
+      "open": 2,
+      "selected": "message-3",
+      "observations": [
+        {
+          "elapsedMs": 1,
+          "selected": "[\"graph\",\"[\\\"graph\\\",\\\"message-3\\\"]\",null,false,false,false]",
+          "frames": []
+        },
+        {
+          "elapsedMs": 52,
+          "selected": "[\"graph\",\"[\\\"graph\\\",\\\"message-3\\\"]\",null,false,false,false]",
+          "frames": [
+            {
+              "nonce": "4be59da6-1500-40db-8103-5086fbc1f79e",
+              "parentHeight": 160,
+              "parentRect": {
+                "x": 825,
+                "y": 322.796875,
+                "width": 518,
+                "height": 160,
+                "top": 322.796875,
+                "right": 1343,
+                "bottom": 482.796875,
+                "left": 825
+              },
+              "styleHeight": "160px",
+              "bodyHeight": 306.1875,
+              "scrollHeight": 306,
+              "text": "Synthetic message-3Hi Mira,Please review the final comments in the attached agreement. The revised notice period is highlighted in section 4.Open pointProposed positionNotice period60 daysCould you confirm our position before tomorrow’s call?Best,Nora",
+              "viewport": 160,
+              "parentMatched": true
+            }
+          ]
+        },
+        {
+          "elapsedMs": 97,
+          "selected": "[\"graph\",\"[\\\"graph\\\",\\\"message-3\\\"]\",null,false,false,false]",
+          "frames": [
+            {
+              "nonce": "4be59da6-1500-40db-8103-5086fbc1f79e",
+              "parentHeight": 355,
+              "parentRect": {
+                "x": 825,
+                "y": 322.796875,
+                "width": 518,
+                "height": 355,
+                "top": 322.796875,
+                "right": 1343,
+                "bottom": 677.796875,
+                "left": 825
+              },
+              "styleHeight": "355px",
+              "bodyHeight": 306.1875,
+              "scrollHeight": 306,
+              "text": "Synthetic message-3Hi Mira,Please review the final comments in the attached agreement. The revised notice period is highlighted in section 4.Open pointProposed positionNotice period60 daysCould you confirm our position before tomorrow’s call?Best,Nora",
+              "viewport": 355,
+              "parentMatched": true
+            }
+          ]
+        }
+      ],
+      "loads": 3
+    },
+    {
+      "open": 3,
+      "selected": "message-4",
+      "observations": [
+        {
+          "elapsedMs": 0,
+          "selected": "[\"gmail\",\"[\\\"gmail\\\",\\\"message-4\\\"]\",null,false,false,false]",
+          "frames": []
+        },
+        {
+          "elapsedMs": 45,
+          "selected": "[\"gmail\",\"[\\\"gmail\\\",\\\"message-4\\\"]\",null,false,false,false]",
+          "frames": [
+            {
+              "nonce": "c46640bc-eee5-4143-b493-586d669e9256",
+              "parentHeight": 355,
+              "parentRect": {
+                "x": 825,
+                "y": 322.796875,
+                "width": 518,
+                "height": 355,
+                "top": 322.796875,
+                "right": 1343,
+                "bottom": 677.796875,
+                "left": 825
+              },
+              "styleHeight": "355px",
+              "bodyHeight": 306.1875,
+              "scrollHeight": 306,
+              "text": "Synthetic message-4Hi Mira,Please review the final comments in the attached agreement. The revised notice period is highlighted in section 4.Open pointProposed positionNotice period60 daysCould you confirm our position before tomorrow’s call?Best,Nora",
+              "viewport": 355,
+              "parentMatched": true
+            }
+          ]
+        }
+      ],
+      "loads": 4
+    },
+    {
+      "open": 4,
+      "selected": "message-0",
+      "observations": [
+        {
+          "elapsedMs": 1,
+          "selected": "[\"gmail\",\"[\\\"gmail\\\",\\\"message-0\\\"]\",null,false,false,false]",
+          "frames": []
+        },
+        {
+          "elapsedMs": 46,
+          "selected": "[\"gmail\",\"[\\\"gmail\\\",\\\"message-0\\\"]\",null,false,false,false]",
+          "frames": [
+            {
+              "nonce": "5189a91f-5da9-44e8-b90a-a693fcd82a9a",
+              "parentHeight": 355,
+              "parentRect": {
+                "x": 825,
+                "y": 322.796875,
+                "width": 518,
+                "height": 355,
+                "top": 322.796875,
+                "right": 1343,
+                "bottom": 677.796875,
+                "left": 825
+              },
+              "styleHeight": "355px",
+              "bodyHeight": 306.1875,
+              "scrollHeight": 306,
+              "text": "Synthetic message-0Hi Mira,Please review the final comments in the attached agreement. The revised notice period is highlighted in section 4.Open pointProposed positionNotice period60 daysCould you confirm our position before tomorrow’s call?Best,Nora",
+              "viewport": 355,
+              "parentMatched": true
+            }
+          ]
+        }
+      ],
+      "loads": 5
+    },
+    {
+      "open": 5,
+      "selected": "message-3",
+      "observations": [
+        {
+          "elapsedMs": 1,
+          "selected": "[\"graph\",\"[\\\"graph\\\",\\\"message-3\\\"]\",null,false,false,false]",
+          "frames": []
+        },
+        {
+          "elapsedMs": 46,
+          "selected": "[\"graph\",\"[\\\"graph\\\",\\\"message-3\\\"]\",null,false,false,false]",
+          "frames": [
+            {
+              "nonce": "6bc1d5a2-4107-47ee-ab2f-23442a999917",
+              "parentHeight": 355,
+              "parentRect": {
+                "x": 825,
+                "y": 322.796875,
+                "width": 518,
+                "height": 355,
+                "top": 322.796875,
+                "right": 1343,
+                "bottom": 677.796875,
+                "left": 825
+              },
+              "styleHeight": "355px",
+              "bodyHeight": 306.1875,
+              "scrollHeight": 306,
+              "text": "Synthetic message-3Hi Mira,Please review the final comments in the attached agreement. The revised notice period is highlighted in section 4.Open pointProposed positionNotice period60 daysCould you confirm our position before tomorrow’s call?Best,Nora",
+              "viewport": 355,
+              "parentMatched": true
+            }
+          ]
+        }
+      ],
+      "loads": 6
+    },
+    {
+      "open": 6,
+      "selected": "message-4",
+      "observations": [
+        {
+          "elapsedMs": 1,
+          "selected": "[\"gmail\",\"[\\\"gmail\\\",\\\"message-4\\\"]\",null,false,false,false]",
+          "frames": []
+        },
+        {
+          "elapsedMs": 49,
+          "selected": "[\"gmail\",\"[\\\"gmail\\\",\\\"message-4\\\"]\",null,false,false,false]",
+          "frames": [
+            {
+              "nonce": "60cc59d8-701d-4cea-bb0e-7d0fa1afabd0",
+              "parentHeight": 160,
+              "parentRect": {
+                "x": 825,
+                "y": 322.796875,
+                "width": 518,
+                "height": 160,
+                "top": 322.796875,
+                "right": 1343,
+                "bottom": 482.796875,
+                "left": 825
+              },
+              "styleHeight": "160px",
+              "bodyHeight": 306.1875,
+              "scrollHeight": 306,
+              "text": "Synthetic message-4Hi Mira,Please review the final comments in the attached agreement. The revised notice period is highlighted in section 4.Open pointProposed positionNotice period60 daysCould you confirm our position before tomorrow’s call?Best,Nora",
+              "viewport": 160,
+              "parentMatched": true
+            }
+          ]
+        },
+        {
+          "elapsedMs": 94,
+          "selected": "[\"gmail\",\"[\\\"gmail\\\",\\\"message-4\\\"]\",null,false,false,false]",
+          "frames": [
+            {
+              "nonce": "60cc59d8-701d-4cea-bb0e-7d0fa1afabd0",
+              "parentHeight": 355,
+              "parentRect": {
+                "x": 825,
+                "y": 322.796875,
+                "width": 518,
+                "height": 355,
+                "top": 322.796875,
+                "right": 1343,
+                "bottom": 677.796875,
+                "left": 825
+              },
+              "styleHeight": "355px",
+              "bodyHeight": 306.1875,
+              "scrollHeight": 306,
+              "text": "Synthetic message-4Hi Mira,Please review the final comments in the attached agreement. The revised notice period is highlighted in section 4.Open pointProposed positionNotice period60 daysCould you confirm our position before tomorrow’s call?Best,Nora",
+              "viewport": 355,
+              "parentMatched": true
+            }
+          ]
+        }
+      ],
+      "loads": 7
+    },
+    {
+      "open": 7,
+      "selected": "message-0",
+      "observations": [
+        {
+          "elapsedMs": 1,
+          "selected": "[\"gmail\",\"[\\\"gmail\\\",\\\"message-0\\\"]\",null,false,false,false]",
+          "frames": []
+        },
+        {
+          "elapsedMs": 45,
+          "selected": "[\"gmail\",\"[\\\"gmail\\\",\\\"message-0\\\"]\",null,false,false,false]",
+          "frames": [
+            {
+              "nonce": "6031a909-553a-499c-a0a2-e94fd987c6a9",
+              "parentHeight": 355,
+              "parentRect": {
+                "x": 825,
+                "y": 322.796875,
+                "width": 518,
+                "height": 355,
+                "top": 322.796875,
+                "right": 1343,
+                "bottom": 677.796875,
+                "left": 825
+              },
+              "styleHeight": "355px",
+              "bodyHeight": 306.1875,
+              "scrollHeight": 306,
+              "text": "Synthetic message-0Hi Mira,Please review the final comments in the attached agreement. The revised notice period is highlighted in section 4.Open pointProposed positionNotice period60 daysCould you confirm our position before tomorrow’s call?Best,Nora",
+              "viewport": 355,
+              "parentMatched": true
+            }
+          ]
+        }
+      ],
+      "loads": 8
+    },
+    {
+      "open": 8,
+      "selected": "message-3",
+      "observations": [
+        {
+          "elapsedMs": 1,
+          "selected": "[\"graph\",\"[\\\"graph\\\",\\\"message-3\\\"]\",null,false,false,false]",
+          "frames": []
+        },
+        {
+          "elapsedMs": 46,
+          "selected": "[\"graph\",\"[\\\"graph\\\",\\\"message-3\\\"]\",null,false,false,false]",
+          "frames": [
+            {
+              "nonce": "2b1b3813-81bd-4269-b4ba-a09b27d4235b",
+              "parentHeight": 355,
+              "parentRect": {
+                "x": 825,
+                "y": 322.796875,
+                "width": 518,
+                "height": 355,
+                "top": 322.796875,
+                "right": 1343,
+                "bottom": 677.796875,
+                "left": 825
+              },
+              "styleHeight": "355px",
+              "bodyHeight": 306.1875,
+              "scrollHeight": 306,
+              "text": "Synthetic message-3Hi Mira,Please review the final comments in the attached agreement. The revised notice period is highlighted in section 4.Open pointProposed positionNotice period60 daysCould you confirm our position before tomorrow’s call?Best,Nora",
+              "viewport": 355,
+              "parentMatched": true
+            }
+          ]
+        }
+      ],
+      "loads": 9
+    },
+    {
+      "open": 9,
+      "selected": "message-4",
+      "observations": [
+        {
+          "elapsedMs": 1,
+          "selected": "[\"gmail\",\"[\\\"gmail\\\",\\\"message-4\\\"]\",null,false,false,false]",
+          "frames": []
+        },
+        {
+          "elapsedMs": 46,
+          "selected": "[\"gmail\",\"[\\\"gmail\\\",\\\"message-4\\\"]\",null,false,false,false]",
+          "frames": [
+            {
+              "nonce": "2b2e7126-4668-4cef-bf58-df17c58e6c5a",
+              "parentHeight": 355,
+              "parentRect": {
+                "x": 825,
+                "y": 322.796875,
+                "width": 518,
+                "height": 355,
+                "top": 322.796875,
+                "right": 1343,
+                "bottom": 677.796875,
+                "left": 825
+              },
+              "styleHeight": "355px",
+              "bodyHeight": 306.1875,
+              "scrollHeight": 306,
+              "text": "Synthetic message-4Hi Mira,Please review the final comments in the attached agreement. The revised notice period is highlighted in section 4.Open pointProposed positionNotice period60 daysCould you confirm our position before tomorrow’s call?Best,Nora",
+              "viewport": 355,
+              "parentMatched": true
+            }
+          ]
+        }
+      ],
+      "loads": 10
+    },
+    {
+      "open": 10,
+      "selected": "message-0",
+      "observations": [
+        {
+          "elapsedMs": 1,
+          "selected": "[\"gmail\",\"[\\\"gmail\\\",\\\"message-0\\\"]\",null,false,false,false]",
+          "frames": []
+        },
+        {
+          "elapsedMs": 45,
+          "selected": "[\"gmail\",\"[\\\"gmail\\\",\\\"message-0\\\"]\",null,false,false,false]",
+          "frames": [
+            {
+              "nonce": "607287d2-e095-4a45-a6fa-9be794d57eeb",
+              "parentHeight": 355,
+              "parentRect": {
+                "x": 825,
+                "y": 322.796875,
+                "width": 518,
+                "height": 355,
+                "top": 322.796875,
+                "right": 1343,
+                "bottom": 677.796875,
+                "left": 825
+              },
+              "styleHeight": "355px",
+              "bodyHeight": 306.1875,
+              "scrollHeight": 306,
+              "text": "Synthetic message-0Hi Mira,Please review the final comments in the attached agreement. The revised notice period is highlighted in section 4.Open pointProposed positionNotice period60 daysCould you confirm our position before tomorrow’s call?Best,Nora",
+              "viewport": 355,
+              "parentMatched": true
+            }
+          ]
+        }
+      ],
+      "loads": 11
+    },
+    {
+      "open": 11,
+      "selected": "message-3",
+      "observations": [
+        {
+          "elapsedMs": 1,
+          "selected": "[\"graph\",\"[\\\"graph\\\",\\\"message-3\\\"]\",null,false,false,false]",
+          "frames": []
+        },
+        {
+          "elapsedMs": 45,
+          "selected": "[\"graph\",\"[\\\"graph\\\",\\\"message-3\\\"]\",null,false,false,false]",
+          "frames": [
+            {
+              "nonce": "992975ec-f328-4b6f-b3e6-e67e0671b6a2",
+              "parentHeight": 355,
+              "parentRect": {
+                "x": 825,
+                "y": 322.796875,
+                "width": 518,
+                "height": 355,
+                "top": 322.796875,
+                "right": 1343,
+                "bottom": 677.796875,
+                "left": 825
+              },
+              "styleHeight": "355px",
+              "bodyHeight": 306.1875,
+              "scrollHeight": 306,
+              "text": "Synthetic message-3Hi Mira,Please review the final comments in the attached agreement. The revised notice period is highlighted in section 4.Open pointProposed positionNotice period60 daysCould you confirm our position before tomorrow’s call?Best,Nora",
+              "viewport": 355,
+              "parentMatched": true
+            }
+          ]
+        }
+      ],
+      "loads": 12
+    },
+    {
+      "open": 12,
+      "selected": "message-4",
+      "observations": [
+        {
+          "elapsedMs": 2,
+          "selected": "[\"gmail\",\"[\\\"gmail\\\",\\\"message-4\\\"]\",null,false,false,false]",
+          "frames": []
+        },
+        {
+          "elapsedMs": 44,
+          "selected": "[\"gmail\",\"[\\\"gmail\\\",\\\"message-4\\\"]\",null,false,false,false]",
+          "frames": [
+            {
+              "nonce": "ed4f2b10-87fa-4228-9ed8-8ff05771edb0",
+              "parentHeight": 355,
+              "parentRect": {
+                "x": 825,
+                "y": 322.796875,
+                "width": 518,
+                "height": 355,
+                "top": 322.796875,
+                "right": 1343,
+                "bottom": 677.796875,
+                "left": 825
+              },
+              "styleHeight": "355px",
+              "bodyHeight": 306.1875,
+              "scrollHeight": 306,
+              "text": "Synthetic message-4Hi Mira,Please review the final comments in the attached agreement. The revised notice period is highlighted in section 4.Open pointProposed positionNotice period60 daysCould you confirm our position before tomorrow’s call?Best,Nora",
+              "viewport": 355,
+              "parentMatched": true
+            }
+          ]
+        }
+      ],
+      "loads": 13
+    },
+    {
+      "open": 13,
+      "selected": "message-0",
+      "observations": [
+        {
+          "elapsedMs": 1,
+          "selected": "[\"gmail\",\"[\\\"gmail\\\",\\\"message-0\\\"]\",null,false,false,false]",
+          "frames": []
+        },
+        {
+          "elapsedMs": 46,
+          "selected": "[\"gmail\",\"[\\\"gmail\\\",\\\"message-0\\\"]\",null,false,false,false]",
+          "frames": [
+            {
+              "nonce": "bbf128a8-db52-4182-a668-aa170e86c1df",
+              "parentHeight": 355,
+              "parentRect": {
+                "x": 825,
+                "y": 322.796875,
+                "width": 518,
+                "height": 355,
+                "top": 322.796875,
+                "right": 1343,
+                "bottom": 677.796875,
+                "left": 825
+              },
+              "styleHeight": "355px",
+              "bodyHeight": 306.1875,
+              "scrollHeight": 306,
+              "text": "Synthetic message-0Hi Mira,Please review the final comments in the attached agreement. The revised notice period is highlighted in section 4.Open pointProposed positionNotice period60 daysCould you confirm our position before tomorrow’s call?Best,Nora",
+              "viewport": 355,
+              "parentMatched": true
+            }
+          ]
+        }
+      ],
+      "loads": 14
+    },
+    {
+      "open": 14,
+      "selected": "message-3",
+      "observations": [
+        {
+          "elapsedMs": 1,
+          "selected": "[\"graph\",\"[\\\"graph\\\",\\\"message-3\\\"]\",null,false,false,false]",
+          "frames": []
+        },
+        {
+          "elapsedMs": 53,
+          "selected": "[\"graph\",\"[\\\"graph\\\",\\\"message-3\\\"]\",null,false,false,false]",
+          "frames": [
+            {
+              "nonce": "0e84cc31-984d-485b-a642-931e90253288",
+              "parentHeight": 160,
+              "parentRect": {
+                "x": 825,
+                "y": 322.796875,
+                "width": 518,
+                "height": 160,
+                "top": 322.796875,
+                "right": 1343,
+                "bottom": 482.796875,
+                "left": 825
+              },
+              "styleHeight": "160px",
+              "bodyHeight": 306.1875,
+              "scrollHeight": 306,
+              "text": "Synthetic message-3Hi Mira,Please review the final comments in the attached agreement. The revised notice period is highlighted in section 4.Open pointProposed positionNotice period60 daysCould you confirm our position before tomorrow’s call?Best,Nora",
+              "viewport": 160,
+              "parentMatched": true
+            }
+          ]
+        },
+        {
+          "elapsedMs": 98,
+          "selected": "[\"graph\",\"[\\\"graph\\\",\\\"message-3\\\"]\",null,false,false,false]",
+          "frames": [
+            {
+              "nonce": "0e84cc31-984d-485b-a642-931e90253288",
+              "parentHeight": 355,
+              "parentRect": {
+                "x": 825,
+                "y": 322.796875,
+                "width": 518,
+                "height": 355,
+                "top": 322.796875,
+                "right": 1343,
+                "bottom": 677.796875,
+                "left": 825
+              },
+              "styleHeight": "355px",
+              "bodyHeight": 306.1875,
+              "scrollHeight": 306,
+              "text": "Synthetic message-3Hi Mira,Please review the final comments in the attached agreement. The revised notice period is highlighted in section 4.Open pointProposed positionNotice period60 daysCould you confirm our position before tomorrow’s call?Best,Nora",
+              "viewport": 355,
+              "parentMatched": true
+            }
+          ]
+        }
+      ],
+      "loads": 15
+    },
+    {
+      "open": 15,
+      "selected": "message-4",
+      "observations": [
+        {
+          "elapsedMs": 1,
+          "selected": "[\"gmail\",\"[\\\"gmail\\\",\\\"message-4\\\"]\",null,false,false,false]",
+          "frames": []
+        },
+        {
+          "elapsedMs": 44,
+          "selected": "[\"gmail\",\"[\\\"gmail\\\",\\\"message-4\\\"]\",null,false,false,false]",
+          "frames": [
+            {
+              "nonce": "d04c15f1-25c2-4d59-a3a6-7ca9888bd0b3",
+              "parentHeight": 355,
+              "parentRect": {
+                "x": 825,
+                "y": 322.796875,
+                "width": 518,
+                "height": 355,
+                "top": 322.796875,
+                "right": 1343,
+                "bottom": 677.796875,
+                "left": 825
+              },
+              "styleHeight": "355px",
+              "bodyHeight": 306.1875,
+              "scrollHeight": 306,
+              "text": "Synthetic message-4Hi Mira,Please review the final comments in the attached agreement. The revised notice period is highlighted in section 4.Open pointProposed positionNotice period60 daysCould you confirm our position before tomorrow’s call?Best,Nora",
+              "viewport": 355,
+              "parentMatched": true
+            }
+          ]
+        }
+      ],
+      "loads": 16
+    },
+    {
+      "open": 16,
+      "selected": "message-0",
+      "observations": [
+        {
+          "elapsedMs": 1,
+          "selected": "[\"gmail\",\"[\\\"gmail\\\",\\\"message-0\\\"]\",null,false,false,false]",
+          "frames": []
+        },
+        {
+          "elapsedMs": 45,
+          "selected": "[\"gmail\",\"[\\\"gmail\\\",\\\"message-0\\\"]\",null,false,false,false]",
+          "frames": [
+            {
+              "nonce": "6cc08774-561e-4e88-90e0-b4e0c5dd7b2a",
+              "parentHeight": 355,
+              "parentRect": {
+                "x": 825,
+                "y": 322.796875,
+                "width": 518,
+                "height": 355,
+                "top": 322.796875,
+                "right": 1343,
+                "bottom": 677.796875,
+                "left": 825
+              },
+              "styleHeight": "355px",
+              "bodyHeight": 306.1875,
+              "scrollHeight": 306,
+              "text": "Synthetic message-0Hi Mira,Please review the final comments in the attached agreement. The revised notice period is highlighted in section 4.Open pointProposed positionNotice period60 daysCould you confirm our position before tomorrow’s call?Best,Nora",
+              "viewport": 355,
+              "parentMatched": true
+            }
+          ]
+        }
+      ],
+      "loads": 17
+    },
+    {
+      "open": 17,
+      "selected": "message-3",
+      "observations": [
+        {
+          "elapsedMs": 1,
+          "selected": "[\"graph\",\"[\\\"graph\\\",\\\"message-3\\\"]\",null,false,false,false]",
+          "frames": []
+        },
+        {
+          "elapsedMs": 46,
+          "selected": "[\"graph\",\"[\\\"graph\\\",\\\"message-3\\\"]\",null,false,false,false]",
+          "frames": [
+            {
+              "nonce": "c97bc177-70b9-4b71-a7b7-82b04b4e117b",
+              "parentHeight": 355,
+              "parentRect": {
+                "x": 825,
+                "y": 322.796875,
+                "width": 518,
+                "height": 355,
+                "top": 322.796875,
+                "right": 1343,
+                "bottom": 677.796875,
+                "left": 825
+              },
+              "styleHeight": "355px",
+              "bodyHeight": 306.1875,
+              "scrollHeight": 306,
+              "text": "Synthetic message-3Hi Mira,Please review the final comments in the attached agreement. The revised notice period is highlighted in section 4.Open pointProposed positionNotice period60 daysCould you confirm our position before tomorrow’s call?Best,Nora",
+              "viewport": 355,
+              "parentMatched": true
+            }
+          ]
+        }
+      ],
+      "loads": 18
+    },
+    {
+      "open": 18,
+      "selected": "message-4",
+      "observations": [
+        {
+          "elapsedMs": 1,
+          "selected": "[\"gmail\",\"[\\\"gmail\\\",\\\"message-4\\\"]\",null,false,false,false]",
+          "frames": []
+        },
+        {
+          "elapsedMs": 44,
+          "selected": "[\"gmail\",\"[\\\"gmail\\\",\\\"message-4\\\"]\",null,false,false,false]",
+          "frames": [
+            {
+              "nonce": "8d40ee28-6f20-453b-8936-0a6d761a959a",
+              "parentHeight": 355,
+              "parentRect": {
+                "x": 825,
+                "y": 322.796875,
+                "width": 518,
+                "height": 355,
+                "top": 322.796875,
+                "right": 1343,
+                "bottom": 677.796875,
+                "left": 825
+              },
+              "styleHeight": "355px",
+              "bodyHeight": 306.1875,
+              "scrollHeight": 306,
+              "text": "Synthetic message-4Hi Mira,Please review the final comments in the attached agreement. The revised notice period is highlighted in section 4.Open pointProposed positionNotice period60 daysCould you confirm our position before tomorrow’s call?Best,Nora",
+              "viewport": 355,
+              "parentMatched": true
+            }
+          ]
+        }
+      ],
+      "loads": 19
+    },
+    {
+      "open": 19,
+      "selected": "message-0",
+      "observations": [
+        {
+          "elapsedMs": 1,
+          "selected": "[\"gmail\",\"[\\\"gmail\\\",\\\"message-0\\\"]\",null,false,false,false]",
+          "frames": []
+        },
+        {
+          "elapsedMs": 45,
+          "selected": "[\"gmail\",\"[\\\"gmail\\\",\\\"message-0\\\"]\",null,false,false,false]",
+          "frames": [
+            {
+              "nonce": "1edd58e9-e509-4c87-8f19-54a7990c9e16",
+              "parentHeight": 355,
+              "parentRect": {
+                "x": 825,
+                "y": 322.796875,
+                "width": 518,
+                "height": 355,
+                "top": 322.796875,
+                "right": 1343,
+                "bottom": 677.796875,
+                "left": 825
+              },
+              "styleHeight": "355px",
+              "bodyHeight": 306.1875,
+              "scrollHeight": 306,
+              "text": "Synthetic message-0Hi Mira,Please review the final comments in the attached agreement. The revised notice period is highlighted in section 4.Open pointProposed positionNotice period60 daysCould you confirm our position before tomorrow’s call?Best,Nora",
+              "viewport": 355,
+              "parentMatched": true
+            }
+          ]
+        }
+      ],
+      "loads": 20
+    },
+    {
+      "open": 20,
+      "selected": "message-3",
+      "observations": [
+        {
+          "elapsedMs": 1,
+          "selected": "[\"graph\",\"[\\\"graph\\\",\\\"message-3\\\"]\",null,false,false,false]",
+          "frames": []
+        },
+        {
+          "elapsedMs": 45,
+          "selected": "[\"graph\",\"[\\\"graph\\\",\\\"message-3\\\"]\",null,false,false,false]",
+          "frames": [
+            {
+              "nonce": "ed91f09b-796d-469d-9a4b-47dc24fa7158",
+              "parentHeight": 355,
+              "parentRect": {
+                "x": 825,
+                "y": 322.796875,
+                "width": 518,
+                "height": 355,
+                "top": 322.796875,
+                "right": 1343,
+                "bottom": 677.796875,
+                "left": 825
+              },
+              "styleHeight": "355px",
+              "bodyHeight": 306.1875,
+              "scrollHeight": 306,
+              "text": "Synthetic message-3Hi Mira,Please review the final comments in the attached agreement. The revised notice period is highlighted in section 4.Open pointProposed positionNotice period60 daysCould you confirm our position before tomorrow’s call?Best,Nora",
+              "viewport": 355,
+              "parentMatched": true
+            }
+          ]
+        }
+      ],
+      "loads": 21
+    }
+  ],
+  "frames": [
+    {
+      "nonce": "9901ba06-0eef-4bb4-bd5c-9a354d079e06",
+      "parentHeight": 355,
+      "parentRect": {
+        "x": 825,
+        "y": 322.796875,
+        "width": 518,
+        "height": 355,
+        "top": 322.796875,
+        "right": 1343,
+        "bottom": 677.796875,
+        "left": 825
+      },
+      "styleHeight": "355px",
+      "bodyHeight": 306.1875,
+      "scrollHeight": 306,
+      "text": "Synthetic message-3Hi Mira,Please review the final comments in the attached agreement. The revised notice period is highlighted in section 4.Open pointProposed positionNotice period60 daysCould you confirm our position before tomorrow’s call?Best,Nora",
+      "viewport": 355,
+      "parentMatched": true
+    }
+  ]
+}

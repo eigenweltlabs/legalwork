@@ -1,0 +1,41 @@
+{
+  "result": "pass",
+  "initialLoadMs": 20,
+  "observations": [
+    {
+      "phase": "initial-25",
+      "time": 1789230846477,
+      "cards": 25,
+      "earlier": true,
+      "frames": 0
+    },
+    {
+      "phase": "loaded-50",
+      "time": 1789230846538,
+      "cards": 50,
+      "earlier": true,
+      "frames": 1
+    },
+    {
+      "phase": "poll-after-50",
+      "time": 1789230852044,
+      "cards": 50,
+      "earlier": true,
+      "frames": 1
+    },
+    {
+      "phase": "loaded-55",
+      "time": 1789230852105,
+      "cards": 55,
+      "earlier": false,
+      "frames": 1
+    },
+    {
+      "phase": "poll-after-55",
+      "time": 1789230857608,
+      "cards": 55,
+      "earlier": false,
+      "frames": 1
+    }
+  ]
+}
