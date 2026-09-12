@@ -26,6 +26,10 @@ const size = z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER);
 const hash = z.string().regex(/^[0-9a-f]{64}$/);
 // Static identifiers only. Never interpolate provider values or schema-discovered names into SQL.
 const requiredColumns: Record<string, string[]> = {
+  mail_portability_jobs:["id","account_id","direction","format","path","namespace","state","source_hash","checkpoint","completed","failed"],
+  mail_archive_messages:["account_id","message_key","namespace","entry_id","received_at","provenance_json"],
+  mail_portability_folders:["job_id","id","manifest_json","state"],
+  mail_portability_entries:["job_id","entry_id","message_key","reference_id","manifest_json","state"],
   mail_smtp_credentials:["account_id","generation","revision","account_generation","settings_json","password"],
   mail_notification_accounts:["account_id","session_id","credential_generation","event_generation","baseline_at","after_sequence"],
   mail_notification_claims:["account_id","message_key","claimed_at"],
@@ -156,7 +160,7 @@ export function checkMailConsistency(database: MailDatabase, options: MailConsis
       if (database.get("PRAGMA foreign_keys")?.foreign_keys !== 1) codes.add("foreign-key-enforcement-disabled");
       if (database.get("SELECT 1 AS violation FROM pragma_foreign_key_check LIMIT 1")) codes.add("foreign-key-violation");
       scan("mail_accounts", "id,owner_id,provider", ["id"], row => {
-        if (!identifier.safeParse(row.id).success || !identifier.safeParse(row.owner_id).success || !["gmail", "graph", "imap"].includes(String(row.provider))) codes.add("invalid-account");
+        if (!identifier.safeParse(row.id).success || !identifier.safeParse(row.owner_id).success || !["gmail", "graph", "imap", "archive"].includes(String(row.provider))) codes.add("invalid-account");
       });
       scan("mail_messages", "account_id,message_key,provider,locator_json,attachments_enumerated", ["account_id", "message_key"], row => {
         let locator;
