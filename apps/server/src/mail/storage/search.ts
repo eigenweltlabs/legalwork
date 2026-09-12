@@ -1,6 +1,6 @@
 import { decodeHTML } from "entities";
 import { z } from "zod";
-import type { MailDatabase, MailSqlValue } from "./database-interface.js";
+import type { MailDatabase, MailSqlRow, MailSqlValue } from "./database-interface.js";
 import { MailContentStore } from "./content-store.js";
 import { MimeProjectionStore } from "./mime-projection-store.js";
 import { providerMessageLocatorSchema } from "../model.js";
@@ -152,16 +152,34 @@ export class MailSearchStore {
     if(input.hasAttachment!==undefined){where.push(`d.has_attachment=${input.hasAttachment?1:0}`);}
     const coveringMatch=match&&!input.sender&&!input.recipient&&!input.filename&&!input.literal&&!input.matterIdentifier;
     const from=`FROM mail_search_documents d ${coveringMatch?'INDEXED BY mail_search_identity':!match&&(input.afterDate||input.beforeDate)?'INDEXED BY mail_search_date':''} ${input.unread!==undefined?'JOIN mail_accounts a ON a.id=d.account_id JOIN mail_messages m ON m.account_id=d.account_id AND m.message_key=d.message_key':''} ${match?'JOIN mail_search_fts ON mail_search_fts.rowid=d.id':''} WHERE ${where.join(' AND ')}`;
-    const total=count.parse(this.db.get(`SELECT count(*) AS n ${from}`,params)?.n),limit=input.limit??20,offset=input.offset??0;
+    const limit=input.limit??20,offset=input.offset??0;
     const literalSnippet=input.literal??input.matterIdentifier;
     const columns="d.account_id,d.message_key,m.locator_json,d.subject,d.date,d.has_attachment";
     // Materialize only the page identities before building FTS snippets. A broad
     // match must not tokenize every matching body while sorting for twenty rows.
     const snippet=match?"snippet(mail_search_fts,1,'','',' … ',32)":literalSnippet?"substr(d.normalized_text,max(1,instr(d.normalized_text,?)-80),320)":"substr(d.body,1,512)";
-    const rows=this.db.all(`WITH page AS MATERIALIZED (SELECT d.id ${from} ORDER BY d.date DESC,d.account_id,d.message_key LIMIT ? OFFSET ?)
+    // Broad phrases otherwise decode the same positional postings twice: once
+    // for the exact total and again for the page. Keep authorized identities in
+    // one statement, including a total-only row when the page is empty.
+    let total:number;
+    let rows:MailSqlRow[];
+    if(input.phrase){
+      const selected=this.db.all(`WITH matched AS MATERIALIZED (SELECT d.id,d.date,d.account_id,d.message_key ${from}),
+        page AS MATERIALIZED (SELECT id FROM matched ORDER BY date DESC,account_id,message_key LIMIT ? OFFSET ?),
+        totals AS (SELECT count(*) AS total FROM matched)
+        SELECT totals.total,${columns},CASE WHEN page.id IS NOT NULL THEN
+          (SELECT ${snippet} FROM mail_search_fts WHERE rowid=d.id AND mail_search_fts MATCH ?) END AS snippet
+        FROM totals LEFT JOIN page ON 1 LEFT JOIN mail_search_documents d ON d.id=page.id
+        LEFT JOIN mail_messages m ON m.account_id=d.account_id AND m.message_key=d.message_key
+        ORDER BY d.date DESC,d.account_id,d.message_key`,[...params,limit,offset,match]);
+      total=count.parse(selected[0]?.total);rows=selected.filter(row=>row.account_id!==null);
+    }else{
+      total=count.parse(this.db.get(`SELECT count(*) AS n ${from}`,params)?.n);
+      rows=this.db.all(`WITH page AS MATERIALIZED (SELECT d.id ${from} ORDER BY d.date DESC,d.account_id,d.message_key LIMIT ? OFFSET ?)
       SELECT ${columns},${snippet} AS snippet
       FROM page CROSS JOIN mail_search_documents d ON d.id=page.id CROSS JOIN mail_messages m ON m.account_id=d.account_id AND m.message_key=d.message_key
       ${match?'CROSS JOIN mail_search_fts ON mail_search_fts.rowid=d.id WHERE mail_search_fts MATCH ?':''} ORDER BY d.date DESC,d.account_id,d.message_key`,[...params,limit,offset,...(!match&&literalSnippet?[normalize(literalSnippet)]:[]),...(match?[match]:[])]);
+    }
     const result=mailSearchResultSchema.parse({items:rows.map(row=>({accountId:row.account_id,locator:JSON.parse(string.parse(row.locator_json)),subject:string.parse(row.subject).slice(0,512),snippet:string.parse(row.snippet).slice(0,512),date:row.date,hasAttachment:row.has_attachment===null?null:row.has_attachment===1,attachmentMatches:this.attachmentMatches(string.parse(row.account_id),string.parse(row.message_key),input),attachmentSources:this.db.all(`SELECT e.part_id,e.ref_id,e.state FROM mail_attachment_extractions e JOIN mail_content_manifests m ON m.account_id=e.account_id AND m.message_key=e.message_key AND m.kind='attachment' AND m.part_id=e.part_id AND m.ref_id=e.ref_id AND m.state='stored' WHERE e.account_id=? AND e.message_key=? AND e.extractor='local-text-v1' ORDER BY e.part_id LIMIT 8`,[string.parse(row.account_id),string.parse(row.message_key)]).filter(source=>source.state==='complete').map(source=>({partId:source.part_id,referenceId:source.ref_id}))})),total,...this.stats(accounts,scope),nextOffset:offset+rows.length<total?offset+rows.length:null});
     while(Buffer.byteLength(JSON.stringify(result))>48*1024&&result.items.length>1)result.items.pop();
     result.nextOffset=offset+result.items.length<total?offset+result.items.length:null;return result;

@@ -365,3 +365,23 @@ test("executor fences and provider retry delays remain account scoped and durabl
   after.fail('a',retry.id,retry.lease_token,true,Number.MAX_SAFE_INTEGER);
   assert.equal(after.readJob('a',job.id).available_at,Number.MAX_SAFE_INTEGER);
 }));
+
+
+test('schema28 reverse scope lookup rolls back, preserves closure and reopens idempotently',async()=>fixture(async({db,journal,reopen})=>{
+ const j=journal();j.commitPage(page(),metadata);const parent=j.claim(scope,1,1000)[0];
+ j.succeedWithFollowups('a',parent.id,parent.lease_token,followups(),()=>{});
+ const before=db.all('SELECT * FROM mail_sync_scope_jobs ORDER BY account_id,scope_id,generation,job_id');
+ removeLaterMailSchema(db,27);db.run('UPDATE mail_schema_version SET version=27');
+ const interrupted={...db,exec(sql){db.exec(sql);if(sql.includes('CREATE INDEX mail_sync_scope_job_lookup'))throw Error('interrupted reverse index');}};
+ assert.throws(()=>migrateMailSchema(interrupted),/interrupted/);
+ assert.equal(db.get('SELECT version FROM mail_schema_version').version,27);
+ assert.equal(db.get("SELECT name FROM sqlite_schema WHERE name='mail_sync_scope_job_lookup'"),undefined);
+ assert.deepEqual(db.all('SELECT * FROM mail_sync_scope_jobs ORDER BY account_id,scope_id,generation,job_id'),before);
+ migrateMailSchema(db);migrateMailSchema(db);assert.equal(db.get('SELECT version FROM mail_schema_version').version,MAIL_SCHEMA_VERSION);
+ assert.deepEqual(db.all('PRAGMA foreign_key_check'),[]);
+ db=await reopen();migrateMailSchema(db);
+ assert.deepEqual(db.all('SELECT * FROM mail_sync_scope_jobs ORDER BY account_id,scope_id,generation,job_id'),before);
+ const current=new MailSyncJournal(db,'owner-a',()=>1000);current.commitPage(page({scopeId:'later',jobs:[{kind:'raw',locator:locator('one')}]}),()=>{});
+ const first=db.all('SELECT job_id FROM mail_sync_scope_jobs WHERE account_id=? AND scope_id=? ORDER BY job_id',['a','inbox']);
+ const later=db.all('SELECT job_id FROM mail_sync_scope_jobs WHERE account_id=? AND scope_id=? ORDER BY job_id',['a','later']);assert.deepEqual(later,first);assert.equal(later.length,3);
+}));
