@@ -1,3 +1,5 @@
+import type {StorageSaveInput,StorageSaveResult} from './storage-save-view.js';
+import type {FilingInput,FilingResult} from './filing-view.js';
 import type {MailMaintenanceReport} from './maintenance-view.js';
 import {MailRetentionError,type RetentionCommand} from './retention-view.js';
 import type {MailNotificationPoll} from './notification-view.js';
@@ -80,6 +82,8 @@ export class LocalMailService implements MailService {
   async removeSmtp(accountId:string){const result=await this.request({operation:'mail.smtp.remove',accountId});if('outboxFailure' in result)throw new OutboxError(result.outboxFailure);if(!('smtp' in result))throw new MailServiceError('unavailable');return result.smtp;}
   async retention(command:RetentionCommand){const result=await this.request(command);if('retentionFailure' in result)throw new MailRetentionError(result.retentionFailure);if(!('retention' in result))throw new MailServiceError('unavailable');return result.retention;}
   /** Desktop-only: deliberately absent from MailService and HTTP routing. */
+  async storageSave(input:StorageSaveInput):Promise<StorageSaveResult>{const result=await this.request({operation:"mail.storage.save",input});if(!("storageSave" in result))throw new MailServiceError("unavailable");return result.storageSave;}
+  async filing(input:FilingInput):Promise<FilingResult>{const result=await this.request({operation:"mail.filing",input});if(!("filing" in result))throw new MailServiceError("unavailable");return result.filing;}
   async portability(command:PortabilityCommand){const result=await this.request(command);if(!("portability" in result))throw new MailServiceError("unavailable");return result.portability;}
   async senders(accountId:string){const result=await this.request({operation:'mail.senders.list',accountId});if(!('senders' in result))throw new MailServiceError('unavailable');return result.senders.length?result.senders:this.refreshSenders(accountId);}
   async refreshSenders(accountId:string){

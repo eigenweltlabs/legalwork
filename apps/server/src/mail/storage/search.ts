@@ -65,9 +65,10 @@ export class MailSearchStore {
     if(!row)throw new MailSearchError("not_found");if(row.state==='disconnected'&&!this.trusted.offlineMaintenance)throw new MailSearchError("locked");return row;
   }
   private safe<T>(fn:()=>T):T{try{return fn();}catch(error){if(error instanceof MailSearchError)throw error;throw new MailSearchError("unavailable");}}
-  private stats(accounts:string[]){const marks=accounts.map(()=>'?').join(',');if(!accounts.length)return{pending:0,incomplete:0};return{
-    pending:count.parse(this.db.get(`SELECT count(*) AS n FROM mail_search_dirty WHERE account_id IN (${marks})`,accounts)?.n),
-    incomplete:count.parse(this.db.get(`SELECT count(*) AS n FROM mail_search_documents d WHERE account_id IN (${marks}) AND incomplete=1 AND NOT EXISTS(SELECT 1 FROM mail_search_dirty q WHERE q.account_id=d.account_id AND q.message_key=d.message_key)`,accounts)?.n),
+  private filingPredicate(alias:string,filingIds:string[]){return `EXISTS(SELECT 1 FROM mail_matter_filings ff JOIN mail_filing_snapshots fs ON fs.id=ff.snapshot_id WHERE ff.state='filed' AND ff.id IN (SELECT value FROM json_each(?)) AND fs.account_id=${alias}.account_id AND fs.source_message_key=${alias}.message_key)`;}
+  private stats(accounts:string[],scope?:{filingIds:string[]}){const marks=accounts.map(()=>'?').join(',');if(!accounts.length)return{pending:0,incomplete:0};return{
+    pending:count.parse(this.db.get(`SELECT count(*) AS n FROM mail_search_dirty d WHERE account_id IN (${marks}) ${scope?'AND '+this.filingPredicate('d',scope.filingIds):''}`,[...accounts,...(scope?[JSON.stringify(scope.filingIds)]:[])])?.n),
+    incomplete:count.parse(this.db.get(`SELECT count(*) AS n FROM mail_search_documents d WHERE account_id IN (${marks}) AND incomplete=1 AND NOT EXISTS(SELECT 1 FROM mail_search_dirty q WHERE q.account_id=d.account_id AND q.message_key=d.message_key) ${scope?'AND '+this.filingPredicate('d',scope.filingIds):''}`,[...accounts,...(scope?[JSON.stringify(scope.filingIds)]:[])])?.n),
   };}
   /** Background turns do not recount the entire mailbox after every document. */
   indexNext(accountId:string){return this.processBatch({accountId,limit:1});}
@@ -123,7 +124,7 @@ export class MailSearchStore {
       }
     }return matches;
   }
-  search(supplied:MailSearchInput){return this.safe(()=>this.db.transaction(()=>{
+  search(supplied:MailSearchInput,scope?:{filingIds:string[]}){return this.safe(()=>this.db.transaction(()=>{
     const parsed=mailSearchInputSchema.safeParse(supplied);if(!parsed.success)throw new MailSearchError('invalid_input');const input=parsed.data;
     const accounts=input.accountIds??this.db.all("SELECT a.id FROM mail_accounts a LEFT JOIN mail_account_access c ON c.account_id=a.id LEFT JOIN mail_imap_credentials i ON i.account_id=a.id WHERE a.owner_id=? AND (coalesce(c.state,i.state) IS NULL OR coalesce(c.state,i.state)!='disconnected') ORDER BY a.id",[this.ownerId]).map(row=>string.parse(row.id));
     for(const account of accounts)this.account(account);
@@ -131,6 +132,7 @@ export class MailSearchStore {
     // Account access was checked above inside this same synchronous transaction.
     // Avoid repeating credential-view joins for every matching document.
     const where=[`d.account_id IN (${accounts.map(()=>'?').join(',')})`,'NOT EXISTS(SELECT 1 FROM mail_search_dirty q WHERE q.account_id=d.account_id AND q.message_key=d.message_key)'];const params:MailSqlValue[]=[...accounts];
+    if(scope){where.push(this.filingPredicate('d',scope.filingIds));params.push(JSON.stringify(scope.filingIds));}
     const terms=[...(input.keywords??[]).map(quote),...(input.phrase?[quote(input.phrase)]:[])];
     for(const [column,value] of [['addresses',input.sender],['addresses',input.recipient]])if(value!==undefined&&/[a-z0-9]/i.test(value))terms.push(column+' : '+quote(normalize(value)));
     const match=terms.join(' AND ');
@@ -160,7 +162,7 @@ export class MailSearchStore {
       SELECT ${columns},${snippet} AS snippet
       FROM page CROSS JOIN mail_search_documents d ON d.id=page.id CROSS JOIN mail_messages m ON m.account_id=d.account_id AND m.message_key=d.message_key
       ${match?'CROSS JOIN mail_search_fts ON mail_search_fts.rowid=d.id WHERE mail_search_fts MATCH ?':''} ORDER BY d.date DESC,d.account_id,d.message_key`,[...params,limit,offset,...(!match&&literalSnippet?[normalize(literalSnippet)]:[]),...(match?[match]:[])]);
-    const result=mailSearchResultSchema.parse({items:rows.map(row=>({accountId:row.account_id,locator:JSON.parse(string.parse(row.locator_json)),subject:string.parse(row.subject).slice(0,512),snippet:string.parse(row.snippet).slice(0,512),date:row.date,hasAttachment:row.has_attachment===null?null:row.has_attachment===1,attachmentMatches:this.attachmentMatches(string.parse(row.account_id),string.parse(row.message_key),input),attachmentSources:this.db.all(`SELECT e.part_id,e.ref_id,e.state FROM mail_attachment_extractions e JOIN mail_content_manifests m ON m.account_id=e.account_id AND m.message_key=e.message_key AND m.kind='attachment' AND m.part_id=e.part_id AND m.ref_id=e.ref_id AND m.state='stored' WHERE e.account_id=? AND e.message_key=? AND e.extractor='local-text-v1' ORDER BY e.part_id LIMIT 8`,[string.parse(row.account_id),string.parse(row.message_key)]).filter(source=>source.state==='complete').map(source=>({partId:source.part_id,referenceId:source.ref_id}))})),total,...this.stats(accounts),nextOffset:offset+rows.length<total?offset+rows.length:null});
+    const result=mailSearchResultSchema.parse({items:rows.map(row=>({accountId:row.account_id,locator:JSON.parse(string.parse(row.locator_json)),subject:string.parse(row.subject).slice(0,512),snippet:string.parse(row.snippet).slice(0,512),date:row.date,hasAttachment:row.has_attachment===null?null:row.has_attachment===1,attachmentMatches:this.attachmentMatches(string.parse(row.account_id),string.parse(row.message_key),input),attachmentSources:this.db.all(`SELECT e.part_id,e.ref_id,e.state FROM mail_attachment_extractions e JOIN mail_content_manifests m ON m.account_id=e.account_id AND m.message_key=e.message_key AND m.kind='attachment' AND m.part_id=e.part_id AND m.ref_id=e.ref_id AND m.state='stored' WHERE e.account_id=? AND e.message_key=? AND e.extractor='local-text-v1' ORDER BY e.part_id LIMIT 8`,[string.parse(row.account_id),string.parse(row.message_key)]).filter(source=>source.state==='complete').map(source=>({partId:source.part_id,referenceId:source.ref_id}))})),total,...this.stats(accounts,scope),nextOffset:offset+rows.length<total?offset+rows.length:null});
     while(Buffer.byteLength(JSON.stringify(result))>48*1024&&result.items.length>1)result.items.pop();
     result.nextOffset=offset+result.items.length<total?offset+result.items.length:null;return result;
   }));}

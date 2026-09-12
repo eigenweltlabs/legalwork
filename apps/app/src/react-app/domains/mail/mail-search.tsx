@@ -1,3 +1,5 @@
+import {MailMatterFilter} from './mail-filing';
+import {mailSearchResultSchema} from '../../../../../server/src/mail/search-view';
 /** @jsxImportSource react */
 import { useEffect, useRef, useState } from 'react';
 import { SlidersHorizontal, Bookmark, RefreshCw, ChevronLeft, ChevronRight } from 'lucide-react';
@@ -23,6 +25,8 @@ export function MailSearch({ client, accounts, onOpen, toolbarQuery, onSavedQuer
         partId: string;
         referenceId: string;
     }>();
+    const [matterScope,setMatterScope]=useState({workspaceId:'',matterId:''});
+    const executeSearch=(input:MailSearchInput,signal:AbortSignal)=>{if(matterScope.workspaceId&&!matterScope.matterId)throw Error('Choose a filed matter or clear the filing workspace.');return matterScope.matterId?client.request('/filing',mailSearchResultSchema,signal,{action:'search',workspaceId:matterScope.workspaceId,matterId:matterScope.matterId,accountIds:input.accountIds??accounts.map(item=>item.id),input},false,120000):runMailSearch(client,input,signal);};
     const [filtersOpen, setFiltersOpen] = useState(false), [savedOpen, setSavedOpen] = useState(false);
     const [keywordText, setKeywordText] = useState('');
     const savedRequests = useRef(new SearchRequests());
@@ -89,7 +93,7 @@ export function MailSearch({ client, accounts, onOpen, toolbarQuery, onSavedQuer
         setExcerpt(undefined);
         setSource(undefined);
         try {
-            const response = await runMailSearch(client, { ...input, limit: 20, offset }, signal);
+            const response = await executeSearch({ ...input, limit: 20, offset }, signal);
             if (signal.aborted)
                 return;
             setResult(response);
@@ -153,6 +157,7 @@ export function MailSearch({ client, accounts, onOpen, toolbarQuery, onSavedQuer
         }
     }
     async function save() {
+        if(matterScope.workspaceId){setError('Clear the matter association filter before saving a text search.');return;}
         setError('');
         try {
             await savedMailSearch(client, { action: 'save', id: crypto.randomUUID(), expectedRevision: null, name, query }, auxiliary.current.signal);
@@ -188,7 +193,7 @@ export function MailSearch({ client, accounts, onOpen, toolbarQuery, onSavedQuer
             if (active)
                 return;
             active = true;
-            void runMailSearch(client, { ...submitted, limit: 20, offset: offsets.at(-1) ?? 0 }, controller.signal).then(response => { if (!controller.signal.aborted && requests.current.generation === generation) {
+            void executeSearch({ ...submitted, limit: 20, offset: offsets.at(-1) ?? 0 }, controller.signal).then(response => { if (!controller.signal.aborted && requests.current.generation === generation) {
                 setResult(response);
                 if (source && !response.items.some(hit => hit.accountId === source.hit.accountId && JSON.stringify(hit.locator) === JSON.stringify(source.hit.locator) && hit.attachmentSources?.some(part => part.partId === source.partId && part.referenceId === source.referenceId))) {
                     setSource(undefined);
@@ -241,6 +246,7 @@ export function MailSearch({ client, accounts, onOpen, toolbarQuery, onSavedQuer
                 delete next.accountIds;
             edit(next);
         }}>{accounts.map(account => <option key={account.id} value={account.id}>{account.displayName}</option>)}</select><button type="button" className="text-xs underline" onClick={() => { const next = { ...query }; delete next.accountIds; delete next.folderId; edit(next); }}>All accessible accounts</button></label>
+    <MailMatterFilter client={client} accountIds={query.accountIds??accounts.map(item=>item.id)} value={matterScope} onChange={value=>{requests.current.cancel();setResult(undefined);setSubmitted(undefined);onOpen(undefined);setMatterScope(value);}}/>
     {addressFields.map(key => <label key={key}>{({ sender: 'Sender address', recipient: 'Recipient address', filename: 'Exact attachment filename', matterIdentifier: 'Case identifier in text' })[key]}<input aria-label={key} className="block w-full border bg-background p-2" maxLength={512} value={query[key] ?? ''} onChange={event => field(key, event.target.value)}/></label>)}
     <label>Folder / label<select aria-label="Folder or label" className="block w-full border bg-background p-2" disabled={query.accountIds?.length !== 1} value={query.folderId ?? ''} onChange={event => field('folderId', event.target.value)}><option value="">All folders / labels</option>{folders.map(folder => <option key={folder.id} value={folder.id}>{folder.name}</option>)}</select></label>
     {dateFields.map(key => <label key={key}>{key === 'afterDate' ? 'On or after (UTC)' : 'Before (UTC)'}<input aria-label={key} type="date" className="block w-full border bg-background p-2" value={query[key]?.slice(0, 10) ?? ''} onChange={event => {

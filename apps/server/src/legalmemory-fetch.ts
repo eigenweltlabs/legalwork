@@ -297,6 +297,23 @@ function legalMemoryToolPayload(value: unknown): unknown {
   throw new Error("LegalMemory returned no structured tool content");
 }
 
+export async function callLegalMemoryTool(
+  server: LegalMemoryServer,
+  name: string,
+  args: Record<string, unknown>,
+  bearer?: string,
+): Promise<unknown> {
+  const session = legalMemorySession(server, bearer);
+  await rpc(session, "initialize", {
+    protocolVersion: "2025-06-18",
+    capabilities: {},
+    clientInfo: { name: "LegalWork", version: "1" },
+  }, 1);
+  await rpc(session, "notifications/initialized", {});
+  const result = await rpc(session, "tools/call", { name, arguments: args }, 2);
+  return legalMemoryToolPayload(result);
+}
+
 function normalizedSourcePath(value: string): string {
   return value.replace(/\\/g, "/").split("/").filter(Boolean).join("/");
 }
