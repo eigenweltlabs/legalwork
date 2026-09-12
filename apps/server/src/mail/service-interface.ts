@@ -28,6 +28,8 @@ export class MailServiceError extends Error {
 
 /** Bound to one trusted owner at construction; no request supplies an owner ID. */
 export interface MailService {
+  /** Synchronous cancellation fence before custody closes. */
+  onLock?(listener:()=>void):()=>void;
   storageSave(input:StorageSaveInput):Promise<StorageSaveResult>;
   filing(input:FilingInput):Promise<FilingResult>;
   pollNotifications(input:MailNotificationPoll):Promise<MailNotificationBatch>;

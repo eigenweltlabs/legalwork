@@ -13,7 +13,8 @@ const input=z.discriminatedUnion('action',[
  z.object({action:z.literal('capture'),workspaceId:id,accountId:id,locator:providerMessageLocatorSchema}).strict(),
  z.object({action:z.literal('snapshot'),workspaceId:id,accountId:id,snapshotId:uuid}).strict(),
  z.object({action:z.literal('chunk'),workspaceId:id,accountId:id,snapshotId:uuid,part:z.number().int().min(0).max(100),offset:z.number().int().nonnegative(),limit:z.number().int().min(1).max(24576)}).strict(),
- z.object({action:z.literal('save'),workspaceId:id,accountId:id,snapshotId:uuid,storageId:id,rootRevision:z.string().min(1).max(4096),folderPath:z.string().max(2048),selection:z.array(z.number().int().min(0).max(100)).min(1).max(101)}).strict(),
+ z.object({action:z.literal('save'),workspaceId:id,accountId:id,snapshotId:uuid,storageId:id,rootRevision:z.string().min(1).max(4096),folderPath:z.string().max(2048),selection:z.array(z.number().int().min(0).max(100)).min(1).max(101),fresh:z.boolean().optional()}).strict(),
+ z.object({action:z.literal('cancel'),workspaceId:id,accountId:id,id:uuid}).strict(),
  z.object({action:z.literal('list'),workspaceId:id,accountIds:z.array(id).min(1).max(100),after:uuid.optional()}).strict(),
 ]);
 export function registerMailStorageSaveRoutes(options:{routes:Route[];host:string;mail?:MailService;workspaces:()=>Array<{id:string;name:string}>;resolveWorkspace:(id:string)=>Promise<void>;request:ConnectedStorageRequest}){
@@ -30,10 +31,12 @@ export function registerMailStorageSaveRoutes(options:{routes:Route[];host:strin
     case 'capture':result=await mail.filing({action:'capture',accountId:request.accountId,locator:request.locator});break;
     case 'snapshot':result=await mail.filing({action:'snapshot',accountId:request.accountId,snapshotId:request.snapshotId});break;
     case 'chunk':result=await mail.filing({action:'chunk',accountId:request.accountId,snapshotId:request.snapshotId,part:request.part,offset:request.offset,limit:request.limit});break;
+    case 'cancel':result={save:await coordinator.cancel(request.workspaceId,request.accountId,request.id)};break;
     case 'save':result={save:await coordinator.save(request)};break;
     case 'list':result=await mail.storageSave(request);break;
    }
    return Response.json(result,{headers:{'Cache-Control':'no-store'}});
   }catch(error){if(error instanceof ApiError)throw error;throw new ApiError(409,'mail_storage_attention','Save needs attention. Check the destination, account access, and existing files before retrying.');}
  });
+ return coordinator;
 }
