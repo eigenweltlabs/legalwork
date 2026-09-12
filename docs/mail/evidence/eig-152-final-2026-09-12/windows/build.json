@@ -1,0 +1,27 @@
+{
+  "name": "build",
+  "source": "9a6f3482007bad1ff24850d8311f2556d2f39353",
+  "dirty": false,
+  "started": "2026-09-12T16:46:06.703Z",
+  "finished": "2026-09-12T16:49:52.054Z",
+  "platform": "win32",
+  "arch": "x64",
+  "osRelease": "10.0.20348",
+  "node": "24.11.0",
+  "memoryBytes": 17174360064,
+  "cpu": "AMD EPYC 9V74 80-Core Processor                ",
+  "command": [
+    "pnpm",
+    "--dir",
+    "apps/desktop",
+    "run",
+    "package:electron:dir",
+    "--publish",
+    "never"
+  ],
+  "code": 0,
+  "signal": null,
+  "overflow": false,
+  "spawnError": false,
+  "passed": true
+}
