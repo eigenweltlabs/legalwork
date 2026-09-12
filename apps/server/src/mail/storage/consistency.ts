@@ -33,6 +33,8 @@ const requiredColumns: Record<string, string[]> = {
   mail_portability_folders:["job_id","id","manifest_json","state"],
   mail_portability_entries:["job_id","entry_id","message_key","reference_id","manifest_json","state"],
   mail_smtp_credentials:["account_id","generation","revision","account_generation","settings_json","password"],
+  mail_storage_saves:['id','snapshot_id','workspace_id','storage_id','root_revision','folder_path','selection_json','state','generation','revision','error','created_at','updated_at'],
+  mail_storage_save_parts:['save_id','ordinal','part_index','path','bytes','sha256','mime_type','state','version'],
   mail_filing_snapshots: ['id','account_id','source_message_key','manifest_json','manifest_hash','created_at'],
   mail_filing_parts: ['snapshot_id','ordinal','account_id','ref_id','kind','metadata_json','bytes','sha256'],
   mail_matter_filings: ['id','snapshot_id','workspace_id','backend_key','principal_key','matter_id','state','remote_id','receipt_json','error','generation','revision','created_at','updated_at'],
