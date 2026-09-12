@@ -39,6 +39,6 @@ export class MailSyncLifecycle {
     return engine.start(accountId);
   }
   async suspendAll(){this.suspended=true;const engines=[...this.engines.values()];this.engines.clear();await Promise.all(engines.map(engine=>engine.close()));}
-  resumeAll(){if(this.closed)return;this.suspended=false;for(const row of this.database.all('SELECT id FROM mail_accounts WHERE owner_id=?',[this.ownerId]))if(typeof row.id==='string'){try{this.resume(row.id);}catch{/* One unavailable account must not block other accounts from resuming. */}}}
+  resumeAll(){if(this.closed)return;this.suspended=false;for(const row of this.database.all("SELECT id FROM mail_accounts WHERE owner_id=? AND provider IN ('gmail','graph','imap')",[this.ownerId]))if(typeof row.id==='string'){try{this.resume(row.id);}catch{/* One unavailable account must not block other accounts from resuming. */}}}
   async close() { this.closed = true; await Promise.all([...this.engines.values()].map(engine => engine.close())); this.engines.clear(); }
 }
