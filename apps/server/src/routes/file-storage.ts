@@ -330,6 +330,7 @@ export function registerStorageRoutes({
       version: result.version,
       writable:
         !connection.readOnly &&
+        result.writable !== false &&
         canWrite(ctx) &&
         !result.version.startsWith("sha256:") &&
         !result.version.startsWith("W/"),
@@ -341,7 +342,8 @@ export function registerStorageRoutes({
     if (!parsed.success) throw new ApiError(400, "invalid_storage_path", "A file path is required.");
     const path = storagePath(parsed.data.path, false);
     const current = await resolveWorkspace(config, ctx.params.id);
-    const copy = await workingCopy(current.path, path);
+    const metadata = await withStorage(connection, (adapter) => adapter.stat(path));
+    const copy = await workingCopy(current.path, metadata?.name ? storagePath(metadata.name, false) : path);
     try {
       const file = await withStorage(connection, (adapter) => adapter.download(path, copy.path));
       return jsonResponse({
@@ -352,6 +354,7 @@ export function registerStorageRoutes({
         updatedAt: (await stat(copy.path)).mtimeMs,
         writable:
           !connection.readOnly &&
+          file.writable !== false &&
           canWrite(ctx) &&
           !file.version.startsWith("sha256:") &&
           !file.version.startsWith("W/"),
