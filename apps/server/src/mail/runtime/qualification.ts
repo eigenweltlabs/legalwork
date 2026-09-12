@@ -1,7 +1,7 @@
 import { setTimeout as wait } from 'node:timers/promises';
 import { createHash, randomUUID } from 'node:crypto';
 import { z } from 'zod';
-import { qualificationInputSchema, qualificationTransportCodeSchema, type QualificationInput, type QualificationReport } from '../qualification-view.js';
+import { qualificationInputSchema, qualificationTransportCodeSchema, qualificationReasonSchema, type QualificationInput, type QualificationReport } from '../qualification-view.js';
 import type { MailDatabase } from '../storage/database-interface.js';
 import { MailCredentialRepository } from '../storage/credentials.js';
 import { MailReadStore } from '../storage/read-store.js';
@@ -60,6 +60,10 @@ export class MailQualification {
         const report: QualificationReport = {
             id: randomUUID(),
             provider: 'gmail',
+            mode: input.mode,
+            sampleComparison: 'pending',
+            httpStatus: null,
+            providerReason: null,
             startedAt: Date.now(),
             finishedAt: null,
             state: 'running',
@@ -105,10 +109,14 @@ export class MailQualification {
         this.job = job;
         const timer = setTimeout(() => abort.abort('deadline'), this.options.timeoutMs ?? 180000);
         job.done = this.run(input.accountId, report, abort.signal, status.version.generation).catch(error => {
-            if (report.phase !== 'finished') report.failedPhase = report.phase;
+            if (report.phase !== 'finished')
+                report.failedPhase = report.phase;
             if (error instanceof GmailTransportError) {
                 const code = qualificationTransportCodeSchema.safeParse(error.code);
                 report.transportCode = code.success ? code.data : null;
+                report.httpStatus = typeof error.httpStatus === 'number' && Number.isInteger(error.httpStatus) && error.httpStatus >= 100 && error.httpStatus <= 599 ? error.httpStatus : null;
+                const reason = qualificationReasonSchema.safeParse(error.reason);
+                report.providerReason = reason.success ? reason.data : null;
                 const retryAfter = error.retryAfterMs;
                 report.retryAfterMs = typeof retryAfter === 'number' && Number.isSafeInteger(retryAfter) && retryAfter >= 0
                     ? retryAfter : null;
@@ -117,7 +125,8 @@ export class MailQualification {
                 const deadline = abort.signal.reason === 'deadline';
                 report.state = deadline ? 'limited' : 'cancelled';
                 report.error = deadline ? 'limit' : 'cancelled';
-            } else {
+            }
+            else {
                 report.state = error instanceof RangeError ? 'limited' : 'failed';
                 report.error = error instanceof RangeError ? 'limit' : 'provider_failed';
             }
@@ -125,6 +134,8 @@ export class MailQualification {
             clearTimeout(timer);
             if (report.state !== 'complete')
                 report.comparison = 'inconclusive';
+            if (report.sampleComparison === 'pending')
+                report.sampleComparison = 'inconclusive';
             report.phase = 'finished';
             report.finishedAt = Date.now();
         });
@@ -243,46 +254,6 @@ export class MailQualification {
                 }).parse(JSON.parse(row.locator_json)).messageId, row]));
             report.missingLocal = [...ids].filter(id => !localIds.has(id)).length;
             report.extraLocal = [...localIds.keys()].filter(id => !ids.has(id)).length;
-            report.phase = 'memberships';
-            // The live run established Gmail rate limiting. Pace metadata starts;
-            // retry only that confirmed read failure, never a raw MIME sink.
-            let nextMetadataAt = 0;
-            const deadline = report.startedAt + (this.options.timeoutMs ?? 180000);
-            for (const id of ids) {
-                for (let attempt = 0;; attempt++) {
-                    const pace = Math.max(0, nextMetadataAt - Date.now());
-                    if (pace) await wait(pace, undefined, { signal });
-                    fence();
-                    const reader = await transport();
-                    nextMetadataAt = Date.now() + 150;
-                    try {
-                        const metadata = await reader.getMetadata(id, { signal });
-                        fence();
-                        report.membershipsChecked++;
-                        const row = localIds.get(id);
-                        const members = row ? local.members.get(row.message_key) ?? [] : [];
-                        if (JSON.stringify([...metadata.labelIds].sort()) !== JSON.stringify(members)) {
-                            report.membershipMismatches++;
-                        }
-                        break;
-                    } catch (error) {
-                        if (!(error instanceof GmailTransportError) || error.code !== 'rate_limited'
-                            || attempt >= 3 || report.metadataRetries >= 8) throw error;
-                        await reader.settled();
-                        fence();
-                        const backoff = Math.max(1000 * 2 ** attempt, error.retryAfterMs ?? 0);
-                        if (backoff >= deadline - Date.now()) {
-                            // Do not shorten Retry-After to fit the diagnostic deadline.
-                            report.transportCode = error.code;
-                            report.retryAfterMs = error.retryAfterMs;
-                            throw new RangeError('bounded');
-                        }
-                        await wait(backoff, undefined, { signal });
-                        fence();
-                        report.metadataRetries++;
-                    }
-                }
-            }
             report.phase = 'samples';
             // Oldest stored originals plus attachment-bearing messages; never requires opening them in Mail.
             const candidates = [...local.rows.filter(row => row.attachments > 0), ...local.rows];
@@ -438,6 +409,57 @@ export class MailQualification {
                     throw Error('changed');
             }
             fence();
+            if (report.mode === 'full') {
+                report.phase = 'memberships';
+                // The live run established Gmail rate limiting. Pace metadata starts;
+                // retry only that confirmed read failure, never a raw MIME sink.
+                let nextMetadataAt = 0;
+                const deadline = report.startedAt + (this.options.timeoutMs ?? 180000);
+                for (const id of ids) {
+                    for (let attempt = 0;; attempt++) {
+                        const pace = Math.max(0, nextMetadataAt - Date.now());
+                        if (pace)
+                            await wait(pace, undefined, {
+                                signal
+                            });
+                        fence();
+                        const reader = await transport();
+                        nextMetadataAt = Date.now() + 250;
+                        try {
+                            const metadata = await reader.getMetadata(id, {
+                                signal
+                            });
+                            fence();
+                            report.membershipsChecked++;
+                            const row = localIds.get(id);
+                            const members = row ? local.members.get(row.message_key) ?? [] : [];
+                            if (JSON.stringify([...metadata.labelIds].sort()) !== JSON.stringify(members)) {
+                                report.membershipMismatches++;
+                            }
+                            break;
+                        }
+                        catch (error) {
+                            if (!(error instanceof GmailTransportError) || error.code !== 'rate_limited'
+                                || attempt >= 3 || report.metadataRetries >= 8)
+                                throw error;
+                            await reader.settled();
+                            fence();
+                            const backoff = Math.max(1000 * 2 ** attempt, error.retryAfterMs ?? 0);
+                            if (backoff >= deadline - Date.now()) {
+                                // Do not shorten Retry-After to fit the diagnostic deadline.
+                                report.transportCode = error.code;
+                                report.retryAfterMs = error.retryAfterMs;
+                                throw new RangeError('bounded');
+                            }
+                            await wait(backoff, undefined, {
+                                signal
+                            });
+                            fence();
+                            report.metadataRetries++;
+                        }
+                    }
+                }
+            }
             const final = await (await transport()).getProfile({
                 signal
             });
@@ -450,9 +472,14 @@ export class MailQualification {
             const mismatches = report.missingLocal + report.extraLocal
                 + report.missingLabels + report.extraLabels + report.membershipMismatches
                 + report.rawMismatches + report.bodyMismatches + report.attachmentMismatches;
-            if (report.state !== 'complete' || report.incompleteSamples || report.skippedOversizeSamples) {
+            const sampleMismatches = report.rawMismatches + report.bodyMismatches + report.attachmentMismatches;
+            report.sampleComparison = report.state !== 'complete' || !report.rawSamples || report.incompleteSamples || report.skippedOversizeSamples
+                ? 'inconclusive' : sampleMismatches ? 'mismatch' : 'match';
+            if (report.mode !== 'full' || report.membershipsChecked !== ids.size
+                || report.state !== 'complete' || report.incompleteSamples || report.skippedOversizeSamples) {
                 report.comparison = 'inconclusive';
-            } else {
+            }
+            else {
                 report.comparison = mismatches ? 'mismatch' : 'match';
             }
         }
