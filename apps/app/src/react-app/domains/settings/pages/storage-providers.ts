@@ -5,6 +5,7 @@ import { t } from "@/i18n";
 export const STORAGE_CHANGED_EVENT = "legalwork:file-storage-changed";
 export const storageKinds: StorageKind[] = ["smb", "webdav", "s3", "azure", "gcs", "sftp", "ftp"];
 export const storageIcons = {
+  oauth: Cloud,
   smb: Network,
   webdav: Globe,
   s3: Database,
@@ -14,6 +15,7 @@ export const storageIcons = {
   ftp: Network,
 };
 const providerLabels = {
+  oauth: () => t("storage.oauth_provider"),
   smb: () => t("storage.provider_smb"),
   webdav: () => t("storage.provider_webdav"),
   s3: () => t("storage.provider_s3"),
@@ -23,6 +25,7 @@ const providerLabels = {
   ftp: () => t("storage.provider_ftp"),
 };
 const providerDescriptions = {
+  oauth: () => t("storage.oauth_description"),
   smb: () => t("storage.description_smb"),
   webdav: () => t("storage.description_webdav"),
   s3: () => t("storage.description_s3"),
@@ -32,6 +35,7 @@ const providerDescriptions = {
   ftp: () => t("storage.description_ftp"),
 };
 const authDescriptions = {
+  oauth: () => t("storage.oauth_personal"),
   smb: () => t("storage.auth_smb"),
   webdav: () => t("storage.auth_webdav"),
   s3: () => t("storage.auth_s3"),
@@ -92,6 +96,7 @@ const field = (
 });
 export function storageFields(kind: StorageKind): ConfigField[] {
   switch (kind) {
+    case "oauth": return [];
     case "smb":
       return [
         field("host", "files.firm.local"),
@@ -152,6 +157,7 @@ export function storageSecretFields(kind: StorageKind): SecretField[] {
     multiline,
   });
   switch (kind) {
+    case "oauth": return [];
     case "smb":
     case "webdav":
     case "ftp":

@@ -340,7 +340,7 @@ function StorageFolder(props: FolderProps) {
                 draggable
                 onDragStart={(event) => writeStorageFileDrag(event.dataTransfer, root, entry)}
                 onClick={() => onFile(entry)}
-                title={entry.path}
+                title={entry.displayPath ?? entry.path}
                 style={{ paddingLeft: 40 + depth * 15 }}
                 className="flex min-h-9 w-full items-center gap-2 rounded-lg pr-2 text-left text-[13px] hover:bg-muted/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
               >
