@@ -118,7 +118,7 @@ test("symlink key and insecure directory/file permissions are refused", () => fi
   await writeFile(target, original, { mode: 0o600 });
   await rm(path);
   await symlink(target, path);
-  await assert.rejects(store.load(), process.platform==='win32'?/mail_permissions_unsafe/:/mail_key_unreadable/);
+  await assert.rejects(store.load(), process.platform==='win32'?/mail_key_io_failed/:/mail_key_unreadable/);
   assert.deepEqual(await readFile(target), original);
   await rm(path);
   await writeFile(path, original, { mode: 0o600 });
