@@ -3,7 +3,7 @@ const { app, safeStorage } = require('electron');
 const { join } = require('node:path');
 const { pathToFileURL } = require('node:url');
 const fs = require('node:fs/promises');
-const { randomBytes } = require('node:crypto');
+const { randomBytes, createHash } = require('node:crypto');
 const assert = require('node:assert/strict');
 const [build, profile, expectedArch] = process.argv.slice(2);
 app.setName('Legalwork Mail Platform Qualification'); app.setPath('userData', profile);
@@ -30,10 +30,14 @@ app.whenReady().then(async () => {
     const repository=new MailRepository(opened,'qualification');repository.createAccount({id:'a',provider:'gmail',displayName:'Synthetic'});
     const locator={provider:'gmail',messageId:'m'};repository.ingestMessage('a',{locator,subject:marker,rfcMessageId:null,memberships:[]});
     const content=new MailContentStore(opened,'qualification'); const raw=await content.writePart('a',locator,{kind:'raw',maxBytes:1024},[Buffer.from(marker)]);
-    await content.writePart('a',locator,{kind:'attachment',partId:'a',maxBytes:1024},[Buffer.from(marker)]);
+    const chunk=Buffer.alloc(65536,42), expectedHash=createHash('sha256');
+    for(let index=0;index<128;index++)expectedHash.update(chunk);
+    const attachment=await content.writePart('a',locator,{kind:'attachment',partId:'a',maxBytes:8*1024*1024},(async function*(){for(let index=0;index<128;index++)yield chunk;})());
     new MailSearchStore(opened,'qualification').rebuild({accountId:'a'});
     for(const path of [initial.databasePath,initial.databasePath+'-wal'])assert.equal((await fs.readFile(path)).includes(Buffer.from(marker)),false);
     assert.equal(opened.get('PRAGMA temp_store').temp_store,2);opened.close();opened=undefined;
+    const reopenedManager=createMailStoreMaintenance({directory,safeStorage,windowsAcl:enforceMailWindowsAcl,executable:{kind:'electron',path:process.execPath},entryPoint:join(build,'mail/runtime/maintenance-worker.js'),ownerId:'qualification'});
+    const reopened=await reopenedManager.loadStore();assert.deepEqual(reopened.key,key);reopened.key.fill(0);
     await manager.rotate();const rotated=await manager.loadStore();
     await assert.rejects(openEncryptedMailDatabase({path:rotated.databasePath,key}));key.fill(0);key=rotated.key;
     const backup=join(profile,'backup');await manager.exportBackup(backup,'synthetic qualification recovery passphrase');
@@ -42,8 +46,13 @@ app.whenReady().then(async () => {
     opened=await openEncryptedMailDatabase({path:restored.databasePath,key});
     assert.equal(Buffer.concat([...new MailContentStore(opened,'qualification').read('a',raw.id)]).toString(),marker);
     assert.equal(opened.get("SELECT count(*) AS n FROM mail_search_fts WHERE mail_search_fts MATCH 'synthetic_mail_platform_private_marker'").n,1);
+    const destination=join(profile,'never-opened-'+'証拠'.repeat(30)+'.bin'),output=await fs.open(destination,'wx',0o600);
+    const restoredHash=createHash('sha256');let restoredBytes=0;
+    try{for(const bytes of new MailContentStore(opened,'qualification').read('a',attachment.id)){assert(bytes.length<=65536);await output.writeFile(bytes);restoredHash.update(bytes);restoredBytes+=bytes.length;}await output.sync();}finally{await output.close();}
+    assert.equal(restoredBytes,8*1024*1024);assert.equal(restoredHash.digest('hex'),expectedHash.digest('hex'));
+    assert.equal((await fs.stat(destination)).size,restoredBytes);assert(destination.length>260);
     opened.close();opened=undefined;
-    await fs.writeFile(join(profile,'qualification-result.json'),JSON.stringify({platform:process.platform,arch:process.arch,electron:process.versions.electron,vault:true,cipher:true,wal:true,tempMemory:true,fts:true,rotation:true,recovery:true,privatePath:restored.databasePath}));
+    await fs.writeFile(join(profile,'qualification-result.json'),JSON.stringify({platform:process.platform,arch:process.arch,electron:process.versions.electron,vault:true,cipher:true,wal:true,tempMemory:true,fts:true,rotation:true,recovery:true,automaticKeyReopen:true,largeAttachmentBytes:restoredBytes,longPathCharacters:destination.length,privatePath:restored.databasePath}));
     app.exit(0);
   } catch { process.stderr.write('mail_platform_qualification_failed\n');app.exit(1); }
   finally {opened?.close();key?.fill(0);}
