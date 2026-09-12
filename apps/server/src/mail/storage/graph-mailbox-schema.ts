@@ -12,8 +12,8 @@ CREATE TABLE mail_graph_mailboxes (
 CREATE INDEX mail_graph_mailbox_parent ON mail_graph_mailboxes(credential_account_id);
 CREATE VIEW mail_account_access AS
  SELECT account_id,state,archive_locked,generation,revision FROM mail_account_credentials
- UNION ALL SELECT s.account_id,CASE WHEN s.state='connected' AND c.state='connected' AND EXISTS(SELECT 1 FROM json_each(c.granted_scopes_json) WHERE value IN ('Mail.Read.Shared','Mail.ReadWrite.Shared','https://graph.microsoft.com/Mail.Read.Shared','https://graph.microsoft.com/Mail.ReadWrite.Shared')) THEN 'connected' ELSE 'disconnected' END,
- CASE WHEN s.state='connected' AND c.state='connected' AND EXISTS(SELECT 1 FROM json_each(c.granted_scopes_json) WHERE value IN ('Mail.Read.Shared','Mail.ReadWrite.Shared','https://graph.microsoft.com/Mail.Read.Shared','https://graph.microsoft.com/Mail.ReadWrite.Shared')) THEN 0 ELSE 1 END,s.generation,s.revision
+ UNION ALL SELECT s.account_id,CASE WHEN s.state='connected' AND c.state='connected' AND c.archive_locked=0 AND EXISTS(SELECT 1 FROM json_each(c.granted_scopes_json) WHERE value IN ('Mail.Read.Shared','Mail.ReadWrite.Shared','https://graph.microsoft.com/Mail.Read.Shared','https://graph.microsoft.com/Mail.ReadWrite.Shared')) THEN 'connected' ELSE 'disconnected' END,
+ CASE WHEN s.state='connected' AND c.state='connected' AND c.archive_locked=0 AND EXISTS(SELECT 1 FROM json_each(c.granted_scopes_json) WHERE value IN ('Mail.Read.Shared','Mail.ReadWrite.Shared','https://graph.microsoft.com/Mail.Read.Shared','https://graph.microsoft.com/Mail.ReadWrite.Shared')) THEN 0 ELSE 1 END,s.generation,s.revision
  FROM mail_graph_mailboxes s LEFT JOIN mail_account_credentials c ON c.account_id=s.credential_account_id;
 
 `;
