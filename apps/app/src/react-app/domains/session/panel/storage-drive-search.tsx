@@ -65,14 +65,14 @@ function ConnectionSearch({
         <button
           key={entry.path}
           type="button"
-          title={`${root.name} / ${entry.path}`}
+          title={`${root.name} / ${entry.displayPath ?? entry.path}`}
           onClick={() => onOpenFile(root, entry)}
           className="flex min-h-11 w-full items-center gap-2 rounded-lg px-2 py-1 text-left hover:bg-muted/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
         >
           <ArtifactIcon type={classifyOpenTarget(entry.name, "file")} className="size-5 shrink-0" />
           <span className="min-w-0 flex-1">
             <span className="block truncate text-[13px]">{entry.name}</span>
-            <span className="block truncate text-[10px] text-muted-foreground">{entry.path}</span>
+            <span className="block truncate text-[10px] text-muted-foreground">{entry.displayPath ?? entry.path}</span>
           </span>
         </button>
       ))}

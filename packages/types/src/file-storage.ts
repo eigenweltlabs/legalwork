@@ -179,6 +179,8 @@ export type StorageTeamStatus = { connected: boolean; canManage: boolean; error?
 export type StorageRoot = { id: string; name: string; kind: StorageKind; writable: boolean; revision?: string };
 export type StorageEntry = {
   path: string;
+  /** Human-readable location when the provider uses opaque path segments. */
+  displayPath?: string;
   name: string;
   kind: "file" | "folder";
   size: number | null;
