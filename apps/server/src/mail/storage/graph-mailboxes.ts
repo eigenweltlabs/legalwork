@@ -12,10 +12,11 @@ export class GraphMailboxRepository {
  target(accountId:string) { const row=this.read(accountId);return { credentialAccountId:row?.credential_account_id??accountId,mailboxAddress:row?.mailbox_address??null,basePath:graphMailboxBasePath(row?.mailbox_address??null) }; }
  identity(accountId:string) {
   const row=this.read(accountId);if(!row)return undefined;
-  const parent=this.db.get("SELECT c.state,c.granted_scopes_json FROM mail_account_credentials c JOIN mail_accounts a ON a.id=c.account_id WHERE a.id=? AND a.owner_id=?",[row.credential_account_id,this.ownerId]);
+  const parent=this.db.get("SELECT c.state,c.archive_locked,c.granted_scopes_json FROM mail_account_credentials c JOIN mail_accounts a ON a.id=c.account_id WHERE a.id=? AND a.owner_id=?",[row.credential_account_id,this.ownerId]);
   const grants=typeof parent?.granted_scopes_json==='string'?z.array(z.string()).parse(JSON.parse(parent.granted_scopes_json)):[];
   const has=(scope:string)=>grants.some(value=>value===scope||value==='https://graph.microsoft.com/'+scope);
-  const connected=row.state==='connected'&&parent?.state==='connected';const read=connected&&(has('Mail.Read.Shared')||has('Mail.ReadWrite.Shared'));
+  const parentUnlocked=parent?.state==='connected'&&parent.archive_locked===0;
+  const connected=row.state==='connected'&&parentUnlocked;const read=connected&&(has('Mail.Read.Shared')||has('Mail.ReadWrite.Shared'));
   const write=read&&has('Mail.ReadWrite.Shared')&&row.write_confirmed===1;
   const sendAllowed=read&&has('Mail.Send.Shared')&&row.send_mode!=='none';
   const missingGrants=[];
@@ -25,14 +26,14 @@ export class GraphMailboxRepository {
   if(row.write_confirmed===0)missingGrants.push('Exchange write access');
   if(!has('Mail.Send.Shared'))missingGrants.push('Mail.Send.Shared');
   if(row.send_mode==='none')missingGrants.push('Exchange Send As or Send on Behalf');
-  return graphMailboxIdentitySchema.parse({address:row.mailbox_address,kind:row.kind,credentialAccountId:row.credential_account_id,state:parent?.state==='connected'?row.state:'disconnected',writeConfirmed:row.write_confirmed===1,read,write,sendAs:sendAllowed&&row.send_mode==='send_as',sendOnBehalf:sendAllowed&&row.send_mode==='send_on_behalf',sendMode:row.send_mode,sendAllowed,sentItems:'signed_in_mailbox',capabilitySource:'administrator_confirmed',missingGrants,revision:row.revision});
+  return graphMailboxIdentitySchema.parse({address:row.mailbox_address,kind:row.kind,credentialAccountId:row.credential_account_id,state:parentUnlocked?row.state:'disconnected',writeConfirmed:row.write_confirmed===1,read,write,sendAs:sendAllowed&&row.send_mode==='send_as',sendOnBehalf:sendAllowed&&row.send_mode==='send_on_behalf',sendMode:row.send_mode,sendAllowed,sentItems:'signed_in_mailbox',capabilitySource:'administrator_confirmed',missingGrants,revision:row.revision});
  }
  configuredAccount(credentialAccountId:string,address:string) { this.account(credentialAccountId);const row=this.db.get('SELECT account_id FROM mail_graph_mailboxes WHERE credential_account_id=? AND mailbox_address=?',[credentialAccountId,address.toLowerCase()]);return row?z.string().parse(row.account_id):undefined; }
  configure(supplied:GraphMailboxInput) {
   const input=graphMailboxInputSchema.parse(supplied);this.account(input.credentialAccountId);
   if(this.read(input.credentialAccountId))throw Error('mail_mailbox_parent_required');
-  const parent=this.db.get('SELECT state,authority FROM mail_account_credentials WHERE account_id=?',[input.credentialAccountId]);
-  if(parent?.state!=='connected'||typeof parent.authority!=='string'||parent.authority.includes('/consumers/'))throw Error('mail_mailbox_parent_required');
+  const parent=this.db.get('SELECT state,archive_locked,authority FROM mail_account_credentials WHERE account_id=?',[input.credentialAccountId]);
+  if(parent?.state!=='connected'||parent.archive_locked!==0||typeof parent.authority!=='string'||parent.authority.includes('/consumers/'))throw Error('mail_mailbox_parent_required');
   return this.db.transaction(()=>{
    const existing=this.db.get('SELECT account_id FROM mail_graph_mailboxes WHERE credential_account_id=? AND mailbox_address=?',[input.credentialAccountId,input.address]);
    const accountId=existing?z.string().parse(existing.account_id):randomUUID();
