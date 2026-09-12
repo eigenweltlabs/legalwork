@@ -1,0 +1,658 @@
+{
+  "sourceCommit": "16d5bc743",
+  "querySourceSha256": "d3072a0a762eb345d07faf38b83e37ab24bd09aecd6da7311e24a5c01705de40",
+  "schema": 29,
+  "accountCounts": [
+    {
+      "account_id": "benchmark-a",
+      "n": 33334,
+      "threads": 33334
+    },
+    {
+      "account_id": "benchmark-b",
+      "n": 33333,
+      "threads": 33333
+    },
+    {
+      "account_id": "benchmark-c",
+      "n": 33333,
+      "threads": 33333
+    }
+  ],
+  "cases": [
+    {
+      "kind": "conversation",
+      "folder": null,
+      "rows": 26,
+      "samples": [
+        {
+          "sqlMs": 470.0636250000025,
+          "readMs": 37.26295899999968,
+          "totalMs": 507.32895799999824
+        },
+        {
+          "sqlMs": 308.69320799999696,
+          "readMs": 16.05691599999409,
+          "totalMs": 324.75224999999773
+        },
+        {
+          "sqlMs": 312.16241699999955,
+          "readMs": 15.961583000003884,
+          "totalMs": 328.125
+        },
+        {
+          "sqlMs": 323.4449170000007,
+          "readMs": 16.6304999999993,
+          "totalMs": 340.0768750000061
+        }
+      ],
+      "plan": [
+        {
+          "id": 2,
+          "parent": 0,
+          "notused": 0,
+          "detail": "CO-ROUTINE ranked"
+        },
+        {
+          "id": 5,
+          "parent": 2,
+          "notused": 0,
+          "detail": "CO-ROUTINE (subquery-8)"
+        },
+        {
+          "id": 10,
+          "parent": 5,
+          "notused": 0,
+          "detail": "CO-ROUTINE (subquery-9)"
+        },
+        {
+          "id": 22,
+          "parent": 10,
+          "notused": 62,
+          "detail": "SEARCH m USING INDEX sqlite_autoindex_mail_messages_1 (account_id=?)"
+        },
+        {
+          "id": 31,
+          "parent": 10,
+          "notused": 0,
+          "detail": "CORRELATED SCALAR SUBQUERY 4"
+        },
+        {
+          "id": 35,
+          "parent": 31,
+          "notused": 39,
+          "detail": "SEARCH t USING COVERING INDEX sqlite_autoindex_mail_tombstones_1 (account_id=? AND message_key=?)"
+        },
+        {
+          "id": 45,
+          "parent": 10,
+          "notused": 47,
+          "detail": "SEARCH ar USING INDEX sqlite_autoindex_mail_archive_messages_1 (account_id=? AND message_key=?) LEFT-JOIN"
+        },
+        {
+          "id": 53,
+          "parent": 10,
+          "notused": 47,
+          "detail": "SEARCH im USING INDEX sqlite_autoindex_mail_imap_messages_1 (account_id=? AND message_key=?) LEFT-JOIN"
+        },
+        {
+          "id": 61,
+          "parent": 10,
+          "notused": 47,
+          "detail": "SEARCH gm USING INDEX sqlite_autoindex_mail_gmail_metadata_1 (account_id=? AND message_key=?) LEFT-JOIN"
+        },
+        {
+          "id": 69,
+          "parent": 10,
+          "notused": 47,
+          "detail": "SEARCH gr USING INDEX sqlite_autoindex_mail_graph_messages_1 (account_id=? AND message_key=?) LEFT-JOIN"
+        },
+        {
+          "id": 109,
+          "parent": 10,
+          "notused": 0,
+          "detail": "CORRELATED SCALAR SUBQUERY 1"
+        },
+        {
+          "id": 113,
+          "parent": 109,
+          "notused": 39,
+          "detail": "SEARCH u USING COVERING INDEX sqlite_autoindex_mail_memberships_1 (account_id=? AND message_key=? AND folder_id=?)"
+        },
+        {
+          "id": 134,
+          "parent": 10,
+          "notused": 0,
+          "detail": "CORRELATED SCALAR SUBQUERY 2"
+        },
+        {
+          "id": 138,
+          "parent": 134,
+          "notused": 39,
+          "detail": "SEARCH f USING COVERING INDEX sqlite_autoindex_mail_memberships_1 (account_id=? AND message_key=? AND folder_id=?)"
+        },
+        {
+          "id": 158,
+          "parent": 10,
+          "notused": 0,
+          "detail": "CORRELATED SCALAR SUBQUERY 3"
+        },
+        {
+          "id": 163,
+          "parent": 158,
+          "notused": 55,
+          "detail": "SEARCH ff USING COVERING INDEX mail_folder_role (account_id=? AND role=?)"
+        },
+        {
+          "id": 171,
+          "parent": 158,
+          "notused": 45,
+          "detail": "SEARCH f USING COVERING INDEX sqlite_autoindex_mail_memberships_1 (account_id=? AND message_key=? AND folder_id=?)"
+        },
+        {
+          "id": 196,
+          "parent": 10,
+          "notused": 0,
+          "detail": "CORRELATED SCALAR SUBQUERY 2"
+        },
+        {
+          "id": 200,
+          "parent": 196,
+          "notused": 39,
+          "detail": "SEARCH f USING COVERING INDEX sqlite_autoindex_mail_memberships_1 (account_id=? AND message_key=? AND folder_id=?)"
+        },
+        {
+          "id": 220,
+          "parent": 10,
+          "notused": 0,
+          "detail": "CORRELATED SCALAR SUBQUERY 3"
+        },
+        {
+          "id": 225,
+          "parent": 220,
+          "notused": 55,
+          "detail": "SEARCH ff USING COVERING INDEX mail_folder_role (account_id=? AND role=?)"
+        },
+        {
+          "id": 233,
+          "parent": 220,
+          "notused": 45,
+          "detail": "SEARCH f USING COVERING INDEX sqlite_autoindex_mail_memberships_1 (account_id=? AND message_key=? AND folder_id=?)"
+        },
+        {
+          "id": 256,
+          "parent": 10,
+          "notused": 0,
+          "detail": "CORRELATED SCALAR SUBQUERY 1"
+        },
+        {
+          "id": 260,
+          "parent": 256,
+          "notused": 39,
+          "detail": "SEARCH u USING COVERING INDEX sqlite_autoindex_mail_memberships_1 (account_id=? AND message_key=? AND folder_id=?)"
+        },
+        {
+          "id": 305,
+          "parent": 10,
+          "notused": 0,
+          "detail": "USE TEMP B-TREE FOR ORDER BY"
+        },
+        {
+          "id": 335,
+          "parent": 5,
+          "notused": 48,
+          "detail": "SCAN (subquery-9)"
+        },
+        {
+          "id": 434,
+          "parent": 5,
+          "notused": 0,
+          "detail": "USE TEMP B-TREE FOR ORDER BY"
+        },
+        {
+          "id": 466,
+          "parent": 2,
+          "notused": 48,
+          "detail": "SCAN (subquery-8)"
+        },
+        {
+          "id": 544,
+          "parent": 0,
+          "notused": 48,
+          "detail": "SCAN ranked"
+        },
+        {
+          "id": 578,
+          "parent": 0,
+          "notused": 0,
+          "detail": "USE TEMP B-TREE FOR ORDER BY"
+        }
+      ]
+    },
+    {
+      "kind": "flat",
+      "folder": null,
+      "rows": 26,
+      "samples": [
+        {
+          "sqlMs": 83.20245799999975,
+          "readMs": 3.3885000000009313,
+          "totalMs": 86.59208299999591
+        },
+        {
+          "sqlMs": 24.02908299999399,
+          "readMs": 3.8299579999948037,
+          "totalMs": 27.860499999995227
+        },
+        {
+          "sqlMs": 23.472500000003492,
+          "readMs": 3.065915999999561,
+          "totalMs": 26.539624999997613
+        },
+        {
+          "sqlMs": 22.88787500000035,
+          "readMs": 2.9728329999998095,
+          "totalMs": 25.86212499999965
+        }
+      ],
+      "plan": [
+        {
+          "id": 15,
+          "parent": 0,
+          "notused": 62,
+          "detail": "SEARCH m USING INDEX sqlite_autoindex_mail_messages_1 (account_id=?)"
+        },
+        {
+          "id": 27,
+          "parent": 0,
+          "notused": 0,
+          "detail": "CORRELATED SCALAR SUBQUERY 2"
+        },
+        {
+          "id": 31,
+          "parent": 27,
+          "notused": 39,
+          "detail": "SEARCH t USING COVERING INDEX sqlite_autoindex_mail_tombstones_1 (account_id=? AND message_key=?)"
+        },
+        {
+          "id": 43,
+          "parent": 0,
+          "notused": 0,
+          "detail": "CORRELATED SCALAR SUBQUERY 3"
+        },
+        {
+          "id": 47,
+          "parent": 43,
+          "notused": 39,
+          "detail": "SEARCH f USING COVERING INDEX sqlite_autoindex_mail_memberships_1 (account_id=? AND message_key=? AND folder_id=?)"
+        },
+        {
+          "id": 62,
+          "parent": 0,
+          "notused": 0,
+          "detail": "CORRELATED SCALAR SUBQUERY 4"
+        },
+        {
+          "id": 67,
+          "parent": 62,
+          "notused": 55,
+          "detail": "SEARCH ff USING COVERING INDEX mail_folder_role (account_id=? AND role=?)"
+        },
+        {
+          "id": 77,
+          "parent": 62,
+          "notused": 45,
+          "detail": "SEARCH f USING COVERING INDEX sqlite_autoindex_mail_memberships_1 (account_id=? AND message_key=? AND folder_id=?)"
+        },
+        {
+          "id": 92,
+          "parent": 0,
+          "notused": 47,
+          "detail": "SEARCH ar USING INDEX sqlite_autoindex_mail_archive_messages_1 (account_id=? AND message_key=?) LEFT-JOIN"
+        },
+        {
+          "id": 100,
+          "parent": 0,
+          "notused": 47,
+          "detail": "SEARCH gm USING INDEX sqlite_autoindex_mail_gmail_metadata_1 (account_id=? AND message_key=?) LEFT-JOIN"
+        },
+        {
+          "id": 108,
+          "parent": 0,
+          "notused": 47,
+          "detail": "SEARCH im USING INDEX sqlite_autoindex_mail_imap_messages_1 (account_id=? AND message_key=?) LEFT-JOIN"
+        },
+        {
+          "id": 116,
+          "parent": 0,
+          "notused": 47,
+          "detail": "SEARCH gr USING INDEX sqlite_autoindex_mail_graph_messages_1 (account_id=? AND message_key=?) LEFT-JOIN"
+        },
+        {
+          "id": 258,
+          "parent": 0,
+          "notused": 0,
+          "detail": "USE TEMP B-TREE FOR ORDER BY"
+        }
+      ]
+    },
+    {
+      "kind": "conversation",
+      "folder": "INBOX",
+      "rows": 26,
+      "samples": [
+        {
+          "sqlMs": 336.0871249999982,
+          "readMs": 15.506792000000132,
+          "totalMs": 351.5946250000052
+        },
+        {
+          "sqlMs": 344.12662499999715,
+          "readMs": 15.992625000006228,
+          "totalMs": 360.120207999993
+        },
+        {
+          "sqlMs": 340.35591600000043,
+          "readMs": 16.499500000005355,
+          "totalMs": 356.8563329999961
+        },
+        {
+          "sqlMs": 378.10358299999643,
+          "readMs": 16.81933299999946,
+          "totalMs": 394.9236669999955
+        }
+      ],
+      "plan": [
+        {
+          "id": 2,
+          "parent": 0,
+          "notused": 0,
+          "detail": "CO-ROUTINE ranked"
+        },
+        {
+          "id": 5,
+          "parent": 2,
+          "notused": 0,
+          "detail": "CO-ROUTINE (subquery-8)"
+        },
+        {
+          "id": 10,
+          "parent": 5,
+          "notused": 0,
+          "detail": "CO-ROUTINE (subquery-9)"
+        },
+        {
+          "id": 22,
+          "parent": 10,
+          "notused": 62,
+          "detail": "SEARCH m USING INDEX sqlite_autoindex_mail_messages_1 (account_id=?)"
+        },
+        {
+          "id": 31,
+          "parent": 10,
+          "notused": 0,
+          "detail": "CORRELATED SCALAR SUBQUERY 4"
+        },
+        {
+          "id": 35,
+          "parent": 31,
+          "notused": 39,
+          "detail": "SEARCH t USING COVERING INDEX sqlite_autoindex_mail_tombstones_1 (account_id=? AND message_key=?)"
+        },
+        {
+          "id": 45,
+          "parent": 10,
+          "notused": 47,
+          "detail": "SEARCH ar USING INDEX sqlite_autoindex_mail_archive_messages_1 (account_id=? AND message_key=?) LEFT-JOIN"
+        },
+        {
+          "id": 53,
+          "parent": 10,
+          "notused": 47,
+          "detail": "SEARCH im USING INDEX sqlite_autoindex_mail_imap_messages_1 (account_id=? AND message_key=?) LEFT-JOIN"
+        },
+        {
+          "id": 61,
+          "parent": 10,
+          "notused": 47,
+          "detail": "SEARCH gm USING INDEX sqlite_autoindex_mail_gmail_metadata_1 (account_id=? AND message_key=?) LEFT-JOIN"
+        },
+        {
+          "id": 69,
+          "parent": 10,
+          "notused": 47,
+          "detail": "SEARCH gr USING INDEX sqlite_autoindex_mail_graph_messages_1 (account_id=? AND message_key=?) LEFT-JOIN"
+        },
+        {
+          "id": 109,
+          "parent": 10,
+          "notused": 0,
+          "detail": "CORRELATED SCALAR SUBQUERY 1"
+        },
+        {
+          "id": 113,
+          "parent": 109,
+          "notused": 39,
+          "detail": "SEARCH u USING COVERING INDEX sqlite_autoindex_mail_memberships_1 (account_id=? AND message_key=? AND folder_id=?)"
+        },
+        {
+          "id": 134,
+          "parent": 10,
+          "notused": 0,
+          "detail": "CORRELATED SCALAR SUBQUERY 2"
+        },
+        {
+          "id": 138,
+          "parent": 134,
+          "notused": 39,
+          "detail": "SEARCH f USING COVERING INDEX sqlite_autoindex_mail_memberships_1 (account_id=? AND message_key=? AND folder_id=?)"
+        },
+        {
+          "id": 158,
+          "parent": 10,
+          "notused": 0,
+          "detail": "CORRELATED SCALAR SUBQUERY 3"
+        },
+        {
+          "id": 163,
+          "parent": 158,
+          "notused": 55,
+          "detail": "SEARCH ff USING COVERING INDEX mail_folder_role (account_id=? AND role=?)"
+        },
+        {
+          "id": 171,
+          "parent": 158,
+          "notused": 45,
+          "detail": "SEARCH f USING COVERING INDEX sqlite_autoindex_mail_memberships_1 (account_id=? AND message_key=? AND folder_id=?)"
+        },
+        {
+          "id": 196,
+          "parent": 10,
+          "notused": 0,
+          "detail": "CORRELATED SCALAR SUBQUERY 2"
+        },
+        {
+          "id": 200,
+          "parent": 196,
+          "notused": 39,
+          "detail": "SEARCH f USING COVERING INDEX sqlite_autoindex_mail_memberships_1 (account_id=? AND message_key=? AND folder_id=?)"
+        },
+        {
+          "id": 220,
+          "parent": 10,
+          "notused": 0,
+          "detail": "CORRELATED SCALAR SUBQUERY 3"
+        },
+        {
+          "id": 225,
+          "parent": 220,
+          "notused": 55,
+          "detail": "SEARCH ff USING COVERING INDEX mail_folder_role (account_id=? AND role=?)"
+        },
+        {
+          "id": 233,
+          "parent": 220,
+          "notused": 45,
+          "detail": "SEARCH f USING COVERING INDEX sqlite_autoindex_mail_memberships_1 (account_id=? AND message_key=? AND folder_id=?)"
+        },
+        {
+          "id": 256,
+          "parent": 10,
+          "notused": 0,
+          "detail": "CORRELATED SCALAR SUBQUERY 1"
+        },
+        {
+          "id": 260,
+          "parent": 256,
+          "notused": 39,
+          "detail": "SEARCH u USING COVERING INDEX sqlite_autoindex_mail_memberships_1 (account_id=? AND message_key=? AND folder_id=?)"
+        },
+        {
+          "id": 305,
+          "parent": 10,
+          "notused": 0,
+          "detail": "USE TEMP B-TREE FOR ORDER BY"
+        },
+        {
+          "id": 335,
+          "parent": 5,
+          "notused": 48,
+          "detail": "SCAN (subquery-9)"
+        },
+        {
+          "id": 434,
+          "parent": 5,
+          "notused": 0,
+          "detail": "USE TEMP B-TREE FOR ORDER BY"
+        },
+        {
+          "id": 466,
+          "parent": 2,
+          "notused": 48,
+          "detail": "SCAN (subquery-8)"
+        },
+        {
+          "id": 544,
+          "parent": 0,
+          "notused": 48,
+          "detail": "SCAN ranked"
+        },
+        {
+          "id": 578,
+          "parent": 0,
+          "notused": 0,
+          "detail": "USE TEMP B-TREE FOR ORDER BY"
+        }
+      ]
+    },
+    {
+      "kind": "flat",
+      "folder": "INBOX",
+      "rows": 26,
+      "samples": [
+        {
+          "sqlMs": 108.43533300000126,
+          "readMs": 13.12579199999891,
+          "totalMs": 121.56183299999975
+        },
+        {
+          "sqlMs": 107.98291600000084,
+          "readMs": 12.831750000004831,
+          "totalMs": 120.81504100000166
+        },
+        {
+          "sqlMs": 113.58295799999905,
+          "readMs": 14.064166999996814,
+          "totalMs": 127.64770800000406
+        },
+        {
+          "sqlMs": 109.55966600000102,
+          "readMs": 13.121125000005122,
+          "totalMs": 122.68162499999744
+        }
+      ],
+      "plan": [
+        {
+          "id": 15,
+          "parent": 0,
+          "notused": 62,
+          "detail": "SEARCH m USING INDEX sqlite_autoindex_mail_messages_1 (account_id=?)"
+        },
+        {
+          "id": 27,
+          "parent": 0,
+          "notused": 0,
+          "detail": "CORRELATED SCALAR SUBQUERY 2"
+        },
+        {
+          "id": 31,
+          "parent": 27,
+          "notused": 39,
+          "detail": "SEARCH t USING COVERING INDEX sqlite_autoindex_mail_tombstones_1 (account_id=? AND message_key=?)"
+        },
+        {
+          "id": 43,
+          "parent": 0,
+          "notused": 0,
+          "detail": "CORRELATED SCALAR SUBQUERY 3"
+        },
+        {
+          "id": 47,
+          "parent": 43,
+          "notused": 39,
+          "detail": "SEARCH f USING COVERING INDEX sqlite_autoindex_mail_memberships_1 (account_id=? AND message_key=? AND folder_id=?)"
+        },
+        {
+          "id": 62,
+          "parent": 0,
+          "notused": 0,
+          "detail": "CORRELATED SCALAR SUBQUERY 4"
+        },
+        {
+          "id": 67,
+          "parent": 62,
+          "notused": 55,
+          "detail": "SEARCH ff USING COVERING INDEX mail_folder_role (account_id=? AND role=?)"
+        },
+        {
+          "id": 77,
+          "parent": 62,
+          "notused": 45,
+          "detail": "SEARCH f USING COVERING INDEX sqlite_autoindex_mail_memberships_1 (account_id=? AND message_key=? AND folder_id=?)"
+        },
+        {
+          "id": 92,
+          "parent": 0,
+          "notused": 47,
+          "detail": "SEARCH ar USING INDEX sqlite_autoindex_mail_archive_messages_1 (account_id=? AND message_key=?) LEFT-JOIN"
+        },
+        {
+          "id": 100,
+          "parent": 0,
+          "notused": 47,
+          "detail": "SEARCH gm USING INDEX sqlite_autoindex_mail_gmail_metadata_1 (account_id=? AND message_key=?) LEFT-JOIN"
+        },
+        {
+          "id": 108,
+          "parent": 0,
+          "notused": 47,
+          "detail": "SEARCH im USING INDEX sqlite_autoindex_mail_imap_messages_1 (account_id=? AND message_key=?) LEFT-JOIN"
+        },
+        {
+          "id": 116,
+          "parent": 0,
+          "notused": 47,
+          "detail": "SEARCH gr USING INDEX sqlite_autoindex_mail_graph_messages_1 (account_id=? AND message_key=?) LEFT-JOIN"
+        },
+        {
+          "id": 258,
+          "parent": 0,
+          "notused": 0,
+          "detail": "USE TEMP B-TREE FOR ORDER BY"
+        }
+      ]
+    }
+  ],
+  "peakRssBytes": 133185536,
+  "limits": "One disposable encrypted clone, exact new139 SQL plus production read payloads; Node only; no full ingestion or Electron; first sample includes query preparation/cache warmup; source profile untouched"
+}
