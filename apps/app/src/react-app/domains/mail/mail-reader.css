@@ -29,3 +29,4 @@
 .mail-background-status{font-size:11px;color:var(--muted-foreground);white-space:nowrap}.mail-shortcuts{position:relative;font-size:12px}.mail-shortcuts summary{cursor:pointer;list-style:none;border:1px solid var(--border);border-radius:50%;width:18px;text-align:center}.mail-shortcuts span{position:absolute;right:0;top:24px;z-index:20;width:280px;padding:12px;background:var(--background);border:1px solid var(--border);border-radius:6px;box-shadow:0 4px 16px #0002}
 
 @container (max-width:850px){.mail-background-status{display:none}}
+.mail-composer>fieldset{display:flex;flex-direction:column;gap:8px;flex:1}.mail-composer>fieldset>label{display:flex;align-items:center;gap:10px;border-bottom:1px solid var(--border);font-size:12px;min-height:30px}.mail-composer>fieldset>footer{display:flex;align-items:center;gap:12px;flex-shrink:0}

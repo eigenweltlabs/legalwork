@@ -45,6 +45,7 @@
     "libmime": "5.4.3",
     "minimatch": "^10.0.1",
     "node-pty": "npm:@lydell/node-pty@1.2.0-beta.12",
+    "nodemailer": "10.0.1",
     "openai": "^7.8.0",
     "pdf-lib": "1.17.1",
     "pdfjs-dist": "6.3.289",

@@ -1,3 +1,5 @@
+import {outboxErrors} from './mail-outbox-errors';
+import {outboxErrorSchema} from '../../../../../server/src/mail/outbox-view';
 import {senderListSchema,type SenderSettings,type SenderConfigure} from '../../../../../server/src/mail/sender-view';
 import { graphMailboxIdentitySchema, graphMailboxResultSchema, type GraphMailboxInput } from '../../../../../server/src/mail/graph-mailbox-view';
 import { z } from 'zod';
@@ -30,8 +32,10 @@ export class MailClient {
         throw Error('Local host authentication is unavailable.'); }
     async request<T>(path: string, schema: {parse(value:unknown):T}, signal: AbortSignal, body?: unknown, post = false, timeoutMs = 15000): Promise<T> {
         const response = await this.transport(this.origin + '/mail/v1' + path, { method: body !== undefined || post ? 'POST' : 'GET', headers: { 'X-LegalWork-Host-Token': this.token, ...(body === undefined ? {} : { 'Content-Type': 'application/json' }) }, body: body === undefined ? undefined : JSON.stringify(body), signal: AbortSignal.any([signal, AbortSignal.timeout(timeoutMs)]), redirect: 'error', cache: 'no-store', credentials: 'omit' });
-        if (!response.ok)
+        if (!response.ok) {
+            if(response.status===409){const value=await response.clone().json().catch(()=>null);const parsed=outboxErrorSchema.safeParse(typeof value?.error?.code==='string'?value.error.code.replace(/^mail_outbox_/,''):typeof value?.code==='string'?value.code.replace(/^mail_outbox_/,''):'');if(parsed.success)throw Error(outboxErrors[parsed.data]);}
             throw Error(response.status === 423 ? 'Mail is temporarily unavailable. Please retry.' : response.status === 404 ? 'This account or message is unavailable.' : response.status === 401 ? 'Local host authentication expired.' : `Mail request failed (${response.status}).`);
+        }
         return schema.parse(await response.json());
     }
     changeCursor(accountId:string,signal:AbortSignal){return this.request(`/accounts/${encodeURIComponent(accountId)}/events/query`,z.object({stream:z.string(),nextCursor:z.number()}),signal,{cursorOnly:true});}
