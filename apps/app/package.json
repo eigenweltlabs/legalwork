@@ -6,9 +6,9 @@
   "scripts": {
     "test": "bun test tests/",
     "dev": "LEGALWORK_DEV_MODE=1 vite",
-    "build": "vite build",
+    "build": "node scripts/mail-license-notices.mjs && vite build",
     "dev:web": "LEGALWORK_DEV_MODE=1 vite",
-    "build:web": "vite build",
+    "build:web": "node scripts/mail-license-notices.mjs && vite build",
     "build:word-addin": "vite build --config vite.wordaddin.config.ts",
     "dev:word-addin": "LEGALWORK_PANE_KEEP_DIST=1 vite build --watch --config vite.wordaddin.config.ts",
     "preview": "vite preview",
