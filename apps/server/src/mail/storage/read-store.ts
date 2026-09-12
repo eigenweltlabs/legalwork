@@ -69,14 +69,22 @@ export class MailReadStore {
     const page = mailMessagePageSchema.parse(supplied);
     if (page.conversations && !page.threadId && page.order === 'received') {
       const cursor = page.after ? z.tuple([z.number().int().nonnegative().nullable(),z.string().min(1).max(32768)]).parse(JSON.parse(page.after)) : null;
-      const rows=this.database.all(`WITH source AS (
+      const rows=this.database.all(`WITH pending_read AS (
+        SELECT json_extract(payload_json,'$.intent.locator') locator,
+          json_extract(payload_json,'$.intent.change.read') read,
+          row_number() OVER(PARTITION BY json_extract(payload_json,'$.intent.locator') ORDER BY rowid DESC) latest
+        FROM mail_action_jobs WHERE account_id=? AND kind='mutation'
+          AND state IN ('queued','running','dispatching','retry')
+          AND json_extract(payload_json,'$.intent.change.kind')='read'
+      ), source AS (
         SELECT m.*,coalesce(ar.received_at,im.internal_date,gm.internal_date,
           CAST(unixepoch(json_extract(gr.metadata_json,'$.receivedDateTime'),'subsec')*1000 AS INTEGER)) received_at,
           CASE WHEN m.thread_id IS NULL THEN json_array('message',m.message_key) ELSE json_array('thread',m.thread_id) END conversation_key,
-          CASE WHEN m.provider='gmail' THEN EXISTS(SELECT 1 FROM mail_memberships u WHERE u.account_id=m.account_id AND u.message_key=m.message_key AND u.folder_id='UNREAD') ELSE m.is_read=0 END unread,
+          CASE WHEN pending.read IS NOT NULL THEN NOT pending.read WHEN m.provider='gmail' THEN EXISTS(SELECT 1 FROM mail_memberships u WHERE u.account_id=m.account_id AND u.message_key=m.message_key AND u.folder_id='UNREAD') ELSE m.is_read=0 END unread,
           ((? IS NULL OR EXISTS(SELECT 1 FROM mail_memberships f WHERE f.account_id=m.account_id AND f.message_key=m.message_key AND f.folder_id=?))
           AND (?=0 OR EXISTS(SELECT 1 FROM mail_memberships f JOIN mail_folders ff ON ff.account_id=f.account_id AND ff.id=f.folder_id WHERE f.account_id=m.account_id AND f.message_key=m.message_key AND ff.role='inbox'))) in_scope
-        FROM mail_messages m LEFT JOIN mail_archive_messages ar ON ar.account_id=m.account_id AND ar.message_key=m.message_key
+        FROM mail_messages m LEFT JOIN pending_read pending ON pending.locator=m.locator_json AND pending.latest=1
+          LEFT JOIN mail_archive_messages ar ON ar.account_id=m.account_id AND ar.message_key=m.message_key
           LEFT JOIN mail_imap_messages im ON im.account_id=m.account_id AND im.message_key=m.message_key
           LEFT JOIN mail_gmail_metadata gm ON gm.account_id=m.account_id AND gm.message_key=m.message_key
           LEFT JOIN mail_graph_messages gr ON gr.account_id=m.account_id AND gr.message_key=m.message_key
@@ -89,7 +97,7 @@ export class MailReadStore {
       ) SELECT locator_json,received_at,conversation_count,unread_count FROM ranked
         WHERE position=1 AND scope_match=1 AND (? IS NULL OR coalesce(received_at,-1)<? OR (coalesce(received_at,-1)=? AND message_key>?))
         ORDER BY coalesce(received_at,-1) DESC,message_key LIMIT ?`,
-        [page.folderId??null,page.folderId??null,page.inboxOnly?1:0,accountId,page.includeRemoved?1:0,cursor?1:null,cursor?.[0]??-1,cursor?.[0]??-1,cursor?.[1]??'',page.limit+1]);
+        [accountId,page.folderId??null,page.folderId??null,page.inboxOnly?1:0,accountId,page.includeRemoved?1:0,cursor?1:null,cursor?.[0]??-1,cursor?.[0]??-1,cursor?.[1]??'',page.limit+1]);
       const items=rows.slice(0,page.limit).map(row=>{
         if(typeof row.locator_json!=='string')throw Error('Invalid stored locator');
         return mailMessageViewSchema.parse({...this.read(accountId,providerMessageLocatorSchema.parse(JSON.parse(row.locator_json))),

@@ -4,7 +4,7 @@ import {MailClient,type MailMessageView} from './mail-client';
 import {optimisticMail,mailItemId} from './mail-actions';
 import type {ActionEntry} from './mail-actions-client';
 export const conversationId=(item:MailMessageView)=>JSON.stringify([item.accountId,item.threadId?'thread':'message',item.threadId??item.key]);
-export function MailConversation({grouped=true,client,item,entries,onOpen,onInitialOpen,render}:{grouped?:boolean;client:MailClient;item:MailMessageView;entries:ActionEntry[];onOpen:(item:MailMessageView)=>void;onInitialOpen:(item:MailMessageView)=>void;render:(item:MailMessageView,active:boolean)=>ReactNode}){
+export function MailConversation({grouped=true,client,item,entries,onOpen,onInitialOpen,render}:{grouped?:boolean;client:MailClient;item:MailMessageView;entries:ActionEntry[];onOpen:(item:MailMessageView|undefined)=>void;onInitialOpen:(item:MailMessageView)=>void;render:(item:MailMessageView,active:boolean,onRemoved:()=>void)=>ReactNode}){
  const [messages,setMessages]=useState([item]),[expanded,setExpanded]=useState(()=>new Set([item.key])),[after,setAfter]=useState<string|null>(null),[error,setError]=useState(''),[busy,setBusy]=useState(false);
  const loading=useRef(false);
  const initial=useRef(item),controller=useRef(new AbortController()),open=useRef(onInitialOpen);open.current=onInitialOpen;
@@ -34,7 +34,7 @@ export function MailConversation({grouped=true,client,item,entries,onOpen,onInit
    {messages.length>1&&<button className="mail-conversation-toggle" aria-expanded={shown} onClick={()=>{if(shown&&active)setExpanded(previous=>{const next=new Set(previous);next.delete(value.key);return next;});else{setExpanded(previous=>new Set([...previous,value.key]));onOpen(value);}}}>
     <span>{value.metadata?.from||'Sender not downloaded'}</span><time>{value.receivedAt?new Date(value.receivedAt).toLocaleString():''}</time>{value.isRead===false&&<span aria-label="Unread"> ●</span>}
    </button>}
-   <div hidden={!shown}>{shown&&render(value,active)}</div>
+   <div hidden={!shown}>{shown&&render(value,active,()=>{setMessages(previous=>previous.filter(message=>message.key!==value.key));if(active)onOpen(undefined);})}</div>
   </section>;})}
  </div>;
 }
