@@ -20,7 +20,17 @@ const patterns = config.asarUnpack.filter((pattern) => pattern.includes(packageN
 // Preserve each package's resolved dependency versions inside the isolated ASAR fixture.
 // Loading the actual worker below detects missing transitive MIME dependencies too.
 async function copyRuntimePackage(name, resolver, destination) {
-  const manifestPath = name === "entities" ? resolve(dirname(resolver.resolve(name)), "../../package.json") : resolver.resolve(`${name}/package.json`);
+  let manifestPath;
+  try { manifestPath = resolver.resolve(`${name}/package.json`); }
+  catch(error) {
+    if(error.code!=='ERR_PACKAGE_PATH_NOT_EXPORTED')throw error;
+    let directory=dirname(resolver.resolve(name));
+    while(true){
+      const candidate=join(directory,'package.json');
+      try{if(JSON.parse(await readFile(candidate,'utf8')).name===name){manifestPath=candidate;break;}}catch(error){if(error.code!=='ENOENT')throw error;}
+      const parent=dirname(directory);if(parent===directory)throw Error('Missing runtime package manifest: '+name);directory=parent;
+    }
+  }
   const source = dirname(manifestPath);
   const target = join(destination, "node_modules", name);
   await mkdir(dirname(target), { recursive: true });
@@ -115,7 +125,7 @@ test("actual Electron starts built encrypted worker inside ASAR and resolves unp
     assert.equal(JSON.parse(await readFile(join(nativeSource, "package.json"), "utf8")).version, "13.0.3");
     await cp(nativeSource, join(source, nativeRelative), { recursive: true, filter: (path) => !path.startsWith(join(nativeSource, "node_modules")) });
     await cp(dirname(require.resolve("zod/package.json")), join(source, "node_modules/zod"), { recursive: true });
-    for (const dependency of ["@zone-eu/mailsplit", "iconv-lite", "libmime", "entities"]) {
+    for (const dependency of ["@zone-eu/mailsplit", "iconv-lite", "libmime", "entities", "imapflow", "nodemailer", "fflate"]) {
       await copyRuntimePackage(dependency, require, source);
     }
     const archive = join(root, `${layout}.asar`);
