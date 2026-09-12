@@ -1,3 +1,4 @@
+import {MailQualification} from './qualification.js';
 import {agentControlSchema} from '../agent-view.js';
 import {agentHash,MailAgentGrants} from '../storage/agent-grants.js';
 import {MailStorageSaveStore} from '../storage/storage-save-store.js';
@@ -49,6 +50,7 @@ let outboxStore:OutboxStore|undefined,outboxRunner:OutboxRunner|undefined;
 let closingOutbox:Promise<void>|undefined,closingDraftSync:Promise<void>|undefined;
 let draftSyncStore:DraftSyncStore|undefined,draftSyncRunner:DraftSyncRunner|undefined;
 let ownerId='';
+let qualification:MailQualification|undefined;
 let retention:MailRetentionStore|undefined;
 let portability:MailPortabilityStore|undefined;
 let closingPortability:Promise<void>|undefined;
@@ -95,6 +97,7 @@ function write(message: WorkerMessage): boolean {
   return true;
 }
 async function finish(): Promise<void> {
+  await qualification?.close();
   try{await(closingOutbox??outboxRunner?.close());}catch{exitCode=1;}
   try{await(closingDraftSync??draftSyncRunner?.close());}catch{exitCode=1;}
   try{await(closingExtraction??extractionRunner?.close());}catch{exitCode=1;}
@@ -121,6 +124,7 @@ function shutdown(code = 0): void {
   exitCode = Math.max(exitCode, code);
   if (phase === "closing") return;
   phase = "closing";
+  qualification?.cancel();
   // Stop every network runner before awaiting any individual teardown.
   closingOutbox=outboxRunner?.close();
   closingDraftSync=draftSyncRunner?.close();
@@ -186,6 +190,7 @@ async function initialize(value: WorkerInitialization): Promise<void> {
     draftSyncStore=new DraftSyncStore(database,value.ownerId);draftSyncRunner=new DraftSyncRunner({database,ownerId:value.ownerId,access});
     phase = "ready";
     if(!lifecycleSuspended)draftSyncRunner.start();else await draftSyncRunner.suspend();
+    qualification=new MailQualification({database,ownerId:value.ownerId,access});
     outboxStore=new OutboxStore(database,value.ownerId);outboxRunner=new OutboxRunner({database,ownerId:value.ownerId,access});outboxRunner.recover();if(!lifecycleSuspended)outboxRunner.resume();else await outboxRunner.suspend();
     searchIndexer?.start();extractionRunner?.start();
     write({ kind: "ready", protocol: 1, runtime: "node", nodeVersion: process.versions.node });
@@ -252,7 +257,7 @@ async function request(message: Extract<ParentMessage, { kind: "request" }>): Pr
       case 'mail.lifecycle.set':{
         lifecycleSuspended=command.input.suspended;
         const suspended=command.input.suspended;
-        lifecycleChange=lifecycleChange.catch(()=>{}).then(async()=>{if(phase==='closing')return;if(suspended){await Promise.all([syncLifecycle?.suspendAll(),draftSyncRunner?.suspend(),outboxRunner?.suspend()]);}else{syncLifecycle?.resumeAll();draftSyncRunner?.resume();outboxRunner?.resume();}});
+        lifecycleChange=lifecycleChange.catch(()=>{}).then(async()=>{if(phase==='closing')return;if(suspended){qualification?.cancel();await Promise.all([syncLifecycle?.suspendAll(),draftSyncRunner?.suspend(),outboxRunner?.suspend()]);}else{syncLifecycle?.resumeAll();draftSyncRunner?.resume();outboxRunner?.resume();}});
         await lifecycleChange;result={lifecycle:{state:lifecycleSuspended?'suspended':'running'}};break;
       }
       case 'mail.smtp.status':result={smtp:new SmtpCustody(database,ownerId).status(command.accountId)};break;
@@ -260,6 +265,7 @@ async function request(message: Extract<ParentMessage, { kind: "request" }>): Pr
       case 'mail.smtp.remove':new SmtpCustody(database,ownerId).remove(command.accountId);result={smtp:new SmtpCustody(database,ownerId).status(command.accountId)};break;
       case 'mail.outbox.list':if(!outboxStore)throw locked;result={outbox:outboxStore.list(command.accountId)};break;
       case 'mail.outbox.queue':if(!outboxStore)throw locked;result={outboxItem:await outboxStore.queue(command.accountId,command.input)};if(!lifecycleSuspended)void outboxRunner?.run().catch(()=>{});break;
+      case 'mail.qualification':if(!qualification||command.input.action==='start'&&lifecycleSuspended)throw locked;result={qualification:qualification.execute(command.input)};break;
       case 'mail.outbox.action':if(!outboxStore||!outboxRunner)throw locked;result={outboxItem:command.input.action==='reconcile'?await outboxRunner.reconcile(command.accountId,command.input.actionId):command.input.action==='retry'?outboxStore.retry(command.accountId,command.input.actionId):outboxStore.cancel(command.accountId,command.input.actionId)};if(!lifecycleSuspended)void outboxRunner.run().catch(()=>{});break;
       case 'mail.retention.read':if(!retention)throw locked;result={retention:retention.settings(command.accountId)};break;
       case 'mail.retention.preview':if(!retention)throw locked;result={retention:retention.preview(command.accountId,command.input)};break;
@@ -354,6 +360,7 @@ async function request(message: Extract<ParentMessage, { kind: "request" }>): Pr
       case "mail.connection.poll": result = { connection: controller.poll(command.connectionId) }; break;
       case "mail.connection.cancel": await controller.cancel(command.connectionId); result = { cancelled: true }; break;
       case "mail.account.disconnect": {
+        qualification?.cancel(command.accountId);
         const current = credentials.status(command.accountId); // Owner gate before provider lookup or cancellation.
         extractionRunner?.cancelAccount(command.accountId);
         // close() fences callbacks synchronously; revoke credentials before awaiting I/O cleanup.
@@ -393,6 +400,7 @@ async function request(message: Extract<ParentMessage, { kind: "request" }>): Pr
         if (provider !== "gmail" && provider !== "graph" && provider !== "imap") throw unsupported;
         if (command.operation === "mail.sync.provider") { result = { syncProvider: provider, connected: credentialStatus.state === "connected", ...(provider === "graph" && credentialStatus.version ? {personal: credentials.getBinding(command.accountId).authority === "https://login.microsoftonline.com/consumers/v2.0"} : {}) }; break; }
         if (credentialStatus.state === 'disconnected') throw locked;
+        if(command.operation==='mail.sync.stop')qualification?.cancel(command.accountId);
         const engine = syncLifecycle.engine(command.accountId);
         if(lifecycleSuspended&&command.operation==='mail.sync.start'){result={sync:engine.status(command.accountId)};break;}
         if(provider==='imap'){result={sync:command.operation==='mail.sync.resume'?syncLifecycle.resume(command.accountId):command.operation==='mail.sync.start'?engine.start(command.accountId):command.operation==='mail.sync.stop'?engine.pause(command.accountId):engine.status(command.accountId)};break;}

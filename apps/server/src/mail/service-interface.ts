@@ -1,3 +1,4 @@
+import type {QualificationInput,QualificationReport} from './qualification-view.js';
 import type {AgentControl,AgentControlResult} from './agent-view.js';
 import type {StorageSaveInput,StorageSaveResult} from './storage-save-view.js';
 import type {FilingInput,FilingResult} from './filing-view.js';
@@ -73,6 +74,7 @@ export interface MailService {
 
   search(input: MailSearchInput): Promise<MailSearchResult>;
   rebuildSearch(input: MailSearchRebuildInput): Promise<MailSearchRebuildResult>;
+  qualification?(input:QualificationInput):Promise<QualificationReport>;
   status(): MailServiceStatus;
   unlock(): Promise<void>;
   lock(): Promise<void>;

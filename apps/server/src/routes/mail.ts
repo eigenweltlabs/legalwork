@@ -1,3 +1,4 @@
+import {qualificationInputSchema} from '../mail/qualification-view.js';
 import {mailMaintenanceReportSchema} from '../mail/maintenance-view.js';
 import {retentionScopeSchema,retentionApplySchema,retentionSettingsSchema,MailRetentionError} from '../mail/retention-view.js';
 import {OutboxError,outboxActionSchema,smtpConfigureSchema} from '../mail/outbox-view.js';
@@ -94,6 +95,13 @@ export function registerMailRoutes(routes: Route[], host: string, service?: Mail
       } catch (error) { throw safeError(error); }
     });
   }
+  if(service.qualification)addRoute(routes,'POST','/mail/v1/qualification','host-token',async ctx=>{
+    if(ctx.actor?.type!=='host')throw new ApiError(401,'unauthorized','Invalid host token');pageInput(ctx,false);
+    if(ctx.request.headers.get('content-type')?.split(';')[0]?.trim().toLowerCase()!=='application/json')throw new ApiError(400,'mail_invalid_request','Invalid mail request');
+    let value:unknown;try{value=JSON.parse(await readMailBody(ctx.request,4096));}catch{throw new ApiError(400,'mail_invalid_request','Invalid mail request');}
+    const input=qualificationInputSchema.safeParse(value);if(!input.success)throw new ApiError(400,'mail_invalid_request','Invalid mail request');
+    try{if(ctx.request.signal.aborted)throw Error('cancelled');const report=await service.qualification!(input.data);if(ctx.request.signal.aborted&&input.data.action==='start')await service.qualification!({action:'cancel',id:report.id});return Response.json(report,{headers:{'Cache-Control':'no-store'}});}catch(error){throw safeError(error);}
+  });
   route('GET','/accounts/:accountId/outbox',false,ctx=>service.outbox(ctx.params.accountId));
   route('GET','/accounts/:accountId/smtp',false,ctx=>service.smtpStatus(ctx.params.accountId));
   route('POST','/accounts/:accountId/smtp/remove',false,ctx=>service.removeSmtp(ctx.params.accountId));
