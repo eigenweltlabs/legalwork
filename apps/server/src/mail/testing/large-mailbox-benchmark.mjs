@@ -228,6 +228,9 @@ async function benchmark({ count, path, key }) {
         quality.push({ name: query.name, input: query.input, expected: query.expected, actual: result.total, pending: result.pending, incomplete: result.incomplete, latencyMs: distribution(samples) });
         warm.push(...samples);
     }
+    // Full dbstat walks the entire encrypted file synchronously. Keep this
+    // accounting overhead visible under its own phase, never label it a query.
+    phase = 'accounting';
     let tableBytes = null;
     try {
         tableBytes = db.all('SELECT name,sum(pgsize) bytes FROM dbstat GROUP BY name ORDER BY bytes DESC');
