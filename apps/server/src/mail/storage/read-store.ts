@@ -13,9 +13,25 @@ import type { MailDatabase } from "./database-interface.js";
 export class MailReadStore {
   private readonly repository: MailRepository;
   private readonly content: MailContentStore;
-  constructor(private readonly database: MailDatabase, ownerId: string) {
+  constructor(private readonly database: MailDatabase, private readonly ownerId: string) {
     this.repository = new MailRepository(database, ownerId);
     this.content = new MailContentStore(database, ownerId);
+  }
+  /** One row per provider message; memberships only qualify, never multiply it. */
+  unreadInboxCount(): number {
+    const row = this.database.get(`SELECT count(*) AS count FROM mail_messages m
+      JOIN mail_accounts a ON a.id=m.account_id WHERE a.owner_id=?
+      AND ((a.provider IN ('gmail','graph') AND EXISTS(SELECT 1 FROM mail_account_credentials c WHERE c.account_id=a.id AND c.state='connected' AND c.archive_locked=0))
+        OR (a.provider='imap' AND EXISTS(SELECT 1 FROM mail_imap_credentials c WHERE c.account_id=a.id AND c.state='connected' AND c.archive_locked=0)))
+      AND NOT EXISTS(SELECT 1 FROM mail_tombstones t WHERE t.account_id=m.account_id AND t.message_key=m.message_key)
+      AND EXISTS(SELECT 1 FROM mail_memberships f JOIN mail_folders ff ON ff.account_id=f.account_id AND ff.id=f.folder_id
+        WHERE f.account_id=m.account_id AND f.message_key=m.message_key AND ff.role='inbox')
+      AND NOT EXISTS(SELECT 1 FROM mail_memberships f LEFT JOIN mail_imap_folders i ON i.account_id=f.account_id AND i.path=f.folder_id
+        WHERE f.account_id=m.account_id AND f.message_key=m.message_key AND
+        ((a.provider='gmail' AND f.folder_id IN ('SPAM','TRASH')) OR (a.provider='imap' AND i.special_use IN ('\\Junk','\\Trash'))))
+      AND ((a.provider='gmail' AND EXISTS(SELECT 1 FROM mail_memberships f WHERE f.account_id=m.account_id AND f.message_key=m.message_key AND f.folder_id='UNREAD'))
+        OR (a.provider!='gmail' AND m.is_read=0))`, [this.ownerId]);
+    return z.number().int().nonnegative().parse(row?.count);
   }
   private message(accountId: string, locator: ProviderMessageLocator) {
     const message = this.repository.readMessage(accountId, locator);

@@ -395,6 +395,8 @@ export type NativeMailDraftInput = {
 export type DesktopCommandMap = {
   composeAppleMailDraft: { args: [draft: NativeMailDraftInput]; result: void };
   composeOutlookDraft: { args: [draft: NativeMailDraftInput]; result: void };
+  getMailBadgeEnabled: { args: []; result: boolean };
+  setMailBadgeEnabled: { args: [enabled: boolean]; result: boolean };
   // Native windows
   openAppWindow: {
     args: [input: { page: "home" | "scheduled" | "calendar" | "projects" | "workflows" | "tasks" | "recorder" | "wikis" | "evals" }];

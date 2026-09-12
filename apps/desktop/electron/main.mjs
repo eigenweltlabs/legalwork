@@ -1,4 +1,5 @@
 import { createShutdownGuard } from "./shutdown-guard.mjs";
+import { getMailBadgeEnabled, setMailBadgeEnabled } from "./app-badge.mjs";
 import { createMailArtifacts } from "./mail-artifacts.mjs";
 import { execFileSync, spawn } from "node:child_process";
 import { boundedShutdown } from "./bounded-shutdown.mjs";
@@ -1842,6 +1843,8 @@ const desktopCommandHandlers = {
     }
     return openAppWindow(event, `/${input.page}?detached=1`);
   },
+  getMailBadgeEnabled: async () => getMailBadgeEnabled(),
+  setMailBadgeEnabled: async (_event, enabled) => setMailBadgeEnabled(enabled),
   "openSessionWindow": async (event, ...args) => {
       return openDetachedSessionWindow(event, args[0] ?? {});
   },
