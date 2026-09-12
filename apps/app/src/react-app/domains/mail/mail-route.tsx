@@ -225,7 +225,7 @@ export function MailRoute() {
     } }
     const title = thread ? 'Conversation' : folder ? folders.find(value => value.id === folder)?.name ?? folder : inbox ? 'Inbox' : 'All mail';
     const refresh = () => { purge(); setConnectionRevision(value => value + 1); setRevision(value => value + 1); };
-    const actionTargets=(searching&&searchTargets.length?searchTargets:checked.size?items.filter(item=>checked.has(mailItemId(item))):selected?[selected]:[]).map(item=>optimisticMail(item,actionEntries));
+    const actionTargets=(searching&&(searchTargets.length||searchPending)?searchTargets:checked.size?items.filter(item=>checked.has(mailItemId(item))):selected?[selected]:[]).map(item=>optimisticMail(item,actionEntries));
     const composeReturn=useRef<HTMLElement|null>(null),mailRoot=useRef<HTMLElement|null>(null);
     const closeCompose=()=>{setCompose(undefined);requestAnimationFrame(()=>{const target=composeReturn.current;if(target?.isConnected)target.focus();else mailRoot.current?.querySelector<HTMLButtonElement>('.mail-message-row[aria-pressed="true"],.mail-message-row')?.focus();});};
     const openCompose=(value:ComposeSelection)=>{if(!compose&&document.activeElement instanceof HTMLElement)composeReturn.current=document.activeElement;setCompose(value);setDraftsOpen(false);setOutboxOpen(false);};

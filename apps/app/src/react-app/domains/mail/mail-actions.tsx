@@ -54,7 +54,7 @@ export function MailActionBar({blocked=false,client,accounts,accountId,selected,
  const singleAccount=selected.length>0&&selected.every(item=>item.accountId===selected[0].accountId),gmail=singleAccount&&selected[0].locator.provider==='gmail';
  const activity=entries.filter(entry=>entry.kind==='mutation'&&(entry.accountId===accountId||!accountId||selected.some(item=>item.accountId===entry.accountId)));
  return <div className="mail-action-area">
-  <div className="mail-bulk-toolbar" role="toolbar" aria-label="Mailbox actions">
+  <div className="mail-bulk-toolbar" role="toolbar" aria-busy={busy||blocked} aria-label="Mailbox actions">
    <span>{selected.length?`${selected.length} selected`:''}</span>
    <button className="mail-icon-button" data-mail-command="read" aria-label="Mark read" {...mailShortcutProps('read','Mark read')} disabled={disabled} onClick={()=>void apply({kind:'read',read:true})}><MailOpen size={15}/></button>
    <button className="mail-icon-button" data-mail-command="unread" aria-label="Mark unread" {...mailShortcutProps('unread','Mark unread')} disabled={disabled} onClick={()=>void apply({kind:'read',read:false})}><Mail size={15}/></button>

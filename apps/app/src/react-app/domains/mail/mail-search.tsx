@@ -46,7 +46,7 @@ export function MailSearch({ client, accounts, onOpen, toolbarQuery, onSavedQuer
             if(version!==selectionEpoch.current)throw Error('Selection changed.');
             setCheckedHits(keys);onTargets?.(messages,false);if(messages.length===1)onOpen(messages[0]);
             return{signature:mailSelectionSignature(messages),count:messages.length,archive:messages.some(item=>item.locator.provider==='archive'),mixed:messages.some(item=>item.accountId!==messages[0].accountId)};
-        }catch(error){if(version===selectionEpoch.current)onTargets?.([],false);throw error;}finally{if(version===selectionEpoch.current)setSelectionBusy(false);}
+        }catch(error){if(version===selectionEpoch.current)onTargets?.([],true);throw error;}finally{if(version===selectionEpoch.current)setSelectionBusy(false);}
     }
 
     const buttons = useRef<Array<HTMLButtonElement | null>>([]);
