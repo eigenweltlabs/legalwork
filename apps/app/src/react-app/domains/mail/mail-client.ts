@@ -13,7 +13,7 @@ const part = z.object({ key: id, kind: z.enum(['raw', 'body', 'attachment']), pa
 const account = z.object({ id, provider: z.enum(['gmail', 'graph', 'imap', 'archive']), displayName: z.string(), personal: z.boolean().optional(), identity: graphMailboxIdentitySchema.optional() });
 const folder = z.object({ id, name: z.string(), kind: z.enum(['folder', 'label']), parentId: id.nullable(), mutationPrecondition:z.string().nullable().optional(), role: z.literal("inbox").optional() });
 const page = <T extends z.ZodType>(item: T) => z.object({ items: z.array(item), nextCursor: id.nullable() });
-export const bodyEnvelope = z.object({ version: z.literal(1), bodies: z.array(z.object({ partId: z.string(), contentType: z.enum(['text/plain', 'text/html']), text: z.string() })).max(2000) });
+export const bodyEnvelope = z.object({ version: z.literal(1), bodies: z.array(z.object({ partId: z.string(), contentType: z.enum(['text/plain', 'text/html']), text: z.string(), presentation:z.boolean().optional() })).max(2000) });
 export const syncSchema = z.object({ state: z.string(), enumerated: z.number(), downloaded: z.number(), projected: z.number(), failed: z.number(), pending: z.number(), error: z.string().nullable(), unsupportedScopes: z.array(z.string()).optional(), inaccessible: z.number().optional(), referenceAttachments: z.number().optional() });
 export type SyncStatus = z.infer<typeof syncSchema>;
 export type { MailMessageView, MailPartView, MailAccountView, MailFolderView, MailPage };
