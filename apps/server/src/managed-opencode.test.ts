@@ -17,6 +17,7 @@ let n = 0;
 try { n = Number(fs.readFileSync(counter, "utf8")) || 0; } catch {}
 n += 1;
 fs.writeFileSync(counter, String(n));
+if (process.env.FAKE_OPENCODE_HOME_RESULT) fs.writeFileSync(process.env.FAKE_OPENCODE_HOME_RESULT, JSON.stringify({HOME:process.env.HOME,USERPROFILE:process.env.USERPROFILE}));
 const portIdx = process.argv.indexOf("--port");
 const port = portIdx >= 0 ? process.argv[portIdx + 1] : "0";
 if (n <= failUntil) {
@@ -83,3 +84,16 @@ process.exit(1);
   ).rejects.toThrow(/config parse failed/);
   expect(Number(readFileSync(counter, "utf8"))).toBe(1); // exactly one attempt
 }, 20000);
+
+
+test("managed child receives isolated home without replacing the embedding OS home", async () => {
+  const {bin,counter}=fakeBin(0), before={HOME:process.env.HOME,USERPROFILE:process.env.USERPROFILE};
+  const home=join(dir!,"synthetic home ü '$"), result=join(dir!,"child-home.json");
+  const server=await createManagedOpencodeServer({bin,cwd:dir!,home,env:{FAKE_OPENCODE_COUNTER:counter,FAKE_OPENCODE_HOME_RESULT:result}});
+  try {
+    expect(JSON.parse(readFileSync(result,"utf8"))).toEqual({HOME:home,USERPROFILE:home});
+    expect({HOME:process.env.HOME,USERPROFILE:process.env.USERPROFILE}).toEqual(before);
+    expect(server.execution.env.find(item=>item.name==='HOME')?.value).toBe(home);
+    expect(server.execution.env.filter(item=>item.name==='OPENCODE_SERVER_PASSWORD').every(item=>item.value==='<redacted>')).toBe(true);
+  } finally {await server.close();}
+});

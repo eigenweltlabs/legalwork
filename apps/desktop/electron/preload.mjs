@@ -50,6 +50,17 @@ function installMenuOverlayDismissListeners() {
 }
 
 contextBridge.exposeInMainWorld("__LEGALWORK_ELECTRON__", {
+  mailDesktopSettings(){return ipcRenderer.invoke('legalwork:mail:desktop:get');},
+  mailDesktopSettingsSave(value){return ipcRenderer.invoke('legalwork:mail:desktop:set',value);},
+  mailNotificationTarget(){return ipcRenderer.invoke('legalwork:mail:desktop:target');},
+  mailDraftRecoveryWrite(value) { return ipcRenderer.invoke("legalwork:mail:draft-recovery:write",value); },
+  mailDraftRecoveryList() { return ipcRenderer.invoke("legalwork:mail:draft-recovery:list"); },
+  mailDraftRecoveryRemove(value) { return ipcRenderer.invoke("legalwork:mail:draft-recovery:remove",value); },
+  mailImages(value) {return ipcRenderer.invoke('legalwork:mail:images',value);},
+  mailImagesCancel() {return ipcRenderer.invoke('legalwork:mail:images:cancel');},
+  mailPortability(value) {return ipcRenderer.invoke("legalwork:mail:portability",value);},
+  mailArtifactCancel() { return ipcRenderer.invoke("legalwork:mail:artifact:cancel"); },
+  mailArtifact(value) { return ipcRenderer.invoke("legalwork:mail:artifact", value); },
   invokeDesktop(command, ...args) {
     return ipcRenderer.invoke("legalwork:desktop", command, ...args);
   },
@@ -239,3 +250,5 @@ if (!applyShellDocumentMarkers() && typeof document !== "undefined") {
 if (!installMenuOverlayDismissListeners() && typeof document !== "undefined") {
   document.addEventListener("DOMContentLoaded", installMenuOverlayDismissListeners, { once: true });
 }
+
+ipcRenderer.on('legalwork:mail:notification-open',()=>window.dispatchEvent(new Event('legalwork-mail-notification-open')));

@@ -1,0 +1,13 @@
+diff --git a/src/worker-script/index.js b/src/worker-script/index.js
+index 4321a8ff08a393d5b341a9cb4183511ace719b8c..353029e1ea104e99fc560f05b9e0f468bf289987 100644
+--- a/src/worker-script/index.js
++++ b/src/worker-script/index.js
+@@ -235,7 +235,7 @@ const initialize = async ({
+ }, res) => {
+   const langs = (typeof _langs === 'string')
+     ? _langs
+-    : _langs.map((l) => ((typeof l === 'string') ? l : l.data)).join('+');
++    : _langs.map((l) => ((typeof l === 'string') ? l : l.code)).join('+');
+ 
+   const statusText = 'initializing api';
+ 

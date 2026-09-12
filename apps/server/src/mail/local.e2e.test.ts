@@ -1,0 +1,63 @@
+import {linkTestModules} from '../../../../scripts/mail/link-test-modules.mjs';
+import { createRequire } from 'node:module';
+import {setTimeout as delay} from 'node:timers/promises';
+import {test,expect} from 'bun:test';
+import {execFileSync} from 'node:child_process';
+import {mkdtemp,realpath,symlink,writeFile,rm} from 'node:fs/promises';
+import {tmpdir} from 'node:os';
+import {join} from 'node:path';
+import {createHash,randomBytes,randomUUID} from 'node:crypto';
+import {pathToFileURL} from 'node:url';
+import {LocalMailService} from './service.js';
+import {registerMailRoutes} from '../routes/mail.js';
+import {startServer} from '../server.js';
+import type {ServerConfig} from '../types.js';
+import type {Route} from '../routes/registry.js';
+test('actual HTTP drafts, immutable submission replay, events and encrypted worker restart',async()=>{
+ const root=await mkdtemp(join(tmpdir(),'mail-local-e2e-')),serverRoot=join(import.meta.dir,'../..'),key=randomBytes(32),databasePath=join(root,'mail.sqlite');
+ const envNames=['LEGALWORK_ENV_STORE','LEGALWORK_TOKEN_STORE','XDG_DATA_HOME'];const originalEnv=new Map(envNames.map(name=>[name,process.env[name]]));for(const name of envNames)process.env[name]=join(root,name);
+ let service:LocalMailService|undefined;let server:Awaited<ReturnType<typeof startServer>>|undefined;
+ try{
+  const nodePath=Bun.which('node');if(!nodePath)throw Error('Node required');
+  await writeFile(join(root,'package.json'),'{"type":"module"}');await linkTestModules(await realpath(join(serverRoot,'node_modules')),join(root,'node_modules'));
+  execFileSync(nodePath,[createRequire(import.meta.url).resolve('typescript/bin/tsc'),'--outDir',join(root,'build'),'--rootDir','src','--module','NodeNext','--moduleResolution','NodeNext','--target','ES2022','--strict','--skipLibCheck','--types','node,bun-types','src/mail/runtime/worker.ts'],{cwd:serverRoot,timeout:30000});
+  const module=(path:string)=>JSON.stringify(pathToFileURL(join(root,'build/mail',path+'.js')).href);
+  const seed=`import {readFileSync} from 'node:fs';import {openEncryptedMailDatabase} from ${module('storage/database')};import {migrateMailSchema} from ${module('storage/schema')};import {MailRepository} from ${module('storage/repository')};import {MailCredentialRepository} from ${module('storage/credentials')};import {SenderIdentityRepository} from ${module('storage/sender-identities')};const input=JSON.parse(readFileSync(0,'utf8'));const key=Buffer.from(input.key,'base64');const db=await openEncryptedMailDatabase({path:input.path,key});key.fill(0);migrateMailSchema(db);for(const [owner,id,subject] of [['owner','a','Prüfung AZ-12/34.5'],['foreign-owner','foreign','Foreign secret']]){const repo=new MailRepository(db,owner);repo.createAccount({id,provider:'gmail',displayName:id});repo.ingestMessage(id,{locator:{provider:'gmail',messageId:'one'},rfcMessageId:null,subject,memberships:[]});}for(let i=0;i<25;i++)new MailRepository(db,'owner').ingestMessage('a',{locator:{provider:'gmail',messageId:'x'.repeat(4000)+i},rfcMessageId:null,subject:'large key',memberships:[]});new MailCredentialRepository(db,'owner').connect('a',{provider:'gmail',clientId:'synthetic.apps.googleusercontent.com',authority:'https://accounts.google.com',providerSubject:'a'},null,{accessToken:'synthetic',expiresAt:9999999999999,grantedScopes:['https://www.googleapis.com/auth/gmail.modify'],refreshToken:{action:'clear'}});new SenderIdentityRepository(db,'owner').replace('a',new MailCredentialRepository(db,'owner').status('a').version.generation,[{address:'sender@example.test',displayName:'Sender',primary:true,default:true}]);db.close();`;
+  execFileSync(nodePath,['--input-type=module','-e',seed],{input:JSON.stringify({path:databasePath,key:key.toString('base64')}),timeout:10000});
+  service=new LocalMailService({ownerId:'owner',databasePath,entryPoint:join(root,'build/mail/runtime/worker.js'),executable:{kind:'node',path:nodePath},loadKey:async()=>new Uint8Array(key),loadProviderSettings:async()=>({provider:'gmail',applicationType:'desktop',pkceMethod:'S256',clientId:'synthetic.apps.googleusercontent.com',clientSecret:'synthetic-secret',scopes:['openid','email','https://www.googleapis.com/auth/gmail.modify']})});
+  await service.setLifecycleSuspended(true); // Exercise queued HTTP state without provider traffic.
+  const config:ServerConfig={host:'127.0.0.1',port:0,token:'collaborator',hostToken:'host-secret',configPath:join(root,'server.json'),approval:{mode:'auto',timeoutMs:1000},corsOrigins:[],workspaces:[],authorizedRoots:[],readOnly:false,startedAt:Date.now(),tokenSource:'cli',hostTokenSource:'cli',logFormat:'pretty',logRequests:false};
+  server=await startServer(config,{mail:service});const base=`http://127.0.0.1:${server.port}/mail/v1`;
+  const post=(path:string,value:unknown,token='host-secret')=>fetch(base+path,{method:'POST',headers:{'content-type':'application/json','x-legalwork-host-token':token},body:JSON.stringify(value)});
+  const drafts='/accounts/a/drafts/',actions='/accounts/a/actions/',events='/accounts/a/events/query';
+  expect((await post(drafts+'query',{})).status).toBe(423);await service.unlock();
+  expect((await post(drafts+'query',{},'collaborator')).status).toBe(401);
+  expect((await post('/accounts/foreign/drafts/query',{})).status).toBe(404);
+  expect((await post(drafts+'query',{ownerId:'foreign-owner'})).status).toBe(400);
+  const firstEvents=await (await post(events,{limit:25})).json();expect(firstEvents.items.length).toBeLessThan(25);expect(firstEvents.hasMore).toBe(true);
+  const seen=new Set<number>();let eventPage=firstEvents;
+  for(let page=0;page<10;page++){for(const item of eventPage.items){expect(seen.has(item.sequence)).toBe(false);seen.add(item.sequence);}if(!eventPage.hasMore)break;eventPage=await (await post(events,{stream:eventPage.stream,after:eventPage.nextCursor,limit:25})).json();}
+  expect(seen.size).toBe(26);const initial=eventPage;
+  const input={draftId:randomUUID(),expected:null,content:{from:'sender@example.test',senderIdentityId:createHash('sha256').update(JSON.stringify(['a','sender@example.test'])).digest('hex'),subject:'Local draft',to:['recipient@example.test'],text:'Private synthetic body'}};
+  const savedResponse=await post(drafts+'save',input);expect(savedResponse.status).toBe(200);expect(savedResponse.headers.get('cache-control')).toBe('no-store');const saved=await savedResponse.json();
+  expect((await (await post(drafts+'save',input)).json()).version).toEqual(saved.version);
+  const request={replayKey:'submission-one',draftId:saved.id,version:saved.version};
+  const submission=await post(actions+'submission',request);expect(submission.status).toBe(200);const queued=await submission.json();expect(queued.state).toBe('queued');expect(queued.executionSupported).toBe(true);expect(queued.id).not.toBe(saved.id);
+  const edited=await (await post(drafts+'save',{...input,expected:saved.version,content:{...input.content,text:'Edited body'}})).json();
+  expect((await post(drafts+'save',{...input,expected:saved.version,content:{...input.content,text:'Stale edit'}})).status).toBe(409);
+  expect((await (await post(drafts+'read',{draftId:saved.id,version:saved.version})).json()).content.text).toBe('Private synthetic body');
+  expect((await (await post(actions+'submission',request)).json()).id).toBe(queued.id);
+  expect((await post(actions+'submission',{...request,version:edited.version})).status).toBe(409);
+  const changes=await (await post(events,{stream:initial.stream,after:initial.nextCursor,limit:1})).json();expect(changes.items).toHaveLength(1);expect(changes.hasMore).toBe(true);expect(JSON.stringify(changes)).not.toContain('Private synthetic body');
+  const next=await (await post(events,{stream:changes.stream,after:changes.nextCursor})).json();expect(next.items.some((item:{kind:string})=>item.kind==='action.changed')).toBe(true);
+  await service.lock();expect((await post(actions+'read',{actionId:queued.id})).status).toBe(423);await service.unlock();
+  expect((await (await post(actions+'submission',request)).json()).id).toBe(queued.id);
+  expect((await (await post(drafts+'read',{draftId:saved.id})).json()).content.text).toBe('Edited body');
+  const cancelled=await (await post(actions+'cancel',{actionId:queued.id,expected:queued.version})).json();expect(cancelled.state).toBe('cancelled');
+  const bytes=Buffer.alloc(40000,47),sha256=createHash('sha256').update(bytes).digest('hex'),uploadId=randomUUID();let referenceId='';
+  for(let offset=0;offset<bytes.length;offset+=16384){const chunk=bytes.subarray(offset,offset+16384),complete=offset+chunk.length===bytes.length,upload={uploadId,offset,totalBytes:bytes.length,sha256,data:chunk.toString('base64'),complete};const response=await post(drafts+'upload',upload);expect(response.status).toBe(200);const value=await response.json();expect(value.nextOffset).toBe(offset+chunk.length);if(complete)referenceId=value.referenceId;}
+  const attached={draftId:randomUUID(),expected:null,content:{...input.content,from:'sender@example.test',bcc:['hidden@example.test'],inReplyTo:'<original@example.test>',references:['<original@example.test>'],attachments:[{locator:null,partId:uploadId,referenceId,filename:'秘密.txt',contentType:'text/plain'}]}};
+  const uploadedResponse=await post(drafts+'save',attached);expect(uploadedResponse.status).toBe(200);const uploaded=await uploadedResponse.json();await service.lock();await service.unlock();const part=await post(drafts+'attachment',{draftId:uploaded.id,version:uploaded.version,ordinal:0,referenceId,offset:16380,limit:30});expect(part.status).toBe(200);expect(Buffer.from((await part.json()).chunk.data,'base64')).toEqual(bytes.subarray(16380,16410));
+  const routes:Route[]=[];registerMailRoutes(routes,'0.0.0.0',service);expect(routes).toHaveLength(0);
+ }finally{await server?.stop();await service?.stop();key.fill(0);for(const name of envNames){const old=originalEnv.get(name);if(old===undefined)delete process.env[name];else process.env[name]=old;}await rm(root,{recursive:true,force:true});}
+},60000);

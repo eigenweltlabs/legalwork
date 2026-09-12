@@ -1,3 +1,6 @@
+import {configureMailDesktop} from './mail-desktop.mjs';
+import {configureMailPortability} from "./mail-portability.mjs";
+import { configureMailBadge } from "./app-badge.mjs";
 import { randomUUID } from "node:crypto";
 import { spawn, spawnSync } from "node:child_process";
 import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
@@ -10,6 +13,8 @@ import { pathToFileURL } from "node:url";
 
 import { createOfficeAddinManager } from "./office-addin-manager.mjs";
 import { ensureOpencodeStateDir } from "./opencode-state-dir.mjs";
+import { createDesktopMailService } from "./mail-runtime.mjs";
+import { applyEmbeddedServerEnvironment } from "./runtime-environment.mjs";
 
 const __runtimeDir = path.dirname(fileURLToPath(import.meta.url));
 
@@ -1292,7 +1297,7 @@ export function createRuntimeManager({ app, desktopRoot, listLocalWorkspacePaths
 
     // Inject user env vars so the server and managed OpenCode inherit them.
     const serverEnv = await buildChildEnv({});
-    Object.assign(process.env, serverEnv);
+    applyEmbeddedServerEnvironment(process.env, serverEnv);
 
     // Once the embedded server has a persisted registry, it is the source of
     // truth. Do not pass Electron's legacy workspace list as CLI workspaces or
@@ -1324,10 +1329,22 @@ export function createRuntimeManager({ app, desktopRoot, listLocalWorkspacePaths
       throw new Error(`Cannot find LegalWork embedded server bundle. Checked: ${candidates.join(", ")}`);
     }
     const { startEmbeddedServer } = await import(pathToFileURL(embeddedPath).href);
+    let mail;
+    if (!options.remoteAccessEnabled) {
+      const { safeStorage, nativeImage, BrowserWindow, Notification, powerMonitor } = await import("electron");
+      mail = await createDesktopMailService({ app, embeddedPath, safeStorage });
+      configureMailPortability(mail);
+      await configureMailBadge({ app, nativeImage, BrowserWindow, service: mail });
+      await configureMailDesktop({app,service:mail,Notification,powerMonitor});
+      // Reuse normal keychain preflight/unlock for existing profiles, including rotated stores.
+      const mailDirectory = path.join(app.getPath("userData"), "mail");
+      if (existsSync(path.join(mailDirectory, "mail.sqlite")) || existsSync(path.join(mailDirectory, "active-store-v1.json"))) void mail.unlock().catch(() => {});
+    }
     // startEmbeddedServer falls back to an OS-assigned port if `port` races
     // into EADDRINUSE (see apps/server/src/serve-node.ts), so the bound port
     // below is authoritative.
-    const handle = await startEmbeddedServer({
+    let handle;
+    try { handle = await startEmbeddedServer({
       host,
       port: portSelection.port,
       corsOrigins: ["*"],
@@ -1341,6 +1358,7 @@ export function createRuntimeManager({ app, desktopRoot, listLocalWorkspacePaths
       manageOpencode: options.manageOpencode === true,
       opencodeBin: managedOpencode?.path ?? undefined,
       opencodeCwd: managedOpencodeWorkdir(),
+      opencodeHome: process.env.LEGALWORK_DEV_MODE === "1" ? serverEnv.HOME : undefined,
       // Native folder picker for webview clients (Office task pane): the
       // pane cannot open OS dialogs itself, so the server forwards here.
       // Focus is stolen because the request originates from another app
@@ -1366,10 +1384,14 @@ export function createRuntimeManager({ app, desktopRoot, listLocalWorkspacePaths
         return result.canceled ? null : (result.filePaths[0] ?? null);
       },
       recorder,
+      mail,
       // Word/Excel/PowerPoint add-in listener — enabled via the Office Add-ins
       // settings tab; null when not installed so the listener stays off.
       ...(officeAddinManager.serverConfig() ?? {}),
-    });
+    }); } catch (error) {
+      await mail?.stop();
+      throw error;
+    }
     inProcessServer = handle;
     legalworkServerState.managedOpencodeExecution = handle.managedOpencodeExecution ?? null;
 

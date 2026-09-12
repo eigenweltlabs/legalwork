@@ -1,0 +1,41 @@
+import {OutboxStore} from './outbox.js';
+import {SenderIdentityRepository} from './sender-identities.js';
+import {GmailRunStore} from './gmail-state.js';
+import {test} from 'node:test';import assert from 'node:assert/strict';import {createHash,randomBytes,randomUUID} from 'node:crypto';import {mkdtemp,rm,readFile} from 'node:fs/promises';import {join} from 'node:path';import {tmpdir} from 'node:os';
+import {openEncryptedMailDatabase} from './database.js';import {migrateMailSchema,MAIL_SCHEMA_VERSION} from './schema.js';import {MailRepository} from './repository.js';import {MailCredentialRepository} from './credentials.js';import {MailActionJournal} from './action-journal.js';import {MailLocalApiStore} from './local-api.js';import {MailContentStore} from './content-store.js';import {resetMailLocalEventStreams} from './local-schema.js';
+const locator={provider:'gmail',messageId:'original'},binding={provider:'gmail',clientId:'test.apps.googleusercontent.com',authority:'https://accounts.google.com',providerSubject:'stable-subject'};
+const content=(extra={})=>({subject:'Synthetic local draft',to:['receiver@example.test'],cc:[],bcc:[],from:null,text:'PRIVATE_DRAFT_BODY_MARKER',html:null,attachments:[],...extra});
+async function fixture(body){const dir=await mkdtemp(join(tmpdir(),'mail-local-api-')),path=join(dir,'mail.sqlite'),key=randomBytes(32);let db=await openEncryptedMailDatabase({path,key});migrateMailSchema(db);const f={get db(){return db;},path,get api(){return new MailLocalApiStore(db,'owner',()=>10000);},get repo(){return new MailRepository(db,'owner');},get credentials(){return new MailCredentialRepository(db,'owner',()=>10000);},get content(){return new MailContentStore(db,'owner');},async reopen(){db.close();db=await openEncryptedMailDatabase({path,key});}};
+ for(const id of ['a','b'])f.repo.createAccount({id,provider:'gmail',displayName:'Local'});new MailRepository(db,'other').createAccount({id:'foreign',provider:'gmail',displayName:'Private'});for(const id of ['a','b'])f.credentials.connect(id,{...binding,providerSubject:id},null,{accessToken:'synthetic',expiresAt:999999,grantedScopes:['https://www.googleapis.com/auth/gmail.modify'],refreshToken:{action:'clear'}});f.repo.putFolder('a',{id:'INBOX',name:'Inbox',kind:'label'});f.repo.ingestMessage('a',{locator,subject:'Original',rfcMessageId:null,memberships:['INBOX']});try{await body(f);}finally{db.close();key.fill(0);await rm(dir,{recursive:true,force:true});}}
+
+test('upload retries, scope, verification, cleanup, pinned bytes and restart',()=>fixture(async f=>{
+ const bytes=Buffer.alloc(70000,42),uploadId=randomUUID(),sha256=createHash('sha256').update(bytes).digest('hex'),base={uploadId,totalBytes:bytes.length,sha256};
+ let last;for(let offset=0;offset<bytes.length;offset+=16384){const chunk=bytes.subarray(offset,offset+16384),input={...base,offset,data:chunk.toString('base64'),complete:offset+chunk.length===bytes.length};last=f.api.uploadDraft('a',input);assert.deepEqual(f.api.uploadDraft('a',input),last);if(offset===0){assert.throws(()=>f.api.uploadDraft('b',{...input,offset:16384}),{code:'conflict'});assert.throws(()=>f.api.uploadDraft('foreign',input),{code:'not_found'});await f.reopen();}}
+ assert.equal(last.referenceId,'draft:sha256:'+sha256);const part={locator:null,partId:uploadId,referenceId:last.referenceId,filename:'秘密.txt',contentType:'text/plain'};
+ assert.throws(()=>f.api.saveDraft('b',{draftId:randomUUID(),expected:null,content:content({attachments:[part]})}),{code:'not_found'});
+ const identity=new SenderIdentityRepository(f.db,'owner').replace('a',f.credentials.status('a').version.generation,[{address:'self@example.test',displayName:'Self',primary:true,default:true}])[0];
+ const draft=f.api.saveDraft('a',{draftId:randomUUID(),expected:null,content:content({from:identity.address,senderIdentityId:identity.id,attachments:[part],inReplyTo:'<parent@example.test>',references:['<root@example.test>','<parent@example.test>']})});
+ const action=await new OutboxStore(f.db,'owner').queue('a',{replayKey:'upload-send',draftId:draft.id,version:draft.version});f.api.deleteDraft('a',{draftId:draft.id,expected:draft.version});await f.reopen();assert.equal(f.api.readAction('a',action.id).executionSupported,true);
+ const range=f.api.readDraftAttachment('a',{draftId:draft.id,version:draft.version,ordinal:0,referenceId:last.referenceId,offset:65530,limit:20});assert.equal(Buffer.from(range.chunk.data,'base64').length,20);assert.ok(Buffer.from(range.chunk.data,'base64').equals(bytes.subarray(65530,65550)));
+ f.api.uploadDraft('a',{uploadId,totalBytes:bytes.length,sha256,offset:0,data:'',complete:false,cancel:true});assert.ok([...f.content.read('a',last.referenceId)].length>0);
+ const quotaId='draft-upload:'+randomUUID();f.db.run("INSERT INTO mail_blob_objects(account_id,id,state,bytes,chunk_count) VALUES(?,?,'staging',?,0)",['a',quotaId,50*1024*1024]);const small={uploadId:randomUUID(),totalBytes:1,sha256:createHash('sha256').update('x').digest('hex'),offset:0,data:'eA==',complete:true};assert.throws(()=>f.api.uploadDraft('a',small),{code:'invalid_input'});f.api.uploadDraft('a',{...small,uploadId:quotaId.slice('draft-upload:'.length),cancel:true,data:''});assert.equal(f.api.uploadDraft('a',small).bytes,1);assert.throws(()=>f.api.uploadDraft('a',{...small,uploadId:randomUUID(),totalBytes:10*1024*1024+1}),{code:'invalid_input'});
+ const bad={uploadId:randomUUID(),totalBytes:3,sha256:'0'.repeat(64),offset:0,data:Buffer.from('bad').toString('base64'),complete:true};assert.throws(()=>f.api.uploadDraft('a',bad),{code:'invalid_input'});assert.equal(f.db.get('SELECT id FROM mail_blob_objects WHERE id=?',['draft-upload:'+bad.uploadId]),undefined);
+ const interrupted={...bad,complete:false};f.api.uploadDraft('a',interrupted);assert.throws(()=>f.api.uploadDraft('a',{...interrupted,data:Buffer.from('new').toString('base64')}),{code:'conflict'});f.api.uploadDraft('a',{...bad,cancel:true,data:''});assert.equal(f.db.get('SELECT id FROM mail_blob_objects WHERE id=?',['draft-upload:'+bad.uploadId]),undefined);
+ for(const path of [f.path,f.path+'-wal'])assert.equal((await readFile(path)).includes(Buffer.from('PRIVATE_DRAFT_BODY_MARKER')),false);
+}));
+
+test('same-content uploads reuse verified publication without orphan objects; final retries survive reopen',()=>fixture(async f=>{
+ const bytes=Buffer.alloc(40000,83),sha256=createHash('sha256').update(bytes).digest('hex');let referenceId;
+ for(let attempt=0;attempt<3;attempt++){
+  const uploadId=randomUUID();let final;
+  for(let offset=0;offset<bytes.length;offset+=16384){const chunk=bytes.subarray(offset,offset+16384);final={uploadId,totalBytes:bytes.length,sha256,offset,data:chunk.toString('base64'),complete:offset+chunk.length===bytes.length};referenceId=f.api.uploadDraft('a',final).referenceId;}
+  await f.reopen();assert.equal(f.api.uploadDraft('a',final).referenceId,referenceId);
+  assert.equal(f.db.get("SELECT count(*) n FROM mail_blob_objects WHERE account_id='a'").n,1);
+  assert.equal(f.db.get("SELECT count(*) n FROM mail_blob_chunks WHERE account_id='a'").n,1);
+  assert.equal(f.db.get("SELECT count(*) n FROM mail_blob_publications WHERE account_id='a'").n,1);
+ }
+ assert.deepEqual(Buffer.concat([...f.content.read('a',referenceId)]),bytes);
+ // A digest label is not enough: corruption of the dedup target must stop reuse.
+ f.db.run("UPDATE mail_blob_chunks SET data=? WHERE account_id='a'",[Buffer.alloc(40000,84)]);
+ assert.throws(()=>f.api.uploadDraft('a',{uploadId:randomUUID(),totalBytes:bytes.length,sha256,offset:32768,data:bytes.subarray(32768).toString('base64'),complete:true}),{code:'unavailable'});
+}));
