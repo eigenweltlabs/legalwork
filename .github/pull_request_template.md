@@ -39,3 +39,7 @@
 
 ## Rollback
 -
+
+## Contribution rights
+- Read [CONTRIBUTING.md](../CONTRIBUTING.md) and the DCO, then sign off your own commits with `git commit -s`.
+- List any third-party code, its source and licence here:
