@@ -17,6 +17,8 @@ export const mailDraftSaveSchema=z.object({draftId:uuid,expected:mailLocalVersio
 export const mailDraftReadSchema=z.object({draftId:uuid,version:mailLocalVersionSchema.optional()}).strict();
 export const mailDraftDeleteSchema=z.object({draftId:uuid,expected:mailLocalVersionSchema}).strict();
 export const mailLocalPageSchema=z.object({after:id.optional(),limit:z.number().int().min(1).max(25).default(20)}).strict();
+export const mailActionPageInputSchema=mailLocalPageSchema.extend({pendingOnly:z.boolean().default(false)});
+export type MailActionPageInput=z.input<typeof mailActionPageInputSchema>;
 export const mailDraftSummarySchema=z.object({id:uuid,version:mailLocalVersionSchema,updatedAt:integer,deleted:z.boolean(),subject:header}).strict();
 export const mailDraftViewSchema=mailDraftSummarySchema.extend({content:mailDraftContentSchema}).strict();
 export const mailDraftPageSchema=z.object({accountId:id,items:z.array(mailDraftSummarySchema).max(25),nextCursor:id.nullable()}).strict();
@@ -24,6 +26,7 @@ const replay=z.string().regex(/^[\x21-\x7e]{1,256}$/);
 export const mailSubmissionSchema=z.object({replayKey:replay,draftId:uuid,version:mailLocalVersionSchema}).strict();
 export const mailMutationSchema=z.object({replayKey:replay,locator:providerMessageLocatorSchema.optional(),precondition:z.string().min(1).max(4096),change:z.discriminatedUnion('kind',[
   z.object({kind:z.literal('read'),read:z.boolean()}).strict(),
+ z.object({kind:z.literal('special'),operation:z.enum(['archive','trash','spam','inbox'])}).strict(),
  z.object({kind:z.literal('flags'),add:z.array(z.string().max(128)).max(100),remove:z.array(z.string().max(128)).max(100)}).strict(),
  z.object({kind:z.literal('move'),destination:id}).strict(),
  z.object({kind:z.literal('copy'),destination:id}).strict(),
@@ -34,10 +37,10 @@ export const mailMutationSchema=z.object({replayKey:replay,locator:providerMessa
 export const mailActionReadSchema=z.object({actionId:uuid}).strict();
 export const mailActionCancelSchema=z.object({actionId:uuid,expected:mailLocalVersionSchema}).strict();
 const actionState=z.enum(['queued','running','dispatching','retry','succeeded','failed','cancelled','uncertain']);
-export const mailLocalActionSchema=z.object({id:uuid,kind:z.enum(['mutation','submission']),state:actionState,version:mailLocalVersionSchema,attempts:integer,maxAttempts:integer,availableAt:integer,cancelRequested:z.boolean(),lastError:z.enum(['preflight_retryable','preflight_permanent','lease_expired','outcome_unknown','rejected','conflict','cancelled','reconciled']).nullable(),conflictPolicy:z.enum(['manual','refresh_then_reapply']),executionSupported:z.boolean(),providerResult:z.enum(['confirmed','unknown','unsupported','conflict','rejected']).nullable().optional(),credentialCurrent:z.boolean()}).strict();
+export const mailLocalActionSchema=z.object({id:uuid,kind:z.enum(['mutation','submission']),state:actionState,version:mailLocalVersionSchema,attempts:integer,maxAttempts:integer,availableAt:integer,cancelRequested:z.boolean(),lastError:z.enum(['preflight_retryable','preflight_permanent','lease_expired','outcome_unknown','rejected','conflict','cancelled','reconciled']).nullable(),conflictPolicy:z.enum(['manual','refresh_then_reapply']),mutation:mailMutationSchema.omit({replayKey:true}).nullable().optional(),executionSupported:z.boolean(),providerResult:z.enum(['confirmed','unknown','unsupported','conflict','rejected']).nullable().optional(),credentialCurrent:z.boolean()}).strict();
 export const mailActionPageSchema=z.object({accountId:id,items:z.array(mailLocalActionSchema).max(25),nextCursor:id.nullable()}).strict();
 const stream=z.string().regex(/^[0-9a-f]{32}$/);
-export const mailEventQuerySchema=z.object({stream:stream.optional(),after:integer.default(0),limit:z.number().int().min(1).max(25).default(20)}).strict().refine(value=>value.after===0||value.stream!==undefined);
+export const mailEventQuerySchema=z.object({stream:stream.optional(),after:integer.default(0),cursorOnly:z.boolean().default(false),limit:z.number().int().min(1).max(25).default(20)}).strict().refine(value=>value.after===0||value.stream!==undefined);
 const eventBase=z.object({sequence:integer.min(1)});
 export const mailLocalEventSchema=z.discriminatedUnion('kind',[
  eventBase.extend({kind:z.literal('draft.saved'),entityId:uuid,state:z.literal('active'),version:mailLocalVersionSchema}).strict(),
@@ -64,7 +67,7 @@ export const mailLocalCommandSchema=z.discriminatedUnion('operation',[
  z.object({operation:z.literal('mail.local.action.submission'),accountId:id,input:mailSubmissionSchema}).strict(),
  z.object({operation:z.literal('mail.local.action.mutation'),accountId:id,input:mailMutationSchema}).strict(),
  z.object({operation:z.literal('mail.local.action.read'),accountId:id,input:mailActionReadSchema}).strict(),
- z.object({operation:z.literal('mail.local.action.list'),accountId:id,input:mailLocalPageSchema}).strict(),
+ z.object({operation:z.literal('mail.local.action.list'),accountId:id,input:mailActionPageInputSchema}).strict(),
  z.object({operation:z.literal('mail.local.action.cancel'),accountId:id,input:mailActionCancelSchema}).strict(),
  z.object({operation:z.literal('mail.local.events'),accountId:id,input:mailEventQuerySchema}).strict(),
 ]);

@@ -19,7 +19,7 @@ test('real OAuth callback → encrypted account → account-owned worker, duplic
  const dir=await mkdtemp(join(tmpdir(),'mail-auto-sync-')),path=join(dir,'mail.sqlite'),key=randomBytes(32),entry=join(dir,'worker.mjs'),mode=join(dir,'mode.json'),log=join(dir,'calls.jsonl');let service;
  await writeFile(mode,JSON.stringify({offline:false}));await writeFile(log,'');
  await writeFile(entry,`
- import {readFile,appendFile} from 'node:fs/promises';
+ import {readFile,appendFile,writeFile} from 'node:fs/promises';
  const mime=Buffer.from('From: Sender <sender@example.test>\\r\\nTo: owner@example.test\\r\\nSubject: Automatic arrival\\r\\n\\r\\nStored offline body');
  globalThis.fetch=async(input,init={})=>{
   const url=new URL(input),flags=JSON.parse(await readFile(${JSON.stringify(mode)},'utf8'));
@@ -28,13 +28,14 @@ test('real OAuth callback → encrypted account → account-owned worker, duplic
   if(url.pathname.includes('userinfo'))return Response.json({sub:subject,email:subject+'@example.test',email_verified:true,name:subject});
   if(url.pathname==='/v1.0/me')return Response.json({id:subject,mail:subject+'@example.test',displayName:subject});
   if(url.pathname.endsWith('/profile'))return Response.json({emailAddress:subject+'@example.test',historyId:'1',messagesTotal:1,threadsTotal:1});
-  await appendFile(${JSON.stringify(log)},JSON.stringify({subject,path:url.pathname})+'\\n');
+  await appendFile(${JSON.stringify(log)},JSON.stringify({subject,path:url.pathname,format:url.searchParams.get('format'),method:init.method||'GET'})+'\\n');
   if(flags.offline)throw Error('synthetic offline');
   if(url.hostname==='gmail.googleapis.com'){
-   if(url.pathname.endsWith('/labels'))return Response.json({labels:[{id:'INBOX',name:'Inbox',type:'system'}]});
-   if(url.pathname.endsWith('/history'))return Response.json({historyId:'1'});
+   if(url.pathname.endsWith('/labels'))return Response.json({labels:[{id:'INBOX',name:'Inbox',type:'system'},{id:'STARRED',name:'Starred',type:'system'}]});
+   if(url.pathname.endsWith('/history'))return Response.json(flags.starred?{historyId:'2',history:[{id:'2',labelsAdded:[{message:{id:'one',threadId:'thread'},labelIds:['STARRED']}]}]}:{historyId:'1'});
+   if(url.pathname.endsWith('/messages/one/modify')){await writeFile(${JSON.stringify(mode)},JSON.stringify({...flags,starred:true}));return Response.json({id:'one',labelIds:['INBOX','STARRED']});}
    if(url.pathname.endsWith('/messages'))return Response.json({messages:[{id:'one',threadId:'thread'}],resultSizeEstimate:1});
-   if(url.pathname.endsWith('/messages/one'))return Response.json({id:'one',threadId:'thread',labelIds:['INBOX'],historyId:'1',internalDate:'1000',sizeEstimate:mime.length,raw:mime.toString('base64url')});
+   if(url.pathname.endsWith('/messages/one'))return Response.json({id:'one',threadId:'thread',labelIds:flags.starred?['INBOX','STARRED']:['INBOX'],historyId:flags.starred?'2':'1',internalDate:'1000',sizeEstimate:mime.length,raw:mime.toString('base64url')});
   }
   if(url.hostname==='graph.microsoft.com'){
    if(url.pathname==='/v1.0/me/mailFolders')return Response.json({value:[{id:'inbox',displayName:'Inbox',parentFolderId:'root',childFolderCount:0}]});
@@ -54,6 +55,12 @@ test('real OAuth callback → encrypted account → account-owned worker, duplic
   assert.equal((await service.listMessages(first.accountId,{})).items[0].subject,'Automatic arrival');
   const db=await openEncryptedMailDatabase({path,key});
   try {assert.equal(db.get('SELECT count(*) AS n FROM mail_account_credentials').n,1);assert.equal(db.get('SELECT count(*) AS n FROM mail_gmail_runs').n,1);}finally{db.close();}
+  const cursorBefore=await service.listEvents(first.accountId,{cursorOnly:true});
+  const initial=await service.readMessage(first.accountId,{provider:'gmail',messageId:'one'});
+  const action=await service.enqueueMutation(first.accountId,{replayKey:'worker-flag',locator:initial.locator,precondition:initial.mutationPrecondition,change:{kind:'flags',add:['\\Flagged'],remove:[]}});
+  await until(async()=> (await service.readAction(first.accountId,action.id)).state==='succeeded');
+  await until(async()=> (await service.readMessage(first.accountId,initial.locator)).isFlagged===true);
+  const cursorAfter=await service.listEvents(first.accountId,{cursorOnly:true});assert.ok(cursorAfter.nextCursor>cursorBefore.nextCursor);assert.deepEqual(cursorAfter.items,[]);
   for(let n=0;n<3;n++)assert.equal((await service.connectionStatus(first.begun.connectionId)).accountId,first.accountId);
   await Promise.all([service.startSync(first.accountId),service.startSync(first.accountId)]);
   const second=await connect(service,'gmail','second');await until(async()=> (await service.syncStatus(second.accountId)).state==='complete');
@@ -68,6 +75,6 @@ test('real OAuth callback → encrypted account → account-owned worker, duplic
   const recovery=await openEncryptedMailDatabase({path,key});try{recovery.run('UPDATE mail_gmail_runs SET next_retry_at=NULL WHERE account_id=?',[offline.accountId]);}finally{recovery.close();}
   await connect(service,'gmail','offline',offline.accountId);await until(async()=> (await service.syncStatus(offline.accountId)).state==='complete');
   assert.equal((await service.listMessages(offline.accountId,{})).items.length,1);
-  const calls=(await readFile(log,'utf8')).trim().split('\n').map(JSON.parse);assert.equal(calls.filter(c=>c.subject==='first'&&c.path.endsWith('/messages/one')).length,1);
+  const calls=(await readFile(log,'utf8')).trim().split('\n').map(JSON.parse);assert.equal(calls.filter(c=>c.subject==='first'&&c.path.endsWith('/messages/one')&&c.format==='raw').length,1);
  }finally{await service?.stop();key.fill(0);await rm(dir,{recursive:true,force:true});}
 });

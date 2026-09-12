@@ -1,4 +1,4 @@
-import {storedImapPrecondition} from './imap-incremental.js';
+import {storedMutationPrecondition} from './mutation-precondition.js';
 import { z } from "zod";
 import { providerMessageLocatorSchema, type ProviderMessageLocator } from "../model.js";
 import { mailMessagePageSchema, mailMessageViewSchema, mailPartPageSchema, mailPartViewSchema, mailContentReadSchema,
@@ -45,8 +45,17 @@ export class MailReadStore {
       WHERE p.account_id=? AND p.message_key=? AND p.state='complete' AND m.kind='raw' AND m.state='stored'`, [accountId, message.message_key]);
     const metadata = typeof row?.metadata_json === "string" ? z.object({ metadata: mimeMetadataSchema }).parse(JSON.parse(row.metadata_json)).metadata : null;
     const removed = !!this.database.get("SELECT 1 FROM mail_tombstones WHERE account_id=? AND message_key=?", [accountId, message.message_key]);
+    const flags = locator.provider === 'imap' ? this.database.get('SELECT flags_json FROM mail_imap_messages WHERE account_id=? AND message_key=?', [accountId, message.message_key]) : null;
+    const graph = locator.provider === 'graph' ? this.database.get('SELECT metadata_json FROM mail_graph_messages WHERE account_id=? AND message_key=?', [accountId, message.message_key]) : null;
+    const isFlagged = locator.provider === 'gmail' ? message.memberships.includes('STARRED')
+      : typeof flags?.flags_json === 'string' ? z.array(z.string()).parse(JSON.parse(flags.flags_json)).includes('\\Flagged')
+      : typeof graph?.metadata_json === 'string' ? z.object({flag:z.object({flagStatus:z.string()}).optional()}).parse(JSON.parse(graph.metadata_json)).flag?.flagStatus === 'flagged' : null;
+    const observed = this.database.get('SELECT is_read FROM mail_messages WHERE account_id=? AND message_key=?',[accountId,message.message_key]);
+    const mutationPrecondition=storedMutationPrecondition(this.database,accountId,locator);
     return mailMessageViewSchema.parse({ accountId, key: message.message_key, locator: message.locator, subject: message.subject,
-      rfcMessageId: message.rfc_message_id, threadId: message.thread_id, memberships: message.memberships, removed, contentState: message.contentState, rawReferenceId: message.content.find(part=>part.kind==='raw')?.ref_id??null, metadata, mutationPrecondition:storedImapPrecondition(this.database,accountId,locator) });
+      rfcMessageId: message.rfc_message_id, threadId: message.thread_id, memberships: message.memberships, removed, contentState: message.contentState, rawReferenceId: message.content.find(part=>part.kind==='raw')?.ref_id??null, metadata, isFlagged,
+      isRead: locator.provider === 'gmail' ? (mutationPrecondition === null ? null : !message.memberships.includes('UNREAD')) : observed?.is_read == null ? null : observed.is_read === 1,
+      mutationPrecondition });
   }
   list(accountId: string, supplied: MailMessagePageInput) {
     // This bounded owner check precedes cursor/filter handling and every result query.
