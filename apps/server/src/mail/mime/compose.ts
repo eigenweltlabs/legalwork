@@ -15,6 +15,10 @@ export async function buildMailMime(content: MailComposeContent, options: {
  attachment: (part: MailComposeContent['attachments'][number], ordinal: number) => Promise<Uint8Array>;
  messageId?: string; date?: Date;
 }): Promise<{raw:Uint8Array;envelope:{from:string;to:string[]};messageId:string;requiresSmtpUtf8:boolean;requires8BitMime:boolean}> {
+ // This serializer supports ASCII mailbox/header identifiers; Unicode display content
+ // is encoded separately. Never truncate an SMTPUTF8 mailbox through the byte-string path.
+ if([content.from??'',...content.to,...content.cc,...content.bcc].some(value=>/[^\x00-\x7f]/.test(value)))throw Error('SMTPUTF8 mailbox addresses are not supported. Use an ASCII mailbox address.');
+ if([content.inReplyTo??'',...content.references,options.messageId??''].some(value=>/[^\x00-\x7f]/.test(value)))throw Error('Message identifiers must contain ASCII characters only.');
  const draft=mailDraftContentSchema.parse(content),from=mailAddressSchema.parse(draft.from);
  if(draft.editor){for(const field of ['to','cc','bcc']){const text=field==='to'?draft.editor.to:field==='cc'?draft.editor.cc:draft.editor.bcc,expected=field==='to'?draft.to:field==='cc'?draft.cc:draft.bcc;
   const values=text.split(/[,;]/).filter(value=>value.trim()).map(value=>(value.match(/<([^<>]+)>/)?.[1]??value).trim());if(values.some(value=>!mailAddressSchema.safeParse(value).success)||JSON.stringify(values)!==JSON.stringify(expected))throw Error('Complete every recipient address before sending.');}
@@ -46,5 +50,5 @@ export async function buildMailMime(content: MailComposeContent, options: {
  if(attachments.length)body=multipart('mixed',[body,...attachments],boundaries[2]);
  const headers=[`From: ${from}`,...(draft.to.length?[`To: ${draft.to.join(',\r\n ')}`]:[]),...(draft.cc.length?[`Cc: ${draft.cc.join(',\r\n ')}`]:[]),`Subject: ${encoded(draft.subject)}`,`Date: ${date.toUTCString()}`,`Message-ID: ${messageId}`,...(draft.inReplyTo?[`In-Reply-To: ${draft.inReplyTo}`]:[]),...(draft.references.length?[`References: ${draft.references.join('\r\n ')}`]:[]),'MIME-Version: 1.0'];
  const raw=Buffer.from(headers.join('\r\n')+'\r\n'+body+'\r\n','latin1');if(raw.length>MAIL_MESSAGE_LIMIT)throw Error('The encoded message exceeds 30 MiB.');
- return{raw,envelope:{from,to:recipients},messageId,requiresSmtpUtf8:/[^\x00-\x7f]/.test(from+recipients.join('')),requires8BitMime:raw.some(byte=>byte>127)};
+ return{raw,envelope:{from,to:recipients},messageId,requiresSmtpUtf8:false,requires8BitMime:raw.some(byte=>byte>127)};
 }
