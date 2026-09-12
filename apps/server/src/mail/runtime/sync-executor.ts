@@ -4,7 +4,7 @@ import type { MailSyncJournal, SyncDownloadJob, SyncJob, SyncMetadataWriter, Syn
 
 /** Explicit handler failure; arbitrary provider exceptions are always redacted and retryable. */
 export class MailSyncExecutionFailure extends Error {
-  constructor(readonly classification: "retryable" | "permanent", readonly retryAfterMs = 0) { super("mail_sync_handler_failed"); }
+  constructor(readonly classification: "retryable" | "permanent" | "deferred", readonly retryAfterMs = 0) { super("mail_sync_handler_failed"); }
 }
 export class MailSyncExecutorError extends Error {
   constructor(readonly code: "closed" | "busy" | "capacity" | "invalid_input" | "not_found" | "unavailable" | "inactive" | "deadline") {
@@ -144,6 +144,9 @@ export class MailSyncExecutor {
       catch { return { state: "leaseLost", stop: reason ?? "lease_lost" }; }
       const permanent = !reason && failure instanceof MailSyncExecutionFailure && failure.classification === "permanent";
       const advice = failure instanceof MailSyncExecutionFailure && Number.isSafeInteger(failure.retryAfterMs) && failure.retryAfterMs >= 0 ? failure.retryAfterMs : 0;
+      if (!reason && failure instanceof MailSyncExecutionFailure && failure.classification === "deferred") {
+        journal.defer(accountId,job.id,token,Math.max(1000,advice));return {state:"retry",stop:"paused"};
+      }
       journal.fail(accountId, job.id, token, !permanent, advice);
       const retired = journal.readJob(accountId, job.id);
       return { state: retired?.state === "failed" ? "failed" : "retry", stop: reason };

@@ -113,7 +113,13 @@ export class GmailBackfill {
       throw new GmailBackfillError("busy");
     }
     if (this.pendingOperation) throw new GmailBackfillError("busy");
-    const run = this.runs.startOrResume(accountId);
+    let run = this.runs.startOrResume(accountId);
+    if (run.error === "rate_limited" || run.error === "provider_unavailable") {
+      // Recover legacy downloads exhausted by account-wide throttling; permanent content failures stay failed.
+      const due=Math.max(run.nextRetryAt??0,Date.now()+60000);
+      const recovered=this.options.database.run("UPDATE mail_sync_jobs SET state='queued',attempts=0,available_at=?,lease_token=NULL,lease_until=NULL WHERE account_id=? AND generation=? AND state='failed' AND last_error='retryable' AND kind='raw'",[due,accountId,run.generation]);
+      if(recovered.changes)run=this.runs.setState(accountId,this.stamp(run),"active",{error:run.error,nextRetryAt:due});
+    }
 
     const session: Session = { run, abort: new AbortController(), labelsLoaded: false, pumping: false, error: null, fatal: false };
     this.current = session; this.schedule(session, 0); return this.status(accountId);
@@ -215,6 +221,7 @@ export class GmailBackfill {
       const status = this.journal.status(scope);
       if (status.jobs.queued + status.jobs.running + status.jobs.retry > 0) {
         await this.executor.run(scope); this.assert(session);
+      if(session.run.nextRetryAt!==null&&session.run.nextRetryAt>Date.now()){this.schedule(session,session.run.nextRetryAt-Date.now());return;}
         if (session.fatal) { session.run = this.runs.setState(scope.accountId, this.stamp(session.run), "attention", { error: session.error }); this.stop(session); return; }
         const next = this.options.database.get(`SELECT min(CASE WHEN j.state='running' THEN j.lease_until ELSE j.available_at END) AS due
           FROM mail_sync_jobs j JOIN mail_sync_scope_jobs s ON s.account_id=j.account_id AND s.job_id=j.id
@@ -257,8 +264,11 @@ export class GmailBackfill {
       if (this.closed || session.abort.signal.aborted) return;
       try {
         this.assert(session); const failure = classify(error);
-        const failureCount = Math.min(5, session.run.failureCount + 1), retry = failure.retry && failureCount < 5 && !this.pendingOperation;
-        const delay = Math.max(failure.delay, 1000 * 2 ** (failureCount - 1));
+        const failureCount = Math.min(5, session.run.failureCount + 1);
+        const providerRecovery = failure.code === "rate_limited" || failure.code === "provider_unavailable";
+        const retry = failure.retry && (failureCount < 5 || providerRecovery) && !this.pendingOperation;
+        // Keep offline/rate-limited accounts alive at a bounded cadence after the quick retry budget.
+        const delay = Math.max(failure.delay, failureCount >= 5 && providerRecovery ? 60000 : 1000 * 2 ** (failureCount - 1));
         const nextRetryAt = retry ? Math.min(Number.MAX_SAFE_INTEGER, Date.now() + delay) : null;
         session.run = this.runs.setState(session.run.accountId, this.stamp(session.run), retry ? "active" : "attention", { error: failure.code, nextRetryAt, failureCount });
         if (retry) this.schedule(session, delay); else this.stop(session);
@@ -278,6 +288,7 @@ export class GmailBackfill {
     const status = this.journal.status(scope);
     if (status.jobs.queued + status.jobs.retry + status.jobs.running > 0) {
       await this.executor.run(scope); this.assert(session);
+      if(session.run.nextRetryAt!==null&&session.run.nextRetryAt>Date.now()){this.schedule(session,session.run.nextRetryAt-Date.now());return;}
       if (session.fatal) { session.run = this.runs.setState(scope.accountId, this.stamp(session.run), "attention", { error: session.error }); this.stop(session); return; }
       const next = this.options.database.get(`SELECT min(CASE WHEN j.state='running' THEN j.lease_until ELSE j.available_at END) AS due FROM mail_sync_jobs j
         JOIN mail_sync_scope_jobs s ON s.account_id=j.account_id AND s.job_id=j.id WHERE s.account_id=? AND s.generation=? AND s.scope_id=? AND j.state IN ('queued','retry','running')`, [scope.accountId, scope.generation, scope.scopeId]);
@@ -389,6 +400,12 @@ export class GmailBackfill {
       }
       if (error instanceof MailSyncExecutionFailure) throw error;
       const failure = classify(error); session.error = failure.code; session.fatal ||= failure.fatal || this.pendingOperation !== undefined;
+      if (!session.fatal && failure.retry && (failure.code === "rate_limited" || failure.code === "provider_unavailable")) {
+        work.assertCurrent();this.assert(session,credentialVersion);
+        const delay=Math.max(60000,failure.delay);
+        session.run=this.runs.setState(work.job.account_id,this.stamp(session.run),"active",{error:failure.code,nextRetryAt:Math.min(Number.MAX_SAFE_INTEGER,Date.now()+delay)});
+        throw new MailSyncExecutionFailure("deferred",delay);
+      }
       if (session.fatal) this.executor.pause(work.job.account_id);
       throw new MailSyncExecutionFailure(failure.retry || failure.fatal ? "retryable" : "permanent", failure.delay);
     }
