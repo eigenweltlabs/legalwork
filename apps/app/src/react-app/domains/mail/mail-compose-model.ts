@@ -1,3 +1,4 @@
+import type {SenderIdentity} from '../../../../../server/src/mail/sender-view';
 import { mailDraftContentSchema, mailAddressSchema, type MailDraftView } from '../../../../../server/src/mail/local-view';
 import type { MailMessageView } from './mail-client';
 export type ComposeContent = MailDraftView['content'];
@@ -26,3 +27,15 @@ export function safeComposeHtml(source:string):string {
  }
  return doc.body.innerHTML;
 }
+
+/** Preserve edited signatures; replace only an exact signature previously inserted by this editor. */
+export function selectComposeSender(content:ComposeContent,identity:SenderIdentity,previousSignature=content.senderSignature):ComposeContent {
+ const suffix=previousSignature?'\n\n-- \n'+previousSignature:'';
+ let text=content.text;if(suffix&&text.endsWith(suffix))text=text.slice(0,-suffix.length);
+ const signature=identity.signature?'\n\n-- \n'+identity.signature:'';
+ const escape=(value:string)=>value.replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;').replaceAll('"','&quot;').replaceAll('\n','<br>');
+ let html=content.html;
+ if(html!==null){const old=previousSignature?'<div data-mail-signature="true">'+escape(suffix)+'</div>':'';if(old&&html.endsWith(old))html=html.slice(0,-old.length);if(signature)html+='<div data-mail-signature="true">'+escape(signature)+'</div>';}
+ return {...content,senderIdentityId:identity.id,senderSignature:identity.signature,from:identity.address,text:text+signature,html,...(content.editor?{editor:{...content.editor,from:identity.address}}:{})};
+}
+export function defaultComposeSender(identities:SenderIdentity[],reply:boolean){return identities.find(value=>value.available&&(reply?value.defaultReply:value.defaultNew))??identities.find(value=>value.available);}

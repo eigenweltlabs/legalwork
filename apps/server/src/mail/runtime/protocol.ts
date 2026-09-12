@@ -1,4 +1,5 @@
 import {draftSyncCommandSchema,draftSyncStatusSchema,type DraftSyncCommand,type DraftSyncStatus} from "../draft-sync-view.js";
+import {senderListSchema,senderSettingsSchema,senderConfigureSchema,type SenderIdentity,type SenderSettings,type SenderConfigure} from '../sender-view.js';
 import { graphMailboxInputSchema, graphMailboxIdentitySchema, graphMailboxResultSchema, type GraphMailboxInput, type GraphMailboxIdentity } from '../graph-mailbox-view.js';
 import {savedSearchInputSchema,savedSearchResultSchema,savedSearchResultMatches,type SavedSearchInput,type SavedSearchResult} from '../saved-search-view.js';
 import {imapDiscoverySchema,type ImapDiscovery,imapConnectionSchema,imapConnectionResultSchema,type ImapConnection,type ImapConnectionResult} from '../providers/imap-config.js';
@@ -35,6 +36,10 @@ export type WorkerInitialization = {
 type Page = { limit?: number; after?: string };
 export type WorkerCommand =
   | DraftSyncCommand
+  | {operation:"mail.senders.list";accountId:string}
+  | {operation:"mail.senders.refresh";accountId:string;settings?:MailOAuthSettings}
+  | {operation:"mail.senders.settings";accountId:string;input:SenderSettings}
+  | {operation:"mail.senders.configure";accountId:string;input:SenderConfigure}
   | MailExtractionCommand
   | MailLocalCommand
   | {operation:"mail.search.saved";input:SavedSearchInput}
@@ -67,6 +72,7 @@ export type WorkerAccount = { id: string; provider: "gmail" | "graph" | "imap"; 
 export type WorkerFolder = { id: string; name: string; kind: "folder" | "label"; parentId: string | null; mutationPrecondition?: string | null; role?: "inbox" };
 export type WorkerResult =
   | {draftSync:DraftSyncStatus}
+  | {senders:SenderIdentity[]}
   | {savedSearch:SavedSearchResult}
   | {extraction:MailExtractionStatus}
   | {extractionText:MailExtractionText}
@@ -178,6 +184,7 @@ function result(value: unknown): value is WorkerResult {
     || (exact(value, ["rebuilt"]) && mailSearchRebuildResultSchema.safeParse(value.rebuilt).success)
     || (exact(value,["imapDiscovery"])&&imapDiscoverySchema.safeParse(value.imapDiscovery).success)
     || (exact(value,["imapConnection"]) && imapConnectionResultSchema.safeParse(value.imapConnection).success)
+    || (exact(value,["senders"]) && senderListSchema.safeParse(value.senders).success)
     || (exact(value, ["graphMailbox"]) && graphMailboxResultSchema.safeParse(value.graphMailbox).success)
     || (exact(value, ["unreadInboxCount"]) && typeof value.unreadInboxCount === "number" && Number.isSafeInteger(value.unreadInboxCount) && value.unreadInboxCount >= 0)
     || (exact(value, ["pong"]) && value.pong === true)
@@ -221,6 +228,7 @@ export function resultMatchesCommand(command: WorkerCommand, value: WorkerResult
   switch (command.operation) {
     case "mail.draft.sync.read":case "mail.draft.sync.request":return "draftSync" in value&&value.draftSync.accountId===command.accountId&&value.draftSync.draftId===command.input.draftId;
     case "mail.graph.mailbox.configure": return "graphMailbox" in value && value.graphMailbox.identity.credentialAccountId === command.input.credentialAccountId && value.graphMailbox.identity.address === command.input.address.toLowerCase();
+    case "mail.senders.list": case "mail.senders.refresh": case "mail.senders.settings": case "mail.senders.configure": return "senders" in value && value.senders.every(sender=>sender.accountId===command.accountId);
     case "mail.badge.count": return "unreadInboxCount" in value;
     case 'mail.extraction.status':case 'mail.extraction.reset':return 'extraction' in value&&value.extraction.accountId===command.accountId&&JSON.stringify(value.extraction.locator)===JSON.stringify(command.input.locator)&&value.extraction.partId===command.input.partId&&value.extraction.referenceId===command.input.referenceId;
     case 'mail.extraction.read':return 'extractionText' in value&&value.extractionText.status.accountId===command.accountId&&JSON.stringify(value.extractionText.status.locator)===JSON.stringify(command.input.locator)&&value.extractionText.status.partId===command.input.partId&&value.extractionText.status.referenceId===command.input.referenceId&&value.extractionText.section===(command.input.section??0)&&value.extractionText.offset===(command.input.offset??0)&&value.extractionText.text.length<=(command.input.limit??4096);
@@ -287,6 +295,9 @@ export function validWorkerCommand(value: unknown): value is WorkerCommand {
     && settings(value.settings) && (!Object.hasOwn(value, "reconnectAccountId") || id(value.reconnectAccountId));
   if (value.operation === "mail.connection.poll" || value.operation === "mail.connection.cancel") return exact(value, ["operation", "connectionId"]) && uuid(value.connectionId);
   if (value.operation === "mail.account.disconnect") return exact(value, ["operation", "accountId"]) && id(value.accountId);
+  if(value.operation==='mail.senders.refresh')return exact(value,['operation','accountId',...(value.settings===undefined?[]:['settings'])])&&id(value.accountId)&&(value.settings===undefined||settings(value.settings));
+  if (value.operation === 'mail.senders.list') return exact(value,['operation','accountId']) && id(value.accountId);
+  if (value.operation === 'mail.senders.settings' || value.operation === 'mail.senders.configure') return exact(value,['operation','accountId','input']) && id(value.accountId) && (value.operation==='mail.senders.settings'?senderSettingsSchema:senderConfigureSchema).safeParse(value.input).success;
   if (value.operation === "mail.graph.mailbox.configure") return exact(value,["operation","input"]) && graphMailboxInputSchema.safeParse(value.input).success;
   if (value.operation === "mail.badge.count" || value.operation === "ping" || value.operation === "mail.storage.status") return exact(value, ["operation"]);
   if (value.operation === "credentials.update") {

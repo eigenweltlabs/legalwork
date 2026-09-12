@@ -1,3 +1,4 @@
+import {SENDER_IDENTITY_SQL} from './sender-identities.js';
 import {SEARCH_PERFORMANCE_SCHEMA_SQL} from './search-performance-schema.js';
 import {MAIL_DRAFT_SYNC_SCHEMA_SQL} from "./draft-sync-schema.js";
 import { GRAPH_MAILBOX_SCHEMA_SQL } from './graph-mailbox-schema.js';
@@ -11,7 +12,7 @@ import { MAIL_LOCAL_SCHEMA_SQL } from "./local-schema.js";
 import { GRAPH_SCHEMA_SQL } from "./graph-state.js";
 import type { MailDatabase } from "./database-interface.js";
 
-export const MAIL_SCHEMA_VERSION = 19;
+export const MAIL_SCHEMA_VERSION = 20;
 
 /** Dedicated mail database only. Every DDL/version write shares one transaction. */
 export function migrateMailSchema(database: MailDatabase): void {
@@ -274,6 +275,7 @@ export function migrateMailSchema(database: MailDatabase): void {
     if(version<17)database.exec(GRAPH_MAILBOX_SCHEMA_SQL);
     if(version<18)database.exec(MAIL_DRAFT_SYNC_SCHEMA_SQL);
     if (version < 19) database.exec(SEARCH_PERFORMANCE_SCHEMA_SQL);
+    if(version<20)database.exec(SENDER_IDENTITY_SQL);
     database.run("INSERT INTO mail_schema_version(singleton,version) VALUES(1,?) ON CONFLICT(singleton) DO UPDATE SET version=excluded.version", [MAIL_SCHEMA_VERSION]);
   });
 }

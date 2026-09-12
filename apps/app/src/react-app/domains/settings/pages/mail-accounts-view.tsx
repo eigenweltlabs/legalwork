@@ -1,6 +1,7 @@
 /** @jsxImportSource react */
 import { useEffect, useRef, useState } from 'react';
 import { Button } from '@/components/ui/button';
+import {MailSendersView} from './mail-senders-view';
 import { GraphMailboxesView } from './graph-mailboxes-view';
 import { Switch } from '@/components/ui/switch';
 import { resolveLegalworkConnection } from '@/react-app/shell/legalwork-connection';
@@ -75,6 +76,7 @@ export function MailAccountControls({ client }: { client: MailClient }) {
     {error && <p role="alert">{error}</p>}
     <div><Button variant="outline" onClick={() => setRevision(value => value + 1)}>Refresh accounts</Button></div>
     <GraphMailboxesView client={client} accounts={accounts} onChanged={() => setRevision(value => value + 1)} />
+    <MailSendersView client={client} accounts={accounts} />
     <MailOnboarding client={client} accounts={accounts} onChanged={() => setRevision(value => value + 1)} />
   </>;
 }
