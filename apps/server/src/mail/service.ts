@@ -1,3 +1,4 @@
+import type {MailNotificationPoll} from './notification-view.js';
 import type {DraftSyncRequest} from "./draft-sync-view.js";
 import type {SenderSettings,SenderConfigure} from './sender-view.js';
 import type {MailUpload} from "./local-view.js";
@@ -56,12 +57,13 @@ export class LocalMailService implements MailService {
     this.maintenanceHandler = options.maintain;
     this.worker = new MailWorkerClient({
       executable: options.executable, entryPoint: options.entryPoint,
+      onDiagnostic:diagnostic=>{if(diagnostic.event==='ready'&&diagnostic.restarts>0&&this.phase==='open')void this.restoreConnectedAccounts().catch(()=>{});},
       initialize: async () => {
         const store = options.loadStore ? await options.loadStore() : { key: await options.loadKey(), databasePath: options.databasePath };
         const key = store.key;
         try {
           if (!(key instanceof Uint8Array) || key.byteLength !== 32) throw new MailServiceError("unavailable");
-          return { ownerId: options.ownerId, databasePath: store.databasePath, encryptionKey: Buffer.from(key.buffer, key.byteOffset, key.byteLength).toString("base64") };
+          return { lifecycleSuspended:this.lifecycleSuspended,ownerId: options.ownerId, databasePath: store.databasePath, encryptionKey: Buffer.from(key.buffer, key.byteOffset, key.byteLength).toString("base64") };
         } finally { if (key instanceof Uint8Array) key.fill(0); }
       },
     });
@@ -81,6 +83,10 @@ export class LocalMailService implements MailService {
     await this.startSync(result.graphMailbox.accountId);
     return result.graphMailbox;
   }
+  private lifecycleSuspended=false;
+  async pollNotifications(input:MailNotificationPoll){const result=await this.request({operation:'mail.notifications.poll',input});if(!('notifications' in result))throw new MailServiceError('unavailable');return result.notifications;}
+  async setLifecycleSuspended(suspended:boolean){this.lifecycleSuspended=suspended;if(this.status().state!=='ready')return{state:suspended?'suspended':'running'} satisfies {state:'running'|'suspended'};const result=await this.request({operation:'mail.lifecycle.set',input:{suspended}});if(!('lifecycle' in result))throw new MailServiceError('unavailable');return result.lifecycle;}
+  async lifecycleStatus(){const result=await this.request({operation:'mail.lifecycle.status'});if(!('lifecycle' in result))throw new MailServiceError('unavailable');return result.lifecycle;}
   async unreadInboxCount(): Promise<number> {
     const result = await this.request({ operation: "mail.badge.count" });
     if (!("unreadInboxCount" in result)) throw new MailServiceError("unavailable");
@@ -109,12 +115,7 @@ export class LocalMailService implements MailService {
         await this.worker.start();
         if (this.phase !== "unlocking" || this.stopped) throw new MailServiceError("locked");
         this.phase = "open";
-        let cursor: string | undefined;
-        do {
-          const page = await this.listAccounts({ limit: 100, ...(cursor ? {after: cursor} : {}) });
-          await Promise.all(page.items.map(account => this.startSync(account.id, true).catch(() => {})));
-          cursor = page.nextCursor ?? undefined;
-        } while (cursor && this.phase === "open");
+        await this.restoreConnectedAccounts();
       } catch (error) {
         // This opening also owns the open phase while enumerating accounts. A
         // concurrent lock owns its own teardown; never overwrite its state.
@@ -131,6 +132,8 @@ export class LocalMailService implements MailService {
     void attempt.finally(() => { if (this.opening === attempt) this.opening = undefined; }).catch(() => {});
     return attempt;
   }
+  /** Reinstall provider configuration after a supervised worker restart; journals retain mutation outcomes. */
+  private async restoreConnectedAccounts(){const epoch=this.epoch;let cursor:string|undefined;do{if(this.phase!=='open'||epoch!==this.epoch)return;const page=await this.listAccounts({limit:100,...(cursor?{after:cursor}:{})});await Promise.all(page.items.map(account=>this.startSync(account.id,true).catch(()=>{})));cursor=page.nextCursor??undefined;}while(cursor&&this.phase==='open'&&epoch===this.epoch);}
   lock(): Promise<void> {
     this.maintenanceAbort?.abort();
     if (this.closing) return this.closing;

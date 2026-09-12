@@ -44,6 +44,7 @@ function mockService() {
   let stops = 0;
   const service: MailService = {
     async senders(){return [];},async refreshSenders(){return [];},async configureSender(){throw new MailServiceError("unsupported");},async senderSettings(){throw new MailServiceError("not_found");},
+    async pollNotifications(){return{items:[],suppressed:0};},async setLifecycleSuspended(suspended){return{state:suspended?'suspended':'running'};},async lifecycleStatus(){return{state:'running'};},
     async configureGraphMailbox(){throw new MailServiceError("unsupported");},
     async savedSearch(){throw new MailServiceError("unavailable");},
     async imapDiscovery(){throw new MailServiceError("unsupported");},

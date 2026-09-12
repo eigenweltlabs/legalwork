@@ -1,3 +1,4 @@
+import {mailDesktopCommandSchema,mailNotificationBatchSchema,mailLifecycleStatusSchema,type MailDesktopCommand,type MailNotificationBatch} from '../notification-view.js';
 import {draftSyncCommandSchema,draftSyncStatusSchema,type DraftSyncCommand,type DraftSyncStatus} from "../draft-sync-view.js";
 import {senderListSchema,senderSettingsSchema,senderConfigureSchema,type SenderIdentity,type SenderSettings,type SenderConfigure} from '../sender-view.js';
 import { graphMailboxInputSchema, graphMailboxIdentitySchema, graphMailboxResultSchema, type GraphMailboxInput, type GraphMailboxIdentity } from '../graph-mailbox-view.js';
@@ -26,6 +27,7 @@ export type WorkerCredentials = {
 };
 /** Trusted startup-only identity and configuration. Never populated from HTTP request bodies. */
 export type WorkerInitialization = {
+  lifecycleSuspended?:boolean;
   ownerId?: string;
   databasePath?: string;
   /** Canonical base64 of exactly 32 bytes. Required by the production worker. */
@@ -34,7 +36,7 @@ export type WorkerInitialization = {
   credentials?: WorkerCredentials[];
 };
 type Page = { limit?: number; after?: string };
-export type WorkerCommand =
+export type WorkerCommand = MailDesktopCommand
   | DraftSyncCommand
   | {operation:"mail.senders.list";accountId:string}
   | {operation:"mail.senders.refresh";accountId:string;settings?:MailOAuthSettings}
@@ -70,7 +72,7 @@ export type WorkerCommand =
 
 export type WorkerAccount = { id: string; provider: "gmail" | "graph" | "imap"; displayName: string; personal?: boolean; identity?: GraphMailboxIdentity };
 export type WorkerFolder = { id: string; name: string; kind: "folder" | "label"; parentId: string | null; mutationPrecondition?: string | null; role?: "inbox" };
-export type WorkerResult =
+export type WorkerResult = {notifications:MailNotificationBatch}|{lifecycle:{state:"running"|"suspended"}}
   | {draftSync:DraftSyncStatus}
   | {senders:SenderIdentity[]}
   | {savedSearch:SavedSearchResult}
@@ -197,6 +199,8 @@ function result(value: unknown): value is WorkerResult {
     || (Object.keys(value).every(key => ["syncProvider", "personal", "connected"].includes(key)) && (value.connected === undefined || typeof value.connected === "boolean") && (value.personal === undefined || (value.syncProvider === "graph" && typeof value.personal === "boolean")) && (value.syncProvider === "gmail" || value.syncProvider === "graph" || value.syncProvider === "imap"))
     || (exact(value, ["sync"]) && mailSyncViewSchema.safeParse(value.sync).success)
     || (exact(value, ["messages"]) && mailMessageListSchema.safeParse(value.messages).success)
+    || (exact(value,["notifications"])&&mailNotificationBatchSchema.safeParse(value.notifications).success)
+    || (exact(value,["lifecycle"])&&mailLifecycleStatusSchema.safeParse(value.lifecycle).success)
     || (exact(value, ["draftSync"]) && draftSyncStatusSchema.safeParse(value.draftSync).success)
     || (exact(value, ["message"]) && mailMessageViewSchema.safeParse(value.message).success)
     || (exact(value, ["parts"]) && mailPartListSchema.safeParse(value.parts).success)
@@ -226,6 +230,8 @@ export function parseWorkerMessage(line: string): WorkerMessage | undefined {
 }
 export function resultMatchesCommand(command: WorkerCommand, value: WorkerResult): boolean {
   switch (command.operation) {
+    case "mail.notifications.poll":return "notifications" in value;
+    case "mail.lifecycle.set":case "mail.lifecycle.status":return "lifecycle" in value;
     case "mail.draft.sync.read":case "mail.draft.sync.request":return "draftSync" in value&&value.draftSync.accountId===command.accountId&&value.draftSync.draftId===command.input.draftId;
     case "mail.graph.mailbox.configure": return "graphMailbox" in value && value.graphMailbox.identity.credentialAccountId === command.input.credentialAccountId && value.graphMailbox.identity.address === command.input.address.toLowerCase();
     case "mail.senders.list": case "mail.senders.refresh": case "mail.senders.settings": case "mail.senders.configure": return "senders" in value && value.senders.every(sender=>sender.accountId===command.accountId);
@@ -277,6 +283,7 @@ export function resultMatchesCommand(command: WorkerCommand, value: WorkerResult
 }
 export function validWorkerCommand(value: unknown): value is WorkerCommand {
   if (!record(value)) return false;
+  if(typeof value.operation==="string"&&(value.operation.startsWith("mail.notifications.")||value.operation.startsWith("mail.lifecycle.")))return mailDesktopCommandSchema.safeParse(value).success;
   if(typeof value.operation==="string"&&value.operation.startsWith("mail.draft.sync."))return draftSyncCommandSchema.safeParse(value).success;
   if(typeof value.operation==="string"&&value.operation.startsWith("mail.extraction."))return extractionCommandSchema.safeParse(value).success;
   if(typeof value.operation==="string"&&value.operation.startsWith("mail.local."))return mailLocalCommandSchema.safeParse(value).success;
@@ -330,8 +337,9 @@ export function parseParentMessage(line: string): ParentMessage | undefined {
     && validWorkerCommand(value.command)) return { kind: "request", id: value.id, command: value.command };
   if (!exact(value, ["kind", "protocol", "initialization"]) || value.kind !== "initialize" || value.protocol !== 1 || !record(value.initialization)) return;
   const input = value.initialization;
-  if (!Object.keys(input).every((key) => ["ownerId", "databasePath", "encryptionKey", "credentials"].includes(key))) return;
+  if (!Object.keys(input).every((key) => ["ownerId", "databasePath", "encryptionKey", "credentials", "lifecycleSuspended"].includes(key))) return;
   const initialization: WorkerInitialization = {};
+  if(Object.hasOwn(input,"lifecycleSuspended")){if(typeof input.lifecycleSuspended!=="boolean")return;initialization.lifecycleSuspended=input.lifecycleSuspended;}
   if (Object.hasOwn(input, "ownerId")) { if (!id(input.ownerId)) return; initialization.ownerId = input.ownerId; }
   if (Object.hasOwn(input, "databasePath")) { if (typeof input.databasePath !== "string") return; initialization.databasePath = input.databasePath; }
   if (Object.hasOwn(input, "encryptionKey")) { if (typeof input.encryptionKey !== "string") return; initialization.encryptionKey = input.encryptionKey; }
