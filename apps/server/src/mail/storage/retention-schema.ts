@@ -1,5 +1,9 @@
 /** Schema25: explicit retention preferences and durable no-replay recovery fences. */
 export const MAIL_RETENTION_SCHEMA_SQL=`
+CREATE TRIGGER IF NOT EXISTS mail_local_account_insert AFTER INSERT ON mail_accounts BEGIN
+ INSERT OR IGNORE INTO mail_local_event_streams VALUES(NEW.id,lower(hex(randomblob(16))));
+END;
+INSERT OR IGNORE INTO mail_local_event_streams SELECT id,lower(hex(randomblob(16))) FROM mail_accounts;
 CREATE TABLE mail_retention_settings (
  account_id TEXT PRIMARY KEY NOT NULL,removed_days INTEGER CHECK(removed_days BETWEEN 1 AND 36500),revision INTEGER NOT NULL DEFAULT 1,
  FOREIGN KEY(account_id) REFERENCES mail_accounts(id) ON DELETE CASCADE
