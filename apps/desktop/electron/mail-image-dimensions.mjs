@@ -15,10 +15,12 @@ export function rasterDimensions(bytes){
  // Count encoded animation frames without decoding any raster. Budget every
  // frame at the full canvas size, including disposal/compositing surfaces.
  if(type==='png'){
+  if(bytes.length<33||view.getUint32(8,false)!==13||text(12,16)!=='IHDR')throw Error('mail_image_container');
   let offset=8,declared=0,controls=0,ended=false;
   while(offset+12<=bytes.length){const length=view.getUint32(offset,false),kind=text(offset+4,offset+8);if(length>bytes.length-offset-12)throw Error('mail_image_container');
+   if(kind==='IHDR'&&offset!==8)throw Error('mail_image_container');
    if(kind==='acTL'){if(declared||length!==8)throw Error('mail_image_animation');declared=view.getUint32(offset+8,false);if(!declared||declared>128)throw Error('mail_image_animation');}
-   if(kind==='fcTL'){if(length!==26||++controls>128)throw Error('mail_image_animation');}
+   if(kind==='fcTL'){if(length!==26||++controls>128)throw Error('mail_image_animation');const w=view.getUint32(offset+12,false),h=view.getUint32(offset+16,false),x=view.getUint32(offset+20,false),y=view.getUint32(offset+24,false);if(!w||!h||x+w>width||y+h>height)throw Error('mail_image_dimensions');}
    offset+=12+length;if(kind==='IEND'){ended=true;break;}
   }
   if(!ended||controls!==declared)throw Error('mail_image_container');
