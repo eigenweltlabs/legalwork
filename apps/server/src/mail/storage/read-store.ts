@@ -40,8 +40,12 @@ export class MailReadStore {
   }
   read(accountId: string, locator: ProviderMessageLocator) {
     const message = this.message(accountId, locator);
-    const row = this.database.get(`SELECT p.metadata_json FROM mail_mime_projections p JOIN mail_content_manifests m
+    // Search dirty triggers invalidate this preview atomically on every raw/projection replacement.
+    // Only a rebuilt index alongside the current raw manifest can contribute bounded display text.
+    const row = this.database.get(`SELECT p.metadata_json,substr(d.body,1,240) AS preview FROM mail_mime_projections p JOIN mail_content_manifests m
       ON m.account_id=p.account_id AND m.message_key=p.message_key AND m.ref_id=p.raw_ref_id
+      LEFT JOIN mail_search_documents d ON d.account_id=p.account_id AND d.message_key=p.message_key
+        AND NOT EXISTS(SELECT 1 FROM mail_search_dirty q WHERE q.account_id=p.account_id AND q.message_key=p.message_key)
       WHERE p.account_id=? AND p.message_key=? AND p.state='complete' AND m.kind='raw' AND m.state='stored'`, [accountId, message.message_key]);
     const metadata = typeof row?.metadata_json === "string" ? z.object({ metadata: mimeMetadataSchema }).parse(JSON.parse(row.metadata_json)).metadata : null;
     const removed = !!this.database.get("SELECT 1 FROM mail_tombstones WHERE account_id=? AND message_key=?", [accountId, message.message_key]);
@@ -58,7 +62,7 @@ export class MailReadStore {
       LEFT JOIN mail_gmail_metadata gm ON gm.account_id=m.account_id AND gm.message_key=m.message_key
       LEFT JOIN mail_graph_messages gr ON gr.account_id=m.account_id AND gr.message_key=m.message_key WHERE m.account_id=? AND m.message_key=?`,[accountId,message.message_key]);
     const mutationPrecondition=storedMutationPrecondition(this.database,accountId,locator);
-    return mailMessageViewSchema.parse({ accountId, key: message.message_key, locator: message.locator, subject: message.subject,
+    return mailMessageViewSchema.parse({ accountId, preview:typeof row?.preview==='string'?row.preview.replace(/\s+/g,' ').trim():undefined, key: message.message_key, locator: message.locator, subject: message.subject,
       rfcMessageId: message.rfc_message_id, threadId: message.thread_id, memberships: message.memberships, removed, contentState: message.contentState, rawReferenceId: message.content.find(part=>part.kind==='raw')?.ref_id??null, metadata, isFlagged,
       isRead: locator.provider === 'gmail' ? (mutationPrecondition === null ? null : !message.memberships.includes('UNREAD')) : observed?.is_read == null ? null : observed.is_read === 1,
       receivedAt:typeof received?.received_at==='number'&&received.received_at>=0?received.received_at:null, mutationPrecondition });
