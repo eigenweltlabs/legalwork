@@ -52,7 +52,7 @@ export function MailRoute() {
     const [thread, setThread] = useState<string>();
     const [error, setError] = useState('');
     const [locked, setLocked] = useState(true);
-    useEffect(()=>{if(!client||locked)return;const state=location.state;if(!state||typeof state!=='object')return;const raw=Reflect.get(state,'mailNotificationTarget'),parsed=mailNotificationOpenSchema.safeParse(raw);if(!parsed.success||notificationOpened.current===raw)return;if(new URL(connectionIdentity.current.split('\n')[0]).origin!==parsed.data.serverOrigin){setError('Open the local server connection in Settings to view this notification.');return;}const controller=new AbortController();notificationOpened.current=raw;void client.readLocator(parsed.data.accountId,parsed.data.locator,controller.signal).then(message=>{if(controller.signal.aborted)return;setSelected(message);setCompose(undefined);setDraftsOpen(false);}).catch(()=>{if(!controller.signal.aborted)setError('This notification’s message is unavailable. Review the account connection in Settings.');});return()=>controller.abort();},[client,locked,location.state]);
+    useEffect(()=>{if(!client||locked)return;const state=location.state;if(!state||typeof state!=='object')return;const raw=Reflect.get(state,'mailNotificationTarget'),parsed=mailNotificationOpenSchema.safeParse(raw);if(!parsed.success||notificationOpened.current===raw)return;if(new URL(connectionIdentity.current.split('\n')[0]).origin!==parsed.data.serverOrigin){setError('Open the local server connection in Settings to view this notification.');return;}const controller=new AbortController();notificationOpened.current=raw;void client.readLocator(parsed.data.accountId,parsed.data.locator,controller.signal).then(message=>{if(controller.signal.aborted)return;setSelected(message);setError('');setCompose(undefined);setDraftsOpen(false);requestAnimationFrame(()=>{if(!controller.signal.aborted)document.getElementById('mail-print-root')?.focus();});}).catch(()=>{if(!controller.signal.aborted)setError('This notification’s message is unavailable. Review the account connection in Settings.');});return()=>controller.abort();},[client,locked,location.state]);
     useEffect(()=>{if(locked){setCompose(undefined);setDraftsOpen(false);}},[locked]);
     useEffect(()=>{setCompose(undefined);setDraftsOpen(false);},[client]);
     const [busy, setBusy] = useState(false);
@@ -411,7 +411,7 @@ function MailReader({ client, item, account, onThread, onUnavailable, onCompose 
       onCompose({account:item.accountId,id:crypto.randomUUID(),version:null,content});
     }catch(error){setError(textError(error));}finally{setBusy(false);}}
     return (
-      <article id="mail-print-root" className="mail-message">
+      <article id="mail-print-root" className="mail-message" tabIndex={-1}>
         <style>{`@media print{body *{visibility:hidden}#mail-print-root,#mail-print-root *{visibility:visible}#mail-print-root{position:absolute;inset:0;overflow:visible}#mail-print-root button,#mail-print-root iframe,#mail-print-root .mail-message-actions,#mail-print-root .mail-attachments,#mail-print-root>section,#mail-print-content>:not(.mail-print-copy){display:none}#mail-print-root .mail-print-copy{display:block!important;white-space:pre-wrap}}`}</style>
         <div className="mail-message-actions">
           <button title="Reply (R)" aria-keyshortcuts="R" aria-label="Reply" disabled={busy||!bodies.length} onClick={()=>void composeMessage('reply')}><Reply size={15}/></button>
