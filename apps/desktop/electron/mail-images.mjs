@@ -52,12 +52,12 @@ export function createMailImages({connection,decode,download=fetchMailImage}){
   do{const value=await post('content',{locator:input.locator,request:{...request,offset,limit:24576}});if(typeof value.data!=='string'||value.data.length>32768)throw Error('mail_image_invalid');const bytes=Buffer.from(value.data,'base64');if(value.accountId!==input.accountId||value.referenceId!==input.referenceId||value.sha256!==input.referenceId.slice(7)||!Number.isSafeInteger(value.totalBytes)||value.totalBytes>8*1024*1024||value.offset!==offset||value.data!==bytes.toString('base64')||!bytes.length||offset+bytes.length>value.totalBytes||total!==undefined&&total!==value.totalBytes||value.nextOffset!==(offset+bytes.length===value.totalBytes?null:offset+bytes.length))throw Error('mail_image_invalid');total=value.totalBytes;buffer.push(bytes);offset+=bytes.length;}while(offset<total);
   const bytes=Buffer.concat(buffer);buffer=[];if(createHash('sha256').update(bytes).digest('hex')!==input.referenceId.slice(7))throw Error('mail_image_integrity');
   const envelope=z.object({version:z.literal(1),bodies:z.array(z.object({contentType:z.enum(['text/plain','text/html']),text:z.string().max(2*1024*1024),presentation:z.boolean().optional()})).max(1000)}).parse(JSON.parse(bytes.toString('utf8')));
-  const urls=messageImageUrls(envelope.bodies),items=[];let failed=Math.max(0,urls.length-30),size=0;
+  const urls=messageImageUrls(envelope.bodies),items=[];let failed=Math.max(0,urls.length-30),size=0,pixels=0;
   let attempted=0;for(const url of urls.slice(0,30)){attempted++;try{
    await post('content',{locator:input.locator,request:{...request,offset:0,limit:1}});
-   const bytes=await download(url,abort.signal);size+=bytes.length;if(size>8*1024*1024)throw Error('mail_image_limit');const expected=rasterDimensions(bytes),actual=decode(bytes);if(!(actual.width===expected.width&&actual.height===expected.height||actual.width===expected.height&&actual.height===expected.width))throw Error('mail_image_decode');
+   const bytes=await download(url,abort.signal);size+=bytes.length;if(size>8*1024*1024)throw Error('mail_image_limit');const expected=rasterDimensions(bytes);pixels+=expected.width*expected.height;if(pixels>16*1024*1024)throw Error('mail_image_limit');const actual=decode(bytes);if(!(actual.width===expected.width&&actual.height===expected.height||actual.width===expected.height&&actual.height===expected.width))throw Error('mail_image_decode');
    items.push({url,data:`data:image/${expected.type};base64,${bytes.toString('base64')}`});
-  }catch{failed++;}if(abort.signal.aborted||size>8*1024*1024){failed+=Math.min(30,urls.length)-attempted;break;}}
+  }catch{failed++;}if(abort.signal.aborted||size>8*1024*1024||pixels>16*1024*1024){failed+=Math.min(30,urls.length)-attempted;break;}}
   await post('content',{locator:input.locator,request:{...request,offset:0,limit:1}});if(abort.signal.aborted)throw Error('mail_image_cancelled');return {items,failed:Math.max(0,failed)};
  }finally{clearTimeout(timer);if(pending===abort)pending=undefined;}}
  return {perform,cancel:()=>pending?.abort()};

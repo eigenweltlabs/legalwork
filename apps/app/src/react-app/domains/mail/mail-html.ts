@@ -8,7 +8,7 @@ export function mailLink(value:string):string|null {try{if(value.length>4096)ret
 /** Maps every resource to verified bytes; the isolated document never gets network permission. */
 export function mailDocument(html:string,inline:ReadonlyMap<string,string>=new Map(),remote:ReadonlyMap<string,string>=new Map(),nonce?:string,imageBudget=16*1024*1024):MailDocument {
  if(nonce&&!/^[0-9a-f-]{36}$/.test(nonce))throw Error('Invalid mail frame nonce');
- let bridge='',imageBytes=0;
+ let bridge='',imageBytes=0,imagePixels=0;const dimensions=new Map<string,number>();
  const links:string[]=[],resources=new Set<string>();let limited=html.length>MAIL_HTML_LIMIT;
  if(limited)html='<p>This HTML message exceeds the display limit. Use Plain text or save the original.</p>';
  const fragment=DOMPurify.sanitize(html,{WHOLE_DOCUMENT:true,RETURN_DOM:true,
@@ -21,7 +21,9 @@ export function mailDocument(html:string,inline:ReadonlyMap<string,string>=new M
   const cid=value.match(/^cid:(.+)$/i)?.[1]?.replace(/^<|>$/g,'');
   let replacement=cid?inline.get(cid):undefined;
   if(!cid){const url=mailLink(value);if(url&&/^https?:/.test(url)){if(resources.size<100)resources.add(url);replacement=remote.get(url);}}
-  if(!replacement||replacement.length>6*1024*1024||!raster.test(replacement)||imageBytes+replacement.length>imageBudget)return null;imageBytes+=replacement.length;return replacement;
+  if(!replacement||replacement.length>6*1024*1024||imageBytes+replacement.length>imageBudget||!raster.test(replacement))return null;
+  if(!dimensions.has(replacement)){try{const bytes=Uint8Array.from(atob(replacement.slice(replacement.indexOf(',')+1)),char=>char.charCodeAt(0)),size=rasterDimensions(bytes);dimensions.set(replacement,size.width*size.height);}catch{dimensions.set(replacement,0);}}
+  const pixels=dimensions.get(replacement)??0;if(!pixels||imagePixels+pixels>imageBudget)return null;imagePixels+=pixels;imageBytes+=replacement.length;return replacement;
  };
  for(const element of elements){
   if(element.tagName==='STYLE')element.textContent=mailCss(element.textContent??'',false,resource);
