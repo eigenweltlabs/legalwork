@@ -34,7 +34,7 @@ test('conversation pages group the whole account thread, preserve singletons and
  try{
   db=await openEncryptedMailDatabase({path:join(dir,'mail.sqlite'),key});migrateMailSchema(db);
   const repo=new MailRepository(db,'owner');for(const account of ['a','b']){repo.createAccount({id:account,provider:'gmail',displayName:account});for(const id of ['INBOX','SENT','UNREAD'])repo.putFolder(account,{id,name:id,kind:'label'});}
-  const add=(account,id,threadId,stamp,memberships)=>{repo.ingestMessage(account,{locator:{provider:'gmail',messageId:id},subject:'Same subject',threadId,rfcMessageId:null,memberships});db.run('INSERT INTO mail_gmail_metadata(account_id,message_key,internal_date,thread_id,label_ids_json) VALUES(?,?,?,?,?)',[account,JSON.stringify(['gmail',id]),stamp,threadId??'single','[]']);};
+  const add=(account,id,threadId,stamp,memberships)=>{repo.ingestMessage(account,{locator:{provider:'gmail',messageId:id},subject:'Same subject',threadId,rfcMessageId:null,memberships});if(stamp!==null)db.run('INSERT INTO mail_gmail_metadata(account_id,message_key,internal_date,thread_id,label_ids_json) VALUES(?,?,?,?,?)',[account,JSON.stringify(['gmail',id]),stamp,threadId??'single','[]']);};
   for(let i=0;i<31;i++)add('a','reply'+i,'shared-thread',100+i,i===30?['SENT']:['INBOX',...(i<2?['UNREAD']:[])]);
   add('b','foreign','shared-thread',999,['INBOX','UNREAD']);add('a','solo1',null,10,['INBOX']);add('a','solo2',null,9,['INBOX']);
   const store=new MailReadStore(db,'owner');const first=store.list('a',{conversations:true,order:'received',inboxOnly:true,limit:1});
@@ -51,6 +51,15 @@ test('conversation pages group the whole account thread, preserve singletons and
   db.run("UPDATE mail_action_jobs SET state='succeeded' WHERE account_id='a' AND id=?",[read0.id]);assert.equal(count(),0);
   db.run("UPDATE mail_action_jobs SET state='cancelled' WHERE account_id='a' AND id=?",[read1.id]);assert.equal(count(),1,'cancelling an optimistic read restores the remaining unread');
   queue('reply0',false,'unread0');assert.equal(count(),2,'explicit pending unread counts independently of provider state');
+  // Full window frames include later tied rows: the representative itself may be outside Inbox.
+  add('a','tie-b','tied',200,['INBOX','UNREAD']);add('a','tie-a','tied',200,['SENT']);
+  const tied=store.list('a',{conversations:true,order:'received',inboxOnly:true,limit:1}).items[0];
+  assert.equal(tied.locator.messageId,'tie-a');assert.deepEqual(tied.conversation,{count:2,unreadCount:1});
+  add('a','undated-b','undated',null,['INBOX']);add('a','undated-a','undated',null,['SENT']);
+  assert.equal(store.list('a',{conversations:true,order:'received',inboxOnly:true}).items.at(-1).locator.messageId,'undated-a');
+  db.run('INSERT INTO mail_tombstones VALUES(?,?,?,?)',['a',JSON.stringify(['gmail','tie-a']),'synthetic',new Date().toISOString()]);
+  const live=store.list('a',{conversations:true,order:'received',inboxOnly:true,limit:1}).items[0];assert.equal(live.locator.messageId,'tie-b');assert.deepEqual(live.conversation,{count:1,unreadCount:1});
+  assert.equal(store.list('a',{conversations:true,order:'received',inboxOnly:true,includeRemoved:true,limit:1}).items[0].locator.messageId,'tie-a');
 
  }finally{db?.close();key.fill(0);await rm(dir,{recursive:true,force:true});}
 });
