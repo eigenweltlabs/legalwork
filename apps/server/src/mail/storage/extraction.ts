@@ -23,7 +23,7 @@ export interface ExtractionLease {
 /** All publication paths fence the exact current part, durable lease and credential generation. */
 export class MailExtractionStore {
     constructor(private readonly db: MailDatabase, private readonly ownerId: string, private readonly now: () => number = Date.now) { }
-    private account(accountId: string) { const row = this.db.get('SELECT a.provider,c.state,c.generation FROM mail_accounts a LEFT JOIN mail_account_credentials c ON c.account_id=a.id WHERE a.id=? AND a.owner_id=?', [accountId, this.ownerId]); if (!row)
+    private account(accountId: string) { const row = this.db.get('SELECT a.provider,c.state,c.generation FROM mail_accounts a LEFT JOIN mail_account_access c ON c.account_id=a.id WHERE a.id=? AND a.owner_id=?', [accountId, this.ownerId]); if (!row)
         throw new MailExtractionStorageError('not_found'); if (row.provider === 'imap') {
         const imap = this.db.get('SELECT state,archive_locked,generation FROM mail_imap_credentials WHERE account_id=?', [accountId]);
         if (imap?.state === 'disconnected' || imap?.archive_locked === 1)
@@ -46,7 +46,7 @@ export class MailExtractionStore {
                 this.db.run("UPDATE mail_attachment_extractions SET state=CASE WHEN attempts>=3 THEN 'failed' ELSE 'queued' END,error=CASE WHEN attempts>=3 THEN 'runtime_failed' ELSE NULL END,lease_token=NULL,lease_until=NULL WHERE account_id=? AND message_key=? AND part_id=? AND ref_id=?", [text.parse(row.account_id), text.parse(row.message_key), text.parse(row.part_id), text.parse(row.ref_id)]);
             const select = (after: string) => this.db.get(`SELECT e.*,r.bytes,m.locator_json FROM mail_attachment_extractions e JOIN mail_accounts a ON a.id=e.account_id JOIN mail_messages m ON m.account_id=e.account_id AND m.message_key=e.message_key JOIN mail_content_manifests c ON c.account_id=e.account_id AND c.message_key=e.message_key AND c.kind='attachment' AND c.part_id=e.part_id AND c.ref_id=e.ref_id AND c.state='stored' JOIN mail_blob_publications p ON p.account_id=c.account_id AND p.ref_id=c.ref_id JOIN mail_content_refs r ON r.account_id=c.account_id AND r.id=c.ref_id
    WHERE a.owner_id=? AND a.id>? AND e.extractor=? AND e.state='queued' AND e.attempts<3
-   AND NOT EXISTS(SELECT 1 FROM mail_account_credentials v WHERE v.account_id=a.id AND v.state='disconnected')
+   AND NOT EXISTS(SELECT 1 FROM mail_account_access v WHERE v.account_id=a.id AND v.state='disconnected')
    AND NOT EXISTS(SELECT 1 FROM mail_imap_credentials v WHERE v.account_id=a.id AND (v.state='disconnected' OR v.archive_locked=1))
    AND (EXISTS(SELECT 1 FROM mail_mime_parts x JOIN mail_content_manifests raw ON raw.account_id=x.account_id AND raw.message_key=x.message_key AND raw.kind='raw' AND raw.ref_id=x.raw_ref_id WHERE x.account_id=e.account_id AND x.message_key=e.message_key AND x.part_id=e.part_id AND x.content_ref_id=e.ref_id)
    OR EXISTS(SELECT 1 FROM mail_graph_attachments x JOIN mail_content_manifests raw ON raw.account_id=x.account_id AND raw.message_key=x.message_key AND raw.kind='raw' AND raw.ref_id=x.raw_ref_id WHERE x.account_id=e.account_id AND x.message_key=e.message_key AND 'graph:'||x.id=e.part_id AND x.ref_id=e.ref_id))

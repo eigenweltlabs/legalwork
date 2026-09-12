@@ -1,4 +1,6 @@
 import { MailSyncLifecycle } from "./sync-lifecycle.js";
+import { GraphMailboxRepository } from '../storage/graph-mailboxes.js';
+import { GraphReadTransport, GraphTransportError } from '../providers/graph.js';
 import {MailSavedSearchStore,SavedSearchError} from '../storage/saved-search.js';
 import {ImapError} from '../providers/imap-config.js';
 import {ImapBackfill} from '../providers/imap-backfill.js';
@@ -29,6 +31,7 @@ let database: MailDatabase | undefined;
 let repository: MailRepository | undefined;
 let local:MailLocalApiStore|undefined;
 let reads: MailReadStore | undefined;
+let mailboxes: GraphMailboxRepository | undefined;
 let search: MailSearchStore | undefined;
 let savedSearch:MailSavedSearchStore|undefined;
 let extraction:MailExtractionStore|undefined,extractionRunner:MailExtractionRunner|undefined,closingExtraction:Promise<void>|undefined;
@@ -120,6 +123,7 @@ async function initialize(value: WorkerInitialization): Promise<void> {
     repository = new MailRepository(database, value.ownerId);
     local=new MailLocalApiStore(database,value.ownerId);
     reads = new MailReadStore(database, value.ownerId);
+    mailboxes = new GraphMailboxRepository(database,value.ownerId);
     search = new MailSearchStore(database, value.ownerId);
     savedSearch=new MailSavedSearchStore(database,value.ownerId);
     searchIndexer = new MailSearchIndexer(database,value.ownerId);
@@ -129,6 +133,7 @@ async function initialize(value: WorkerInitialization): Promise<void> {
       const binding = credentials!.getBinding(accountId);
       providerSettings.set(`${binding.provider}:${binding.clientId}:${binding.authority}`, settings);
       await syncLifecycle!.connected(accountId);
+      for(const child of mailboxes?.children(accountId)??[])if(credentials!.status(child).state==='connected')await syncLifecycle!.connected(child);
     } });
     access = new MailAccessCoordinator({ database, ownerId: value.ownerId, loadProviderSettings: async binding => {
       const selected = providerSettings.get(`${binding.provider}:${binding.clientId}:${binding.authority}`);
@@ -171,6 +176,23 @@ async function request(message: Extract<ParentMessage, { kind: "request" }>): Pr
   try {
     let result: WorkerResult | undefined;
     switch (command.operation) {
+      case 'mail.graph.mailbox.configure': {
+        if(!mailboxes||!access)throw locked;
+        if(mailboxes.read(command.input.credentialAccountId))throw locked;
+        const granted=await access.acquire(command.input.credentialAccountId);
+        if(!granted.grantedScopes?.some(scope=>['Mail.Read.Shared','Mail.ReadWrite.Shared','https://graph.microsoft.com/Mail.Read.Shared','https://graph.microsoft.com/Mail.ReadWrite.Shared'].includes(scope)))throw unsupported;
+        const transport=new GraphReadTransport({accessToken:granted.accessToken,mailboxAddress:command.input.address});
+        try { await transport.getFolder('msgfolderroot'); } catch(error) {
+          if(error instanceof GraphTransportError&&error.code==='inaccessible'){const existing=mailboxes.configuredAccount(command.input.credentialAccountId,command.input.address);if(existing){mailboxes.revoke(existing);await syncLifecycle.suspend(existing);}throw locked;}
+          throw error;
+        }
+        const current=credentials.status(command.input.credentialAccountId);
+        if(current.state!=='connected'||current.version.generation!==granted.version.generation||current.version.revision!==granted.version.revision)throw locked;
+        const configured=mailboxes.configure(command.input);
+        if(!configured.identity)throw locked;
+        await syncLifecycle?.suspend(configured.accountId);
+        result={graphMailbox:{accountId:configured.accountId,identity:configured.identity}};break;
+      }
       case "mail.badge.count": result = { unreadInboxCount: reads.unreadInboxCount() }; break;
       case 'mail.extraction.status':if(!extraction)throw locked;result={extraction:extraction.status(command.accountId,command.input)};break;
       case 'mail.extraction.read':if(!extraction)throw locked;result={extractionText:extraction.read(command.accountId,command.input)};break;
@@ -219,7 +241,7 @@ async function request(message: Extract<ParentMessage, { kind: "request" }>): Pr
         const current = credentials.status(command.accountId); // Owner gate before provider lookup or cancellation.
         extractionRunner?.cancelAccount(command.accountId);
         // close() fences callbacks synchronously; revoke credentials before awaiting I/O cleanup.
-        const stopping = syncLifecycle.suspend(command.accountId).catch(() => {});
+        const stopping = Promise.all([command.accountId,...(mailboxes?.children(command.accountId)??[])].map(id=>{extractionRunner?.cancelAccount(id);return syncLifecycle!.suspend(id).catch(()=>{});}));
         if (database.get("SELECT provider FROM mail_accounts WHERE id=?", [command.accountId])?.provider === 'imap') {
           if (!current.version) throw locked;
           credentials.disconnect(command.accountId, current.version);
@@ -229,7 +251,7 @@ async function request(message: Extract<ParentMessage, { kind: "request" }>): Pr
       }
       case "mail.accounts.list": {
         const page = repository.listAccountsPage({ limit: command.limit, after: command.after });
-        result = pageResult(message.id, page.items.map((account) => ({ id: account.id, provider: account.provider, displayName: account.display_name, ...(account.provider === "graph" && credentials!.status(account.id).version ? {personal: credentials!.getBinding(account.id).authority === "https://login.microsoftonline.com/consumers/v2.0"} : {}) })), page.hasMore);
+        result = pageResult(message.id, page.items.map((account) => ({ id: account.id, provider: account.provider, displayName: account.display_name, ...(account.provider === 'graph' && mailboxes?.identity(account.id) ? {identity:mailboxes.identity(account.id)} : {}), ...(account.provider === "graph" && credentials!.status(account.id).version ? {personal: credentials!.getBinding(account.id).authority === "https://login.microsoftonline.com/consumers/v2.0"} : {}) })), page.hasMore);
         break;
       }
       case "mail.folders.list": {

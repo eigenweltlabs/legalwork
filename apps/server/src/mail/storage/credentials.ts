@@ -1,3 +1,4 @@
+import { GraphMailboxRepository } from './graph-mailboxes.js';
 import {ImapCustody} from './imap-custody.js';
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
@@ -81,8 +82,12 @@ export class MailCredentialRepository {
     if (!row) throw new MailCredentialError("account_not_found");
     return input(z.enum(["gmail", "graph", "imap"]), row.provider);
   }
+  credentialAccountId(accountId: string): string {
+    const provider = this.account(accountId);
+    return provider === 'graph' ? new GraphMailboxRepository(this.database, this.ownerId).target(accountId).credentialAccountId : accountId;
+  }
   private load(accountId: string): Stored | undefined {
-    const row = this.database.get("SELECT * FROM mail_account_credentials WHERE account_id=?", [accountId]);
+    const row = this.database.get("SELECT * FROM mail_account_credentials WHERE account_id=?", [this.credentialAccountId(accountId)]);
     return row ? input(storedInput, row) : undefined;
   }
   private matches(row: Stored | undefined, expected: MailCredentialVersion | null): void {
@@ -90,6 +95,7 @@ export class MailCredentialRepository {
   }
   private connected(accountId: string, requested: MailCredentialBinding): Stored {
     if (this.account(accountId) !== requested.provider) throw new MailCredentialError("binding_mismatch");
+    if (this.status(accountId).state !== "connected") throw new MailCredentialError("disconnected");
     const row = this.load(accountId);
     if (!row || row.state !== "connected" || row.archive_locked !== 0) throw new MailCredentialError("disconnected");
     if (!sameBinding(binding(row), requested)) throw new MailCredentialError("binding_mismatch");
@@ -103,8 +109,10 @@ export class MailCredentialRepository {
   status(accountId: string): MailCredentialStatus {
     return safe(() => {
       const provider=this.account(accountId);
-      const found = this.database.get(provider==='imap'?"SELECT state,archive_locked,generation,revision FROM mail_imap_credentials WHERE account_id=?":"SELECT state,archive_locked,generation,revision FROM mail_account_credentials WHERE account_id=?", [accountId]);
+      const shared = provider === 'graph' ? new GraphMailboxRepository(this.database,this.ownerId).read(accountId) : null;
+      const found = this.database.get(provider==='imap'?"SELECT state,archive_locked,generation,revision FROM mail_imap_credentials WHERE account_id=?":"SELECT state,archive_locked,generation,revision FROM mail_account_credentials WHERE account_id=?", [shared?.credential_account_id ?? accountId]);
       const row = found ? input(storedInput.pick({ state: true, archive_locked: true, generation: true, revision: true }), found) : undefined;
+      if (shared && row) { const allowed = new GraphMailboxRepository(this.database,this.ownerId).identity(accountId)?.read === true;return {state:allowed?'connected':'disconnected',archiveLocked:!allowed,version:{generation:shared.generation,revision:shared.revision}}; }
       return row ? { state: row.state, archiveLocked: row.archive_locked === 1, version: version(row) }
         : { state: "unconfigured", archiveLocked: true, version: null };
     });
@@ -113,7 +121,7 @@ export class MailCredentialRepository {
   getBinding(accountId: string): MailCredentialBinding {
     return safe(() => {
       this.account(accountId);
-      const row = this.database.get("SELECT provider,client_id,authority,provider_subject FROM mail_account_credentials WHERE account_id=?", [accountId]);
+      const row = this.database.get("SELECT provider,client_id,authority,provider_subject FROM mail_account_credentials WHERE account_id=?", [this.credentialAccountId(accountId)]);
       if (!row) throw new MailCredentialError("disconnected");
       return input(bindingInput, { provider: row.provider, clientId: row.client_id, authority: row.authority, providerSubject: row.provider_subject });
     });
@@ -122,6 +130,7 @@ export class MailCredentialRepository {
   connect(accountId: string, requested: MailCredentialBinding, expected: MailCredentialVersion | null, supplied: MailCredentialTokens): MailCredentialVersion {
     return safe(() => {
       const selected = input(bindingInput, requested), wanted = input(versionInput.nullable(), expected), tokens = input(tokensInput, supplied);
+      if (this.credentialAccountId(accountId) !== accountId) throw new MailCredentialError("invalid_input");
       if (tokens.refreshToken.action === "preserve") throw new MailCredentialError("invalid_input");
       return this.database.transaction(() => {
         if (this.account(accountId) !== selected.provider) throw new MailCredentialError("binding_mismatch");
@@ -135,6 +144,7 @@ export class MailCredentialRepository {
           state='connected',archive_locked=0,access_token=excluded.access_token,refresh_token=excluded.refresh_token,expires_at=excluded.expires_at,granted_scopes_json=excluded.granted_scopes_json`,
         [accountId, selected.provider, selected.clientId, selected.authority, selected.providerSubject, next.generation, next.revision, tokens.accessToken, refresh, tokens.expiresAt,
           tokens.grantedScopes === null ? null : JSON.stringify([...new Set(tokens.grantedScopes)])]);
+        new GraphMailboxRepository(this.database,this.ownerId).fenceChildren(accountId);
         return next;
       });
     });
@@ -142,6 +152,7 @@ export class MailCredentialRepository {
   /** Explicit preserve/replace/clear semantics; a late refresh cannot overwrite newer credentials. */
   rotate(accountId: string, requested: MailCredentialBinding, expected: MailCredentialVersion, supplied: MailCredentialTokens): MailCredentialVersion {
     return safe(() => {
+      if(this.credentialAccountId(accountId)!==accountId)throw new MailCredentialError("invalid_input");
       const selected = input(bindingInput, requested), wanted = input(versionInput, expected), tokens = input(tokensInput, supplied);
       return this.database.transaction(() => {
         const row = this.connected(accountId, selected); this.matches(row, wanted); this.validTokens(tokens);
@@ -149,6 +160,7 @@ export class MailCredentialRepository {
         const refresh = tokens.refreshToken.action === "preserve" ? row.refresh_token : tokens.refreshToken.action === "replace" ? tokens.refreshToken.value : null;
         this.database.run("UPDATE mail_account_credentials SET revision=?,access_token=?,refresh_token=?,expires_at=?,granted_scopes_json=? WHERE account_id=?",
           [next.revision, tokens.accessToken, refresh, tokens.expiresAt, tokens.grantedScopes === null ? null : JSON.stringify([...new Set(tokens.grantedScopes)]), accountId]);
+        if(JSON.stringify(scopes(row)?.slice().sort())!==JSON.stringify(tokens.grantedScopes?.slice().sort()))new GraphMailboxRepository(this.database,this.ownerId).fenceChildren(accountId);
         return next;
       });
     });
@@ -157,6 +169,10 @@ export class MailCredentialRepository {
   disconnect(accountId: string, expected: MailCredentialVersion): MailCredentialVersion {
     return safe(() => {
       const wanted = input(versionInput, expected);
+      if (this.account(accountId) === 'graph') {
+        const mailboxes = new GraphMailboxRepository(this.database,this.ownerId), shared = mailboxes.read(accountId);
+        if (shared) { if(shared.generation !== wanted.generation || shared.revision !== wanted.revision)throw new MailCredentialError('stale_version');mailboxes.revoke(accountId,'disconnected');const next=mailboxes.read(accountId)!;return {generation:next.generation,revision:next.revision}; }
+      }
       if(this.account(accountId)==='imap')return new ImapCustody(this.database,this.ownerId).disconnect(accountId,wanted);
       return this.database.transaction(() => {
         this.account(accountId); const row = this.load(accountId); this.matches(row, wanted);
@@ -164,6 +180,7 @@ export class MailCredentialRepository {
         const next = { generation: randomUUID(), revision: nextRevision(row) };
         this.database.run("UPDATE mail_account_credentials SET generation=?,revision=?,state='disconnected',archive_locked=1,access_token=NULL,refresh_token=NULL,expires_at=NULL,granted_scopes_json=NULL WHERE account_id=?",
           [next.generation, next.revision, accountId]);
+        new GraphMailboxRepository(this.database,this.ownerId).fenceChildren(accountId);
         return next;
       });
     });
