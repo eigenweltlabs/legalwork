@@ -1,5 +1,7 @@
 # IMAP account discovery and full-history backfill (EIG-133)
 
+> Historical implementation checkpoint. Current setup and real-provider evidence are tracked in [EIG-173 qualification](live-provider-qualification.md); later automatic sync, SMTP/outbox and personal Microsoft support supersede earlier future-work statements below.
+
 The existing local host API now supports password/app-password IMAP accounts through a real ImapFlow transport. This is full-history synchronization of configured folders, including originals and MIME-derived attachments. IMAP incremental changes, mutation/SMTP execution and provider-specific onboarding/certification remain EIG-134/EIG-135. No live mailbox was used for this implementation.
 
 ## Local API and custody
