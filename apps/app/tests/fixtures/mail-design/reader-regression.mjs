@@ -26,14 +26,14 @@ try {
   await until("document.querySelector('#mail-print-root iframe')?.getBoundingClientRect().height>80");
   const selected=await run("JSON.parse(document.querySelector('[data-mail-reader]').dataset.mailReader)");
   const key=JSON.parse(selected[1]);
-  let frames=[];
+  let frames=[];const observations=[];const started=Date.now();
   for(let attempt=0;attempt<100;attempt++){
-   frames=await call('/frames');
+   frames=await call('/frames');observations.push({elapsedMs:Date.now()-started,selected:await run("document.querySelector('[data-mail-reader]').dataset.mailReader"),frames:frames.map(frame=>({...frame,text:frame.text?.slice(0,320)}))});
    if(frames.some(frame=>frame.text?.includes(key[1])&&frame.bodyHeight>0&&frame.viewport>=frame.scrollHeight-1))break;
    await pause(40);
   }
+  evidence.push({open:index+1,selected:key[1],observations,loads:await run('window.readerProbeLoads')});
   assert.ok(frames.some(frame=>frame.text?.includes(key[1])&&frame.bodyHeight>0&&frame.viewport>=frame.scrollHeight-1),`Selected body absent or clipped: ${key[1]}`);
-  evidence.push({open:index+1,selected:key[1],frames,loads:await run('window.readerProbeLoads')});
   if(index%4===0){
    await run("document.querySelector('#mail-print-root .mail-body-options button').click()");
    await until("!document.querySelector('#mail-print-root iframe')&&!!document.querySelector('#mail-print-root .mail-plain-body')");
@@ -63,6 +63,13 @@ try {
  assert.equal(await run("document.querySelector('.mail-reader-pane').scrollTop===readerProbeScroll"),true);
  const afterIdle=await state();assert.equal(afterIdle.mutations.length,unread.mutations.length,'Idle polling must not requeue read after explicit Mark unread');
  await call('/capture',{name:'eig-139-after-idle',width:1440,height:960});
+ await configure({messageId:currentId,failContentOnce:true});
+ await run("document.querySelectorAll('.mail-message-row')[2].click()");
+ await until("document.querySelectorAll('.mail-message-row')[2].getAttribute('aria-pressed')==='true'");
+ await run("document.querySelectorAll('.mail-message-row')[1].click()");
+ await until("document.querySelector('#mail-print-root .mail-notice')!==null");
+ await until("document.querySelector('#mail-print-root iframe')?.getBoundingClientRect().height>80&&!document.querySelector('#mail-print-root .mail-notice')",300);
+ const recovered=await call('/frames');assert.ok(recovered.some(frame=>frame.text?.includes(currentId)),'Initial content failure must recover without changing raw/state');
  const longResponse=await fetch('http://127.0.0.1:5483/fixture/conversation',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({count:55}),signal:deadline});
  assert.equal(longResponse.ok,true);
  await run("document.querySelector('[aria-label=\"Refresh mail\"]').click()");
