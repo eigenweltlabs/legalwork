@@ -48,6 +48,7 @@ function mockService() {
     async cancelImapConnection(){},
     async connectImap(){throw new MailServiceError("unsupported");},
     async extractionStatus(){throw new MailServiceError('not_found');},async extractionRead(){throw new MailServiceError('not_found');},async extractionReset(){throw new MailServiceError('not_found');},
+    async uploadDraft(){throw new MailServiceError("not_found");},
     async saveDraft(){throw new MailServiceError("not_found");},
     async readDraft(){throw new MailServiceError("not_found");},
     async deleteDraft(){throw new MailServiceError("not_found");},

@@ -3,10 +3,16 @@ import {z} from "zod";
 import {providerMessageLocatorSchema} from "./model.js";
 const id=z.string().min(1).max(4096),uuid=z.string().uuid(),integer=z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER);
 export const mailLocalVersionSchema=z.object({generation:uuid,revision:integer.min(1)}).strict();
-const address=z.string().email().max(320),header=z.string().max(512).refine(value=>!/[\r\n]/.test(value));
-export const mailDraftContentSchema=z.object({subject:header,to:z.array(address).max(50),cc:z.array(address).max(50).default([]),bcc:z.array(address).max(50).default([]),from:address.nullable().default(null),text:z.string().max(24000),html:z.string().max(24000).nullable().default(null),
-  attachments:z.array(z.object({locator:providerMessageLocatorSchema,partId:id,referenceId:id,filename:header.min(1),contentType:z.string().min(1).max(256).refine(value=>!/[\r\n]/.test(value))}).strict()).max(20).default([]),
-}).strict().refine(value=>Buffer.byteLength(JSON.stringify(value))<=24576);
+export const mailAddressSchema=z.string().email().max(320);
+const header=z.string().max(512).refine(value=>!/[\r\n]/.test(value));
+const messageId=z.string().max(512).regex(/^<[^<>\s@]+@[^<>\s@]+>$/);
+export const mailUploadSchema=z.object({uploadId:uuid,offset:integer.max(10*1024*1024),data:z.string().max(21848).regex(/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/),complete:z.boolean(),cancel:z.boolean().default(false),totalBytes:integer.max(10*1024*1024),sha256:z.string().regex(/^[0-9a-f]{64}$/)}).strict();
+export const mailUploadViewSchema=z.object({uploadId:uuid,nextOffset:integer,referenceId:id.nullable(),bytes:integer}).strict();
+export type MailUpload=z.input<typeof mailUploadSchema>;export type MailUploadView=z.infer<typeof mailUploadViewSchema>;
+export const mailDraftContentSchema=z.object({subject:header,to:z.array(mailAddressSchema).max(50),cc:z.array(mailAddressSchema).max(50).default([]),bcc:z.array(mailAddressSchema).max(50).default([]),from:mailAddressSchema.nullable().default(null),text:z.string().max(24000),html:z.string().max(24000).nullable().default(null),
+  editor:z.object({to:z.string().max(4096),cc:z.string().max(4096),bcc:z.string().max(4096),from:z.string().max(320)}).strict().optional(),inReplyTo:messageId.nullable().default(null),references:z.array(messageId).max(40).default([]),
+  attachments:z.array(z.object({locator:providerMessageLocatorSchema.nullable(),bytes:integer.max(10*1024*1024).optional(),disposition:z.enum(["attachment","inline"]).default("attachment"),contentId:z.string().regex(/^[a-zA-Z0-9._@-]{1,200}$/).nullable().default(null),partId:id,referenceId:id,filename:header.min(1),contentType:z.string().min(1).max(256).refine(value=>!/[\r\n]/.test(value))}).strict()).max(20).default([]),
+}).strict().refine(value=>new TextEncoder().encode(JSON.stringify(value)).byteLength<=24576);
 export const mailDraftSaveSchema=z.object({draftId:uuid,expected:mailLocalVersionSchema.nullable(),content:mailDraftContentSchema}).strict();
 export const mailDraftReadSchema=z.object({draftId:uuid,version:mailLocalVersionSchema.optional()}).strict();
 export const mailDraftDeleteSchema=z.object({draftId:uuid,expected:mailLocalVersionSchema}).strict();
@@ -45,10 +51,11 @@ export type MailLocalPage=z.input<typeof mailLocalPageSchema>;export type MailSu
 export type MailDraftView=z.infer<typeof mailDraftViewSchema>;export type MailDraftSummary=z.infer<typeof mailDraftSummarySchema>;export type MailDraftPage=z.infer<typeof mailDraftPageSchema>;export type MailLocalAction=z.infer<typeof mailLocalActionSchema>;export type MailActionPage=z.infer<typeof mailActionPageSchema>;export type MailEventPage=z.infer<typeof mailEventPageSchema>;
 
 export const mailDraftAttachmentSchema=z.object({draftId:uuid,version:mailLocalVersionSchema,ordinal:z.number().int().min(0).max(19),referenceId:id,offset:integer.default(0),limit:z.number().int().min(1).max(24576).default(24576)}).strict();
-export const mailDraftAttachmentViewSchema=z.object({draftId:uuid,version:mailLocalVersionSchema,ordinal:z.number().int().min(0).max(19),chunk:mailContentChunkSchema}).strict();
+export const mailDraftAttachmentViewSchema=z.object({draftId:uuid,version:mailLocalVersionSchema,ordinal:z.number().int().min(0).max(19),chunk:z.object({...mailContentChunkSchema.shape,locator:providerMessageLocatorSchema.nullable()}).strict().refine(v=>{const size=atob(v.data).length;return (v.referenceId===`sha256:${v.sha256}`||v.referenceId===`draft:sha256:${v.sha256}`)&&v.offset+size===(v.nextOffset??v.totalBytes)&&(v.nextOffset===null?v.offset<=v.totalBytes:size>0&&v.nextOffset<v.totalBytes);})}).strict();
 export type MailDraftAttachment=z.input<typeof mailDraftAttachmentSchema>;export type MailDraftAttachmentView=z.infer<typeof mailDraftAttachmentViewSchema>;
 // Separate literal declarations preserve discriminated command/result types at the worker boundary.
 export const mailLocalCommandSchema=z.discriminatedUnion('operation',[
+ z.object({operation:z.literal('mail.local.draft.upload'),accountId:id,input:mailUploadSchema}).strict(),
  z.object({operation:z.literal('mail.local.draft.save'),accountId:id,input:mailDraftSaveSchema}).strict(),
  z.object({operation:z.literal('mail.local.draft.read'),accountId:id,input:mailDraftReadSchema}).strict(),
  z.object({operation:z.literal('mail.local.draft.delete'),accountId:id,input:mailDraftDeleteSchema}).strict(),
@@ -62,6 +69,7 @@ export const mailLocalCommandSchema=z.discriminatedUnion('operation',[
  z.object({operation:z.literal('mail.local.events'),accountId:id,input:mailEventQuerySchema}).strict(),
 ]);
 export const mailLocalResultSchema=z.discriminatedUnion('operation',[
+ z.object({operation:z.literal('mail.local.draft.upload'),accountId:id,value:mailUploadViewSchema}).strict(),
  z.object({operation:z.literal('mail.local.draft.save'),accountId:id,value:mailDraftViewSchema}).strict(),
  z.object({operation:z.literal('mail.local.draft.read'),accountId:id,value:mailDraftViewSchema}).strict(),
  z.object({operation:z.literal('mail.local.draft.delete'),accountId:id,value:mailDraftSummarySchema}).strict(),
@@ -80,6 +88,7 @@ export function localResultMatches(command:MailLocalCommand,result:MailLocalResu
  if('accountId' in result.value&&result.value.accountId!==command.accountId)return false;
  if((command.operation==='mail.local.draft.save'||command.operation==='mail.local.draft.read'||command.operation==='mail.local.draft.delete')&&'id' in result.value&&command.input.draftId!==result.value.id)return false;
  if(command.operation==='mail.local.draft.read'&&result.operation==='mail.local.draft.read'&&command.input.version&&(command.input.version.generation!==result.value.version.generation||command.input.version.revision!==result.value.version.revision))return false;
+ if(command.operation==='mail.local.draft.upload'&&result.operation==='mail.local.draft.upload'){const input=command.input,value=result.value,bytes=input.cancel?0:input.offset+Buffer.from(input.data,'base64').length;return input.uploadId===value.uploadId&&value.bytes===bytes&&value.nextOffset===bytes&&value.referenceId===(input.complete&&!input.cancel?'draft:sha256:'+input.sha256:null);}
  if('actionId' in command.input&&'id' in result.value&&command.input.actionId!==result.value.id)return false;
  if(command.operation==='mail.local.draft.attachment'&&result.operation==='mail.local.draft.attachment'){
   const request=command.input,value=result.value;return value.draftId===request.draftId&&value.version.generation===request.version.generation&&value.version.revision===request.version.revision&&value.ordinal===request.ordinal&&value.chunk.accountId===command.accountId&&value.chunk.referenceId===request.referenceId&&value.chunk.offset===(request.offset??0)&&Buffer.from(value.chunk.data,'base64').byteLength<=(request.limit??24576);

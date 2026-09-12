@@ -1,3 +1,4 @@
+import type {MailUpload,MailUploadView} from "./local-view.js";
 import type {SavedSearchInput,SavedSearchResult} from './saved-search-view.js';
 import type {ImapDiscovery,ImapConnection,ImapConnectionResult} from './providers/imap-config.js';
 import type {MailExtractionRequest,MailExtractionRead,MailExtractionStatus,MailExtractionText} from "./extraction-view.js";
@@ -25,6 +26,7 @@ export interface MailService {
   extractionStatus(accountId:string,input:MailExtractionRequest):Promise<MailExtractionStatus>;
   extractionRead(accountId:string,input:MailExtractionRead):Promise<MailExtractionText>;
   extractionReset(accountId:string,input:MailExtractionRequest):Promise<MailExtractionStatus>;
+  uploadDraft(accountId:string,input:MailUpload):Promise<MailUploadView>;
   saveDraft(accountId:string, input:MailDraftSave):Promise<MailDraftView>;
   readDraft(accountId:string, input:MailDraftRead):Promise<MailDraftView>;
   deleteDraft(accountId:string, input:MailDraftDelete):Promise<MailDraftSummary>;
