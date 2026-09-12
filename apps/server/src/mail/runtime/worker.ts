@@ -168,6 +168,7 @@ async function request(message: Extract<ParentMessage, { kind: "request" }>): Pr
   try {
     let result: WorkerResult | undefined;
     switch (command.operation) {
+      case "mail.badge.count": result = { unreadInboxCount: reads.unreadInboxCount() }; break;
       case 'mail.extraction.status':if(!extraction)throw locked;result={extraction:extraction.status(command.accountId,command.input)};break;
       case 'mail.extraction.read':if(!extraction)throw locked;result={extractionText:extraction.read(command.accountId,command.input)};break;
       case 'mail.extraction.reset':if(!extraction)throw locked;result={extraction:extraction.reset(command.accountId,command.input)};break;

@@ -1,3 +1,4 @@
+import { configureMailBadge } from "./app-badge.mjs";
 import { randomUUID } from "node:crypto";
 import { spawn, spawnSync } from "node:child_process";
 import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
@@ -1328,8 +1329,12 @@ export function createRuntimeManager({ app, desktopRoot, listLocalWorkspacePaths
     const { startEmbeddedServer } = await import(pathToFileURL(embeddedPath).href);
     let mail;
     if (!options.remoteAccessEnabled) {
-      const { safeStorage } = await import("electron");
+      const { safeStorage, nativeImage, BrowserWindow } = await import("electron");
       mail = await createDesktopMailService({ app, embeddedPath, safeStorage });
+      await configureMailBadge({ app, nativeImage, BrowserWindow, service: mail });
+      // Reuse normal keychain preflight/unlock for existing profiles, including rotated stores.
+      const mailDirectory = path.join(app.getPath("userData"), "mail");
+      if (existsSync(path.join(mailDirectory, "mail.sqlite")) || existsSync(path.join(mailDirectory, "active-store-v1.json"))) void mail.unlock().catch(() => {});
     }
     // startEmbeddedServer falls back to an OS-assigned port if `port` races
     // into EADDRINUSE (see apps/server/src/serve-node.ts), so the bound port

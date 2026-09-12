@@ -1,3 +1,4 @@
+import { getMailBadgeEnabled, setMailBadgeEnabled } from "./app-badge.mjs";
 import { createMailArtifacts } from "./mail-artifacts.mjs";
 import { execFileSync, spawn } from "node:child_process";
 import { createServer } from "node:http";
@@ -1685,6 +1686,8 @@ async function openDetachedSessionWindow(event, input = {}) {
 // typecheck:electron`.
 /** @type {import("@legalwork/types/desktop-ipc").DesktopCommandHandlers<import("electron").IpcMainInvokeEvent>} */
 const desktopCommandHandlers = {
+  getMailBadgeEnabled: async () => getMailBadgeEnabled(),
+  setMailBadgeEnabled: async (_event, enabled) => setMailBadgeEnabled(enabled),
   "openSessionWindow": async (event, ...args) => {
       return openDetachedSessionWindow(event, args[0] ?? {});
   },
