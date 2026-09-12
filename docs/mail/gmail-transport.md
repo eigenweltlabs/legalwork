@@ -1,5 +1,7 @@
 # Gmail full-history read transport
 
+> Historical implementation checkpoint. Current setup and real-provider evidence are tracked in [EIG-173 qualification](live-provider-qualification.md); later automatic sync, SMTP/outbox and personal Microsoft support supersede earlier future-work statements below.
+
 `providers/gmail.ts` exports `GmailReadTransport`. It performs only authenticated GET requests to fixed `https://gmail.googleapis.com/gmail/v1/users/me` paths. Tokens stay in trusted worker memory and Authorization headers, never request URLs, diagnostics or returned metadata. The caller supplies a valid account-bound access token; token refresh, permission verification and credential-generation checks remain outside this transport. There is no mailbox traffic in the tests.
 
 ## Exported contract
