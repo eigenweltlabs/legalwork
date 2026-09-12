@@ -40,9 +40,11 @@ export class MailQualification {
   if(labels.length>10000||manifests.length>50000)throw new RangeError('bounded');return{rows,members,labels,fingerprint:hash(JSON.stringify([rows,[...members],labels,manifests]))};
  }
  private async run(accountId:string,report:QualificationReport,signal:AbortSignal,generation:string){
+  const transports:GmailReadTransport[]=[];
+  try {
   const db=this.options.database,credentials=new MailCredentialRepository(db,this.options.ownerId),reads=new MailReadStore(db,this.options.ownerId);
   const fence=()=>{signal.throwIfAborted();const status=credentials.status(accountId);if(status.state!=='connected'||status.archiveLocked||status.version.generation!==generation)throw Error('unavailable');};
-  const transport=async()=>{fence();if(this.options.transport)return this.options.transport(accountId,signal);const granted=await this.options.access.acquire(accountId);fence();return new GmailReadTransport({accessToken:granted.accessToken,maxRawBytes:8*1024*1024});};
+  const transport=async()=>{fence();let result:GmailReadTransport;if(this.options.transport)result=await this.options.transport(accountId,signal);else{const granted=await this.options.access.acquire(accountId);fence();result=new GmailReadTransport({accessToken:granted.accessToken,maxRawBytes:8*1024*1024});}transports.push(result);return result;};
   const local=this.snapshot(accountId,report.maxMessages);report.localMessages=local.rows.length;report.localLabels=local.labels.length;
   const before=await(await transport()).getProfile({signal}),labels=await(await transport()).listLabels({signal});report.providerLabels=labels.labels.length;const providerLabels=new Set(labels.labels.map(value=>value.id));report.missingLabels=[...providerLabels].filter(id=>!local.labels.includes(id)).length;report.extraLabels=local.labels.filter(id=>!providerLabels.has(id)).length;
   const ids=new Set<string>(),tokens=new Set<string>();let pageToken:string|undefined;
@@ -67,5 +69,6 @@ export class MailQualification {
   }
   fence();const final=await(await transport()).getProfile({signal});fence();report.providerStable=before.historyId===final.historyId;report.localStable=local.fingerprint===this.snapshot(accountId,report.maxMessages).fingerprint;
   report.state=report.providerStable&&report.localStable&&!report.duplicateProviderIds?'complete':'inconclusive';if(report.state==='inconclusive')report.error='changed';report.comparison=report.state!=='complete'||report.incompleteSamples||report.skippedOversizeSamples?'inconclusive':report.missingLocal+report.extraLocal+report.missingLabels+report.extraLabels+report.membershipMismatches+report.rawMismatches+report.bodyMismatches+report.attachmentMismatches?'mismatch':'match';
+  } finally {await Promise.allSettled(transports.map(transport=>transport.settled()));}
  }
 }
