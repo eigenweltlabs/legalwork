@@ -1,3 +1,5 @@
+import {MailLocalApiStore} from './local-api.js';
+import {projectDraftRecipients} from '../mime/compose.js';
 import {z} from 'zod';
 import type {MailDatabase} from './database-interface.js';
 import {MailCredentialRepository} from './credentials.js';
@@ -8,10 +10,10 @@ const rowSchema=z.object({account_id:z.string(),draft_id:z.string(),enabled:z.nu
 export type DraftSyncRow=z.infer<typeof rowSchema>;
 export class DraftSyncStore{
  constructor(readonly db:MailDatabase,readonly ownerId:string){}
- account(accountId:string){if(!this.db.get('SELECT 1 FROM mail_accounts WHERE id=? AND owner_id=?',[accountId,this.ownerId]))throw new DraftSyncError('not_found');if(new MailCredentialRepository(this.db,this.ownerId).status(accountId).state==='disconnected')throw new DraftSyncError('locked');}
+ account(accountId:string){if(!this.db.get('SELECT 1 FROM mail_accounts WHERE id=? AND owner_id=?',[accountId,this.ownerId]))throw new DraftSyncError('not_found');const status=new MailCredentialRepository(this.db,this.ownerId).status(accountId);if(status.state!=='connected'||status.archiveLocked)throw new DraftSyncError('locked');}
  head(accountId:string,draftId:string){const row=this.db.get('SELECT generation,revision,deleted FROM mail_local_drafts WHERE account_id=? AND id=?',[accountId,draftId]);if(!row)throw new DraftSyncError('not_found');return z.object({generation:z.string(),revision:z.number(),deleted:z.number()}).parse(row);}
  row(accountId:string,draftId:string){const value=this.db.get('SELECT * FROM mail_draft_sync WHERE account_id=? AND draft_id=?',[accountId,draftId]);return value?rowSchema.parse(value):null;}
- status(accountId:string,draftId:string){this.account(accountId);const head=this.head(accountId,draftId),row=this.row(accountId,draftId),dirty=!row||row.generation!==head.generation||row.local_revision!==head.revision;return draftSyncStatusSchema.parse({accountId,draftId,state:row?.state??'local',enabled:row?.enabled===1,dirty,revision:row?.revision??0,remote:row?.remote_json?draftRemoteRefSchema.parse(JSON.parse(row.remote_json)):null,remoteHash:row?.conflict_hash??null,error:row?.error??null,operation:row?.operation??'upsert',updatedAt:row?.updated_at??0});}
+ status(accountId:string,draftId:string){this.account(accountId);const head=this.head(accountId,draftId),row=this.row(accountId,draftId),dirty=!row||row.generation!==head.generation||row.local_revision!==head.revision;return draftSyncStatusSchema.parse({accountId,draftId,state:row?.state??'local',recipientInputLocalOnly:!head.deleted&&projectDraftRecipients(new MailLocalApiStore(this.db,this.ownerId).readDraft(accountId,{draftId}).content).recipientInputLocalOnly,enabled:row?.enabled===1,dirty,revision:row?.revision??0,remote:row?.remote_json?draftRemoteRefSchema.parse(JSON.parse(row.remote_json)):null,remoteHash:row?.conflict_hash??null,error:row?.error??null,operation:row?.operation??'upsert',updatedAt:row?.updated_at??0});}
  request(accountId:string,supplied:DraftSyncRequest){return this.db.transaction(()=>{this.account(accountId);const input=draftSyncRequestSchema.parse(supplied),head=this.head(accountId,input.draftId);if(head.deleted||head.generation!==input.expected.generation||head.revision!==input.expected.revision)throw new DraftSyncError('conflict');let row=this.row(accountId,input.draftId);
   if(!row){this.db.run('INSERT INTO mail_draft_sync(account_id,draft_id) VALUES(?,?)',[accountId,input.draftId]);row=this.row(accountId,input.draftId)!;}
   if(row.state==='syncing')throw new DraftSyncError('conflict');
