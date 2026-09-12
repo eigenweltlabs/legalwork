@@ -2,7 +2,6 @@ name: i18n Audit
 
 on:
   pull_request:
-    types: [opened, synchronize, reopened, ready_for_review]
     branches:
       - dev
       - codex/projects-akte-workspace

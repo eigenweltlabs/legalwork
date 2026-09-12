@@ -2,9 +2,6 @@ name: Mail final platform qualification (non-release)
 on:
   # Run after all mail tickets are complete; ticket work uses feature-specific tests.
   workflow_dispatch:
-  # Bootstrap this PR-only workflow after the final integration gate.
-  push:
-    branches: [qualify/mail-eig-152-final]
 permissions:
   contents: read
 concurrency:
@@ -12,7 +9,6 @@ concurrency:
   cancel-in-progress: true
 jobs:
   qualify:
-    if: github.event_name == 'workflow_dispatch' || contains(github.event.head_commit.message, '[mail-platform-qualification]')
     strategy:
       fail-fast: false
       matrix:
@@ -78,29 +74,6 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: mail-qualification-${{ matrix.os }}-${{ matrix.arch }}-${{ github.sha }}
-          path: mail-qualification-evidence/
-          if-no-files-found: error
-          retention-days: 14
-  windows-prerequisites:
-    if: github.event_name == 'push' && contains(github.event.head_commit.message, '[mail-platform-diagnostics]')
-    runs-on: windows-2022
-    timeout-minutes: 15
-    steps:
-      - uses: actions/checkout@v6
-      - uses: actions/setup-node@v6
-        with:
-          node-version: '24.11.0'
-      - uses: pnpm/action-setup@v4
-        with:
-          version: 11.4.0
-      - name: Install locked dependencies
-        run: pnpm install --frozen-lockfile
-      - name: Diagnose synthetic Windows prerequisites
-        run: node scripts/mail/qualification-step.mjs prerequisites node scripts/mail/windows-prerequisites.mjs
-      - uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: mail-windows-prerequisites-${{ github.sha }}
           path: mail-qualification-evidence/
           if-no-files-found: error
           retention-days: 14
