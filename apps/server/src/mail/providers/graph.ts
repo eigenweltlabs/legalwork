@@ -1,7 +1,7 @@
 import { performance } from "node:perf_hooks";
 import { z } from "zod";
 import type { OAuthFetch } from "./oauth.js";
-const BASE = "https://graph.microsoft.com/v1.0/me";
+import { graphMailboxBasePath } from '../storage/graph-mailboxes.js';
 const id = z.string().min(1).max(4096).refine(value => value !== "." && value !== ".." && !/[\x00-\x20\x7f]/.test(value));
 const text = z.string().max(65536);
 const count = z.number().int().min(0).max(Number.MAX_SAFE_INTEGER);
@@ -49,17 +49,22 @@ function retryAfter(value: string | null): number {
     return Number.isSafeInteger(ms) ? ms : 0;
 }
 const segment = (value: string) => encodeURIComponent(id.parse(value));
-/** Global-cloud primary mailbox only. Authenticated GETs, no redirects or external attachment URLs. */
+/** Global-cloud primary or explicitly bound shared mailbox. Authenticated GETs, no redirects or external attachment URLs. */
 export class GraphReadTransport {
     private readonly fetch: OAuthFetch;
+    private readonly base: string;
+    private readonly scope: string;
     constructor(private readonly options: {
         accessToken: string;
+        mailboxAddress?: string | null;
         fetch?: OAuthFetch;
         timeoutMs?: number;
     }) {
         if (typeof options.accessToken !== "string" || !/^[\x21-\x7e]{1,16384}$/.test(options.accessToken) || !Number.isSafeInteger(options.timeoutMs ?? 30000) || (options.timeoutMs ?? 30000) < 10 || (options.timeoutMs ?? 30000) > 120000)
             fail("invalid_input");
         this.fetch = options.fetch ?? fetch;
+        this.scope = "/v1.0" + graphMailboxBasePath(options.mailboxAddress ?? null);
+        this.base = "https://graph.microsoft.com" + this.scope;
     }
     private async *bytes(url: string, maxBytes: number, signal?: AbortSignal): AsyncGenerator<Uint8Array> {
         const controller = new AbortController();
@@ -173,23 +178,23 @@ export class GraphReadTransport {
         }
     }
     private async page<T>(path: string, query: string, schema: z.ZodType<T>, nextLink?: string, signal?: AbortSignal) {
-        const url = nextLink === undefined ? `${BASE}${path}?${query}` : graphContinuation(nextLink, `/v1.0/me${path}`);
+        const url = nextLink === undefined ? `${this.base}${path}?${query}` : graphContinuation(nextLink, `${this.scope}${path}`);
         const parsed = z.object({ value: z.array(schema).max(500), "@odata.nextLink": z.string().min(1).max(32768).optional() }).safeParse(await this.json(url, signal));
         if (!parsed.success)
             fail("invalid_response");
         const next = parsed.data["@odata.nextLink"];
         if (next !== undefined) {
-            graphContinuation(next, `/v1.0/me${path}`);
+            graphContinuation(next, `${this.scope}${path}`);
             if (next === url)
                 fail("invalid_response");
         }
         return { items: parsed.data.value, nextLink: next ?? null };
     }
-    async getFolder(folderId: string, signal?: AbortSignal) { const parsed = graphFolderSchema.safeParse(await this.json(`${BASE}/mailFolders/${segment(folderId)}?$select=id,displayName,parentFolderId,childFolderCount,isHidden`, signal)); if (!parsed.success || folderId !== 'msgfolderroot' && folderId !== 'inbox' && parsed.data.id !== folderId)
+    async getFolder(folderId: string, signal?: AbortSignal) { const parsed = graphFolderSchema.safeParse(await this.json(`${this.base}/mailFolders/${segment(folderId)}?$select=id,displayName,parentFolderId,childFolderCount,isHidden`, signal)); if (!parsed.success || folderId !== 'msgfolderroot' && folderId !== 'inbox' && parsed.data.id !== folderId)
         fail('invalid_response'); return parsed.data; }
     async messageDelta(folderId: string, continuation?: string, signal?: AbortSignal) {
         if(folderId.split(/[\\/]/).some(part=>part==='.'||part==='..'))fail('invalid_input');
-        const path = `/v1.0/me/mailFolders/${segment(folderId)}/messages/delta`;
+        const path = `${this.scope}/mailFolders/${segment(folderId)}/messages/delta`;
         const validate = (value: string) => {
             // Decode the key once, not the path: Graph emits both OData quoted keys
             // and slash keys, with either literal or percent-encoded base64 padding.
@@ -202,7 +207,8 @@ export class GraphReadTransport {
             catch {
                 return fail('invalid_response');
             }
-            const match = /^\/v1\.0\/me\/(?:mailFolders|mailfolders)(?:\/([^/]+)|\('((?:[^']|'')*)'\))\/messages\/delta$/.exec(raw);
+            const scoped = raw.startsWith(this.scope + '/') ? raw.slice(this.scope.length) : '';
+            const match = /^\/(?:mailFolders|mailfolders)(?:\/([^/]+)|\('((?:[^']|'')*)'\))\/messages\/delta$/.exec(scoped);
             if (match) {
                 try {
                     const key = decodeURIComponent(match[1] ?? match[2] ?? '');
@@ -234,12 +240,12 @@ export class GraphReadTransport {
     listFolders(parentId: string | null, nextLink?: string, signal?: AbortSignal) { return this.page(parentId === null ? "/mailFolders" : `/mailFolders/${segment(parentId)}/childFolders`, "includeHiddenFolders=true&$top=100&$select=id,displayName,parentFolderId,childFolderCount,isHidden", graphFolderSchema, nextLink, signal); }
     listMessages(nextLink?: string, signal?: AbortSignal) { return this.page("/messages", "$top=100&$select=id,parentFolderId,conversationId,subject,internetMessageId,receivedDateTime,sentDateTime,isRead,isDraft,hasAttachments,importance,categories,lastModifiedDateTime,changeKey", graphMessageSchema, nextLink, signal); }
     async getMessage(messageId: string, signal?: AbortSignal) {
-        const value = graphMessageSchema.safeParse(await this.json(`${BASE}/messages/${segment(messageId)}?$select=id,parentFolderId,conversationId,subject,internetMessageId,receivedDateTime,sentDateTime,isRead,isDraft,hasAttachments,importance,categories,lastModifiedDateTime,changeKey`, signal));
+        const value = graphMessageSchema.safeParse(await this.json(`${this.base}/messages/${segment(messageId)}?$select=id,parentFolderId,conversationId,subject,internetMessageId,receivedDateTime,sentDateTime,isRead,isDraft,hasAttachments,importance,categories,lastModifiedDateTime,changeKey`, signal));
         if (!value.success || value.data.id !== messageId)
             fail("invalid_response");
         return value.data;
     }
     listAttachments(messageId: string, nextLink?: string, signal?: AbortSignal) { return this.page(`/messages/${segment(messageId)}/attachments`, "$top=100&$select=id,name,contentType,size,isInline,contentId", graphAttachmentSchema, nextLink, signal); }
-    messageBytes(messageId: string, signal?: AbortSignal) { return this.bytes(`${BASE}/messages/${segment(messageId)}/$value`, 64 * 1024 * 1024, signal); }
-    attachmentBytes(messageId: string, attachmentId: string, signal?: AbortSignal) { return this.bytes(`${BASE}/messages/${segment(messageId)}/attachments/${segment(attachmentId)}/$value`, 32 * 1024 * 1024, signal); }
+    messageBytes(messageId: string, signal?: AbortSignal) { return this.bytes(`${this.base}/messages/${segment(messageId)}/$value`, 64 * 1024 * 1024, signal); }
+    attachmentBytes(messageId: string, attachmentId: string, signal?: AbortSignal) { return this.bytes(`${this.base}/messages/${segment(messageId)}/attachments/${segment(attachmentId)}/$value`, 32 * 1024 * 1024, signal); }
 }

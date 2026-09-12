@@ -29,7 +29,7 @@ export function parseGoogleInstalledMailClient(value: unknown): Extract<MailOAut
 export function parseGraphMailRegistration(value: unknown): Extract<MailOAuthSettings, { provider: "graph" }> {
   const parsed = graphClient.safeParse(value);
   if (!parsed.success) throw new MailDevelopmentConfigError();
-  return { provider: "graph", applicationType: "desktop", pkceMethod: "S256", scopes: [...GRAPH_MAIL_SCOPES],
+  return { provider: "graph", applicationType: "desktop", pkceMethod: "S256", scopes: [...GRAPH_MAIL_SCOPES, ...(parsed.data.tenantId === 'consumers' ? [] : ['Mail.ReadWrite.Shared', 'Mail.Send.Shared'])],
     clientId: parsed.data.clientId.toLowerCase(), tenantId: parsed.data.tenantId.toLowerCase(),
     registeredRedirectUri: "http://localhost/mail/callback" };
 }

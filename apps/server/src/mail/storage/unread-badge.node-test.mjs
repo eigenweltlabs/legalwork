@@ -16,7 +16,7 @@ test('aggregate deduplicates Inbox memberships, tracks unread/move/delete/discon
  try{
  db=await openEncryptedMailDatabase({path,key});migrateMailSchema(db);
  const repo=new MailRepository(db,'owner');
- const connect=(id,provider='gmail')=>db.run("INSERT INTO mail_account_credentials(account_id,provider,client_id,authority,provider_subject,generation,revision,state,archive_locked,access_token,expires_at) VALUES(?,?, 'fixture','fixture','fixture','test',1,'connected',0,'synthetic',9007199254740991)",[id,provider]);
+ const connect=(id,provider='gmail')=>db.run("INSERT INTO mail_account_credentials(account_id,provider,client_id,authority,provider_subject,generation,revision,state,archive_locked,access_token,expires_at) VALUES(?,?, '11111111-2222-3333-4444-555555555555','https://login.microsoftonline.com/aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee/v2.0','bbbbbbbb-cccc-dddd-eeee-ffffffffffff','11111111-1111-4111-8111-111111111111',1,'connected',0,'synthetic',9007199254740991)",[id,provider]);
  for(const id of ['a','b']) {repo.createAccount({id,provider:'gmail',displayName:id});for(const folder of ['INBOX','UNREAD','SPAM','TRASH','extra'])repo.putFolder(id,{id:folder,name:folder,kind:'label'});}
  new MailRepository(db,'foreign').createAccount({id:'foreign',provider:'gmail',displayName:'private'});
  const put=(id,messageId,memberships)=>repo.ingestMessage(id,{locator:{provider:'gmail',messageId},subject:'fixture',rfcMessageId:null,memberships});

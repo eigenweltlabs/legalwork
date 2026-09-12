@@ -1,4 +1,5 @@
 import type {MailUpload} from "./local-view.js";
+import type { GraphMailboxInput } from './graph-mailbox-view.js';
 import type {SavedSearchInput} from './saved-search-view.js';
 import type {ImapConnection} from './providers/imap-config.js';
 import type {MailExtractionRequest,MailExtractionRead} from "./extraction-view.js";
@@ -62,6 +63,12 @@ export class LocalMailService implements MailService {
         } finally { if (key instanceof Uint8Array) key.fill(0); }
       },
     });
+  }
+  async configureGraphMailbox(input:GraphMailboxInput) {
+    const result=await this.request({operation:'mail.graph.mailbox.configure',input});
+    if(!('graphMailbox' in result))throw new MailServiceError('unavailable');
+    await this.startSync(result.graphMailbox.accountId);
+    return result.graphMailbox;
   }
   async unreadInboxCount(): Promise<number> {
     const result = await this.request({ operation: "mail.badge.count" });

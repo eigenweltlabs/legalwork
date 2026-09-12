@@ -7,7 +7,7 @@ export class SavedSearchError extends Error {
 export class MailSavedSearchStore {
     constructor(private readonly db: MailDatabase, private readonly ownerId: string) { }
     private scope(query: SavedSearch['query']) { for (const id of query.accountIds ?? []) {
-        const row = this.db.get("SELECT a.id,c.state,i.archive_locked FROM mail_accounts a LEFT JOIN mail_account_credentials c ON c.account_id=a.id LEFT JOIN mail_imap_credentials i ON i.account_id=a.id WHERE a.owner_id=? AND a.id=?", [this.ownerId, id]);
+        const row = this.db.get("SELECT a.id,c.state,i.archive_locked FROM mail_accounts a LEFT JOIN mail_account_access c ON c.account_id=a.id LEFT JOIN mail_imap_credentials i ON i.account_id=a.id WHERE a.owner_id=? AND a.id=?", [this.ownerId, id]);
         if (!row)
             throw new SavedSearchError('not_found');
         if (row.state === 'disconnected' || row.archive_locked === 1)

@@ -1,4 +1,5 @@
 import {mailUploadSchema} from "../mail/local-view.js";
+import { graphMailboxInputSchema } from '../mail/graph-mailbox-view.js';
 import {savedSearchInputSchema} from '../mail/saved-search-view.js';
 import {imapConnectionSchema} from '../mail/providers/imap-config.js';
 import {extractionRequestSchema,extractionReadSchema} from "../mail/extraction-view.js";
@@ -86,6 +87,15 @@ export function registerMailRoutes(routes: Route[], host: string, service?: Mail
       } catch (error) { throw safeError(error); }
     });
   }
+  addRoute(routes,'POST','/mail/v1/graph/mailboxes','host-token',async ctx=>{
+    if(ctx.actor?.type!=='host')throw new ApiError(401,'unauthorized','Invalid host token');
+    pageInput(ctx,false);
+    if(ctx.request.headers.get('content-type')?.split(';')[0]?.trim().toLowerCase()!=='application/json')throw new ApiError(400,'mail_invalid_request','Invalid mail request');
+    const raw=await readMailBody(ctx.request,4096);let value:unknown;
+    try{value=JSON.parse(raw);}catch{throw new ApiError(400,'mail_invalid_request','Invalid mail request');}
+    const parsed=graphMailboxInputSchema.safeParse(value);if(!parsed.success)throw new ApiError(400,'mail_invalid_request','Invalid mail request');
+    try{return Response.json(await service.configureGraphMailbox(parsed.data),{headers:{'Cache-Control':'no-store'}});}catch(error){throw safeError(error);}
+  });
   for (const operation of ["search", "search/rebuild"]) addRoute(routes,"POST",`/mail/v1/${operation}`,"host-token",async ctx=>{
     if(ctx.actor?.type!=="host")throw new ApiError(401,"unauthorized","Invalid host token");
     pageInput(ctx,false);

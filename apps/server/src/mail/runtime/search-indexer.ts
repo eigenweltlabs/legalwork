@@ -15,7 +15,7 @@ export class MailSearchIndexer {
     try{
       const select=(after:string)=>this.database.get(`SELECT a.id FROM mail_accounts a WHERE a.owner_id=? AND a.id>?
         AND NOT EXISTS(SELECT 1 FROM mail_imap_credentials i WHERE i.account_id=a.id AND i.state='disconnected')
-        AND NOT EXISTS(SELECT 1 FROM mail_account_credentials c WHERE c.account_id=a.id AND c.state='disconnected')
+        AND NOT EXISTS(SELECT 1 FROM mail_account_access c WHERE c.account_id=a.id AND c.state='disconnected')
         AND EXISTS(SELECT 1 FROM mail_search_dirty d WHERE d.account_id=a.id) ORDER BY a.id LIMIT 1`,[this.ownerId,after]);
       const row=select(this.after)??select("");
       if(row&&typeof row.id==='string'){this.after=row.id;this.search.rebuild({accountId:row.id,limit:1});busy=true;}

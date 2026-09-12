@@ -21,7 +21,7 @@ export class MailReadStore {
   unreadInboxCount(): number {
     const row = this.database.get(`SELECT count(*) AS count FROM mail_messages m
       JOIN mail_accounts a ON a.id=m.account_id WHERE a.owner_id=?
-      AND ((a.provider IN ('gmail','graph') AND EXISTS(SELECT 1 FROM mail_account_credentials c WHERE c.account_id=a.id AND c.state='connected' AND c.archive_locked=0))
+      AND ((a.provider IN ('gmail','graph') AND EXISTS(SELECT 1 FROM mail_account_access c WHERE c.account_id=a.id AND c.state='connected' AND c.archive_locked=0))
         OR (a.provider='imap' AND EXISTS(SELECT 1 FROM mail_imap_credentials c WHERE c.account_id=a.id AND c.state='connected' AND c.archive_locked=0)))
       AND NOT EXISTS(SELECT 1 FROM mail_tombstones t WHERE t.account_id=m.account_id AND t.message_key=m.message_key)
       AND EXISTS(SELECT 1 FROM mail_memberships f JOIN mail_folders ff ON ff.account_id=f.account_id AND ff.id=f.folder_id
