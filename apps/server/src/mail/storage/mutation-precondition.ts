@@ -15,6 +15,7 @@ export function folderMutationPrecondition(folder: {name:string;parentId:string|
 }
 export function storedFolderMutationPrecondition(db: MailDatabase, accountId: string, folderId: string): string | null {
   const provider = db.get('SELECT provider FROM mail_accounts WHERE id=?', [accountId])?.provider;
+  if(provider==='archive')return null;
   const row = db.get('SELECT name,parent_id FROM mail_folders WHERE account_id=? AND id=?', [accountId,folderId]);
   if (!row) return null;
   if (provider === 'imap') return 'imap-mailbox-v1';
@@ -26,6 +27,7 @@ export function storedFolderMutationPrecondition(db: MailDatabase, accountId: st
 }
 /** Provider observations, never locally optimistic state, authorize a queued mutation. */
 export function storedMutationPrecondition(db: MailDatabase, accountId: string, locator: ProviderMessageLocator) {
+  if (locator.provider === 'archive') return null;
   if (locator.provider === 'imap') return storedImapPrecondition(db, accountId, locator);
   const key = providerMessageKey(locator);
   if (locator.provider === 'gmail') {

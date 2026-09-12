@@ -53,7 +53,7 @@ export class MailSyncJournal {
   private account(accountId: string): string {
     const row = this.database.get("SELECT provider FROM mail_accounts WHERE id=? AND owner_id=?", [id.parse(accountId), this.ownerId]);
     if (!row) throw new Error("Mail account not found");
-    return z.enum(["gmail", "graph", "imap"]).parse(row.provider);
+    return z.enum(["gmail", "graph", "imap", "archive"]).parse(row.provider);
   }
   private checkpoint(scope: SyncScope): SyncCheckpoint {
     const raw = this.database.get("SELECT cursor,revision,discovery_complete FROM mail_sync_scopes WHERE account_id=? AND scope_id=? AND generation=?", [scope.accountId, scope.scopeId, scope.generation]);

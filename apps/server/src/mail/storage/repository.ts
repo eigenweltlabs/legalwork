@@ -3,7 +3,7 @@ import { providerMessageKey, providerMessageLocatorSchema, type ProviderMessageL
 import type { MailDatabase } from "./database-interface.js";
 
 const id = z.string().min(1).max(4096);
-const provider = z.enum(["gmail", "graph", "imap"]);
+const provider = z.enum(["gmail", "graph", "imap", "archive"]);
 const accountInput = z.object({ id, provider, displayName: z.string() }).strict();
 const folderInput = z.object({ id, name: z.string(), kind: z.enum(["folder", "label"]), parentId: id.nullable().default(null) }).strict();
 const messageInput = z.object({

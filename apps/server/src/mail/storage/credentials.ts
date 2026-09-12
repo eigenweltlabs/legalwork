@@ -80,7 +80,7 @@ export class MailCredentialRepository {
     input(id, accountId);
     const row = this.database.get("SELECT provider FROM mail_accounts WHERE id=? AND owner_id=?", [accountId, this.ownerId]);
     if (!row) throw new MailCredentialError("account_not_found");
-    return input(z.enum(["gmail", "graph", "imap"]), row.provider);
+    return input(z.enum(["gmail", "graph", "imap", "archive"]), row.provider);
   }
   credentialAccountId(accountId: string): string {
     const provider = this.account(accountId);
