@@ -5,9 +5,12 @@ const settings = { provider: "gmail", applicationType: "desktop", pkceMethod: "S
 const connectionId = "11111111-1111-4111-8111-111111111111";
 const parent = (command: unknown) => parseParentMessage(JSON.stringify({ kind: "request", id: "1:1", command }));
 const response = (result: unknown) => parseWorkerMessage(JSON.stringify({ kind: "response", id: "1:1", ok: true, result }));
-test("sync protocol requires trusted settings and validates bounded, account-correlated progress", () => {
+test("sync protocol validates optional trusted settings and bounded, account-correlated progress", () => {
   expect(parent({ operation: "mail.sync.start", accountId: "a", settings })).toBeDefined();
-  expect(parent({ operation: "mail.sync.start", accountId: "a" })).toBeUndefined();
+  // IMAP uses its stored configuration. OAuth providers are checked in the worker.
+  expect(parent({ operation: "mail.sync.start", accountId: "a" })).toBeDefined();
+  expect(parent({ operation: "mail.sync.start", accountId: "a", settings: null })).toBeUndefined();
+  expect(parent({ operation: "mail.sync.start", accountId: "a", ownerId: "foreign" })).toBeUndefined();
   expect(parent({ operation: "mail.sync.start", accountId: "a", settings: { ...settings, accessToken: "private" } })).toBeUndefined();
   const sync = { accountId: "a", provider: "gmail", state: "syncing", enumerated: 5,
     downloaded: 3, projected: 2, removed: 0, retained: 0, failed: 0, pending: 3, nextRetryAt: null, error: null };
