@@ -39,6 +39,7 @@ import { MAX_WORKER_MESSAGE_BYTES, parseParentMessage, parseWorkerMessage,
   type ParentMessage, type WorkerInitialization, type WorkerMessage, type WorkerResult, type WorkerAccount, type WorkerFolder } from "./protocol.js";
 
 let outboxStore:OutboxStore|undefined,outboxRunner:OutboxRunner|undefined;
+let closingOutbox:Promise<void>|undefined,closingDraftSync:Promise<void>|undefined;
 let draftSyncStore:DraftSyncStore|undefined,draftSyncRunner:DraftSyncRunner|undefined;
 let ownerId='';
 let database: MailDatabase | undefined;
@@ -84,8 +85,8 @@ function write(message: WorkerMessage): boolean {
   return true;
 }
 async function finish(): Promise<void> {
-  try{await outboxRunner?.close();}catch{exitCode=1;}
-  try{await draftSyncRunner?.close();}catch{exitCode=1;}
+  try{await(closingOutbox??outboxRunner?.close());}catch{exitCode=1;}
+  try{await(closingDraftSync??draftSyncRunner?.close());}catch{exitCode=1;}
   try{await(closingExtraction??extractionRunner?.close());}catch{exitCode=1;}
   try { await (closingController ?? controller?.close()); } catch { exitCode = 1; }
   try { await (closingSync ?? syncLifecycle?.close()); } catch { exitCode = 1; }
@@ -109,6 +110,9 @@ function shutdown(code = 0): void {
   exitCode = Math.max(exitCode, code);
   if (phase === "closing") return;
   phase = "closing";
+  // Stop every network runner before awaiting any individual teardown.
+  closingOutbox=outboxRunner?.close();
+  closingDraftSync=draftSyncRunner?.close();
   // close() marks the controller closed synchronously, before any queued continuation.
   closingExtraction=extractionRunner?.close();
   closingController = controller?.close();
