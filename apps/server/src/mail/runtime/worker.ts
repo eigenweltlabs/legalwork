@@ -178,6 +178,7 @@ async function request(message: Extract<ParentMessage, { kind: "request" }>): Pr
       case "mail.search.saved":if(!savedSearch)throw locked;result={savedSearch:savedSearch.execute(command.input)};break;
       case "mail.search": if (!search) throw locked; result = {search:search.search(command.input)}; break;
       case "mail.search.rebuild": if (!search) throw locked; result = {rebuilt:search.rebuild(command.input)}; break;
+      case "mail.local.draft.upload": if(!local)throw locked;result={local:{operation:command.operation,accountId:command.accountId,value:local.uploadDraft(command.accountId,command.input)}};break;
       case "mail.local.draft.save": if(!local)throw locked;result={local:{operation:command.operation,accountId:command.accountId,value:local.saveDraft(command.accountId,command.input)}};break;
       case "mail.local.draft.read": if(!local)throw locked;result={local:{operation:command.operation,accountId:command.accountId,value:local.readDraft(command.accountId,command.input)}};break;
       case "mail.local.draft.delete": if(!local)throw locked;result={local:{operation:command.operation,accountId:command.accountId,value:local.deleteDraft(command.accountId,command.input)}};break;

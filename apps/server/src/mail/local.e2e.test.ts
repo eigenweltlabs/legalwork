@@ -5,7 +5,7 @@ import {execFileSync} from 'node:child_process';
 import {mkdtemp,realpath,symlink,writeFile,rm} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
-import {randomBytes,randomUUID} from 'node:crypto';
+import {createHash,randomBytes,randomUUID} from 'node:crypto';
 import {pathToFileURL} from 'node:url';
 import {LocalMailService} from './service.js';
 import {registerMailRoutes} from '../routes/mail.js';
@@ -52,6 +52,10 @@ test('actual HTTP drafts, immutable submission replay, events and encrypted work
   expect((await (await post(actions+'submission',request)).json()).id).toBe(queued.id);
   expect((await (await post(drafts+'read',{draftId:saved.id})).json()).content.text).toBe('Edited body');
   const cancelled=await (await post(actions+'cancel',{actionId:queued.id,expected:queued.version})).json();expect(cancelled.state).toBe('cancelled');
+  const bytes=Buffer.alloc(40000,47),sha256=createHash('sha256').update(bytes).digest('hex'),uploadId=randomUUID();let referenceId='';
+  for(let offset=0;offset<bytes.length;offset+=16384){const chunk=bytes.subarray(offset,offset+16384),complete=offset+chunk.length===bytes.length,upload={uploadId,offset,totalBytes:bytes.length,sha256,data:chunk.toString('base64'),complete};const response=await post(drafts+'upload',upload);expect(response.status).toBe(200);const value=await response.json();expect(value.nextOffset).toBe(offset+chunk.length);if(complete)referenceId=value.referenceId;}
+  const attached={draftId:randomUUID(),expected:null,content:{...input.content,from:'sender@example.test',bcc:['hidden@example.test'],inReplyTo:'<original@example.test>',references:['<original@example.test>'],attachments:[{locator:null,partId:uploadId,referenceId,filename:'秘密.txt',contentType:'text/plain'}]}};
+  const uploadedResponse=await post(drafts+'save',attached);expect(uploadedResponse.status).toBe(200);const uploaded=await uploadedResponse.json();await service.lock();await service.unlock();const part=await post(drafts+'attachment',{draftId:uploaded.id,version:uploaded.version,ordinal:0,referenceId,offset:16380,limit:30});expect(part.status).toBe(200);expect(Buffer.from((await part.json()).chunk.data,'base64')).toEqual(bytes.subarray(16380,16410));
   const routes:Route[]=[];registerMailRoutes(routes,'0.0.0.0',service);expect(routes).toHaveLength(0);
  }finally{await server?.stop();await service?.stop();key.fill(0);for(const name of envNames){const old=originalEnv.get(name);if(old===undefined)delete process.env[name];else process.env[name]=old;}await rm(root,{recursive:true,force:true});}
 },60000);
