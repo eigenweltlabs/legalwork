@@ -44,6 +44,7 @@ let closingOutbox:Promise<void>|undefined,closingDraftSync:Promise<void>|undefin
 let draftSyncStore:DraftSyncStore|undefined,draftSyncRunner:DraftSyncRunner|undefined;
 let ownerId='';
 let portability:MailPortabilityStore|undefined;
+let closingPortability:Promise<void>|undefined;
 let database: MailDatabase | undefined;
 let repository: MailRepository | undefined;
 let local:MailLocalApiStore|undefined;
@@ -89,12 +90,12 @@ function write(message: WorkerMessage): boolean {
 async function finish(): Promise<void> {
   try{await(closingOutbox??outboxRunner?.close());}catch{exitCode=1;}
   try{await(closingDraftSync??draftSyncRunner?.close());}catch{exitCode=1;}
-  await portability?.close();
   try{await(closingExtraction??extractionRunner?.close());}catch{exitCode=1;}
   try { await (closingController ?? controller?.close()); } catch { exitCode = 1; }
   try { await (closingSync ?? syncLifecycle?.close()); } catch { exitCode = 1; }
   try{await(closingImap??imap?.close());}catch{exitCode=1;}
 
+  try{await(closingPortability??portability?.close());}catch{exitCode=1;}
   await Promise.allSettled(requests);
   controller = undefined;
   credentials = undefined;
@@ -117,6 +118,7 @@ function shutdown(code = 0): void {
   closingOutbox=outboxRunner?.close();
   closingDraftSync=draftSyncRunner?.close();
   // close() marks the controller closed synchronously, before any queued continuation.
+  closingPortability=portability?.close();
   closingExtraction=extractionRunner?.close();
   closingController = controller?.close();
   closingSync = syncLifecycle?.close();
