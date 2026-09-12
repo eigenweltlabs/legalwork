@@ -51,8 +51,7 @@ export function MailAccountsView() {
     return () => controller.abort();
   }, [revision]);
   return <SettingsStack>
-    <MailBadgePreference />
-    <MailDesktopPreferences />
+    <details className="rounded-lg border p-4"><summary className="cursor-pointer text-sm font-medium">Notifications, app badge and background mail</summary><div className="space-y-6 pt-4"><MailBadgePreference /><MailDesktopPreferences /></div></details>
     {client ? <MailAccountControls key={clientVersion} client={client} /> : error ? <div role="alert">{error} <Button variant="outline" onClick={() => setRevision(value => value + 1)}>Retry</Button></div> : <p role="status">Opening mail accounts…</p>}
   </SettingsStack>;
 }
@@ -81,13 +80,12 @@ export function MailAccountControls({ client }: { client: MailClient }) {
   return <>
     {error && <p role="alert">{error}</p>}
     <div><Button variant="outline" onClick={() => setRevision(value => value + 1)}>Refresh accounts</Button></div>
-    <MailAgentAccessView client={client} accounts={accounts} />
-    <MailRetentionView client={client} accounts={accounts} onChanged={() => setRevision(value => value + 1)} />
-    <MailPortabilityView accounts={accounts} onChanged={() => setRevision(value => value + 1)} />
-    <GraphMailboxesView client={client} accounts={accounts} onChanged={() => setRevision(value => value + 1)} />
-    <MailSendersView client={client} accounts={accounts.filter(account=>account.provider!=='archive')} />
-    <MailSmtpView client={client} accounts={accounts.filter(account=>account.provider!=='archive')} />
     <MailOnboarding client={client} accounts={accounts.filter(account=>account.provider!=='archive')} onChanged={() => setRevision(value => value + 1)} />
+    <details className="rounded-lg border p-4"><summary className="cursor-pointer text-sm font-medium">Agent access and requests</summary><div className="pt-4"><MailAgentAccessView client={client} accounts={accounts} /></div></details>
+    <details className="rounded-lg border p-4"><summary className="cursor-pointer text-sm font-medium">Sender identities and signatures</summary><div className="pt-4"><MailSendersView client={client} accounts={accounts.filter(account=>account.provider!=='archive')} /></div></details>
+    <details className="rounded-lg border p-4"><summary className="cursor-pointer text-sm font-medium">Shared mailboxes and outgoing SMTP</summary><div className="space-y-6 pt-4"><GraphMailboxesView client={client} accounts={accounts} onChanged={() => setRevision(value => value + 1)} /><MailSmtpView client={client} accounts={accounts.filter(account=>account.provider!=='archive')} /></div></details>
+    <details className="rounded-lg border p-4"><summary className="cursor-pointer text-sm font-medium">Retention, encrypted backup and restore</summary><div className="pt-4"><MailRetentionView client={client} accounts={accounts} onChanged={() => setRevision(value => value + 1)} /></div></details>
+    <details className="rounded-lg border p-4"><summary className="cursor-pointer text-sm font-medium">Import and export</summary><div className="pt-4"><MailPortabilityView accounts={accounts} onChanged={() => setRevision(value => value + 1)} /></div></details>
   </>;
 }
 
