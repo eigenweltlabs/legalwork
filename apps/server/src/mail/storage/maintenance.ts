@@ -1,3 +1,6 @@
+import {mailBackupInventory,type MailBackupInventory} from './backup-inventory.js';
+import { quarantineRestoredMail } from "./recovery-quarantine.js";
+import { MailSearchStore } from "./search.js";
 import { resetMailLocalEventStreams } from "./local-schema.js";
 import { enforceMailWindowsAcl } from "./windows-acl.js";
 import { constants, createReadStream } from "node:fs";
@@ -5,13 +8,12 @@ import { chmod, copyFile, lstat, open } from "node:fs/promises";
 import { dirname, isAbsolute } from "node:path";
 import { createHash, randomUUID } from "node:crypto";
 import { openEncryptedMailDatabase } from "./database.js";
-import { MailContentStore } from "./content-store.js";
 import { MAIL_SCHEMA_VERSION, migrateMailSchema } from "./schema.js";
 import type { MailDatabase } from "./database-interface.js";
 export class MailMaintenanceError extends Error { constructor() { super("mail_maintenance_failed"); } }
 export type MailMaintenanceInput = { sourcePath: string; destinationPath: string; sourceKey: Uint8Array; destinationKey: Uint8Array; ownerId: string; restore: boolean; expectedSha256: string | null };
 /** Offline, trusted main-process maintenance. Never reachable through arbitrary worker commands. */
-export async function prepareMailStore(input: MailMaintenanceInput): Promise<{ accounts: number; messages: number; references: number; schemaVersion: number }> {
+export async function prepareMailStore(input: MailMaintenanceInput): Promise<{ accounts: number; messages: number; references: number; schemaVersion: number; inventory:MailBackupInventory }> {
   let source: MailDatabase | undefined, destination: MailDatabase | undefined;
   const oldKey = Buffer.from(input.sourceKey), newKey = Buffer.from(input.destinationKey);
   try {
@@ -52,29 +54,15 @@ export async function prepareMailStore(input: MailMaintenanceInput): Promise<{ a
         destination.run("UPDATE mail_graph_runs SET state='paused',revision=revision+1,retry_at=NULL");
       }
       destination?.run("UPDATE mail_sync_jobs SET state=CASE WHEN attempts>=max_attempts THEN 'failed' ELSE 'retry' END,lease_token=NULL,lease_until=NULL,last_error='lease_expired' WHERE state='running'");
-      if (destination) resetMailLocalEventStreams(destination);
+      if (destination) { quarantineRestoredMail(destination); resetMailLocalEventStreams(destination); }
     });
     if (destination.get("PRAGMA integrity_check")?.integrity_check !== "ok" || destination.get("SELECT 1 FROM pragma_foreign_key_check LIMIT 1")) throw new MailMaintenanceError();
-    // Verify every published reference with bounded reads, including raw MIME and attachments.
-    const content = new MailContentStore(destination, input.ownerId); let after = "", references = 0;
-    while (true) {
-      const accounts = destination.all("SELECT id FROM mail_accounts WHERE owner_id=? AND id>? ORDER BY id LIMIT 100", [input.ownerId, after]);
-      if (!accounts.length) break;
-      for (const account of accounts) {
-        if (typeof account.id !== "string") throw new MailMaintenanceError(); after = account.id; let cursor = "";
-        while (true) {
-          const refs = destination.all("SELECT r.id FROM mail_content_refs r JOIN mail_blob_publications p ON p.account_id=r.account_id AND p.ref_id=r.id WHERE r.account_id=? AND r.id>? ORDER BY r.id LIMIT 100", [account.id, cursor]);
-          if (!refs.length) break;
-          for (const ref of refs) { if (typeof ref.id !== "string") throw new MailMaintenanceError(); cursor = ref.id; for (const chunk of content.read(account.id, cursor)) { chunk.fill(0); } references++; }
-        }
-      }
-    }
-    const accounts = destination.get("SELECT count(*) AS n FROM mail_accounts")?.n, messages = destination.get("SELECT count(*) AS n FROM mail_messages")?.n;
-    if (typeof accounts !== "number" || typeof messages !== "number") throw new MailMaintenanceError();
+    const inventory=mailBackupInventory(destination,input.ownerId);
+    if(input.restore){const search=new MailSearchStore(destination,input.ownerId,{offlineMaintenance:true});for(const account of destination.all("SELECT id FROM mail_accounts ORDER BY id")){if(typeof account.id!=="string")throw new MailMaintenanceError();let result=search.rebuild({accountId:account.id,reset:true,limit:25});while(result.pending>0){result=search.rebuild({accountId:account.id,limit:25});if(!result.processed&&result.pending)throw new MailMaintenanceError();}}}
     if (destination.get("PRAGMA wal_checkpoint(TRUNCATE)")?.busy !== 0) throw new MailMaintenanceError();
     destination.close(); destination = undefined;
     const file = await open(input.destinationPath, constants.O_RDONLY | constants.O_NOFOLLOW); try { await file.sync(); } finally { await file.close(); }
-    return { accounts, messages, references, schemaVersion: MAIL_SCHEMA_VERSION };
+    return { accounts:inventory.accounts,messages:inventory.messages,references:inventory.references,schemaVersion:MAIL_SCHEMA_VERSION,inventory };
   } catch { throw new MailMaintenanceError(); }
   finally { source?.close(); destination?.close(); oldKey.fill(0); newKey.fill(0); }
 }

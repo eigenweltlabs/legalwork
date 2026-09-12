@@ -1,0 +1,13 @@
+import React from 'react';
+import {createRoot} from 'react-dom/client';
+import {MailRetentionView} from '../../../src/react-app/domains/settings/pages/mail-retention-view';
+window.calls=[];
+window.__LEGALWORK_ELECTRON__={mailDesktopSettings:async()=>({preferences:{enabled:false,preview:'none',sound:false,paused:false},status:{supported:true,state:'running'}}),mailDesktopSettingsSave:async value=>{window.calls.push({pause:value.paused});}};
+const client={request:async(path,schema,signal,body,post,timeout)=>{window.calls.push({path,body,timeout});
+ if(path.endsWith('/settings'))return{removedDays:30};
+ if(path.endsWith('/preview'))return{accountId:'a',token:'a'.repeat(64),expiresAt:Date.now()+60000,scope:body,messages:3,references:2,bytes:2000,protectedReferences:1,retainedRecords:1,drafts:1,submissions:1,blockers:[],accountGeneration:'generation',settings:{removedDays:30}};
+ if(path.endsWith('/apply'))return{accountId:'a',removedAccount:false,messages:3,references:2,bytes:2000,protectedReferences:1};
+ if(path.includes('/security/')&&window.delayMaintenance)await new Promise((resolve,reject)=>signal.addEventListener('abort',()=>{window.maintenanceAborted=true;reject(Error('cancelled'));},{once:true}));
+ if(path.includes('/security/'))return{completed:true,state:'locked',report:{accounts:1,messages:3,references:3,bytes:3000,retainedRecords:1,retainedParts:1,incompleteParts:2,schemaVersion:25}};
+ throw Error('Unexpected request');}};
+createRoot(document.getElementById('root')).render(<MailRetentionView client={client} accounts={[{id:'a',provider:'gmail',displayName:'Synthetic account'}]} onChanged={()=>{}}/>);

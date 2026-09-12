@@ -57,7 +57,7 @@ declare global {
       mailDraftRecoveryRemove?: (value:{id:string;revision:number})=>Promise<unknown>;
       mailImages?: (value:{accountId:string;locator:unknown;partId:string;referenceId:string}) => Promise<unknown>;
       mailImagesCancel?: () => Promise<void>;
-      mailPortability?: (value:{operation:"list"}|{operation:"import";format:"eml"|"mboxrd"|"bundle"}|{operation:"export";format:"eml"|"mboxrd";accountId:string}|{operation:"pause"|"resume";id:string}) => Promise<unknown>;
+      mailPortability?: (value:{operation:"list"}|{operation:"import";format:"eml"|"mboxrd"|"bundle"}|{operation:"export";format:"eml"|"mboxrd";accountId:string}|{operation:"pause"|"resume";id:string}|{operation:"abandon";id:string;confirmation:"ABANDON CHECKPOINT"}) => Promise<unknown>;
       mailArtifactCancel?: () => Promise<void>;
       mailArtifact?: (value: {accountId: string; locator: unknown; kind: "raw" | "attachment"; partId: string; referenceId: string; operation: "open" | "save"}) => Promise<unknown>;
       invokeDesktop?: <C extends DesktopCommandName>(

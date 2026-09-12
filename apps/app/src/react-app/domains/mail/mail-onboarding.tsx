@@ -118,7 +118,7 @@ export function MailOnboarding({ client, accounts, onChanged, onClose }: {
   }
   async function disconnect(account: MailAccountView) {
     reset(); setBusy(true); setFailure(''); const signal = abort.current.signal;
-    try { await api.disconnect(account.id, signal); if (!signal.aborted) { setNotice('Disconnected. Stored mail is locked until you reconnect.'); onChanged(); } }
+    try { await api.disconnect(account.id, signal); if (!signal.aborted) { setNotice('Disconnected. Local copies remain locked until you reconnect. Use retention settings to export, back up or explicitly delete local copies.'); onChanged(); } }
     catch { if (!signal.aborted) setFailure('The account could not be disconnected. Try again.'); }
     finally { if (!signal.aborted) setBusy(false); }
   }

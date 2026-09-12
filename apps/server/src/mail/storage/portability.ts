@@ -1,3 +1,4 @@
+import {isRestoredMailWork} from './recovery-quarantine.js';
 import {randomUUID} from 'node:crypto';
 import {basename,dirname,join} from 'node:path';
 import {lstat,mkdir,open,readFile,writeFile,rename} from 'node:fs/promises';
@@ -31,7 +32,7 @@ export class MailPortabilityStore{
   db.run("UPDATE mail_portability_jobs SET state='interrupted',error='interrupted' WHERE state='running' AND account_id IN (SELECT id FROM mail_accounts WHERE owner_id=?)",[ownerId]);
  }
  private job(id:string){return rowSchema.parse(this.db.get('SELECT j.* FROM mail_portability_jobs j JOIN mail_accounts a ON a.id=j.account_id WHERE j.id=? AND a.owner_id=?',[id,this.ownerId]));}
- list():PortabilityStatus[]{const items=this.db.all('SELECT j.* FROM mail_portability_jobs j JOIN mail_accounts a ON a.id=j.account_id WHERE a.owner_id=? ORDER BY j.rowid DESC LIMIT 100',[this.ownerId]).map(value=>{const row=rowSchema.parse(value);return portabilityStatusSchema.parse({id:row.id,accountId:row.account_id,direction:row.direction,format:row.format,state:row.state,completed:row.completed,bytes:row.bytes,failed:row.failed,error:row.error,label:row.label});});const result:PortabilityStatus[]=[];let bytes=2;for(const item of items){const length=Buffer.byteLength(JSON.stringify(item))+1;if(bytes+length>48*1024)break;result.push(item);bytes+=length;}return result;}
+ list():PortabilityStatus[]{const items=this.db.all('SELECT j.* FROM mail_portability_jobs j JOIN mail_accounts a ON a.id=j.account_id WHERE a.owner_id=? ORDER BY j.rowid DESC LIMIT 100',[this.ownerId]).map(value=>{const row=rowSchema.parse(value);return portabilityStatusSchema.parse({id:row.id,accountId:row.account_id,direction:row.direction,format:row.format,state:row.state,completed:row.completed,bytes:row.bytes,failed:row.failed,error:row.error,label:row.label,restored:isRestoredMailWork(this.db,row.account_id,'portability',row.id)});});const result:PortabilityStatus[]=[];let bytes=2;for(const item of items){const length=Buffer.byteLength(JSON.stringify(item))+1;if(bytes+length>48*1024)break;result.push(item);bytes+=length;}return result;}
  async startImport(path:string,format:'eml'|'mboxrd'|'bundle',label:string){
   if(this.running||this.closed||this.preparing)throw Error('portability_busy');this.preparing=true;try{const stat=await lstat(path);if(this.closed||!stat.isFile()&&!stat.isDirectory())throw Error('invalid_archive');if(stat.isSymbolicLink()||format==='bundle'&&!stat.isDirectory()||format==='mboxrd'&&!stat.isFile())throw Error('invalid_archive');
   const id=randomUUID(),accountId=`archive:${randomUUID()}`,namespace=randomUUID();
@@ -59,10 +60,12 @@ export class MailPortabilityStore{
     LEFT JOIN mail_graph_messages gr ON gr.account_id=m.account_id AND gr.message_key=m.message_key WHERE m.account_id=?`,[id,accountId]);this.db.run("INSERT INTO mail_portability_folders(job_id,id,manifest_json,state) SELECT ?,id,json_object('id',id,'name',name,'kind',kind,'parentId',parent_id,'role',role),'pending' FROM mail_folders WHERE account_id=?",[id,accountId]);});this.resume(id);return this.list();}finally{this.preparing=false;}
  }
  pause(id:string){this.job(id);if(this.running?.id===id)this.running.controller.abort();else this.db.run("UPDATE mail_portability_jobs SET state='paused' WHERE id=? AND state!='complete'",[id]);return this.list();}
- resume(id:string){const job=this.job(id);if(this.closed||this.running&&this.running.id!==id)throw Error('portability_busy');if(this.running||job.state==='complete')return this.list();
+ abandon(id:string){const job=this.job(id);if(this.closed||this.preparing||this.running||job.state==='running')throw Error('portability_busy');this.db.transaction(()=>{this.db.run('DELETE FROM mail_portability_jobs WHERE id=?',[id]);this.db.run("DELETE FROM mail_recovery_quarantine WHERE account_id=? AND kind='portability' AND entity_id=?",[job.account_id,id]);});return this.list();}
+ resume(id:string){const job=this.job(id);if(isRestoredMailWork(this.db,job.account_id,'portability',id))throw Error('restore_review');if(this.closed||this.running&&this.running.id!==id)throw Error('portability_busy');if(this.running||job.state==='complete')return this.list();
   const controller=new AbortController();this.db.run("UPDATE mail_portability_jobs SET state='running',error=NULL WHERE id=?",[id]);
   const promise=this.perform(job,controller.signal).catch(error=>{this.db.run('UPDATE mail_portability_jobs SET state=?,error=? WHERE id=?',[controller.signal.aborted?'paused':'attention',controller.signal.aborted?null:error instanceof Error&&error.message==='source_changed'?'source_changed':'invalid_archive',id]);}).finally(()=>{if(this.running?.id===id)this.running=undefined;});this.running={id,controller,promise};return this.list();
  }
+ busy(){return this.preparing||!!this.running;}
  async settled(){await this.running?.promise;}
  async close(){this.closed=true;this.running?.controller.abort();await this.running?.promise;}
  private readable(accountId:string){this.repository.listFoldersPage(accountId,{limit:1});const status=new MailCredentialRepository(this.db,this.ownerId).status(accountId);if(status.state==='disconnected')throw Error('content_unavailable');}
