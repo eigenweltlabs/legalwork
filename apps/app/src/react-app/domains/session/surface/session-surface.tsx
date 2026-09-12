@@ -18,6 +18,7 @@ import { canPreviewAssistantSend, assistantOutgoingIsQueued, addAssistantOutgoin
 import { AssistantOnboardingConversation, type AssistantOnboardingControls } from "./assistant-onboarding-conversation";
 import { useSearchNavigation } from "@/react-app/shell/search-navigation";
 import { SessionSandbox } from "./session-sandbox";
+import {MailChatSourceNotice} from '../../mail/mail-chat-source-notice';
 /** @jsxImportSource react */
 import { ProviderLimitMessage } from "@/react-app/domains/connections/usage-control/provider-limit-message";
 import { SubscriptionEndedMessage } from "@/react-app/domains/connections/usage-control/subscription-ended-message";
@@ -2131,6 +2132,7 @@ export function SessionSurface(props: SessionSurfaceProps) {
         onboardingNeeded && onboardingStep === "avatar" && "hidden",
         !pendingSessionLoad && renderedMessages.length === 0 && "lw-fade-enter",
       )}>
+        <MailChatSourceNotice sessionId={props.sessionId}/>
         {fusionEnabled && !fusionConfigured ? (
           <div className="mx-3 mb-2 flex w-[calc(100%-1.5rem)] flex-wrap items-center gap-2 rounded-lg border border-amber-7/40 bg-amber-2/30 px-3 py-2 text-xs text-amber-11">
             <span className="font-medium">{t("fusion.banner_not_configured")}</span>
