@@ -1,4 +1,7 @@
 import {MailRowMenu,mailSelectionSignature} from './mail-context-menu';
+import {mailSourceTargetSchema} from './mail-chat-source';
+import {MailAttachmentChat} from './mail-attachment-chat';
+import type {MailChatBridge} from './mail-chat';
 import {MailStorageSavePanel} from './mail-storage-save';
 import {MailFilingPanel} from './mail-filing';
 import {mailKeyboard,mailShortcutProps} from './mail-keyboard';
@@ -31,7 +34,7 @@ const textError = (error: unknown) => error instanceof Error ? error.message : '
 function dataUrl(bytes: Uint8Array, type: string) { let binary = ''; for (let at = 0; at < bytes.length; at += 8192)
     binary += String.fromCharCode(...bytes.subarray(at, at + 8192)); return `data:${type};base64,${btoa(binary)}`; }
 function saveBytes(bytes: Uint8Array<ArrayBuffer>, name: string, type: string) { const url = URL.createObjectURL(new Blob([bytes], { type })); const link = document.createElement('a'); link.href = url; link.download = safeFilename(name); link.click(); setTimeout(() => URL.revokeObjectURL(url), 1000); }
-export function MailRoute() {
+export function MailRoute({chatBridge}:{chatBridge?:MailChatBridge}) {
     const [filingOpen,setFilingOpen]=useState(false);const [matterFiling,setMatterFiling]=useState(false);
     const [compose,setCompose]=useState<ComposeSelection>();
     const [draftsOpen,setDraftsOpen]=useState(false);const [outboxOpen,setOutboxOpen]=useState(false);
@@ -61,7 +64,21 @@ export function MailRoute() {
     const [thread, setThread] = useState<string>();
     const [error, setError] = useState('');
     const [locked, setLocked] = useState(true);
-    useEffect(()=>{if(!client||locked)return;const state=location.state;if(!state||typeof state!=='object')return;const raw=Reflect.get(state,'mailNotificationTarget'),parsed=mailNotificationOpenSchema.safeParse(raw);if(!parsed.success||notificationOpened.current===raw)return;if(new URL(connectionIdentity.current.split('\n')[0]).origin!==parsed.data.serverOrigin){setError('Open the local server connection in Settings to view this notification.');return;}const controller=new AbortController();notificationOpened.current=raw;void client.readLocator(parsed.data.accountId,parsed.data.locator,controller.signal).then(message=>{if(controller.signal.aborted)return;setSelected(message);setError('');setCompose(undefined);setDraftsOpen(false);setOutboxOpen(false);requestAnimationFrame(()=>{if(!controller.signal.aborted)document.getElementById('mail-print-root')?.focus();});}).catch(()=>{if(!controller.signal.aborted)setError('This notification’s message is unavailable. Review the account connection in Settings.');});return()=>controller.abort();},[client,locked,location.state]);
+    useEffect(()=>{
+      if(!client||locked)return;const state=location.state;if(!state||typeof state!=='object')return;
+      const source=mailSourceTargetSchema.safeParse(Reflect.get(state,'mailSourceTarget'));
+      const notification=mailNotificationOpenSchema.safeParse(Reflect.get(state,'mailNotificationTarget'));
+      if(!source.success&&!notification.success)return;
+      const raw=source.success?Reflect.get(state,'mailSourceTarget'):Reflect.get(state,'mailNotificationTarget');if(notificationOpened.current===raw)return;
+      if(!source.success&&notification.success&&new URL(connectionIdentity.current.split('\n')[0]).origin!==notification.data.serverOrigin){setError('Open the local server connection in Settings to view this email.');return;}
+      const target=source.success?source.data:notification.success?notification.data:null;if(!target)return;
+      const controller=new AbortController();void(async()=>{
+        const message=await client.readLocator(target.accountId,target.locator,controller.signal);if(message.removed)throw Error('Source removed');
+        if(source.success){let after:string|undefined,found=false;for(let page=0;page<20;page++){const parts=await client.parts(message,controller.signal,after);if(parts.items.some(part=>part.kind==='attachment'&&part.referenceId===source.data.referenceId&&part.sha256===source.data.sha256&&part.bytesAvailable)){found=true;break;}after=parts.nextCursor??undefined;if(!after)break;}if(!found)throw Error('Source changed');}
+        if(controller.signal.aborted)return;notificationOpened.current=raw;setSelected(message);setError('');setCompose(undefined);setDraftsOpen(false);setOutboxOpen(false);
+        requestAnimationFrame(()=>{if(!controller.signal.aborted)document.getElementById('mail-print-root')?.focus();});
+      })().catch(()=>{if(!controller.signal.aborted)setError('The source email is unavailable or changed. The copied workspace file remains available. Review the account connection in Settings.');});return()=>controller.abort();
+    },[client,locked,location.state]);
     useEffect(()=>{if(locked){setCompose(undefined);setDraftsOpen(false);setOutboxOpen(false);}},[locked]);
     useEffect(()=>{setFilingOpen(false);setCompose(undefined);setDraftsOpen(false);setOutboxOpen(false);},[client]);
     const [busy, setBusy] = useState(false);
@@ -100,7 +117,6 @@ export function MailRoute() {
         if (status.state !== 'ready') status = await client.unlock(controller.signal);
         if (status.state !== 'ready') throw Error('Mail could not be opened. Please retry.');
         if (controller.signal.aborted) return;
-        setLocked(false);
         let next: string | null = null;
         const result: MailAccountView[] = [];
         do {
@@ -110,8 +126,9 @@ export function MailRoute() {
             if (result.length > 500)
                 throw Error('Too many accounts for this reader.');
         } while (next);
-        if (!controller.signal.aborted)
-            setAccounts(result);
+        if (!controller.signal.aborted) {
+            setAccounts(result); setLocked(false);
+        }
     }
     catch (error) {
         if (!controller.signal.aborted)
@@ -229,7 +246,7 @@ export function MailRoute() {
     const composeReturn=useRef<HTMLElement|null>(null),mailRoot=useRef<HTMLElement|null>(null);
     const closeCompose=()=>{setCompose(undefined);requestAnimationFrame(()=>{const target=composeReturn.current;if(target?.isConnected)target.focus();else mailRoot.current?.querySelector<HTMLButtonElement>('.mail-message-row[aria-pressed="true"],.mail-message-row')?.focus();});};
     const openCompose=(value:ComposeSelection)=>{if(!compose&&document.activeElement instanceof HTMLElement)composeReturn.current=document.activeElement;setCompose(value);setDraftsOpen(false);setOutboxOpen(false);};
-    const reader = filingOpen&&client ? (matterFiling?<MailFilingPanel client={client} accountIds={account?[account]:accounts.map(value=>value.id)} message={selected} onClose={()=>setFilingOpen(false)}/>:<MailStorageSavePanel client={client} accountIds={account?[account]:accounts.map(value=>value.id)} message={selected} onClose={()=>setFilingOpen(false)} onMatter={()=>setMatterFiling(true)}/>) : compose&&client ? <MailComposer key={compose.account+compose.id} client={client} accounts={accounts.filter(value=>value.provider!=='archive')} initial={compose} onClose={closeCompose} onSwitch={openCompose} onQueued={()=>{setCompose(undefined);setOutboxOpen(true);}}/> : outboxOpen&&client ? <MailOutbox client={client} accounts={accounts.filter(value=>value.provider!=='archive')} onClose={()=>setOutboxOpen(false)}/> : draftsOpen&&client ? <MailDrafts client={client} accounts={accounts.filter(value=>value.provider!=='archive')} onOpen={openCompose} onClose={()=>setDraftsOpen(false)}/> : selected && client ? <MailReader key={selected.accountId + '|' + selected.key} client={client} item={selected}
+    const reader = filingOpen&&client ? (matterFiling?<MailFilingPanel client={client} accountIds={account?[account]:accounts.map(value=>value.id)} message={selected} onClose={()=>setFilingOpen(false)}/>:<MailStorageSavePanel client={client} accountIds={account?[account]:accounts.map(value=>value.id)} message={selected} onClose={()=>setFilingOpen(false)} onMatter={()=>setMatterFiling(true)}/>) : compose&&client ? <MailComposer key={compose.account+compose.id} client={client} accounts={accounts.filter(value=>value.provider!=='archive')} initial={compose} onClose={closeCompose} onSwitch={openCompose} onQueued={()=>{setCompose(undefined);setOutboxOpen(true);}}/> : outboxOpen&&client ? <MailOutbox client={client} accounts={accounts.filter(value=>value.provider!=='archive')} onClose={()=>setOutboxOpen(false)}/> : draftsOpen&&client ? <MailDrafts client={client} accounts={accounts.filter(value=>value.provider!=='archive')} onOpen={openCompose} onClose={()=>setDraftsOpen(false)}/> : selected && client ? <MailReader key={selected.accountId + '|' + selected.key} client={client} item={selected} chatBridge={chatBridge}
       onCompose={openCompose}
       account={accounts.find(value => value.id === selected.accountId)?.displayName ?? selected.accountId}
       onUnavailable={() => { purge(); setError('Mail access changed. Please refresh.'); }}
@@ -307,7 +324,8 @@ export function MailRoute() {
     );
 }
 
-function MailReader({ client, item, account, onThread, onUnavailable, onCompose }: {
+function MailReader({ chatBridge, client, item, account, onThread, onUnavailable, onCompose }: {
+    chatBridge?:MailChatBridge;
     client: MailClient;
     item: MailMessageView;
     account: string;
@@ -454,7 +472,7 @@ function MailReader({ client, item, account, onThread, onUnavailable, onCompose 
             : html.length ? <pre className="mail-plain-body">{new DOMParser().parseFromString(mailHtml(html[0].text), 'text/html').body.textContent}</pre>
             : !busy ? <p className="mail-loading">No message body is available yet.</p> : null}
         </div>
-        {parts.some(part => part.kind === 'attachment') && <div className="mail-attachments"><h3><Paperclip size={14}/>Attachments</h3><ul>{parts.filter(part => part.kind === 'attachment').map(part => <li key={part.key}><span className="mail-file-icon"><FileText size={19}/></span><div><strong>{part.filename || 'Unnamed attachment'}</strong><small>{part.bytesAvailable ? `${((part.bytes ?? 0) / 1024).toFixed(1)} KB` : part.state === 'pending' ? 'Downloading…' : 'Unavailable'}</small></div><button disabled={!part.bytesAvailable || busy} onClick={() => content(part, false)}>Open</button><button aria-label={`Save ${part.filename || 'attachment'}`} title="Save attachment" disabled={!part.bytesAvailable || busy} onClick={() => content(part, true)}><Download size={15}/></button></li>)}</ul></div>}
+        {parts.some(part => part.kind === 'attachment') && <div className="mail-attachments"><h3><Paperclip size={14}/>Attachments</h3><ul>{parts.filter(part => part.kind === 'attachment').map(part => <li key={part.key}><span className="mail-file-icon"><FileText size={19}/></span><div><strong>{part.filename || 'Unnamed attachment'}</strong><small>{part.bytesAvailable ? `${((part.bytes ?? 0) / 1024).toFixed(1)} KB` : part.state === 'pending' ? 'Downloading…' : 'Unavailable'}</small></div><button disabled={!part.bytesAvailable || busy} onClick={() => content(part, false)}>Open</button><button aria-label={`Save ${part.filename || 'attachment'}`} title="Save attachment" disabled={!part.bytesAvailable || busy} onClick={() => content(part, true)}><Download size={15}/></button>{chatBridge&&<MailAttachmentChat bridge={chatBridge} client={client} item={item} part={part} account={account}/>}</li>)}</ul></div>}
       </article>
     );
 }

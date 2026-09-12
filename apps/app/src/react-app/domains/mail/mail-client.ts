@@ -30,6 +30,7 @@ export class MailClient {
     private readonly origin: string;
     constructor(base: string, private readonly token: string, private readonly transport: typeof fetch = (input, init) => fetch(input, init)) { this.origin = mailOrigin(base); if (!token)
         throw Error('Local host authentication is unavailable.'); }
+    get serverOrigin() { return this.origin; }
     async request<T>(path: string, schema: {parse(value:unknown):T}, signal: AbortSignal, body?: unknown, post = false, timeoutMs: number|null = 15000): Promise<T> {
         const response = await this.transport(this.origin + '/mail/v1' + path, { method: body !== undefined || post ? 'POST' : 'GET', headers: { 'X-LegalWork-Host-Token': this.token, ...(body === undefined ? {} : { 'Content-Type': 'application/json' }) }, body: body === undefined ? undefined : JSON.stringify(body), signal: timeoutMs===null?signal:AbortSignal.any([signal, AbortSignal.timeout(timeoutMs)]), redirect: 'error', cache: 'no-store', credentials: 'omit' });
         if (!response.ok) {
