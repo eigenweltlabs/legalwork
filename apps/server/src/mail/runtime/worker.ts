@@ -1,3 +1,5 @@
+import {agentControlSchema} from '../agent-view.js';
+import {agentHash,MailAgentGrants} from '../storage/agent-grants.js';
 import {MailStorageSaveStore} from '../storage/storage-save-store.js';
 import {MailFilingStore} from '../storage/filing-store.js';
 import {MailRetentionStore} from '../storage/retention.js';
@@ -217,6 +219,32 @@ async function request(message: Extract<ParentMessage, { kind: "request" }>): Pr
   try {
     let result: WorkerResult | undefined;
     switch (command.operation) {
+      case "mail.agent.control":{
+       const agentDatabase=database,agentReads=reads,grants=new MailAgentGrants(agentDatabase,ownerId);
+       if(command.input.action==='save-draft'){
+        const input=agentControlSchema.parse(command.input);if(input.action!=='save-draft'||!local)throw locked;
+        result={agent:agentDatabase.transaction(()=>{const grant=grants.check(input.grantId,input.revision,'draft');
+         if(input.input.content.attachments.length||input.input.content.html!==null||grant.matterId&&!input.source)throw locked;
+         if(grant.matterId){if(!input.source||!input.sourceVersion)throw locked;new MailFilingStore(agentDatabase,ownerId).execute({action:'source-version',accountId:grant.accountId,locator:input.source,expected:input.sourceVersion});}
+         if(input.input.expected!==null){const bound=grants.execute({action:'draft-source',grantId:grant.id,draftId:input.input.draftId});if(JSON.stringify(bound.source)!==JSON.stringify(input.source)||bound.sourceVersion!==input.sourceVersion)throw locked;}
+         new SenderIdentityRepository(agentDatabase,ownerId).assertSender(grant.accountId,input.input.content);
+         const draft=local?.saveDraft(grant.accountId,input.input);if(!draft)throw locked;
+         if(input.input.expected===null)grants.execute({action:'draft-bind',grantId:grant.id,draftId:draft.id,source:input.source,sourceVersion:input.sourceVersion});return{draft};
+        })};break;
+       }
+       if(command.input.action!=='approve'){result={agent:grants.execute(command.input)};break;}
+       if(!local||!outboxStore)throw locked;
+       const proposalId=command.input.id,proposal=grants.execute({action:'proposal',id:proposalId}).proposal;if(!proposal)throw locked;
+       const payload=proposal.payload;
+       const check=()=>{const current=grants.execute({action:'proposal',id:proposalId}).proposal;if(!current||current.state!=='pending'||current.expiresAt<=Date.now())throw locked;const grant=grants.check(current.grantId,current.grantRevision,payload.kind==='send'?'propose_send':'propose_delete');if(grant.matterId){const locator=payload.kind==='send'?payload.source:payload.locator;if(!locator||!payload.sourceVersion)throw locked;new MailFilingStore(agentDatabase,ownerId).execute({action:'source-version',accountId:grant.accountId,locator,expected:payload.sourceVersion});}
+        if(payload.kind==='trash'&&agentHash(JSON.stringify(agentReads.read(proposal.accountId,payload.locator)))!==payload.contentHash)throw locked;
+        if(payload.kind==='send'){const draft=local?.readDraft(proposal.accountId,{draftId:payload.draftId});if(!draft||draft.version.generation!==payload.version.generation||draft.version.revision!==payload.version.revision||agentHash(JSON.stringify(draft.content))!==payload.contentHash)throw locked;}
+       };
+       const commit=(actionId:string)=>{grants.execute({action:'decide',id:proposalId,approve:true,actionId});};
+       if(payload.kind==='send'){await outboxStore.queue(proposal.accountId,{draftId:payload.draftId,version:payload.version,replayKey:'agent:'+proposalId},{check,commit});if(!lifecycleSuspended)void outboxRunner?.run().catch(()=>{});}
+       else{agentDatabase.transaction(()=>{check();const action=local?.enqueueMutation(proposal.accountId,{replayKey:'agent:'+proposalId,locator:payload.locator,precondition:payload.precondition,change:{kind:'special',operation:'trash'}});if(!action)throw locked;commit(action.id);});if(!lifecycleSuspended)syncLifecycle.engine(proposal.accountId).wake(proposal.accountId);}
+       result={agent:grants.execute({action:'proposal',id:proposalId})};break;
+      }
       case "mail.storage.save":result={storageSave:new MailStorageSaveStore(database,ownerId).execute(command.input)};break;
       case "mail.filing":result={filing:new MailFilingStore(database,ownerId).execute(command.input)};break;
       case 'mail.notifications.poll':result={notifications:lifecycleSuspended?{items:[],suppressed:0}:new MailNotificationStore(database,ownerId).poll(command.input)};break;

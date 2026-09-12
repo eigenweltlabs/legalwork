@@ -1,3 +1,4 @@
+import {MailAgentAccessView} from './mail-agent-access-view';
 import {MailRetentionView} from './mail-retention-view';
 import {MailDesktopPreferences} from '../../mail/mail-desktop';
 import {MailSmtpView} from './mail-smtp-view';
@@ -80,6 +81,7 @@ export function MailAccountControls({ client }: { client: MailClient }) {
   return <>
     {error && <p role="alert">{error}</p>}
     <div><Button variant="outline" onClick={() => setRevision(value => value + 1)}>Refresh accounts</Button></div>
+    <MailAgentAccessView client={client} accounts={accounts} />
     <MailRetentionView client={client} accounts={accounts} onChanged={() => setRevision(value => value + 1)} />
     <MailPortabilityView accounts={accounts} onChanged={() => setRevision(value => value + 1)} />
     <GraphMailboxesView client={client} accounts={accounts} onChanged={() => setRevision(value => value + 1)} />

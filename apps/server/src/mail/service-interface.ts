@@ -1,3 +1,4 @@
+import type {AgentControl,AgentControlResult} from './agent-view.js';
 import type {StorageSaveInput,StorageSaveResult} from './storage-save-view.js';
 import type {FilingInput,FilingResult} from './filing-view.js';
 import type {MailMaintenanceReport} from './maintenance-view.js';
@@ -30,6 +31,7 @@ export class MailServiceError extends Error {
 export interface MailService {
   /** Synchronous cancellation fence before custody closes. */
   onLock?(listener:()=>void):()=>void;
+  agentControl(input:AgentControl):Promise<AgentControlResult>;
   storageSave(input:StorageSaveInput):Promise<StorageSaveResult>;
   filing(input:FilingInput):Promise<FilingResult>;
   pollNotifications(input:MailNotificationPoll):Promise<MailNotificationBatch>;

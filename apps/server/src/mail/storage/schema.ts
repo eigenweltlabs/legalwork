@@ -1,3 +1,4 @@
+import {MAIL_AGENT_SCHEMA_SQL} from './agent-schema.js';
 import {MAIL_STORAGE_SAVE_SCHEMA_SQL} from './storage-save-schema.js';
 import {MAIL_RETENTION_SCHEMA_SQL} from './retention-schema.js';
 import {MAIL_FILING_SCHEMA_SQL} from "./filing-schema.js";
@@ -18,7 +19,7 @@ import { MAIL_LOCAL_SCHEMA_SQL } from "./local-schema.js";
 import { GRAPH_SCHEMA_SQL } from "./graph-state.js";
 import type { MailDatabase } from "./database-interface.js";
 
-export const MAIL_SCHEMA_VERSION = 26;
+export const MAIL_SCHEMA_VERSION = 27;
 
 /** Dedicated mail database only. Every DDL/version write shares one transaction. */
 export function migrateMailSchema(database: MailDatabase): void {
@@ -295,6 +296,7 @@ export function migrateMailSchema(database: MailDatabase): void {
     if(version<24)database.exec(MAIL_FILING_SCHEMA_SQL);
     if(version<25)database.exec(MAIL_RETENTION_SCHEMA_SQL);
     if(version<26)database.exec(MAIL_STORAGE_SAVE_SCHEMA_SQL);
+    if(version<27)database.exec(MAIL_AGENT_SCHEMA_SQL);
     database.run("INSERT INTO mail_schema_version(singleton,version) VALUES(1,?) ON CONFLICT(singleton) DO UPDATE SET version=excluded.version", [MAIL_SCHEMA_VERSION]);
   }); } finally { if(rebuild)database.exec("PRAGMA legacy_alter_table=OFF; PRAGMA foreign_keys=ON"); }
   if(database.get("PRAGMA foreign_keys")?.foreign_keys!==1)throw new Error("Mail foreign keys were not restored");
