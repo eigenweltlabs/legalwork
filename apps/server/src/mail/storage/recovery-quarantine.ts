@@ -3,6 +3,8 @@ import type {MailDatabase} from './database-interface.js';
 /** Trusted offline restore fence. Evidence remains immutable; old work never gains fresh authority. */
 export function quarantineRestoredMail(db:MailDatabase){
  const at=Date.now();
+ db.run("UPDATE mail_agent_grants SET state='revoked',revision=revision+1");
+ db.run("UPDATE mail_agent_proposals SET state='revoked' WHERE state='pending'");
  db.run("INSERT OR IGNORE INTO mail_recovery_quarantine SELECT account_id,'submission',id,? FROM mail_action_jobs WHERE kind='submission'",[at]);
  db.run("INSERT OR IGNORE INTO mail_recovery_quarantine SELECT account_id,'draft',draft_id,? FROM mail_draft_sync",[at]);
  db.run("INSERT OR IGNORE INTO mail_recovery_quarantine SELECT account_id,'portability',id,? FROM mail_portability_jobs",[at]);

@@ -41,7 +41,7 @@ function addresses(header:string|null):string[]{
   }
   return [...new Set(result)];
 }
-function htmlText(value:string):string{
+export function mailHtmlText(value:string):string{
   const lower=value.replace(/[A-Z]/g,char=>char.toLowerCase()),parts:string[]=[];let cursor=0;
   // Every search starts after the previous consumed span. Unclosed script/style
   // consumes the remainder once; repeated openings cannot restart a suffix scan.
@@ -89,7 +89,7 @@ export class MailSearchStore {
           if(projection.body.bytes<=2*1024*1024){
             const bytes=Buffer.concat([...content.read(input.accountId,projection.body.id)]);
             const parsed=z.object({bodies:z.array(z.object({contentType:z.enum(['text/plain','text/html']),text:z.string()}))}).passthrough().parse(JSON.parse(bytes.toString('utf8')));
-            body=parsed.bodies.map(part=>part.contentType==='text/plain'?part.text:htmlText(part.text)).join('\n');incomplete=projection.attachments.some(part=>part.filename!==null&&part.filename.length>512)?1:0;
+            body=parsed.bodies.map(part=>part.contentType==='text/plain'?part.text:mailHtmlText(part.text)).join('\n');incomplete=projection.attachments.some(part=>part.filename!==null&&part.filename.length>512)?1:0;
           }
         }
       }catch{incomplete=1;body='';}

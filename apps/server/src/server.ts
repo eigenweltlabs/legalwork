@@ -1,3 +1,8 @@
+import {z} from 'zod';
+import {registerMailAgentRoutes} from './routes/mail-agent.js';
+import {realpath as mailAgentRealpath} from 'node:fs/promises';
+import {join as mailAgentJoin} from 'node:path';
+import {runtimeStorageDir as mailAgentStorageDir} from './runtime-opencode-config-store.js';
 import {registerMailStorageSaveRoutes} from './routes/mail-storage-save.js';
 import {registerMailFilingRoutes} from './routes/mail-filing.js';
 import { existsSync } from "node:fs";
@@ -723,6 +728,19 @@ export async function startServer(config: ServerConfig, dependencies: { mail?: M
     const origin=`http://${config.host==='::1'?'[::1]':config.host}:${mailStoragePort}`;
     const options={method:input?.method??'GET',headers:{Authorization:`Bearer ${config.token}`,...input?.contentType?{'Content-Type':input.contentType}:{}},body:input?.body,duplex:'half',redirect:'error',signal:input?.signal?AbortSignal.any([input.signal,AbortSignal.timeout(900000)]):AbortSignal.timeout(900000)};
     return fetch(origin+path,{...options,redirect:'error'});
+  }});
+
+  registerMailAgentRoutes({routes,host:config.host,mail:dependencies.mail,capabilityRoot:mailAgentJoin(mailAgentStorageDir(config),'private-mail-capabilities'),workspaces:()=>config.workspaces.flatMap(workspace=>workspace.id?[{id:workspace.id,name:workspace.name||workspace.id}]:[]),directory:async id=>(await resolveWorkspace(config,id)).path,binding:async id=>{
+    const workspace=await resolveWorkspace(config,id),server=resolveLegalMemoryServer(await listMcp(config,workspace.id,workspace.path));if(!server)throw new ApiError(403,'mail_agent_denied','Matter access is unavailable');return{server,bearer:await engineAccessToken(server.name)};
+  },session:async(grant,id,messageId)=>{
+    const workspace=await resolveWorkspace(config,grant.workspaceId);
+    if(await mailAgentRealpath(workspace.path)!==grant.directory)throw new ApiError(403,'mail_agent_denied','Workspace changed');
+    const client=createWorkspaceOpencodeClient(config,workspace),response=await client.session.get({sessionID:id});
+    const session=z.object({id:z.string(),directory:z.string()}).parse(response.data);
+    if(session.id!==id||await mailAgentRealpath(session.directory)!==grant.directory)throw new ApiError(403,'mail_agent_denied','Task scope changed');
+    const responseMessage=await client.session.message({sessionID:id,messageID:messageId});
+    const message=z.object({info:z.object({id:z.string(),sessionID:z.string()})}).parse(responseMessage.data);
+    if(message.info.id!==messageId||message.info.sessionID!==id)throw new ApiError(403,'mail_agent_denied','Task provenance unavailable');
   }});
 
   registerMailFilingRoutes(routes,config.host,dependencies.mail,()=>config.workspaces.flatMap(workspace=>workspace.id?[{id:workspace.id,name:workspace.name||workspace.id}]:[]),async workspaceId=>{

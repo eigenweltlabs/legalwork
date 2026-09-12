@@ -43,6 +43,7 @@ function mockService() {
   let calls = 0;
   let stops = 0;
   const service: MailService = {
+    async agentControl(){throw new MailServiceError("unsupported");},
     async filing(){throw new MailServiceError("unsupported");},
     async storageSave(){throw new MailServiceError("unsupported");},
     async outbox(){return [];}, async queueOutbox(){throw new MailServiceError("unsupported");}, async outboxAction(){throw new MailServiceError("unsupported");}, async smtpStatus(){return {configured:false,current:false,settings:null};}, async configureSmtp(){throw new MailServiceError("unsupported");}, async removeSmtp(){return {configured:false,current:false,settings:null};},
