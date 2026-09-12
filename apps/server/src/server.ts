@@ -719,9 +719,9 @@ export async function startServer(config: ServerConfig, dependencies: { mail?: M
   });
   const routes = createRoutes(config, approvals, tokens, env, officeTools, restartReloadWatchers, benchmarkRunner);
   registerMailRoutes(routes, config.host, dependencies.mail);
-  registerMailStorageSaveRoutes({routes,host:config.host,mail:dependencies.mail,workspaces:()=>config.workspaces.flatMap(workspace=>workspace.id?[{id:workspace.id,name:workspace.name||workspace.id}]:[]),resolveWorkspace:async id=>{await resolveWorkspace(config,id);},request:async(path,input)=>{
+  const mailStorageSaves=registerMailStorageSaveRoutes({routes,host:config.host,mail:dependencies.mail,workspaces:()=>config.workspaces.flatMap(workspace=>workspace.id?[{id:workspace.id,name:workspace.name||workspace.id}]:[]),resolveWorkspace:async id=>{await resolveWorkspace(config,id);},request:async(path,input)=>{
     const origin=`http://${config.host==='::1'?'[::1]':config.host}:${mailStoragePort}`;
-    const options={method:input?.method??'GET',headers:{Authorization:`Bearer ${config.token}`,...input?.contentType?{'Content-Type':input.contentType}:{}},body:input?.body,duplex:'half',redirect:'error',signal:AbortSignal.timeout(900000)};
+    const options={method:input?.method??'GET',headers:{Authorization:`Bearer ${config.token}`,...input?.contentType?{'Content-Type':input.contentType}:{}},body:input?.body,duplex:'half',redirect:'error',signal:input?.signal?AbortSignal.any([input.signal,AbortSignal.timeout(900000)]):AbortSignal.timeout(900000)};
     return fetch(origin+path,{...options,redirect:'error'});
   }});
 
@@ -937,6 +937,7 @@ export async function startServer(config: ServerConfig, dependencies: { mail?: M
     wordAddinPort: wordAddinServer?.port ?? null,
     stop: async () => {
       benchmarkRunner.dispose();
+      await mailStorageSaves?.close();
       watcherHandle.close();
       workspaceBootstrapPromises.delete(config);
       reloadBaselineRefreshers.delete(config);

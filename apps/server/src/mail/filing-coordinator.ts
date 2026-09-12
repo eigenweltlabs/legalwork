@@ -18,11 +18,11 @@ function unavailable(){return new ApiError(409,'mail_filing_attention','Filing n
 export class MailFilingCoordinator {
  private readonly running=new Set<string>();
  constructor(private readonly mail:MailService){}
- async destinations(resolve:()=>Promise<FilingBinding>,offset=0){const binding=await resolve();return destinationPage.parse(await callLegalMemoryTool(binding.server,'list_mail_filing_destinations',{offset,limit:100},binding.bearer));}
+ async destinations(resolve:()=>Promise<FilingBinding>,offset=0){const binding=await resolve();return destinationPage.parse(await callLegalMemoryTool(binding.server,'list_mail_filing_destinations',{offset,limit:100},binding.bearer,AbortSignal.timeout(30000)));}
  private async assertDestination(binding:FilingBinding,matterId:string){
   let offset:number|null=0,principal='';
   for(let pages=0;offset!==null&&pages<100;pages++){
-   const page=destinationPage.parse(await callLegalMemoryTool(binding.server,'list_mail_filing_destinations',{offset,limit:100},binding.bearer));
+   const page=destinationPage.parse(await callLegalMemoryTool(binding.server,'list_mail_filing_destinations',{offset,limit:100},binding.bearer,AbortSignal.timeout(30000)));
    if(principal&&principal!==page.principal_key)throw unavailable();principal=page.principal_key;
    const matter=page.results.find(item=>item.id===matterId);if(matter)return{principal,matter};offset=page.next_offset;
   }
@@ -51,7 +51,7 @@ export class MailFilingCoordinator {
    if(bindingFence(await resolve())!==bindingFence(binding))throw unavailable();
    // This durable preflight checks current account custody/generation before every mutation.
    await update('uploading');
-   return callLegalMemoryTool(binding.server,name,args,binding.bearer);
+   return callLegalMemoryTool(binding.server,name,args,binding.bearer,AbortSignal.timeout(30000));
   };
   try{
    const read=await this.mail.filing({action:'snapshot',accountId:item.accountId,snapshotId:item.snapshotId});if(read.action!=='snapshot')throw unavailable();
@@ -83,37 +83,38 @@ export class MailFilingCoordinator {
    try{await update('uncertain');}catch{/* Account/recovery fence retains the original intent for review. */}
   }
  }
- async authorizeSource(workspaceId:string,accountId:string,locator:ProviderMessageLocator,matterId:string,resolve:()=>Promise<FilingBinding>):Promise<void>{
+ async authorizeSource(workspaceId:string,accountId:string,locator:ProviderMessageLocator,matterId:string,resolve:()=>Promise<FilingBinding>):Promise<string>{
   const binding=await resolve(),backendKey=filingBackendKey(binding);let after:string|undefined;
   do{
    const result=await this.mail.filing({action:'list',accountIds:[accountId],workspaceId,backendKey,locator,after,limit:100});if(result.action!=='list')throw unavailable();
    const group=result.items.filter(item=>item.matterId===matterId&&item.state==='filed'&&item.receipt!==null);
-   if(group.length){const scopes=scopesSchema.parse(await callLegalMemoryTool(binding.server,'authorized_mail_filings',{filing_ids:group.map(item=>item.remoteId)},binding.bearer));
-    if(scopes.receipts.some(scope=>group.some(item=>item.remoteId===scope.id&&item.matterId===scope.matter_id&&item.receipt?.project_id===scope.project_id&&item.receipt.manifest_hash===scope.manifest_hash))){
+   if(group.length){const scopes=scopesSchema.parse(await callLegalMemoryTool(binding.server,'authorized_mail_filings',{filing_ids:group.map(item=>item.remoteId)},binding.bearer,AbortSignal.timeout(30000)));
+    for(const item of group){if(!scopes.receipts.some(scope=>item.remoteId===scope.id&&item.matterId===scope.matter_id&&item.receipt?.project_id===scope.project_id&&item.receipt.manifest_hash===scope.manifest_hash))continue;
      if(bindingFence(await resolve())!==bindingFence(binding))throw unavailable();
-     await this.mail.filing({action:'list',accountIds:[accountId],workspaceId,backendKey,locator,limit:1});return;
+     const version=await this.mail.filing({action:'source-version',accountId,locator,snapshotId:item.snapshotId}).catch(()=>null);if(version?.action==='source-version')return version.version;
     }
    }
    after=result.nextCursor??undefined;
   }while(after);
   throw new ApiError(404,'mail_filing_not_found','No currently readable matter association for this mail source.');
  }
+ async assertSourceVersion(accountId:string,locator:ProviderMessageLocator,expected:string):Promise<void>{await this.mail.filing({action:'source-version',accountId,locator,expected});}
  async search(workspaceId:string,accountIds:string[],matterId:string,input:MailSearchInput,resolve:()=>Promise<FilingBinding>){
-  const binding=await resolve(),backendKey=filingBackendKey(binding),items:FilingItem[]=[];let after:string|undefined;
+  const binding=await resolve(),backendKey=filingBackendKey(binding),items:Array<{id:string;remoteId:string;matterId:string;projectId:string;manifestHash:string}>=[];let after:string|undefined,scopeBytes=0;
   // A complete bounded scope is required before any mail count/snippet is read.
   do{
    const result=await this.mail.filing({action:'list',workspaceId,accountIds,backendKey,after,limit:100});if(result.action!=='list')throw unavailable();
-   items.push(...result.items.filter(item=>item.matterId===matterId&&item.state==='filed'&&item.receipt!==null));
-   if(items.length>50000)throw new ApiError(409,'mail_filing_scope_limit','This matter exceeds the local scope processing budget. Narrow the selected accounts.');
+   for(const item of result.items){if(item.matterId!==matterId||item.state!=='filed'||!item.receipt||!item.remoteId)continue;const compact={id:item.id,remoteId:item.remoteId,matterId:item.matterId,projectId:item.receipt.project_id,manifestHash:item.receipt.manifest_hash};scopeBytes+=Buffer.byteLength(JSON.stringify(compact));items.push(compact);}
+   if(items.length>50000||scopeBytes>16*1024*1024)throw new ApiError(409,'mail_filing_scope_limit','This matter exceeds the local scope processing budget. Narrow the selected accounts.');
    after=result.nextCursor??undefined;
   }while(after);
   const scopeBinding={workspaceId,backendKey,generation:bindingFence(binding)};
   const opened=await this.mail.filing({action:'scope-open',accountIds,binding:scopeBinding});if(opened.action!=='scope-open')throw unavailable();
   try{
    for(let offset=0;offset<items.length;offset+=200){
-    const group=items.slice(offset,offset+200),scopes=scopesSchema.parse(await callLegalMemoryTool(binding.server,'authorized_mail_filings',{filing_ids:group.map(item=>item.remoteId)},binding.bearer));
+    const group=items.slice(offset,offset+200),scopes=scopesSchema.parse(await callLegalMemoryTool(binding.server,'authorized_mail_filings',{filing_ids:group.map(item=>item.remoteId)},binding.bearer,AbortSignal.timeout(30000)));
     const allowed:string[]=[];
-    for(const scope of scopes.receipts){const item=group.find(candidate=>candidate.remoteId===scope.id);if(item?.receipt&&item.matterId===scope.matter_id&&item.receipt.project_id===scope.project_id&&item.receipt.manifest_hash===scope.manifest_hash)allowed.push(item.id);}
+    for(const scope of scopes.receipts){const item=group.find(candidate=>candidate.remoteId===scope.id);if(item&&item.matterId===scope.matter_id&&item.projectId===scope.project_id&&item.manifestHash===scope.manifest_hash)allowed.push(item.id);}
     await this.mail.filing({action:'scope-add',scopeId:opened.scopeId,filingIds:allowed});
    }
    if(bindingFence(await resolve())!==bindingFence(binding))throw unavailable();

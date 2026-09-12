@@ -9,6 +9,7 @@ export const filingItemSchema=z.object({id:uuid,snapshotId:uuid,accountId:id,wor
 export const filingSnapshotSchema=z.object({id:uuid,accountId:id,messageKey:z.string(),manifest:filingManifestSchema,manifestHash:hash}).strict();
 const scopeBindingSchema=z.object({workspaceId:id,backendKey:hash,generation:hash}).strict();
 export const filingInputSchema=z.discriminatedUnion('action',[
+ z.object({action:z.literal('source-version'),accountId:id,locator:providerMessageLocatorSchema,snapshotId:uuid.optional(),expected:hash.optional()}).strict(),
  z.object({action:z.literal('capture'),accountId:id,locator:providerMessageLocatorSchema}).strict(),
  z.object({action:z.literal('snapshot'),accountId:id,snapshotId:uuid}).strict(),
  z.object({action:z.literal('chunk'),accountId:id,snapshotId:uuid,part:size.max(100),offset:size,limit:size.min(1).max(24576)}).strict(),
@@ -21,6 +22,7 @@ export const filingInputSchema=z.discriminatedUnion('action',[
  z.object({action:z.literal('search'),input:mailSearchInputSchema,scopeId:uuid,binding:scopeBindingSchema}).strict(),
 ]);
 export const filingResultSchema=z.discriminatedUnion('action',[
+ z.object({action:z.literal('source-version'),version:hash}).strict(),
  z.object({action:z.literal('capture'),snapshot:filingSnapshotSchema}).strict(),
  z.object({action:z.literal('snapshot'),snapshot:filingSnapshotSchema}).strict(),
  z.object({action:z.literal('chunk'),data:z.string().max(32768),nextOffset:size,done:z.boolean()}).strict(),
@@ -47,6 +49,7 @@ export function canonicalFilingJson(value:unknown):string {
 export function filingResultMatches(input:FilingInput,result:FilingResult):boolean{
  if(input.action!==result.action)return false;
  if((input.action==='capture'||input.action==='snapshot')&&(result.action==='capture'||result.action==='snapshot'))return result.snapshot.accountId===input.accountId&&(input.action!=='snapshot'||result.snapshot.id===input.snapshotId);
+ if(input.action==='source-version'&&result.action==='source-version')return !input.expected||result.version===input.expected;
  if(input.action==='list'&&result.action==='list')return result.items.every(item=>input.accountIds.includes(item.accountId)&&item.workspaceId===input.workspaceId&&item.backendKey===input.backendKey);
  if(input.action==='create'&&result.action==='create')return result.item.accountId===input.accountId&&result.item.snapshotId===input.snapshotId&&result.item.workspaceId===input.workspaceId&&result.item.backendKey===input.backendKey&&result.item.principalKey===input.principalKey&&result.item.matterId===input.matterId;
  if(input.action==='update'&&result.action==='update')return result.item.accountId===input.accountId&&result.item.id===input.id&&result.item.revision===input.revision+1;
