@@ -1,9 +1,10 @@
 /** @jsxImportSource react */
 /**
- * First-run explainer for the on-device transcription feature. Shown once,
- * the first time a desktop user reaches the app after installing/updating,
- * using the same hero modal as "What's new". It defers a launch if a What's
- * new announcement is still pending so the two never stack.
+ * One-time explainer for the on-device transcription feature, shown to
+ * existing desktop users after updating, using the same hero modal as
+ * "What's new". New users get transcription in the onboarding audio step
+ * instead, so starting onboarding marks this seen. It defers a launch if a
+ * What's new announcement is still pending so the two never stack.
  */
 import { useEffect, useState } from "react";
 
@@ -25,7 +26,8 @@ function alreadySeen(): boolean {
   }
 }
 
-function markSeen(): void {
+/** Mark the intro seen without showing it (onboarding covers transcription). */
+export function markTranscriptionIntroSeen(): void {
   try {
     window.localStorage.setItem(SEEN_KEY, "1");
   } catch {
@@ -45,7 +47,7 @@ export function TranscriptionIntroDialog(props: { workspacesReady: boolean; onOp
     // this announcement: the onboarding setup step covers transcription.
     // Absorb it silently instead of stacking a modal on the covers.
     if (onboardingStage !== "done") {
-      markSeen();
+      markTranscriptionIntroSeen();
       return;
     }
     // Let the free-tier migration dialog and "What's new" go first; this
@@ -58,7 +60,7 @@ export function TranscriptionIntroDialog(props: { workspacesReady: boolean; onOp
   if (!open) return null;
 
   const dismiss = () => {
-    markSeen();
+    markTranscriptionIntroSeen();
     setOpen(false);
   };
 
