@@ -1,3 +1,4 @@
+import type {DraftSyncRequest,DraftSyncStatus} from "./draft-sync-view.js";
 import type {MailUpload,MailUploadView} from "./local-view.js";
 import type { GraphMailboxInput, GraphMailboxIdentity } from './graph-mailbox-view.js';
 import type {SavedSearchInput,SavedSearchResult} from './saved-search-view.js';
@@ -28,6 +29,8 @@ export interface MailService {
   extractionStatus(accountId:string,input:MailExtractionRequest):Promise<MailExtractionStatus>;
   extractionRead(accountId:string,input:MailExtractionRead):Promise<MailExtractionText>;
   extractionReset(accountId:string,input:MailExtractionRequest):Promise<MailExtractionStatus>;
+  draftSyncStatus(accountId:string,draftId:string):Promise<DraftSyncStatus>;
+  requestDraftSync(accountId:string,input:DraftSyncRequest):Promise<DraftSyncStatus>;
   uploadDraft(accountId:string,input:MailUpload):Promise<MailUploadView>;
   saveDraft(accountId:string, input:MailDraftSave):Promise<MailDraftView>;
   readDraft(accountId:string, input:MailDraftRead):Promise<MailDraftView>;

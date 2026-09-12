@@ -1,3 +1,4 @@
+import {draftSyncCommandSchema,draftSyncStatusSchema,type DraftSyncCommand,type DraftSyncStatus} from "../draft-sync-view.js";
 import { graphMailboxInputSchema, graphMailboxIdentitySchema, graphMailboxResultSchema, type GraphMailboxInput, type GraphMailboxIdentity } from '../graph-mailbox-view.js';
 import {savedSearchInputSchema,savedSearchResultSchema,savedSearchResultMatches,type SavedSearchInput,type SavedSearchResult} from '../saved-search-view.js';
 import {imapDiscoverySchema,type ImapDiscovery,imapConnectionSchema,imapConnectionResultSchema,type ImapConnection,type ImapConnectionResult} from '../providers/imap-config.js';
@@ -33,6 +34,7 @@ export type WorkerInitialization = {
 };
 type Page = { limit?: number; after?: string };
 export type WorkerCommand =
+  | DraftSyncCommand
   | MailExtractionCommand
   | MailLocalCommand
   | {operation:"mail.search.saved";input:SavedSearchInput}
@@ -64,6 +66,7 @@ export type WorkerCommand =
 export type WorkerAccount = { id: string; provider: "gmail" | "graph" | "imap"; displayName: string; personal?: boolean; identity?: GraphMailboxIdentity };
 export type WorkerFolder = { id: string; name: string; kind: "folder" | "label"; parentId: string | null; mutationPrecondition?: string | null; role?: "inbox" };
 export type WorkerResult =
+  | {draftSync:DraftSyncStatus}
   | {savedSearch:SavedSearchResult}
   | {extraction:MailExtractionStatus}
   | {extractionText:MailExtractionText}
@@ -187,6 +190,7 @@ function result(value: unknown): value is WorkerResult {
     || (Object.keys(value).every(key => ["syncProvider", "personal", "connected"].includes(key)) && (value.connected === undefined || typeof value.connected === "boolean") && (value.personal === undefined || (value.syncProvider === "graph" && typeof value.personal === "boolean")) && (value.syncProvider === "gmail" || value.syncProvider === "graph" || value.syncProvider === "imap"))
     || (exact(value, ["sync"]) && mailSyncViewSchema.safeParse(value.sync).success)
     || (exact(value, ["messages"]) && mailMessageListSchema.safeParse(value.messages).success)
+    || (exact(value, ["draftSync"]) && draftSyncStatusSchema.safeParse(value.draftSync).success)
     || (exact(value, ["message"]) && mailMessageViewSchema.safeParse(value.message).success)
     || (exact(value, ["parts"]) && mailPartListSchema.safeParse(value.parts).success)
     || (exact(value, ["content"]) && mailContentChunkSchema.safeParse(value.content).success)
@@ -215,6 +219,7 @@ export function parseWorkerMessage(line: string): WorkerMessage | undefined {
 }
 export function resultMatchesCommand(command: WorkerCommand, value: WorkerResult): boolean {
   switch (command.operation) {
+    case "mail.draft.sync.read":case "mail.draft.sync.request":return "draftSync" in value&&value.draftSync.accountId===command.accountId&&value.draftSync.draftId===command.input.draftId;
     case "mail.graph.mailbox.configure": return "graphMailbox" in value && value.graphMailbox.identity.credentialAccountId === command.input.credentialAccountId && value.graphMailbox.identity.address === command.input.address.toLowerCase();
     case "mail.badge.count": return "unreadInboxCount" in value;
     case 'mail.extraction.status':case 'mail.extraction.reset':return 'extraction' in value&&value.extraction.accountId===command.accountId&&JSON.stringify(value.extraction.locator)===JSON.stringify(command.input.locator)&&value.extraction.partId===command.input.partId&&value.extraction.referenceId===command.input.referenceId;
@@ -264,6 +269,7 @@ export function resultMatchesCommand(command: WorkerCommand, value: WorkerResult
 }
 export function validWorkerCommand(value: unknown): value is WorkerCommand {
   if (!record(value)) return false;
+  if(typeof value.operation==="string"&&value.operation.startsWith("mail.draft.sync."))return draftSyncCommandSchema.safeParse(value).success;
   if(typeof value.operation==="string"&&value.operation.startsWith("mail.extraction."))return extractionCommandSchema.safeParse(value).success;
   if(typeof value.operation==="string"&&value.operation.startsWith("mail.local."))return mailLocalCommandSchema.safeParse(value).success;
   if (value.operation === "mail.messages.list") return exact(value, ["operation", "accountId", "page"]) && id(value.accountId) && mailMessagePageSchema.safeParse(value.page).success;

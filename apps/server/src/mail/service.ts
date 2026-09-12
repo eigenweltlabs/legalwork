@@ -1,3 +1,4 @@
+import type {DraftSyncRequest} from "./draft-sync-view.js";
 import type {MailUpload} from "./local-view.js";
 import type { GraphMailboxInput } from './graph-mailbox-view.js';
 import type {SavedSearchInput} from './saved-search-view.js';
@@ -150,6 +151,8 @@ export class LocalMailService implements MailService {
   async extractionStatus(accountId:string,input:MailExtractionRequest){const result=await this.request({operation:'mail.extraction.status',accountId,input});if(!('extraction' in result))throw new MailServiceError('unavailable');return result.extraction;}
   async extractionRead(accountId:string,input:MailExtractionRead){const result=await this.request({operation:'mail.extraction.read',accountId,input});if(!('extractionText' in result))throw new MailServiceError('unavailable');return result.extractionText;}
   async extractionReset(accountId:string,input:MailExtractionRequest){const result=await this.request({operation:'mail.extraction.reset',accountId,input});if(!('extraction' in result))throw new MailServiceError('unavailable');return result.extraction;}
+  async draftSyncStatus(accountId:string,draftId:string){const result=await this.request({operation:"mail.draft.sync.read",accountId,input:{draftId}});if(!('draftSync' in result))throw new MailServiceError('unavailable');return result.draftSync;}
+  async requestDraftSync(accountId:string,input:DraftSyncRequest){const result=await this.request({operation:"mail.draft.sync.request",accountId,input});if(!('draftSync' in result))throw new MailServiceError('unavailable');return result.draftSync;}
   async uploadDraft(accountId:string,input:MailUpload){const result=await this.request({operation:"mail.local.draft.upload",accountId,input});if(!("local" in result)||result.local.operation!=="mail.local.draft.upload")throw new MailServiceError("unavailable");return result.local.value;}
   async saveDraft(accountId:string,input:MailDraftSave){
     const result=await this.request({operation:"mail.local.draft.save",accountId,input:input});

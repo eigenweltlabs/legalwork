@@ -49,6 +49,8 @@ function mockService() {
     async cancelImapConnection(){},
     async connectImap(){throw new MailServiceError("unsupported");},
     async extractionStatus(){throw new MailServiceError('not_found');},async extractionRead(){throw new MailServiceError('not_found');},async extractionReset(){throw new MailServiceError('not_found');},
+    async draftSyncStatus(){throw new MailServiceError("not_found");},
+    async requestDraftSync(){throw new MailServiceError("not_found");},
     async uploadDraft(){throw new MailServiceError("not_found");},
     async saveDraft(){throw new MailServiceError("not_found");},
     async readDraft(){throw new MailServiceError("not_found");},
@@ -306,4 +308,15 @@ test('onboarding HTTP forwards explicit personal selection and bounded cancellab
  expect((await fetch(base+`/imap/connections/${requestId}/cancel`,{method:'POST',headers:auth})).status).toBe(200);expect(seen[2]).toEqual({cancel:requestId});
  expect((await post('/imap/connections',{...input,tls:false})).status).toBe(400);
  expect((await fetch(base+`/imap/connections/${requestId}/cancel`,{method:'POST',headers:{authorization:'Bearer synthetic-mail-collaborator'}})).status).toBe(401);
+});
+
+test('draft synchronization HTTP enforces host authorization, exact version and conflict hash contracts',async()=>{
+ const mock=mockService(),draftId=crypto.randomUUID(),expected={generation:crypto.randomUUID(),revision:1};let calls=0;
+ mock.service.requestDraftSync=async(accountId,input)=>{calls++;return{accountId,draftId:input.draftId,state:'queued',enabled:true,dirty:true,revision:1,remote:null,remoteHash:null,error:null,operation:'upsert',updatedAt:1};};
+ mock.service.draftSyncStatus=async(accountId,input)=>({accountId,draftId:input.draftId,state:'local',enabled:false,dirty:true,revision:0,remote:null,remoteHash:null,error:null,operation:'upsert',updatedAt:0});
+ const{base}=await boot(mock.service),post=(suffix:string,body:unknown,headers:Record<string,string>=auth)=>fetch(base+'/accounts/local/drafts/sync/'+suffix,{method:'POST',headers:{...headers,'Content-Type':'application/json'},body:JSON.stringify(body)});
+ expect((await post('request',{draftId,expected,action:'sync'},{})).status).toBe(401);
+ expect((await post('request',{draftId,expected,action:'sync'},{authorization:'Bearer synthetic-mail-collaborator'})).status).toBe(401);
+ for(const body of [{draftId,action:'sync'},{draftId,expected,action:'sync',ownerId:'foreign'},{draftId,expected,action:'keep_local',remoteHash:'bad'}])expect((await post('request',body)).status).toBe(400);
+ expect(calls).toBe(0);expect((await post('request',{draftId,expected,action:'sync'})).status).toBe(200);expect(calls).toBe(1);expect((await(await post('status',{draftId})).json()).state).toBe('local');
 });
