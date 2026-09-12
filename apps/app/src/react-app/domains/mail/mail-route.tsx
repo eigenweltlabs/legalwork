@@ -3,6 +3,7 @@ import {MailBackgroundStatus} from './mail-desktop';
 import {mailNotificationOpenSchema} from '../../../../../server/src/mail/notification-view';
 import {MailActionBar,mailItemId,optimisticMail} from './mail-actions';
 import type {ActionEntry} from './mail-actions-client';
+import {MailOutbox} from './mail-outbox';
 import {MailComposer,MailDrafts,type ComposeSelection} from "./mail-composer";
 import {addresses,emptyCompose,replyCompose,type ComposeMode} from "./mail-compose-model";
 import {uploadComposeFile} from "./mail-compose-client";
@@ -11,7 +12,7 @@ import { mailPreviewType, openMailPreview } from "../session/artifacts/mail-prev
 import {MailSearch} from './mail-search';
 /** @jsxImportSource react */
 import { useEffect, useRef, useState } from 'react';
-import { Flag, Inbox, Archive, ChevronLeft, ChevronRight, Folder, Mail, Search, RefreshCw, Settings2, Paperclip, Download, FileText, Printer, MessagesSquare, X, PanelLeft, CircleAlert, Check, Pause, Play, SquarePen, Reply, ReplyAll, Forward } from 'lucide-react';
+import { SendHorizontal, Flag, Inbox, Archive, ChevronLeft, ChevronRight, Folder, Mail, Search, RefreshCw, Settings2, Paperclip, Download, FileText, Printer, MessagesSquare, X, PanelLeft, CircleAlert, Check, Pause, Play, SquarePen, Reply, ReplyAll, Forward } from 'lucide-react';
 import './mail-reader.css';
 import { Button } from '@/components/ui/button';
 import { resolveLegalworkConnection } from '../../shell/legalwork-connection';
@@ -27,7 +28,7 @@ function dataUrl(bytes: Uint8Array, type: string) { let binary = ''; for (let at
 function saveBytes(bytes: Uint8Array<ArrayBuffer>, name: string, type: string) { const url = URL.createObjectURL(new Blob([bytes], { type })); const link = document.createElement('a'); link.href = url; link.download = safeFilename(name); link.click(); setTimeout(() => URL.revokeObjectURL(url), 1000); }
 export function MailRoute() {
     const [compose,setCompose]=useState<ComposeSelection>();
-    const [draftsOpen,setDraftsOpen]=useState(false);
+    const [draftsOpen,setDraftsOpen]=useState(false);const [outboxOpen,setOutboxOpen]=useState(false);
     const [foldersOpen, setFoldersOpen] = useState(false);
     const [checked,setChecked]=useState<Set<string>>(new Set());
     const [actionEntries,setActionEntries]=useState<ActionEntry[]>([]);
@@ -52,9 +53,9 @@ export function MailRoute() {
     const [thread, setThread] = useState<string>();
     const [error, setError] = useState('');
     const [locked, setLocked] = useState(true);
-    useEffect(()=>{if(!client||locked)return;const state=location.state;if(!state||typeof state!=='object')return;const raw=Reflect.get(state,'mailNotificationTarget'),parsed=mailNotificationOpenSchema.safeParse(raw);if(!parsed.success||notificationOpened.current===raw)return;if(new URL(connectionIdentity.current.split('\n')[0]).origin!==parsed.data.serverOrigin){setError('Open the local server connection in Settings to view this notification.');return;}const controller=new AbortController();notificationOpened.current=raw;void client.readLocator(parsed.data.accountId,parsed.data.locator,controller.signal).then(message=>{if(controller.signal.aborted)return;setSelected(message);setError('');setCompose(undefined);setDraftsOpen(false);requestAnimationFrame(()=>{if(!controller.signal.aborted)document.getElementById('mail-print-root')?.focus();});}).catch(()=>{if(!controller.signal.aborted)setError('This notification’s message is unavailable. Review the account connection in Settings.');});return()=>controller.abort();},[client,locked,location.state]);
-    useEffect(()=>{if(locked){setCompose(undefined);setDraftsOpen(false);}},[locked]);
-    useEffect(()=>{setCompose(undefined);setDraftsOpen(false);},[client]);
+    useEffect(()=>{if(!client||locked)return;const state=location.state;if(!state||typeof state!=='object')return;const raw=Reflect.get(state,'mailNotificationTarget'),parsed=mailNotificationOpenSchema.safeParse(raw);if(!parsed.success||notificationOpened.current===raw)return;if(new URL(connectionIdentity.current.split('\n')[0]).origin!==parsed.data.serverOrigin){setError('Open the local server connection in Settings to view this notification.');return;}const controller=new AbortController();notificationOpened.current=raw;void client.readLocator(parsed.data.accountId,parsed.data.locator,controller.signal).then(message=>{if(controller.signal.aborted)return;setSelected(message);setError('');setCompose(undefined);setDraftsOpen(false);setOutboxOpen(false);requestAnimationFrame(()=>{if(!controller.signal.aborted)document.getElementById('mail-print-root')?.focus();});}).catch(()=>{if(!controller.signal.aborted)setError('This notification’s message is unavailable. Review the account connection in Settings.');});return()=>controller.abort();},[client,locked,location.state]);
+    useEffect(()=>{if(locked){setCompose(undefined);setDraftsOpen(false);setOutboxOpen(false);}},[locked]);
+    useEffect(()=>{setCompose(undefined);setDraftsOpen(false);setOutboxOpen(false);},[client]);
     const [busy, setBusy] = useState(false);
     const [revision, setRevision] = useState(0);
     const [connectionRevision, setConnectionRevision] = useState(0);
@@ -216,8 +217,8 @@ export function MailRoute() {
     } }
     const title = thread ? 'Conversation' : folder ? folders.find(value => value.id === folder)?.name ?? folder : inbox ? 'Inbox' : 'All mail';
     const refresh = () => { purge(); setConnectionRevision(value => value + 1); setRevision(value => value + 1); };
-    const openCompose=(value:ComposeSelection)=>{setCompose(value);setDraftsOpen(false);};
-    const reader = compose&&client ? <MailComposer key={compose.account+compose.id} client={client} accounts={accounts} initial={compose} onClose={()=>setCompose(undefined)} onSwitch={openCompose}/> : draftsOpen&&client ? <MailDrafts client={client} accounts={accounts} onOpen={openCompose} onClose={()=>setDraftsOpen(false)}/> : selected && client ? <MailReader key={selected.accountId + '|' + selected.key} client={client} item={selected}
+    const openCompose=(value:ComposeSelection)=>{setCompose(value);setDraftsOpen(false);setOutboxOpen(false);};
+    const reader = compose&&client ? <MailComposer key={compose.account+compose.id} client={client} accounts={accounts} initial={compose} onClose={()=>setCompose(undefined)} onSwitch={openCompose} onQueued={()=>{setCompose(undefined);setOutboxOpen(true);}}/> : outboxOpen&&client ? <MailOutbox client={client} accounts={accounts} onClose={()=>setOutboxOpen(false)}/> : draftsOpen&&client ? <MailDrafts client={client} accounts={accounts} onOpen={openCompose} onClose={()=>setDraftsOpen(false)}/> : selected && client ? <MailReader key={selected.accountId + '|' + selected.key} client={client} item={selected}
       onCompose={openCompose}
       account={accounts.find(value => value.id === selected.accountId)?.displayName ?? selected.accountId}
       onUnavailable={() => { purge(); setError('Mail access changed. Please refresh.'); }}
@@ -230,7 +231,8 @@ export function MailRoute() {
           <h1>Mail</h1><MailBackgroundStatus/><details className="mail-shortcuts"><summary aria-label="Mail keyboard shortcuts" title="Mail keyboard shortcuts">?</summary><span>Focus the message list: ↑ / ↓ or Home / End to open messages. / to search, C to compose, R to reply, Shift+R to reply all. Escape clears search. Shortcuts pause while typing.</span></details>
           <div className="mail-toolbar-actions">
             <button className="mail-icon-button" title="Compose (C)" aria-keyshortcuts="C" aria-label="Compose" disabled={locked||!accounts.length||!!compose} onClick={()=>{const selectedAccount=accounts.find(value=>value.id===account)??accounts[0];openCompose({account:selectedAccount.id,id:crypto.randomUUID(),version:null,content:emptyCompose(selectedAccount.identity?.address??addresses(selectedAccount.displayName)[0]??'')});}}><SquarePen size={16}/></button>
-            <button className="mail-icon-button" title="Drafts" aria-label="Open drafts" disabled={locked||!!compose} onClick={()=>setDraftsOpen(true)}><FileText size={16}/></button>
+            <button className="mail-icon-button" title="Outbox" aria-label="Open outbox" disabled={locked||!!compose} onClick={()=>{setDraftsOpen(false);setOutboxOpen(true);}}><SendHorizontal size={16}/></button>
+            <button className="mail-icon-button" title="Drafts" aria-label="Open drafts" disabled={locked||!!compose} onClick={()=>{setOutboxOpen(false);setDraftsOpen(true);}}><FileText size={16}/></button>
             <label className="mail-toolbar-search"><Search size={15}/><input aria-label="Search mail" placeholder={savedSearchName ? `Saved: ${savedSearchName}` : 'Search'} disabled={locked} value={searchQuery} onChange={event => { setSearchQuery(event.target.value); setSavedSearchName(''); }}/>{searching && <button aria-label="Clear search" onClick={() => setSearching(false)}><X size={13}/></button>}</label>
             <button className="mail-icon-button" title="Refresh mail" aria-label="Refresh mail" onClick={refresh}><RefreshCw size={16}/></button>
             <button className="mail-icon-button" title="Mail accounts" aria-label="Mail accounts" onClick={openSettings}><Settings2 size={17}/></button>
@@ -240,7 +242,7 @@ export function MailRoute() {
         {error && <div role="alert" className="mail-notice"><CircleAlert size={15}/><span>{error}</span><button aria-label="Dismiss message" onClick={() => setError('')}><X size={14}/></button></div>}
         {!locked&&client&&<MailActionBar client={client} accounts={accounts} accountId={account} selected={(checked.size?items.filter(item=>checked.has(mailItemId(item))):selected?[selected]:[]).map(item=>optimisticMail(item,actionEntries))} folder={folders.find(item=>item.id===folder)} folders={folders} onEntries={setActionEntries} onRefresh={()=>setActionPulse(value=>value+1)}/>}
         {locked ? <div className="mail-empty"><div className="mail-empty-icon"><Mail size={24}/></div><h2 role="status">{error ? 'Mail is unavailable' : 'Opening your mail…'}</h2>{error && <Button variant="outline" size="sm" onClick={refresh}>Try again</Button>}</div>
-          : <div className={`mail-grid ${selected||compose||draftsOpen ? 'has-selection' : ''} ${foldersOpen ? 'folders-open' : ''}`}>
+          : <div className={`mail-grid ${selected||compose||draftsOpen||outboxOpen ? 'has-selection' : ''} ${foldersOpen ? 'folders-open' : ''}`}>
             <nav aria-label="Mail accounts and folders" className="mail-folders">
               <div className="mail-nav-caption">Mailboxes</div>
               <button className={`mail-nav-row ${!account && inbox ? 'is-active' : ''}`} onClick={() => { setSearching(false); setThread(undefined); setFolder(''); setInbox(true); setAccount(''); setFoldersOpen(false); }}><Inbox size={16}/><span>Inbox</span></button>

@@ -1,6 +1,10 @@
 import {MailNotificationStore} from '../storage/notifications.js';
 import {DraftSyncRunner} from "./draft-sync.js";
 import {DraftSyncStore,DraftSyncError} from "../storage/draft-sync.js";
+import {OutboxStore} from '../storage/outbox.js';
+import {SmtpCustody} from '../storage/smtp-custody.js';
+import {OutboxRunner} from './outbox-runner.js';
+import {OutboxError} from '../outbox-view.js';
 import {SenderIdentityRepository} from '../storage/sender-identities.js';
 import {discoverMailIdentity} from '../providers/identity.js';
 import {GmailReadTransport} from '../providers/gmail.js';
@@ -34,6 +38,7 @@ import { assertMailSchema } from "../storage/consistency.js";
 import { MAX_WORKER_MESSAGE_BYTES, parseParentMessage, parseWorkerMessage,
   type ParentMessage, type WorkerInitialization, type WorkerMessage, type WorkerResult, type WorkerAccount, type WorkerFolder } from "./protocol.js";
 
+let outboxStore:OutboxStore|undefined,outboxRunner:OutboxRunner|undefined;
 let draftSyncStore:DraftSyncStore|undefined,draftSyncRunner:DraftSyncRunner|undefined;
 let ownerId='';
 let database: MailDatabase | undefined;
@@ -79,6 +84,7 @@ function write(message: WorkerMessage): boolean {
   return true;
 }
 async function finish(): Promise<void> {
+  try{await outboxRunner?.close();}catch{exitCode=1;}
   try{await draftSyncRunner?.close();}catch{exitCode=1;}
   try{await(closingExtraction??extractionRunner?.close());}catch{exitCode=1;}
   try { await (closingController ?? controller?.close()); } catch { exitCode = 1; }
@@ -160,6 +166,7 @@ async function initialize(value: WorkerInitialization): Promise<void> {
     draftSyncStore=new DraftSyncStore(database,value.ownerId);draftSyncRunner=new DraftSyncRunner({database,ownerId:value.ownerId,access});
     phase = "ready";
     if(!lifecycleSuspended)draftSyncRunner.start();else await draftSyncRunner.suspend();
+    outboxStore=new OutboxStore(database,value.ownerId);outboxRunner=new OutboxRunner({database,ownerId:value.ownerId,access});outboxRunner.recover();if(!lifecycleSuspended)outboxRunner.resume();else await outboxRunner.suspend();
     searchIndexer?.start();extractionRunner?.start();
     write({ kind: "ready", protocol: 1, runtime: "node", nodeVersion: process.versions.node });
   } catch {
@@ -197,9 +204,15 @@ async function request(message: Extract<ParentMessage, { kind: "request" }>): Pr
       case 'mail.lifecycle.set':{
         lifecycleSuspended=command.input.suspended;
         const suspended=command.input.suspended;
-        lifecycleChange=lifecycleChange.catch(()=>{}).then(async()=>{if(phase==='closing')return;if(suspended){await Promise.all([syncLifecycle?.suspendAll(),draftSyncRunner?.suspend()]);}else{syncLifecycle?.resumeAll();draftSyncRunner?.resume();}});
+        lifecycleChange=lifecycleChange.catch(()=>{}).then(async()=>{if(phase==='closing')return;if(suspended){await Promise.all([syncLifecycle?.suspendAll(),draftSyncRunner?.suspend(),outboxRunner?.suspend()]);}else{syncLifecycle?.resumeAll();draftSyncRunner?.resume();outboxRunner?.resume();}});
         await lifecycleChange;result={lifecycle:{state:lifecycleSuspended?'suspended':'running'}};break;
       }
+      case 'mail.smtp.status':result={smtp:new SmtpCustody(database,ownerId).status(command.accountId)};break;
+      case 'mail.smtp.configure':new SmtpCustody(database,ownerId).configure(command.accountId,command.input);result={smtp:new SmtpCustody(database,ownerId).status(command.accountId)};break;
+      case 'mail.smtp.remove':new SmtpCustody(database,ownerId).remove(command.accountId);result={smtp:new SmtpCustody(database,ownerId).status(command.accountId)};break;
+      case 'mail.outbox.list':if(!outboxStore)throw locked;result={outbox:outboxStore.list(command.accountId)};break;
+      case 'mail.outbox.queue':if(!outboxStore)throw locked;result={outboxItem:await outboxStore.queue(command.accountId,command.input)};if(!lifecycleSuspended)void outboxRunner?.run().catch(()=>{});break;
+      case 'mail.outbox.action':if(!outboxStore||!outboxRunner)throw locked;result={outboxItem:command.input.action==='reconcile'?await outboxRunner.reconcile(command.accountId,command.input.actionId):command.input.action==='retry'?outboxStore.retry(command.accountId,command.input.actionId):outboxStore.cancel(command.accountId,command.input.actionId)};if(!lifecycleSuspended)void outboxRunner.run().catch(()=>{});break;
       case 'mail.senders.list': result={senders:new SenderIdentityRepository(database,ownerId).list(command.accountId)};break;
       case 'mail.senders.configure': result={senders:new SenderIdentityRepository(database,ownerId).configure(command.accountId,command.input)};break;
       case 'mail.senders.settings': result={senders:new SenderIdentityRepository(database,ownerId).settings(command.accountId,command.input)};break;
@@ -251,7 +264,7 @@ async function request(message: Extract<ParentMessage, { kind: "request" }>): Pr
       case "mail.local.draft.delete": if(!local)throw locked;result={local:{operation:command.operation,accountId:command.accountId,value:local.deleteDraft(command.accountId,command.input)}};break;
       case "mail.local.draft.attachment": if(!local)throw locked;result={local:{operation:command.operation,accountId:command.accountId,value:local.readDraftAttachment(command.accountId,command.input)}};break;
       case "mail.local.draft.list": if(!local)throw locked;result={local:{operation:command.operation,accountId:command.accountId,value:local.listDrafts(command.accountId,command.input)}};break;
-      case "mail.local.action.submission": if(!local)throw locked;result={local:{operation:command.operation,accountId:command.accountId,value:local.enqueueSubmission(command.accountId,command.input)}};break;
+      case "mail.local.action.submission": if(!local||!outboxStore)throw locked;{const item=await outboxStore.queue(command.accountId,command.input);result={local:{operation:command.operation,accountId:command.accountId,value:local.readAction(command.accountId,item.id)}};if(!lifecycleSuspended)void outboxRunner?.run().catch(()=>{});}break;
       case "mail.local.action.mutation": if(!local)throw locked;result={local:{operation:command.operation,accountId:command.accountId,value:local.enqueueMutation(command.accountId,command.input)}};if(!lifecycleSuspended)syncLifecycle.engine(command.accountId).wake(command.accountId);break;
       case "mail.local.action.read": if(!local)throw locked;result={local:{operation:command.operation,accountId:command.accountId,value:local.readAction(command.accountId,command.input.actionId)}};break;
       case "mail.local.action.list": if(!local)throw locked;result={local:{operation:command.operation,accountId:command.accountId,value:local.listActions(command.accountId,command.input)}};break;
@@ -290,6 +303,7 @@ async function request(message: Extract<ParentMessage, { kind: "request" }>): Pr
         if (database.get("SELECT provider FROM mail_accounts WHERE id=?", [command.accountId])?.provider === 'imap') {
           if (!current.version) throw locked;
           credentials.disconnect(command.accountId, current.version);
+          new SmtpCustody(database,ownerId).remove(command.accountId);
         } else await controller.disconnect(command.accountId);
         await stopping;
         result = { disconnected: true }; break;
@@ -377,6 +391,7 @@ async function request(message: Extract<ParentMessage, { kind: "request" }>): Pr
     }
     if (!write({ kind: "response", id: message.id, ok: true, result })) write({ kind: "response", id: message.id, ok: false, code: "operation_failed" });
   } catch (error) {
+    if(error instanceof OutboxError&&!isClosing()&&(command.operation.startsWith('mail.outbox.')||command.operation.startsWith('mail.smtp.'))){write({kind:'response',id:message.id,ok:true,result:{outboxFailure:error.code}});return;}
     // Do not echo SQLite/provider errors, row contents, supplied IDs, paths or key material.
     if (isClosing()) return;
     const code = error instanceof DraftSyncError?error.code:error instanceof SavedSearchError?error.code:error instanceof MailExtractionStorageError&&error.code==="locked"?"locked":error instanceof MailExtractionStorageError&&error.code==="not_found"?"not_found":error instanceof ImapError&&error.code==="locked"?"locked":error instanceof ImapError&&error.code==="too_large"?"response_too_large":error instanceof ImapError&&error.code==="invalid_input"?"invalid_input":error instanceof MailLocalError&&error.code==="conflict"?"conflict":error instanceof MailLocalError&&error.code==="invalid_input"?"invalid_input":error instanceof MailLocalError&&error.code==="locked"?"locked":error instanceof MailLocalError&&error.code==="not_found"?"not_found":error === unsupported || (error instanceof MailSearchError && error.code === "unsupported") ? "unsupported" : error === locked || (error instanceof MailSearchError && error.code === "locked") || ((error instanceof GmailBackfillError || error instanceof GraphBackfillError) && error.code === "locked")

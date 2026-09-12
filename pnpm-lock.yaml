@@ -354,6 +354,9 @@ importers:
       node-pty:
         specifier: npm:@lydell/node-pty@1.2.0-beta.12
         version: '@lydell/node-pty@1.2.0-beta.12'
+      nodemailer:
+        specifier: 10.0.1
+        version: 10.0.1
       openai:
         specifier: ^7.8.0
         version: 7.8.0(@aws-sdk/credential-provider-node@3.972.82)(@smithy/signature-v4@5.7.3)(ws@8.19.0)(zod@4.3.6)
@@ -552,6 +555,9 @@ importers:
       minimatch:
         specifier: ^10.0.1
         version: 10.1.1
+      nodemailer:
+        specifier: 10.0.1
+        version: 10.0.1
       openai:
         specifier: ^7.8.0
         version: 7.8.0(@aws-sdk/credential-provider-node@3.972.82)(@smithy/signature-v4@5.7.3)(ws@8.19.0)(zod@4.3.6)
@@ -6848,6 +6854,10 @@ packages:
 
   node-releases@2.0.27:
     resolution: {integrity: sha512-nmh3lCkYZ3grZvqcCH+fjmQ7X+H0OeZgP40OierEaAptX4XofMh5kwNbWh7lBduUzCcV/8kZ+NDLCwm2iorIlA==}
+
+  nodemailer@10.0.1:
+    resolution: {integrity: sha512-c+gU9cL9HLDax3vjxL88kW+6NOgdtEUWaZ+AUtxdJR6LLhf0kGdCLExof7yiKW7zdO9EfXCSIgmhGyFmUM0mYQ==}
+    engines: {node: '>=20.0.0'}
 
   nopt@6.0.0:
     resolution: {integrity: sha512-ZwLpbTgdhuZUnZzjd7nb1ZV+4DoiC6/sfiVKok72ym/4Tlf+DFdlHYmT2JPmcNNWV6Pi3SDf1kT+A4r9RTuT9g==}
@@ -16186,6 +16196,8 @@ snapshots:
       - supports-color
 
   node-releases@2.0.27: {}
+
+  nodemailer@10.0.1: {}
 
   nopt@6.0.0:
     dependencies:
