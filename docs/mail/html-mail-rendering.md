@@ -1,0 +1,54 @@
+# HTML mail rendering (EIG-177)
+
+The reader now preserves incoming email layout inside a separate Chromium document. It retains tables, cell spacing, dimensions, legacy font/color attributes, safe inline styles, classes, IDs, responsive width media queries, signatures, quotes and verified CID images. App CSS cannot restyle message content. Sender colors are preserved on a light document canvas, including when the application uses a dark theme; there is no blanket color inversion.
+
+## Library decision and research
+
+Reviewed 12 September 2026 against primary sources:
+
+| Option | License / maintenance evidence | Decision |
+| --- | --- | --- |
+| [DOMPurify](https://github.com/cure53/DOMPurify/releases) | Apache-2.0 or MPL-2.0; 3.4.15 release includes current hardening | Keep and pin 3.4.15. It sanitizes HTML, not the full email rendering pipeline. Its [threat model](https://github.com/cure53/DOMPurify/wiki/Security-Goals-%26-Threat-Model) explicitly excludes CSS sanitization and HTTP tracking protection. |
+| [CSS Tree](https://github.com/csstree/csstree) | MIT; current [3.2.1 package](https://github.com/csstree/csstree/blob/master/package.json), browser parser/walker/generator and property grammar validation | Adopt 3.2.1 to parse declarations and stylesheets structurally, validate supported properties and rewrite resource URLs. Dependencies are mdn-data and source-map-js; development types use @types/css-tree. |
+| [parse5](https://github.com/inikulin/parse5/tree/v7.3.0/packages/parse5) | MIT; existing workspace 7.3.0 version, HTML parser | Reuse as an explicit desktop dependency to recover resource candidates from the stored original body, including entity-encoded attributes. It is not treated as a sanitizer. |
+| [Mailspring](https://github.com/Foundry376/Mailspring) | GPL-3.0; Electron/React incoming-mail client | Architectural reference, not a standalone drop-in renderer. No code copied or dependency added. |
+| [Proton WebClients](https://github.com/ProtonMail/WebClients) | GPL-3.0; maintained mail application monorepo | Reference for the separation of sanitization, resources and message display. No code copied or dependency added. |
+| [sanitize-html](https://github.com/apostrophecms/sanitize-html) | MIT; HTML sanitizer with style allowlists | Does not replace MIME selection, stylesheet handling, isolation or resource controls. Keep the established DOMPurify path. |
+| [image-size](https://github.com/image-size/image-size) | MIT, GitHub repository archived June 2026 | Evaluated but not shipped. A small shared raster header gate covers the four allowed formats before Chromium decoding. |
+
+Email authoring systems such as MJML or React Email generate controlled templates; they do not solve display of arbitrary received MIME. [Gmail's CSS documentation](https://developers.google.com/workspace/gmail/design/css) establishes that style blocks, selected CSS and media queries are normal incoming-mail content. Stripping every style and class was therefore a concrete fidelity bug.
+
+## Pipeline and boundaries
+
+The old sanitizer allowed no style/class/dimension attributes, discarded style blocks and replaced images with bare text. Its defaults forced system fonts, line height, table collapse and cell padding. The iframe had a fixed minimum height with no content sizing. These were local causes, independent of provider transport.
+
+MIME projection retains every decoded body for search and original inspection, and marks presentation branches: the last supported `multipart/alternative` branch for each text type, the designated/first `multipart/related` root, and all legitimate mixed sections. Attached messages remain attachments. Existing stored envelopes have no MIME ancestry: all their HTML sections remain readable in separate labeled frames. They may still show an old alternative twice; the reader does not silently discard a substantive appendix to guess at deduplication. No provider fetch, migration or automatic re-projection is added.
+
+Each selected HTML section goes through DOMPurify and a CSS Tree allowlist. Stylesheet imports, remote fonts, custom properties, unparsed CSS, generated content, animation, scriptable functions and unsupported at-rules are removed. Every surviving image/background URL resolves to verified local raster data. Root document heights are normalized and viewport-height-dependent styling is omitted to prevent frame height feedback loops; width media queries remain responsive. Sender body width and ordinary element layout remain intact. Fixed-width emails may require horizontal scrolling.
+
+The frame uses `sandbox="allow-scripts"` with an opaque origin; it has no same-origin, navigation, form or popup capability. A fresh nonce authorizes only the application's small sizing/link bridge. CSP permits data images and inline sanitized styles, and denies connections, nested frames, objects and all other scripts. The parent requires the exact current frame window, opaque origin, current token and bounded typed payload. Links have no navigable href; a trusted click shows the actual destination outside the email, and a separate Open link action uses the desktop shell. No mail script receives application access.
+
+Images are blocked initially. Load images is an explicit action for the current message; nothing is permanently allowlisted. Native IPC accepts only an owned, current body reference and locator, never a caller-supplied URL list. It re-reads and hashes the stored body over the authenticated local mail surface, discovers image URLs there, and revalidates the reference around downloading. Public HTTP(S) destinations only; all DNS answers must pass address checks, each request pins the checked address, and each redirect is rechecked. Redirect bodies are destroyed immediately. There are no cookies, authorization headers, referrer, ambient browser session or HTTPS-to-HTTP redirect. CSS and HTML in the frame still have no network permission after loading: native verified bytes are supplied as data images. Lock/navigation cancels work; failed images remain visible placeholders. Web clients without the desktop bridge retain blocked images.
+
+Bounds: 2 MiB HTML, 15,000 elements, 128 KiB per CSS block and 20,000 visited CSS nodes; 20,000 px frame height before explicit internal scrolling. Multiple sections page ten frames at a time; expanded image data is capped at 16 MiB across the visible page, including repeated CIDs. CIDs retain the existing 4 MiB each / 8 MiB total read bounds and now share the pixel gate. Remote loading uses one active operation, at most 30 candidates, 4 MiB per image, 8 MiB response-byte budget, four redirects, 15-second socket timeouts and a 90-second operation deadline including DNS cancellation. Raster dimensions must be at most 4096 per axis and 4,194,304 pixels; remote bytes additionally pass Chromium decoding. SVG is excluded. Animated WebP is excluded. Unsupported/corrupt rasters remain blocked.
+
+## Evidence and reproduction
+
+Original synthetic EML fixtures and matching expected HTML are under `apps/server/src/mail/testing/html-fixtures/`. They include Gmail-style conversation markup, Outlook-style Mso/Calibri receipt and signature markup, a responsive newsletter with nested tables and CID image, malformed HTML with active-content attempts, and plain alternatives. These are authored test fixtures, **not messages exported from Gmail or Outlook**. Native MIME tests prove exact decoded HTML and CID bytes match the expected files.
+
+`apps/app/tests/mail-html-render.test.ts` builds only the reader components and opens a fresh, hidden installed Electron window with an isolated temporary profile, preserving OS HOME. It compares the frozen pre-change renderer source at `a4118bcca` with the new component using the same fixtures and current installed dependencies. Captures use 780- and 390-pixel windows with the actual mail stylesheet. Assertions cover zero frame network requests, opaque origin, CSS/table/CID retention, responsive width, no unnecessary internal vertical scroll, overflow/footer visibility and stable height, explicit image loading, a trusted DevTools input click and separate link confirmation, dark-system rendering, legacy section retention and forged parent bridge messages.
+
+Commands from repository root:
+
+```sh
+pnpm exec node apps/server/scripts/mail-acceptance.mjs --suite mime/project
+pnpm exec node --test apps/desktop/electron/mail-images.test.mjs
+LEGALWORK_MAIL_HTML_EVIDENCE=/tmp/mail-html-evidence pnpm exec bun test apps/app/tests/mail-html-render.test.ts
+pnpm --filter @legalwork/app exec tsc --noEmit --strict --skipLibCheck --target ES2022 --moduleResolution bundler --module ESNext --jsx react-jsx --lib ES2022,DOM,DOM.Iterable src/react-app/domains/mail/mail-html-frame.tsx src/app/lib/desktop.ts
+```
+
+If the worktree uses an installed Electron from a sibling checkout, set `LEGALWORK_TEST_ELECTRON` to that executable; no new runtime build is needed. Screenshots in [rendering-evidence](rendering-evidence/) were personally inspected. Wide newsletter branding and table panels, narrow stacked columns and image placeholders, receipt amounts/signature borders, quoted thread spacing and malformed-message readability are preserved. The image-loaded screenshot uses a synthetic native bridge response, not an external tracking service. Native download tests separately cover stored-reference grants, DNS/redirect checks, cancellation and byte integrity.
+
+This is evidence of a substantial local rendering improvement, **not Gmail/Outlook pixel parity**. Same-fixture screenshots from those products, actual Gmail/Outlook-composed originals, Windows font/decoder behavior and a representative real-account corpus were not available in this focused run. Outlook-specific VML/Word layout, remote fonts, interactive/AMP mail and proprietary client quirks are unsupported. Native Chromium may reject some encoded image variants after the header gate. Print remains the existing plain-text print path. Final product-wide design and provider certification remain EIG-172/173/174.
+
+Focused result on macOS arm64, Node 24.11.0 and installed Electron 35.7.5: **12 MIME tests, 7 native image tests and 1 Electron rendering scenario passed**. The renderer scenario contains assertions for all four original EML layouts, both widths, resource/link behavior, size limits, legacy pagination and overflow recovery. The targeted strict TypeScript check and native module syntax checks passed. No selected test was excluded; no full application build, full test suite, live mailbox read/send, or platform certification was run.

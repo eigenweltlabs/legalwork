@@ -18,7 +18,8 @@ import { Button } from '@/components/ui/button';
 import { resolveLegalworkConnection } from '../../shell/legalwork-connection';
 import { MailClient, UnifiedMailPages, bodyEnvelope, type MailAccountView, type MailFolderView, type MailMessageView, type MailPartView, type SyncStatus } from './mail-client';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { mailHtml, rasterType, safeFilename } from './mail-html';
+import { MailHtmlParts } from './mail-html-frame';
+import { mailHtml, boundedMailRaster, rasterType, safeFilename } from './mail-html';
 const accountLabel = (provider: string) => provider === 'gmail' ? 'Google' : provider === 'graph' ? 'Microsoft' : provider==='archive'?'Local archive':'IMAP';
 const shortDate = (value?: number | null) => value ? new Date(value).toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) : '';
 const senderName = (value?: string | null) => value?.split('<')[0].trim() || value || 'Sender not downloaded';
@@ -307,6 +308,7 @@ function MailReader({ client, item, account, onThread, onUnavailable, onCompose 
     const [parts, setParts] = useState<MailPartView[]>([]), [bodies, setBodies] = useState<{
         contentType: string;
         text: string;
+        presentation?: boolean;
     }[]>([]), [inline, setInline] = useState<ReadonlyMap<string, string>>(new Map()), [error, setError] = useState(''), [busy, setBusy] = useState(true), [plain, setPlain] = useState(false);
     const controller = useRef(new AbortController());
     useEffect(() => { const abort = new AbortController(); controller.current = abort; void (async () => { try {
@@ -338,7 +340,7 @@ function MailReader({ client, item, account, onThread, onUnavailable, onCompose 
             if (total > 8 * 1024 * 1024)
                 break;
             const bytes = await client.bytes(item, part, abort.signal, 4 * 1024 * 1024);
-            const type = rasterType(bytes);
+            const type = boundedMailRaster(bytes);
             if (type)
                 images.set(part.contentId.replace(/^<|>$/g, ''), dataUrl(bytes, type));
         }
@@ -403,7 +405,7 @@ function MailReader({ client, item, account, onThread, onUnavailable, onCompose 
         if (!signal.aborted)
             setBusy(false);
     } }
-    const raw = parts.find(part => part.kind === 'raw'), html = bodies.filter(body => body.contentType === 'text/html'), texts = bodies.filter(body => body.contentType === 'text/plain');
+    const raw = parts.find(part => part.kind === 'raw'), html = bodies.filter(body => body.contentType === 'text/html' && body.presentation !== false), texts = bodies.filter(body => body.contentType === 'text/plain' && body.presentation !== false);
     async function composeMessage(mode:ComposeMode){setBusy(true);try{
       const text=(texts.length?texts.map(body=>body.text):html.map(body=>new DOMParser().parseFromString(mailHtml(body.text),'text/html').body.textContent??'')).join('\n\n');
       let references:string[]=[];let original:Uint8Array<ArrayBuffer>|undefined;
@@ -436,8 +438,8 @@ function MailReader({ client, item, account, onThread, onUnavailable, onCompose 
         {error && <p role="alert" className="mail-notice">{error}</p>}{busy && <p role="status" className="mail-loading">Opening message…</p>}
         <div id="mail-print-content" className="mail-message-body">
           <pre className="mail-print-copy" style={{display:'none'}}>{(texts.length ? texts.map(body => body.text) : html.map(body => new DOMParser().parseFromString(mailHtml(body.text), 'text/html').body.textContent)).join('\n\n')}</pre>
-          {html.length > 0 && <div className="mail-body-options"><span>External images blocked</span><button onClick={() => setPlain(value => !value)}>{plain ? 'Formatted view' : 'Plain text'}</button></div>}
-          {html.length && !plain ? html.map((body, index) => <iframe key={index} title={`Message HTML ${index + 1}`} sandbox="" referrerPolicy="no-referrer" srcDoc={mailHtml(body.text, inline)} />)
+          {html.length > 0 && <div className="mail-body-options"><button onClick={() => setPlain(value => !value)}>{plain ? 'Formatted view' : 'Plain text'}</button></div>}
+          {html.length && !plain ? <MailHtmlParts bodies={html} inline={inline} item={item} bodyPart={parts.find(part=>part.kind==='body'&&part.bytesAvailable)} signal={controller.current.signal}/>
             : texts.length ? texts.map((body, index) => <pre key={index} className="mail-plain-body">{body.text}</pre>)
             : html.length ? <pre className="mail-plain-body">{new DOMParser().parseFromString(mailHtml(html[0].text), 'text/html').body.textContent}</pre>
             : !busy ? <p className="mail-loading">No message body is available yet.</p> : null}
