@@ -7,6 +7,7 @@ import {join} from 'node:path';
 import {linkTestModules} from './link-test-modules.mjs';
 import {MAIL_WINDOWS_ACL_PROGRAM,enforceMailWindowsAcl} from '../../apps/server/src/mail/storage/windows-acl.ts';
 if(process.platform!=='win32'||process.env.GITHUB_ACTIONS!=='true')throw Error('Hosted Windows runner required');
+const regression=spawnSync(process.execPath,['--test','scripts/mail/link-test-modules.test.mjs'],{encoding:'utf8',timeout:15000});console.log(JSON.stringify({stage:'module-link-regression',exit:regression.status,stdout:regression.stdout,stderr:regression.stderr}));if(regression.status!==0)process.exitCode=1;
 const root=await mkdtemp(join(tmpdir(),'mail-prerequisites-'));
 const code=error=>typeof error?.code==='string'?error.code:'unknown';
 try{
