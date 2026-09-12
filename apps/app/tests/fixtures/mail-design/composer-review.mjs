@@ -27,6 +27,7 @@ await run(`document.querySelector('[contenteditable=true] [aria-label="Return to
 assert.equal(await run('location.hash'), '#/mail');
 await run(`Array.from(document.querySelectorAll('button')).find(e=>e.textContent==='Contract review').click()`);await pause();
 assert.equal(await run(`JSON.stringify(document.querySelector('[contenteditable=true]').__lexicalEditor.getEditorState().toJSON()).includes('[Source email](/mail?source=')`),true);
+await run(`document.querySelector('[contenteditable=true] [aria-label="Return to source email"]').dispatchEvent(new KeyboardEvent('keydown',{key:' ',bubbles:true,cancelable:true}))`);await pause();assert.equal(await run('location.hash'),'#/mail');
 console.log('REAL_LEXICAL_ROUNDTRIP_CLIPBOARD_ATOMIC_KEYS_PASS');
 
 }finally{await call('input-mode',{active:false});}
