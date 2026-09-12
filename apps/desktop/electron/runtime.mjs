@@ -1,4 +1,5 @@
 import {configureMailDesktop} from './mail-desktop.mjs';
+import {configureMailPortability} from "./mail-portability.mjs";
 import { configureMailBadge } from "./app-badge.mjs";
 import { randomUUID } from "node:crypto";
 import { spawn, spawnSync } from "node:child_process";
@@ -1332,6 +1333,7 @@ export function createRuntimeManager({ app, desktopRoot, listLocalWorkspacePaths
     if (!options.remoteAccessEnabled) {
       const { safeStorage, nativeImage, BrowserWindow, Notification, powerMonitor } = await import("electron");
       mail = await createDesktopMailService({ app, embeddedPath, safeStorage });
+      configureMailPortability(mail);
       await configureMailBadge({ app, nativeImage, BrowserWindow, service: mail });
       await configureMailDesktop({app,service:mail,Notification,powerMonitor});
       // Reuse normal keychain preflight/unlock for existing profiles, including rotated stores.

@@ -1,4 +1,5 @@
 import {getMailDesktopSettings,setMailDesktopSettings} from './mail-desktop.mjs';
+import {performMailPortability} from "./mail-portability.mjs";
 import {createMailDraftRecovery} from "./mail-draft-recovery.mjs";
 import {assertMailKeychainReady} from "./mail-keychain-preflight.mjs";
 import { getMailBadgeEnabled, setMailBadgeEnabled } from "./app-badge.mjs";
@@ -2853,6 +2854,7 @@ for(const operation of ['get','set','target'])ipcMain.handle('legalwork:mail:des
 const draftRecovery=createMailDraftRecovery({directory:path.join(app.getPath("userData"),"mail-draft-recovery"),safeStorage,beforeAccess:assertMailKeychainReady,canRead:async accountId=>{try{const info=await runtimeManager.legalworkServerInfo();if(!info.running||!info.hostToken||!/^http:\/\/(127\.0\.0\.1|\[::1\]):[1-9]\d{0,4}\/?$/.test(info.baseUrl))return false;const response=await fetch(new URL(info.baseUrl).origin+'/mail/v1/accounts/'+encodeURIComponent(accountId)+'/drafts/query',{method:'POST',headers:{'X-LegalWork-Host-Token':info.hostToken,'Content-Type':'application/json'},body:JSON.stringify({limit:1}),redirect:'error',signal:AbortSignal.timeout(5000)});return response.ok;}catch{return false;}},windowsAcl:async(target,directory)=>{const dist=app.isPackaged?path.join(process.resourcesPath,"app.asar/server/dist"):path.resolve(__dirname,"../../server/dist");const{enforceMailWindowsAcl}=await import(pathToFileURL(path.join(dist,"mail/storage/windows-acl.js")).href);await enforceMailWindowsAcl(target,directory);}});
 for(const operation of ["write","list","remove"])ipcMain.handle("legalwork:mail:draft-recovery:"+operation,(event,value)=>{if(!mainWindow||event.sender!==mainWindow.webContents||event.senderFrame!==mainWindow.webContents.mainFrame)throw Error("Mail recovery requires the main window");if(operation==="list"&&new URL(mainWindow.webContents.getURL()).hash!=="#/mail")throw Error("Mail reader required");return draftRecovery[operation](value);});
 
+ipcMain.handle("legalwork:mail:portability",(event,value)=>{if(!mainWindow||event.sender!==mainWindow.webContents||event.senderFrame!==mainWindow.webContents.mainFrame)throw Error("Mail import/export requires the main window");return performMailPortability(value,dialog);});
 const mailArtifacts = createMailArtifacts({
   connection: () => runtimeManager.legalworkServerInfo(), dialog, shell,
   privateDirectory: async directory => {

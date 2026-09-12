@@ -19,5 +19,5 @@ const gmailSyncViewSchema = z.object({
   error: z.enum(["reconsent_required", "configuration_invalid", "provider_unavailable", "rate_limited",
     "message_unavailable", "content_incomplete", "storage_unavailable", "sync_failed"]).nullable(),
 }).strict();
-export const mailSyncViewSchema = z.discriminatedUnion("provider", [gmailSyncViewSchema, graphSyncViewSchema,imapSyncViewSchema]);
+export const mailSyncViewSchema = z.discriminatedUnion("provider", [gmailSyncViewSchema, graphSyncViewSchema,imapSyncViewSchema,gmailSyncViewSchema.extend({provider:z.literal("archive")})]);
 export type MailSyncView = z.infer<typeof mailSyncViewSchema>;
