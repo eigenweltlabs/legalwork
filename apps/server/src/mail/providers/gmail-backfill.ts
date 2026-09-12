@@ -11,7 +11,7 @@ import { MailSyncExecutor, MailSyncExecutionFailure, type MailSyncWork } from ".
 type MailSyncView = Extract<import("../sync-view.js").MailSyncView,{provider:"gmail"}>;
 import { providerMessageKey, type ProviderMessageLocator } from "../model.js";
 import { MailAccessError, type MailAccessCoordinator } from "./access-coordinator.js";
-import { GmailReadTransport, GmailTransportError, type GmailRawMetadata } from "./gmail.js";
+import { GmailReadTransport, GmailTransportError, type GmailRawMetadata, type GmailMetadata } from "./gmail.js";
 export class GmailBackfillError extends Error {
   constructor(readonly code: "closed" | "busy" | "not_found" | "locked" | "configuration_invalid" | "storage_unavailable") { super(`mail_gmail_backfill_${code}`); }
 }
@@ -317,20 +317,48 @@ export class GmailBackfill {
       this.schedule(session, 0); return;
     }
     this.assert(session, access.version);
+    // Resolve untyped history references before acknowledging the page. A failed
+    // or interrupted read leaves the durable cursor unchanged for retry.
+    const snapshots = new Map<string, GmailMetadata | null>();
+    let snapshotBytes = 0;
+    for (const record of page.records) for (const change of record.changes) {
+      if (change.kind !== "changed" || snapshots.has(change.messageId)) continue;
+      try {
+        const metadata = await this.boundedOperation(session, signal => transport.getMetadata(change.messageId, { signal }));
+        this.assert(session, access.version);
+        snapshotBytes += Buffer.byteLength(JSON.stringify(metadata));
+        if (snapshotBytes > 4 * 1024 * 1024) throw new GmailTransportError("response_too_large");
+        snapshots.set(change.messageId, metadata);
+      } catch (error) {
+        if (!(error instanceof GmailTransportError) || error.code !== "not_found") throw error;
+        this.assert(session, access.version);
+        snapshots.set(change.messageId, null);
+      }
+    }
     const messages = new Map<string, { id: string; threadId: string }>();
     for (const record of page.records) for (const change of record.changes) if (change.kind !== "deleted") messages.set(change.messageId, { id: change.messageId, threadId: change.threadId });
-    const jobs = [...messages.values()].filter(message => !this.rawReference(scope.accountId, { provider: "gmail", messageId: message.id }))
+    const jobs = [...messages.values()].filter(message => snapshots.get(message.id) !== null && !this.rawReference(scope.accountId, { provider: "gmail", messageId: message.id }))
       .map(message => ({ kind: "raw", locator: { provider: "gmail", messageId: message.id } } satisfies import("../storage/sync-journal.js").SyncDownloadJob));
     const committed = this.options.database.transaction(() => {
       this.assert(session, access.version);
       this.journal.commitPage({ ...scope, expectedCursor: status.checkpoint.cursor, expectedRevision: status.checkpoint.revision, nextCursor: page.nextPageToken, discoveryComplete: false, jobs }, writer => {
         this.assert(session, access.version);
         for (const record of page.records) for (const change of record.changes) {
+          if (change.kind === "changed") continue;
           const locator: ProviderMessageLocator = { provider: "gmail", messageId: change.messageId };
           if (change.kind === "deleted") { this.runs.markRemoved(scope.accountId, locator, record.id); continue; }
           if (!this.options.database.get("SELECT 1 FROM mail_messages WHERE account_id=? AND message_key=?", [scope.accountId, providerMessageKey(locator)])) writer.ingestMessage({ locator, subject: "", rfcMessageId: null, threadId: change.threadId, memberships: [] });
           if (change.kind === "added" || !this.runs.isPresent(scope.accountId, locator)) this.runs.markPresent(scope.accountId, locator, scope.generation, record.id);
           if (change.kind === "labelsAdded" || change.kind === "labelsRemoved") this.runs.applyLabelDelta(scope.accountId, locator, { add: change.kind === "labelsAdded" ? change.labelIds : [], remove: change.kind === "labelsRemoved" ? change.labelIds : [], historyId: record.id });
+        }
+        for (const [messageId, snapshot] of snapshots) {
+          const locator: ProviderMessageLocator = { provider: "gmail", messageId };
+          if (snapshot === null) { this.runs.markAbsentFromFetch(scope.accountId, locator); continue; }
+          if (!this.options.database.get("SELECT 1 FROM mail_messages WHERE account_id=? AND message_key=?", [scope.accountId, providerMessageKey(locator)]))
+            writer.ingestMessage({ locator, subject: "", rfcMessageId: null, threadId: snapshot.threadId, memberships: [] });
+          const previous = this.runs.readGmailMetadata(scope.accountId, locator);
+          this.runs.putGmailMetadata(scope.accountId, locator, { historyId: snapshot.historyId, threadId: snapshot.threadId, labelIds: snapshot.labelIds,
+            internalDate: snapshot.internalDate === null ? previous?.internalDate ?? 0 : Number(snapshot.internalDate) });
         }
       });
       return this.runs.advanceHistory(scope.accountId, this.stamp(session.run), { ...(page.nextPageToken === null ? { historyId: page.historyId } : {}), pageToken: page.nextPageToken, pollAt: page.nextPageToken === null ? Date.now() + this.pollInterval : null });

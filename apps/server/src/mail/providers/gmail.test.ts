@@ -94,3 +94,11 @@ test("profile anchor and minimal snapshots remain bounded and validate requested
  expect((await c.getMetadata("m")).labelIds).toEqual([]);
  await expect(client(async()=>Response.json({id:"other",threadId:"t",historyId:"10",labelIds:[]})).getMetadata("m")).rejects.toThrow("invalid_response");
 });
+
+test('history accepts untyped message references, deduplicates specific events and bounds reconciliation',async()=>{
+ const c=client(async()=>Response.json({historyId:'20',history:[{id:'15',messages:[{id:'only',threadId:'t'},{id:'only',threadId:'t'}]},{id:'20',messages:[{id:'typed',threadId:'t'},{id:'extra',threadId:'t'}],labelsAdded:[{message:{id:'typed',threadId:'t'},labelIds:['UNREAD']}]}]}));
+ const page=await c.listHistory({startHistoryId:'10'});
+ expect(page.records[0]?.changes).toEqual([{kind:'changed',messageId:'only',threadId:'t',labelIds:[]}]);
+ expect(page.records[1]?.changes.map(change=>[change.kind,change.messageId])).toEqual([['labelsAdded','typed'],['changed','extra']]);
+ for(const messages of [null,[{id:'missing-thread'}],Array.from({length:1001},(_,i)=>({id:String(i),threadId:'t'}))])await expect(client(async()=>Response.json({historyId:'20',history:[{id:'20',messages}]})).listHistory({startHistoryId:'10'})).rejects.toThrow('invalid_response');
+});
