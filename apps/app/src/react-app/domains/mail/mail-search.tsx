@@ -1,3 +1,4 @@
+import {MailRowMenu,mailSelectionSignature} from './mail-context-menu';
 import {MailMatterFilter} from './mail-filing';
 import {mailSearchResultSchema} from '../../../../../server/src/mail/search-view';
 /** @jsxImportSource react */
@@ -13,7 +14,8 @@ const addressFields: Array<'sender' | 'recipient' | 'filename' | 'matterIdentifi
 const dateFields: Array<'afterDate' | 'beforeDate'> = ['afterDate', 'beforeDate'];
 const flagFields: Array<'unread' | 'hasAttachment'> = ['unread', 'hasAttachment'];
 const errorText = (value: unknown) => value instanceof Error ? value.message : 'Search is unavailable.';
-export function MailSearch({ client, accounts, onOpen, toolbarQuery, onSavedQuery }: {
+export function MailSearch({ client, accounts, onOpen, toolbarQuery, onSavedQuery, onTargets }: {
+    onTargets?: (items: MailMessageView[], pending?:boolean) => void;
     toolbarQuery?: string;
     onSavedQuery?: (text: string, name: string) => void;
     client: MailClient;
@@ -32,6 +34,21 @@ export function MailSearch({ client, accounts, onOpen, toolbarQuery, onSavedQuer
     const savedRequests = useRef(new SearchRequests());
     const requests = useRef(new SearchRequests()), auxiliary = useRef(new AbortController());
     const [selected, setSelected] = useState(0);
+    const [checkedHits,setCheckedHits]=useState<Set<string>>(new Set()),[selectionBusy,setSelectionBusy]=useState(false);
+    const selectionEpoch=useRef(0),selectionAbort=useRef(new AbortController()),checkedIntent=useRef(new Set<string>()),resultsElement=useRef<HTMLDivElement>(null);
+    const hitId=(hit:Hit)=>hit.accountId+'|'+JSON.stringify(hit.locator);
+    useEffect(()=>{selectionEpoch.current++;selectionAbort.current.abort();setSelectionBusy(false);checkedIntent.current=new Set();setCheckedHits(new Set());onTargets?.([]);},[result,onTargets]);
+    useEffect(()=>()=>{selectionEpoch.current++;selectionAbort.current.abort();},[]);
+    async function targetHits(keys:Set<string>){
+        checkedIntent.current=keys;setCheckedHits(keys);onTargets?.([],true);const version=++selectionEpoch.current;selectionAbort.current.abort();selectionAbort.current=new AbortController();const signal=selectionAbort.current.signal;setSelectionBusy(true);
+        try{const hits=(result?.items??[]).filter(item=>keys.has(hitId(item))),messages:MailMessageView[]=[];
+            for(const item of hits){signal.throwIfAborted();if(version!==selectionEpoch.current)throw Error('Selection changed.');messages.push(await client.readLocator(item.accountId,item.locator,signal));signal.throwIfAborted();if(version!==selectionEpoch.current)throw Error('Selection changed.');}
+            if(version!==selectionEpoch.current)throw Error('Selection changed.');
+            setCheckedHits(keys);onTargets?.(messages,false);if(messages.length===1)onOpen(messages[0]);
+            return{signature:mailSelectionSignature(messages),count:messages.length,archive:messages.some(item=>item.locator.provider==='archive'),mixed:messages.some(item=>item.accountId!==messages[0].accountId)};
+        }catch(error){if(version===selectionEpoch.current)onTargets?.([],false);throw error;}finally{if(version===selectionEpoch.current)setSelectionBusy(false);}
+    }
+
     const buttons = useRef<Array<HTMLButtonElement | null>>([]);
     useEffect(() => { const controller = new AbortController(); auxiliary.current = controller; return () => { requests.current.cancel(); savedRequests.current.cancel(); controller.abort(); }; }, []);
     useEffect(() => {
@@ -112,6 +129,7 @@ export function MailSearch({ client, accounts, onOpen, toolbarQuery, onSavedQuer
                 setBusy(false);
         }
     }
+    useEffect(()=>{const element=resultsElement.current;if(!element)return;const apply=(event:Event)=>{if(!(event instanceof CustomEvent)||!event.detail||!Array.isArray(event.detail.keys)||event.detail.keys.length>1000)return;const wanted=new Set(event.detail.keys.filter((key:unknown)=>typeof key==='string')),keys=new Set((result?.items??[]).map(hitId).filter(key=>wanted.has(key)));void targetHits(keys).catch(()=>{});};element.addEventListener('mail-select-rows',apply);return()=>element.removeEventListener('mail-select-rows',apply);},[result]);
     async function open(hit: Hit) {
         const signal = requests.current.start();
         setBusy(true);
@@ -272,14 +290,15 @@ export function MailSearch({ client, accounts, onOpen, toolbarQuery, onSavedQuer
   <details className="mail-saved-searches" open={toolbarQuery !== undefined ? savedOpen : undefined} hidden={toolbarQuery !== undefined && !savedOpen}><summary className="cursor-pointer">Saved searches</summary><div className="flex gap-2 py-2"><input aria-label="Saved search name" className="border bg-background p-2" maxLength={120} value={name} onChange={event => setName(event.target.value)} placeholder="Name this search"/><Button disabled={!name.trim()} onClick={save}>Save current search</Button></div>{saved.map(item => <div key={item.id} className="flex gap-3"><button className="underline" onClick={() => { edit(item.query); onSavedQuery?.(item.query.literal ?? '', item.name); void search(item.query); }}>{item.name}</button><button aria-label={'Delete saved search ' + item.name} onClick={() => remove(item)}>Delete</button></div>)}{savedCursor && <button className="underline" onClick={() => listSaved(savedCursor)}>More saved searches</button>}</details>
   {error && <p role="alert">{error}</p>}{note && <p role="status">{note}</p>}{busy && toolbarQuery === undefined && <p role="status">Searching…</p>}
   {result && <>{toolbarQuery === undefined && <><p role="status">{result.total} {result.total === 1 ? 'match' : 'matches'}{result.pending || result.incomplete ? ' · Some content is not searchable.' : ''} </p><button className="mail-icon-button" aria-label="Refresh results" title="Refresh results" onClick={() => search(submitted)}><RefreshCw size={14}/></button></>}{toolbarQuery !== undefined && Boolean(result.pending || result.incomplete) && <p className="mail-search-pending">Some content is not searchable.</p>}{!result.items.length && <p>No local matches. Broaden the filters or wait for content to finish downloading and indexing.</p>}
-   <div aria-label="Search results" onKeyDown={event => {
+   <div ref={resultsElement} aria-label="Search results" onKeyDown={event => {
                 if (!['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key))
                     return;
+                if(event.shiftKey)return;
                 event.preventDefault();
                 const index = event.key === 'Home' ? 0 : event.key === 'End' ? result.items.length - 1 : Math.max(0, Math.min(result.items.length - 1, selected + (event.key === 'ArrowDown' ? 1 : -1)));
                 setSelected(index);
                 buttons.current[index]?.focus();
-            }}>{result.items.map((hit, index) => <article className="mail-search-hit" key={hit.accountId + JSON.stringify(hit.locator)}><button ref={element => { buttons.current[index] = element; }} className="mail-search-subject" onFocus={() => setSelected(index)} onClick={() => open(hit)}>{hit.subject || '(No subject)'}</button><p className="text-xs">{label(hit.accountId)} · {hit.date ? new Date(hit.date).toLocaleDateString() : 'Date unavailable'}</p><p className="whitespace-pre-wrap break-words">{hit.snippet}</p>{hit.attachmentMatches?.map(part => <button key={part.partId + 'match'} className="mr-3 text-sm underline" onClick={() => section({ hit, ...part }, part.section, part.offset)}>Matching attachment: {part.source}</button>)}{hit.attachmentSources?.map(part => <button key={part.partId} className="mr-3 text-sm underline" onClick={() => section({ hit, ...part })}>Read extracted attachment</button>)}</article>)}</div>
+            }}>{result.items.map((hit, index) => <MailRowMenu key={hitId(hit)} prepare={()=>targetHits(checkedIntent.current.has(hitId(hit))?checkedIntent.current:new Set([hitId(hit)]))} onOpen={()=>void open(hit)}><article className="mail-search-hit mail-message-select-row"><input type="checkbox" aria-label={`Select ${hit.subject||'message'}`} checked={checkedHits.has(hitId(hit))} disabled={selectionBusy} onChange={event=>{const keys=new Set(checkedIntent.current);if(event.target.checked)keys.add(hitId(hit));else keys.delete(hitId(hit));void targetHits(keys).catch(()=>setError('This selection is unavailable. Refresh results and retry.'));}}/><button ref={element => { buttons.current[index] = element; }} className="mail-search-subject" data-mail-row-key={hitId(hit)} onFocus={() => setSelected(index)} onClick={() => open(hit)}>{hit.subject || '(No subject)'}</button><p className="text-xs">{label(hit.accountId)} · {hit.date ? new Date(hit.date).toLocaleDateString() : 'Date unavailable'}</p><p className="whitespace-pre-wrap break-words">{hit.snippet}</p>{hit.attachmentMatches?.map(part => <button key={part.partId + 'match'} className="mr-3 text-sm underline" onClick={() => section({ hit, ...part }, part.section, part.offset)}>Matching attachment: {part.source}</button>)}{hit.attachmentSources?.map(part => <button key={part.partId} className="mr-3 text-sm underline" onClick={() => section({ hit, ...part })}>Read extracted attachment</button>)}</article></MailRowMenu>)}</div>
    <div className="flex gap-2"><Button variant="outline" disabled={busy || offsets.length < 2} onClick={() => { const history = offsets.slice(0, -1); void search(submitted, history.at(-1) ?? 0, history); }} aria-label="Previous page" title="Previous page"><ChevronLeft size={14}/></Button><Button variant="outline" disabled={busy || result.nextOffset === null} onClick={() => {
                 if (result.nextOffset !== null)
                     void search(submitted, result.nextOffset, [...offsets, result.nextOffset]);

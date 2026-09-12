@@ -1,3 +1,4 @@
+import {MailRowMenu,mailSelectionSignature} from './mail-context-menu';
 import {MailStorageSavePanel} from './mail-storage-save';
 import {MailFilingPanel} from './mail-filing';
 import {mailKeyboard,mailShortcutProps} from './mail-keyboard';
@@ -14,7 +15,7 @@ import { mailDocxText } from "../session/artifacts/mail-docx-source";
 import { mailPreviewType, openMailPreview } from "../session/artifacts/mail-preview-source";
 import {MailSearch} from './mail-search';
 /** @jsxImportSource react */
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { SendHorizontal, Flag, Inbox, Archive, ChevronLeft, ChevronRight, Folder, Mail, Search, RefreshCw, Settings2, FolderPlus, Paperclip, Download, FileText, Printer, MessagesSquare, X, PanelLeft, CircleAlert, Check, Pause, Play, SquarePen, Reply, ReplyAll, Forward } from 'lucide-react';
 import './mail-reader.css';
 import { Button } from '@/components/ui/button';
@@ -35,6 +36,8 @@ export function MailRoute() {
     const [compose,setCompose]=useState<ComposeSelection>();
     const [draftsOpen,setDraftsOpen]=useState(false);const [outboxOpen,setOutboxOpen]=useState(false);
     const [foldersOpen, setFoldersOpen] = useState(false);
+    const [searchTargets,setSearchTargets]=useState<MailMessageView[]>([]),[searchPending,setSearchPending]=useState(false);
+    const updateSearchTargets=useCallback((items:MailMessageView[],pending=false)=>{setSearchTargets(items);setSearchPending(pending);},[]);
     const [checked,setChecked]=useState<Set<string>>(new Set());
     const [actionEntries,setActionEntries]=useState<ActionEntry[]>([]);
     const [actionPulse,setActionPulse]=useState(0);
@@ -51,7 +54,7 @@ export function MailRoute() {
     const [account, setAccount] = useState('');
     const [folders, setFolders] = useState<MailFolderView[]>([]);
     const [folder, setFolder] = useState('');
-    useEffect(()=>setChecked(new Set()),[account,folder,searchQuery,savedSearchName]);
+    useEffect(()=>{setChecked(new Set());setSearchTargets([]);},[account,folder,searchQuery,savedSearchName]);
     const [inbox, setInbox] = useState(true);
     const [items, setItems] = useState<MailMessageView[]>([]);
     const [selected, setSelected] = useState<MailMessageView>();
@@ -222,6 +225,7 @@ export function MailRoute() {
     } }
     const title = thread ? 'Conversation' : folder ? folders.find(value => value.id === folder)?.name ?? folder : inbox ? 'Inbox' : 'All mail';
     const refresh = () => { purge(); setConnectionRevision(value => value + 1); setRevision(value => value + 1); };
+    const actionTargets=(searching&&searchTargets.length?searchTargets:checked.size?items.filter(item=>checked.has(mailItemId(item))):selected?[selected]:[]).map(item=>optimisticMail(item,actionEntries));
     const composeReturn=useRef<HTMLElement|null>(null),mailRoot=useRef<HTMLElement|null>(null);
     const closeCompose=()=>{setCompose(undefined);requestAnimationFrame(()=>{const target=composeReturn.current;if(target?.isConnected)target.focus();else mailRoot.current?.querySelector<HTMLButtonElement>('.mail-message-row[aria-pressed="true"],.mail-message-row')?.focus();});};
     const openCompose=(value:ComposeSelection)=>{if(!compose&&document.activeElement instanceof HTMLElement)composeReturn.current=document.activeElement;setCompose(value);setDraftsOpen(false);setOutboxOpen(false);};
@@ -232,7 +236,7 @@ export function MailRoute() {
       onThread={() => { setSearching(false); setAccount(selected.accountId); setThread(selected.threadId ?? undefined); }}/>
       : <div className="mail-empty"><div className="mail-empty-icon"><Mail size={26} strokeWidth={1.3}/></div><h2>Select a message</h2><p>Conversations and attachments.<br/>Available wherever you work.</p></div>;
     return (
-      <main ref={mailRoot} tabIndex={-1} className="mail-workspace" aria-label="Local mail" onKeyDown={event=>mailKeyboard(event.nativeEvent,event.currentTarget,{showFolders:()=>setFoldersOpen(true)})}>
+      <main ref={mailRoot} tabIndex={-1} className="mail-workspace" data-mail-selection={mailSelectionSignature(actionTargets)} data-mail-reader={JSON.stringify([selected?.accountId,selected?.key,compose?.id,filingOpen,draftsOpen,outboxOpen])} aria-label="Local mail" onKeyDown={event=>mailKeyboard(event.nativeEvent,event.currentTarget,{showFolders:()=>setFoldersOpen(true)})}>
         <header className="mail-toolbar">
           <button className="mail-icon-button mail-folder-toggle" aria-label="Toggle mail folders" onClick={() => setFoldersOpen(value => !value)}><PanelLeft size={17}/></button>
           <h1>Mail</h1><button className="mail-icon-button" aria-label="Save mail to connected storage" title="Save mail / retained originals" disabled={!client||locked} onClick={()=>{setMatterFiling(false);setFilingOpen(true);}}><FolderPlus size={15}/></button><MailBackgroundStatus/><MailKeyboardHelp/>
@@ -247,7 +251,7 @@ export function MailRoute() {
         </header>
 
         {error && <div role="alert" className="mail-notice"><CircleAlert size={15}/><span>{error}</span><button aria-label="Dismiss message" onClick={() => setError('')}><X size={14}/></button></div>}
-        {!locked&&client&&accounts.find(value=>value.id===account)?.provider!=='archive'&&!items.filter(item=>checked.has(mailItemId(item))).some(item=>item.locator.provider==='archive')&&selected?.locator.provider!=='archive'&&<MailActionBar client={client} accounts={accounts} accountId={account} selected={(checked.size?items.filter(item=>checked.has(mailItemId(item))):selected?[selected]:[]).map(item=>optimisticMail(item,actionEntries))} folder={folders.find(item=>item.id===folder)} folders={folders} onEntries={setActionEntries} onRefresh={()=>setActionPulse(value=>value+1)}/>}
+        {!locked&&client&&!actionTargets.some(item=>item.locator.provider==='archive')&&<MailActionBar blocked={searching&&searchPending} client={client} accounts={accounts} accountId={account} selected={actionTargets} folder={folders.find(item=>item.id===folder)} folders={folders} onEntries={setActionEntries} onRefresh={()=>setActionPulse(value=>value+1)}/>}
         {locked ? <div className="mail-empty"><div className="mail-empty-icon"><Mail size={24}/></div><h2 role="status">{error ? 'Mail is unavailable' : 'Opening your mail…'}</h2>{error && <Button variant="outline" size="sm" onClick={refresh}>Try again</Button>}</div>
           : <div className={`mail-grid ${selected||compose||draftsOpen||outboxOpen ? 'has-selection' : ''} ${foldersOpen ? 'folders-open' : ''}`}>
             <nav tabIndex={-1} aria-label="Mail accounts and folders" className="mail-folders">
@@ -270,7 +274,7 @@ export function MailRoute() {
               </>}
             </nav>
             <section tabIndex={-1} aria-label="Messages" className="mail-message-list">
-              {searching && client ? <MailSearch client={client} accounts={accounts} toolbarQuery={searchQuery.trim()} onSavedQuery={(text, name) => { setSearchQuery(text); setSavedSearchName(name); }} onOpen={setSelected}/> : <>
+              {searching && client ? <MailSearch client={client} accounts={accounts} toolbarQuery={searchQuery.trim()} onSavedQuery={(text, name) => { setSearchQuery(text); setSavedSearchName(name); }} onOpen={setSelected} onTargets={updateSearchTargets}/> : <>
               <div className="mail-list-heading"><input type="checkbox" aria-label="Select all messages on this page" checked={items.length>0&&items.every(item=>checked.has(mailItemId(item)))} onChange={event=>setChecked(event.target.checked?new Set(items.map(mailItemId)):new Set())}/><div><h2>{title}</h2><p>{account ? accounts.find(value => value.id === account)?.displayName : 'All accounts'}</p></div><button className="mail-icon-button" title="Newest messages" aria-label="Newest messages" onClick={() => setRevision(value => value + 1)}><RefreshCw size={14}/></button></div>
               {accounts.filter(value => !account || value.id === account).map(value => {
                 const progress = accountSync[value.id];
@@ -286,11 +290,11 @@ export function MailRoute() {
               })}
               {thread && <button className="mail-back" onClick={() => setThread(undefined)}><ChevronLeft size={14}/>Back to inbox</button>}
               <div className="mail-message-scroll" aria-label="Message navigation: Up and Down browse, Enter opens">
-                {items.map(observed => {const value=optimisticMail(observed,actionEntries);return <div key={mailItemId(value)} className="mail-message-select-row"><input type="checkbox" aria-label={`Select ${value.subject||'message'}`} checked={checked.has(mailItemId(value))} onChange={event=>{const enabled=event.target.checked;setChecked(current=>{const next=new Set(current);if(enabled)next.add(mailItemId(value));else next.delete(mailItemId(value));return next;});}}/><button className={`mail-message-row ${selected?.accountId === value.accountId && selected.key === value.key ? 'is-selected' : ''} ${value.isRead === false ? 'is-unread' : ''}`} tabIndex={items.some(item=>item.accountId===selected?.accountId&&item.key===selected?.key)?selected?.accountId===value.accountId&&selected.key===value.key?0:-1:items[0]?.accountId===value.accountId&&items[0]?.key===value.key?0:-1} onClick={() => setSelected(value)} aria-pressed={selected?.accountId === value.accountId && selected.key === value.key}>
+                {items.map(observed => {const value=optimisticMail(observed,actionEntries);return <MailRowMenu key={mailItemId(value)} prepare={()=>{const targets=checked.has(mailItemId(value))?items.filter(item=>checked.has(mailItemId(item))):[value];if(!checked.has(mailItemId(value)))setChecked(new Set([mailItemId(value)]));if(targets.length===1)setSelected(value);return{signature:mailSelectionSignature(targets),count:targets.length,archive:targets.some(item=>item.locator.provider==='archive'),mixed:targets.some(item=>item.accountId!==targets[0].accountId)};}} onOpen={()=>{setSelected(value);setCompose(undefined);setFilingOpen(false);setDraftsOpen(false);setOutboxOpen(false);}}><div className="mail-message-select-row"><input type="checkbox" aria-label={`Select ${value.subject||'message'}`} checked={checked.has(mailItemId(value))} onChange={event=>{const enabled=event.target.checked;setChecked(current=>{const next=new Set(current);if(enabled)next.add(mailItemId(value));else next.delete(mailItemId(value));return next;});}}/><button className={`mail-message-row ${selected?.accountId === value.accountId && selected.key === value.key ? 'is-selected' : ''} ${value.isRead === false ? 'is-unread' : ''}`} tabIndex={items.some(item=>item.accountId===selected?.accountId&&item.key===selected?.key)?selected?.accountId===value.accountId&&selected.key===value.key?0:-1:items[0]?.accountId===value.accountId&&items[0]?.key===value.key?0:-1} onClick={() => setSelected(value)} aria-pressed={selected?.accountId === value.accountId && selected.key === value.key}>
                   <span className="mail-row-top"><span className="mail-sender">{senderName(value.metadata?.from)}</span><time>{shortDate(value.receivedAt)}</time></span>
                   <span className="mail-row-subject">{value.isRead === false && <span className="mail-unread-dot" aria-label="Unread"/>}{value.isFlagged&&<Flag size={11} aria-label="Flagged"/>}{value.subject || '(No subject)'}</span>
                   <span className="mail-row-bottom"><span>{accounts.find(entry => entry.id === value.accountId)?.displayName}</span>{value.contentState !== 'complete' && <span title={value.contentState === 'downloading' ? 'Content is downloading' : 'Content is unavailable'}><CircleAlert size={12}/></span>}</span>
-                </button></div>})}
+                </button></div></MailRowMenu>})}
                 {!busy && !items.length && <div className="mail-list-empty"><Inbox size={25} strokeWidth={1.2}/><p>{accounts.length ? 'No messages here yet' : 'Your inbox starts here'}</p><small>{accounts.length ? 'Messages will appear here as they download.' : 'Add an account to bring your mail together.'}</small>{!accounts.length && <Button size="sm" variant="outline" onClick={openSettings}>Add account</Button>}</div>}
                 {busy && <p role="status" className="mail-loading">Loading messages…</p>}
               </div>
