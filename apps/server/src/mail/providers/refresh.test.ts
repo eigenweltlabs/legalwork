@@ -1,3 +1,4 @@
+import {linkTestModules} from '../../../../../scripts/mail/link-test-modules.mjs';
 import { expect, test } from "bun:test";
 import { execFileSync } from "node:child_process";
 import { mkdtemp, copyFile, rm, symlink, writeFile } from "node:fs/promises";
@@ -78,7 +79,7 @@ test("compiled refresh module passes actual Node tests",async()=>{
  const node=Bun.which("node");if(!node)throw new Error("Node required");
  const server=fileURLToPath(new URL("../../../",import.meta.url));const directory=await mkdtemp(join(tmpdir(),"legalwork-refresh-node-"));
  try {
-  await writeFile(join(directory,"package.json"),'{"type":"module"}');await symlink(join(server,"node_modules"),join(directory,"node_modules"));
+  await writeFile(join(directory,"package.json"),'{"type":"module"}');await linkTestModules(join(server,"node_modules"),join(directory,"node_modules"));
   execFileSync("pnpm",["exec","tsc","--outDir",directory,"--rootDir","src","--target","ES2022","--module","NodeNext","--moduleResolution","NodeNext","--strict","--skipLibCheck","--types","bun-types,node","src/mail/providers/refresh.ts"],{cwd:server,timeout:30000,stdio:"pipe"});
   const path=join(directory,"mail/providers/refresh.node-test.mjs");await copyFile(fileURLToPath(new URL("./refresh.node-test.mjs",import.meta.url)),path);
   const output=execFileSync(node,["--test",path],{encoding:"utf8",timeout:15000,stdio:"pipe"});expect(output).toContain("tests 3");expect(output).toContain("fail 0");

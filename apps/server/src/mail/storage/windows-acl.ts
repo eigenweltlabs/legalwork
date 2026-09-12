@@ -1,3 +1,4 @@
+import { tmpdir } from "node:os";
 import { spawn } from "node:child_process";
 import { isAbsolute, win32 } from "node:path";
 
@@ -5,6 +6,10 @@ import { isAbsolute, win32 } from "node:path";
 // .NET Framework API: https://learn.microsoft.com/en-us/dotnet/api/system.security.accesscontrol.directorysecurity
 export const MAIL_WINDOWS_ACL_PROGRAM = String.raw`
 $ErrorActionPreference = 'Stop'
+# Load only Windows PowerShell's trusted system modules, never an inherited PS7/user path.
+Import-Module ($PSHOME + '/Modules/Microsoft.PowerShell.Management/Microsoft.PowerShell.Management.psd1') -ErrorAction Stop
+Import-Module ($PSHOME + '/Modules/Microsoft.PowerShell.Security/Microsoft.PowerShell.Security.psd1') -ErrorAction Stop
+Import-Module ($PSHOME + '/Modules/Microsoft.PowerShell.Utility/Microsoft.PowerShell.Utility.psd1') -ErrorAction Stop
 [Console]::InputEncoding = New-Object System.Text.UTF8Encoding($false)
 try {
   $inputValue = [Console]::In.ReadToEnd() | ConvertFrom-Json
@@ -43,7 +48,7 @@ export async function enforceMailWindowsAcl(path: string, directory: boolean): P
   const systemRoot = process.env.SystemRoot;
   if (!systemRoot || !win32.isAbsolute(systemRoot)) throw new Error("mail_permissions_unsafe");
   await new Promise<void>((resolve, reject) => {
-    const child = spawn(win32.join(systemRoot, "System32", "WindowsPowerShell", "v1.0", "powershell.exe"), ["-NoLogo", "-NoProfile", "-NonInteractive", "-EncodedCommand", Buffer.from(MAIL_WINDOWS_ACL_PROGRAM, "utf16le").toString("base64")], { windowsHide: true, stdio: ["pipe", "pipe", "pipe"], env: { SystemRoot: systemRoot, WINDIR: systemRoot } });
+    const child = spawn(win32.join(systemRoot, "System32", "WindowsPowerShell", "v1.0", "powershell.exe"), ["-NoLogo", "-NoProfile", "-NonInteractive", "-EncodedCommand", Buffer.from(MAIL_WINDOWS_ACL_PROGRAM, "utf16le").toString("base64")], { windowsHide: true, stdio: ["pipe", "pipe", "pipe"], env: { SystemRoot: systemRoot, WINDIR: systemRoot, TEMP: tmpdir(), TMP: tmpdir(), PSModulePath: win32.join(systemRoot, "System32", "WindowsPowerShell", "v1.0", "Modules") } });
     let output = "", failed = false;
     const timer = setTimeout(() => { failed = true; child.kill(); }, 10000);
     child.stdout.on("data", bytes => { if (output.length <= 32) output += bytes.toString(); if (output.length > 32) { failed = true; child.kill(); } });

@@ -1,3 +1,4 @@
+import {linkTestModules} from '../../../scripts/mail/link-test-modules.mjs';
 #!/usr/bin/env node
 /** Compile once and run the real Node mail suites, including native encrypted SQLite. */
 import { createHash } from 'node:crypto';
@@ -84,7 +85,7 @@ try {
   await run([compiler, '--project', project], 120_000);
   const build = join(output, 'build');
   await writeFile(join(build, 'package.json'), '{"type":"module"}');
-  await symlink(await realpath(join(server, 'node_modules')), join(build, 'node_modules'), process.platform === 'win32' ? 'junction' : 'dir');
+  await linkTestModules(await realpath(join(server, 'node_modules')), join(build, 'node_modules'));
   // Native fixtures and their checked-in data/worker scripts keep their source-relative layout.
   const artifacts = paths.filter(path => !path.endsWith('.ts') && !path.endsWith('.md'));
   for (const path of artifacts) {

@@ -1,3 +1,4 @@
+import {linkTestModules} from '../../../../../scripts/mail/link-test-modules.mjs';
 import { afterEach, expect, test } from "bun:test";
 import { createHash } from "node:crypto";
 import { request } from "node:http";
@@ -179,7 +180,7 @@ test("built OAuth foundation passes actual Node callback smoke tests", async () 
   const directory = await mkdtemp(join(tmpdir(), "legalwork-oauth-node-"));
   try {
     await writeFile(join(directory, "package.json"), '{"type":"module"}');
-    await symlink(join(server, "node_modules"), join(directory, "node_modules"));
+    await linkTestModules(join(server, "node_modules"), join(directory, "node_modules"));
     execFileSync("pnpm", ["exec", "tsc", "--outDir", directory, "--rootDir", "src", "--target", "ES2022", "--module", "NodeNext", "--moduleResolution", "NodeNext", "--strict", "--skipLibCheck", "--types", "bun-types,node", "src/mail/providers/oauth.ts"], { cwd: server, timeout: 30000, stdio: "pipe" });
     const testPath = join(directory, "mail/providers/oauth.node-test.mjs");
     await copyFile(fileURLToPath(new URL("./oauth.node-test.mjs", import.meta.url)), testPath);

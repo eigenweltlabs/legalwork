@@ -1,3 +1,4 @@
+import {linkTestModules} from '../../../../scripts/mail/link-test-modules.mjs';
 import { afterAll, afterEach, beforeAll, expect, spyOn, test } from "bun:test";
 import { randomBytes } from "node:crypto";
 import { execFileSync } from "node:child_process";
@@ -20,7 +21,7 @@ const services: LocalMailService[] = [];
 beforeAll(async () => {
   directory = await mkdtemp(join(tmpdir(), "legalwork-mail-service-"));
   await writeFile(join(directory, "package.json"), '{"type":"module"}');
-  await symlink(join(serverRoot, "node_modules"), join(directory, "node_modules"));
+  await linkTestModules(join(serverRoot, "node_modules"), join(directory, "node_modules"));
   execFileSync("pnpm", ["exec", "tsc", "--outDir", join(directory, "build"), "--rootDir", "src", "--module", "NodeNext", "--moduleResolution", "NodeNext", "--target", "ES2022", "--strict", "--skipLibCheck", "--types", "node,bun-types", "src/mail/runtime/worker.ts"], { cwd: serverRoot, stdio: "pipe", timeout: 30_000 });
   entryPoint = join(directory, "build/mail/runtime/worker.js");
 }, 30_000);
