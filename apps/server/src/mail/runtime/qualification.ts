@@ -91,6 +91,7 @@ export class MailQualification {
             bodySamples: 0,
             bodyMismatches: 0,
             incompleteSamples: 0,
+            incompleteReasons: {readerNotComplete:0,storedProjectionNotComplete:0,missingRaw:0,missingBody:0,unavailableParts:0,bodyTooLarge:0,freshUnsupported:0,freshMalformed:0,freshLimit:0,freshOther:0},
             skippedOversizeSamples: 0,
             downloadedSampleBytes: 0,
             providerStable: null,
@@ -346,9 +347,15 @@ export class MailQualification {
                 if (storedRaw && row.raw === `sha256:${rawHash}` && hash(storedBytes(storedRaw, 8 * 1024 * 1024)) !== rawHash)
                     report.rawMismatches++;
                 const storedProjection = new MimeProjectionStore(db, this.options.ownerId).read(accountId, source);
-                let incomplete = reads.read(accountId, source).contentState !== 'complete'
-                    || storedProjection?.state !== 'complete'
-                    || !row.raw || !row.body || parts.some(part => !part.bytesAvailable);
+                const readerIncomplete = reads.read(accountId, source).contentState !== 'complete';
+                const projectionIncomplete = storedProjection?.state !== 'complete';
+                const unavailable = parts.some(part => !part.bytesAvailable);
+                if (readerIncomplete) report.incompleteReasons.readerNotComplete++;
+                if (projectionIncomplete) report.incompleteReasons.storedProjectionNotComplete++;
+                if (!row.raw) report.incompleteReasons.missingRaw++;
+                if (!row.body) report.incompleteReasons.missingBody++;
+                if (unavailable) report.incompleteReasons.unavailableParts++;
+                let incomplete = readerIncomplete || projectionIncomplete || !row.raw || !row.body || unavailable;
                 let projected: Awaited<ReturnType<typeof projectMime>>;
                 try {
                     projected = await projectMime({
@@ -368,6 +375,10 @@ export class MailQualification {
                     fence();
                     if (!(error instanceof MimeProjectionError))
                         throw error;
+                    if (error.code === 'unsupported') report.incompleteReasons.freshUnsupported++;
+                    else if (error.code === 'malformed') report.incompleteReasons.freshMalformed++;
+                    else if (error.code === 'limit' || error.code === 'timeout') report.incompleteReasons.freshLimit++;
+                    else report.incompleteReasons.freshOther++;
                     report.incompleteSamples++;
                     continue;
                 }
@@ -401,8 +412,12 @@ export class MailQualification {
                     if (hash(JSON.stringify(texts(parsed.bodies))) !== hash(JSON.stringify(texts(projected.bodies))))
                         report.bodyMismatches++;
                 }
-                else
+                else {
                     incomplete = true;
+                    if (body?.bytes !== null && body?.bytes !== undefined && body.bytes > 4 * 1024 * 1024) {
+                        report.incompleteReasons.bodyTooLarge++;
+                    }
+                }
                 if (incomplete)
                     report.incompleteSamples++;
                 if (JSON.stringify(readParts()) !== JSON.stringify(parts))
