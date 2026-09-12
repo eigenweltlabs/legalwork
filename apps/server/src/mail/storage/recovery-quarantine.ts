@@ -7,6 +7,9 @@ export function quarantineRestoredMail(db:MailDatabase){
  db.run("INSERT OR IGNORE INTO mail_recovery_quarantine SELECT account_id,'draft',draft_id,? FROM mail_draft_sync",[at]);
  db.run("INSERT OR IGNORE INTO mail_recovery_quarantine SELECT account_id,'portability',id,? FROM mail_portability_jobs",[at]);
  db.run("INSERT OR IGNORE INTO mail_recovery_quarantine SELECT s.account_id,'filing',f.id,? FROM mail_matter_filings f JOIN mail_filing_snapshots s ON s.id=f.snapshot_id",[at]);
+ db.run("INSERT OR IGNORE INTO mail_recovery_quarantine SELECT s.account_id,'filing','storage-save:'||j.id,? FROM mail_storage_saves j JOIN mail_filing_snapshots s ON s.id=j.snapshot_id",[at]);
+ db.run("UPDATE mail_storage_saves SET state='uncertain',error='restore_review',revision=revision+1 WHERE state IN ('queued','uploading')");
+ db.run("UPDATE mail_storage_save_parts SET state='uncertain' WHERE state IN ('queued','uploading')");
  db.run('DELETE FROM mail_smtp_credentials');
  db.run("UPDATE mail_graph_mailboxes SET state='disconnected',generation=?,revision=revision+1",[randomUUID()]);
  db.run("UPDATE mail_draft_sync SET enabled=0,state=CASE WHEN state IN ('queued','syncing') THEN 'uncertain' ELSE state END,error='restore_review',revision=revision+1");
