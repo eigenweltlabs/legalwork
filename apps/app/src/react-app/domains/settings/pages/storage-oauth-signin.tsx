@@ -7,15 +7,16 @@ import { Button } from "@/components/ui/button";
 import { t } from "@/i18n";
 import { usePlatform } from "../../../kernel/platform";
 
-export function StorageOAuthSignIn({ client, workspaceId, connectionId, onChanged }: {
-  client: LegalworkServerClient; workspaceId: string; connectionId: string; onChanged: () => void;
+export function StorageOAuthSignIn({ client, workspaceId, connectionId, revision, onChanged }: {
+  client: LegalworkServerClient; workspaceId: string; connectionId: string; revision: number; onChanged: () => void;
 }) {
   const platform = usePlatform();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const status = useQuery({
-    queryKey: ["storage-oauth-status", workspaceId, connectionId],
+    queryKey: ["storage-oauth-status", workspaceId, connectionId, revision],
     queryFn: () => client.storageOAuthStatus(workspaceId, connectionId),
+    refetchOnMount: "always",
     refetchInterval: (query) => query.state.data?.pending ? 1500 : false,
   });
   useEffect(() => { onChanged(); }, [status.data?.connected]);
