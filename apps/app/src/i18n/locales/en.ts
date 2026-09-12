@@ -4,6 +4,17 @@
  */
 
 export default {
+  "storage.oauth_provider": "Cloud storage",
+  "storage.oauth_description": "Browse, search and edit connected files.",
+  "storage.oauth_personal": "Each person signs in with their own account. Your sign-in is saved on this device.",
+  "storage.oauth_connect": "Sign in",
+  "storage.oauth_pending": "Waiting for sign-in…",
+  "storage.oauth_signout": "Sign out",
+  "storage.oauth_connected": "Signed in",
+  "storage.oauth_root": "Folder",
+  "storage.oauth_root_hint": "Leave empty to use your drive.",
+  "storage.oauth_edit_root": "Changing the folder or access requires signing in again.",
+
   "storage.tab": "File storage",
   "storage.local_intro": "Connections available in this workspace, including storage added from your team.",
   "storage.team_intro": "Choose shared storage to add to Memory Drive. Admins manage these connections for your firm.",

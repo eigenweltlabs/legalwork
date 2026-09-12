@@ -1,3 +1,4 @@
+import type { StorageOAuthProvider, StorageOAuthStatus } from "@legalwork/types/file-storage";
 import type { StorageInput, StorageTeamStatus, StorageWorkingCopy, StorageConnection, StorageRoot, StoragePage, StorageFilenameSearch, StorageFilenameSearchPage, StorageFile } from "@legalwork/types/file-storage";
 import type { Message, Part, Session, Todo } from "@opencode-ai/sdk/v2/client";
 import { desktopFetch } from "./desktop";
@@ -1979,6 +1980,14 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
         `/workspace/${encodeURIComponent(workspaceId)}/legalmemory/matters`,
         { token, hostToken, method: "POST", body: {}, timeoutMs: timeouts.config },
       ),
+    storageOAuthProviders: (workspaceId: string) =>
+      requestJson<{ providers: StorageOAuthProvider[] }>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/storage/oauth/providers`, { token, hostToken }),
+    storageOAuthStatus: (workspaceId: string, id: string) =>
+      requestJson<StorageOAuthStatus>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/storage/${encodeURIComponent(id)}/oauth`, { token, hostToken }),
+    storageOAuthStart: (workspaceId: string, id: string) =>
+      requestJson<{ authUrl: string }>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/storage/${encodeURIComponent(id)}/oauth`, { token, hostToken, method: "POST" }),
+    storageOAuthDisconnect: (workspaceId: string, id: string) =>
+      requestJson<{ ok: boolean }>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/storage/${encodeURIComponent(id)}/oauth`, { token, hostToken, method: "DELETE" }),
     storageConnections: (workspaceId: string) =>
       requestJson<{ connections: StorageConnection[]; team?: StorageTeamStatus }>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/storage`, { token, hostToken, timeoutMs: 30_000 }),
     saveStorageConnection: (workspaceId: string, input: StorageInput, id?: string, version?: number) =>
