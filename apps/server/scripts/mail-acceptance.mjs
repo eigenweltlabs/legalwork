@@ -63,6 +63,8 @@ try {
     (suite === null || relative(mail, path).replaceAll('\\', '/') === `${suite}.node-test.mjs`));
   if (fixtures.length === 0) throw new Error('No matching native mail suites found.');
   const production = paths.filter(path => path.endsWith('.ts') && !path.endsWith('.test.ts'));
+  // HTTP journey fixtures import the real mail routes outside src/mail.
+  production.push(...(await files(join(source, 'routes'))).filter(path => /[/\\]mail[^/\\]*\.ts$/.test(path) && !path.endsWith('.test.ts')));
   // A JSON project avoids Windows command-line length and escaping limits.
   const project = join(output, 'tsconfig.json');
   await writeFile(project, JSON.stringify({ compilerOptions: {

@@ -21,7 +21,10 @@ export async function uploadWorkspaceAttachment(
 ) {
   // Keep the extension, and avoid path separators and Markdown/URL syntax on
   // disk. The original filename remains the label displayed to the user.
-  const filename = file.name.replace(/[^a-zA-Z0-9._-]/g, "_") || "file";
+  const sanitized = file.name.replace(/[^a-zA-Z0-9._-]/g, "_").replace(/[. ]+$/, "") || "file";
+  const extension = /\.[a-zA-Z0-9]{1,16}$/.exec(sanitized)?.[0] ?? "";
+  const bounded = sanitized.length > 160 ? sanitized.slice(0, 160 - extension.length) + extension : sanitized;
+  const filename = /^(?:con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\.|$)/i.test(bounded) ? `file-${bounded}` : bounded;
   const result = await client.writeWorkspaceBinaryFile(workspaceId, {
     path: `.legalwork/attachments/${crypto.randomUUID()}/${filename}`,
     data: await file.arrayBuffer(),
