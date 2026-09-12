@@ -130,10 +130,10 @@ test("actual Electron starts built encrypted worker inside ASAR and resolves unp
     }
     const archive = join(root, `${layout}.asar`);
     await asar.createPackageWithOptions(source, archive, { unpack: `{${patterns.map((pattern) => `**/${pattern}`).join(",")}}` });
-    const relativePrebuild = `${nativeRelative}/prebuilds/${process.platform}-${process.arch}.node`;
+    const relativePrebuild = join(nativeRelative, "prebuilds", `${process.platform}-${process.arch}.node`);
     // Linux musl selection remains the native loader's responsibility; this fixture targets glibc Linux.
     assert.equal(asar.statFile(archive, relativePrebuild).unpacked, true);
-    assert.equal(asar.statFile(archive, `${nativeRelative}/lib/binding.js`).unpacked, true);
+    assert.equal(asar.statFile(archive, join(nativeRelative, "lib", "binding.js")).unpacked, true);
     await rm(source, { recursive: true }); // No fixture source or workspace module fallback.
     const data = join(root, `${layout}-data`);
     await mkdir(data, { mode: 0o700 });

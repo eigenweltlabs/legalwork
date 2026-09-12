@@ -1,5 +1,6 @@
 // Hosted-runner-only, synthetic filesystem/ACL diagnostics; never touch a real profile.
 import {mkdtemp,mkdir,writeFile,readFile,realpath,readlink,readdir,symlink,rm,cp} from 'node:fs/promises';
+import {createRequire} from 'node:module';
 import {spawnSync} from 'node:child_process';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
@@ -17,6 +18,7 @@ try{
  const result=spawnSync(process.execPath,[probe],{encoding:'utf8',timeout:15000});console.log(JSON.stringify({stage:'junction',target,found,exit:result.status,stdout:result.stdout,stderr:result.stderr}));
  const repaired=join(root,'repaired');await mkdir(repaired);await linkTestModules(target,join(repaired,'node_modules'));await writeFile(join(repaired,'probe.mjs'),"import {z} from 'zod';import {zipSync} from 'fflate';console.log(JSON.stringify({resolved:!!z.string&&!!zipSync}));");const linked=spawnSync(process.execPath,[join(repaired,'probe.mjs')],{encoding:'utf8',timeout:15000});console.log(JSON.stringify({stage:'resolved-package-links',exit:linked.status,stdout:linked.stdout,stderr:linked.stderr}));if(linked.status!==0)process.exitCode=1;
  const nativeSource=await realpath(join(target,'better-sqlite3-multiple-ciphers'));const nativeCopy=join(root,'native-copy');await cp(nativeSource,nativeCopy,{recursive:true,filter:path=>!path.startsWith(join(nativeSource,'node_modules'))});console.log(JSON.stringify({stage:'native-copy',original:await readdir(join(nativeSource,'prebuilds')),copied:await readdir(join(nativeCopy,'prebuilds'))}));
+ const desktopRequire=createRequire(new URL('../../apps/desktop/package.json',import.meta.url));const builderRequire=createRequire(desktopRequire.resolve('electron-builder'));const appBuilderRequire=createRequire(builderRequire.resolve('app-builder-lib'));const asar=appBuilderRequire('@electron/asar');const archive=join(root,'native.asar');await asar.createPackageWithOptions(nativeCopy,archive,{unpack:'**/*.node'});let forwardResult;try{forwardResult=asar.statFile(archive,'prebuilds/win32-x64.node').unpacked;}catch(error){forwardResult='missing';}const nativeResult=asar.statFile(archive,join('prebuilds','win32-x64.node')).unpacked;console.log(JSON.stringify({stage:'asar-platform-path',forwardResult,nativeResult}));if(nativeResult!==true)process.exitCode=1;
  const directory=join(root,'private');await mkdir(directory);
  const started=Date.now();try{await enforceMailWindowsAcl(directory,true);const file=join(directory,'synthetic.txt');await writeFile(file,'synthetic');await enforceMailWindowsAcl(file,false);console.log(JSON.stringify({stage:'production-helper',passed:true,milliseconds:Date.now()-started}));}catch(error){console.log(JSON.stringify({stage:'production-helper',passed:false,error:code(error),milliseconds:Date.now()-started}));process.exitCode=1;}
  // Preserve the exact production operations, exposing only typed failure identifiers.
