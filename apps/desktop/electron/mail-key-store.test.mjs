@@ -1,3 +1,4 @@
+import {mailTestWindowsAcl} from '../../../scripts/mail/windows-test-acl.mjs';
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { createCipheriv, createDecipheriv, randomBytes } from "node:crypto";
@@ -31,7 +32,7 @@ async function fixture(run) {
   const root = await mkdtemp(join(tmpdir(), "legalwork-mail-key-"));
   const directory = join(root, "mail");
   const safeStorage = fakeStorage();
-  try { await run({ root, directory, safeStorage, store: createMailKeyStore({ directory, safeStorage }) }); }
+  try { await run({ root, directory, safeStorage, store: createMailKeyStore({ windowsAcl:mailTestWindowsAcl, directory, safeStorage }) }); }
   finally { await rm(root, { recursive: true, force: true }); }
 }
 
@@ -41,7 +42,7 @@ test("fresh activation persists only wrapped key and reopened store returns same
   const file = await readFile(join(directory, "mail-key-v1.json"));
   assert.equal(file.includes(first), false);
   assert.equal(file.includes(first.toString("base64")), false);
-  assert.deepEqual(await createMailKeyStore({ directory, safeStorage }).load(), first);
+  assert.deepEqual(await createMailKeyStore({ windowsAcl:mailTestWindowsAcl, directory, safeStorage }).load(), first);
   assert.deepEqual(await readdir(directory), ["mail-key-v1.json"]);
   if (process.platform !== "win32") {
     assert.equal((await stat(directory)).mode & 0o777, 0o700);
@@ -51,7 +52,7 @@ test("fresh activation persists only wrapped key and reopened store returns same
 }));
 
 test("concurrent creators all use the single published key", () => fixture(async ({ directory, safeStorage }) => {
-  const keys = await Promise.all(Array.from({ length: 12 }, () => createMailKeyStore({ directory, safeStorage }).load({ allowCreate: true })));
+  const keys = await Promise.all(Array.from({ length: 12 }, () => createMailKeyStore({ windowsAcl:mailTestWindowsAcl, directory, safeStorage }).load({ allowCreate: true })));
   for (const key of keys) assert.deepEqual(key, keys[0]);
   assert.deepEqual(await readdir(directory), ["mail-key-v1.json"]);
   for (const key of keys) key.fill(0);
@@ -85,7 +86,7 @@ test("corrupt or foreign-key envelopes remain byte-identical and fail closed", (
     assert.equal(await readFile(path, "utf8"), data);
   }
   await writeFile(path, valid);
-  const foreign = createMailKeyStore({ directory, safeStorage: fakeStorage() });
+  const foreign = createMailKeyStore({ windowsAcl:mailTestWindowsAcl, directory, safeStorage: fakeStorage() });
   await assert.rejects(foreign.load({ allowCreate: true }), /mail_key_locked/);
   assert.deepEqual(await readFile(path), valid);
 }));
@@ -97,14 +98,14 @@ test("unavailable and Linux plaintext backends fail before filesystem access", (
     { getSelectedStorageBackend: () => "unknown" },
     { isEncryptionAvailable() { throw new Error("secret backend details"); } },
   ]) {
-    const store = createMailKeyStore({ directory, platform: "linux", safeStorage: { ...safeStorage, ...overrides } });
+    const store = createMailKeyStore({ windowsAcl:mailTestWindowsAcl, directory, platform: "linux", safeStorage: { ...safeStorage, ...overrides } });
     await assert.rejects(store.load({ allowCreate: true }), { message: "mail_key_backend_unavailable" });
     await assert.rejects(stat(directory), { code: "ENOENT" });
   }
 }));
 
 test("wrapping failure creates no key and never reflects provider details", () => fixture(async ({ directory, safeStorage }) => {
-  const store = createMailKeyStore({ directory, safeStorage: { ...safeStorage, encryptString() { throw new Error("secret-provider-detail"); } } });
+  const store = createMailKeyStore({ windowsAcl:mailTestWindowsAcl, directory, safeStorage: { ...safeStorage, encryptString() { throw new Error("secret-provider-detail"); } } });
   await assert.rejects(store.load({ allowCreate: true }), { message: "mail_key_wrap_failed" });
   assert.deepEqual(await readdir(directory), []);
 }));
@@ -117,7 +118,7 @@ test("symlink key and insecure directory/file permissions are refused", () => fi
   await writeFile(target, original, { mode: 0o600 });
   await rm(path);
   await symlink(target, path);
-  await assert.rejects(store.load(), /mail_key_unreadable/);
+  await assert.rejects(store.load(), process.platform==='win32'?/mail_permissions_unsafe/:/mail_key_unreadable/);
   assert.deepEqual(await readFile(target), original);
   await rm(path);
   await writeFile(path, original, { mode: 0o600 });
