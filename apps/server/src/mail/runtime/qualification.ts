@@ -1,3 +1,4 @@
+import { setTimeout as wait } from 'node:timers/promises';
 import { createHash, randomUUID } from 'node:crypto';
 import { z } from 'zod';
 import { qualificationInputSchema, qualificationTransportCodeSchema, type QualificationInput, type QualificationReport } from '../qualification-view.js';
@@ -77,6 +78,7 @@ export class MailQualification {
             missingLabels: 0,
             extraLabels: 0,
             membershipsChecked: 0,
+            metadataRetries: 0,
             membershipMismatches: 0,
             rawSamples: 0,
             rawMismatches: 0,
@@ -242,21 +244,44 @@ export class MailQualification {
             report.missingLocal = [...ids].filter(id => !localIds.has(id)).length;
             report.extraLocal = [...localIds.keys()].filter(id => !ids.has(id)).length;
             report.phase = 'memberships';
-            const all = [...ids];
-            for (let at = 0; at < all.length; at += 4) {
-                const outcomes = await Promise.allSettled(all.slice(at, at + 4).map(async (id) => {
-                    const metadata = await (await transport()).getMetadata(id, {
-                        signal
-                    });
+            // The live run established Gmail rate limiting. Pace metadata starts;
+            // retry only that confirmed read failure, never a raw MIME sink.
+            let nextMetadataAt = 0;
+            const deadline = report.startedAt + (this.options.timeoutMs ?? 180000);
+            for (const id of ids) {
+                for (let attempt = 0;; attempt++) {
+                    const pace = Math.max(0, nextMetadataAt - Date.now());
+                    if (pace) await wait(pace, undefined, { signal });
                     fence();
-                    report.membershipsChecked++;
-                    const row = localIds.get(id), members = row ? local.members.get(row.message_key) ?? [] : [];
-                    if (JSON.stringify([...metadata.labelIds].sort()) !== JSON.stringify(members))
-                        report.membershipMismatches++;
-                }));
-                for (const outcome of outcomes)
-                    if (outcome.status === 'rejected')
-                        throw outcome.reason;
+                    const reader = await transport();
+                    nextMetadataAt = Date.now() + 150;
+                    try {
+                        const metadata = await reader.getMetadata(id, { signal });
+                        fence();
+                        report.membershipsChecked++;
+                        const row = localIds.get(id);
+                        const members = row ? local.members.get(row.message_key) ?? [] : [];
+                        if (JSON.stringify([...metadata.labelIds].sort()) !== JSON.stringify(members)) {
+                            report.membershipMismatches++;
+                        }
+                        break;
+                    } catch (error) {
+                        if (!(error instanceof GmailTransportError) || error.code !== 'rate_limited'
+                            || attempt >= 3 || report.metadataRetries >= 8) throw error;
+                        await reader.settled();
+                        fence();
+                        const backoff = Math.max(1000 * 2 ** attempt, error.retryAfterMs ?? 0);
+                        if (backoff >= deadline - Date.now()) {
+                            // Do not shorten Retry-After to fit the diagnostic deadline.
+                            report.transportCode = error.code;
+                            report.retryAfterMs = error.retryAfterMs;
+                            throw new RangeError('bounded');
+                        }
+                        await wait(backoff, undefined, { signal });
+                        fence();
+                        report.metadataRetries++;
+                    }
+                }
             }
             report.phase = 'samples';
             // Oldest stored originals plus attachment-bearing messages; never requires opening them in Mail.
