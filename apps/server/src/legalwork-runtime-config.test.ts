@@ -96,6 +96,7 @@ describe("legalwork runtime config file", () => {
     // file:// URL. A bare absolute path (esp. a Windows `C:\…` path) makes
     // OpenCode's dynamic import() throw ERR_UNSUPPORTED_ESM_URL_SCHEME and
     // fails the whole config load — no providers, no tasks.
+    expect(localPlugins.some((spec) => /legalwork-storage-tools\.(?:js|ts)$/.test(spec))).toBe(true);
     expect(localPlugins.length).toBeGreaterThan(0);
     for (const spec of localPlugins) {
       expect(spec.startsWith("file://")).toBe(true);

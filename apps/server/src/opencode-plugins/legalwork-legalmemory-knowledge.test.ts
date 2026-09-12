@@ -53,18 +53,16 @@ describe("LegalWork LegalMemory knowledge plugin", () => {
     expect(output.system).toEqual([]);
   });
 
-  // Failing open is deliberate: guidance over absent tools is cosmetic, silence
-  // over a connected appliance costs the whole feature.
-  test("still speaks when the status check tells us nothing", async () => {
+  test("stays silent when the status check tells us nothing", async () => {
     const plugin = await LegalWorkLegalMemoryKnowledge({ directory: "/tmp/ws" });
     const output: { system: string[] } = { system: [] };
 
     await plugin["experimental.chat.system.transform"](null, output);
 
-    expect(output.system.join("\n")).toContain("LegalMemory is connected");
+    expect(output.system).toEqual([]);
   });
 
-  test("still speaks when the status map is empty", async () => {
+  test("stays silent when the status map is empty", async () => {
     const plugin = await LegalWorkLegalMemoryKnowledge({
       directory: "/tmp/ws",
       client: statusClient({}),
@@ -73,6 +71,61 @@ describe("LegalWork LegalMemory knowledge plugin", () => {
 
     await plugin["experimental.chat.system.transform"](null, output);
 
-    expect(output.system.join("\n")).toContain("LegalMemory is connected");
+    expect(output.system).toEqual([]);
+  });
+
+  test("revokes cached tools and guidance immediately in the same chat", async () => {
+    const statuses = { legalmemory: { status: "connected" } };
+    const plugin = await LegalWorkLegalMemoryKnowledge({ client: statusClient(statuses) });
+    const tool = { tool: "legalmemory_get_document" };
+    await plugin["tool.execute.before"](tool);
+    await plugin["experimental.chat.system.transform"](null, { system: [] });
+    statuses.legalmemory.status = "disabled";
+    await expect(plugin["tool.execute.before"](tool)).rejects.toThrow("disconnected");
+    const output = { system: [] };
+    await plugin["experimental.chat.system.transform"](null, output);
+    expect(output.system).toEqual([]);
+    await plugin["tool.execute.before"]({ tool: "storage_search" });
+    statuses.legalmemory.status = "connected";
+    await plugin["tool.execute.before"](tool);
+  });
+
+  test("fails closed on status errors and recognizes knowledge-index tools", async () => {
+    const plugin = await LegalWorkLegalMemoryKnowledge({
+      client: { mcp: { status: async () => { throw new Error("unavailable"); } } },
+    });
+    const output = { system: [] };
+    await plugin["experimental.chat.system.transform"](null, output);
+    expect(output.system).toEqual([]);
+    await expect(plugin["tool.execute.before"]({ tool: "knowledge-index_list_matters" })).rejects.toThrow("disconnected");
+    await expect(plugin["tool.execute.before"]({ tool: "knowledge_index_list_matters" })).rejects.toThrow("disconnected");
+    await plugin["tool.execute.before"]({ tool: "grep" });
+  });
+
+  test("keeps a large matter page searchable without losing any data", async () => {
+    const value = { results: Array.from({ length: 100 }, (_, index) => ({
+      id: `matter-${index}`, title: `MAT-00005 / ${index}`, summary: "Verträge und Gebühren ".repeat(80),
+    })), page: { total: 100 } };
+    const text = JSON.stringify(value);
+    expect(Buffer.byteLength(text)).toBeGreaterThan(65_536);
+    const output = { content: [{ type: "text", text }] };
+    const plugin = await LegalWorkLegalMemoryKnowledge();
+    await plugin["tool.execute.after"]({ tool: "legalmemory_list_matters" }, output);
+    expect(JSON.parse(output.content[0].text)).toEqual(value);
+    expect(output.content[0].text.split("\n").filter((line) => line.includes("MAT-00005"))).toHaveLength(100);
+    expect(Math.max(...output.content[0].text.split("\n").map((line) => Buffer.byteLength(line)))).toBeLessThan(16_384);
+  });
+
+  test("preserves non-JSON output and other MCP results", async () => {
+    const text = "plain text ".repeat(10_000);
+    const output = { content: [{ type: "text", text }, { type: "image", data: "image" }] };
+    const plugin = await LegalWorkLegalMemoryKnowledge();
+    await plugin["tool.execute.after"]({ tool: "legalmemory_get_document" }, output);
+    expect(output.content[0].text).toBe(text);
+    expect(output.content[1].data).toBe("image");
+    const other = { content: [{ type: "text", text: JSON.stringify({ text }) }] };
+    const before = other.content[0].text;
+    await plugin["tool.execute.after"]({ tool: "other_tool" }, other);
+    expect(other.content[0].text).toBe(before);
   });
 });

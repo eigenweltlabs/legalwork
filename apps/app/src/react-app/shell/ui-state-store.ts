@@ -17,6 +17,8 @@ export const MAX_WORKSPACE_RIGHT_SIDEBAR_WIDTH = 960;
 export const SIDE_PANEL_ITEMS = ["panel", "files", "memory", "extensions", "voice"] as const;
 export type SidePanelItem = (typeof SIDE_PANEL_ITEMS)[number];
 export type SidePanelState = Record<string, SidePanelItem | null>;
+export type FileSidebarItem = "files" | "memory";
+export type FileSidebarState = Record<string, FileSidebarItem | null>;
 
 const LEGACY_UNIFIED_PANEL_ITEMS = ["browser", "artifacts"] as const;
 type LegacyUnifiedPanelItem = (typeof LEGACY_UNIFIED_PANEL_ITEMS)[number];
@@ -39,6 +41,7 @@ function normalizeSidePanelItem(value: unknown): SidePanelItem | null {
 
 export type PersistedUiState = {
   sidePanelState?: SidePanelState;
+  fileSidebarState?: FileSidebarState;
   applicationMenuVisible?: boolean;
   workspaceLeftSidebarWidth?: number;
   workspaceRightSidebarExpanded?: boolean;
@@ -48,6 +51,7 @@ export type PersistedUiState = {
 export type UiState = {
   sidebarOpen: boolean;
   sidePanelState: SidePanelState;
+  fileSidebarState: FileSidebarState;
   applicationMenuVisible: boolean;
   workspaceLeftSidebarWidth: number;
   workspaceLeftSidebarResizing: boolean;
@@ -58,6 +62,7 @@ export type UiState = {
 const initialState: UiState = {
   sidebarOpen: true,
   sidePanelState: {},
+  fileSidebarState: {},
   applicationMenuVisible: false,
   workspaceLeftSidebarWidth: DEFAULT_WORKSPACE_LEFT_SIDEBAR_WIDTH,
   workspaceLeftSidebarResizing: false,
@@ -154,6 +159,20 @@ function readSidebarCookieOpen(): boolean | null {
   return cookie.slice(prefix.length) === "true";
 }
 
+export function restorePanelLayout(value: PersistedUiState) {
+  const sidePanelState = normalizeSidePanelState(value.sidePanelState);
+  const fileSidebarState: FileSidebarState = {};
+  for (const [sessionId, panel] of Object.entries(normalizeSidePanelState(value.fileSidebarState))) {
+    if (panel === "files" || panel === "memory" || panel === null) fileSidebarState[sessionId] = panel;
+  }
+  for (const [sessionId, panel] of Object.entries(sidePanelState)) {
+    if (panel !== "files" && panel !== "memory") continue;
+    if (!(sessionId in fileSidebarState)) fileSidebarState[sessionId] = panel;
+    sidePanelState[sessionId] = null;
+  }
+  return { sidePanelState, fileSidebarState };
+}
+
 function readPersistedUiState(): UiState {
   if (globalThis.window === undefined) {
     return initialState;
@@ -178,12 +197,12 @@ function readPersistedUiState(): UiState {
     }
 
     const parsed: PersistedUiState = JSON.parse(raw);
-    const sidePanelState = normalizeSidePanelState(parsed.sidePanelState);
+    const panelLayout = restorePanelLayout(parsed);
 
     return {
       ...initialState,
       sidebarOpen,
-      sidePanelState,
+      ...panelLayout,
       applicationMenuVisible: parsed.applicationMenuVisible ?? initialState.applicationMenuVisible,
       workspaceLeftSidebarWidth: normalizeNumber(
         parsed.workspaceLeftSidebarWidth,
@@ -215,6 +234,7 @@ export function persistUiState(state: UiState): void {
       PERSISTED_UI_STATE_KEY,
       JSON.stringify({
         sidePanelState: state.sidePanelState,
+        fileSidebarState: state.fileSidebarState,
         applicationMenuVisible: state.applicationMenuVisible,
         workspaceLeftSidebarWidth: state.workspaceLeftSidebarWidth,
         workspaceRightSidebarExpanded: state.workspaceRightSidebarExpanded,
@@ -273,6 +293,15 @@ export function toggleSidePanelState(
   panel: SidePanelItem,
 ): UiState {
   return setSidePanelState(state, sessionId, getSidePanelState(state, sessionId) === panel ? null : panel);
+}
+
+export function setFileSidebarState(
+  state: UiState,
+  sessionId: string | null | undefined,
+  panel: FileSidebarItem | null,
+): UiState {
+  if (!sessionId || (state.fileSidebarState[sessionId] ?? null) === panel) return state;
+  return { ...state, fileSidebarState: { ...state.fileSidebarState, [sessionId]: panel } };
 }
 
 export function setApplicationMenuVisible(state: UiState, visible: boolean): UiState {
@@ -345,6 +374,7 @@ type UiStateStore = UiState & {
   toggleSidebar: () => void;
   setSidePanelState: (sessionId: string | null | undefined, panel: SidePanelItem | null) => void;
   toggleSidePanelState: (sessionId: string | null | undefined, panel: SidePanelItem) => void;
+  setFileSidebarState: (sessionId: string | null | undefined, panel: FileSidebarItem | null) => void;
   setApplicationMenuVisible: (visible: boolean) => void;
   setWorkspaceLeftSidebarWidth: (width: number) => void;
   setWorkspaceLeftSidebarResizing: (resizing: boolean) => void;
@@ -359,6 +389,7 @@ export const useUiStateStore = create<UiStateStore>((set) => ({
   toggleSidebar: () => set((state) => toggleSidebar(state)),
   setSidePanelState: (sessionId, panel) => set((state) => setSidePanelState(state, sessionId, panel)),
   toggleSidePanelState: (sessionId, panel) => set((state) => toggleSidePanelState(state, sessionId, panel)),
+  setFileSidebarState: (sessionId, panel) => set((state) => setFileSidebarState(state, sessionId, panel)),
   setApplicationMenuVisible: (visible) => {
     set((state) => setApplicationMenuVisible(state, visible));
     syncApplicationMenuVisible(visible);

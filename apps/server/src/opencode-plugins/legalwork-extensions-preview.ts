@@ -87,7 +87,7 @@ To list all available actions: legalwork_ui_list_actions
 To ask what LegalWork can do: legalwork_ui_execute_action with actionId "help.capabilities"
 
 ## Cross-session memory
-When the user asks what they said, what happened, or what was decided in another LegalWork chat/session, treat it as a session-history lookup through the LegalWork UI, not hidden model memory.
+Use this flow only when the user explicitly asks about another LegalWork chat/session. Questions such as "what did we do in matter ..." require connected firm records (LegalMemory or storage_search), not session history. Never use old assistant answers or disconnected-source caches as evidence of matter work.
 Use legalwork_ui_execute_action with actionId "session.list_sessions" to find matching sessions by title, workspace, topic, or session ID.
 If there is one clear match, use actionId "session.open" with args {sessionId:"..."}, then use actionId "session.read_transcript" with args {count:30} to read recent messages.
 Answer only from the returned transcript. If multiple sessions match, ask a short clarifying question. If the returned transcript is limited or missing the older context needed, say so instead of guessing.

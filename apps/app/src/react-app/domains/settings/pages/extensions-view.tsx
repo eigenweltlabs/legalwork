@@ -1,6 +1,6 @@
 /** @jsxImportSource react */
-import { useMemo, useState, type ReactNode } from "react";
-import { Blocks, Cpu, Download, Package, Plug, type LucideIcon } from "lucide-react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { Blocks, Cpu, Download, HardDrive, Package, Plug, type LucideIcon } from "lucide-react";
 
 import { t } from "../../../../i18n";
 import { Button } from "@/components/ui/button";
@@ -12,9 +12,9 @@ import { BUNDLED_PLUGINS } from "../bundled-plugins";
 import { HubTabs } from "../segmented-tabs";
 import { HubScopeContext, HubScopeToggle, type HubScope } from "./hub-scope-context";
 
-export type ExtensionsSection = "all" | "mcp" | "skills" | "plugins";
+export type ExtensionsSection = "all" | "mcp" | "skills" | "plugins" | "storage";
 
-type ExtensionsTab = "connectors" | "skills" | "plugins";
+type ExtensionsTab = "connectors" | "skills" | "plugins" | "storage";
 
 type SuggestedPlugin = {
   name: string;
@@ -45,6 +45,7 @@ export type ExtensionsViewProps = {
   mcpConnectedAppsCount: number;
   /** Connectors tab — the MCP quick-connect grid + configured servers + built-ins. */
   mcpView: ReactNode;
+  storageView?: ReactNode;
   /** Skills tab — bundled + installed skills, with add/import. */
   skillsView: ReactNode;
   /** Team ("shared with your firm") view for the Plugins tab. */
@@ -62,15 +63,16 @@ export type ExtensionsViewProps = {
   installClaudePlugin?: (url: string) => Promise<{ ok: boolean; message: string }>;
   onRefresh: () => void;
   initialSection?: ExtensionsSection;
-  setSectionRoute?: (tab: "mcp" | "skills" | "plugins") => void;
+  setSectionRoute?: (tab: "mcp" | "skills" | "plugins" | "storage") => void;
   showHeader?: boolean;
 };
 
-// The Integrations page covers connectors (MCP), skills, and plugins.
+// The Integrations page covers connectors (MCP), file storage, skills, and plugins.
 // Built per render, not once at import: `t()` reads the current language, so a
 // module-level constant would freeze the tabs in whatever language loaded first.
 const tabs = (): Array<{ id: ExtensionsTab; label: string; icon: LucideIcon; subtitle: string }> => [
   { id: "connectors", label: t("extensions.connectors_label"), icon: Plug, subtitle: t("extensions.apps_subtitle_short") },
+  { id: "storage", label: t("storage.tab"), icon: HardDrive, subtitle: t("storage.intro") },
   { id: "skills", label: "Skills", icon: Blocks, subtitle: t("extensions.skills_subtitle") },
   { id: "plugins", label: "Plugins", icon: Package, subtitle: t("extensions.plugins_subtitle") },
 ];
@@ -82,18 +84,20 @@ const pageTitleClass = "text-[34px] font-medium leading-[1.04] tracking-[-0.035e
 
 export function ExtensionsView(props: ExtensionsViewProps) {
   const initialTab: ExtensionsTab =
-    props.initialSection === "plugins"
+    props.initialSection === "storage" ? "storage" : props.initialSection === "plugins"
       ? "plugins"
       : props.initialSection === "skills"
         ? "skills"
         : "connectors";
   const [tab, setTab] = useState<ExtensionsTab>(initialTab);
+  useEffect(() => setTab(initialTab), [initialTab]);
   const [importOpen, setImportOpen] = useState(false);
   // Local | Team is the OUTER toggle for the whole Integrations page; the
   // Connectors/Skills/Plugins tabs sit inside it. The sub-views follow this
   // scope via HubScopeContext.
-  const [hubScope, setHubScope] = useState<HubScope>("local");
+  const [selectedScope, setHubScope] = useState<HubScope>("local");
   const teamHub = props.hasTeamHub === true;
+  const hubScope = teamHub || tab === "storage" ? selectedScope : "local";
   const pluginCount = useMemo(() => props.extensions.pluginList().length, [props.extensions]);
 
   const selectTab = (next: ExtensionsTab) => {
@@ -107,10 +111,10 @@ export function ExtensionsView(props: ExtensionsViewProps) {
   return (
     <section className="space-y-7 max-w-5xl w-full animate-in fade-in duration-300">
       {/* Local | Team is the page-level toggle; Connectors/Skills/Plugins sit inside it. */}
-      {teamHub ? (
+      {teamHub || tab === "storage" ? (
         <div className="flex items-center justify-between gap-3">
           <HubScopeToggle scope={hubScope} onChange={setHubScope} />
-          {hubScope === "team" && props.onOpenTeamShare ? (
+          {hubScope === "team" && tab !== "storage" && props.onOpenTeamShare ? (
             <Button variant="outline" onClick={props.onOpenTeamShare}>
               {t("extensions.share_with_firm")}
             </Button>
@@ -135,7 +139,7 @@ export function ExtensionsView(props: ExtensionsViewProps) {
         </div>
       </div>
 
-      {props.showHeader !== false ? (
+      {props.showHeader !== false && tab !== "storage" ? (
         <div className="space-y-3">
           <span className="lw-section-eyebrow uppercase text-dls-secondary">{t("extensions.eyebrow_integrations")}</span>
           <h2 className={pageTitleClass}>{activeTab.label}</h2>
@@ -145,6 +149,8 @@ export function ExtensionsView(props: ExtensionsViewProps) {
 
       <HubScopeContext.Provider value={hubScope}>
       {tab === "connectors" ? props.mcpView : null}
+
+      {tab === "storage" ? props.storageView : null}
 
       {tab === "skills" ? props.skillsView : null}
 

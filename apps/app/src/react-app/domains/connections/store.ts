@@ -1031,10 +1031,6 @@ export function createConnectionsStore(options: {
         // LegalWork server's runtime store. Removing only the local copies makes
         // the integration look disconnected while server-owned features (such
         // as LegalMemory Drive) can still use the surviving runtime entry.
-        if (legalworkClient && legalworkWorkspaceId) {
-          await legalworkClient.removeMcp(legalworkWorkspaceId, name);
-        }
-
         const formattingOptions = { insertSpaces: true, tabSize: 2, eol: "\n" };
         // Remove from the GLOBAL opencode config (applies to every workspace).
         const configFile = await readOpencodeConfig("global", "") as OpencodeConfigFile;
@@ -1054,6 +1050,12 @@ export function createConnectionsStore(options: {
           throw new Error(runtimeRemoval.stderr || runtimeRemoval.stdout || t("connections.remove_runtime_failed"));
         }
 
+        // Remove the disk copies before disconnecting: a concurrent engine
+        // rebuild must not reconnect using a surviving global config entry.
+        if (legalworkClient && legalworkWorkspaceId) {
+          await legalworkClient.removeMcp(legalworkWorkspaceId, name);
+        }
+
         // The server removal hot-disconnects its engine. Also disconnect the
         // active desktop client directly for configurations that were sourced
         // only from a local file and therefore had no server runtime row.
@@ -1061,9 +1063,11 @@ export function createConnectionsStore(options: {
         const projectDir = options.projectDir().trim();
         if (activeClient && projectDir) {
           try {
-            await activeClient.mcp.disconnect({ directory: projectDir, name });
-          } catch {
-            // A missing/already-disconnected client is the desired end state.
+            unwrap(await activeClient.mcp.disconnect({ directory: projectDir, name }));
+          } catch (error) {
+            // The server already confirmed disconnection for its engine. With
+            // no server target, do not claim success on a failed direct call.
+            if (!legalworkClient || !legalworkWorkspaceId) throw error;
           }
         }
       } else if (canUseLegalworkServer && legalworkClient && legalworkWorkspaceId) {

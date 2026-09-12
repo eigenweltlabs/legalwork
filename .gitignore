@@ -60,3 +60,7 @@ apps/desktop/native/
 apps/app/docx-qa/
 apps/app/docx-interop-output/
 apps/app/dist-docx-performance/
+
+# Browser verification artifacts
+/.playwright-cli/
+/output/playwright/

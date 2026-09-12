@@ -79,6 +79,7 @@ import { registerOfficeToolRoutes } from "./routes/office-tools.js";
 import { BenchmarkRunner, type BenchmarkOpencodeClient } from "./benchmarks/runner.js";
 import { openBenchmarkStore } from "./benchmarks/store.js";
 import { registerBenchmarkRoutes } from "./routes/benchmarks.js";
+import { registerStorageRoutes } from "./routes/file-storage.js";
 import { registerCoreRoutes } from "./routes/core.js";
 import { registerFileRoutes } from "./routes/files.js";
 import { registerOperationRoutes } from "./routes/operations.js";
@@ -1419,6 +1420,8 @@ function createRoutes(
   benchmarkRunner: BenchmarkRunner,
 ): Route[] {
   const routes: Route[] = [];
+  registerStorageRoutes({ routes, config, jsonResponse, readJsonBodyLimited, ensureWritable, requireApproval, requireClientScope, resolveWorkspace });
+
   registerCoreRoutes({
     routes,
     config,
@@ -3363,8 +3366,10 @@ function createRoutes(
       summary: `Removed MCP ${name}`,
       timestamp: Date.now(),
     });
+    // Also retry disconnect when the persisted entry is already gone. A failed
+    // previous attempt must not leave a cached client usable indefinitely.
+    await disconnectMcpFromOpencodeEngine(config, workspace, name);
     if (removed) {
-      await disconnectMcpFromOpencodeEngine(config, workspace, name).catch(() => undefined);
       emitReloadEvent(ctx.reloadEvents, workspace, "mcp", {
         type: "mcp",
         name,
@@ -3399,7 +3404,7 @@ function createRoutes(
     if (!updated) {
       throw new ApiError(404, "mcp_not_found", `MCP ${name} not found in workspace config`);
     }
-    await syncRuntimeMcpToOpencodeEngine(config, workspace, [name]).catch(() => undefined);
+    await syncRuntimeMcpToOpencodeEngine(config, workspace, [name]);
     await recordAudit(workspace.path, {
       id: shortId(),
       workspaceId: workspace.id,
@@ -4119,7 +4124,7 @@ export async function syncAllWorkspacesRuntimeMcpToEngine(config: ServerConfig):
 
 // Counterpart of syncRuntimeMcpToOpencodeEngine for removals: tell the engine
 // to drop the MCP's client so deleted MCPs stop serving tools immediately
-// instead of lingering until the next engine restart. Best-effort.
+// instead of lingering until the next engine restart. Failures reach the UI.
 async function disconnectMcpFromOpencodeEngine(
   config: ServerConfig,
   workspace: WorkspaceInfo,
@@ -4138,7 +4143,7 @@ async function disconnectMcpFromOpencodeEngine(
   if (connection.authHeader) headers.Authorization = connection.authHeader;
 
   const response = await fetch(url, { method: "POST", headers, signal: AbortSignal.timeout(15_000) });
-  if (!response.ok) {
+  if (!response.ok && response.status !== 404) {
     const body = parseOpencodeErrorBody(await response.text());
     throw new ApiError(502, "opencode_mcp_disconnect_failed", `Failed to disconnect MCP ${name} from the engine`, {
       status: response.status,

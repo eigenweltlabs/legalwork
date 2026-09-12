@@ -1,0 +1,7 @@
+FROM docker.io/library/debian:bookworm-slim
+RUN apt-get update && apt-get install -y --no-install-recommends samba && rm -rf /var/lib/apt/lists/* \
+    && useradd -M legalwork && printf 'fixture-password\nfixture-password\n' | smbpasswd -a -s legalwork \
+    && mkdir -p /share/Demo/Matters/Acquisition /share/Integration && chown -R legalwork:legalwork /share
+COPY smb.conf /etc/samba/smb.conf
+EXPOSE 445
+CMD ["smbd", "--foreground", "--no-process-group", "--debug-stdout"]

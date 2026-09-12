@@ -1,3 +1,4 @@
+import type { StorageInput, StorageTeamStatus, StorageWorkingCopy, StorageConnection, StorageRoot, StoragePage, StorageFilenameSearch, StorageFilenameSearchPage, StorageFile } from "@legalwork/types/file-storage";
 import type { Message, Part, Session, Todo } from "@opencode-ai/sdk/v2/client";
 import { desktopFetch } from "./desktop";
 import { isDesktopRuntime } from "./runtime-env";
@@ -1176,7 +1177,7 @@ async function fetchWithTimeout(
 
   const controller = typeof AbortController !== "undefined" ? new AbortController() : null;
   const signal = controller?.signal;
-  const initWithSignal = signal && !init.signal ? { ...init, signal } : init;
+  const initWithSignal = signal ? { ...init, signal: init.signal ? AbortSignal.any([signal, init.signal]) : signal } : init;
 
   let timeoutId: ReturnType<typeof setTimeout> | null = null;
   const timeoutPromise = new Promise<never>((_, reject) => {
@@ -1194,6 +1195,7 @@ async function fetchWithTimeout(
     return await Promise.race([fetchImpl(url, initWithSignal), timeoutPromise]);
   } catch (error) {
     const name = (error && typeof error === "object" && "name" in error ? (error as any).name : "") as string;
+    if (init.signal?.aborted) throw error;
     if (name === "AbortError") {
       throw new Error(t("app.request_timed_out"));
     }
@@ -1206,10 +1208,11 @@ async function fetchWithTimeout(
 async function requestJson<T>(
   baseUrl: string,
   path: string,
-  options: { method?: string; token?: string; hostToken?: string; body?: unknown; timeoutMs?: number } = {},
+  options: { method?: string; token?: string; hostToken?: string; body?: unknown; timeoutMs?: number; signal?: AbortSignal } = {},
 ): Promise<T> {
   const url = `${baseUrl}${path}`;
-  const fetchImpl = resolveFetch(url);
+  // The desktop text bridge cannot cancel an in-flight search request.
+  const fetchImpl = options.signal ? globalThis.fetch.bind(globalThis) : resolveFetch(url);
   const response = await fetchWithTimeout(
     fetchImpl,
     url,
@@ -1217,6 +1220,7 @@ async function requestJson<T>(
       method: options.method ?? "GET",
       headers: buildHeaders(options.token, options.hostToken),
       body: options.body ? JSON.stringify(options.body) : undefined,
+      signal: options.signal,
     },
     options.timeoutMs ?? DEFAULT_LEGALWORK_SERVER_TIMEOUT_MS,
   );
@@ -1231,6 +1235,20 @@ async function requestJson<T>(
   }
 
   return json as T;
+}
+
+async function requestStorageUpload(baseUrl: string, path: string, body: Blob | ArrayBuffer, contentType: string, token?: string, hostToken?: string, method = "POST"): Promise<{ ok: true; version: string }> {
+  // Send bytes directly: the Electron text IPC fetch bridge cannot carry binary bodies.
+  const response = await fetchWithTimeout(globalThis.fetch.bind(globalThis), `${baseUrl}${path}`, {
+    method, headers: { ...buildAuthHeaders(token, hostToken), "Content-Type": contentType }, body,
+  }, 900_000);
+  const payload: unknown = await response.json();
+  if (!payload || typeof payload !== "object") throw new Error(t("artifact.save_failed"));
+  if (!response.ok) throw new LegalworkServerError(response.status,
+    "code" in payload && typeof payload.code === "string" ? payload.code : "request_failed",
+    "message" in payload && typeof payload.message === "string" ? payload.message : response.statusText);
+  if (!("version" in payload) || typeof payload.version !== "string") throw new Error(t("artifact.save_failed"));
+  return { ok: true, version: payload.version };
 }
 
 async function requestMultipartRaw(
@@ -1959,6 +1977,37 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
         `/workspace/${encodeURIComponent(workspaceId)}/legalmemory/matters`,
         { token, hostToken, method: "POST", body: {}, timeoutMs: timeouts.config },
       ),
+    storageConnections: (workspaceId: string) =>
+      requestJson<{ connections: StorageConnection[]; team?: StorageTeamStatus }>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/storage`, { token, hostToken, timeoutMs: 30_000 }),
+    saveStorageConnection: (workspaceId: string, input: StorageInput, id?: string, version?: number) =>
+      requestJson<{ connection: StorageConnection }>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/storage${id ? `/${encodeURIComponent(id)}` : ""}${version ? `?version=${version}` : ""}`, { token, hostToken, method: id ? "PUT" : "POST", body: input, timeoutMs: 60_000 }),
+    testStorageConnection: (workspaceId: string, input: StorageInput, id?: string) =>
+      requestJson<{ ok: true }>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/storage/test${id ? `?connectionId=${encodeURIComponent(id)}` : ""}`, { token, hostToken, method: "POST", body: input, timeoutMs: 90_000 }),
+    removeStorageConnection: (workspaceId: string, id: string, version?: number) =>
+      requestJson<{ ok: true }>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/storage/${encodeURIComponent(id)}${version ? `?version=${version}` : ""}`, { token, hostToken, method: "DELETE", timeoutMs: 30_000 }),
+    saveTeamStorageConnection: (workspaceId: string, input: StorageInput | { localId: string; teamInstallation?: "automatic" | "optional" }) =>
+      requestJson<{ ok: true }>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/storage/team`, { token, hostToken, method: "POST", body: input, timeoutMs: 30_000 }),
+    setTeamStorageInstalled: (workspaceId: string, id: string, installed: boolean) =>
+      requestJson<{ ok: true }>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/storage/${encodeURIComponent(id)}/installation`, { token, hostToken, method: "POST", body: { installed }, timeoutMs: 30_000 }),
+    storageRoots: (workspaceId: string) =>
+      requestJson<{ roots: StorageRoot[]; teamError?: string }>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/storage/roots`, { token, hostToken, timeoutMs: 30_000 }),
+    storageChildren: (workspaceId: string, id: string, path: string, cursor?: string) =>
+      requestJson<StoragePage>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/storage/${encodeURIComponent(id)}/children?${new URLSearchParams({ path, ...(cursor ? { cursor } : {}) })}`, { token, hostToken, timeoutMs: 90_000 }),
+    storageFilenameSearch: (workspaceId: string, id: string, input: StorageFilenameSearch, signal?: AbortSignal) =>
+      requestJson<StorageFilenameSearchPage>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/storage/${encodeURIComponent(id)}/filename-search`, { token, hostToken, method: "POST", body: input, signal, timeoutMs: 90_000 }),
+    readStorageFile: (workspaceId: string, id: string, path: string) =>
+      requestJson<StorageFile>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/storage/${encodeURIComponent(id)}/file?${new URLSearchParams({ path })}`, { token, hostToken, timeoutMs: 120_000 }),
+    checkoutStorageFile: (workspaceId: string, id: string, path: string) =>
+      requestJson<StorageWorkingCopy>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/storage/${encodeURIComponent(id)}/checkout`, { token, hostToken, method: "POST", body: { path }, timeoutMs: 900_000 }),
+    saveStorageWorkingCopy: (workspaceId: string, id: string, path: string, localPath: string, version: string, contentType: string) =>
+      requestJson<{ ok: true; version: string }>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/storage/${encodeURIComponent(id)}/from-workspace`, { token, hostToken, method: "POST", body: { path, localPath, version, contentType, mode: "replace" }, timeoutMs: 900_000 }),
+    keepStorageLocalCopy: (workspaceId: string, id: string, localPath: string, targetPath: string) =>
+      requestJson<{ path: string }>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/storage/${encodeURIComponent(id)}/local-copy`, { token, hostToken, method: "POST", body: { localPath, targetPath }, timeoutMs: 900_000 }),
+    writeStorageFile: (workspaceId: string, id: string, path: string, data: Blob | ArrayBuffer, contentType: string, version?: string) =>
+      requestStorageUpload(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/storage/${encodeURIComponent(id)}/content?${new URLSearchParams({ path, ...(version ? { version } : {}) })}`, data, contentType, token, hostToken, version ? "PUT" : "POST"),
+    createStorageFolder: (workspaceId: string, id: string, path: string) =>
+      requestJson<{ ok: true }>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/storage/${encodeURIComponent(id)}/folders`, { token, hostToken, method: "POST", body: { path }, timeoutMs: 90_000 }),
+
     legalMemoryTreeRoots: (workspaceId: string) =>
       requestJson<{ roots: LegalMemoryTreeRoot[] }>(
         baseUrl,
