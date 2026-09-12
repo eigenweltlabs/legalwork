@@ -65,6 +65,7 @@ jobs:
         if: ${{ !cancelled() }}
         run: node scripts/mail/qualification-step.mjs build pnpm --dir apps/desktop run package:electron:dir --publish never
         env:
+          NODE_OPTIONS: '--max-old-space-size=4096'
           CSC_IDENTITY_AUTO_DISCOVERY: 'false'
           MACOS_NOTARIZE: 'false'
           LEGALWORK_COMPUTER_USE_SIGN_IDENTITY: '-'
@@ -77,6 +78,29 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: mail-qualification-${{ matrix.os }}-${{ matrix.arch }}-${{ github.sha }}
+          path: mail-qualification-evidence/
+          if-no-files-found: error
+          retention-days: 14
+  windows-prerequisites:
+    if: github.event_name == 'push' && contains(github.event.head_commit.message, '[mail-platform-diagnostics]')
+    runs-on: windows-2022
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '24.11.0'
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.4.0
+      - name: Install locked dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Diagnose synthetic Windows prerequisites
+        run: node scripts/mail/qualification-step.mjs prerequisites node scripts/mail/windows-prerequisites.mjs
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: mail-windows-prerequisites-${{ github.sha }}
           path: mail-qualification-evidence/
           if-no-files-found: error
           retention-days: 14
