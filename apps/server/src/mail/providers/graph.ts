@@ -185,7 +185,7 @@ export class GraphReadTransport {
         }
         return { items: parsed.data.value, nextLink: next ?? null };
     }
-    async getFolder(folderId: string, signal?: AbortSignal) { const parsed = graphFolderSchema.safeParse(await this.json(`${BASE}/mailFolders/${segment(folderId)}?$select=id,displayName,parentFolderId,childFolderCount,isHidden`, signal)); if (!parsed.success || folderId !== 'msgfolderroot' && parsed.data.id !== folderId)
+    async getFolder(folderId: string, signal?: AbortSignal) { const parsed = graphFolderSchema.safeParse(await this.json(`${BASE}/mailFolders/${segment(folderId)}?$select=id,displayName,parentFolderId,childFolderCount,isHidden`, signal)); if (!parsed.success || folderId !== 'msgfolderroot' && folderId !== 'inbox' && parsed.data.id !== folderId)
         fail('invalid_response'); return parsed.data; }
     async messageDelta(folderId: string, continuation?: string, signal?: AbortSignal) {
         if(folderId.split(/[\\/]/).some(part=>part==='.'||part==='..'))fail('invalid_input');

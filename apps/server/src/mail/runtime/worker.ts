@@ -1,3 +1,4 @@
+import { MailSyncLifecycle } from "./sync-lifecycle.js";
 import {MailSavedSearchStore,SavedSearchError} from '../storage/saved-search.js';
 import {ImapError} from '../providers/imap-config.js';
 import {ImapBackfill} from '../providers/imap-backfill.js';
@@ -11,9 +12,8 @@ import { MailSearchStore, MailSearchError } from "../storage/search.js";
 import { MailConnectionController, MailConnectionError } from "../providers/connection-controller.js";
 import { MailCredentialRepository, MailCredentialError } from "../storage/credentials.js";
 import { MailAccessCoordinator } from "../providers/access-coordinator.js";
-import { GraphBackfill, GraphBackfillError } from "../providers/graph-backfill.js";
-import { GmailBackfill, GmailBackfillError } from "../providers/gmail-backfill.js";
-import { createStoredMimeProjector } from "../storage/mime-projection.js";
+import { GraphBackfillError } from "../providers/graph-backfill.js";
+import { GmailBackfillError } from "../providers/gmail-backfill.js";
 import type { MailOAuthSettings } from "../providers/oauth.js";
 import { isAbsolute } from "node:path";
 import { openEncryptedMailDatabase } from "../storage/database.js";
@@ -36,13 +36,13 @@ let searchIndexer: MailSearchIndexer | undefined;
 let controller: MailConnectionController | undefined;
 let closingController: Promise<void> | undefined;
 let credentials: MailCredentialRepository | undefined;
-let backfill: GmailBackfill | undefined;
+let syncLifecycle: MailSyncLifecycle | undefined;
 let imap:ImapBackfill|undefined;
 let closingImap:Promise<void>|undefined;
-let graph: GraphBackfill | undefined;
-let closingGraph: Promise<void> | undefined;
+
+
 let access: MailAccessCoordinator | undefined;
-let closingBackfill: Promise<void> | undefined;
+let closingSync: Promise<void> | undefined;
 let imapConnectId: string | undefined;
 const imapRequests = new Map<string, number>();
 const providerSettings = new Map<string, MailOAuthSettings>();
@@ -67,14 +67,14 @@ function write(message: WorkerMessage): boolean {
 async function finish(): Promise<void> {
   try{await(closingExtraction??extractionRunner?.close());}catch{exitCode=1;}
   try { await (closingController ?? controller?.close()); } catch { exitCode = 1; }
-  try { await (closingBackfill ?? backfill?.close()); } catch { exitCode = 1; }
+  try { await (closingSync ?? syncLifecycle?.close()); } catch { exitCode = 1; }
   try{await(closingImap??imap?.close());}catch{exitCode=1;}
-  try { await (closingGraph ?? graph?.close()); } catch { exitCode = 1; }
+
   await Promise.allSettled(requests);
   controller = undefined;
   credentials = undefined;
-  backfill = undefined;
-  graph = undefined;imap=undefined;
+  syncLifecycle = undefined;
+  imap=undefined;
   access = undefined;
   providerSettings.clear(); imapRequests.clear(); imapConnectId = undefined;
   try { database?.close(); } catch { exitCode = 1; }
@@ -91,8 +91,8 @@ function shutdown(code = 0): void {
   // close() marks the controller closed synchronously, before any queued continuation.
   closingExtraction=extractionRunner?.close();
   closingController = controller?.close();
-  closingBackfill = backfill?.close();
-  closingGraph = graph?.close();closingImap=imap?.close();
+  closingSync = syncLifecycle?.close();
+  closingImap=imap?.close();
   access?.close();
   input = Buffer.alloc(0);
   process.stdin.pause();
@@ -125,16 +125,19 @@ async function initialize(value: WorkerInitialization): Promise<void> {
     searchIndexer = new MailSearchIndexer(database,value.ownerId);
     extraction=new MailExtractionStore(database,value.ownerId);extractionRunner=new MailExtractionRunner(database,value.ownerId);
     credentials = new MailCredentialRepository(database, value.ownerId);
-    controller = new MailConnectionController({ database, ownerId: value.ownerId });
+    controller = new MailConnectionController({ database, ownerId: value.ownerId, onConnected: async (accountId, settings) => {
+      const binding = credentials!.getBinding(accountId);
+      providerSettings.set(`${binding.provider}:${binding.clientId}:${binding.authority}`, settings);
+      await syncLifecycle!.connected(accountId);
+    } });
     access = new MailAccessCoordinator({ database, ownerId: value.ownerId, loadProviderSettings: async binding => {
       const selected = providerSettings.get(`${binding.provider}:${binding.clientId}:${binding.authority}`);
       if (!selected) throw new Error("mail_configuration_unavailable");
       return selected;
     } });
-    backfill = new GmailBackfill({ database, ownerId: value.ownerId, access,
-      projectRaw: createStoredMimeProjector({ database, ownerId: value.ownerId }) });
+    syncLifecycle = new MailSyncLifecycle(database, value.ownerId, access);
     imap=new ImapBackfill({database,ownerId:value.ownerId});
-    graph = new GraphBackfill({ database, ownerId: value.ownerId, access });
+
     phase = "ready";
     searchIndexer?.start();extractionRunner?.start();
     write({ kind: "ready", protocol: 1, runtime: "node", nodeVersion: process.versions.node });
@@ -161,7 +164,7 @@ function pageResult(id: string, items: WorkerAccount[] | WorkerFolder[], hasMore
   return accepted;
 }
 async function request(message: Extract<ParentMessage, { kind: "request" }>): Promise<void> {
-  if (phase !== "ready" || !repository || !reads || !controller || !credentials || !backfill || !graph || !imap || !database) {
+  if (phase !== "ready" || !repository || !reads || !controller || !credentials || !syncLifecycle || !imap || !database) {
     write({ kind: "response", id: message.id, ok: false, code: "not_ready" }); return;
   }
   const command = message.command;
@@ -181,7 +184,7 @@ async function request(message: Extract<ParentMessage, { kind: "request" }>): Pr
       case "mail.local.draft.attachment": if(!local)throw locked;result={local:{operation:command.operation,accountId:command.accountId,value:local.readDraftAttachment(command.accountId,command.input)}};break;
       case "mail.local.draft.list": if(!local)throw locked;result={local:{operation:command.operation,accountId:command.accountId,value:local.listDrafts(command.accountId,command.input)}};break;
       case "mail.local.action.submission": if(!local)throw locked;result={local:{operation:command.operation,accountId:command.accountId,value:local.enqueueSubmission(command.accountId,command.input)}};break;
-      case "mail.local.action.mutation": if(!local)throw locked;result={local:{operation:command.operation,accountId:command.accountId,value:local.enqueueMutation(command.accountId,command.input)}};if(database.get('SELECT provider FROM mail_accounts WHERE id=?',[command.accountId])?.provider==='imap')imap.wake(command.accountId);break;
+      case "mail.local.action.mutation": if(!local)throw locked;result={local:{operation:command.operation,accountId:command.accountId,value:local.enqueueMutation(command.accountId,command.input)}};if(database.get('SELECT provider FROM mail_accounts WHERE id=?',[command.accountId])?.provider==='imap'){const engine=syncLifecycle.engine(command.accountId);if(engine instanceof ImapBackfill)engine.wake(command.accountId);};break;
       case "mail.local.action.read": if(!local)throw locked;result={local:{operation:command.operation,accountId:command.accountId,value:local.readAction(command.accountId,command.input.actionId)}};break;
       case "mail.local.action.list": if(!local)throw locked;result={local:{operation:command.operation,accountId:command.accountId,value:local.listActions(command.accountId,command.input)}};break;
       case "mail.local.action.cancel": if(!local)throw locked;result={local:{operation:command.operation,accountId:command.accountId,value:local.cancelAction(command.accountId,command.input)}};break;
@@ -202,7 +205,7 @@ async function request(message: Extract<ParentMessage, { kind: "request" }>): Pr
         if (imapConnectId || imapRequests.size >= 128) {result={imapConnection:{error:"busy"}};break;}
         imapConnectId=command.requestId;
         if (command.requestId) imapRequests.set(command.requestId,Date.now()+600000);
-        try {result={imapConnection:await imap.connect(command.input)};}
+        try {const connected = await imap.connect(command.input); await syncLifecycle.connected(connected.accountId); result={imapConnection:connected};}
         catch(error) {result={imapConnection:{error:imapFailure(error).code}};}
         finally {imapConnectId=undefined;}
         break;
@@ -214,14 +217,14 @@ async function request(message: Extract<ParentMessage, { kind: "request" }>): Pr
       case "mail.account.disconnect": {
         const current = credentials.status(command.accountId); // Owner gate before provider lookup or cancellation.
         extractionRunner?.cancelAccount(command.accountId);
-        if (current.state !== "disconnected" && database.get("SELECT provider FROM mail_accounts WHERE id=?", [command.accountId])?.provider === "gmail") {
-          // Abort publication before rotating the durable credential generation.
-          // A journal failure must not prevent the credential revocation attempt.
-          try { backfill.pause(command.accountId); } catch { /* The credential generation also fences every late publication. */ }
-        }
-        try { if (database.get("SELECT provider FROM mail_accounts WHERE id=?", [command.accountId])?.provider === "graph") graph.pause(command.accountId); } catch { /* Durable credential rotation still fences publication. */ }
-        if(database.get("SELECT provider FROM mail_accounts WHERE id=?",[command.accountId])?.provider==='imap'){try{imap.pause(command.accountId);}catch{}if(!current.version)throw locked;credentials.disconnect(command.accountId,current.version);result={disconnected:true};break;}
-        await controller.disconnect(command.accountId); result = { disconnected: true }; break;
+        // close() fences callbacks synchronously; revoke credentials before awaiting I/O cleanup.
+        const stopping = syncLifecycle.suspend(command.accountId).catch(() => {});
+        if (database.get("SELECT provider FROM mail_accounts WHERE id=?", [command.accountId])?.provider === 'imap') {
+          if (!current.version) throw locked;
+          credentials.disconnect(command.accountId, current.version);
+        } else await controller.disconnect(command.accountId);
+        await stopping;
+        result = { disconnected: true }; break;
       }
       case "mail.accounts.list": {
         const page = repository.listAccountsPage({ limit: command.limit, after: command.after });
@@ -236,22 +239,24 @@ async function request(message: Extract<ParentMessage, { kind: "request" }>): Pr
       }
       case "mail.sync.provider":
       case "mail.status":
+      case "mail.sync.resume":
       case "mail.sync.start":
       case "mail.sync.stop": {
         const credentialStatus = credentials.status(command.accountId);
         const provider = database.get("SELECT provider FROM mail_accounts WHERE id=?", [command.accountId])?.provider;
         if (provider !== "gmail" && provider !== "graph" && provider !== "imap") throw unsupported;
-        if (command.operation === "mail.sync.provider") { result = { syncProvider: provider, ...(provider === "graph" ? {personal: credentials.getBinding(command.accountId).authority === "https://login.microsoftonline.com/consumers/v2.0"} : {}) }; break; }
+        if (command.operation === "mail.sync.provider") { result = { syncProvider: provider, connected: credentialStatus.state === "connected", ...(provider === "graph" && credentialStatus.version ? {personal: credentials.getBinding(command.accountId).authority === "https://login.microsoftonline.com/consumers/v2.0"} : {}) }; break; }
         if (credentialStatus.state === 'disconnected') throw locked;
-        if(provider==='imap'){if(command.operation==='mail.sync.start'&&command.settings)throw unsupported;result={sync:command.operation==='mail.sync.start'?imap.start(command.accountId):command.operation==='mail.sync.stop'?imap.pause(command.accountId):imap.status(command.accountId)};break;}
-        const engine = provider === "gmail" ? backfill : graph;
-        if (command.operation === "mail.sync.start") {
+        const engine = syncLifecycle.engine(command.accountId);
+        if(provider==='imap'){result={sync:command.operation==='mail.sync.resume'?syncLifecycle.resume(command.accountId):command.operation==='mail.sync.start'?engine.start(command.accountId):command.operation==='mail.sync.stop'?engine.pause(command.accountId):engine.status(command.accountId)};break;}
+
+        if (command.operation === "mail.sync.start" || command.operation === "mail.sync.resume") {
           if(!command.settings)throw unsupported;
           const binding = credentials.getBinding(command.accountId);
           if (command.settings.provider !== provider || binding.clientId !== command.settings.clientId
             || binding.authority !== (command.settings.provider === "gmail" ? "https://accounts.google.com" : `https://login.microsoftonline.com/${command.settings.tenantId}/v2.0`)) throw new Error("mail_configuration_mismatch");
           providerSettings.set(`${provider}:${binding.clientId}:${binding.authority}`, command.settings);
-          result = { sync: engine.start(command.accountId) };
+          result = { sync: command.operation === "mail.sync.resume" ? syncLifecycle.resume(command.accountId) : engine.start(command.accountId) };
         } else result = { sync: command.operation === "mail.sync.stop" ? engine.pause(command.accountId) : engine.status(command.accountId) };
         break;
       }
