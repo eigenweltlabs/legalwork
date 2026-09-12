@@ -3,9 +3,14 @@ import type { OAuthFetch } from "./oauth.js";
 export type GmailTransportErrorCode = "invalid_input" | "invalid_response" | "response_too_large" | "raw_too_large"
   | "access_token_rejected" | "reconsent_required" | "forbidden" | "rate_limited" | "quota_exceeded"
   | "transient" | "not_found" | "request_rejected" | "timeout" | "cancelled" | "consumer_failed";
+export type GmailFailureReason = 'dailyLimitExceeded' | 'quotaExceeded' | 'rateLimitExceeded' | 'userRateLimitExceeded' | 'insufficientPermissions' | 'domainPolicy' | 'authError' | 'backendError';
+function safeFailureReason(value: unknown): GmailFailureReason | null {
+  if(value==='dailyLimitExceeded'||value==='quotaExceeded'||value==='rateLimitExceeded'||value==='userRateLimitExceeded'||value==='insufficientPermissions'||value==='domainPolicy'||value==='authError'||value==='backendError')return value;
+  return null;
+}
 export class GmailTransportError extends Error {
   readonly retryable: boolean;
-  constructor(readonly code: GmailTransportErrorCode, readonly retryAfterMs: number | null = null) {
+  constructor(readonly code: GmailTransportErrorCode, readonly retryAfterMs: number | null = null, readonly httpStatus: number | null = null, readonly reason: GmailFailureReason | null = null) {
     super(`mail_gmail_${code}`);
     this.retryable = code === "rate_limited" || code === "transient" || code === "timeout";
   }
@@ -112,20 +117,21 @@ export class GmailReadTransport {
     const response = await this.fetch(url, { method: "GET", redirect: "error", signal,
       headers: { Authorization: `Bearer ${this.accessToken}`, Accept: "application/json" } });
     if (signal.aborted) { void response.body?.cancel().catch(() => {}); return reject("cancelled"); }
-    if (response.status !== 200 && response.status !== 403) {
+    if (response.status !== 200 && response.status !== 403 && response.status !== 429) {
       void response.body?.cancel().catch(() => {});
       throw new GmailTransportError(response.status === 401 ? "access_token_rejected" : response.status === 404 ? "not_found"
-        : response.status === 429 ? "rate_limited" : response.status === 408 || response.status >= 500 ? "transient" : "request_rejected", retryAfter(response.headers.get("retry-after")));
+        : response.status === 429 ? "rate_limited" : response.status === 408 || response.status >= 500 ? "transient" : "request_rejected", retryAfter(response.headers.get("retry-after")), response.status);
     }
-    if (response.status === 403) {
+    if (response.status === 403 || response.status === 429) {
       let data: unknown;
-      try { data = await json(response, 65536, signal); } catch { return reject("forbidden"); }
+      try { data = await json(response, 65536, signal); } catch { throw new GmailTransportError(response.status === 429 ? "rate_limited" : "forbidden", retryAfter(response.headers.get("retry-after")), response.status); }
       const reasons = record(data) && record(data.error) && Array.isArray(data.error.errors) && data.error.errors.length <= 32
         ? data.error.errors.flatMap(item => record(item) && typeof item.reason === "string" ? [item.reason] : []) : [];
-      const code = reasons.includes("dailyLimitExceeded") || reasons.includes("quotaExceeded") ? "quota_exceeded"
+      const code = response.status === 429 ? "rate_limited" : reasons.includes("dailyLimitExceeded") || reasons.includes("quotaExceeded") ? "quota_exceeded"
         : reasons.includes("rateLimitExceeded") || reasons.includes("userRateLimitExceeded") ? "rate_limited"
         : reasons.includes("insufficientPermissions") ? "reconsent_required" : "forbidden";
-      throw new GmailTransportError(code, retryAfter(response.headers.get("retry-after")));
+      const reason = reasons.map(safeFailureReason).find(value => value !== null) ?? null;
+      throw new GmailTransportError(code, retryAfter(response.headers.get("retry-after")), response.status, reason);
     }
     const data = await json(response, limit, signal);
     if (!record(data) || data.error !== undefined) return reject("invalid_response");
