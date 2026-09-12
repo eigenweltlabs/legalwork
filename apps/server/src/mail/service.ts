@@ -97,8 +97,14 @@ export class LocalMailService implements MailService {
           cursor = page.nextCursor ?? undefined;
         } while (cursor && this.phase === "open");
       } catch (error) {
-        await this.worker.stop();
-        if (this.phase === "unlocking") this.phase = "locked";
+        // This opening also owns the open phase while enumerating accounts. A
+        // concurrent lock owns its own teardown; never overwrite its state.
+        if (this.phase === "unlocking" || this.phase === "open") {
+          const cleanupEpoch = this.epoch;
+          this.phase = "locking";
+          await this.worker.stop();
+          if (this.epoch === cleanupEpoch && this.phase === "locking") this.phase = "locked";
+        }
         throw serviceError(error);
       }
     })();
