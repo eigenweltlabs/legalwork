@@ -1,3 +1,4 @@
+import { GraphMailboxRepository } from '../storage/graph-mailboxes.js';
 import { randomUUID } from "node:crypto";
 import { GraphDeltaState, graphDeltaSchema } from "../storage/graph-delta.js";
 import { providerMessageKey } from "../model.js";
@@ -184,9 +185,11 @@ export class GraphBackfill {
     private async access(session: Session) {
         const access = await this.operation(session, () => this.options.access.acquire(session.run.account_id));
         this.assert(session, access.version);
-        if (!access.grantedScopes?.some(scope => scope === "Mail.ReadWrite" || scope === "https://graph.microsoft.com/Mail.ReadWrite" || scope === "Mail.Read" || scope === "https://graph.microsoft.com/Mail.Read"))
+        const target = new GraphMailboxRepository(this.options.database,this.options.ownerId).target(session.run.account_id);
+        const permitted = target.mailboxAddress ? ['Mail.Read.Shared','Mail.ReadWrite.Shared'] : ['Mail.Read','Mail.ReadWrite'];
+        if (!access.grantedScopes?.some(scope => permitted.some(item => scope === item || scope === 'https://graph.microsoft.com/'+item)))
             throw new MailAccessError("reconsent_required");
-        return { version: access.version, transport: this.options.transport?.(access.accessToken) ?? new GraphReadTransport({ accessToken: access.accessToken, timeoutMs: this.timeout }) };
+        return { version: access.version, transport: this.options.transport?.(access.accessToken) ?? new GraphReadTransport({ accessToken: access.accessToken, mailboxAddress: target.mailboxAddress, timeoutMs: this.timeout }) };
     }
     private async turn(session: Session) {
         try {
@@ -238,6 +241,7 @@ export class GraphBackfill {
                     });
                 }
                 catch (error) {
+                    if (error instanceof GraphTransportError && error.code === "inaccessible" && new GraphMailboxRepository(this.options.database,this.options.ownerId).read(accountId)) throw error;
                     if (!(error instanceof GraphTransportError) || !["inaccessible", "not_found"].includes(error.code))
                         throw error;
                     this.assert(session, version);
@@ -282,6 +286,10 @@ export class GraphBackfill {
             this.schedule(session);
         }
         catch (error) {
+            if (error instanceof GraphTransportError && error.code === 'inaccessible') {
+                const mailboxes = new GraphMailboxRepository(this.options.database,this.options.ownerId);
+                if(mailboxes.read(session.run.account_id)) { session.run=this.state.update(session.run,'attention','permission_revoked');mailboxes.revoke(session.run.account_id);this.stop(session);return; }
+            }
             if (this.closed || session.abort.signal.aborted)
                 return;
             try {

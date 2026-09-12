@@ -88,6 +88,14 @@ export class MailAccessCoordinator {
   }
   acquire(accountId: string): Promise<MailAccountAccess> {
     if (this.closed) return Promise.reject(new MailAccessError("closed"));
+    try {
+      const parent = this.credentials.credentialAccountId(accountId);
+      if (parent !== accountId) {
+        const before = this.credentials.status(accountId);
+        if(before.state !== 'connected')return Promise.reject(new MailAccessError('locked'));
+        return this.acquire(parent).then(access => { this.fence(accountId,before.version);this.fence(parent,access.version);return {...access,version:before.version}; });
+      }
+    } catch(error) { return Promise.reject(safe(error)); }
     const existing = this.pending.get(accountId);
     if (existing) return existing.promise;
     if (this.pending.size >= 64) return Promise.reject(new MailAccessError("capacity"));
