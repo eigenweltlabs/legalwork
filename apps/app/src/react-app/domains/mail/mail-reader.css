@@ -53,3 +53,4 @@
 .mail-row-context-menu [aria-disabled="true"] { opacity:.45; }
 .mail-search-hit.mail-message-select-row { display:block; position:relative; padding-left:38px; }
 .mail-search-hit.mail-message-select-row>input { position:absolute; left:4px; top:17px; padding:0; margin-top:0; }
+.mail-keyboard-help{display:flex;flex-direction:column;max-height:85vh}.mail-keyboard-help-body{min-height:0;flex:1}
