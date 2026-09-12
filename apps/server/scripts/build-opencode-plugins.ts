@@ -7,7 +7,7 @@ export const pluginNames = [
   "legalwork-managed-config", "legalwork-model-catalog", "legalwork-legalmemory", "legalwork-commands", "legalwork-project-admission", "legalwork-product-scope", "legalwork-sandbox", "legalwork-extensions-preview",
   "legalwork-capabilities-knowledge", "legalwork-legalmemory-knowledge", "legalwork-digest-tools", "legalwork-history-image-tools", "legalwork-tool-image-original-capture", "legalwork-tool-image-originals",
   "legalwork-anthropic-adaptive-thinking", "legalwork-anthropic-tool-schema", "legalwork-openai-tool-call-ids",
-  "legalwork-word-tools", "legalwork-excel-tools", "legalwork-powerpoint-tools", "legalwork-benchmark-tools",
+  "legalwork-mail-tools", "legalwork-word-tools", "legalwork-excel-tools", "legalwork-powerpoint-tools", "legalwork-benchmark-tools",
   "legalwork-skill-tools", "legalwork-storage-tools", "legalwork-task-tools", "legalwork-calendar-tools",
   "legalwork-assistant-tools", "legalwork-draft-tools", "legalwork-scheduled-task-tools", "legalwork-project-tools", "legalwork-tool-output", "legalwork-tool-recovery",
   "legalwork-review-tools", "legalwork-org-policy-guard", "legalwork-wiki-tools",
