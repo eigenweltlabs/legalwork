@@ -1,0 +1,870 @@
+{
+  "kind": "retained-100k-follow-up",
+  "measuredAt": "2026-09-12T14:28:02.558Z",
+  "sourceSchema": 19,
+  "schema": 27,
+  "sourceSha256": "5b8196ed7df3cd3b5a157367a47f97a896cea6a5a936a17d6d7ba488a0a44ba3",
+  "originalReportSha256": "50e84bed34b12dfac4cdb9cc68e09de239f2ccd8cc3cc95f25edae440302c5b4",
+  "originalSourceSha256": "1084752e053f2a3d3d1b6b604ca884fe44fec31bc907ec63c3c2001bd8398d64",
+  "migrationMs": 31204.938416,
+  "hashesVerified": 100,
+  "queryWarmup": "One unmeasured-for-warm first call per query, separately reported; ten measured repetitions",
+  "quality": [
+    {
+      "name": "common-keyword",
+      "input": {
+        "keywords": [
+          "diligence"
+        ]
+      },
+      "expected": 99900,
+      "actual": 99900,
+      "incomplete": 300,
+      "firstCallMs": 470.94862499999726,
+      "samples": [
+        115.20324999999866,
+        114.99437500000204,
+        114.56804199999897,
+        116.81962499999645,
+        116.23704100000032,
+        114.85529200000019,
+        116.18887499999983,
+        113.88804199999868,
+        114.6027499999982,
+        115.69670800000313
+      ],
+      "warmMs": {
+        "count": 10,
+        "p50": 114.99437500000204,
+        "p95": 116.23704100000032,
+        "max": 116.81962499999645
+      }
+    },
+    {
+      "name": "german-umlaut",
+      "input": {
+        "keywords": [
+          "Kündigung"
+        ]
+      },
+      "expected": 99900,
+      "actual": 99900,
+      "incomplete": 300,
+      "firstCallMs": 121.73266700000386,
+      "samples": [
+        111.00041699999565,
+        111.30754099999467,
+        112.28020800000377,
+        113.52270799999678,
+        113.50775000000431,
+        112.97724999999627,
+        113.76183399999718,
+        113.98195800000394,
+        112.54737500000192,
+        113.18895799999882
+      ],
+      "warmMs": {
+        "count": 10,
+        "p50": 112.97724999999627,
+        "p95": 113.76183399999718,
+        "max": 113.98195800000394
+      }
+    },
+    {
+      "name": "phrase",
+      "input": {
+        "phrase": "Contract diligence obligation"
+      },
+      "expected": 99900,
+      "actual": 99900,
+      "incomplete": 300,
+      "firstCallMs": 554.5890829999989,
+      "samples": [
+        489.07379200000287,
+        485.3642919999984,
+        486.1399590000001,
+        484.7665000000052,
+        483.93475000000035,
+        485.14054100000067,
+        485.7350829999996,
+        536.7152090000018,
+        488.4917920000007,
+        487.8830830000006
+      ],
+      "warmMs": {
+        "count": 10,
+        "p50": 485.7350829999996,
+        "p95": 489.07379200000287,
+        "max": 536.7152090000018
+      }
+    },
+    {
+      "name": "old-mail",
+      "input": {
+        "beforeDate": "2002-01-01T00:00:00.000Z"
+      },
+      "expected": 10100,
+      "actual": 10100,
+      "incomplete": 300,
+      "firstCallMs": 42.4841249999954,
+      "samples": [
+        1.640916999996989,
+        1.7192080000022543,
+        1.523709000000963,
+        1.902208999999857,
+        1.7529999999969732,
+        1.6461659999986296,
+        1.6097919999956503,
+        2.006708000000799,
+        1.6920000000027358,
+        1.757459000000381
+      ],
+      "warmMs": {
+        "count": 10,
+        "p50": 1.6920000000027358,
+        "p95": 1.902208999999857,
+        "max": 2.006708000000799
+      }
+    },
+    {
+      "name": "exact-identifier-old",
+      "input": {
+        "matterIdentifier": "AZ-000000/34.5"
+      },
+      "expected": 1,
+      "actual": 1,
+      "incomplete": 300,
+      "firstCallMs": 15.98487500000192,
+      "samples": [
+        1.332166000000143,
+        1.295665999998164,
+        1.379624999994121,
+        1.2239169999957085,
+        1.4225420000002487,
+        1.1324170000007143,
+        1.4096250000002328,
+        1.5067500000004657,
+        1.2551660000026459,
+        1.3098329999993439
+      ],
+      "warmMs": {
+        "count": 10,
+        "p50": 1.3098329999993439,
+        "p95": 1.4225420000002487,
+        "max": 1.5067500000004657
+      }
+    },
+    {
+      "name": "exact-identifier-last",
+      "input": {
+        "matterIdentifier": "AZ-099999/34.5"
+      },
+      "expected": 1,
+      "actual": 1,
+      "incomplete": 300,
+      "firstCallMs": 8.540832999999111,
+      "samples": [
+        1.4951670000009472,
+        1.743916999999783,
+        1.5756669999973383,
+        1.5066250000018044,
+        1.8318750000034925,
+        1.480374999999185,
+        1.97741600000154,
+        1.6609580000003916,
+        1.6806250000008731,
+        1.7830419999954756
+      ],
+      "warmMs": {
+        "count": 10,
+        "p50": 1.6609580000003916,
+        "p95": 1.8318750000034925,
+        "max": 1.97741600000154
+      }
+    },
+    {
+      "name": "attachment-only",
+      "input": {
+        "keywords": [
+          "AttachmentEvidence000011"
+        ]
+      },
+      "expected": 1,
+      "actual": 1,
+      "incomplete": 300,
+      "firstCallMs": 2.8939160000008997,
+      "samples": [
+        0.33508399999846006,
+        0.5234999999956926,
+        0.4632920000003651,
+        0.42416700000467245,
+        0.28958399999828544,
+        0.6019579999992857,
+        0.3104170000005979,
+        0.5411249999961001,
+        0.4869159999943804,
+        0.3272080000024289
+      ],
+      "warmMs": {
+        "count": 10,
+        "p50": 0.42416700000467245,
+        "p95": 0.5411249999961001,
+        "max": 0.6019579999992857
+      }
+    },
+    {
+      "name": "docx-attachment",
+      "input": {
+        "keywords": [
+          "AttachmentEvidence000031"
+        ]
+      },
+      "expected": 1,
+      "actual": 1,
+      "incomplete": 300,
+      "firstCallMs": 0.9559159999989788,
+      "samples": [
+        0.39712499999586726,
+        0.539334000000963,
+        0.3286669999943115,
+        0.3247090000004391,
+        0.38762499999575084,
+        0.3395840000011958,
+        0.3962920000049053,
+        0.473082999997132,
+        0.3459999999977299,
+        0.36216699999931734
+      ],
+      "warmMs": {
+        "count": 10,
+        "p50": 0.36216699999931734,
+        "p95": 0.473082999997132,
+        "max": 0.539334000000963
+      }
+    },
+    {
+      "name": "xlsx-attachment",
+      "input": {
+        "keywords": [
+          "AttachmentEvidence000041"
+        ]
+      },
+      "expected": 1,
+      "actual": 1,
+      "incomplete": 300,
+      "firstCallMs": 0.8697500000052969,
+      "samples": [
+        0.34399999999732245,
+        0.3668340000003809,
+        0.4254999999975553,
+        0.47950000000128057,
+        0.40616700000100536,
+        0.38787500000034925,
+        0.6044160000019474,
+        0.4291670000020531,
+        0.3693329999950947,
+        0.5619169999990845
+      ],
+      "warmMs": {
+        "count": 10,
+        "p50": 0.40616700000100536,
+        "p95": 0.5619169999990845,
+        "max": 0.6044160000019474
+      }
+    },
+    {
+      "name": "pdf-attachment",
+      "input": {
+        "keywords": [
+          "AttachmentEvidence000051"
+        ]
+      },
+      "expected": 1,
+      "actual": 1,
+      "incomplete": 300,
+      "firstCallMs": 0.9176669999942533,
+      "samples": [
+        0.29125000000203727,
+        0.3723339999996824,
+        0.32524999999441206,
+        0.6165830000027199,
+        0.40287499999976717,
+        0.3913329999995767,
+        0.3833749999976135,
+        0.2813749999986612,
+        0.5134580000012647,
+        0.32316699999501
+      ],
+      "warmMs": {
+        "count": 10,
+        "p50": 0.3723339999996824,
+        "p95": 0.5134580000012647,
+        "max": 0.6165830000027199
+      }
+    },
+    {
+      "name": "exact-filename",
+      "input": {
+        "filename": "Prüfung-000011.txt"
+      },
+      "expected": 1,
+      "actual": 1,
+      "incomplete": 300,
+      "firstCallMs": 10.149749999996857,
+      "samples": [
+        1.4339580000014394,
+        1.5075419999993755,
+        1.471625000005588,
+        1.4222089999966556,
+        1.2182079999984126,
+        1.4862920000014128,
+        1.5828750000000582,
+        1.5032090000022436,
+        1.26337500000227,
+        1.55408300000272
+      ],
+      "warmMs": {
+        "count": 10,
+        "p50": 1.471625000005588,
+        "p95": 1.55408300000272,
+        "max": 1.5828750000000582
+      }
+    },
+    {
+      "name": "exact-sender",
+      "input": {
+        "sender": "partner0@example.invalid"
+      },
+      "expected": 1000,
+      "actual": 1000,
+      "incomplete": 300,
+      "firstCallMs": 148.3325829999958,
+      "samples": [
+        5.542833999999857,
+        5.086041000002297,
+        4.963167000001704,
+        4.65849999999773,
+        5.239208999999391,
+        4.65662500000326,
+        6.0627910000039265,
+        5.2262919999993755,
+        5.082957999999053,
+        4.809165999999095
+      ],
+      "warmMs": {
+        "count": 10,
+        "p50": 5.082957999999053,
+        "p95": 5.542833999999857,
+        "max": 6.0627910000039265
+      }
+    },
+    {
+      "name": "negative-address",
+      "input": {
+        "sender": "partner0@example.invalid.evil"
+      },
+      "expected": 0,
+      "actual": 0,
+      "incomplete": 300,
+      "firstCallMs": 1.0624580000003334,
+      "samples": [
+        0.33241600000474136,
+        0.3002919999998994,
+        0.35891699999774573,
+        0.3659170000028098,
+        0.4720000000015716,
+        0.3653749999939464,
+        0.31754199999704724,
+        0.3008330000011483,
+        0.35441699999501,
+        0.4170410000006086
+      ],
+      "warmMs": {
+        "count": 10,
+        "p50": 0.35441699999501,
+        "p95": 0.4170410000006086,
+        "max": 0.4720000000015716
+      }
+    },
+    {
+      "name": "negative-punctuation",
+      "input": {
+        "literal": "AZ 000000 34 5"
+      },
+      "expected": 0,
+      "actual": 0,
+      "incomplete": 300,
+      "firstCallMs": 3.0684170000022277,
+      "samples": [
+        0.5639999999984866,
+        0.6284579999992275,
+        0.7270830000052229,
+        0.5067500000004657,
+        0.509582999999111,
+        0.6553750000020955,
+        0.5190000000002328,
+        0.4879999999975553,
+        0.4998340000020107,
+        0.6881250000005821
+      ],
+      "warmMs": {
+        "count": 10,
+        "p50": 0.5190000000002328,
+        "p95": 0.6881250000005821,
+        "max": 0.7270830000052229
+      }
+    },
+    {
+      "name": "account-and-unread",
+      "input": {
+        "accountIds": [
+          "benchmark-a"
+        ],
+        "unread": true
+      },
+      "expected": 6667,
+      "actual": 6667,
+      "incomplete": 100,
+      "firstCallMs": 754.5957499999931,
+      "samples": [
+        253.07491600000503,
+        248.24845800000185,
+        249.61145899999974,
+        248.4575840000034,
+        253.01945899999555,
+        250.82566700000461,
+        251.0889160000006,
+        252.36529199999495,
+        253.0713340000002,
+        252.97820800000045
+      ],
+      "warmMs": {
+        "count": 10,
+        "p50": 251.0889160000006,
+        "p95": 253.0713340000002,
+        "max": 253.07491600000503
+      }
+    }
+  ],
+  "warmMs": {
+    "count": 150,
+    "p50": 1.480374999999185,
+    "p95": 484.7665000000052,
+    "max": 536.7152090000018
+  },
+  "listSamples": [
+    232.75962499999878,
+    26.960583000000042,
+    26.941124999997555,
+    28.08137500000157,
+    27.0187919999953,
+    27.433167000002868,
+    26.90362499999901,
+    26.98070899999584,
+    26.739333999998053,
+    26.95570900000166
+  ],
+  "listMs": {
+    "count": 10,
+    "p50": 26.960583000000042,
+    "p95": 28.08137500000157,
+    "max": 232.75962499999878
+  },
+  "probes": [
+    {
+      "probe": "body-only",
+      "messages": 30,
+      "jobs": 30,
+      "rawMs": 111.19054100000358,
+      "pageMs": 6132.555042,
+      "projectionMs": 540.7091250000012,
+      "foreground": [
+        {
+          "intervalMs": 6251.766374999999,
+          "readMs": 130.01483400000143
+        },
+        {
+          "intervalMs": 130.44491700000071,
+          "readMs": 28.30108399999881
+        },
+        {
+          "intervalMs": 55.60199999999895,
+          "readMs": 25.970041999993555
+        },
+        {
+          "intervalMs": 50.77912500000093,
+          "readMs": 27.079750000004424
+        },
+        {
+          "intervalMs": 55.616165999999794,
+          "readMs": 26.41024999999354
+        },
+        {
+          "intervalMs": 50.51037499999802,
+          "readMs": 26.733791999999085
+        },
+        {
+          "intervalMs": 49.83950000000186,
+          "readMs": 26.19412499999453
+        },
+        {
+          "intervalMs": 54.098666999998386,
+          "readMs": 26.279583999996248
+        },
+        {
+          "intervalMs": 55.16883300000336,
+          "readMs": 26.204750000004424
+        },
+        {
+          "intervalMs": 50.753334000000905,
+          "readMs": 26.4094169999953
+        }
+      ],
+      "timerIntervalMs": {
+        "count": 10,
+        "p50": 54.098666999998386,
+        "p95": 130.44491700000071,
+        "max": 6251.766374999999
+      },
+      "readMs": {
+        "count": 10,
+        "p50": 26.4094169999953,
+        "p95": 28.30108399999881,
+        "max": 130.01483400000143
+      }
+    },
+    {
+      "probe": "raw-and-body",
+      "messages": 30,
+      "jobs": 60,
+      "rawMs": 126.81045799999993,
+      "pageMs": 6353.817499999997,
+      "projectionMs": 8889.249625000004,
+      "foreground": [
+        {
+          "intervalMs": 6484.37025,
+          "readMs": 212.9298329999947
+        },
+        {
+          "intervalMs": 212.97870899999543,
+          "readMs": 28.142291000003752
+        },
+        {
+          "intervalMs": 776.8164580000011,
+          "readMs": 269.87479200000234
+        },
+        {
+          "intervalMs": 269.93595800000185,
+          "readMs": 26.612542000002577
+        },
+        {
+          "intervalMs": 704.3322499999995,
+          "readMs": 100.88316699999996
+        },
+        {
+          "intervalMs": 101.00379199999588,
+          "readMs": 27.187958999995317
+        },
+        {
+          "intervalMs": 654.4826670000039,
+          "readMs": 103.42229200000293
+        },
+        {
+          "intervalMs": 103.47658299999603,
+          "readMs": 26.509166999996523
+        },
+        {
+          "intervalMs": 316.57941700000083,
+          "readMs": 98.97579200000473
+        },
+        {
+          "intervalMs": 99.02291600000171,
+          "readMs": 26.71045800000138
+        },
+        {
+          "intervalMs": 269.7000840000037,
+          "readMs": 99.10812499999884
+        },
+        {
+          "intervalMs": 99.18787499999598,
+          "readMs": 26.34062499999709
+        },
+        {
+          "intervalMs": 264.1358330000003,
+          "readMs": 99.43812500000058
+        },
+        {
+          "intervalMs": 99.51629200000025,
+          "readMs": 26.939540999999736
+        },
+        {
+          "intervalMs": 52.26600000000326,
+          "readMs": 25.86320799999521
+        },
+        {
+          "intervalMs": 445.59137499999633,
+          "readMs": 97.95037500000035
+        },
+        {
+          "intervalMs": 98.0258329999997,
+          "readMs": 27.219875000002503
+        },
+        {
+          "intervalMs": 1016.5584170000002,
+          "readMs": 101.39066699999967
+        },
+        {
+          "intervalMs": 103.48529100000451,
+          "readMs": 26.3159169999999
+        },
+        {
+          "intervalMs": 841.4270419999957,
+          "readMs": 100.34504100000049
+        },
+        {
+          "intervalMs": 100.41195800000423,
+          "readMs": 26.175333000006503
+        },
+        {
+          "intervalMs": 446.1137499999895,
+          "readMs": 99.74233299998741
+        },
+        {
+          "intervalMs": 99.82575000000361,
+          "readMs": 26.817832999993698
+        },
+        {
+          "intervalMs": 271.29279200000747,
+          "readMs": 98.31858400000783
+        },
+        {
+          "intervalMs": 98.40754200000083,
+          "readMs": 25.625083999999333
+        },
+        {
+          "intervalMs": 659.0519159999967,
+          "readMs": 97.24629100000311
+        },
+        {
+          "intervalMs": 97.33445900000515,
+          "readMs": 26.845082999992883
+        },
+        {
+          "intervalMs": 454.04745799998636,
+          "readMs": 99.21879199999967
+        },
+        {
+          "intervalMs": 100.19633299999987,
+          "readMs": 26.33124999998836
+        },
+        {
+          "intervalMs": 50.38220900000306,
+          "readMs": 26.29733299999498
+        }
+      ],
+      "timerIntervalMs": {
+        "count": 30,
+        "p50": 212.97870899999543,
+        "p95": 841.4270419999957,
+        "max": 6484.37025
+      },
+      "readMs": {
+        "count": 30,
+        "p50": 27.219875000002503,
+        "p95": 103.42229200000293,
+        "max": 269.87479200000234
+      }
+    }
+  ],
+  "reverseIndexBytes": null,
+  "slowStatements": [
+    {
+      "phase": "account-and-unread",
+      "method": "all",
+      "sql": "WITH page AS MATERIALIZED (SELECT d.id FROM mail_search_documents d  JOIN mail_accounts a ON a.id=d.account_id JOIN mail_messages m ON m.account_id=d.account_id AND m.message_key=d.message_key  WHERE d.account_id IN (?) AND NOT EXISTS(SELECT 1 FROM mail_search_dirty q WHERE q.account_id=d.account_id AND q.message_key=d.message_key) AND ((a.provider='gmail' AND EXISTS(SELECT 1 FROM mail_memberships mm WHERE mm.account_id=d.account_id AND mm.message_key=d.message_key AND mm.folder_id='UNREAD')) OR (a.provider!='gmail' AND m.is_read=0)) ORDER BY d.date DESC,d.account_id,d.message_key LIMIT ? OFFSET ?)\n      SELECT d.account_id,d.message_key,m.locator_json,d.subject,d.date,d.has_attachment,substr(d.body,1,512) AS snippet\n      FROM page CROSS JOIN mail_search_documents d ON d.id=page.id CROSS JOIN mail_messages m ON m.account_id=d.account_id AND m.message_key=d.message_key\n       ORDER BY d.date DESC,d.account_id,d.message_key",
+      "ms": 616.3550419999956
+    },
+    {
+      "phase": "body-only",
+      "method": "run",
+      "sql": "INSERT INTO mail_sync_scope_jobs(account_id,scope_id,generation,job_id)\n      SELECT s.account_id,s.scope_id,s.generation,c.id FROM mail_sync_jobs p\n      JOIN mail_sync_scope_jobs s ON s.account_id=p.account_id AND s.job_id=p.id AND s.generation=p.generation\n      JOIN mail_sync_jobs c ON c.account_id=p.account_id AND c.generation=p.generation AND c.message_key=p.message_key\n      WHERE p.account_id=? AND p.generation=? AND p.message_key=? AND p.kind='raw' AND c.kind IN ('body','attachment')\n      ON CONFLICT DO NOTHING",
+      "ms": 540.043792000004
+    },
+    {
+      "phase": "raw-and-body",
+      "method": "run",
+      "sql": "INSERT INTO mail_sync_scope_jobs(account_id,scope_id,generation,job_id)\n      SELECT s.account_id,s.scope_id,s.generation,c.id FROM mail_sync_jobs p\n      JOIN mail_sync_scope_jobs s ON s.account_id=p.account_id AND s.job_id=p.id AND s.generation=p.generation\n      JOIN mail_sync_jobs c ON c.account_id=p.account_id AND c.generation=p.generation AND c.message_key=p.message_key\n      WHERE p.account_id=? AND p.generation=? AND p.message_key=? AND p.kind='raw' AND c.kind IN ('body','attachment')\n      ON CONFLICT DO NOTHING",
+      "ms": 415.8677499999976
+    },
+    {
+      "phase": "common-keyword",
+      "method": "get",
+      "sql": "SELECT count(*) AS n FROM mail_search_documents d INDEXED BY mail_search_identity  JOIN mail_search_fts ON mail_search_fts.rowid=d.id WHERE d.account_id IN (?,?,?) AND NOT EXISTS(SELECT 1 FROM mail_search_dirty q WHERE q.account_id=d.account_id AND q.message_key=d.message_key) AND mail_search_fts MATCH ?",
+      "ms": 393.7796660000022
+    },
+    {
+      "phase": "raw-and-body",
+      "method": "run",
+      "sql": "INSERT INTO mail_sync_scope_jobs(account_id,scope_id,generation,job_id)\n      SELECT s.account_id,s.scope_id,s.generation,c.id FROM mail_sync_jobs p\n      JOIN mail_sync_scope_jobs s ON s.account_id=p.account_id AND s.job_id=p.id AND s.generation=p.generation\n      JOIN mail_sync_jobs c ON c.account_id=p.account_id AND c.generation=p.generation AND c.message_key=p.message_key\n      WHERE p.account_id=? AND p.generation=? AND p.message_key=? AND p.kind='raw' AND c.kind IN ('body','attachment')\n      ON CONFLICT DO NOTHING",
+      "ms": 320.7928749999992
+    },
+    {
+      "phase": "phrase",
+      "method": "get",
+      "sql": "SELECT count(*) AS n FROM mail_search_documents d INDEXED BY mail_search_identity  JOIN mail_search_fts ON mail_search_fts.rowid=d.id WHERE d.account_id IN (?,?,?) AND NOT EXISTS(SELECT 1 FROM mail_search_dirty q WHERE q.account_id=d.account_id AND q.message_key=d.message_key) AND mail_search_fts MATCH ?",
+      "ms": 302.11962499999936
+    },
+    {
+      "phase": "phrase",
+      "method": "all",
+      "sql": "WITH page AS MATERIALIZED (SELECT d.id FROM mail_search_documents d INDEXED BY mail_search_identity  JOIN mail_search_fts ON mail_search_fts.rowid=d.id WHERE d.account_id IN (?,?,?) AND NOT EXISTS(SELECT 1 FROM mail_search_dirty q WHERE q.account_id=d.account_id AND q.message_key=d.message_key) AND mail_search_fts MATCH ? ORDER BY d.date DESC,d.account_id,d.message_key LIMIT ? OFFSET ?)\n      SELECT d.account_id,d.message_key,m.locator_json,d.subject,d.date,d.has_attachment,snippet(mail_search_fts,1,'','',' … ',32) AS snippet\n      FROM page CROSS JOIN mail_search_documents d ON d.id=page.id CROSS JOIN mail_messages m ON m.account_id=d.account_id AND m.message_key=d.message_key\n      CROSS JOIN mail_search_fts ON mail_search_fts.rowid=d.id WHERE mail_search_fts MATCH ? ORDER BY d.date DESC,d.account_id,d.message_key",
+      "ms": 294.24062499999854
+    },
+    {
+      "phase": "raw-and-body",
+      "method": "run",
+      "sql": "INSERT INTO mail_sync_scope_jobs(account_id,scope_id,generation,job_id)\n      SELECT s.account_id,s.scope_id,s.generation,c.id FROM mail_sync_jobs p\n      JOIN mail_sync_scope_jobs s ON s.account_id=p.account_id AND s.job_id=p.id AND s.generation=p.generation\n      JOIN mail_sync_jobs c ON c.account_id=p.account_id AND c.generation=p.generation AND c.message_key=p.message_key\n      WHERE p.account_id=? AND p.generation=? AND p.message_key=? AND p.kind='raw' AND c.kind IN ('body','attachment')\n      ON CONFLICT DO NOTHING",
+      "ms": 274.1325829999987
+    },
+    {
+      "phase": "raw-and-body",
+      "method": "run",
+      "sql": "INSERT INTO mail_sync_scope_jobs(account_id,scope_id,generation,job_id)\n      SELECT s.account_id,s.scope_id,s.generation,c.id FROM mail_sync_jobs p\n      JOIN mail_sync_scope_jobs s ON s.account_id=p.account_id AND s.job_id=p.id AND s.generation=p.generation\n      JOIN mail_sync_jobs c ON c.account_id=p.account_id AND c.generation=p.generation AND c.message_key=p.message_key\n      WHERE p.account_id=? AND p.generation=? AND p.message_key=? AND p.kind='raw' AND c.kind IN ('body','attachment')\n      ON CONFLICT DO NOTHING",
+      "ms": 255.66045799999847
+    },
+    {
+      "phase": "phrase",
+      "method": "all",
+      "sql": "WITH page AS MATERIALIZED (SELECT d.id FROM mail_search_documents d INDEXED BY mail_search_identity  JOIN mail_search_fts ON mail_search_fts.rowid=d.id WHERE d.account_id IN (?,?,?) AND NOT EXISTS(SELECT 1 FROM mail_search_dirty q WHERE q.account_id=d.account_id AND q.message_key=d.message_key) AND mail_search_fts MATCH ? ORDER BY d.date DESC,d.account_id,d.message_key LIMIT ? OFFSET ?)\n      SELECT d.account_id,d.message_key,m.locator_json,d.subject,d.date,d.has_attachment,snippet(mail_search_fts,1,'','',' … ',32) AS snippet\n      FROM page CROSS JOIN mail_search_documents d ON d.id=page.id CROSS JOIN mail_messages m ON m.account_id=d.account_id AND m.message_key=d.message_key\n      CROSS JOIN mail_search_fts ON mail_search_fts.rowid=d.id WHERE mail_search_fts MATCH ? ORDER BY d.date DESC,d.account_id,d.message_key",
+      "ms": 251.61441699999705
+    },
+    {
+      "phase": "phrase",
+      "method": "all",
+      "sql": "WITH page AS MATERIALIZED (SELECT d.id FROM mail_search_documents d INDEXED BY mail_search_identity  JOIN mail_search_fts ON mail_search_fts.rowid=d.id WHERE d.account_id IN (?,?,?) AND NOT EXISTS(SELECT 1 FROM mail_search_dirty q WHERE q.account_id=d.account_id AND q.message_key=d.message_key) AND mail_search_fts MATCH ? ORDER BY d.date DESC,d.account_id,d.message_key LIMIT ? OFFSET ?)\n      SELECT d.account_id,d.message_key,m.locator_json,d.subject,d.date,d.has_attachment,snippet(mail_search_fts,1,'','',' … ',32) AS snippet\n      FROM page CROSS JOIN mail_search_documents d ON d.id=page.id CROSS JOIN mail_messages m ON m.account_id=d.account_id AND m.message_key=d.message_key\n      CROSS JOIN mail_search_fts ON mail_search_fts.rowid=d.id WHERE mail_search_fts MATCH ? ORDER BY d.date DESC,d.account_id,d.message_key",
+      "ms": 250.98949999999604
+    },
+    {
+      "phase": "phrase",
+      "method": "all",
+      "sql": "WITH page AS MATERIALIZED (SELECT d.id FROM mail_search_documents d INDEXED BY mail_search_identity  JOIN mail_search_fts ON mail_search_fts.rowid=d.id WHERE d.account_id IN (?,?,?) AND NOT EXISTS(SELECT 1 FROM mail_search_dirty q WHERE q.account_id=d.account_id AND q.message_key=d.message_key) AND mail_search_fts MATCH ? ORDER BY d.date DESC,d.account_id,d.message_key LIMIT ? OFFSET ?)\n      SELECT d.account_id,d.message_key,m.locator_json,d.subject,d.date,d.has_attachment,snippet(mail_search_fts,1,'','',' … ',32) AS snippet\n      FROM page CROSS JOIN mail_search_documents d ON d.id=page.id CROSS JOIN mail_messages m ON m.account_id=d.account_id AND m.message_key=d.message_key\n      CROSS JOIN mail_search_fts ON mail_search_fts.rowid=d.id WHERE mail_search_fts MATCH ? ORDER BY d.date DESC,d.account_id,d.message_key",
+      "ms": 250.65716700000485
+    },
+    {
+      "phase": "phrase",
+      "method": "all",
+      "sql": "WITH page AS MATERIALIZED (SELECT d.id FROM mail_search_documents d INDEXED BY mail_search_identity  JOIN mail_search_fts ON mail_search_fts.rowid=d.id WHERE d.account_id IN (?,?,?) AND NOT EXISTS(SELECT 1 FROM mail_search_dirty q WHERE q.account_id=d.account_id AND q.message_key=d.message_key) AND mail_search_fts MATCH ? ORDER BY d.date DESC,d.account_id,d.message_key LIMIT ? OFFSET ?)\n      SELECT d.account_id,d.message_key,m.locator_json,d.subject,d.date,d.has_attachment,snippet(mail_search_fts,1,'','',' … ',32) AS snippet\n      FROM page CROSS JOIN mail_search_documents d ON d.id=page.id CROSS JOIN mail_messages m ON m.account_id=d.account_id AND m.message_key=d.message_key\n      CROSS JOIN mail_search_fts ON mail_search_fts.rowid=d.id WHERE mail_search_fts MATCH ? ORDER BY d.date DESC,d.account_id,d.message_key",
+      "ms": 250.33841699999903
+    },
+    {
+      "phase": "phrase",
+      "method": "all",
+      "sql": "WITH page AS MATERIALIZED (SELECT d.id FROM mail_search_documents d INDEXED BY mail_search_identity  JOIN mail_search_fts ON mail_search_fts.rowid=d.id WHERE d.account_id IN (?,?,?) AND NOT EXISTS(SELECT 1 FROM mail_search_dirty q WHERE q.account_id=d.account_id AND q.message_key=d.message_key) AND mail_search_fts MATCH ? ORDER BY d.date DESC,d.account_id,d.message_key LIMIT ? OFFSET ?)\n      SELECT d.account_id,d.message_key,m.locator_json,d.subject,d.date,d.has_attachment,snippet(mail_search_fts,1,'','',' … ',32) AS snippet\n      FROM page CROSS JOIN mail_search_documents d ON d.id=page.id CROSS JOIN mail_messages m ON m.account_id=d.account_id AND m.message_key=d.message_key\n      CROSS JOIN mail_search_fts ON mail_search_fts.rowid=d.id WHERE mail_search_fts MATCH ? ORDER BY d.date DESC,d.account_id,d.message_key",
+      "ms": 249.7355000000025
+    },
+    {
+      "phase": "phrase",
+      "method": "all",
+      "sql": "WITH page AS MATERIALIZED (SELECT d.id FROM mail_search_documents d INDEXED BY mail_search_identity  JOIN mail_search_fts ON mail_search_fts.rowid=d.id WHERE d.account_id IN (?,?,?) AND NOT EXISTS(SELECT 1 FROM mail_search_dirty q WHERE q.account_id=d.account_id AND q.message_key=d.message_key) AND mail_search_fts MATCH ? ORDER BY d.date DESC,d.account_id,d.message_key LIMIT ? OFFSET ?)\n      SELECT d.account_id,d.message_key,m.locator_json,d.subject,d.date,d.has_attachment,snippet(mail_search_fts,1,'','',' … ',32) AS snippet\n      FROM page CROSS JOIN mail_search_documents d ON d.id=page.id CROSS JOIN mail_messages m ON m.account_id=d.account_id AND m.message_key=d.message_key\n      CROSS JOIN mail_search_fts ON mail_search_fts.rowid=d.id WHERE mail_search_fts MATCH ? ORDER BY d.date DESC,d.account_id,d.message_key",
+      "ms": 249.30595800000447
+    },
+    {
+      "phase": "phrase",
+      "method": "all",
+      "sql": "WITH page AS MATERIALIZED (SELECT d.id FROM mail_search_documents d INDEXED BY mail_search_identity  JOIN mail_search_fts ON mail_search_fts.rowid=d.id WHERE d.account_id IN (?,?,?) AND NOT EXISTS(SELECT 1 FROM mail_search_dirty q WHERE q.account_id=d.account_id AND q.message_key=d.message_key) AND mail_search_fts MATCH ? ORDER BY d.date DESC,d.account_id,d.message_key LIMIT ? OFFSET ?)\n      SELECT d.account_id,d.message_key,m.locator_json,d.subject,d.date,d.has_attachment,snippet(mail_search_fts,1,'','',' … ',32) AS snippet\n      FROM page CROSS JOIN mail_search_documents d ON d.id=page.id CROSS JOIN mail_messages m ON m.account_id=d.account_id AND m.message_key=d.message_key\n      CROSS JOIN mail_search_fts ON mail_search_fts.rowid=d.id WHERE mail_search_fts MATCH ? ORDER BY d.date DESC,d.account_id,d.message_key",
+      "ms": 249.18962499999907
+    },
+    {
+      "phase": "phrase",
+      "method": "all",
+      "sql": "WITH page AS MATERIALIZED (SELECT d.id FROM mail_search_documents d INDEXED BY mail_search_identity  JOIN mail_search_fts ON mail_search_fts.rowid=d.id WHERE d.account_id IN (?,?,?) AND NOT EXISTS(SELECT 1 FROM mail_search_dirty q WHERE q.account_id=d.account_id AND q.message_key=d.message_key) AND mail_search_fts MATCH ? ORDER BY d.date DESC,d.account_id,d.message_key LIMIT ? OFFSET ?)\n      SELECT d.account_id,d.message_key,m.locator_json,d.subject,d.date,d.has_attachment,snippet(mail_search_fts,1,'','',' … ',32) AS snippet\n      FROM page CROSS JOIN mail_search_documents d ON d.id=page.id CROSS JOIN mail_messages m ON m.account_id=d.account_id AND m.message_key=d.message_key\n      CROSS JOIN mail_search_fts ON mail_search_fts.rowid=d.id WHERE mail_search_fts MATCH ? ORDER BY d.date DESC,d.account_id,d.message_key",
+      "ms": 248.755084000004
+    },
+    {
+      "phase": "phrase",
+      "method": "all",
+      "sql": "WITH page AS MATERIALIZED (SELECT d.id FROM mail_search_documents d INDEXED BY mail_search_identity  JOIN mail_search_fts ON mail_search_fts.rowid=d.id WHERE d.account_id IN (?,?,?) AND NOT EXISTS(SELECT 1 FROM mail_search_dirty q WHERE q.account_id=d.account_id AND q.message_key=d.message_key) AND mail_search_fts MATCH ? ORDER BY d.date DESC,d.account_id,d.message_key LIMIT ? OFFSET ?)\n      SELECT d.account_id,d.message_key,m.locator_json,d.subject,d.date,d.has_attachment,snippet(mail_search_fts,1,'','',' … ',32) AS snippet\n      FROM page CROSS JOIN mail_search_documents d ON d.id=page.id CROSS JOIN mail_messages m ON m.account_id=d.account_id AND m.message_key=d.message_key\n      CROSS JOIN mail_search_fts ON mail_search_fts.rowid=d.id WHERE mail_search_fts MATCH ? ORDER BY d.date DESC,d.account_id,d.message_key",
+      "ms": 247.69029099999898
+    },
+    {
+      "phase": "phrase",
+      "method": "all",
+      "sql": "WITH page AS MATERIALIZED (SELECT d.id FROM mail_search_documents d INDEXED BY mail_search_identity  JOIN mail_search_fts ON mail_search_fts.rowid=d.id WHERE d.account_id IN (?,?,?) AND NOT EXISTS(SELECT 1 FROM mail_search_dirty q WHERE q.account_id=d.account_id AND q.message_key=d.message_key) AND mail_search_fts MATCH ? ORDER BY d.date DESC,d.account_id,d.message_key LIMIT ? OFFSET ?)\n      SELECT d.account_id,d.message_key,m.locator_json,d.subject,d.date,d.has_attachment,snippet(mail_search_fts,1,'','',' … ',32) AS snippet\n      FROM page CROSS JOIN mail_search_documents d ON d.id=page.id CROSS JOIN mail_messages m ON m.account_id=d.account_id AND m.message_key=d.message_key\n      CROSS JOIN mail_search_fts ON mail_search_fts.rowid=d.id WHERE mail_search_fts MATCH ? ORDER BY d.date DESC,d.account_id,d.message_key",
+      "ms": 246.85058299999946
+    },
+    {
+      "phase": "phrase",
+      "method": "get",
+      "sql": "SELECT count(*) AS n FROM mail_search_documents d INDEXED BY mail_search_identity  JOIN mail_search_fts ON mail_search_fts.rowid=d.id WHERE d.account_id IN (?,?,?) AND NOT EXISTS(SELECT 1 FROM mail_search_dirty q WHERE q.account_id=d.account_id AND q.message_key=d.message_key) AND mail_search_fts MATCH ?",
+      "ms": 240.2900410000002
+    },
+    {
+      "phase": "phrase",
+      "method": "get",
+      "sql": "SELECT count(*) AS n FROM mail_search_documents d INDEXED BY mail_search_identity  JOIN mail_search_fts ON mail_search_fts.rowid=d.id WHERE d.account_id IN (?,?,?) AND NOT EXISTS(SELECT 1 FROM mail_search_dirty q WHERE q.account_id=d.account_id AND q.message_key=d.message_key) AND mail_search_fts MATCH ?",
+      "ms": 235.76870800000324
+    },
+    {
+      "phase": "phrase",
+      "method": "get",
+      "sql": "SELECT count(*) AS n FROM mail_search_documents d INDEXED BY mail_search_identity  JOIN mail_search_fts ON mail_search_fts.rowid=d.id WHERE d.account_id IN (?,?,?) AND NOT EXISTS(SELECT 1 FROM mail_search_dirty q WHERE q.account_id=d.account_id AND q.message_key=d.message_key) AND mail_search_fts MATCH ?",
+      "ms": 235.76154099999985
+    },
+    {
+      "phase": "phrase",
+      "method": "get",
+      "sql": "SELECT count(*) AS n FROM mail_search_documents d INDEXED BY mail_search_identity  JOIN mail_search_fts ON mail_search_fts.rowid=d.id WHERE d.account_id IN (?,?,?) AND NOT EXISTS(SELECT 1 FROM mail_search_dirty q WHERE q.account_id=d.account_id AND q.message_key=d.message_key) AND mail_search_fts MATCH ?",
+      "ms": 235.69491600000038
+    },
+    {
+      "phase": "phrase",
+      "method": "get",
+      "sql": "SELECT count(*) AS n FROM mail_search_documents d INDEXED BY mail_search_identity  JOIN mail_search_fts ON mail_search_fts.rowid=d.id WHERE d.account_id IN (?,?,?) AND NOT EXISTS(SELECT 1 FROM mail_search_dirty q WHERE q.account_id=d.account_id AND q.message_key=d.message_key) AND mail_search_fts MATCH ?",
+      "ms": 235.6484999999957
+    },
+    {
+      "phase": "raw-and-body",
+      "method": "all",
+      "sql": "WITH received AS (\n        SELECT m.*, CASE WHEN ar.received_at >= 0 THEN ar.received_at WHEN im.internal_date >= 0 THEN im.internal_date WHEN gm.internal_date >= 0 THEN gm.internal_date\n          WHEN unixepoch(json_extract(gr.metadata_json,'$.receivedDateTime'),'subsec')>=0 THEN CAST(unixepoch(json_extract(gr.metadata_json,'$.receivedDateTime'),'subsec')*1000 AS INTEGER) ELSE NULL END AS received_at\n        FROM mail_messages m LEFT JOIN mail_archive_messages ar ON ar.account_id=m.account_id AND ar.message_key=m.message_key LEFT JOIN mail_gmail_metadata gm ON gm.account_id=m.account_id AND gm.message_key=m.message_key\n        LEFT JOIN mail_imap_messages im ON im.account_id=m.account_id AND im.message_key=m.message_key\n        LEFT JOIN mail_graph_messages gr ON gr.account_id=m.account_id AND gr.message_key=m.message_key WHERE m.account_id=?\n      ) SELECT m.message_key,m.locator_json,m.received_at,m.is_read FROM received m\n      WHERE (? IS NULL OR coalesce(m.received_at,-1)<? OR (coalesce(m.received_at,-1)=? AND m.message_key>?))\n      AND (?=1 OR NOT EXISTS(SELECT 1 FROM mail_tombstones t WHERE t.account_id=m.account_id AND t.message_key=m.message_key))\n      AND (? IS NULL OR m.thread_id=?) AND (? IS NULL OR EXISTS(SELECT 1 FROM mail_memberships f WHERE f.account_id=m.account_id AND f.message_key=m.message_key AND f.folder_id=?))\n      AND (?=0 OR EXISTS(SELECT 1 FROM mail_memberships f JOIN mail_folders ff ON ff.account_id=f.account_id AND ff.id=f.folder_id WHERE f.account_id=m.account_id AND f.message_key=m.message_key AND ff.role='inbox'))\n      ORDER BY coalesce(m.received_at,-1) DESC,m.message_key LIMIT ?",
+      "ms": 235.39354200000525
+    },
+    {
+      "phase": "phrase",
+      "method": "get",
+      "sql": "SELECT count(*) AS n FROM mail_search_documents d INDEXED BY mail_search_identity  JOIN mail_search_fts ON mail_search_fts.rowid=d.id WHERE d.account_id IN (?,?,?) AND NOT EXISTS(SELECT 1 FROM mail_search_dirty q WHERE q.account_id=d.account_id AND q.message_key=d.message_key) AND mail_search_fts MATCH ?",
+      "ms": 235.2284589999981
+    },
+    {
+      "phase": "phrase",
+      "method": "get",
+      "sql": "SELECT count(*) AS n FROM mail_search_documents d INDEXED BY mail_search_identity  JOIN mail_search_fts ON mail_search_fts.rowid=d.id WHERE d.account_id IN (?,?,?) AND NOT EXISTS(SELECT 1 FROM mail_search_dirty q WHERE q.account_id=d.account_id AND q.message_key=d.message_key) AND mail_search_fts MATCH ?",
+      "ms": 234.6929170000003
+    },
+    {
+      "phase": "raw-and-body",
+      "method": "run",
+      "sql": "INSERT INTO mail_sync_scope_jobs(account_id,scope_id,generation,job_id)\n      SELECT s.account_id,s.scope_id,s.generation,c.id FROM mail_sync_jobs p\n      JOIN mail_sync_scope_jobs s ON s.account_id=p.account_id AND s.job_id=p.id AND s.generation=p.generation\n      JOIN mail_sync_jobs c ON c.account_id=p.account_id AND c.generation=p.generation AND c.message_key=p.message_key\n      WHERE p.account_id=? AND p.generation=? AND p.message_key=? AND p.kind='raw' AND c.kind IN ('body','attachment')\n      ON CONFLICT DO NOTHING",
+      "ms": 234.44829200000095
+    },
+    {
+      "phase": "phrase",
+      "method": "get",
+      "sql": "SELECT count(*) AS n FROM mail_search_documents d INDEXED BY mail_search_identity  JOIN mail_search_fts ON mail_search_fts.rowid=d.id WHERE d.account_id IN (?,?,?) AND NOT EXISTS(SELECT 1 FROM mail_search_dirty q WHERE q.account_id=d.account_id AND q.message_key=d.message_key) AND mail_search_fts MATCH ?",
+      "ms": 234.28462500000023
+    },
+    {
+      "phase": "phrase",
+      "method": "get",
+      "sql": "SELECT count(*) AS n FROM mail_search_documents d INDEXED BY mail_search_identity  JOIN mail_search_fts ON mail_search_fts.rowid=d.id WHERE d.account_id IN (?,?,?) AND NOT EXISTS(SELECT 1 FROM mail_search_dirty q WHERE q.account_id=d.account_id AND q.message_key=d.message_key) AND mail_search_fts MATCH ?",
+      "ms": 234.21895799999766
+    }
+  ],
+  "host": {
+    "cpu": "Apple M3 Max",
+    "logicalCpus": 14,
+    "totalMemoryBytes": 38654705664,
+    "os": "24.6.0",
+    "node": "24.11.0"
+  },
+  "limits": "Disposable clone only; no full ingestion/extraction/indexing repeat, no IPC or UI timing, no OS-cache flush or hardware-reference certification. Timer intervals include synchronous foreground reads. Raw-parent probe uses already stored synthetic raw and does not download."
+}
