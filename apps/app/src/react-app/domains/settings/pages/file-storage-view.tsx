@@ -390,6 +390,7 @@ function StorageConnectionDialog({
   const [error, setError] = useState("");
   const [tested, setTested] = useState(false);
   const Icon = storageIcons[kind];
+  const providerName = provider?.name ?? storageLabel(kind);
   const change = (key: string, value: string) => {
     setTested(false);
     setError("");
@@ -449,11 +450,11 @@ function StorageConnectionDialog({
             <ChevronRight className="size-3" />
             <span>{t(forTeam ? "firm_hub.scope_team" : "firm_hub.scope_local")}</span>
             <ChevronRight className="size-3" />
-            <span>{storageLabel(kind)}</span>
+            <span>{providerName}</span>
           </div>
           <DialogTitle className="flex items-center gap-3 text-xl">
             <Icon className="size-5 text-muted-foreground" />
-            {connection ? t("storage.edit_title") : t("storage.connect_provider", { provider: storageLabel(kind) })}
+            {connection ? t("storage.edit_title") : t("storage.connect_provider", { provider: providerName })}
           </DialogTitle>
           <DialogDescription>{storageDescription(kind)}</DialogDescription>
         </DialogHeader>
@@ -681,10 +682,10 @@ function StorageConnectionDialog({
           )}
         </form>
         <DialogFooter className="mx-0 mb-0 shrink-0 flex-wrap border-t border-border bg-muted/20 p-4">
-          <Button variant="outline" disabled={Boolean(busy)} onClick={() => void submit(true)} className="sm:mr-auto">
+          {kind !== "oauth" && <Button variant="outline" disabled={Boolean(busy)} onClick={() => void submit(true)} className="sm:mr-auto">
             {busy === "test" ? <Loader2 className="size-4 animate-spin" /> : <RefreshCw className="size-4" />}
             {t("storage.test")}
-          </Button>
+          </Button>}
           <Button variant="ghost" disabled={Boolean(busy)} onClick={onClose}>
             {t("common.cancel")}
           </Button>
