@@ -1,5 +1,5 @@
 import {test} from 'node:test';import assert from 'node:assert/strict';import {randomBytes} from 'node:crypto';import {mkdtemp,rm,readFile} from 'node:fs/promises';import {tmpdir} from 'node:os';import {join} from 'node:path';import {setTimeout as delay} from 'node:timers/promises';
-import {openEncryptedMailDatabase} from './database.js';import {migrateMailSchema} from './schema.js';import {MailRepository} from './repository.js';import {MailContentStore} from './content-store.js';import {MimeProjectionStore} from './mime-projection-store.js';import {MailExtractionStore} from './extraction.js';import {MailExtractionRunner} from '../runtime/extraction-runner.js';import {MailSearchStore} from './search.js';import {MailSearchIndexer} from '../runtime/search-indexer.js';import {MailCredentialRepository} from './credentials.js';
+import {openEncryptedMailDatabase} from './database.js';import {migrateMailSchema,MAIL_SCHEMA_VERSION} from './schema.js';import {MailRepository} from './repository.js';import {MailContentStore} from './content-store.js';import {MimeProjectionStore} from './mime-projection-store.js';import {MailExtractionStore} from './extraction.js';import {MailExtractionRunner} from '../runtime/extraction-runner.js';import {MailSearchStore} from './search.js';import {MailSearchIndexer} from '../runtime/search-indexer.js';import {MailCredentialRepository} from './credentials.js';
 const locator={provider:'gmail',messageId:'one'},metadata={subject:'Original subject',from:'sender@example.test',to:'recipient@example.test',cc:null,bcc:null,replyTo:null,date:null,messageId:null};
 const result=text=>({version:'local-text-v1',sections:[{source:'text',method:'text',text}]});
 async function fixture(body){const dir=await mkdtemp(join(tmpdir(),'mail-extraction-')),path=join(dir,'mail.sqlite'),key=randomBytes(32);let db=await openEncryptedMailDatabase({path,key});migrateMailSchema(db);const runners=[];const f={get db(){return db;},path,runner(){const runner=new MailExtractionRunner(db,'owner');runners.push(runner);return runner;},store(now){return new MailExtractionStore(db,'owner',now);},async reopen(){for(const runner of runners)await runner.close();db.close();db=await openEncryptedMailDatabase({path,key});},async seed(accountId,contents='PRIVATE_ATTACHMENT_SEARCH_Kündigung',filename='brief.txt'){
@@ -36,4 +36,24 @@ test('actual IMAP credential generation and archive lock fence extraction withou
  assert.throws(()=>store.finish(lease,result('late IMAP secret')),{code:'locked'});assert.throws(()=>store.status(accountId,source.request),{code:'locked'});assert.equal(store.claim(),null);
  f.db.run("UPDATE mail_imap_credentials SET generation='generation-3',revision=3,state='connected',archive_locked=0,password='synthetic-new' WHERE account_id=?",[accountId]);assert.throws(()=>store.finish(lease,result('old reconnect result')),{code:'stale'});
  store.reset(accountId,source.request);const fresh=store.claim();assert.equal(fresh.credentialGeneration,'generation-3');store.finish(fresh,result('new generation text'));await f.reopen();assert.equal(f.store().read(accountId,source.request).text,'new generation text');
+}));
+
+
+test('schema29 repairs historical replay triggers atomically and retains complete/failed extraction through reopen',()=>fixture(async f=>{
+ const complete=await f.seed('a','complete text'),failed=await f.seed('b','failed text'),store=f.store();
+ store.finish(store.claim(),result('complete text'));store.finish(store.claim(),'unsupported');
+ const before=f.db.all('SELECT * FROM mail_attachment_extractions ORDER BY account_id');
+ // Recreate the exact deployed v28 UPDATE trigger, not a fresh-schema approximation.
+ f.db.exec("DROP TRIGGER mail_extraction_manifest_update; CREATE TRIGGER mail_extraction_manifest_update AFTER UPDATE ON mail_content_manifests WHEN NEW.kind='attachment' AND NEW.state='stored' AND NEW.ref_id IS NOT NULL BEGIN INSERT OR IGNORE INTO mail_attachment_extractions(account_id,message_key,part_id,ref_id,extractor,state) VALUES(NEW.account_id,NEW.message_key,NEW.part_id,NEW.ref_id,'local-text-v1','queued'); END;");
+ f.db.run('UPDATE mail_schema_version SET version=28');
+ const repository=new MailRepository(f.db,'owner'),publish=()=>repository.putContent('a',locator,{kind:'attachment',partId:'p',state:'stored',reference:complete.attachment});
+ assert.throws(publish,/UNIQUE constraint failed/);
+ const broken={...f.db,exec(sql){f.db.exec(sql);if(sql.includes('DROP TRIGGER mail_extraction_manifest_insert'))throw Error('interrupted trigger migration');}};
+ assert.throws(()=>migrateMailSchema(broken),/interrupted/);assert.equal(f.db.get('SELECT version FROM mail_schema_version').version,28);assert.throws(publish,/UNIQUE constraint failed/);
+ assert.deepEqual(f.db.all('SELECT * FROM mail_attachment_extractions ORDER BY account_id'),before);
+ migrateMailSchema(f.db);migrateMailSchema(f.db);publish();repository.putContent('b',locator,{kind:'attachment',partId:'p',state:'stored',reference:failed.attachment});
+ assert.deepEqual(f.db.all('SELECT * FROM mail_attachment_extractions ORDER BY account_id'),before);assert.equal(store.read('a',complete.request).text,'complete text');assert.equal(store.status('b',failed.request).state,'failed');
+ await f.reopen();assert.equal(f.db.get('SELECT version FROM mail_schema_version').version,MAIL_SCHEMA_VERSION);assert.deepEqual(f.db.all('SELECT * FROM mail_attachment_extractions ORDER BY account_id'),before);
+ const changed=await f.part('a',complete.raw,'replacement attachment');assert.notEqual(changed.attachment.id,complete.attachment.id);assert.equal(f.store().status('a',changed.request).state,'queued');assert.throws(()=>f.store().read('a',complete.request),{code:'not_found'});
+ f.store().finish(f.store().claim(),result('replacement attachment'));assert.equal(f.store().read('a',changed.request).text,'replacement attachment');assert.equal(f.db.get("SELECT result_json FROM mail_attachment_extractions WHERE account_id='a' AND ref_id=?",[complete.attachment.id]).result_json,before[0].result_json);assert.deepEqual(f.db.all('PRAGMA foreign_key_check'),[]);
 }));

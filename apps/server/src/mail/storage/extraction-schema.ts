@@ -23,3 +23,16 @@ CREATE TRIGGER mail_extraction_changed AFTER UPDATE ON mail_attachment_extractio
  INSERT INTO mail_local_events SELECT NEW.account_id,coalesce(max(sequence),0)+1,'message.changed',NEW.message_key,NULL,NULL,NULL FROM mail_local_events WHERE account_id=NEW.account_id;
 END;
 `;
+
+/** An outer manifest UPSERT overrides trigger OR IGNORE; explicit UPSERT keeps
+ * already extracted or failed same-reference work intact during provider replay. */
+export const EXTRACTION_REPLAY_SCHEMA_SQL = `
+DROP TRIGGER mail_extraction_manifest_insert;
+DROP TRIGGER mail_extraction_manifest_update;
+CREATE TRIGGER mail_extraction_manifest_insert AFTER INSERT ON mail_content_manifests WHEN NEW.kind='attachment' AND NEW.state='stored' AND NEW.ref_id IS NOT NULL BEGIN
+ INSERT INTO mail_attachment_extractions(account_id,message_key,part_id,ref_id,extractor,state) VALUES(NEW.account_id,NEW.message_key,NEW.part_id,NEW.ref_id,'local-text-v1','queued') ON CONFLICT(account_id,message_key,part_id,ref_id,extractor) DO NOTHING;
+END;
+CREATE TRIGGER mail_extraction_manifest_update AFTER UPDATE ON mail_content_manifests WHEN NEW.kind='attachment' AND NEW.state='stored' AND NEW.ref_id IS NOT NULL BEGIN
+ INSERT INTO mail_attachment_extractions(account_id,message_key,part_id,ref_id,extractor,state) VALUES(NEW.account_id,NEW.message_key,NEW.part_id,NEW.ref_id,'local-text-v1','queued') ON CONFLICT(account_id,message_key,part_id,ref_id,extractor) DO NOTHING;
+END;
+`;
