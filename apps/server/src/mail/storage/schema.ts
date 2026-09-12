@@ -1,3 +1,4 @@
+import {MAIL_NOTIFICATION_SCHEMA_SQL} from './notification-schema.js';
 import {OUTBOX_SCHEMA_SQL} from './outbox-schema.js';
 import {SENDER_IDENTITY_SQL} from './sender-identities.js';
 import {SEARCH_PERFORMANCE_SCHEMA_SQL} from './search-performance-schema.js';
@@ -13,7 +14,7 @@ import { MAIL_LOCAL_SCHEMA_SQL } from "./local-schema.js";
 import { GRAPH_SCHEMA_SQL } from "./graph-state.js";
 import type { MailDatabase } from "./database-interface.js";
 
-export const MAIL_SCHEMA_VERSION = 21;
+export const MAIL_SCHEMA_VERSION = 22;
 
 /** Dedicated mail database only. Every DDL/version write shares one transaction. */
 export function migrateMailSchema(database: MailDatabase): void {
@@ -278,6 +279,7 @@ export function migrateMailSchema(database: MailDatabase): void {
     if (version < 19) database.exec(SEARCH_PERFORMANCE_SCHEMA_SQL);
     if(version<20)database.exec(SENDER_IDENTITY_SQL);
     if(version<21)database.exec(OUTBOX_SCHEMA_SQL);
+    if(version<22)database.exec(MAIL_NOTIFICATION_SCHEMA_SQL);
     database.run("INSERT INTO mail_schema_version(singleton,version) VALUES(1,?) ON CONFLICT(singleton) DO UPDATE SET version=excluded.version", [MAIL_SCHEMA_VERSION]);
   });
 }
