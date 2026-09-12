@@ -27,3 +27,19 @@ test('provider received order, real inbox roles, unknown dates and large-frame c
  service=new LocalMailService({ownerId:'owner',databasePath:path,loadKey:async()=>Buffer.from(key),executable:{kind:'node',path:process.execPath},entryPoint:fileURLToPath(new URL('../runtime/worker.js',import.meta.url))});await service.unlock();let after;const seen=[];let first=true;do{const page=await service.listMessages('a',{order:'received',limit:25,...(after?{after}:{})});if(first){assert.ok(page.items.length<25);first=false;}seen.push(...page.items.map(item=>item.locator.messageId));after=page.nextCursor;if(after)assert.equal(JSON.parse(after).length,2);}while(after);assert.deepEqual(seen,expected);assert.equal(new Set(seen).size,41);await assert.rejects(service.listMessages('foreign',{order:'received'}));
  }finally{await service?.stop();db?.close();key.fill(0);await rm(dir,{recursive:true,force:true});}
 });
+
+test('conversation pages group the whole account thread, preserve singletons and include replies outside Inbox',async()=>{
+ const dir=await mkdtemp(join(tmpdir(),'mail-conversations-')),key=randomBytes(32);let db;
+ try{
+  db=await openEncryptedMailDatabase({path:join(dir,'mail.sqlite'),key});migrateMailSchema(db);
+  const repo=new MailRepository(db,'owner');for(const account of ['a','b']){repo.createAccount({id:account,provider:'gmail',displayName:account});for(const id of ['INBOX','SENT','UNREAD'])repo.putFolder(account,{id,name:id,kind:'label'});}
+  const add=(account,id,threadId,stamp,memberships)=>{repo.ingestMessage(account,{locator:{provider:'gmail',messageId:id},subject:'Same subject',threadId,rfcMessageId:null,memberships});db.run('INSERT INTO mail_gmail_metadata(account_id,message_key,internal_date,thread_id,label_ids_json) VALUES(?,?,?,?,?)',[account,JSON.stringify(['gmail',id]),stamp,threadId??'single','[]']);};
+  for(let i=0;i<31;i++)add('a','reply'+i,'shared-thread',100+i,i===30?['SENT']:['INBOX',...(i<2?['UNREAD']:[])]);
+  add('b','foreign','shared-thread',999,['INBOX','UNREAD']);add('a','solo1',null,10,['INBOX']);add('a','solo2',null,9,['INBOX']);
+  const store=new MailReadStore(db,'owner');const first=store.list('a',{conversations:true,order:'received',inboxOnly:true,limit:1});
+  assert.equal(first.items.length,1);assert.equal(first.items[0].locator.messageId,'reply30');assert.deepEqual(first.items[0].conversation,{count:31,unreadCount:2});
+  const rest=store.list('a',{conversations:true,order:'received',inboxOnly:true,limit:10,after:first.nextCursor});assert.deepEqual(rest.items.map(value=>value.locator.messageId),['solo1','solo2']);
+  assert.deepEqual(store.list('b',{conversations:true,order:'received',inboxOnly:true}).items[0].conversation,{count:1,unreadCount:1});
+  assert.equal(store.list('a',{threadId:'shared-thread',order:'received',limit:100}).items.length,31);
+ }finally{db?.close();key.fill(0);await rm(dir,{recursive:true,force:true});}
+});
