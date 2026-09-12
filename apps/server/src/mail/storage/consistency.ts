@@ -26,6 +26,9 @@ const size = z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER);
 const hash = z.string().regex(/^[0-9a-f]{64}$/);
 // Static identifiers only. Never interpolate provider values or schema-discovered names into SQL.
 const requiredColumns: Record<string, string[]> = {
+  mail_smtp_credentials:["account_id","generation","revision","account_generation","settings_json","password"],
+  mail_outbox:["account_id","action_id","draft_id","draft_generation","draft_revision","message_id","mime_bytes","api_mime_bytes","envelope_json","content_json","credential_generation","smtp_generation","preparation_json","result_json","error","created_at","updated_at"],
+  mail_outbox_attempts:["account_id","action_id","attempt","started_at","finished_at","phase","error"],
   mail_sender_identities:["account_id","id","address","display_name","source","generation","active","signature","default_new","default_reply"],
   mail_draft_sync:["account_id","draft_id","state","revision","remote_json","dispatch_id","dispatch_raw","dispatch_generation","dispatch_revision","conflict_raw"],
   mail_graph_poll: ["account_id","phase","root_id","apply_after","poll_at"],
