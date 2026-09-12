@@ -215,6 +215,7 @@ export function resultMatchesCommand(command: WorkerCommand, value: WorkerResult
     case 'mail.extraction.status':case 'mail.extraction.reset':return 'extraction' in value&&value.extraction.accountId===command.accountId&&JSON.stringify(value.extraction.locator)===JSON.stringify(command.input.locator)&&value.extraction.partId===command.input.partId&&value.extraction.referenceId===command.input.referenceId;
     case 'mail.extraction.read':return 'extractionText' in value&&value.extractionText.status.accountId===command.accountId&&JSON.stringify(value.extractionText.status.locator)===JSON.stringify(command.input.locator)&&value.extractionText.status.partId===command.input.partId&&value.extractionText.status.referenceId===command.input.referenceId&&value.extractionText.section===(command.input.section??0)&&value.extractionText.offset===(command.input.offset??0)&&value.extractionText.text.length<=(command.input.limit??4096);
 
+    case "mail.local.draft.upload":
     case "mail.local.draft.save":
     case "mail.local.draft.read":
     case "mail.local.draft.delete":

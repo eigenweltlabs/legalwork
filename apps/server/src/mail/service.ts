@@ -1,3 +1,4 @@
+import type {MailUpload} from "./local-view.js";
 import type {SavedSearchInput} from './saved-search-view.js';
 import type {ImapConnection} from './providers/imap-config.js';
 import type {MailExtractionRequest,MailExtractionRead} from "./extraction-view.js";
@@ -142,6 +143,7 @@ export class LocalMailService implements MailService {
   async extractionStatus(accountId:string,input:MailExtractionRequest){const result=await this.request({operation:'mail.extraction.status',accountId,input});if(!('extraction' in result))throw new MailServiceError('unavailable');return result.extraction;}
   async extractionRead(accountId:string,input:MailExtractionRead){const result=await this.request({operation:'mail.extraction.read',accountId,input});if(!('extractionText' in result))throw new MailServiceError('unavailable');return result.extractionText;}
   async extractionReset(accountId:string,input:MailExtractionRequest){const result=await this.request({operation:'mail.extraction.reset',accountId,input});if(!('extraction' in result))throw new MailServiceError('unavailable');return result.extraction;}
+  async uploadDraft(accountId:string,input:MailUpload){const result=await this.request({operation:"mail.local.draft.upload",accountId,input});if(!("local" in result)||result.local.operation!=="mail.local.draft.upload")throw new MailServiceError("unavailable");return result.local.value;}
   async saveDraft(accountId:string,input:MailDraftSave){
     const result=await this.request({operation:"mail.local.draft.save",accountId,input:input});
     if(!("local" in result)||result.local.operation!=="mail.local.draft.save")throw new MailServiceError("unavailable");return result.local.value;

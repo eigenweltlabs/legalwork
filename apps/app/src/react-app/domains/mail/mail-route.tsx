@@ -1,9 +1,12 @@
+import {MailComposer,MailDrafts,type ComposeSelection} from "./mail-composer";
+import {addresses,emptyCompose,replyCompose,type ComposeMode} from "./mail-compose-model";
+import {uploadComposeFile} from "./mail-compose-client";
 import { mailDocxText } from "../session/artifacts/mail-docx-source";
 import { mailPreviewType, openMailPreview } from "../session/artifacts/mail-preview-source";
 import {MailSearch} from './mail-search';
 /** @jsxImportSource react */
 import { useEffect, useRef, useState } from 'react';
-import { Inbox, Archive, ChevronLeft, ChevronRight, Folder, Mail, Search, RefreshCw, Settings2, Paperclip, Download, FileText, Printer, MessagesSquare, X, PanelLeft, CircleAlert, Check, Pause, Play } from 'lucide-react';
+import { Inbox, Archive, ChevronLeft, ChevronRight, Folder, Mail, Search, RefreshCw, Settings2, Paperclip, Download, FileText, Printer, MessagesSquare, X, PanelLeft, CircleAlert, Check, Pause, Play, SquarePen, Reply, ReplyAll, Forward } from 'lucide-react';
 import './mail-reader.css';
 import { Button } from '@/components/ui/button';
 import { resolveLegalworkConnection } from '../../shell/legalwork-connection';
@@ -18,6 +21,8 @@ function dataUrl(bytes: Uint8Array, type: string) { let binary = ''; for (let at
     binary += String.fromCharCode(...bytes.subarray(at, at + 8192)); return `data:${type};base64,${btoa(binary)}`; }
 function saveBytes(bytes: Uint8Array<ArrayBuffer>, name: string, type: string) { const url = URL.createObjectURL(new Blob([bytes], { type })); const link = document.createElement('a'); link.href = url; link.download = safeFilename(name); link.click(); setTimeout(() => URL.revokeObjectURL(url), 1000); }
 export function MailRoute() {
+    const [compose,setCompose]=useState<ComposeSelection>();
+    const [draftsOpen,setDraftsOpen]=useState(false);
     const [foldersOpen, setFoldersOpen] = useState(false);
     const navigate = useNavigate();
     const openSettings = () => navigate('/settings/mail-accounts', { state: { from: '/mail' } });
@@ -36,6 +41,7 @@ export function MailRoute() {
     const [thread, setThread] = useState<string>();
     const [error, setError] = useState('');
     const [locked, setLocked] = useState(true);
+    useEffect(()=>{if(locked){setCompose(undefined);setDraftsOpen(false);}},[locked]);
     const [busy, setBusy] = useState(false);
     const [revision, setRevision] = useState(0);
     const [connectionRevision, setConnectionRevision] = useState(0);
@@ -200,7 +206,9 @@ export function MailRoute() {
     } }
     const title = thread ? 'Conversation' : folder ? folders.find(value => value.id === folder)?.name ?? folder : inbox ? 'Inbox' : 'All mail';
     const refresh = () => { purge(); setConnectionRevision(value => value + 1); setRevision(value => value + 1); };
-    const reader = selected && client ? <MailReader key={selected.accountId + '|' + selected.key} client={client} item={selected}
+    const openCompose=(value:ComposeSelection)=>{setCompose(value);setDraftsOpen(false);};
+    const reader = compose&&client ? <MailComposer key={compose.account+compose.id} client={client} accounts={accounts} initial={compose} onClose={()=>setCompose(undefined)} onSwitch={openCompose}/> : draftsOpen&&client ? <MailDrafts client={client} accounts={accounts} onOpen={openCompose} onClose={()=>setDraftsOpen(false)}/> : selected && client ? <MailReader key={selected.accountId + '|' + selected.key} client={client} item={selected}
+      onCompose={openCompose}
       account={accounts.find(value => value.id === selected.accountId)?.displayName ?? selected.accountId}
       onUnavailable={() => { purge(); setError('Mail access changed. Please refresh.'); }}
       onThread={() => { setSearching(false); setAccount(selected.accountId); setThread(selected.threadId ?? undefined); }}/>
@@ -211,6 +219,8 @@ export function MailRoute() {
           <button className="mail-icon-button mail-folder-toggle" aria-label="Toggle mail folders" onClick={() => setFoldersOpen(value => !value)}><PanelLeft size={17}/></button>
           <h1>Mail</h1>
           <div className="mail-toolbar-actions">
+            <button className="mail-icon-button" title="Compose" aria-label="Compose" disabled={locked||!accounts.length||!!compose} onClick={()=>{const selectedAccount=accounts.find(value=>value.id===account)??accounts[0];openCompose({account:selectedAccount.id,id:crypto.randomUUID(),version:null,content:emptyCompose(addresses(selectedAccount.displayName)[0]??'')});}}><SquarePen size={16}/></button>
+            <button className="mail-icon-button" title="Drafts" aria-label="Open drafts" disabled={locked||!!compose} onClick={()=>setDraftsOpen(true)}><FileText size={16}/></button>
             <label className="mail-toolbar-search"><Search size={15}/><input aria-label="Search mail" placeholder={savedSearchName ? `Saved: ${savedSearchName}` : 'Search'} disabled={locked} value={searchQuery} onChange={event => { setSearchQuery(event.target.value); setSavedSearchName(''); }}/>{searching && <button aria-label="Clear search" onClick={() => setSearching(false)}><X size={13}/></button>}</label>
             <button className="mail-icon-button" title="Refresh mail" aria-label="Refresh mail" onClick={refresh}><RefreshCw size={16}/></button>
             <button className="mail-icon-button" title="Mail accounts" aria-label="Mail accounts" onClick={openSettings}><Settings2 size={17}/></button>
@@ -219,7 +229,7 @@ export function MailRoute() {
 
         {error && <div role="alert" className="mail-notice"><CircleAlert size={15}/><span>{error}</span><button aria-label="Dismiss message" onClick={() => setError('')}><X size={14}/></button></div>}
         {locked ? <div className="mail-empty"><div className="mail-empty-icon"><Mail size={24}/></div><h2 role="status">{error ? 'Mail is unavailable' : 'Opening your mail…'}</h2>{error && <Button variant="outline" size="sm" onClick={refresh}>Try again</Button>}</div>
-          : <div className={`mail-grid ${selected ? 'has-selection' : ''} ${foldersOpen ? 'folders-open' : ''}`}>
+          : <div className={`mail-grid ${selected||compose||draftsOpen ? 'has-selection' : ''} ${foldersOpen ? 'folders-open' : ''}`}>
             <nav aria-label="Mail accounts and folders" className="mail-folders">
               <div className="mail-nav-caption">Mailboxes</div>
               <button className={`mail-nav-row ${!account && inbox ? 'is-active' : ''}`} onClick={() => { setSearching(false); setThread(undefined); setFolder(''); setInbox(true); setAccount(''); setFoldersOpen(false); }}><Inbox size={16}/><span>Inbox</span></button>
@@ -272,12 +282,13 @@ export function MailRoute() {
     );
 }
 
-function MailReader({ client, item, account, onThread, onUnavailable }: {
+function MailReader({ client, item, account, onThread, onUnavailable, onCompose }: {
     client: MailClient;
     item: MailMessageView;
     account: string;
     onThread: () => void;
     onUnavailable: () => void;
+    onCompose:(value:ComposeSelection)=>void;
 }) {
     const [parts, setParts] = useState<MailPartView[]>([]), [bodies, setBodies] = useState<{
         contentType: string;
@@ -379,10 +390,23 @@ function MailReader({ client, item, account, onThread, onUnavailable }: {
             setBusy(false);
     } }
     const raw = parts.find(part => part.kind === 'raw'), html = bodies.filter(body => body.contentType === 'text/html'), texts = bodies.filter(body => body.contentType === 'text/plain');
+    async function composeMessage(mode:ComposeMode){setBusy(true);try{
+      const text=(texts.length?texts.map(body=>body.text):html.map(body=>new DOMParser().parseFromString(mailHtml(body.text),'text/html').body.textContent??'')).join('\n\n');
+      let references:string[]=[];let original:Uint8Array<ArrayBuffer>|undefined;
+      if(raw?.bytesAvailable&&mode!=='forward'){original=await client.bytes(item,raw,controller.current.signal,(mode==='forward-attachment'?10:64)*1024*1024);const headers=new TextDecoder().decode(original).split(/\r?\n\r?\n/,1)[0].replace(/\r?\n[ \t]+/g,' ');references=headers.match(/^References:[ \t]*(.*)$/im)?.[1].match(/<[^<>\s@]+@[^<>\s@]+>/g)??[];}
+      const content=replyCompose(item,text,mode,addresses(account)[0]??'',references);
+      if(mode==='forward-attachment'){if(!original)throw Error('Download the original message before forwarding it as an attachment.');content.attachments=[await uploadComposeFile(client,item.accountId,new File([original],(item.subject||'message').slice(0,100)+'.eml',{type:'message/rfc822'}))];}
+      else if(mode==='forward'){if(parts.some(part=>part.kind==='attachment'&&!part.bytesAvailable))throw Error('Download the attachments before forwarding this message.');content.attachments=parts.filter(part=>part.kind==='attachment'&&part.bytesAvailable&&part.referenceId).map(part=>({locator:item.locator,partId:part.partId,referenceId:part.referenceId!,bytes:part.bytes??undefined,filename:part.filename||'attachment',contentType:part.contentType||'application/octet-stream',contentId:null,disposition:'attachment'}));}
+      onCompose({account:item.accountId,id:crypto.randomUUID(),version:null,content});
+    }catch(error){setError(textError(error));}finally{setBusy(false);}}
     return (
       <article id="mail-print-root" className="mail-message">
         <style>{`@media print{body *{visibility:hidden}#mail-print-root,#mail-print-root *{visibility:visible}#mail-print-root{position:absolute;inset:0;overflow:visible}#mail-print-root button,#mail-print-root iframe,#mail-print-root .mail-message-actions,#mail-print-root .mail-attachments,#mail-print-root>section,#mail-print-content>:not(.mail-print-copy){display:none}#mail-print-root .mail-print-copy{display:block!important;white-space:pre-wrap}}`}</style>
         <div className="mail-message-actions">
+          <button title="Reply" aria-label="Reply" disabled={busy||!bodies.length} onClick={()=>void composeMessage('reply')}><Reply size={15}/></button>
+          <button title="Reply all" aria-label="Reply all" disabled={busy||!bodies.length} onClick={()=>void composeMessage('reply-all')}><ReplyAll size={15}/></button>
+          <button title="Forward" aria-label="Forward" disabled={busy||!bodies.length} onClick={()=>void composeMessage('forward')}><Forward size={15}/></button>
+          <button title="Forward as attached message" aria-label="Forward as attached message" disabled={busy||!raw?.bytesAvailable} onClick={()=>void composeMessage('forward-attachment')}><Paperclip size={15}/></button>
           {item.threadId && <button title="View conversation" onClick={onThread}><MessagesSquare size={15}/><span>Conversation</span></button>}
           <div/>
           <button title="View original source" aria-label="View source" disabled={!raw?.bytesAvailable || busy} onClick={() => raw && content(raw, false)}><FileText size={15}/></button>

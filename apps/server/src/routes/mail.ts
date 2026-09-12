@@ -1,3 +1,4 @@
+import {mailUploadSchema} from "../mail/local-view.js";
 import {savedSearchInputSchema} from '../mail/saved-search-view.js';
 import {imapConnectionSchema} from '../mail/providers/imap-config.js';
 import {extractionRequestSchema,extractionReadSchema} from "../mail/extraction-view.js";
@@ -182,6 +183,7 @@ export function registerMailRoutes(routes: Route[], host: string, service?: Mail
   query("messages/read", z.object({ locator: providerMessageLocatorSchema }).strict(), (accountId, input) => service.readMessage(accountId, input.locator));
   query("messages/parts", z.object({ locator: providerMessageLocatorSchema, page: mailPartPageSchema.default({ limit: 50 }) }).strict(), (accountId, input) => service.listParts(accountId, input.locator, input.page));
   query("messages/content", z.object({ locator: providerMessageLocatorSchema, request: mailContentReadSchema }).strict(), (accountId, input) => service.readContent(accountId, input.locator, input.request));
+  query("drafts/upload",mailUploadSchema,(accountId,input)=>service.uploadDraft(accountId,input));
   query("drafts/save", mailDraftSaveSchema, (accountId,input)=>service.saveDraft(accountId,input));
   query("drafts/read", mailDraftReadSchema, (accountId,input)=>service.readDraft(accountId,input));
   query("drafts/delete", mailDraftDeleteSchema, (accountId,input)=>service.deleteDraft(accountId,input));
