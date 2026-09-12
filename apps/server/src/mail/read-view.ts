@@ -13,6 +13,7 @@ export const mailMessagePageSchema = z.object({
 export type MailMessagePageInput = z.input<typeof mailMessagePageSchema>;
 export const mailMessageViewSchema = z.object({
   accountId: id, key, locator: providerMessageLocatorSchema, subject: z.string(),
+  preview: z.string().max(480).optional(),
   rawReferenceId: id.nullable().optional(), receivedAt: integer.nullable().optional(), isRead: z.boolean().nullable().optional(), isFlagged: z.boolean().nullable().optional(),
   threadId: id.nullable(), rfcMessageId: z.string().nullable(), removed: z.boolean(),
   conversation: z.object({count: integer.min(1), unreadCount: integer}).strict().optional(),

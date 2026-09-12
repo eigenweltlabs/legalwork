@@ -1,7 +1,7 @@
 import {mailShortcutProps} from './mail-keyboard';
 /** @jsxImportSource react */
 import {useEffect,useRef,useState} from 'react';
-import {Archive,Trash2,Flag,Mail,MailOpen,FolderInput,Tag,MoreHorizontal,Undo2,FolderPlus,X} from 'lucide-react';
+import {Archive,Trash2,Flag,Mail,MailOpen,FolderInput,Tag,MoreHorizontal,Undo2,FolderPlus,X,History} from 'lucide-react';
 import {Button} from '@/components/ui/button';
 import {Dialog,DialogContent,DialogHeader,DialogTitle,DialogDescription,DialogFooter} from '@/components/ui/dialog';
 import {Input} from '@/components/ui/input';
@@ -42,13 +42,13 @@ export function MailActionBar({enqueued,reading=false,blocked=false,client,accou
   for(const item of selected){if(signal.aborted)break;try{const current=await client.check(item,signal);if(!current.mutationPrecondition||current.removed)throw Error('Message is not available for changes yet.');
    const result=await api.current.mutate(item.accountId,{replayKey:crypto.randomUUID(),locator:current.locator,precondition:current.mutationPrecondition,change},signal);if(signal.aborted)break;remember({...result,accountId:item.accountId});publish();
   }catch(error){if(!signal.aborted)failed.push(`${item.subject||'(No subject)'}: ${error instanceof Error?error.message:'Could not queue change.'}`);}}
-  if(!signal.aborted){setBusy(false);setErrors(failed);setShowActivity(true);}
+  if(!signal.aborted){setBusy(false);setErrors(failed);}
  }
  async function undo(entry:ActionEntry){const signal=abort.current.signal;try{const current=await api.current.read(entry.accountId,entry.id,signal);if(signal.aborted)return;if(!['queued','retry','running'].includes(current.state))throw Error('This action has reached the provider and can no longer be cancelled safely.');const result=await api.current.cancel({...current,accountId:entry.accountId},signal);if(signal.aborted)return;remember({...result,accountId:entry.accountId});publish();}catch(error){if(!signal.aborted)setErrors([error instanceof Error?error.message:'Could not cancel action.']);}}
  async function changeFolder(){if(!dialog||dialog==='delete'||!accountId)return;setBusy(true);setErrors([]);const signal=abort.current.signal;try{
   const change:MailMutation['change']={kind:'mailbox',operation:dialog==='create'?'create':dialog==='rename'?'rename':'delete',path:dialog==='create'?name:folder?.id??'',...(dialog==='rename'?{destination:name}:{})};
   const precondition=dialog==='create'?accounts.find(value=>value.id===accountId)?.provider+'-mailbox-v1':folder?.mutationPrecondition;if(!precondition)throw Error('Refresh this folder before changing it.');
-  const result=await api.current.mutate(accountId,{replayKey:crypto.randomUUID(),precondition,change},signal);if(signal.aborted)return;remember({...result,accountId});publish();setDialog(null);setShowActivity(true);
+  const result=await api.current.mutate(accountId,{replayKey:crypto.randomUUID(),precondition,change},signal);if(signal.aborted)return;remember({...result,accountId});publish();setDialog(null);
  }catch(error){if(!signal.aborted)setErrors([error instanceof Error?error.message:'Could not queue folder change.']);}finally{if(!signal.aborted)setBusy(false);}}
  const hasPending=selected.some(item=>entries.some(entry=>entry.accountId===item.accountId&&pendingAction(entry.state)&&JSON.stringify(entry.mutation?.locator)===JSON.stringify(item.locator)));
  const disabled=blocked||busy||!selected.length||hasPending;
@@ -71,7 +71,7 @@ export function MailActionBar({enqueued,reading=false,blocked=false,client,accou
     <button disabled={!folder?.mutationPrecondition||busy} onClick={()=>{setName(folder?.name??'');setDialog('rename');}}>Rename folder or label…</button>
     <button disabled={!folder?.mutationPrecondition||busy} onClick={()=>setDialog('delete-folder')}>Delete folder or label…</button>
    </div></details>
-   <button className="mail-activity-toggle" onClick={()=>setShowActivity(value=>!value)} aria-expanded={showActivity}>Activity{activity.filter(item=>pendingAction(item.state)||item.state==='failed'||item.state==='uncertain').length?` (${activity.filter(item=>pendingAction(item.state)||item.state==='failed'||item.state==='uncertain').length})`:''}</button>
+   <button className="mail-activity-toggle" aria-label="Mail action activity" title="Mail activity and pending undo" onClick={()=>setShowActivity(value=>!value)} aria-expanded={showActivity}><History size={15}/><span className="sr-only">Activity</span>{activity.filter(item=>pendingAction(item.state)||item.state==='failed'||item.state==='uncertain').length?` (${activity.filter(item=>pendingAction(item.state)||item.state==='failed'||item.state==='uncertain').length})`:''}</button>
   </div>
   {errors.map((error,index)=><p className="mail-action-error" role="alert" key={index}>{error}</p>)}
   {showActivity&&<section className="mail-action-activity" aria-label="Mail action activity"><button className="mail-icon-button" aria-label="Close action activity" onClick={()=>setShowActivity(false)}><X size={13}/></button>{activity.map(entry=><div key={entry.id}><strong>{actionLabel(entry)}</strong><span>{actionStateLabel(entry)}</span>{['queued','retry','running'].includes(entry.state)&&<button aria-label={`Undo ${actionLabel(entry)}`} title="Cancel before the provider receives it" onClick={()=>void undo(entry)}><Undo2 size={13}/>Undo</button>}</div>)}{!activity.length&&<p>No pending mail actions.</p>}{next&&accountId&&<button onClick={()=>void api.current.list(accountId,abort.current.signal,next).then(page=>{for(const entry of page.items)remember({...entry,accountId});moreLoaded.current=true;setNext(page.nextCursor);publish();}).catch(()=>setErrors(['Could not load more actions.']))}>More pending actions</button>}</section>}
