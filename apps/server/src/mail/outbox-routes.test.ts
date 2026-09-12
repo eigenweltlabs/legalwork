@@ -1,8 +1,8 @@
 import {test,expect} from 'bun:test';
-import {registerMailRoutes} from '../routes/mail';
-import {matchRoute,type Route,type RequestContext} from '../routes/registry';
-import {LocalMailService} from './service';
-import {OutboxError} from './outbox-view';
+import {registerMailRoutes} from '../routes/mail.js';
+import {matchRoute,type Route,type RequestContext} from '../routes/registry.js';
+import {LocalMailService} from './service.js';
+import {OutboxError} from './outbox-view.js';
 // Route-only fixture: unused application services are never invoked by these scoped handlers.
 function context(request:Request,params:Record<string,string>):RequestContext{return {request,url:new URL(request.url),params,actor:{type:'host'}} as RequestContext;}
 test('outbox routes constrain SMTP inputs and redact provider failures without returning passwords',async()=>{

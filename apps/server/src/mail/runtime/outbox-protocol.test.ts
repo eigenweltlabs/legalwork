@@ -1,5 +1,5 @@
 import {test,expect} from 'bun:test';
-import {parseParentMessage,parseWorkerMessage,resultMatchesCommand} from './protocol';
+import {parseParentMessage,parseWorkerMessage,resultMatchesCommand} from './protocol.js';
 const parent=(command:unknown)=>parseParentMessage(JSON.stringify({kind:'request',id:'1:1',command}));
 const response=(result:unknown)=>parseWorkerMessage(JSON.stringify({kind:'response',id:'1:1',ok:true,result}));
 test('outbox and SMTP protocol reject injected credentials and bind account/action responses',()=>{

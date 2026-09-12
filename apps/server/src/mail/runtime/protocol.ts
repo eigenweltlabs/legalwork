@@ -39,6 +39,7 @@ export type WorkerInitialization = {
 type Page = { limit?: number; after?: string };
 export type WorkerCommand = MailDesktopCommand
   | OutboxCommand
+  | DraftSyncCommand
   | {operation:"mail.senders.list";accountId:string}
   | {operation:"mail.senders.refresh";accountId:string;settings?:MailOAuthSettings}
   | {operation:"mail.senders.settings";accountId:string;input:SenderSettings}
