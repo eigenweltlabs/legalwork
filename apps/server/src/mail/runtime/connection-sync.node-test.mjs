@@ -69,7 +69,10 @@ test('real OAuth callback → encrypted account → account-owned worker, duplic
   await service.pauseSync(microsoft.accountId);await connect(service,'graph','personal',microsoft.accountId);assert.equal((await service.syncStatus(microsoft.accountId)).state,'paused');
   await writeFile(mode,JSON.stringify({offline:true}));const offline=await connect(service,'gmail','offline');await until(async()=> (await service.syncStatus(offline.accountId)).state==='waiting');
   const before=await service.syncStatus(offline.accountId);assert.equal(before.error,'provider_unavailable');
-  await service.stop();service=make();await service.unlock();assert.equal((await service.syncStatus(first.accountId)).state,'paused');assert.equal((await service.syncStatus(microsoft.accountId)).state,'paused');assert.equal((await service.syncStatus(offline.accountId)).state,'waiting');
+  await service.stop();service=make();await service.unlock();assert.equal((await service.syncStatus(first.accountId)).state,'paused');assert.equal((await service.syncStatus(microsoft.accountId)).state,'paused');
+  // Unlock starts the account worker; observe its settled offline retry state.
+  await until(async()=> (await service.syncStatus(offline.accountId)).state==='waiting');
+  assert.equal((await service.syncStatus(offline.accountId)).error,'provider_unavailable');
   await writeFile(mode,JSON.stringify({offline:false}));
   // The normal explicit retry path preserves checkpoints, including its provider retry floor.
   const recovery=await openEncryptedMailDatabase({path,key});try{recovery.run('UPDATE mail_gmail_runs SET next_retry_at=NULL WHERE account_id=?',[offline.accountId]);}finally{recovery.close();}
