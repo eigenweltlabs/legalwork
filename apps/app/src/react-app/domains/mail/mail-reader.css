@@ -30,3 +30,11 @@
 
 @container (max-width:850px){.mail-background-status{display:none}}
 .mail-composer>fieldset{display:flex;flex-direction:column;gap:8px;flex:1}.mail-composer>fieldset>label{display:flex;align-items:center;gap:10px;border-bottom:1px solid var(--border);font-size:12px;min-height:30px}.mail-composer>fieldset>footer{display:flex;align-items:center;gap:12px;flex-shrink:0}
+
+.mail-image-controls,.mail-link-controls{display:flex;align-items:center;gap:12px;padding:9px 12px;margin-bottom:10px;border:1px solid var(--border);border-radius:6px;font-size:12px;color:var(--muted-foreground)}
+.mail-image-controls span,.mail-link-controls span{flex:1;overflow-wrap:anywhere}.mail-image-controls button,.mail-link-controls button{flex-shrink:0;text-decoration:underline}
+.mail-html-view{min-width:0}.mail-html-view iframe{display:block;width:100%;border:0;background:#fff;color-scheme:light;border-radius:4px}
+.mail-html-part-label{font-size:11px;color:var(--muted-foreground);padding:12px 0 6px;border-top:1px solid var(--border)}
+.mail-image-controls,.mail-link-controls{background:var(--muted,#f4f5f6);border-color:var(--border,#dde1e6);color:var(--muted-foreground,#637180)}
+.mail-image-controls button,.mail-link-controls button{font:inherit;line-height:1.3;color:inherit;background:transparent;border:1px solid var(--border,#cbd2d9);border-radius:4px;padding:5px 8px;text-decoration:none;cursor:pointer}
+.mail-image-controls button:focus-visible,.mail-link-controls button:focus-visible{outline:2px solid var(--ring,#315d7c);outline-offset:2px}.mail-image-controls button:disabled{opacity:.55;cursor:default}

@@ -81,3 +81,17 @@ test('valid flowed delsp semantics and transport-whitespace delimiters preserve 
  assert.equal(result.bodies[0].text,'Vertrag\nFrom legal\n-- \nSignature');assert.equal(result.bodies[1].text,'Legal work');
  assert.equal(result.bodies[2].text,'<p>Keep  spacing <img src="cid:original"></p>');
 });
+
+test('presentation selects the last supported alternative and related root while retaining mixed body sections',async()=>{
+ const raw=text(['MIME-Version: 1.0','Content-Type: multipart/mixed; boundary=outer','','--outer','Content-Type: multipart/alternative; boundary=alt','','--alt','Content-Type: text/plain','','Plain version','--alt','Content-Type: text/html','','<p>Older HTML</p>','--alt','Content-Type: multipart/related; boundary=rel; start="<main>"','','--rel','Content-Type: text/html','Content-ID: <side>','','<p>Related side resource</p>','--rel','Content-Type: text/html','Content-ID: <main>','','<p>Chosen HTML</p>','--rel--','--alt--','--outer','Content-Type: text/html','','<p>Mixed appendix</p>','--outer--']);
+ const result=await parse(raw);assert.deepEqual(result.bodies.filter(body=>body.presentation).map(body=>body.text.trim()),['Plain version','<p>Chosen HTML</p>','<p>Mixed appendix</p>']);assert.equal(result.bodies.length,5);
+});
+
+test('original rendering EML fixtures project exact HTML and verified CID bytes',async()=>{
+ const {readFile}=await import('node:fs/promises');const {resolve}=await import('node:path');const root=new URL('../testing/html-fixtures/',import.meta.url).pathname;
+ for(const name of ['newsletter','outlook-receipt','gmail-thread','malformed']){
+  const raw=await readFile(resolve(root,name+'.eml')),expected=await readFile(resolve(root,name+'.html'),'utf8'),png=await readFile(resolve(root,'brand.png'));const attachments=[];
+  const result=await parse(raw,{onAttachment:async(part,source)=>{const chunks=[];for await(const bytes of source)chunks.push(bytes);attachments.push({part,bytes:Buffer.concat(chunks)});}});
+  assert.equal(result.bodies.filter(body=>body.presentation&&body.contentType==='text/html').length,1);assert.equal(result.bodies.find(body=>body.contentType==='text/html').text,expected);assert.equal(attachments[0].part.contentId,'brand');assert.deepEqual(attachments[0].bytes,png);
+ }
+});

@@ -1,3 +1,4 @@
+import {createMailImages} from './mail-images.mjs';
 import {getMailDesktopSettings,setMailDesktopSettings} from './mail-desktop.mjs';
 import {performMailPortability} from "./mail-portability.mjs";
 import {createMailDraftRecovery} from "./mail-draft-recovery.mjs";
@@ -2855,6 +2856,10 @@ const draftRecovery=createMailDraftRecovery({directory:path.join(app.getPath("us
 for(const operation of ["write","list","remove"])ipcMain.handle("legalwork:mail:draft-recovery:"+operation,(event,value)=>{if(!mainWindow||event.sender!==mainWindow.webContents||event.senderFrame!==mainWindow.webContents.mainFrame)throw Error("Mail recovery requires the main window");if(operation==="list"&&new URL(mainWindow.webContents.getURL()).hash!=="#/mail")throw Error("Mail reader required");return draftRecovery[operation](value);});
 
 ipcMain.handle("legalwork:mail:portability",(event,value)=>{if(!mainWindow||event.sender!==mainWindow.webContents||event.senderFrame!==mainWindow.webContents.mainFrame)throw Error("Mail import/export requires the main window");return performMailPortability(value,dialog);});
+const mailImages=createMailImages({connection:()=>runtimeManager.legalworkServerInfo(),decode:bytes=>{const image=nativeImage.createFromBuffer(bytes);if(image.isEmpty())throw Error('Invalid image');return image.getSize();}});
+ipcMain.handle('legalwork:mail:images',(event,value)=>{if(!mainWindow||event.sender!==mainWindow.webContents||event.senderFrame!==mainWindow.webContents.mainFrame||new URL(mainWindow.webContents.getURL()).hash!=='#/mail')throw Error('Mail reader required');return mailImages.perform(value);});
+ipcMain.handle('legalwork:mail:images:cancel',event=>{if(!mainWindow||event.sender!==mainWindow.webContents||event.senderFrame!==mainWindow.webContents.mainFrame)throw Error('Mail reader required');mailImages.cancel();});
+app.on('before-quit',()=>mailImages.cancel());
 const mailArtifacts = createMailArtifacts({
   connection: () => runtimeManager.legalworkServerInfo(), dialog, shell,
   privateDirectory: async directory => {

@@ -21,7 +21,7 @@ export interface MimeProjection {
   version: 1; originalSha256: string; validation: "supported-projection";
   metadata: { subject: string | null; from: string | null; to: string | null; cc: string | null; bcc: string | null;
     replyTo: string | null; date: string | null; messageId: string | null };
-  bodies: { partId: string; contentType: "text/plain" | "text/html"; text: string }[];
+  bodies: { partId: string; contentType: "text/plain" | "text/html"; text: string; presentation?: boolean }[];
   attachments: (MimeAttachmentMetadata & { bytes: number; sha256: string })[];
 }
 export interface MimeProjectionInput {
@@ -188,6 +188,7 @@ export async function projectMime(input: MimeProjectionInput): Promise<MimeProje
       }
     } finally { rawStream.destroy(); decoder.destroy(); streams.delete(rawStream); streams.delete(decoder); }
   }
+  const nodes: MimeNode[] = [], bodyNodes = new Map<MimeNode, MimeProjection["bodies"][number]>();
   const work = (async () => {
     if (input.signal?.aborted) stop("cancelled");
     guard(); reader.pipe(parser);
@@ -196,6 +197,7 @@ export async function projectMime(input: MimeProjectionInput): Promise<MimeProje
       if (value.type === "data") { scanData(value.value); continue; }
       if (value.type !== "node" || !value.headers) throw new MimeProjectionError("malformed");
       scanData(Buffer.alloc(0), true); boundaryLine = ""; overlong = false; transportWhitespace = false;
+      nodes.push(value);
       ordinal++; if (ordinal > budget.maxParts) throw new MimeProjectionError("limit");
       let depth = 1, parent = value.parentNode;
       while (parent) { depth++; parent = parent.parentNode; if (depth > budget.maxDepth) throw new MimeProjectionError("limit"); }
@@ -228,7 +230,8 @@ export async function projectMime(input: MimeProjectionInput): Promise<MimeProje
         const body = contentType === "text/plain" && value.flowed ? libmime.decodeFlowed(collected, value.delSp) : collected;
         bodyBytes += Buffer.byteLength(body) - Buffer.byteLength(collected);
         guard(); if (bodyBytes > budget.maxBodyBytes) throw new MimeProjectionError("limit");
-        projection.bodies.push({ partId, contentType, text: body });
+        const entry: MimeProjection["bodies"][number] = { partId, contentType, text: body };
+        projection.bodies.push(entry); bodyNodes.set(value, entry);
       } else {
         if (projection.attachments.length >= budget.maxAttachments) throw new MimeProjectionError("limit");
         const part: MimeAttachmentMetadata = { partId, filename: clean(value.filename), contentType,
@@ -252,6 +255,24 @@ export async function projectMime(input: MimeProjectionInput): Promise<MimeProje
     scanData(Buffer.alloc(0), true);
     if (!ordinal || [...boundaries.values()].some(closed => !closed)) throw new MimeProjectionError("malformed");
     if (originalHash.digest("hex") !== expectedHash) throw new MimeProjectionError("hash_mismatch");
+    // RFC 2046 alternatives are ordered by fidelity; related resources are not
+    // independent message bodies. Keep all decoded text for search/source, but
+    // mark only the chosen branch for each presentation type.
+    const children = new Map<MimeNode, MimeNode[]>();
+    for (const node of nodes) if (node.parentNode) { const list=children.get(node.parentNode)??[];list.push(node);children.set(node.parentNode,list); }
+    function selected(node:MimeNode,type:string):MimeProjection["bodies"] {
+      const body=bodyNodes.get(node);if(body)return body.contentType===type?[body]:[];
+      const list=children.get(node)??[];
+      if(node.contentType==='multipart/alternative'){for(const child of [...list].reverse()){const result=selected(child,type);if(result.length)return result;}return [];}
+      if(node.contentType==='multipart/related'){
+        const start=libmime.parseHeaderValue(node.headers?node.headers.getFirst('content-type'):'').params.start;
+        const root=start?list.find(child=>child.headers&&child.headers.getFirst('content-id')===start):list[0];
+        return root?selected(root,type):[];
+      }
+      return list.flatMap(child=>selected(child,type));
+    }
+    const root=nodes[0],visible=new Set(root?[...selected(root,'text/html'),...selected(root,'text/plain')]:[]);
+    for(const body of projection.bodies)body.presentation=visible.has(body);
     guard(); return projection;
   })();
   try { return await Promise.race([work, stopped]); }
