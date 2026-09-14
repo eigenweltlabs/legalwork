@@ -22,6 +22,7 @@ import {
   type BenchmarkArm,
 } from "./ablation.js";
 import { ensureHarveyDocuments, type HarveyIndexEntry } from "./harvey-catalog.js";
+import { enforcedOutputLimit } from "../model-limits.js";
 import { extractDeliverableText } from "./extract-text.js";
 import {
   buildAgentPrompt,
@@ -54,6 +55,8 @@ type SdkResult<T> = { data?: T; error?: unknown; response?: Response };
 type AssistantMessageLike = {
   id?: string;
   role?: string;
+  /** Why the final step ended: "stop", "tool-calls", "length" (cut off at the output limit), … */
+  finish?: string;
   error?: { name?: string; data?: { message?: string } };
   cost?: number;
   tokens?: unknown;
@@ -121,6 +124,29 @@ function resolveArms(input: Array<{ id?: string; label: string; config?: Benchma
     return { id, label: arm.label.trim(), config: arm.config ?? {} };
   });
 }
+
+/**
+ * Whether a reply was cut off at the model's output limit. The engine reports
+ * it two ways: a step that ends with `finish: "length"` and no error (what a
+ * cut-off tool call looks like — the unfinished call is dropped), or a
+ * MessageOutputLengthError on the message.
+ */
+function wasCutOffAtOutputLimit(message: AssistantMessageLike | null): boolean {
+  return message?.finish === "length" || message?.error?.name === "MessageOutputLengthError";
+}
+
+/**
+ * Follow-ups sent after a cut-off reply before the item is given up on. A
+ * cut-off usually means the agent tried to write a whole deliverable in one
+ * tool call; asked once or twice, it will split the work.
+ */
+const OUTPUT_LIMIT_RECOVERY_ATTEMPTS = 2;
+
+const OUTPUT_LIMIT_RECOVERY_PROMPT =
+  "Your previous response was cut off because it reached the model's output token limit, so nothing from that " +
+  "response was saved. Continue the task from where you left off. Write large files in several smaller steps — " +
+  "for example, create the document with its first sections, then add the remaining sections in separate tool " +
+  "calls — so that no single response is too long.";
 
 // The agent session must never stall on a permission prompt in a headless run.
 const ALLOW_ALL_PERMISSIONS = [{ permission: "*", pattern: "*", action: "allow" as const }];
@@ -472,22 +498,44 @@ export class BenchmarkRunner {
       // which would strip the normal harness instructions along with it.
       const restrictions = describeArmRestrictions(armConfig);
       const promptText = restrictions ? `${buildAgentPrompt(task)}\n\n${restrictions}` : buildAgentPrompt(task);
-      const assistant = await this.runAgentPrompt({
+      const promptParams = (text: string) => ({
+        sessionID,
+        directory: workDir,
+        model: { providerID: item.providerId, modelID: item.modelId },
+        ...(toolOverrides ? { tools: toolOverrides } : {}),
+        parts: [{ type: "text", text }],
+      });
+      const deadline = this.now() + this.timings.itemTimeoutMs;
+      let assistant = await this.runAgentPrompt({
         client,
         sessionID,
         directory: workDir,
         handle,
-        params: {
+        deadline,
+        params: promptParams(promptText),
+      });
+      // A reply cut off at the output limit loses whatever it was writing —
+      // typically the whole deliverable in one tool call — and the session just
+      // ends. Ask the agent to carry on in smaller steps before giving up.
+      for (
+        let attempt = 0;
+        attempt < OUTPUT_LIMIT_RECOVERY_ATTEMPTS && wasCutOffAtOutputLimit(assistant);
+        attempt += 1
+      ) {
+        assistant = await this.runAgentPrompt({
+          client,
           sessionID,
           directory: workDir,
-          model: { providerID: item.providerId, modelID: item.modelId },
-          ...(toolOverrides ? { tools: toolOverrides } : {}),
-          parts: [{ type: "text", text: promptText }],
-        },
-      });
+          handle,
+          deadline,
+          afterMessageId: assistant?.id,
+          params: promptParams(OUTPUT_LIMIT_RECOVERY_PROMPT),
+        });
+      }
       handle.sessions.delete(item.id);
 
-      if (assistant?.error) {
+      const cutOff = wasCutOffAtOutputLimit(assistant);
+      if (assistant?.error && !cutOff) {
         const message = assistant.error.data?.message || assistant.error.name || "agent session failed";
         throw new Error(message);
       }
@@ -498,6 +546,14 @@ export class BenchmarkRunner {
 
       const collected = await collectDeliverables(workDir, task.deliverables);
       this.store.updateItem(item.id, { deliverablesFound: JSON.stringify(collected) });
+      // Still cut off and nothing written: the run failed on a limit, not on the
+      // task. Judging it would score a missing file 0% and put a harness failure
+      // on the leaderboard as if it were the model's answer. A deliverable that
+      // did get written is complete (a tool call runs whole or not at all), so
+      // that case is judged normally.
+      if (cutOff && !collected.deliverables.some((deliverable) => deliverable.relativePath)) {
+        throw new Error(await this.outputLimitFailureMessage(client, workDir, item));
+      }
       // Extract deliverable text once per item so each judge call is a single
       // completion instead of a tool-reading loop (which times out slow models).
       deliverables = await Promise.all(
@@ -587,8 +643,22 @@ export class BenchmarkRunner {
     directory: string;
     handle: RunHandle;
     params: Record<string, unknown>;
+    /**
+     * The reply already in the session when this prompt is sent. Until the
+     * engine picks the prompt up the session still reads idle, and its last
+     * assistant message is that earlier reply — so it must not count as the
+     * answer.
+     */
+    afterMessageId?: string;
+    /**
+     * When the item's time runs out (epoch ms). Follow-ups in the same item
+     * share one deadline, so LEGALWORK_BENCHMARK_ITEM_TIMEOUT_MS stays a limit
+     * on the item rather than on each prompt in it.
+     */
+    deadline?: number;
   }): Promise<AssistantMessageLike | null> {
     const { client, sessionID, directory, handle } = input;
+    const deadline = input.deadline ?? this.now() + this.timings.itemTimeoutMs;
     let started: SdkResult<unknown>;
     try {
       started = await client.session.promptAsync(input.params);
@@ -599,21 +669,20 @@ export class BenchmarkRunner {
     if (started.error !== undefined) {
       const result = await this.withTimeout(
         client.session.prompt(input.params),
-        this.timings.itemTimeoutMs,
+        Math.max(0, deadline - this.now()),
         () => void client.session.abort({ sessionID, directory }).catch(() => undefined),
         "agent session timed out",
       );
       return result.data?.info ?? null;
     }
 
-    const startedAt = this.now();
     for (;;) {
       await this.sleep(this.timings.pollIntervalMs);
       if (handle.abortRequested) {
         await client.session.abort({ sessionID, directory }).catch(() => undefined);
         throw new BenchmarkAbortError();
       }
-      if (this.now() - startedAt > this.timings.itemTimeoutMs) {
+      if (this.now() > deadline) {
         await client.session.abort({ sessionID, directory }).catch(() => undefined);
         throw new BenchmarkTimeoutError("agent session timed out");
       }
@@ -621,9 +690,38 @@ export class BenchmarkRunner {
       const state = status.data?.[sessionID]?.type ?? "idle";
       if (state !== "idle") continue;
       const assistant = await this.lastAssistantMessage(client, sessionID, directory);
-      if (assistant) return assistant;
+      const isEarlierReply = Boolean(input.afterMessageId) && assistant?.id === input.afterMessageId;
+      if (assistant && !isEarlierReply) return assistant;
       // promptAsync accepted but the engine has not started responding yet
     }
+  }
+
+  /**
+   * Why an item failed on the output limit, naming the limit the engine
+   * enforced when it can be looked up — the number is the fastest way to tell
+   * a model's real limit from a default someone never replaced.
+   */
+  private async outputLimitFailureMessage(
+    client: BenchmarkOpencodeClient,
+    directory: string,
+    item: BenchmarkItemRow,
+  ): Promise<string> {
+    let limit: number | null = null;
+    try {
+      const providers = (await client.provider.list({ directory })).data?.all ?? [];
+      const model = providers.find((provider) => provider.id === item.providerId)?.models[item.modelId] as
+        | { limit?: { output?: unknown } }
+        | undefined;
+      limit = enforcedOutputLimit(model?.limit?.output);
+    } catch {
+      limit = null;
+    }
+    const size = limit === null ? "" : ` (${limit.toLocaleString("en-US")} tokens)`;
+    return (
+      `The agent's response was cut off at the model's output limit${size} before it wrote the deliverable, ` +
+      `even after being asked ${OUTPUT_LIMIT_RECOVERY_ATTEMPTS}× to continue in smaller steps. ` +
+      "This is a limit on a single response, not a judgement of the answer, so the item was not scored."
+    );
   }
 
   private async lastAssistantMessage(
