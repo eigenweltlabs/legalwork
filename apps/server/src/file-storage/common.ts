@@ -29,7 +29,35 @@ export interface StorageAdapter {
   write(path: string, data: Buffer, contentType: string, condition: WriteCondition): Promise<void>;
   upload(path: string, source: string, contentType: string, condition: WriteCondition): Promise<void>;
   mkdir(path: string): Promise<void>;
+  rename?(path: string, destination: string, kind: StorageEntry["kind"]): Promise<void>;
+  deleteFile?(path: string): Promise<void>;
   close?(): Promise<void>;
+}
+
+/** Resolve an exact entry through paginated listings, including virtual folders. */
+export async function findEntry(adapter: StorageAdapter, path: string, kind?: StorageEntry["kind"]): Promise<StorageEntry | null> {
+  storagePath(path, false);
+  const parent = path.split("/").slice(0, -1).join("/");
+  let cursor: string | undefined;
+  const seen = new Set<string>();
+  do {
+    const page = await adapter.list(parent, cursor);
+    const found = page.entries.find((item) => item.path === path && (!kind || item.kind === kind));
+    if (found) return found;
+    cursor = page.nextCursor;
+    if (cursor && seen.has(cursor)) throw new ApiError(502, "storage_invalid_response", "Storage repeated a folder page.");
+    if (cursor) seen.add(cursor);
+  } while (cursor);
+  return null;
+}
+
+export function renameDestination(path: string, name: string) {
+  storagePath(path, false);
+  storagePath(name, false);
+  if (name.includes("/") || name.length > 255) throw new ApiError(400, "invalid_storage_name", "Provide a name of at most 255 characters, without a folder path.");
+  const destination = [...path.split("/").slice(0, -1), name].join("/");
+  if (path === destination) throw new ApiError(400, "invalid_storage_name", "Choose a different name.");
+  return destination;
 }
 
 export function storagePath(value: string, allowRoot = true): string {

@@ -1,4 +1,4 @@
-import { isReasoningUIPart, isToolUIPart, type DynamicToolUIPart, type FileUIPart, type ToolUIPart, type UIMessage } from "ai"
+import { isReasoningUIPart, isToolUIPart, type DynamicToolUIPart, type FileUIPart, type ReasoningUIPart, type ToolUIPart, type UIMessage } from "ai"
 import type { ThreadStatus } from "@/lib/messages"
 import { t } from "@/i18n";
 
@@ -114,7 +114,40 @@ type AssistantRenderGroup =
   | { kind: "text"; text: string }
   | { kind: "reasoning"; text: string; isStreaming: boolean }
   | { kind: "file"; part: FileUIPart }
-  | { kind: "tool"; part: ToolUIPart | DynamicToolUIPart }
+  | { kind: "tools"; parts: Array<ToolUIPart | DynamicToolUIPart | ReasoningUIPart> }
+
+/** Combine consecutive activity across engine messages, retaining prose boundaries. */
+export function groupAssistantToolRuns(items: UIMessageWithIndex[], showThinking: boolean): UIMessageWithIndex[] {
+  const result: UIMessageWithIndex[] = []
+  let activity: UIMessageWithIndex | undefined
+  for (const item of items) {
+    let prose: UIMessageWithIndex | undefined
+    for (const [index, part] of item.message.parts.entries()) {
+      if (isReasoningUIPart(part) && !showThinking) continue
+      if (part.type === "step-start") continue
+      if (part.type === "text" && !part.text.trim()) {
+        if (prose) prose.message.parts.push(part)
+        continue
+      }
+      if (isToolUIPart(part) || isReasoningUIPart(part)) {
+        prose = undefined
+        if (!activity) {
+          activity = { ...item, message: { ...item.message, id: `${item.message.id}:activity:${index}`, parts: [] } }
+          result.push(activity)
+        }
+        activity.message.parts.push(part)
+      } else {
+        activity = undefined
+        if (!prose) {
+          prose = { ...item, message: { ...item.message, id: index ? `${item.message.id}:part:${index}` : item.message.id, parts: [] } }
+          result.push(prose)
+        }
+        prose.message.parts.push(part)
+      }
+    }
+  }
+  return result
+}
 
 export function getAssistantRenderGroups(
   parts: UIMessage["parts"],
@@ -145,6 +178,10 @@ export function getAssistantRenderGroups(
     }
 
     const previous = groups.at(-1)
+    if (previous?.kind === "tools") {
+      previous.parts.push(part)
+      return
+    }
     if (previous?.kind === "reasoning") {
       previous.text += part.text
       previous.isStreaming = previous.isStreaming || part.state === "streaming"
@@ -177,7 +214,13 @@ export function getAssistantRenderGroups(
     }
 
     if (isToolUIPart(part)) {
-      groups.push({ kind: "tool", part })
+      const previous = groups.at(-1)
+      if (previous?.kind === "tools") previous.parts.push(part)
+      else if (previous?.kind === "reasoning") {
+        groups.pop()
+        groups.push({ kind: "tools", parts: [{ type: "reasoning", text: previous.text, state: previous.isStreaming ? "streaming" : "done" }, part] })
+      }
+      else groups.push({ kind: "tools", parts: [part] })
     }
   }
 

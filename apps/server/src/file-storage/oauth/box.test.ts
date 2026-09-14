@@ -89,3 +89,26 @@ test("Box provider exposes least-privilege scopes and no embedded application se
   expect(boxProvider.scopes(false)).toEqual(["root_readwrite"]);
   expect(boxProvider.clientSecret).toBeUndefined();
 });
+test("Box renames files and folders with version guards and deletes only files", async () => {
+  const folder = { id: "30", type: "folder", name: "Matter", etag: "4" };
+  const mutations: { path: string; method: string; version: string | null; body: unknown }[] = [];
+  requests((url, init) => {
+    if (init?.method === "PUT" || init?.method === "DELETE") {
+      mutations.push({ path: url.pathname, method: init.method, version: new Headers(init.headers).get("If-Match"), body: typeof init.body === "string" ? JSON.parse(init.body) : null });
+      return init.method === "DELETE" ? new Response(null, { status: 204 }) : Response.json(file);
+    }
+    if (url.pathname === "/2.0/folders/10") return Response.json(root);
+    return Response.json({ entries: [file, folder] });
+  });
+  const adapter = await boxAdapter({ kind: "oauth", provider: "box", root: "10" }, async () => "token");
+  await adapter.rename!("matter.txt", "Renamed.txt", "file");
+  await adapter.rename!("Matter", "Renamed folder", "folder");
+  await adapter.deleteFile!("matter.txt");
+  await expect(adapter.deleteFile!("Matter")).rejects.toMatchObject({ code: "storage_not_a_file" });
+  await expect(adapter.rename!("matter.txt", "Matter", "file")).rejects.toMatchObject({ code: "storage_conflict" });
+  expect(mutations).toEqual([
+    { path: "/2.0/files/20", method: "PUT", version: "2", body: { name: "Renamed.txt" } },
+    { path: "/2.0/folders/30", method: "PUT", version: "4", body: { name: "Renamed folder" } },
+    { path: "/2.0/files/20", method: "DELETE", version: "2", body: null },
+  ]);
+});

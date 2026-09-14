@@ -19,6 +19,7 @@ import {
   type LegalMemoryTreeRoot,
   type LegalworkServerClient,
 } from "@/app/lib/legalwork-server";
+import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuTrigger } from "@/components/ui/context-menu";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
@@ -463,6 +464,7 @@ function LegalMemoryTreeRow({
   }
   if (row.kind === "root") {
     return (
+      <MemoryEntryMenu onOpen={() => { if (!row.open) onToggle(row.root.source_id, ""); }} onRefresh={() => onLoadMore(row.root.source_id, "", 0)} name={row.root.display_name}>
       <button
         type="button"
         style={inset}
@@ -477,10 +479,12 @@ function LegalMemoryTreeRow({
           <span className="shrink-0 text-[10px] tabular-nums text-muted-foreground">{row.root.files.toLocaleString()}</span>
         ) : null}
       </button>
+      </MemoryEntryMenu>
     );
   }
   if (row.kind === "folder") {
     return (
+      <MemoryEntryMenu onOpen={() => { if (!row.open) onToggle(row.sourceId, row.folder.path); }} onRefresh={() => onLoadMore(row.sourceId, row.folder.path, 0)} name={row.folder.name}>
       <button
         type="button"
         draggable
@@ -496,12 +500,14 @@ function LegalMemoryTreeRow({
         <span className="min-w-0 flex-1 truncate text-[13px] text-foreground">{row.folder.name}</span>
         <span className="shrink-0 text-[10px] tabular-nums text-muted-foreground opacity-0 group-hover:opacity-100 group-focus-visible:opacity-100">{row.folder.files.toLocaleString()}</span>
       </button>
+      </MemoryEntryMenu>
     );
   }
 
   const selected = selectedId === row.file.source_object_id;
   const opening = openingId === row.file.source_object_id;
   return (
+    <MemoryEntryMenu onOpen={() => onOpen(row.file)} name={row.file.name}>
     <button
       type="button"
       draggable
@@ -528,5 +534,16 @@ function LegalMemoryTreeRow({
         </span>
       ) : null}
     </button>
+    </MemoryEntryMenu>
   );
+}
+
+function MemoryEntryMenu({ children, name, onOpen, onRefresh }: { children: React.ReactNode; name: string; onOpen: () => void; onRefresh?: () => void }) {
+  return <ContextMenu>
+    <ContextMenuTrigger render={<div />}>{children}</ContextMenuTrigger>
+    <ContextMenuContent>
+      <ContextMenuItem onClick={onOpen}>{t("storage.open")}</ContextMenuItem>
+      {onRefresh && <ContextMenuItem onClick={onRefresh}>{t("storage.refresh_folder", { name })}</ContextMenuItem>}
+    </ContextMenuContent>
+  </ContextMenu>;
 }

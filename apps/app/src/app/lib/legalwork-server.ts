@@ -2039,6 +2039,10 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
       requestStorageUpload(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/storage/${encodeURIComponent(id)}/content?${new URLSearchParams({ path, ...(version ? { version } : {}) })}`, data, contentType, token, hostToken, version ? "PUT" : "POST"),
     createStorageFolder: (workspaceId: string, id: string, path: string) =>
       requestJson<{ ok: true }>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/storage/${encodeURIComponent(id)}/folders`, { token, hostToken, method: "POST", body: { path }, timeoutMs: 90_000 }),
+    deleteStorageFile: (workspaceId: string, id: string, path: string) =>
+      requestJson<{ ok: true }>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/storage/${encodeURIComponent(id)}/file?${new URLSearchParams({ path })}`, { token, hostToken, method: "DELETE", timeoutMs: 90_000 }),
+    renameStorageEntry: (workspaceId: string, id: string, path: string, name: string, kind: "file" | "folder") =>
+      requestJson<{ ok: true; path: string }>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/storage/${encodeURIComponent(id)}/rename`, { token, hostToken, method: "POST", body: { path, name, kind }, timeoutMs: 900_000 }),
 
     legalMemoryTreeRoots: (workspaceId: string) =>
       requestJson<{ roots: LegalMemoryTreeRoot[] }>(

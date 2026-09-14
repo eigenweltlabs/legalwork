@@ -220,6 +220,8 @@ export type StorageSearchMode = z.infer<typeof storageSearchModeSchema>;
 export type StorageSearch = z.infer<typeof storageSearchSchema>;
 export type StorageSearchPage = StoragePage & { truncated?: boolean; scope?: "folder" | "subtree"; path?: string };
 export type StorageCapabilities = {
+  rename: boolean;
+  deleteFile: boolean;
   read: boolean;
   write: boolean;
   createFolder: boolean;

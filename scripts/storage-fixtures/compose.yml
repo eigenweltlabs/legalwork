@@ -17,7 +17,7 @@ services:
       - "127.0.0.1:19291:9001"
   azurite:
     image: mcr.microsoft.com/azure-storage/azurite:3.35.0
-    command: azurite-blob --blobHost 0.0.0.0 --location /data
+    command: azurite-blob --blobHost 0.0.0.0 --location /data --skipApiVersionCheck
     environment:
       AZURITE_ACCOUNTS: "legalwork:BwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwc="
     ports:

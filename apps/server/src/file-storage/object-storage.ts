@@ -5,6 +5,11 @@ import {
   ListObjectsV2Command,
   PutObjectCommand,
   S3Client,
+  DeleteObjectCommand,
+  CreateMultipartUploadCommand,
+  UploadPartCopyCommand,
+  CompleteMultipartUploadCommand,
+  AbortMultipartUploadCommand,
 } from "@aws-sdk/client-s3";
 import {
   ContainerClient,
@@ -17,6 +22,7 @@ import { z } from "zod";
 import type { StorageInput, StoragePage } from "@legalwork/types/file-storage";
 import { STORAGE_PAGE_SIZE, storageRequestHeadersSchema } from "./schema.js";
 import { ApiError } from "../errors.js";
+import { objectMutations, type StoredObject } from "./object-mutations.js";
 import {
   collectStream,
   receiveFile,
@@ -120,6 +126,64 @@ export function s3Adapter(input: StorageInput): StorageAdapter {
     };
   };
   return {
+    ...objectMutations({
+      async list(prefix) {
+        const objects: StoredObject[] = [];
+        let cursor: string | undefined;
+        do {
+          const page = await client.send(new ListObjectsV2Command({ Bucket: config.bucket, Prefix: key(prefix), ContinuationToken: cursor }), signal());
+          for (const item of page.Contents ?? []) {
+            if (!item.Key?.startsWith(key(prefix)) || !item.ETag) throw new Error("S3 omitted object metadata");
+            objects.push({ path: item.Key.slice(root.length), version: item.ETag });
+          }
+          if (page.NextContinuationToken && page.NextContinuationToken === cursor) throw new Error("S3 repeated a page");
+          cursor = page.NextContinuationToken;
+        } while (cursor);
+        return objects;
+      },
+      stat: (path) => missingAsNull(async () => {
+        const info = await client.send(new HeadObjectCommand({ Bucket: config.bucket, Key: key(path) }), signal());
+        if (!info.ETag) throw new Error("S3 omitted the file version");
+        return { path, version: info.ETag };
+      }),
+      async copy(source, destination) {
+        const info = await client.send(new HeadObjectCommand({ Bucket: config.bucket, Key: key(source.path), IfMatch: source.version }), signal());
+        const target = { Bucket: config.bucket, Key: key(destination) };
+        const metadata = { ContentType: info.ContentType, ContentEncoding: info.ContentEncoding, ContentDisposition: info.ContentDisposition, ContentLanguage: info.ContentLanguage, CacheControl: info.CacheControl, Expires: info.Expires, Metadata: info.Metadata };
+        const size = info.ContentLength ?? 0;
+        if (!size) {
+          await client.send(new PutObjectCommand({ ...target, ...metadata, Body: Buffer.alloc(0), IfNoneMatch: "*" }), signal());
+          return;
+        }
+        // CompleteMultipartUpload supports no-overwrite on older S3-compatible
+        // services whose CopyObject silently ignores destination conditions.
+        const upload = await client.send(new CreateMultipartUploadCommand({ ...target, ...metadata }), signal());
+        if (!upload.UploadId) throw new Error("S3 omitted the upload ID");
+        const multipart = { ...target, UploadId: upload.UploadId };
+        const parts: { ETag: string; PartNumber: number }[] = [];
+        const partSize = Math.max(64 * 1024 * 1024, Math.ceil(size / 10_000));
+        try {
+          for (let start = 0; start < size; start += partSize) {
+            const PartNumber = parts.length + 1;
+            const copied = await client.send(new UploadPartCopyCommand({
+              ...multipart, PartNumber,
+              CopySource: `/${encodeURIComponent(config.bucket)}/${key(source.path).split("/").map(encodeURIComponent).join("/")}`,
+              CopySourceIfMatch: source.version,
+              CopySourceRange: `bytes=${start}-${Math.min(size - 1, start + partSize - 1)}`,
+            }), signal());
+            if (!copied.CopyPartResult?.ETag) throw new Error("S3 omitted the copied part version");
+            parts.push({ PartNumber, ETag: copied.CopyPartResult.ETag });
+          }
+          await client.send(new CompleteMultipartUploadCommand({ ...multipart, MultipartUpload: { Parts: parts }, IfNoneMatch: "*" }), signal());
+        } catch (error) {
+          await client.send(new AbortMultipartUploadCommand(multipart), signal()).catch(() => undefined);
+          throw error;
+        }
+      },
+      async remove(source) {
+        await client.send(new DeleteObjectCommand({ Bucket: config.bucket, Key: key(source.path), IfMatch: source.version }), signal());
+      },
+    }),
     async searchCapabilities() {
       return { modes: ["path_prefix"], pagination: true };
     },
@@ -240,6 +304,29 @@ export function azureAdapter(input: StorageInput): StorageAdapter {
     };
   };
   return {
+    ...objectMutations({
+      async list(prefix) {
+        const objects: StoredObject[] = [];
+        for await (const item of client.listBlobsFlat({ prefix: root + prefix })) {
+          if (!item.name.startsWith(root + prefix) || !item.properties.etag) throw new Error("Azure omitted object metadata");
+          objects.push({ path: item.name.slice(root.length), version: item.properties.etag });
+        }
+        return objects;
+      },
+      stat: (path) => missingAsNull(async () => {
+        const info = await file(path).getProperties();
+        if (!info.etag) throw new Error("Azure omitted the file version");
+        return { path, version: info.etag };
+      }),
+      async copy(source, destination) {
+        const poller = await file(destination).beginCopyFromURL(file(source.path).url, {
+          conditions: { ifNoneMatch: "*" }, sourceConditions: { ifMatch: source.version },
+        });
+        const result = await poller.pollUntilDone();
+        if (result.copyStatus !== "success") throw new Error("Azure copy did not finish");
+      },
+      async remove(source) { await file(source.path).delete({ conditions: { ifMatch: source.version } }); },
+    }),
     async searchCapabilities() {
       return { modes: ["path_prefix"], pagination: true };
     },
@@ -343,6 +430,31 @@ export function gcsAdapter(input: StorageInput): StorageAdapter {
     );
   };
   return {
+    ...objectMutations({
+      async list(prefix) {
+        const objects: StoredObject[] = [];
+        let cursor: string | undefined;
+        do {
+          const [files, next] = await bucket.getFiles({ prefix: root + prefix, autoPaginate: false, pageToken: cursor });
+          for (const item of files) {
+            if (!item.name.startsWith(root + prefix) || !item.metadata.generation) throw new Error("GCS omitted object metadata");
+            objects.push({ path: item.name.slice(root.length), version: String(item.metadata.generation) });
+          }
+          if (next?.pageToken && next.pageToken === cursor) throw new Error("GCS repeated a page");
+          cursor = next?.pageToken;
+        } while (cursor);
+        return objects;
+      },
+      stat: (path) => missingAsNull(async () => {
+        const [info] = await file(path).getMetadata();
+        if (!info.generation) throw new Error("GCS omitted the file generation");
+        return { path, version: String(info.generation) };
+      }),
+      async copy(source, destination) {
+        await bucket.file(root + source.path, { generation: source.version }).copy(file(destination), { preconditionOpts: { ifGenerationMatch: 0 } });
+      },
+      async remove(source) { await file(source.path).delete({ ifGenerationMatch: source.version }); },
+    }),
     async listFiles(path, cursor) {
       const prefix = root + (path ? `${path}/` : "");
       const [files, nextQuery] = await bucket.getFiles({

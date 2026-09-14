@@ -289,3 +289,21 @@ describe("in-app Markdown routing", () => {
     expect(calls).toHaveLength(1);
   });
 });
+
+test("opens workspace and connected files in the engine session, then exposes live editing", async () => {
+  const calls: unknown[] = [];
+  await withBridge({}, (body) => { calls.push(body); return { ok: true, status: "opening" }; });
+  const plugin = await LegalWorkExtensionsPreview();
+  expect(JSON.parse(await plugin.tool.inapp_documents_open.execute({ path: "draft.md" }, {})).ok).toBe(false);
+  expect(calls).toEqual([]);
+  await plugin.tool.inapp_documents_open.execute({ path: "draft.md" }, { sessionID: "ses_this" });
+  await plugin.tool.inapp_documents_open.execute({ path: "Matter/draft.docx", connection_id: "team:s3" }, { sessionID: "ses_this" });
+  expect(calls).toEqual([
+    { actionId: "documents.open", args: { sessionId: "ses_this", path: "draft.md" } },
+    { actionId: "documents.open", args: { sessionId: "ses_this", path: "Matter/draft.docx", connectionId: "team:s3" } },
+  ]);
+  const output: { system: string[] } = { system: [] };
+  await plugin["experimental.chat.system.transform"]({ sessionID: "ses_this" }, output);
+  expect(output.system.join("\n")).toContain("inapp_documents_open");
+  expect(output.system.join("\n")).toContain("inapp_md_*");
+});

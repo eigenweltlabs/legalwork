@@ -134,6 +134,14 @@ export function webdavAdapter(input: StorageInput): StorageAdapter {
     download,
     write: upload,
     upload,
+    async rename(path, destination) {
+      await client.moveFile(remote(path), remote(destination), { ...options, overwrite: false });
+    },
+    async deleteFile(path) {
+      const info = await fileStat(path);
+      if (!info) throw new ApiError(404, "storage_not_found", "File not found.");
+      await client.deleteFile(remote(path), { ...options, headers: info.version ? { "If-Match": quoteEtag(info.version) } : {} });
+    },
     async mkdir(path) {
       await client.createDirectory(remote(path), options);
     },
@@ -237,6 +245,18 @@ export async function sftpAdapter(input: StorageInput): Promise<StorageAdapter> 
       download,
       write: upload,
       upload,
+      async rename(path, destination) {
+        const source = await remote(path);
+        const target = await remote(destination, true);
+        if (await client.exists(target)) conflict();
+        // Standard SFTP rename rejects existing destinations; posixRename replaces them.
+        await client.rename(source, target);
+      },
+      async deleteFile(path) {
+        const target = await remote(path);
+        if (!(await client.stat(target)).isFile) throw new ApiError(400, "storage_not_a_file", "Choose a file.");
+        await client.delete(target);
+      },
       async mkdir(path) {
         await client.mkdir(await remote(path, true));
       },
@@ -336,6 +356,19 @@ export async function ftpAdapter(input: StorageInput): Promise<StorageAdapter> {
       download,
       write: upload,
       upload,
+      async rename(path, destination) {
+        const { existing } = await parent(path);
+        if (!existing) throw new ApiError(404, "storage_not_found", "File or folder not found.");
+        const target = await parent(destination);
+        if (target.existing) conflict();
+        // FTP has no conditional RNTO. Renames are serialized with this app's other writes.
+        await client.rename(posix.basename(path), target.name);
+      },
+      async deleteFile(path) {
+        const { name, existing } = await parent(path);
+        if (!existing?.isFile) throw new ApiError(400, "storage_not_a_file", "Choose a file.");
+        await client.remove(name);
+      },
       async mkdir(path) {
         const { name, existing } = await parent(path);
         if (existing) conflict();

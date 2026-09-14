@@ -1,5 +1,6 @@
 /** @jsxImportSource react */
-import { lazy, useState } from "react";
+import { lazy, useEffect, useState } from "react";
+import { usePanelTabStore } from "./panel-tab-store";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { ChevronDown } from "lucide-react";
 import type { StorageEntry, StorageRoot, StorageWorkingCopy } from "@legalwork/types/file-storage";
@@ -53,6 +54,13 @@ export function StorageFilePanel(props: Props) {
     refetchOnWindowFocus: false,
     refetchOnReconnect: false,
   });
+  const workingPath = usePanelTabStore((state) => {
+    const tab = state.sessions[props.sessionId]?.tabs.find((tab) => tab.id === tabId);
+    return tab?.type === "artifact" ? tab.value : undefined;
+  });
+  useEffect(() => {
+    if (copy.data) usePanelTabStore.getState().setStorageWorkingPath(props.sessionId, tabId, copy.data.localPath);
+  }, [copy.data, props.sessionId, tabId, workingPath]);
   if (copy.isError) return <PreviewError message={copy.error.message} />;
   if (!copy.data) return <PreviewLoading />;
   const working = copy.data;

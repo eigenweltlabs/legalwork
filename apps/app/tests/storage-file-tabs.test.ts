@@ -72,6 +72,19 @@ describe("connected storage document tabs", () => {
     expect(usePanelTabStore.getState().sessions.session.activeTabId).toBe(tabs[0].id);
   });
 
+  test("exposes checked-out paths to agent inventory without switching tabs or losing cloud actions", () => {
+    const tab = storageFileTab("workspace", root, file);
+    const other = storageFileTab("workspace", root, { ...file, path: "Other.docx" });
+    const store = usePanelTabStore.getState();
+    store.openTab("session", tab); store.openTab("session", other);
+    store.setStorageWorkingPath("session", tab.id, ".legalwork/storage-downloads/copy/Contract.docx");
+    const state = usePanelTabStore.getState().sessions.session;
+    expect(state.activeTabId).toBe(other.id);
+    expect(state.tabs[0]).toMatchObject({ value: ".legalwork/storage-downloads/copy/Contract.docx", storage: tab.storage });
+    store.setStorageWorkingPath("another-session", tab.id, "wrong.docx");
+    expect(usePanelTabStore.getState().sessions["another-session"]).toBeUndefined();
+  });
+
   test("transcript and browser synchronization do not remove a storage tab", () => {
     const tab = storageFileTab("workspace", root, file);
     const store = usePanelTabStore.getState();

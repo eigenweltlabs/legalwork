@@ -56,6 +56,7 @@ export type PanelTabStore = {
   sessions: Record<string, SessionPanelState>;
   transcriptArtifactTargets: Record<string, OpenTarget[]>;
   openTab: (sessionId: string, tab: PanelTab) => void;
+  setStorageWorkingPath: (sessionId: string, tabId: string, path: string) => void;
   closeTab: (sessionId: string, tabId: string) => void;
   selectTab: (sessionId: string, tabId: string) => void;
   reorderTabs: (sessionId: string, tabIds: string[]) => void;
@@ -225,6 +226,12 @@ export const usePanelTabStore = create<PanelTabStore>()(
     (set, get) => ({
       sessions: {},
       transcriptArtifactTargets: {},
+      setStorageWorkingPath: (sessionId, tabId, path) => set((state) => {
+        const session = getWritableSession(state, sessionId);
+        const tab = session.tabs.find((item) => item.id === tabId);
+        if (tab?.type !== "artifact" || !tab.storage || tab.value === path) return state;
+        return updateSession(state, sessionId, { ...session, tabs: session.tabs.map((item) => item.id === tabId ? { ...tab, value: path } : item) });
+      }),
       openTab: (sessionId, tab) => set((state) => {
         const session = getWritableSession(state, sessionId);
         if (session.activeTabId !== tab.id && !confirmDiscardDocuments()) return state;

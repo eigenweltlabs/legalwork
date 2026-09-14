@@ -168,6 +168,20 @@ export async function boxAdapter(config: OAuthConfig, token: AccessToken): Promi
     async read(path) { const { file, body, contentType } = await download(path); return { ...fileInfo(file), contentType, data: await collectStream(body) }; },
     async download(path, destination) { const { file, body, contentType } = await download(path); return { ...fileInfo(file), contentType, ...await receiveFile(body, destination) }; },
     write: upload, upload,
+    async rename(path, destination, kind) {
+      const file = await resolve(path);
+      if (file.type !== kind) throw missing();
+      if (await existing(destination)) throw new ApiError(409, "storage_conflict", "This name is already in use.");
+      await (await authorizedFetch(token, new URL(`${kind === "folder" ? "folders" : "files"}/${file.id}`, api), {
+        method: "PUT", headers: { "Content-Type": "application/json", ...(file.etag ? { "If-Match": file.etag } : {}) },
+        body: JSON.stringify({ name: destination.split("/").at(-1) }),
+      })).body?.cancel();
+    },
+    async deleteFile(path) {
+      const file = await resolve(path);
+      if (file.type !== "file") throw new ApiError(400, "storage_not_a_file", "Choose a file.");
+      await (await authorizedFetch(token, new URL(`files/${file.id}`, api), { method: "DELETE", headers: file.etag ? { "If-Match": file.etag } : {} })).body?.cancel();
+    },
     async mkdir(path) {
       const parts = storagePath(path, false).split("/"); const name = parts.pop()!;
       const parent = await resolve(parts.join("/"));

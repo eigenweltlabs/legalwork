@@ -18,6 +18,7 @@ import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 import { t } from "@/i18n";
 import { FolderIcon } from "@/react-app/design-system/folder-icon";
+import { StorageEntryMenu } from "./storage-entry-menu";
 import { ArtifactIcon } from "../artifacts/artifact-icon";
 import { classifyOpenTarget } from "../artifacts/open-target";
 
@@ -151,6 +152,8 @@ export function StorageDriveTree({ client, workspaceId, roots, onOpenFile }: Tre
           onSelect={setSelected}
           onFile={(entry) => onOpenFile(root, entry)}
           onUpload={upload}
+          onChooseUpload={(target) => { setSelected(target); uploadInput.current?.click(); }}
+          onNewFolder={(target) => { setSelected(target); setFolderName(""); setError(""); setNewFolder(true); }}
           busy={Boolean(busy)}
         />
       ))}
@@ -232,6 +235,8 @@ type FolderProps = Location & {
   onSelect: (target: Location) => void;
   onFile: (entry: StorageEntry) => void;
   onUpload: (target: Location, files: File[]) => Promise<void>;
+  onChooseUpload: (target: Location) => void;
+  onNewFolder: (target: Location) => void;
   busy: boolean;
 };
 function StorageFolder(props: FolderProps) {
@@ -259,6 +264,9 @@ function StorageFolder(props: FolderProps) {
   const isSelected = selected?.root.id === root.id && selected.path === path;
   return (
     <div>
+      <StorageEntryMenu client={client} workspaceId={workspaceId} root={root} file={{ path, name, kind: "folder", size: null, modifiedAt: null }} disabled={busy}
+        onOpen={() => { onSelect({ root, path }); setOpen(true); }} onRefresh={() => void children.refetch()}
+        onUpload={() => props.onChooseUpload({ root, path })} onNewFolder={() => props.onNewFolder({ root, path })}>
       <div className="group flex items-center">
         <button
           type="button"
@@ -310,6 +318,7 @@ function StorageFolder(props: FolderProps) {
           </Button>
         )}
       </div>
+      </StorageEntryMenu>
       {open && (
         <div>
           {children.isLoading && (
@@ -331,19 +340,22 @@ function StorageFolder(props: FolderProps) {
                 depth={depth + 1}
               />
             ) : (
+              <StorageEntryMenu key={`file:${entry.path}`} client={client} workspaceId={workspaceId} root={root} file={entry} disabled={busy} onOpen={() => onFile(entry)}>
+              <div className="group flex items-center">
               <button
-                key={`file:${entry.path}`}
                 type="button"
                 draggable
                 onDragStart={(event) => writeStorageFileDrag(event.dataTransfer, root, entry)}
                 onClick={() => onFile(entry)}
                 title={entry.path}
                 style={{ paddingLeft: 40 + depth * 15 }}
-                className="flex min-h-9 w-full items-center gap-2 rounded-lg pr-2 text-left text-[13px] hover:bg-muted/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
+                className="flex min-h-9 min-w-0 flex-1 items-center gap-2 rounded-lg pr-2 text-left text-[13px] hover:bg-muted/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
               >
                 <ArtifactIcon type={classifyOpenTarget(entry.name, "file")} className="size-5 shrink-0" />
                 <span className="truncate">{entry.name}</span>
               </button>
+              </div>
+              </StorageEntryMenu>
             ),
           )}
           {children.isError && (

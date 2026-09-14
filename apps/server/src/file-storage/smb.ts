@@ -100,6 +100,14 @@ export async function smbAdapter(input: StorageInput): Promise<StorageAdapter> {
       download,
       write: upload,
       upload,
+      async rename(path, destination) {
+        await client.rename(await remote(path), await remote(destination, true), { replace: false });
+      },
+      async deleteFile(path) {
+        const target = await remote(path);
+        if ((await client.stat(target)).isDirectory) throw new ApiError(400, "storage_not_a_file", "Choose a file.");
+        await client.rm(target);
+      },
       async read(path) {
         const data = await collectStream(client.createReadStream(await remote(path)));
         return { data, size: data.length, version: hashVersion(data) };

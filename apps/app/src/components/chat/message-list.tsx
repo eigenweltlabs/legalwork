@@ -48,6 +48,7 @@ import { TodoWriteTool } from "@/components/tools/todowrite"
 import { WebfetchTool } from "@/components/tools/webfetch"
 import { WebsearchTool } from "@/components/tools/websearch"
 import { useMessageList, useSessionErrorMessage } from "@/components/chat/message-list-provider"
+import { ToolRun } from "./tool-run"
 import { ArtifactList } from "@/components/chat/artifact"
 import { collectLegalMemoryDocuments } from "@/lib/legalmemory-documents"
 import { LegalMemoryMatterGraph } from "@/components/chat/legalmemory-matter-graph"
@@ -94,17 +95,14 @@ import {
   isWriteToolPart,
 } from "@/lib/build-in-tools"
 import type { ThreadStatus } from "@/lib/messages"
-import {
-  collectToolParts,
-  getActiveToolLabel,
-} from "@/lib/tool-activity"
+import { collectToolParts, isToolPartInFlight } from "@/lib/tool-activity"
 import { cn } from "@/lib/utils"
 import { useOpenTargets } from "@/lib/target-provider"
 import { resolveFilePartOpenTarget, resolvePathOpenTarget } from "@/react-app/domains/session/artifacts/open-target"
 import { WORKSPACE_ATTACHMENT_LINK_SOURCE, parseWorkspaceAttachmentLink } from "@/react-app/domains/session/surface/composer/workspace-attachment"
 import { LEGALMEMORY_OPEN_EVENT, parseLegalMemoryRef } from "@/components/markdown/legalmemory-ref"
 import { STORAGE_LINK_SOURCE, STORAGE_OPEN_EVENT, parseStorageRefLink, type StorageRef } from "@/components/markdown/storage-ref"
-import { groupMessages, isMessageGroup, getLastTextPart, getAssistantRenderGroups, getFileTitle, getMediaBadge, getMessageCreated, formatMessageTimestamp, type UIMessageWithIndex, getMessagesText } from "./utils"
+import { groupMessages, isMessageGroup, getLastTextPart, getAssistantRenderGroups, groupAssistantToolRuns, getFileTitle, getMediaBadge, getMessageCreated, formatMessageTimestamp, type UIMessageWithIndex, getMessagesText } from "./utils"
 import { t } from "@/i18n";
 
 function MessageTimestamp({ message, className }: { message: UIMessage; className?: string }) {
@@ -430,9 +428,7 @@ const AssistantMessage = React.memo(
             }
 
             return (
-              <div key={`tool-${index}`} className="w-full">
-                <ToolMessage part={group.part} />
-              </div>
+              <ToolRun key={`tools-${index}`} parts={group.parts} showDetails={showThinking} renderTool={(part) => <ToolMessage part={part} />} />
             )
           })}
         </div>
@@ -872,7 +868,8 @@ function MessageGroup({
   messages,
   isStreaming,
 }: AssistantMessageGroupProps) {
-  const { onRevertToUserMessage, onForkAtMessage, legalworkClient, workspaceId } = useMessageList()
+  const { onRevertToUserMessage, onForkAtMessage, legalworkClient, workspaceId, showThinking } = useMessageList()
+  const displayItems = React.useMemo(() => groupAssistantToolRuns(items, showThinking), [items, showThinking])
   const lastItem = items[items.length - 1]
   // Every document this turn's LegalMemory calls returned, read from the tool
   // results rather than from anything the model wrote.
@@ -899,17 +896,6 @@ function MessageGroup({
   // client-side messages (e.g. session errors) don't exist on the server and
   // silently corrupt fork/revert boundaries.
   const lastRealItem = items.findLast((item) => !isSessionErrorMessage(item.message))
-  const isLiveGroup = isStreaming && lastItem !== undefined && lastItem.index === messages.length - 1
-  const stepsRef = React.useRef<HTMLDivElement>(null)
-
-  // Keep the capped step run pinned to the latest step while streaming.
-  React.useEffect(() => {
-    const node = stepsRef.current
-    if (node && isLiveGroup) {
-      node.scrollTop = node.scrollHeight
-    }
-  })
-
   if (!lastItem || isMessageEmptyGroup(items)) {
     if (isStreaming) {
       return null;
@@ -920,16 +906,6 @@ function MessageGroup({
 
   const renderableItems = getRenderableMessages(items)
   const lastTextMessage = getLastTextPart(lastItem.message)
-
-  // Leading messages without prose (tool/reasoning steps) render inside a
-  // height-capped scroll area so long runs stay compact; messages with text
-  // or files render inline below it.
-  let stepCount = 0
-  while (stepCount < items.length && !getRenderableMessage(items[stepCount].message)) {
-    stepCount += 1
-  }
-  const stepItems = items.slice(0, stepCount)
-  const proseItems = items.slice(stepCount)
 
   const renderItem = (item: UIMessageWithIndex, groupIndex: number) => {
     const isLastMessage = item.index === messages.length - 1
@@ -949,15 +925,7 @@ function MessageGroup({
 
   return (
       <div className="flex flex-col gap-2 group/message-group">
-      {stepItems.length > 0 ? (
-        // data-scrollable: the transcript's scroll controller must not treat
-        // gestures inside this nested scroller as transcript browsing, or
-        // autoscroll disengages whenever the user wheels over tool output.
-        <div ref={stepsRef} data-scrollable className="max-h-[520px] overflow-y-auto">
-          {stepItems.map((item, groupIndex) => renderItem(item, groupIndex))}
-        </div>
-      ) : null}
-      {proseItems.map((item, groupIndex) => renderItem(item, stepItems.length + groupIndex))}
+      {displayItems.map(renderItem)}
       {/* The graph and the sources belong under the finished answer, not among
           the retrieval steps. They are collected across the whole turn, since
           the tool calls and the prose that follows them are separate messages. */}
@@ -1024,8 +992,8 @@ export function MessageList({ eigenweltPlan = null, messages, status, retryStatu
   const items = React.useMemo(() => groupMessages(messages, status), [messages, status]);
   const error = useSessionErrorMessage();
   const hasSessionErrorMessage = React.useMemo(() => messages.some(isSessionErrorMessage), [messages])
-  const liveActionLabel = isStreaming
-    ? getActiveToolLabel(collectToolParts(messages))
+  const liveActionLabel = isStreaming && collectToolParts(messages).some(isToolPartInFlight)
+    ? t("tool_run.running")
     : null
 
   return (

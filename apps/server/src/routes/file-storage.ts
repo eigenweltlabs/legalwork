@@ -16,6 +16,8 @@ import { recordAudit } from "../audit.js";
 import { ApiError } from "../errors.js";
 import {
   conflict,
+  findEntry,
+  renameDestination,
   ensureFileSize,
   hashVersion,
   receiveFile,
@@ -66,7 +68,7 @@ export function registerStorageRoutes({
   const team = new TeamStorage(config);
   const oauth = new StorageOAuth(join(dirname(store.path), "storage-oauth.vault"));
   // File-server protocols lack conditional writes. Serialize this server's
-  // mutations so two LegalWork saves cannot both pass the same version check.
+  // mutations per connection so folder renames cannot interleave with descendant saves.
   const pendingWrites = new Map<string, Promise<unknown>>();
   const serializeWrite = async <T>(key: string, write: () => Promise<T>): Promise<T> => {
     const pending = (pendingWrites.get(key) ?? Promise.resolve()).catch(() => undefined).then(write);
@@ -282,11 +284,11 @@ export function registerStorageRoutes({
   addRoute(routes, "GET", `${base}/:storageId/capabilities`, "client", async (ctx) => {
     const connection = await selected(ctx);
     const writable = !connection.readOnly && canWrite(ctx);
-    const search = await withStorage(
-      connection,
-      (adapter) => adapter.searchCapabilities?.() ?? Promise.resolve({ modes: [], pagination: false }),
-    );
-    return jsonResponse({ read: true, write: writable, createFolder: writable, search });
+    return jsonResponse(await withStorage(connection, async (adapter) => ({
+      read: true, write: writable, createFolder: writable,
+      rename: writable && Boolean(adapter.rename), deleteFile: writable && Boolean(adapter.deleteFile),
+      search: await adapter.searchCapabilities?.() ?? { modes: [], pagination: false },
+    })));
   });
   addRoute(routes, "GET", `${base}/:storageId/search`, "client", async (ctx) => {
     const connection = await selected(ctx);
@@ -436,7 +438,7 @@ export function registerStorageRoutes({
           }
         })();
         try {
-          const result = await serializeWrite(`${connection.id}/${path}`, () =>
+          const result = await serializeWrite(connection.id, () =>
             withStorage(connection, async (adapter) => {
               await adapter.upload(
                 path,
@@ -485,7 +487,7 @@ export function registerStorageRoutes({
         throw new ApiError(400, "invalid_storage_file", "File content is not valid base64.");
       const data = Buffer.from(input.dataBase64, "base64");
       ensureFileSize(data.length);
-      const result = await serializeWrite(`${connection.id}/${path}`, () =>
+      const result = await serializeWrite(connection.id, () =>
         withStorage(connection, async (adapter) => {
           await adapter.write(
             path,
@@ -516,7 +518,44 @@ export function registerStorageRoutes({
     const body = await readJsonBodyLimited(ctx.request, 8 * 1024);
     if (typeof body.path !== "string") throw new ApiError(400, "invalid_storage_path", "A folder path is required.");
     const path = storagePath(body.path, false);
-    await serializeWrite(`${connection.id}/${path}`, () => withStorage(connection, (adapter) => adapter.mkdir(path)));
+    await serializeWrite(connection.id, () => withStorage(connection, (adapter) => adapter.mkdir(path)));
     return jsonResponse({ ok: true }, 201);
+  });
+  addRoute(routes, "POST", `${base}/:storageId/rename`, "client", async (ctx) => {
+    const connection = await selected(ctx, true);
+    const parsed = z.object({ path: z.string(), name: z.string(), kind: z.enum(["file", "folder"]) }).safeParse(await readJsonBodyLimited(ctx.request, 16 * 1024));
+    if (!parsed.success) throw new ApiError(400, "invalid_storage_rename", "Provide the path, new name, and file or folder kind.");
+    const { path, name, kind } = parsed.data;
+    const destination = renameDestination(path, name);
+    await serializeWrite(connection.id, () => withStorage(connection, async (adapter) => {
+      if (!adapter.rename) throw new ApiError(400, "storage_rename_unsupported", "This connection does not support renaming.");
+      const source = await findEntry(adapter, path, kind);
+      if (!source || source.kind !== kind) throw new ApiError(404, "storage_not_found", "File or folder not found. Refresh before renaming.");
+      if (await findEntry(adapter, destination)) conflict();
+      await adapter.rename(path, destination, kind);
+    }));
+    await recordAudit((await resolveWorkspace(config, ctx.params.id)).path, {
+      id: randomUUID(), timestamp: Date.now(), workspaceId: connection.workspaceId, actor: ctx.actor!,
+      action: "storage.rename", target: connection.id, summary: `Renamed ${path} to ${destination}`,
+    });
+    return jsonResponse({ ok: true, path: destination, kind });
+  });
+  addRoute(routes, "DELETE", `${base}/:storageId/file`, "client", async (ctx) => {
+    const connection = await selected(ctx, true);
+    const path = storagePath(ctx.url.searchParams.get("path") ?? "", false);
+    await serializeWrite(connection.id, () => withStorage(connection, async (adapter) => {
+      if (!adapter.deleteFile) throw new ApiError(400, "storage_delete_unsupported", "This connection does not support deleting files.");
+      const file = await findEntry(adapter, path, "file");
+      if (!file) {
+        if (await findEntry(adapter, path, "folder")) throw new ApiError(400, "storage_not_a_file", "Choose a file. Folders cannot be deleted here.");
+        throw new ApiError(404, "storage_not_found", "File not found.");
+      }
+      await adapter.deleteFile(path);
+    }));
+    await recordAudit((await resolveWorkspace(config, ctx.params.id)).path, {
+      id: randomUUID(), timestamp: Date.now(), workspaceId: connection.workspaceId, actor: ctx.actor!,
+      action: "storage.delete", target: connection.id, summary: `Deleted ${path}`,
+    });
+    return jsonResponse({ ok: true });
   });
 }

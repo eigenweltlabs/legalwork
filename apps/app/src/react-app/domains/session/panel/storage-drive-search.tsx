@@ -6,6 +6,7 @@ import { STORAGE_PAGE_SIZE, type StorageEntry, type StorageRoot } from "@legalwo
 import type { LegalworkServerClient } from "@/app/lib/legalwork-server";
 import { Button } from "@/components/ui/button";
 import { t } from "@/i18n";
+import { StorageEntryMenu } from "./storage-entry-menu";
 import { ArtifactIcon } from "../artifacts/artifact-icon";
 import { classifyOpenTarget } from "../artifacts/open-target";
 
@@ -62,12 +63,13 @@ function ConnectionSearch({
     <section aria-label={root.name} className="pb-2">
       <h3 className="truncate px-2 py-2 text-xs font-medium text-muted-foreground">{root.name}</h3>
       {entries.slice(0, visibleLimit).map((entry) => (
+        <StorageEntryMenu key={entry.path} client={client} workspaceId={workspaceId} root={root} file={entry} onOpen={() => onOpenFile(root, entry)}>
+        <div className="group flex items-center">
         <button
-          key={entry.path}
           type="button"
           title={`${root.name} / ${entry.path}`}
           onClick={() => onOpenFile(root, entry)}
-          className="flex min-h-11 w-full items-center gap-2 rounded-lg px-2 py-1 text-left hover:bg-muted/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
+          className="flex min-h-11 min-w-0 flex-1 items-center gap-2 rounded-lg px-2 py-1 text-left hover:bg-muted/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
         >
           <ArtifactIcon type={classifyOpenTarget(entry.name, "file")} className="size-5 shrink-0" />
           <span className="min-w-0 flex-1">
@@ -75,6 +77,8 @@ function ConnectionSearch({
             <span className="block truncate text-[10px] text-muted-foreground">{entry.path}</span>
           </span>
         </button>
+        </div>
+        </StorageEntryMenu>
       ))}
       {loading ? (
         <p role="status" className="flex items-center gap-2 px-2 py-2 text-xs text-muted-foreground">
