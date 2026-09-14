@@ -112,6 +112,7 @@ import {
 } from "./legalwork-workspace-config-store.js";
 import {
   buildLegalworkRuntimeConfigObject,
+  readEngineEigenweltProvider,
   writeLegalworkRuntimeConfigFile,
 } from "./legalwork-runtime-config.js";
 import { providerRepairNotices } from "./runtime-provider-repair.js";
@@ -2065,10 +2066,19 @@ function createRoutes(
 
   // Rebuild the engine-visible config file (a single file for the primary
   // workspace, which the shared engine re-reads on every instance dispose) so a
-  // change to the GLOBAL eigenwelt manifest lands across all workspaces.
-  const rebuildEngineConfigFile = async () => {
+  // change to the GLOBAL eigenwelt manifest lands across all workspaces. The
+  // engine keeps one instance per workspace folder, built from the file as it
+  // was then. The app reloads the one it shows (`origin`); when the Eigenwelt
+  // models changed, the other workspaces are reloaded here, or a sign-in from
+  // one workspace would leave the rest without the models until reopened.
+  const rebuildEngineConfigFile = async (origin: WorkspaceInfo) => {
     const primary = config.workspaces?.[0]?.id;
-    if (primary) await writeLegalworkRuntimeConfigFile(config, primary).catch(() => undefined);
+    if (!primary) return;
+    const before = await readEngineEigenweltProvider(config);
+    await writeLegalworkRuntimeConfigFile(config, primary).catch(() => undefined);
+    if ((await readEngineEigenweltProvider(config)) !== before) {
+      reloadIdleWorkspaceEngines(config, origin);
+    }
   };
 
   // Last-applied active-sub state. When an entitlements poll flips it (a sub
@@ -2101,7 +2111,7 @@ function createRoutes(
   addRoute(routes, "PUT", "/workspace/:id/eigenwelt/connection", "client", async (ctx) => {
     ensureWritable(config);
     requireClientScope(ctx, "collaborator");
-    await resolveWorkspace(config, ctx.params.id);
+    const workspace = await resolveWorkspace(config, ctx.params.id);
     const body = await readJsonBody(ctx.request);
     const entitlements =
       body.entitlements === undefined ? undefined : parseEigenweltEntitlements(body.entitlements) ?? null;
@@ -2138,7 +2148,7 @@ function createRoutes(
     if (body.disconnect === true) {
       await revokeEigenweltConnection(config);
       await clearCachedEigenweltPaidManifest(config);
-      await rebuildEngineConfigFile();
+      await rebuildEngineConfigFile(workspace);
       return jsonResponse(await readEigenweltEntitlementsView(config));
     }
 
@@ -2172,13 +2182,13 @@ function createRoutes(
         apiKey: body.apiKey,
         models: parseManifestModels(body.models),
       });
-      await rebuildEngineConfigFile();
+      await rebuildEngineConfigFile(workspace);
     }
     return jsonResponse(view);
   });
 
   addRoute(routes, "GET", "/workspace/:id/eigenwelt/entitlements", "client", async (ctx) => {
-    await resolveWorkspace(config, ctx.params.id);
+    const workspace = await resolveWorkspace(config, ctx.params.id);
     // Opportunistically refresh (rotate the token + pull current entitlements)
     // so the plan/usage the desktop shows stays live. `?refresh=1` forces the
     // pull now (the post-checkout "waiting for your subscription" poll).
@@ -2197,7 +2207,7 @@ function createRoutes(
     if (paidEntitled !== lastPaidEntitled || modelsRevision !== lastModelsRevision) {
       lastPaidEntitled = paidEntitled;
       lastModelsRevision = modelsRevision;
-      await rebuildEngineConfigFile();
+      await rebuildEngineConfigFile(workspace);
     }
     return jsonResponse({ ...view, modelsRevision, servedModelIds });
   });
@@ -2208,14 +2218,14 @@ function createRoutes(
   addRoute(routes, "POST", "/workspace/:id/eigenwelt/refresh-models", "client", async (ctx) => {
     ensureWritable(config);
     requireClientScope(ctx, "collaborator");
-    await resolveWorkspace(config, ctx.params.id);
+    const workspace = await resolveWorkspace(config, ctx.params.id);
     // With the firm's access token the pull is the firm's own list (admin
     // on/off applied); a legacy sign-in without tokens gets the public catalog.
     const platformToken = await ensureFreshPlatformToken(config);
     const result = await refreshEigenweltPaidManifest(config, { platformToken });
     if (result.changed) {
       lastModelsRevision = eigenweltPaidManifestRevision(await readCachedEigenweltPaidManifest(config));
-      await rebuildEngineConfigFile();
+      await rebuildEngineConfigFile(workspace);
     }
     return jsonResponse(result);
   });
@@ -4109,6 +4119,47 @@ async function reloadOpencodeEngine(config: ServerConfig, workspace: WorkspaceIn
   // engine through this dynamic push.
   await awaitEngineInstance(baseUrl, auth, directory);
   await syncRuntimeMcpToOpencodeEngine(config, workspace).catch(() => undefined);
+}
+
+// Reload the engine instance of every other local workspace, one at a time and
+// in the background (a later call queues behind a running one). A workspace
+// with a task running is skipped: a reload would abort the task, and the app
+// reloads that workspace itself once it is open and idle.
+let idleWorkspaceReloads: Promise<void> = Promise.resolve();
+function reloadIdleWorkspaceEngines(config: ServerConfig, origin: WorkspaceInfo): void {
+  idleWorkspaceReloads = idleWorkspaceReloads.then(async () => {
+    for (const workspace of otherLocalWorkspaces(config, origin)) {
+      try {
+        if (await workspaceEngineBusy(config, workspace)) continue;
+        await reloadOpencodeEngine(config, workspace);
+      } catch {
+        // Best-effort: the app repairs the workspace when it is opened.
+      }
+    }
+  });
+}
+
+// Whether a session in the workspace's engine instance is running (busy or
+// retrying). No answer counts as busy: never abort a task on a guess.
+async function workspaceEngineBusy(config: ServerConfig, workspace: WorkspaceInfo): Promise<boolean> {
+  const connection = resolveWorkspaceOpencodeConnection(config, workspace);
+  const baseUrl = connection.baseUrl?.trim();
+  if (!baseUrl) return true;
+  const url = new URL(baseUrl);
+  url.pathname = "/session/status";
+  url.search = "";
+  const directory = resolveOpencodeDirectory(workspace);
+  if (directory) url.searchParams.set("directory", directory);
+  const headers: Record<string, string> = {};
+  if (connection.authHeader) headers.Authorization = connection.authHeader;
+  try {
+    const response = await fetch(url, { headers, signal: AbortSignal.timeout(10_000) });
+    if (!response.ok) return true;
+    const statuses: unknown = await response.json();
+    return !isRecord(statuses) || Object.values(statuses).some((status) => !isRecord(status) || status.type !== "idle");
+  } catch {
+    return true;
+  }
 }
 
 // The engine answers a workspace's MCP status only once that instance exists:

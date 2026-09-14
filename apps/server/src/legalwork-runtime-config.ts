@@ -12,7 +12,7 @@
  * runtime-DB write — unlike the previous OPENCODE_CONFIG_CONTENT env var,
  * which was frozen at spawn and reverted MCP state on each dispose.
  */
-import { mkdir, rename, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { randomUUID } from "node:crypto";
@@ -211,6 +211,24 @@ export async function buildLegalworkRuntimeConfig(config?: ServerConfig, workspa
 
 export function legalworkRuntimeConfigFilePath(config: ServerConfig): string {
   return join(runtimeStorageDir(config), "runtime-opencode-config.json");
+}
+
+/**
+ * The paid Eigenwelt provider block the engine config file serves right now,
+ * serialized ("null" when it serves none; null when the file is unreadable).
+ * Comparing it around a rebuild tells whether the Eigenwelt models changed.
+ */
+export async function readEngineEigenweltProvider(config: ServerConfig): Promise<string | null> {
+  try {
+    const file: unknown = JSON.parse(await readFile(legalworkRuntimeConfigFilePath(config), "utf8"));
+    const providers =
+      typeof file === "object" && file !== null && "provider" in file && typeof file.provider === "object"
+        ? file.provider
+        : null;
+    return JSON.stringify(providers && EIGENWELT_PROVIDER_ID in providers ? providers[EIGENWELT_PROVIDER_ID] : null);
+  } catch {
+    return null;
+  }
 }
 
 // Serialize file writes per path so a slow older write can never land after
