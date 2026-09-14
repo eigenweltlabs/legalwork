@@ -332,6 +332,7 @@ const applicationMenu = createApplicationMenu({
 });
 
 const uiControlServer = createUiControlServer({
+  getUserDataDir: () => app.getPath("userData"),
   appName: APP_NAME,
   appIdentifier: APP_IDENTIFIER,
   getWindow: () => createMainWindow(),

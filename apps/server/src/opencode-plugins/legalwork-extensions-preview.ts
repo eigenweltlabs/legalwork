@@ -2,7 +2,7 @@ import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { homedir, platform } from "node:os";
 import { z } from "zod";
-import { officeFileSchema, xlsxReadSchema, xlsxWriteSchema, pptxReadSchema, pptxReplaceSchema } from "@legalwork/types/office-editor";
+import { officeFileSchema, xlsxReadSchema, xlsxWriteSchema, pptxReadSchema, pptxReplaceSchema, pptxLayoutSchema } from "@legalwork/types/office-editor";
 
 type OpenCodeContext = {
   agent?: string;
@@ -100,6 +100,9 @@ Use inapp_documents_open for a workspace file, or supply connection_id and path 
 Once loaded, call inapp_documents_list for the exact active path, then use inapp_docx_*, inapp_md_*, inapp_xlsx_* or inapp_pptx_* tools to read and edit visibly. For several source documents, open/select the appropriate source, then return to the working file. For a new file without a template, a file tool may create the initial valid skeleton; open it immediately and do supported content edits live.
 Use a file-based fallback only when the viewer reports an unsupported operation/format or is unavailable, or the user explicitly requests that workflow. Do not silently choose Python for operations available in the editor. If a structural change needs a file tool, save the live draft first, explain the limitation briefly, and reopen/reload the result before continuing. Local editor saves do not publish to cloud storage; copied deliverables require a separate upload if requested.
 When a Word document is open in LegalWork's right-hand document editor, use the inapp_docx_* tools to read and edit that live document. Those tools save changes back to the workspace automatically, and every agent text edit is a tracked change. Do not use word_* tools or a bash/file DOCX pipeline for that open in-app document. If inapp_docx_read_document says no matching in-app document is open, then try the Microsoft Word word_* tools; only after both live surfaces are unavailable should you use the file pipeline.
+
+## Presentation visual review
+PowerPoint read/edit tools return a rendered slide image and potential overlap/overflow warnings. Inspect the images, not only the extracted text. After each edited slide, fix unintended overlapping text, clipping and unreadable text with shorter wording or inapp_pptx_update_layout; use inapp_pptx_preview to recheck it before moving on or saying it is finished. Preserve the template hierarchy and readable font sizes. If preview is unavailable, say visual verification is incomplete; do not claim the layout was checked.
 
 ## Built-in Browser (external websites)
 For web browsing tasks, ALWAYS start with legalwork_browser_open_url. It creates/selects a built-in LegalWork browser tab and returns browser_url plus target_id. Use that exact browser_url and target_id for every later browser_snapshot, browser_click, browser_fill, browser_eval, and browser_screenshot call.
@@ -249,7 +252,29 @@ function openSidebarFiles(payload: unknown, sessionId?: string) {
 async function callInAppOfficeTool(context: OpenCodeContext, format: "xlsx" | "pptx" | "md", toolName: string, args: { path: string }) {
   const surface = inAppDocumentSurface(await uiBridgeRequest("/snapshot"), context.sessionID);
   if (!context.sessionID || !surface || surface.format !== format || surface.path !== args.path) return JSON.stringify({ ok: false, error: "The requested file is not active in this session's sidebar. Use inapp_documents_list and inapp_documents_select, then retry after loading." });
-  return JSON.stringify(await uiBridgeRequest("/execute", { method: "POST", body: { actionId: format === "md" ? "markdown.agent_tool" : "office.agent_tool", args: { sessionId: context.sessionID, path: args.path, toolName, args } } }));
+  return JSON.stringify(await uiBridgeRequest("/execute", { method: "POST", body: { actionId: format === "md" ? "markdown.agent_tool" : "office.agent_tool", args: { sessionId: context.sessionID, path: args.path, toolName, args } }, timeoutMs: 60_000 }));
+}
+
+const pptxVisualResultSchema = z.object({
+  result: z.object({
+    data: z.object({
+      slideIndex: z.number().int().min(0),
+      preview: z.object({ available: z.literal(true), dataUrl: z.string().startsWith("data:image/png;base64,").max(16_000_000) }).passthrough(),
+    }).passthrough(),
+  }).passthrough(),
+}).passthrough();
+
+async function callInAppPptxTool(context: OpenCodeContext, toolName: string, args: { path: string }): Promise<string | { output: string; attachments: { type: "file"; mime: string; url: string; filename: string }[] }> {
+  const raw = await callInAppOfficeTool(context, "pptx", toolName, args);
+  const payload: unknown = JSON.parse(raw);
+  const parsed = pptxVisualResultSchema.safeParse(payload);
+  if (!parsed.success) return raw;
+  const { dataUrl, ...preview } = parsed.data.result.data.preview;
+  const result = parsed.data;
+  return {
+    output: JSON.stringify({ ...result, result: { ...result.result, data: { ...result.result.data, preview: { ...preview, attached: true } } } }),
+    attachments: [{ type: "file", mime: "image/png", url: dataUrl, filename: `slide-${result.result.data.slideIndex + 1}.png` }],
+  };
 }
 
 function inAppDocxModeInstruction(surface: InAppDocumentSurface) {
@@ -460,14 +485,24 @@ Unqualified requests about this workbook/presentation refer to this file. Use in
       async execute(rawArgs: unknown, context: OpenCodeContext) { return callInAppOfficeTool(context, "xlsx", "write", xlsxWriteSchema.parse(rawArgs)); },
     },
     inapp_pptx_read: {
-      description: "Read the live PowerPoint slide's element IDs, text, table rows and speaker notes, plus a slide inventory. Slide indices are zero-based. Defaults to the active slide.",
+      description: "Read the live PowerPoint slide, including element IDs, text/style, table rows, notes, slide inventory, rendered PNG and potential text-overflow/overlap warnings. Slide indices are zero-based. Inspect the image before editing.",
       args: pptxReadSchema.shape,
-      async execute(rawArgs: unknown, context: OpenCodeContext) { return callInAppOfficeTool(context, "pptx", "read", pptxReadSchema.parse(rawArgs)); },
+      async execute(rawArgs: unknown, context: OpenCodeContext) { return callInAppPptxTool(context, "read", pptxReadSchema.parse(rawArgs)); },
+    },
+    inapp_pptx_preview: {
+      description: "Render a full slide PNG from the live PowerPoint draft and check potential text overlaps/overflow without changing the document. Inspect every edited slide before declaring the presentation finished; warnings alone are not visual verification.",
+      args: pptxReadSchema.shape,
+      async execute(rawArgs: unknown, context: OpenCodeContext) { return callInAppPptxTool(context, "preview", pptxReadSchema.parse(rawArgs)); },
+    },
+    inapp_pptx_update_layout: {
+      description: "Adjust one text/shape element's position (x/y), size (width/height), or fontSize in CSS slide pixels to resolve clipping/overlaps. Read the slide first. Unspecified properties and text stay unchanged; fontSize updates all text runs. Saves automatically and returns a fresh slide image and layout warnings. Preserve readability and the template layout.",
+      args: pptxLayoutSchema.shape,
+      async execute(rawArgs: unknown, context: OpenCodeContext) { return callInAppPptxTool(context, "update_layout", pptxLayoutSchema.parse(rawArgs)); },
     },
     inapp_pptx_replace_text: {
-      description: "Replace one exact unique text match in a text or shape element in the live LegalWork presentation, preserving text-run styling and saving automatically. Read first to get the slide index and element ID. Complex paragraph structures and non-text elements are unsupported. Direct edits, not tracked changes.",
+      description: "Replace one exact unique text match in a text or shape element in the live LegalWork presentation, preserving text-run styling and saving automatically. Read first to get the slide index and element ID. Returns the edited slide image and layout warnings. Inspect them; fix clipping/collisions with shorter text or inapp_pptx_update_layout, then preview again. Complex paragraph structures and non-text elements are unsupported. Direct edits, not tracked changes.",
       args: pptxReplaceSchema.shape,
-      async execute(rawArgs: unknown, context: OpenCodeContext) { return callInAppOfficeTool(context, "pptx", "replace_text", pptxReplaceSchema.parse(rawArgs)); },
+      async execute(rawArgs: unknown, context: OpenCodeContext) { return callInAppPptxTool(context, "replace_text", pptxReplaceSchema.parse(rawArgs)); },
     },
     inapp_docx_read_document: {
       description:

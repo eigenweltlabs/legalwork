@@ -951,7 +951,6 @@ export function SessionPage(props: SessionPageProps) {
     <FileSidebars
       key={props.runtimeWorkspaceId ?? "__no_workspace__"}
       active={fileSidebar}
-      onClose={closeFileSidebar}
       memory={memoryDrivePanel}
       files={(
         <WorkspaceFilesPanel

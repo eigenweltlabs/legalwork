@@ -16,3 +16,12 @@ export const xlsxReadSchema = z.object({ path, sheet: z.string().optional().desc
 export const xlsxWriteSchema = z.object({ path, sheet: z.string().min(1), range, values: z.array(z.array(z.union([z.string().max(32767), z.number().finite(), z.boolean(), z.null()])).min(1)).min(1).max(5000).describe("Rectangular values matching the range. Strings beginning '=' are formulas. Null clears a cell. Formatting is retained.") });
 export const pptxReadSchema = z.object({ path, slideIndex: z.number().int().min(0).optional().describe("Zero-based slide index; defaults to active slide. Includes a slide inventory.") });
 export const pptxReplaceSchema = z.object({ path, slideIndex: z.number().int().min(0), elementId: z.string().min(1).describe("Text/shape ID from inapp_pptx_read."), search: z.string().min(1).max(32767).describe("Exact unique text within the element."), replaceWith: z.string().max(32767) });
+
+export const pptxLayoutSchema = z.object({
+  path, slideIndex: z.number().int().min(0), elementId: z.string().min(1),
+  x: z.number().finite().min(0).max(20000).optional(),
+  y: z.number().finite().min(0).max(20000).optional(),
+  width: z.number().finite().positive().max(20000).optional(),
+  height: z.number().finite().positive().max(20000).optional(),
+  fontSize: z.number().finite().min(6).max(400).optional().describe("Font size in CSS pixels, applied to all text runs in this element."),
+});

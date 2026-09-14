@@ -38,7 +38,7 @@ function Review({ initial, slides }: { initial: ArrayBuffer; slides: boolean }) 
     <details className="px-5 text-xs"><summary>Agent tool review</summary>
       <input aria-label="Agent tool" value={agentName} onChange={(event) => setAgentName(event.target.value)} />
       <textarea aria-label="Agent arguments" value={agentArgs} onChange={(event) => setAgentArgs(event.target.value)} />
-      <Button onClick={() => { void (async () => { try { setAgentResult(JSON.stringify(await api.current?.executeAgentTool(agentName, JSON.parse(agentArgs)))); } catch (error) { setAgentResult(String(error)); } })(); }}>Run agent tool</Button>
+      <Button onClick={() => { setAgentResult(""); void (async () => { try { setAgentResult(JSON.stringify(await api.current?.executeAgentTool(agentName, JSON.parse(agentArgs)))); } catch (error) { setAgentResult(String(error)); } })(); }}>Run agent tool</Button>
       <output aria-label="Agent result">{agentResult}</output>
     </details>
     <output className="px-5 py-2 text-xs" aria-label="Save result">{status}</output>

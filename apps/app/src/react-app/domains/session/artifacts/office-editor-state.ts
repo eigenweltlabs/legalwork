@@ -64,7 +64,7 @@ export function useOfficeEditor(props: OfficeEditorProps) {
       }
       if (!agentTool.current || !serialize.current) return { success: false, error: t("office_editor.still_loading") };
       if (busy.current) return { success: false, error: t("office_editor.busy_saving") };
-      if (latest.current.readOnly && toolName !== "read") return { success: false, error: t("office_editor.read_only") };
+      if (latest.current.readOnly && toolName !== "read" && toolName !== "preview") return { success: false, error: t("office_editor.read_only") };
       busy.current = true; setSaving(true); latest.current.onSavingChange?.(true);
       let mutated = false;
       try {

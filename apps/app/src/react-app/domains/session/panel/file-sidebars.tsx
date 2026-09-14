@@ -12,7 +12,6 @@ export function FileSidebars(props: {
   active: FileSidebarItem | null;
   memory: ReactNode;
   files: ReactNode;
-  onClose: () => void;
 }) {
   const panelRef = usePanelRef();
   const expandedWidth = useRef(300);
@@ -21,8 +20,14 @@ export function FileSidebars(props: {
     const active = props.active;
     if (active) {
       setVisited((current) => (current.includes(active) ? current : [...current, active]));
-      panelRef.current?.resize(expandedWidth.current);
-    } else panelRef.current?.collapse();
+    }
+    // Panel constraints are re-registered when visibility changes. Resize only
+    // after the group has applied them, so a reopening does not use maxSize=0.
+    const frame = requestAnimationFrame(() => {
+      if (active) panelRef.current?.resize(expandedWidth.current);
+      else panelRef.current?.collapse();
+    });
+    return () => cancelAnimationFrame(frame);
   }, [props.active, panelRef]);
 
   return (
@@ -31,14 +36,14 @@ export function FileSidebars(props: {
       <ResizablePanel
         id="file-navigation"
         panelRef={panelRef}
-        collapsible
+        collapsible={!props.active}
         collapsedSize="0px"
         defaultSize={props.active ? "300px" : "0px"}
-        minSize="220px"
-        maxSize="40%"
-        onResize={(size, _id, previous) => {
+        minSize={props.active ? "220px" : "0px"}
+        maxSize={props.active ? "40%" : "0px"}
+        disabled={!props.active}
+        onResize={(size) => {
           if (props.active && size.inPixels > 0) expandedWidth.current = size.inPixels;
-          if (previous && previous.inPixels > 0 && size.inPixels === 0 && props.active) props.onClose();
         }}
         className="min-h-0 overflow-hidden"
       >

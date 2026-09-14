@@ -8,9 +8,7 @@ import { createServer } from "node:http";
 import { rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 
-import { app } from "electron";
-
-export function createUiControlServer({ appName, appIdentifier, getWindow }) {
+export function createUiControlServer({ appName, appIdentifier, getWindow, getUserDataDir }) {
   let uiControlServer = null;
   let uiControlDiscoveryPath = null;
   const uiControlToken = randomBytes(32).toString("hex");
@@ -65,7 +63,7 @@ export function createUiControlServer({ appName, appIdentifier, getWindow }) {
       if (win.isMinimized()) win.restore();
       win.focus();
     }
-    return win.webContents.executeJavaScript(expression, true);
+    return win.webContents.executeJavaScript(expression, options.focus === true);
   }
 
   async function runLegalworkControlCommand(command, args = {}) {
@@ -87,6 +85,7 @@ export function createUiControlServer({ appName, appIdentifier, getWindow }) {
       })()`);
     }
     if (command === "execute") {
+      // Agent edits run in the background. Raising the app requires an explicit request.
       return evaluateLegalworkControl(`(async () => {
         const control = window.__legalworkControl;
         const input = JSON.parse(${argsJsonLiteral});
@@ -96,7 +95,7 @@ export function createUiControlServer({ appName, appIdentifier, getWindow }) {
         }
         control.setEnabled?.(true);
         return control.execute(input.actionId, input.args ?? {});
-      })()`, { focus: true });
+      })()`, { focus: args.focus === true });
     }
     return { ok: false, error: `Unknown LegalWork control command: ${command}` };
   }
@@ -138,7 +137,7 @@ export function createUiControlServer({ appName, appIdentifier, getWindow }) {
     const address = uiControlServer.address();
     const port = typeof address === "object" && address ? address.port : null;
     if (!port) throw new Error("Could not start LegalWork UI control bridge.");
-    uiControlDiscoveryPath = path.join(app.getPath("userData"), "legalwork-ui-control.json");
+    uiControlDiscoveryPath = path.join(getUserDataDir(), "legalwork-ui-control.json");
     await writeFile(
       uiControlDiscoveryPath,
       `${JSON.stringify({ version: 1, app: appName, identifier: appIdentifier, platform: process.platform, baseUrl: `http://127.0.0.1:${port}`, token: uiControlToken }, null, 2)}\n`,
