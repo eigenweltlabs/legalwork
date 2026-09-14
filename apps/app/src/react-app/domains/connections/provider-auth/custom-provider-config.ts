@@ -5,9 +5,10 @@
  * The engine requires BOTH `limit.context` and `limit.output` when a `limit`
  * is present. A block with only `context` invalidates the whole runtime config
  * and takes the engine down for every workspace, so `limit` is always written
- * with both keys here.
+ * with both keys here — via resolveModelLimit, the same rule the server uses
+ * for Eigenwelt models.
  */
-export const DEFAULT_MODEL_OUTPUT_LIMIT = 16_384;
+import { resolveModelLimit } from "@legalwork/types/model-limits";
 
 export type CustomProviderModelFields = {
   id: string;
@@ -15,7 +16,7 @@ export type CustomProviderModelFields = {
   reasoning: boolean;
   /** Context-window size, or null when the engine default applies. */
   contextLimit: number | null;
-  /** Output-token limit read back from an existing block, or null. */
+  /** Longest single response in tokens, or null when the default applies. */
   outputLimit: number | null;
 };
 
@@ -25,8 +26,8 @@ function isPlainRecord(value: unknown): value is Record<string, unknown> {
 
 /**
  * Engine `models.<id>` entry for one form row. `limit` is written only when a
- * context limit is set, and then with both keys: an edited model keeps its
- * stored output limit, a new one gets the default.
+ * context limit is set, and then with both keys: the output limit the user
+ * gave, or the default for that context window.
  */
 export function customProviderModelEntry(
   model: Partial<CustomProviderModelFields> & { id: string; name?: string },
@@ -35,13 +36,36 @@ export function customProviderModelEntry(
   if (model.toolCall !== undefined) entry.tool_call = model.toolCall;
   if (model.reasoning) entry.reasoning = true;
   if (typeof model.contextLimit === "number" && model.contextLimit > 0) {
-    const output =
-      typeof model.outputLimit === "number" && model.outputLimit > 0
-        ? model.outputLimit
-        : DEFAULT_MODEL_OUTPUT_LIMIT;
-    entry.limit = { context: model.contextLimit, output };
+    entry.limit = resolveModelLimit({ context: model.contextLimit, output: model.outputLimit }).limit;
   }
   return entry;
+}
+
+export type CustomModelLimitProblem = {
+  modelId: string;
+  /**
+   * output-needs-context: an output limit only reaches the engine inside a
+   * `limit` block, which needs the context window too.
+   * output-not-below-context: an output limit at least as large as the window
+   * leaves no room for input, so the engine could not use it.
+   */
+  reason: "output-needs-context" | "output-not-below-context";
+};
+
+/**
+ * The first model whose limits cannot be saved as typed, or null. Checked
+ * before saving so the form can say what is wrong rather than quietly
+ * replacing the value with a default.
+ */
+export function findCustomModelLimitProblem(
+  models: ReadonlyArray<Pick<CustomProviderModelFields, "id" | "contextLimit" | "outputLimit">>,
+): CustomModelLimitProblem | null {
+  for (const model of models) {
+    if (model.outputLimit === null) continue;
+    if (model.contextLimit === null) return { modelId: model.id, reason: "output-needs-context" };
+    if (model.outputLimit >= model.contextLimit) return { modelId: model.id, reason: "output-not-below-context" };
+  }
+  return null;
 }
 
 /** Form row for one stored `models.<id>` entry (inverse of customProviderModelEntry). */
