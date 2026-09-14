@@ -1336,6 +1336,9 @@ const de = {
   "plugins.suggested_heading": "Vorgeschlagene Plugins",
   "plugins.title": "OpenCode-Plugins",
   "providers.api_key_label": "API-Schlüssel",
+  "providers.output_limit_needs_context": "Modell {model}: Für ein Ausgabelimit ist auch ein Kontextlimit erforderlich.",
+  "providers.output_limit_too_large": "Modell {model}: Das Ausgabelimit muss kleiner als das Kontextlimit sein.",
+  "providers.output_limit_hint": "Längste einzelne Antwort in Tokens. Längere Antworten werden abgeschnitten. Leer lassen für den Standardwert.",
   "providers.api_key_required": "Ein API-Schlüssel ist erforderlich",
   "providers.auth_failed": "Authentifizierung fehlgeschlagen",
   "providers.connect_failed": "Der Provider konnte nicht verbunden werden",
@@ -1974,9 +1977,8 @@ const de = {
   "account.refresh_failed": "Das Eigenwelt-Konto konnte nicht aktualisiert werden.",
   "account.plan_inactive": "Inaktiv",
   "account.plan_label": "Tarif",
-  "account.plan_hub": "Knowledge Hub",
   "account.models_not_in_plan":
-    "Nicht im Knowledge-Hub-Tarif enthalten. Mit Plus erhalten Sie die Eigenwelt-Modelle.",
+    "Nicht im Tarif Ihrer Kanzlei enthalten. Mit einem Upgrade erhalten Sie die Eigenwelt-Modelle.",
   "account.models_label": "Modelle",
   "account.trial_ends_today": "Kostenlose Testphase: endet heute",
   "account.trial_ends_in_one": "Kostenlose Testphase: noch 1 Tag",
@@ -2489,29 +2491,29 @@ const de = {
   "recorder.tier_premium_locked": "Plus",
   "recorder.tier_premium_unlock": "Plus-Plan",
   "recorder.tier_premium_unlock_hint":
-    "Dieses Transkriptionsmodell ist Teil des Plus-Plans. Es wird automatisch freigeschaltet, sobald Ihr Plan aktiv ist.",
-  "premium_upsell.eyebrow": "Eigenwelt Plus",
-  "premium_upsell.headline": "Teste Eigenwelt Plus 7 Tage kostenlos",
+    "Dieses Transkriptionsmodell ist Teil der Tarife Plus und Pro. Es wird automatisch freigeschaltet, sobald Ihr Tarif aktiv ist.",
+  "premium_upsell.eyebrow": "Eigenwelt Plus & Pro",
+  "premium_upsell.headline": "Testen Sie Eigenwelt 7 Tage kostenlos",
   "premium_upsell.intro":
-    "Nach der Testphase 69 € pro Platz und Monat. Für jeden Platz Ihrer Kanzlei enthalten:",
+    "Nach der Testphase ab 29 € pro Platz und Monat. Für jeden Platz Ihrer Kanzlei enthalten:",
   "premium_upsell.audio_title": "Premium-Transkriptionsmodelle",
   "premium_upsell.audio_body":
     "Die genauesten Modelle für Aufnahme und Diktat auf dem Gerät, vollständig auf Ihrem Rechner.",
   "premium_upsell.eu_title": "KI-Nutzung in der EU ohne Datenspeicherung",
   "premium_upsell.eu_body":
-    "50 € KI-Nutzung pro Sitzplatz und Monat inklusive, auf EU-Infrastruktur, die keine Prompts oder Ausgaben speichert.",
+    "30 € KI-Nutzung pro Sitzplatz und Monat in Plus, 70 € in Pro, auf EU-Infrastruktur, die keine Prompts oder Ausgaben speichert.",
   "premium_upsell.share_title": "Workflows & Integrationen im Team teilen",
   "premium_upsell.share_body":
     "Veröffentliche Workflows und Integrationen für die ganze Kanzlei im gemeinsamen Hub.",
   "premium_upsell.cta": "7 Tage kostenlos testen",
-  "premium_upsell.headline_upgrade": "Wechseln Sie zu Eigenwelt Plus",
+  "premium_upsell.headline_upgrade": "Eigenwelt-Modelle für Ihre Kanzlei freischalten",
   "premium_upsell.intro_upgrade":
-    "69 € pro Platz und Monat bei jährlicher Zahlung, 99 € monatlich. Für jeden Platz Ihrer Kanzlei enthalten:",
-  "premium_upsell.cta_upgrade": "Zu Plus wechseln",
+    "Ab 29 € pro Platz und Monat bei jährlicher Zahlung, 39 € monatlich. Für jeden Platz Ihrer Kanzlei enthalten:",
+  "premium_upsell.cta_upgrade": "Tarif upgraden",
   "premium_upsell.sign_in": "Mit Eigenwelt anmelden",
   "premium_upsell.signing_in": "Anmeldung läuft…",
   "premium_upsell.intro_signin":
-    "Melden Sie sich mit Eigenwelt an, um Ihre Kanzlei zu verbinden, und upgraden Sie anschließend auf Plus:",
+    "Melden Sie sich mit Eigenwelt an, um Ihre Kanzlei zu verbinden, und wählen Sie anschließend einen Tarif:",
   "premium_upsell.dismiss": "Vielleicht später",
   "premium_upsell.waiting_title": "Im Browser fortfahren",
   "premium_upsell.waiting_body":
@@ -2590,8 +2592,8 @@ const de = {
   "chat.no_model_byo": "Modell verbinden",
   "chat.no_ai_plan_title": "Ihr Tarif enthält keine KI-Modelle.",
   "chat.no_ai_plan_body":
-    "Der Knowledge Hub deckt das Teilen in Ihrer Kanzlei ab. Wechseln Sie zu Plus für die Eigenwelt-Modelle oder verbinden Sie Ihr eigenes Modell.",
-  "chat.no_ai_plan_upgrade": "Zu Plus wechseln",
+    "Der Tarif Ihrer Kanzlei deckt nur das Teilen ab. Upgraden Sie für die Eigenwelt-Modelle oder verbinden Sie Ihr eigenes Modell.",
+  "chat.no_ai_plan_upgrade": "Tarif upgraden",
   "chat.signed_out_title": "Von Eigenwelt abgemeldet.",
   "chat.signed_out_body":
     "Melden Sie sich an, um die Eigenwelt-Modelle weiter zu nutzen, starten Sie Ihre 7-tägige kostenlose Testphase oder verbinden Sie Ihr eigenes Modell.",
@@ -2622,14 +2624,14 @@ const de = {
   "onboarding_ai.title": "KI für LegalWork.",
   "onboarding_ai.subtitle": "Premium-Modelle, gehostet in der EU, startklar mit einer Anmeldung.",
   "onboarding_ai.cta": "7 Tage kostenlos testen",
-  "onboarding_ai.cta_note": "EU-gehostet · Keine Datenspeicherung · 69 €/Sitzplatz nach der Testphase",
+  "onboarding_ai.cta_note": "EU-gehostet · Keine Datenspeicherung · ab 29 €/Sitzplatz nach der Testphase",
   "onboarding_ai.login_prompt": "Sie haben bereits ein Konto?",
   "onboarding_ai.login_cta": "Anmelden",
   "onboarding_ai.waiting_title": "Im Browser abschließen",
   "onboarding_ai.waiting_body":
     "Kanzlei anlegen und Testphase starten. LegalWork verbindet sich automatisch, sobald Sie fertig sind.",
   "onboarding_ai.cancel": "Anmeldung abbrechen",
-  "onboarding_ai.panel_eyebrow": "Eigenwelt Plus",
+  "onboarding_ai.panel_eyebrow": "Eigenwelt Plus & Pro",
   "onboarding_ai.panel_title": "Gebaut für vertrauliche juristische Arbeit.",
   "onboarding_ai.chat_user": "Prüfe den Kaufvertragsentwurf auf Risiken für die Verkäuferseite.",
   "onboarding_ai.chat_answer":
@@ -2641,8 +2643,8 @@ const de = {
   "onboarding_ai.panel_item2_title": "Keine Datenspeicherung",
   "onboarding_ai.panel_item2_body":
     "Prompts, Dokumente und Ausgaben werden nach der Anfrage nicht gespeichert.",
-  "onboarding_ai.panel_item3_title": "50 € KI-Nutzung inklusive",
-  "onboarding_ai.panel_item3_body": "Pro Sitzplatz, jeden Monat, auf Premium-Modellen.",
+  "onboarding_ai.panel_item3_title": "KI-Nutzung jeden Monat inklusive",
+  "onboarding_ai.panel_item3_body": "30 € pro Sitzplatz in Plus, 70 € in Pro, auf Premium-Modellen.",
   "onboarding_ai.panel_item4_title": "Ihre Kanzlei an einem Ort",
   "onboarding_ai.panel_item4_body":
     "Mitglieder, geteilte Workflows und Abrechnung auf der Eigenwelt-Plattform.",

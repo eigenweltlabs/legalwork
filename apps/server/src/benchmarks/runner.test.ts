@@ -29,6 +29,20 @@ type FakeBehavior = {
   /** Reply text for the plain-JSON fallback attempt (no format param). */
   judgeFallbackText?: string;
   promptAsyncUnsupported?: boolean;
+  /**
+   * How many agent turns (per session, in order) end cut off at the output
+   * limit — `finish: "length"`, nothing written — before turns finish normally.
+   */
+  cutOffTurns?: number;
+  /** Cut-off turns still write the deliverables (cut off afterwards, e.g. in the summary). */
+  cutOffAfterWriting?: boolean;
+  /**
+   * Delay before the engine picks a prompt up. Until then the session reads
+   * idle and its last assistant message is the previous turn's reply.
+   */
+  startDelayMs?: number;
+  /** Model limits the fake provider list reports, keyed by model id. */
+  modelLimits?: Record<string, { context: number; output: number }>;
 };
 
 type FakeStats = {
@@ -56,14 +70,24 @@ function createFake(behavior: FakeBehavior = {}) {
     deletedSessions: [],
     agentPrompts: [],
   };
-  const sessions = new Map<string, { directory: string; state: "idle" | "busy"; aborted: boolean }>();
+  type FakeSession = {
+    directory: string;
+    state: "idle" | "busy";
+    aborted: boolean;
+    turns: number;
+    replies: Array<Record<string, unknown>>;
+    /** The in-flight turn, cancelled by abort like a real engine stops generating. */
+    timer?: ReturnType<typeof setTimeout>;
+  };
+  const sessions = new Map<string, FakeSession>();
   let counter = 0;
+  let replyCounter = 0;
 
   const client: BenchmarkOpencodeClient = {
     session: {
       create: async (params) => {
         const id = `ses-${++counter}`;
-        sessions.set(id, { directory: String(params.directory ?? ""), state: "idle", aborted: false });
+        sessions.set(id, { directory: String(params.directory ?? ""), state: "idle", aborted: false, turns: 0, replies: [] });
         return { data: { id } };
       },
       promptAsync: async (params) => {
@@ -75,20 +99,36 @@ function createFake(behavior: FakeBehavior = {}) {
           return { error: { status: 404, message: "prompt_async unsupported" } };
         }
         const session = sessions.get(String(params.sessionID))!;
+        session.turns += 1;
+        const cutOff = session.turns <= (behavior.cutOffTurns ?? 0);
         stats.agentStarts += 1;
         stats.activeAgents += 1;
         stats.maxActiveAgents = Math.max(stats.maxActiveAgents, stats.activeAgents);
         if (stats.activeJudges > 0) stats.agentJudgeOverlap += 1;
-        session.state = "busy";
-        if (!behavior.agentNeverFinishes) {
-          setTimeout(() => {
-            for (const name of behavior.writeDeliverables ?? []) {
-              writeFileSync(join(session.directory, name), `content of ${name}`);
+        const begin = () => {
+          session.state = "busy";
+          if (behavior.agentNeverFinishes) return;
+          session.timer = setTimeout(() => {
+            session.timer = undefined;
+            if (!cutOff || behavior.cutOffAfterWriting) {
+              for (const name of behavior.writeDeliverables ?? []) {
+                writeFileSync(join(session.directory, name), `content of ${name}`);
+              }
             }
+            const id = `msg-${++replyCounter}`;
+            session.replies.push(
+              behavior.agentError
+                ? { id, role: "assistant", error: { name: "UnknownError", data: { message: behavior.agentError } } }
+                : cutOff
+                  ? { id, role: "assistant", finish: "length", cost: 0, tokens: { input: 5, output: 0 } }
+                  : { id, role: "assistant", finish: "stop", cost: 0.25, tokens: { input: 5, output: 9 } },
+            );
             session.state = "idle";
             stats.activeAgents -= 1;
           }, behavior.agentDelayMs ?? 10);
-        }
+        };
+        if (behavior.startDelayMs) session.timer = setTimeout(begin, behavior.startDelayMs);
+        else begin();
         return { error: undefined };
       },
       prompt: async (params) => {
@@ -145,14 +185,17 @@ function createFake(behavior: FakeBehavior = {}) {
         return { data: map };
       },
       messages: async (params) => {
-        const info = behavior.agentError
-          ? { role: "assistant", error: { name: "UnknownError", data: { message: behavior.agentError } } }
-          : { role: "assistant", cost: 0.25, tokens: { input: 5, output: 9 } };
-        return { data: [{ info: { role: "user" } }, { info }] };
+        const session = sessions.get(String(params.sessionID));
+        const replies = (session?.replies ?? []).map((info) => ({ info }));
+        return { data: [{ info: { role: "user" } }, ...replies] };
       },
       abort: async (params) => {
         const session = sessions.get(String(params.sessionID));
         if (session) {
+          // Stop the in-flight turn: a pending write would otherwise land after
+          // the test has already removed the work dir.
+          if (session.timer) clearTimeout(session.timer);
+          session.timer = undefined;
           session.state = "idle";
           session.aborted = true;
           stats.abortedSessions.push(String(params.sessionID));
@@ -166,7 +209,19 @@ function createFake(behavior: FakeBehavior = {}) {
       },
     },
     provider: {
-      list: async () => ({ data: { all: PROVIDERS } }),
+      list: async () => ({
+        data: {
+          all: PROVIDERS.map((provider) => ({
+            ...provider,
+            models: Object.fromEntries(
+              Object.keys(provider.models).map((id) => [
+                id,
+                behavior.modelLimits?.[id] ? { limit: behavior.modelLimits[id] } : {},
+              ]),
+            ),
+          })),
+        },
+      }),
     },
   };
 
@@ -558,5 +613,149 @@ describe("ablation arms", () => {
     // No ablation means no tools override and no restriction note.
     expect(stats.agentPrompts[0]?.tools).toBeUndefined();
     expect(stats.agentPrompts[0]?.text).not.toContain("ablation arm");
+  });
+});
+
+describe("replies cut off at the output limit", () => {
+  const RECOVERY_PROMPT = /cut off because it reached the model's output token limit/;
+
+  test("a cut-off reply is followed up, and the finished work is judged", async () => {
+    await seedCustomTask("ct-1", 1);
+    const { client, stats } = createFake({ writeDeliverables: ["memo.docx"], cutOffTurns: 1 });
+    const runner = makeRunner(client);
+    const created = await runner.createRun(workspace, {
+      tasks: ["ct-1"],
+      models: [{ providerID: "prov", modelID: "model-a" }],
+      arms: [{ label: "No bash", config: { tools: { bash: false } } }],
+    });
+    const runId = created.id as string;
+    await waitFor(() => store.getRun(runId)?.status === "completed");
+
+    const item = store.listItems(runId)[0]!;
+    expect(item.status).toBe("passed");
+    expect(item.nPassed).toBe(1);
+    // The task prompt, then exactly one follow-up.
+    expect(stats.agentPrompts).toHaveLength(2);
+    expect(stats.agentPrompts[1]!.text).toMatch(RECOVERY_PROMPT);
+    // The follow-up keeps the arm's ablation — recovery must not hand bash back.
+    expect(stats.agentPrompts[1]!.tools).toEqual({ bash: false });
+  });
+
+  test("still cut off after the follow-ups with nothing written: an error, never a 0% score", async () => {
+    await seedCustomTask("ct-1", 1);
+    const { client, stats } = createFake({
+      writeDeliverables: ["memo.docx"],
+      cutOffTurns: 99,
+      modelLimits: { "model-a": { context: 1_048_576, output: 16_384 } },
+    });
+    const runner = makeRunner(client);
+    const created = await runner.createRun(workspace, {
+      tasks: ["ct-1"],
+      models: [{ providerID: "prov", modelID: "model-a" }],
+    });
+    const runId = created.id as string;
+    await waitFor(() => store.getRun(runId)?.status === "completed");
+
+    const item = store.listItems(runId)[0]!;
+    expect(item.status).toBe("error");
+    // Names the limit the engine enforced, so a stale default is recognisable.
+    expect(item.error).toContain("output limit (16,384 tokens)");
+    // Never judged: no rubric counts, so it stays off every score.
+    expect(item.nCriteria).toBeNull();
+    expect(item.nPassed).toBeNull();
+    expect(stats.judgeStarts).toBe(0);
+    // The task prompt plus both follow-ups.
+    expect(stats.agentPrompts).toHaveLength(3);
+  });
+
+  test("the reported limit is the one the engine enforces, not a higher configured value", async () => {
+    await seedCustomTask("ct-1", 1);
+    const { client } = createFake({
+      cutOffTurns: 99,
+      modelLimits: { "model-a": { context: 1_048_576, output: 65_536 } },
+    });
+    const runner = makeRunner(client);
+    const created = await runner.createRun(workspace, {
+      tasks: ["ct-1"],
+      models: [{ providerID: "prov", modelID: "model-a" }],
+    });
+    const runId = created.id as string;
+    await waitFor(() => store.getRun(runId)?.status === "completed");
+    expect(store.listItems(runId)[0]!.error).toContain("output limit (32,000 tokens)");
+  });
+
+  test("a reply cut off after the deliverable was written is judged normally", async () => {
+    await seedCustomTask("ct-1", 1);
+    const { client } = createFake({ writeDeliverables: ["memo.docx"], cutOffTurns: 99, cutOffAfterWriting: true });
+    const runner = makeRunner(client);
+    const created = await runner.createRun(workspace, {
+      tasks: ["ct-1"],
+      models: [{ providerID: "prov", modelID: "model-a" }],
+    });
+    const runId = created.id as string;
+    await waitFor(() => store.getRun(runId)?.status === "completed");
+    // A tool call runs whole or not at all, so a written file is complete work.
+    expect(store.listItems(runId)[0]!.status).toBe("passed");
+  });
+
+  test("a follow-up is not answered by the previous turn's reply", async () => {
+    await seedCustomTask("ct-1", 1);
+    // The engine takes a moment to pick each prompt up. Meanwhile the session
+    // reads idle and still ends with the cut-off reply — counting that as the
+    // answer would burn every follow-up without the agent ever running.
+    const { client, stats } = createFake({ writeDeliverables: ["memo.docx"], cutOffTurns: 1, startDelayMs: 40 });
+    const runner = makeRunner(client);
+    const created = await runner.createRun(workspace, {
+      tasks: ["ct-1"],
+      models: [{ providerID: "prov", modelID: "model-a" }],
+    });
+    const runId = created.id as string;
+    await waitFor(() => store.getRun(runId)?.status === "completed");
+    expect(store.listItems(runId)[0]!.status).toBe("passed");
+    expect(stats.agentPrompts).toHaveLength(2);
+  });
+
+  test("an output-length error on the message is treated as the same cut-off", async () => {
+    await seedCustomTask("ct-1", 1);
+    const { client, stats } = createFake({ agentError: "unused" });
+    // Swap the fake's generic error for the engine's MessageOutputLengthError.
+    const messages = client.session.messages;
+    client.session.messages = async (params) => {
+      const result = await messages(params);
+      for (const entry of result.data ?? []) {
+        if (entry.info?.error) entry.info.error = { name: "MessageOutputLengthError", data: {} };
+      }
+      return result;
+    };
+    const runner = makeRunner(client);
+    const created = await runner.createRun(workspace, {
+      tasks: ["ct-1"],
+      models: [{ providerID: "prov", modelID: "model-a" }],
+    });
+    const runId = created.id as string;
+    await waitFor(() => store.getRun(runId)?.status === "completed");
+
+    const item = store.listItems(runId)[0]!;
+    expect(item.status).toBe("error");
+    expect(item.error).toContain("cut off at the model's output limit");
+    expect(stats.agentPrompts).toHaveLength(3);
+  });
+
+  test("follow-ups share the item's time budget instead of getting a fresh one each", async () => {
+    await seedCustomTask("ct-1", 1);
+    // Each turn takes 200ms against a 300ms item budget: the cut-off turn ends
+    // at ~200ms, so the follow-up cannot finish in time. A fresh window per
+    // prompt would let it run to ~400ms and pass.
+    const { client } = createFake({ writeDeliverables: ["memo.docx"], cutOffTurns: 1, agentDelayMs: 200 });
+    const runner = makeRunner(client, { itemTimeoutMs: 300 });
+    const created = await runner.createRun(workspace, {
+      tasks: ["ct-1"],
+      models: [{ providerID: "prov", modelID: "model-a" }],
+    });
+    const runId = created.id as string;
+    await waitFor(() => store.getRun(runId)?.status === "completed");
+    const item = store.listItems(runId)[0]!;
+    expect(item.status).toBe("error");
+    expect(item.error).toContain("timed out");
   });
 });

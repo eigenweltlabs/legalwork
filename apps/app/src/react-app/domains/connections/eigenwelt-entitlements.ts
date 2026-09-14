@@ -10,23 +10,23 @@ import { getReactQueryClient } from "../../infra/query-client";
 
 /**
  * Read model for the connected Eigenwelt firm's subscription entitlements.
- * The server persists them per-workspace (the secret platformToken never
- * reaches the app); this query surfaces the app-safe view (entitlements +
- * platformURL) so UI can gate features and link out to billing.
+ * The server keeps ONE connection for the account, shared by every workspace
+ * (the secret platformToken never reaches the app); this query surfaces the
+ * app-safe view (entitlements + platformURL) so UI can gate features and link
+ * out to billing. One cache entry for all workspaces, so a sign-in or sign-out
+ * from one workspace shows in every other one at once.
  */
 
 const EIGENWELT_ENTITLEMENTS_ROOT = ["eigenwelt-entitlements"] as const;
 
-export function eigenweltEntitlementsQueryKey(workspaceId: string) {
-  return [...EIGENWELT_ENTITLEMENTS_ROOT, workspaceId] as const;
+export function eigenweltEntitlementsQueryKey() {
+  return EIGENWELT_ENTITLEMENTS_ROOT;
 }
 
 /** Refetch after a sign-in re-connects the firm (entitlements may have changed). */
-export function invalidateEigenweltEntitlements(workspaceId?: string) {
+export function invalidateEigenweltEntitlements() {
   const queryClient = getReactQueryClient();
-  void queryClient.invalidateQueries({
-    queryKey: workspaceId ? eigenweltEntitlementsQueryKey(workspaceId) : EIGENWELT_ENTITLEMENTS_ROOT,
-  });
+  void queryClient.invalidateQueries({ queryKey: EIGENWELT_ENTITLEMENTS_ROOT });
 }
 
 /** True when the firm's plan grants a specific gated feature. */
@@ -49,7 +49,7 @@ export function useEigenweltEntitlements(input: {
   enabled?: boolean;
 }) {
   return useQuery({
-    queryKey: eigenweltEntitlementsQueryKey(input.workspaceId ?? ""),
+    queryKey: eigenweltEntitlementsQueryKey(),
     enabled: Boolean(input.enabled !== false && input.client && input.workspaceId),
     staleTime: 20_000,
     // Keep entitlements live: each read makes the server opportunistically

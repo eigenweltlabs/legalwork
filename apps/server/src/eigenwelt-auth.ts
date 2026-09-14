@@ -32,6 +32,7 @@ import {
   readRuntimeOpencodeConfig,
   writeRuntimeOpencodeConfig,
 } from "./runtime-opencode-config-store.js";
+import { resolveModelLimit } from "./model-limits.js";
 import type { ServerConfig } from "./types.js";
 
 /** Pre-registered as exact redirect URIs on the Clerk OAuth application —
@@ -80,6 +81,11 @@ export type EigenweltManifestModel = {
   name?: string;
   description?: string;
   contextLength?: number;
+  /**
+   * Longest single response the gateway allows, in tokens. Absent on platforms
+   * that predate it, and for models the gateway knows nothing about.
+   */
+  maxOutputTokens?: number;
   toolCall?: boolean;
   reasoning?: boolean;
   /** Where the deployment runs: "EU" or an ISO 3166 alpha-2 code ("US"). */
@@ -88,7 +94,25 @@ export type EigenweltManifestModel = {
   hostedIn?: string;
   /** The model behind the Eigenwelt name, e.g. "DeepSeek V4 Flash". */
   upstreamModel?: string;
+  /** What the model reads, e.g. ["text", "image", "pdf"]. Absent (platforms
+   *  before the field) = text only. */
+  inputModalities?: EigenweltInputModality[];
 };
+
+/** What a model can read, in the engine's `modalities.input` spelling. Only
+ *  these values reach the engine config: an unknown one fails its schema. */
+export const EIGENWELT_INPUT_MODALITIES = ["text", "image", "pdf"] as const;
+export type EigenweltInputModality = (typeof EIGENWELT_INPUT_MODALITIES)[number];
+
+/**
+ * A model's input list as the engine takes it: "text" always, then the known
+ * modalities the platform named, in a fixed order. Undefined when the
+ * platform sent no list, which leaves the engine's default (text only).
+ */
+export function eigenweltInputModalities(value: unknown): EigenweltInputModality[] | undefined {
+  if (!Array.isArray(value)) return undefined;
+  return EIGENWELT_INPUT_MODALITIES.filter((modality) => modality === "text" || value.includes(modality));
+}
 
 /** The signed-in seat's included usage for the current window (cents, plus a percentage). */
 export type EigenweltUsage = {
@@ -115,8 +139,8 @@ export type EigenweltUsage = {
  * treat "no entitlements" as the free/legacy tier and not break.
  */
 export type EigenweltEntitlements = {
-  /** "hub" = the Knowledge Hub plan without AI (no `premium_models`). */
-  plan: "plus" | "pro" | "hub" | null;
+  /** The plan id doubles as its marketed name: "plus" (€29) or "pro" (€69). */
+  plan: "plus" | "pro" | null;
   subscriptionStatus: string | null;
   /**
    * ISO timestamp when the 7-day trial ends (or ended — compare against now);
@@ -140,7 +164,7 @@ export type EigenweltAccountIdentity = {
 /**
  * Paid-models check. The platform emits the `premium_models` feature ONLY when
  * the org isEntitled (an active/trialing/past_due status) on a plan that
- * includes the Eigenwelt models (Plus; the Knowledge Hub plan does not), so
+ * includes the Eigenwelt models (every current plan does; a lapsed one does not), so
  * this is the authoritative signal — stricter than merely being signed in or
  * subscribed. Used to gate the paid Eigenwelt provider.
  */
@@ -225,7 +249,7 @@ function toFiniteNumber(value: unknown, fallback = 0): number {
 export function parseEigenweltEntitlements(value: unknown): EigenweltEntitlements | undefined {
   if (!isRecord(value)) return undefined;
   const plan =
-    value.plan === "plus" || value.plan === "pro" || value.plan === "hub" ? value.plan : null;
+    value.plan === "plus" || value.plan === "pro" ? value.plan : null;
   const subscriptionStatus = typeof value.subscriptionStatus === "string" ? value.subscriptionStatus : null;
   const trialEndsAt =
     typeof value.trialEndsAt === "string" && Number.isFinite(Date.parse(value.trialEndsAt))
@@ -553,22 +577,35 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 /**
- * Map manifest models to the engine's provider `models` block. Mirrors the
- * app's buildEigenweltProviderBlock — keep both in sync. `limit` MUST carry
- * BOTH context and output: one missing key invalidates the whole runtime
- * config in the engine's schema (verified).
+ * Map manifest models to the engine's provider `models` block.
+ *
+ * Limits come from the gateway via the manifest; resolveModelLimit supplies a
+ * default only for what the manifest leaves out, and always writes both
+ * `context` and `output` — one missing key invalidates the whole runtime
+ * config in the engine's schema. The same goes for `modalities` (input AND
+ * output). Without `modalities` the engine takes a model as text only and
+ * swaps every image or PDF for an error note before the request.
  */
 export function buildEigenweltModelsMap(models: EigenweltManifestModel[]): Record<string, unknown> {
   return Object.fromEntries(
-    models.map((model) => [
-      model.id,
-      {
-        name: model.name ?? model.id,
-        tool_call: model.toolCall ?? true,
-        reasoning: model.reasoning ?? false,
-        limit: { context: model.contextLength ?? 128_000, output: 16_384 },
-      },
-    ]),
+    models.map((model) => {
+      const input = eigenweltInputModalities(model.inputModalities);
+      return [
+        model.id,
+        {
+          name: model.name ?? model.id,
+          tool_call: model.toolCall ?? true,
+          reasoning: model.reasoning ?? false,
+          limit: resolveModelLimit({ context: model.contextLength, output: model.maxOutputTokens }).limit,
+          ...(input
+            ? {
+                attachment: input.some((modality) => modality !== "text"),
+                modalities: { input, output: ["text"] },
+              }
+            : {}),
+        },
+      ];
+    }),
   );
 }
 

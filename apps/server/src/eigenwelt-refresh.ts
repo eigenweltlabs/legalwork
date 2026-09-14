@@ -29,23 +29,23 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-// Single-flight: concurrent callers for the same workspace share one refresh.
-// Critical for rotation — two parallel refreshes with the same token would trip
-// the platform's reuse detection and nuke the whole family.
-const inFlight = new Map<string, Promise<string | null>>();
+// Single-flight: concurrent callers (from any workspace — the connection is
+// the account's) share one refresh. Critical for rotation — two parallel
+// refreshes with the same token would trip the platform's reuse detection and
+// nuke the whole family.
+let inFlight: Promise<string | null> | null = null;
 
 /**
- * Return a currently-valid access token for the workspace, refreshing first if
+ * Return a currently-valid access token for the account, refreshing first if
  * it is missing or about to expire. Returns null when the connection is gone
  * (never signed in) or the refresh was rejected (revoked/expired/reused → the
  * connection is cleared and the app must re-authenticate).
  */
 export async function ensureFreshPlatformToken(
   config: ServerConfig,
-  workspaceId: string,
   options?: { force?: boolean },
 ): Promise<string | null> {
-  const conn = await readEigenweltConnection(config, workspaceId);
+  const conn = await readEigenweltConnection(config);
   // Legacy sign-in with no refresh token: use whatever access token we have.
   if (!conn.refreshToken) return conn.platformToken;
   // `force` bypasses the skew short-circuit to re-pull entitlements from the
@@ -57,21 +57,20 @@ export async function ensureFreshPlatformToken(
       return conn.platformToken;
     }
   }
-  return refreshOnce(config, workspaceId);
+  return refreshOnce(config);
 }
 
-function refreshOnce(config: ServerConfig, workspaceId: string): Promise<string | null> {
-  const existing = inFlight.get(workspaceId);
-  if (existing) return existing;
-  const run = doRefresh(config, workspaceId).finally(() => {
-    inFlight.delete(workspaceId);
+function refreshOnce(config: ServerConfig): Promise<string | null> {
+  if (inFlight) return inFlight;
+  const run = doRefresh(config).finally(() => {
+    inFlight = null;
   });
-  inFlight.set(workspaceId, run);
+  inFlight = run;
   return run;
 }
 
-async function doRefresh(config: ServerConfig, workspaceId: string): Promise<string | null> {
-  const conn = await readEigenweltConnection(config, workspaceId);
+async function doRefresh(config: ServerConfig): Promise<string | null> {
+  const conn = await readEigenweltConnection(config);
   if (!conn.refreshToken) return conn.platformToken;
 
   const platform = eigenweltPlatformUrl();
@@ -89,7 +88,7 @@ async function doRefresh(config: ServerConfig, workspaceId: string): Promise<str
 
   if (response.status === 401) {
     // Refresh token revoked / expired / reuse-detected → sign out cleanly.
-    await writeEigenweltConnection(config, workspaceId, {
+    await writeEigenweltConnection(config, {
       entitlements: null,
       account: null,
       platformToken: null,
@@ -121,7 +120,7 @@ async function doRefresh(config: ServerConfig, workspaceId: string): Promise<str
       ? payload.platformURL.replace(/\/+$/, "")
       : undefined;
 
-  await writeEigenweltConnection(config, workspaceId, {
+  await writeEigenweltConnection(config, {
     platformToken: payload.platformToken,
     refreshToken: payload.refreshToken,
     accessTokenExpiresAt: expiresAt,
@@ -149,22 +148,18 @@ async function doRefresh(config: ServerConfig, workspaceId: string): Promise<str
  */
 export async function readFreshEntitlementsView(
   config: ServerConfig,
-  workspaceId: string,
   options?: { force?: boolean },
 ): Promise<EigenweltEntitlementsView> {
-  await ensureFreshPlatformToken(config, workspaceId, options);
-  return readEigenweltEntitlementsView(config, workspaceId);
+  await ensureFreshPlatformToken(config, options);
+  return readEigenweltEntitlementsView(config);
 }
 
 /**
  * Sign-out: revoke the refresh-token family at the platform (best-effort) and
  * clear the stored connection. Idempotent.
  */
-export async function revokeEigenweltConnection(
-  config: ServerConfig,
-  workspaceId: string,
-): Promise<void> {
-  const conn = await readEigenweltConnection(config, workspaceId);
+export async function revokeEigenweltConnection(config: ServerConfig): Promise<void> {
+  const conn = await readEigenweltConnection(config);
   if (conn.refreshToken) {
     try {
       await fetch(`${eigenweltPlatformUrl()}/api/desktop/revoke`, {
@@ -176,7 +171,7 @@ export async function revokeEigenweltConnection(
       // best-effort: the local clear below still signs this device out.
     }
   }
-  await writeEigenweltConnection(config, workspaceId, {
+  await writeEigenweltConnection(config, {
     entitlements: null,
     account: null,
     platformURL: null,

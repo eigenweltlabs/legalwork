@@ -99,7 +99,7 @@ export async function startEmbeddedServer(options: EmbeddedServerOptions): Promi
       // the kept key (no-op when not signed in) with the firm's access token,
       // so the list reflects the admin's on/off choices, then rewrite the
       // engine config so the current models appear across every workspace.
-      void ensureFreshPlatformToken(config, workspace.id)
+      void ensureFreshPlatformToken(config)
         .catch(() => null)
         .then((platformToken) => refreshEigenweltPaidManifest(config, { platformToken }))
         .then((r) => (r.changed ? writeLegalworkRuntimeConfigFile(config, workspace.id) : undefined))

@@ -833,12 +833,15 @@ export function SessionRoute() {
   // when the window regains focus) makes the server re-pull the firm's list
   // and rebuild the engine config; the response says which model ids that
   // config now serves. When the engine's live provider list differs, reload
-  // it once per served list, so the picker gains or loses the model and a
+  // it once per poll, so the picker gains or loses the model and a
   // selection on a model that went off is moved by the auto-select above.
-  // Skipped while a task runs (a dispose would interrupt it); the next poll
-  // retries.
+  // A reload that still leaves them apart (it raced a config rebuild) is
+  // retried on the next poll instead of never, which used to leave "Model no
+  // longer available" up until the window was reloaded. Skipped while a task
+  // runs (a dispose would interrupt it); the next poll retries.
   const eigenweltEntitlementsQuery = useEigenweltEntitlements({ client, workspaceId: selectedWorkspaceId });
   const servedModelIds = eigenweltEntitlementsQuery.data?.servedModelIds;
+  const servedModelIdsPolledAt = eigenweltEntitlementsQuery.dataUpdatedAt;
   const eigenweltModelsIncluded = hasEigenweltFeature(
     eigenweltEntitlementsQuery.data?.entitlements,
     "premium_models",
@@ -855,12 +858,14 @@ export function SessionRoute() {
     const servedKey = [...servedModelIds].sort().join("\u0000");
     const engineKey = [...engineEigenweltModelIds].sort().join("\u0000");
     if (servedKey === engineKey) return;
-    if (reloadedForServedModels.current === servedKey) return; // one reload per change
+    const attempt = `${servedKey}\u0001${servedModelIdsPolledAt}`;
+    if (reloadedForServedModels.current === attempt) return; // one reload per poll
     if (activeReloadBlockingSessions.length > 0) return; // don't disrupt a running task
-    reloadedForServedModels.current = servedKey;
+    reloadedForServedModels.current = attempt;
     void sessionProviderAuthStore.refreshProviders({ dispose: true }).catch(() => undefined);
   }, [
     servedModelIds,
+    servedModelIdsPolledAt,
     engineEigenweltModelIds,
     eigenweltModelsIncluded,
     activeReloadBlockingSessions.length,
@@ -1895,7 +1900,7 @@ export function SessionRoute() {
         onConnected={() => {
           // The trial just activated: refetch entitlements so the premium
           // models are live the moment onboarding ends.
-          invalidateEigenweltEntitlements(selectedWorkspaceId ?? undefined);
+          invalidateEigenweltEntitlements();
           finishOnboarding("connected");
         }}
         onBack={() => {

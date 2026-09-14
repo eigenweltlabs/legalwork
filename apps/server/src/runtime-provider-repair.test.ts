@@ -94,6 +94,22 @@ describe("repairRuntimeProviders", () => {
     expect(result.removed).toEqual([]);
   });
 
+  test("keeps models that read images and PDFs, drops modalities the engine would reject", () => {
+    const vision = {
+      name: "Gemini",
+      attachment: true,
+      modalities: { input: ["text", "image", "pdf"], output: ["text"] },
+      limit: { context: 1_048_576, output: 16_384 },
+    };
+    const result = repairRuntimeProviders({
+      eigenwelt: { models: { gemini: vision } },
+      noOutput: { models: { m: { modalities: { input: ["text", "image"] } } } },
+      unknownModality: { models: { m: { modalities: { input: ["text", "file"], output: ["text"] } } } },
+    });
+    expect(result.providers).toEqual({ eigenwelt: { models: { gemini: vision } } });
+    expect(result.removed.map((item) => item.providerId)).toEqual(["noOutput", "unknownModality"]);
+  });
+
   test("rejects non-object blocks and wrong field types", () => {
     const result = repairRuntimeProviders({
       text: "not a block",

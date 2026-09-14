@@ -27,11 +27,14 @@ export type ProviderRepairNotice = {
 
 // The keys the engine REQUIRES when present (opencode
 // packages/core/src/v1/config/provider.ts). Unknown keys pass through.
+const modality = z.enum(["text", "audio", "image", "video", "pdf"]);
 const modelSchema = z.looseObject({
   name: z.string().optional(),
   tool_call: z.boolean().optional(),
   reasoning: z.boolean().optional(),
+  attachment: z.boolean().optional(),
   limit: z.looseObject({ context: z.number(), input: z.number().optional(), output: z.number() }).optional(),
+  modalities: z.looseObject({ input: z.array(modality), output: z.array(modality) }).optional(),
   cost: z.looseObject({ input: z.number(), output: z.number() }).optional(),
   options: z.record(z.string(), z.unknown()).optional(),
 });

@@ -37,6 +37,10 @@ export function providerListQueryKey(input: {
 }
 
 export async function refreshProviderListQueries(queryClient: QueryClient) {
+  // Lists of workspaces not on screen are dropped, not kept stale: the reload
+  // (or the server reloading those workspaces) may have changed them too, and a
+  // stale list would show their models as unavailable when one is opened.
+  queryClient.removeQueries({ queryKey: PROVIDER_LIST_QUERY_ROOT, type: "inactive" });
   await queryClient.invalidateQueries({ queryKey: PROVIDER_LIST_QUERY_ROOT });
   await queryClient.refetchQueries({ queryKey: PROVIDER_LIST_QUERY_ROOT, type: "active" });
 }

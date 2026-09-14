@@ -13,12 +13,17 @@ import type { ServerConfig } from "./types.js";
 import { ensureDir } from "./utils.js";
 
 /**
- * Per-workspace record of the connected Eigenwelt firm. The tokens are Bearer
- * secrets for the platform APIs and NEVER leave the server: `platformToken` is
- * the short-lived access token; `refreshToken` is the long-lived, rotating
- * refresh token traded for fresh access tokens (see eigenwelt-refresh.ts). Only
- * entitlements + platformURL + a `connected` flag are exposed to the app.
+ * The connected Eigenwelt firm account. Like the paid manifest it unlocks, it
+ * is ONE record shared by every workspace: a sign-in from any workspace serves
+ * all of them. The tokens are Bearer secrets for the platform APIs and NEVER
+ * leave the server: `platformToken` is the short-lived access token;
+ * `refreshToken` is the long-lived, rotating refresh token traded for fresh
+ * access tokens (see eigenwelt-refresh.ts). Only entitlements + platformURL +
+ * a `connected` flag are exposed to the app.
  */
+
+/** The single row's key in the `workspace_id` column (never a workspace id). */
+const ACCOUNT_ROW_ID = "eigenwelt-account";
 
 const eigenweltConnections = sqliteTable("eigenwelt_connections", {
   workspaceId: text("workspace_id").primaryKey(),
@@ -95,6 +100,15 @@ const MIGRATION_COLUMNS = [
   "ALTER TABLE eigenwelt_connections ADD COLUMN account_json TEXT",
 ];
 
+// Earlier builds kept one connection per workspace, so the paid models came
+// and went with the workspace that happened to be active. Keep the most
+// recently written row (the latest sign-in, refresh or sign-out) as the
+// account's, then drop the rest. The DELETE only runs once the copy succeeded.
+const ACCOUNT_ROW_MIGRATION = [
+  `INSERT OR IGNORE INTO eigenwelt_connections (workspace_id, entitlements_json, account_json, platform_url, platform_token, refresh_token, platform_token_expires_at, updated_at) SELECT '${ACCOUNT_ROW_ID}', entitlements_json, account_json, platform_url, platform_token, refresh_token, platform_token_expires_at, updated_at FROM eigenwelt_connections WHERE workspace_id <> '${ACCOUNT_ROW_ID}' ORDER BY updated_at DESC LIMIT 1`,
+  `DELETE FROM eigenwelt_connections WHERE workspace_id <> '${ACCOUNT_ROW_ID}'`,
+];
+
 function runtimeDbPath(config: ServerConfig): string {
   const override = process.env.LEGALWORK_RUNTIME_DB?.trim();
   if (override) return resolve(override);
@@ -116,6 +130,11 @@ async function openDb(path: string): Promise<EigenweltConnectionDb> {
       } catch {
         // column already exists
       }
+    }
+    try {
+      for (const sql of ACCOUNT_ROW_MIGRATION) sqlite.run(sql);
+    } catch {
+      // copy failed: the legacy rows stay, and the next open retries
     }
     const db = drizzle(sqlite);
     return {
@@ -147,6 +166,11 @@ async function openDb(path: string): Promise<EigenweltConnectionDb> {
     } catch {
       // column already exists
     }
+  }
+  try {
+    for (const sql of ACCOUNT_ROW_MIGRATION) sqlite.exec(sql);
+  } catch {
+    // copy failed: the legacy rows stay, and the next open retries
   }
   const get = sqlite.prepare(
     "SELECT entitlements_json AS entitlementsJson, account_json AS accountJson, platform_url AS platformUrl, platform_token AS platformToken, refresh_token AS refreshToken, platform_token_expires_at AS platformTokenExpiresAt FROM eigenwelt_connections WHERE workspace_id = ?",
@@ -213,12 +237,9 @@ function decodeAccount(json: string | null): EigenweltAccountIdentity | null {
 }
 
 /** Full connection incl. the secret tokens — server-side callers only. */
-export async function readEigenweltConnection(
-  config: ServerConfig,
-  workspaceId: string,
-): Promise<EigenweltConnection> {
+export async function readEigenweltConnection(config: ServerConfig): Promise<EigenweltConnection> {
   const db = await connectionDb(config);
-  const row = db.get(workspaceId);
+  const row = db.get(ACCOUNT_ROW_ID);
   if (!row) {
     return {
       entitlements: null,
@@ -240,14 +261,8 @@ export async function readEigenweltConnection(
 }
 
 /** App-safe read: entitlements + platformURL, with the secret tokens stripped. */
-export async function readEigenweltEntitlementsView(
-  config: ServerConfig,
-  workspaceId: string,
-): Promise<EigenweltEntitlementsView> {
-  const { entitlements, account, platformURL, platformToken, refreshToken } = await readEigenweltConnection(
-    config,
-    workspaceId,
-  );
+export async function readEigenweltEntitlementsView(config: ServerConfig): Promise<EigenweltEntitlementsView> {
+  const { entitlements, account, platformURL, platformToken, refreshToken } = await readEigenweltConnection(config);
   // Fall back to the configured platform origin (EIGENWELT_PLATFORM_URL) so
   // billing / members / pricing links always point at the instance the app is
   // actually talking to — even before a connection is persisted — instead of
@@ -281,17 +296,16 @@ export type WriteEigenweltConnectionInput = {
 };
 
 /**
- * Persist (upsert) the connection for a workspace. Only the fields supplied are
+ * Persist (upsert) the account connection. Only the fields supplied are
  * changed; passing `null` clears a field. Tokens rotate over the connection's
  * life (sign-in, then each refresh), so callers re-write them frequently.
  */
 export async function writeEigenweltConnection(
   config: ServerConfig,
-  workspaceId: string,
   input: WriteEigenweltConnectionInput,
 ): Promise<EigenweltEntitlementsView> {
   const db = await connectionDb(config);
-  const current = db.get(workspaceId);
+  const current = db.get(ACCOUNT_ROW_ID);
 
   const nextEntitlementsJson =
     input.entitlements === undefined
@@ -325,7 +339,7 @@ export async function writeEigenweltConnection(
       : input.accessTokenExpiresAt || null;
 
   db.upsert({
-    workspaceId,
+    workspaceId: ACCOUNT_ROW_ID,
     entitlementsJson: nextEntitlementsJson,
     accountJson: nextAccountJson,
     platformUrl: nextPlatformUrl,

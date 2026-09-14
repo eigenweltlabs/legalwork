@@ -6,6 +6,7 @@ import { join } from "node:path";
 
 import {
   EIGENWELT_LOOPBACK_PORTS,
+  buildEigenweltModelsMap,
   fetchEigenweltManifest,
   refreshEigenweltProviderModels,
   startEigenweltSignIn,
@@ -284,6 +285,34 @@ describe("eigenwelt manifest", () => {
   });
 });
 
+describe("buildEigenweltModelsMap", () => {
+  test("lets images and PDFs through only to the models that read them", () => {
+    const models = buildEigenweltModelsMap([
+      { id: "gemini", inputModalities: ["text", "image", "pdf"] },
+      { id: "glm", inputModalities: ["text", "image"] },
+      { id: "deepseek", inputModalities: ["text"] },
+      { id: "older-platform" },
+    ]) as Record<string, Record<string, unknown>>;
+
+    expect(models.gemini).toMatchObject({
+      attachment: true,
+      modalities: { input: ["text", "image", "pdf"], output: ["text"] },
+    });
+    expect(models.glm).toMatchObject({ attachment: true, modalities: { input: ["text", "image"], output: ["text"] } });
+    expect(models.deepseek).toMatchObject({ attachment: false, modalities: { input: ["text"], output: ["text"] } });
+    // No list from the platform: the engine's own default (text only) stays.
+    expect(models["older-platform"]).not.toHaveProperty("modalities");
+    expect(models["older-platform"]).not.toHaveProperty("attachment");
+  });
+
+  test("never writes a modality the engine schema does not know", () => {
+    const models = buildEigenweltModelsMap([
+      { id: "odd", inputModalities: ["video", "image"] as never },
+    ]) as Record<string, Record<string, unknown>>;
+    expect(models.odd.modalities).toEqual({ input: ["text", "image"], output: ["text"] });
+  });
+});
+
 describe("refreshEigenweltProviderModels", () => {
   const staleProvider = {
     npm: "@ai-sdk/openai-compatible",
@@ -319,9 +348,11 @@ describe("refreshEigenweltProviderModels", () => {
     const models = eigenwelt.models as Record<string, { limit?: { context?: number; output?: number } }>;
     expect(Object.keys(models).sort()).toEqual(["deepseek-v4-flash", "ewl-small"]);
     expect(models["stale-model"]).toBeUndefined();
-    // Both limit keys are mandatory for the engine schema.
-    expect(models["deepseek-v4-flash"]?.limit).toEqual({ context: 200000, output: 16384 });
-    expect(models["ewl-small"]?.limit).toEqual({ context: 128000, output: 16384 });
+    // Both limit keys are mandatory for the engine schema. Neither manifest
+    // model reports an output limit, so both get the 32k default — which is
+    // also how a config written with the old hardcoded 16,384 gets replaced.
+    expect(models["deepseek-v4-flash"]?.limit).toEqual({ context: 200000, output: 32000 });
+    expect(models["ewl-small"]?.limit).toEqual({ context: 128000, output: 32000 });
 
     // Second call within the throttle window does nothing (no write, no fetch).
     const modelsCallsAfterFirst = platform.modelsCalls;

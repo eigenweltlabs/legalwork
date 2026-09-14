@@ -138,6 +138,8 @@ export type EigenweltManifestModel = {
   name?: string;
   description?: string;
   contextLength?: number;
+  /** Longest single response the gateway allows, in tokens (absent when unknown). */
+  maxOutputTokens?: number;
   toolCall?: boolean;
   reasoning?: boolean;
   /** Where the deployment runs: "EU" or an ISO 3166 alpha-2 code ("US"). */
@@ -146,6 +148,8 @@ export type EigenweltManifestModel = {
   hostedIn?: string;
   /** The model behind the Eigenwelt name, e.g. "DeepSeek V4 Flash". */
   upstreamModel?: string;
+  /** What the model reads, e.g. ["text", "image", "pdf"]. Absent = text only. */
+  inputModalities?: Array<"text" | "image" | "pdf">;
 };
 
 /** The signed-in seat's included usage for the current window (cents, plus a percentage). */
@@ -168,8 +172,8 @@ export type EigenweltUsage = {
 
 /** Subscription entitlements. OPTIONAL — absent means the free/legacy tier. */
 export type EigenweltEntitlements = {
-  /** "hub" = the Knowledge Hub plan without AI (no `premium_models` feature). */
-  plan: "plus" | "pro" | "hub" | null;
+  /** The plan id doubles as its marketed name: "plus" (€29) or "pro" (€69). */
+  plan: "plus" | "pro" | null;
   subscriptionStatus: string | null;
   /**
    * ISO timestamp when the 7-day trial ends (or ended — compare against now);

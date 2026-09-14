@@ -24,7 +24,7 @@ import {
   filterProviderList,
 } from "../../../../app/utils/providers";
 import { getReactQueryClient } from "../../../infra/query-client";
-import { ensureProviderListQuery } from "../../../infra/provider-list-query";
+import { ensureProviderListQuery, refreshProviderListQueries } from "../../../infra/provider-list-query";
 import type { LegalworkServerStoreSnapshot } from "../legalwork-server-store";
 import type {
   EigenweltAccountIdentity,
@@ -48,11 +48,7 @@ export type ProviderAuthLegalworkServer = {
   };
 };
 import { dispatchNewProviders } from "../../../../app/lib/provider-events";
-import {
-  customProviderModelEntry,
-  customProviderModelFromEntry,
-  DEFAULT_MODEL_OUTPUT_LIMIT,
-} from "./custom-provider-config";
+import { customProviderModelEntry, customProviderModelFromEntry } from "./custom-provider-config";
 
 type ProviderReturnFocusTarget = "none" | "composer";
 
@@ -112,34 +108,6 @@ export const CUSTOM_PROVIDER_NPM: Record<CustomProviderApiType, string> = {
 export const EIGENWELT_PROVIDER_ID = "eigenwelt";
 
 export type { EigenweltManifestModel } from "../../../../app/lib/legalwork-server";
-
-/**
- * Build the runtime-config provider block for the Eigenwelt Model API from a
- * platform manifest. Mirrors the server's buildEigenweltModelsMap — keep both
- * in sync. NOTE: `limit` MUST carry BOTH context and output — the engine
- * schema rejects the whole config otherwise (verified).
- */
-export function buildEigenweltProviderBlock(
-  baseURL: string,
-  models: EigenweltManifestModel[],
-): Record<string, unknown> {
-  return {
-    npm: "@ai-sdk/openai-compatible",
-    name: "Eigenwelt Subscription",
-    options: { baseURL },
-    models: Object.fromEntries(
-      models.map((model) => [
-        model.id,
-        {
-          name: model.name ?? model.id,
-          tool_call: model.toolCall ?? true,
-          reasoning: model.reasoning ?? false,
-          limit: { context: model.contextLength ?? 128000, output: DEFAULT_MODEL_OUTPUT_LIMIT },
-        },
-      ]),
-    ),
-  };
-}
 
 /**
  * Input for adding a user-defined provider that speaks the OpenAI API spec.
@@ -798,6 +766,10 @@ export function createProviderAuthStore(options: CreateProviderAuthStoreOptions)
       } catch {
         // ignore health wait failures and still attempt provider reads
       }
+      // The composer and model picker cache the list under a key that carries
+      // the engine URL, which this store does not know. Refetch every cached
+      // list, or they keep showing the engine as it was before the reload.
+      await refreshProviderListQueries(getReactQueryClient()).catch(() => undefined);
     }
 
     const activeClient = options.client() ?? c;
@@ -1194,7 +1166,7 @@ export function createProviderAuthStore(options: CreateProviderAuthStoreOptions)
           accessTokenExpiresAt: payload.accessTokenExpiresAt ?? null,
           ...(baseURL && payload.apiKey ? { baseURL, apiKey: payload.apiKey, models } : {}),
         });
-        invalidateEigenweltEntitlements(legalworkWorkspaceId);
+        invalidateEigenweltEntitlements();
       } catch {
         // ignore: best-effort — a persistence failure must not fail the sign-in.
       }

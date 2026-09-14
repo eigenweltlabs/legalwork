@@ -359,7 +359,7 @@ function TodoPanel(props: { todos: TodoItem[] }) {
 
 /**
  * The ways out of "no usable model": trial sign-up, sign-in, bring your own,
- * or (a firm on the Knowledge Hub plan) upgrading to Plus.
+ * or (a firm on a plan without models) upgrading.
  */
 export type ConnectAiAction = "trial" | "login" | "byo" | "upgrade";
 
@@ -369,7 +369,7 @@ export type ConnectAiAction = "trial" | "login" | "byo" | "upgrade";
  * provider that is no longer connected (signed out of Eigenwelt, access
  * revoked) with nothing else to switch to. Offers the three real paths: the
  * Eigenwelt trial, signing in to an existing account, or bringing your own
- * model/key. A firm subscribed to the Knowledge Hub (no AI in the plan) gets
+ * model/key. A firm subscribed to a plan without AI (none today) gets
  * "upgrade or bring your own" instead: it is signed in and paying already.
  */
 function NoModelNotice(props: {
@@ -595,7 +595,7 @@ export function SessionSurface(props: SessionSurfaceProps) {
   // nothing else is connected, so there is no model to switch to. Same ways
   // out as "no model"; a lapsed trial keeps its own subscribe notice.
   const lockedOutNoticeVisible = lockedOutCandidate && !trialEndedNoticeVisible;
-  // Signed in to a firm on the Knowledge Hub plan: subscribed, but the plan
+  // Signed in to a firm on a plan without models: subscribed, but the plan
   // has no Eigenwelt models, so neither "start a trial" nor "log in" applies.
   // Also shown while the selection still points at the Eigenwelt provider
   // (a firm moved down from Plus keeps the model in the picker until the
