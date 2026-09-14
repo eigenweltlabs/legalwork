@@ -3469,6 +3469,9 @@ function createRoutes(
       paths: [legalworkConfigPath(workspace.path)],
     });
     const removedScopes = await removeMcp(config, workspace.id, name);
+    // A reload immediately after removal must also see the new shared config.
+    const primary = config.workspaces.find((item) => item.workspaceType !== "remote");
+    if (primary) await writeLegalworkRuntimeConfigFile(config, primary.id);
     await recordAudit(workspace.path, {
       id: shortId(),
       workspaceId: workspace.id,

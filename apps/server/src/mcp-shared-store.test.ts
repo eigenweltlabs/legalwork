@@ -12,6 +12,8 @@ import {
 import { addMcp, listMcp, removeMcp, setMcpEnabled } from "./mcp.js";
 import { installCloudPlugin } from "./cloud-plugins.js";
 import { importConnectorsIntoSharedRow } from "./mcp-shared-store.js";
+import { opencodeConfigPaths } from "./workspace-files.js";
+import { readJsoncFile } from "./jsonc.js";
 import {
   readGlobalMcpMap,
   readRuntimeOpencodeConfig,
@@ -132,6 +134,32 @@ describe("shared connector store", () => {
     expect((await engineMcp(config, "ws_a")).fibery?.url).toBe(FIBERY.url);
   });
 
+  test("disconnect removes legacy file copies in every workspace and cannot be reimported", async () => {
+    const { root, wsA, wsB, config } = await setup();
+    const globalOpencodeConfigFile = join(root, "xdg", "opencode", "opencode.jsonc");
+    const files = [globalOpencodeConfigFile, join(root, "xdg", "opencode", "opencode.json"),
+      ...opencodeConfigPaths(wsA), ...opencodeConfigPaths(wsB)];
+    for (const path of files) {
+      await mkdir(join(path, ".."), { recursive: true });
+      await writeFile(path, `// keep this comment\n${JSON.stringify({ mcp: { legalmemory: FIBERY, notion: NOTION }, model: "keep/model" })}`);
+    }
+    // Reproduce an upgrade where the shared entry was already removed but
+    // an older project file still kept LegalMemory connected.
+    expect((await listMcp(config, "ws_a", wsA)).some((item) => item.name === "legalmemory")).toBe(true);
+    expect(await removeMcp(config, "ws_a", "legalmemory")).toEqual(["global"]);
+    expect(await removeMcp(config, "ws_a", "legalmemory")).toEqual([]);
+    for (const path of files) {
+      const { data, raw } = await readJsoncFile(path, {});
+      expect(data).toEqual({ mcp: { notion: NOTION }, model: "keep/model" });
+      expect(raw).toContain("// keep this comment");
+    }
+    await importConnectorsIntoSharedRow(config, { globalOpencodeConfigFile, runtimeConfigFile: join(root, "missing.json") });
+    for (const [id, path] of [["ws_a", wsA], ["ws_b", wsB]]) {
+      expect((await listMcp(config, id, path)).map((item) => item.name)).toEqual(["notion"]);
+      expect((await engineMcp(config, id)).legalmemory).toBeUndefined();
+    }
+  });
+
   test("toggling a shared connector writes the shared row", async () => {
     const { config } = await setup();
     await addMcp(config, "ws_a", "fibery", FIBERY, "global");
@@ -166,6 +194,16 @@ describe("shared connector store", () => {
 });
 
 describe("importing connectors from earlier builds", () => {
+  test("a connector stored only in a legacy project file becomes available globally", async () => {
+    const { root, wsA, wsB, config } = await setup();
+    await writeFile(join(wsA, "opencode.jsonc"), JSON.stringify({ mcp: { legalmemory: FIBERY } }));
+    const result = await importConnectorsIntoSharedRow(config, {
+      runtimeConfigFile: join(root, "missing.json"), globalOpencodeConfigFile: join(root, "xdg", "opencode", "opencode.jsonc"),
+    });
+    expect(result.imported).toEqual(["legalmemory"]);
+    expect(await listMcp(config, "ws_b", wsB)).toEqual([expect.objectContaining({ name: "legalmemory", source: "config.remote", config: FIBERY })]);
+    expect((await readJsoncFile(join(wsA, "opencode.jsonc"), {})).data).toEqual({ mcp: {} });
+  });
   test("moves workspace rows and copies file entries into the shared row once", async () => {
     const { root, config } = await setup();
     const runtimeConfigFile = join(root, "runtime-opencode-config.json");
@@ -203,14 +241,36 @@ describe("importing connectors from earlier builds", () => {
     expect((await readRuntimeOpencodeConfig(config, "ws_a")).mcp).toBeUndefined();
     expect((await readRuntimeOpencodeConfig(config, "ws_a")).plugin).toEqual(["keep-me"]);
     expect((await readRuntimeOpencodeConfig(config, "ws_b")).mcp).toBeUndefined();
-    // The user's file is only read.
-    expect(await readFile(globalOpencodeConfigFile, "utf8")).toBe(globalFile);
+    // The old entry must not remain a second source. Keep unrelated content.
+    const migratedFile = await readFile(globalOpencodeConfigFile, "utf8");
+    expect(migratedFile).toContain("// written by an earlier desktop build");
+    expect(migratedFile).toContain('"broken"');
+    expect(migratedFile).not.toContain('"courtlistener"');
     // Every workspace's engine config now carries all of them.
     expect(Object.keys(await engineMcp(config, "ws_b")).sort()).toEqual(["courtlistener", "fibery", "legalmemory", "notion"]);
 
     const second = await importConnectorsIntoSharedRow(config, { runtimeConfigFile, globalOpencodeConfigFile });
     expect(second.imported).toEqual([]);
     expect(await readGlobalMcpMap(config)).toEqual(shared);
+  });
+
+  test("moves old project file connectors into the global store without retaining a shadow copy", async () => {
+    const { root, wsA, wsB, config } = await setup();
+    for (const [index, path] of opencodeConfigPaths(wsA).entries()) {
+      await mkdir(join(path, ".."), { recursive: true });
+      await writeFile(path, JSON.stringify({ mcp: { legalmemory: { ...FIBERY, url: `https://old-${index}.example/mcp` } } }));
+    }
+    await addMcp(config, "ws_b", "legalmemory", NOTION);
+    const sources = { globalOpencodeConfigFile: join(root, "xdg", "opencode", "opencode.jsonc"), runtimeConfigFile: join(root, "missing.json") };
+    await importConnectorsIntoSharedRow(config, sources);
+    // The existing global setting wins over stale workspace copies.
+    for (const [id, path] of [["ws_a", wsA], ["ws_b", wsB]]) {
+      expect(await listMcp(config, id, path)).toEqual([expect.objectContaining({ name: "legalmemory", source: "config.remote", config: NOTION })]);
+    }
+    for (const path of opencodeConfigPaths(wsA)) expect((await readJsoncFile(path, {})).data).toEqual({ mcp: {} });
+    await removeMcp(config, "ws_b", "legalmemory");
+    expect((await importConnectorsIntoSharedRow(config, sources)).imported).toEqual([]);
+    expect(await listMcp(config, "ws_a", wsA)).toEqual([]);
   });
 
   test("leaves the MCPs a workspace's plugins brought along with that workspace", async () => {

@@ -4,9 +4,15 @@ import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createManagedOpencodeServer } from "../../apps/server/src/managed-opencode.ts";
+import { startServer } from "../../apps/server/src/server.ts";
+import { importConnectorsIntoSharedRow } from "../../apps/server/src/mcp-shared-store.ts";
+import type { ServerConfig } from "../../apps/server/src/types.ts";
 
 const root = await mkdtemp(join(tmpdir(), "legalwork-mcp-live-"));
 let engine: Awaited<ReturnType<typeof createManagedOpencodeServer>> | undefined;
+let legalwork: Awaited<ReturnType<typeof startServer>> | undefined;
+const secondWorkspace = join(root, "second");
+const apiToken = "fixture-only-token";
 let calls = 0;
 let step = 0;
 let outputPath = "";
@@ -85,7 +91,11 @@ const provider = Bun.serve({
         args = { path: outputPath, pattern: "MAT-00005" };
       } else if (step === 3) {
         grepPassed = text.includes("Found 1 matches") && !text.includes("JSON record exceeded");
-        await api("/mcp/legalmemory/disconnect?directory=" + encodeURIComponent(root), "POST");
+        if (!legalwork) throw new Error("LegalWork not ready");
+        const removed = await fetch(`http://127.0.0.1:${legalwork.port}/workspace/ws_1/mcp/legalmemory`, {
+          method: "DELETE", headers: { Authorization: `Bearer ${apiToken}` },
+        });
+        if (!removed.ok) throw new Error(`Disconnect failed: ${removed.status}`);
         name = "legalmemory_list_matters";
       } else {
         const lastTool = body.messages.findLast((message: { role: string }) => message.role === "tool");
@@ -124,6 +134,17 @@ const provider = Bun.serve({
 });
 try {
   await mkdir(join(root, "config"), { recursive: true });
+  await mkdir(secondWorkspace, { recursive: true });
+  const isolatedEnv = {
+    OPENCODE_TEST_HOME: root,
+    OPENCODE_CONFIG: join(root, "opencode.json"),
+    XDG_CONFIG_HOME: join(root, "config"),
+    XDG_DATA_HOME: join(root, "data"),
+    XDG_CACHE_HOME: join(root, "cache"),
+    XDG_STATE_HOME: join(root, "state"),
+    LEGALWORK_RUNTIME_DB: join(root, "runtime.sqlite"),
+  };
+  Object.assign(process.env, isolatedEnv);
   const config = {
     $schema: "https://opencode.ai/config.json",
     permission: "allow",
@@ -141,36 +162,56 @@ try {
     mcp: { legalmemory: { type: "remote", url: `http://127.0.0.1:${mcp.port}/mcp`, oauth: false, enabled: true } },
   };
   await writeFile(join(root, "opencode.json"), JSON.stringify(config));
+  await writeFile(join(secondWorkspace, "opencode.jsonc"), JSON.stringify({ mcp: config.mcp }));
   engine = await createManagedOpencodeServer({
     bin: process.env.LEGALWORK_OPENCODE_BIN || "opencode",
     cwd: root,
     timeoutMs: 30000,
-    env: {
-      OPENCODE_TEST_HOME: root,
-      OPENCODE_CONFIG: join(root, "opencode.json"),
-      XDG_CONFIG_HOME: join(root, "config"),
-      XDG_DATA_HOME: join(root, "data"),
-      XDG_CACHE_HOME: join(root, "cache"),
-      XDG_STATE_HOME: join(root, "state"),
-    },
+    env: isolatedEnv,
   });
+  const serverConfig: ServerConfig = {
+    host: "127.0.0.1", port: 0, token: apiToken, hostToken: "fixture-only-host-token",
+    approval: { mode: "auto", timeoutMs: 1000 }, corsOrigins: [],
+    workspaces: [root, secondWorkspace].map((path, index) => ({ id: `ws_${index + 1}`, name: `Fixture ${index + 1}`, path, workspaceType: "local" })),
+    authorizedRoots: [root], readOnly: false, startedAt: Date.now(),
+    tokenSource: "cli", hostTokenSource: "cli", logFormat: "pretty", logRequests: false,
+    opencodeBaseUrl: engine.url, opencodeUsername: engine.username, opencodePassword: engine.password,
+  };
+  legalwork = await startServer(serverConfig);
+  // Both instances already have the legacy connector loaded before removal.
+  const secondBefore = await api("/mcp?directory=" + encodeURIComponent(secondWorkspace));
+  if (secondBefore.legalmemory?.status !== "connected") throw new Error("Second workspace did not connect");
   const session = await api("/session?directory=" + encodeURIComponent(root), "POST", {});
   await api("/session/" + session.id + "/message?directory=" + encodeURIComponent(root), "POST", {
     model: { providerID: "fixture", modelID: "fixture" },
     parts: [{ type: "text", text: "Check the synthetic memory fixture and its spilled output." }],
   });
   const spilled = outputPath ? await readFile(outputPath, "utf8") : "";
+  await importConnectorsIntoSharedRow(serverConfig, {
+    runtimeConfigFile: join(root, "runtime-opencode-config.json"),
+    globalOpencodeConfigFile: join(root, "config", "opencode", "opencode.jsonc"),
+  });
+  for (const directory of [root, secondWorkspace]) {
+    const query = "?directory=" + encodeURIComponent(directory);
+    const beforeReload = await api("/mcp" + query);
+    if (beforeReload.legalmemory?.status === "connected") throw new Error("Another workspace retained access");
+    await api("/instance/dispose" + query, "POST");
+    const afterReload = await api("/mcp" + query);
+    if (afterReload.legalmemory?.status === "connected") throw new Error("Reload resurrected LegalMemory");
+  }
   const result = {
     calls,
     step,
     grepPassed,
     blocked,
+    disconnectedInBothWorkspacesAfterReload: true,
     outputRecords: spilled ? JSON.parse(spilled).results.length : 0,
     maxOutputLine: Math.max(...spilled.split("\n").map((line) => Buffer.byteLength(line))),
   };
   console.log(JSON.stringify(result));
   if (calls !== 1 || !grepPassed || !blocked) throw new Error("Live engine check failed");
 } finally {
+  await legalwork?.stop(true);
   await engine?.close();
   mcp.stop(true);
   provider.stop(true);

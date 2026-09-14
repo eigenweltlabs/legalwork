@@ -9,20 +9,21 @@
  * (read by the engine once per process). The app listed such a connector in
  * every workspace while the engine only had it in some.
  *
- * Every start folds all three into the shared row (GLOBAL_MCP_ID), which the
- * engine config file and the hot-add sync are built from, so every workspace
+ * Every start folds those sources and legacy project files into the shared
+ * row (GLOBAL_MCP_ID), which the engine config file and hot-add sync use, so every workspace
  * instance gets the same connectors from one place. Workspace rows are
  * LegalWork's own and are emptied — moved, not copied: a stale copy would
  * shadow the shared entry. The one exception is an MCP a plugin installed in
  * that workspace brought along: it belongs to the workspace like the plugin
- * does and stays. The two files are only read. The runtime config
- * file is rebuilt from the DB right after this, and the global opencode config
- * is the user's file: an entry that stays there keeps loading through the
- * engine's own global config, and listMcp shows the shared row's copy in its
- * place. Idempotent: a second run finds nothing new.
+ * does and stays. Imported entries are removed from their source files only
+ * after the shared row is saved. Leaving a second source lets it override the
+ * shared entry or resurrect a disconnected connector on an engine rebuild.
+ * Other configuration and comments stay intact.
  */
+import { dirname, join } from "node:path";
 import { installedCloudPluginMcpNames } from "./cloud-plugins.js";
-import { readJsoncFile } from "./jsonc.js";
+import { readJsoncFile, updateJsoncPath } from "./jsonc.js";
+import { opencodeConfigPaths } from "./workspace-files.js";
 import {
   GLOBAL_MCP_ID,
   readGlobalMcpMap,
@@ -73,6 +74,7 @@ export async function importConnectorsIntoSharedRow(
   if (config.readOnly) return { imported: [] };
   const shared: McpMap = { ...(await readGlobalMcpMap(config)) };
   const imported: string[] = [];
+  const sourceEntries: Array<{ path: string; name: string }> = [];
   const take = (name: string, entry: Record<string, unknown>) => {
     if (Object.prototype.hasOwnProperty.call(shared, name) || !usable(name, entry)) return;
     shared[name] = entry;
@@ -97,13 +99,29 @@ export async function importConnectorsIntoSharedRow(
     });
   }
 
-  for (const path of [sources.runtimeConfigFile, sources.globalOpencodeConfigFile]) {
-    const { data } = await readJsoncFile(path, {} as Record<string, unknown>, { allowInvalid: true });
-    for (const [name, entry] of Object.entries(mcpMapOf(data))) take(name, entry);
+  const globalDirectory = dirname(sources.globalOpencodeConfigFile);
+  const files = new Set([
+    sources.runtimeConfigFile,
+    sources.globalOpencodeConfigFile,
+    join(globalDirectory, "opencode.jsonc"),
+    join(globalDirectory, "opencode.json"),
+    ...config.workspaces.filter((workspace) => workspace.workspaceType !== "remote")
+      .flatMap((workspace) => opencodeConfigPaths(workspace.path)),
+  ]);
+  for (const path of files) {
+    const { data } = await readJsoncFile<Record<string, unknown>>(path, {}, { allowInvalid: true });
+    for (const [name, entry] of Object.entries(mcpMapOf(data))) {
+      if (!usable(name, entry)) continue;
+      take(name, entry);
+      if (path !== sources.runtimeConfigFile) sourceEntries.push({ path, name });
+    }
   }
 
   if (imported.length > 0) {
     await writeRuntimeOpencodeConfig(config, GLOBAL_MCP_ID, (current) => ({ ...current, mcp: shared }));
+  }
+  for (const { path, name } of sourceEntries) {
+    await updateJsoncPath(path, ["mcp", name], undefined);
   }
   return { imported };
 }

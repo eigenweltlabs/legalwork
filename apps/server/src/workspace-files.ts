@@ -28,6 +28,16 @@ export function opencodeConfigPath(workspaceRoot: string): string {
   return hiddenJsoncPath;
 }
 
+/** All legacy project files the engine may merge, in display precedence order. */
+export function opencodeConfigPaths(workspaceRoot: string): string[] {
+  return [
+    join(workspaceRoot, "opencode.jsonc"),
+    join(workspaceRoot, "opencode.json"),
+    join(workspaceRoot, ".opencode", "opencode.jsonc"),
+    join(workspaceRoot, ".opencode", "opencode.json"),
+  ];
+}
+
 export function legalworkConfigPath(workspaceRoot: string): string {
   return join(workspaceRoot, ".opencode", "legalwork.json");
 }

@@ -3,8 +3,8 @@ import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { homedir } from "node:os";
 import type { McpItem, ServerConfig } from "./types.js";
-import { readJsoncFile } from "./jsonc.js";
-import { opencodeConfigPath } from "./workspace-files.js";
+import { readJsoncFile, updateJsoncPath } from "./jsonc.js";
+import { opencodeConfigPath, opencodeConfigPaths } from "./workspace-files.js";
 import { validateMcpConfig, validateMcpName } from "./validators.js";
 import {
   GLOBAL_MCP_ID,
@@ -167,22 +167,43 @@ export async function addMcp(
 }
 
 /**
- * Remove a runtime MCP wherever it is stored. Returns the scopes it was
+ * Remove an MCP wherever it is stored. Returns the scopes it was
  * removed from; empty means nothing was stored under that name. Removing from
  * both rows is deliberate: the user is disconnecting the app, not editing a
  * particular row, and a surviving copy in the other row would resurrect it.
  */
 export async function removeMcp(serverConfig: ServerConfig, workspaceId: string, name: string): Promise<McpScope[]> {
+  validateMcpName(name);
+  const configHome = process.env.XDG_CONFIG_HOME?.trim() || join(homedir(), ".config");
+  const files: string[] = [];
+  // OpenCode can merge several config files. Remove every copy of this entry,
+  // including a lower-priority file that would become visible after removal.
+  for (const workspace of serverConfig.workspaces) {
+    if (workspace.workspaceType === "remote") continue;
+    for (const path of opencodeConfigPaths(workspace.path)) {
+      files.push(path);
+    }
+  }
+  for (const filename of ["opencode.json", "opencode.jsonc"]) {
+    files.push(join(configHome, "opencode", filename));
+  }
+  let removedFile = false;
+  for (const path of new Set(files)) {
+    const { data } = await readJsoncFile<Record<string, unknown>>(path, {});
+    if (!hasOwn(getMcpConfig(data), name)) continue;
+    await updateJsoncPath(path, ["mcp", name], undefined);
+    removedFile = true;
+  }
   const rows = await readMcpRows(serverConfig, workspaceId);
   const removed: McpScope[] = [];
   if (hasOwn(rows.workspace, name)) {
     await writeRuntimeOpencodeConfig(serverConfig, workspaceId, withoutMcp(name));
-    removed.push("workspace");
   }
+  if (hasOwn(rows.workspace, name)) removed.push("workspace");
   if (hasOwn(rows.global, name)) {
     await writeRuntimeOpencodeConfig(serverConfig, GLOBAL_MCP_ID, withoutMcp(name));
-    removed.push("global");
   }
+  if (hasOwn(rows.global, name) || removedFile) removed.push("global");
   return removed;
 }
 

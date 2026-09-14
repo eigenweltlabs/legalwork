@@ -20,7 +20,6 @@ describe("desktop MCP removal", () => {
     const desktopCalls: DesktopCall[] = [];
     const removalOrder: string[] = [];
     let disconnectError = false;
-    let legacyConfig = JSON.stringify({ mcp: { legalmemory: { type: "remote" }, other: { type: "local" } } });
     const browserWindow = new EventTarget() as EventTarget & {
       __LEGALWORK_ELECTRON__?: {
         invokeDesktop: (command: string, ...args: unknown[]) => Promise<unknown>;
@@ -29,15 +28,6 @@ describe("desktop MCP removal", () => {
     browserWindow.__LEGALWORK_ELECTRON__ = {
       invokeDesktop: async (command, ...args) => {
         desktopCalls.push({ command, args });
-        if (command === "readOpencodeConfig") {
-          return { path: "/tmp/opencode.jsonc", exists: true, content: legacyConfig };
-        }
-        if (command === "writeOpencodeConfig") {
-          if (typeof args[2] !== "string") throw new Error("Expected config content");
-          legacyConfig = args[2];
-          removalOrder.push("legacy-config");
-          return { ok: true };
-        }
         throw new Error(`Unexpected desktop command: ${command}`);
       },
     };
@@ -91,11 +81,11 @@ describe("desktop MCP removal", () => {
     expect(serverCalls).toEqual([{ workspaceId: "ws-runtime", name: "legalmemory" }]);
     // The server's shared row is the only store; the desktop no longer merges
     // into the engine config file (the server rebuilds it from the DB).
-    expect(desktopCalls.map((call) => call.command)).toEqual(["readOpencodeConfig", "writeOpencodeConfig"]);
-    expect(JSON.parse(legacyConfig)).toEqual({ mcp: { other: { type: "local" } } });
+    // File cleanup and runtime removal are one server-owned operation.
+    expect(desktopCalls).toEqual([]);
     expect(queryClient.getQueryData(["legalmemory-tree-roots", "ws-runtime"])).toBeUndefined();
     expect(connectionChanges).toBe(1);
-    expect(removalOrder).toEqual(["legacy-config", "engine"]);
+    expect(removalOrder).toEqual(["engine"]);
 
     disconnectError = true;
     await store.removeMcp("legalmemory");

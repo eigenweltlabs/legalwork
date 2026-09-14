@@ -954,43 +954,12 @@ export function createConnectionsStore(options: {
     try {
       setStateField("mcpStatus", null);
 
-      const { legalworkClient, legalworkWorkspaceId, hasLegalworkTarget, canUseLegalworkServer } =
+      const { legalworkClient, legalworkWorkspaceId, canUseLegalworkServer } =
         await resolveWritableLegalworkTarget();
 
-      if (isDesktopRuntime()) {
-        const formattingOptions = { insertSpaces: true, tabSize: 2, eol: "\n" };
-        // Earlier desktop builds wrote connectors into the user's global opencode
-        // config. Strip a copy left there, or it resurfaces as a read-only entry.
-        const configFile = await readOpencodeConfig("global", "") as OpencodeConfigFile;
-        if (configFile.exists && configFile.content?.trim()) {
-          const updated = applyEdits(
-            configFile.content,
-            modify(configFile.content, ["mcp", name], undefined, { formattingOptions }),
-          );
-          await writeOpencodeConfig("global", "", updated.endsWith("\n") ? updated : `${updated}\n`);
-        }
-
-        // Remove legacy disk copies before the shared store disconnects every
-        // workspace, so an engine rebuild cannot reconnect a surviving entry.
-        if (legalworkClient && legalworkWorkspaceId) {
-          await legalworkClient.removeMcp(legalworkWorkspaceId, name);
-        }
-
-        // The server removal hot-disconnects its engine. Also disconnect the
-        // active desktop client directly for configurations that were sourced
-        // only from a local file and therefore had no server runtime row.
-        const activeClient = options.client();
-        const projectDir = options.projectDir().trim();
-        if (activeClient && projectDir) {
-          try {
-            unwrap(await activeClient.mcp.disconnect({ directory: projectDir, name }));
-          } catch (error) {
-            // The server already confirmed disconnection for its engine. With
-            // no server target, do not claim success on a failed direct call.
-            if (!legalworkClient || !legalworkWorkspaceId) throw error;
-          }
-        }
-      } else if (canUseLegalworkServer && legalworkClient && legalworkWorkspaceId) {
+      if (canUseLegalworkServer && legalworkClient && legalworkWorkspaceId) {
+        // The same operation removes runtime and file entries before dropping
+        // live clients. A surviving project file would reconnect on reload.
         await legalworkClient.removeMcp(legalworkWorkspaceId, name);
       } else {
         setStateField("mcpStatus", "MCP configuration is read-only here.");
