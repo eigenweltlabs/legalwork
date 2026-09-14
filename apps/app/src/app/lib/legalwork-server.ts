@@ -168,8 +168,8 @@ export type EigenweltUsage = {
 
 /** Subscription entitlements. OPTIONAL — absent means the free/legacy tier. */
 export type EigenweltEntitlements = {
-  /** "hub" = the Knowledge Hub plan without AI (no `premium_models` feature). */
-  plan: "plus" | "pro" | "hub" | null;
+  /** The plan id doubles as its marketed name: "plus" (€29) or "pro" (€69). */
+  plan: "plus" | "pro" | null;
   subscriptionStatus: string | null;
   /**
    * ISO timestamp when the 7-day trial ends (or ended — compare against now);

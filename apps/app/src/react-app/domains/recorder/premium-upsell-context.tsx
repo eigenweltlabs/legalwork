@@ -11,7 +11,7 @@
  * so there's never a duplicate modal.
  *
  * Flow, bank-challenge style:
- *   pitch   → the €69 Plus benefits (7-day trial) + "Upgrade to Plus"
+ *   pitch   → the Plus/Pro benefits (7-day trial, from €29/seat) + the CTA
  *   waiting → checkout opens in the browser; poll entitlements every ~2.5s with a
  *             FORCE refresh until `premium_models` appears
  *   success → brief confirmation, then auto-close (the gate is already unlocked)
@@ -104,7 +104,7 @@ export function PremiumUpsellHost(props: {
   // Whether the desktop is signed in with an Eigenwelt firm — a subscription is
   // per-firm, so without a connection there is nothing to poll.
   const connected = view?.connected ?? false;
-  // A Knowledge Hub firm upgrades instead of starting a trial.
+  // A firm on a plan without models upgrades instead of starting a trial.
   const planWithoutModels = connected && eigenweltPlanWithoutModels(view?.entitlements ?? null);
   const [signingIn, setSigningIn] = useState(false);
   const handleSignIn = useCallback(async () => {

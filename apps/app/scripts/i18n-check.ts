@@ -47,7 +47,7 @@ const GERMAN_KEEPS_ENGLISH = new Set<string>([
   "reload.label_skill", "reload.label_plugin", "reload.label_mcp", "reload.label_agent",
   // Product and brand names
   "benchmark.onboarding_eyebrow", "benchmark.import_title", "settings.tab_benchmark",
-  "account.plan_hub", "premium_upsell.eyebrow", "onboarding_ai.panel_eyebrow",
+  "premium_upsell.eyebrow", "onboarding_ai.panel_eyebrow",
   "recorder.tier_premium_name", "recorder.tier_premium_locked", "recorder.tier_max_name",
   "skills.cloud_org_fallback", "mcp.quick_connect_featured",
   // Professional terms LegalWork deliberately leaves untranslated

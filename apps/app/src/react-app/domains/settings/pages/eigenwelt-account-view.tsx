@@ -250,14 +250,15 @@ export function EigenweltAccountView({
   const planActive = Boolean(
     entitlements?.plan && isEigenweltEntitledStatus(entitlements.subscriptionStatus),
   );
+  // The plan ids are the marketed names ("plus", "pro"), so capitalizing is
+  // the whole translation.
   const planValue =
     planActive && entitlements?.plan
-      ? entitlements.plan === "hub"
-        ? t("account.plan_hub")
-        : entitlements.plan.charAt(0).toUpperCase() + entitlements.plan.slice(1)
+      ? entitlements.plan.charAt(0).toUpperCase() + entitlements.plan.slice(1)
       : t("account.plan_inactive");
-  // The Knowledge Hub plan has no Eigenwelt models: no usage to show, and the
-  // models row explains the upgrade instead of "no models yet".
+  // A plan without the Eigenwelt models (no current plan is one; see
+  // eigenweltPlanWithoutModels): no usage to show, and the models row
+  // explains the upgrade instead of "no models yet".
   const modelsIncluded = hasEigenweltFeature(entitlements, "premium_models");
   // When the seat's included usage resets, e.g. "Mon, Sep 7" (platforms that
   // send no reset time show the percentage alone).

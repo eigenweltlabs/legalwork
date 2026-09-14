@@ -38,11 +38,10 @@ export const eigenweltBudgetExceededTitle = () => t("budget.exceeded_title");
 export const eigenweltBudgetExceededBody = () => t("budget.exceeded_body");
 export const eigenweltBudgetUpgradeLabel = () => t("budget.upgrade_label");
 
-/** Kept for wire compatibility with older payloads; "hub" has no gateway budget at all. */
-export type EigenweltBudgetPlan = "plus" | "pro" | "hub" | null;
+export type EigenweltBudgetPlan = "plus" | "pro" | null;
 
-/** Terminal-card copy for the single Plus plan (plan param retained for
- *  compatibility; every plan sees the same copy now that Pro is retired). */
+/** Terminal-card copy when the weekly allowance is used up. Plus and Pro
+ *  see the same copy (the plan param is kept for callers and future use). */
 export function eigenweltBudgetLimitDisplay(_plan: EigenweltBudgetPlan): {
   title: string;
   body: string;

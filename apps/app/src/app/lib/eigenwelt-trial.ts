@@ -28,10 +28,12 @@ export function isEigenweltEntitledStatus(status: string | null | undefined): bo
 }
 
 /**
- * The firm is subscribed, but on a plan without the Eigenwelt models (the
- * Knowledge Hub): the platform grants the hub features and omits
- * `premium_models`. Such a firm never sees the trial or sign-in prompts; it
- * needs "upgrade or bring your own model".
+ * The firm is subscribed, but on a plan without the Eigenwelt models: the
+ * platform grants the hub features and omits `premium_models`. No current
+ * plan is like that (Plus and Pro both include the models; the Knowledge Hub
+ * plan that was became Plus in September 2026), but the app keeps the state
+ * for whatever the platform sends. Such a firm never sees the trial or
+ * sign-in prompts; it needs "upgrade or bring your own model".
  */
 export function eigenweltPlanWithoutModels(
   entitlements:
