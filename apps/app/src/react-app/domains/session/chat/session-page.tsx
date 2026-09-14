@@ -934,7 +934,7 @@ export function SessionPage(props: SessionPageProps) {
     }
   };
 
-  const memoryDrivePanel = !props.detached ? (
+  const memoryDrivePanel = (
     <LegalMemoryFilesPanel
       client={props.legalworkServerClient}
       workspaceId={props.runtimeWorkspaceId}
@@ -946,8 +946,8 @@ export function SessionPage(props: SessionPageProps) {
       }}
       onClose={closeFileSidebar}
     />
-  ) : null;
-  const fileSidebars = !props.detached ? (
+  );
+  const fileSidebars = (
     <FileSidebars
       key={props.runtimeWorkspaceId ?? "__no_workspace__"}
       active={fileSidebar}
@@ -962,7 +962,7 @@ export function SessionPage(props: SessionPageProps) {
         />
       )}
     />
-  ) : null;
+  );
 
   return (
     <div className="flex h-full min-h-0 flex-col bg-[var(--lw-canvas)] text-dls-text mac:bg-transparent">
