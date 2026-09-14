@@ -27,15 +27,13 @@ const oauthProbe = (dynamicRegistration: boolean): CustomConnectorProbe => ({
 });
 
 describe("Add custom connector: the check", () => {
-  test("lists every step with its status and says the server asks to sign in", () => {
+  test("says in one badge that the server asks to sign in, and nothing about how it found out", () => {
     const html = renderToStaticMarkup(React.createElement(CustomConnectorCheck, { probe: oauthProbe(true) }));
-    expect(html).toContain("Connecting to the server");
-    expect(html).toContain("Looking up sign-in settings");
-    expect(html).toContain("Checking the sign-in provider");
     expect(html).toContain("Server found. It asks you to sign in.");
-    // Pass or fail per step, nothing more: no status codes, no protocol details.
+    expect(html).not.toContain("Connecting to the server");
     expect(html).not.toContain("401");
     expect(html).not.toContain("sign-in required");
+    expect(html).not.toContain("could not be checked");
   });
 
   test("an unreachable server keeps the door open to add it anyway", () => {
@@ -44,7 +42,7 @@ describe("Add custom connector: the check", () => {
     }));
     expect(html).toContain("Could not reach the server.");
     expect(html).toContain("could not be checked from here");
-    expect(html).toContain("Not found");
+    expect(html).not.toContain("ECONNREFUSED");
   });
 });
 

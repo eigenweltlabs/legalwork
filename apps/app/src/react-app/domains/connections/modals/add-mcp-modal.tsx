@@ -1,6 +1,6 @@
 /** @jsxImportSource react */
 import { useRef, useState } from "react";
-import { CheckCircle2, Info, Loader2, Plus, XCircle } from "lucide-react";
+import { AlertCircle, CheckCircle2, Loader2, Plus } from "lucide-react";
 
 import {
   Dialog,
@@ -51,15 +51,9 @@ const initialForm: CustomConnectorForm = {
   apiKeyHeader: DEFAULT_API_KEY_HEADER,
 };
 
-const STEP_LABELS: Record<CustomConnectorProbe["steps"][number]["id"], () => string> = {
-  connect: () => t("add_mcp.step_connect"),
-  resource_metadata: () => t("add_mcp.step_resource"),
-  authorization_server: () => t("add_mcp.step_authorization"),
-};
+const BADGE_CLASS = "inline-flex max-w-full items-center gap-2 rounded-full border px-3 py-1.5 text-sm font-medium";
 
-/** What the check found, step by step, with the headline it adds up to. No
- * status codes or protocol details: the person adding a connector needs to
- * know whether a step passed, and the headline says what to do next. */
+/** What the check found: one badge, and one line on what to do when nothing settled. */
 export function CustomConnectorCheck({ probe }: { probe: CustomConnectorProbe }) {
   const verdict = probeVerdict(probe);
   const headline =
@@ -70,30 +64,15 @@ export function CustomConnectorCheck({ probe }: { probe: CustomConnectorProbe })
     : t("add_mcp.unknown");
   const settled = verdict === "signin" || verdict === "open" || verdict === "credentials";
   return (
-    <div className="space-y-3">
-      <ul className="divide-y divide-dls-border rounded-xl border border-dls-border px-4">
-        {probe.steps.map((step) => (
-          <li key={step.id} className="flex items-center gap-2.5 py-2.5 text-sm">
-            {step.ok ? <CheckCircle2 size={16} className="shrink-0 text-emerald-11" /> : <XCircle size={16} className="shrink-0 text-red-11" />}
-            <div className="min-w-0">
-              <div className="truncate">{STEP_LABELS[step.id]()}</div>
-              <div className="truncate text-xs text-dls-secondary">{step.ok ? t("add_mcp.step_done") : t("add_mcp.step_failed")}</div>
-            </div>
-          </li>
-        ))}
-      </ul>
-      <div className={`flex gap-3 rounded-xl border px-4 py-3 text-sm ${settled ? "border-dls-border bg-dls-hover/40" : "border-amber-6 bg-amber-2 text-amber-11"}`} role="status">
-        <Info size={16} className="mt-0.5 shrink-0" />
-        <div className="min-w-0 space-y-1">
-          <p className="font-medium">{headline}</p>
-          {settled ? null : (
-            <>
-              {probe.error ? <p className="break-words text-xs opacity-80">{probe.error}</p> : null}
-              <p className="text-xs opacity-80">{t("add_mcp.check_unavailable")}</p>
-            </>
-          )}
-        </div>
-      </div>
+    <div className="space-y-2">
+      <span
+        className={`${BADGE_CLASS} ${settled ? "border-emerald-7/20 bg-emerald-3/20 text-emerald-11" : "border-amber-6 bg-amber-2 text-amber-11"}`}
+        role="status"
+      >
+        {settled ? <CheckCircle2 size={15} className="shrink-0" /> : <AlertCircle size={15} className="shrink-0" />}
+        <span className="min-w-0 truncate">{headline}</span>
+      </span>
+      {settled ? null : <p className="text-xs text-dls-secondary">{t("add_mcp.check_unavailable")}</p>}
     </div>
   );
 }
@@ -328,27 +307,32 @@ export function AddMcpModal(props: AddMcpModalProps) {
             </>
           ) : null}
 
-          {step === "checking" ? (
-            <div className="space-y-3 rounded-[20px] border border-dls-border bg-dls-hover px-5 py-6 text-center" role="status">
-              <Loader2 size={28} className="mx-auto animate-spin text-dls-accent" />
-              <p className="text-sm font-medium">{t("add_mcp.checking")}</p>
+          {step !== "details" ? (
+            <div className="space-y-1">
+              <p className="text-sm font-medium">{form.name.trim()}</p>
               <p className="break-all font-mono text-xs text-dls-secondary">{form.url.trim()}</p>
+              {step === "configure" && probe && probe.reachable && probe.auth !== "unknown" && probe.url !== form.url.trim() ? (
+                <p className="break-all text-xs text-dls-secondary">{t("add_mcp.found_at", { url: probe.url })}</p>
+              ) : null}
             </div>
+          ) : null}
+
+          {step === "checking" ? (
+            <span className={`${BADGE_CLASS} border-dls-border bg-dls-hover text-dls-text`} role="status">
+              <Loader2 size={15} className="shrink-0 animate-spin" />
+              {t("add_mcp.checking")}
+            </span>
           ) : null}
 
           {step === "configure" ? (
             <>
-              <div className="space-y-1">
-                <p className="text-sm font-medium">{form.name.trim()}</p>
-                <p className="break-all font-mono text-xs text-dls-secondary">{form.url.trim()}</p>
-                {probe && probe.reachable && probe.auth !== "unknown" && probe.url !== form.url.trim() ? (
-                  <p className="break-all text-xs text-dls-secondary">{t("add_mcp.found_at", { url: probe.url })}</p>
-                ) : null}
-              </div>
               {probe ? <CustomConnectorCheck probe={probe} /> : (
-                <div className="flex gap-3 rounded-xl border border-amber-6 bg-amber-2 px-4 py-3 text-sm text-amber-11" role="status">
-                  <Info size={16} className="mt-0.5 shrink-0" />
-                  <p>{t("add_mcp.check_unavailable")}</p>
+                <div className="space-y-2">
+                  <span className={`${BADGE_CLASS} border-amber-6 bg-amber-2 text-amber-11`} role="status">
+                    <AlertCircle size={15} className="shrink-0" />
+                    {t("add_mcp.unknown")}
+                  </span>
+                  <p className="text-xs text-dls-secondary">{t("add_mcp.check_unavailable")}</p>
                 </div>
               )}
               {verdict === "signin" && probe ? (
