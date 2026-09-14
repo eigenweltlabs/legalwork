@@ -129,7 +129,7 @@ export function PremiumUpsellHost(props: {
           stopPolling();
           setEigenweltPremiumEntitled(true, fresh.platformURL ?? null);
           enforcePremiumGate();
-          invalidateEigenweltEntitlements(workspaceId);
+          invalidateEigenweltEntitlements();
           // Bring the paid provider online: refresh its models + reload the
           // engine so the EU/ZDR models show up in the picker, not just the
           // audio gate. Best-effort — the success state shows regardless.

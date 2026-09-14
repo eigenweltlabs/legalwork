@@ -171,7 +171,7 @@ export function EigenweltAccountView({
 
       if (entitlementsResult.status === "fulfilled") {
         queryClient.setQueryData(
-          eigenweltEntitlementsQueryKey(workspaceId),
+          eigenweltEntitlementsQueryKey(),
           entitlementsResult.value,
         );
       }

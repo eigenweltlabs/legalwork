@@ -5,7 +5,11 @@ import type { ProviderListResponse } from "@opencode-ai/sdk/v2/client";
 
 import type { Client, WorkspaceDisplay } from "../src/app/types";
 import { createProviderAuthStore } from "../src/react-app/domains/connections/provider-auth/store";
-import { fetchProviderList, providerListQueryKey } from "../src/react-app/infra/provider-list-query";
+import {
+  fetchProviderList,
+  providerListQueryKey,
+  refreshProviderListQueries,
+} from "../src/react-app/infra/provider-list-query";
 import { getReactQueryClient } from "../src/react-app/infra/query-client";
 
 /**
@@ -85,4 +89,15 @@ test("an engine reload refreshes the provider list the composer reads", async ()
 
   expect(composer.getCurrentResult().data?.connected).toEqual(["eigenwelt"]);
   unsubscribe();
+});
+
+test("an engine reload drops the cached lists of workspaces not on screen", async () => {
+  // Cached while another workspace was open, before Eigenwelt was signed in:
+  // kept, it would show that workspace's models as unavailable when reopened.
+  const otherWorkspace = providerListQueryKey({ baseUrl: "http://127.0.0.1:4096", directory: "/tmp/other" });
+  getReactQueryClient().setQueryData(otherWorkspace, providerList([]));
+
+  await refreshProviderListQueries(getReactQueryClient());
+
+  expect(getReactQueryClient().getQueryData(otherWorkspace)).toBeUndefined();
 });

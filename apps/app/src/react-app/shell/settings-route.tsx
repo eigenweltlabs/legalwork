@@ -893,7 +893,7 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
         } catch {
           // best-effort: still reset the local view + engine below.
         }
-        invalidateEigenweltEntitlements(hubWorkspaceId);
+        invalidateEigenweltEntitlements();
       }
       // Await a FULL provider refresh (dispose → re-read the rebuilt
       // engine config → setProviders / setProviderConnectedIds) so the account

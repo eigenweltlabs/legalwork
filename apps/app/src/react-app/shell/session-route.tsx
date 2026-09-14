@@ -1900,7 +1900,7 @@ export function SessionRoute() {
         onConnected={() => {
           // The trial just activated: refetch entitlements so the premium
           // models are live the moment onboarding ends.
-          invalidateEigenweltEntitlements(selectedWorkspaceId ?? undefined);
+          invalidateEigenweltEntitlements();
           finishOnboarding("connected");
         }}
         onBack={() => {

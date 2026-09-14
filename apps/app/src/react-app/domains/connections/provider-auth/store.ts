@@ -1166,7 +1166,7 @@ export function createProviderAuthStore(options: CreateProviderAuthStoreOptions)
           accessTokenExpiresAt: payload.accessTokenExpiresAt ?? null,
           ...(baseURL && payload.apiKey ? { baseURL, apiKey: payload.apiKey, models } : {}),
         });
-        invalidateEigenweltEntitlements(legalworkWorkspaceId);
+        invalidateEigenweltEntitlements();
       } catch {
         // ignore: best-effort — a persistence failure must not fail the sign-in.
       }
