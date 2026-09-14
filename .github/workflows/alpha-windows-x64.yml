@@ -115,13 +115,17 @@ jobs:
           sha="${GITHUB_SHA:0:7}"
           sha="${sha:-local}"
           echo "Latest release tag: $latest_tag -> alpha base ${major}.${minor}.${next_patch}"
-          # The commit sha rides in the prerelease part (…-alpha.<run>.<sha>),
+          # The commit sha rides in the prerelease part (…-alpha.<run>.g<sha>),
           # not as +<sha> build metadata: pnpm refuses to workspace-link the
           # exact-pinned internal deps (legalwork-server, opencode-router) when
           # the stamped version carries build metadata, and falls back to the
-          # public npm registry (404 / name-squatted package).
+          # public npm registry (404 / name-squatted package). The "g" prefix
+          # (git describe's convention) keeps the identifier valid semver: a
+          # sha made of digits only with a leading zero, such as 0904434, is
+          # not a legal numeric prerelease identifier, and pnpm then cannot
+          # match the workspace package either and falls back the same way.
           {
-            echo "alpha_version=${major}.${minor}.${next_patch}-alpha.${run}.${sha}"
+            echo "alpha_version=${major}.${minor}.${next_patch}-alpha.${run}.g${sha}"
             echo "base_version=${major}.${minor}.${next_patch}"
             echo "release_tag=alpha-windows-v${major}.${minor}.${next_patch}-alpha.${run}-${sha}"
           } >> "$GITHUB_OUTPUT"

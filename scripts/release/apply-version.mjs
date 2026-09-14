@@ -51,11 +51,30 @@ if (!raw) {
 const version = raw.startsWith("v") ? raw.slice(1) : raw;
 
 // X.Y.Z with optional semver prerelease/build metadata (alpha builds use
-// e.g. 0.0.14-alpha.35+9e82c2b).
+// e.g. 0.1.19-alpha.65.g0904434).
 const versionPattern =
   /^\d+\.\d+\.\d+(?:-[0-9A-Za-z][0-9A-Za-z.-]*)?(?:\+[0-9A-Za-z][0-9A-Za-z.-]*)?$/;
 if (!versionPattern.test(version)) {
   console.error(`Invalid version: ${version} (expected X.Y.Z[-prerelease][+build])`);
+  process.exit(1);
+}
+
+// pnpm links the internal pins (legalwork-server, opencode-router) to the
+// workspace packages only when the stamped version is valid semver, and the
+// pattern above is looser than semver in one way that has broken an alpha
+// build: a numeric prerelease identifier must not have a leading zero, and a
+// commit sha made of digits only, such as 0904434, is exactly that. Fail here
+// with the reason instead of later with a registry lookup for a version that
+// does not exist.
+const prerelease = version.split("+")[0].split("-").slice(1).join("-");
+const leadingZeroIdentifier = prerelease
+  .split(".")
+  .find((identifier) => /^0\d+$/.test(identifier));
+if (leadingZeroIdentifier) {
+  console.error(
+    `Invalid version: ${version} — the prerelease identifier "${leadingZeroIdentifier}" is numeric with a leading zero, ` +
+      "which semver forbids, so pnpm would not link the workspace packages. Prefix it with a letter (g0904434).",
+  );
   process.exit(1);
 }
 
