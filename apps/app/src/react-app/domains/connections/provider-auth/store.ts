@@ -24,7 +24,7 @@ import {
   filterProviderList,
 } from "../../../../app/utils/providers";
 import { getReactQueryClient } from "../../../infra/query-client";
-import { ensureProviderListQuery } from "../../../infra/provider-list-query";
+import { ensureProviderListQuery, refreshProviderListQueries } from "../../../infra/provider-list-query";
 import type { LegalworkServerStoreSnapshot } from "../legalwork-server-store";
 import type {
   EigenweltAccountIdentity,
@@ -798,6 +798,10 @@ export function createProviderAuthStore(options: CreateProviderAuthStoreOptions)
       } catch {
         // ignore health wait failures and still attempt provider reads
       }
+      // The composer and model picker cache the list under a key that carries
+      // the engine URL, which this store does not know. Refetch every cached
+      // list, or they keep showing the engine as it was before the reload.
+      await refreshProviderListQueries(getReactQueryClient()).catch(() => undefined);
     }
 
     const activeClient = options.client() ?? c;
