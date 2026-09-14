@@ -34,8 +34,8 @@ const snapshot = (version = 1, orgId = "firm-one") => ({
   canManage: true,
   connections: [{ id, version, updatedAt: new Date().toISOString(), input: input() }],
 });
-async function signIn(workspaceId = "storage-team", orgId = "firm-one", token = "desktop-token") {
-  await writeEigenweltConnection(config, workspaceId, {
+async function signIn(orgId = "firm-one", token = "desktop-token") {
+  await writeEigenweltConnection(config, {
     platformToken: token,
     account: { userId: "user-one", userName: null, userEmail: null, orgId, orgName: orgId },
   });
@@ -109,7 +109,7 @@ beforeEach(async () => {
   hold = false;
   release = undefined;
   payload = snapshot();
-  await signIn("storage-team", "firm-one", `desktop-token-${++tokenSequence}`);
+  await signIn("firm-one", `desktop-token-${++tokenSequence}`);
 });
 afterAll(async () => {
   setSystemTime();
@@ -142,9 +142,9 @@ describe("team storage sync", () => {
     const saved = await readFile(new StorageInstallations(config).path, "utf8");
     expect(JSON.parse(saved)).toEqual([{ workspaceId: "storage-team", orgId: "firm-one", id }]);
     expect(saved).not.toContain("team-secret-not-on-disk");
-    await signIn("other-workspace");
+    // The firm sign-in reaches every workspace; the installation stays local.
     expect((await new TeamStorage(config).list("other-workspace")).connections[0].team?.installed).toBe(false);
-    await signIn("storage-team", "firm-two", "other-firm-token");
+    await signIn("firm-two", "other-firm-token");
     payload = {
       ...snapshot(1, "firm-two"),
       connections: [{ ...snapshot().connections[0], input: { ...input(), teamInstallation: "optional" } }],
@@ -202,7 +202,7 @@ describe("team storage sync", () => {
     status = 200;
     payload = snapshot();
     await team.list("storage-team", true);
-    await signIn("storage-team", "firm-two", "second-token");
+    await signIn("firm-two", "second-token");
     status = 503;
     expect((await team.list("storage-team", true)).status.error).toBeUndefined();
   });
@@ -239,17 +239,16 @@ describe("team storage sync", () => {
       expect(JSON.stringify(result)).not.toContain("team-secret-not-on-disk");
     }
   });
-  test("clears sign-out, isolates workspaces and rejects an old firm's in-flight response", async () => {
+  test("clears sign-out and rejects an old firm's in-flight response", async () => {
     const team = new TeamStorage(config);
     await team.list("storage-team");
-    expect((await team.list("unsigned-workspace")).connections).toEqual([]);
-    await writeEigenweltConnection(config, "storage-team", { platformToken: null, account: null });
+    await writeEigenweltConnection(config, { platformToken: null, account: null });
     expect((await team.list("storage-team")).connections).toEqual([]);
     await signIn();
     hold = true;
     const old = team.list("storage-team", true);
     while (!release) await new Promise((resolve) => setTimeout(resolve, 1));
-    await signIn("storage-team", "firm-two", "new-desktop-token");
+    await signIn("firm-two", "new-desktop-token");
     release();
     expect((await old).connections).toEqual([]);
     payload = snapshot(1, "firm-two");

@@ -2022,11 +2022,13 @@ function createRoutes(
   // connection (entitlements + platformURL + the secret platformToken) here
   // right after "Sign in with Eigenwelt" completes. The token is server-side
   // only (never returned to the app) and backs the hub proxy routes below.
-  const resolveHubClient = async (workspaceId: string) => {
+  // The connection is the firm account's, so every workspace route reads the
+  // same one — whichever workspace the user signed in from.
+  const resolveHubClient = async () => {
     // Refresh the short-lived access token before every hub call so proxied
     // requests never carry an expired token.
-    await ensureFreshPlatformToken(config, workspaceId);
-    return requireHubClient(await readEigenweltConnection(config, workspaceId));
+    await ensureFreshPlatformToken(config);
+    return requireHubClient(await readEigenweltConnection(config));
   };
 
   const parseHubKind = (value: string): EigenweltHubKind => {
@@ -2082,12 +2084,12 @@ function createRoutes(
   const MODELS_SYNC_THROTTLE_MS = 20_000;
   let lastModelsSyncAt = 0;
   let lastModelsRevision: string | null | undefined;
-  const syncEigenweltModels = async (workspaceId: string, force: boolean) => {
+  const syncEigenweltModels = async (force: boolean) => {
     const now = Date.now();
     if (!force && now - lastModelsSyncAt < MODELS_SYNC_THROTTLE_MS) return;
     lastModelsSyncAt = now;
     try {
-      const platformToken = await ensureFreshPlatformToken(config, workspaceId);
+      const platformToken = await ensureFreshPlatformToken(config);
       await refreshEigenweltPaidManifest(config, { platformToken });
     } catch (error) {
       console.debug(
@@ -2099,7 +2101,7 @@ function createRoutes(
   addRoute(routes, "PUT", "/workspace/:id/eigenwelt/connection", "client", async (ctx) => {
     ensureWritable(config);
     requireClientScope(ctx, "collaborator");
-    const workspace = await resolveWorkspace(config, ctx.params.id);
+    await resolveWorkspace(config, ctx.params.id);
     const body = await readJsonBody(ctx.request);
     const entitlements =
       body.entitlements === undefined ? undefined : parseEigenweltEntitlements(body.entitlements) ?? null;
@@ -2134,10 +2136,10 @@ function createRoutes(
     // connection AND the global paid-provider manifest, so the eigenwelt
     // provider drops out of every workspace's engine config.
     if (body.disconnect === true) {
-      await revokeEigenweltConnection(config, workspace.id);
+      await revokeEigenweltConnection(config);
       await clearCachedEigenweltPaidManifest(config);
       await rebuildEngineConfigFile();
-      return jsonResponse(await readEigenweltEntitlementsView(config, workspace.id));
+      return jsonResponse(await readEigenweltEntitlementsView(config));
     }
 
     const refreshToken =
@@ -2152,7 +2154,7 @@ function createRoutes(
         : typeof body.accessTokenExpiresAt === "number"
           ? body.accessTokenExpiresAt
           : null;
-    const view = await writeEigenweltConnection(config, workspace.id, {
+    const view = await writeEigenweltConnection(config, {
       entitlements,
       account,
       platformURL,
@@ -2176,13 +2178,13 @@ function createRoutes(
   });
 
   addRoute(routes, "GET", "/workspace/:id/eigenwelt/entitlements", "client", async (ctx) => {
-    const workspace = await resolveWorkspace(config, ctx.params.id);
+    await resolveWorkspace(config, ctx.params.id);
     // Opportunistically refresh (rotate the token + pull current entitlements)
     // so the plan/usage the desktop shows stays live. `?refresh=1` forces the
     // pull now (the post-checkout "waiting for your subscription" poll).
     const force = ctx.url.searchParams.get("refresh") === "1";
-    const view = await readFreshEntitlementsView(config, workspace.id, { force });
-    if (view.connected) await syncEigenweltModels(workspace.id, force);
+    const view = await readFreshEntitlementsView(config, { force });
+    if (view.connected) await syncEigenweltModels(force);
     const cachedManifest = await readCachedEigenweltPaidManifest(config);
     const modelsRevision = eigenweltPaidManifestRevision(cachedManifest);
     // What the engine config now serves; the app compares it with the engine's
@@ -2206,10 +2208,10 @@ function createRoutes(
   addRoute(routes, "POST", "/workspace/:id/eigenwelt/refresh-models", "client", async (ctx) => {
     ensureWritable(config);
     requireClientScope(ctx, "collaborator");
-    const workspace = await resolveWorkspace(config, ctx.params.id);
+    await resolveWorkspace(config, ctx.params.id);
     // With the firm's access token the pull is the firm's own list (admin
     // on/off applied); a legacy sign-in without tokens gets the public catalog.
-    const platformToken = await ensureFreshPlatformToken(config, workspace.id);
+    const platformToken = await ensureFreshPlatformToken(config);
     const result = await refreshEigenweltPaidManifest(config, { platformToken });
     if (result.changed) {
       lastModelsRevision = eigenweltPaidManifestRevision(await readCachedEigenweltPaidManifest(config));
@@ -2219,8 +2221,8 @@ function createRoutes(
   });
 
   addRoute(routes, "GET", "/workspace/:id/hub", "client", async (ctx) => {
-    const workspace = await resolveWorkspace(config, ctx.params.id);
-    const client = await resolveHubClient(workspace.id);
+    await resolveWorkspace(config, ctx.params.id);
+    const client = await resolveHubClient();
     const kindParam = ctx.url.searchParams.get("kind")?.trim();
     // `?all=1` (or no kind) returns every team category in one call — the
     // platform join carries sharer identity + key status so the app can group
@@ -2232,8 +2234,8 @@ function createRoutes(
   });
 
   addRoute(routes, "GET", "/workspace/:id/hub/:itemId", "client", async (ctx) => {
-    const workspace = await resolveWorkspace(config, ctx.params.id);
-    const client = await resolveHubClient(workspace.id);
+    await resolveWorkspace(config, ctx.params.id);
+    const client = await resolveHubClient();
     return jsonResponse(await hubGet(client, ctx.params.itemId));
   });
 
@@ -2241,7 +2243,7 @@ function createRoutes(
     ensureWritable(config);
     requireClientScope(ctx, "collaborator");
     const workspace = await resolveWorkspace(config, ctx.params.id);
-    const client = await resolveHubClient(workspace.id);
+    const client = await resolveHubClient();
     const body = await readJsonBodyLimited(ctx.request, 512 * 1024);
     const skill = String(body.skill ?? "").trim();
     if (!skill) throw new ApiError(400, "invalid_skill_name", "Skill name is required");
@@ -2476,7 +2478,7 @@ function createRoutes(
     ensureWritable(config);
     requireClientScope(ctx, "collaborator");
     const workspace = await resolveWorkspace(config, ctx.params.id);
-    const client = await resolveHubClient(workspace.id);
+    const client = await resolveHubClient();
     const body = await readJsonBodyLimited(ctx.request, 64 * 1024);
     const mcpName = String(body.mcp ?? "").trim();
     if (!mcpName) throw new ApiError(400, "invalid_mcp_name", "MCP name is required");
@@ -2493,8 +2495,8 @@ function createRoutes(
   addRoute(routes, "POST", "/workspace/:id/hub/share/preset", "client", async (ctx) => {
     ensureWritable(config);
     requireClientScope(ctx, "collaborator");
-    const workspace = await resolveWorkspace(config, ctx.params.id);
-    const client = await resolveHubClient(workspace.id);
+    await resolveWorkspace(config, ctx.params.id);
+    const client = await resolveHubClient();
     const body = await readJsonBody(ctx.request);
     const name = String(body.name ?? "").trim();
     if (!name) throw new ApiError(400, "invalid_hub_name", "A preset name is required");
@@ -2516,7 +2518,7 @@ function createRoutes(
     ensureWritable(config);
     requireClientScope(ctx, "collaborator");
     const workspace = await resolveWorkspace(config, ctx.params.id);
-    const client = await resolveHubClient(workspace.id);
+    const client = await resolveHubClient();
     const body = await readJsonBodyLimited(ctx.request, 16 * 1024);
     if (body.acknowledgeExecutableRisk !== true) {
       throw new ApiError(400, "hub_install_acknowledgement_required", "Confirm that you trust the sharer and reviewed the executable content before installing.");
@@ -2635,7 +2637,7 @@ function createRoutes(
     ensureWritable(config);
     requireClientScope(ctx, "collaborator");
     const workspace = await resolveWorkspace(config, ctx.params.id);
-    const client = await resolveHubClient(workspace.id);
+    const client = await resolveHubClient();
     const body = await readJsonBodyLimited(ctx.request, 512 * 1024);
     if (body.acknowledgeSharingRisk !== true) {
       throw new ApiError(400, "hub_share_acknowledgement_required", "Review executable content and possible client data before sharing with the firm.");
@@ -2748,7 +2750,7 @@ function createRoutes(
     ensureWritable(config);
     requireClientScope(ctx, "collaborator");
     const workspace = await resolveWorkspace(config, ctx.params.id);
-    const client = await resolveHubClient(workspace.id);
+    const client = await resolveHubClient();
     const body = await readJsonBodyLimited(ctx.request, 64 * 1024);
     if (body.acknowledgeExecutableRisk !== true) {
       throw new ApiError(400, "hub_install_acknowledgement_required", "Confirm that you trust the sharers and reviewed the executable content before installing.");
@@ -2832,7 +2834,7 @@ function createRoutes(
     ensureWritable(config);
     requireClientScope(ctx, "collaborator");
     const workspace = await resolveWorkspace(config, ctx.params.id);
-    const client = await resolveHubClient(workspace.id);
+    const client = await resolveHubClient();
     await hubDelete(client, ctx.params.itemId);
     // The item no longer exists in the firm — drop any local install record so
     // it stops showing as installed/updatable.

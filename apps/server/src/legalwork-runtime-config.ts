@@ -142,11 +142,12 @@ export async function buildLegalworkRuntimeConfigObject(
   // trial counts), not merely a signed-in account. Without one the provider is
   // left out entirely — there is no free fallback tier; the composer shows the
   // connect-AI state instead. A lapse propagates on the next config rebuild
-  // (the entitlements poll triggers one when the plan flips).
-  const paidEntitled =
-    config && workspaceId
-      ? eigenweltHasPremiumModels((await readEigenweltConnection(config, workspaceId)).entitlements)
-      : false;
+  // (the entitlements poll triggers one when the plan flips). Read from the
+  // account's connection, so the provider does not depend on which workspace
+  // this file happens to be built for.
+  const paidEntitled = config
+    ? eigenweltHasPremiumModels((await readEigenweltConnection(config)).entitlements)
+    : false;
   const paidProvider = paidEntitled && paidManifest && paidManifest.models.length > 0
     ? buildEigenweltPaidProviderBlock(paidManifest)
     : null;

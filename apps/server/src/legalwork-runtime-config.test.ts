@@ -3,6 +3,9 @@ import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
+import { parseEigenweltEntitlements } from "./eigenwelt-auth.js";
+import { writeEigenweltConnection } from "./eigenwelt-connection-store.js";
+import { writeCachedEigenweltPaidManifest } from "./eigenwelt-paid-manifest.js";
 import {
   keepLegalworkRuntimeConfigFileFresh,
   legalworkRuntimeConfigFilePath,
@@ -262,5 +265,26 @@ describe("eigenwelt free provider injection", () => {
     const parsed = await readConfigFile(config);
     const providers = parsed.provider as Record<string, FreeProviderBlock>;
     expect(providers.eigenwelt?.name).toBe("Eigenwelt Subscription");
+  });
+});
+
+describe("eigenwelt paid provider injection", () => {
+  test("serves every workspace, whichever one the firm signed in from", async () => {
+    const { config } = await setup();
+    await writeCachedEigenweltPaidManifest(config, {
+      baseURL: "https://paid.gateway.test/v1",
+      apiKey: "sk-firm-key",
+      models: [{ id: "Eigenwelt Europe" }],
+    });
+    // Signed in while ws_1 was open; the file is then built for another
+    // workspace (switching makes it the primary one). The models must stay.
+    await writeEigenweltConnection(config, {
+      platformToken: "access",
+      entitlements: parseEigenweltEntitlements({ plan: "plus", features: ["premium_models"] }) ?? null,
+    });
+
+    await writeLegalworkRuntimeConfigFile(config, "ws_other");
+    const providers = (await readConfigFile(config)).provider as Record<string, { models?: Record<string, unknown> }>;
+    expect(Object.keys(providers.eigenwelt?.models ?? {})).toEqual(["Eigenwelt Europe"]);
   });
 });

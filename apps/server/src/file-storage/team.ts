@@ -60,9 +60,9 @@ export class TeamStorage {
     await this.installations.set({ workspaceId, orgId: connection.team.orgId, id }, installed);
     this.invalidate(workspaceId);
   }
-  private async identity(workspaceId: string): Promise<Identity | null> {
-    const token = await ensureFreshPlatformToken(this.config, workspaceId);
-    const connection = await readEigenweltConnection(this.config, workspaceId);
+  private async identity(): Promise<Identity | null> {
+    const token = await ensureFreshPlatformToken(this.config);
+    const connection = await readEigenweltConnection(this.config);
     return token && connection.account?.orgId ? { token, orgId: connection.account.orgId } : null;
   }
   invalidate(workspaceId: string) {
@@ -71,7 +71,7 @@ export class TeamStorage {
     this.generations.set(workspaceId, (this.generations.get(workspaceId) ?? 0) + 1);
   }
   async request(workspaceId: string, method: string, suffix = "", body?: unknown): Promise<unknown> {
-    const identity = await this.identity(workspaceId);
+    const identity = await this.identity();
     if (!identity)
       throw new ApiError(401, "storage_team_sign_in", "Sign in with your firm to manage team connections.");
     return this.fetch(identity, method, suffix, body);
@@ -125,7 +125,7 @@ export class TeamStorage {
   private async load(workspaceId: string, generation: number): Promise<Snapshot> {
     let identity: Identity | null = null;
     try {
-      identity = await this.identity(workspaceId);
+      identity = await this.identity();
       if (!identity) {
         this.cache.delete(workspaceId);
         this.configured.delete(workspaceId);
@@ -148,7 +148,7 @@ export class TeamStorage {
       )
         throw new ApiError(502, "storage_team_unavailable", "The team connection response was invalid.");
       const installations = await this.installations.list();
-      const current = await this.identity(workspaceId);
+      const current = await this.identity();
       if (
         !current ||
         current.orgId !== identity.orgId ||
