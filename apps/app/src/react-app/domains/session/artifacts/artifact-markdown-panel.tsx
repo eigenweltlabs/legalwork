@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Download, ExternalLink, FolderOpen, X } from "lucide-react";
 import type { LegalworkServerClient } from "@/app/lib/legalwork-server";
@@ -22,10 +22,12 @@ type Props = {
   workspaceRoot: string;
   isRemoteWorkspace?: boolean;
   target: OpenTarget;
+  localReadOnly?: boolean;
+  saveActions?: (persist: () => Promise<boolean>, busy: boolean) => ReactNode;
   onClose: () => void;
 };
 
-export function ArtifactMarkdownPanel({ sessionId, client, workspaceId, workspaceRoot, isRemoteWorkspace, target, onClose }: Props) {
+export function ArtifactMarkdownPanel({ sessionId, client, workspaceId, workspaceRoot, isRemoteWorkspace, target, localReadOnly = false, saveActions, onClose }: Props) {
   const queryClient = useQueryClient();
   const [draft, setDraft] = useState<MarkdownDraft | null>(null);
   const draftRef = useRef<MarkdownDraft | null>(null);
@@ -46,7 +48,9 @@ export function ArtifactMarkdownPanel({ sessionId, client, workspaceId, workspac
     if (query.data) update((current) => loadMarkdownDraft(current, query.data.content, query.data.updatedAt ?? null));
   }, [query.data, update]);
   const dirty = Boolean(draft && draft.content !== draft.baseline);
-  const onChange = useCallback((content: string) => update((current) => current ? { ...current, content } : current), [update]);
+  const onChange = useCallback((content: string) => {
+    if (!localReadOnly) update((current) => current ? { ...current, content } : current);
+  }, [update, localReadOnly]);
 
   useEffect(() => registerUnsavedDocument(artifactDocumentKey(workspaceId, sessionId, target.id), target.name,
     () => Boolean(draftRef.current && draftRef.current.content !== draftRef.current.baseline)),
@@ -61,7 +65,7 @@ export function ArtifactMarkdownPanel({ sessionId, client, workspaceId, workspac
   }, []);
 
   const save = useCallback(async () => {
-    if (savingRef.current || !draftRef.current) return false;
+    if (localReadOnly || savingRef.current || !draftRef.current) return false;
     savingRef.current = true;
     setSaving(true);
     try {
@@ -84,15 +88,16 @@ export function ArtifactMarkdownPanel({ sessionId, client, workspaceId, workspac
       savingRef.current = false;
       setSaving(false);
     }
-  }, [client, workspaceId, target.value, target.id, queryClient, update]);
+  }, [client, workspaceId, target.value, target.id, queryClient, update, localReadOnly]);
 
   const imageUpload = useCallback(async (file: File) => {
+    if (localReadOnly) throw new Error(t("storage.read_only"));
     const directory = target.value.split("/").slice(0, -1).join("/");
     const relative = `_assets/${crypto.randomUUID()}-${file.name.replace(/[^a-zA-Z0-9._-]/g, "_")}`;
     const result = await client.writeWorkspaceBinaryFile(workspaceId, { path: directory ? `${directory}/${relative}` : relative, data: await file.arrayBuffer() });
     if (!result.ok) throw new Error(t("markdown.image_upload_failed"));
     return relative;
-  }, [client, workspaceId, target.value]);
+  }, [client, workspaceId, target.value, localReadOnly]);
   const imagePreview = useCallback(async (source: string) => {
     if (/^(https?:|data:|blob:)/i.test(source)) return source;
     const cached = imageUrls.current.get(source);
@@ -107,8 +112,8 @@ export function ArtifactMarkdownPanel({ sessionId, client, workspaceId, workspac
 
   const surface = useMemo<LegalworkControlSurface>(() => ({
     id: target.id, kind: "document", format: "md",
-    sessionId, workspaceId, name: target.name, path: target.value, editable: Boolean(draft), agentEditsTracked: false,
-  }), [target.id, target.name, target.value, sessionId, workspaceId, Boolean(draft)]);
+    sessionId, workspaceId, name: target.name, path: target.value, editable: Boolean(draft) && !localReadOnly, agentEditsTracked: false,
+  }), [target.id, target.name, target.value, sessionId, workspaceId, Boolean(draft), localReadOnly]);
   useControlSurface(surface);
   const action = useMemo<LegalworkControlAction>(() => ({
     id: "markdown.agent_tool", label: `Edit ${target.name}`, sideEffect: "mutation", requiresArgs: true,
@@ -119,6 +124,7 @@ export function ArtifactMarkdownPanel({ sessionId, client, workspaceId, workspac
       if (!current) return { ok: false, error: t("markdown.still_loading") };
       const tool = Reflect.get(args, "toolName");
       if (tool === "read") return { ok: true, data: { markdown: current.content, unsavedChanges: current.content !== current.baseline } };
+      if (localReadOnly) return { ok: false, error: t("storage.read_only") };
       if (savingRef.current) return { ok: false, error: t("markdown.save_in_progress") };
       if (tool === "save") return { ok: await save() };
       const values: unknown = Reflect.get(args, "args");
@@ -132,7 +138,7 @@ export function ArtifactMarkdownPanel({ sessionId, client, workspaceId, workspac
         return { ok: saved, saved, ...(saved ? {} : { error: t("markdown.edit_remains") }) };
       } catch (error) { return { ok: false, error: error instanceof Error ? error.message : t("markdown.edit_failed") }; }
     },
-  }), [target.name, target.value, sessionId, save, onChange]);
+  }), [target.name, target.value, sessionId, save, onChange, localReadOnly]);
   useControlAction(action);
 
   const download = () => {
@@ -151,12 +157,12 @@ export function ArtifactMarkdownPanel({ sessionId, client, workspaceId, workspac
     <ArtifactFrame expandable title={target.name} icon={<ArtifactIcon type="markdown" className="size-5" />}
       meta={<span role="status">{saving ? t("common.saving") : dirty ? t("common.unsaved_changes") : t("common.saved")}</span>}
       actions={<>
-        <Button size="sm" disabled={!draft || !dirty || saving} onClick={() => void save()}>Save</Button>
+        {saveActions ? saveActions(save, saving || !draft) : <Button size="sm" disabled={localReadOnly || !draft || !dirty || saving} onClick={() => void save()}>{t("common.save")}</Button>}
         <Button variant="ghost" size="icon-sm" aria-label={t("artifact.download")} title={t("artifact.download_markdown")} onClick={download} disabled={!draft}><Download /></Button>
         {!isRemoteWorkspace && <>
           <Button variant="ghost" size="icon-sm" aria-label={t("artifact.show_in_folder")} title={t("artifact.show_in_folder")} onClick={() => void runFileAction(() => revealDesktopItemInDir(absolutePath))}><FolderOpen /></Button>
           <Button variant="ghost" size="icon-sm" aria-label={t("markdown.open_externally")} title={t("markdown.open_externally")} onClick={() => void runFileAction(async () => {
-            if (await save()) {
+            if (localReadOnly || await save()) {
               if (draftRef.current?.content !== draftRef.current?.baseline) return;
               await openDesktopPath(absolutePath);
             }
@@ -169,7 +175,7 @@ export function ArtifactMarkdownPanel({ sessionId, client, workspaceId, workspac
           {t("markdown.edits_still_here_download", { error: saveError })}
         </div>}
       <div className="min-h-0 flex-1 overflow-hidden">
-        {draft ? <ArtifactMarkdownEditor value={draft.content} baseline={draft.baseline} onChange={onChange} imageUpload={imageUpload} imagePreview={imagePreview} />
+        {draft ? <ArtifactMarkdownEditor value={draft.content} baseline={draft.baseline} readOnly={localReadOnly} onChange={onChange} imageUpload={imageUpload} imagePreview={imagePreview} />
           : query.isError ? <PreviewError message={query.error instanceof Error ? query.error.message : t("markdown.open_failed")} /> : <PreviewLoading />}
       </div>
     </ArtifactFrame>

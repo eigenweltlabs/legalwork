@@ -14,12 +14,13 @@ import { t } from "@/i18n";
 type Props = {
   value: string;
   baseline: string;
+  readOnly?: boolean;
   onChange: (value: string) => void;
   imageUpload: (file: File) => Promise<string>;
   imagePreview: (source: string) => Promise<string>;
 };
 
-export function ArtifactMarkdownEditor({ value, baseline, onChange, imageUpload, imagePreview }: Props) {
+export function ArtifactMarkdownEditor({ value, baseline, readOnly = false, onChange, imageUpload, imagePreview }: Props) {
   const editor = useRef<MDXEditorMethods>(null);
   const initial = useRef(value);
   const lastValue = useRef(value);
@@ -52,6 +53,7 @@ export function ArtifactMarkdownEditor({ value, baseline, onChange, imageUpload,
     contentEditableClassName="lw-markdown-page"
     markdown={initial.current}
     trim={false}
+    readOnly={readOnly}
     plugins={plugins}
     placeholder={t("artifact.start_writing")}
     onChange={(markdown, initialNormalize) => {

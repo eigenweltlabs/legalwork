@@ -2014,6 +2014,7 @@ export function SessionRoute() {
         onShowEvals: showEvalsPane,
         onShowWorkflows: showWorkflowsPane,
         onShowExtensions: () => navigate(`/workspace/${encodeURIComponent(selectedWorkspaceId)}/settings/extensions/mcp`),
+        onShowFileStorage: () => navigate(`/workspace/${encodeURIComponent(selectedWorkspaceId)}/settings/extensions/storage`),
         onShowRecorder: showRecorderPane,
         activeNav: showWorkflows ? "workflows" : showExtensions ? "extensions" : showEvals ? "evals" : showRecorder ? "recorder" : null,
         workspaceSessionGroups,

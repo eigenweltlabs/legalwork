@@ -53,7 +53,7 @@ type LegalMemoryFilesPanelProps = {
   workspaceId: string | null;
   onOpenFile: (file: LegalMemoryTreeFile) => Promise<void> | void;
   onOpenStorageFile: (root: StorageRoot, file: StorageEntry) => void;
-  onConnectLegalMemory?: () => void;
+  onConnectStorage?: () => void;
   onClose: () => void;
 };
 
@@ -64,7 +64,7 @@ export function LegalMemoryFilesPanel({
   workspaceId,
   onOpenFile,
   onOpenStorageFile,
-  onConnectLegalMemory,
+  onConnectStorage,
   onClose,
 }: LegalMemoryFilesPanelProps) {
   const storageQueryClient = useQueryClient();
@@ -365,9 +365,9 @@ export function LegalMemoryFilesPanel({
         {storageRoots.isLoading && !hasStorage ? <div className="flex items-center gap-2 px-4 py-2 text-xs text-muted-foreground"><Loader2 className="size-3 animate-spin" />{t("storage.loading")}</div> : null}
 
         {notConfigured && hasStorage ? null : notConfigured ? (
-          <PanelEmptyState icon={<HardDrive />} title={t("legalmemory.connect_title")} description={t("legalmemory.intro")}>
-            {onConnectLegalMemory ? (
-              <Button variant="outline" size="sm" onClick={onConnectLegalMemory}>{t("legalmemory.open_integrations")}</Button>
+          <PanelEmptyState icon={<HardDrive />} title={t("storage.connect_title")} description={t("storage.connect_description")}>
+            {onConnectStorage ? (
+              <Button variant="outline" size="sm" onClick={onConnectStorage}>{t("storage.connect_title")}</Button>
             ) : null}
           </PanelEmptyState>
         ) : initialLoading ? (

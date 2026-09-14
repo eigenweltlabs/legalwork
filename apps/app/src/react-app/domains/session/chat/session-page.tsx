@@ -110,6 +110,7 @@ export type SessionPageSidebarProps = {
   onShowEvals?: () => void;
   onShowWorkflows?: () => void;
   onShowExtensions?: () => void;
+  onShowFileStorage?: () => void;
   onShowRecorder?: () => void;
   activeNav?: "evals" | "workflows" | "extensions" | "recorder" | null;
   workspaceSessionGroups: WorkspaceSessionGroup[];
@@ -889,9 +890,9 @@ export function SessionPage(props: SessionPageProps) {
       workspaceId={props.runtimeWorkspaceId}
       onOpenFile={openLegalMemoryFile}
       onOpenStorageFile={openStorageFile}
-      onConnectLegalMemory={() => {
+      onConnectStorage={() => {
         closeFileSidebar();
-        props.sidebar.onShowExtensions?.();
+        props.sidebar.onShowFileStorage?.();
       }}
       onClose={closeFileSidebar}
     />
