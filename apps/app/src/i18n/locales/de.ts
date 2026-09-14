@@ -790,7 +790,7 @@ const de = {
   "mcp.toggle_failed": "Der Aktivierungsstatus des MCP konnte nicht aktualisiert werden.",
   "mcp.toggle_requires_server":
     "Verbinden Sie sich mit einem LegalWork-Server, um MCPs zu aktivieren oder zu deaktivieren.",
-  "mcp.add_modal_subtitle": "Verbinden Sie LegalWork mit Ihrem eigenen MCP-Server. Geben Sie die Adresse ein, und LegalWork prüft, wie die Anmeldung funktioniert.",
+  "mcp.add_modal_subtitle": "Verbinden Sie LegalWork mit Ihrem eigenen MCP-Server.",
   "mcp.add_modal_title": "Eigenen Connector hinzufügen",
   "mcp.add_server_button": "Hinzufügen",
   "mcp.advanced": "Erweitert",

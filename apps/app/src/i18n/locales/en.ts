@@ -681,7 +681,7 @@ export default {
   "mcp.reloading_status": "Reloading MCP servers…",
   "mcp.toggle_failed": "Failed to update MCP enabled state.",
   "mcp.toggle_requires_server": "Connect to a LegalWork server to enable or disable MCPs.",
-  "mcp.add_modal_subtitle": "Connect LegalWork to your own MCP server. Enter its address and LegalWork checks how it signs in.",
+  "mcp.add_modal_subtitle": "Connect LegalWork to your own MCP server.",
   "mcp.add_modal_title": "Add Custom Connector",
   "mcp.add_server_button": "Add",
   "mcp.advanced": "Advanced",
