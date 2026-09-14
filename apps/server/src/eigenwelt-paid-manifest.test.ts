@@ -64,6 +64,15 @@ describe("parseManifestModels", () => {
       { id: "plain" },
     ]);
   });
+
+  test("keeps the gateway's output limit — dropping it here would put the model back on the default", () => {
+    expect(
+      parseManifestModels([
+        { id: "gemini", contextLength: 1_048_576, maxOutputTokens: 65_536 },
+        { id: "unknown", maxOutputTokens: "lots" },
+      ]),
+    ).toEqual([{ id: "gemini", contextLength: 1_048_576, maxOutputTokens: 65_536 }, { id: "unknown" }]);
+  });
 });
 
 describe("applyEigenweltPaidManifestModels", () => {

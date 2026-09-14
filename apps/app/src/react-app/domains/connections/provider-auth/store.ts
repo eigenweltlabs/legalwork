@@ -48,11 +48,7 @@ export type ProviderAuthLegalworkServer = {
   };
 };
 import { dispatchNewProviders } from "../../../../app/lib/provider-events";
-import {
-  customProviderModelEntry,
-  customProviderModelFromEntry,
-  DEFAULT_MODEL_OUTPUT_LIMIT,
-} from "./custom-provider-config";
+import { customProviderModelEntry, customProviderModelFromEntry } from "./custom-provider-config";
 
 type ProviderReturnFocusTarget = "none" | "composer";
 
@@ -112,34 +108,6 @@ export const CUSTOM_PROVIDER_NPM: Record<CustomProviderApiType, string> = {
 export const EIGENWELT_PROVIDER_ID = "eigenwelt";
 
 export type { EigenweltManifestModel } from "../../../../app/lib/legalwork-server";
-
-/**
- * Build the runtime-config provider block for the Eigenwelt Model API from a
- * platform manifest. Mirrors the server's buildEigenweltModelsMap — keep both
- * in sync. NOTE: `limit` MUST carry BOTH context and output — the engine
- * schema rejects the whole config otherwise (verified).
- */
-export function buildEigenweltProviderBlock(
-  baseURL: string,
-  models: EigenweltManifestModel[],
-): Record<string, unknown> {
-  return {
-    npm: "@ai-sdk/openai-compatible",
-    name: "Eigenwelt Subscription",
-    options: { baseURL },
-    models: Object.fromEntries(
-      models.map((model) => [
-        model.id,
-        {
-          name: model.name ?? model.id,
-          tool_call: model.toolCall ?? true,
-          reasoning: model.reasoning ?? false,
-          limit: { context: model.contextLength ?? 128000, output: DEFAULT_MODEL_OUTPUT_LIMIT },
-        },
-      ]),
-    ),
-  };
-}
 
 /**
  * Input for adding a user-defined provider that speaks the OpenAI API spec.

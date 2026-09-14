@@ -55,6 +55,7 @@ function parseManifestModel(value: unknown): EigenweltManifestModel | null {
     ...(typeof value.name === "string" ? { name: value.name } : {}),
     ...(description ? { description } : {}),
     ...(typeof value.contextLength === "number" ? { contextLength: value.contextLength } : {}),
+    ...(typeof value.maxOutputTokens === "number" ? { maxOutputTokens: value.maxOutputTokens } : {}),
     ...(typeof value.toolCall === "boolean" ? { toolCall: value.toolCall } : {}),
     ...(typeof value.reasoning === "boolean" ? { reasoning: value.reasoning } : {}),
     ...(region ? { region } : {}),

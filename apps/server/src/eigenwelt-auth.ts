@@ -32,6 +32,7 @@ import {
   readRuntimeOpencodeConfig,
   writeRuntimeOpencodeConfig,
 } from "./runtime-opencode-config-store.js";
+import { resolveModelLimit } from "./model-limits.js";
 import type { ServerConfig } from "./types.js";
 
 /** Pre-registered as exact redirect URIs on the Clerk OAuth application —
@@ -80,6 +81,11 @@ export type EigenweltManifestModel = {
   name?: string;
   description?: string;
   contextLength?: number;
+  /**
+   * Longest single response the gateway allows, in tokens. Absent on platforms
+   * that predate it, and for models the gateway knows nothing about.
+   */
+  maxOutputTokens?: number;
   toolCall?: boolean;
   reasoning?: boolean;
   /** Where the deployment runs: "EU" or an ISO 3166 alpha-2 code ("US"). */
@@ -553,10 +559,12 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 /**
- * Map manifest models to the engine's provider `models` block. Mirrors the
- * app's buildEigenweltProviderBlock — keep both in sync. `limit` MUST carry
- * BOTH context and output: one missing key invalidates the whole runtime
- * config in the engine's schema (verified).
+ * Map manifest models to the engine's provider `models` block.
+ *
+ * Limits come from the gateway via the manifest; resolveModelLimit supplies a
+ * default only for what the manifest leaves out, and always writes both
+ * `context` and `output` — one missing key invalidates the whole runtime
+ * config in the engine's schema.
  */
 export function buildEigenweltModelsMap(models: EigenweltManifestModel[]): Record<string, unknown> {
   return Object.fromEntries(
@@ -566,7 +574,7 @@ export function buildEigenweltModelsMap(models: EigenweltManifestModel[]): Recor
         name: model.name ?? model.id,
         tool_call: model.toolCall ?? true,
         reasoning: model.reasoning ?? false,
-        limit: { context: model.contextLength ?? 128_000, output: 16_384 },
+        limit: resolveModelLimit({ context: model.contextLength, output: model.maxOutputTokens }).limit,
       },
     ]),
   );

@@ -59,6 +59,8 @@ import {
   slugifyProviderId,
   type LocalRuntimeTemplate,
 } from "./local-templates";
+import { findCustomModelLimitProblem } from "./custom-provider-config";
+import { defaultOutputLimit } from "@legalwork/types/model-limits";
 
 /** Base URLs that default to the Responses API (`@ai-sdk/openai`). */
 function inferCustomApiType(baseURL: string): CustomProviderApiType {
@@ -73,8 +75,8 @@ type CustomModelDraft = {
   toolCall: boolean;
   reasoning: boolean;
   contextLimit: string;
-  /** Stored output limit of an edited model, carried through untouched (not editable here). */
-  outputLimit: number | null;
+  /** Longest single response in tokens; blank means the default for the context window. */
+  outputLimit: string;
 };
 
 /**
@@ -96,8 +98,24 @@ function inferReasoningFromId(id: string): boolean {
   );
 }
 
+/** A positive whole number of tokens from a form field, or null when blank or invalid. */
+function parseTokenCount(value: string): number | null {
+  const parsed = Number.parseInt(value.trim(), 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+}
+
+/**
+ * Placeholder for an empty Output field: the default the engine will get for
+ * the context window entered, or "auto" when there is none (no limit block is
+ * written at all then, and the engine applies its own default).
+ */
+function outputLimitPlaceholder(contextLimit: string): string {
+  const context = parseTokenCount(contextLimit);
+  return context === null ? "auto" : String(defaultOutputLimit(context));
+}
+
 function makeCustomModelDraft(id: string): CustomModelDraft {
-  return { id, toolCall: true, reasoning: inferReasoningFromId(id), contextLimit: "", outputLimit: null };
+  return { id, toolCall: true, reasoning: inferReasoningFromId(id), contextLimit: "", outputLimit: "" };
 }
 
 const DEFAULT_BASE_URL_PLACEHOLDER = "https://api.example.com/v1";
@@ -620,7 +638,7 @@ export default function ProviderAuthModal(props: ProviderAuthModalProps) {
         toolCall: model.toolCall,
         reasoning: model.reasoning,
         contextLimit: model.contextLimit != null ? String(model.contextLimit) : "",
-        outputLimit: model.outputLimit,
+        outputLimit: model.outputLimit != null ? String(model.outputLimit) : "",
       })),
     );
     setCustomFetchedModels([]);
@@ -1123,6 +1141,26 @@ export default function ProviderAuthModal(props: ProviderAuthModalProps) {
       return;
     }
 
+    const models = drafts.map((model) => ({
+      id: model.id,
+      toolCall: model.toolCall,
+      reasoning: model.reasoning,
+      contextLimit: parseTokenCount(model.contextLimit),
+      outputLimit: parseTokenCount(model.outputLimit),
+    }));
+    const limitProblem = findCustomModelLimitProblem(models);
+    if (limitProblem) {
+      setLocalError(
+        t(
+          limitProblem.reason === "output-needs-context"
+            ? "providers.output_limit_needs_context"
+            : "providers.output_limit_too_large",
+          { model: limitProblem.modelId },
+        ),
+      );
+      return;
+    }
+
     setLocalError(null);
     setCustomBusy(true);
     try {
@@ -1132,16 +1170,7 @@ export default function ProviderAuthModal(props: ProviderAuthModalProps) {
         baseURL,
         apiKey,
         apiType: customApiType,
-        models: drafts.map((model) => {
-          const parsed = Number.parseInt(model.contextLimit.trim(), 10);
-          return {
-            id: model.id,
-            toolCall: model.toolCall,
-            reasoning: model.reasoning,
-            contextLimit: Number.isFinite(parsed) && parsed > 0 ? parsed : null,
-            outputLimit: model.outputLimit,
-          };
-        }),
+        models,
       });
       props.onClose();
     } catch (error) {
@@ -1867,6 +1896,19 @@ export default function ProviderAuthModal(props: ProviderAuthModalProps) {
                                   value={model.contextLimit}
                                   onChange={(event) =>
                                     updateCustomModel(model.id, { contextLimit: event.currentTarget.value })
+                                  }
+                                  disabled={actionDisabled || customBusy}
+                                  className="w-16 rounded-md border border-transparent bg-dls-hover px-2 py-1 text-right font-mono text-[11px] text-dls-text transition-colors placeholder:text-dls-secondary focus:border-dls-border focus:bg-dls-surface focus:outline-none disabled:opacity-60"
+                                />
+                                <span className="text-[11px] text-dls-secondary">Output</span>
+                                <input
+                                  type="text"
+                                  inputMode="numeric"
+                                  placeholder={outputLimitPlaceholder(model.contextLimit)}
+                                  title={t("providers.output_limit_hint")}
+                                  value={model.outputLimit}
+                                  onChange={(event) =>
+                                    updateCustomModel(model.id, { outputLimit: event.currentTarget.value })
                                   }
                                   disabled={actionDisabled || customBusy}
                                   className="w-16 rounded-md border border-transparent bg-dls-hover px-2 py-1 text-right font-mono text-[11px] text-dls-text transition-colors placeholder:text-dls-secondary focus:border-dls-border focus:bg-dls-surface focus:outline-none disabled:opacity-60"
