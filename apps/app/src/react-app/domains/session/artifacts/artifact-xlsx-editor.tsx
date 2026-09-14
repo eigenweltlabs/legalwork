@@ -10,6 +10,7 @@ import { useOfficeEditor, type OfficeEditorProps } from "./office-editor-state";
 import { PreviewError, PreviewLoading } from "./preview";
 import "@univerjs/preset-sheets-core/lib/index.css";
 import "./office-editor.css";
+import { t } from "@/i18n";
 
 // Structural edits require rewriting references in charts, names, tables and
 // other retained parts. Block them at command execution, including shortcuts.
@@ -40,9 +41,9 @@ export function ArtifactXlsxEditor(props: OfficeEditorProps) {
       const before = univerAPI.onBeforeCommandExecute((command, options) => {
         if (command.id.startsWith("sheet.command.") && !supported.has(command.id.slice("sheet.command.".length)) && /(?:insert-|remove-|delete-|move-|reorder|merge|set-(?:worksheet-(?!activate)|row|col|tab|frozen|border|underline|stroke|overline|text-rotation|protection|range-custom)|clear-selection-(?:all|format)|split-text|defined-name)/.test(command.id)) {
           setNotice("Use Excel for sheet structure and advanced formatting. Cell values, formulas, and basic formatting can be edited here.");
-          throw new Error("This workbook operation is not supported in Legalwork yet.");
+          throw new Error(t("xlsx.operation_unsupported"));
         }
-        if (props.readOnly && command.id.startsWith("sheet.mutation.") && !options?.onlyLocal && !options?.applyFormulaCalculationResult) throw new Error("This workbook is read only.");
+        if (props.readOnly && command.id.startsWith("sheet.mutation.") && !options?.onlyLocal && !options?.applyFormulaCalculationResult) throw new Error(t("xlsx.read_only"));
       });
       const listener = univerAPI.onCommandExecuted((command, options) => { if (!options?.onlyLocal && !options?.applyFormulaCalculationResult && (command.id === "sheet.mutation.set-range-values" || command.id === "sheet.mutation.set-frozen" || command.id.includes("mutation.set.numfmt") || /^sheet\.mutation\.set-worksheet-(col-width|row-height|row-is-auto-height|row-auto-height)$/.test(command.id))) state.changed(); });
       let preparing = false;
@@ -57,10 +58,10 @@ export function ArtifactXlsxEditor(props: OfficeEditorProps) {
             return adapter.save(workbook.save(), true);
           };
           state.agentTool.current = async (name, rawArgs) => {
-            if (name !== "read" && name !== "write") throw new Error("Unknown workbook tool.");
+            if (name !== "read" && name !== "write") throw new Error(t("xlsx.unknown_tool"));
             const args = name === "read" ? xlsxReadSchema.parse(rawArgs) : xlsxWriteSchema.parse(rawArgs);
             const sheet = args.sheet ? workbook.getSheetByName(args.sheet) : workbook.getActiveSheet();
-            if (!sheet) throw new Error("Sheet not found. Read the workbook sheet inventory first.");
+            if (!sheet) throw new Error(t("xlsx.sheet_not_found"));
             const address = args.range ?? "A1:T50";
             const bounds = officeRange(address);
             const range = sheet.getRange(address);
@@ -70,13 +71,13 @@ export function ArtifactXlsxEditor(props: OfficeEditorProps) {
               return { data: { sheets: book.sheetOrder.map((id) => ({ id, name: book.sheets[id]?.name, hidden: book.sheets[id]?.hidden })), sheet: sheet.getSheetName(), range: address, values: Array.from({ length: bounds.endRow - bounds.startRow + 1 }, (_, r) => Array.from({ length: bounds.endColumn - bounds.startColumn + 1 }, (_, c) => book.sheets[sheet.getSheetId()]?.cellData?.[bounds.startRow + r]?.[bounds.startColumn + c]?.v ?? null)), displayValues: range.getValues(), selection: workbook.getActiveRange()?.getA1Notation(), formulas: range.getFormulas() } };
             }
             const write = xlsxWriteSchema.parse(rawArgs);
-            if (write.values.length !== bounds.endRow - bounds.startRow + 1 || write.values.some((row) => row.length !== bounds.endColumn - bounds.startColumn + 1)) throw new Error("Value matrix dimensions must match the range exactly.");
+            if (write.values.length !== bounds.endRow - bounds.startRow + 1 || write.values.some((row) => row.length !== bounds.endColumn - bounds.startColumn + 1)) throw new Error(t("xlsx.matrix_dimensions"));
             const cells = write.values.map((row) => row.map((value) => typeof value === "string" && value.startsWith("=") ? { f: value, v: null, p: null } : { v: value, f: null, p: null }));
             // Validate preservation constraints before touching the user's draft
             // (array formulas, protected structures and unsupported XML edits).
             const proposed = structuredClone(workbook.save());
             const snapshot = proposed.sheets[sheet.getSheetId()];
-            if (!snapshot) throw new Error("Sheet no longer exists.");
+            if (!snapshot) throw new Error(t("xlsx.sheet_gone"));
             if (bounds.endRow >= (snapshot.rowCount ?? 0) || bounds.endColumn >= (snapshot.columnCount ?? 0)) throw new Error("The range exceeds the current sheet grid. Structural expansion requires Excel.");
             const cellData = snapshot.cellData ??= {};
             cells.forEach((row, r) => row.forEach((cell, c) => {
@@ -85,18 +86,18 @@ export function ArtifactXlsxEditor(props: OfficeEditorProps) {
               data[colIndex] = { ...data[colIndex], ...cell };
             }));
             await adapter.save(proposed);
-            if (disposed) throw new Error("The workbook was closed before the edit could be applied.");
+            if (disposed) throw new Error(t("xlsx.workbook_closed"));
             workbook.setActiveSheet(sheet);
             range.setValues(cells);
             return { mutated: true, data: { sheet: sheet.getSheetName(), range: address, cellsUpdated: cells.length * cells[0]!.length } };
           };
           setAdvanced(adapter.hasAdvancedContent); setReady(true);
-        }).catch((error: unknown) => { if (!disposed) state.setError(error instanceof Error ? error.message : "Could not calculate workbook."); });
+        }).catch((error: unknown) => { if (!disposed) state.setError(error instanceof Error ? error.message : t("xlsx.calculate_failed")); });
       };
       const lifecycle = univerAPI.addEvent(univerAPI.Event.LifeCycleChanged, finishOpening);
       finishOpening();
       cleanup = () => { lifecycle.dispose(); listener.dispose(); before.dispose(); state.serialize.current = null; state.agentTool.current = null; queueMicrotask(() => univer.dispose()); };
-    }).catch((error: unknown) => { if (!disposed) state.setError(error instanceof Error ? error.message : "Could not open workbook."); });
+    }).catch((error: unknown) => { if (!disposed) state.setError(error instanceof Error ? error.message : t("xlsx.open_failed")); });
     return () => { disposed = true; cleanup?.(); };
   }, [initial, workbookId, props.name, props.readOnly, state.changed, state.setError, state.serialize, state.agentTool]);
   useEffect(() => {
@@ -113,7 +114,7 @@ export function ArtifactXlsxEditor(props: OfficeEditorProps) {
     resize.observe(strip);
     return () => resize.disconnect();
   }, [ready]);
-  return <div ref={state.host} className="office-editor office-sheets relative flex h-full min-h-0 flex-col" aria-label="Workbook editor" aria-busy={state.saving}
+  return <div ref={state.host} className="office-editor office-sheets relative flex h-full min-h-0 flex-col" aria-label={t("xlsx.editor_aria")} aria-busy={state.saving}
     onBeforeInputCapture={(event) => { if (props.readOnly && !(event.target instanceof HTMLInputElement)) event.preventDefault(); }}
     onPasteCapture={(event) => { if (props.readOnly && !(event.target instanceof HTMLInputElement)) { event.preventDefault(); event.stopPropagation(); } }}
     onKeyDownCapture={(event) => {
@@ -124,11 +125,11 @@ export function ArtifactXlsxEditor(props: OfficeEditorProps) {
       // the canvas or formula editor. The command guard remains the write gate.
       if (edits && !(event.target instanceof HTMLInputElement)) { event.preventDefault(); event.stopPropagation(); }
     }}>
-    {(advanced || notice || props.readOnly) && <div className="office-caption">{props.readOnly ? "Read only" : notice || "Charts and advanced objects are kept in your file. Open in Excel to view or edit them."}</div>}
+    {(advanced || notice || props.readOnly) && <div className="office-caption">{props.readOnly ? t("artifact.read_only") : notice || t("artifact.charts_read_only")}</div>}
     {state.error ? <PreviewError message={state.error} /> : <>
       {!ready && <div className="absolute inset-0 z-10 bg-background"><PreviewLoading /></div>}
       <div ref={container} className="min-h-0 flex-1" inert={state.saving} />
     </>}
-    {state.saving && <div className="office-saving" role="status">Saving workbook…</div>}
+    {state.saving && <div className="office-saving" role="status">{t("xlsx.saving")}</div>}
   </div>;
 }

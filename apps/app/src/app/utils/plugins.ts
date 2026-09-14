@@ -1,6 +1,7 @@
 import { parse } from "jsonc-parser";
 
 import type { OpencodeConfigFile } from "../lib/desktop";
+import { t } from "@/i18n";
 
 type PluginListValue = string | string[] | null | undefined;
 
@@ -75,7 +76,7 @@ export function loadPluginsFromConfig(
     onList(next);
   } catch (e) {
     onList([]);
-    onError(e instanceof Error ? e.message : "Failed to parse opencode.json");
+    onError(e instanceof Error ? e.message : t("plugins.parse_opencode_failed"));
   }
 }
 

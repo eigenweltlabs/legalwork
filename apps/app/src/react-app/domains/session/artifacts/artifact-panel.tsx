@@ -21,6 +21,7 @@ import { type ArtifactPanelTab, usePanelTabStore } from "../panel/panel-tab-stor
 import { isCollectibleArtifactTarget, type BinaryData, type Data, type OpenTarget, type TextData } from "./open-target";
 import { MediaPreview } from "./media-preview";
 import { HTMLPreview, ImagePreview, MarkdownPreview, PdfPreview, PlainText, PreviewError, PreviewLoading, PreviewUnavailable } from "./preview";
+import { t } from "@/i18n";
 
 const ArtifactTextEditor = lazy(() =>
   import("./artifact-text-editor").then((module) => ({ default: module.ArtifactTextEditor })),
@@ -183,10 +184,10 @@ function ArtifactPanelView({ sessionId, client, workspaceId, workspaceRoot, isRe
     queryKey: ["artifact-panel", workspaceId, target.id] as const,
     queryFn: async () => {
       if (target.kind === "url") {
-        throw new Error("URLs open in browser tabs.");
+        throw new Error(t("artifact.urls_open_in_browser"));
       }
       else if (target.exists === false) {
-        throw new Error("File not found in this workspace.");
+        throw new Error(t("artifact.file_not_found"));
       }
 
       if (isTextContent(target)) {
@@ -259,7 +260,7 @@ function ArtifactPanelView({ sessionId, client, workspaceId, workspaceRoot, isRe
           );
         } catch (cause) {
           source.postMessage(
-            { type: "legalwork:pdf-response", id, path, ok: false, error: cause instanceof Error ? cause.message : "Failed to load file" },
+            { type: "legalwork:pdf-response", id, path, ok: false, error: cause instanceof Error ? cause.message : t("artifact.load_file_failed") },
             "*",
           );
         }
@@ -283,7 +284,7 @@ function ArtifactPanelView({ sessionId, client, workspaceId, workspaceRoot, isRe
   const { mutate, mutateAsync, isPending: isSaving } = useMutation({
     mutationFn: async (input: SaveArtifactInput) => {
       if (target.kind !== "file") {
-        throw new Error("Cannot save non-file artifact.");
+        throw new Error(t("artifact.cannot_save_non_file"));
       }
 
       if (input.kind === "text") {
@@ -327,7 +328,7 @@ function ArtifactPanelView({ sessionId, client, workspaceId, workspaceRoot, isRe
     let contentType: string | null;
     if (isEditableDocument) {
       const current = await (isOfficeEditor ? officeApi.current : docxApi.current)?.getBuffer();
-      if (!current) throw new Error("The document is still loading. Try downloading again in a moment.");
+      if (!current) throw new Error(t("artifact.still_loading_download"));
       buffer = current;
       contentType = isOfficeEditor ? (data?.kind === "binary" ? data.contentType : null) : "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
     } else {
@@ -355,7 +356,7 @@ function ArtifactPanelView({ sessionId, client, workspaceId, workspaceRoot, isRe
       if (isEditableDocument && documentDirtyRef.current) {
         if (!(await saveDocument())) return;
         if (documentDirtyRef.current) {
-          toast.error("New edits were made while saving. Save again before opening externally.");
+          toast.error(t("artifact.edits_while_saving"));
           return;
         }
       }
@@ -468,11 +469,11 @@ function ArtifactPanelView({ sessionId, client, workspaceId, workspaceRoot, isRe
     setDocumentSaving(true);
     try {
       const ok = await (isOfficeEditor ? officeApi.current : docxApi.current)?.save();
-      if (ok) toast.success("Saved");
-      else toast.error("The document could not be saved. Wait for it to finish loading and try again.");
+      if (ok) toast.success(t("artifact.saved"));
+      else toast.error(t("artifact.save_wait_loading"));
       return ok === true;
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Failed to save document.");
+      toast.error(error instanceof Error ? error.message : t("artifact.save_failed"));
       return false;
     } finally {
       setDocumentSaving(false);
@@ -483,7 +484,7 @@ function ArtifactPanelView({ sessionId, client, workspaceId, workspaceRoot, isRe
     try {
       await action();
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Could not open the document.");
+      toast.error(error instanceof Error ? error.message : t("artifact.open_failed"));
     }
   };
   const documentChangedOnDisk = documentDirty && documentSnapshot && data?.kind === "binary" && data.updatedAt !== documentSnapshot.updatedAt;
@@ -497,7 +498,7 @@ function ArtifactPanelView({ sessionId, client, workspaceId, workspaceRoot, isRe
           {target.exists === false ? "missing" : target.size !== undefined ? formatFileSize(target.size) : null}
           {isEditableDocument && documentSnapshot ? (
             <span className="ms-2" role="status">
-              {documentSaving || isSaving ? "Saving…" : documentDirty ? "Unsaved changes" : "Saved"}
+              {documentSaving || isSaving ? t("common.saving") : documentDirty ? t("common.unsaved_changes") : t("common.saved")}
             </span>
           ) : null}
         </>}
@@ -523,7 +524,7 @@ function ArtifactPanelView({ sessionId, client, workspaceId, workspaceRoot, isRe
                       </Button>
                     )}
                   />
-                  <TooltipContent>Discard changes</TooltipContent>
+                  <TooltipContent>{t("artifact.discard_changes")}</TooltipContent>
                 </Tooltip>
                 <Tooltip>
                   <TooltipTrigger
@@ -531,7 +532,7 @@ function ArtifactPanelView({ sessionId, client, workspaceId, workspaceRoot, isRe
                       <Button variant="default" size="sm" onClick={() => void save()} disabled={isSaving || draft === data.data}>{isSaving ? "Saving" : "Save"}</Button>
                     )}
                   />
-                  <TooltipContent>Save changes</TooltipContent>
+                  <TooltipContent>{t("artifact.save_changes")}</TooltipContent>
                 </Tooltip>
               </>
             ) : (
@@ -541,7 +542,7 @@ function ArtifactPanelView({ sessionId, client, workspaceId, workspaceRoot, isRe
                     <Button variant="ghost" size="sm" onClick={() => setEditing(true)}>Edit</Button>
                   )}
                 />
-                <TooltipContent>Edit artifact</TooltipContent>
+                <TooltipContent>{t("artifact.edit")}</TooltipContent>
               </Tooltip>
             )
           ) : null}
@@ -554,31 +555,31 @@ function ArtifactPanelView({ sessionId, client, workspaceId, workspaceRoot, isRe
                   </Button>
                 )}
               />
-              <TooltipContent>Save changes to the document</TooltipContent>
+              <TooltipContent>{t("artifact.save_changes_tooltip")}</TooltipContent>
             </Tooltip>
           ) : null}
           {target.kind === "file" ? (
             <Tooltip>
               <TooltipTrigger
                 render={(
-                  <Button variant="ghost" size="icon-sm" onClick={() => void runFileAction(download)} aria-label="Download artifact">
+                  <Button variant="ghost" size="icon-sm" onClick={() => void runFileAction(download)} aria-label={t("artifact.download")}>
                     <Download />
                   </Button>
                 )}
               />
-              <TooltipContent>Download artifact</TooltipContent>
+              <TooltipContent>{t("artifact.download")}</TooltipContent>
             </Tooltip>
           ) : null}
           {target.kind === "file" && !isRemoteWorkspace ? (
             <Tooltip>
               <TooltipTrigger
                 render={(
-                  <Button variant="ghost" size="icon-sm" onClick={() => void revealExternal()} aria-label="Show in folder">
+                  <Button variant="ghost" size="icon-sm" onClick={() => void revealExternal()} aria-label={t("artifact.show_in_folder")}>
                     <FolderOpen />
                   </Button>
                 )}
               />
-              <TooltipContent>Show in folder</TooltipContent>
+              <TooltipContent>{t("artifact.show_in_folder")}</TooltipContent>
             </Tooltip>
           ) : null}
           <Tooltip>
@@ -594,25 +595,25 @@ function ArtifactPanelView({ sessionId, client, workspaceId, workspaceRoot, isRe
           <Tooltip>
             <TooltipTrigger
               render={(
-                <Button variant="ghost" size="icon-sm" onClick={onClose} disabled={documentSaving || isSaving} aria-label="Close artifact">
+                <Button variant="ghost" size="icon-sm" onClick={onClose} disabled={documentSaving || isSaving} aria-label={t("artifact.close")}>
                   <X />
                 </Button>
               )}
             />
-            <TooltipContent>Close artifact</TooltipContent>
+            <TooltipContent>{t("artifact.close")}</TooltipContent>
           </Tooltip>
         </>}
       >
       {documentChangedOnDisk ? (
         <div className="shrink-0 border-b border-border bg-muted px-4 py-2 text-xs" role="alert">
-          This file changed in the workspace. Your edits are still here. Download a copy to keep them before reopening the latest version.
+          {t("artifact.file_changed_note")}
         </div>
       ) : null}
       <div className="min-h-0 flex-1 overflow-hidden">
         {isLoading || (data?.kind === "binary" && (!binaryObjectUrl || (isBinaryEditor && !documentSnapshot))) ? (
           <PreviewLoading />
         ) : isError ? (
-          <PreviewError message={error instanceof Error ? error.message : "Failed to load artifact" } />
+          <PreviewError message={error instanceof Error ? error.message : t("artifact.load_failed") } />
         ) : data?.kind === "text" && (editing || isDirectTextEdit) ? (
           <TextEditor value={draft} language={target.preview === "markdown" ? "markdown" : "text"} onChange={setDraft} />
         ) : target.preview === "markdown" && data?.kind === "text" ? (

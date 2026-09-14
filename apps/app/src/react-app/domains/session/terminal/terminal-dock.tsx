@@ -7,6 +7,7 @@ import { X } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { isElectronRuntime } from "../../../../app/utils";
+import { t } from "@/i18n";
 
 type TerminalDockProps = {
   workspaceRoot: string;
@@ -24,17 +25,17 @@ export function TerminalDock({ workspaceRoot, isRemoteWorkspace, onClose }: Term
   useEffect(() => {
     if (!containerRef.current) return;
     if (!isElectronRuntime()) {
-      setStatus("Terminal is available in the desktop app.");
+      setStatus(t("terminal.desktop_only"));
       return;
     }
     if (isRemoteWorkspace) {
-      setStatus("Remote workspace terminals are not wired yet.");
+      setStatus(t("terminal.remote_unsupported"));
       return;
     }
 
     const bridge = window.__LEGALWORK_ELECTRON__?.terminal;
     if (!bridge?.create || !bridge.write || !bridge.resize || !bridge.kill || !bridge.onData || !bridge.onExit) {
-      setStatus("Terminal bridge is unavailable.");
+      setStatus(t("terminal.bridge_unavailable"));
       return;
     }
     const createTerminal = bridge.create;
@@ -98,7 +99,7 @@ export function TerminalDock({ workspaceRoot, isRemoteWorkspace, onClose }: Term
       setStatus(workspaceRoot);
       fitAndResize();
     }).catch((error) => {
-      setStatus(error instanceof Error ? error.message : "Could not start terminal.");
+      setStatus(error instanceof Error ? error.message : t("terminal.start_failed"));
     });
 
     return () => {
@@ -117,12 +118,12 @@ export function TerminalDock({ workspaceRoot, isRemoteWorkspace, onClose }: Term
   }, [isRemoteWorkspace, workspaceRoot]);
 
   return (
-    <section className="flex h-full min-h-0 flex-col border-t border-border bg-[#0b0d12] text-white" aria-label="Terminal">
+    <section className="flex h-full min-h-0 flex-col border-t border-border bg-[#0b0d12] text-white" aria-label={t("terminal.region_label")}>
       <header className="flex h-9 shrink-0 items-center justify-between border-b border-white/10 bg-black/35 px-3 text-xs">
         <div className="min-w-0 truncate text-white/75">Terminal · {status}</div>
         <Button variant="ghost" size="icon-sm" className="text-white/70 hover:bg-white/10 hover:text-white" onClick={onClose}>
           <X className="size-4" />
-          <span className="sr-only">Hide terminal</span>
+          <span className="sr-only">{t("terminal.hide")}</span>
         </Button>
       </header>
       <div ref={containerRef} className="min-h-0 flex-1 px-2 py-1 [&_.xterm]:h-full" />

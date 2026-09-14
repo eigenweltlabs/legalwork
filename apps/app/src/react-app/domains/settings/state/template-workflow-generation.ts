@@ -25,6 +25,7 @@ import {
 } from "@/app/lib/desktop";
 import { buildLegalworkWorkspaceBaseUrl, type LegalworkServerClient } from "@/app/lib/legalwork-server";
 import type { Client, ModelRef } from "@/app/types";
+import { t } from "@/i18n";
 
 export type TemplateWorkflowRunStatus = "running" | "done" | "error";
 
@@ -233,10 +234,10 @@ export async function startTemplateWorkflowGeneration(
 ): Promise<{ ok: true; sessionId: string; workspaceId: string } | { ok: false; message: string }> {
   const templatesDir = input.templatesDir.trim();
   if (!templatesDir) {
-    return { ok: false, message: "A templates folder is required." };
+    return { ok: false, message: t("template_workflow.folder_required") };
   }
   if (currentRun?.status === "running") {
-    return { ok: false, message: "A workflow generation run is already in progress." };
+    return { ok: false, message: t("template_workflow.already_running") };
   }
 
   try {
@@ -268,7 +269,7 @@ export async function startTemplateWorkflowGeneration(
       "";
     const workspace = workspaces.find((entry) => entry.id === workspaceId) ?? null;
     if (!workspaceId) {
-      return { ok: false, message: "The templates workspace could not be created." };
+      return { ok: false, message: t("template_workflow.workspace_failed") };
     }
     const workspaceRoot = workspace?.path?.trim() || templatesDir;
     // Hide only workspaces this run created — if the user pointed at a folder
@@ -285,7 +286,7 @@ export async function startTemplateWorkflowGeneration(
     const session = unwrap(
       await client.session.create({
         directory,
-        title: "Generate workflows from firm templates",
+        title: t("template_workflow.session_title"),
       }),
     );
 
@@ -298,7 +299,7 @@ export async function startTemplateWorkflowGeneration(
     });
     if ((promptResult as { error?: unknown }).error !== undefined) {
       const error = (promptResult as { error?: unknown }).error;
-      throw new Error(error instanceof Error ? error.message : "The generation task could not be started.");
+      throw new Error(error instanceof Error ? error.message : t("template_workflow.task_failed"));
     }
 
     writeRun({
@@ -316,7 +317,7 @@ export async function startTemplateWorkflowGeneration(
   } catch (error) {
     return {
       ok: false,
-      message: error instanceof Error ? error.message : "Workflow generation could not be started.",
+      message: error instanceof Error ? error.message : t("template_workflow.start_failed"),
     };
   }
 }
@@ -349,7 +350,7 @@ async function finalizeRun() {
     if (result.failed.length) parts.push(`${result.failed.length} failed`);
     updateRun({
       status: result.failed.length && !result.imported.length ? "error" : "done",
-      summary: parts.length ? parts.join(", ") : "No new workflows were staged",
+      summary: parts.length ? parts.join(", ") : t("template_workflow.none_staged"),
       error: result.failed.length
         ? result.failed.map((failure) => `${failure.name}: ${failure.error}`).join("; ")
         : undefined,
@@ -360,7 +361,7 @@ async function finalizeRun() {
       error:
         error instanceof Error
           ? `The generated workflows could not be imported: ${error.message}`
-          : "The generated workflows could not be imported.",
+          : t("template_workflow.import_failed"),
     });
   }
 }

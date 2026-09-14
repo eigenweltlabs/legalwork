@@ -4,6 +4,7 @@ import { Reorder, useReducedMotion } from "motion/react";
 
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import { t } from "@/i18n"
 
 type PanelTabListProps<Value> = Omit<
   React.ComponentProps<typeof Reorder.Group<Value, "div">>,
@@ -85,8 +86,8 @@ function PanelTabClose({
         active && "opacity-100 hover:bg-muted hover:text-foreground",
         className,
       )}
-      title="Close tab"
-      aria-label={`Close tab: ${label}`}
+      title={t("panel_tabs.close_tab")}
+      aria-label={t("panel_tabs.close_tab_named", { label })}
       onClick={(event) => {
         event.stopPropagation();
         onClick?.(event);

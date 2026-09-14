@@ -7,11 +7,9 @@ import { detectReconnectWithoutAuth, type McpStatusSnapshot } from "../src/app/m
  * reports success, and after a restart it is Ready again — which reads as a
  * stale session surviving the logout.
  *
- * What actually happens is that the server accepts an unauthenticated
- * handshake, so there were never credentials to clear. Reconnecting once they
- * are gone is what tells the two cases apart: a server that needed them asks to
- * sign in again, one that never did comes straight back connected. Verified
- * against the pinned engine — see the PR's manual verification.
+ * A server can accept an unauthenticated handshake while its tools require
+ * credentials. Reconnecting after logout tells us about the transport, not
+ * whether credentials existed or whether tool calls will work.
  */
 
 const noWait = async () => {};
@@ -31,7 +29,7 @@ const detect = (reads: Array<McpStatusSnapshot | null>, overrides: Record<string
 };
 
 describe("logout truthfulness", () => {
-  test("a server that reconnects without credentials never needed them", async () => {
+  test("a transport can reconnect after credentials are removed", async () => {
     expect(await detect([statuses("connected")])).toBe(true);
   });
 

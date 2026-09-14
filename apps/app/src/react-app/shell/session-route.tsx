@@ -7,7 +7,7 @@ import {
   useState,
 } from "react";
 import { useLocation, useNavigate, useParams } from "react-router-dom";
-import { LearningsPane } from "./learnings-route";
+import { EvalsPane } from "./evals-route";
 import { RecorderPane } from "../domains/recorder/recorder-pane";
 import { PremiumUpsellHost } from "../domains/recorder/premium-upsell-context";
 import {
@@ -116,6 +116,7 @@ import { useSessionProviderAuth } from "@/react-app/domains/connections/provider
 import { AiStep } from "@/react-app/domains/onboarding/ai-step";
 import { AudioStep } from "@/react-app/domains/onboarding/audio-step";
 import { OfficeStep } from "@/react-app/domains/onboarding/office-step";
+import { PermissionsStep } from "@/react-app/domains/onboarding/permissions-step";
 import {
   ensureTemplateWorkflowWatcher,
   useHiddenTemplateWorkspaceIds,
@@ -215,7 +216,7 @@ function describeTaskCreateError(error: unknown) {
     lower.includes("internal_error") ||
     lower.includes("unexpected server error")
   ) {
-    return "OpenCode is unavailable for this workspace. Retry once it restarts, or restart LegalWork if the problem continues.";
+    return t("session_route.opencode_unavailable_detail");
   }
   return message;
 }
@@ -325,33 +326,27 @@ export function SessionRoute() {
     () => new URLSearchParams(location.search).get("detached") === "1",
     [location.search],
   );
-  const [showLearnings, setShowLearnings] = useState(false);
+  const [showEvals, setShowEvals] = useState(false);
   // Top-level pages that live in the main shell (sidebar stays, main pane swaps),
-  // same mechanism as Learnings. Mutually exclusive — only one main pane at a time.
+  // same mechanism as Evals. Mutually exclusive — only one main pane at a time.
   const [showWorkflows, setShowWorkflows] = useState(false);
   const [showExtensions, setShowExtensions] = useState(false);
   const [showRecorder, setShowRecorder] = useState(false);
-  const showLearningsPane = useCallback(() => {
-    setShowLearnings(true);
+  const showEvalsPane = useCallback(() => {
+    setShowEvals(true);
     setShowWorkflows(false);
     setShowExtensions(false);
     setShowRecorder(false);
   }, []);
   const showWorkflowsPane = useCallback(() => {
     setShowWorkflows(true);
-    setShowLearnings(false);
+    setShowEvals(false);
     setShowExtensions(false);
-    setShowRecorder(false);
-  }, []);
-  const showExtensionsPane = useCallback(() => {
-    setShowExtensions(true);
-    setShowLearnings(false);
-    setShowWorkflows(false);
     setShowRecorder(false);
   }, []);
   const showRecorderPane = useCallback(() => {
     setShowRecorder(true);
-    setShowLearnings(false);
+    setShowEvals(false);
     setShowWorkflows(false);
     setShowExtensions(false);
   }, []);
@@ -726,10 +721,13 @@ export function SessionRoute() {
 
   // Persisted onboarding stage — survives reloads; "done" for existing
   // installs. "setup" is a legacy interim value, shown as the office step.
+  // Order: office -> audio -> permissions -> ai -> done. The Office and audio
+  // steps are desktop-only, so the web flow starts at permissions (see
+  // WelcomeRoute) and its permissions step has no way back.
   const onboardingStage =
     local.prefs.onboardingStage === "setup" ? "office" : local.prefs.onboardingStage;
   const setOnboardingStage = useCallback(
-    (stage: "ai" | "office" | "audio" | "done") => {
+    (stage: "ai" | "office" | "audio" | "permissions" | "done") => {
       local.setPrefs((previous) => ({
         ...previous,
         onboardingStage: stage,
@@ -741,15 +739,14 @@ export function SessionRoute() {
   // Set when the user navigates backwards in the onboarding flow, so the
   // office step shows its rows instead of auto-skipping forward again.
   const onboardingWentBack = useRef(false);
-  const advanceFromAiStep = useCallback(() => {
-    // The tool steps are desktop-only (Office add-ins, mic, model download).
-    if (isDesktopRuntime()) {
-      setOnboardingStage("office");
-    } else {
-      captureAnalyticsEvent("onboarding_completed", { tools: "unavailable" });
+  // The AI step is the last one, so finishing it finishes onboarding.
+  const finishOnboarding = useCallback(
+    (ai: "connected" | "skipped") => {
+      captureAnalyticsEvent("onboarding_completed", { ai });
       setOnboardingStage("done");
-    }
-  }, [setOnboardingStage]);
+    },
+    [setOnboardingStage],
+  );
   const { store: sessionProviderAuthStore, snapshot: sessionProviderAuthSnapshot } =
     useSessionProviderAuth({
       opencodeClient,
@@ -1078,7 +1075,7 @@ export function SessionRoute() {
         if (!targetSessionId) return;
         const text = (draft.resolvedText ?? draft.text).trim();
         if (!text && draft.attachments.length === 0) return;
-        if (selectedModelUnavailable) throw new Error("Selected model is unavailable. Choose another model before sending.");
+        if (selectedModelUnavailable) throw new Error(t("session_route.model_unavailable"));
 
         const fusionModels = getFusionSelectedModels(targetSessionId);
         captureAnalyticsEvent("task_message_sent", {
@@ -1303,7 +1300,7 @@ export function SessionRoute() {
     setRenameWorkspaceBusy(true);
     try {
       if (!client) {
-        toast.error("LegalWork server is unavailable. Reconnect the server before renaming workspaces.");
+        toast.error(t("session_route.rename_server_unavailable"));
         return;
       }
       await client.updateWorkspaceDisplayName(renameWorkspaceId, trimmed);
@@ -1311,7 +1308,7 @@ export function SessionRoute() {
       setRenameWorkspaceTitle("");
       await refreshRouteState();
     } catch (error) {
-      toast.error("Workspace rename failed", {
+      toast.error(t("session_route.rename_failed"), {
         description: describeRouteError(error),
       });
     } finally {
@@ -1406,7 +1403,7 @@ export function SessionRoute() {
       const message = describeTaskCreateError(error);
       setRouteError(message);
       setErrorsByWorkspaceId((current) => ({ ...current, [workspaceId]: message }));
-      toast.error("OpenCode unavailable", {
+      toast.error(t("session_route.opencode_unavailable"), {
         description: message,
         action: {
           label: "Retry",
@@ -1513,7 +1510,7 @@ export function SessionRoute() {
 
   const commandPaletteControlAction = useMemo<LegalworkControlAction>(() => ({
     id: "command_palette.open",
-    label: "Open the command palette",
+    label: t("control.open_command_palette"),
     description: "Open the in-app command palette so the next choice is visible.",
     sideEffect: "none",
     execute: () => setCommandPaletteOpen(true),
@@ -1522,7 +1519,7 @@ export function SessionRoute() {
 
   const addProviderControlAction = useMemo<LegalworkControlAction>(() => ({
     id: "settings.provider.add",
-    label: "Add a model provider",
+    label: t("control.add_provider"),
     description: "Open the provider connection modal, optionally pre-filtered to a specific provider.",
     sideEffect: "mutation",
     requiresArgs: false,
@@ -1622,8 +1619,8 @@ export function SessionRoute() {
 
   const sessionSearchPaletteItem = useMemo<PaletteItem>(() => ({
     id: "session-search.open",
-    title: "Search session messages",
-    detail: "Deep search every session, including message content",
+    title: t("session_route.search_messages_title"),
+    detail: t("session_route.search_messages_detail"),
     meta: "Cmd/Ctrl+Shift+F",
     searchText: "search find sessions messages history transcript content",
     action: () => {
@@ -1636,7 +1633,7 @@ export function SessionRoute() {
     {
       id: "terminal.toggle",
       title: terminalOpen ? "Hide terminal" : "Show terminal",
-      detail: "Toggle the integrated terminal panel for this workspace",
+      detail: t("session_route.terminal_detail"),
       meta: "Cmd/Ctrl+J",
       searchText: "terminal shell command line console show hide toggle",
       action: () => {
@@ -1664,8 +1661,8 @@ export function SessionRoute() {
 
   const nextSessionTabPaletteItem = useMemo<PaletteItem>(() => ({
     id: "session-tab.next",
-    title: "Next session tab",
-    detail: "Switch to the next session in this workspace",
+    title: t("session_route.next_tab_title"),
+    detail: t("session_route.next_tab_detail"),
     meta: "Cmd/Ctrl+T",
     searchText: "next session tab switch forward",
     action: () => {
@@ -1676,8 +1673,8 @@ export function SessionRoute() {
 
   const prevSessionTabPaletteItem = useMemo<PaletteItem>(() => ({
     id: "session-tab.previous",
-    title: "Previous session tab",
-    detail: "Switch to the previous session in this workspace",
+    title: t("session_route.prev_tab_title"),
+    detail: t("session_route.prev_tab_detail"),
     meta: "Cmd/Ctrl+Shift+T",
     searchText: "previous session tab switch back",
     action: () => {
@@ -1751,7 +1748,7 @@ export function SessionRoute() {
           .catch(() => null);
       }
       if (!list) {
-        throw new Error("LegalWork server is unavailable. Start or reconnect the server before creating a workspace.");
+        throw new Error(t("session_route.create_server_unavailable"));
       }
       const createdId = resolveWorkspaceListSelectedId(list) || list.workspaces[list.workspaces.length - 1]?.id || "";
       let targetWorkspaceId = createdId;
@@ -1809,10 +1806,10 @@ export function SessionRoute() {
     await handleCreateWorkspace("starter", folder);
   }, [createWorkspaceBusy, handleCreateWorkspace]);
 
-  // Leaving a top-level pane (Learnings/Skills/Integrations): any session/workspace
+  // Leaving a top-level pane (Evals/Skills/Integrations): any session/workspace
   // navigation drops back to the session view.
   useEffect(() => {
-    setShowLearnings(false);
+    setShowEvals(false);
     setShowWorkflows(false);
     setShowExtensions(false);
   }, [selectedSessionId, selectedWorkspaceId]);
@@ -1837,29 +1834,11 @@ export function SessionRoute() {
         onSessionUpdated={handleRuntimeSessionUpdated}
       />
     ) : null}
-    {onboardingStage === "ai" ? (
-      // One action per step: start the trial (browser funnel) or skip.
-      <AiStep
-        onStartSignIn={sessionProviderAuthStore.startEigenweltSignIn}
-        onWaitSignIn={sessionProviderAuthStore.completeEigenweltSignIn}
-        onConnected={() => {
-          // The trial just activated: refetch entitlements now so the audio
-          // step already offers the premium transcription model.
-          invalidateEigenweltEntitlements(selectedWorkspaceId ?? undefined);
-          advanceFromAiStep();
-        }}
-        onSkip={advanceFromAiStep}
-        serverReady={Boolean(selectedWorkspaceEndpoint)}
-      />
-    ) : null}
     {onboardingStage === "office" ? (
       // One action: install the Word/Office add-in. Self-skips when absent.
+      // First in-session step, so there is nothing to go back to.
       <OfficeStep
         autoAdvance={!onboardingWentBack.current}
-        onBack={() => {
-          onboardingWentBack.current = true;
-          setOnboardingStage("ai");
-        }}
         onDone={(result) => {
           captureAnalyticsEvent("onboarding_office_done", { result });
           setOnboardingStage("audio");
@@ -1876,9 +1855,55 @@ export function SessionRoute() {
           setOnboardingStage("office");
         }}
         onDone={(result) => {
-          captureAnalyticsEvent("onboarding_completed", { audio: result });
-          setOnboardingStage("done");
+          captureAnalyticsEvent("onboarding_audio_done", { result });
+          setOnboardingStage("permissions");
         }}
+      />
+    ) : null}
+    {onboardingStage === "permissions" ? (
+      // The Settings -> Tool Permissions panel, with Continue as the action.
+      <PermissionsStep
+        legalworkClient={selectedWorkspaceEndpoint?.client ?? client}
+        runtimeWorkspaceId={selectedWorkspaceEndpoint?.workspaceId || null}
+        onConfigUpdated={() => {
+          // Permissions only take effect when the engine rebuilds its config.
+          reloadCoordinator.markReloadRequired("config", {
+            type: "config",
+            name: "opencode.json",
+            action: "updated",
+          });
+        }}
+        onBack={
+          isDesktopRuntime()
+            ? () => {
+                onboardingWentBack.current = true;
+                setOnboardingStage("audio");
+              }
+            : undefined
+        }
+        onDone={() => {
+          captureAnalyticsEvent("onboarding_permissions_done");
+          setOnboardingStage("ai");
+        }}
+      />
+    ) : null}
+    {onboardingStage === "ai" ? (
+      // Last step. One action per step: start the trial (browser funnel) or skip.
+      <AiStep
+        onStartSignIn={sessionProviderAuthStore.startEigenweltSignIn}
+        onWaitSignIn={sessionProviderAuthStore.completeEigenweltSignIn}
+        onConnected={() => {
+          // The trial just activated: refetch entitlements so the premium
+          // models are live the moment onboarding ends.
+          invalidateEigenweltEntitlements(selectedWorkspaceId ?? undefined);
+          finishOnboarding("connected");
+        }}
+        onBack={() => {
+          onboardingWentBack.current = true;
+          setOnboardingStage("permissions");
+        }}
+        onSkip={() => finishOnboarding("skipped")}
+        serverReady={Boolean(selectedWorkspaceEndpoint)}
       />
     ) : null}
     <SessionPage
@@ -1954,8 +1979,8 @@ export function SessionRoute() {
           />
         ) : showExtensions ? (
           <SettingsSurface embedded singleView initialPath="extensions" workspaceId={selectedWorkspaceId} />
-        ) : showLearnings ? (
-          <LearningsPane workspaceId={selectedWorkspaceId} />
+        ) : showEvals ? (
+          <EvalsPane workspaceId={selectedWorkspaceId} />
         ) : showRecorder ? (
           <RecorderPane
             workspacePath={selectedWorkspaceRoot ?? null}
@@ -1986,11 +2011,11 @@ export function SessionRoute() {
         sessionTabNavRef.current = { ...sessionTabNavRef.current, options: tabs };
       }}
       sidebar={{
-        onShowLearnings: showLearningsPane,
+        onShowEvals: showEvalsPane,
         onShowWorkflows: showWorkflowsPane,
-        onShowExtensions: showExtensionsPane,
+        onShowExtensions: () => navigate(`/workspace/${encodeURIComponent(selectedWorkspaceId)}/settings/extensions/mcp`),
         onShowRecorder: showRecorderPane,
-        activeNav: showWorkflows ? "workflows" : showExtensions ? "extensions" : showLearnings ? "learnings" : showRecorder ? "recorder" : null,
+        activeNav: showWorkflows ? "workflows" : showExtensions ? "extensions" : showEvals ? "evals" : showRecorder ? "recorder" : null,
         workspaceSessionGroups,
         selectedWorkspaceId,
         selectedSessionId,
@@ -2046,9 +2071,9 @@ export function SessionRoute() {
         },
         onOpenSession: (workspaceId, sessionId) => {
           // Opening a session returns to the chat view — drop any open top-level
-          // pane (Learnings/Workflows/Integrations) so it doesn't stay rendered
+          // pane (Evals/Workflows/Integrations) so it doesn't stay rendered
           // over the session.
-          setShowLearnings(false);
+          setShowEvals(false);
           setShowWorkflows(false);
           setShowExtensions(false);
           setShowRecorder(false);
@@ -2097,8 +2122,8 @@ export function SessionRoute() {
         onForgetWorkspace: (id) => void handleForgetWorkspace(id),
         onOpenCreateWorkspace: () => {
           // New Task returns to the session view — drop any open top-level pane
-          // (Learnings/Skills/Integrations) so it doesn't linger behind the modal.
-          setShowLearnings(false);
+          // (Evals/Skills/Integrations) so it doesn't linger behind the modal.
+          setShowEvals(false);
           setShowWorkflows(false);
           setShowExtensions(false);
           handleOpenCreateWorkspace();

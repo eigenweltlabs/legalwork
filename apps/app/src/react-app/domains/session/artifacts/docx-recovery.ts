@@ -1,3 +1,4 @@
+import { t } from "@/i18n";
 export type DocxRecovery = {
   key: string;
   buffer: ArrayBuffer;
@@ -28,7 +29,7 @@ function operation<T>(run: (store: IDBObjectStore) => IDBRequest<T>, storeName =
       const transaction = db.transaction(storeName, "readwrite");
       const request = run(transaction.objectStore(storeName));
       transaction.oncomplete = () => { db.close(); resolve(request.result); };
-      transaction.onabort = () => { db.close(); reject(transaction.error ?? new Error("Draft recovery storage failed")); };
+      transaction.onabort = () => { db.close(); reject(transaction.error ?? new Error(t("artifact.draft_recovery_failed"))); };
       transaction.onerror = () => { /* onabort handles the failure. */ };
     });
   });

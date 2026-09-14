@@ -146,7 +146,7 @@ const SPOTLIGHT_TIMING_MS = Object.freeze({
 const wait = (ms: number) => new Promise((resolve) => window.setTimeout(resolve, ms));
 
 function describeError(error: unknown) {
-  return error instanceof Error ? error.message : String(error || "Unknown error");
+  return error instanceof Error ? error.message : String(error || t("control.unknown_error"));
 }
 
 function returnedActionError(result: unknown) {
@@ -155,7 +155,7 @@ function returnedActionError(result: unknown) {
   if (payload.ok !== false) return null;
   return typeof payload.error === "string" && payload.error.trim()
     ? payload.error
-    : "Action returned an error.";
+    : t("control.action_error");
 }
 
 function isBrowser() {
@@ -320,12 +320,12 @@ export function LegalworkControlProvider({ children }: { children: ReactNode }) 
     const registered = actionsRef.current.get(actionId);
     const action = registered?.ref.current;
     if (!registered || !action) return { ok: false, actionId, error: `Unknown action: ${actionId}` };
-    if (action.disabled) return { ok: false, actionId, error: `Action is disabled: ${action.label}` };
+    if (action.disabled) return { ok: false, actionId, error: t("control.action_disabled", { label: action.label }) };
     if (busyActionIdRef.current) return { ok: false, actionId, error: `Already acting: ${busyActionIdRef.current}` };
 
     if (action.requiresConfirmation && isBrowser()) {
-      const confirmed = window.confirm(`Allow Control Mode to ${action.label}?`);
-      if (!confirmed) return { ok: false, actionId, error: "User cancelled action." };
+      const confirmed = window.confirm(t("control.confirm_allow", { label: action.label }));
+      if (!confirmed) return { ok: false, actionId, error: t("control.user_cancelled") };
     }
 
     const runId = spotlightRunRef.current + 1;
@@ -333,22 +333,22 @@ export function LegalworkControlProvider({ children }: { children: ReactNode }) 
     busyActionIdRef.current = action.id;
     setEnabled(true);
     setBusyActionId(action.id);
-    setNarration(`Moving to ${action.label}…`);
+    setNarration(t("control.narration_moving", { label: action.label }));
 
     try {
       await playTargetChoreography(action, runId);
-      setNarration(`Running ${action.label}…`);
+      setNarration(t("control.narration_running", { label: action.label }));
       const effectiveArgs = args === undefined ? action.previewArgs : args;
       const result = await action.execute(effectiveArgs, { setNarration });
       const resultError = returnedActionError(result);
       if (resultError) {
-        setNarration(`Could not ${action.label}: ${resultError}`);
+        setNarration(t("control.narration_could_not", { label: action.label, error: resultError }));
         if (spotlightRunRef.current === runId) {
           setSpotlight({ visible: false, phase: "target", rect: null });
         }
         return { ok: false, actionId, error: resultError };
       }
-      setNarration(`Done: ${action.label}`);
+      setNarration(t("control.narration_done", { label: action.label }));
       await wait(SPOTLIGHT_TIMING_MS.done);
       if (spotlightRunRef.current === runId) {
         setSpotlight({ visible: false, phase: "target", rect: null });
@@ -356,7 +356,7 @@ export function LegalworkControlProvider({ children }: { children: ReactNode }) 
       return { ok: true, actionId, result };
     } catch (error) {
       const message = describeError(error);
-      setNarration(`Could not ${action.label}: ${message}`);
+      setNarration(t("control.narration_could_not", { label: action.label, error: message }));
       if (spotlightRunRef.current === runId) {
         setSpotlight({ visible: false, phase: "target", rect: null });
       }
@@ -501,6 +501,7 @@ export function useControlActions(actions: readonly LegalworkControlAction[]) {
 }
 
 import { SETTINGS_TAB_VALUES } from "../../../app/types";
+import { t } from "@/i18n";
 
 const SETTINGS_TABS: ReadonlySet<string> = new Set<string>(SETTINGS_TAB_VALUES);
 
@@ -510,56 +511,56 @@ export function LegalworkRouteControlActions() {
   const actions = useMemo<LegalworkControlAction[]>(() => [
     {
       id: "route.session",
-      label: "Open sessions",
+      label: t("control.open_sessions"),
       description: "Navigate to the main session view.",
       sideEffect: "navigation",
       execute: () => navigate("/session"),
     },
     {
       id: "route.settings.general",
-      label: "Open general settings",
+      label: t("control.open_general_settings"),
       description: "Navigate to general settings.",
       sideEffect: "navigation",
       execute: () => navigate("/settings/general"),
     },
     {
       id: "route.settings.extensions",
-      label: "Open MCP and extension settings",
+      label: t("control.open_mcp_settings"),
       description: "Navigate to extension and MCP settings.",
       sideEffect: "navigation",
       execute: () => navigate("/settings/extensions"),
     },
     {
       id: "route.settings.skills",
-      label: "Open skills settings",
+      label: t("control.open_skills_settings"),
       description: "Navigate to skills settings.",
       sideEffect: "navigation",
       execute: () => navigate("/settings/skills"),
     },
     {
       id: "route.settings.providers",
-      label: "Open provider settings",
+      label: t("control.open_provider_settings"),
       description: "Navigate to AI provider settings.",
       sideEffect: "navigation",
       execute: () => navigate("/settings/ai"),
     },
     {
       id: "route.settings.authorized_folders",
-      label: "Open authorized folder settings",
+      label: t("control.open_folder_settings"),
       description: "Navigate to authorized folders and file access settings.",
       sideEffect: "navigation",
       execute: () => navigate("/settings/permissions"),
     },
     {
       id: "route.settings.appearance",
-      label: "Open appearance settings",
+      label: t("control.open_appearance_settings"),
       description: "Navigate to appearance settings.",
       sideEffect: "navigation",
       execute: () => navigate("/settings/appearance"),
     },
     {
       id: "settings.panel.open",
-      label: "Open a settings panel",
+      label: t("control.open_settings_panel"),
       description: "Navigate to a specific settings panel by tab id.",
       sideEffect: "navigation",
       requiresArgs: true,
@@ -588,21 +589,21 @@ export function LegalworkRouteControlActions() {
     },
     {
       id: "route.back",
-      label: "Go back",
+      label: t("control.go_back"),
       description: "Navigate back one entry in history.",
       sideEffect: "navigation",
       execute: () => navigate(-1),
     },
     {
       id: "route.forward",
-      label: "Go forward",
+      label: t("control.go_forward"),
       description: "Navigate forward one entry in history.",
       sideEffect: "navigation",
       execute: () => navigate(1),
     },
     {
       id: "help.capabilities",
-      label: "What can LegalWork do?",
+      label: t("control.capabilities"),
       description: "List the main capabilities of LegalWork.",
       sideEffect: "none",
       execute: () => ({

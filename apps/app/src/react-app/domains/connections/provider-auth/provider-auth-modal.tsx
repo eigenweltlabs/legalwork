@@ -44,6 +44,7 @@ const methodPillToneClass = (type: ProviderAuthMethod["type"]) => {
   return "border-dls-border bg-dls-hover text-dls-secondary";
 };
 import type { ProviderAuthAuthorization } from "@opencode-ai/sdk/v2/client";
+import { t } from "@/i18n";
 import type {
   CustomProviderApiType,
   CustomProviderEditData,
@@ -53,7 +54,7 @@ import type {
   ProviderOAuthStartResult,
 } from "./store";
 import {
-  LOCAL_RUNTIME_TEMPLATES,
+  localRuntimeTemplates,
   resolveTemplateName,
   slugifyProviderId,
   type LocalRuntimeTemplate,
@@ -122,13 +123,15 @@ type BrandedCustomProvider = {
   description: string;
 };
 
-const BRANDED_CUSTOM_PROVIDERS: BrandedCustomProvider[] = [
+// Built per call, not once at import: `t()` reads the current language, so a
+// module-level constant would freeze these descriptions.
+const brandedCustomProviders = (): BrandedCustomProvider[] => [
   {
     id: "apertus",
     name: "Apertus AI",
     apiType: "chat",
     baseUrlPlaceholder: "https://<your-gateway>.apertus.ai/v1",
-    description: "Connect your managed Apertus gateway — European open-source models, your own endpoint and key.",
+    description: t("providers.apertus_desc"),
   },
   {
     id: "aki",
@@ -136,7 +139,7 @@ const BRANDED_CUSTOM_PROVIDERS: BrandedCustomProvider[] = [
     apiType: "chat",
     baseUrlPlaceholder: "https://api.aki.io/v1",
     baseUrlDefault: "https://api.aki.io/v1",
-    description: "Connect Aki Cloud — EU-hosted, GDPR-compliant inference for open-source models. Add your API key and connect.",
+    description: t("providers.aki_desc"),
   },
 ];
 
@@ -232,7 +235,7 @@ export type ProviderAuthModalProps = {
   onSelect: (providerId: string, methodIndex?: number) => Promise<ProviderOAuthStartResult>;
   onSubmitApiKey: (providerId: string, apiKey: string) => Promise<string | void>;
   onSubmitCustomProvider?: (input: CustomProviderInstallInput) => Promise<string | void>;
-  /** Starts the server-owned "Sign in with Eigenwelt" flow. */
+  /** Starts the server-owned t("provider_auth.sign_in_eigenwelt") flow. */
   onEigenweltSignIn?: () => Promise<{ authorizeUrl: string; sessionId: string }>;
   /** Long-polls the Eigenwelt sign-in session until the connection is finalized. */
   onEigenweltWait?: (
@@ -312,10 +315,10 @@ export default function ProviderAuthModal(props: ProviderAuthModalProps) {
   const isEditingCustomProvider = customEditMode;
   const activeBrandedProvider =
     !customEditMode && customBrandName
-      ? BRANDED_CUSTOM_PROVIDERS.find((provider) => provider.id === customFixedProviderId) ?? null
+      ? brandedCustomProviders().find((provider) => provider.id === customFixedProviderId) ?? null
       : null;
   const activeLocalTemplate = customShowLocalTemplates
-    ? LOCAL_RUNTIME_TEMPLATES.find((template) => template.id === customTemplateId) ?? null
+    ? localRuntimeTemplates().find((template) => template.id === customTemplateId) ?? null
     : null;
 
   const formatProviderName = (id: string, fallback?: string) => {
@@ -415,7 +418,7 @@ export default function ProviderAuthModal(props: ProviderAuthModalProps) {
       nextEntries.push({
         id: EIGENWELT_PROVIDER_ID,
         name: "Eigenwelt Subscription",
-        methods: [{ type: "oauth" as const, label: "Sign in with Eigenwelt" }],
+        methods: [{ type: "oauth" as const, label: t("provider_auth.sign_in_eigenwelt") }],
         connected: connected.has(EIGENWELT_PROVIDER_ID),
         env: [],
       });
@@ -427,7 +430,7 @@ export default function ProviderAuthModal(props: ProviderAuthModalProps) {
       // First-class branded providers (e.g. Apertus) that open the custom form.
       // Skip any already surfaced via auth methods to avoid duplicate ids.
       const existingIds = new Set(nextEntries.map((entry) => entry.id));
-      for (const branded of BRANDED_CUSTOM_PROVIDERS) {
+      for (const branded of brandedCustomProviders()) {
         if (existingIds.has(branded.id)) continue;
         nextEntries.push({
           id: branded.id,
@@ -446,8 +449,8 @@ export default function ProviderAuthModal(props: ProviderAuthModalProps) {
       // are auto-detected by the engine and appear via auth methods above.
       nextEntries.push({
         id: LOCAL_PROVIDER_ENTRY_ID,
-        name: "Local model",
-        methods: [{ type: "api", label: "Ollama · LM Studio · llama.cpp · vLLM" }],
+        name: t("providers.local_model_name"),
+        methods: [{ type: "api", label: t("providers.local_model_label") }],
         connected: false,
         env: [],
       });
@@ -455,7 +458,7 @@ export default function ProviderAuthModal(props: ProviderAuthModalProps) {
       // Generic user-defined option, pinned at the very bottom.
       nextEntries.push({
         id: CUSTOM_PROVIDER_ENTRY_ID,
-        name: "Custom (OpenAI-compatible)",
+        name: t("providers.custom_openai_compatible"),
         methods: [{ type: "api", label: "OpenAI-compatible" }],
         connected: false,
         env: [],
@@ -484,7 +487,9 @@ export default function ProviderAuthModal(props: ProviderAuthModalProps) {
     const query = searchQuery.trim().toLowerCase();
     if (!query) return entries;
     return entries.filter((entry) => {
-      const methodText = entry.methods.map((method) => method.label || (method.type === "oauth" ? "OAuth" : "API key")).join(" ");
+      const methodText = entry.methods
+        .map((method) => method.label || (method.type === "oauth" ? "OAuth" : t("providers.api_key_label")))
+        .join(" ");
       return `${entry.name} ${entry.id} ${methodText}`.toLowerCase().includes(query);
     });
   }, [entries, searchQuery]);
@@ -514,8 +519,10 @@ export default function ProviderAuthModal(props: ProviderAuthModalProps) {
     return oauthInstructions;
   }, [oauthInstructions]);
 
+  // `method.label` is upstream OpenCode catalog text and stays as the provider
+  // publishes it; only our fallback is translated.
   const methodLabel = (method: ProviderAuthMethod) =>
-    method.label || (method.type === "oauth" ? "OAuth" : "API key");
+    method.label || (method.type === "oauth" ? "OAuth" : t("providers.api_key_label"));
 
   const actionDisabled = props.loading || props.submitting;
 
@@ -752,7 +759,7 @@ export default function ProviderAuthModal(props: ProviderAuthModalProps) {
     try {
       return await props.onSubmitOAuth(providerId, methodIndex, trimmedCode || undefined);
     } catch (error) {
-      const message = error instanceof Error ? error.message : "Failed to complete OAuth";
+      const message = error instanceof Error ? error.message : t("providers.oauth_failed");
       setLocalError(message);
       throw error instanceof Error ? error : new Error(message);
     } finally {
@@ -831,7 +838,7 @@ export default function ProviderAuthModal(props: ProviderAuthModalProps) {
 
       setView("oauth-auto");
     } catch (error) {
-      const message = error instanceof Error ? error.message : "Failed to start OAuth";
+      const message = error instanceof Error ? error.message : t("providers.oauth_start_failed");
       setLocalError(message);
     } finally {
       oauthStartBusyRef.current = false;
@@ -839,7 +846,7 @@ export default function ProviderAuthModal(props: ProviderAuthModalProps) {
   };
 
   /**
-   * "Sign in with Eigenwelt": the LegalWork server owns the OAuth loopback +
+   * t("provider_auth.sign_in_eigenwelt"): the LegalWork server owns the OAuth loopback +
    * code exchange. We open the authorize URL, show the standard oauth-auto
    * waiting view with a synthetic session, and await the server long-poll.
    * On success the provider flips connected and the existing provider polling
@@ -862,13 +869,13 @@ export default function ProviderAuthModal(props: ProviderAuthModalProps) {
         providerId: entry.id,
         // Synthetic session: there is no engine OAuth method behind it.
         methodIndex: -1,
-        methodLabel: "Sign in with Eigenwelt",
+        methodLabel: t("provider_auth.sign_in_eigenwelt"),
         authorization: { url: started.authorizeUrl, method: "auto" } as ProviderAuthAuthorization,
       });
       await openOauthUrl(started.authorizeUrl);
       setView("oauth-auto");
     } catch (error) {
-      const message = error instanceof Error ? error.message : "Failed to start OAuth";
+      const message = error instanceof Error ? error.message : t("providers.oauth_start_failed");
       setLocalError(message);
       return;
     } finally {
@@ -885,7 +892,7 @@ export default function ProviderAuthModal(props: ProviderAuthModalProps) {
     } catch (error) {
       if (eigenweltWaitTokenRef.current === waitToken) {
         setLocalError(
-          error instanceof Error ? error.message : "Failed to complete the Eigenwelt sign-in.",
+          error instanceof Error ? error.message : t("providers.eigenwelt_signin_failed"),
         );
       }
     }
@@ -923,7 +930,7 @@ export default function ProviderAuthModal(props: ProviderAuthModalProps) {
       return;
     }
 
-    const branded = BRANDED_CUSTOM_PROVIDERS.find((provider) => provider.id === entry.id);
+    const branded = brandedCustomProviders().find((provider) => provider.id === entry.id);
     if (branded) {
       startCustomProvider(branded);
       return;
@@ -957,7 +964,7 @@ export default function ProviderAuthModal(props: ProviderAuthModalProps) {
       // Close the modal after a successful save
       props.onClose();
     } catch (error) {
-      const message = error instanceof Error ? error.message : "Failed to save API key";
+      const message = error instanceof Error ? error.message : t("providers.save_api_key_failed");
       setLocalError(message);
     }
   };
@@ -1016,7 +1023,7 @@ export default function ProviderAuthModal(props: ProviderAuthModalProps) {
             .filter((id): id is string => Boolean(id))
         : [];
       if (!ids.length) {
-        throw new Error("No models returned.");
+        throw new Error(t("providers.no_models_returned"));
       }
       setCustomFetchedModels(ids);
     } catch (error) {
@@ -1138,7 +1145,7 @@ export default function ProviderAuthModal(props: ProviderAuthModalProps) {
       });
       props.onClose();
     } catch (error) {
-      const message = error instanceof Error ? error.message : "Failed to add provider";
+      const message = error instanceof Error ? error.message : t("providers.add_failed");
       setLocalError(message);
     } finally {
       setCustomBusy(false);
@@ -1184,10 +1191,10 @@ export default function ProviderAuthModal(props: ProviderAuthModalProps) {
 
   const submittingLabel = () => {
     if (!props.submitting) return null;
-    if (resolvedView === "api") return "Saving API key...";
-    if (resolvedView === "oauth-code") return "Verifying authorization code...";
-    if (resolvedView === "oauth-auto") return "Waiting for OAuth confirmation...";
-    return "Opening authentication...";
+    if (resolvedView === "api") return t("providers.saving_api_key");
+    if (resolvedView === "oauth-code") return t("providers.verifying_code");
+    if (resolvedView === "oauth-auto") return t("providers.waiting_oauth");
+    return t("providers.opening_auth");
   };
 
   const stepEntryIndex = (delta: number) => {
@@ -1235,29 +1242,26 @@ export default function ProviderAuthModal(props: ProviderAuthModalProps) {
     const label = methodLabel(method).toLowerCase();
     if (isOpenAiProvider(entry.id, entry.name) && (label.includes("headless") || label.includes("device"))) {
       return isRemoteWorker
-        ? "Use OpenAI's device flow for remote workers, where the browser callback may not resolve on your local machine."
-        : "Use OpenAI's device flow when the local browser callback is unreliable.";
+        ? t("provider_auth.device_flow_remote")
+        : t("provider_auth.device_flow_unreliable");
     }
     if (isAnthropicProvider(entry.id, entry.name) && isClaudeSubscriptionMethod(method)) {
-      return "Sign in with your Claude Pro/Max subscription. See the warning above — third-party subscription use may violate Anthropic's terms.";
+      return t("providers.claude_signin_hint");
     }
     if (method.type === "oauth") {
-      return "Continue in the browser and let LegalWork finish the connection automatically.";
+      return t("providers.browser_continue_hint");
     }
     if (isOpencodeZenProvider(entry.id)) {
-      return "Sign in to OpenCode Zen with an API key to unlock paid models alongside the free tier.";
+      return t("providers.zen_signin_hint");
     }
-    return "Paste a secret key that LegalWork stores locally on this device.";
+    return t("providers.secret_key_hint");
   };
 
   const anthropicSubscriptionWarning = (
     <div className="flex items-start gap-2.5 rounded-xl border border-amber-6/40 bg-amber-2/30 px-3.5 py-3 text-[12px] leading-relaxed text-amber-11">
       <TriangleAlert className="mt-0.5 size-4 shrink-0" />
       <span>
-        Claude Pro/Max sign-in uses your personal Claude subscription. Anthropic&apos;s Consumer Terms
-        limit this OAuth to Claude Code and claude.ai, so third-party use may violate those terms and
-        can be blocked without notice. For reliable, permitted access, use &ldquo;Create an API Key&rdquo;
-        or enter an Anthropic API key instead.
+        {t("providers.claude_consumer_terms")}
       </span>
     </div>
   );
@@ -1282,9 +1286,9 @@ export default function ProviderAuthModal(props: ProviderAuthModalProps) {
     >
       <DialogContent className="flex max-h-[calc(100vh-2rem)] min-h-0 w-full max-w-lg flex-col overflow-hidden sm:max-w-lg">
         <DialogHeader>
-          <DialogTitle>Connect providers</DialogTitle>
+          <DialogTitle>{t("providers.connect_title")}</DialogTitle>
           <DialogDescription>
-            Sign in to services or use providers managed by your organization.
+            {t("providers.connect_subtitle")}
           </DialogDescription>
         </DialogHeader>
 
@@ -1293,7 +1297,7 @@ export default function ProviderAuthModal(props: ProviderAuthModalProps) {
             <div className={errorBannerClass}>{errorMessage}</div>
           ) : props.loading ? (
             <div className="animate-pulse rounded-[20px] border border-dls-border bg-dls-hover px-4 py-3 text-sm text-dls-secondary">
-              Loading providers…
+              {t("providers.loading")}
             </div>
           ) : null}
 
@@ -1309,7 +1313,7 @@ export default function ProviderAuthModal(props: ProviderAuthModalProps) {
                     <input
                       ref={searchInputRef}
                       type="text"
-                      placeholder="Filter providers by name or ID"
+                      placeholder={t("providers.filter_placeholder")}
                       value={searchQuery}
                       onChange={(event) => {
                         setSearchQuery(event.currentTarget.value);
@@ -1355,11 +1359,11 @@ export default function ProviderAuthModal(props: ProviderAuthModalProps) {
                               {entry.connected ? (
                                 <span className="inline-flex items-center gap-1 rounded-full border border-emerald-6/40 bg-emerald-3/50 px-2 py-0.5 text-[11px] font-medium text-emerald-11">
                                   <CheckCircle2 size={12} strokeWidth={2.5} />
-                                  Connected
+                                  {t("providers.connected_badge")}
                                 </span>
                               ) : (
                                 <span className="flex items-center gap-0.5 text-[12px] font-medium text-dls-secondary transition-colors group-hover:text-dls-text">
-                                  Connect
+                                  {t("providers.connect_action")}
                                   <ChevronRight size={14} className="-ml-2 opacity-0 transition-all duration-200 group-hover:ml-0 group-hover:opacity-100" />
                                 </span>
                               )}
@@ -1381,12 +1385,12 @@ export default function ProviderAuthModal(props: ProviderAuthModalProps) {
                     ))
                   ) : (
                     <div className="pt-2 text-sm text-dls-secondary">
-                      {entries.length ? "No providers match your search." : "No providers available."}
+                      {entries.length ? t("provider_auth.no_match") : t("provider_auth.none_available")}
                     </div>
                   )}
 
                   <div className="px-1 pt-1.5 text-[11px] text-dls-secondary">
-                    Arrow keys to navigate, Enter to select.
+                    {t("providers.keyboard_hint")}
                   </div>
                 </div>
               ) : null}
@@ -1396,10 +1400,10 @@ export default function ProviderAuthModal(props: ProviderAuthModalProps) {
                   <div className="flex items-center justify-between gap-4">
                     <div>
                       <div className="text-sm font-medium text-dls-text">{selectedEntry.name}</div>
-                      <div className="mt-1 text-xs text-dls-secondary">Choose how you'd like to connect.</div>
+                      <div className="mt-1 text-xs text-dls-secondary">{t("providers.choose_connection")}</div>
                     </div>
                     <Button variant="outline" onClick={handleBack} disabled={actionDisabled}>
-                      Back
+                      {t("common.back")}
                     </Button>
                   </div>
                   {selectedEntryHasClaudeSubscription ? anthropicSubscriptionWarning : null}
@@ -1431,30 +1435,30 @@ export default function ProviderAuthModal(props: ProviderAuthModalProps) {
                       <div className="text-sm font-medium text-dls-text">{selectedEntry.name}</div>
                       <div className="mt-1 text-xs text-dls-secondary">
                         {isOpencodeZenProvider(selectedEntry.id)
-                          ? "Sign in to OpenCode Zen with an API key from opencode.ai/auth."
-                          : "Paste your API key to connect."}
+                          ? t("provider_auth.zen_api_key")
+                          : t("provider_auth.paste_api_key")}
                       </div>
                     </div>
                     <Button variant="outline" onClick={handleBack} disabled={actionDisabled}>
-                      Back
+                      {t("common.back")}
                     </Button>
                   </div>
                   {isOpencodeZenProvider(selectedEntry.id) ? (
                     <div className="space-y-1.5 rounded-xl border border-[rgba(var(--dls-accent-rgb),0.2)] bg-[rgba(var(--dls-accent-rgb),0.06)] px-3 py-2.5 text-xs text-dls-text">
                       <div>
-                        OpenCode Zen gives you access to the best coding models. Free models keep working without a key.
+                        {t("providers.zen_note")}
                       </div>
                       <button
                         type="button"
                         className="font-medium text-dls-accent underline underline-offset-2 hover:opacity-80"
                         onClick={() => void openExternalUrl(OPENCODE_ZEN_KEY_URL)}
                       >
-                        Get an API key →
+                        {t("providers.get_api_key")}
                       </button>
                     </div>
                   ) : null}
                   <TextInput
-                    label="API key"
+                    label={t("providers.api_key_label")}
                     type="password"
                     placeholder={isOpencodeZenProvider(selectedEntry.id) ? "ock_..." : "sk-..."}
                     value={apiKeyInput}
@@ -1473,12 +1477,12 @@ export default function ProviderAuthModal(props: ProviderAuthModalProps) {
                     </div>
                   ) : null}
                   <div className="flex items-center justify-between gap-3">
-                    <div className="text-[11px] text-dls-secondary">Keys are stored locally by OpenCode.</div>
+                    <div className="text-[11px] text-dls-secondary">{t("providers.keys_stored_locally")}</div>
                     <Button
                       onClick={handleApiSubmit}
                       disabled={actionDisabled || !apiKeyInput.trim()}
                     >
-                      {props.submitting ? "Saving…" : "Save key"}
+                      {props.submitting ? "Saving…" : t("provider_auth.save_key")}
                     </Button>
                   </div>
                 </div>
@@ -1489,14 +1493,14 @@ export default function ProviderAuthModal(props: ProviderAuthModalProps) {
                   <div className="flex items-center justify-between gap-4">
                     <div>
                       <div className="text-sm font-medium text-dls-text">{selectedEntry.name}</div>
-                      <div className="mt-1 text-xs text-dls-secondary">Finish OAuth by pasting the authorization code.</div>
+                      <div className="mt-1 text-xs text-dls-secondary">{t("providers.finish_oauth_hint")}</div>
                     </div>
                     <Button variant="outline" onClick={handleBack} disabled={actionDisabled}>
-                      Back
+                      {t("common.back")}
                     </Button>
                   </div>
                   <div className="text-xs text-dls-secondary">
-                    Complete sign-in in your browser, then paste the code here.
+                    {t("providers.complete_signin_paste")}
                   </div>
                   {oauthSessionIsClaudeSubscription ? anthropicSubscriptionWarning : null}
                   {oauthInstructions ? (
@@ -1505,9 +1509,9 @@ export default function ProviderAuthModal(props: ProviderAuthModalProps) {
                     </div>
                   ) : null}
                   <TextInput
-                    label="Authorization code"
+                    label={t("providers.authorization_code")}
                     type="text"
-                    placeholder="Paste code"
+                    placeholder={t("providers.paste_code")}
                     value={oauthCodeInput}
                     onChange={(event) => {
                       setOauthCodeInput(event.currentTarget.value);
@@ -1530,13 +1534,13 @@ export default function ProviderAuthModal(props: ProviderAuthModalProps) {
                         void openOauthUrl(oauthSession.authorization.url ?? "");
                       }}
                     >
-                      Open browser again
+                      {t("providers.open_browser_again")}
                     </Button>
                     <Button
                       onClick={() => void handleOauthCodeSubmit()}
                       disabled={actionDisabled || !oauthCodeInput.trim()}
                     >
-                      {props.submitting ? "Verifying..." : "Complete connection"}
+                      {props.submitting ? "Verifying..." : t("provider_auth.complete_connection")}
                     </Button>
                   </div>
                 </div>
@@ -1547,30 +1551,30 @@ export default function ProviderAuthModal(props: ProviderAuthModalProps) {
                   <div className="flex items-center justify-between gap-4">
                     <div>
                       <div className="text-sm font-medium text-dls-text">{selectedEntry.name}</div>
-                      <div className="mt-1 text-xs text-dls-secondary">Waiting for browser confirmation.</div>
+                      <div className="mt-1 text-xs text-dls-secondary">{t("providers.waiting_browser")}</div>
                     </div>
                     <Button variant="outline" onClick={handleBack} disabled={actionDisabled}>
-                      Back
+                      {t("common.back")}
                     </Button>
                   </div>
                   {isOpenAiHeadlessSession ? (
                     <div className="space-y-2 text-xs text-dls-secondary">
-                      <div>You'll need to sign in to your OpenAI account and provide the code below.</div>
-                      <div>The first time you do this you'll need to enable Device auth in your account settings.</div>
-                      <div>ChatGPT &gt; Account Settings &gt; Security &gt; Enable device code authorization</div>
-                      <div>When you're ready, copy the code below, and click &quot;Open Browser&quot;.</div>
+                      <div>{t("providers.openai_device_intro")}</div>
+                      <div>{t("providers.openai_device_enable")}</div>
+                      <div>{t("providers.openai_device_path")}</div>
+                      <div>{t("providers.openai_device_ready")}</div>
                     </div>
                   ) : (
                     <div className="text-xs text-dls-secondary">
                       {isEigenweltOauthSession
-                        ? "Complete sign-in in your browser, choose your firm, and return here."
-                        : "Sign in in the browser tab we just opened. We will complete the connection automatically."}
+                        ? t("providers.eigenwelt_browser_hint")
+                        : t("providers.browser_signin_hint")}
                     </div>
                   )}
                   {oauthDisplayCode ? (
                     <div className="flex items-center gap-3 rounded-xl border border-dls-border bg-dls-hover p-3">
                       <div className="min-w-0 flex-1">
-                        <div className="text-[10px] uppercase tracking-wide text-dls-secondary">Confirmation code</div>
+                        <div className="text-[10px] uppercase tracking-wide text-dls-secondary">{t("providers.confirmation_code")}</div>
                         <div className="break-all font-mono text-sm text-dls-text">{oauthDisplayCode}</div>
                       </div>
                       <Button variant="outline" size="sm" className="shrink-0" onClick={() => void copyOauthDisplayCode()}>
@@ -1580,12 +1584,12 @@ export default function ProviderAuthModal(props: ProviderAuthModalProps) {
                   ) : null}
                   {isOpenAiHeadlessSession && !oauthBrowserOpened ? (
                     <div className="flex items-center gap-2 text-xs text-dls-secondary">
-                      <span>Authorization checks will start after you click Open Browser.</span>
+                      <span>{t("providers.checks_after_open")}</span>
                     </div>
                   ) : (
                     <div className="flex items-center gap-2 text-xs text-dls-secondary">
                       <Loader2 size={14} className={props.submitting || pollingBusy || oauthAutoBusy ? "animate-spin" : ""} />
-                      <span>Checking connection status automatically…</span>
+                      <span>{t("providers.checking_status")}</span>
                     </div>
                   )}
                   <div className="flex items-center justify-between gap-3">
@@ -1597,12 +1601,12 @@ export default function ProviderAuthModal(props: ProviderAuthModalProps) {
                     >
                       {isOpenAiHeadlessSession
                         ? oauthBrowserOpened
-                          ? "Reopen Browser"
-                          : "Open Browser"
-                        : "Open browser again"}
+                          ? t("providers.reopen_browser")
+                          : t("providers.open_browser")
+                        : t("providers.open_browser_again")}
                     </Button>
                     <div className="text-right text-[11px] text-dls-secondary">
-                      This window will close once the provider is connected.
+                      {t("providers.window_closes")}
                     </div>
                   </div>
                 </div>
@@ -1613,14 +1617,14 @@ export default function ProviderAuthModal(props: ProviderAuthModalProps) {
                   <div className="flex items-center justify-between gap-4">
                     <div>
                       <div className="text-sm font-medium text-dls-text">
-                        {isEditingCustomProvider ? "Edit provider" : customBrandName ?? "Custom provider"}
+                        {isEditingCustomProvider ? t("provider_auth.edit_provider") : customBrandName ?? t("provider_auth.custom_provider")}
                       </div>
                       <div className="mt-1 text-xs text-dls-secondary">
                         {isEditingCustomProvider
-                          ? "Update this OpenAI-compatible provider."
+                          ? t("provider_auth.update_compatible")
                           : customShowLocalTemplates
-                            ? "Pick a runtime to prefill its endpoint, then fetch its models."
-                            : activeBrandedProvider?.description ?? "Connect any endpoint that speaks the OpenAI API spec."}
+                            ? t("provider_auth.pick_runtime")
+                            : activeBrandedProvider?.description ?? t("provider_auth.any_endpoint")}
                       </div>
                     </div>
                     <Button variant="outline" onClick={handleBack} disabled={actionDisabled || customBusy}>
@@ -1632,7 +1636,7 @@ export default function ProviderAuthModal(props: ProviderAuthModalProps) {
                     <div className="space-y-1.5">
                       <div className="text-xs font-medium text-dls-secondary">Runtime</div>
                       <div className="flex flex-wrap gap-1.5">
-                        {LOCAL_RUNTIME_TEMPLATES.map((template) => {
+                        {localRuntimeTemplates().map((template) => {
                           const active = customTemplateId === template.id;
                           return (
                             <button
@@ -1666,9 +1670,9 @@ export default function ProviderAuthModal(props: ProviderAuthModalProps) {
                   ) : null}
 
                   <TextInput
-                    label="Name"
+                    label={t("provider_auth.name")}
                     type="text"
-                    placeholder="My provider"
+                    placeholder={t("providers.name_placeholder")}
                     value={customName}
                     onChange={(event) => {
                       setCustomName(event.currentTarget.value);
@@ -1690,7 +1694,7 @@ export default function ProviderAuthModal(props: ProviderAuthModalProps) {
                   ) : null}
 
                   <TextInput
-                    label="Base URL"
+                    label={t("provider_auth.base_url")}
                     type="text"
                     placeholder={customBaseUrlPlaceholder}
                     value={customBaseURL}
@@ -1709,7 +1713,7 @@ export default function ProviderAuthModal(props: ProviderAuthModalProps) {
                   />
 
                   <div className="space-y-1.5">
-                    <div className="text-xs font-medium text-dls-secondary">API type</div>
+                    <div className="text-xs font-medium text-dls-secondary">{t("providers.api_type")}</div>
                     <div className="grid grid-cols-2 gap-2">
                       {(
                         [
@@ -1749,15 +1753,15 @@ export default function ProviderAuthModal(props: ProviderAuthModalProps) {
                     </div>
                     <div className="text-[11px] text-dls-secondary">
                       {customApiType === "responses"
-                        ? "Uses @ai-sdk/openai — full tool set and reasoning effort, no 128-tool cap."
-                        : "Uses @ai-sdk/openai-compatible. OpenAI caps this at 128 tools; pick Responses API for OpenAI/Azure."}
+                        ? t("provider_auth.uses_openai_sdk")
+                        : t("provider_auth.uses_compatible_sdk")}
                     </div>
                   </div>
 
                   <TextInput
                     label={isEditingCustomProvider ? "API key" : "API key (optional)"}
                     type="password"
-                    placeholder={isEditingCustomProvider ? "Leave blank to keep current key" : "sk-..."}
+                    placeholder={isEditingCustomProvider ? t("provider_auth.leave_blank_key") : "sk-..."}
                     value={customApiKey}
                     onChange={(event) => {
                       setCustomApiKey(event.currentTarget.value);
@@ -1779,14 +1783,14 @@ export default function ProviderAuthModal(props: ProviderAuthModalProps) {
                         className="inline-flex items-center gap-1.5 text-[11px] font-medium text-dls-accent transition-opacity hover:opacity-80 disabled:cursor-not-allowed disabled:opacity-40"
                       >
                         {customFetching ? <Loader2 size={12} className="animate-spin" /> : <Search size={12} />}
-                        {customFetching ? "Fetching…" : "Fetch from endpoint"}
+                        {customFetching ? "Fetching…" : t("provider_auth.fetch_from_endpoint")}
                       </button>
                     </div>
 
                     <div className="flex items-center gap-2">
                       <input
                         type="text"
-                        placeholder="Add a model ID, e.g. gpt-5.5"
+                        placeholder={t("providers.add_model_placeholder")}
                         value={customModelInput}
                         onChange={(event) => {
                           setCustomModelInput(event.currentTarget.value);
@@ -1825,7 +1829,7 @@ export default function ProviderAuthModal(props: ProviderAuthModalProps) {
                                 type="button"
                                 onClick={() => removeCustomModelId(model.id)}
                                 disabled={actionDisabled || customBusy}
-                                aria-label={`Remove ${model.id}`}
+                                aria-label={t("provider_auth.remove_model", { model: model.id })}
                                 className="-mr-1 shrink-0 rounded-md p-1 text-dls-secondary opacity-0 transition-all hover:bg-dls-hover hover:text-dls-text focus-visible:opacity-100 group-hover/model:opacity-100 disabled:opacity-0"
                               >
                                 <X size={14} />
@@ -1874,16 +1878,16 @@ export default function ProviderAuthModal(props: ProviderAuthModalProps) {
                       </div>
                     ) : (
                       <div className="rounded-xl border border-dashed border-dls-border px-3 py-4 text-center text-[11px] leading-relaxed text-dls-secondary">
-                        No models yet — custom endpoints have no catalog.
+                        {t("providers.no_models_custom")}
                         <br />
-                        Add an ID above, or fetch the list from your endpoint.
+                        {t("providers.add_or_fetch")}
                       </div>
                     )}
 
                     {customFetchedModels.length ? (
                       <div className="space-y-1.5 pt-0.5">
                         <div className="text-[10px] font-medium uppercase tracking-wide text-dls-secondary">
-                          From endpoint — click to add
+                          {t("providers.from_endpoint")}
                         </div>
                         <div className="flex max-h-28 flex-wrap gap-1.5 overflow-y-auto">
                           {customFetchedModels.map((id) => {
@@ -1911,13 +1915,13 @@ export default function ProviderAuthModal(props: ProviderAuthModalProps) {
 
                     {customModels.length ? (
                       <div className="text-[11px] text-dls-secondary">
-                        Reasoning is auto-detected from the model id — toggle per model if needed.
+                        {t("providers.reasoning_autodetect")}
                       </div>
                     ) : null}
                   </div>
 
                   <div className="flex items-center justify-between gap-3">
-                    <div className="text-[11px] text-dls-secondary">Keys are stored locally by OpenCode.</div>
+                    <div className="text-[11px] text-dls-secondary">{t("providers.keys_stored_locally")}</div>
                     <Button
                       onClick={() => void handleCustomSubmit()}
                       disabled={
@@ -1933,8 +1937,8 @@ export default function ProviderAuthModal(props: ProviderAuthModalProps) {
                           ? "Saving…"
                           : "Adding…"
                         : isEditingCustomProvider
-                          ? "Save changes"
-                          : "Add provider"}
+                          ? t("provider_auth.save_changes")
+                          : t("provider_auth.add_provider")}
                     </Button>
                   </div>
                 </div>
@@ -1951,7 +1955,7 @@ export default function ProviderAuthModal(props: ProviderAuthModalProps) {
             disabled={actionDisabled}
             render={<Button variant="outline" disabled={actionDisabled} />}
           >
-            Close
+            {t("common.close")}
           </DialogClose>
         </DialogFooter>
       </DialogContent>

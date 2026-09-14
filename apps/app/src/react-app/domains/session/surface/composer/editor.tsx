@@ -39,6 +39,7 @@ import {
   parseLegalMemoryComposerMention,
   type ComposerMentionKind,
 } from "./mention-encoding";
+import { t } from "@/i18n";
 
 type EditorProps = {
   value: string;
@@ -330,8 +331,8 @@ function createPastedTextChipDom(label: string, lines: number) {
   const button = document.createElement("button");
   button.type = "button";
   button.className = "ml-0.5 inline-flex h-4 w-4 items-center justify-center rounded-full text-amber-10 transition-colors hover:bg-amber-4 hover:text-amber-12";
-  button.title = "Expand pasted text";
-  button.setAttribute("aria-label", "Expand pasted text");
+  button.title = t("artifact.expand_pasted");
+  button.setAttribute("aria-label", t("artifact.expand_pasted"));
   button.dataset.pastedExpandLabel = label;
 
   const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");

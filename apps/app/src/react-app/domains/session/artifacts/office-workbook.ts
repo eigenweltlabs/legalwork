@@ -2,6 +2,7 @@ import JSZip from "jszip";
 import * as XLSX from "xlsx";
 import { DOMParser, XMLSerializer } from "@xmldom/xmldom";
 import { BorderStyleTypes, LocaleType, type IWorkbookData, type ICellData, type IStyleData } from "@univerjs/core";
+import { t } from "@/i18n";
 
 const borderNames: Record<string, BorderStyleTypes> = { thin: 1, hair: 2, dotted: 3, dashed: 4, dashDot: 5, dashDotDot: 6, double: 7, medium: 8, mediumDashed: 9, mediumDashDot: 10, mediumDashDotDot: 11, slantDashDot: 12, thick: 13 };
 const borderSides: Array<"l" | "r" | "t" | "b"> = ["l", "r", "t", "b"];
@@ -38,7 +39,7 @@ export async function openWorkbook(buffer: ArrayBuffer, name: string) {
   const xfs = all(stylesXml, "cellXfs")[0];
   const fonts = all(stylesXml, "fonts")[0];
   const fills = all(stylesXml, "fills")[0];
-  if (!xfs || !fonts || !fills) throw new Error("This workbook has unsupported styles.");
+  if (!xfs || !fonts || !fills) throw new Error(t("workbook.unsupported_styles"));
   const raw = XLSX.read(buffer, { type: "array", cellStyles: true, cellNF: true, cellFormula: true, sheetStubs: true });
   const styles: Record<string, IStyleData> = {};
   const themeFile = zip.file("xl/theme/theme1.xml");
@@ -93,10 +94,10 @@ export async function openWorkbook(buffer: ArrayBuffer, name: string) {
     const relId = sheet.getAttribute("r:id");
     const relationship = Array.from(rels.getElementsByTagName("Relationship")).find((item) => item.getAttribute("Id") === relId);
     const target = relationship?.getAttribute("Target");
-    if (!target || relationship?.getAttribute("TargetMode") === "External") throw new Error("Unsupported worksheet relationship.");
+    if (!target || relationship?.getAttribute("TargetMode") === "External") throw new Error(t("workbook.unsupported_relationship"));
     const path = target.startsWith("/") ? target.slice(1) : `xl/${target.replace(/^\.\//, "")}`;
     const sheetXml = await xml(path);
-    if (all(sheetXml, "sheetProtection").length) throw new Error("This workbook contains protected sheets. Open it in Excel to edit it.");
+    if (all(sheetXml, "sheetProtection").length) throw new Error(t("workbook.protected_sheets"));
     const source = raw.Sheets[sheetName];
     if (!source) throw new Error(`Cannot read ${sheetName}.`);
     const cellData: NonNullable<IWorkbookData["sheets"][string]["cellData"]> = {};
@@ -109,7 +110,7 @@ export async function openWorkbook(buffer: ArrayBuffer, name: string) {
       cellData[r][c] = { v: value?.v instanceof Date ? value.v.toISOString() : value?.v ?? null, t: value?.t === "n" ? 2 : value?.t === "b" ? 3 : 1, s: el.getAttribute("s") || "0", ...(value?.f ? { f: `=${value.f}` } : {}) };
     }
     const used = XLSX.utils.decode_range(source["!ref"] || "A1");
-    if (used.e.r > 99999 || used.e.c > 999) throw new Error("This workbook is too large for the in-app editor. Open it in Excel.");
+    if (used.e.r > 99999 || used.e.c > 999) throw new Error(t("workbook.too_large"));
     const rowData: NonNullable<IWorkbookData["sheets"][string]["rowData"]> = {};
     for (const row of all(sheetXml, "row")) rowData[number(row, "r") - 1] = { ...(row.hasAttribute("ht") ? { h: number(row, "ht") * 4 / 3 } : {}), hd: row.getAttribute("hidden") === "1" ? 1 : 0 };
     const columnData: NonNullable<IWorkbookData["sheets"][string]["columnData"]> = {};
@@ -125,7 +126,7 @@ export async function openWorkbook(buffer: ArrayBuffer, name: string) {
   }
   const baseline = structuredClone(book);
   return { book, hasAdvancedContent, async save(current: IWorkbookData, cacheCalculatedValues = false): Promise<ArrayBuffer> {
-    if (JSON.stringify(current.sheetOrder) !== JSON.stringify(baseline.sheetOrder)) throw new Error("Adding, removing, or reordering sheets is not supported yet.");
+    if (JSON.stringify(current.sheetOrder) !== JSON.stringify(baseline.sheetOrder)) throw new Error(t("workbook.sheet_changes_unsupported"));
     // Work from a fresh package on every save. A failed write must not change the baseline.
     const output = await JSZip.loadAsync(buffer);
     let changed = false;
@@ -215,24 +216,24 @@ export async function openWorkbook(buffer: ArrayBuffer, name: string) {
     };
     for (const [id, original] of sheets) {
       const sheet = current.sheets[id]; const before = baseline.sheets[id]!;
-      if (!sheet || sheet.name !== before.name || sheet.hidden !== before.hidden || JSON.stringify(sheet.mergeData) !== JSON.stringify(before.mergeData)) throw new Error("Sheet structure changes are not supported yet. Reopen the file to discard them.");
+      if (!sheet || sheet.name !== before.name || sheet.hidden !== before.hidden || JSON.stringify(sheet.mergeData) !== JSON.stringify(before.mergeData)) throw new Error(t("workbook.structure_changes_unsupported"));
       for (const row of new Set([...Object.keys(before.rowData ?? {}), ...Object.keys(sheet.rowData ?? {})])) {
         const a = before.rowData?.[Number(row)]; const b = sheet.rowData?.[Number(row)];
-        if (JSON.stringify([a?.hd ?? 0, a?.s ?? null]) !== JSON.stringify([b?.hd ?? 0, b?.s ?? null])) throw new Error("Row layout changes must be made in Excel.");
+        if (JSON.stringify([a?.hd ?? 0, a?.s ?? null]) !== JSON.stringify([b?.hd ?? 0, b?.s ?? null])) throw new Error(t("workbook.row_layout_in_excel"));
       }
       for (const col of new Set([...Object.keys(before.columnData ?? {}), ...Object.keys(sheet.columnData ?? {})])) {
         const a = before.columnData?.[Number(col)]; const b = sheet.columnData?.[Number(col)];
-        if (JSON.stringify([a?.hd ?? 0, a?.s ?? null]) !== JSON.stringify([b?.hd ?? 0, b?.s ?? null])) throw new Error("Column layout changes must be made in Excel.");
+        if (JSON.stringify([a?.hd ?? 0, a?.s ?? null]) !== JSON.stringify([b?.hd ?? 0, b?.s ?? null])) throw new Error(t("workbook.column_layout_in_excel"));
       }
       const doc = parse(serialize(original.xml));
       const sheetData = all(doc, "sheetData")[0];
-      if (!sheetData) throw new Error("Missing worksheet data.");
+      if (!sheetData) throw new Error(t("workbook.missing_worksheet_data"));
       const cells = new Map(all(doc, "c").map((cell) => [cell.getAttribute("r"), cell]));
       let sheetChanged = false;
       if (JSON.stringify(sheet.freeze) !== JSON.stringify(before.freeze)) {
         const freeze = sheet.freeze;
         const x = freeze?.xSplit ?? 0, y = freeze?.ySplit ?? 0;
-        if (![x, y].every((n) => Number.isInteger(n) && n >= 0) || x >= (sheet.columnCount ?? 0) || y >= (sheet.rowCount ?? 0)) throw new Error("Invalid frozen panes.");
+        if (![x, y].every((n) => Number.isInteger(n) && n >= 0) || x >= (sheet.columnCount ?? 0) || y >= (sheet.rowCount ?? 0)) throw new Error(t("workbook.invalid_frozen_panes"));
         let views = all(doc, "sheetViews")[0];
         if (!views) { views = make(doc, "sheetViews"); const following = Array.from(doc.documentElement!.childNodes).find((node) => node.nodeType === 1 && !["sheetPr", "dimension"].includes(node.localName ?? "")); doc.documentElement!.insertBefore(views, following ?? null); }
         let view = first(views, "sheetView");
@@ -247,7 +248,7 @@ export async function openWorkbook(buffer: ArrayBuffer, name: string) {
       for (const key of new Set([...Object.keys(before.columnData ?? {}), ...Object.keys(sheet.columnData ?? {})])) {
         const c = Number(key), width = sheet.columnData?.[c]?.w;
         if (width === before.columnData?.[c]?.w) continue;
-        if (typeof width !== "number" || !Number.isFinite(width) || width <= 0 || width > 1790) throw new Error("Invalid column width.");
+        if (typeof width !== "number" || !Number.isFinite(width) || width <= 0 || width > 1790) throw new Error(t("workbook.invalid_column_width"));
         let cols = all(doc, "cols")[0];
         if (!cols) { cols = make(doc, "cols"); doc.documentElement!.insertBefore(cols, sheetData); }
         const existing = children(cols, "col").find((col) => number(col, "min") <= c + 1 && number(col, "max") >= c + 1);
@@ -269,7 +270,7 @@ export async function openWorkbook(buffer: ArrayBuffer, name: string) {
         const height = b?.ia === 1 ? b.ah ?? b.h : b?.h;
         const oldHeight = a?.ia === 1 ? a.ah ?? a.h : a?.h;
         if (height === oldHeight) continue;
-        if (typeof height !== "number" || !Number.isFinite(height) || height <= 0 || height > 546) throw new Error("Invalid row height.");
+        if (typeof height !== "number" || !Number.isFinite(height) || height <= 0 || height > 546) throw new Error(t("workbook.invalid_row_height"));
         let row = children(sheetData, "row").find((row) => number(row, "r") === r + 1);
         if (!row) { row = make(doc, "row", { r: r + 1 }); sheetData.insertBefore(row, children(sheetData, "row").find((item) => number(item, "r") > r + 1) ?? null); }
         row.setAttribute("ht", String(height * 3 / 4)); row.setAttribute("customHeight", "1");
@@ -284,7 +285,7 @@ export async function openWorkbook(buffer: ArrayBuffer, name: string) {
           const valueChanged = cellKey(old) !== cellKey(cell);
           const formatChanged = normalizedStyle(styleOf(baseline, old)) !== normalizedStyle(styleOf(current, cell));
           if (!valueChanged && !formatChanged) continue;
-          if (cell?.p) throw new Error("Rich-text cell edits are not supported. Use plain cell text.");
+          if (cell?.p) throw new Error(t("workbook.rich_text_unsupported"));
           const address = XLSX.utils.encode_cell({ r, c });
           let el = cells.get(address);
           const arrayFormula = all(original.xml, "f").find((formula) => {

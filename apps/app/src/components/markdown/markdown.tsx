@@ -30,6 +30,7 @@ import {
   LEGALMEMORY_REF_EVENT,
   parseLegalMemoryRef,
 } from "./legalmemory-ref";
+import { t } from "@/i18n";
 
 function escapeHtml(value: string) {
   return value
@@ -174,7 +175,7 @@ function syncMarkdownImagePreviews(root: HTMLElement) {
     preview.style.maxHeight = expanded ? "" : `${MARKDOWN_IMAGE_PREVIEW_MAX_HEIGHT}px`;
 
     const label = button.querySelector("[data-legalwork-image-toggle-label]");
-    if (label) label.textContent = expanded ? "Show less" : "Show full image";
+    if (label) label.textContent = expanded ? t("markdown.show_less") : t("markdown.show_full_image");
   }
 }
 
@@ -277,9 +278,12 @@ const baseMarkedOptions = {
 
       if (isFilePath) {
         const fileIcon = `<svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="shrink-0 text-muted-foreground"><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v5h5"/></svg>`;
+        // Injected as raw HTML, so the translated label goes through the same
+        // attribute escaping as every other interpolated value here.
+        const openWithLabel = escapeAttribute(t("markdown.open_with"));
         const chevron = `<svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="shrink-0 text-muted-foreground"><path d="m6 9 6 6 6-6"/></svg>`;
 
-        return `<span class="inline-flex items-stretch overflow-hidden rounded-md border border-border/60 bg-muted/40 text-xs font-medium text-foreground align-middle"><a href="${safe}" data-legalwork-link-href="${originalHref}"${titleAttr} target="_blank" rel="noreferrer noopener" class="inline-flex items-center gap-1 px-1.5 py-0.5 no-underline transition-colors hover:bg-muted">${fileIcon}${this.parser.parseInline(tokens)}</a><button type="button" data-legalwork-link-chevron="${originalHref}" class="inline-flex items-center border-l border-border/60 px-1 transition-colors hover:bg-muted" aria-label="Open with">${chevron}</button></span>`;
+        return `<span class="inline-flex items-stretch overflow-hidden rounded-md border border-border/60 bg-muted/40 text-xs font-medium text-foreground align-middle"><a href="${safe}" data-legalwork-link-href="${originalHref}"${titleAttr} target="_blank" rel="noreferrer noopener" class="inline-flex items-center gap-1 px-1.5 py-0.5 no-underline transition-colors hover:bg-muted">${fileIcon}${this.parser.parseInline(tokens)}</a><button type="button" data-legalwork-link-chevron="${originalHref}" class="inline-flex items-center border-l border-border/60 px-1 transition-colors hover:bg-muted" aria-label="${openWithLabel}">${chevron}</button></span>`;
       }
 
       return `<a href="${safe}" data-legalwork-link-href="${originalHref}"${titleAttr} target="_blank" rel="noreferrer noopener" class="text-indigo-10 underline underline-offset-2 transition-colors hover:text-indigo-8">${this.parser.parseInline(tokens)}</a>`;

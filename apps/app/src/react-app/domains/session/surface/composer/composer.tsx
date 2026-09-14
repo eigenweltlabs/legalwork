@@ -242,7 +242,7 @@ function extensionIcon(entry: McpDirectoryInfo, size = 16) {
 
 function formatPluginObjectType(type: string) {
   const normalized = type.trim().toLowerCase();
-  if (!normalized) return "File";
+  if (!normalized) return t("composer.file");
   if (normalized === "mcp") return "MCP";
   return `${normalized.charAt(0).toUpperCase()}${normalized.slice(1)}`;
 }
@@ -746,7 +746,7 @@ export function ReactSessionComposer(props: ComposerProps) {
   };
 
   const applyExtensionSelection = (entry: McpDirectoryInfo) => {
-    props.onDraftChange(entry.composerPrompt ?? `Use ${entry.name} to `);
+    props.onDraftChange(entry.composerPrompt ?? t("composer.use_skill_prompt", { name: entry.name }));
     setToolMenuOpen(false);
   };
 
@@ -1093,7 +1093,7 @@ export function ReactSessionComposer(props: ComposerProps) {
             <div className="pointer-events-none absolute inset-3 z-20 flex items-center justify-center rounded-[20px] border-2 border-dashed border-dls-accent bg-[color:color-mix(in_oklab,var(--dls-accent)_10%,transparent)]">
               <div className="rounded-2xl border border-dls-border bg-dls-surface/95 px-5 py-4 text-center">
                 <div className="text-sm font-medium text-dls-text">
-                  {dropzoneKind === "memory" ? "Download memory file" : t("composer.attach_files")}
+                  {dropzoneKind === "memory" ? t("composer.download_memory_file") : t("composer.attach_files")}
                 </div>
                 <div className="mt-1 text-xs text-dls-secondary">
                   {dropzoneKind === "memory" ? "A project copy will be referenced by path" : t("composer.any_file_type_supported")}
@@ -1262,7 +1262,7 @@ export function ReactSessionComposer(props: ComposerProps) {
                           {([
                             ["commands", t("dashboard.commands")],
                             ["skills", t("dashboard.skills")],
-                            ["extensions", "Extensions"],
+                            ["extensions", t("composer.extensions")],
                             ["mcps", t("composer.mcps_label")],
                           ] as const).map(([section, label]) => (
                             <button
@@ -1400,7 +1400,7 @@ export function ReactSessionComposer(props: ComposerProps) {
                                 ))}
                               </div>
                             ) : (
-                              <div className="px-3 py-2 text-xs text-gray-10">No extensions enabled. Open Extensions to enable them.</div>
+                              <div className="px-3 py-2 text-xs text-gray-10">{t("composer.no_extensions")}</div>
                             )
                           ) : null}
                           {activePlugin ? (
@@ -1426,11 +1426,11 @@ export function ReactSessionComposer(props: ComposerProps) {
                                 ))}
                               </div>
                             ) : (
-                              <div className="px-3 py-2 text-xs text-gray-10">No plugin files imported yet.</div>
+                              <div className="px-3 py-2 text-xs text-gray-10">{t("composer.no_plugin_files")}</div>
                             )
                           ) : toolMenuSection.startsWith("plugin:") ? (
                             <div className="px-3 py-2 text-xs text-gray-10">
-                              {!pluginsLoaded && pluginsLoading ? t("composer.loading_commands") : "Plugin files are unavailable."}
+                              {!pluginsLoaded && pluginsLoading ? t("composer.loading_commands") : t("composer.plugin_files_unavailable")}
                             </div>
                           ) : null}
                         </div>
@@ -1448,7 +1448,7 @@ export function ReactSessionComposer(props: ComposerProps) {
                   locked={props.modelLocked}
                 />
                 {props.modelUnavailable && !props.modelUnavailableLabelHidden ? (
-                  <span className="text-xs font-medium text-red-10">Model no longer available</span>
+                  <span className="text-xs font-medium text-red-10">{t("composer.model_unavailable")}</span>
                 ) : null}
 
                 <ModelBehaviorSelect
@@ -1542,8 +1542,8 @@ export function ReactSessionComposer(props: ComposerProps) {
                     type="button"
                     onClick={props.onToggleRealtimeVoice}
                     className="grid size-9 place-items-center rounded-full bg-gray-12 text-gray-1 shadow-sm transition-transform hover:scale-[1.04] hover:bg-black"
-                    title={props.realtimeVoiceActive ? "Close Voice Mode" : "Start Voice Mode"}
-                    aria-label={props.realtimeVoiceActive ? "Close Voice Mode" : "Start Voice Mode"}
+                    title={props.realtimeVoiceActive ? t("composer.close_voice_mode") : t("composer.start_voice_mode")}
+                    aria-label={props.realtimeVoiceActive ? t("composer.close_voice_mode") : t("composer.start_voice_mode")}
                     aria-pressed={props.realtimeVoiceActive}
                     data-testid="voice-mode-toggle"
                   >

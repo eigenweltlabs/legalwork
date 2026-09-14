@@ -2,6 +2,7 @@
 
 import { Tool } from "@/components/ui/tool"
 import type { ApplyPatchToolPart } from "@/lib/build-in-tools"
+import { t } from "@/i18n";
 
 interface ApplyPatchToolProps {
   part: ApplyPatchToolPart
@@ -9,14 +10,14 @@ interface ApplyPatchToolProps {
 
 function getApplyPatchToolTitle(part: ApplyPatchToolPart): string | null {
   if (part.state === "output-error") {
-    return "Apply patch attempted"
+    return t("tool.apply_patch_attempted")
   }
 
   if (part.state !== "output-available") {
     return null
   }
 
-  return "Apply patch"
+  return t("tool.apply_patch")
 }
 
 export function ApplyPatchTool({ part }: ApplyPatchToolProps) {

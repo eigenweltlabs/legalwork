@@ -308,6 +308,13 @@ export function SkillsView(props: SkillsViewProps) {
     if (SKILLS_HUB_UI_ENABLED) void extensions.ensureHubSkillsFresh();
   }, [extensions]);
 
+  // The library changes behind this view's back — the assistant installs skills
+  // and workflows mid-conversation — so re-read it whenever the view is opened
+  // rather than trusting whatever the store loaded when the workspace changed.
+  useEffect(() => {
+    void extensions.refreshSkills({ force: true });
+  }, [extensions]);
+
   useEffect(() => {
     if (!SKILLS_HUB_UI_ENABLED && activeFilter === "hub") setActiveFilter("all");
   }, [activeFilter]);
@@ -620,12 +627,12 @@ export function SkillsView(props: SkillsViewProps) {
             {props.showHeader !== false ? (
               <>
                 <span className="lw-section-eyebrow uppercase text-dls-secondary">
-                  {isWorkflowsView ? "Automation" : "Worker profile"}
+                  {isWorkflowsView ? t("skills.eyebrow_automation") : t("skills.eyebrow_worker_profile")}
                 </span>
-                <h2 className={`mt-3 ${pageTitleClass}`}>{isWorkflowsView ? "Workflows" : t("skills.title")}</h2>
+                <h2 className={`mt-3 ${pageTitleClass}`}>{isWorkflowsView ? t("skills.workflows_title") : t("skills.title")}</h2>
                 <p className="mt-3 max-w-xl text-[14px] leading-[1.65] text-dls-secondary">
                   {isWorkflowsView
-                    ? "Reusable templates for the firm's recurring legal tasks. Assistant workflows run like a skill; tabular workflows drive a review grid through the tabular-review skill."
+                    ? t("skills.workflows_desc")
                     : t("skills.worker_profile_desc")}
                 </p>
               </>
@@ -657,14 +664,14 @@ export function SkillsView(props: SkillsViewProps) {
                     onClick={() => void generateFromTemplates()}
                     disabled={props.busy || !props.canUseDesktopTools || templateRunActive}
                     className="group relative inline-flex items-center justify-center gap-1.5 overflow-hidden rounded-full border border-white/30 bg-dls-accent px-4 py-2 text-[13px] font-medium tracking-[-0.01em] text-[var(--dls-accent-fg)] shadow-[inset_0_0_8px_4px_rgba(255,255,255,0.18),0_8px_20px_-8px_rgba(var(--dls-accent-rgb),0.7)] transition-all duration-200 hover:-translate-y-px hover:bg-[var(--dls-accent-hover)] hover:shadow-[inset_0_0_8px_4px_rgba(255,255,255,0.22),0_12px_26px_-8px_rgba(var(--dls-accent-rgb),0.8)] focus:outline-none focus:ring-2 focus:ring-[rgba(var(--dls-accent-rgb),0.3)] active:translate-y-0 disabled:cursor-not-allowed disabled:opacity-60 disabled:shadow-none disabled:hover:translate-y-0"
-                    title="Point a local agent at a folder of firm templates; it drafts one workflow per template."
+                    title={t("skills.template_workflow_hint")}
                   >
                     <span
                       aria-hidden
                       className="pointer-events-none absolute inset-0 -translate-x-[110%] bg-gradient-to-r from-transparent via-white/30 to-transparent transition-transform duration-700 ease-out group-hover:translate-x-[110%]"
                     />
                     {templateRunActive ? <Loader2 size={14} className="animate-spin" /> : <Wand2 size={14} />}
-                    Generate from templates
+                    {t("skills.generate_from_templates")}
                   </button>
                 ) : null}
               </>
@@ -780,7 +787,7 @@ export function SkillsView(props: SkillsViewProps) {
         <div className="space-y-4">
           <div className="flex items-baseline justify-between gap-3">
             <span className="lw-section-eyebrow uppercase text-dls-secondary">
-              {isWorkflowsView ? "Workflows" : "Installed"}
+              {isWorkflowsView ? t("skills.workflows_title") : t("skills.eyebrow_installed")}
             </span>
             <span className="font-mono text-[11px] tabular-nums text-dls-secondary">
               {filteredSkills.length.toString().padStart(2, "0")}
@@ -801,7 +808,7 @@ export function SkillsView(props: SkillsViewProps) {
 
           {filteredSkills.length === 0 ? (
             <div className="rounded-[20px] border border-dashed border-dls-border py-16 text-center text-[14px] text-dls-secondary">
-              {isWorkflowsView ? "No workflows yet — use “Add workflow” to create one." : t("skills.no_skills")}
+              {isWorkflowsView ? t("skills.no_workflows") : t("skills.no_skills")}
             </div>
           ) : (
             <div className="space-y-5">
@@ -921,8 +928,8 @@ export function SkillsView(props: SkillsViewProps) {
                       className={rowIconBtnClass}
                       onClick={() => setWorkflowPage((page) => Math.max(0, page - 1))}
                       disabled={workflowPage === 0}
-                      title="Previous page"
-                      aria-label="Previous page"
+                      title={t("skills.previous_page")}
+                      aria-label={t("skills.previous_page")}
                     >
                       <ChevronLeft size={16} />
                     </button>
@@ -931,8 +938,8 @@ export function SkillsView(props: SkillsViewProps) {
                       className={rowIconBtnClass}
                       onClick={() => setWorkflowPage((page) => Math.min(workflowPageCount - 1, page + 1))}
                       disabled={workflowPage >= workflowPageCount - 1}
-                      title="Next page"
-                      aria-label="Next page"
+                      title={t("skills.next_page")}
+                      aria-label={t("skills.next_page")}
                     >
                       <ChevronRight size={16} />
                     </button>
@@ -1073,7 +1080,7 @@ export function SkillsView(props: SkillsViewProps) {
         <DialogContent className="flex max-h-[88vh] min-h-0 w-full max-w-3xl flex-col gap-0 overflow-hidden p-0 sm:max-w-3xl">
             <DialogHeader className="flex-row items-start justify-between gap-4 border-b border-subtle py-4 pl-6 pr-14 space-y-0">
               <div className="min-w-0 space-y-1">
-                <span className="lw-section-eyebrow">{selectedSkill?.name?.startsWith("workflow") ? "Automation" : "Skill"}</span>
+                <span className="lw-section-eyebrow">{selectedSkill?.name?.startsWith("workflow") ? t("skills.eyebrow_automation") : t("skills.eyebrow_skill")}</span>
                 <DialogTitle className="min-w-0 truncate text-lg font-semibold text-ink">{selectedSkill?.name}</DialogTitle>
                 {selectedSkill?.description ? (
                   <p className="line-clamp-1 text-sm text-subtext">{selectedSkill.description}</p>
@@ -1264,11 +1271,11 @@ function SkillCreatorButton(props: {
         setOpen(false);
         reset();
       } else {
-        setError(result.message || "Could not create the skill.");
+        setError(result.message || t("skills.create_failed"));
         setSaving(false);
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not create the skill.");
+      setError(err instanceof Error ? err.message : t("skills.create_failed"));
       setSaving(false);
     }
   };
@@ -1280,7 +1287,7 @@ function SkillCreatorButton(props: {
     <>
       <button type="button" onClick={() => setOpen(true)} disabled={props.disabled} className={pillPrimaryClass}>
         <Plus size={14} />
-        New skill
+        {t("skills.new_skill")}
       </button>
       <Dialog
         open={open}
@@ -1291,9 +1298,9 @@ function SkillCreatorButton(props: {
       >
         <DialogContent className="flex max-h-[90vh] min-h-0 w-full max-w-2xl flex-col overflow-hidden sm:max-w-2xl">
           <DialogHeader>
-            <DialogTitle>New skill</DialogTitle>
+            <DialogTitle>{t("skills.new_skill")}</DialogTitle>
             <DialogDescription>
-              Describe when the agent should use this skill and what to do. Saved to your workspace as a SKILL.md.
+              {t("skills.new_skill_desc")}
             </DialogDescription>
           </DialogHeader>
 
@@ -1313,25 +1320,25 @@ function SkillCreatorButton(props: {
               />
               <span className="text-[11px] text-dls-secondary">
                 {slug.length === 0
-                  ? "Lowercase, kebab-case. Becomes the folder name."
+                  ? t("skills.slug_hint")
                   : nameTaken
                     ? "A skill with this name already exists."
                     : !nameValid
-                      ? "Use lowercase letters, numbers, and dashes only."
+                      ? t("skills.slug_invalid")
                       : `.opencode/skills/${slug}/SKILL.md`}
               </span>
             </label>
 
             <label className="block space-y-1.5">
-              <span className="text-xs font-medium text-dls-text">Description (when to use it)</span>
+              <span className="text-xs font-medium text-dls-text">{t("skills.description_when_to_use")}</span>
               <textarea
                 value={description}
                 onChange={(event) => setDescription(event.currentTarget.value)}
                 rows={2}
-                placeholder="Use when the user wants to summarize a contract's key terms."
+                placeholder={t("skills.description_placeholder_skill")}
                 className={`${inputClass} resize-none`}
               />
-              <span className="text-[11px] text-dls-secondary">This is the trigger the agent matches on. Be specific.</span>
+              <span className="text-[11px] text-dls-secondary">{t("skills.description_trigger_hint")}</span>
             </label>
 
             <label className="block space-y-1.5">
@@ -1419,16 +1426,16 @@ function TemplateGenerationRow(props: {
   const folderName = props.templatesDir.split(/[\/\\]/).filter(Boolean).pop() || props.templatesDir;
   const title =
     props.status === "running"
-      ? "Generating workflows from your templates…"
+      ? t("skills.gen_running")
       : props.status === "done"
-        ? "Workflows generated from your templates"
-        : "Workflow generation failed";
+        ? t("skills.gen_done")
+        : t("skills.gen_failed");
   const subtitle =
     props.status === "running"
-      ? `Reading “${folderName}”. Click to watch the agent work`
+      ? t("skills.gen_sub_running", { folder: folderName })
       : props.status === "done"
-        ? `${props.summary ? `${props.summary}. ` : ""}Review them below, or open the session for the full log.`
-        : props.error || "Open the session to see what went wrong.";
+        ? t("skills.gen_sub_done", { summary: props.summary ? `${props.summary}. ` : "" })
+        : props.error || t("skills.gen_sub_failed");
 
   const retry = async () => {
     if (retrying) return;
@@ -1487,8 +1494,8 @@ function TemplateGenerationRow(props: {
             event.stopPropagation();
             props.onDismiss();
           }}
-          title="Dismiss"
-          aria-label="Dismiss"
+          title={t("skills.dismiss")}
+          aria-label={t("skills.dismiss")}
         >
           <X size={15} />
         </button>
@@ -1555,11 +1562,11 @@ function WorkflowCreatorButton(props: {
         setOpen(false);
         reset();
       } else {
-        setError(result.message || "Could not create the workflow.");
+        setError(result.message || t("skills.workflow_create_failed"));
         setSaving(false);
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not create the workflow.");
+      setError(err instanceof Error ? err.message : t("skills.workflow_create_failed"));
       setSaving(false);
     }
   };
@@ -1572,7 +1579,7 @@ function WorkflowCreatorButton(props: {
       {/* Secondary on purpose: "Generate from templates" is the hero action in this toolbar. */}
       <button type="button" onClick={() => setOpen(true)} disabled={props.disabled} className={pillSecondaryClass}>
         <Plus size={14} />
-        Add workflow
+        {t("skills.add_workflow")}
       </button>
       <Dialog
         open={open}
@@ -1583,13 +1590,17 @@ function WorkflowCreatorButton(props: {
       >
         <DialogContent className="flex max-h-[90vh] min-h-0 w-full max-w-2xl flex-col overflow-hidden sm:max-w-2xl">
           <DialogHeader>
-            <DialogTitle>{type ? `New ${type} workflow` : "New workflow"}</DialogTitle>
+            <DialogTitle>{type === "tabular"
+              ? t("skills.new_tabular_workflow")
+              : type === "assistant"
+                ? t("skills.new_assistant_workflow")
+                : t("skills.new_workflow")}</DialogTitle>
             <DialogDescription>
               {type === "tabular"
                 ? "A tabular workflow runs a review grid: it tells the agent to use the tabular-review skill with the columns you define."
                 : type === "assistant"
-                  ? "An assistant workflow is a normal skill — instructions the agent follows for a legal task."
-                  : "Choose how this workflow runs. Saved to your workspace as a SKILL.md."}
+                  ? t("skills.assistant_hint")
+                  : t("skills.choose_run_hint")}
             </DialogDescription>
           </DialogHeader>
 
@@ -1608,7 +1619,7 @@ function WorkflowCreatorButton(props: {
                   <Package size={20} className="text-dls-secondary" />
                   <span className="text-sm font-semibold text-dls-text">Tabular</span>
                   <span className="text-[12px] leading-relaxed text-dls-secondary">
-                    Review/extract a defined set of columns across many documents, via the tabular-review skill.
+                    {t("skills.tabular_desc")}
                   </span>
                 </button>
                 <button
@@ -1619,7 +1630,7 @@ function WorkflowCreatorButton(props: {
                   <Bot size={20} className="text-dls-secondary" />
                   <span className="text-sm font-semibold text-dls-text">Assistant</span>
                   <span className="text-[12px] leading-relaxed text-dls-secondary">
-                    A normal skill — step-by-step instructions for a legal task.
+                    {t("skills.assistant_desc")}
                   </span>
                 </button>
               </div>
@@ -1628,10 +1639,10 @@ function WorkflowCreatorButton(props: {
                 <div className="flex items-center justify-between">
                   <span className="inline-flex items-center gap-2 text-xs font-medium text-dls-text">
                     {type === "tabular" ? <Package size={14} /> : <Bot size={14} />}
-                    {type === "tabular" ? "Tabular workflow" : "Assistant workflow"}
+                    {type === "tabular" ? t("skills.tabular_workflow") : t("skills.assistant_workflow")}
                   </span>
                   <button type="button" onClick={() => setType(null)} className="text-[11px] text-dls-secondary underline">
-                    Change type
+                    {t("skills.change_type")}
                   </button>
                 </div>
 
@@ -1640,7 +1651,7 @@ function WorkflowCreatorButton(props: {
                   <input
                     value={name}
                     onChange={(event) => setName(event.currentTarget.value)}
-                    placeholder="NDA Diligence Review"
+                    placeholder={t("skills.name_placeholder")}
                     className={inputClass}
                   />
                   <span className="text-[11px] text-dls-secondary">
@@ -1649,25 +1660,25 @@ function WorkflowCreatorButton(props: {
                       : nameTaken
                         ? "A workflow with this name already exists."
                         : !nameValid
-                          ? "Use letters, numbers, and spaces."
+                          ? t("skills.title_invalid")
                           : `.opencode/skills/${fullName}/SKILL.md`}
                   </span>
                 </label>
 
                 <label className="block space-y-1.5">
-                  <span className="text-xs font-medium text-dls-text">Description (when to use it)</span>
+                  <span className="text-xs font-medium text-dls-text">{t("skills.description_when_to_use")}</span>
                   <textarea
                     value={description}
                     onChange={(event) => setDescription(event.currentTarget.value)}
                     rows={2}
-                    placeholder="Use when reviewing NDAs for diligence."
+                    placeholder={t("skills.description_placeholder_workflow")}
                     className={`${inputClass} resize-none`}
                   />
                 </label>
 
                 <label className="block space-y-1.5">
                   <span className="text-xs font-medium text-dls-text">
-                    {type === "assistant" ? "Instructions" : "Columns to extract"}
+                    {type === "assistant" ? "Instructions" : t("skills.columns_to_extract")}
                   </span>
                   <textarea
                     value={body}
@@ -1676,14 +1687,14 @@ function WorkflowCreatorButton(props: {
                     spellCheck={false}
                     placeholder={
                       type === "assistant"
-                        ? "Step-by-step instructions the agent follows.\n\n1. ...\n2. ..."
-                        : "Describe the columns to extract from each document — one per line.\n\nGoverning law\nTermination notice period\nLiability cap"
+                        ? t("skills.instructions_placeholder")
+                        : t("skills.columns_placeholder")
                     }
                     className={`${inputClass} min-h-[200px] font-mono text-xs`}
                   />
                   {type === "tabular" ? (
                     <span className="text-[11px] text-dls-secondary">
-                      Each line becomes a column the tabular-review skill extracts across your documents.
+                      {t("skills.columns_hint")}
                     </span>
                   ) : null}
                 </label>
@@ -1766,9 +1777,9 @@ function ImportSkillsButton(props: {
     try {
       const result = await extensions.scanGithubSkills(trimmed, ref.trim() || undefined);
       setScanned(result.skills);
-      if (result.skills.length === 0) setError("No skills found — this repo has no SKILL.md folders.");
+      if (result.skills.length === 0) setError(t("skills.repo_no_skills"));
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not scan that repo.");
+      setError(err instanceof Error ? err.message : t("skills.repo_scan_failed"));
     } finally {
       setScanning(false);
     }
@@ -1849,7 +1860,7 @@ function ImportSkillsButton(props: {
     <>
       <button type="button" onClick={() => setOpen(true)} disabled={props.busy} className={ghostActionClass}>
         <Download size={14} />
-        Import
+        {t("skills.import")}
       </button>
       <Dialog
         open={open}
@@ -1860,7 +1871,7 @@ function ImportSkillsButton(props: {
       >
         <DialogContent className="flex max-h-[88vh] min-h-0 w-full max-w-2xl flex-col overflow-hidden sm:max-w-2xl">
           <DialogHeader>
-            <DialogTitle>{asWorkflow ? "Import workflows" : "Import skills"}</DialogTitle>
+            <DialogTitle>{asWorkflow ? t("skills.import_workflows_title") : t("skills.import_skills_title")}</DialogTitle>
             <DialogDescription>
               Bring in {noun} folders from a GitHub repo or a local folder. Each is a directory containing a SKILL.md.
               {asWorkflow ? " Imported items are added as workflows." : ""}
@@ -1869,7 +1880,7 @@ function ImportSkillsButton(props: {
 
           <div className="min-h-0 flex-1 space-y-5 overflow-y-auto px-px py-1">
             <div className="space-y-2">
-              <span className="text-xs font-medium text-dls-text">From GitHub</span>
+              <span className="text-xs font-medium text-dls-text">{t("skills.from_github")}</span>
               <div className="flex flex-col gap-2 sm:flex-row">
                 <input
                   value={url}
@@ -1884,7 +1895,7 @@ function ImportSkillsButton(props: {
                 <input
                   value={ref}
                   onChange={(event) => setRef(event.currentTarget.value)}
-                  placeholder="branch (optional)"
+                  placeholder={t("skills.branch_optional")}
                   className={`${inputClass} sm:max-w-[36%]`}
                   spellCheck={false}
                 />
@@ -1904,7 +1915,7 @@ function ImportSkillsButton(props: {
                     <input
                       value={filter}
                       onChange={(event) => setFilter(event.currentTarget.value)}
-                      placeholder="Filter…"
+                      placeholder={t("skills.filter_placeholder")}
                       className={`${inputClass} h-8 py-1`}
                       spellCheck={false}
                     />
@@ -1926,7 +1937,7 @@ function ImportSkillsButton(props: {
                               className="text-[11px] text-dls-secondary transition-colors hover:text-dls-text"
                               onClick={() => toggleGroup(items, !allOn)}
                             >
-                              {allOn ? "Clear" : "Select all"}
+                              {allOn ? "Clear" : t("skills.select_all")}
                             </button>
                           </div>
                           {items.map((skill) => {
@@ -1967,7 +1978,7 @@ function ImportSkillsButton(props: {
                   {status ? <div className="text-xs text-dls-secondary">{status}</div> : null}
                   <Button type="button" disabled={selected.size === 0 || importing} onClick={() => void runImport()}>
                     {importing ? <Loader2 size={14} className="animate-spin" /> : <Download size={14} />}
-                    {importing ? "Importing…" : selected.size ? `Import ${selected.size} selected` : "Import selected"}
+                    {importing ? "Importing…" : selected.size ? t("skills.import_n_selected", { count: selected.size }) : t("skills.import_selected")}
                   </Button>
                 </div>
               ) : null}
@@ -1976,18 +1987,18 @@ function ImportSkillsButton(props: {
             <Separator />
 
             <div className="space-y-2">
-              <span className="text-xs font-medium text-dls-text">From this machine</span>
+              <span className="text-xs font-medium text-dls-text">{t("skills.from_this_machine")}</span>
               <p className="text-[12px] leading-relaxed text-dls-secondary">
-                Pick a folder containing a SKILL.md, or a zip exported from LegalWork.
+                {t("skills.import_hint")}
               </p>
               <div className="flex flex-wrap gap-2">
                 <Button type="button" variant="outline" disabled={props.busy || !props.canUseDesktopTools} onClick={runLocal}>
                   <FolderOpen size={14} />
-                  Choose folder…
+                  {t("skills.choose_folder")}
                 </Button>
                 <Button type="button" variant="outline" disabled={props.busy || !props.canUseDesktopTools} onClick={runLocalZip}>
                   <FileArchive size={14} />
-                  Choose zip…
+                  {t("skills.choose_zip")}
                 </Button>
               </div>
               {!props.canUseDesktopTools ? (

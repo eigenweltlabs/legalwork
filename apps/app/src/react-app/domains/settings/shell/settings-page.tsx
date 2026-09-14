@@ -113,21 +113,21 @@ export function getSettingsTabIcon(tab: SettingsTab) {
 export function getSettingsTabLabel(tab: SettingsTab) {
   switch (tab) {
     case "ai":
-      return "AI Providers";
+      return t("settings.tab_ai");
     case "account":
       return t("settings.tab_account");
     case "personalisation":
-      return "Personalisation";
+      return t("settings.tab_personalisation");
     case "benchmark":
       return t("settings.tab_benchmark");
     case "preferences":
-      return "Privacy";
+      return t("settings.tab_preferences");
     case "shell":
-      return "Customization";
+      return t("settings.tab_shell");
     case "permissions":
-      return "Permissions";
+      return t("settings.tab_permissions");
     case "safety":
-      return "Tool Permissions";
+      return t("settings.tab_safety");
     case "cloud-account":
       return t("settings.tab_cloud_account");
     case "cloud-marketplaces":
@@ -139,7 +139,7 @@ export function getSettingsTabLabel(tab: SettingsTab) {
     case "skills":
       return t("settings.tab_skills");
     case "extensions":
-      return t("settings.tab_extensions");
+      return t("sidebar.integrations");
     case "environment":
       return t("settings.tab_environment");
     case "advanced":
@@ -157,7 +157,7 @@ export function getSettingsTabLabel(tab: SettingsTab) {
     case "debug":
       return t("settings.tab_debug");
     case "general":
-      return "Settings";
+      return t("settings.tab_settings");
     default:
       return t("settings.tab_general");
   }
@@ -166,21 +166,21 @@ export function getSettingsTabLabel(tab: SettingsTab) {
 export function getSettingsTabDescription(tab: SettingsTab) {
   switch (tab) {
     case "ai":
-      return "Connect services that provide AI models";
+      return t("settings.tab_description_ai");
     case "account":
       return t("settings.tab_description_account");
     case "personalisation":
-      return "System prompt additions, local memory, and response personality";
+      return t("settings.tab_description_personalisation");
     case "benchmark":
       return t("settings.tab_description_benchmark");
     case "preferences":
-      return "Usage analytics and data sharing";
+      return t("settings.tab_description_preferences");
     case "shell":
-      return "Branding and task suggestions";
+      return t("settings.tab_description_shell");
     case "permissions":
-      return "Authorized folders and file access";
+      return t("settings.tab_description_permissions");
     case "safety":
-      return "What LegalWork may do on its own — applies to all workspaces";
+      return t("settings.tab_description_safety");
     case "cloud-account":
       return t("settings.tab_description_cloud_account");
     case "cloud-marketplaces":
@@ -210,26 +210,25 @@ export function getSettingsTabDescription(tab: SettingsTab) {
     case "debug":
       return t("settings.tab_description_debug");
     case "general":
-      return "Overview of all settings";
+      return t("settings.tab_description_overview");
     default:
       return t("settings.tab_description_general");
   }
 }
 
 export function getWorkspaceSettingsTabs(): SettingsTab[] {
-  // Skills now live in the Integrations page (as a tab between Connectors and
-  // Plugins); Workflows and Integrations (extensions) are top-level pages in the
-  // main app shell. Preferences (Model) and Advanced are hidden.
+  // Skills and plugins live in Settings > Integrations.
+  // Workspace-specific access is configured here.
   return ["permissions"];
 }
 
 export function getGlobalSettingsTabs(developerMode: boolean): SettingsTab[] {
   // Appearance/Language and Recovery are hidden (theme is fixed to Light).
   // "preferences" is the Privacy tab (usage-analytics opt-out toggle).
-  // "benchmark" is not listed here: it lives on the Learnings page in the main
+  // "benchmark" is not listed here: it lives on the Evals page in the main
   // app shell (embedded singleView surface), not in the settings sidebar.
   // Account leads: it is the firm's sign-in, plan and billing home.
-  const tabs: SettingsTab[] = ["account", "ai", "personalisation", "safety", "shell", "environment", "preferences", "updates"];
+  const tabs: SettingsTab[] = ["account", "ai", "extensions", "personalisation", "safety", "shell", "environment", "preferences", "updates"];
   // Office add-ins install into local desktop apps, so the tab is desktop-only.
   // Placed right after AI Providers.
   if (isDesktopRuntime()) tabs.splice(2, 0, "office-addins");
@@ -269,7 +268,7 @@ export function SettingsSidebar(props: SettingsSidebarProps) {
   const globalTabs = getGlobalSettingsTabs(props.developerMode);
 
   return (
-    <Sidebar aria-label="Settings navigation" className="mac:**:data-[sidebar=sidebar]:bg-transparent">
+    <Sidebar aria-label={t("settings.navigation")} className="mac:**:data-[sidebar=sidebar]:bg-transparent">
       <div className="hidden h-10 mac:block mac:titlebar-drag" />
       <SidebarHeader className="gap-3 border-b border-sidebar-border/60 px-3 pb-4 pt-3">
         <SidebarMenu>
@@ -384,11 +383,9 @@ export function SettingsSidebar(props: SettingsSidebarProps) {
 }
 
 export function SettingsPage(props: SettingsPageProps) {
-  // Wide tabs (benchmark tables) share a larger cap so the heading stays aligned with the content.
-  const wide = props.activeTab === "benchmark";
   return (
     <SettingsContent>
-      <SettingsPanel key={props.activeTab} className={wide ? "lw-enter lg:max-w-6xl" : "lw-enter"}>
+      <SettingsPanel key={props.activeTab} className="lw-enter">
         <SettingsPanelHeading>
           <SettingsPanelTitle>{getSettingsTabLabel(props.activeTab)}</SettingsPanelTitle>
           <SettingsPanelDescription>{getSettingsTabDescription(props.activeTab)}</SettingsPanelDescription>

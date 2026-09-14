@@ -8,6 +8,7 @@ import type { LegalworkServerClient } from "@/app/lib/legalwork-server";
 import { cn } from "@/lib/utils";
 import { useControlAction, type LegalworkControlAction } from "../../../shell/control/control-provider";
 import type { VoiceActivityItem } from "./voice-activity";
+import { t } from "@/i18n";
 import {
   updateVoiceCompletionDelivery,
   type VoiceCompletionDeliveryAttempt,
@@ -98,7 +99,7 @@ function voiceTextArgument(value: unknown) {
 
 function describeError(error: unknown) {
   if (error instanceof DOMException && error.name === "NotAllowedError") {
-    return "Microphone access was denied. Allow microphone access for LegalWork, then try again.";
+    return t("voice.mic_denied");
   }
   return error instanceof Error ? error.message : String(error);
 }
@@ -124,11 +125,11 @@ function statusCopy(
   microphoneMuted: boolean,
   latestActivity: VoiceActivityItem | undefined,
 ) {
-  if (status === "connecting") return "Connecting securely…";
+  if (status === "connecting") return t("voice.connecting_securely");
   if (status === "listening") return microphoneMuted ? "Microphone muted" : "Listening";
   if (status === "thinking" || status === "tool_use") return latestActivity?.label || "Working on it…";
-  if (status === "waiting_approval") return "I need your approval in the app";
-  if (status === "speaking") return "Speaking";
+  if (status === "waiting_approval") return t("voice.needs_approval");
+  if (status === "speaking") return t("voice.speaking");
   return error || "Voice mode encountered an error";
 }
 
@@ -270,7 +271,7 @@ export function VoicePanel(props: VoicePanelProps) {
     if (!request) {
       sendFunctionOutput(
         callId,
-        { accepted: false, error: "A work request is required." },
+        { accepted: false, error: t("voice.request_required") },
         "Ask the user in one short sentence to repeat what they want you to do. Do not mention a function or tool.",
       );
       return;
@@ -399,7 +400,7 @@ export function VoicePanel(props: VoicePanelProps) {
     }
     if (type === "error") {
       const eventError = isRecord(event.error) ? event.error : null;
-      const message = eventError && typeof eventError.message === "string" ? eventError.message : "The voice service reported an error.";
+      const message = eventError && typeof eventError.message === "string" ? eventError.message : t("voice.service_error");
       responseActiveRef.current = false;
       responsePurposeRef.current = null;
       inputResponsePendingRef.current = false;
@@ -418,7 +419,7 @@ export function VoicePanel(props: VoicePanelProps) {
     setError(null);
     updateStatus("connecting");
     try {
-      if (!navigator.mediaDevices?.getUserMedia) throw new Error("Microphone capture is unavailable in this runtime.");
+      if (!navigator.mediaDevices?.getUserMedia) throw new Error(t("voice.mic_unavailable"));
       if (!(await requestMacMicrophoneAccess())) {
         throw new Error("macOS denied microphone access. Enable LegalWork in System Settings > Privacy & Security > Microphone.");
       }
@@ -456,12 +457,12 @@ export function VoicePanel(props: VoicePanelProps) {
         }
       };
       channel.onerror = () => {
-        setError("The Realtime data channel failed.");
+        setError(t("voice.datachannel_failed"));
         updateStatus("error");
       };
       peer.onconnectionstatechange = () => {
         if (peer.connectionState !== "failed") return;
-        setError("The Realtime WebRTC connection failed.");
+        setError(t("voice.webrtc_failed"));
         updateStatus("error");
         stopRuntime();
       };
@@ -470,7 +471,7 @@ export function VoicePanel(props: VoicePanelProps) {
       const offer = await peer.createOffer();
       await peer.setLocalDescription(offer);
       const localSdp = peer.localDescription?.sdp || offer.sdp;
-      if (!localSdp) throw new Error("WebRTC did not create an SDP offer.");
+      if (!localSdp) throw new Error(t("voice.no_sdp_offer"));
       const call = await props.client.createVoiceRealtimeCall({
         sdp: localSdp,
         sessionContext: props.sessionContext,
@@ -671,8 +672,8 @@ export function VoicePanel(props: VoicePanelProps) {
 
   const sendTextCommand = useCallback((text: string) => {
     const command = text.trim();
-    if (!command) return { sent: false, error: "Text is required." };
-    if (!connected) return { sent: false, error: "Voice Mode is not connected." };
+    if (!command) return { sent: false, error: t("voice.text_required") };
+    if (!connected) return { sent: false, error: t("voice.not_connected") };
     if (!sendEvent({
       type: "conversation.item.create",
       item: {
@@ -680,11 +681,11 @@ export function VoicePanel(props: VoicePanelProps) {
         role: "user",
         content: [{ type: "input_text", text: command }],
       },
-    })) return { sent: false, error: "Voice Mode is not connected." };
+    })) return { sent: false, error: t("voice.not_connected") };
     updateStatus("thinking");
     return requestResponse()
       ? { sent: true }
-      : { sent: false, error: "Voice Mode could not start a response." };
+      : { sent: false, error: t("voice.no_response") };
   }, [connected, requestResponse, sendEvent, updateStatus]);
 
   const injectAudio = useCallback((args: unknown) => {
@@ -694,12 +695,12 @@ export function VoicePanel(props: VoicePanelProps) {
     for (let index = 0; index < pcm16Base64.length; index += 32_000) {
       sent = sendEvent({ type: "input_audio_buffer.append", audio: pcm16Base64.slice(index, index + 32_000) }) && sent;
     }
-    return sent ? { sent: true } : { sent: false, error: "Voice Mode is not connected." };
+    return sent ? { sent: true } : { sent: false, error: t("voice.not_connected") };
   }, [sendEvent]);
 
   const startAction = useMemo<LegalworkControlAction>(() => ({
     id: "voice.start",
-    label: "Start Voice Mode",
+    label: t("control.start_voice_mode"),
     description: "Connect Voice Mode to OpenAI Realtime.",
     sideEffect: "external",
     disabled: connected || status === "connecting",
@@ -710,7 +711,7 @@ export function VoicePanel(props: VoicePanelProps) {
 
   const stopAction = useMemo<LegalworkControlAction>(() => ({
     id: "voice.stop",
-    label: "Stop Voice Mode",
+    label: t("control.stop_voice_mode"),
     description: "Close Voice Mode and release its media resources.",
     sideEffect: "external",
     targetRef: rootRef,
@@ -742,7 +743,7 @@ export function VoicePanel(props: VoicePanelProps) {
 
   const sendTextAction = useMemo<LegalworkControlAction>(() => ({
     id: "voice.send_text",
-    label: "Send text through Voice Mode",
+    label: t("control.send_text_voice"),
     description: "Deterministic test hook for a spoken request.",
     sideEffect: "external",
     requiresArgs: true,
@@ -754,7 +755,7 @@ export function VoicePanel(props: VoicePanelProps) {
 
   const injectTranscriptAction = useMemo<LegalworkControlAction>(() => ({
     id: "voice.inject_transcript",
-    label: "Inject a voice transcript",
+    label: t("control.inject_transcript"),
     description: "Deterministic test hook for a transcribed request.",
     sideEffect: "external",
     requiresArgs: true,
@@ -766,7 +767,7 @@ export function VoicePanel(props: VoicePanelProps) {
 
   const injectAudioAction = useMemo<LegalworkControlAction>(() => ({
     id: "voice.inject_audio",
-    label: "Inject voice audio",
+    label: t("control.inject_audio"),
     description: "Deterministic test hook for PCM16 audio through semantic VAD.",
     sideEffect: "external",
     requiresArgs: true,
@@ -778,7 +779,7 @@ export function VoicePanel(props: VoicePanelProps) {
 
   const statusAction = useMemo<LegalworkControlAction>(() => ({
     id: "voice.status",
-    label: "Read Voice Mode status",
+    label: t("control.read_voice_status"),
     description: "Return the voice connection and current conversation state.",
     sideEffect: "none",
     targetRef: rootRef,

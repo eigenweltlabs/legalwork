@@ -2,6 +2,7 @@
 import { Loader2 } from "lucide-react";
 
 import { useTemplateWorkflowRun } from "../../settings/state/template-workflow-generation";
+import { t } from "@/i18n";
 
 type SidebarWorkflowGenerationBadgeProps = {
   /** Open the generation session in the chat view (clicking the badge). */
@@ -29,7 +30,7 @@ export function SidebarWorkflowGenerationBadge(props: SidebarWorkflowGenerationB
         >
           <Loader2 className="size-4 shrink-0 animate-spin text-sidebar-accent-foreground" strokeWidth={2.5} />
           <div className="min-w-0 flex-1">
-            <div className="text-sm font-medium text-sidebar-accent-foreground">Generating workflows</div>
+            <div className="text-sm font-medium text-sidebar-accent-foreground">{t("skills.generating_workflows")}</div>
             <div className="mt-0.5 truncate text-xs text-sidebar-foreground/60">
               From “{folderName}”. Click to watch.
             </div>

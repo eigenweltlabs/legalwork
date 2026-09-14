@@ -1,7 +1,6 @@
 /** @jsxImportSource react */
 import { Switch } from "@/components/ui/switch";
 import { t } from "@/i18n";
-import type { AppearanceViewProps } from "../pages/appearance-view";
 import {
   LayoutSection,
   LayoutSectionDescription,
@@ -14,8 +13,13 @@ import {
   LayoutSectionTitle,
 } from "../settings-layout";
 
-interface WindowSectionProps
-  extends Pick<AppearanceViewProps, "busy" | "hideTitlebar" | "toggleHideTitlebar"> {}
+// The window/frame controls are hidden today, so nothing renders this yet;
+// the section keeps its own props so it stays compilable and reusable.
+interface WindowSectionProps {
+  busy: boolean;
+  hideTitlebar: boolean;
+  toggleHideTitlebar: () => void;
+}
 
 export function WindowSection(props: WindowSectionProps) {
   return (

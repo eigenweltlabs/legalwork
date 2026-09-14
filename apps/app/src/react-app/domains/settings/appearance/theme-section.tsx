@@ -3,7 +3,6 @@ import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { cn } from "@/lib/utils";
 import type { ReactNode } from "react";
 import { t } from "@/i18n";
-import type { AppearanceViewProps } from "../pages/appearance-view";
 import {
   LayoutSectionItem,
   LayoutSectionItemDescription,
@@ -12,10 +11,15 @@ import {
   LayoutSectionItemTitle,
 } from "../settings-layout";
 
-type ThemeMode = AppearanceViewProps["themeMode"];
+type ThemeMode = "light" | "dark" | "system";
 
-interface ThemeSectionProps
-  extends Pick<AppearanceViewProps, "busy" | "themeMode" | "setThemeMode"> {}
+// The theme is currently fixed to Light, so nothing renders this yet; the
+// section keeps its own props so it stays compilable and reusable.
+interface ThemeSectionProps {
+  busy: boolean;
+  themeMode: ThemeMode;
+  setThemeMode: (value: ThemeMode) => void;
+}
 
 export function ThemeSection(props: ThemeSectionProps) {
   return (

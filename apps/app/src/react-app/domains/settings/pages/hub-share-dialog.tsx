@@ -29,6 +29,7 @@ import type {
   EigenweltHubShareItem,
   LegalworkServerClient,
 } from "@/app/lib/legalwork-server";
+import { t } from "@/i18n";
 
 type Selectable = {
   ref: string;
@@ -149,7 +150,7 @@ export function HubShareDialog(props: {
           .filter((it) => !initialSelection || it.spec === initialSelection.ref || it.path === initialSelection.ref)
           .map((it) => ({ ref: it.spec, label: it.path ?? it.spec, kind: "plugin" as const })) : []);
       } catch (err) {
-        toast.error(err instanceof Error ? err.message : "Could not load local items.");
+        toast.error(err instanceof Error ? err.message : t("hub_share.load_failed"));
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -200,7 +201,7 @@ export function HubShareDialog(props: {
       setIncludeKey(new Set());
       setAcknowledged(false);
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Share failed.");
+      toast.error(err instanceof Error ? err.message : t("hub_share.share_failed"));
     } finally {
       setBusy(false);
     }
@@ -218,7 +219,7 @@ export function HubShareDialog(props: {
               <span className="min-w-0 flex-1 truncate text-sm text-ink">{it.label}</span>
               {it.kind === "mcp" && it.hasSecret ? (
                 <span className="flex items-center gap-1.5 text-2xs text-subtext">
-                  Include key
+                  {t("hub_share.include_key")}
                   <Switch
                     checked={includeKey.has(k)}
                     onCheckedChange={(on) =>
@@ -242,11 +243,11 @@ export function HubShareDialog(props: {
     <Dialog open={props.open} onOpenChange={props.onOpenChange}>
       <DialogContent className="sm:max-w-lg">
         <DialogHeader>
-          <DialogTitle>Share with your firm</DialogTitle>
+          <DialogTitle>{t("hub_share.title")}</DialogTitle>
           <DialogDescription>
             {initialSelection
-              ? "Review this item and remove client data or credentials before publishing."
-              : "Shared skills can contain instructions and plugins can execute code. Review the selected items and remove client data or credentials before publishing."}
+              ? t("hub_share.review_item")
+              : t("hub_share.review_items")}
           </DialogDescription>
         </DialogHeader>
         {loading ? (
@@ -254,9 +255,9 @@ export function HubShareDialog(props: {
             <Loader2 className="size-4 animate-spin" /> Loading your local items…
           </div>
         ) : initialSelection && !singleItem ? (
-          <div className="py-8 text-center text-sm text-subtext">This item is no longer available.</div>
+          <div className="py-8 text-center text-sm text-subtext">{t("hub_share.item_unavailable")}</div>
         ) : all.length === 0 ? (
-          <div className="py-8 text-center text-sm text-subtext">Nothing local to share yet.</div>
+          <div className="py-8 text-center text-sm text-subtext">{t("hub_share.nothing_local")}</div>
         ) : singleItem ? (
           <div className="space-y-4">
             <div className="flex items-center gap-3 rounded-lg border border-dls-border p-3">
@@ -272,7 +273,7 @@ export function HubShareDialog(props: {
               </Badge>
               {singleItem.kind === "mcp" && singleItem.hasSecret ? (
                 <span className="flex items-center gap-1.5 text-2xs text-subtext">
-                  Include key
+                  {t("hub_share.include_key")}
                   <Switch
                     checked={includeKey.has(key(singleItem))}
                     onCheckedChange={(on) =>
@@ -293,7 +294,7 @@ export function HubShareDialog(props: {
                 onCheckedChange={(checked) => setAcknowledged(checked === true)}
               />
               <span>
-                I reviewed this item. Included MCP keys will be encrypted but can be copied by every authorized firm member.
+                {t("hub_share.reviewed_item")}
               </span>
             </label>
           </div>
@@ -301,20 +302,20 @@ export function HubShareDialog(props: {
           <div className="max-h-[50vh] space-y-4 overflow-y-auto pr-1">
             <div className="flex items-center justify-between">
               <button type="button" className="text-xs text-brand hover:underline" onClick={selectAll}>
-                {selected.size === all.length ? "Clear all" : "Select all"}
+                {selected.size === all.length ? t("hub_share.clear_all") : t("hub_share.select_all")}
               </button>
               <Badge variant="outline">{selected.size} selected</Badge>
             </div>
-            <Section title="Skills" items={skills} />
-            <Section title="MCP servers" items={mcps} />
-            <Section title="Plugins" items={plugins} />
+            <Section title={t("hub_share.skills")} items={skills} />
+            <Section title={t("hub_share.mcp_servers")} items={mcps} />
+            <Section title={t("hub_share.plugins")} items={plugins} />
             <label className="flex items-start gap-2 rounded-lg border border-dls-border p-3 text-xs text-subtext">
               <Checkbox
                 checked={acknowledged}
                 onCheckedChange={(checked) => setAcknowledged(checked === true)}
               />
               <span>
-                I reviewed these files and configurations. Included MCP keys will be encrypted but can be copied by every authorized firm member.
+                {t("hub_share.reviewed_items")}
               </span>
             </label>
           </div>

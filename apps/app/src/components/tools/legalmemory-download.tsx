@@ -6,6 +6,7 @@ import { LEGALMEMORY_OPEN_EVENT } from "@/components/markdown/legalmemory-ref"
 import type { LegalMemoryToolPart } from "@/lib/build-in-tools"
 import { formatExportSize, parseLegalMemoryDownload } from "@/lib/legalmemory-download"
 import { Tool } from "@/components/ui/tool"
+import { t } from "@/i18n"
 
 interface LegalMemoryDownloadToolProps {
   part: LegalMemoryToolPart
@@ -46,7 +47,7 @@ export function LegalMemoryDownloadTool({ part }: LegalMemoryDownloadToolProps) 
           }),
         )
       }
-      title={`Save ${download.filename} into the workspace and open it`}
+      title={t("tool.legalmemory_save_open", { filename: download.filename })}
       className="flex w-full items-center gap-2.5 rounded-xl border border-[var(--lw-border)] bg-[var(--lw-surface)] px-3 py-2.5 text-left transition-colors hover:bg-[var(--lw-surface-hover)]"
     >
       <FileText className="size-4 shrink-0 text-[var(--lw-accent)]" />
@@ -59,7 +60,7 @@ export function LegalMemoryDownloadTool({ part }: LegalMemoryDownloadToolProps) 
         </span>
       </span>
       <span className="shrink-0 rounded-full border border-[var(--lw-border)] px-2.5 py-1 text-xs font-medium text-[var(--lw-text-secondary)]">
-        Open
+        {t("tool.legalmemory_open")}
       </span>
     </button>
   )

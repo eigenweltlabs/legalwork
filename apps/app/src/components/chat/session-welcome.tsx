@@ -4,6 +4,7 @@ import { motion, useReducedMotion } from "motion/react"
 import type { ReactNode } from "react"
 import { useMessageList } from "@/components/chat/message-list-provider"
 import { TaskSuggestions } from "@/components/chat/task-suggestions"
+import { t } from "@/i18n";
 import "./session-surfaces.css"
 
 export function WelcomeHeading() {
@@ -16,15 +17,16 @@ export function WelcomeHeading() {
       }}
     >
       <h2 className="lw-session-welcome-title">
-        Hello. <span className="sr-only">Let’s get to work.</span>
+        {t("session_welcome.greeting")}{" "}
+        <span className="sr-only">{t("session_welcome.headline")}</span>
         <span aria-hidden="true">
-          {Array.from("Let’s get to work.", (letter, index) => (
+          {Array.from(t("session_welcome.headline"), (letter, index) => (
             <span key={index} className="lw-welcome-letter" style={{ animationDelay: `${500 + index * 40}ms` }}>{letter}</span>
           ))}
         </span>
       </h2>
       <p className="lw-session-welcome-description">
-        Review a document, draft something new, or explore your files.
+        {t("session_welcome.subtitle")}
       </p>
     </motion.div>
   )
@@ -37,7 +39,7 @@ export function WelcomeSurface({ children, replayKey }: { children: ReactNode; r
   return (
     <motion.section
       key={replayKey}
-      aria-label="Start a conversation"
+      aria-label={t("session_welcome.start_conversation")}
       className="lw-session-welcome"
       initial={reduceMotion ? false : "hidden"}
       animate="visible"

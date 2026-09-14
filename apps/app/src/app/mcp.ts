@@ -12,6 +12,7 @@ export {
   validateMcpServerName,
   type McpIdentity,
 } from "./mcp-identity";
+import { t } from "@/i18n";
 
 /**
  * Slugify a display name into a server name. Alias of `deriveMcpServerName`;
@@ -48,7 +49,7 @@ export async function removeMcpFromConfig(
     updated.endsWith("\n") ? updated : `${updated}\n`,
   ) as { ok: boolean; stderr?: string; stdout?: string };
   if (!writeResult.ok) {
-    throw new Error(writeResult.stderr || writeResult.stdout || "Failed to write opencode.json");
+    throw new Error(writeResult.stderr || writeResult.stdout || t("mcp.write_opencode_failed"));
   }
 }
 

@@ -72,6 +72,8 @@ export type BenchmarkCustomTaskInput = {
 export type BenchmarkTaskResult = {
   providerID: string;
   modelID: string;
+  armId: string;
+  armLabel: string;
   status: BenchmarkItemStatus;
   score: number | null;
   nCriteria: number | null;
@@ -164,6 +166,9 @@ export type BenchmarkAnalyticsStat = {
 export type BenchmarkModelAnalytics = {
   providerID: string;
   modelID: string;
+  /** One row per model×arm — the same model appears once per ablation arm. */
+  armId: string;
+  armLabel: string;
   overall: BenchmarkAnalyticsStat;
   byTag: Array<{ tag: string } & BenchmarkAnalyticsStat>;
 };
@@ -171,6 +176,29 @@ export type BenchmarkModelAnalytics = {
 export type BenchmarkAnalytics = {
   models: BenchmarkModelAnalytics[];
   tags: string[];
+  arms: Array<{ id: string; label: string }>;
+};
+
+/**
+ * Ablation: a capability configuration a run is measured under. Runs expand to
+ * task × model × arm, so the same task is scored with and without a capability.
+ */
+export type BenchmarkSkillPolicy =
+  | { mode: "all" }
+  | { mode: "none" }
+  | { mode: "allow"; names: string[] }
+  | { mode: "deny"; names: string[] };
+
+export type BenchmarkArmConfig = {
+  /** Tool id → enabled. Omitted tools keep the engine default. */
+  tools?: Record<string, boolean>;
+  skills?: BenchmarkSkillPolicy;
+};
+
+export type BenchmarkArm = {
+  id: string;
+  label: string;
+  config: BenchmarkArmConfig;
 };
 
 export type BenchmarkRunSummary = {
@@ -179,6 +207,7 @@ export type BenchmarkRunSummary = {
   status: BenchmarkRunStatus;
   judgeModel: BenchmarkModelRef;
   models: BenchmarkModelRef[];
+  arms: BenchmarkArm[];
   concurrency: number;
   catalogRef: string | null;
   createdAt: number;
@@ -202,6 +231,8 @@ export type BenchmarkRunItem = {
   tags: string[];
   providerID: string;
   modelID: string;
+  armId: string;
+  armLabel: string;
   status: BenchmarkItemStatus;
   score: number | null;
   nCriteria: number | null;
@@ -251,6 +282,8 @@ export type BenchmarkRunCreateInput = {
   models: BenchmarkModelRef[];
   judgeModel?: BenchmarkModelRef;
   concurrency?: number;
+  /** Ablation arms; omitted means a single unablated baseline arm. */
+  arms?: Array<{ id?: string; label: string; config?: BenchmarkArmConfig }>;
 };
 
 export const DEFAULT_JUDGE_MODEL: BenchmarkModelRef = {

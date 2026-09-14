@@ -274,7 +274,7 @@ export function HubDownloadSection({
                   updateAvailable={updateAvailable}
                   installedLabel={isPreset ? t("firm_hub.applied_badge") : t("firm_hub.installed_badge")}
                   actionIcon={<Download className="size-4" />}
-                  actionLabel={item.kind === "plugin" && !item.pinned ? "Admin approval required" : isPreset ? t("firm_hub.apply") : t("firm_hub.install")}
+                  actionLabel={item.kind === "plugin" && !item.pinned ? t("hub_download.admin_approval") : isPreset ? t("firm_hub.apply") : t("firm_hub.install")}
                   actionDisabled={item.kind === "plugin" && !item.pinned}
                   reactionLabel={isPreset ? t("firm_hub.reapply") : t("firm_hub.reinstall")}
                   onAction={() => {
@@ -290,14 +290,14 @@ export function HubDownloadSection({
       </Card>
       <ConfirmModal
         open={pendingInstall !== null}
-        title={pendingInstall?.wasInstalled ? "Review and update shared item" : "Review and install shared item"}
+        title={pendingInstall?.wasInstalled ? t("hub_download.review_update") : t("hub_download.review_install")}
         message={pendingInstall ? (
           <span>
             <strong>{prettifyName(pendingInstall.item.name)}</strong> was shared by {sharedBy(pendingInstall.item)}. Skills can change agent behavior and plugins execute code. Installing may replace a local item with the same name.
             {pendingInstall.item.hasSecret && pendingInstall.item.canAccessSecret ? " This MCP also includes a copyable shared credential." : ""}
           </span>
         ) : ""}
-        confirmLabel={pendingInstall?.wasInstalled ? "Trust and update" : "Trust and install"}
+        confirmLabel={pendingInstall?.wasInstalled ? t("hub_download.trust_update") : t("hub_download.trust_install")}
         cancelLabel={t("common.cancel")}
         variant="warning"
         onCancel={() => setPendingInstall(null)}

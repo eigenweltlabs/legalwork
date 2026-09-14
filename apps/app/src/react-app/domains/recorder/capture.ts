@@ -17,6 +17,7 @@
 
 import { audioLoopbackDisable, audioLoopbackEnable } from "@/app/lib/desktop";
 import type { AudioCaptureSourceKind } from "@legalwork/types/audio";
+import { t } from "@/i18n";
 
 const TARGET_SAMPLE_RATE = 16000;
 const PCM_BATCH_SAMPLES = 4096; // 256 ms at 16 kHz
@@ -249,7 +250,7 @@ export async function startCapture(
     if (sources.includes("system")) {
       streams.set("system", await requestSystemStream());
     }
-    if (streams.size === 0) throw new Error("No audio sources selected.");
+    if (streams.size === 0) throw new Error(t("recorder.no_audio_sources"));
 
     const mix = context.createGain();
     for (const [kind, stream] of streams) {

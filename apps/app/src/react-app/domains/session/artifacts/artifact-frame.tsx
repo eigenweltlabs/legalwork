@@ -3,6 +3,7 @@ import { Maximize2, Minimize2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { PanelHeader } from "@/react-app/design-system/panel-chrome";
+import { t } from "@/i18n";
 
 export function ArtifactFrame({ title, icon, meta, actions, expandable, children }: {
   title: string;
@@ -25,11 +26,11 @@ export function ArtifactFrame({ title, icon, meta, actions, expandable, children
         {expandable && (
           <Tooltip>
             <TooltipTrigger render={(
-              <Button variant="ghost" size="icon-sm" onClick={() => setExpanded(!expanded)} aria-label={expanded ? "Restore document panel" : "Expand document"}>
+              <Button variant="ghost" size="icon-sm" onClick={() => setExpanded(!expanded)} aria-label={expanded ? t("artifact.restore_panel") : t("artifact.expand_document")}>
                 {expanded ? <Minimize2 /> : <Maximize2 />}
               </Button>
             )} />
-            <TooltipContent>{expanded ? "Restore document panel" : "Expand document"}</TooltipContent>
+            <TooltipContent>{expanded ? t("artifact.restore_panel") : t("artifact.expand_document")}</TooltipContent>
           </Tooltip>
         )}
       </PanelHeader>

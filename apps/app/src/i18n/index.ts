@@ -1,73 +1,48 @@
 import en from "./locales/en";
-import ja from "./locales/ja";
-import zh from "./locales/zh";
-import vi from "./locales/vi";
-import ptBR from "./locales/pt-BR";
-import th from "./locales/th";
-import fr from "./locales/fr";
-import ca from "./locales/ca";
-import es from "./locales/es";
-import ru from "./locales/ru";
 import de from "./locales/de";
 export const LANGUAGE_PREF_KEY = "legalwork.language";
 
 /**
- * Supported languages
+ * Supported languages.
+ *
+ * Only fully translated languages ship. `locales/` still holds partial
+ * ja/zh/vi/pt-BR/th/fr/ca/es/ru files from an earlier pass (all under 50%
+ * translated); they are deliberately not registered here, so they appear
+ * neither in the Settings picker nor in auto-detection. To bring one back,
+ * finish its translation and add it to `Language`, `LANGUAGES`,
+ * `LANGUAGE_OPTIONS`, `TRANSLATIONS` and `pluralRulesByLanguage` below, plus
+ * `COMPLETE` in `scripts/i18n-check.ts`.
  */
-export type Language = "en" | "ja" | "zh" | "vi" | "pt-BR" | "th" | "fr" | "ca" | "es" | "ru" | "de";
+export type Language = "en" | "de";
 export type Locale = Language;
 
 /**
- * All supported languages - single source of truth
+ * What the user picked in Settings. `"system"` means "follow the OS/browser
+ * language", which is also the default for a fresh install.
  */
-export const LANGUAGES: Language[] = ["en", "ja", "zh", "vi", "pt-BR", "th", "fr", "ca", "es", "ru", "de"];
+export type LanguagePreference = Language | "system";
+
+export const SYSTEM_LANGUAGE: LanguagePreference = "system";
+
+/**
+ * All supported languages - single source of truth. Drives the Settings
+ * picker AND auto-detection, so the two can never disagree.
+ */
+export const LANGUAGES: Language[] = ["en", "de"];
 
 /**
  * Language options for UI - single source of truth
  */
 export const LANGUAGE_OPTIONS = [
   { value: "en" as Language, label: "English", nativeName: "English" },
-  { value: "ja" as Language, label: "Japanese", nativeName: "日本語" },
-  { value: "zh" as Language, label: "Chinese (Simplified)", nativeName: "简体中文" },
-  { value: "vi" as Language, label: "Vietnamese", nativeName: "Tiếng Việt" },
-  { value: "pt-BR" as Language, label: "Portuguese (BR)", nativeName: "Português (BR)" },
-  { value: "th" as Language, label: "Thai", nativeName: "ไทย" },
-  { value: "fr" as Language, label: "French", nativeName: "Français" },
-  { value: "ca" as Language, label: "Catalan", nativeName: "Català" },
-  { value: "es" as Language, label: "Spanish", nativeName: "Español" },
-  { value: "ru" as Language, label: "Russian", nativeName: "Русский" },
   { value: "de" as Language, label: "German", nativeName: "Deutsch" },
 ] as const;
-
-const PLURAL_SUFFIX_EMPTY_LANGUAGES = new Set<Language>(["ja", "zh", "th"]);
-
-/**
- * Current translation strings use an English-style plural suffix placeholder.
- * Some locales render the noun without a visible plural marker, so we keep
- * that suffix empty for them.
- */
-export const pluralSuffix = (locale: Language, count: number): string => {
-  if (PLURAL_SUFFIX_EMPTY_LANGUAGES.has(locale)) {
-    return "";
-  }
-
-  return count === 1 ? "" : "s";
-};
 
 /**
  * Translation maps
  */
 const TRANSLATIONS: Record<Language, Record<string, string>> = {
   en,
-  ja,
-  zh,
-  vi,
-  "pt-BR": ptBR,
-  th,
-  fr,
-  ca,
-  es,
-  ru,
   de,
 };
 
@@ -79,7 +54,76 @@ export const isLanguage = (value: unknown): value is Language => {
   return typeof value === "string" && LANGUAGES.includes(value as Language);
 };
 
+export const isLanguagePreference = (value: unknown): value is LanguagePreference => {
+  return value === SYSTEM_LANGUAGE || isLanguage(value);
+};
+
+/* ------------------------------------------------------------------ */
+/*  System language detection                                          */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Map a single BCP-47 tag onto a supported language, or null when we ship no
+ * translation for it. Matching is case-insensitive and tries the full tag
+ * first, then the primary subtag ("de-AT" -> "de").
+ *
+ * A regional locale (say "pt-BR") would also need an alias table here so a
+ * bare "pt" resolves to it; with only "en" and "de" shipping, the primary
+ * subtag is enough.
+ */
+export const matchLanguageTag = (tag: string): Language | null => {
+  const normalized = tag.trim().toLowerCase();
+  if (!normalized) return null;
+
+  const exact = LANGUAGES.find((language) => language.toLowerCase() === normalized);
+  if (exact) return exact;
+
+  const primary = normalized.split("-")[0];
+  return LANGUAGES.find((language) => language.toLowerCase().split("-")[0] === primary) ?? null;
+};
+
+/**
+ * The language the OS/browser asks for, or "en" when none of the preferred
+ * languages is one we ship. `navigator.languages` is ordered by preference, so
+ * the first supported entry wins.
+ */
+export const detectSystemLanguage = (): Language => {
+  if (typeof navigator === "undefined") return "en";
+
+  const tags = Array.isArray(navigator.languages) && navigator.languages.length > 0
+    ? navigator.languages
+    : [navigator.language];
+
+  for (const tag of tags) {
+    if (typeof tag !== "string") continue;
+    const matched = matchLanguageTag(tag);
+    if (matched) return matched;
+  }
+
+  return "en";
+};
+
+/* ------------------------------------------------------------------ */
+/*  Current locale + subscriptions                                     */
+/* ------------------------------------------------------------------ */
+
 let localeValue: Language = "en";
+let preferenceValue: LanguagePreference = SYSTEM_LANGUAGE;
+
+const listeners = new Set<() => void>();
+
+/**
+ * Subscribe to locale changes. Returns an unsubscribe function, so this plugs
+ * straight into `useSyncExternalStore`.
+ */
+export const subscribeLocale = (listener: () => void): (() => void) => {
+  listeners.add(listener);
+  return () => listeners.delete(listener);
+};
+
+const notify = () => {
+  for (const listener of listeners) listener();
+};
 
 /**
  * Get current locale
@@ -90,6 +134,23 @@ function locale(): Language {
 }
 
 /**
+ * The stored Settings choice: an explicit language, or "system" when the app
+ * follows the OS/browser.
+ */
+export const currentLanguagePreference = (): LanguagePreference => preferenceValue;
+
+const applyLocale = (next: Language) => {
+  const changed = localeValue !== next;
+  localeValue = next;
+
+  if (typeof document !== "undefined") {
+    document.documentElement.setAttribute("lang", next);
+  }
+
+  if (changed) notify();
+};
+
+/**
  * Set locale and persist to localStorage
  */
 export const setLocale = (newLocale: Language) => {
@@ -98,20 +159,34 @@ export const setLocale = (newLocale: Language) => {
     newLocale = "en";
   }
 
-  localeValue = newLocale;
+  setLanguagePreference(newLocale);
+};
 
-  if (typeof document !== "undefined") {
-    document.documentElement.setAttribute("lang", newLocale);
+/**
+ * Persist the Settings choice. `"system"` drops the stored override so the app
+ * follows the OS/browser language from now on.
+ */
+export const setLanguagePreference = (preference: LanguagePreference) => {
+  if (!isLanguagePreference(preference)) {
+    console.warn(`Invalid language preference: ${preference}, falling back to "system"`);
+    preference = SYSTEM_LANGUAGE;
   }
 
-  // Persist to localStorage
+  const previousPreference = preferenceValue;
+  preferenceValue = preference;
+
   if (typeof window !== "undefined") {
     try {
-      window.localStorage.setItem(LANGUAGE_PREF_KEY, newLocale);
+      window.localStorage.setItem(LANGUAGE_PREF_KEY, preference);
     } catch (e) {
       console.warn("Failed to persist language preference:", e);
     }
   }
+
+  applyLocale(preference === SYSTEM_LANGUAGE ? detectSystemLanguage() : preference);
+  // The resolved locale can be unchanged (picking "German" while the system is
+  // already German), but the Settings row still has to redraw.
+  if (previousPreference !== preference) notify();
 };
 
 /**
@@ -125,15 +200,6 @@ const lookupEntry = (loc: Language, candidateKey: string): string | null => {
 
 const pluralRulesByLanguage: Record<Language, Intl.PluralRules> = {
   en: new Intl.PluralRules("en"),
-  ja: new Intl.PluralRules("ja"),
-  zh: new Intl.PluralRules("zh"),
-  vi: new Intl.PluralRules("vi"),
-  "pt-BR": new Intl.PluralRules("pt-BR"),
-  th: new Intl.PluralRules("th"),
-  fr: new Intl.PluralRules("fr"),
-  ca: new Intl.PluralRules("ca"),
-  es: new Intl.PluralRules("es"),
-  ru: new Intl.PluralRules("ru"),
   de: new Intl.PluralRules("de"),
 };
 const pluralRule = (loc: Language, count: number): Intl.LDMLPluralRule => {
@@ -143,8 +209,7 @@ const pluralRule = (loc: Language, count: number): Intl.LDMLPluralRule => {
 /**
  * Pick the right key variant for a count. Tries `${key}_zero` (only when count === 0),
  * then `${key}_${rule}` (e.g. `_one` / `_other`), then `${key}_other`, then the bare
- * key. Asian locales (no grammatical plural) define only the bare key and hit the
- * final step. Each candidate runs through the locale → English fallback so an
+ * key. Each candidate runs through the locale → English fallback so an
  * untranslated key still resolves to the English `_one` / `_other` variant.
  */
 const resolvePluralKey = (loc: Language, key: string, count: number): string => {
@@ -196,30 +261,30 @@ export const t = (
 };
 
 /**
- * Initialize locale from localStorage
- * Call this during app initialization
+ * Initialize locale from localStorage, falling back to the OS/browser language
+ * when the user has never picked one (or picked "System"). A stored language
+ * we no longer ship fails the guard and falls back to detection.
+ * Call this during app initialization.
  */
 export const initLocale = (): Language => {
   if (typeof window === "undefined") {
     return "en";
   }
 
+  let stored: string | null = null;
   try {
-    const stored = window.localStorage.getItem(LANGUAGE_PREF_KEY);
-    if (isLanguage(stored)) {
-      localeValue = stored;
-      if (typeof document !== "undefined") {
-        document.documentElement.setAttribute("lang", stored);
-      }
-      return stored;
-    }
+    stored = window.localStorage.getItem(LANGUAGE_PREF_KEY);
   } catch (e) {
     console.warn("Failed to read language preference:", e);
   }
 
+  preferenceValue = isLanguagePreference(stored) ? stored : SYSTEM_LANGUAGE;
+  const resolved = preferenceValue === SYSTEM_LANGUAGE ? detectSystemLanguage() : preferenceValue;
+
+  localeValue = resolved;
   if (typeof document !== "undefined") {
-    document.documentElement.setAttribute("lang", "en");
+    document.documentElement.setAttribute("lang", resolved);
   }
 
-  return "en";
+  return resolved;
 };

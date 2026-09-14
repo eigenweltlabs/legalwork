@@ -17,6 +17,7 @@ import {
   startBackgroundHydration,
   type CatalogItem,
 } from "../benchmarks/harvey-catalog.js";
+import { normalizeSkillPolicy } from "../benchmarks/ablation.js";
 import type { BenchmarkLatestResultRow, BenchmarkStore, BenchmarkTaskRow } from "../benchmarks/store.js";
 import { removeTaskDocumentsScratchDir, stageTaskDocuments } from "../benchmarks/workdir.js";
 import { buildTasksZip, MAX_ZIP_TASKS, parseTasksZip } from "../benchmarks/task-zip.js";
@@ -113,6 +114,8 @@ async function serializeTask(
     latestResults: latestResults.map((result) => ({
       providerID: result.providerID,
       modelID: result.modelID,
+      armId: result.armId,
+      armLabel: result.armLabel,
       status: result.status,
       score: result.score,
       nCriteria: result.nCriteria,
@@ -223,6 +226,38 @@ export function registerBenchmarkRoutes(options: RegisterBenchmarkRoutesOptions)
     const index = await loadHarveyIndex(store);
     const task = await getHarveyTask(store, index.ref, key);
     return jsonResponse({ key, ref: index.ref, task });
+  });
+
+  // ---- Ablation ------------------------------------------------------------
+
+  /**
+   * The ablation policy for an agent session, polled by the benchmark plugin's
+   * `skill` gate. Not workspace-scoped: the plugin runs inside the engine and
+   * knows only the session id. Sessions that are not benchmark items resolve to
+   * `null`, which the plugin caches so ordinary chat pays nothing for this.
+   */
+  addRoute(routes, "GET", "/benchmarks/session-ablation", "client", async (ctx) => {
+    const sessionId = (ctx.url.searchParams.get("session") ?? "").trim();
+    if (!sessionId) {
+      throw new ApiError(400, "invalid_query", "session is required");
+    }
+    const store = await getStore();
+    const arm = store.getArmBySessionId(sessionId);
+    if (!arm) return jsonResponse({ session: sessionId, arm: null });
+    return jsonResponse({
+      session: sessionId,
+      arm: { runId: arm.runId, id: arm.id, label: arm.label, skills: normalizeSkillPolicy(arm.config.skills) },
+    });
+  });
+
+  /**
+   * Tool ids the engine currently exposes, for the ablation picker. Proxied
+   * because the id list depends on the workspace's plugins and MCP servers.
+   */
+  addRoute(routes, "GET", "/workspace/:id/benchmarks/tool-ids", "client", async (ctx) => {
+    const workspace = await resolveWorkspace(config, ctx.params.id);
+    const ids = await runner.listToolIds(workspace);
+    return jsonResponse({ items: ids });
   });
 
   // ---- Task table (imported Harvey tasks + custom tasks) ---------------------

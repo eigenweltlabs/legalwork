@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { parseSpreadsheet, serializeSpreadsheet, type SpreadsheetRows } from "./artifact-spreadsheet-model";
 import { cn } from "@/lib/utils";
 import type { Data } from "./open-target";
+import { t } from "@/i18n";
 
 type ArtifactSpreadsheetEditorProps = {
   className?: string;
@@ -98,7 +99,7 @@ export function ArtifactSpreadsheetEditor(props: ArtifactSpreadsheetEditorProps)
   if (error) {
     return (
       <div className="p-4 text-sm text-muted-foreground">
-        {error instanceof Error ? error.message : "Failed to parse spreadsheet"}
+        {error instanceof Error ? error.message : t("artifact.parse_failed")}
       </div>
     );
   }

@@ -11,11 +11,13 @@ import { Button } from "@/components/ui/button";
 import { Toaster, toast } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { initLocale } from "@/i18n";
+import { useLocale } from "@/i18n/use-locale";
 import { cn } from "@/lib/utils";
 import { PanelEmptyState } from "@/react-app/design-system/panel-chrome";
 import { GeneralSettingsView } from "@/react-app/domains/settings/pages/general-view";
 import { PreferencesView } from "@/react-app/domains/settings/pages/preferences-view";
 import { SettingsShell } from "@/react-app/domains/settings/shell/settings-shell";
+import { AppearanceView } from "@/react-app/domains/settings/pages/appearance-view";
 import type { HideAppMode } from "@/react-app/kernel/local-provider";
 import { ReloadCoordinatorProvider } from "@/react-app/shell/reload-coordinator";
 import { ShellConfigProvider } from "@/react-app/shell/shell-config";
@@ -31,7 +33,12 @@ const workspaces = [
 ];
 
 function SettingsPreview() {
-  const [activeTab, setActiveTab] = useState<SettingsTab>(params.get("tab") === "preferences" ? "preferences" : "general");
+  // Repaint on language change, the way AppRoot does in the real app.
+  useLocale();
+  const [activeTab, setActiveTab] = useState<SettingsTab>(() => {
+    const requested = params.get("tab");
+    return requested === "preferences" || requested === "appearance" ? requested : "general";
+  });
   const [compact, setCompact] = useState(params.has("compact"));
   const [selectedWorkspace, setSelectedWorkspace] = useState(workspaces[0]);
   const [analyticsEnabled, setAnalyticsEnabled] = useState(false);
@@ -64,6 +71,9 @@ function SettingsPreview() {
         >
           {activeTab === "general" ? (
             <GeneralSettingsView onNavigateTab={setActiveTab} developerMode={false} />
+          ) : activeTab === "appearance" ? (
+            // The same language picker Settings -> Customization renders.
+            <AppearanceView busy={false} />
           ) : activeTab === "preferences" ? (
             <PreferencesView
               busy={false}

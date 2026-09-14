@@ -35,6 +35,7 @@ import { AppTray } from "./tray.mjs";
 import { pinWindowsProcessQoS } from "./windows-qos.mjs";
 import { registerMigrationIpc } from "./migration.mjs";
 import { createRuntimeManager, resolveLegalworkServerConfigPath } from "./runtime.mjs";
+import { createMcpOAuthCallbackBroker, watchMcpOAuthOwner } from "./mcp-oauth-callback.mjs";
 import { buildSupportBundleText, defaultSupportBundleFileName } from "./support-bundle.mjs";
 import {
   ELECTRON_UPDATER_FALLBACK_FEEDS,
@@ -52,6 +53,10 @@ import { createApplicationMenu } from "./app-menu.mjs";
 import { createBrowserPanel } from "./browser-panel.mjs";
 import { createWorkspaceStore } from "./workspace-store.mjs";
 import { exportSkillFolder, readSkillArchive } from "./workspace-archive.mjs";
+
+const mcpOAuthCallbacks = createMcpOAuthCallbackBroker();
+const mcpOAuthOwners = new WeakSet();
+app.on("will-quit", () => mcpOAuthCallbacks.close());
 
 // Privileged scheme for in-app recording playback. Must be registered before
 // app "ready"; the handler is attached in whenReady. `stream` enables Range
@@ -2213,36 +2218,6 @@ const desktopCommandHandlers = {
   "readOpencodeConfig": async (event, ...args) => {
       return readOpencodeConfig(String(args[0] ?? "").trim(), String(args[1] ?? "").trim());
   },
-  // One MCP server in ~/.config/legalwork/runtime-opencode-config.json — the
-  // file the packaged engine reads for every workspace instance (its log lists
-  // it on each rebuild), which is what makes a connector global. The global
-  // opencode config is not on that list, and the workspace config only covers
-  // one workspace. Merge, never rewrite: the file also carries state written by
-  // a LegalWork server when one manages this machine.
-  "mergeRuntimeMcpServer": async (event, ...args) => {
-      const name = String(args[0] ?? "").trim();
-      if (!name) return execResult(false, "MCP name is required");
-      const config = args[1] && typeof args[1] === "object" ? args[1] : null;
-      const dir = path.join(os.homedir(), ".config", "legalwork");
-      const file = path.join(dir, "runtime-opencode-config.json");
-      let current = {};
-      try {
-        current = JSON.parse(await readFile(file, "utf8"));
-      } catch {
-        // Absent or unreadable: start from empty and create it.
-      }
-      if (typeof current !== "object" || current === null || Array.isArray(current)) current = {};
-      const mcp = typeof current.mcp === "object" && current.mcp !== null && !Array.isArray(current.mcp) ? current.mcp : {};
-      if (config) mcp[name] = config;
-      else delete mcp[name];
-      const next = { ...current, mcp };
-      await mkdir(dir, { recursive: true });
-      // Atomic, so the engine never reads a partial file mid-rebuild.
-      const tmp = `${file}.${Date.now()}.tmp`;
-      await writeFile(tmp, `${JSON.stringify(next, null, 2)}\n`, "utf8");
-      await rename(tmp, file);
-      return execResult(true, `Merged ${name} into ${file}`);
-  },
   "writeOpencodeConfig": async (event, ...args) => {
       return writeOpencodeConfig(
         String(args[0] ?? "").trim(),
@@ -2258,6 +2233,25 @@ const desktopCommandHandlers = {
   },
   "opencodeMcpAuth": async (event, ...args) => {
       return runtimeManager.opencodeMcpAuth(String(args[0] ?? "").trim(), String(args[1] ?? "").trim());
+  },
+  "mcpOAuthListen": async (event, options = {}) => {
+      const owner = event.sender.id;
+      if (!mcpOAuthOwners.has(event.sender)) {
+        mcpOAuthOwners.add(event.sender);
+        watchMcpOAuthOwner(event.sender, mcpOAuthCallbacks);
+      }
+      const listener = await mcpOAuthCallbacks.listen(options, owner);
+      if (event.sender.isDestroyed()) {
+        mcpOAuthCallbacks.cancel(listener.listenerId, owner);
+        throw new Error("Sign-in cancelled.");
+      }
+      return listener;
+  },
+  "mcpOAuthWait": async (event, options) => {
+      return mcpOAuthCallbacks.wait(options, event.sender.id);
+  },
+  "mcpOAuthCancel": async (event, listenerId) => {
+      mcpOAuthCallbacks.cancel(listenerId, event.sender.id);
   },
   "setWindowDecorations": async (event, ...args) => {
       return undefined;

@@ -5,6 +5,7 @@ import { supportBundleCollect } from "../../app/lib/desktop";
 import { isDesktopRuntime } from "../../app/utils";
 import { useBootState, useBootOverlayVisible } from "./boot-state";
 import { OwDotTicker } from "./dot-ticker";
+import { t } from "@/i18n";
 
 const RELEASES_URL = "https://github.com/eigenweltlabs/legalwork/releases";
 
@@ -51,11 +52,11 @@ function CollectLogsButton() {
         disabled={state.status === "collecting"}
         className="rounded-md border border-dls-border px-3 py-1.5 text-[12px] leading-5 text-dls-text hover:bg-dls-hover disabled:opacity-60"
       >
-        {state.status === "collecting" ? "Collecting logs..." : "Collect logs for support"}
+        {state.status === "collecting" ? t("boot.collecting_logs") : t("boot.collect_logs")}
       </button>
       {state.status === "failed" ? (
         <div className="text-[11px] leading-4 text-dls-secondary">
-          Could not collect logs. Try Help &gt; Collect Support Logs...
+          {t("app.collect_logs_failed")}
         </div>
       ) : null}
     </div>
@@ -87,7 +88,7 @@ export function LoadingOverlay() {
       <div className="flex w-full max-w-[320px] flex-col items-center gap-4 px-6 text-center">
         <OwDotTicker size="md" />
         <div className="text-[12px] leading-5 text-dls-secondary">
-          {message || "Preparing workspace"}
+          {message || t("boot.preparing_workspace")}
         </div>
         {error ? (
           <div className="flex flex-col items-center gap-3 text-[12px] leading-5 text-red-11">

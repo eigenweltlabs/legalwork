@@ -19,6 +19,7 @@ import type { ComposerDraft, WorkspaceSessionGroup } from "@/app/types";
 import { Toaster, toast } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { initLocale } from "@/i18n";
+import { useLocale } from "@/i18n/use-locale";
 import { SessionPage } from "@/react-app/domains/session/chat/session-page";
 import { seedSessionState, snapshotKey, transcriptKey } from "@/react-app/domains/session/sync/session-sync";
 import { getReactQueryClient } from "@/react-app/infra/query-client";
@@ -136,6 +137,8 @@ const fixtureClient: LegalworkServerClient = {
 };
 
 function SessionPreview() {
+  // Repaint on language change, the way AppRoot does in the real app.
+  useLocale();
   const [selectedSessionId, setSelectedSessionId] = useState(welcomeId);
   const [revision, setRevision] = useState(0);
   const groups: WorkspaceSessionGroup[] = [
@@ -180,7 +183,7 @@ function SessionPreview() {
             onOpenSession: (_workspaceId, id) => setSelectedSessionId(id), onCreateTaskInWorkspace: newTask,
             onOpenRenameWorkspace: previewNotice, onRevealWorkspace: previewNotice, onForgetWorkspace: previewNotice,
             onOpenCreateWorkspace: previewNotice, onCreateTaskInNewWorkspace: previewNotice,
-            onShowLearnings: previewNotice, onShowWorkflows: previewNotice, onShowExtensions: previewNotice, onShowRecorder: previewNotice,
+            onShowEvals: previewNotice, onShowWorkflows: previewNotice, onShowExtensions: previewNotice, onShowRecorder: previewNotice,
           }}
           surface={{
             workspaceRoot: workspace.path, developerMode: false, modelLabel: "Preview model", onModelClick: previewNotice,

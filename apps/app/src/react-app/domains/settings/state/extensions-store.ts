@@ -375,7 +375,7 @@ export function createExtensionsStore(options: {
     }
 
     if (isRemoteWorkspace) {
-      throw new Error("LegalWork server unavailable. Connect to import skills.");
+      throw new Error(t("extensions.server_unavailable_import_skills"));
     }
 
     throw new Error(t("skills.desktop_required"));
@@ -406,7 +406,7 @@ export function createExtensionsStore(options: {
     }
 
     if (isRemoteWorkspace) {
-      throw new Error("LegalWork server unavailable. Connect to remove skills.");
+      throw new Error(t("extensions.server_unavailable_remove_skills"));
     }
 
     throw new Error(t("skills.desktop_required"));
@@ -464,7 +464,7 @@ export function createExtensionsStore(options: {
         mutateState((current) => ({
           ...current,
           hubSkills: [],
-          hubSkillsStatus: "No hub repo selected. Add a GitHub repo to browse skills.",
+          hubSkillsStatus: t("extensions.no_hub_repo"),
         }));
         hubSkillsLoaded = true;
         hubSkillsLoadKey = loadKey;
@@ -491,7 +491,7 @@ export function createExtensionsStore(options: {
         mutateState((current) => ({
           ...current,
           hubSkills: next,
-          hubSkillsStatus: next.length ? null : "No hub skills found.",
+          hubSkillsStatus: next.length ? null : t("extensions.no_hub_skills"),
           hubSkillsContextKey: getWorkspaceContextKey(),
         }));
         hubSkillsLoaded = true;
@@ -525,7 +525,7 @@ export function createExtensionsStore(options: {
       mutateState((current) => ({
         ...current,
         hubSkills: sorted,
-        hubSkillsStatus: sorted.length ? null : "No hub skills found.",
+        hubSkillsStatus: sorted.length ? null : t("extensions.no_hub_skills"),
         hubSkillsContextKey: getWorkspaceContextKey(),
       }));
       hubSkillsLoaded = true;
@@ -535,7 +535,7 @@ export function createExtensionsStore(options: {
       mutateState((current) => ({
         ...current,
         hubSkills: [],
-        hubSkillsStatus: error instanceof Error ? error.message : "Failed to load hub skills.",
+        hubSkillsStatus: error instanceof Error ? error.message : t("extensions.hub_skills_load_failed"),
       }));
     } finally {
       refreshHubSkillsInFlight = false;
@@ -545,7 +545,7 @@ export function createExtensionsStore(options: {
   async function previewClaudePlugin(url: string): Promise<LegalworkClaudePluginPreview> {
     const target = await resolveWorkspaceServerTarget();
     if (!target.legalworkClient || !target.legalworkWorkspaceId) {
-      throw new Error("LegalWork server unavailable. Connect to install plugins from GitHub.");
+      throw new Error(t("extensions.server_unavailable_github_plugins"));
     }
     const result = await target.legalworkClient.previewClaudePlugin(target.legalworkWorkspaceId, { url });
     return result.preview;
@@ -557,7 +557,7 @@ export function createExtensionsStore(options: {
     try {
       const target = await resolveWorkspaceServerTarget();
       if (!target.legalworkClient || !target.legalworkWorkspaceId) {
-        throw new Error("LegalWork server unavailable. Connect to install plugins from GitHub.");
+        throw new Error(t("extensions.server_unavailable_github_plugins"));
       }
       const result = await target.legalworkClient.installClaudePlugin(target.legalworkWorkspaceId, { url });
       await refreshSkills({ force: true });
@@ -576,9 +576,9 @@ export function createExtensionsStore(options: {
 
   async function installHubSkill(name: string): Promise<{ ok: boolean; message: string }> {
     const trimmed = name.trim();
-    if (!trimmed) return { ok: false, message: "Skill name is required." };
+    if (!trimmed) return { ok: false, message: t("extensions.skill_name_required") };
     const repo = snapshot.hubRepo;
-    if (!repo) return { ok: false, message: "Select a hub repo before installing skills." };
+    if (!repo) return { ok: false, message: t("extensions.select_hub_repo") };
 
     const isRemoteWorkspace = options.workspaceType() === "remote";
     const { legalworkSnapshot, legalworkClient, legalworkWorkspaceId, hasLegalworkTarget } =
@@ -588,8 +588,8 @@ export function createExtensionsStore(options: {
       legalworkSnapshot.legalworkServerCapabilities?.hub?.skills?.install !== false;
 
     if (!canUseLegalworkServer) {
-      if (isRemoteWorkspace) return { ok: false, message: "LegalWork server unavailable. Connect to install skills." };
-      return { ok: false, message: "Hub install requires LegalWork server." };
+      if (isRemoteWorkspace) return { ok: false, message: t("extensions.server_unavailable_install_skills") };
+      return { ok: false, message: t("extensions.hub_install_requires_server") };
     }
 
     options.setBusy(true);
@@ -598,10 +598,10 @@ export function createExtensionsStore(options: {
 
     try {
       const repoOverride: LegalworkHubRepo = { owner: repo.owner, repo: repo.repo, ref: repo.ref };
-      if (!legalworkClient || !legalworkWorkspaceId) return { ok: false, message: "Hub install requires LegalWork server." };
+      if (!legalworkClient || !legalworkWorkspaceId) return { ok: false, message: t("extensions.hub_install_requires_server") };
       const result = await legalworkClient.installHubSkill(legalworkWorkspaceId, trimmed, { repo: repoOverride });
       await Promise.all([refreshSkills({ force: true }), refreshHubSkills({ force: true })]);
-      if (!result?.ok) return { ok: false, message: "Install failed." };
+      if (!result?.ok) return { ok: false, message: t("extensions.install_failed") };
       return { ok: true, message: `Installed ${trimmed}.` };
     } catch (error) {
       const message = error instanceof Error ? error.message : t("skills.unknown_error");
@@ -615,7 +615,7 @@ export function createExtensionsStore(options: {
   async function scanGithubSkills(url: string, ref?: string): Promise<{ ref: string; skills: GithubSkillItem[] }> {
     const { legalworkClient, legalworkWorkspaceId } = await resolveWorkspaceServerTarget();
     if (!legalworkClient || !legalworkWorkspaceId) {
-      throw new Error("LegalWork server unavailable. Connect to import from GitHub.");
+      throw new Error(t("extensions.server_unavailable_github_import"));
     }
     return legalworkClient.scanGithubSkills(legalworkWorkspaceId, {
       url: url.trim(),
@@ -631,7 +631,7 @@ export function createExtensionsStore(options: {
   }): Promise<{ ok: boolean; message: string }> {
     const { legalworkClient, legalworkWorkspaceId } = await resolveWorkspaceServerTarget();
     if (!legalworkClient || !legalworkWorkspaceId) {
-      return { ok: false, message: "LegalWork server unavailable. Connect to import from GitHub." };
+      return { ok: false, message: t("extensions.server_unavailable_github_import") };
     }
     options.setBusy(true);
     options.setError(null);
@@ -683,7 +683,7 @@ export function createExtensionsStore(options: {
       if (failedCount) parts.push(`${failedCount} failed`);
       return {
         ok: installed > 0,
-        message: parts.length ? `${parts.join(", ")}.` : "Nothing to import.",
+        message: parts.length ? `${parts.join(", ")}.` : t("extensions.nothing_to_import"),
       };
     } catch (error) {
       const message = error instanceof Error ? error.message : t("skills.unknown_error");
@@ -841,7 +841,7 @@ export function createExtensionsStore(options: {
       mutateState((current) => ({
         ...current,
         skills: [],
-        skillsStatus: "LegalWork server cannot read skills for this workspace.",
+        skillsStatus: t("extensions.server_cannot_read_skills"),
       }));
       return;
     }
@@ -893,7 +893,7 @@ export function createExtensionsStore(options: {
       mutateState((current) => ({
         ...current,
         skills: [],
-        skillsStatus: "LegalWork server unavailable. Connect to load skills.",
+        skillsStatus: t("extensions.server_unavailable_skills"),
       }));
       return;
     }
@@ -907,7 +907,7 @@ export function createExtensionsStore(options: {
     try {
       setStateField("skillsStatus", null);
       const rawClient = client as unknown as { _client?: { get: (input: { url: string }) => Promise<unknown> } };
-      if (!rawClient._client) throw new Error("OpenCode client unavailable.");
+      if (!rawClient._client) throw new Error(t("extensions.opencode_client_unavailable"));
       const result = await rawClient._client.get({ url: "/skill" }) as {
         data?: Array<{ name: string; description: string; location: string }>;
         error?: unknown;
@@ -1086,7 +1086,7 @@ export function createExtensionsStore(options: {
     const target = await saveFile({
       title: t("skill_export.dialog_title"),
       defaultPath: `${name}.zip`,
-      filters: [{ name: "Zip archive", extensions: ["zip"] }],
+      filters: [{ name: t("extensions.zip_archive"), extensions: ["zip"] }],
     });
     if (!target) return { ok: true, message: "" }; // user cancelled the dialog
     try {
@@ -1121,9 +1121,9 @@ export function createExtensionsStore(options: {
     if (scope !== "project" && !isLocalWorkspace) {
       mutateState((current) => ({
         ...current,
-        pluginStatus: "Global plugins are only available for local workers.",
+        pluginStatus: t("extensions.global_plugins_local_only"),
         pluginList: [],
-        sidebarPluginStatus: "Global plugins require a local worker.",
+        sidebarPluginStatus: t("extensions.global_plugins_need_local"),
         sidebarPluginList: [],
       }));
       refreshPluginsInFlight = false;
@@ -1148,7 +1148,7 @@ export function createExtensionsStore(options: {
           ...current,
           pluginList: list,
           sidebarPluginList: list.map((entry) => entry.name),
-          pluginStatus: list.length ? null : "No plugins configured yet.",
+          pluginStatus: list.length ? null : t("extensions.no_plugins"),
           sidebarPluginStatus: null,
           pluginsContextKey: getWorkspaceContextKey(),
         }));
@@ -1158,8 +1158,8 @@ export function createExtensionsStore(options: {
           ...current,
           pluginList: [],
           sidebarPluginList: [],
-          sidebarPluginStatus: "Failed to load plugins.",
-          pluginStatus: error instanceof Error ? error.message : "Failed to load plugins.",
+          sidebarPluginStatus: t("extensions.plugins_load_failed"),
+          pluginStatus: error instanceof Error ? error.message : t("extensions.plugins_load_failed"),
         }));
       } finally {
         refreshPluginsInFlight = false;
@@ -1170,9 +1170,9 @@ export function createExtensionsStore(options: {
     if (scope === "project" && hasLegalworkTarget) {
       mutateState((current) => ({
         ...current,
-        pluginStatus: "LegalWork server cannot read plugins for this workspace.",
+        pluginStatus: t("extensions.server_cannot_read_plugins"),
         pluginList: [],
-        sidebarPluginStatus: "LegalWork server cannot read plugins for this workspace.",
+        sidebarPluginStatus: t("extensions.server_cannot_read_plugins"),
         sidebarPluginList: [],
       }));
       refreshPluginsInFlight = false;
@@ -1194,9 +1194,9 @@ export function createExtensionsStore(options: {
     if (!isLocalWorkspace && !canUseLegalworkServer) {
       mutateState((current) => ({
         ...current,
-        pluginStatus: "LegalWork server unavailable. Connect to manage plugins.",
+        pluginStatus: t("extensions.server_unavailable_plugins"),
         pluginList: [],
-        sidebarPluginStatus: "Connect a LegalWork server to load plugins.",
+        sidebarPluginStatus: t("extensions.connect_server_plugins"),
         sidebarPluginList: [],
       }));
       refreshPluginsInFlight = false;
@@ -1296,7 +1296,7 @@ export function createExtensionsStore(options: {
     }
 
     if (snapshot.pluginScope !== "project" && !isLocalWorkspace) {
-      setStateField("pluginStatus", "Global plugins are only available for local workers.");
+      setStateField("pluginStatus", t("extensions.global_plugins_local_only"));
       return;
     }
 
@@ -1308,7 +1308,7 @@ export function createExtensionsStore(options: {
         if (isManualInput) setStateField("pluginInput", "");
         await refreshPlugins("project");
       } catch (error) {
-        setStateField("pluginStatus", error instanceof Error ? error.message : "Failed to add plugin.");
+        setStateField("pluginStatus", error instanceof Error ? error.message : t("extensions.plugin_add_failed"));
       }
       return;
     }
@@ -1324,7 +1324,7 @@ export function createExtensionsStore(options: {
     }
 
     if (!isLocalWorkspace) {
-      setStateField("pluginStatus", "LegalWork server unavailable. Connect to manage plugins.");
+      setStateField("pluginStatus", t("extensions.server_unavailable_plugins"));
       return;
     }
 
@@ -1387,7 +1387,7 @@ export function createExtensionsStore(options: {
       legalworkSnapshot.legalworkServerCapabilities?.plugins?.write !== false;
 
     if (snapshot.pluginScope !== "project" && !isLocalWorkspace) {
-      setStateField("pluginStatus", "Global plugins are only available for local workers.");
+      setStateField("pluginStatus", t("extensions.global_plugins_local_only"));
       return;
     }
 
@@ -1398,7 +1398,7 @@ export function createExtensionsStore(options: {
         options.markReloadRequired?.("plugins", { type: "plugin", name: triggerName, action: "removed" });
         await refreshPlugins("project");
       } catch (error) {
-        setStateField("pluginStatus", error instanceof Error ? error.message : "Failed to remove plugin.");
+        setStateField("pluginStatus", error instanceof Error ? error.message : t("extensions.plugin_remove_failed"));
       }
       return;
     }
@@ -1414,7 +1414,7 @@ export function createExtensionsStore(options: {
     }
 
     if (!isLocalWorkspace) {
-      setStateField("pluginStatus", "LegalWork server unavailable. Connect to manage plugins.");
+      setStateField("pluginStatus", t("extensions.server_unavailable_plugins"));
       return;
     }
 
@@ -1430,7 +1430,7 @@ export function createExtensionsStore(options: {
       const config = (await readOpencodeConfig(scope, targetDir)) as OpencodeConfigFile;
       const raw = config.content ?? "";
       if (!raw.trim()) {
-        setStateField("pluginStatus", "No plugins configured yet.");
+        setStateField("pluginStatus", t("extensions.no_plugins"));
         return;
       }
 
@@ -1528,7 +1528,7 @@ export function createExtensionsStore(options: {
     try {
       const selection = await pickFile({
         title: t("skills.select_skill_zip"),
-        filters: [{ name: "Zip archive", extensions: ["zip"] }],
+        filters: [{ name: t("extensions.zip_archive"), extensions: ["zip"] }],
       });
       const archivePath = typeof selection === "string" ? selection : Array.isArray(selection) ? selection[0] : null;
       if (!archivePath) return;
@@ -1583,13 +1583,13 @@ export function createExtensionsStore(options: {
     }
 
     if (hasLegalworkTarget) {
-      const message = "LegalWork server cannot write skills for this workspace.";
+      const message = t("extensions.server_cannot_write_skills");
       setStateField("skillsStatus", message);
       return { ok: false, message };
     }
 
     if (isRemoteWorkspace) {
-      const message = "LegalWork server unavailable. Connect to install skills.";
+      const message = t("extensions.server_unavailable_install_skills");
       setStateField("skillsStatus", message);
       return { ok: false, message };
     }
@@ -1599,7 +1599,7 @@ export function createExtensionsStore(options: {
       return { ok: false, message };
     }
     if (!isLocalWorkspace) {
-      const message = "Local workers are required to install skills.";
+      const message = t("extensions.local_workers_required_install");
       options.setError(message);
       setStateField("skillsStatus", message);
       return { ok: false, message };
@@ -1724,7 +1724,7 @@ export function createExtensionsStore(options: {
     }
 
     if (hasLegalworkTarget) {
-      setStateField("skillsStatus", "LegalWork server cannot read skills for this workspace.");
+      setStateField("skillsStatus", t("extensions.server_cannot_read_skills"));
       return null;
     }
 
@@ -1791,7 +1791,7 @@ export function createExtensionsStore(options: {
     }
 
     if (hasLegalworkTarget) {
-      setStateField("skillsStatus", "LegalWork server cannot write skills for this workspace.");
+      setStateField("skillsStatus", t("extensions.server_cannot_write_skills"));
       return;
     }
 
@@ -1838,7 +1838,7 @@ export function createExtensionsStore(options: {
   // installSkillTemplate which mkdir's + writes a fresh .opencode/skills/<name>/SKILL.md.
   async function createSkill(input: { name: string; content: string; description?: string }): Promise<{ ok: boolean; message: string }> {
     const trimmed = input.name.trim();
-    if (!trimmed) return { ok: false, message: "Skill name is required." };
+    if (!trimmed) return { ok: false, message: t("extensions.skill_name_required") };
     const root = options.selectedWorkspaceRoot().trim();
     const isRemoteWorkspace = options.workspaceType() === "remote";
     const isLocalWorkspace = options.workspaceType() === "local";
@@ -1898,7 +1898,7 @@ export function createExtensionsStore(options: {
     }
 
     if (hasLegalworkTarget) {
-      const message = "LegalWork server cannot write skills for this workspace.";
+      const message = t("extensions.server_cannot_write_skills");
       setStateField("skillsStatus", message);
       return { ok: false, message };
     }
@@ -1908,7 +1908,7 @@ export function createExtensionsStore(options: {
       return { ok: false, message };
     }
     if (isRemoteWorkspace) {
-      const message = "LegalWork server unavailable. Connect to create skills.";
+      const message = t("extensions.server_unavailable_create_skills");
       setStateField("skillsStatus", message);
       return { ok: false, message };
     }
@@ -1918,7 +1918,7 @@ export function createExtensionsStore(options: {
       return { ok: false, message };
     }
     if (!isLocalWorkspace) {
-      const message = "Local workers are required to create skills.";
+      const message = t("extensions.local_workers_required_create");
       setStateField("skillsStatus", message);
       return { ok: false, message };
     }
@@ -2008,7 +2008,7 @@ export function createExtensionsStore(options: {
         ...current,
         hubRepo: nextRepos[0] ?? null,
         hubSkills: nextRepos.length ? current.hubSkills : [],
-        hubSkillsStatus: nextRepos.length ? current.hubSkillsStatus : "No hub repo selected. Add a GitHub repo to browse skills.",
+        hubSkillsStatus: nextRepos.length ? current.hubSkillsStatus : t("extensions.no_hub_repo"),
       }));
       hubSkillsLoaded = false;
       if (!nextRepos.length) {

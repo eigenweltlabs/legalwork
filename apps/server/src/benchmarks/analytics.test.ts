@@ -6,6 +6,8 @@ function row(patch: Partial<AnalyticsRow>): AnalyticsRow {
     taskKey: "tasks/tax/x",
     providerID: "p",
     modelID: "a",
+    armId: "full",
+    armLabel: "Full",
     vertical: "Tax",
     tags: ["Tax"],
     nPassed: 2,

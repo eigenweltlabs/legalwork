@@ -419,7 +419,7 @@ export function createSessionActionsStore(options: {
         mark("health:error", {
           error: healthErr instanceof Error ? healthErr.message : safeStringify(healthErr),
         });
-        throw new Error("Connection lost");
+        throw new Error(t("session.connection_lost"));
       }
 
       let rawResult: Awaited<ReturnType<typeof c.session.create>>;

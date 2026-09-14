@@ -3,6 +3,7 @@ import { spawn, type ChildProcess } from "node:child_process";
 import { mkdtempSync, rmSync, writeFileSync, existsSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
+import { createMcpOAuthCallbackBroker } from "../../desktop/electron/mcp-oauth-callback.mjs";
 
 /**
  * Full MCP OAuth flow e2e:
@@ -16,7 +17,7 @@ import { join, resolve } from "node:path";
  *
  * The test plays the role of the user's browser by following the
  * authorization URL and the resulting redirect to the engine's loopback
- * callback. This is the same flow the LegalWork desktop app drives through
+ * callback broker, then delivers the code to the engine. This is the same flow the LegalWork desktop app drives through
  * the OAuth modal (apps/app .../connections/mcp-auth-modal.tsx).
  *
  * Skipped automatically when the opencode sidecar binary is not present
@@ -27,6 +28,10 @@ const repoRoot = resolve(import.meta.dir, "../../..");
 const sidecarDir = join(repoRoot, "apps/desktop/resources/sidecars");
 
 function findSidecar(): string | null {
+  if (process.env.OPENCODE_TEST_BINARY) {
+    if (!existsSync(process.env.OPENCODE_TEST_BINARY)) throw new Error("OPENCODE_TEST_BINARY does not exist");
+    return process.env.OPENCODE_TEST_BINARY;
+  }
   const arch = process.arch === "arm64" ? "aarch64" : "x86_64";
   const names =
     process.platform === "darwin"
@@ -74,11 +79,13 @@ describeMaybe("mcp oauth flow against mock provider", () => {
   let engineProc: ChildProcess;
   let mockPort = 0;
   let enginePort = 0;
+  let callbackPort = 0;
   let workDir = "";
   let dataDir = "";
 
   const mockUrl = () => `http://127.0.0.1:${mockPort}`;
   const engineUrl = () => `http://127.0.0.1:${enginePort}`;
+  const callbacks = createMcpOAuthCallbackBroker();
 
   async function engineFetch(path: string, init?: RequestInit) {
     const url = new URL(`${engineUrl()}${path}`);
@@ -89,6 +96,7 @@ describeMaybe("mcp oauth flow against mock provider", () => {
   beforeAll(async () => {
     mockPort = await getFreePort();
     enginePort = await getFreePort();
+    callbackPort = await getFreePort();
 
     workDir = mkdtempSync(join(tmpdir(), "mcp-oauth-ws-"));
     dataDir = mkdtempSync(join(tmpdir(), "mcp-oauth-data-"));
@@ -97,7 +105,7 @@ describeMaybe("mcp oauth flow against mock provider", () => {
       JSON.stringify({
         $schema: "https://opencode.ai/config.json",
         mcp: {
-          [MCP_NAME]: { type: "remote", url: `${mockUrl()}/mcp`, enabled: true, oauth: {} },
+          [MCP_NAME]: { type: "remote", url: `${mockUrl()}/mcp`, enabled: true, oauth: { callbackPort } },
         },
       }),
     );
@@ -115,9 +123,15 @@ describeMaybe("mcp oauth flow against mock provider", () => {
       "mock oauth server",
     );
 
+    // Never inherit the running desktop's config, plugins, or authentication.
+    const engineEnv = { ...process.env };
+    for (const key of Object.keys(engineEnv)) {
+      if (key.startsWith("OPENCODE_")) delete engineEnv[key];
+    }
     engineProc = spawn(enginePath!, ["serve", "--hostname", "127.0.0.1", "--port", String(enginePort)], {
+      cwd: workDir,
       env: {
-        ...process.env,
+        ...engineEnv,
         XDG_DATA_HOME: join(dataDir, "xdg-data"),
         XDG_CONFIG_HOME: join(dataDir, "xdg-config"),
         XDG_STATE_HOME: join(dataDir, "xdg-state"),
@@ -137,6 +151,7 @@ describeMaybe("mcp oauth flow against mock provider", () => {
   }, 60_000);
 
   afterAll(() => {
+    callbacks.close();
     engineProc?.kill();
     mockProc?.kill();
     rmSync(workDir, { recursive: true, force: true });
@@ -151,6 +166,12 @@ describeMaybe("mcp oauth flow against mock provider", () => {
       expect(before[MCP_NAME]).toBeDefined();
       expect(before[MCP_NAME].status).not.toBe("connected");
 
+      // Reserve the callback before auth/start. The engine skips its own
+      // listener when the desktop already owns this port.
+      const listener = await callbacks.listen({
+        redirectUri: `http://127.0.0.1:${callbackPort}/mcp/oauth/callback`,
+      });
+
       // Start the OAuth flow: engine performs discovery + dynamic client
       // registration and hands back the authorization URL it would open
       // in the user's browser.
@@ -163,6 +184,7 @@ describeMaybe("mcp oauth flow against mock provider", () => {
       expect(authUrl.searchParams.get("code_challenge_method")).toBe("S256");
       expect(authUrl.searchParams.get("code_challenge")).toBeTruthy();
       expect(authUrl.searchParams.get("state")).toBeTruthy();
+      const callback = callbacks.wait({ listenerId: listener.listenerId, state: authUrl.searchParams.get("state")! });
 
       // Play the browser: visit the authorization URL. The mock
       // auto-approves and 302s to the engine's loopback callback.
@@ -174,24 +196,20 @@ describeMaybe("mcp oauth flow against mock provider", () => {
       expect(cb.searchParams.get("code")).toBeTruthy();
       expect(cb.searchParams.get("state")).toBe(authUrl.searchParams.get("state"));
 
-      // Follow the redirect into the engine's loopback callback server,
-      // falling back to the manual callback endpoint (the path used for
-      // remote workspaces where the loopback is unreachable).
-      let callbackDelivered = false;
-      try {
-        const res = await fetch(callbackUrl!);
-        callbackDelivered = res.ok;
-      } catch {
-        callbackDelivered = false;
-      }
-      if (!callbackDelivered) {
-        const manual = await engineFetch(`/mcp/${MCP_NAME}/auth/callback`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ code: cb.searchParams.get("code") }),
-        });
-        expect(manual.ok).toBe(true);
-      }
+      // A failed browser callback is a test failure, never hidden by fallback.
+      const browserCallback = await fetch(callbackUrl!);
+      expect(browserCallback.ok).toBe(true);
+      const received = await callback;
+      const expectedCode = cb.searchParams.get("code");
+      if (!expectedCode) throw new Error("Provider callback did not include an authorization code");
+      expect(received.code).toBe(expectedCode);
+      const complete = await engineFetch(`/mcp/${MCP_NAME}/auth/callback`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(received),
+      });
+      expect(complete.ok).toBe(true);
+      expect(await complete.json()).toEqual({ status: "connected" });
 
       // The engine exchanges the code (mock verifies PKCE) and connects.
       const connected = await waitFor(
@@ -226,11 +244,97 @@ describeMaybe("mcp oauth flow against mock provider", () => {
   );
 
   test("logout removes stored tokens and drops the connection", async () => {
+    const disconnect = await engineFetch(`/mcp/${MCP_NAME}/disconnect`, { method: "POST" });
+    expect(disconnect.ok).toBe(true);
     const remove = await engineFetch(`/mcp/${MCP_NAME}/auth`, { method: "DELETE" });
     expect(remove.ok).toBe(true);
 
     const authFile = join(dataDir, "xdg-data", "opencode", "mcp-auth.json");
     const saved = JSON.parse(readFileSync(authFile, "utf8")) as Record<string, unknown>;
     expect(saved[MCP_NAME]).toBeUndefined();
+  }, 30_000);
+
+  test("a provider rejecting dynamic registration connects with its registered client credentials", async () => {
+    const port = await getFreePort();
+    const callbackPort = await getFreePort();
+    const providerUrl = `http://127.0.0.1:${port}`;
+    const name = "mock-registered-client";
+    const mock = spawn("node", [join(repoRoot, "scripts/mock-oauth-mcp-server.mjs")], {
+      env: {
+        ...process.env,
+        PORT: String(port), AUTO_APPROVE: "1", DYNAMIC_REGISTRATION: "0",
+        CLIENT_ID: "legalwork-test-client", CLIENT_SECRET: "legalwork-test-secret",
+      },
+      stdio: "ignore",
+    });
+    let listenerId = "";
+    try {
+      await waitFor(async () => (await fetch(`${providerUrl}/health`)).ok ? true : null, 10_000, "registered-client mock");
+      const listener = await callbacks.listen({ redirectUri: `http://127.0.0.1:${callbackPort}/mcp/oauth/callback` });
+      listenerId = listener.listenerId;
+      const config = { type: "remote", url: `${providerUrl}/mcp`, enabled: true, oauth: { callbackPort } };
+      const add = await engineFetch("/mcp", {
+        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name, config }),
+      });
+      expect(add.ok).toBe(true);
+      const refused = await add.json();
+      expect(refused[name].status).toBe("failed");
+      expect(refused[name].error).toContain("Dynamic client registration is not supported");
+      const rejected = await engineFetch(`/mcp/${name}/auth`, { method: "POST" });
+      expect(rejected.ok).toBe(false);
+
+      const beforeCredentials = await (await fetch(`${providerUrl}/requests`)).json();
+      const registrations = beforeCredentials.requests.filter((request: { path: string }) => request.path === "/register").length;
+      const configured = await engineFetch("/mcp", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name,
+          config: { ...config, oauth: { callbackPort, clientId: "legalwork-test-client", clientSecret: "legalwork-test-secret" } },
+        }),
+      });
+      expect(configured.ok).toBe(true);
+      const started = await (await engineFetch(`/mcp/${name}/auth`, { method: "POST" })).json();
+      const authorizationUrl = new URL(started.authorizationUrl);
+      expect(authorizationUrl.searchParams.get("client_id")).toBe("legalwork-test-client");
+      const waiting = callbacks.wait({ listenerId, state: started.oauthState });
+      const browser = await fetch(authorizationUrl);
+      expect(browser.ok).toBe(true);
+      const complete = await engineFetch(`/mcp/${name}/auth/callback`, {
+        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(await waiting),
+      });
+      expect(complete.ok).toBe(true);
+      expect(await complete.json()).toEqual({ status: "connected" });
+      const afterCredentials = await (await fetch(`${providerUrl}/requests`)).json();
+      expect(afterCredentials.requests.filter((request: { path: string }) => request.path === "/register").length).toBe(registrations);
+    } finally {
+      callbacks.cancel(listenerId);
+      mock.kill();
+    }
+  }, 30_000);
+
+  test("manual callback is a separate explicit flow when no desktop broker is available", async () => {
+    const start = await engineFetch(`/mcp/${MCP_NAME}/auth`, { method: "POST" });
+    const started = await start.json();
+    const authorizationUrl = new URL(started.authorizationUrl);
+    const authorize = await fetch(authorizationUrl, { redirect: "manual" });
+    const location = authorize.headers.get("location");
+    expect(location).toBeTruthy();
+    const callbackUrl = new URL(location!);
+
+    // auth/start alone has no engine waiter. Guard against the old UI's
+    // assumption that polling would magically finish this callback.
+    const unsupportedAutomaticCallback = await fetch(callbackUrl);
+    expect(unsupportedAutomaticCallback.status).toBe(400);
+    const beforeManual = await (await engineFetch("/mcp")).json();
+    expect(beforeManual[MCP_NAME].status).not.toBe("connected");
+
+    expect(callbackUrl.searchParams.get("state")).toBe(authorizationUrl.searchParams.get("state"));
+    const complete = await engineFetch(`/mcp/${MCP_NAME}/auth/callback`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ code: callbackUrl.searchParams.get("code") }),
+    });
+    expect(complete.ok).toBe(true);
+    expect(await complete.json()).toEqual({ status: "connected" });
   }, 30_000);
 });

@@ -6,11 +6,18 @@ const host = process.env.HOST || "127.0.0.1";
 const port = Number(process.env.PORT || 3978);
 const issuer = process.env.ISSUER || `http://${host}:${port}`;
 const autoApprove = process.env.AUTO_APPROVE !== "0";
+const dynamicRegistration = process.env.DYNAMIC_REGISTRATION !== "0";
 
 const clients = new Map();
 const codes = new Map();
 const tokens = new Set();
 const requests = [];
+if (process.env.CLIENT_ID) {
+  clients.set(process.env.CLIENT_ID, {
+    client_id: process.env.CLIENT_ID,
+    client_secret: process.env.CLIENT_SECRET,
+  });
+}
 
 function json(res, status, body, headers = {}) {
   res.writeHead(status, {
@@ -114,6 +121,10 @@ function redirectWithCode(res, params) {
 }
 
 function authorize(req, res, url) {
+  if (!clients.has(url.searchParams.get("client_id"))) {
+    json(res, 400, { error: "invalid_client", error_description: "Unknown OAuth client" });
+    return;
+  }
   if (autoApprove) {
     redirectWithCode(res, url.searchParams);
     return;
@@ -135,6 +146,13 @@ function authorize(req, res, url) {
 }
 
 async function registerClient(req, res) {
+  if (!dynamicRegistration) {
+    json(res, 400, {
+      error: "invalid_client_metadata",
+      error_description: "Dynamic client registration is not supported. Only pre-registered MCP trusted partners are allowed.",
+    });
+    return;
+  }
   const body = await readJson(req).catch(() => ({}));
   const clientId = `mock-client-${randomUUID()}`;
   const client = {
@@ -152,12 +170,25 @@ async function registerClient(req, res) {
 
 async function issueToken(req, res) {
   const form = await readForm(req);
+  const authorization = req.headers.authorization || "";
+  const credentials = authorization.startsWith("Basic ")
+    ? Buffer.from(authorization.slice(6), "base64").toString().split(":")
+    : [form.client_id, form.client_secret];
+  const client = clients.get(credentials[0]);
+  if (!client || (client.client_secret && credentials[1] !== client.client_secret)) {
+    json(res, 401, { error: "invalid_client" });
+    return;
+  }
   const grantType = form.grant_type || "authorization_code";
 
   if (grantType === "authorization_code") {
     const grant = codes.get(form.code);
     if (!grant) {
       json(res, 400, { error: "invalid_grant" });
+      return;
+    }
+    if (grant.clientId !== client.client_id) {
+      json(res, 400, { error: "invalid_grant", error_description: "Code belongs to another client" });
       return;
     }
     if (grant.codeChallenge) {

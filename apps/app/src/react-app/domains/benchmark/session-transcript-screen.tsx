@@ -9,7 +9,7 @@ import type { ThreadStatus } from "@/lib/messages";
 import { OpenTargetProvider } from "@/lib/target-provider";
 import type { LegalworkSessionSnapshot } from "../../../app/lib/legalwork-server";
 import { deriveOpenTargets, type OpenTarget } from "../session/artifacts/open-target";
-import { LEARNINGS_PANEL_SESSION_ID, usePanelTabStore } from "../session/panel/panel-tab-store";
+import { EVALS_PANEL_SESSION_ID, usePanelTabStore } from "../session/panel/panel-tab-store";
 import { snapshotToUIMessages } from "../session/sync/usechat-adapter";
 import { SettingsNotice, Spinner } from "../settings/settings-section";
 import { isItemActive } from "./format";
@@ -103,8 +103,8 @@ export function SessionTranscriptScreen(props: SessionTranscriptScreenProps) {
       : `${scratchPrefix}${target.value.replace(/^\.\//, "")}`;
     const resolved: OpenTarget = { ...target, value, id: `file:${value.toLowerCase()}`, exists: true };
     const panelStore = usePanelTabStore.getState();
-    const existing = panelStore.transcriptArtifactTargets[LEARNINGS_PANEL_SESSION_ID] ?? [];
-    panelStore.syncTranscriptArtifacts(LEARNINGS_PANEL_SESSION_ID, [
+    const existing = panelStore.transcriptArtifactTargets[EVALS_PANEL_SESSION_ID] ?? [];
+    panelStore.syncTranscriptArtifacts(EVALS_PANEL_SESSION_ID, [
       ...existing.filter((entry) => entry.id !== resolved.id),
       resolved,
     ]);

@@ -5,6 +5,7 @@ import type {
   BenchmarkCatalogItem,
   BenchmarkCustomTaskInput,
   BenchmarkItemDetail,
+  BenchmarkArm,
   BenchmarkModelRef,
   BenchmarkRunCreateInput,
   BenchmarkRunDetail,
@@ -128,7 +129,13 @@ type BenchmarkState = {
   catalogPreviewLoading: string | null;
 
   // start-run draft
-  draft: { name: string; models: BenchmarkModelRef[]; judge: BenchmarkModelRef | null };
+  draft: {
+    name: string;
+    models: BenchmarkModelRef[];
+    judge: BenchmarkModelRef | null;
+    /** Ablation arms. One baseline arm means the run behaves as it did before ablation. */
+    arms: BenchmarkArm[];
+  };
   creating: boolean;
   createError: string | null;
 };
@@ -176,10 +183,23 @@ type BenchmarkActions = {
 
   toggleModel(ref: BenchmarkModelRef): void;
   setJudge(ref: BenchmarkModelRef | null): void;
+  setDraftArms(arms: BenchmarkArm[]): void;
   setDraftName(name: string): void;
   resetDraft(): void;
   createRun(): Promise<BenchmarkRunSummary | null>;
 };
+
+/** The unablated arm every run has by default. */
+export const BASELINE_ARM: BenchmarkArm = { id: "full", label: "Full", config: {} };
+
+/** True when the draft has no real ablation — one arm that restricts nothing. */
+export function isBaselineOnly(arms: BenchmarkArm[]): boolean {
+  if (arms.length !== 1) return false;
+  const config = arms[0]?.config ?? {};
+  const hasTools = Object.keys(config.tools ?? {}).length > 0;
+  const hasSkills = Boolean(config.skills) && config.skills?.mode !== "all";
+  return !hasTools && !hasSkills;
+}
 
 const INITIAL_STATE: BenchmarkState = {
   tasks: [],
@@ -215,7 +235,7 @@ const INITIAL_STATE: BenchmarkState = {
   importError: null,
   catalogPreviews: {},
   catalogPreviewLoading: null,
-  draft: { name: "", models: [], judge: null },
+  draft: { name: "", models: [], judge: null, arms: [BASELINE_ARM] },
   creating: false,
   createError: null,
 };
@@ -667,12 +687,16 @@ export const useBenchmarkStore = create<BenchmarkState & BenchmarkActions>()((se
     set((state) => ({ draft: { ...state.draft, judge: ref } }));
   },
 
+  setDraftArms(arms: BenchmarkArm[]) {
+    set((state) => ({ draft: { ...state.draft, arms: arms.length ? arms : [BASELINE_ARM] } }));
+  },
+
   setDraftName(name) {
     set((state) => ({ draft: { ...state.draft, name } }));
   },
 
   resetDraft() {
-    set({ draft: { name: "", models: [], judge: null }, createError: null });
+    set({ draft: { name: "", models: [], judge: null, arms: [BASELINE_ARM] }, createError: null });
   },
 
   async createRun() {
@@ -686,11 +710,15 @@ export const useBenchmarkStore = create<BenchmarkState & BenchmarkActions>()((se
         tasks: selectedTaskIds,
         models: draft.models,
         judgeModel: draft.judge ?? DEFAULT_JUDGE_MODEL,
+        // Only send arms when the user actually configured an ablation; a lone
+        // baseline arm is the server default and adds nothing to the payload.
+        ...(isBaselineOnly(draft.arms) ? {} : { arms: draft.arms }),
       };
       const { run } = await ctx.client.benchmarkCreateRun(ctx.workspaceId, payload);
       captureAnalyticsEvent("benchmark_run_created", {
         model_count: draft.models.length,
         task_count: selectedTaskIds.length,
+        arm_count: draft.arms.length,
       });
       set((state) => ({ creating: false, runs: [run, ...state.runs.filter((entry) => entry.id !== run.id)] }));
       get().resetDraft();

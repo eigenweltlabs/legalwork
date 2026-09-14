@@ -15,10 +15,10 @@ import { OnboardingCover, StepDots } from "./onboarding-cover";
 
 export type WorkspaceCreatePhase = "workspace" | "engine" | "session";
 
-const CREATE_STEPS: Array<{ id: WorkspaceCreatePhase; label: string }> = [
-  { id: "workspace", label: "Creating the workspace" },
-  { id: "engine", label: "Starting the local engine" },
-  { id: "session", label: "Preparing your first session" },
+const CREATE_STEPS: Array<{ id: WorkspaceCreatePhase; labelKey: string }> = [
+  { id: "workspace", labelKey: "welcome.step_creating_workspace" },
+  { id: "engine", labelKey: "welcome.step_starting_engine" },
+  { id: "session", labelKey: "welcome.step_preparing_session" },
 ];
 
 /** Modal overlay shown while the workspace is being created — the phases
@@ -31,15 +31,15 @@ function WorkspaceCreationOverlay(props: { phase: WorkspaceCreatePhase }) {
       role="dialog"
       aria-modal="true"
       aria-busy="true"
-      aria-label="Setting up your workspace"
+      aria-label={t("welcome.setting_up_aria")}
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-6 backdrop-blur-[2px] duration-200 animate-in fade-in-0"
     >
       <div className="w-full max-w-[400px] rounded-2xl border border-dls-border bg-dls-surface p-6 shadow-[0_32px_80px_-24px_rgba(0,0,0,0.45)] duration-200 animate-in fade-in-0 zoom-in-95">
         <h2 className="text-[16px] font-medium tracking-[-0.01em] text-dls-text">
-          Setting up your workspace
+          {t("welcome.setting_up_title")}
         </h2>
         <p className="mt-1 text-[13px] leading-relaxed text-dls-secondary">
-          This can take a moment on first launch.
+          {t("welcome.first_launch_note")}
         </p>
         <div className="mt-6 flex flex-col gap-3.5">
           {CREATE_STEPS.map((step, index) => {
@@ -67,7 +67,7 @@ function WorkspaceCreationOverlay(props: { phase: WorkspaceCreatePhase }) {
                         : "text-[13.5px] text-dls-secondary/60"
                   }
                 >
-                  {step.label}
+                  {t(step.labelKey)}
                 </span>
               </div>
             );
@@ -78,11 +78,12 @@ function WorkspaceCreationOverlay(props: { phase: WorkspaceCreatePhase }) {
   );
 }
 
-const capabilities = [
-  { title: "Review & redline", desc: "Mark up contracts as tracked changes, right in Word." },
-  { title: "Tabular review", desc: "Extract terms across many documents into a review grid." },
-  { title: "Draft documents", desc: "Briefs, memos, contracts, and engagement letters." },
-  { title: "Meetings & dictation", desc: "Record, transcribe and dictate on this device." },
+// Built per render, not once at import: `t()` reads the current language.
+const capabilities = () => [
+  { title: t("welcome.cap_redline"), desc: t("welcome.cap_redline_desc") },
+  { title: t("welcome.cap_tabular"), desc: t("welcome.cap_tabular_desc") },
+  { title: t("welcome.cap_draft"), desc: t("welcome.cap_draft_desc") },
+  { title: t("welcome.cap_dictation"), desc: t("welcome.cap_dictation_desc") },
 ];
 
 /** A mini LegalWork window — sidebar, a plain-English ask, a redline result. */
@@ -113,7 +114,7 @@ function AppWindowMock() {
         {/* main: the task */}
         <div className="flex-1 p-3.5">
           <div className="ml-auto w-fit max-w-[90%] rounded-lg rounded-tr-sm bg-white/10 px-2.5 py-1.5 text-[11.5px] leading-snug text-white/85">
-            Redline this NDA for the buyer.
+            {t("welcome.sample_prompt")}
           </div>
           <div className="mt-2.5 max-w-[92%] rounded-lg rounded-tl-sm bg-[#0a58c2]/25 px-2.5 py-2">
             <div className="h-1.5 w-full rounded bg-white/55" />
@@ -129,7 +130,7 @@ function AppWindowMock() {
           </div>
           <div className="mt-2.5 flex items-center gap-1.5">
             <span className="size-1 rounded-full bg-[#4ade80]" />
-            <span className="text-[10px] text-white/50">Tracked changes ready in Word</span>
+            <span className="text-[10px] text-white/50">{t("welcome.tracked_changes_ready")}</span>
           </div>
         </div>
       </div>
@@ -179,15 +180,15 @@ export function WelcomePage({
         <>
           <div>
             <span className="font-mono text-[10px] uppercase tracking-[0.18em] text-white/45">
-              What it does
+              {t("welcome.what_it_does")}
             </span>
             <h2 className="mt-4 max-w-[16ch] text-[28px] font-medium leading-[1.08] tracking-[-0.035em] text-white">
-              Built for your documents.
+              {t("welcome.built_for_documents")}
             </h2>
           </div>
           <AppWindowMock />
           <div className="grid grid-cols-2 gap-2.5">
-            {capabilities.map((cap) => (
+            {capabilities().map((cap) => (
               <div key={cap.title} className="rounded-lg border border-white/10 bg-white/[0.03] p-3">
                 <div className="text-[12.5px] font-medium tracking-[-0.01em] text-white">
                   {cap.title}
@@ -197,33 +198,32 @@ export function WelcomePage({
             ))}
           </div>
           <p className="font-mono text-[10px] uppercase tracking-[0.16em] text-white/40">
-            Runs on this machine · Your data stays yours
+            {t("welcome.panel_footer")}
           </p>
         </>
       }
       footerLeft={
         <label className="flex cursor-pointer items-center gap-2.5">
           <Switch
-            aria-label="Share anonymous usage analytics"
+            aria-label={t("welcome.analytics_aria")}
             checked={analyticsEnabled}
             onCheckedChange={onAnalyticsChange}
             className="data-checked:bg-foreground data-checked:border-transparent"
           />
           <span className="text-[12px] leading-snug text-dls-secondary">
-            Share anonymous usage data. Never your documents or prompts. Change anytime in
-            Settings.
+            {t("welcome.analytics_body")}
           </span>
         </label>
       }
     >
       <div className="flex w-full max-w-md flex-col gap-8">
         <div>
-          <StepDots step={1} total={4} />
+          <StepDots step={1} total={5} />
           <h1 className="text-[36px] font-medium leading-[1.04] tracking-[-0.035em] text-dls-text">
             {t("welcome.title")}
           </h1>
           <p className="mt-3 max-w-sm text-[14px] leading-[1.6] text-dls-secondary">
-            A computer-use agent that runs on this machine.
+            {t("welcome.subtitle_agent")}
           </p>
         </div>
 
@@ -233,7 +233,7 @@ export function WelcomePage({
           </Button>
           {error ? <p className="text-center text-xs text-destructive">{error}</p> : null}
           <p className="text-center text-[12px] leading-5 text-dls-secondary">
-            Your documents stay on this computer.
+            {t("welcome.documents_stay")}
           </p>
         </div>
       </div>

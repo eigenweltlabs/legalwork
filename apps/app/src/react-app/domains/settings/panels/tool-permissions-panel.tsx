@@ -14,6 +14,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
+import { cn } from "@/lib/utils";
 import { t } from "@/i18n";
 import type {
   LegalworkServerCapabilities,
@@ -51,6 +52,15 @@ export type ToolPermissionsPanelProps = {
   legalworkServerCapabilities: LegalworkServerCapabilities | null;
   runtimeWorkspaceId: string | null;
   onConfigUpdated: () => void;
+  /**
+   * "full" (default) is the settings screen. "quick" is the onboarding step:
+   * the three safety switches only, under the step's own heading — the
+   * per-tool and pattern rules would push the step's action off-screen, and
+   * they stay one click away in Settings.
+   */
+  variant?: "full" | "quick";
+  /** Overrides the settings row padding (the onboarding cover is flush). */
+  className?: string;
 };
 
 const QUICK_TOGGLES: QuickPermissionToggle[] = [
@@ -307,7 +317,7 @@ export function ToolPermissionsPanel(props: ToolPermissionsPanelProps) {
       ...state.model,
       bash: {
         // Rules need an explicit "*" fallback; default to the current
-        // effective behavior (allow) when no shell default is set yet.
+        // effective behavior (allow) when no command default is set yet.
         action: state.model.bash.action ?? "allow",
         rules: [...state.model.bash.rules, { pattern, action: ruleActionDraft }],
       },
@@ -317,17 +327,20 @@ export function ToolPermissionsPanel(props: ToolPermissionsPanelProps) {
   }, [persistModel, ruleActionDraft, rulePatternDraft, state.model]);
 
   const busy = state.loading || state.saving;
+  const quick = props.variant === "quick";
 
   return (
-    <LayoutSectionItem className="gap-6">
-      <LayoutSectionItemHeader>
-        <LayoutSectionItemTitle>
-          {t("tool_permissions.title")}
-        </LayoutSectionItemTitle>
-        <LayoutSectionItemDescription>
-          {t("tool_permissions.desc")}
-        </LayoutSectionItemDescription>
-      </LayoutSectionItemHeader>
+    <LayoutSectionItem className={cn("gap-6", props.className)}>
+      {quick ? null : (
+        <LayoutSectionItemHeader>
+          <LayoutSectionItemTitle>
+            {t("tool_permissions.title")}
+          </LayoutSectionItemTitle>
+          <LayoutSectionItemDescription>
+            {t("tool_permissions.desc")}
+          </LayoutSectionItemDescription>
+        </LayoutSectionItemHeader>
+      )}
 
       {!canReadConfig ? (
         <SettingsNotice>
@@ -356,109 +369,115 @@ export function ToolPermissionsPanel(props: ToolPermissionsPanelProps) {
             ))}
           </PermissionGroup>
 
-          {/* Per-tool actions */}
-          <div className="flex flex-col gap-2.5">
-            <div className="flex flex-col gap-0.5 px-1">
-              <span className="text-base font-medium text-ink">
-                {t("tool_permissions.advanced_title")}
-              </span>
-              <span className="text-sm text-subtext">
-                {t("tool_permissions.advanced_desc")}
-              </span>
-            </div>
-            <PermissionGroup>
-              {MANAGED_PERMISSION_TOOLS.map((tool) => (
-                <PermissionRow
-                  key={tool}
-                  title={toolLabels(tool).title}
-                  description={toolLabels(tool).description}
-                >
-                  <ActionSelect
-                    value={state.model[tool].action}
-                    ariaLabel={toolLabels(tool).title}
-                    disabled={busy || !canWriteConfig}
-                    onChange={(action) => setToolAction(tool, action)}
-                  />
-                </PermissionRow>
-              ))}
-            </PermissionGroup>
-          </div>
-
-          {/* Shell command pattern rules */}
-          <div className="flex flex-col gap-2.5">
-            <div className="flex flex-col gap-0.5 px-1">
-              <span className="text-base font-medium text-ink">
-                {t("tool_permissions.bash_rules_title")}
-              </span>
-              <span className="text-sm text-subtext">
-                {t("tool_permissions.bash_rules_desc")}
-              </span>
-            </div>
-            {state.model.bash.rules.length > 0 ? (
+          {quick ? null : (
+            <>
+            {/* Per-tool actions */}
+            <div className="flex flex-col gap-2.5">
+              <div className="flex flex-col gap-0.5 px-1">
+                <span className="text-base font-medium text-ink">
+                  {t("tool_permissions.advanced_title")}
+                </span>
+                <span className="text-sm text-subtext">
+                  {t("tool_permissions.advanced_desc")}
+                </span>
+              </div>
               <PermissionGroup>
-                {state.model.bash.rules.map((rule) => (
-                  <div
-                    key={rule.pattern}
-                    className="flex flex-row items-center justify-between gap-3 px-4 py-3.5"
+                {MANAGED_PERMISSION_TOOLS.map((tool) => (
+                  <PermissionRow
+                    key={tool}
+                    title={toolLabels(tool).title}
+                    description={toolLabels(tool).description}
                   >
-                    <span className="min-w-0 truncate font-mono text-sm text-ink">
-                      {rule.pattern}
-                    </span>
-                    <div className="flex shrink-0 items-center gap-2">
-                      <ActionSelect
-                        value={rule.action}
-                        ariaLabel={t("tool_permissions.rule_action_label", undefined, { pattern: rule.pattern })}
-                        disabled={busy || !canWriteConfig}
-                        onChange={(action) => setBashRuleAction(rule.pattern, action)}
-                      />
-                      <Button
-                        variant="ghost"
-                        size="icon-sm"
-                        className="shrink-0 text-muted-foreground hover:text-destructive"
-                        onClick={() => removeBashRule(rule.pattern)}
-                        disabled={busy || !canWriteConfig}
-                        aria-label={t("tool_permissions.remove_rule", undefined, { pattern: rule.pattern })}
-                      >
-                        <X size={14} />
-                      </Button>
-                    </div>
-                  </div>
+                    <ActionSelect
+                      value={state.model[tool].action}
+                      ariaLabel={toolLabels(tool).title}
+                      disabled={busy || !canWriteConfig}
+                      onChange={(action) => setToolAction(tool, action)}
+                    />
+                  </PermissionRow>
                 ))}
               </PermissionGroup>
-            ) : null}
-            <div className="flex flex-row items-center gap-2">
-              <Input
-                value={rulePatternDraft}
-                onChange={(event) => setRulePatternDraft(event.target.value)}
-                onKeyDown={(event) => {
-                  if (event.key === "Enter") {
-                    event.preventDefault();
-                    addBashRule();
-                  }
-                }}
-                placeholder={t("tool_permissions.pattern_placeholder")}
-                aria-label={t("tool_permissions.pattern_placeholder")}
-                disabled={busy || !canWriteConfig}
-                className="font-mono"
-              />
-              <ActionSelect
-                value={ruleActionDraft}
-                ariaLabel={t("tool_permissions.add_rule")}
-                disabled={busy || !canWriteConfig}
-                onChange={setRuleActionDraft}
-              />
-              <Button
-                onClick={addBashRule}
-                disabled={busy || !canWriteConfig || !rulePatternDraft.trim()}
-              >
-                <Plus className="size-4" />
-                {t("tool_permissions.add_rule")}
-              </Button>
             </div>
-          </div>
 
-          {/* Status / error */}
-          {state.status ? (
+            {/* Computer command pattern rules */}
+            <div className="flex flex-col gap-2.5">
+              <div className="flex flex-col gap-0.5 px-1">
+                <span className="text-base font-medium text-ink">
+                  {t("tool_permissions.bash_rules_title")}
+                </span>
+                <span className="text-sm text-subtext">
+                  {t("tool_permissions.bash_rules_desc")}
+                </span>
+              </div>
+              {state.model.bash.rules.length > 0 ? (
+                <PermissionGroup>
+                  {state.model.bash.rules.map((rule) => (
+                    <div
+                      key={rule.pattern}
+                      className="flex flex-row items-center justify-between gap-3 px-4 py-3.5"
+                    >
+                      <span className="min-w-0 truncate font-mono text-sm text-ink">
+                        {rule.pattern}
+                      </span>
+                      <div className="flex shrink-0 items-center gap-2">
+                        <ActionSelect
+                          value={rule.action}
+                          ariaLabel={t("tool_permissions.rule_action_label", undefined, { pattern: rule.pattern })}
+                          disabled={busy || !canWriteConfig}
+                          onChange={(action) => setBashRuleAction(rule.pattern, action)}
+                        />
+                        <Button
+                          variant="ghost"
+                          size="icon-sm"
+                          className="shrink-0 text-muted-foreground hover:text-destructive"
+                          onClick={() => removeBashRule(rule.pattern)}
+                          disabled={busy || !canWriteConfig}
+                          aria-label={t("tool_permissions.remove_rule", undefined, { pattern: rule.pattern })}
+                        >
+                          <X size={14} />
+                        </Button>
+                      </div>
+                    </div>
+                  ))}
+                </PermissionGroup>
+              ) : null}
+              <div className="flex flex-row items-center gap-2">
+                <Input
+                  value={rulePatternDraft}
+                  onChange={(event) => setRulePatternDraft(event.target.value)}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter") {
+                      event.preventDefault();
+                      addBashRule();
+                    }
+                  }}
+                  placeholder={t("tool_permissions.pattern_placeholder")}
+                  aria-label={t("tool_permissions.pattern_placeholder")}
+                  disabled={busy || !canWriteConfig}
+                  className="font-mono"
+                />
+                <ActionSelect
+                  value={ruleActionDraft}
+                  ariaLabel={t("tool_permissions.add_rule")}
+                  disabled={busy || !canWriteConfig}
+                  onChange={setRuleActionDraft}
+                />
+                <Button
+                  onClick={addBashRule}
+                  disabled={busy || !canWriteConfig || !rulePatternDraft.trim()}
+                >
+                  <Plus className="size-4" />
+                  {t("tool_permissions.add_rule")}
+                </Button>
+              </div>
+            </div>
+            </>
+          )}
+
+          {/* Status / error. The status line ("Saving…", "Permissions
+              updated.") is settings-only: on the onboarding step the switch
+              itself already shows the new state. Errors always surface. */}
+          {!quick && state.status ? (
             <SettingsNotice>{state.status}</SettingsNotice>
           ) : null}
           {state.error ? (

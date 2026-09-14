@@ -23,6 +23,7 @@ import {
   legalworkAnthropicAdaptiveThinkingPluginPath,
   legalworkAnthropicToolSchemaPluginPath,
   legalworkWordToolsPluginPath,
+  legalworkSkillToolsPluginPath,
   legalworkExcelToolsPluginPath,
   legalworkPowerPointToolsPluginPath,
   legalworkBenchmarkToolsPluginPath,
@@ -30,9 +31,11 @@ import {
 import type { ServerConfig } from "./types.js";
 import {
   applyGlobalToolPermissions,
+  GLOBAL_MCP_ID,
   GLOBAL_PERSONALIZATION_ID,
   GLOBAL_TOOL_PERMISSIONS_ID,
   onRuntimeOpencodeConfigWrite,
+  readGlobalMcpMap,
   readGlobalToolPermissions,
   readGlobalPersonalizationSettings,
   readRuntimeOpencodeConfig,
@@ -126,6 +129,9 @@ export async function buildLegalworkRuntimeConfigObject(
   const personalization = config
     ? await readGlobalPersonalizationSettings(config)
     : null;
+  // Shared connectors reach every workspace through this file; a workspace's
+  // own entry of the same name wins, matching listMcp.
+  const sharedMcp = config ? await readGlobalMcpMap(config) : {};
   // Paid Eigenwelt Model API: a global firm account, so the provider is
   // injected into EVERY workspace from one manifest cache (written on sign-in /
   // Refresh models, cleared on sign-out). Key rides in the block's headers, so
@@ -187,11 +193,12 @@ export async function buildLegalworkRuntimeConfigObject(
       bundledPluginSpec(legalworkExcelToolsPluginPath()),
       bundledPluginSpec(legalworkPowerPointToolsPluginPath()),
       bundledPluginSpec(legalworkBenchmarkToolsPluginPath()),
+      bundledPluginSpec(legalworkSkillToolsPluginPath()),
       ...(personalization?.localMemoriesEnabled ? [AGENT_MEMORY_PLUGIN_SPEC] : []),
       ...runtimePluginList(runtimeConfig),
     ].filter((item, index, list) => list.indexOf(item) === index),
     ...(disabledProviders.length ? { disabled_providers: disabledProviders } : {}),
-    mcp: runtimeMcpMap(runtimeConfig),
+    mcp: { ...sharedMcp, ...runtimeMcpMap(runtimeConfig) },
   };
 }
 
@@ -236,12 +243,13 @@ export async function writeLegalworkRuntimeConfigFile(config: ServerConfig, work
  */
 export function keepLegalworkRuntimeConfigFileFresh(config: ServerConfig, workspaceId: string): () => void {
   return onRuntimeOpencodeConfigWrite((writeConfig, writtenWorkspaceId) => {
-    // Global tool-permission and personalisation writes affect every
-    // workspace's derived config.
+    // Global tool-permission, personalisation and connector writes affect
+    // every workspace's derived config.
     if (
       writtenWorkspaceId !== workspaceId &&
       writtenWorkspaceId !== GLOBAL_TOOL_PERMISSIONS_ID &&
-      writtenWorkspaceId !== GLOBAL_PERSONALIZATION_ID
+      writtenWorkspaceId !== GLOBAL_PERSONALIZATION_ID &&
+      writtenWorkspaceId !== GLOBAL_MCP_ID
     ) return;
     void writeLegalworkRuntimeConfigFile(writeConfig, workspaceId).catch(() => undefined);
   });

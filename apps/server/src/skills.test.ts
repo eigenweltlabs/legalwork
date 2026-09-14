@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { deleteSkill, listSkills, resolveHubSkillKind } from "./skills.js";
+import { deleteSkill, listSkills, resolveHubSkillKind, skillsDirForScope, upsertSkill } from "./skills.js";
 import { exists } from "./utils.js";
 
 let workspace: string;
@@ -43,6 +43,62 @@ describe("deleteSkill", () => {
 
   test("404s for unknown skills", async () => {
     await expect(deleteSkill(workspace, "does-not-exist")).rejects.toThrow("Skill not found");
+  });
+});
+
+describe("upsertSkill", () => {
+  let configHome: string;
+  let savedConfigHome: string | undefined;
+
+  beforeEach(async () => {
+    savedConfigHome = process.env.XDG_CONFIG_HOME;
+    configHome = await mkdtemp(join(tmpdir(), "legalwork-skills-config-"));
+    process.env.XDG_CONFIG_HOME = configHome;
+  });
+
+  afterEach(async () => {
+    if (savedConfigHome === undefined) delete process.env.XDG_CONFIG_HOME;
+    else process.env.XDG_CONFIG_HOME = savedConfigHome;
+    await rm(configHome, { recursive: true, force: true });
+  });
+
+  test("defaults to the workspace's own skills dir", async () => {
+    const result = await upsertSkill(workspace, {
+      name: "matter-intake",
+      description: "Use when opening a new matter.",
+      content: "Body\n",
+    });
+
+    expect(result.scope).toBe("project");
+    expect(result.path).toBe(join(workspace, ".opencode", "skills", "matter-intake", "SKILL.md"));
+  });
+
+  // The desktop Skills/Workflows screens list the global library only, so an
+  // agent-created workflow has to land there to be visible in the app.
+  test("writes into the global library when scoped global", async () => {
+    const result = await upsertSkill(workspace, {
+      name: "workflow-assistant-nda-review",
+      description: "Use when reviewing an NDA.",
+      content: "Body\n",
+      scope: "global",
+    });
+
+    expect(result.scope).toBe("global");
+    expect(result.path).toBe(
+      join(configHome, "opencode", "skills", "workflow-assistant-nda-review", "SKILL.md"),
+    );
+    expect(skillsDirForScope(workspace, "global")).toBe(join(configHome, "opencode", "skills"));
+
+    const [listed] = (await listSkills(workspace, true)).filter(
+      (item) => item.name === "workflow-assistant-nda-review",
+    );
+    expect(listed).toMatchObject({ name: "workflow-assistant-nda-review", scope: "global" });
+  });
+
+  test("reports an overwrite of an existing global skill as an update", async () => {
+    const payload = { name: "matter-intake", description: "Use when opening a new matter.", content: "Body\n", scope: "global" as const };
+    expect((await upsertSkill(workspace, payload)).action).toBe("added");
+    expect((await upsertSkill(workspace, payload)).action).toBe("updated");
   });
 });
 

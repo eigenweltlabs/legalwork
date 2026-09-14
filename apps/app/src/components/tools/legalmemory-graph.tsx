@@ -10,6 +10,7 @@ import {
   type LegalMemoryGraphNode,
 } from "@/lib/legalmemory-graph"
 import { Tool } from "@/components/ui/tool"
+import { t } from "@/i18n";
 
 interface LegalMemoryGraphToolProps {
   part: LegalMemoryGraphToolPart
@@ -67,7 +68,11 @@ export function MatterGraph({ graph }: { graph: LegalMemoryGraph }) {
           width="100%"
           className="block min-w-[420px]"
           role="img"
-          aria-label={`Matter graph for ${graph.root.title}: ${graph.relatedCount} linked documents, ${graph.storedEdgeCount} stored legal relations`}
+          aria-label={t("tool.legalmemory_graph_label", {
+            title: graph.root.title,
+            related: graph.relatedCount,
+            edges: graph.storedEdgeCount,
+          })}
         >
           {graph.edges.map((edge) => {
             const from = positions.get(edge.from)
@@ -152,15 +157,15 @@ export function MatterGraph({ graph }: { graph: LegalMemoryGraph }) {
           <svg width="16" height="2" aria-hidden="true">
             <line x1="0" y1="1" x2="16" y2="1" stroke="currentColor" strokeWidth="1.4" />
           </svg>
-          Stored legal relation
+          {t("legalmemory.stored_relation")}
         </span>
         <span className="flex items-center gap-1.5">
           <svg width="16" height="2" aria-hidden="true">
             <line x1="0" y1="1" x2="16" y2="1" stroke="currentColor" strokeWidth="1" strokeDasharray="3 3" />
           </svg>
-          Shared matter or thread
+          {t("legalmemory.shared_matter")}
         </span>
-        <span className="ml-auto">Permission-scoped to you</span>
+        <span className="ml-auto">{t("tool.permission_scoped")}</span>
       </div>
     </div>
   )

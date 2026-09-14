@@ -19,6 +19,7 @@ import type {
   BenchmarkTaskItem,
   BenchmarkWorkType,
 } from "./benchmark-types";
+import { t } from "@/i18n";
 
 export * from "./benchmark-types";
 
@@ -143,8 +144,6 @@ export type EigenweltManifestModel = {
   hostedIn?: string;
   /** The model behind the Eigenwelt name, e.g. "DeepSeek V4 Flash". */
   upstreamModel?: string;
-  /** The provider keeps prompts and responses for a while to detect misuse. */
-  abuseMonitoring?: boolean;
 };
 
 /** The signed-in seat's included usage for the current window (cents, plus a percentage). */
@@ -513,6 +512,27 @@ export type LegalworkMcpItem = {
   config: Record<string, unknown>;
   source: "config.project" | "config.global" | "config.remote";
   disabledByTools?: boolean;
+};
+
+/** What a remote MCP server told the server about signing in (see apps/server/src/mcp-probe.ts). */
+export type LegalworkMcpProbeResult = {
+  url: string;
+  reachable: boolean;
+  transport: "streamable-http" | "sse" | null;
+  auth: "none" | "oauth" | "credentials" | "unknown";
+  oauth?: {
+    resourceMetadataUrl: string | null;
+    authorizationServer: string | null;
+    dynamicRegistration: boolean;
+    clientIdMetadataDocuments: boolean;
+  };
+  steps: Array<{
+    id: "connect" | "resource_metadata" | "authorization_server";
+    status: number | null;
+    ok: boolean;
+    detail?: string;
+  }>;
+  error?: string;
 };
 
 export type LegalworkMcpEngineSync = {
@@ -1187,7 +1207,7 @@ async function fetchWithTimeout(
       } catch {
         // ignore
       }
-      reject(new Error("Request timed out."));
+      reject(new Error(t("app.request_timed_out")));
     }, timeoutMs);
   });
 
@@ -1196,7 +1216,7 @@ async function fetchWithTimeout(
   } catch (error) {
     const name = (error && typeof error === "object" && "name" in error ? (error as any).name : "") as string;
     if (name === "AbortError") {
-      throw new Error("Request timed out.");
+      throw new Error(t("app.request_timed_out"));
     }
     throw error;
   } finally {
@@ -1566,6 +1586,13 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
         baseUrl,
         `/workspace/${encodeURIComponent(workspaceId)}/benchmarks/runs`,
         { token, hostToken, method: "POST", body: payload, timeoutMs: timeouts.benchmarkCatalog },
+      ),
+    /** Tool ids the engine exposes, for the ablation arm picker. */
+    benchmarkToolIds: (workspaceId: string) =>
+      requestJson<{ items: string[] }>(
+        baseUrl,
+        `/workspace/${encodeURIComponent(workspaceId)}/benchmarks/tool-ids`,
+        { token, hostToken, timeoutMs: timeouts.benchmarkCatalog },
       ),
     benchmarkGetRun: (workspaceId: string, runId: string) =>
       requestJson<BenchmarkRunDetail>(
@@ -2196,7 +2223,19 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
         `/workspace/${workspaceId}/mcp`,
         { token, hostToken },
       ),
-    addMcp: (workspaceId: string, payload: { name: string; config: Record<string, unknown> }) =>
+    probeMcp: (workspaceId: string, payload: { url: string; headers?: Record<string, string> }) =>
+      requestJson<LegalworkMcpProbeResult>(baseUrl, `/workspace/${workspaceId}/mcp/probe`, {
+        token,
+        hostToken,
+        method: "POST",
+        body: payload,
+      }),
+    // Connectors are shared by every workspace the server hosts unless a
+    // caller asks for one workspace's own entry.
+    addMcp: (
+      workspaceId: string,
+      payload: { name: string; config: Record<string, unknown>; scope?: "global" | "workspace" },
+    ) =>
       requestJson<{ items: LegalworkMcpItem[] }>(baseUrl, `/workspace/${workspaceId}/mcp`, {
         token,
         hostToken,
@@ -2287,7 +2326,7 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
         throw new LegalworkServerError(
           result.status,
           "request_failed",
-          message || "Shared folder upload failed",
+          message || t("workspace.shared_upload_failed"),
         );
       }
 

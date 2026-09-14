@@ -3,6 +3,7 @@
 import { Tool } from "@/components/ui/tool"
 import type { QuestionToolPart } from "@/lib/build-in-tools"
 import { toolDisplayTitle, truncateText } from "@/components/tools/path"
+import { t } from "@/i18n";
 
 interface QuestionToolProps {
   part: QuestionToolPart
@@ -25,7 +26,7 @@ function getQuestionToolTitle(part: QuestionToolPart): string | null {
   const count = part.input?.questions?.length ?? 0
 
   if (part.state === "output-error") {
-    return label ?? "Asked a question"
+    return label ?? t("tool.asked_a_question")
   }
 
   if (part.state !== "output-available") {
@@ -36,14 +37,14 @@ function getQuestionToolTitle(part: QuestionToolPart): string | null {
     return label
   }
 
-  return count > 1 ? `Asked ${count} questions` : "Asked a question"
+  return count > 1 ? t("tool.asked_question_count", { count }) : t("tool.asked_a_question")
 }
 
 function getQuestionToolDetail(part: QuestionToolPart): string | undefined {
   const count = part.input?.questions?.length ?? 0
 
   if (part.state === "output-available") {
-    return "Answered"
+    return t("tool.answered")
   }
 
   if (count > 1) {

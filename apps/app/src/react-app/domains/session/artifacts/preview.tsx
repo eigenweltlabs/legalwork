@@ -6,6 +6,7 @@ import { cn } from "@/lib/utils";
 import { DocumentIcon } from "@/react-app/design-system/document-icon";
 import { PanelEmptyState } from "@/react-app/design-system/panel-chrome";
 import { MarkdownBlock } from "../surface/markdown";
+import { t } from "@/i18n";
 
 interface PreviewLoadingProps extends React.ComponentProps<"div"> {}
 
@@ -13,7 +14,7 @@ export function PreviewLoading({ className, ...props }: PreviewLoadingProps) {
   return (
     <div role="status" className={cn("flex h-full flex-col items-center justify-center gap-3 text-muted-foreground", className)} {...props}>
       <Loader2 aria-hidden="true" className="size-5 animate-spin" strokeWidth={1.5} />
-      <p className="text-xs">Opening preview…</p>
+      <p className="text-xs">{t("artifact.opening_preview")}</p>
     </div>
   );
 }
@@ -25,7 +26,7 @@ interface PreviewErrorProps extends React.ComponentProps<"div"> {
 export function PreviewError({ message, className, ...props }: PreviewErrorProps) {
   return (
     <div role="alert" className={cn("h-full overflow-auto", className)} {...props}>
-      <PanelEmptyState icon={<AlertCircle />} title="Unable to open this preview" description={message} />
+      <PanelEmptyState icon={<AlertCircle />} title={t("artifact.preview_unable_title")} description={message} />
     </div>
   );
 }
@@ -108,7 +109,7 @@ interface PreviewUnavailableProps extends React.ComponentProps<"div"> {}
 export function PreviewUnavailable({ className, ...props }: PreviewUnavailableProps) {
   return (
     <div className={cn("h-full overflow-auto", className)} {...props}>
-      <PanelEmptyState icon={<DocumentIcon kind="unknown" />} title="Preview unavailable" description="Open this file in its own app to view its contents." />
+      <PanelEmptyState icon={<DocumentIcon kind="unknown" />} title={t("artifact.preview_unavailable_title")} description={t("artifact.preview_unavailable_desc")} />
     </div>
   );
 }

@@ -13,6 +13,14 @@ import { ApiError } from "../errors.js";
 import type { ServerConfig, WorkspaceInfo } from "../types.js";
 import { shortId } from "../utils.js";
 import { z } from "zod";
+import {
+  armIdFromLabel,
+  armSchema,
+  BASELINE_ARM,
+  describeArmRestrictions,
+  resolveToolOverrides,
+  type BenchmarkArm,
+} from "./ablation.js";
 import { ensureHarveyDocuments, type HarveyIndexEntry } from "./harvey-catalog.js";
 import { extractDeliverableText } from "./extract-text.js";
 import {
@@ -55,6 +63,11 @@ type AssistantMessageLike = {
 type MessageEntryLike = { info?: AssistantMessageLike; parts?: Array<{ type?: string; text?: string }> };
 
 export type BenchmarkOpencodeClient = {
+  experimental?: {
+    tool?: {
+      ids(params: Record<string, unknown>): Promise<SdkResult<string[]>>;
+    };
+  };
   session: {
     create(params: Record<string, unknown>): Promise<SdkResult<{ id: string }>>;
     prompt(params: Record<string, unknown>): Promise<SdkResult<{ info: AssistantMessageLike; parts?: unknown[] }>>;
@@ -86,7 +99,28 @@ const runInputSchema = z.object({
   models: z.array(modelRefSchema).min(1).max(10),
   judgeModel: modelRefSchema.optional(),
   concurrency: z.number().int().min(1).max(8).optional(),
+  /**
+   * Ablation arms. Each one re-runs every task×model with a different
+   * capability set, so items = tasks × models × arms. Omitted (or empty) means
+   * a single baseline arm, which is what every pre-ablation run was.
+   */
+  arms: z.array(armSchema).min(1).max(6).optional(),
 });
+
+/**
+ * Arms for a run, with ids assigned and de-duplicated. No arms means the single
+ * baseline arm, so a caller that knows nothing about ablation keeps the old
+ * tasks × models shape.
+ */
+function resolveArms(input: Array<{ id?: string; label: string; config?: BenchmarkArm["config"] }> | undefined): BenchmarkArm[] {
+  if (!input?.length) return [BASELINE_ARM];
+  const taken = new Set<string>();
+  return input.map((arm) => {
+    const id = arm.id?.trim() || armIdFromLabel(arm.label, taken);
+    taken.add(id);
+    return { id, label: arm.label.trim(), config: arm.config ?? {} };
+  });
+}
 
 // The agent session must never stall on a permission prompt in a headless run.
 const ALLOW_ALL_PERMISSIONS = [{ permission: "*", pattern: "*", action: "allow" as const }];
@@ -277,21 +311,27 @@ export class BenchmarkRunner {
       resolvedTasks.push({ source: row.source, key: row.id, task, vertical });
     }
 
+    const arms = resolveArms(input.arms);
+
     const runId = `br_${this.now().toString(36)}_${shortId().slice(0, 8)}`;
     const items: NewBenchmarkItem[] = [];
     for (const resolved of resolvedTasks) {
       for (const model of input.models) {
-        items.push({
-          id: `bri_${shortId().slice(0, 12)}`,
-          taskSource: resolved.source,
-          taskKey: resolved.key,
-          taskTitle: resolved.task.title,
-          workType: resolved.task.workType,
-          vertical: resolved.vertical,
-          taskJson: JSON.stringify(resolved.task),
-          providerId: model.providerID,
-          modelId: model.modelID,
-        });
+        for (const arm of arms) {
+          items.push({
+            id: `bri_${shortId().slice(0, 12)}`,
+            taskSource: resolved.source,
+            taskKey: resolved.key,
+            taskTitle: resolved.task.title,
+            workType: resolved.task.workType,
+            vertical: resolved.vertical,
+            taskJson: JSON.stringify(resolved.task),
+            providerId: model.providerID,
+            modelId: model.modelID,
+            armId: arm.id,
+            armLabel: arm.label,
+          });
+        }
       }
     }
 
@@ -299,7 +339,7 @@ export class BenchmarkRunner {
       {
         id: runId,
         workspaceId: workspace.id,
-        title: input.title || `Benchmark ${new Date(this.now()).toISOString().slice(0, 16).replace("T", " ")}`,
+        title: input.title || `Eval ${new Date(this.now()).toISOString().slice(0, 16).replace("T", " ")}`,
         status: "pending",
         judgeProviderId: judgeModel.providerID,
         judgeModelId: judgeModel.modelID,
@@ -309,10 +349,28 @@ export class BenchmarkRunner {
       },
       input.models,
       items,
+      arms,
     );
 
     void this.executeRun(workspace, runId).catch(() => undefined);
     return this.serializeRunSummary(this.store.getRun(runId)!);
+  }
+
+  /**
+   * Tool ids the engine exposes for this workspace, for the ablation picker.
+   * Returns an empty list when the engine build predates the endpoint, so the
+   * UI degrades to free-text rather than erroring.
+   */
+  async listToolIds(workspace: WorkspaceInfo): Promise<string[]> {
+    const client = this.createClient(workspace, workspace.path);
+    const ids = client.experimental?.tool?.ids;
+    if (!ids) return [];
+    try {
+      const result = await ids.call(client.experimental!.tool!, { directory: workspace.path });
+      return Array.isArray(result.data) ? result.data.filter((id): id is string => typeof id === "string") : [];
+    } catch {
+      return [];
+    }
   }
 
   private async validateModels(workspace: WorkspaceInfo, models: BenchmarkModelRef[]): Promise<void> {
@@ -407,6 +465,13 @@ export class BenchmarkRunner {
       this.store.updateItem(item.id, { sessionId: sessionID, status: "running" });
       handle.sessions.set(item.id, { client, sessionID, directory: workDir });
 
+      const armConfig = this.store.listRunArms(run.id).find((arm) => arm.id === item.armId)?.config ?? {};
+      const toolOverrides = resolveToolOverrides(armConfig);
+      // The restriction note is appended to the task prompt, NOT sent as
+      // `system`: on this endpoint `system` REPLACES the agent's system prompt,
+      // which would strip the normal harness instructions along with it.
+      const restrictions = describeArmRestrictions(armConfig);
+      const promptText = restrictions ? `${buildAgentPrompt(task)}\n\n${restrictions}` : buildAgentPrompt(task);
       const assistant = await this.runAgentPrompt({
         client,
         sessionID,
@@ -416,7 +481,8 @@ export class BenchmarkRunner {
           sessionID,
           directory: workDir,
           model: { providerID: item.providerId, modelID: item.modelId },
-          parts: [{ type: "text", text: buildAgentPrompt(task) }],
+          ...(toolOverrides ? { tools: toolOverrides } : {}),
+          parts: [{ type: "text", text: promptText }],
         },
       });
       handle.sessions.delete(item.id);
@@ -882,6 +948,7 @@ export class BenchmarkRunner {
       status: run.status,
       judgeModel: { providerID: run.judgeProviderId, modelID: run.judgeModelId },
       models,
+      arms: this.store.listRunArms(run.id).map((arm) => ({ id: arm.id, label: arm.label, config: arm.config })),
       concurrency: run.concurrency,
       catalogRef: run.catalogRef,
       createdAt: run.createdAt,
@@ -915,6 +982,8 @@ export class BenchmarkRunner {
       tags: parseStoredTaskJson(item.taskJson)?.tags ?? [],
       providerID: item.providerId,
       modelID: item.modelId,
+      armId: item.armId,
+      armLabel: item.armLabel,
       status: item.status,
       score: item.score,
       nCriteria: item.nCriteria,

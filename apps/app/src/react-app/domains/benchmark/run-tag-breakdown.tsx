@@ -1,21 +1,24 @@
 /** @jsxImportSource react */
 import { t } from "@/i18n";
 import { cn } from "@/lib/utils";
-import type { BenchmarkModelRef, BenchmarkRunItem } from "../../../app/lib/benchmark-types";
+import type { BenchmarkArmConfig, BenchmarkModelRef, BenchmarkRunItem } from "../../../app/lib/benchmark-types";
 import { ProviderIcon } from "../../design-system/provider-icon";
+import { ArmLabelWithTooltip } from "./arm-summary";
 import { aggregateByTag, scoreTintClass, scoreToneClass } from "./format";
 
 export type RunTagBreakdownProps = {
   items: BenchmarkRunItem[];
-  models: BenchmarkModelRef[];
+  /** One entry per model×arm, matching the result matrix's columns. */
+  models: Array<BenchmarkModelRef & { armId?: string; armLabel?: string; armConfig?: BenchmarkArmConfig }>;
 };
 
-function modelKey(ref: { providerID: string; modelID: string }): string {
-  return `${ref.providerID}/${ref.modelID}`;
+function modelKey(ref: { providerID: string; modelID: string; armId?: string }): string {
+  return `${ref.providerID}/${ref.modelID}/${ref.armId ?? "full"}`;
 }
 
 export function RunTagBreakdown(props: RunTagBreakdownProps) {
   const rows = aggregateByTag(props.items, props.models);
+  const showArms = new Set(props.models.map((model) => model.armId ?? "full")).size > 1;
   // Only meaningful once there is more than one tag to compare.
   if (rows.length < 2) return null;
 
@@ -37,6 +40,11 @@ export function RunTagBreakdown(props: RunTagBreakdownProps) {
                     <ProviderIcon providerId={model.providerID} size={13} />
                     <span className="truncate">{model.modelID}</span>
                   </span>
+                  {showArms ? (
+                    <span className="mt-0.5 block text-[10px] font-normal text-muted-foreground">
+                      <ArmLabelWithTooltip label={model.armLabel ?? model.armId ?? ""} config={model.armConfig} />
+                    </span>
+                  ) : null}
                 </th>
               ))}
             </tr>

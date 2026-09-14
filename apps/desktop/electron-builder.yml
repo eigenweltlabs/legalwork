@@ -23,6 +23,17 @@ extraResources:
     to: opencode-plugins
     filter:
       - "*.js"
+      - "!*.test.js"
+  # The runtime dock/window icon, which the .icns baked in below cannot supply:
+  # resolveAppIconPath() reads these out of `process.resourcesPath/icons` so the
+  # dock can swap to the ink plate when macOS is in dark mode. Without them a
+  # packaged build finds no icon at all (`files:` does not pack resources/), so
+  # app.dock.setIcon() is never called and the icon never follows the system.
+  - from: resources/icons
+    to: icons
+    filter:
+      - icon.png
+      - icon-dark.png
 asar: true
 asarUnpack:
   - node_modules/.pnpm/@lydell+node-pty*/**

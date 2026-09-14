@@ -1,11 +1,17 @@
 /** @jsxImportSource react */
-import { Fragment, useState } from "react";
+import { Fragment, useMemo, useState } from "react";
 import { AlertTriangle, Check, ChevronDown, ChevronRight, X } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { cn } from "@/lib/utils";
-import type { BenchmarkModelRef, BenchmarkModelScore, BenchmarkRunItem } from "../../../app/lib/benchmark-types";
+import type {
+  BenchmarkArmConfig,
+  BenchmarkModelRef,
+  BenchmarkModelScore,
+  BenchmarkRunItem,
+} from "../../../app/lib/benchmark-types";
+import { ArmLabelWithTooltip } from "./arm-summary";
 import { ProviderIcon } from "../../design-system/provider-icon";
 import { Spinner } from "../settings/settings-section";
 import {
@@ -17,11 +23,12 @@ import {
   workTypeLabel,
 } from "./format";
 import { useBenchmarkStore } from "./store";
+import { t } from "@/i18n";
 
 export type ResultMatrixProps = {
   runId: string;
   items: BenchmarkRunItem[];
-  models: BenchmarkModelRef[];
+  models: Array<BenchmarkModelRef & { armId?: string; armLabel?: string; armConfig?: BenchmarkArmConfig }>;
   selectedItemId: string | null;
   onSelectItem: (item: BenchmarkRunItem) => void;
   /** Per-model aggregates rendered as a totals row at the bottom of the table. */
@@ -37,8 +44,13 @@ type TaskRow = {
   itemsByModel: Map<string, BenchmarkRunItem>;
 };
 
-function modelKey(ref: { providerID: string; modelID: string }): string {
-  return `${ref.providerID}/${ref.modelID}`;
+/**
+ * Matrix columns are model×arm, not model. Under ablation the same model runs
+ * every task once per arm, so keying on the model alone would collapse those
+ * results into one cell and show only whichever arm happened to be last.
+ */
+function modelKey(ref: { providerID: string; modelID: string; armId?: string }): string {
+  return `${ref.providerID}/${ref.modelID}/${ref.armId ?? "full"}`;
 }
 
 function buildRows(items: BenchmarkRunItem[]): TaskRow[] {
@@ -55,6 +67,50 @@ function buildRows(items: BenchmarkRunItem[]): TaskRow[] {
     rows.set(item.taskKey, row);
   }
   return Array.from(rows.values());
+}
+
+/**
+ * Per-column (model×arm) totals, computed from the items on screen. The run's
+ * own scoreByModel is aggregated per model across every arm, so it cannot fill
+ * an ablated column without repeating the same number under each arm.
+ */
+function buildColumnTotals(items: BenchmarkRunItem[]): Map<string, BenchmarkModelScore> {
+  const totals = new Map<string, BenchmarkModelScore & { rateSum: number; rateCount: number }>();
+  for (const item of items) {
+    const key = modelKey(item);
+    let entry = totals.get(key);
+    if (!entry) {
+      entry = {
+        providerID: item.providerID,
+        modelID: item.modelID,
+        passed: 0,
+        failed: 0,
+        error: 0,
+        avgScore: null,
+        rubricPassRate: null,
+        criteriaPassed: 0,
+        criteriaTotal: 0,
+        rateSum: 0,
+        rateCount: 0,
+      };
+      totals.set(key, entry);
+    }
+    if (item.status === "passed") entry.passed += 1;
+    else if (item.status === "failed") entry.failed += 1;
+    else if (item.status === "error") entry.error += 1;
+    entry.criteriaPassed += item.nPassed ?? 0;
+    entry.criteriaTotal += item.nCriteria ?? 0;
+    if (item.nCriteria && item.nPassed !== null) {
+      entry.rateSum += item.nPassed / item.nCriteria;
+      entry.rateCount += 1;
+    }
+  }
+  const result = new Map<string, BenchmarkModelScore>();
+  for (const [key, entry] of totals) {
+    const { rateSum, rateCount, ...score } = entry;
+    result.set(key, { ...score, rubricPassRate: rateCount ? rateSum / rateCount : null });
+  }
+  return result;
 }
 
 function CellContent({ item }: { item: BenchmarkRunItem | undefined }) {
@@ -89,6 +145,9 @@ function VerdictMark({ verdict }: { verdict: "pass" | "fail" | "error" | undefin
 
 export function ResultMatrix(props: ResultMatrixProps) {
   const rows = buildRows(props.items);
+  // Only label columns by arm when the run actually has more than one.
+  const showArms = new Set(props.models.map((model) => model.armId ?? "full")).size > 1;
+  const columnTotals = useMemo(() => buildColumnTotals(props.items), [props.items]);
   const [expandedTaskKey, setExpandedTaskKey] = useState<string | null>(null);
   const [expandedCriterionId, setExpandedCriterionId] = useState<string | null>(null);
   const itemDetails = useBenchmarkStore((state) => state.itemDetails);
@@ -116,6 +175,11 @@ export function ResultMatrix(props: ResultMatrixProps) {
                   <ProviderIcon providerId={model.providerID} size={13} />
                   {model.modelID}
                 </span>
+                {showArms ? (
+                  <span className="mt-0.5 block text-[10px] font-normal text-muted-foreground">
+                    <ArmLabelWithTooltip label={model.armLabel ?? model.armId ?? ""} config={model.armConfig} />
+                  </span>
+                ) : null}
               </TableHead>
             ))}
           </TableRow>
@@ -228,9 +292,11 @@ export function ResultMatrix(props: ResultMatrixProps) {
                 Total
               </TableCell>
               {props.models.map((model) => {
-                const score = props.scoreByModel?.find(
-                  (entry) => entry.providerID === model.providerID && entry.modelID === model.modelID,
-                );
+                const score = showArms
+                  ? columnTotals.get(modelKey(model))
+                  : props.scoreByModel?.find(
+                      (entry) => entry.providerID === model.providerID && entry.modelID === model.modelID,
+                    );
                 if (!score) {
                   return (
                     <TableCell key={modelKey(model)} className="py-2 text-center text-muted-foreground">
@@ -246,7 +312,7 @@ export function ResultMatrix(props: ResultMatrixProps) {
                         "font-semibold tabular-nums",
                         criteriaScoreToneClass(Math.round((score.rubricPassRate ?? 0) * 100), 100),
                       )}
-                      title={`${score.passed}/${taskCount} tasks fully passed`}
+                      title={t("benchmark.tasks_passed", { passed: score.passed, total: taskCount })}
                     >
                       {score.rubricPassRate !== null
                         ? `${Math.round(score.rubricPassRate * 100)}% (${score.criteriaPassed}/${score.criteriaTotal})`

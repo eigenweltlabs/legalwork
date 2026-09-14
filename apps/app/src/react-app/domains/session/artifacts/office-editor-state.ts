@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type RefObject } from "react";
 import { toast } from "@/components/ui/sonner";
+import { t } from "@/i18n";
 
 export type OfficeAgentResult = { success: boolean; data?: unknown; saved?: boolean; error?: string };
 export type OfficeEditorApi = {
@@ -58,12 +59,12 @@ export function useOfficeEditor(props: OfficeEditorProps) {
     };
     const executeAgentTool = async (toolName: string, args: Record<string, unknown>): Promise<OfficeAgentResult> => {
       if (toolName === "save") {
-        try { const saved = await save(); return { success: saved, saved, ...(!saved ? { error: "The editor is read only, busy, or still loading." } : {}) }; }
-        catch (cause) { return { success: false, saved: false, error: cause instanceof Error ? cause.message : "Save failed. The draft remains open." }; }
+        try { const saved = await save(); return { success: saved, saved, ...(!saved ? { error: t("office_editor.not_ready") } : {}) }; }
+        catch (cause) { return { success: false, saved: false, error: cause instanceof Error ? cause.message : t("office_editor.save_failed") }; }
       }
-      if (!agentTool.current || !serialize.current) return { success: false, error: "The editor is still loading." };
-      if (busy.current) return { success: false, error: "The editor is busy saving. Retry after it finishes." };
-      if (latest.current.readOnly && toolName !== "read") return { success: false, error: "This document is read only." };
+      if (!agentTool.current || !serialize.current) return { success: false, error: t("office_editor.still_loading") };
+      if (busy.current) return { success: false, error: t("office_editor.busy_saving") };
+      if (latest.current.readOnly && toolName !== "read") return { success: false, error: t("office_editor.read_only") };
       busy.current = true; setSaving(true); latest.current.onSavingChange?.(true);
       let mutated = false;
       try {
@@ -80,7 +81,7 @@ export function useOfficeEditor(props: OfficeEditorProps) {
         if (version === revision.current) { afterSave.current?.(); latest.current.onDirtyChange(false); }
         return { success: true, data: result.data, saved: true };
       } catch (cause) {
-        return { success: false, saved: false, error: `${cause instanceof Error ? cause.message : "Editor tool failed."}${mutated ? " The edit remains in the open draft. Retry Save; do not repeat the edit." : ""}` };
+        return { success: false, saved: false, error: `${cause instanceof Error ? cause.message : t("office_editor.tool_failed")}${mutated ? " The edit remains in the open draft. Retry Save; do not repeat the edit." : ""}` };
       } finally { busy.current = false; setSaving(false); latest.current.onSavingChange?.(false); }
     };
     const api = { save, getBuffer, executeAgentTool };
@@ -89,7 +90,7 @@ export function useOfficeEditor(props: OfficeEditorProps) {
     const keydown = (event: KeyboardEvent) => {
       if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "s") {
         event.preventDefault(); event.stopImmediatePropagation();
-        void save().then((ok) => { if (ok) toast.success("Saved"); }).catch((cause: unknown) => toast.error(cause instanceof Error ? cause.message : "Could not save. Your edits are still here."));
+        void save().then((ok) => { if (ok) toast.success(t("artifact.saved")); }).catch((cause: unknown) => toast.error(cause instanceof Error ? cause.message : t("office_editor.save_failed_edits_kept")));
       }
     };
     element?.addEventListener("keydown", keydown, true);

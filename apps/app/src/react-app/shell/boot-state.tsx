@@ -10,6 +10,8 @@ import {
   type ReactNode,
 } from "react";
 
+import { t } from "@/i18n";
+
 export type BootPhaseId =
   | "idle"
   | "bootstrapping-workspaces"
@@ -47,12 +49,12 @@ const DEFAULT_STATE: BootStateSnapshot = {
 
 const PHASE_MESSAGES: Record<BootPhaseId, string> = {
   idle: "",
-  "bootstrapping-workspaces": "Loading your workspaces",
-  "starting-legalwork-server": "Starting the LegalWork server",
-  "starting-engine": "Preparing workspace",
-  "activating-workspace": "Activating your workspace",
-  ready: "Ready",
-  error: "Something went wrong",
+  get "bootstrapping-workspaces"() { return t("boot.loading_workspaces") },
+  get "starting-legalwork-server"() { return t("boot.starting_server") },
+  get "starting-engine"() { return t("boot.preparing_workspace") },
+  get "activating-workspace"() { return t("boot.activating_workspace") },
+  get ready() { return t("boot.ready") },
+  get error() { return t("boot.error") },
 };
 
 const BootStateContext = createContext<BootStateContextValue | null>(null);

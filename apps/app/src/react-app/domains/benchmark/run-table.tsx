@@ -69,7 +69,7 @@ function ModelScoreCell({ run, score }: { run: BenchmarkRunSummary; score: Bench
           "font-medium tabular-nums",
           criteriaScoreToneClass(Math.round((score.rubricPassRate ?? 0) * 100), 100),
         )}
-        title={`${score.passed}/${run.taskCount} tasks fully passed`}
+        title={t("benchmark.tasks_passed", { passed: score.passed, total: run.taskCount })}
       >
         {score.rubricPassRate !== null
           ? `${Math.round(score.rubricPassRate * 100)}% (${score.criteriaPassed}/${score.criteriaTotal})`

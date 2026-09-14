@@ -7,25 +7,27 @@ import { TaskIllustration, type TaskIllustrationKind } from "@/components/chat/t
 import { Button } from "@/components/ui/button"
 import { IconTile } from "@/react-app/design-system/surface"
 import { cn } from "@/lib/utils"
+import { t } from "@/i18n";
 
-const SUGGESTIONS: { title: string; description: string; kind: TaskIllustrationKind; prompt: string }[] = [
+// Built per render, not once at import: `t()` reads the current language.
+const suggestions = (): { title: string; description: string; kind: TaskIllustrationKind; prompt: string }[] => [
   {
-    title: "Build a review grid",
-    description: "Key terms, side by side.",
+    title: t("task_suggestions.grid_title"),
+    description: t("task_suggestions.grid_desc"),
     kind: "grid",
-    prompt: "Review the contracts in this folder and build a review grid — one row per document, with columns for the parties, effective date, term, governing law, and assignment/change-of-control. Put a short value in each cell with a citation to the source document, and flag anything missing or unusual.",
+    prompt: t("task_suggestions.grid_prompt"),
   },
   {
-    title: "Redline a contract",
-    description: "Thoughtful changes. Clear rationale.",
+    title: t("task_suggestions.redline_title"),
+    description: t("task_suggestions.redline_desc"),
     kind: "redline",
-    prompt: "Redline this contract: propose your changes as tracked redlines and give me a short rationale for each. If we have a standard template or playbook, mark it up against that.",
+    prompt: t("task_suggestions.redline_prompt"),
   },
   {
-    title: "Summarize documents",
-    description: "The details that matter, at a glance.",
+    title: t("task_suggestions.summary_title"),
+    description: t("task_suggestions.summary_desc"),
     kind: "summary",
-    prompt: "Summarize the contracts in this folder. For each one, note what it is in a sentence, then give me an overall summary of what this set covers and anything that stands out — citing the source file for the important points.",
+    prompt: t("task_suggestions.summary_prompt"),
   },
 ]
 
@@ -51,16 +53,16 @@ export function TaskSuggestionCards({ className, providerConnectedCount, onConne
           >
             <IconTile size="sm" variant="glass"><Plug size={16} aria-hidden="true" /></IconTile>
             <span className="min-w-0 flex-1 text-left">
-              <span className="block text-[13px] font-medium text-dls-text">Connect a model provider</span>
-              <span className="block text-xs font-normal text-dls-secondary">Choose your AI to get started</span>
+              <span className="block text-[13px] font-medium text-dls-text">{t("task_suggestions.connect_provider")}</span>
+              <span className="block text-xs font-normal text-dls-secondary">{t("task_suggestions.connect_provider_desc")}</span>
             </span>
             <ArrowRight size={16} aria-hidden="true" />
           </Button>
         </motion.div>
       ) : null}
-      <motion.p variants={entrance} className="lw-task-suggestions-label">A place to start</motion.p>
+      <motion.p variants={entrance} className="lw-task-suggestions-label">{t("task_suggestions.label")}</motion.p>
       <div className="grid min-w-0 grid-cols-1 gap-3 @lg:grid-cols-3">
-        {SUGGESTIONS.map((suggestion) => (
+        {suggestions().map((suggestion) => (
           <motion.div key={suggestion.kind} variants={entrance} className="min-w-0">
             <Button variant="ghost" className="lw-task-card" onClick={() => onSelect(suggestion.prompt)}>
               <span className="lw-task-card-art">

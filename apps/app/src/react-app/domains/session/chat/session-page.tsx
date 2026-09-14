@@ -64,9 +64,10 @@ import { confirmDiscardDocuments } from "../artifacts/docx-document-state";
 import type { OpenTargetOptions } from "@/lib/target-provider";
 import { SidePanel } from "../panel/side-panel";
 import { WorkspaceFilesPanel } from "../panel/workspace-files-panel";
+import { MemoryDriveIcon } from "../panel/memory-drive-icon";
 import { LegalMemoryFilesPanel } from "../panel/legalmemory-files-panel";
 import { TerminalDock } from "../terminal/terminal-dock";
-import { LEARNINGS_PANEL_SESSION_ID, useActivePanelTab, usePanelTabStore } from "../panel/panel-tab-store";
+import { EVALS_PANEL_SESSION_ID, useActivePanelTab, usePanelTabStore } from "../panel/panel-tab-store";
 import { useWorkspaceShellLayout } from "../../../shell/workspace-shell-layout";
 import { useControlAction, type LegalworkControlAction } from "../../../shell/control/control-provider";
 import { cn } from "@/lib/utils";
@@ -104,11 +105,11 @@ export type SessionPageHistoryControls = {
 };
 
 export type SessionPageSidebarProps = {
-  onShowLearnings?: () => void;
+  onShowEvals?: () => void;
   onShowWorkflows?: () => void;
   onShowExtensions?: () => void;
   onShowRecorder?: () => void;
-  activeNav?: "learnings" | "workflows" | "extensions" | "recorder" | null;
+  activeNav?: "evals" | "workflows" | "extensions" | "recorder" | null;
   workspaceSessionGroups: WorkspaceSessionGroup[];
   selectedWorkspaceId: string;
   selectedSessionId: string | null;
@@ -193,7 +194,7 @@ export type SessionPageProps = {
   onDeleteSession?: (sessionId: string) => Promise<void> | void;
   onArchiveSession?: (sessionId: string, archived: boolean) => Promise<void> | void;
   onAccessibleTargetsChange?: (targets: OpenTarget[]) => void;
-  /** When set, replaces the session main pane (keeps the sidebar). Used for the Learnings screen. */
+  /** When set, replaces the session main pane (keeps the sidebar). Used for the Evals screen. */
   mainView?: React.ReactNode;
   terminalOpen?: boolean;
   onTerminalOpenChange?: (open: boolean) => void;
@@ -296,13 +297,12 @@ export function SessionPage(props: SessionPageProps) {
   const queryClient = useQueryClient();
   const sidebarOpen = useUiStateStore((state) => state.sidebarOpen);
   const setSidebarOpen = useUiStateStore((state) => state.setSidebarOpen);
-  const [driveOpen, setDriveOpen] = useState(false);
   // The side panel's open/close state is keyed per chat session. Top-level
-  // mainView pages (Learnings / Benchmark) have no selected session, so they key
-  // it on the synthetic LEARNINGS_PANEL_SESSION_ID instead. Without this the key
+  // mainView pages (Evals / Benchmark) have no selected session, so they key
+  // it on the synthetic EVALS_PANEL_SESSION_ID instead. Without this the key
   // is null and the panel can never open (regressed as "opens only on the 2nd
   // click, and only after having visited a chat session first").
-  const panelStateSessionId = props.mainView ? LEARNINGS_PANEL_SESSION_ID : props.selectedSessionId ?? LEARNINGS_PANEL_SESSION_ID;
+  const panelStateSessionId = props.mainView ? EVALS_PANEL_SESSION_ID : props.selectedSessionId ?? EVALS_PANEL_SESSION_ID;
   const sessionSidePanel = useUiStateStore((state) => (
     panelStateSessionId ? state.sidePanelState[panelStateSessionId] ?? null : null
   ));
@@ -326,6 +326,7 @@ export function SessionPage(props: SessionPageProps) {
   );
   // Ignore a previously persisted settings pane; settings now live at the cog.
   const activeSidePanel = sessionSidePanel === "extensions" ? null : sessionSidePanel;
+  const driveOpen = activeSidePanel === "memory";
   const sidePanelOpen = activeSidePanel !== null;
   const panelRailActive = activeSidePanel === "panel";
   const filesRailActive = activeSidePanel === "files";
@@ -511,7 +512,7 @@ export function SessionPage(props: SessionPageProps) {
   }, [setCurrentSidePanel]);
   const openBrowserUrlControlAction = useMemo<LegalworkControlAction>(() => ({
     id: "browser.open_url",
-    label: "Open URL in built-in browser",
+    label: t("control.open_url_browser"),
     description: "Create or select a LegalWork built-in browser tab, navigate it to a URL, and return the CDP handle for browser automation.",
     sideEffect: "navigation",
     requiresArgs: true,
@@ -535,7 +536,7 @@ export function SessionPage(props: SessionPageProps) {
   useControlAction(openBrowserUrlControlAction);
   const setBrowserProxyControlAction = useMemo<LegalworkControlAction>(() => ({
     id: "browser.set_proxy",
-    label: "Set built-in browser proxy",
+    label: t("control.set_browser_proxy"),
     description: "Route all built-in browser traffic through an HTTP/SOCKS proxy (e.g. to browse from another location). Applies to every built-in browser tab until cleared. Pass an empty proxy to restore system network settings.",
     sideEffect: "mutation",
     args: [
@@ -592,18 +593,18 @@ export function SessionPage(props: SessionPageProps) {
     const client = props.legalworkServerClient;
     const workspaceId = props.runtimeWorkspaceId;
     if (!client || !workspaceId) {
-      toast.error("Could not open the memory file", { description: "Workspace is not connected." });
-      throw new Error("Workspace is not connected.");
+      toast.error(t("session.memory_file_open_failed"), { description: t("session.workspace_not_connected") });
+      throw new Error(t("session.workspace_not_connected"));
     }
     try {
       const result = await materializeLegalMemoryFile(client, workspaceId, file.document_id);
       const target = resolvePathOpenTarget(result.path, accessibleTargets, "legalmemory");
-      if (!target) throw new Error("LegalMemory returned an unusable file path.");
+      if (!target) throw new Error(t("session.legalmemory_unusable_path"));
       queryClient.removeQueries({ queryKey: ["artifact-panel", workspaceId, target.id] });
-      openTarget(target, undefined, props.mainView ? LEARNINGS_PANEL_SESSION_ID : undefined);
+      openTarget(target, undefined, props.mainView ? EVALS_PANEL_SESSION_ID : undefined);
     } catch (error) {
-      toast.error(`Could not open ${file.name}`, {
-        description: error instanceof Error ? error.message : "LegalMemory download failed.",
+      toast.error(t("session.open_failed", { name: file.name }), {
+        description: error instanceof Error ? error.message : t("session.legalmemory_download_failed"),
       });
       throw error;
     }
@@ -623,9 +624,9 @@ export function SessionPage(props: SessionPageProps) {
       const target = accessibleTargets.find((item) => item.id === requested?.id || item.value === requested?.value) ?? (
         requested?.kind && requested?.value ? requested : null
       );
-      // On mainView pages (Learnings / Benchmark) tabs live under the synthetic
+      // On mainView pages (Evals / Benchmark) tabs live under the synthetic
       // panel session so the side panel can render without a chat session.
-      if (target) openTarget(target, undefined, props.mainView ? LEARNINGS_PANEL_SESSION_ID : undefined);
+      if (target) openTarget(target, undefined, props.mainView ? EVALS_PANEL_SESSION_ID : undefined);
     };
     const hide = (event: Event) => {
       const requested = (event as CustomEvent<OpenTarget>).detail;
@@ -652,7 +653,7 @@ export function SessionPage(props: SessionPageProps) {
   const openVoicePanelControlAction = useMemo<LegalworkControlAction | null>(() => (
     realtimeVoiceSupported ? {
       id: "voice.panel.open",
-      label: "Open Voice Mode",
+      label: t("control.open_voice_mode"),
       description: "Open immersive Voice Mode for the current session.",
       sideEffect: "none",
       execute: () => {
@@ -666,7 +667,7 @@ export function SessionPage(props: SessionPageProps) {
   const closeVoicePanelControlAction = useMemo<LegalworkControlAction | null>(() => (
     realtimeVoiceSupported && voiceSidePanelOpen ? {
       id: "voice.panel.close",
-      label: "Close Voice Mode",
+      label: t("control.close_voice_mode"),
       description: "Close immersive Voice Mode.",
       sideEffect: "none",
       execute: () => {
@@ -786,7 +787,7 @@ export function SessionPage(props: SessionPageProps) {
     if (!isElectronRuntime()) return;
     const title = sessionTitleForId(props.sidebar.workspaceSessionGroups, sessionId);
     void desktopBridge.openSessionWindow({ workspaceId, sessionId, title }).catch(() => {
-      toast.error("Could not open the chat in a new window.");
+      toast.error(t("session.open_in_new_window_failed"));
     });
   }, [props.sidebar.workspaceSessionGroups]);
 
@@ -864,6 +865,20 @@ export function SessionPage(props: SessionPageProps) {
     }
   };
 
+  const memoryDrivePanel = !props.detached && driveOpen ? (
+          <LegalMemoryFilesPanel
+            key={props.runtimeWorkspaceId ?? "__no_workspace__"}
+            client={props.legalworkServerClient}
+            workspaceId={props.runtimeWorkspaceId}
+            onOpenFile={openLegalMemoryFile}
+            onConnectLegalMemory={() => {
+              closeRightPane();
+              props.sidebar.onShowExtensions?.();
+            }}
+            onClose={() => closeRightPane()}
+          />
+        ) : null;
+
   return (
     <div className="flex h-full min-h-0 flex-col bg-[var(--lw-canvas)] text-dls-text mac:bg-transparent">
       <SidebarProvider
@@ -911,9 +926,7 @@ export function SessionPage(props: SessionPageProps) {
           onForgetWorkspace={props.sidebar.onForgetWorkspace}
           onOpenCreateWorkspace={props.sidebar.onOpenCreateWorkspace}
           onCreateTaskInNewWorkspace={props.sidebar.onCreateTaskInNewWorkspace}
-          onToggleDrive={() => setDriveOpen((open) => !open)}
-          driveOpen={driveOpen}
-          onShowLearnings={props.sidebar.onShowLearnings}
+          onShowEvals={props.sidebar.onShowEvals}
           onShowWorkflows={props.sidebar.onShowWorkflows}
           onShowExtensions={props.sidebar.onShowExtensions}
           onShowRecorder={props.sidebar.onShowRecorder}
@@ -921,21 +934,8 @@ export function SessionPage(props: SessionPageProps) {
           onReorderWorkspaces={props.sidebar.onReorderWorkspaces}
           onStartResize={startLeftSidebarResize}
         /> : null}
-        {!props.detached && driveOpen ? (
-          <LegalMemoryFilesPanel
-            key={props.runtimeWorkspaceId ?? "__no_workspace__"}
-            client={props.legalworkServerClient}
-            workspaceId={props.runtimeWorkspaceId}
-            onOpenFile={openLegalMemoryFile}
-            onConnectLegalMemory={() => {
-              setDriveOpen(false);
-              props.sidebar.onShowExtensions?.();
-            }}
-            onClose={() => setDriveOpen(false)}
-          />
-        ) : null}
         {props.mainView ? (
-          // Top-level pages (Learnings / Skills / Integrations): keep the app chrome the
+          // Top-level pages (Evals / Skills / Integrations): keep the app chrome the
           // chat has — the draggable top header and the bottom StatusBar (with the
           // settings gear) — and swap only the center content.
           <SidebarInset className="min-h-0 overflow-hidden bg-background mac:bg-background/80 mac:[&_.lw-session-header]:transition-[padding-left] mac:[&_.lw-session-header]:duration-200 mac:[&_.lw-session-header]:ease-linear mac:peer-data-[state=collapsed]:[&_.lw-session-header]:pl-28 mac:max-md:[&_.lw-session-header]:pl-28">
@@ -973,7 +973,7 @@ export function SessionPage(props: SessionPageProps) {
               ) : null}
             </main>
               </ResizablePanel>
-              {activeSidePanel === "panel" ? (
+              {activeSidePanel === "panel" || driveOpen ? (
                 <>
                   <ResizableHandle withHandle className="hidden lg:flex" />
                   <ResizablePanel
@@ -982,32 +982,44 @@ export function SessionPage(props: SessionPageProps) {
                     maxSize="70%"
                     className="min-h-0 overflow-hidden lg:flex lg:flex-col"
                   >
-                    <SidePanel
-                      sessionId={LEARNINGS_PANEL_SESSION_ID}
+                    {driveOpen ? memoryDrivePanel : <SidePanel
+                      sessionId={EVALS_PANEL_SESSION_ID}
                       client={props.legalworkServerClient}
                       workspaceId={props.runtimeWorkspaceId}
                       workspaceRoot={props.selectedWorkspaceRoot}
                       isRemoteWorkspace={props.selectedWorkspaceDisplay.workspaceType === "remote"}
                       onClose={closeRightPane}
-                    />
+                    />}
                   </ResizablePanel>
                 </>
               ) : null}
             </ResizablePanelGroup>
             {/* Same right icon rail as the session view. */}
-            <aside aria-label="Workspace tools" className="lw-session-rail flex w-12 shrink-0 flex-col items-center gap-2 border-l border-border px-1.5 py-3 text-muted-foreground mac:titlebar-no-drag">
+            <aside aria-label={t("session.workspace_tools")} className="lw-session-rail flex w-12 shrink-0 flex-col items-center gap-2 border-l border-border px-1.5 py-3 text-muted-foreground mac:titlebar-no-drag">
               <Button
                 variant="ghost"
                 size="icon-sm"
                 className={cn("lw-session-rail-button hover:bg-muted hover:text-foreground", panelRailActive && "text-foreground")}
                 onClick={() => toggleCurrentSidePanel("panel")}
-                title="Viewer"
-                aria-label="Viewer"
+                title={t("session.viewer")}
+                aria-label={t("session.viewer")}
                 aria-pressed={panelRailActive}
               >
                 <PanelsTopLeft size={17} />
               </Button>
-            </aside>
+
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                className={cn("lw-session-rail-button hover:bg-muted hover:text-foreground", driveOpen && "text-foreground")}
+                onClick={() => toggleCurrentSidePanel("memory")}
+                title={t("sidebar.memory_drive")}
+                aria-label={t("sidebar.memory_drive")}
+                aria-pressed={driveOpen}
+              >
+                <MemoryDriveIcon />
+              </Button>
+          </aside>
             </div>
           </SidebarInset>
         ) : (
@@ -1056,8 +1068,8 @@ export function SessionPage(props: SessionPageProps) {
                   variant="ghost"
                   size="icon-sm"
                   onClick={() => openSessionWindow(props.selectedWorkspaceId, props.selectedSessionId!)}
-                  title="Open chat in new window"
-                  aria-label="Open chat in new window"
+                  title={t("session.open_in_new_window")}
+                  aria-label={t("session.open_in_new_window")}
                 >
                   <AppWindowMac size={16} />
                 </Button>
@@ -1073,9 +1085,9 @@ export function SessionPage(props: SessionPageProps) {
                       window.localStorage.removeItem("legalwork.orgOnboardingSeen");
                     } catch {}
                   }}
-                  title="Clears acknowledged providers + org onboarding so they trigger again"
+                  title={t("settings.clear_onboarding_hint")}
                 >
-                  Reset notifications
+                  {t("session.reset_notifications")}
                 </Button>
               ) : null}
             </div>
@@ -1169,8 +1181,8 @@ export function SessionPage(props: SessionPageProps) {
                               type="button"
                               className="rounded p-0.5 text-dls-secondary opacity-80 hover:bg-dls-hover hover:text-dls-text group-hover:opacity-100"
                               onClick={() => closeSessionTab(tab.sessionId)}
-                              title="Close tab"
-                              aria-label="Close tab"
+                              title={t("session.close_tab")}
+                              aria-label={t("session.close_tab")}
                             >
                               <X size={13} />
                             </button>
@@ -1241,7 +1253,7 @@ export function SessionPage(props: SessionPageProps) {
                   {props.notFoundMessage ? (
                     <div className="px-6 py-16 text-center">
                       <div className="mx-auto max-w-md rounded-2xl border border-dls-border bg-dls-card px-5 py-6 shadow-[var(--dls-card-shadow)]">
-                        <h3 className="text-base font-medium text-dls-text">Workspace or session not found</h3>
+                        <h3 className="text-base font-medium text-dls-text">{t("session.not_found")}</h3>
                         <p className="mt-2 text-sm leading-6 text-dls-secondary">{props.notFoundMessage}</p>
                       </div>
                     </div>
@@ -1291,7 +1303,7 @@ export function SessionPage(props: SessionPageProps) {
                       />
                       <Button variant="ghost" size="sm" className="mt-4 gap-2" onClick={props.onOpenSettings}>
                         <Settings2 size={14} aria-hidden="true" />
-                        Connect an extension
+                        {t("session.connect_extension")}
                       </Button>
                     </WelcomeSurface>
                   )}
@@ -1338,7 +1350,7 @@ export function SessionPage(props: SessionPageProps) {
                   maxSize="70%"
                   className="min-h-0 overflow-hidden lg:flex lg:flex-col"
                 >
-                  {activeSidePanel === "files" ? (
+                  {driveOpen ? memoryDrivePanel : activeSidePanel === "files" ? (
                     <WorkspaceFilesPanel
                       key={props.runtimeWorkspaceId ?? "__no_workspace__"}
                       client={props.legalworkServerClient}
@@ -1362,14 +1374,14 @@ export function SessionPage(props: SessionPageProps) {
             ) : null}
           </ResizablePanelGroup>
           {shellConfig.panelRail ? (
-          <aside aria-label="Workspace tools" className="lw-session-rail flex w-12 shrink-0 flex-col items-center gap-2 border-l border-border px-1.5 py-3 text-muted-foreground mac:titlebar-no-drag">
+          <aside aria-label={t("session.workspace_tools")} className="lw-session-rail flex w-12 shrink-0 flex-col items-center gap-2 border-l border-border px-1.5 py-3 text-muted-foreground mac:titlebar-no-drag">
               <Button
                 variant="ghost"
                 size="icon-sm"
                 className={cn("lw-session-rail-button hover:bg-muted hover:text-foreground", panelRailActive && "text-foreground")}
                 onClick={() => toggleCurrentSidePanel("panel")}
-                title="Viewer"
-                aria-label="Viewer"
+                title={t("session.viewer")}
+                aria-label={t("session.viewer")}
                 aria-pressed={panelRailActive}
               >
                 <PanelsTopLeft size={17} />
@@ -1382,13 +1394,25 @@ export function SessionPage(props: SessionPageProps) {
                 filesRailActive && "text-foreground",
               )}
               onClick={openFilesRailPane}
-              title="Workspace files"
-              aria-label="Workspace files"
+              title={t("session.workspace_files")}
+              aria-label={t("session.workspace_files")}
               aria-pressed={filesRailActive}
               disabled={!props.selectedSessionId || !props.legalworkServerClient || !props.runtimeWorkspaceId}
             >
               <Folder size={17} />
             </Button>
+
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                className={cn("lw-session-rail-button hover:bg-muted hover:text-foreground", driveOpen && "text-foreground")}
+                onClick={() => toggleCurrentSidePanel("memory")}
+                title={t("sidebar.memory_drive")}
+                aria-label={t("sidebar.memory_drive")}
+                aria-pressed={driveOpen}
+              >
+                <MemoryDriveIcon />
+              </Button>
           </aside>
           ) : null}
           </div>

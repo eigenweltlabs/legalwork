@@ -3,6 +3,11 @@ import { basename, isAbsolute, join } from "node:path";
 import { z } from "zod";
 
 import { resolveWorkspaceId, serverToken, serverUrl, type OpenCodeContext } from "./office-plugin-shared.js";
+import {
+  resolveSkillDecision,
+  SKILL_TOOL,
+  type BenchmarkSkillPolicy,
+} from "../benchmarks/ablation.js";
 
 /**
  * Agent tool for creating a LegalWork benchmark task from chat. Lets the user
@@ -95,7 +100,71 @@ async function readDocuments(
   return { documents, errors };
 }
 
+/**
+ * Ablation gate for skills and workflows.
+ *
+ * Skills and workflows both load through the engine's single `skill` tool, so
+ * the per-prompt `tools` map can only switch all of them off at once. Naming
+ * individual ones has to happen here: every `skill` call in a benchmark session
+ * is checked against the arm's policy and rejected if it is switched off.
+ *
+ * Ordinary (non-benchmark) sessions must pay as little as possible, so a
+ * session that resolves to "no arm" is negative-cached and never asked again.
+ */
+const ABLATION_CACHE_MS = 30_000;
+const ABLATION_LOOKUP_TIMEOUT_MS = 4_000;
+
+type SessionAblation = { skills: BenchmarkSkillPolicy } | null;
+
+const ablationCache = new Map<string, { at: number; value: SessionAblation }>();
+
+async function sessionAblation(sessionID: string): Promise<SessionAblation> {
+  const cached = ablationCache.get(sessionID);
+  if (cached && Date.now() - cached.at < ABLATION_CACHE_MS) return cached.value;
+
+  const url = serverUrl();
+  const token = serverToken();
+  // Without a server relay there is nothing to enforce; fail open so a
+  // misconfigured engine cannot block every skill call in normal chat.
+  if (!url || !token) return null;
+
+  let value: SessionAblation = null;
+  try {
+    const response = await fetch(
+      `${url}/benchmarks/session-ablation?session=${encodeURIComponent(sessionID)}`,
+      {
+        headers: { Authorization: `Bearer ${token}` },
+        signal: AbortSignal.timeout(ABLATION_LOOKUP_TIMEOUT_MS),
+      },
+    );
+    if (response.ok) {
+      const payload = (await response.json()) as { arm?: { skills?: BenchmarkSkillPolicy } | null };
+      value = payload.arm?.skills ? { skills: payload.arm.skills } : null;
+    }
+  } catch {
+    // Fail open: an unreachable server must not break unrelated sessions.
+    value = null;
+  }
+  ablationCache.set(sessionID, { at: Date.now(), value });
+  return value;
+}
+
 export const LegalWorkBenchmarkTools = async () => ({
+  "tool.execute.before": async (
+    input: { tool: string; sessionID?: string; callID?: string },
+    output: { args: Record<string, unknown> },
+  ) => {
+    if (input.tool !== SKILL_TOOL) return;
+    const sessionID = input.sessionID?.trim();
+    if (!sessionID) return;
+    const ablation = await sessionAblation(sessionID);
+    if (!ablation) return;
+    const name = typeof output.args?.name === "string" ? output.args.name : "";
+    if (!name) return;
+    const decision = resolveSkillDecision(ablation.skills, name);
+    // Throwing is how a plugin denies a tool call; the message reaches the model.
+    if (!decision.allowed) throw new Error(decision.reason);
+  },
   tool: {
     benchmark_create_task: {
       description:

@@ -26,6 +26,8 @@ function makeItems(runId: string): NewBenchmarkItem[] {
         taskJson: JSON.stringify({ title: `Title for ${taskKey}` }),
         providerId: model.providerID,
         modelId: model.modelID,
+        armId: "full",
+        armLabel: "Full",
       });
     }
   }
@@ -292,5 +294,151 @@ describe("recovery", () => {
     const counts = store.countItemsByStatus("run-1");
     expect(counts.interrupted).toBe(3);
     expect(counts.passed).toBe(1);
+  });
+});
+
+describe("ablation arms", () => {
+  test("persists arms, stamps items, and resolves an arm from a session id", async () => {
+    const store = await BenchmarkStore.open(join(dir, "arms.sqlite"));
+    try {
+      const arms = [
+        { id: "full", label: "Full", config: {} },
+        { id: "no-skills", label: "No skills", config: { skills: { mode: "none" as const } } },
+        {
+          id: "no-tabular",
+          label: "No tabular-review",
+          config: { skills: { mode: "deny" as const, names: ["tabular-review"] } },
+        },
+      ];
+      const items = arms.map((arm) => ({
+        id: `item-${arm.id}`,
+        taskSource: "custom" as const,
+        taskKey: "custom-1",
+        taskTitle: "T",
+        workType: "draft" as const,
+        vertical: "Tax",
+        taskJson: JSON.stringify({ title: "T" }),
+        providerId: "anthropic",
+        modelId: "claude-sonnet-4-6",
+        armId: arm.id,
+        armLabel: arm.label,
+      }));
+      store.createRun(
+        {
+          id: "run-arms",
+          workspaceId: "ws-1",
+          title: "Arms",
+          status: "pending",
+          judgeProviderId: "anthropic",
+          judgeModelId: "claude-sonnet-4-6",
+          concurrency: 2,
+          catalogRef: null,
+          createdAt: 5000,
+        },
+        [{ providerID: "anthropic", modelID: "claude-sonnet-4-6" }],
+        items,
+        arms,
+      );
+
+      expect(store.listRunArms("run-arms").map((arm) => arm.id)).toEqual(["full", "no-skills", "no-tabular"]);
+      expect(store.listItems("run-arms").map((item) => item.armLabel).sort()).toEqual([
+        "Full",
+        "No skills",
+        "No tabular-review",
+      ]);
+
+      // The plugin's gate resolves policy from the engine's session id alone.
+      store.updateItem("item-no-tabular", { sessionId: "ses_abc" });
+      const resolved = store.getArmBySessionId("ses_abc");
+      expect(resolved?.id).toBe("no-tabular");
+      expect(resolved?.runId).toBe("run-arms");
+      expect(resolved?.config.skills).toEqual({ mode: "deny", names: ["tabular-review"] });
+
+      // Sessions that are not benchmark items resolve to null, so ordinary chat is unaffected.
+      expect(store.getArmBySessionId("ses_not_a_benchmark")).toBeNull();
+    } finally {
+      store.close();
+    }
+  });
+
+  test("runs created without arms keep the baseline arm", async () => {
+    const store = await BenchmarkStore.open(join(dir, "arms-default.sqlite"));
+    try {
+      store.createRun(
+        {
+          id: "run-default",
+          workspaceId: "ws-1",
+          title: "Default",
+          status: "pending",
+          judgeProviderId: "anthropic",
+          judgeModelId: "claude-sonnet-4-6",
+          concurrency: 2,
+          catalogRef: null,
+          createdAt: 6000,
+        },
+        [{ providerID: "anthropic", modelID: "claude-sonnet-4-6" }],
+        [
+          {
+            id: "item-default",
+            taskSource: "custom",
+            taskKey: "custom-1",
+            taskTitle: "T",
+            workType: "draft",
+            vertical: "Tax",
+            taskJson: JSON.stringify({ title: "T" }),
+            providerId: "anthropic",
+            modelId: "claude-sonnet-4-6",
+            armId: "full",
+            armLabel: "Full",
+          },
+        ],
+      );
+      expect(store.listRunArms("run-default")).toEqual([{ id: "full", label: "Full", config: {} }]);
+    } finally {
+      store.close();
+    }
+  });
+});
+
+describe("migration from a pre-ablation database", () => {
+  test("adds the arm columns and reads old rows as the baseline arm", async () => {
+    const path = join(dir, "legacy.sqlite");
+    // A database written by a build that predates arms: no arm_id/arm_label.
+    const { Database } = await import("bun:sqlite");
+    const legacy = new Database(path, { create: true });
+    legacy.exec(`CREATE TABLE benchmark_run_items (
+      id TEXT PRIMARY KEY, run_id TEXT NOT NULL, task_source TEXT NOT NULL, task_key TEXT NOT NULL,
+      task_title TEXT NOT NULL, work_type TEXT NOT NULL, vertical TEXT NOT NULL, task_json TEXT NOT NULL,
+      provider_id TEXT NOT NULL, model_id TEXT NOT NULL, status TEXT NOT NULL, session_id TEXT,
+      work_dir TEXT, score REAL, n_criteria INTEGER, n_passed INTEGER, deliverables_found TEXT,
+      error TEXT, started_at INTEGER, finished_at INTEGER, cost REAL, tokens_json TEXT
+    )`);
+    legacy.exec(`INSERT INTO benchmark_run_items
+      (id, run_id, task_source, task_key, task_title, work_type, vertical, task_json, provider_id, model_id, status, session_id)
+      VALUES ('old-1', 'old-run', 'custom', 'custom-1', 'Old', 'draft', 'Tax', '{"title":"Old"}', 'anthropic', 'claude-sonnet-4-6', 'passed', 'ses_old')`);
+    legacy.close();
+
+    const store = await BenchmarkStore.open(path);
+    try {
+      const [item] = store.listItems("old-run");
+      // Pre-ablation runs used every capability, which is exactly the baseline arm.
+      expect(item?.armId).toBe("full");
+      expect(item?.armLabel).toBe("Full");
+      // No arms row exists for the legacy run, so the lookup falls back cleanly
+      // rather than returning a null config the plugin would have to guess about.
+      const resolved = store.getArmBySessionId("ses_old");
+      expect(resolved?.id).toBe("full");
+      expect(resolved?.config).toEqual({});
+    } finally {
+      store.close();
+    }
+  });
+
+  test("opening twice is a no-op the second time", async () => {
+    const path = join(dir, "twice.sqlite");
+    const first = await BenchmarkStore.open(path);
+    first.close();
+    const second = await BenchmarkStore.open(path);
+    second.close();
   });
 });

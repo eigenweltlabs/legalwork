@@ -5,6 +5,7 @@ import ReactDOM from "react-dom/client";
 import { bootstrapTheme } from "../app/theme";
 import { ContextMenuContent, ContextMenuItem, ContextMenuSeparator, ContextMenuShortcut } from "./context-menu";
 import "../app/index.css";
+import { t } from "@/i18n";
 
 type ContextMenuItem = {
   id: string;
@@ -69,7 +70,7 @@ function ContextMenuSurface({
     >
       <ContextMenuContent
         role="menu"
-        aria-label={`${request.source} context menu`}
+        aria-label={t("overlay.context_menu", { source: request.source })}
         className="w-full"
       >
         {request.items.map((item) => {

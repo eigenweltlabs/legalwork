@@ -170,8 +170,8 @@ export function CommandPalette(props: CommandPaletteProps) {
     ...(props.onOpenModelPicker
       ? [{
           id: "models",
-          title: "Switch model",
-          detail: "Choose the LLM that runs your next prompts",
+          title: t("palette.switch_model"),
+          detail: t("palette.switch_model_detail"),
           meta: props.selectedModelLabel ?? t("session.default_model"),
           icon: <BrainCircuit className="size-4 text-primary" />,
           searchText: "model models llm provider openai anthropic claude gpt gemini switch pick select default",
@@ -184,11 +184,11 @@ export function CommandPalette(props: CommandPaletteProps) {
     ...(canMoveCurrentSessionToGroup
       ? [{
           id: "move-to-group",
-          title: "Move to Group",
+          title: t("palette.move_to_group"),
           detail: props.currentSessionForGroupMove
             ? `Add ${props.currentSessionForGroupMove.title} to an existing group`
-            : "Add the selected task to an existing group",
-          meta: sessionGroupCount > 0 ? `${sessionGroupCount.toLocaleString()} groups` : "No groups",
+            : t("command_palette.add_to_group"),
+          meta: sessionGroupCount > 0 ? `${sessionGroupCount.toLocaleString()} groups` : t("command_palette.no_groups"),
           icon: <FolderInput className="size-4 text-primary" />,
           searchText: "move to group add task session folder organize",
           action: () => {
@@ -198,10 +198,10 @@ export function CommandPalette(props: CommandPaletteProps) {
       : []),
     {
       id: "accessible-items",
-      title: "Accessible items",
+      title: t("palette.accessible_items"),
       detail: accessibleTargetCount > 0
         ? `Open ${accessibleTargetCount.toLocaleString()} servers and artifacts detected in this session`
-        : "No servers or artifacts detected in this session yet",
+        : t("command_palette.no_servers"),
       meta: "Session",
       action: () => {
         setMode("accessible-items");
@@ -382,9 +382,9 @@ export function CommandPalette(props: CommandPaletteProps) {
           {mode === "sessions"
             ? t("session.palette_title_sessions")
             : mode === "accessible-items"
-              ? "Accessible items"
+              ? t("palette.accessible_items")
               : mode === "groups"
-                ? "Move to Group"
+                ? t("palette.move_to_group")
                 : t("session.palette_title_actions")
           }
         </CommandDialogTitle>
@@ -402,16 +402,16 @@ export function CommandPalette(props: CommandPaletteProps) {
                 mode === "sessions"
                   ? t("session.palette_placeholder_sessions")
                   : mode === "accessible-items"
-                    ? "Search servers and artifacts..."
+                    ? t("command_palette.search_servers")
                     : mode === "groups"
-                      ? "Search groups..."
+                      ? t("command_palette.search_groups")
                       : t("session.palette_placeholder_actions")
               }
               onKeyDown={handleBackspace}
             />
           </CommandHeader>
           <CommandPanel>
-            <CommandEmpty>{mode === "accessible-items" ? "No accessible items found for this session." : mode === "groups" ? "No groups found for this workspace." : t("session.palette_no_matches")}</CommandEmpty>
+            <CommandEmpty>{mode === "accessible-items" ? t("command_palette.no_items") : mode === "groups" ? t("command_palette.no_groups_workspace") : t("session.palette_no_matches")}</CommandEmpty>
             <CommandList>
               {(item: PaletteItem) => (
                 <CommandItem

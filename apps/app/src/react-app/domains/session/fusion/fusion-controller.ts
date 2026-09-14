@@ -28,6 +28,7 @@ import {
   isFusionCandidateAgentName,
 } from "./fusion-prompt";
 import { useFusionStore, type FusionCandidateRun } from "./fusion-store";
+import { t } from "@/i18n";
 
 const FUSION_TASK_POLL_MS = 1200;
 const FUSION_TASK_TIMEOUT_MS = 15 * 60_000;
@@ -340,7 +341,7 @@ async function monitorFusionTaskProgress(input: {
           candidateModels.forEach((_, index) => {
             useFusionStore.getState().updateRun(sessionId, index, {
               status: "error",
-              error: "The main agent finished without spawning Fusion task-tool subagents.",
+              error: t("fusion.no_subagents"),
             });
           });
           setPhase(sessionId, "error");

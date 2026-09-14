@@ -22,6 +22,7 @@ import { modelEquals, resolveProviderDisplayName } from "../../../../app/utils";
 import type { ModelOption, ModelRef } from "../../../../app/types";
 import { isRecommendedModel } from "../../../../app/defaults";
 import { ProviderIcon } from "../../../design-system/provider-icon";
+import { t } from "@/i18n";
 
 export type ModelPickerModalProps = {
   open: boolean;
@@ -173,7 +174,7 @@ export function ModelPickerModal(props: ModelPickerModalProps) {
         <DialogHeader>
           <DialogTitle>Models</DialogTitle>
           <DialogDescription>
-            Select a model for this session.
+            {t("model_picker.select_for_session")}
           </DialogDescription>
         </DialogHeader>
 
@@ -185,7 +186,7 @@ export function ModelPickerModal(props: ModelPickerModalProps) {
               ref={searchInputRef}
               type="text"
               className="h-10 w-full rounded-xl border border-dls-border bg-dls-surface pl-9 pr-3 text-sm text-dls-text placeholder:text-dls-secondary focus:outline-none focus:ring-2 focus:ring-[rgba(var(--dls-accent-rgb),0.2)]"
-              placeholder="Search providers and models..."
+              placeholder={t("model_picker.search_placeholder")}
               value={props.query}
               onChange={(e) => props.setQuery(e.target.value)}
             />
@@ -196,11 +197,11 @@ export function ModelPickerModal(props: ModelPickerModalProps) {
             {providerGroups.length === 0 ? (
               <div className="space-y-3 rounded-2xl border border-dls-border bg-dls-hover/30 px-4 py-6 text-center">
                 <div className="text-sm text-dls-secondary">
-                  {props.query.trim() ? "No models match your search." : "No models available. Connect a provider to get started."}
+                  {props.query.trim() ? t("model_picker.no_match") : t("model_picker.no_models")}
                 </div>
                 {!props.query.trim() ? (
                   <Button variant="outline" onClick={props.onOpenSettings}>
-                    Connect a provider
+                    {t("model_picker.connect_provider")}
                   </Button>
                 ) : null}
               </div>
@@ -295,7 +296,7 @@ function ProviderAccordion({
                 : "bg-emerald-3 text-emerald-11 hover:bg-emerald-4",
             ].join(" ")}
             onClick={(e) => { e.stopPropagation(); onToggleProvider?.(group.id, group.isDisabled); }}
-            title={group.isDisabled ? "Enable this provider" : "Disable this provider"}
+            title={group.isDisabled ? t("model_picker.enable_provider") : t("model_picker.disable_provider")}
           >
             {group.isDisabled ? "Enable" : "Enabled"}
           </button>
@@ -319,7 +320,7 @@ function ProviderAccordion({
             <>
               {group.recommended.length > 0 ? (
                 <div className="px-2 pb-1 pt-2 text-[10px] font-semibold uppercase tracking-[0.1em] text-dls-secondary">
-                  All models
+                  {t("model_picker.all_models")}
                 </div>
               ) : null}
               {group.other.map((opt) => (

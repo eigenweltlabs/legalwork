@@ -1,7 +1,7 @@
 /** @jsxImportSource react */
 /**
  * Recorder main pane — local audio recording + on-device transcription.
- * Rendered in the session shell's main view (sidebar stays), like Learnings.
+ * Rendered in the session shell's main view (sidebar stays), like Evals.
  */
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
@@ -678,6 +678,11 @@ export function RecorderPane(props: {
               <Languages className="size-4 text-subtext" />
               <Select
                 value={store.language}
+                items={[
+                  { value: "auto", label: t("recorder.language_auto") },
+                  { value: "en", label: "English" },
+                  { value: "de", label: "Deutsch" },
+                ]}
                 onValueChange={(value) => {
                   if (value === "auto" || value === "en" || value === "de") store.setLanguage(value);
                 }}

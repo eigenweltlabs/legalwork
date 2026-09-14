@@ -1,6 +1,6 @@
 # LegalWork — Terms & Conditions
 
-**Last updated: 8 September 2026**
+**Last updated: 11 September 2026**
 
 LegalWork is a local-first desktop application published by **Eigenwelt Labs**,
 operated by Poensgen Technology UG (haftungsbeschränkt), Berlin, Germany
@@ -99,13 +99,10 @@ content-free metering data — model, token counts, cost, status and timestamps.
 Our inference providers apply zero data retention by default and do not train on
 your content.
 
-**One exception.** On some models the provider runs automated abuse monitoring;
-this currently applies to the Gemini models served through Google Cloud (Vertex
-AI), in the EU region as well as the US one. Automated safety classifiers inspect
-every request, and a prompt flagged as possible misuse may be kept for up to 90
-days solely to investigate that suspicion — never for training. Affected models
-are labelled in the App and on the platform, and an administrator can switch them
-off for the firm.
+This includes the Gemini models served through Google Cloud (Vertex AI), in the
+EU region as well as the US one: Google has switched off abuse-monitoring logging
+for Eigenwelt, so prompts sent to these models are not logged or retained for
+abuse monitoring either.
 
 ### Free Eigenwelt models (closed to new users)
 

@@ -573,13 +573,6 @@ export type DesktopCommandMap = {
     args: [scope: string, projectDir: string, content: string];
     result: ExecResult;
   };
-  /** Merge (config given) or delete (null) one MCP server in the runtime
-   * opencode config — the file the packaged engine loads for EVERY workspace
-   * instance, which makes a connector global across old and new workspaces. */
-  mergeRuntimeMcpServer: {
-    args: [name: string, config: Record<string, unknown> | null];
-    result: ExecResult;
-  };
   /**
    * The renderer passes its reset-modal mode, but the main process currently
    * IGNORES it and always removes workspace state + bootstrap config; only
@@ -589,6 +582,15 @@ export type DesktopCommandMap = {
   resetLegalworkState: { args: [mode?: "onboarding" | "all"]; result: unknown };
   resetOpencodeCache: { args: []; result: CacheResetResult };
   opencodeMcpAuth: { args: [action: string, name: string]; result: ExecResult };
+  mcpOAuthListen: {
+    args: [options?: { redirectUri?: string }];
+    result: { listenerId: string; redirectUri: string };
+  };
+  mcpOAuthWait: {
+    args: [options: { listenerId: string; state: string }];
+    result: { code: string };
+  };
+  mcpOAuthCancel: { args: [listenerId: string]; result: void };
   setWindowDecorations: { args: [decorated: boolean]; result: unknown };
   /**
    * Stealth (local-recording) mode for the main window: excludes it from

@@ -1,8 +1,10 @@
 /** @jsxImportSource react */
+import { useEffect, useState } from "react";
 import type { Client } from "../../../app/types";
 import type { McpDirectoryInfo } from "../../../app/constants";
 
 import { McpAuthModal } from "./mcp-auth-modal";
+import { McpConnectorSetupModal } from "./modals/mcp-connector-setup-modal";
 
 export type ConnectionsModalsState = {
   mcpAuthModalOpen: boolean;
@@ -13,6 +15,7 @@ export type ConnectionsModalsState = {
 export type ConnectionsModalsProps = {
   client: Client | null;
   projectDir: string;
+  workspaceKey?: string;
   reloadBlocked: boolean;
   activeSessions: Array<{ id: string; title: string }>;
   isRemoteWorkspace: boolean;
@@ -21,15 +24,21 @@ export type ConnectionsModalsProps = {
   modalState: ConnectionsModalsState;
   onCloseMcpAuthModal: () => void;
   onCompleteMcpAuthModal: () => void | Promise<void>;
+  onConnectMcp: (entry: McpDirectoryInfo) => boolean | void | Promise<boolean | void>;
+  onCancelPendingMcpAuth: () => void;
 };
 
 export default function ConnectionsModals(props: ConnectionsModalsProps) {
+  const [setupEntry, setSetupEntry] = useState<McpDirectoryInfo | null>(null);
+  useEffect(() => setSetupEntry(null), [props.workspaceKey, props.projectDir]);
   return (
+    <>
     <McpAuthModal
       open={props.modalState.mcpAuthModalOpen}
       client={props.client}
       entry={props.modalState.mcpAuthEntry}
       projectDir={props.projectDir}
+      workspaceKey={props.workspaceKey}
       reloadRequired={props.modalState.mcpAuthNeedsReload}
       reloadBlocked={props.reloadBlocked}
       activeSessions={props.activeSessions}
@@ -38,6 +47,18 @@ export default function ConnectionsModals(props: ConnectionsModalsProps) {
       onClose={props.onCloseMcpAuthModal}
       onComplete={props.onCompleteMcpAuthModal}
       onReloadEngine={props.onReloadEngine}
+      onConfigure={(entry) => {
+        props.onCloseMcpAuthModal();
+        setSetupEntry(entry);
+      }}
     />
+    <McpConnectorSetupModal
+      entry={setupEntry}
+      open={setupEntry !== null}
+      onClose={() => setSetupEntry(null)}
+      onCancel={props.onCancelPendingMcpAuth}
+      onConnect={props.onConnectMcp}
+    />
+    </>
   );
 }

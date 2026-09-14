@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { AlertCircle, Headphones, Maximize, Minimize, Pause, Play, Volume2, VolumeX } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
+import { t } from "@/i18n";
 
 function timeLabel(seconds: number) {
   if (!Number.isFinite(seconds)) return "0:00";
@@ -77,9 +78,9 @@ export function MediaPreview({ kind, src, title }: { kind: "audio" | "video"; sr
         <div ref={container} data-media-player={kind} className={`w-full overflow-hidden border border-border bg-background shadow-sm ${fullscreen ? "flex h-full max-w-none flex-col rounded-none" : "max-w-3xl rounded-2xl"}`}>
           {kind === "video" ? <div className="flex shrink-0 items-center justify-between gap-2 border-b border-border px-4 py-2">
             <span className="text-xs font-medium text-muted-foreground">Video</span>
-            <Button variant="outline" size="sm" aria-label={fullscreen ? "Exit fullscreen" : "Fullscreen"} onClick={toggleFullscreen}>
+            <Button variant="outline" size="sm" aria-label={fullscreen ? t("artifact.exit_fullscreen") : "Fullscreen"} onClick={toggleFullscreen}>
               {fullscreen ? <Minimize className="size-4" /> : <Maximize className="size-4" />}
-              {fullscreen ? "Exit fullscreen" : "Fullscreen"}
+              {fullscreen ? t("artifact.exit_fullscreen") : "Fullscreen"}
             </Button>
           </div> : null}
           {kind === "video" ? (
@@ -99,7 +100,7 @@ export function MediaPreview({ kind, src, title }: { kind: "audio" | "video"; sr
           <div className="shrink-0 space-y-3 p-4">
             {error ? <p role="alert" className="flex gap-2 text-sm text-destructive"><AlertCircle className="mt-0.5 size-4 shrink-0" />{error}</p> : null}
             {notice && !error ? <p role="status" className="text-sm text-muted-foreground">{notice}</p> : null}
-            <input type="range" aria-label="Seek" aria-valuetext={`${timeLabel(position)} of ${timeLabel(duration)}`} min={0} max={seekable ? duration : 0} step={0.1} value={seekable ? Math.min(position, duration) : 0} disabled={!seekable || !!error} onChange={(event) => {
+            <input type="range" aria-label={t("media.seek")} aria-valuetext={t("media.seek_position", { position: timeLabel(position), duration: timeLabel(duration) })} min={0} max={seekable ? duration : 0} step={0.1} value={seekable ? Math.min(position, duration) : 0} disabled={!seekable || !!error} onChange={(event) => {
               if (media.current) media.current.currentTime = Number(event.target.value);
               setPosition(Number(event.target.value));
             }} className="block h-4 w-full cursor-pointer accent-primary disabled:cursor-default" />
@@ -114,13 +115,13 @@ export function MediaPreview({ kind, src, title }: { kind: "audio" | "video"; sr
                   if (media.current.volume === 0) media.current.volume = 1;
                   media.current.muted = !muted && volume > 0;
                 }}>{muted || volume === 0 ? <VolumeX className="size-4" /> : <Volume2 className="size-4" />}</Button>
-                <input type="range" aria-label="Volume" min={0} max={1} step={0.05} value={muted ? 0 : volume} onChange={(event) => {
+                <input type="range" aria-label={t("media.volume")} min={0} max={1} step={0.05} value={muted ? 0 : volume} onChange={(event) => {
                   if (!media.current) return;
                   media.current.volume = Number(event.target.value);
                   media.current.muted = false;
                 }} className="h-4 w-16 cursor-pointer accent-primary" />
               </div>
-              <select aria-label="Playback speed" value={rate} onChange={(event) => {
+              <select aria-label={t("media.playback_speed")} value={rate} onChange={(event) => {
                 if (media.current) media.current.playbackRate = Number(event.target.value);
               }} className="h-8 rounded-md border border-border bg-background px-1 text-xs">
                 {[0.5, 0.75, 1, 1.25, 1.5, 2].map((speed) => <option key={speed} value={speed}>{speed}×</option>)}

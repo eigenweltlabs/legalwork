@@ -1,0 +1,21 @@
+name: DCO
+
+on:
+  pull_request_target:
+    types: [opened, reopened, synchronize]
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  dco:
+    name: DCO
+    runs-on: ubuntu-latest
+    steps:
+      # No PR checkout: inspect commit metadata without running contributor code.
+      - uses: christophebedard/dco-check@7b0205d25ead0f898e0b706b58227dd5fa7e3f55 # 0.5.0
+        with:
+          args: --verbose --check-merge-commits
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
