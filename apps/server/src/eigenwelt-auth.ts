@@ -94,7 +94,25 @@ export type EigenweltManifestModel = {
   hostedIn?: string;
   /** The model behind the Eigenwelt name, e.g. "DeepSeek V4 Flash". */
   upstreamModel?: string;
+  /** What the model reads, e.g. ["text", "image", "pdf"]. Absent (platforms
+   *  before the field) = text only. */
+  inputModalities?: EigenweltInputModality[];
 };
+
+/** What a model can read, in the engine's `modalities.input` spelling. Only
+ *  these values reach the engine config: an unknown one fails its schema. */
+export const EIGENWELT_INPUT_MODALITIES = ["text", "image", "pdf"] as const;
+export type EigenweltInputModality = (typeof EIGENWELT_INPUT_MODALITIES)[number];
+
+/**
+ * A model's input list as the engine takes it: "text" always, then the known
+ * modalities the platform named, in a fixed order. Undefined when the
+ * platform sent no list, which leaves the engine's default (text only).
+ */
+export function eigenweltInputModalities(value: unknown): EigenweltInputModality[] | undefined {
+  if (!Array.isArray(value)) return undefined;
+  return EIGENWELT_INPUT_MODALITIES.filter((modality) => modality === "text" || value.includes(modality));
+}
 
 /** The signed-in seat's included usage for the current window (cents, plus a percentage). */
 export type EigenweltUsage = {
@@ -564,19 +582,30 @@ function isRecord(value: unknown): value is Record<string, unknown> {
  * Limits come from the gateway via the manifest; resolveModelLimit supplies a
  * default only for what the manifest leaves out, and always writes both
  * `context` and `output` — one missing key invalidates the whole runtime
- * config in the engine's schema.
+ * config in the engine's schema. The same goes for `modalities` (input AND
+ * output). Without `modalities` the engine takes a model as text only and
+ * swaps every image or PDF for an error note before the request.
  */
 export function buildEigenweltModelsMap(models: EigenweltManifestModel[]): Record<string, unknown> {
   return Object.fromEntries(
-    models.map((model) => [
-      model.id,
-      {
-        name: model.name ?? model.id,
-        tool_call: model.toolCall ?? true,
-        reasoning: model.reasoning ?? false,
-        limit: resolveModelLimit({ context: model.contextLength, output: model.maxOutputTokens }).limit,
-      },
-    ]),
+    models.map((model) => {
+      const input = eigenweltInputModalities(model.inputModalities);
+      return [
+        model.id,
+        {
+          name: model.name ?? model.id,
+          tool_call: model.toolCall ?? true,
+          reasoning: model.reasoning ?? false,
+          limit: resolveModelLimit({ context: model.contextLength, output: model.maxOutputTokens }).limit,
+          ...(input
+            ? {
+                attachment: input.some((modality) => modality !== "text"),
+                modalities: { input, output: ["text"] },
+              }
+            : {}),
+        },
+      ];
+    }),
   );
 }
 

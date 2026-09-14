@@ -19,6 +19,7 @@ import { join } from "node:path";
 
 import {
   buildEigenweltModelsMap,
+  eigenweltInputModalities,
   fetchEigenweltManifest,
   type EigenweltManifestModel,
 } from "./eigenwelt-auth.js";
@@ -50,6 +51,7 @@ function parseManifestModel(value: unknown): EigenweltManifestModel | null {
   const region = optionalText(value.region);
   const hostedIn = optionalText(value.hostedIn);
   const upstreamModel = optionalText(value.upstreamModel);
+  const inputModalities = eigenweltInputModalities(value.inputModalities);
   return {
     id: value.id,
     ...(typeof value.name === "string" ? { name: value.name } : {}),
@@ -61,6 +63,7 @@ function parseManifestModel(value: unknown): EigenweltManifestModel | null {
     ...(region ? { region } : {}),
     ...(hostedIn ? { hostedIn } : {}),
     ...(upstreamModel ? { upstreamModel } : {}),
+    ...(inputModalities ? { inputModalities } : {}),
   };
 }
 

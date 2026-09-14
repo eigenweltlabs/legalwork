@@ -73,6 +73,22 @@ describe("parseManifestModels", () => {
       ]),
     ).toEqual([{ id: "gemini", contextLength: 1_048_576, maxOutputTokens: 65_536 }, { id: "unknown" }]);
   });
+
+  test("keeps what a model reads, text first, and drops values the engine does not know", () => {
+    expect(
+      parseManifestModels([
+        { id: "Eigenwelt Europe Gemini", inputModalities: ["pdf", "image", "text", "image"] },
+        { id: "Eigenwelt Europe GLM", inputModalities: ["image", "video", 42] },
+        { id: "Eigenwelt Europe DeepSeek", inputModalities: [] },
+        { id: "junk", inputModalities: "image" },
+      ]),
+    ).toEqual([
+      { id: "Eigenwelt Europe Gemini", inputModalities: ["text", "image", "pdf"] },
+      { id: "Eigenwelt Europe GLM", inputModalities: ["text", "image"] },
+      { id: "Eigenwelt Europe DeepSeek", inputModalities: ["text"] },
+      { id: "junk" },
+    ]);
+  });
 });
 
 describe("applyEigenweltPaidManifestModels", () => {

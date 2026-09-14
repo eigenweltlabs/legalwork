@@ -6,6 +6,7 @@ import { join } from "node:path";
 
 import {
   EIGENWELT_LOOPBACK_PORTS,
+  buildEigenweltModelsMap,
   fetchEigenweltManifest,
   refreshEigenweltProviderModels,
   startEigenweltSignIn,
@@ -281,6 +282,34 @@ describe("eigenwelt manifest", () => {
     const manifest = await fetchEigenweltManifest({ platformToken: null });
     expect(platform.modelsCalls).toBe(1);
     expect(manifest.models).toHaveLength(2);
+  });
+});
+
+describe("buildEigenweltModelsMap", () => {
+  test("lets images and PDFs through only to the models that read them", () => {
+    const models = buildEigenweltModelsMap([
+      { id: "gemini", inputModalities: ["text", "image", "pdf"] },
+      { id: "glm", inputModalities: ["text", "image"] },
+      { id: "deepseek", inputModalities: ["text"] },
+      { id: "older-platform" },
+    ]) as Record<string, Record<string, unknown>>;
+
+    expect(models.gemini).toMatchObject({
+      attachment: true,
+      modalities: { input: ["text", "image", "pdf"], output: ["text"] },
+    });
+    expect(models.glm).toMatchObject({ attachment: true, modalities: { input: ["text", "image"], output: ["text"] } });
+    expect(models.deepseek).toMatchObject({ attachment: false, modalities: { input: ["text"], output: ["text"] } });
+    // No list from the platform: the engine's own default (text only) stays.
+    expect(models["older-platform"]).not.toHaveProperty("modalities");
+    expect(models["older-platform"]).not.toHaveProperty("attachment");
+  });
+
+  test("never writes a modality the engine schema does not know", () => {
+    const models = buildEigenweltModelsMap([
+      { id: "odd", inputModalities: ["video", "image"] as never },
+    ]) as Record<string, Record<string, unknown>>;
+    expect(models.odd.modalities).toEqual({ input: ["text", "image"], output: ["text"] });
   });
 });
 

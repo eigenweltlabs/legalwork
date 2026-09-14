@@ -148,6 +148,8 @@ export type EigenweltManifestModel = {
   hostedIn?: string;
   /** The model behind the Eigenwelt name, e.g. "DeepSeek V4 Flash". */
   upstreamModel?: string;
+  /** What the model reads, e.g. ["text", "image", "pdf"]. Absent = text only. */
+  inputModalities?: Array<"text" | "image" | "pdf">;
 };
 
 /** The signed-in seat's included usage for the current window (cents, plus a percentage). */
