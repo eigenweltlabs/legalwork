@@ -57,7 +57,9 @@ const STEP_LABELS: Record<CustomConnectorProbe["steps"][number]["id"], () => str
   authorization_server: () => t("add_mcp.step_authorization"),
 };
 
-/** What the check found, step by step, with the headline it adds up to. */
+/** What the check found, step by step, with the headline it adds up to. No
+ * status codes or protocol details: the person adding a connector needs to
+ * know whether a step passed, and the headline says what to do next. */
 export function CustomConnectorCheck({ probe }: { probe: CustomConnectorProbe }) {
   const verdict = probeVerdict(probe);
   const headline =
@@ -71,17 +73,12 @@ export function CustomConnectorCheck({ probe }: { probe: CustomConnectorProbe })
     <div className="space-y-3">
       <ul className="divide-y divide-dls-border rounded-xl border border-dls-border px-4">
         {probe.steps.map((step) => (
-          <li key={step.id} className="flex items-center justify-between gap-3 py-2.5 text-sm">
-            <div className="flex min-w-0 items-center gap-2.5">
-              {step.ok ? <CheckCircle2 size={16} className="shrink-0 text-emerald-11" /> : <XCircle size={16} className="shrink-0 text-red-11" />}
-              <div className="min-w-0">
-                <div className="truncate">{STEP_LABELS[step.id]()}</div>
-                <div className="truncate text-xs text-dls-secondary">{step.ok ? t("add_mcp.step_done") : step.detail ?? t("add_mcp.step_failed")}</div>
-              </div>
+          <li key={step.id} className="flex items-center gap-2.5 py-2.5 text-sm">
+            {step.ok ? <CheckCircle2 size={16} className="shrink-0 text-emerald-11" /> : <XCircle size={16} className="shrink-0 text-red-11" />}
+            <div className="min-w-0">
+              <div className="truncate">{STEP_LABELS[step.id]()}</div>
+              <div className="truncate text-xs text-dls-secondary">{step.ok ? t("add_mcp.step_done") : t("add_mcp.step_failed")}</div>
             </div>
-            <span className={`shrink-0 rounded-md px-2 py-0.5 font-mono text-xs ${step.ok ? "bg-emerald-3/30 text-emerald-11" : "bg-red-7/10 text-red-11"}`}>
-              {step.status ?? "—"}
-            </span>
           </li>
         ))}
       </ul>
