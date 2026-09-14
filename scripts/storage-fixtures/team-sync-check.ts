@@ -178,19 +178,20 @@ try {
   assert.equal(JSON.parse(await tool.storage_list_connections.execute({}, context)).connections.length, 0);
   assert.equal(JSON.parse(await tool.storage_read_file.execute(optionalSource, context)).ok, false);
   assert.equal((await api("member", "POST", `/${optionalId}/filename-search`, { query: "agreement" })).status, 409);
-  // Publishing an existing local connection keeps it installed for its owner.
-  const localConnection = await (await api("admin", "POST", "", { ...input, name: "Promoted fixture" })).json();
-  assert.equal(
-    (await api("admin", "POST", "/team", { localId: localConnection.connection.id, teamInstallation: "optional" }))
-      .status,
-    201,
-  );
-  const promotedCatalog = await (await api("admin", "GET", "")).json();
-  assert(!promotedCatalog.connections.some((item: { id: string }) => item.id === localConnection.connection.id));
-  assert.equal(
-    promotedCatalog.connections.find((item: { name: string }) => item.name === "Promoted fixture").team.installed,
-    true,
-  );
+  // Sharing either policy keeps the connection installed for its administrator.
+  for (const teamInstallation of ["optional", "automatic"]) {
+    const name = `Promoted ${teamInstallation}`;
+    const localConnection = await (await api("admin", "POST", "", { ...input, name })).json();
+    assert.equal(
+      (await api("admin", "POST", "/team", { localId: localConnection.connection.id, teamInstallation })).status,
+      201,
+    );
+    const promotedCatalog = await (await api("admin", "GET", "")).json();
+    assert(!promotedCatalog.connections.some((item: { id: string }) => item.id === localConnection.connection.id));
+    const promoted = promotedCatalog.connections.find((item: { name: string }) => item.name === name);
+    assert.equal(promoted.team.installed, true);
+    assert.equal(promoted.teamInstallation, teamInstallation);
+  }
   const local = await readFile(process.env.LEGALWORK_STORAGE_STORE!, "utf8").catch(() => "[]");
   assert(!local.includes(secretAccessKey));
   console.log(

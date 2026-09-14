@@ -35,7 +35,7 @@ const de = {
   "storage.install": "Zu Memory Drive hinzufügen",
   "storage.available": "Verfügbar",
   "storage.remove_local": "Aus diesem Arbeitsbereich entfernen",
-  "storage.automatic_label": "Für alle automatisch hinzufügen",
+  "storage.automatic_label": "Für alle in meiner Kanzlei automatisch hinzufügen",
   "storage.automatic_help": "Wenn ausgeschaltet, wählen Teammitglieder diese Verbindung im Team-Tab selbst aus.",
   "storage.team_sync_description": "Die Verbindungen Ihrer Kanzlei werden automatisch synchronisiert. Admins können sie hier oder auf der Plattform verwalten.",
   "storage.team_managed": "Von Ihrer Kanzlei verwaltet",

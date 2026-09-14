@@ -26,7 +26,7 @@ export default {
   "storage.install": "Add to Memory Drive",
   "storage.available": "Available",
   "storage.remove_local": "Remove from this workspace",
-  "storage.automatic_label": "Add automatically for everyone",
+  "storage.automatic_label": "Add automatically for everyone in my firm",
   "storage.automatic_help": "When off, people choose this connection from the Team tab.",
   "storage.team_sync_description": "Your firm’s connections sync automatically. Admins can manage them here or on the platform.",
   "storage.team_managed": "Managed by your firm",

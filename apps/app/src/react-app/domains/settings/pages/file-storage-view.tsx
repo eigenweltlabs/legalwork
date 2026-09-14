@@ -63,6 +63,7 @@ export function FileStorageView({
   const scope = useHubScope() ?? "local";
   const [editor, setEditor] = useState<{ kind: StorageKind; connection?: StorageConnection; provider?: StorageOAuthProvider } | null>(null);
   const [removing, setRemoving] = useState<StorageConnection | null>(null);
+  const [sharing, setSharing] = useState<StorageConnection | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const addSection = useRef<HTMLElement>(null);
@@ -89,6 +90,7 @@ export function FileStorageView({
   useEffect(() => {
     setEditor(null);
     setRemoving(null);
+    setSharing(null);
     setError("");
   }, [client, workspaceId, scope]);
   useEffect(() => {
@@ -177,21 +179,7 @@ export function FileStorageView({
                       variant="ghost"
                       size="sm"
                       disabled={busy}
-                      onClick={async () => {
-                        setBusy(true);
-                        setError("");
-                        try {
-                          await client.saveTeamStorageConnection(workspaceId, {
-                            localId: connection.id,
-                            teamInstallation: "optional",
-                          });
-                          refresh();
-                        } catch (cause) {
-                          setError(cause instanceof Error ? cause.message : t("storage.failed"));
-                        } finally {
-                          setBusy(false);
-                        }
-                      }}
+                      onClick={() => setSharing(connection)}
                     >
                       <Users className="size-3.5" />
                       {t("storage.make_team")}
@@ -311,6 +299,15 @@ export function FileStorageView({
           onSaved={refresh}
         />
       )}
+      {sharing && (
+        <StorageSharingDialog
+          client={client}
+          workspaceId={workspaceId}
+          connection={sharing}
+          onClose={() => setSharing(null)}
+          onSaved={refresh}
+        />
+      )}
       <Dialog
         open={Boolean(removing)}
         onOpenChange={(open) => {
@@ -354,6 +351,55 @@ export function FileStorageView({
         </DialogContent>
       </Dialog>
     </div>
+  );
+}
+
+function StorageSharingDialog({ client, workspaceId, connection, onClose, onSaved }: {
+  client: LegalworkServerClient;
+  workspaceId: string;
+  connection: StorageConnection;
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const [automatic, setAutomatic] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  return (
+    <Dialog open onOpenChange={(open) => { if (!open && !busy) onClose(); }}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>{t("storage.make_team")}</DialogTitle>
+          <DialogDescription>{connection.name}</DialogDescription>
+        </DialogHeader>
+        <label className="flex items-center justify-between gap-4">
+          <span>
+            <span className="block text-sm font-medium">{t("storage.automatic_label")}</span>
+            <span className="mt-1 block text-xs text-muted-foreground">{t("storage.automatic_help")}</span>
+          </span>
+          <Switch checked={automatic} onCheckedChange={setAutomatic} disabled={busy} />
+        </label>
+        {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
+        <DialogFooter>
+          <Button variant="outline" disabled={busy} onClick={onClose}>{t("common.cancel")}</Button>
+          <Button disabled={busy} onClick={async () => {
+            setBusy(true);
+            setError("");
+            try {
+              await client.saveTeamStorageConnection(workspaceId, {
+                localId: connection.id,
+                teamInstallation: automatic ? "automatic" : "optional",
+              });
+              onSaved();
+              onClose();
+            } catch (cause) {
+              setError(cause instanceof Error ? cause.message : t("storage.failed"));
+            } finally {
+              setBusy(false);
+            }
+          }}>{busy ? t("common.saving") : t("storage.make_team")}</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 

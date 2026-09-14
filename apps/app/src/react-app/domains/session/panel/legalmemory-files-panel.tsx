@@ -105,10 +105,14 @@ export function LegalMemoryFilesPanel({
     retry: false,
   });
   React.useEffect(() => {
-    const refreshStorage = () => { setStorageRevision((value) => value + 1); void storageRoots.refetch(); };
+    const refreshStorage = () => {
+      setStorageRevision((value) => value + 1);
+      void storageRoots.refetch();
+      void storageQueryClient.invalidateQueries({ queryKey: ["storage-children", workspaceId] });
+    };
     window.addEventListener(STORAGE_CHANGED_EVENT, refreshStorage);
     return () => window.removeEventListener(STORAGE_CHANGED_EVENT, refreshStorage);
-  }, [storageRoots.refetch]);
+  }, [storageRoots.refetch, storageQueryClient, workspaceId]);
   const storageCatalogRevision = JSON.stringify(storageRoots.data?.roots.map((root) => [root.id, root.revision, root.writable]));
   const storageRefreshKey = `${storageRevision}:${storageCatalogRevision}`;
   const hasStorage = Boolean(storageRoots.data?.roots.length);
@@ -293,14 +297,16 @@ export function LegalMemoryFilesPanel({
   }, [onOpenFile, openingId]);
 
   const refresh = React.useCallback(() => {
-    setOpenFolders(new Set());
-    setFolders(new Map());
+    for (const row of rows) {
+      if (row.kind === "root" && row.open) void loadPage(row.root.source_id, "", 0);
+      if (row.kind === "folder" && row.open) void loadPage(row.sourceId, row.folder.path, 0);
+    }
     setStorageRevision((value) => value + 1);
     void storageQueryClient.invalidateQueries({ queryKey: ["storage-children", workspaceId] });
     void storageRoots.refetch();
     void rootsQuery.refetch();
     if (searchQuery && rootsQuery.data?.roots.length) void search.refetch();
-  }, [rootsQuery, search, searchQuery, storageRoots, storageQueryClient, workspaceId]);
+  }, [rootsQuery, search, searchQuery, storageRoots, storageQueryClient, workspaceId, rows, loadPage]);
 
   const roots = rootsQuery.data?.roots ?? [];
   const totalFiles = roots.reduce((sum, root) => sum + root.files, 0);
@@ -356,7 +362,7 @@ export function LegalMemoryFilesPanel({
           <div className={cn("min-h-0 overflow-y-auto", rootsQuery.data?.roots.length ? "max-h-[60%] shrink-0 border-b border-border/50" : "flex-1")}>
             {searchQuery ? <StorageDriveSearch key={`${workspaceId}:${searchQuery}:${storageRefreshKey}`} client={client} workspaceId={workspaceId} roots={storageRoots.data!.roots} query={searchQuery} refreshKey={storageRefreshKey} onOpenFile={onOpenStorageFile} /> : null}
             <div hidden={Boolean(searchQuery)}>
-            <StorageDriveTree key={`${workspaceId}:${storageCatalogRevision}`} client={client} workspaceId={workspaceId} roots={storageRoots.data!.roots} refreshKey={storageRefreshKey} onOpenFile={onOpenStorageFile} />
+            <StorageDriveTree key={workspaceId} client={client} workspaceId={workspaceId} roots={storageRoots.data!.roots} onOpenFile={onOpenStorageFile} />
             </div>
           </div>
         ) : null}

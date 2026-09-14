@@ -26,12 +26,13 @@ type TreeProps = {
   client: LegalworkServerClient;
   workspaceId: string;
   roots: StorageRoot[];
-  refreshKey: number | string;
   onOpenFile: (root: StorageRoot, file: StorageEntry) => void;
 };
-export function StorageDriveTree({ client, workspaceId, roots, refreshKey, onOpenFile }: TreeProps) {
+export function StorageDriveTree({ client, workspaceId, roots, onOpenFile }: TreeProps) {
   const queryClient = useQueryClient();
-  const [selected, setSelected] = useState<Location | null>(null);
+  const [selection, setSelected] = useState<Location | null>(null);
+  const selectedRoot = roots.find((root) => root.id === selection?.root.id);
+  const selected = selection && selectedRoot ? { root: selectedRoot, path: selection.path } : null;
   const [newFolder, setNewFolder] = useState(false);
   const [folderName, setFolderName] = useState("");
   const [busy, setBusy] = useState("");
@@ -44,10 +45,6 @@ export function StorageDriveTree({ client, workspaceId, roots, refreshKey, onOpe
       live.current = false;
     };
   }, []);
-  useEffect(() => {
-    setSelected(null);
-    setError("");
-  }, [refreshKey]);
   const refreshFolder = (target: Location) =>
     queryClient.invalidateQueries({ queryKey: ["storage-children", workspaceId, target.root.id, target.path] });
   const upload = async (target: Location, files: File[]) => {
@@ -143,7 +140,7 @@ export function StorageDriveTree({ client, workspaceId, roots, refreshKey, onOpe
       )}
       {roots.map((root) => (
         <StorageFolder
-          key={`${root.id}:${refreshKey}`}
+          key={root.id}
           client={client}
           workspaceId={workspaceId}
           root={root}
