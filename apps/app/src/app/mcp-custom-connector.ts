@@ -15,17 +15,20 @@ export type CustomConnectorProbe = LegalworkMcpProbeResult;
 
 export type CustomConnectorOAuthClient = "automatic" | "own";
 
+/** One request header the person adds themselves: an API key, a tenant, a version. */
+export type CustomConnectorHeader = { name: string; value: string };
+
 export type CustomConnectorForm = {
   name: string;
   url: string;
   oauthClient: CustomConnectorOAuthClient;
   clientId: string;
   clientSecret: string;
-  apiKey: string;
-  apiKeyHeader: string;
+  headers: CustomConnectorHeader[];
 };
 
-export const DEFAULT_API_KEY_HEADER = "Authorization";
+export const MAX_CUSTOM_HEADERS = 4;
+export const AUTHORIZATION_HEADER = "Authorization";
 
 /** The engine's loopback callback; a pre-registered OAuth client must allow it. */
 export const MCP_OAUTH_REDIRECT_URI = "http://127.0.0.1:19876/mcp/oauth/callback";
@@ -65,11 +68,22 @@ export function apiKeyHeaderValue(header: string, value: string): string {
   return /^[A-Za-z][A-Za-z0-9._~+/-]*\s+\S/.test(trimmed) ? trimmed : `Bearer ${trimmed}`;
 }
 
-function apiKeyHeaders(form: CustomConnectorForm): Record<string, string> | undefined {
-  const apiKey = form.apiKey.trim();
-  if (!apiKey) return undefined;
-  const header = form.apiKeyHeader.trim() || DEFAULT_API_KEY_HEADER;
-  return { [header]: apiKeyHeaderValue(header, apiKey) };
+/**
+ * The request headers to send, from the rows the person filled in. Rows with
+ * no value are ignored; a name the server would reject is an error the person
+ * can fix. Names must be tokens (letters, digits, dashes).
+ */
+export function customConnectorHeaders(form: CustomConnectorForm): Record<string, string> | undefined {
+  const headers: Record<string, string> = {};
+  for (const row of form.headers) {
+    const name = row.name.trim();
+    const value = row.value.trim();
+    if (!name && !value) continue;
+    if (!/^[A-Za-z0-9-]+$/.test(name)) throw new Error(t("add_mcp.header_name_invalid"));
+    if (!value) continue;
+    headers[name] = apiKeyHeaderValue(name, value);
+  }
+  return Object.keys(headers).length ? headers : undefined;
 }
 
 /** The connector entry to save. Throws with a message for the person when something is missing. */
@@ -83,7 +97,12 @@ export function buildCustomConnectorEntry(form: CustomConnectorForm, probe: Cust
   const url = probe && verdict !== "unreachable" && verdict !== "unknown" ? probe.url : typed;
   const entry: McpDirectoryInfo = { name, description: "", type: "remote", url };
 
+  const headers = customConnectorHeaders(form);
+  if (headers) entry.headers = headers;
+
   if (verdict === "signin") {
+    // Custom headers ride along with the OAuth token; the check saw them and
+    // the server still asked to sign in.
     if (form.oauthClient === "automatic" && probe?.oauth?.dynamicRegistration) return { ...entry, oauth: true };
     const clientId = form.clientId.trim();
     if (!clientId) throw new Error(t("add_mcp.client_id_required"));
@@ -91,9 +110,8 @@ export function buildCustomConnectorEntry(form: CustomConnectorForm, probe: Cust
     return { ...entry, oauth: true, oauthConfig: { clientId, ...(clientSecret ? { clientSecret } : {}) } };
   }
 
-  const headers = apiKeyHeaders(form);
   if (verdict === "credentials" && !headers) throw new Error(t("add_mcp.api_key_required"));
   // An open server, or one the check could not read: the engine finds out on
-  // connect. A key the person typed anyway rides along as a header.
-  return headers ? { ...entry, headers } : entry;
+  // connect. Headers the person added ride along.
+  return entry;
 }

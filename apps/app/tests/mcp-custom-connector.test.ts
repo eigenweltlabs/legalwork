@@ -3,6 +3,7 @@ import { describe, expect, test } from "bun:test";
 import {
   apiKeyHeaderValue,
   buildCustomConnectorEntry,
+  customConnectorHeaders,
   defaultOAuthClient,
   normalizeCustomConnectorUrl,
   probeVerdict,
@@ -16,9 +17,10 @@ const form: CustomConnectorForm = {
   oauthClient: "automatic",
   clientId: "",
   clientSecret: "",
-  apiKey: "",
-  apiKeyHeader: "Authorization",
+  headers: [],
 };
+
+const withKey = (value: string, name = "Authorization"): CustomConnectorForm => ({ ...form, headers: [{ name, value }] });
 
 const probe = (patch: Partial<CustomConnectorProbe>): CustomConnectorProbe => ({
   url: form.url,
@@ -63,11 +65,22 @@ describe("custom connector: what gets saved", () => {
     expect(() => buildCustomConnectorEntry({ ...form, oauthClient: "automatic" }, oauth(false))).toThrow(/client ID/i);
   });
 
-  test("a server that wants credentials without OAuth needs an API key, sent as a bearer token", () => {
-    expect(() => buildCustomConnectorEntry(form, probe({ auth: "credentials" }))).toThrow(/API key/i);
-    expect(buildCustomConnectorEntry({ ...form, apiKey: "abc123" }, probe({ auth: "credentials" })).headers).toEqual({ Authorization: "Bearer abc123" });
-    expect(buildCustomConnectorEntry({ ...form, apiKey: "Token abc123" }, probe({ auth: "credentials" })).headers).toEqual({ Authorization: "Token abc123" });
-    expect(buildCustomConnectorEntry({ ...form, apiKey: "abc123", apiKeyHeader: "X-API-Key" }, probe({ auth: "credentials" })).headers).toEqual({ "X-API-Key": "abc123" });
+  test("a server that wants credentials without OAuth needs a header, an Authorization key sent as a bearer token", () => {
+    expect(() => buildCustomConnectorEntry(form, probe({ auth: "credentials" }))).toThrow(/request header/i);
+    expect(buildCustomConnectorEntry(withKey("abc123"), probe({ auth: "credentials" })).headers).toEqual({ Authorization: "Bearer abc123" });
+    expect(buildCustomConnectorEntry(withKey("Token abc123"), probe({ auth: "credentials" })).headers).toEqual({ Authorization: "Token abc123" });
+    expect(buildCustomConnectorEntry(withKey("abc123", "X-API-Key"), probe({ auth: "credentials" })).headers).toEqual({ "X-API-Key": "abc123" });
+  });
+
+  test("custom headers ride along with an OAuth sign-in", () => {
+    const entry = buildCustomConnectorEntry(withKey("tenant-1", "X-Tenant"), oauth(true));
+    expect(entry).toMatchObject({ oauth: true, headers: { "X-Tenant": "tenant-1" } });
+  });
+
+  test("header rows are cleaned up: empty rows dropped, bad names rejected", () => {
+    expect(customConnectorHeaders({ ...form, headers: [{ name: "", value: "" }, { name: "X-Tenant", value: " " }] })).toBeUndefined();
+    expect(customConnectorHeaders({ ...form, headers: [{ name: " X-Tenant ", value: " a " }] })).toEqual({ "X-Tenant": "a" });
+    expect(() => customConnectorHeaders({ ...form, headers: [{ name: "bad header", value: "x" }] })).toThrow(/letters, digits and dashes/);
   });
 
   test("an open server, or one that could not be checked, is saved plainly and the engine decides", () => {
@@ -75,8 +88,8 @@ describe("custom connector: what gets saved", () => {
     expect(open).toEqual({ name: "Fibery", description: "", type: "remote", url: form.url });
     expect(buildCustomConnectorEntry(form, null)).toEqual(open);
     expect(buildCustomConnectorEntry(form, probe({ reachable: false }))).toEqual(open);
-    // A key typed anyway rides along.
-    expect(buildCustomConnectorEntry({ ...form, apiKey: "k" }, probe({ auth: "none" })).headers).toEqual({ Authorization: "Bearer k" });
+    // A key added anyway rides along.
+    expect(buildCustomConnectorEntry(withKey("k"), probe({ auth: "none" })).headers).toEqual({ Authorization: "Bearer k" });
   });
 
   test("name and address are required", () => {

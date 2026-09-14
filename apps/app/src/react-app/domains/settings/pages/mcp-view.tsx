@@ -107,7 +107,7 @@ export type McpViewProps = {
   quickConnect: McpDirectoryInfo[];
   connectMcp: (entry: McpDirectoryInfo) => boolean | void | Promise<boolean | void>;
   /** Check how a remote MCP server signs in before it is added (custom connectors). */
-  probeMcp?: (url: string) => Promise<LegalworkMcpProbeResult>;
+  probeMcp?: (url: string, headers?: Record<string, string>) => Promise<LegalworkMcpProbeResult>;
   cancelPendingMcpAuth?: () => void;
   authorizeMcp: (entry: McpServerEntry) => void;
   logoutMcpAuth: (name: string) => Promise<void> | void;

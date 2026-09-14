@@ -24,8 +24,14 @@ describe("MCP connection outcomes", () => {
   });
 
   test("token connections and explicitly disabled OAuth never launch authorization", () => {
-    expect(mcpConnectOutcome({ ...entry, oauth: true }, { status: "connected" }, true)).toBe("connected");
+    expect(mcpConnectOutcome(entry, { status: "connected" }, true)).toBe("connected");
+    expect(mcpConnectOutcome(entry, { status: "needs_auth" }, true)).toBe("failed");
     expect(mcpConnectOutcome({ ...entry, oauth: false }, { status: "needs_auth" }, false)).toBe("failed");
+  });
+
+  test("headers ride along with an OAuth the entry asks for", () => {
+    expect(mcpConnectOutcome({ ...entry, oauth: true }, { status: "needs_auth" }, true)).toBe("auth");
+    expect(mcpConnectOutcome({ ...entry, oauthConfig: { clientId: "c" } }, { status: "connected" }, true)).toBe("auth");
   });
 
   test("failed, disabled and missing engine entries do not report success", () => {

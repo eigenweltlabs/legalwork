@@ -640,20 +640,17 @@ export function createConnectionsStore(options: {
           throw new Error(t("mcp.missing_url"));
         }
         mcpEntryConfig["url"] = resolvedUrl;
-        if (resolvedHeaders) {
-          mcpEntryConfig["headers"] = resolvedHeaders;
-          // Header-authed entries must not trigger OAuth auto-detection;
-          // otherwise opencode reports "needs_auth" despite valid headers.
+        if (resolvedHeaders) mcpEntryConfig["headers"] = resolvedHeaders;
+        // Header-authed entries must not trigger OAuth auto-detection (opencode
+        // would report "needs_auth" despite valid headers) unless the entry asks
+        // for OAuth explicitly, in which case the headers ride along with it.
+        const wantsOauth = entry.oauth === true || Boolean(entry.oauthConfig);
+        if (entry.oauth === false || (resolvedHeaders && !wantsOauth)) {
           mcpEntryConfig["oauth"] = false;
-        }
-        if (!resolvedHeaders) {
-          if (entry.oauth === false) {
-            mcpEntryConfig["oauth"] = false;
-          } else if (entry.oauthConfig) {
-            mcpEntryConfig["oauth"] = entry.oauthConfig;
-          } else if (entry.oauth) {
-            mcpEntryConfig["oauth"] = {};
-          }
+        } else if (entry.oauthConfig) {
+          mcpEntryConfig["oauth"] = entry.oauthConfig;
+        } else if (entry.oauth) {
+          mcpEntryConfig["oauth"] = {};
         }
       }
 
@@ -691,10 +688,14 @@ export function createConnectionsStore(options: {
                 type: "remote" as const,
                 url: resolvedUrl ?? entry.url!,
                 enabled: true,
-                ...(resolvedHeaders ? { headers: resolvedHeaders, oauth: false as const } : {}),
-                ...(!resolvedHeaders && entry.oauthConfig ? { oauth: entry.oauthConfig } : {}),
-                ...(!resolvedHeaders && entry.oauth === false ? { oauth: false as const } : {}),
-                ...(!resolvedHeaders && !entry.oauthConfig && entry.oauth ? { oauth: {} } : {}),
+                ...(resolvedHeaders ? { headers: resolvedHeaders } : {}),
+                ...(mcpEntryConfig["oauth"] === false
+                  ? { oauth: false as const }
+                  : entry.oauthConfig
+                    ? { oauth: entry.oauthConfig }
+                    : entry.oauth
+                      ? { oauth: {} }
+                      : {}),
               }
             : {
                 type: "local" as const,
@@ -813,12 +814,12 @@ export function createConnectionsStore(options: {
   }
 
   /** Ask the server how a remote MCP server signs in, before saving anything. */
-  async function probeMcp(url: string) {
+  async function probeMcp(url: string, headers?: Record<string, string>) {
     const { legalworkClient, legalworkWorkspaceId, canUseLegalworkServer } = await resolveMcpLegalworkTarget("read");
     if (!canUseLegalworkServer || !legalworkClient || !legalworkWorkspaceId) {
       throw new Error(t("mcp.connect_server_first"));
     }
-    return legalworkClient.probeMcp(legalworkWorkspaceId, { url });
+    return legalworkClient.probeMcp(legalworkWorkspaceId, { url, ...(headers ? { headers } : {}) });
   }
 
   function authorizeMcp(entry: McpServerEntry) {

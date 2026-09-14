@@ -3,14 +3,14 @@ import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 
 import {
-  CustomConnectorApiKeyFields,
   CustomConnectorCheck,
+  CustomConnectorHeaderFields,
   CustomConnectorOAuthClientFields,
 } from "../src/react-app/domains/connections/modals/add-mcp-modal";
 import type { CustomConnectorForm, CustomConnectorProbe } from "../src/app/mcp-custom-connector";
 
 const form: CustomConnectorForm = {
-  name: "Fibery", url: "https://mcp.fibery.io/mcp", oauthClient: "automatic", clientId: "", clientSecret: "", apiKey: "", apiKeyHeader: "Authorization",
+  name: "Fibery", url: "https://mcp.fibery.io/mcp", oauthClient: "automatic", clientId: "", clientSecret: "", headers: [],
 };
 
 const oauthProbe = (dynamicRegistration: boolean): CustomConnectorProbe => ({
@@ -74,10 +74,30 @@ describe("Add custom connector: the OAuth client", () => {
   });
 });
 
-describe("Add custom connector: the API key", () => {
-  test("asks for the key and the header it travels in", () => {
-    const html = renderToStaticMarkup(React.createElement(CustomConnectorApiKeyFields, { form, onChange: () => {} }));
-    expect(html).toContain("API key or token");
+describe("Add custom connector: request headers", () => {
+  test("starts as one link and grows into name and value rows, up to four", () => {
+    const empty = renderToStaticMarkup(React.createElement(CustomConnectorHeaderFields, { form, onChange: () => {} }));
+    expect(empty).toContain("Add custom header");
+    expect(empty).not.toContain("Request headers");
+
+    const one = renderToStaticMarkup(React.createElement(CustomConnectorHeaderFields, {
+      form: { ...form, headers: [{ name: "Authorization", value: "Bearer k" }] }, onChange: () => {},
+    }));
+    expect(one).toContain("Request headers");
+    expect(one).toContain("Add another header");
+    expect(one).toContain("Remove header");
+
+    const four = renderToStaticMarkup(React.createElement(CustomConnectorHeaderFields, {
+      form: { ...form, headers: Array.from({ length: 4 }, (_, i) => ({ name: `X-${i}`, value: "v" })) }, onChange: () => {},
+    }));
+    expect(four).not.toContain("Add another header");
+  });
+
+  test("when the server asked for an API key the rows are titled as such", () => {
+    const html = renderToStaticMarkup(React.createElement(CustomConnectorHeaderFields, {
+      form: { ...form, headers: [{ name: "Authorization", value: "" }] }, onChange: () => {}, title: "API key", hint: "hint",
+    }));
+    expect(html).toContain("API key");
     expect(html).toContain("Authorization");
   });
 });

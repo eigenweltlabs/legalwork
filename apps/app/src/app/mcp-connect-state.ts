@@ -29,7 +29,12 @@ export function mcpConnectOutcome(
   status: McpStatus | undefined,
   hasHeaders: boolean,
 ): McpConnectOutcome {
-  const oauthAllowed = (entry.type ?? "remote") === "remote" && !hasHeaders && entry.oauth !== false;
+  // Static headers usually mean a token-authed server that must not start OAuth,
+  // unless the entry asks for OAuth explicitly: then the headers ride along.
+  const oauthAllowed =
+    (entry.type ?? "remote") === "remote" &&
+    entry.oauth !== false &&
+    (!hasHeaders || entry.oauth === true || Boolean(entry.oauthConfig));
   const authError = status?.status === "failed" ? classifyMcpOAuthError(status.error) : "unknown";
   // A transport handshake can succeed without credentials. An explicit OAuth
   // connection still needs the authorization flow to verify sign-in.

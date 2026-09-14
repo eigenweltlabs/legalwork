@@ -1,6 +1,6 @@
 /** @jsxImportSource react */
 import { useRef, useState } from "react";
-import { AlertCircle, CheckCircle2, Loader2, Plus } from "lucide-react";
+import { AlertCircle, CheckCircle2, Loader2, Plus, X } from "lucide-react";
 
 import {
   Dialog,
@@ -17,9 +17,11 @@ import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { TextInput } from "../../../design-system/text-input";
 import type { McpDirectoryInfo } from "@/app/constants";
 import {
+  AUTHORIZATION_HEADER,
   buildCustomConnectorEntry,
-  DEFAULT_API_KEY_HEADER,
+  customConnectorHeaders,
   defaultOAuthClient,
+  MAX_CUSTOM_HEADERS,
   MCP_OAUTH_REDIRECT_URI,
   normalizeCustomConnectorUrl,
   probeVerdict,
@@ -34,7 +36,7 @@ export type AddMcpModalProps = {
   onClose: () => void;
   onAdd: (entry: McpDirectoryInfo) => boolean | void | Promise<boolean | void>;
   /** Ask the server how the connector signs in; absent when nothing can check from here. */
-  onProbe?: (url: string) => Promise<CustomConnectorProbe>;
+  onProbe?: (url: string, headers?: Record<string, string>) => Promise<CustomConnectorProbe>;
   busy: boolean;
   isRemoteWorkspace: boolean;
 };
@@ -47,8 +49,7 @@ const initialForm: CustomConnectorForm = {
   oauthClient: "automatic",
   clientId: "",
   clientSecret: "",
-  apiKey: "",
-  apiKeyHeader: DEFAULT_API_KEY_HEADER,
+  headers: [],
 };
 
 const BADGE_CLASS = "inline-flex max-w-full items-center gap-2 rounded-full border px-3 py-1.5 text-sm font-medium";
@@ -137,25 +138,57 @@ export function CustomConnectorOAuthClientFields({ probe, form, onChange }: Fiel
   );
 }
 
-/** A static credential for servers that want one but publish no OAuth sign-in. */
-export function CustomConnectorApiKeyFields({ form, onChange }: FieldsProps) {
+/**
+ * Request headers the person adds themselves — an API key most of the time.
+ * Offered on the first step so a key can go into the check, and again where
+ * the outcome calls for one.
+ */
+export function CustomConnectorHeaderFields({ form, onChange, title, hint }: FieldsProps & { title?: string; hint?: string }) {
+  const rows = form.headers;
+  const update = (index: number, patch: Partial<CustomConnectorForm["headers"][number]>) =>
+    onChange({ headers: rows.map((row, i) => (i === index ? { ...row, ...patch } : row)) });
+  const remove = (index: number) => onChange({ headers: rows.filter((_, i) => i !== index) });
+  const add = () => onChange({ headers: [...rows, { name: rows.length ? "" : AUTHORIZATION_HEADER, value: "" }] });
   return (
-    <section className="space-y-3">
-      <div className="text-sm font-medium">{t("add_mcp.api_key")}</div>
-      <p className="text-xs text-dls-secondary">{t("add_mcp.api_key_hint")}</p>
-      <TextInput
-        label={t("add_mcp.api_key_label")}
-        placeholder={t("add_mcp.api_key_placeholder")}
-        type="password"
-        value={form.apiKey}
-        onChange={(event) => onChange({ apiKey: event.currentTarget.value })}
-      />
-      <TextInput
-        label={t("add_mcp.api_key_header")}
-        hint={t("add_mcp.api_key_header_hint")}
-        value={form.apiKeyHeader}
-        onChange={(event) => onChange({ apiKeyHeader: event.currentTarget.value })}
-      />
+    <section className="space-y-2">
+      {title ? <div className="text-sm font-medium">{title}</div> : null}
+      {hint ? <p className="text-xs text-dls-secondary">{hint}</p> : null}
+      {rows.length ? (
+        <div className="space-y-2">
+          {!title ? <div className="text-xs font-medium text-dls-text">{t("add_mcp.headers_title")}</div> : null}
+          {rows.map((row, index) => (
+            <div key={index} className="flex items-center gap-2">
+              <TextInput
+                aria-label={t("add_mcp.header_name")}
+                placeholder={AUTHORIZATION_HEADER}
+                value={row.name}
+                spellCheck={false}
+                onChange={(event) => update(index, { name: event.currentTarget.value })}
+              />
+              <TextInput
+                aria-label={t("add_mcp.header_value")}
+                placeholder={t("add_mcp.header_value_placeholder")}
+                type="password"
+                value={row.value}
+                onChange={(event) => update(index, { value: event.currentTarget.value })}
+              />
+              <Button variant="ghost" size="icon-sm" aria-label={t("add_mcp.remove_header")} onClick={() => remove(index)}>
+                <X size={14} />
+              </Button>
+            </div>
+          ))}
+          {!title ? <p className="text-xs text-dls-secondary">{t("add_mcp.headers_hint")}</p> : null}
+        </div>
+      ) : null}
+      {rows.length < MAX_CUSTOM_HEADERS ? (
+        <button
+          type="button"
+          className="text-xs text-dls-secondary underline underline-offset-4 hover:text-dls-text"
+          onClick={add}
+        >
+          {rows.length ? t("add_mcp.add_another_header") : t("add_mcp.add_header")}
+        </button>
+      ) : null}
     </section>
   );
 }
@@ -165,7 +198,6 @@ export function AddMcpModal(props: AddMcpModalProps) {
   const [command, setCommand] = useState<string | null>(null);
   const [step, setStep] = useState<Step>("details");
   const [probe, setProbe] = useState<CustomConnectorProbe | null>(null);
-  const [apiKeyOpen, setApiKeyOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   // A check or save that finishes after the dialog closed must not act on it.
@@ -182,7 +214,6 @@ export function AddMcpModal(props: AddMcpModalProps) {
     setCommand(null);
     setStep("details");
     setProbe(null);
-    setApiKeyOpen(false);
     setError(null);
     setSubmitting(false);
   };
@@ -197,6 +228,12 @@ export function AddMcpModal(props: AddMcpModalProps) {
     if (!form.name.trim()) return setError(t("mcp.name_required"));
     const url = normalizeCustomConnectorUrl(form.url);
     if (!url) return setError(t("mcp.url_or_command_required"));
+    let headers: Record<string, string> | undefined;
+    try {
+      headers = customConnectorHeaders(form);
+    } catch (cause) {
+      return setError(getMcpOAuthErrorMessage(cause));
+    }
     patch({ url });
     if (!props.onProbe) {
       setProbe(null);
@@ -206,10 +243,14 @@ export function AddMcpModal(props: AddMcpModalProps) {
     const id = ++attempt.current;
     setStep("checking");
     try {
-      const result = await props.onProbe(url);
+      const result = await props.onProbe(url, headers);
       if (id !== attempt.current) return;
       setProbe(result);
       patch({ oauthClient: defaultOAuthClient(result) });
+      // A server that wants a key gets an Authorization row ready to fill.
+      if (probeVerdict(result) === "credentials" && !form.headers.length) {
+        patch({ headers: [{ name: AUTHORIZATION_HEADER, value: "" }] });
+      }
       setStep("configure");
     } catch (cause) {
       if (id !== attempt.current) return;
@@ -303,6 +344,7 @@ export function AddMcpModal(props: AddMcpModalProps) {
                   onChange={(event) => patch({ url: event.currentTarget.value })}
                 />
               )}
+              {local ? null : <CustomConnectorHeaderFields form={form} onChange={patch} />}
               {props.isRemoteWorkspace ? (
                 <p className="text-[11px] text-dls-secondary">{t("mcp.remote_workspace_url_hint")}</p>
               ) : (
@@ -345,18 +387,9 @@ export function AddMcpModal(props: AddMcpModalProps) {
               {verdict === "signin" && probe ? (
                 <CustomConnectorOAuthClientFields probe={probe} form={form} onChange={patch} />
               ) : verdict === "credentials" ? (
-                <CustomConnectorApiKeyFields form={form} onChange={patch} />
+                <CustomConnectorHeaderFields form={form} onChange={patch} title={t("add_mcp.api_key")} hint={t("add_mcp.api_key_hint")} />
               ) : verdict === "open" ? (
-                <div className="space-y-3">
-                  <button
-                    type="button"
-                    className="text-xs text-dls-secondary underline underline-offset-4 hover:text-dls-text"
-                    onClick={() => setApiKeyOpen((open) => !open)}
-                  >
-                    {t("add_mcp.api_key_optional")}
-                  </button>
-                  {apiKeyOpen ? <CustomConnectorApiKeyFields form={form} onChange={patch} /> : null}
-                </div>
+                <CustomConnectorHeaderFields form={form} onChange={patch} />
               ) : null}
             </>
           ) : null}
