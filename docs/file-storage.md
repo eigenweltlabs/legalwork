@@ -331,3 +331,15 @@ Optional S3 request headers:
 - Verification: `pnpm --filter legalwork-server test` on Bun 1.4.2: 626 passed, 11 optional tests skipped. `pnpm --filter @legalwork/app test`: 417 passed. App/server typechecks, app `test:i18n`, server build and `pnpm build:ui` passed. The platform integration suite also exercises real PostgreSQL and MinIO through LegalWork, including signed custom headers in agent search/read/write. Controlled HTTP fixtures verify headers on each operation and retry. UI form checks use synthetic settings.
 
 Tresorit compatibility has been reviewed against its [API reference](https://github.com/tresorit/s3-api#technical-limitations), but has not been verified against a live Tresorit deployment. For existing files, set the optional header to `X-Return-Missing-Metadata: true` and enable path-style URLs. The adapter already uses single-request uploads; Tresorit limits these to 5 GB. Its documentation describes recursive root-only REST listing and no empty folder creation. Prefix/delimiter listing, initial discovery latency, streamed payload support and conditional overwrites still need target verification before advertising the complete Memory Drive and agent-search flow as supported.
+
+## Box
+
+Box connections use a personal sign-in and appear in Memory Drive. Leave the folder empty to use all files, or choose a Box folder link or ID. Read-only connections request `root_readonly`; writable connections request `root_readwrite`. Existing file previews, local copies, uploads, remote saves and agent tools use the same storage interface.
+
+The adapter supports marker-based folder listing and native filename/content search within the selected folder. Box's search index can take time to reflect changes; a broad search may require narrowing after Box's 10,000-result limit. Transfers of 20 MiB or more use upload sessions with checksums and conditional commits.
+
+Box requires a confidential application secret, so authorization goes through the platform's Box broker with a PKCE-bound desktop callback. The app secret is never bundled with LegalWork. Personal access and rotating refresh tokens stay in the encrypted local vault and are not synchronized with team settings. The broker does not persist them or transfer documents.
+
+For a separately hosted broker, set `LEGALWORK_STORAGE_BOX_OAUTH_URL` to its `/api/storage-oauth/box/` endpoint and `LEGALWORK_STORAGE_BOX_CLIENT_ID` to the matching application ID.
+
+Validation: `pnpm --filter legalwork-server test`, server/app typechecks and app tests. Opt-in live checks: set `LEGALWORK_OAUTH_TEST_DIR` to a private directory, then run `bun scripts/storage-fixtures/oauth-live.ts box` and `bun scripts/storage-fixtures/oauth-transfer-live.ts box`. These create synthetic files in the connected test account.

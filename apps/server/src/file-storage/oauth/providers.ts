@@ -16,10 +16,11 @@ export type OAuthProvider = StorageOAuthProvider & {
   adapter: (config: OAuthConfig, token: AccessToken) => Promise<StorageAdapter> | StorageAdapter;
 };
 // Each provider branch adds its own registration to this shared entry point.
-export const oauthProviders: OAuthProvider[] = [];
+export const oauthProviders: OAuthProvider[] = [boxProvider];
 export function oauthProvider(id: string) {
   const provider = oauthProviders.find((item) => item.id === id);
   if (!provider?.clientId)
     throw new ApiError(409, "storage_provider_unavailable", "This connection is not available in this version of LegalWork.");
   return provider;
 }
+import { boxProvider } from "./box.js";
