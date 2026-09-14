@@ -31,6 +31,7 @@ export interface StorageAdapter {
   mkdir(path: string): Promise<void>;
   rename?(path: string, destination: string, kind: StorageEntry["kind"]): Promise<void>;
   deleteFile?(path: string): Promise<void>;
+  deleteFolder?(path: string): Promise<void>;
   close?(): Promise<void>;
 }
 

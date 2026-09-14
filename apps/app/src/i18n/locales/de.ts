@@ -151,6 +151,8 @@ const de = {
   "storage.new_folder": "Neuer Ordner",
   "storage.folder_name": "Ordnername",
   "storage.delete_file": "Datei löschen",
+  "storage.delete_folder": "Ordner löschen",
+  "storage.delete_folder_confirm": "„{name}“ mit allen enthaltenen Dateien und Unterordnern aus {connection} löschen? Sie werden für alle entfernt, die diese Verbindung nutzen. Lokale Arbeitskopien bleiben erhalten.",
   "storage.delete_file_named": "{name} löschen",
   "storage.delete_file_confirm": "„{name}“ aus {connection} löschen? Die gemeinsame Datei wird für alle entfernt, die diese Verbindung nutzen. Lokale Arbeitskopien bleiben erhalten.",
   "tool_run.running": "Befehle werden ausgeführt",

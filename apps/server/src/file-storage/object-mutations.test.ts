@@ -55,6 +55,22 @@ test("conditional deletion preserves a concurrent update", async () => {
   await expect(adapter.deleteFile!("old/a.txt")).rejects.toMatchObject({ code: "storage_conflict" });
   expect(files.get("old/a.txt")).toBe("new work");
 });
+test("folder deletion removes only its complete prefix, including empty markers", async () => {
+  const { adapter, files } = fixture();
+  files.set("old", "same-named file");
+  files.set("old-other/a.txt", "keep");
+  await expect(adapter.deleteFolder!("")).rejects.toThrow();
+  await adapter.deleteFolder!("old");
+  expect([...files]).toEqual([["old", "same-named file"], ["old-other/a.txt", "keep"]]);
+});
+test("folder deletion preserves concurrent updates and reports new files", async () => {
+  const updated = fixture(undefined, (path, files) => files.set(path, "new work"));
+  await expect(updated.adapter.deleteFolder!("old")).rejects.toMatchObject({ code: "storage_conflict" });
+  expect(updated.files.get("old/a.txt")).toBe("new work");
+  const added = fixture(undefined, (_path, files) => files.set("old/new.txt", "new work"));
+  await expect(added.adapter.deleteFolder!("old")).rejects.toMatchObject({ code: "storage_folder_changed" });
+  expect([...added.files]).toEqual([["old/new.txt", "new work"]]);
+});
 test("renames cannot move roots, traverse folders, or inject protocol commands", () => {
   expect(renameDestination("Matter/old.docx", "Neu ü.docx")).toBe("Matter/Neu ü.docx");
   for (const name of ["../outside", "a/b", "..", "/root", "a\\b", "file\r\nDELE x", ""]) expect(() => renameDestination("Matter/old", name)).toThrow();

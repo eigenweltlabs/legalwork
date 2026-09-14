@@ -222,6 +222,7 @@ export type StorageSearchPage = StoragePage & { truncated?: boolean; scope?: "fo
 export type StorageCapabilities = {
   rename: boolean;
   deleteFile: boolean;
+  deleteFolder: boolean;
   read: boolean;
   write: boolean;
   createFolder: boolean;

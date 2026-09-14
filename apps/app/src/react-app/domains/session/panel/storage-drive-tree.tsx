@@ -266,6 +266,10 @@ function StorageFolder(props: FolderProps) {
     <div>
       <StorageEntryMenu client={client} workspaceId={workspaceId} root={root} file={{ path, name, kind: "folder", size: null, modifiedAt: null }} disabled={busy}
         onOpen={() => { onSelect({ root, path }); setOpen(true); }} onRefresh={() => void children.refetch()}
+        onDeleted={() => {
+          if (selected?.root.id === root.id && (selected.path === path || selected.path.startsWith(`${path}/`)))
+            onSelect({ root, path: path.split("/").slice(0, -1).join("/") });
+        }}
         onUpload={() => props.onChooseUpload({ root, path })} onNewFolder={() => props.onNewFolder({ root, path })}>
       <div className="group flex items-center">
         <button

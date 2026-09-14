@@ -112,3 +112,23 @@ test("Box renames files and folders with version guards and deletes only files",
     { path: "/2.0/files/20", method: "DELETE", version: "2", body: null },
   ]);
 });
+test("Box folder deletion is recursive, version guarded, and cannot delete the connection root", async () => {
+  let deleted = false;
+  requests((url, init) => {
+    if (init?.method === "DELETE") {
+      expect(url.pathname).toBe("/2.0/folders/30");
+      expect(url.searchParams.get("recursive")).toBe("true");
+      expect(new Headers(init.headers).get("If-Match")).toBe("4");
+      deleted = true;
+      return new Response(null, { status: 204 });
+    }
+    if (url.pathname === "/2.0/folders/10") return Response.json(root);
+    return Response.json({ entries: [file, { id: "30", type: "folder", name: "Matter", etag: "4" }] });
+  });
+  const adapter = await boxAdapter({ kind: "oauth", provider: "box", root: "10" }, async () => "token");
+  await expect(adapter.deleteFolder!("")).rejects.toThrow();
+  await expect(adapter.deleteFolder!("matter.txt")).rejects.toMatchObject({ code: "storage_not_a_folder" });
+  expect(deleted).toBe(false);
+  await adapter.deleteFolder!("Matter");
+  expect(deleted).toBe(true);
+});

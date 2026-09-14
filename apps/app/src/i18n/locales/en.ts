@@ -142,6 +142,8 @@ export default {
   "storage.new_folder": "New folder",
   "storage.folder_name": "Folder name",
   "storage.delete_file": "Delete file",
+  "storage.delete_folder": "Delete folder",
+  "storage.delete_folder_confirm": "Delete “{name}” and all files and subfolders inside it from {connection}? This removes them for everyone using this connection. Local working copies are kept.",
   "storage.delete_file_named": "Delete {name}",
   "storage.delete_file_confirm": "Delete “{name}” from {connection}? This removes the shared file for anyone using this connection. Local working copies are kept.",
   "tool_run.running": "Running commands",

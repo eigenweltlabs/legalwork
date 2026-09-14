@@ -182,6 +182,12 @@ export async function boxAdapter(config: OAuthConfig, token: AccessToken): Promi
       if (file.type !== "file") throw new ApiError(400, "storage_not_a_file", "Choose a file.");
       await (await authorizedFetch(token, new URL(`files/${file.id}`, api), { method: "DELETE", headers: file.etag ? { "If-Match": file.etag } : {} })).body?.cancel();
     },
+    async deleteFolder(path) {
+      storagePath(path, false);
+      const folder = await resolve(path);
+      if (folder.type !== "folder") throw new ApiError(400, "storage_not_a_folder", "Choose a folder.");
+      await (await authorizedFetch(token, new URL(`folders/${folder.id}?recursive=true`, api), { method: "DELETE", headers: folder.etag ? { "If-Match": folder.etag } : {} })).body?.cancel();
+    },
     async mkdir(path) {
       const parts = storagePath(path, false).split("/"); const name = parts.pop()!;
       const parent = await resolve(parts.join("/"));

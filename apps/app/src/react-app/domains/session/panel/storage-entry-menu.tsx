@@ -9,11 +9,12 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { t } from "@/i18n";
-import { StorageDeleteFile } from "./storage-delete-file";
+import { StorageDeleteEntry } from "./storage-delete-entry";
 
-export function StorageEntryMenu({ client, workspaceId, root, file, children, onOpen, onRefresh, onUpload, onNewFolder, disabled }: {
+export function StorageEntryMenu({ client, workspaceId, root, file, children, onOpen, onRefresh, onUpload, onNewFolder, onDeleted, disabled }: {
   client: LegalworkServerClient; workspaceId: string; root: StorageRoot; file: StorageEntry; children: ReactNode;
   onOpen: () => void; onRefresh?: () => void; onUpload?: () => void; onNewFolder?: () => void; disabled?: boolean;
+  onDeleted?: () => void;
 }) {
   const queryClient = useQueryClient();
   const [renaming, setRenaming] = useState(false);
@@ -22,7 +23,7 @@ export function StorageEntryMenu({ client, workspaceId, root, file, children, on
   const [error, setError] = useState("");
   const writable = root.writable && !disabled && !busy;
   return <>
-    <StorageDeleteFile client={client} workspaceId={workspaceId} root={root} file={file} trigger={(remove) =>
+    <StorageDeleteEntry client={client} workspaceId={workspaceId} root={root} file={file} disabled={disabled || busy} onDeleted={onDeleted} trigger={(remove) =>
       <ContextMenu>
         <ContextMenuTrigger render={<div />}>{children}</ContextMenuTrigger>
         <ContextMenuContent>
@@ -33,7 +34,7 @@ export function StorageEntryMenu({ client, workspaceId, root, file, children, on
             {onUpload && <ContextMenuItem disabled={!writable} onClick={onUpload}><Upload />{t("storage.upload")}</ContextMenuItem>}
             {onNewFolder && <ContextMenuItem disabled={!writable} onClick={onNewFolder}><FolderPlus />{t("storage.new_folder")}</ContextMenuItem>}
             {file.path && <ContextMenuItem disabled={!writable} onClick={() => { setName(file.name); setError(""); setRenaming(true); }}><Pencil />{t("storage.rename")}</ContextMenuItem>}
-            {remove && <ContextMenuItem disabled={!writable} variant="destructive" onClick={remove}><Trash2 />{t("storage.delete_file")}</ContextMenuItem>}
+            {remove && <ContextMenuItem disabled={!writable} variant="destructive" onClick={remove}><Trash2 />{t(file.kind === "folder" ? "storage.delete_folder" : "storage.delete_file")}</ContextMenuItem>}
           </>}
         </ContextMenuContent>
       </ContextMenu>}

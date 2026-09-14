@@ -17,6 +17,7 @@ import { ApiError } from "../errors.js";
 import {
   conflict,
   findEntry,
+  providerError,
   renameDestination,
   ensureFileSize,
   hashVersion,
@@ -287,6 +288,7 @@ export function registerStorageRoutes({
     return jsonResponse(await withStorage(connection, async (adapter) => ({
       read: true, write: writable, createFolder: writable,
       rename: writable && Boolean(adapter.rename), deleteFile: writable && Boolean(adapter.deleteFile),
+      deleteFolder: writable && Boolean(adapter.deleteFolder),
       search: await adapter.searchCapabilities?.() ?? { modes: [], pagination: false },
     })));
   });
@@ -555,6 +557,30 @@ export function registerStorageRoutes({
     await recordAudit((await resolveWorkspace(config, ctx.params.id)).path, {
       id: randomUUID(), timestamp: Date.now(), workspaceId: connection.workspaceId, actor: ctx.actor!,
       action: "storage.delete", target: connection.id, summary: `Deleted ${path}`,
+    });
+    return jsonResponse({ ok: true });
+  });
+  addRoute(routes, "DELETE", `${base}/:storageId/folders`, "client", async (ctx) => {
+    const connection = await selected(ctx, true);
+    const path = storagePath(ctx.url.searchParams.get("path") ?? "", false);
+    if (ctx.url.searchParams.get("recursive") !== "true")
+      throw new ApiError(400, "storage_recursive_delete_required", "Confirm deletion of the folder and everything inside it.");
+    await serializeWrite(connection.id, async () => {
+      const current = await selected(ctx, true);
+      await withStorage(current, async (adapter) => {
+        if (!adapter.deleteFolder) throw new ApiError(400, "storage_delete_unsupported", "This connection does not support deleting folders.");
+        if (!await findEntry(adapter, path, "folder"))
+          throw new ApiError(404, "storage_not_found", "Folder not found. Refresh before deleting.");
+        try { await adapter.deleteFolder(path); }
+        catch (error) {
+          const failure = providerError(error);
+          throw new ApiError(failure.status, "storage_folder_delete_incomplete", `The folder could not be fully deleted. Some items may already have been removed. Refresh to see what remains. ${failure.message}`);
+        }
+      });
+    });
+    await recordAudit((await resolveWorkspace(config, ctx.params.id)).path, {
+      id: randomUUID(), timestamp: Date.now(), workspaceId: connection.workspaceId, actor: ctx.actor!,
+      action: "storage.delete", target: connection.id, summary: `Deleted folder ${path} and its contents`,
     });
     return jsonResponse({ ok: true });
   });

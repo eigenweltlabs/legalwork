@@ -257,6 +257,7 @@ describe("storage API access and validation", () => {
     const id = await connect(input);
     expect((await api("POST", `/${id}/rename`, { path: "file", name: "new", kind: "file" }, "viewer")).status).toBe(403);
     expect((await api("DELETE", `/${id}/file?path=file`, undefined, "viewer")).status).toBe(403);
+    expect((await api("DELETE", `/${id}/folders?path=folder&recursive=true`, undefined, "viewer")).status).toBe(403);
     const local = { name: "Removed local folder", config: { kind: "local", rootPath } };
     expect(storageInputSchema.safeParse(local).success).toBe(false);
     expect((await api("POST", "", local)).status).toBe(400);
@@ -331,6 +332,7 @@ describe("storage API access and validation", () => {
     expect((await api("POST", `/${id}/folders`, { path: "forbidden" })).status).toBe(403);
     expect((await api("POST", `/${id}/rename`, { path: "file", name: "new", kind: "file" })).status).toBe(403);
     expect((await api("DELETE", `/${id}/file?path=file`)).status).toBe(403);
+    expect((await api("DELETE", `/${id}/folders?path=folder&recursive=true`)).status).toBe(403);
     config.readOnly = true;
     expect((await api("POST", "", input)).status).toBe(403);
     config.readOnly = false;
@@ -342,6 +344,7 @@ describe("storage API access and validation", () => {
     expect((await api("GET", `/${id}/children`)).status).toBe(409);
     expect((await api("POST", `/${id}/rename`, { path: "file", name: "new", kind: "folder" })).status).toBe(409);
     expect((await api("DELETE", `/${id}/file?path=file`)).status).toBe(409);
+    expect((await api("DELETE", `/${id}/folders?path=folder&recursive=true`)).status).toBe(409);
     await api("DELETE", `/${id}`);
     expect((await api("GET", `/${id}/children`)).status).toBe(404);
   });
@@ -652,6 +655,22 @@ async function mutationRoundTrip(id: string, folder: string) {
   expect(await readFile(join(temporary, copy.localPath), "utf8")).toBe("keep these bytes");
   const surviving = await (await api("GET", `/${id}/file?${new URLSearchParams({ path: `${destination}/nested/taken.txt` })}`)).json();
   expect(Buffer.from(surviving.dataBase64, "base64").toString()).toBe("taken");
+  expect((await api("DELETE", `/${id}/folders?recursive=true`)).status).toBe(400);
+  expect((await api("DELETE", `/${id}/folders?${new URLSearchParams({ path: destination })}`)).status).toBe(400);
+  const deletion = `/${id}/folders?${new URLSearchParams({ path: destination, recursive: "true" })}`;
+  expect((await api("DELETE", deletion, undefined, "viewer")).status).toBe(403);
+  expect((await api("DELETE", deletion)).status).toBe(200);
+  const remaining: string[] = [];
+  let cursor: string | undefined;
+  do {
+    const page = await (await api("GET", `/${id}/children?${new URLSearchParams({ path: folder, ...(cursor ? { cursor } : {}) })}`)).json();
+    remaining.push(...page.entries.map((item: { path: string }) => item.path));
+    cursor = page.nextCursor;
+  } while (cursor);
+  expect(remaining).not.toContain(destination);
+  expect(remaining).toContain(`${folder}/agent.txt`);
+  expect(await readFile(join(temporary, copy.localPath), "utf8")).toBe("keep these bytes");
+  expect((await api("DELETE", deletion)).status).toBe(404);
 }
 
 async function agentRoundTrip(id: string, folder: string) {
