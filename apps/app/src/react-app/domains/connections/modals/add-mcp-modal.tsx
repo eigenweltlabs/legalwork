@@ -63,6 +63,7 @@ export function CustomConnectorCheck({ probe }: { probe: CustomConnectorProbe })
     : verdict === "unreachable" ? t("add_mcp.unreachable")
     : t("add_mcp.unknown");
   const settled = verdict === "signin" || verdict === "open" || verdict === "credentials";
+  const hint = verdict === "unreachable" ? t("add_mcp.unreachable_hint") : verdict === "unknown" ? t("add_mcp.unknown_hint") : null;
   return (
     <div className="space-y-2">
       <span
@@ -72,7 +73,7 @@ export function CustomConnectorCheck({ probe }: { probe: CustomConnectorProbe })
         {settled ? <CheckCircle2 size={15} className="shrink-0" /> : <AlertCircle size={15} className="shrink-0" />}
         <span className="min-w-0 truncate">{headline}</span>
       </span>
-      {settled ? null : <p className="text-xs text-dls-secondary">{t("add_mcp.check_unavailable")}</p>}
+      {hint ? <p className="text-xs text-dls-secondary">{hint}</p> : null}
     </div>
   );
 }
@@ -172,7 +173,8 @@ export function AddMcpModal(props: AddMcpModalProps) {
 
   const patch = (next: Partial<CustomConnectorForm>) => setForm((current) => ({ ...current, ...next }));
   const local = command !== null;
-  const verdict = probe ? probeVerdict(probe) : "unknown";
+  // "unchecked": nothing could run the check from here, so the engine finds out on connect.
+  const verdict = probe ? probeVerdict(probe) : "unchecked";
 
   const reset = () => {
     attempt.current += 1;
@@ -250,12 +252,20 @@ export function AddMcpModal(props: AddMcpModalProps) {
     }
   };
 
-  const primaryLabel = step === "details" && !local
-    ? t("add_mcp.continue")
-    : verdict === "unknown" || verdict === "unreachable"
-      ? t("add_mcp.add_anyway")
-      : t("mcp.add_server_button");
   const primaryBusy = props.busy || submitting;
+  // What the footer offers after the check: an unreachable address cannot be
+  // connected either (the check runs where the engine runs), so it can only be
+  // retried; an address that answers unlike an MCP server is most likely wrong,
+  // so going back is the primary action and adding it anyway the fallback.
+  const footer = step === "details"
+    ? { primary: local ? t("mcp.add_server_button") : t("add_mcp.continue"), action: local ? add : check, back: false, retry: false, addAnyway: false }
+    : step === "checking"
+      ? null
+      : verdict === "unreachable"
+        ? { primary: t("add_mcp.try_again"), action: check, back: true, retry: false, addAnyway: false }
+        : verdict === "unknown"
+          ? { primary: t("add_mcp.back"), action: () => { setError(null); setStep("details"); }, back: false, retry: false, addAnyway: true }
+          : { primary: verdict === "unchecked" ? t("add_mcp.add_anyway") : t("mcp.add_server_button"), action: add, back: true, retry: false, addAnyway: false };
 
   return (
     <Dialog open={props.open} onOpenChange={(open) => { if (!open) close(); }}>
@@ -327,19 +337,16 @@ export function AddMcpModal(props: AddMcpModalProps) {
           {step === "configure" ? (
             <>
               {probe ? <CustomConnectorCheck probe={probe} /> : (
-                <div className="space-y-2">
-                  <span className={`${BADGE_CLASS} border-amber-6 bg-amber-2 text-amber-11`} role="status">
-                    <AlertCircle size={15} className="shrink-0" />
-                    {t("add_mcp.unknown")}
-                  </span>
-                  <p className="text-xs text-dls-secondary">{t("add_mcp.check_unavailable")}</p>
-                </div>
+                <span className={`${BADGE_CLASS} border-amber-6 bg-amber-2 text-amber-11`} role="status">
+                  <AlertCircle size={15} className="shrink-0" />
+                  {t("add_mcp.check_unavailable")}
+                </span>
               )}
               {verdict === "signin" && probe ? (
                 <CustomConnectorOAuthClientFields probe={probe} form={form} onChange={patch} />
               ) : verdict === "credentials" ? (
                 <CustomConnectorApiKeyFields form={form} onChange={patch} />
-              ) : (
+              ) : verdict === "open" ? (
                 <div className="space-y-3">
                   <button
                     type="button"
@@ -350,7 +357,7 @@ export function AddMcpModal(props: AddMcpModalProps) {
                   </button>
                   {apiKeyOpen ? <CustomConnectorApiKeyFields form={form} onChange={patch} /> : null}
                 </div>
-              )}
+              ) : null}
             </>
           ) : null}
 
@@ -360,7 +367,7 @@ export function AddMcpModal(props: AddMcpModalProps) {
         </div>
 
         <DialogFooter className="shrink-0">
-          {step === "configure" ? (
+          {footer?.back ? (
             <Button variant="outline" disabled={submitting} onClick={() => { setError(null); setStep("details"); }}>
               {t("add_mcp.back")}
             </Button>
@@ -369,16 +376,16 @@ export function AddMcpModal(props: AddMcpModalProps) {
               {t("mcp.auth.cancel")}
             </DialogClose>
           )}
-          {step === "configure" && verdict === "unreachable" ? (
-            <Button variant="outline" disabled={submitting} onClick={() => void check()}>{t("add_mcp.try_again")}</Button>
+          {footer?.addAnyway ? (
+            <Button variant="outline" disabled={primaryBusy} onClick={() => void add()}>
+              {submitting ? <Loader2 data-icon="inline-start" className="animate-spin" /> : <Plus data-icon="inline-start" />}
+              {t("add_mcp.add_anyway")}
+            </Button>
           ) : null}
-          {step !== "checking" ? (
-            <Button
-              onClick={() => void (step === "details" && !local ? check() : add())}
-              disabled={primaryBusy}
-            >
-              {primaryBusy ? <Loader2 data-icon="inline-start" className="animate-spin" /> : step === "details" && !local ? null : <Plus data-icon="inline-start" />}
-              {primaryLabel}
+          {footer ? (
+            <Button onClick={() => void footer.action()} disabled={primaryBusy}>
+              {primaryBusy && footer.action === add ? <Loader2 data-icon="inline-start" className="animate-spin" /> : footer.action === add ? <Plus data-icon="inline-start" /> : null}
+              {footer.primary}
             </Button>
           ) : null}
         </DialogFooter>

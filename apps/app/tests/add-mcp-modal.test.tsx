@@ -36,13 +36,22 @@ describe("Add custom connector: the check", () => {
     expect(html).not.toContain("could not be checked");
   });
 
-  test("an unreachable server keeps the door open to add it anyway", () => {
+  test("an unreachable server says to check the address and try again, nothing about adding it", () => {
     const html = renderToStaticMarkup(React.createElement(CustomConnectorCheck, {
       probe: { url: form.url, reachable: false, transport: null, auth: "unknown", steps: [{ id: "connect", status: null, ok: false, detail: "ECONNREFUSED" }], error: "ECONNREFUSED" },
     }));
     expect(html).toContain("Could not reach the server.");
-    expect(html).toContain("could not be checked from here");
+    expect(html).toContain("Check the address and that the server is running, then try again.");
+    expect(html).not.toContain("anyway");
     expect(html).not.toContain("ECONNREFUSED");
+  });
+
+  test("an address that answers unlike an MCP server points back to the provider's page", () => {
+    const html = renderToStaticMarkup(React.createElement(CustomConnectorCheck, {
+      probe: { url: form.url, reachable: true, transport: null, auth: "unknown", steps: [{ id: "connect", status: 404, ok: false }], error: "HTTP 404" },
+    }));
+    expect(html).toContain("This address does not answer like an MCP server.");
+    expect(html).toContain("Check the address on the provider");
   });
 });
 
