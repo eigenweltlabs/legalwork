@@ -3,6 +3,8 @@ import { readFile, readdir, rename, rm, stat, writeFile } from "node:fs/promises
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { Readable } from "node:stream";
 import { recordAudit } from "../audit.js";
+import { keepWorkspaceCopy } from "../file-storage/working-copy.js";
+import { providerError, storagePath } from "../file-storage/common.js";
 import { ApiError } from "../errors.js";
 import { FileSessionStore } from "../file-sessions.js";
 import type { ApprovalRequest, ServerConfig, TokenScope, WorkspaceInfo } from "../types.js";
@@ -1140,6 +1142,25 @@ export function registerFileRoutes(options: RegisterFileRoutesOptions): void {
     headers.set("X-LegalWork-Updated-At", String(info.mtimeMs));
     const stream = Readable.toWeb(createReadStream(absPath)) as unknown as ReadableStream;
     return new Response(stream, { status: 200, headers });
+  });
+
+  addRoute(routes, "POST", "/workspace/:id/files/copy", "client", async (ctx) => {
+    ensureWritable(config);
+    requireClientScope(ctx, "collaborator");
+    const workspace = await resolveWorkspace(config, ctx.params.id);
+    const body = await readJsonBody(ctx.request);
+    const source = storagePath(typeof body.path === "string" ? body.path : "", false);
+    const target = storagePath(typeof body.targetPath === "string" ? body.targetPath : "", false);
+    await requireApproval(ctx, { workspaceId: workspace.id, action: "workspace.file.write", summary: `Create ${target} from ${source}`, paths: [join(workspace.path, target)] });
+    let result;
+    try { result = await keepWorkspaceCopy(workspace.path, source, target); }
+    catch (error) { throw providerError(error); }
+    recordWorkspaceFileEvent(workspace.id, { type: "write", path: target });
+    await recordAudit(workspace.path, {
+      id: shortId(), workspaceId: workspace.id, actor: ctx.actor ?? { type: "remote" },
+      action: "workspace.file.write", target: join(workspace.path, target), summary: `Copied ${source} to ${target}`, timestamp: Date.now(),
+    });
+    return jsonResponse({ ok: true, ...result }, 201);
   });
 
   addRoute(routes, "POST", "/workspace/:id/files/raw", "client", async (ctx) => {

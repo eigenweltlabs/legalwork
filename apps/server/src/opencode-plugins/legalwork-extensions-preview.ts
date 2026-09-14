@@ -94,8 +94,11 @@ Answer only from the returned transcript. If multiple sessions match, ask a shor
 
 Do NOT use browser_navigate, browser_click, or browser_snapshot to interact with the LegalWork app itself. Those are for browsing external websites.
 
-## In-app Word editor
-Use inapp_documents_open to open a workspace file, or a file from storage_list_connections using its connection_id and relative path, in this session's side viewer. This downloads a local working copy for connected files and retains the Save to cloud option. Once loaded, use inapp_documents_list to get the exact active path, then the matching inapp_docx_*, inapp_md_*, inapp_xlsx_* or inapp_pptx_* tools for live edits. Do not use shell/file edits on an open editor. Local editor saves do not publish back to cloud storage.
+## Document work happens in the side viewer
+For document, spreadsheet and presentation tasks, open the working file in the side viewer BEFORE inspecting or editing its contents. This is the default even if the user has not opened a file or explicitly asked to see it. An empty inapp_documents_list means you need to open the file; it is not a reason to switch to Python.
+Use inapp_documents_open for a workspace file, or supply connection_id and path for a connected file. For a NEW deliverable based on a template, also supply copy_to with the new workspace filename: this copies the template and opens the new file without changing the original. Example: inapp_documents_open({connection_id:"<selected connection>", path:"Templates/Pitch.pptx", copy_to:"Client pitch.pptx"}). Do not fill the template through Python and only show the finished file afterward.
+Once loaded, call inapp_documents_list for the exact active path, then use inapp_docx_*, inapp_md_*, inapp_xlsx_* or inapp_pptx_* tools to read and edit visibly. For several source documents, open/select the appropriate source, then return to the working file. For a new file without a template, a file tool may create the initial valid skeleton; open it immediately and do supported content edits live.
+Use a file-based fallback only when the viewer reports an unsupported operation/format or is unavailable, or the user explicitly requests that workflow. Do not silently choose Python for operations available in the editor. If a structural change needs a file tool, save the live draft first, explain the limitation briefly, and reopen/reload the result before continuing. Local editor saves do not publish to cloud storage; copied deliverables require a separate upload if requested.
 When a Word document is open in LegalWork's right-hand document editor, use the inapp_docx_* tools to read and edit that live document. Those tools save changes back to the workspace automatically, and every agent text edit is a tracked change. Do not use word_* tools or a bash/file DOCX pipeline for that open in-app document. If inapp_docx_read_document says no matching in-app document is open, then try the Microsoft Word word_* tools; only after both live surfaces are unavailable should you use the file pipeline.
 
 ## Built-in Browser (external websites)
@@ -142,13 +145,13 @@ async function discoverUiBridge(): Promise<UiBridge | null> {
   return null;
 }
 
-async function uiBridgeRequest(path: string, options: { method?: string; body?: unknown } = {}): Promise<unknown> {
+async function uiBridgeRequest(path: string, options: { method?: string; body?: unknown; timeoutMs?: number } = {}): Promise<unknown> {
   const bridge = await discoverUiBridge();
   if (!bridge) return { ok: false, error: "LegalWork UI bridge not available. The desktop app may not be running." };
   try {
     const response = await fetch(`${bridge.baseUrl}${path}`, {
       method: options.method || "GET",
-      signal: AbortSignal.timeout(BRIDGE_TIMEOUT_MS),
+      signal: AbortSignal.timeout(options.timeoutMs ?? BRIDGE_TIMEOUT_MS),
       headers: {
         Authorization: `Bearer ${bridge.token}`,
         ...(options.body ? { "Content-Type": "application/json" } : {}),
@@ -388,16 +391,17 @@ Unqualified requests about this workbook/presentation refer to this file. Use in
   },
   tool: {
     inapp_documents_open: {
-      description: "Open a file in this session's side viewer for live in-app editing. path is relative to the workspace, or to a connected storage root when connection_id is supplied. Connected files use a local working copy with cloud-save actions. Then call inapp_documents_list for the active editor path and use the matching inapp_* read/edit tools. Keeps folder sidebars visible and preserves unsaved drafts.",
+      description: "Start document work by opening a file in this session's side viewer. For a new deliverable from a template, supply copy_to to copy it to a new workspace filename and open that copy without changing the template. path is relative to the workspace or connection_id root. Then use inapp_documents_list and matching inapp_* read/edit tools to work visibly. Preserves unsaved drafts and refuses to overwrite an existing copy_to file.",
       args: {
         path: z.string().min(1).max(4096).describe("Relative file path in the workspace or connection root."),
         connection_id: z.string().min(1).max(200).optional().describe("For connected files, the ID from storage_list_connections. Omit for workspace files."),
+        copy_to: z.string().min(1).max(4096).optional().describe("For a new deliverable, copy the source to this new workspace-relative filename (same extension), then open the copy for editing. The original is unchanged."),
       },
       async execute(rawArgs: unknown, context: OpenCodeContext) {
         if (!context.sessionID) return JSON.stringify({ ok: false, error: "A session is required to open a file." });
-        const args = z.object({ path: z.string().min(1).max(4096), connection_id: z.string().min(1).max(200).optional() }).parse(rawArgs);
-        return JSON.stringify(await uiBridgeRequest("/execute", { method: "POST", body: {
-          actionId: "documents.open", args: { sessionId: context.sessionID, path: args.path, ...(args.connection_id ? { connectionId: args.connection_id } : {}) },
+        const args = z.object({ path: z.string().min(1).max(4096), connection_id: z.string().min(1).max(200).optional(), copy_to: z.string().min(1).max(4096).optional() }).parse(rawArgs);
+        return JSON.stringify(await uiBridgeRequest("/execute", { method: "POST", timeoutMs: 900_000, body: {
+          actionId: "documents.open", args: { sessionId: context.sessionID, path: args.path, ...(args.connection_id ? { connectionId: args.connection_id } : {}), ...(args.copy_to ? { copyTo: args.copy_to } : {}) },
         } }));
       },
     },

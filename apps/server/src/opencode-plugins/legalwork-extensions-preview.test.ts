@@ -298,12 +298,15 @@ test("opens workspace and connected files in the engine session, then exposes li
   expect(calls).toEqual([]);
   await plugin.tool.inapp_documents_open.execute({ path: "draft.md" }, { sessionID: "ses_this" });
   await plugin.tool.inapp_documents_open.execute({ path: "Matter/draft.docx", connection_id: "team:s3" }, { sessionID: "ses_this" });
+  await plugin.tool.inapp_documents_open.execute({ path: "Templates/Pitch.pptx", connection_id: "team:s3", copy_to: "Client pitch.pptx" }, { sessionID: "ses_this" });
   expect(calls).toEqual([
     { actionId: "documents.open", args: { sessionId: "ses_this", path: "draft.md" } },
     { actionId: "documents.open", args: { sessionId: "ses_this", path: "Matter/draft.docx", connectionId: "team:s3" } },
+    { actionId: "documents.open", args: { sessionId: "ses_this", path: "Templates/Pitch.pptx", connectionId: "team:s3", copyTo: "Client pitch.pptx" } },
   ]);
   const output: { system: string[] } = { system: [] };
   await plugin["experimental.chat.system.transform"]({ sessionID: "ses_this" }, output);
   expect(output.system.join("\n")).toContain("inapp_documents_open");
   expect(output.system.join("\n")).toContain("inapp_md_*");
+  expect(output.system.join("\n")).toContain("An empty inapp_documents_list means you need to open the file");
 });

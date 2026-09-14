@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -55,6 +55,25 @@ function auth(token: string) {
 }
 
 describe("artifact file routes", () => {
+  test("template copies preserve the source and reject overwrites, traversal and symlink escapes", async () => {
+    const root = await createWorkspaceRoot();
+    const outside = await createWorkspaceRoot();
+    const { base, token } = await startLegalworkServer(root);
+    const copy = (path: string, targetPath: string) => fetch(`${base}/workspace/ws_1/files/copy`, { method: "POST", headers: auth(token), body: JSON.stringify({ path, targetPath }) });
+    const path = "reports/artifact-eval.pptx", target = "drafts/Client pitch.pptx";
+    const original = await readFile(join(root, path));
+    expect((await copy(path, target)).status).toBe(201);
+    expect(await readFile(join(root, target))).toEqual(original);
+    await writeFile(join(root, target), "edited draft");
+    expect((await copy(path, target)).status).toBe(409);
+    expect(await readFile(join(root, target), "utf8")).toBe("edited draft");
+    expect(await readFile(join(root, path))).toEqual(original);
+    expect((await copy(path, "../outside.pptx")).status).toBe(400);
+    await symlink(outside, join(root, "outside"), "dir");
+    expect((await copy(path, "outside/copied.pptx")).status).toBe(403);
+    expect((await copy("outside/reports/artifact-eval.pptx", "unsafe.pptx")).status).toBe(403);
+    expect((await fetch(`${base}/workspace/ws_1/files/copy`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ path, targetPath: "denied.pptx" }) })).status).toBe(401);
+  });
   test("uploaded originals remain byte-identical and readable by their workspace paths", async () => {
     const root = await createWorkspaceRoot();
     const { base, token } = await startLegalworkServer(root);

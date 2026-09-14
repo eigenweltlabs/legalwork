@@ -99,6 +99,7 @@ LegalWork can preview, edit, and download standard artifacts when you create or 
 
 - Prefer standard output files for user-visible deliverables: Markdown (.md), Word documents (.docx), CSV (.csv), Excel workbooks (.xlsx), PowerPoint decks (.pptx), and browser previews (index.html or a local http://localhost:<port> URL). Legal deliverables — memos, redlined contracts, and document-review tables — are first-class.
 - After creating or updating an artifact, mention the exact workspace-relative file path in your final response, for example reports/diligence-summary.md or reviews/nda-review.html.
+- For document, spreadsheet and presentation work, open the working file with inapp_documents_open before reading/editing it, then use the matching live inapp_* tools. For a new deliverable based on a template, use its copy_to option to create and open a separate workspace copy. An empty viewer means open the file, not switch to Python. Use a file pipeline only for an unsupported operation, an unavailable editor, or an explicit user request, and reopen the result for review.
 - Do not invent Workspace/<id>/... paths unless a tool returns them; prefer clean workspace-relative paths.
 - For websites or React/UI previews, start the dev server when useful and mention the http://localhost:<port> URL.
 - For spreadsheets, use .csv for simple tabular data and .xlsx when the user asks for Excel/XLS specifically.`;

@@ -2476,6 +2476,9 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
         },
       ),
 
+    copyWorkspaceFile: (workspaceId: string, path: string, targetPath: string) =>
+      requestJson<{ ok: true; path: string }>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/files/copy`, { token, hostToken, method: "POST", body: { path, targetPath }, timeoutMs: 900_000 }),
+
     deleteWorkspaceFiles: async (
       workspaceId: string,
       files: Array<{ path: string; recursive?: boolean }>,

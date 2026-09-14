@@ -120,6 +120,7 @@ type AssistantRenderGroup =
 export function groupAssistantToolRuns(items: UIMessageWithIndex[], showThinking: boolean): UIMessageWithIndex[] {
   const result: UIMessageWithIndex[] = []
   let activity: UIMessageWithIndex | undefined
+  let activityHasTool = false
   for (const item of items) {
     let prose: UIMessageWithIndex | undefined
     for (const [index, part] of item.message.parts.entries()) {
@@ -133,7 +134,13 @@ export function groupAssistantToolRuns(items: UIMessageWithIndex[], showThinking
         prose = undefined
         if (!activity) {
           activity = { ...item, message: { ...item.message, id: `${item.message.id}:activity:${index}`, parts: [] } }
+          activityHasTool = false
           result.push(activity)
+        }
+        // Stable even when streamed reasoning/step markers are inserted before the first tool.
+        if (isToolUIPart(part) && !activityHasTool) {
+          activity.message.id = `tool-run:${part.toolCallId}`
+          activityHasTool = true
         }
         activity.message.parts.push(part)
       } else {

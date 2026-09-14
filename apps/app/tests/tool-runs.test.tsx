@@ -56,3 +56,12 @@ test("completed groups remain collapsible and closed by default", () => {
   expect(html).toContain("Ran commands");
   expect(html).toContain('aria-expanded="false"');
 });
+test("a live command run stays active between calls and keeps its key when streamed markers arrive", () => {
+  const before = groupAssistantToolRuns(messages([[bash]]), false);
+  const after = groupAssistantToolRuns(messages([[{ type: "step-start" }, reasoning, bash], [appTool]]), false);
+  expect(after[0].message.id).toBe(before[0].message.id);
+  expect(after[0].message.parts).toHaveLength(2);
+  const between = renderToStaticMarkup(<ToolRun active parts={[bash]} showDetails={false} renderTool={() => null} />);
+  expect(between).toContain("Running commands");
+  expect(between).not.toContain("Ran commands");
+});

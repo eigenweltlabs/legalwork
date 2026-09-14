@@ -378,7 +378,7 @@ type AssistantMessageProps = {
 }
 
 const AssistantMessage = React.memo(
-  ({ message }: AssistantMessageProps) => {
+  ({ message, isStreaming }: AssistantMessageProps) => {
     const { showThinking } = useMessageList()
     const assistantRenderGroups = React.useMemo(
       () => getAssistantRenderGroups(message.parts, showThinking),
@@ -428,7 +428,7 @@ const AssistantMessage = React.memo(
             }
 
             return (
-              <ToolRun key={`tools-${index}`} parts={group.parts} showDetails={showThinking} renderTool={(part) => <ToolMessage part={part} />} />
+              <ToolRun key={`tools-${index}`} parts={group.parts} active={isStreaming && index === assistantRenderGroups.length - 1} showDetails={showThinking} renderTool={(part) => <ToolMessage part={part} />} />
             )
           })}
         </div>
@@ -871,6 +871,7 @@ function MessageGroup({
   const { onRevertToUserMessage, onForkAtMessage, legalworkClient, workspaceId, showThinking } = useMessageList()
   const displayItems = React.useMemo(() => groupAssistantToolRuns(items, showThinking), [items, showThinking])
   const lastItem = items[items.length - 1]
+  const isLiveGroup = isStreaming && lastItem?.index === messages.length - 1
   // Every document this turn's LegalMemory calls returned, read from the tool
   // results rather than from anything the model wrote.
   const legalMemoryDocuments = React.useMemo(
@@ -915,7 +916,7 @@ function MessageGroup({
         <MessageComponent
           message={item.message}
           isLastMessage={isLastMessage}
-          isStreaming={isLastMessage && isStreaming}
+          isStreaming={isLiveGroup && item === displayItems.at(-1)}
           isLastStep={groupIndex === items.length - 1}
         />
         <MessageArtifacts message={item.message} />

@@ -1,5 +1,5 @@
 /** @jsxImportSource react */
-import { useState, type ReactNode } from "react";
+import { useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { isReasoningUIPart, isToolUIPart, type DynamicToolUIPart, type ToolUIPart, type ReasoningUIPart } from "ai";
 import { ChevronDown, CircleAlert, LoaderCircle, SquareTerminal, Wrench } from "lucide-react";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
@@ -16,16 +16,35 @@ export function compactToolName(part: ToolPart) {
   return short.charAt(0).toUpperCase() + short.slice(1);
 }
 
-export function ToolRun({ parts, showDetails, renderTool, defaultOpen = false }: {
-  parts: Array<ToolPart | ReasoningUIPart>; showDetails: boolean; renderTool: (part: ToolPart) => ReactNode; defaultOpen?: boolean;
+export function ToolRun({ parts, showDetails, renderTool, active = false, defaultOpen = false }: {
+  parts: Array<ToolPart | ReasoningUIPart>; showDetails: boolean; renderTool: (part: ToolPart) => ReactNode; active?: boolean; defaultOpen?: boolean;
 }) {
   const [open, setOpen] = useState(defaultOpen);
+  const viewport = useRef<HTMLDivElement>(null);
+  const content = useRef<HTMLDivElement>(null);
+  const following = useRef(true);
   const tools = parts.filter(isToolUIPart);
-  const running = tools.some(isToolPartInFlight);
+  // Keep the run active between individual tool calls while the agent is still working.
+  const running = active || tools.some(isToolPartInFlight);
   // Questions and credential forms remain reachable while awaiting user input.
   const needsInput = tools.some((part) => isToolPartInFlight(part) && (isQuestionToolPart(part) || isEnvVarRequestToolPart(part)));
+  const expanded = open || needsInput;
+  useLayoutEffect(() => {
+    const node = viewport.current, body = content.current;
+    if (!expanded || !node || !body) return;
+    following.current = true;
+    const follow = () => { if (following.current) node.scrollTop = node.scrollHeight; };
+    follow();
+    const observer = new ResizeObserver(follow);
+    observer.observe(node);
+    observer.observe(body);
+    return () => observer.disconnect();
+  }, [expanded]);
+  useLayoutEffect(() => {
+    if (expanded && following.current && viewport.current) viewport.current.scrollTop = viewport.current.scrollHeight;
+  }, [expanded, parts, showDetails]);
   const failed = tools.some((part) => part.state === "output-error");
-  return <Collapsible open={open || needsInput} onOpenChange={setOpen} className="w-full min-w-0">
+  return <Collapsible open={expanded} onOpenChange={setOpen} className="w-full min-w-0">
     <CollapsibleTrigger className="group flex w-full items-center gap-2 py-1 text-left text-sm text-muted-foreground hover:text-foreground">
       {running ? <LoaderCircle className="size-4 shrink-0 animate-spin" /> : <SquareTerminal className="size-4 shrink-0" />}
       <span>{t(running ? "tool_run.running" : "tool_run.finished")}</span>
@@ -34,7 +53,9 @@ export function ToolRun({ parts, showDetails, renderTool, defaultOpen = false }:
       <ChevronDown className="size-3.5 transition-transform group-data-panel-open:rotate-180" />
     </CollapsibleTrigger>
     <CollapsibleContent>
-      <div data-scrollable className="ml-2 max-h-80 space-y-2 overflow-auto border-l border-border/60 py-2 pl-4">
+      <div ref={viewport} data-scrollable className="ml-2 max-h-80 overflow-auto border-l border-border/60 py-2 pl-4 [overflow-anchor:none]"
+        onScroll={(event) => { const node = event.currentTarget; following.current = node.scrollHeight - node.clientHeight - node.scrollTop < 32; }}>
+      <div ref={content} className="space-y-2">
         {parts.map((part, index) => isReasoningUIPart(part) ? (showDetails && <MessageContent key={`reasoning-${index}`} markdown className="chat-reasoning text-sm text-muted-foreground bg-transparent p-0">{part.text}</MessageContent>) : <div key={part.toolCallId}>
           {showDetails || isQuestionToolPart(part) || isEnvVarRequestToolPart(part) ? renderTool(part) :
             <div className="flex min-w-0 items-center gap-2 text-sm text-muted-foreground">
@@ -43,6 +64,7 @@ export function ToolRun({ parts, showDetails, renderTool, defaultOpen = false }:
               {part.state === "output-error" && <span className="shrink-0 text-xs text-destructive">{t("tool_run.failed")}</span>}
             </div>}
         </div>)}
+      </div>
       </div>
     </CollapsibleContent>
   </Collapsible>;
