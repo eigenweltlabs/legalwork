@@ -22,6 +22,11 @@ const smbName = z
   .refine((v) => !/[. ]$/.test(v) && v !== "." && v !== "..");
 const configSchema = z.discriminatedUnion("kind", [
   z.object({
+    kind: z.literal("oauth"),
+    provider: z.string().regex(/^[a-z][a-z0-9-]{1,50}$/),
+    root: z.string().max(2048).default(""),
+  }),
+  z.object({
     kind: z.literal("smb"),
     host,
     port: port.default(445),
@@ -174,6 +179,8 @@ export type StorageTeamStatus = { connected: boolean; canManage: boolean; error?
 export type StorageRoot = { id: string; name: string; kind: StorageKind; writable: boolean; revision?: string };
 export type StorageEntry = {
   path: string;
+  /** Human-readable location when the provider uses opaque path segments. */
+  displayPath?: string;
   name: string;
   kind: "file" | "folder";
   size: number | null;
@@ -220,3 +227,7 @@ export type StorageCapabilities = {
   createFolder: boolean;
   search: { modes: StorageSearchMode[]; pagination: boolean; scope?: "folder" | "subtree" };
 };
+
+/** Public connection metadata only. OAuth tokens are held in a separate encrypted local vault. */
+export type StorageOAuthProvider = { id: string; name: string; rootHint: string };
+export type StorageOAuthStatus = { connected: boolean; pending: boolean; error?: string };

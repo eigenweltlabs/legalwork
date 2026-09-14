@@ -14,6 +14,16 @@
  */
 
 const de = {
+  "storage.oauth_provider": "Cloud-Speicher",
+  "storage.oauth_description": "Verbundene Dateien durchsuchen, öffnen und bearbeiten.",
+  "storage.oauth_personal": "Jede Person meldet sich mit dem eigenen Konto an. Die Anmeldung wird auf diesem Gerät gespeichert.",
+  "storage.oauth_connect": "Anmelden",
+  "storage.oauth_pending": "Warten auf Anmeldung…",
+  "storage.oauth_signout": "Abmelden",
+  "storage.oauth_connected": "Angemeldet",
+  "storage.oauth_root": "Ordner",
+  "storage.oauth_root_hint": "Leer lassen, um Ihr Laufwerk zu verwenden.",
+  "storage.oauth_edit_root": "Nach einer Änderung von Ordner oder Zugriff ist eine neue Anmeldung erforderlich.",
   "storage.tab": "Dateispeicher",
   "storage.local_intro": "Verbindungen in diesem Arbeitsbereich, einschließlich hinzugefügter Team-Verbindungen.",
   "storage.team_intro": "Wählen Sie freigegebenen Speicher für Memory Drive. Admins verwalten diese Verbindungen für Ihre Kanzlei.",
