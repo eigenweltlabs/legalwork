@@ -314,15 +314,29 @@ test("opens workspace and connected files in the engine session, then exposes li
 
 describe("PowerPoint visual feedback", () => {
   const snapshot = { activeSurface: { kind: "document", format: "pptx", sessionId: "ses_slides", name: "Deck.pptx", path: "Deck.pptx", editable: true } };
-  test("sends the slide as an image attachment instead of base64 text", async () => {
+  test("only explicit previews send a slide image attachment", async () => {
     let request: unknown;
     await withBridge(snapshot, (body) => {
       request = body;
       return { ok: true, result: { ok: true, saved: true, data: { slideIndex: 2, layout: { warnings: [{ kind: "text_overlap", elementIds: ["title", "body"] }] }, preview: { available: true, width: 1280, height: 720, dataUrl: "data:image/png;base64,cHJldmlldw==" } } } };
     });
     const plugin = await LegalWorkExtensionsPreview();
-    const result = await plugin.tool.inapp_pptx_update_layout.execute({ path: "Deck.pptx", slideIndex: 2, elementId: "title", height: 120, fontSize: 28 }, { sessionID: "ses_slides" });
-    expect(request).toMatchObject({ actionId: "office.agent_tool", args: { toolName: "update_layout", args: { height: 120, fontSize: 28 } } });
+    const result = await plugin.tool.inapp_pptx_preview.execute({ path: "Deck.pptx", slideIndex: 2 }, { sessionID: "ses_slides" });
+    expect(request).toMatchObject({ actionId: "office.agent_tool", args: { toolName: "preview", args: { slideIndex: 2 } } });
+    const edits = [
+      await plugin.tool.inapp_pptx_read.execute({ path: "Deck.pptx", slideIndex: 2 }, { sessionID: "ses_slides" }),
+      await plugin.tool.inapp_pptx_replace_text.execute({ path: "Deck.pptx", slideIndex: 2, elementId: "title", search: "Draft", replaceWith: "Final" }, { sessionID: "ses_slides" }),
+      await plugin.tool.inapp_pptx_update_layout.execute({ path: "Deck.pptx", slideIndex: 2, elementId: "title", height: 120, fontSize: 28 }, { sessionID: "ses_slides" }),
+    ];
+    for (const edit of edits) {
+      if (typeof edit !== "string") throw new Error("Routine calls must not return attachments");
+      expect(edit).not.toContain("base64");
+      expect(JSON.parse(edit)).toMatchObject({ result: { data: { layout: { warnings: [{ kind: "text_overlap" }] } } } });
+      expect(JSON.parse(edit).result.data.preview).toBeUndefined();
+    }
+    const instructions: { system: string[] } = { system: [] };
+    await plugin["experimental.chat.system.transform"]({ sessionID: "ses_slides" }, instructions);
+    expect(instructions.system.join("\n")).toContain("Do not request a preview after every read or individual edit");
     if (typeof result === "string") throw new Error("Expected a visual tool result");
     expect(result.attachments).toEqual([{ type: "file", mime: "image/png", url: "data:image/png;base64,cHJldmlldw==", filename: "slide-3.png" }]);
     expect(result.output).not.toContain("base64");

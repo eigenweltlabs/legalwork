@@ -34,15 +34,16 @@ export function inspectSlideTextLayout(stage: HTMLElement) {
   return {
     width: stage.offsetWidth, height: stage.offsetHeight,
     warnings: warnings.slice(0, 100), truncated: warnings.length > 100,
-    guidance: "These are potential issues measured from rendered text. Inspect the attached slide image; intended overlaps, rotated text and complex graphics need visual judgment. Fix unintended collisions or clipping before finishing.",
+    guidance: "These are potential issues measured from rendered text. Finish the slide edits, then call inapp_pptx_preview once for visual review. Intended overlaps, rotated text and complex graphics need visual judgment. Fix unintended collisions or clipping before finishing.",
   };
 }
 
-export async function pptxVisualFeedback(host: HTMLElement | null) {
+export async function pptxVisualFeedback(host: HTMLElement | null, renderImage = false) {
   const stage = host?.querySelector<HTMLElement>('[data-pptx-viewport] [aria-roledescription="slide"]');
   if (!stage || !stage.offsetWidth || !stage.offsetHeight) return { preview: { available: false, error: "The slide canvas is not rendered. Reopen the viewer and retry preview before claiming visual verification." } };
   await document.fonts.ready;
   const layout = inspectSlideTextLayout(stage);
+  if (!renderImage) return { layout };
   try {
     // Export the full live slide at a useful resolution, independent of sidebar
     // width/zoom. Only the cloned DOM changes; the user's view and focus stay put.

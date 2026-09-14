@@ -102,7 +102,7 @@ Use a file-based fallback only when the viewer reports an unsupported operation/
 When a Word document is open in LegalWork's right-hand document editor, use the inapp_docx_* tools to read and edit that live document. Those tools save changes back to the workspace automatically, and every agent text edit is a tracked change. Do not use word_* tools or a bash/file DOCX pipeline for that open in-app document. If inapp_docx_read_document says no matching in-app document is open, then try the Microsoft Word word_* tools; only after both live surfaces are unavailable should you use the file pipeline.
 
 ## Presentation visual review
-PowerPoint read/edit tools return a rendered slide image and potential overlap/overflow warnings. Inspect the images, not only the extracted text. After each edited slide, fix unintended overlapping text, clipping and unreadable text with shorter wording or inapp_pptx_update_layout; use inapp_pptx_preview to recheck it before moving on or saying it is finished. Preserve the template hierarchy and readable font sizes. If preview is unavailable, say visual verification is incomplete; do not claim the layout was checked.
+Finish all planned text and layout edits for a slide, then call inapp_pptx_preview once to inspect the rendered slide before moving to the next slide. Routine read/edit calls return text and potential overlap/overflow warnings without images. Do not request a preview after every read or individual edit. If the finished-slide preview reveals unintended overlapping text, clipping or unreadable text, make the necessary corrections with shorter wording or inapp_pptx_update_layout, then request one new preview after those corrections are complete. Preserve the template hierarchy and readable font sizes. If preview is unavailable, say visual verification is incomplete; do not claim the layout was checked.
 
 ## Built-in Browser (external websites)
 For web browsing tasks, ALWAYS start with legalwork_browser_open_url. It creates/selects a built-in LegalWork browser tab and returns browser_url plus target_id. Use that exact browser_url and target_id for every later browser_snapshot, browser_click, browser_fill, browser_eval, and browser_screenshot call.
@@ -271,6 +271,9 @@ async function callInAppPptxTool(context: OpenCodeContext, toolName: string, arg
   if (!parsed.success) return raw;
   const { dataUrl, ...preview } = parsed.data.result.data.preview;
   const result = parsed.data;
+  // A window still running the previous renderer may return an image on edits.
+  // Only explicit preview calls should attach or expose that image.
+  if (toolName !== "preview") return JSON.stringify({ ...result, result: { ...result.result, data: { ...result.result.data, preview: undefined } } });
   return {
     output: JSON.stringify({ ...result, result: { ...result.result, data: { ...result.result.data, preview: { ...preview, attached: true } } } }),
     attachments: [{ type: "file", mime: "image/png", url: dataUrl, filename: `slide-${result.result.data.slideIndex + 1}.png` }],
@@ -485,22 +488,22 @@ Unqualified requests about this workbook/presentation refer to this file. Use in
       async execute(rawArgs: unknown, context: OpenCodeContext) { return callInAppOfficeTool(context, "xlsx", "write", xlsxWriteSchema.parse(rawArgs)); },
     },
     inapp_pptx_read: {
-      description: "Read the live PowerPoint slide, including element IDs, text/style, table rows, notes, slide inventory, rendered PNG and potential text-overflow/overlap warnings. Slide indices are zero-based. Inspect the image before editing.",
+      description: "Read the live PowerPoint slide, including element IDs, text/style, table rows, notes, slide inventory and potential text-overflow/overlap warnings. Returns text only. Slide indices are zero-based. Finish the slide edits before calling inapp_pptx_preview for visual review.",
       args: pptxReadSchema.shape,
       async execute(rawArgs: unknown, context: OpenCodeContext) { return callInAppPptxTool(context, "read", pptxReadSchema.parse(rawArgs)); },
     },
     inapp_pptx_preview: {
-      description: "Render a full slide PNG from the live PowerPoint draft and check potential text overlaps/overflow without changing the document. Inspect every edited slide before declaring the presentation finished; warnings alone are not visual verification.",
+      description: "Render a full slide PNG from the live PowerPoint draft and check potential text overlaps/overflow without changing the document. Call once after finishing all edits to a slide, then inspect the image before moving on. Recheck only after completing any necessary corrections; do not call after every individual edit. Warnings alone are not visual verification.",
       args: pptxReadSchema.shape,
       async execute(rawArgs: unknown, context: OpenCodeContext) { return callInAppPptxTool(context, "preview", pptxReadSchema.parse(rawArgs)); },
     },
     inapp_pptx_update_layout: {
-      description: "Adjust one text/shape element's position (x/y), size (width/height), or fontSize in CSS slide pixels to resolve clipping/overlaps. Read the slide first. Unspecified properties and text stay unchanged; fontSize updates all text runs. Saves automatically and returns a fresh slide image and layout warnings. Preserve readability and the template layout.",
+      description: "Adjust one text/shape element's position (x/y), size (width/height), or fontSize in CSS slide pixels to resolve clipping/overlaps. Read the slide first. Unspecified properties and text stay unchanged; fontSize updates all text runs. Saves automatically and returns layout warnings without an image. Finish the slide edits, then call inapp_pptx_preview once. Preserve readability and the template layout.",
       args: pptxLayoutSchema.shape,
       async execute(rawArgs: unknown, context: OpenCodeContext) { return callInAppPptxTool(context, "update_layout", pptxLayoutSchema.parse(rawArgs)); },
     },
     inapp_pptx_replace_text: {
-      description: "Replace one exact unique text match in a text or shape element in the live LegalWork presentation, preserving text-run styling and saving automatically. Read first to get the slide index and element ID. Returns the edited slide image and layout warnings. Inspect them; fix clipping/collisions with shorter text or inapp_pptx_update_layout, then preview again. Complex paragraph structures and non-text elements are unsupported. Direct edits, not tracked changes.",
+      description: "Replace one exact unique text match in a text or shape element in the live LegalWork presentation, preserving text-run styling and saving automatically. Read first to get the slide index and element ID. Returns text and layout warnings without an image. Finish all edits to the slide, then call inapp_pptx_preview once to check it. If needed, finish the corrections before requesting another preview. Complex paragraph structures and non-text elements are unsupported. Direct edits, not tracked changes.",
       args: pptxReplaceSchema.shape,
       async execute(rawArgs: unknown, context: OpenCodeContext) { return callInAppPptxTool(context, "replace_text", pptxReplaceSchema.parse(rawArgs)); },
     },

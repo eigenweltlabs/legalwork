@@ -55,7 +55,7 @@ export function ArtifactPptxEditor(props: OfficeEditorProps) {
     if (!slide) throw new Error(t("pptx.slide_not_found"));
     api.setActiveSlideIndex(slideIndex);
     await new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
-    if (name === "preview") return { data: { slideIndex, ...await pptxVisualFeedback(state.host.current) } };
+    if (name === "preview") return { data: { slideIndex, ...await pptxVisualFeedback(state.host.current, true) } };
     if (name === "read") return { data: {
       activeSlideIndex: api.getActiveSlideIndex(), slideIndex,
       slides: api.getSlides().map((item, index) => ({ index, elementCount: item.elements.length })),
