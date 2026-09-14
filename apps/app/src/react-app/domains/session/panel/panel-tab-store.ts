@@ -27,6 +27,8 @@ export type ArtifactPanelTab = {
   value?: string;
   size?: number;
   updatedAt?: number;
+  /** In-memory mail source; never a workspace path. */
+  mailSourceId?: string;
 }
 
 export type PanelTab = BrowserPanelTab | ArtifactPanelTab;
@@ -106,7 +108,7 @@ function reconcileOpenArtifactTabs(
         // Tabs opened from the workspace file browser carry their own path and
         // are not derived from the transcript — reconciling against transcript
         // targets must not close them.
-        return tab.value ? tab : null;
+        return tab.value || tab.mailSourceId ? tab : null;
       }
 
       return {
@@ -250,7 +252,8 @@ export const usePanelTabStore = create<PanelTabStore>()(
           return state;
         }
 
-        if (session.activeTabId === tabId && !confirmDiscardDocuments()) return state;
+        const closing = session.tabs[index];
+        if (session.activeTabId === tabId && !(closing.type === 'artifact' && closing.mailSourceId) && !confirmDiscardDocuments()) return state;
         const tabs = session.tabs.filter((tab) => tab.id !== tabId);
         const activeTabId = session.activeTabId === tabId
           ? resolveActiveTabId(tabs, tabs[index]?.id ?? tabs[index - 1]?.id ?? null)

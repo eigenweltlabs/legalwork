@@ -109,7 +109,7 @@ export type SessionPageSidebarProps = {
   onShowWorkflows?: () => void;
   onShowExtensions?: () => void;
   onShowRecorder?: () => void;
-  activeNav?: "evals" | "workflows" | "extensions" | "recorder" | null;
+  activeNav?: "mail" | "evals" | "workflows" | "extensions" | "recorder" | null;
   workspaceSessionGroups: WorkspaceSessionGroup[];
   selectedWorkspaceId: string;
   selectedSessionId: string | null;

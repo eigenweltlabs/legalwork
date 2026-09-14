@@ -1,0 +1,10 @@
+import {test} from 'node:test';
+import assert from 'node:assert/strict';
+import {randomBytes} from 'node:crypto';
+import {mkdtemp,rm} from 'node:fs/promises';
+import {tmpdir} from 'node:os';
+import {join} from 'node:path';
+import {openEncryptedMailDatabase} from './database.js';
+import {migrateMailSchema,MAIL_SCHEMA_VERSION} from './schema.js';
+import {removeLaterMailSchema} from '../testing/legacy-schema.mjs';
+test('schema25 retention and recovery fences upgrade atomically and reopen',async()=>{const dir=await mkdtemp(join(tmpdir(),'mail-retention-schema-')),key=randomBytes(32),path=join(dir,'mail.sqlite');let db=await openEncryptedMailDatabase({path,key});try{migrateMailSchema(db);removeLaterMailSchema(db,24);db.run('UPDATE mail_schema_version SET version=24');db.exec('DROP TRIGGER IF EXISTS mail_local_account_insert');db.run("INSERT INTO mail_accounts(id,owner_id,provider,display_name) VALUES('old','owner','gmail','Historical')");assert.equal(db.get("SELECT generation FROM mail_local_event_streams WHERE account_id='old'"),undefined);const failing={...db,exec(sql){db.exec(sql);if(sql.includes('CREATE TABLE mail_recovery_quarantine'))throw Error('synthetic DDL failure');}};assert.throws(()=>migrateMailSchema(failing));assert.equal(db.get('SELECT version FROM mail_schema_version').version,24);assert.equal(db.get("SELECT name FROM sqlite_schema WHERE name='mail_retention_settings'"),undefined);migrateMailSchema(db);assert.equal(typeof db.get("SELECT generation FROM mail_local_event_streams WHERE account_id='old'").generation,'string');db.run("INSERT INTO mail_accounts(id,owner_id,provider,display_name) VALUES('new','owner','gmail','New')");assert.equal(typeof db.get("SELECT generation FROM mail_local_event_streams WHERE account_id='new'").generation,'string');db.close();db=await openEncryptedMailDatabase({path,key});migrateMailSchema(db);assert.equal(db.get('SELECT version FROM mail_schema_version').version,MAIL_SCHEMA_VERSION);assert(db.get("SELECT name FROM sqlite_schema WHERE name='mail_recovery_quarantine'"));}finally{db.close();key.fill(0);await rm(dir,{recursive:true,force:true});}});

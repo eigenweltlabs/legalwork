@@ -107,10 +107,8 @@ export function createWorkspaceStore({ app, defaultDenBaseUrl, defaultRequireSig
     if (process.env.LEGALWORK_DESKTOP_BOOTSTRAP_PATH?.trim()) {
       return process.env.LEGALWORK_DESKTOP_BOOTSTRAP_PATH.trim();
     }
-    // Dev mode swaps process.env.HOME to the sandboxed dev-data home midway
-    // through startup (runtime.mjs buildChildEnv -> Object.assign(process.env)),
-    // which changes what os.homedir() returns. Resolve the dev-data home
-    // deterministically so early and late IPC reads target the same file.
+    // Resolve the development data path explicitly, independently of the OS
+    // home used by desktop services such as the macOS keychain.
     if (process.env.LEGALWORK_DEV_MODE === "1") {
       return path.join(
         app.getPath("userData"),

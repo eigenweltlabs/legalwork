@@ -1,3 +1,10 @@
+import {z} from 'zod';
+import {registerMailAgentRoutes} from './routes/mail-agent.js';
+import {realpath as mailAgentRealpath} from 'node:fs/promises';
+import {join as mailAgentJoin} from 'node:path';
+import {runtimeStorageDir as mailAgentStorageDir} from './runtime-opencode-config-store.js';
+import {registerMailStorageSaveRoutes} from './routes/mail-storage-save.js';
+import {registerMailFilingRoutes} from './routes/mail-filing.js';
 import { existsSync } from "node:fs";
 import { lstat, mkdir, readFile, writeFile, rm } from "node:fs/promises";
 import { homedir, hostname } from "node:os";
@@ -85,6 +92,8 @@ import { registerOperationRoutes } from "./routes/operations.js";
 import { addRoute, matchRoute, type AuthMode, type RequestContext, type Route } from "./routes/registry.js";
 import { registerSessionRoutes } from "./routes/sessions.js";
 import { registerWorkspaceRoutes } from "./routes/workspaces.js";
+import { registerMailRoutes } from "./routes/mail.js";
+import type { MailService } from "./mail/service-interface.js";
 import {
   applyGlobalToolPermissions,
   GLOBAL_PERSONALIZATION_ID,
@@ -604,10 +613,11 @@ function logRequest(input: {
   const url = new URL(request.url);
   const method = request.method.toUpperCase();
   const proxyLabel = proxyBaseUrl ? ` (${proxyService ?? "proxy"})` : "";
-  const message = `${method} ${url.pathname} ${status} ${durationMs}ms${proxyLabel}`;
+  const loggedPath = url.pathname.startsWith("/mail/") ? "/mail/[redacted]" : url.pathname;
+  const message = `${method} ${loggedPath} ${status} ${durationMs}ms${proxyLabel}`;
   const attributes: LogAttributes = {
     method,
-    path: url.pathname,
+    path: loggedPath,
     status,
     durationMs,
     auth: authMode,
@@ -688,7 +698,8 @@ export type StartedServer = ServeResult & {
   wordAddinPort: number | null;
 };
 
-export async function startServer(config: ServerConfig): Promise<StartedServer> {
+export async function startServer(config: ServerConfig, dependencies: { mail?: MailService } = {}): Promise<StartedServer> {
+  let mailStoragePort=config.port;
   const approvals = new ApprovalService(config.approval);
   const reloadEvents = new ReloadEventStore();
   const tokens = new TokenService(config);
@@ -712,6 +723,32 @@ export async function startServer(config: ServerConfig): Promise<StartedServer> 
       createDirectoryOpencodeClient(config, workspace, directory) as unknown as BenchmarkOpencodeClient,
   });
   const routes = createRoutes(config, approvals, tokens, env, officeTools, restartReloadWatchers, benchmarkRunner);
+  registerMailRoutes(routes, config.host, dependencies.mail);
+  const mailStorageSaves=registerMailStorageSaveRoutes({routes,host:config.host,mail:dependencies.mail,workspaces:()=>config.workspaces.flatMap(workspace=>workspace.id?[{id:workspace.id,name:workspace.name||workspace.id}]:[]),resolveWorkspace:async id=>{await resolveWorkspace(config,id);},request:async(path,input)=>{
+    const origin=`http://${config.host==='::1'?'[::1]':config.host}:${mailStoragePort}`;
+    const options={method:input?.method??'GET',headers:{Authorization:`Bearer ${config.token}`,...input?.contentType?{'Content-Type':input.contentType}:{}},body:input?.body,duplex:'half',redirect:'error',signal:input?.signal?AbortSignal.any([input.signal,AbortSignal.timeout(900000)]):AbortSignal.timeout(900000)};
+    return fetch(origin+path,{...options,redirect:'error'});
+  }});
+
+  registerMailAgentRoutes({routes,host:config.host,mail:dependencies.mail,capabilityRoot:mailAgentJoin(mailAgentStorageDir(config),'private-mail-capabilities'),workspaces:()=>config.workspaces.flatMap(workspace=>workspace.id?[{id:workspace.id,name:workspace.name||workspace.id}]:[]),directory:async id=>(await resolveWorkspace(config,id)).path,binding:async id=>{
+    const workspace=await resolveWorkspace(config,id),server=resolveLegalMemoryServer(await listMcp(config,workspace.id,workspace.path));if(!server)throw new ApiError(403,'mail_agent_denied','Matter access is unavailable');return{server,bearer:await engineAccessToken(server.name)};
+  },session:async(grant,id,messageId)=>{
+    const workspace=await resolveWorkspace(config,grant.workspaceId);
+    if(await mailAgentRealpath(workspace.path)!==grant.directory)throw new ApiError(403,'mail_agent_denied','Workspace changed');
+    const client=createWorkspaceOpencodeClient(config,workspace),response=await client.session.get({sessionID:id});
+    const session=z.object({id:z.string(),directory:z.string()}).parse(response.data);
+    if(session.id!==id||await mailAgentRealpath(session.directory)!==grant.directory)throw new ApiError(403,'mail_agent_denied','Task scope changed');
+    const responseMessage=await client.session.message({sessionID:id,messageID:messageId});
+    const message=z.object({info:z.object({id:z.string(),sessionID:z.string()})}).parse(responseMessage.data);
+    if(message.info.id!==messageId||message.info.sessionID!==id)throw new ApiError(403,'mail_agent_denied','Task provenance unavailable');
+  }});
+
+  registerMailFilingRoutes(routes,config.host,dependencies.mail,()=>config.workspaces.flatMap(workspace=>workspace.id?[{id:workspace.id,name:workspace.name||workspace.id}]:[]),async workspaceId=>{
+    const workspace=await resolveWorkspace(config,workspaceId);
+    const server=resolveLegalMemoryServer(await listMcp(config,workspace.id,workspace.path));
+    if(!server)throw new ApiError(409,'legalmemory_not_configured','Configure LegalMemory for the selected workspace in Settings.');
+    return {server,bearer:await engineAccessToken(server.name)};
+  });
 
   const serverOptions: {
     hostname: string;
@@ -876,6 +913,8 @@ export async function startServer(config: ServerConfig): Promise<StartedServer> 
     idleTimeout: 120,
   });
 
+  mailStoragePort=server.port;
+
   // Optional HTTPS listener for the Word add-in. It shares the exact same
   // fetch handler (API, OpenCode proxy, and /word-addin static hosting), so
   // the task pane talks to a single same-origin base URL. Word requires
@@ -916,11 +955,15 @@ export async function startServer(config: ServerConfig): Promise<StartedServer> 
     wordAddinPort: wordAddinServer?.port ?? null,
     stop: async () => {
       benchmarkRunner.dispose();
+      await mailStorageSaves?.close();
       watcherHandle.close();
       workspaceBootstrapPromises.delete(config);
       reloadBaselineRefreshers.delete(config);
-      await wordAddinServer?.stop();
-      await server.stop();
+      try { await dependencies.mail?.stop(); }
+      finally {
+        try { await wordAddinServer?.stop(); }
+        finally { await server.stop(); }
+      }
     },
   };
 }

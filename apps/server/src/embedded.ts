@@ -1,3 +1,5 @@
+import {runtimeStorageDir as mailAgentStorageDir} from './runtime-opencode-config-store.js';
+import {join as mailAgentJoin} from 'node:path';
 /**
  * Single entry point for embedding the LegalWork server in-process.
  *
@@ -17,6 +19,7 @@ import { refreshEigenweltPaidManifest } from "./eigenwelt-paid-manifest.js";
 import { ensureFreshPlatformToken } from "./eigenwelt-refresh.js";
 import type { ServeResult } from "./serve-node.js";
 import type { ServerConfig } from "./types.js";
+import type { MailService } from "./mail/service-interface.js";
 
 export type EmbeddedServerOptions = CliArgs & {
   /** When true, spawn a managed OpenCode child process. */
@@ -25,10 +28,14 @@ export type EmbeddedServerOptions = CliArgs & {
   opencodeBin?: string;
   /** Working directory for the managed OpenCode process. */
   opencodeCwd?: string;
+  /** Development home for managed children only; main-process OS identity is unchanged. */
+  opencodeHome?: string;
   /** Native folder-picker hook, forwarded to ServerConfig.pickDirectory. */
   pickDirectory?: ServerConfig["pickDirectory"];
   /** Desktop recorder hook, forwarded to Office add-in API routes. */
   recorder?: ServerConfig["recorder"];
+  /** Desktop-owned local mail service. Never loaded from environment or config. */
+  mail?: MailService;
 };
 
 export type EmbeddedServerHandle = {
@@ -102,12 +109,14 @@ export async function startEmbeddedServer(options: EmbeddedServerOptions): Promi
       managedOpencode = await createManagedOpencodeServer({
         bin: options.opencodeBin || process.env.LEGALWORK_OPENCODE_BIN,
         cwd,
+        home: options.opencodeHome,
         excludedPorts: [config.port],
         env: {
           ...(process.env.LEGALWORK_DEV_MODE ? { LEGALWORK_DEV_MODE: process.env.LEGALWORK_DEV_MODE } : {}),
           ...(process.env.LEGALWORK_UI_CONTROL_DISCOVERY ? { LEGALWORK_UI_CONTROL_DISCOVERY: process.env.LEGALWORK_UI_CONTROL_DISCOVERY } : {}),
           LEGALWORK_SERVER_URL: serverUrl,
           LEGALWORK_SERVER_TOKEN: config.token,
+          LEGALWORK_MAIL_CAPABILITY_SECRET_DIR: mailAgentJoin(mailAgentStorageDir(config),'private-mail-capabilities'),
           OPENCODE_CONFIG: runtimeConfigPath,
           OPENCODE_MODELS_URL: opencodeModelsUrl,
           ...(managedDb ? { OPENCODE_DB: managedDb.path } : {}),
@@ -133,7 +142,7 @@ export async function startEmbeddedServer(options: EmbeddedServerOptions): Promi
     }
   }
 
-  const server = await startServer(config);
+  const server = await startServer(config, { mail: options.mail });
 
   // The runtime config file above only covers workspaces[0]. Push every
   // workspace's runtime-DB MCPs into the engine so they aren't invisible
@@ -148,8 +157,8 @@ export async function startEmbeddedServer(options: EmbeddedServerOptions): Promi
     config,
     managedOpencodeExecution: managedOpencode?.execution ?? null,
     async stop() {
-      await managedOpencode?.close();
-      await server.stop();
+      try { await managedOpencode?.close(); }
+      finally { await server.stop(); }
     },
   };
 }

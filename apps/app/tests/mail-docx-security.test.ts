@@ -1,0 +1,20 @@
+import {test,expect} from 'bun:test';
+import {mkdtemp,writeFile,rm} from 'node:fs/promises';
+import {tmpdir} from 'node:os';
+import {join,resolve} from 'node:path';
+import {spawn} from 'node:child_process';
+import {createRequire} from 'node:module';
+import {randomUUID} from 'node:crypto';
+
+test('stored Word text preview does not load sender-selected fonts or external relationships',async()=>{
+ const root=await mkdtemp(join(tmpdir(),'mail-docx-security-')),appRoot=resolve(import.meta.dir,'..');
+ const entryName='.mail-docx-security-'+randomUUID(),entry=join(appRoot,'tests',entryName+'.ts');
+ try {
+  await writeFile(entry,`import JSZip from 'jszip';import {mailDocxText} from '../src/react-app/domains/session/artifacts/mail-docx-source';window.run=async()=>{const zip=new JSZip();zip.file('[Content_Types].xml','<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/></Types>');zip.file('word/document.xml','<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body><w:p><w:r><w:rPr><w:rFonts w:ascii="EIG154TrackingFontNeverInstalled"/></w:rPr><w:t>Offline confidential paragraph</w:t></w:r></w:p></w:body></w:document>');const signal=new AbortController().signal;const bytes=await zip.generateAsync({type:'uint8array'});const text=new TextDecoder().decode(await mailDocxText(bytes,signal));zip.file('word/_rels/document.xml.rels','<Relationships><Relationship TargetMode="Exter&#110;al" Target="https://tracking.invalid"/></Relationships>');let denied=false;try{await mailDocxText(await zip.generateAsync({type:'uint8array'}),signal);}catch{denied=true;}return{text,denied};};`);
+  const build=await Bun.build({entrypoints:[entry],outdir:root,target:'browser',format:'esm'});if(!build.success)throw Error(String(build.logs));
+  await writeFile(join(root,'index.html'),'<script type="module" src="./'+entryName+'.js"></script>');
+  const probe=join(root,'probe.cjs');await writeFile(probe,`const {app,BrowserWindow}=require('electron');const assert=require('node:assert/strict');app.setPath('userData',${JSON.stringify(join(root,'profile'))});app.whenReady().then(async()=>{const win=new BrowserWindow({show:false,webPreferences:{sandbox:true,contextIsolation:true,nodeIntegration:false}});const requests=[];win.webContents.session.webRequest.onBeforeRequest({urls:['http://*/*','https://*/*']},(request,callback)=>{requests.push(new URL(request.url).origin);callback({cancel:true});});await win.loadFile(${JSON.stringify(join(root,'index.html'))});for(let i=0;i<100;i++){if(await win.webContents.executeJavaScript('typeof window.run===\"function\"'))break;await new Promise(r=>setTimeout(r,20));}const result=await win.webContents.executeJavaScript('window.run()');assert.match(result.text,/Offline confidential paragraph/);assert.equal(result.denied,true);assert.deepEqual(requests,[],'Word preview attempted external font loading');assert.equal(await win.webContents.executeJavaScript('document.querySelectorAll(\"link[rel=stylesheet],style\").length'),0);console.log('MAIL_DOCX_SECURITY_PASS');win.destroy();app.quit();}).catch(error=>{console.error(error);app.exit(1)});`);
+  const executable=process.env.LEGALWORK_TEST_ELECTRON??createRequire(join(appRoot,'../desktop/package.json'))('electron');
+  const result=await new Promise<{code:number|null,output:string}>((done,reject)=>{const child=spawn(executable,[probe],{env:{HOME:process.env.HOME,PATH:process.env.PATH,SystemRoot:process.env.SystemRoot},stdio:['ignore','pipe','pipe']});let output='';const timer=setTimeout(()=>child.kill('SIGKILL'),30000);child.stdout.on('data',data=>output+=data);child.stderr.on('data',data=>output+=data);child.on('error',reject);child.on('close',code=>{clearTimeout(timer);done({code,output});});});if(result.code!==0)throw Error(result.output);expect(result.output).toContain('MAIL_DOCX_SECURITY_PASS');
+ }finally{await rm(entry,{force:true});await rm(root,{recursive:true,force:true});}
+},40000);

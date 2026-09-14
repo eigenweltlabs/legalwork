@@ -89,7 +89,7 @@ async function waitForDrainOrClose(nodeRes: ServerResponse): Promise<void> {
 /**
  * Convert a Node.js IncomingMessage into a Web API Request.
  */
-function toWebRequest(nodeReq: IncomingMessage, hostname: string, port: number, scheme: "http" | "https"): Request {
+function toWebRequest(nodeReq: IncomingMessage, hostname: string, port: number, scheme: "http" | "https", signal: AbortSignal): Request {
   const url = `${scheme}://${hostname}:${port}${nodeReq.url ?? "/"}`;
   const method = nodeReq.method ?? "GET";
   const headers = new Headers();
@@ -116,6 +116,7 @@ function toWebRequest(nodeReq: IncomingMessage, hostname: string, port: number, 
     method,
     headers,
     body,
+    signal,
     // @ts-expect-error duplex is required for streaming request bodies in Node
     duplex: hasBody ? "half" : undefined,
   });
@@ -178,8 +179,15 @@ export function serve(options: ServeOptions): Promise<ServeResult> {
       console.error("[serve-node] Response stream error:", error);
     });
 
+    const cancellation = new AbortController();
+    const abortRequest = () => cancellation.abort();
+    const closeResponse = () => { if (!nodeRes.writableEnded) cancellation.abort(); };
+    nodeReq.once("aborted", abortRequest);
+    nodeRes.once("close", closeResponse);
+    const socket=nodeReq.socket;
+    socket.once("close", closeResponse);
     try {
-      const webReq = toWebRequest(nodeReq, hostname, boundPort, scheme);
+      const webReq = toWebRequest(nodeReq, hostname, boundPort, scheme, cancellation.signal);
       const webRes = await fetchHandler(webReq);
       await writeWebResponse(webRes, nodeRes);
     } catch (error) {
@@ -195,6 +203,10 @@ export function serve(options: ServeOptions): Promise<ServeResult> {
         nodeRes.writeHead(500, { "Content-Type": "application/json" });
       }
       endResponse(nodeRes, JSON.stringify({ error: "internal_error" }));
+    } finally {
+      nodeReq.off("aborted", abortRequest);
+      nodeRes.off("close", closeResponse);
+      socket.off("close", closeResponse);
     }
   };
 

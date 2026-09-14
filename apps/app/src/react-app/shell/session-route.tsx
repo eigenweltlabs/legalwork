@@ -7,6 +7,8 @@ import {
   useState,
 } from "react";
 import { useLocation, useNavigate, useParams } from "react-router-dom";
+import type { MailChatBridge } from "../domains/mail/mail-chat";
+import { MailRoute } from "../domains/mail/mail-route";
 import { EvalsPane } from "./evals-route";
 import { RecorderPane } from "../domains/recorder/recorder-pane";
 import { PremiumUpsellHost } from "../domains/recorder/premium-upsell-context";
@@ -326,6 +328,7 @@ export function SessionRoute() {
     () => new URLSearchParams(location.search).get("detached") === "1",
     [location.search],
   );
+  const showMail = location.pathname === "/mail";
   const [showEvals, setShowEvals] = useState(false);
   // Top-level pages that live in the main shell (sidebar stays, main pane swaps),
   // same mechanism as Evals. Mutually exclusive — only one main pane at a time.
@@ -333,23 +336,26 @@ export function SessionRoute() {
   const [showExtensions, setShowExtensions] = useState(false);
   const [showRecorder, setShowRecorder] = useState(false);
   const showEvalsPane = useCallback(() => {
+    if (showMail) navigate("/session");
     setShowEvals(true);
     setShowWorkflows(false);
     setShowExtensions(false);
     setShowRecorder(false);
-  }, []);
+  }, [showMail, navigate]);
   const showWorkflowsPane = useCallback(() => {
+    if (showMail) navigate("/session");
     setShowWorkflows(true);
     setShowEvals(false);
     setShowExtensions(false);
     setShowRecorder(false);
-  }, []);
+  }, [showMail, navigate]);
   const showRecorderPane = useCallback(() => {
+    if (showMail) navigate("/session");
     setShowRecorder(true);
     setShowEvals(false);
     setShowWorkflows(false);
     setShowExtensions(false);
-  }, []);
+  }, [showMail, navigate]);
   const platform = usePlatform();
   const { config: shellConfig } = useShellConfig();
   const local = useLocal();
@@ -401,6 +407,7 @@ export function SessionRoute() {
     rememberPendingCreatedSession,
     handleRuntimeSessionUpdated,
   } = useWorkspaceRouteState({
+    skipAutomaticNavigation: showMail || showWorkflows || showEvals || showRecorder || showExtensions,
     onServerSettingsChanged: () => setLegalworkServerSettingsVersion((value) => value + 1),
     onHostInfo: setLegalworkServerHostInfoState,
   });
@@ -1356,6 +1363,37 @@ export function SessionRoute() {
   );
 
 
+  const mailChatBridge = useMemo<MailChatBridge>(() => ({
+    workspaces: workspaces.map(workspace => ({id: workspace.id, name: workspace.name, remote: workspace.workspaceType === "remote"})),
+    async sessions(workspaceId) {
+      const workspace = workspaces.find(item => item.id === workspaceId);
+      if (!workspace) throw Error("This workspace is unavailable.");
+      const endpoint = resolveWorkspaceEndpoint(workspace, {baseUrl, token});
+      if (!endpoint?.token) throw Error("Connect this workspace before copying an attachment.");
+      const result = await endpoint.client.listSessions(endpoint.workspaceId, {roots: true, limit: 100});
+      return result.items.filter(item => normalizeDirectoryPath(item.directory) === normalizeDirectoryPath(workspace.path)).map(item => ({id: item.id, title: item.title}));
+    },
+    async prepare(workspaceId, selectedSessionId) {
+      const workspace = workspaces.find(item => item.id === workspaceId);
+      if (!workspace) throw Error("This workspace is unavailable.");
+      const endpoint = resolveWorkspaceEndpoint(workspace, {baseUrl, token});
+      if (!endpoint?.token) throw Error("Connect this workspace before copying an attachment.");
+      const sdk = createClient(endpoint.opencodeBaseUrl, workspace.path?.trim() || undefined, {token: endpoint.token, mode: "legalwork"});
+      const session = selectedSessionId ? (await endpoint.client.getSession(endpoint.workspaceId, selectedSessionId)).item : unwrap(await sdk.session.create({directory: workspace.path?.trim() || undefined}));
+      const assertCurrent = async () => {
+        const current = (await endpoint.client.getSession(endpoint.workspaceId, session.id)).item;
+        if (normalizeDirectoryPath(current.directory) !== normalizeDirectoryPath(workspace.path)) throw Error("This chat does not belong to the chosen workspace.");
+      };
+      await assertCurrent();
+      return {workspaceId: endpoint.workspaceId, sessionId: session.id, client: endpoint.client, assertCurrent, open() {
+        setLegacySelectedWorkspaceId(workspaceId); writeActiveWorkspaceId(workspaceId); writeLastSessionFor(workspaceId, session.id);
+        rememberPendingCreatedSession(workspaceId, session.id);
+        setSessionsByWorkspaceId(current => ({...current, [workspaceId]: [session, ...(current[workspaceId] ?? []).filter(item => item.id !== session.id)]}));
+        navigateToWorkspaceSession(workspaceId, session.id); focusPromptSoon(); void refreshRouteState();
+      }};
+    },
+  }), [workspaces, baseUrl, token, navigateToWorkspaceSession, rememberPendingCreatedSession, refreshRouteState]);
+
   const handleCreateTaskInWorkspace = useCallback(async (workspaceId: string) => {
     const workspace = workspaces.find((item) => item.id === workspaceId);
     if (
@@ -1962,7 +2000,7 @@ export function SessionRoute() {
         // One reused SettingsSurface instance across the pages — it follows `initialPath`
         // via an effect, so switching Workflows <-> Integrations is instant and doesn't
         // re-fetch the workspace/stores.
-        showWorkflows ? (
+        showMail ? <MailRoute chatBridge={mailChatBridge} /> : showWorkflows ? (
           // onClose drops the pane so actions that navigate to a session (e.g.
           // opening the workflow-generation session) always reveal the chat —
           // even when the target session is already the selected one and the
@@ -2012,7 +2050,7 @@ export function SessionRoute() {
         onShowWorkflows: showWorkflowsPane,
         onShowExtensions: () => navigate(`/workspace/${encodeURIComponent(selectedWorkspaceId)}/settings/extensions/mcp`),
         onShowRecorder: showRecorderPane,
-        activeNav: showWorkflows ? "workflows" : showExtensions ? "extensions" : showEvals ? "evals" : showRecorder ? "recorder" : null,
+        activeNav: showMail ? "mail" : showWorkflows ? "workflows" : showExtensions ? "extensions" : showEvals ? "evals" : showRecorder ? "recorder" : null,
         workspaceSessionGroups,
         selectedWorkspaceId,
         selectedSessionId,

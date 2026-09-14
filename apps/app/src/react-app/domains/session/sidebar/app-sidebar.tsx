@@ -9,6 +9,7 @@ import {
   FolderPlus,
   Loader2,
   Mic,
+  Mail,
   PenLine,
   Workflow,
   MoreHorizontal,
@@ -483,7 +484,7 @@ export type AppSidebarProps = {
   onShowExtensions?: () => void;
   onShowRecorder?: () => void;
   /** Which main-pane nav tab is currently shown (shades it like hover). */
-  activeNav?: "evals" | "workflows" | "extensions" | "recorder" | null;
+  activeNav?: "mail" | "evals" | "workflows" | "extensions" | "recorder" | null;
   onReorderWorkspaces?: (workspaceIds: string[]) => void;
   onStartResize?: React.PointerEventHandler<HTMLButtonElement>;
 };
@@ -705,6 +706,12 @@ export function AppSidebar(props: AppSidebarProps) {
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
+          </SidebarMenuItem>
+          <SidebarMenuItem>
+            <SidebarMenuButton className={cn(NAV_ITEM_CLASS, "[&_svg]:size-[18px]")} isActive={props.activeNav === "mail"} onClick={() => navigate("/mail")}>
+              <Mail className="size-[18px]" strokeWidth={1.5} />
+              <span>Mail</span>
+            </SidebarMenuButton>
           </SidebarMenuItem>
           <SidebarMenuItem>
             <SidebarMenuButton

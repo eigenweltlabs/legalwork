@@ -102,7 +102,7 @@ describe("resolveLegalworkServerConfigPath", () => {
   it("respects explicit server config path", () => {
     assert.equal(
       resolveLegalworkServerConfigPath({ LEGALWORK_SERVER_CONFIG: "/tmp/legalwork/server.json" }),
-      "/tmp/legalwork/server.json",
+      path.resolve("/tmp/legalwork/server.json"),
     );
   });
 

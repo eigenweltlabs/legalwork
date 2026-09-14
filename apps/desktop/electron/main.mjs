@@ -1,3 +1,10 @@
+import {createMailImages} from './mail-images.mjs';
+import {getMailDesktopSettings,setMailDesktopSettings} from './mail-desktop.mjs';
+import {performMailPortability} from "./mail-portability.mjs";
+import {createMailDraftRecovery} from "./mail-draft-recovery.mjs";
+import {assertMailKeychainReady} from "./mail-keychain-preflight.mjs";
+import { getMailBadgeEnabled, setMailBadgeEnabled } from "./app-badge.mjs";
+import { createMailArtifacts } from "./mail-artifacts.mjs";
 import { execFileSync, spawn } from "node:child_process";
 import { createServer } from "node:http";
 import net from "node:net";
@@ -17,9 +24,9 @@ import {
 import { createRequire } from "node:module";
 import os from "node:os";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
-import { app, BrowserWindow, clipboard, desktopCapturer, dialog, globalShortcut, ipcMain, nativeImage, nativeTheme, powerMonitor, powerSaveBlocker, protocol, session, shell, systemPreferences } from "electron";
+import { app, BrowserWindow, clipboard, desktopCapturer, dialog, globalShortcut, ipcMain, nativeImage, nativeTheme, powerMonitor, powerSaveBlocker, protocol, session, shell, safeStorage, systemPreferences } from "electron";
 import { configureFakeMediaForTests, installMediaPermissionHandlers } from "./media-permissions.mjs";
 import { appendLoopbackFeatureFlags, disableLoopbackAudio, enableLoopbackAudio, isLoopbackCaptureArmed } from "./audio/loopback.mjs";
 import { captureAuthStatus, openCapturePermissionSettings, requestCapturePermission } from "./audio/capture-permissions.mjs";
@@ -1684,6 +1691,8 @@ async function openDetachedSessionWindow(event, input = {}) {
 // typecheck:electron`.
 /** @type {import("@legalwork/types/desktop-ipc").DesktopCommandHandlers<import("electron").IpcMainInvokeEvent>} */
 const desktopCommandHandlers = {
+  getMailBadgeEnabled: async () => getMailBadgeEnabled(),
+  setMailBadgeEnabled: async (_event, enabled) => setMailBadgeEnabled(enabled),
   "openSessionWindow": async (event, ...args) => {
       return openDetachedSessionWindow(event, args[0] ?? {});
   },
@@ -2840,6 +2849,35 @@ async function createMainWindow() {
   return mainWindow;
 }
 
+let pendingMailNotificationTarget=null;
+app.on('legalwork-mail-open',target=>{void runtimeManager.legalworkServerInfo().then(async info=>{if(!info.running||!info.baseUrl)return;pendingMailNotificationTarget={...target,serverOrigin:new URL(info.baseUrl).origin};const win=await createMainWindow();if(win.isMinimized())win.restore();win.show();win.focus();win.webContents.send('legalwork:mail:notification-open');}).catch(()=>{});});
+for(const operation of ['get','set','target'])ipcMain.handle('legalwork:mail:desktop:'+operation,(event,value)=>{if(!mainWindow||event.sender!==mainWindow.webContents||event.senderFrame!==mainWindow.webContents.mainFrame)throw Error('Mail requires the main window');if(operation==='get')return getMailDesktopSettings();if(operation==='set')return setMailDesktopSettings(value);const target=pendingMailNotificationTarget;pendingMailNotificationTarget=null;return target;});
+const draftRecovery=createMailDraftRecovery({directory:path.join(app.getPath("userData"),"mail-draft-recovery"),safeStorage,beforeAccess:assertMailKeychainReady,canRead:async accountId=>{try{const info=await runtimeManager.legalworkServerInfo();if(!info.running||!info.hostToken||!/^http:\/\/(127\.0\.0\.1|\[::1\]):[1-9]\d{0,4}\/?$/.test(info.baseUrl))return false;const response=await fetch(new URL(info.baseUrl).origin+'/mail/v1/accounts/'+encodeURIComponent(accountId)+'/drafts/query',{method:'POST',headers:{'X-LegalWork-Host-Token':info.hostToken,'Content-Type':'application/json'},body:JSON.stringify({limit:1}),redirect:'error',signal:AbortSignal.timeout(5000)});return response.ok;}catch{return false;}},windowsAcl:async(target,directory)=>{const dist=app.isPackaged?path.join(process.resourcesPath,"app.asar/server/dist"):path.resolve(__dirname,"../../server/dist");const{enforceMailWindowsAcl}=await import(pathToFileURL(path.join(dist,"mail/storage/windows-acl.js")).href);await enforceMailWindowsAcl(target,directory);}});
+for(const operation of ["write","list","remove"])ipcMain.handle("legalwork:mail:draft-recovery:"+operation,(event,value)=>{if(!mainWindow||event.sender!==mainWindow.webContents||event.senderFrame!==mainWindow.webContents.mainFrame)throw Error("Mail recovery requires the main window");if(operation==="list"&&new URL(mainWindow.webContents.getURL()).hash!=="#/mail")throw Error("Mail reader required");return draftRecovery[operation](value);});
+
+ipcMain.handle("legalwork:mail:portability",(event,value)=>{if(!mainWindow||event.sender!==mainWindow.webContents||event.senderFrame!==mainWindow.webContents.mainFrame)throw Error("Mail import/export requires the main window");return performMailPortability(value,dialog);});
+const mailImages=createMailImages({connection:()=>runtimeManager.legalworkServerInfo(),decode:bytes=>{const image=nativeImage.createFromBuffer(bytes);if(image.isEmpty())throw Error('Invalid image');return image.getSize();}});
+ipcMain.handle('legalwork:mail:images',(event,value)=>{if(!mainWindow||event.sender!==mainWindow.webContents||event.senderFrame!==mainWindow.webContents.mainFrame||new URL(mainWindow.webContents.getURL()).hash!=='#/mail')throw Error('Mail reader required');return mailImages.perform(value);});
+ipcMain.handle('legalwork:mail:images:cancel',event=>{if(!mainWindow||event.sender!==mainWindow.webContents||event.senderFrame!==mainWindow.webContents.mainFrame)throw Error('Mail reader required');mailImages.cancel();});
+app.on('before-quit',()=>mailImages.cancel());
+const mailArtifacts = createMailArtifacts({
+  connection: () => runtimeManager.legalworkServerInfo(), dialog, shell,
+  privateDirectory: async directory => {
+    if (process.platform !== "win32") return;
+    const dist = app.isPackaged ? path.join(process.resourcesPath, "app.asar/server/dist") : path.resolve(__dirname, "../../server/dist");
+    const { enforceMailWindowsAcl } = await import(pathToFileURL(path.join(dist, "mail/storage/windows-acl.js")).href);
+    await enforceMailWindowsAcl(directory, true);
+  },
+});
+ipcMain.handle("legalwork:mail:artifact", (event, value) => {
+  if (!mainWindow || event.sender !== mainWindow.webContents || event.senderFrame !== mainWindow.webContents.mainFrame || new URL(mainWindow.webContents.getURL()).hash !== "#/mail") throw new Error("Mail reader required");
+  return mailArtifacts.perform(value);
+});
+ipcMain.handle("legalwork:mail:artifact:cancel", event => {
+  if (!mainWindow || event.sender !== mainWindow.webContents || event.senderFrame !== mainWindow.webContents.mainFrame) throw new Error("Mail reader required");
+  mailArtifacts.cancel();
+});
+app.on("before-quit", () => { void mailArtifacts.close(); });
 ipcMain.handle("legalwork:desktop", handleDesktopInvoke);
 ipcMain.handle("legalwork:shell:openExternal", async (_event, url) => {
   if (typeof url === "string" && url.trim().length > 0) {
@@ -2972,7 +3010,7 @@ if (!app.requestSingleInstanceLock()) {
     dictationHud.destroy();
     appTray.destroy();
     powerSessions.releaseAll();
-    void Promise.all([disposeRuntimeBeforeQuit(), uiControlServer.stop()]).finally(() => app.quit());
+    void Promise.all([draftRecovery.close(), disposeRuntimeBeforeQuit(), uiControlServer.stop()]).finally(() => app.quit());
   });
 
   app.on("second-instance", async (_event, argv) => {

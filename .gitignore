@@ -60,3 +60,8 @@ apps/desktop/native/
 apps/app/docx-qa/
 apps/app/docx-interop-output/
 apps/app/dist-docx-performance/
+
+# Generated mail reports and dependency notices
+/docs/mail/
+/mail-qualification-evidence/
+/apps/app/public/third-party/mail/

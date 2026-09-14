@@ -151,6 +151,8 @@ export async function createManagedOpencodeServer(options: {
   excludedPorts?: number[];
   timeoutMs?: number;
   env?: Record<string, string | undefined>;
+  /** Child-only development home; never applied to the embedding process. */
+  home?: string;
 }): Promise<ManagedOpencodeServer> {
   const hostname = options.hostname ?? "127.0.0.1";
   const username = randomSecret();
@@ -159,11 +161,13 @@ export async function createManagedOpencodeServer(options: {
   const env = {
     ...process.env,
     ...options.env,
+    ...(options.home ? { HOME: options.home, USERPROFILE: options.home } : {}),
     OPENCODE_SERVER_USERNAME: username,
     OPENCODE_SERVER_PASSWORD: password,
   };
   const injectedEnv = Object.entries({
     ...(options.env ?? {}),
+    ...(options.home ? { HOME: options.home, USERPROFILE: options.home } : {}),
     OPENCODE_SERVER_USERNAME: username,
     OPENCODE_SERVER_PASSWORD: password,
   })

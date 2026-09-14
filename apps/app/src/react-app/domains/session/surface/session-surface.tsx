@@ -1,3 +1,4 @@
+import {MailChatSourceNotice} from '../../mail/mail-chat-source-notice';
 /** @jsxImportSource react */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { UIMessage } from "ai";
@@ -1990,6 +1991,7 @@ export function SessionSurface(props: SessionSurfaceProps) {
       <div ref={composerShellRef} className={cn("shrink-0 px-0 pb-2 pt-2",
         !pendingSessionLoad && renderedMessages.length === 0 && "lw-fade-enter",
       )}>
+        <MailChatSourceNotice sessionId={props.sessionId}/>
         {fusionEnabled && !fusionConfigured ? (
           <div className="mx-3 mb-2 flex w-[calc(100%-1.5rem)] flex-wrap items-center gap-2 rounded-lg border border-amber-7/40 bg-amber-2/30 px-3 py-2 text-xs text-amber-11">
             <span className="font-medium">{t("fusion.banner_not_configured")}</span>
