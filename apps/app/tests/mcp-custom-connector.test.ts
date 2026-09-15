@@ -5,6 +5,7 @@ import {
   buildCustomConnectorEntry,
   customConnectorHeaders,
   defaultOAuthClient,
+  needsClientRegistration,
   normalizeCustomConnectorUrl,
   probeVerdict,
   type CustomConnectorForm,
@@ -48,10 +49,24 @@ describe("custom connector: reading the check", () => {
     expect(defaultOAuthClient(oauth(false))).toBe("own");
     expect(defaultOAuthClient(null)).toBe("own");
   });
+
+  test("registration is attempted only for automatic OAuth on a server that asks to sign in", () => {
+    expect(needsClientRegistration(form, oauth(true))).toBe(true);
+    expect(needsClientRegistration(form, oauth(false))).toBe(false);
+    expect(needsClientRegistration({ ...form, oauthClient: "own" }, oauth(true))).toBe(false);
+    expect(needsClientRegistration(form, probe({ auth: "none" }))).toBe(false);
+    expect(needsClientRegistration(form, probe({ auth: "credentials" }))).toBe(false);
+    expect(needsClientRegistration(form, null)).toBe(false);
+  });
 });
 
 describe("custom connector: what gets saved", () => {
-  test("an OAuth server with automatic registration signs in with a fresh client", () => {
+  test("an OAuth server with automatic registration signs in with the client registered on the way in", () => {
+    expect(buildCustomConnectorEntry(form, oauth(true), { clientId: "reg-1", clientSecret: "reg-secret" })).toEqual({
+      name: "Fibery", description: "", type: "remote", url: form.url, oauth: true, oauthConfig: { clientId: "reg-1", clientSecret: "reg-secret" },
+    });
+    expect(buildCustomConnectorEntry(form, oauth(true), { clientId: "reg-1" }).oauthConfig).toEqual({ clientId: "reg-1" });
+    // Nothing could register from here: the engine registers itself on connect, as before.
     expect(buildCustomConnectorEntry(form, oauth(true))).toEqual({
       name: "Fibery", description: "", type: "remote", url: form.url, oauth: true,
     });

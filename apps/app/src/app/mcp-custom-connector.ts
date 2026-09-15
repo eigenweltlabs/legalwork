@@ -1,5 +1,5 @@
 import type { McpDirectoryInfo } from "./constants";
-import type { LegalworkMcpProbeResult } from "./lib/legalwork-server";
+import type { LegalworkMcpProbeResult, LegalworkMcpRegisterClientResult } from "./lib/legalwork-server";
 import { t } from "@/i18n";
 
 /**
@@ -9,9 +9,12 @@ import { t } from "@/i18n";
  * (see apps/server/src/mcp-probe.ts): anonymous access, OAuth with automatic
  * or pre-registered clients, or a static credential when no OAuth metadata is
  * published. Sign-in itself is never a choice here — an OAuth connector signs
- * in right after it is added.
+ * in right after it is added. Automatic registration is done rather than
+ * assumed: the client registered on the way in is saved with the connector.
  */
 export type CustomConnectorProbe = LegalworkMcpProbeResult;
+export type CustomConnectorRegistration = LegalworkMcpRegisterClientResult;
+export type CustomConnectorRegisteredClient = Extract<CustomConnectorRegistration, { registered: true }>["client"];
 
 export type CustomConnectorOAuthClient = "automatic" | "own";
 
@@ -46,6 +49,16 @@ export function probeVerdict(probe: CustomConnectorProbe): CustomConnectorVerdic
 /** Automatic registration when the sign-in provider offers it, otherwise the firm's own client. */
 export function defaultOAuthClient(probe: CustomConnectorProbe | null): CustomConnectorOAuthClient {
   return probe?.oauth?.dynamicRegistration ? "automatic" : "own";
+}
+
+/**
+ * "Automatic" is verified by registering, not by reading metadata: a provider
+ * may advertise registration and still refuse it. Only when the person chose
+ * automatic and the server asks to sign in.
+ */
+export function needsClientRegistration(form: CustomConnectorForm, probe: CustomConnectorProbe | null): boolean {
+  if (!probe || probeVerdict(probe) !== "signin") return false;
+  return form.oauthClient === "automatic" && probe.oauth?.dynamicRegistration === true;
 }
 
 /**
@@ -86,8 +99,16 @@ export function customConnectorHeaders(form: CustomConnectorForm): Record<string
   return Object.keys(headers).length ? headers : undefined;
 }
 
-/** The connector entry to save. Throws with a message for the person when something is missing. */
-export function buildCustomConnectorEntry(form: CustomConnectorForm, probe: CustomConnectorProbe | null): McpDirectoryInfo {
+/**
+ * The connector entry to save. Throws with a message for the person when
+ * something is missing. `registered` is the client the sign-in provider issued
+ * on the way in; without one the engine registers itself on connect.
+ */
+export function buildCustomConnectorEntry(
+  form: CustomConnectorForm,
+  probe: CustomConnectorProbe | null,
+  registered: CustomConnectorRegisteredClient | null = null,
+): McpDirectoryInfo {
   const name = form.name.trim();
   if (!name) throw new Error(t("mcp.name_required"));
   const typed = normalizeCustomConnectorUrl(form.url);
@@ -103,7 +124,14 @@ export function buildCustomConnectorEntry(form: CustomConnectorForm, probe: Cust
   if (verdict === "signin") {
     // Custom headers ride along with the OAuth token; the check saw them and
     // the server still asked to sign in.
-    if (form.oauthClient === "automatic" && probe?.oauth?.dynamicRegistration) return { ...entry, oauth: true };
+    if (form.oauthClient === "automatic" && probe?.oauth?.dynamicRegistration) {
+      if (!registered) return { ...entry, oauth: true };
+      return {
+        ...entry,
+        oauth: true,
+        oauthConfig: { clientId: registered.clientId, ...(registered.clientSecret ? { clientSecret: registered.clientSecret } : {}) },
+      };
+    }
     const clientId = form.clientId.trim();
     if (!clientId) throw new Error(t("add_mcp.client_id_required"));
     const clientSecret = form.clientSecret.trim();

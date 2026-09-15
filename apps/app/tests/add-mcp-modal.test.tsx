@@ -56,10 +56,12 @@ describe("Add custom connector: the check", () => {
 });
 
 describe("Add custom connector: the OAuth client", () => {
-  test("offers automatic registration as detected, and the own client as the alternative", () => {
+  test("offers automatic registration as what the provider advertises, verified by registering, and the own client as the alternative", () => {
     const html = renderToStaticMarkup(React.createElement(CustomConnectorOAuthClientFields, { probe: oauthProbe(true), form, onChange: () => {} }));
     expect(html).toContain("Register automatically");
-    expect(html).toContain("Detected");
+    expect(html).toContain("Offered");
+    expect(html).not.toContain("Detected");
+    expect(html).toContain("registers itself when you add the connector");
     expect(html).toContain("Use your own OAuth client");
     // Never a sign-in question: it happens right after adding.
     expect(html).toContain("You sign in in your browser right after adding.");
