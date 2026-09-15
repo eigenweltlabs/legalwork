@@ -23,10 +23,13 @@ import {
   defaultOAuthClient,
   MAX_CUSTOM_HEADERS,
   MCP_OAUTH_REDIRECT_URI,
+  needsClientRegistration,
   normalizeCustomConnectorUrl,
   probeVerdict,
   type CustomConnectorForm,
   type CustomConnectorProbe,
+  type CustomConnectorRegisteredClient,
+  type CustomConnectorRegistration,
 } from "@/app/mcp-custom-connector";
 import { getMcpOAuthErrorMessage } from "@/app/mcp-oauth-errors";
 import { t } from "@/i18n";
@@ -37,6 +40,8 @@ export type AddMcpModalProps = {
   onAdd: (entry: McpDirectoryInfo) => boolean | void | Promise<boolean | void>;
   /** Ask the server how the connector signs in; absent when nothing can check from here. */
   onProbe?: (url: string, headers?: Record<string, string>) => Promise<CustomConnectorProbe>;
+  /** Register with the sign-in provider on Add; absent, the engine registers on connect. */
+  onRegisterClient?: (url: string, headers?: Record<string, string>) => Promise<CustomConnectorRegistration>;
   busy: boolean;
   isRemoteWorkspace: boolean;
 };
@@ -99,7 +104,7 @@ export function CustomConnectorOAuthClientFields({ probe, form, onChange }: Fiel
           <div className="min-w-0 space-y-1">
             <div className="flex flex-wrap items-center gap-2 text-sm font-medium">
               {t("add_mcp.oauth_automatic")}
-              {automatic ? <Badge variant="secondary">{t("add_mcp.detected")}</Badge> : null}
+              {automatic ? <Badge variant="secondary">{t("add_mcp.offered")}</Badge> : null}
             </div>
             <p className="text-xs text-dls-secondary">{automatic ? t("add_mcp.oauth_automatic_hint") : t("add_mcp.oauth_automatic_unavailable")}</p>
           </div>
@@ -200,6 +205,7 @@ export function AddMcpModal(props: AddMcpModalProps) {
   const [probe, setProbe] = useState<CustomConnectorProbe | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const [registering, setRegistering] = useState(false);
   // A check or save that finishes after the dialog closed must not act on it.
   const attempt = useRef(0);
 
@@ -216,6 +222,7 @@ export function AddMcpModal(props: AddMcpModalProps) {
     setProbe(null);
     setError(null);
     setSubmitting(false);
+    setRegistering(false);
   };
   const close = () => {
     if (submitting) return;
@@ -259,25 +266,43 @@ export function AddMcpModal(props: AddMcpModalProps) {
     }
   };
 
+  /**
+   * Registration is the test of "automatic": a provider that advertises it may
+   * still refuse (Auth0 keeps it off by default), and its reason, shown here,
+   * beats a failed connect later. The registered client is saved with the
+   * connector, so the engine signs in with it instead of registering again.
+   */
+  const registerClient = async (): Promise<CustomConnectorRegisteredClient | null> => {
+    if (!props.onRegisterClient || !needsClientRegistration(form, probe)) return null;
+    const headers = customConnectorHeaders(form);
+    setRegistering(true);
+    try {
+      const result = await props.onRegisterClient(probe?.url ?? normalizeCustomConnectorUrl(form.url), headers);
+      if (result.registered) return result.client;
+      // The person's own client is the way from here; the provider's reason says why.
+      patch({ oauthClient: "own" });
+      throw new Error(t("add_mcp.registration_refused", { message: result.message }));
+    } finally {
+      setRegistering(false);
+    }
+  };
+
   const add = async () => {
     if (submitting) return;
     setError(null);
-    let entry: McpDirectoryInfo;
+    const id = attempt.current;
+    setSubmitting(true);
     try {
+      let entry: McpDirectoryInfo;
       if (local) {
         if (!form.name.trim()) throw new Error(t("mcp.name_required"));
         if (!command.trim()) throw new Error(t("mcp.url_or_command_required"));
         entry = { name: form.name.trim(), description: "", type: "local", command: command.trim().split(/\s+/), oauth: false };
       } else {
-        entry = buildCustomConnectorEntry(form, probe);
+        const registered = await registerClient();
+        if (id !== attempt.current) return;
+        entry = buildCustomConnectorEntry(form, probe, registered);
       }
-    } catch (cause) {
-      setError(getMcpOAuthErrorMessage(cause));
-      return;
-    }
-    const id = attempt.current;
-    setSubmitting(true);
-    try {
       const outcome = await props.onAdd(entry);
       if (id !== attempt.current) return;
       if (outcome === false) {
@@ -392,6 +417,13 @@ export function AddMcpModal(props: AddMcpModalProps) {
                 <CustomConnectorHeaderFields form={form} onChange={patch} />
               ) : null}
             </>
+          ) : null}
+
+          {registering ? (
+            <span className={`${BADGE_CLASS} border-dls-border bg-dls-hover text-dls-text`} role="status">
+              <Loader2 size={15} className="shrink-0 animate-spin" />
+              {t("add_mcp.registering")}
+            </span>
           ) : null}
 
           {error ? (

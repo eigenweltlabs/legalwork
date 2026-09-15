@@ -46,7 +46,7 @@ import { t } from "../../../../i18n";
 import { Button } from "@/components/ui/button";
 import { ConfirmModal } from "../../../design-system/modals/confirm-modal";
 import { AddMcpModal } from "../../connections/modals/add-mcp-modal";
-import type { LegalworkMcpProbeResult } from "../../../../app/lib/legalwork-server";
+import type { LegalworkMcpProbeResult, LegalworkMcpRegisterClientResult } from "../../../../app/lib/legalwork-server";
 import { McpConnectorSetupModal } from "../../connections/modals/mcp-connector-setup-modal";
 import {
   isLegalWorkExtensionEnabled,
@@ -108,6 +108,8 @@ export type McpViewProps = {
   connectMcp: (entry: McpDirectoryInfo) => boolean | void | Promise<boolean | void>;
   /** Check how a remote MCP server signs in before it is added (custom connectors). */
   probeMcp?: (url: string, headers?: Record<string, string>) => Promise<LegalworkMcpProbeResult>;
+  /** Register with the sign-in provider when a custom connector is added with automatic OAuth. */
+  registerMcpClient?: (url: string, headers?: Record<string, string>) => Promise<LegalworkMcpRegisterClientResult>;
   cancelPendingMcpAuth?: () => void;
   authorizeMcp: (entry: McpServerEntry) => void;
   logoutMcpAuth: (name: string) => Promise<void> | void;
@@ -792,6 +794,7 @@ export function McpView(props: McpViewProps) {
         onClose={() => setAddMcpModalOpen(false)}
         onAdd={(entry) => props.connectMcp(entry)}
         onProbe={props.probeMcp}
+        onRegisterClient={props.registerMcpClient}
         busy={props.busy}
         isRemoteWorkspace={props.isRemoteWorkspace}
       />
