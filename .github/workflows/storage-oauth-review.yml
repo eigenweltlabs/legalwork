@@ -2,16 +2,18 @@ name: Storage OAuth review builds
 
 on:
   workflow_dispatch:
-  push:
-    branches: [feat/storage-oauth-dropbox]
-    paths:
-      - .github/workflows/storage-oauth-review.yml
+    inputs:
+      platform:
+        description: Platform to build
+        type: choice
+        default: all
+        options: [all, macos-15, windows-2022, ubuntu-24.04]
 
 permissions:
   contents: read
 
 concurrency:
-  group: storage-review-${{ github.ref }}
+  group: storage-review-${{ github.ref }}-${{ inputs.platform || 'all' }}
   cancel-in-progress: true
 
 jobs:
@@ -19,13 +21,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - os: macos-15
-            args: --mac zip --arm64 -c.mac.identity=-
-          - os: windows-2022
-            args: --win zip --x64
-          - os: ubuntu-24.04
-            args: --linux tar.gz --x64
+        os: ${{ fromJSON(inputs.platform == 'all' && '["macos-15","windows-2022","ubuntu-24.04"]' || format('["{0}"]', inputs.platform)) }}
     runs-on: ${{ matrix.os }}
     timeout-minutes: 45
     env:
@@ -51,7 +47,7 @@ jobs:
         run: pnpm --filter @legalwork/desktop build:electron
       - name: Package for review recording
         shell: bash
-        run: pnpm --dir apps/desktop exec electron-builder --config electron-builder.yml ${{ matrix.args }} --publish never
+        run: pnpm --dir apps/desktop exec electron-builder --config electron-builder.yml ${{ matrix.os == 'macos-15' && '--mac zip --arm64 -c.mac.identity=-' || matrix.os == 'windows-2022' && '--win zip --x64' || '--linux tar.gz --x64' }} --publish never
       - name: Save review build
         uses: actions/upload-artifact@v4
         with:
