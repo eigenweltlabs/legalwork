@@ -822,6 +822,15 @@ export function createConnectionsStore(options: {
     return legalworkClient.probeMcp(legalworkWorkspaceId, { url, ...(headers ? { headers } : {}) });
   }
 
+  /** Register LegalWork with a remote MCP server's sign-in provider, before saving anything. */
+  async function registerMcpClient(url: string, headers?: Record<string, string>) {
+    const { legalworkClient, legalworkWorkspaceId, canUseLegalworkServer } = await resolveMcpLegalworkTarget("read");
+    if (!canUseLegalworkServer || !legalworkClient || !legalworkWorkspaceId) {
+      throw new Error(t("mcp.connect_server_first"));
+    }
+    return legalworkClient.registerMcpClient(legalworkWorkspaceId, { url, ...(headers ? { headers } : {}) });
+  }
+
   function authorizeMcp(entry: McpServerEntry) {
     if (entry.config.type !== "remote" || entry.config.oauth === false) {
       setStateField("mcpStatus", t("mcp.login_unavailable"));
@@ -1155,6 +1164,7 @@ export function createConnectionsStore(options: {
     refreshMcpServers,
     connectMcp,
     probeMcp,
+    registerMcpClient,
     cancelPendingMcpAuth,
     authorizeMcp,
     logoutMcpAuth,

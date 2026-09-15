@@ -531,6 +531,8 @@ export type LegalworkMcpProbeResult = {
     authorizationServer: string | null;
     dynamicRegistration: boolean;
     clientIdMetadataDocuments: boolean;
+    registrationEndpoint?: string | null;
+    scopesSupported?: string[];
   };
   steps: Array<{
     id: "connect" | "resource_metadata" | "authorization_server";
@@ -540,6 +542,11 @@ export type LegalworkMcpProbeResult = {
   }>;
   error?: string;
 };
+
+/** Whether the sign-in provider registered LegalWork as an OAuth client (see apps/server/src/mcp-probe.ts). */
+export type LegalworkMcpRegisterClientResult =
+  | { registered: true; client: { clientId: string; clientSecret?: string }; registrationEndpoint: string }
+  | { registered: false; reason: "unsupported" | "refused" | "unreachable"; status: number | null; message: string };
 
 export type LegalworkMcpEngineSync = {
   status: "ok" | "failed";
@@ -2303,6 +2310,13 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
       ),
     probeMcp: (workspaceId: string, payload: { url: string; headers?: Record<string, string> }) =>
       requestJson<LegalworkMcpProbeResult>(baseUrl, `/workspace/${workspaceId}/mcp/probe`, {
+        token,
+        hostToken,
+        method: "POST",
+        body: payload,
+      }),
+    registerMcpClient: (workspaceId: string, payload: { url: string; headers?: Record<string, string> }) =>
+      requestJson<LegalworkMcpRegisterClientResult>(baseUrl, `/workspace/${workspaceId}/mcp/register-client`, {
         token,
         hostToken,
         method: "POST",

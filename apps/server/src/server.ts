@@ -23,7 +23,7 @@ import { ApprovalService } from "./approvals.js";
 import { addPlugin, listPlugins, normalizePluginSpec, removePlugin } from "./plugins.js";
 import { sanitizePortableOpencodeConfig } from "./portable-opencode.js";
 import { addMcp, listMcp, removeMcp, runtimeMcpMapForWorkspace, setMcpEnabled, type McpScope } from "./mcp.js";
-import { probeMcpServer } from "./mcp-probe.js";
+import { probeMcpServer, registerMcpClient } from "./mcp-probe.js";
 import { deleteSkill, listSkills, resolveHubSkillKind, skillsDirForScope, upsertSkill } from "./skills.js";
 import {
   deleteSkillResource,
@@ -3411,22 +3411,36 @@ function createRoutes(
     return jsonResponse({ items, engineSync: engineMcpSyncState(workspace.id) });
   });
 
+  /** The request headers a person adds to a custom connector, sent along with a check. */
+  const readMcpProbeHeaders = (body: Record<string, unknown>): Record<string, string> => {
+    const headers: Record<string, string> = {};
+    if (body.headers === undefined) return headers;
+    if (!isRecord(body.headers)) throw new ApiError(400, "invalid_payload", "headers must be an object");
+    for (const [name, value] of Object.entries(body.headers)) {
+      if (typeof value !== "string" || !/^[A-Za-z0-9-]+$/.test(name)) {
+        throw new ApiError(400, "invalid_payload", "headers must map header names to strings");
+      }
+      headers[name] = value;
+    }
+    return headers;
+  };
+
   // Ask a remote MCP server how it signs in, before anything is saved.
   addRoute(routes, "POST", "/workspace/:id/mcp/probe", "client", async (ctx) => {
     requireClientScope(ctx, "collaborator");
     await resolveWorkspace(config, ctx.params.id);
     const body = await readJsonBody(ctx.request);
-    const headers: Record<string, string> = {};
-    if (body.headers !== undefined) {
-      if (!isRecord(body.headers)) throw new ApiError(400, "invalid_payload", "headers must be an object");
-      for (const [name, value] of Object.entries(body.headers)) {
-        if (typeof value !== "string" || !/^[A-Za-z0-9-]+$/.test(name)) {
-          throw new ApiError(400, "invalid_payload", "headers must map header names to strings");
-        }
-        headers[name] = value;
-      }
-    }
-    return jsonResponse(await probeMcpServer(typeof body.url === "string" ? body.url : "", { headers }));
+    return jsonResponse(await probeMcpServer(typeof body.url === "string" ? body.url : "", { headers: readMcpProbeHeaders(body) }));
+  });
+
+  // Register LegalWork with the server's sign-in provider the way the engine
+  // would, so a provider that refuses automatic registration says so before
+  // the connector is saved. The registered client is saved with the connector.
+  addRoute(routes, "POST", "/workspace/:id/mcp/register-client", "client", async (ctx) => {
+    requireClientScope(ctx, "collaborator");
+    await resolveWorkspace(config, ctx.params.id);
+    const body = await readJsonBody(ctx.request);
+    return jsonResponse(await registerMcpClient(typeof body.url === "string" ? body.url : "", { headers: readMcpProbeHeaders(body) }));
   });
 
   addRoute(routes, "POST", "/workspace/:id/mcp", "client", async (ctx) => {

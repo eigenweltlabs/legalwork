@@ -29,8 +29,10 @@
  * answer like an MCP endpoint, those siblings are tried and the address that
  * answered is reported back.
  *
- * Nothing here is persisted and no registration is performed; the engine's own
- * discovery runs again when the user signs in.
+ * The check persists nothing and registers nothing. `registerMcpClient` below
+ * is the one write: when a connector is added with automatic OAuth, it
+ * registers a client the way the engine would, so a provider that refuses
+ * says so, in its own words, before anything is saved.
  */
 import { ApiError } from "./errors.js";
 
@@ -60,6 +62,10 @@ export type McpProbeResult = {
     dynamicRegistration: boolean;
     /** The authorization server accepts Client ID Metadata Documents. */
     clientIdMetadataDocuments: boolean;
+    /** Where a client registers itself, when the authorization server advertises that. */
+    registrationEndpoint: string | null;
+    /** Scopes the resource metadata lists; a registration asks for them, as the engine does. */
+    scopesSupported: string[];
   };
   steps: McpProbeStep[];
   error?: string;
@@ -274,6 +280,7 @@ export async function probeMcpServer(input: string, options: McpProbeOptions = {
   // MCP origin, which is where the search ends up without metadata.
   let resourceMetadataUrl: string | null = null;
   let authorizationServer = new URL(resource.origin);
+  let scopesSupported: string[] = [];
   let lastStatus: number | null = null;
   for (const candidate of protectedResourceMetadataCandidates(resource, resourceMetadataFromChallenge(challenge))) {
     const { status, json } = await readJson(candidate);
@@ -284,6 +291,8 @@ export async function probeMcpServer(input: string, options: McpProbeOptions = {
     try {
       authorizationServer = new URL(first);
       resourceMetadataUrl = candidate;
+      const scopes = json.scopes_supported;
+      scopesSupported = Array.isArray(scopes) ? scopes.filter((item): item is string => typeof item === "string") : [];
       steps.push({ id: "resource_metadata", status, ok: true });
       break;
     } catch {
@@ -301,12 +310,16 @@ export async function probeMcpServer(input: string, options: McpProbeOptions = {
     metadataStatus = status || metadataStatus;
     if (!json || typeof json.authorization_endpoint !== "string") continue;
     steps.push({ id: "authorization_server", status, ok: true });
+    const registrationEndpoint =
+      typeof json.registration_endpoint === "string" && json.registration_endpoint.length > 0 ? json.registration_endpoint : null;
     result.auth = "oauth";
     result.oauth = {
       resourceMetadataUrl,
       authorizationServer: authorizationServer.toString(),
-      dynamicRegistration: typeof json.registration_endpoint === "string" && json.registration_endpoint.length > 0,
+      dynamicRegistration: registrationEndpoint !== null,
       clientIdMetadataDocuments: json.client_id_metadata_document_supported === true,
+      registrationEndpoint,
+      scopesSupported,
     };
     return result;
   }
@@ -320,9 +333,118 @@ export async function probeMcpServer(input: string, options: McpProbeOptions = {
       authorizationServer: authorizationServer.toString(),
       dynamicRegistration: false,
       clientIdMetadataDocuments: false,
+      registrationEndpoint: null,
+      scopesSupported,
     };
     return result;
   }
   result.auth = "credentials";
   return result;
+}
+
+/**
+ * The engine's loopback OAuth callback. Mirrors apps/app/src/app/mcp-custom-connector.ts
+ * and apps/desktop/electron/mcp-oauth-callback.mjs; a registered client must allow it.
+ */
+export const MCP_OAUTH_REDIRECT_URI = "http://127.0.0.1:19876/mcp/oauth/callback";
+
+export type McpRegisteredClient = { clientId: string; clientSecret?: string };
+
+export type McpRegisterClientResult =
+  | { registered: true; client: McpRegisteredClient; registrationEndpoint: string }
+  | {
+      registered: false;
+      /** `unsupported`: nowhere to register; `refused`: the provider answered no; `unreachable`: it did not answer. */
+      reason: "unsupported" | "refused" | "unreachable";
+      status: number | null;
+      /** The provider's own words where it gave any. */
+      message: string;
+    };
+
+/**
+ * What a provider said when it refused: the OAuth error fields first, then the
+ * generic envelope Auth0 and others answer with, `{"statusCode":403,"error":"Forbidden","message":"…"}`,
+ * whose `message` the MCP SDK drops. A page of HTML is not a message.
+ */
+export function registrationRefusalMessage(status: number, body: string): string {
+  const text = body.trim();
+  try {
+    const parsed: unknown = JSON.parse(text);
+    if (isRecord(parsed)) {
+      for (const field of ["error_description", "message", "error"]) {
+        const value = parsed[field];
+        if (typeof value === "string" && value.trim()) return value.trim().slice(0, 300);
+      }
+    }
+  } catch {
+    // Not JSON: the text is the message.
+  }
+  return text && !text.startsWith("<") ? text.slice(0, 300) : `HTTP ${status}`;
+}
+
+/**
+ * Register LegalWork with the server's sign-in provider the way the engine
+ * would (RFC 7591, the engine's redirect URI, a public client), before the
+ * connector is saved. A provider may advertise registration and still refuse
+ * it; Auth0 keeps it off by default. Found out here, the refusal comes with
+ * the provider's reason instead of a failed connect later. The registered
+ * client is saved with the connector as its pre-registered client, so the
+ * engine signs in with it rather than registering a second one.
+ */
+export async function registerMcpClient(input: string, options: McpProbeOptions = {}): Promise<McpRegisterClientResult> {
+  const probe = await probeMcpServer(input, options);
+  const endpoint = probe.oauth?.registrationEndpoint ?? null;
+  if (probe.auth !== "oauth" || !endpoint) {
+    return {
+      registered: false,
+      reason: "unsupported",
+      status: null,
+      message: probe.error ?? "The sign-in provider does not offer automatic registration.",
+    };
+  }
+  const scope = probe.oauth?.scopesSupported.join(" ");
+  const metadata = {
+    client_name: "LegalWork",
+    redirect_uris: [MCP_OAUTH_REDIRECT_URI],
+    grant_types: ["authorization_code", "refresh_token"],
+    response_types: ["code"],
+    token_endpoint_auth_method: "none",
+    ...(scope ? { scope } : {}),
+  };
+  const doFetch = options.fetch ?? fetch;
+  let response: Response;
+  try {
+    response = await doFetch(endpoint, {
+      method: "POST",
+      headers: { "content-type": "application/json", accept: "application/json" },
+      body: JSON.stringify(metadata),
+      redirect: "follow",
+      signal: AbortSignal.timeout(options.timeoutMs ?? 10_000),
+    });
+  } catch (error) {
+    return { registered: false, reason: "unreachable", status: null, message: error instanceof Error ? error.message : String(error) };
+  }
+  const text = await response.text().catch(() => "");
+  if (!response.ok) {
+    return { registered: false, reason: "refused", status: response.status, message: registrationRefusalMessage(response.status, text) };
+  }
+  let parsed: unknown = null;
+  try {
+    parsed = JSON.parse(text);
+  } catch {
+    // Answered below as a missing client ID.
+  }
+  const info = isRecord(parsed) ? parsed : {};
+  const clientId = typeof info.client_id === "string" ? info.client_id.trim() : "";
+  if (!clientId) {
+    return { registered: false, reason: "refused", status: response.status, message: "The sign-in provider answered without a client ID." };
+  }
+  // A secret the provider issued is used as the engine uses one it registered
+  // itself, unless it has already expired (0 means never).
+  const expiresAt = typeof info.client_secret_expires_at === "number" ? info.client_secret_expires_at : 0;
+  const secret =
+    typeof info.client_secret === "string" && info.client_secret && (expiresAt === 0 || expiresAt > Date.now() / 1000)
+      ? info.client_secret
+      : undefined;
+  return { registered: true, client: { clientId, ...(secret ? { clientSecret: secret } : {}) }, registrationEndpoint: endpoint };
 }

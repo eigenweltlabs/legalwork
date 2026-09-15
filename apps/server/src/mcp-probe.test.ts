@@ -5,8 +5,11 @@ import { join } from "node:path";
 
 import {
   authorizationServerMetadataCandidates,
+  MCP_OAUTH_REDIRECT_URI,
   probeMcpServer,
   protectedResourceMetadataCandidates,
+  registerMcpClient,
+  registrationRefusalMessage,
   resourceMetadataFromChallenge,
   siblingEndpointCandidates,
 } from "./mcp-probe.js";
@@ -22,7 +25,7 @@ afterEach(async () => {
   while (roots.length) await rm(roots.pop()!, { recursive: true, force: true });
 });
 
-type Route = (request: Request, url: URL) => Response | Promise<Response> | null;
+type Route = (request: Request, url: URL) => Response | null | Promise<Response | null>;
 
 /** A fake remote MCP server; `route` decides per request, anything else is 404. */
 function serve(route: Route) {
@@ -41,9 +44,19 @@ function serve(route: Route) {
 const rpcResult = () =>
   Response.json({ jsonrpc: "2.0", id: 1, result: { protocolVersion: "2025-06-18", capabilities: {}, serverInfo: { name: "fake" } } });
 
-function oauthServer(options: { registration?: boolean; cimd?: boolean; challengeHeader?: boolean; prmAtRoot?: boolean } = {}) {
-  const { registration = true, cimd = false, challengeHeader = true, prmAtRoot = false } = options;
-  const fake = serve((request, url) => {
+function oauthServer(
+  options: {
+    registration?: boolean;
+    cimd?: boolean;
+    challengeHeader?: boolean;
+    prmAtRoot?: boolean;
+    scopes?: string[];
+    /** Answers a registration. Absent, the endpoint is advertised but answers 404, as Auth0 does with registration off. */
+    register?: (body: unknown) => Response | Promise<Response>;
+  } = {},
+) {
+  const { registration = true, cimd = false, challengeHeader = true, prmAtRoot = false, scopes, register } = options;
+  const fake = serve(async (request, url) => {
     if (url.pathname === "/mcp" && request.method === "POST") {
       const headers: Record<string, string> = challengeHeader
         ? { "www-authenticate": `Bearer resource_metadata="${fake.origin}/.well-known/oauth-protected-resource/mcp"` }
@@ -51,7 +64,14 @@ function oauthServer(options: { registration?: boolean; cimd?: boolean; challeng
       return Response.json({ error: "unauthorized" }, { status: 401, headers });
     }
     if (url.pathname === (prmAtRoot ? "/.well-known/oauth-protected-resource" : "/.well-known/oauth-protected-resource/mcp")) {
-      return Response.json({ resource: `${fake.origin}/mcp`, authorization_servers: [`${fake.origin}/auth`] });
+      return Response.json({
+        resource: `${fake.origin}/mcp`,
+        authorization_servers: [`${fake.origin}/auth`],
+        ...(scopes ? { scopes_supported: scopes } : {}),
+      });
+    }
+    if (url.pathname === "/auth/register" && request.method === "POST" && register) {
+      return register(await request.json());
     }
     if (url.pathname === "/.well-known/oauth-authorization-server/auth") {
       return Response.json({
@@ -84,6 +104,8 @@ describe("probeMcpServer", () => {
       authorizationServer: `${fake.origin}/auth`,
       dynamicRegistration: true,
       clientIdMetadataDocuments: false,
+      registrationEndpoint: `${fake.origin}/auth/register`,
+      scopesSupported: [],
     });
     expect(result.steps.map((step) => `${step.id}:${step.status}:${step.ok}`)).toEqual([
       "connect:401:true",
@@ -196,6 +218,71 @@ describe("probeMcpServer", () => {
   });
 });
 
+describe("registerMcpClient", () => {
+  test("registers the engine's public client with the provider and hands the client back", async () => {
+    let registration: unknown;
+    const fake = oauthServer({
+      scopes: ["openid", "user"],
+      register: (body) => {
+        registration = body;
+        return Response.json({ client_id: "client-1", client_secret: "s3cret", client_secret_expires_at: 0 }, { status: 201 });
+      },
+    });
+    expect(await registerMcpClient(`${fake.origin}/mcp`)).toEqual({
+      registered: true,
+      client: { clientId: "client-1", clientSecret: "s3cret" },
+      registrationEndpoint: `${fake.origin}/auth/register`,
+    });
+    expect(registration).toEqual({
+      client_name: "LegalWork",
+      redirect_uris: [MCP_OAUTH_REDIRECT_URI],
+      grant_types: ["authorization_code", "refresh_token"],
+      response_types: ["code"],
+      token_endpoint_auth_method: "none",
+      scope: "openid user",
+    });
+  });
+
+  test("a provider that advertises registration but refuses it says so in its own words", async () => {
+    // Auth0 with registration off: `error` is an HTTP reason phrase, the reason is in `message`.
+    const auth0 = oauthServer({
+      register: () => Response.json({ statusCode: 403, error: "Forbidden", message: "Dynamic client registration is disabled" }, { status: 403 }),
+    });
+    expect(await registerMcpClient(`${auth0.origin}/mcp`)).toEqual({
+      registered: false, reason: "refused", status: 403, message: "Dynamic client registration is disabled",
+    });
+    const silent = oauthServer();
+    expect(await registerMcpClient(`${silent.origin}/mcp`)).toMatchObject({ registered: false, reason: "refused", status: 404 });
+  });
+
+  test("an expired secret is left out, and an answer without a client ID is a refusal", async () => {
+    const expired = oauthServer({ register: () => Response.json({ client_id: "c", client_secret: "old", client_secret_expires_at: 1 }) });
+    expect(await registerMcpClient(`${expired.origin}/mcp`)).toEqual({
+      registered: true, client: { clientId: "c" }, registrationEndpoint: `${expired.origin}/auth/register`,
+    });
+    const empty = oauthServer({ register: () => Response.json({ ok: true }) });
+    expect(await registerMcpClient(`${empty.origin}/mcp`)).toMatchObject({ registered: false, reason: "refused", status: 200 });
+  });
+
+  test("without a registration endpoint, or without OAuth at all, there is nowhere to register", async () => {
+    const none = oauthServer({ registration: false });
+    expect(await registerMcpClient(`${none.origin}/mcp`)).toMatchObject({ registered: false, reason: "unsupported" });
+    const open = serve((request, url) => (url.pathname === "/mcp" && request.method === "POST" ? rpcResult() : null));
+    expect(await registerMcpClient(`${open.origin}/mcp`)).toMatchObject({ registered: false, reason: "unsupported" });
+  });
+
+  test("reads a refusal as a person would: OAuth fields, then the generic envelope, then the text", () => {
+    expect(registrationRefusalMessage(400, JSON.stringify({ error: "invalid_client_metadata", error_description: "redirect_uris not allowed" })))
+      .toBe("redirect_uris not allowed");
+    expect(registrationRefusalMessage(403, JSON.stringify({ statusCode: 403, error: "Forbidden", message: "Dynamic client registration is disabled" })))
+      .toBe("Dynamic client registration is disabled");
+    expect(registrationRefusalMessage(400, JSON.stringify({ error: "invalid_request" }))).toBe("invalid_request");
+    expect(registrationRefusalMessage(503, "try later")).toBe("try later");
+    expect(registrationRefusalMessage(502, "<html>bad gateway</html>")).toBe("HTTP 502");
+    expect(registrationRefusalMessage(500, "")).toBe("HTTP 500");
+  });
+});
+
 describe("discovery helpers", () => {
   test("parses the resource_metadata challenge parameter", () => {
     expect(resourceMetadataFromChallenge('Bearer resource_metadata="https://mcp.example.com/.well-known/oauth-protected-resource", scope="files:read"'))
@@ -232,14 +319,14 @@ describe("discovery helpers", () => {
   });
 });
 
-describe("POST /workspace/:id/mcp/probe", () => {
-  test("probes on behalf of a client and validates the payload", async () => {
+describe("POST /workspace/:id/mcp/probe and /register-client", () => {
+  test("probes and registers on behalf of a client and validates the payload", async () => {
     const root = await mkdtemp(join(tmpdir(), "legalwork-mcp-probe-"));
     roots.push(root);
     const previousDb = process.env.LEGALWORK_RUNTIME_DB;
     process.env.LEGALWORK_RUNTIME_DB = join(root, "runtime.sqlite");
     try {
-      const fake = oauthServer();
+      const fake = oauthServer({ register: () => Response.json({ client_id: "client-1" }, { status: 201 }) });
       const config: ServerConfig = {
         host: "127.0.0.1",
         port: 0,
@@ -269,6 +356,16 @@ describe("POST /workspace/:id/mcp/probe", () => {
       expect(response.status).toBe(200);
       const body = await response.json();
       expect(body).toMatchObject({ auth: "oauth", oauth: { dynamicRegistration: true } });
+
+      const registered = await fetch(`${base}/workspace/ws_1/mcp/register-client`, {
+        method: "POST",
+        headers,
+        body: JSON.stringify({ url: `${fake.origin}/mcp` }),
+      });
+      expect(registered.status).toBe(200);
+      expect(await registered.json()).toEqual({
+        registered: true, client: { clientId: "client-1" }, registrationEndpoint: `${fake.origin}/auth/register`,
+      });
 
       const invalid = await fetch(`${base}/workspace/ws_1/mcp/probe`, {
         method: "POST",

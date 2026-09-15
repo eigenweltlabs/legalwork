@@ -2199,6 +2199,7 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
                 builtInExtensionsDisabled={builtInExtensionsDisabled}
                 connectMcp={connectionsStore.connectMcp}
                 probeMcp={connectionsStore.probeMcp}
+                registerMcpClient={connectionsStore.registerMcpClient}
                 cancelPendingMcpAuth={connectionsStore.cancelPendingMcpAuth}
                 configSlotForEntry={extensionController.configSlotForEntry}
                 isExtensionConnected={extensionController.isConnected}
