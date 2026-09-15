@@ -2586,17 +2586,17 @@ const de = {
   "onboarding_audio.panel_footer": "Läuft lokal · Privat · Ihre Daten",
   "chat.no_model_title": "Keine KI verbunden.",
   "chat.no_model_body":
-    "Starten Sie Ihre 7-tägige kostenlose Testphase bei Eigenwelt oder verbinden Sie Ihr eigenes Modell.",
+    "Starten Sie Ihre 7-tägige kostenlose Testphase bei Eigenwelt oder verbinden Sie Ihren eigenen Anbieter.",
   "chat.no_model_trial": "Kostenlos testen",
   "chat.no_model_login": "Anmelden",
-  "chat.no_model_byo": "Modell verbinden",
+  "chat.no_model_byo": "Anbieter verbinden",
   "chat.no_ai_plan_title": "Ihr Tarif enthält keine KI-Modelle.",
   "chat.no_ai_plan_body":
-    "Der Tarif Ihrer Kanzlei deckt nur das Teilen ab. Upgraden Sie für die Eigenwelt-Modelle oder verbinden Sie Ihr eigenes Modell.",
+    "Der Tarif Ihrer Kanzlei deckt nur das Teilen ab. Upgraden Sie für die Eigenwelt-Modelle oder verbinden Sie Ihren eigenen Anbieter.",
   "chat.no_ai_plan_upgrade": "Tarif upgraden",
   "chat.signed_out_title": "Von Eigenwelt abgemeldet.",
   "chat.signed_out_body":
-    "Melden Sie sich an, um die Eigenwelt-Modelle weiter zu nutzen, starten Sie Ihre 7-tägige kostenlose Testphase oder verbinden Sie Ihr eigenes Modell.",
+    "Melden Sie sich an, um die Eigenwelt-Modelle weiter zu nutzen, starten Sie Ihre 7-tägige kostenlose Testphase oder verbinden Sie Ihren eigenen Anbieter.",
   "free_retired.eyebrow": "Eigenwelt-Modelle",
   "free_retired.headline": "Kostenlose Modelle wurden eingestellt.",
   "free_retired.intro":
@@ -3184,6 +3184,8 @@ const de = {
   "skills.from_this_machine": "Von diesem Rechner",
   "session_route.model_unavailable":
     "Das gewählte Modell ist nicht verfügbar. Wählen Sie vor dem Senden ein anderes Modell.",
+  "session_route.no_model":
+    "Keine KI verbunden. Starten Sie die Testphase oder verbinden Sie Ihren eigenen Anbieter, bevor Sie senden.",
   "session_route.rename_server_unavailable":
     "Der LegalWork-Server ist nicht verfügbar. Verbinden Sie den Server neu, bevor Sie Workspaces umbenennen.",
   "session_route.rename_failed": "Das Umbenennen des Workspace ist fehlgeschlagen",

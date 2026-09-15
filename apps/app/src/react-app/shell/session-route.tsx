@@ -1080,6 +1080,12 @@ export function SessionRoute() {
         if (!targetSessionId) return;
         const text = (draft.resolvedText ?? draft.text).trim();
         if (!text && draft.attachments.length === 0) return;
+        // Nothing selected at all (a fresh install that skipped the AI step,
+        // or a selection cleared by the free-tier retirement): the composer is
+        // locked behind the connect-AI bar, so this only backstops programmatic
+        // sends. Without it the prompt reaches the engine with no model and
+        // fails there with a generic error.
+        if (!local.prefs.defaultModel) throw new Error(t("session_route.no_model"));
         if (selectedModelUnavailable) throw new Error(t("session_route.model_unavailable"));
 
         const fusionModels = getFusionSelectedModels(targetSessionId);
