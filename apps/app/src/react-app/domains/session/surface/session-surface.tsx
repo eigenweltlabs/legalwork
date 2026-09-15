@@ -609,6 +609,13 @@ export function SessionSurface(props: SessionSurfaceProps) {
     (noModelNoticeVisible || lockedOutCandidate || props.selectedModel.providerID === "eigenwelt");
   const connectNoticeVisible =
     noModelNoticeVisible || lockedOutNoticeVisible || noAiPlanNoticeVisible;
+  // While a connect notice is up nothing can serve the prompt: no selection,
+  // a selection on a provider that is gone, or a plan without models. Lock
+  // the composer exactly as a vanished model does, so the notice's buttons
+  // are the way forward instead of a send that fails inside the engine. The
+  // red "model no longer available" label stays tied to `modelUnavailable`
+  // alone; an empty selection has no model to flag.
+  const sendBlocked = Boolean(props.modelUnavailable) || connectNoticeVisible;
   const connectNoticeVariant = noAiPlanNoticeVisible
     ? "no-ai-plan"
     : lockedOutNoticeVisible && props.selectedModel.providerID === "eigenwelt"
@@ -1665,7 +1672,7 @@ export function SessionSurface(props: SessionSurfaceProps) {
         await typeComposerText(prompt);
         props.onDraftChange(buildDraft(prompt, attachments));
       };
-      if (props.modelUnavailable) {
+      if (sendBlocked) {
         void seedComposer();
         return;
       }
@@ -1673,7 +1680,7 @@ export function SessionSurface(props: SessionSurfaceProps) {
     };
     window.addEventListener(LEGALMEMORY_REF_EVENT, handleLegalMemoryRef);
     return () => window.removeEventListener(LEGALMEMORY_REF_EVENT, handleLegalMemoryRef);
-  }, [attachments, buildDraft, props.modelUnavailable, props.onDraftChange, sendDraft, typeComposerText]);
+  }, [attachments, buildDraft, sendBlocked, props.onDraftChange, sendDraft, typeComposerText]);
 
   // A LegalMemory source was clicked. The server pulls the original over MCP
   // and drops it in the workspace, then we open it. The agent is not involved:
@@ -1733,13 +1740,13 @@ export function SessionSurface(props: SessionSurfaceProps) {
     label: t("control.send_composer"),
     description: "Send the currently visible composer draft to the active session.",
     sideEffect: "mutation",
-    disabled: props.modelUnavailable || (!draft.trim() && attachments.length === 0) || model.transitionState !== "idle",
+    disabled: sendBlocked || (!draft.trim() && attachments.length === 0) || model.transitionState !== "idle",
     targetRef: composerShellRef,
     execute: async () => {
       await handleSend();
       return true;
     },
-  }), [attachments.length, draft, handleSend, model.transitionState, props.modelUnavailable]);
+  }), [attachments.length, draft, handleSend, model.transitionState, sendBlocked]);
   useControlAction(composerSendControlAction);
 
   const composerStopControlAction = useMemo<LegalworkControlAction>(() => ({
@@ -2086,7 +2093,7 @@ export function SessionSurface(props: SessionSurfaceProps) {
         onStop={handleAbort}
         busy={chatStreaming}
         queuedCount={queuedMessages.length}
-        disabled={model.transitionState !== "idle" || Boolean(props.modelUnavailable)}
+        disabled={model.transitionState !== "idle" || sendBlocked}
         modelUnavailable={Boolean(props.modelUnavailable)}
         modelUnavailableLabelHidden={lockedOutNoticeVisible}
         statusLabel={statusLabel(snapshot ?? undefined, chatStreaming)}

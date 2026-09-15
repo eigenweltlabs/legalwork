@@ -2296,16 +2296,16 @@ export default {
   "onboarding_audio.panel_footer": "Runs locally · Private · Your data",
   // Composer: no model connected (the free tier is retired)
   "chat.no_model_title": "No AI connected.",
-  "chat.no_model_body": "Start your 7-day free trial with Eigenwelt, or connect your own model.",
+  "chat.no_model_body": "Start your 7-day free trial with Eigenwelt, or connect your own provider.",
   "chat.no_model_trial": "Start free trial",
   "chat.no_model_login": "Log in",
-  "chat.no_model_byo": "Connect a model",
+  "chat.no_model_byo": "Connect a provider",
   // Composer: signed out of Eigenwelt (or access revoked) with nothing else connected
   "chat.no_ai_plan_title": "Your plan does not include AI models.",
-  "chat.no_ai_plan_body": "Your firm's plan covers sharing only. Upgrade for the Eigenwelt models, or connect your own model.",
+  "chat.no_ai_plan_body": "Your firm's plan covers sharing only. Upgrade for the Eigenwelt models, or connect your own provider.",
   "chat.no_ai_plan_upgrade": "Upgrade plan",
   "chat.signed_out_title": "Signed out of Eigenwelt.",
-  "chat.signed_out_body": "Log in to keep using Eigenwelt models, start your 7-day free trial, or connect your own model.",
+  "chat.signed_out_body": "Log in to keep using Eigenwelt models, start your 7-day free trial, or connect your own provider.",
   // One-time migration dialog after the free tier was retired.
   "free_retired.eyebrow": "Eigenwelt models",
   "free_retired.headline": "Free models have been retired.",
@@ -2855,6 +2855,7 @@ export default {
   "skills.branch_optional": "branch (optional)",
   "skills.from_this_machine": "From this machine",
   "session_route.model_unavailable": "Selected model is unavailable. Choose another model before sending.",
+  "session_route.no_model": "No AI connected. Start a trial or connect your own provider before sending.",
   "session_route.rename_server_unavailable":
     "LegalWork server is unavailable. Reconnect the server before renaming workspaces.",
   "session_route.rename_failed": "Workspace rename failed",
