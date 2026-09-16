@@ -188,8 +188,10 @@ export function OfficeStep(props: {
     }
   };
 
-  // Status still loading (or the step is about to self-skip): render nothing.
-  if (!apps) return null;
+  // Status still loading (or the step is about to self-skip): an empty
+  // cover, so the app never shows between the welcome screen and the next
+  // step.
+  if (!apps) return <OnboardingCover panel={null}>{null}</OnboardingCover>;
 
   const anyInstalled = apps.some((app) => app.enabled);
 

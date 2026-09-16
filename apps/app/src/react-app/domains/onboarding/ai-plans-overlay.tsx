@@ -45,6 +45,7 @@ import {
 } from "@/app/lib/eigenwelt-plans";
 import { t } from "@/i18n";
 import { useLocale } from "@/i18n/use-locale";
+import { cn } from "@/lib/utils";
 import { StepDots } from "./onboarding-cover";
 
 type SignInResult = { connected: boolean; cancelled?: boolean; message?: string };
@@ -680,7 +681,12 @@ export function AiPlansOverlay(props: AiPlansOverlayProps) {
       aria-labelledby={titleId}
       tabIndex={-1}
       data-testid="ai-plans-overlay"
-      className="fixed inset-0 z-40 flex flex-col bg-background/35 outline-none backdrop-blur-[14px] duration-300 animate-in fade-in-0 dark:bg-background/70"
+      className={cn(
+        "fixed inset-0 z-40 flex flex-col bg-background/35 outline-none backdrop-blur-[14px] dark:bg-background/70",
+        // Over a working app the screen fades in. In onboarding it follows
+        // an opaque step, and a fade would show the bare app first.
+        props.mode === "gate" && "duration-300 animate-in fade-in-0",
+      )}
     >
       {/* The window stays draggable by its top edge while the screen covers
           it (macOS app only, like the onboarding covers' titlebar region). */}
