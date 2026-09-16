@@ -47,7 +47,7 @@ const GERMAN_KEEPS_ENGLISH = new Set<string>([
   "reload.label_skill", "reload.label_plugin", "reload.label_mcp", "reload.label_agent",
   // Product and brand names
   "benchmark.onboarding_eyebrow", "benchmark.import_title", "settings.tab_benchmark",
-  "premium_upsell.eyebrow", "onboarding_ai.panel_eyebrow",
+  "premium_upsell.eyebrow",
   "recorder.tier_premium_name", "recorder.tier_premium_locked", "recorder.tier_max_name",
   "skills.cloud_org_fallback", "mcp.quick_connect_featured",
   // Professional terms LegalWork deliberately leaves untranslated
@@ -138,7 +138,7 @@ const AGENT_FACING = new Set<string>([
   "task_suggestions.grid_prompt", "task_suggestions.redline_prompt",
   "task_suggestions.summary_prompt",
   // Sample chat content and quoted example prompts.
-  "onboarding_ai.chat_user", "mcp.quick_connect_legalwork_ui_desc",
+  "mcp.quick_connect_legalwork_ui_desc",
   "mcp.quick_connect_legalwork_cloud_desc", "mcp.quick_connect_legalwork_admin_desc",
 ]);
 

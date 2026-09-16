@@ -162,6 +162,13 @@ export type SessionSurfaceProps = {
   selectedModel: ModelRef;
   /** Open the connect-AI flow from the notice above the composer. */
   onConnectAi?: (action: ConnectAiAction) => void;
+  /**
+   * The route lays the plan screen over the app whenever no model is usable,
+   * so the notice above the composer only covers what that screen leaves
+   * open: a connected provider with no model picked, and a plan without
+   * models while another provider works. Off in the Office task pane.
+   */
+  aiPlansGate?: boolean;
   onModelPickerOpenChange: (open: boolean) => void;
   onModelChange: (model: ModelRef) => void;
   onSendDraft: (draft: ComposerDraft, sessionId: string) => void;
@@ -373,15 +380,35 @@ export type ConnectAiAction = "trial" | "login" | "byo" | "upgrade";
  * Eigenwelt trial, signing in to an existing account, or bringing your own
  * model/key. A firm subscribed to a plan without AI (none today) gets
  * "upgrade or bring your own" instead: it is signed in and paying already.
+ *
+ * On the desktop and the web the plan screen covers every state without a
+ * usable model, so there the notice only asks to pick a model ("pick-model":
+ * a provider is connected, nothing is selected) or offers that upgrade. The
+ * Office task pane keeps the full notice.
  */
 function NoModelNotice(props: {
-  variant: "none" | "signed-out" | "no-ai-plan";
+  /** "pick-model": a provider is connected, nothing is selected yet. */
+  variant: "none" | "signed-out" | "no-ai-plan" | "pick-model";
   onConnect?: (action: ConnectAiAction) => void;
+  onPickModel?: () => void;
 }) {
   const primaryButtonClass =
     "rounded-md bg-primary px-2.5 py-1 text-xs font-medium text-primary-fg transition-opacity hover:opacity-90";
   const secondaryButtonClass =
     "rounded-md border border-dls-border px-2.5 py-1 text-xs font-medium text-dls-text transition-colors hover:bg-dls-hover";
+  if (props.variant === "pick-model") {
+    return (
+      <div className="flex flex-wrap items-center gap-2.5 border-b border-dls-border bg-dls-surface px-4 py-3">
+        <p className="min-w-0 flex-1 text-xs leading-relaxed text-dls-secondary">
+          <span className="font-medium text-dls-text">{t("chat.pick_model_title")}</span>{" "}
+          {t("chat.pick_model_body")}
+        </p>
+        <button type="button" className={primaryButtonClass} onClick={() => props.onPickModel?.()}>
+          {t("chat.pick_model_cta")}
+        </button>
+      </div>
+    );
+  }
   const title =
     props.variant === "no-ai-plan"
       ? t("chat.no_ai_plan_title")
@@ -609,20 +636,34 @@ export function SessionSurface(props: SessionSurfaceProps) {
     planWithoutModels &&
     !trialEndedNoticeVisible &&
     (noModelNoticeVisible || lockedOutCandidate || props.selectedModel.providerID === "eigenwelt");
-  const connectNoticeVisible =
-    noModelNoticeVisible || lockedOutNoticeVisible || noAiPlanNoticeVisible;
-  // While a connect notice is up nothing can serve the prompt: no selection,
-  // a selection on a provider that is gone, or a plan without models. Lock
-  // the composer exactly as a vanished model does, so the notice's buttons
-  // are the way forward instead of a send that fails inside the engine. The
-  // red "model no longer available" label stays tied to `modelUnavailable`
-  // alone; an empty selection has no model to flag.
-  const sendBlocked = Boolean(props.modelUnavailable) || connectNoticeVisible;
+  // Under the plan screen, "no model" only needs a notice when a provider is
+  // connected and nothing is picked yet; every state without a usable model
+  // is the plan screen's.
+  const pickModelNoticeVisible =
+    Boolean(props.aiPlansGate) && noModelNoticeVisible && (props.providerConnectedCount ?? 0) > 0;
+  const connectNoticeVisible = props.aiPlansGate
+    ? noAiPlanNoticeVisible || pickModelNoticeVisible
+    : noModelNoticeVisible || lockedOutNoticeVisible || noAiPlanNoticeVisible;
+  // While nothing can serve the prompt (no selection, a selection on a
+  // provider that is gone, or a plan without models), lock the composer
+  // exactly as a vanished model does, so the notice's buttons or the plan
+  // screen are the way forward instead of a send that fails inside the
+  // engine. Read from those conditions, not from which notice shows: under
+  // the plan screen most of them show none. The red "model no longer
+  // available" label stays tied to `modelUnavailable` alone; an empty
+  // selection has no model to flag.
+  const sendBlocked =
+    Boolean(props.modelUnavailable) ||
+    noModelNoticeVisible ||
+    lockedOutNoticeVisible ||
+    noAiPlanNoticeVisible;
   const connectNoticeVariant = noAiPlanNoticeVisible
     ? "no-ai-plan"
-    : lockedOutNoticeVisible && props.selectedModel.providerID === "eigenwelt"
-      ? "signed-out"
-      : "none";
+    : props.aiPlansGate
+      ? "pick-model"
+      : lockedOutNoticeVisible && props.selectedModel.providerID === "eigenwelt"
+        ? "signed-out"
+        : "none";
   // "Upgrade to Plus" opens the firm's billing page; everything else is the
   // route's business (sign-in flows, the provider picker).
   const onConnectAi = (action: ConnectAiAction) => {
@@ -2164,7 +2205,11 @@ export function SessionSurface(props: SessionSurfaceProps) {
               <div>
                 {trialEndedNoticeVisible ? <TrialEndedNotice billingUrl={trialBillingUrl} /> : null}
                 {connectNoticeVisible ? (
-                  <NoModelNotice variant={connectNoticeVariant} onConnect={onConnectAi} />
+                  <NoModelNotice
+                    variant={connectNoticeVariant}
+                    onConnect={onConnectAi}
+                    onPickModel={props.onModelClick}
+                  />
                 ) : null}
                 {queuedMessages.length > 0 ? (
                   <QueuedMessagesPanel messages={queuedMessages} onRemove={removeQueuedDraft} />

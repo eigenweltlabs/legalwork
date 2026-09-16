@@ -215,9 +215,9 @@ function generatePkce(): { verifier: string; challenge: string } {
 }
 
 const CALLBACK_HTML = `<!doctype html>
-<html><head><meta charset="utf-8"><title>Eigenwelt — connected</title>
+<html><head><meta charset="utf-8"><title>Eigenwelt: connected</title>
 <style>body{font-family:system-ui,sans-serif;background:#fefefe;color:#0e0a07;display:grid;place-items:center;min-height:90vh}main{text-align:center}h1{font-weight:500;letter-spacing:-0.04em}p{color:rgba(14,10,7,.55)}</style>
-</head><body><main><h1>You're connected.</h1><p>Return to LegalWork — this tab can be closed.</p></main></body></html>`;
+</head><body><main><h1>You're connected.</h1><p>Return to LegalWork. You can close this tab.</p></main></body></html>`;
 
 function callbackErrorHtml(message: string): string {
   const safe = message
@@ -225,7 +225,7 @@ function callbackErrorHtml(message: string): string {
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;");
   return `<!doctype html>
-<html><head><meta charset="utf-8"><title>Eigenwelt — sign-in failed</title>
+<html><head><meta charset="utf-8"><title>Eigenwelt: sign-in failed</title>
 <style>body{font-family:system-ui,sans-serif;background:#fefefe;color:#0e0a07;display:grid;place-items:center;min-height:90vh}main{max-width:26rem;text-align:center;padding:0 1rem}h1{font-weight:500;letter-spacing:-0.04em}p{color:rgba(14,10,7,.55);line-height:1.5}</style>
 </head><body><main><h1>Sign-in didn&rsquo;t finish.</h1><p>${safe}</p></main></body></html>`;
 }
@@ -343,6 +343,13 @@ async function bindLoopback(
   );
 }
 
+/** The plans the platform's checkout sells (model-api's PlanId). */
+export type EigenweltSignInPlan = "plus" | "pro";
+
+export function isEigenweltSignInPlan(value: unknown): value is EigenweltSignInPlan {
+  return value === "plus" || value === "pro";
+}
+
 /**
  * Begin a sign-in: bind the loopback, register an in-memory session, and
  * return the interstitial URL for the app to open in the user's browser.
@@ -353,6 +360,9 @@ export async function startEigenweltSignIn(opts?: {
   /** "sign-in" lands existing users on the platform's sign-in page; the
    *  default lands on sign-up (most app-originated clicks are new users). */
   intent?: "sign-in";
+  /** The plan picked on the app's plan screen. A firm without a subscription
+   *  lands on that plan's checkout instead of the plan comparison. */
+  plan?: EigenweltSignInPlan;
 }): Promise<{ sessionId: string; authorizeUrl: string }> {
   const platform = eigenweltPlatformUrl();
   const { verifier, challenge } = generatePkce();
@@ -491,6 +501,8 @@ export async function startEigenweltSignIn(opts?: {
   // default; explicit sign-in intent (the "already have an account" link)
   // lands on sign-in instead.
   if (opts?.intent === "sign-in") authorizeUrl.searchParams.set("intent", "sign-in");
+  // Platforms that predate the hint ignore it and show the plan comparison.
+  if (opts?.plan && isEigenweltSignInPlan(opts.plan)) authorizeUrl.searchParams.set("plan", opts.plan);
 
   return { sessionId, authorizeUrl: authorizeUrl.toString() };
 }

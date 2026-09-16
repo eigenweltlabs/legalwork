@@ -33,6 +33,7 @@ import type {
   EigenweltSignInPayload,
 } from "../../../../app/lib/legalwork-server";
 import { invalidateEigenweltEntitlements } from "../eigenwelt-entitlements";
+import type { EigenweltPlanId } from "../../../../app/lib/eigenwelt-plans";
 
 /**
  * The slice of the legalwork-server store this store actually consumes.
@@ -1180,6 +1181,8 @@ export function createProviderAuthStore(options: CreateProviderAuthStoreOptions)
    *  loopback and returns the platform authorize URL for the app to open. */
   async function startEigenweltSignIn(opts?: {
     intent?: "sign-in";
+    /** The plan picked on the plan screen: its checkout opens in the browser. */
+    plan?: EigenweltPlanId;
   }): Promise<{ authorizeUrl: string; sessionId: string }> {
     setStateField("providerAuthError", null);
     try {

@@ -233,6 +233,36 @@ describe("eigenwelt sign-in", () => {
     await waitForEigenweltSignIn(restarted.sessionId);
   });
 
+  test("the authorize URL carries the sign-in intent and a known plan, and drops anything else", async () => {
+    await setupPlatform();
+    const finish = async (started: { sessionId: string; authorizeUrl: string }) => {
+      const url = new URL(started.authorizeUrl);
+      await fetch(
+        `http://127.0.0.1:${url.searchParams.get("port")}/callback?code=test-code&state=${url.searchParams.get("state")}`,
+      );
+      await waitForEigenweltSignIn(started.sessionId);
+      return url;
+    };
+
+    const plain = await finish(await startEigenweltSignIn());
+    expect(plain.searchParams.has("intent")).toBe(false);
+    expect(plain.searchParams.has("plan")).toBe(false);
+
+    const pro = await finish(await startEigenweltSignIn({ plan: "pro" }));
+    expect(pro.searchParams.get("plan")).toBe("pro");
+    expect(pro.searchParams.has("intent")).toBe(false);
+
+    const returning = await finish(await startEigenweltSignIn({ intent: "sign-in", plan: "plus" }));
+    expect(returning.searchParams.get("intent")).toBe("sign-in");
+    expect(returning.searchParams.get("plan")).toBe("plus");
+
+    // A value from an untyped caller never reaches the platform.
+    const unknown = await finish(
+      await startEigenweltSignIn({ plan: "hub" as unknown as "plus" }),
+    );
+    expect(unknown.searchParams.has("plan")).toBe(false);
+  });
+
   test("waiting on an unknown session fails", async () => {
     await expect(waitForEigenweltSignIn("nope")).rejects.toThrow(/Unknown/);
   });

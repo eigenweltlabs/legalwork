@@ -1,7 +1,7 @@
 /** @jsxImportSource react */
 // Dev-only fixture: deliberately absent from the production Vite inputs.
 // Uses the real session, composer, navigation, files, and Memory Drive views.
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { MemoryRouter } from "react-router-dom";
 import { QueryClientProvider } from "@tanstack/react-query";
@@ -21,6 +21,9 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { initLocale } from "@/i18n";
 import { useLocale } from "@/i18n/use-locale";
 import { SessionPage } from "@/react-app/domains/session/chat/session-page";
+import { ProviderAuthModal } from "@/react-app/domains/connections/provider-auth";
+import { AiPlansOverlay } from "@/react-app/domains/onboarding/ai-plans-overlay";
+import type { AiPlansVariant } from "@/app/lib/eigenwelt-access";
 import { seedSessionState, snapshotKey, transcriptKey } from "@/react-app/domains/session/sync/session-sync";
 import { getReactQueryClient } from "@/react-app/infra/query-client";
 import { LocalProvider } from "@/react-app/kernel/local-provider";
@@ -98,6 +101,97 @@ const memoryFiles: LegalMemoryTreeFile[] = files.filter((file) => file.kind === 
   mime_type: null, size_bytes: file.size ?? null, mtime: new Date(now).toISOString(), document_id: file.path,
 }));
 const previewNotice = () => toast("Visual preview", { description: "This action needs the running desktop app or a connected service." });
+
+// `?plans=new|signed-out|ended|no-models|onboarding` lays the plan screen over
+// the session. Sign-in and upgrades are simulated: nothing leaves the page
+// except a blank tab where the platform would open.
+const PLAN_VARIANTS: AiPlansVariant[] = ["new", "signed-out", "ended", "no-models"];
+const plansParam = new URLSearchParams(window.location.search).get("plans");
+const initialPlans: { variant: AiPlansVariant; onboarding: boolean } | null =
+  plansParam === "onboarding"
+    ? { variant: "new", onboarding: true }
+    : PLAN_VARIANTS.includes(plansParam as AiPlansVariant)
+      ? { variant: plansParam as AiPlansVariant, onboarding: false }
+      : null;
+const previewAccount = { email: "anna.berg@kanzlei-berg.de", firmName: "Kanzlei Berg" };
+const previewDelay = (ms: number, cancelled: () => boolean) =>
+  new Promise<boolean>((resolve) => {
+    const started = Date.now();
+    const tick = () => {
+      if (cancelled()) resolve(false);
+      else if (Date.now() - started >= ms) resolve(true);
+      else window.setTimeout(tick, 200);
+    };
+    tick();
+  });
+
+function PlansPreview() {
+  const [plans, setPlans] = useState(initialPlans);
+  const [providersOpen, setProvidersOpen] = useState(false);
+  const upgradeChecks = useRef(0);
+  if (!plans) return null;
+  const close = () => window.setTimeout(() => setPlans(null), 1_200);
+  return (
+    <>
+      <AiPlansOverlay
+        mode={plans.onboarding ? "onboarding" : "gate"}
+        variant={plans.variant}
+        account={plans.variant === "new" ? null : previewAccount}
+        serverReady
+        onStartSignIn={async () => ({ authorizeUrl: "about:blank", sessionId: "preview" })}
+        onWaitSignIn={async (_sessionId, opts) => {
+          const done = await previewDelay(8_000, opts.cancelled);
+          return done ? { connected: true } : { connected: false, cancelled: true };
+        }}
+        onSignedIn={close}
+        onBringOwnModel={() => setProvidersOpen(true)}
+        onOpenBilling={previewNotice}
+        onCheckModels={async () => {
+          // The third check finds the upgraded plan.
+          upgradeChecks.current += 1;
+          if (upgradeChecks.current < 3) return false;
+          close();
+          return true;
+        }}
+        onUseOtherAccount={async () => setPlans({ ...plans, variant: "new" })}
+        onBack={plans.onboarding ? previewNotice : undefined}
+      />
+      {providersOpen ? (
+        <ProviderAuthModal
+          open
+          loading={false}
+          submitting={false}
+          error={null}
+          providers={[
+            { id: "openai", name: "OpenAI", env: [] },
+            { id: "anthropic", name: "Anthropic", env: [] },
+            { id: "mistral", name: "Mistral", env: [] },
+          ]}
+          connectedProviderIds={[]}
+          authMethods={{
+            openai: [{ type: "api", label: "API key" }],
+            anthropic: [{ type: "api", label: "API key" }],
+            mistral: [{ type: "api", label: "API key" }],
+          }}
+          onSelect={async () => {
+            throw new Error("Sign-in with a provider needs the running desktop app.");
+          }}
+          onSubmitApiKey={async () => {
+            // A connected provider makes a model usable: the plan screen goes.
+            setProvidersOpen(false);
+            setPlans(null);
+          }}
+          onSubmitCustomProvider={async () => {
+            setProvidersOpen(false);
+            setPlans(null);
+          }}
+          onSubmitOAuth={async () => ({ connected: false })}
+          onClose={() => setProvidersOpen(false)}
+        />
+      ) : null}
+    </>
+  );
+}
 
 // Unimplemented operations point only at the reserved .invalid domain. No
 // existing server connection or provider credential is used by this fixture.
@@ -212,6 +306,7 @@ createRoot(root).render(
               <WorkspaceProvider client={null} selectedWorkspaceRoot={workspace.path}>
                 <MemoryRouter>
                   <SessionPreview />
+                  <PlansPreview />
                   <Toaster />
                 </MemoryRouter>
               </WorkspaceProvider>

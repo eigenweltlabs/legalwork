@@ -2595,6 +2595,9 @@ const de = {
   "chat.no_model_trial": "Kostenlos testen",
   "chat.no_model_login": "Anmelden",
   "chat.no_model_byo": "Anbieter verbinden",
+  "chat.pick_model_title": "Kein Modell ausgewählt.",
+  "chat.pick_model_body": "Wählen Sie eines Ihrer verbundenen Modelle, um zu beginnen.",
+  "chat.pick_model_cta": "Modell wählen",
   "chat.no_ai_plan_title": "Ihr Tarif enthält keine KI-Modelle.",
   "chat.no_ai_plan_body":
     "Der Tarif Ihrer Kanzlei deckt nur das Teilen ab. Upgraden Sie für die Eigenwelt-Modelle oder verbinden Sie Ihren eigenen Anbieter.",
@@ -2626,34 +2629,73 @@ const de = {
   "onboarding_permissions.mock_body": "„Acquisition NDA.docx“ in Ihrem Workspace bearbeiten?",
   "onboarding_permissions.mock_allow": "Erlauben",
   "onboarding_permissions.mock_deny": "Jetzt nicht",
-  "onboarding_ai.title": "KI für LegalWork.",
-  "onboarding_ai.subtitle": "Premium-Modelle, gehostet in der EU, startklar mit einer Anmeldung.",
-  "onboarding_ai.cta": "7 Tage kostenlos testen",
-  "onboarding_ai.cta_note": "EU-gehostet · Keine Datenspeicherung · ab 29 €/Sitzplatz nach der Testphase",
-  "onboarding_ai.login_prompt": "Sie haben bereits ein Konto?",
-  "onboarding_ai.login_cta": "Anmelden",
-  "onboarding_ai.waiting_title": "Im Browser abschließen",
-  "onboarding_ai.waiting_body":
-    "Kanzlei anlegen und Testphase starten. LegalWork verbindet sich automatisch, sobald Sie fertig sind.",
-  "onboarding_ai.cancel": "Anmeldung abbrechen",
-  "onboarding_ai.panel_eyebrow": "Eigenwelt Plus & Pro",
-  "onboarding_ai.panel_title": "Gebaut für vertrauliche juristische Arbeit.",
-  "onboarding_ai.chat_user": "Prüfe den Kaufvertragsentwurf auf Risiken für die Verkäuferseite.",
-  "onboarding_ai.chat_answer":
-    "Drei Klauseln fallen auf: Die Haftungsobergrenze in Ziff. 8.2 fehlt und zwei Garantien widersprechen dem Disclosure Letter. Die Redlines liegen in Word bereit.",
-  "onboarding_ai.chat_chip1": "Kaufvertrag.docx",
-  "onboarding_ai.chat_chip2": "Nachverfolgte Änderungen",
-  "onboarding_ai.panel_item1_title": "Inferenz nur in der EU",
-  "onboarding_ai.panel_item1_body": "Die Modell-Infrastruktur bleibt in der Europäischen Union.",
-  "onboarding_ai.panel_item2_title": "Keine Datenspeicherung",
-  "onboarding_ai.panel_item2_body":
-    "Prompts, Dokumente und Ausgaben werden nach der Anfrage nicht gespeichert.",
-  "onboarding_ai.panel_item3_title": "KI-Nutzung jeden Monat inklusive",
-  "onboarding_ai.panel_item3_body": "30 € pro Sitzplatz in Plus, 70 € in Pro, auf Premium-Modellen.",
-  "onboarding_ai.panel_item4_title": "Ihre Kanzlei an einem Ort",
-  "onboarding_ai.panel_item4_body":
-    "Mitglieder, geteilte Workflows und Abrechnung auf der Eigenwelt-Plattform.",
-  "onboarding_ai.panel_footer": "7 Tage kostenlos testen · Jederzeit kündbar",
+  "ai_plans.title": "Wählen Sie, wie Sie KI in LegalWork nutzen.",
+  "ai_plans.subtitle":
+    "LegalWork benötigt ein KI-Modell, um zu arbeiten. Testen Sie Plus oder Pro 7 Tage kostenlos mit Premium-Modellen inklusive, oder verbinden Sie einen Modellanbieter, den Sie bereits nutzen.",
+  "ai_plans.subtitle_returning":
+    "LegalWork benötigt ein KI-Modell, um zu arbeiten. Wählen Sie Plus oder Pro mit Premium-Modellen inklusive, oder verbinden Sie einen Modellanbieter, den Sie bereits nutzen.",
+  "ai_plans.title_ended": "Ihr Eigenwelt-Abo ist beendet.",
+  "ai_plans.subtitle_ended":
+    "LegalWork benötigt ein KI-Modell, um zu arbeiten. Starten Sie einen Tarif für {firm} neu, oder verbinden Sie einen Modellanbieter, den Sie bereits nutzen.",
+  "ai_plans.title_no_models": "Ihr Tarif enthält keine KI-Modelle.",
+  "ai_plans.subtitle_no_models":
+    "LegalWork benötigt ein KI-Modell, um zu arbeiten. Wechseln Sie für {firm} zu Plus oder Pro, oder verbinden Sie einen Modellanbieter, den Sie bereits nutzen.",
+  "ai_plans.your_firm": "Ihre Kanzlei",
+  "ai_plans.per_seat_month": "pro Platz / Monat",
+  "ai_plans.price_note": "bei jährlicher Abrechnung. {monthly} bei monatlicher Abrechnung.",
+  "ai_plans.tagline_plus": "Ideal für Kanzleien, die mit KI starten",
+  "ai_plans.tagline_pro": "Ideal für tägliche Entwürfe, Prüfung und Recherche",
+  "ai_plans.try": "{plan} 7 Tage kostenlos testen",
+  "ai_plans.get": "{plan} wählen",
+  "ai_plans.restart": "Mit {plan} neu starten",
+  "ai_plans.upgrade": "Zu {plan} wechseln",
+  "ai_plans.everything_in_plus": "Alles aus Plus und:",
+  "ai_plans.feature_usage": "{amount} KI-Nutzung pro Platz und Monat inklusive",
+  "ai_plans.feature_models": "Premium-Modelle in LegalWork: Chat, Entwürfe, Prüfung und Redlining",
+  "ai_plans.feature_hub":
+    "Knowledge Hub: Workflows, Integrationen und Einstellungsvorlagen mit jedem Platz teilen",
+  "ai_plans.feature_seats":
+    "So viele Mitglieder einladen, wie Sie Plätze haben, Plätze jederzeit hinzubuchen",
+  "ai_plans.feature_retention": "Keine Datenspeicherung, niemals für Training verwendet",
+  "ai_plans.feature_pro_headroom":
+    "Mehr als das Doppelte der inkludierten Nutzung von Plus, für Kanzleien, die täglich mit KI arbeiten",
+  "ai_plans.footnote_trial":
+    "Plus und Pro starten mit 7 Tagen kostenlosem Test, heute wird nichts berechnet. Nettopreise zzgl. Umsatzsteuer.",
+  "ai_plans.footnote_paid":
+    "Plus und Pro werden ab Abschluss des Abos abgerechnet. Nettopreise zzgl. Umsatzsteuer.",
+  "ai_plans.byo_name": "Eigenes Modell",
+  "ai_plans.byo_tagline": "Für Kanzleien mit eigenem Modellanbieter",
+  "ai_plans.byo_price": "Kostenlos",
+  "ai_plans.byo_requirement": "Erfordert einen eigenen Modellanbieter: API-Schlüssel oder lokales Modell.",
+  "ai_plans.byo_cta": "Ich nutze mein eigenes Modell",
+  "ai_plans.byo_feature_app": "Chat, Entwürfe, Prüfung und Redlining mit dem Modell, das Sie verbinden",
+  "ai_plans.byo_feature_providers": "OpenAI, Anthropic, Google, Mistral oder ein lokales Modell",
+  "ai_plans.byo_feature_billing": "Die Nutzung rechnet Ihr Anbieter ab, LegalWork selbst ist kostenlos",
+  "ai_plans.byo_not_included": "Premium-Transkription und das Teilen im Team gibt es mit Plus oder Pro",
+  "ai_plans.sign_in_prompt": "Sie haben bereits ein Eigenwelt-Konto?",
+  "ai_plans.sign_in_link": "Anmelden",
+  "ai_plans.back_to_sign_in": "Zurück zur Anmeldung",
+  "ai_plans.signed_in_as": "Angemeldet als {account}.",
+  "ai_plans.use_other_account": "Anderes Konto verwenden",
+  "ai_plans.welcome_title": "Willkommen zurück.",
+  "ai_plans.welcome_body":
+    "Melden Sie sich bei Eigenwelt an, um mit den KI-Modellen Ihrer Kanzlei weiterzuarbeiten.",
+  "ai_plans.welcome_account": "Zuletzt angemeldet als {account}",
+  "ai_plans.sign_in_cta": "Mit Eigenwelt anmelden",
+  "ai_plans.other_options": "Tarife und weitere Optionen ansehen",
+  "ai_plans.waiting_title": "Im Browser abschließen",
+  "ai_plans.waiting_body_plan":
+    "Fahren Sie mit {plan} im geöffneten Browser-Tab fort. LegalWork verbindet sich, sobald Sie fertig sind.",
+  "ai_plans.waiting_body_sign_in":
+    "Melden Sie sich im geöffneten Browser-Tab an. LegalWork verbindet sich, sobald Sie angemeldet sind.",
+  "ai_plans.waiting_body_upgrade":
+    "Wechseln Sie Ihren Tarif im geöffneten Browser-Tab. Die Modelle werden freigeschaltet, sobald Ihr Tarif sie enthält.",
+  "ai_plans.upgrade_timeout":
+    "Der Tarifwechsel ist noch nicht angekommen. Die Modelle werden automatisch freigeschaltet, sobald Ihr Tarif sie enthält.",
+  "ai_plans.open_again": "Seite erneut öffnen",
+  "ai_plans.cancel": "Abbrechen",
+  "ai_plans.connecting": "LegalWork wird verbunden…",
+  "ai_plans.server_starting": "LegalWork startet noch. Die Tarife sind gleich verfügbar.",
   "recorder.speaker_label": "Sprecher {n}",
   "recorder.dictation_login_title": "Beim Anmelden starten",
   "recorder.dictation_login_description":

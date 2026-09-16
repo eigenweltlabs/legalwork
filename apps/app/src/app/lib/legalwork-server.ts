@@ -5,6 +5,7 @@ import { desktopFetch } from "./desktop";
 import { isDesktopRuntime } from "./runtime-env";
 import type { ExecResult, OpencodeConfigFile, WorkspaceInfo, WorkspaceList } from "./desktop";
 import type { ImportedMarketplace, ImportedPlugin } from "./extension-imports";
+import type { EigenweltPlanId } from "./eigenwelt-plans";
 import type {
   BenchmarkCatalogResponse,
   BenchmarkCustomTaskInput,
@@ -2064,12 +2065,21 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
       }),
     // Eigenwelt platform connect: the server owns the OAuth loopback + code
     // exchange; the app opens the authorize URL and long-polls for the payload.
-    eigenweltOauthStart: (opts?: { intent?: "sign-in" }) =>
+    // `plan` (from the plan screen) sends a firm without a subscription to that
+    // plan's checkout; `intent` lands a signed-out browser on sign-in.
+    eigenweltOauthStart: (opts?: { intent?: "sign-in"; plan?: EigenweltPlanId }) =>
       requestJson<{ sessionId: string; authorizeUrl: string }>(baseUrl, "/api/eigenwelt/oauth/start", {
         token,
         hostToken,
         method: "POST",
-        ...(opts?.intent ? { body: { intent: opts.intent } } : {}),
+        ...(opts?.intent || opts?.plan
+          ? {
+              body: {
+                ...(opts.intent ? { intent: opts.intent } : {}),
+                ...(opts.plan ? { plan: opts.plan } : {}),
+              },
+            }
+          : {}),
         timeoutMs: timeouts.config,
       }),
     eigenweltOauthWait: (sessionId: string) =>
