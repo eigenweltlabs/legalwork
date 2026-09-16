@@ -22,7 +22,8 @@ export type Platform = {
   version?: string;
   openLink(url: string): void;
   restart(): Promise<void>;
-  notify(title: string, description?: string, href?: string): Promise<void>;
+  /** A browser notification while the page is not in front; a click focuses the page and goes to `target` (a path, or a callback). */
+  notify(title: string, description?: string, target?: string | (() => void)): Promise<void>;
   storage?: (name?: string) => SyncStorage | AsyncStorage;
   checkUpdate?: () => Promise<{ updateAvailable: boolean; version?: string }>;
   update?: () => Promise<void>;
@@ -88,7 +89,7 @@ export function createDefaultPlatform(): Platform {
 
       window.location.reload();
     },
-    notify: async (title, description, href) => {
+    notify: async (title, description, target) => {
       if (!("Notification" in window)) return;
 
       const permission =
@@ -108,8 +109,10 @@ export function createDefaultPlatform(): Platform {
           });
           notification.onclick = () => {
             window.focus();
-            if (href) {
-              window.history.pushState(null, "", href);
+            if (typeof target === "function") {
+              target();
+            } else if (target) {
+              window.history.pushState(null, "", target);
               window.dispatchEvent(new PopStateEvent("popstate"));
             }
             notification.close();

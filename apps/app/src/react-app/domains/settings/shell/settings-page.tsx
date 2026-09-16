@@ -2,6 +2,7 @@
 import type * as React from "react";
 import {
   ArrowLeft,
+  Bell,
   Bug,
   ChevronDown,
   CloudCog,
@@ -67,6 +68,8 @@ export function getSettingsTabIcon(tab: SettingsTab) {
       return UserCircle;
     case "personalisation":
       return Sparkles;
+    case "notifications":
+      return Bell;
     case "benchmark":
       return Gauge;
     case "preferences":
@@ -118,6 +121,8 @@ export function getSettingsTabLabel(tab: SettingsTab) {
       return t("settings.tab_account");
     case "personalisation":
       return t("settings.tab_personalisation");
+    case "notifications":
+      return t("settings.tab_notifications");
     case "benchmark":
       return t("settings.tab_benchmark");
     case "preferences":
@@ -171,6 +176,8 @@ export function getSettingsTabDescription(tab: SettingsTab) {
       return t("settings.tab_description_account");
     case "personalisation":
       return t("settings.tab_description_personalisation");
+    case "notifications":
+      return t("settings.tab_description_notifications");
     case "benchmark":
       return t("settings.tab_description_benchmark");
     case "preferences":
@@ -228,7 +235,7 @@ export function getGlobalSettingsTabs(developerMode: boolean): SettingsTab[] {
   // "benchmark" is not listed here: it lives on the Evals page in the main
   // app shell (embedded singleView surface), not in the settings sidebar.
   // Account leads: it is the firm's sign-in, plan and billing home.
-  const tabs: SettingsTab[] = ["account", "ai", "extensions", "personalisation", "safety", "shell", "environment", "preferences", "updates"];
+  const tabs: SettingsTab[] = ["account", "ai", "extensions", "personalisation", "notifications", "safety", "shell", "environment", "preferences", "updates"];
   // Office add-ins install into local desktop apps, so the tab is desktop-only.
   // Placed right after AI Providers.
   if (isDesktopRuntime()) tabs.splice(2, 0, "office-addins");

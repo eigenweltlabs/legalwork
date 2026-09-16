@@ -20,6 +20,7 @@ import {
 } from "@/react-app/kernel/notification-store";
 import { requestOpenModelPicker } from "./new-providers-listener";
 import { openNotificationCenterEvent } from "./notifications";
+import { useShowTasksPane } from "./show-tasks-pane";
 import { useReloadCoordinator } from "./reload-coordinator";
 import { useShellConfig } from "./shell-config";
 
@@ -61,6 +62,7 @@ export function NotificationBell() {
   const markAllRead = useNotificationStore((state) => state.markAllRead);
   const clearAll = useNotificationStore((state) => state.clearAll);
   const reloadCoordinator = useReloadCoordinator();
+  const showTasksPane = useShowTasksPane();
 
   const unreadCount = useMemo(
     () => notifications.filter((notification) => notification.readAt === null).length,
@@ -91,9 +93,11 @@ export function NotificationBell() {
         requestOpenModelPicker(action.providerIds);
       } else if (action.type === "reload-engine") {
         void reloadCoordinator.reloadWorkspaceEngine();
+      } else if (action.type === "open-tasks") {
+        showTasksPane(action.total === 1 ? (action.tasks[0]?.id ?? null) : null);
       }
     },
-    [markAllRead, reloadCoordinator],
+    [markAllRead, reloadCoordinator, showTasksPane],
   );
 
   if (!config.notifications) return null;
@@ -167,8 +171,10 @@ function NotificationRow({
 }) {
   const Icon = SEVERITY_ICONS[notification.severity];
   const unread = notification.readAt === null;
+  // A task entry counts its tasks in its title already.
   const showCount =
     notification.count > 1 &&
+    notification.kind !== "tasks" &&
     (notification.severity === "warning" || notification.severity === "error");
 
   return (

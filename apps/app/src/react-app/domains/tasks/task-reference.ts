@@ -12,7 +12,7 @@
  * agent what each means.
  */
 
-import { requestPanelTab } from "@/react-app/domains/session/panel/panel-tab-store";
+import { requestPanelTab } from "@/react-app/domains/session/panel/panel-tab-request";
 
 export const TASK_REFERENCE_SOURCE = String.raw`\[task [\w-]+ via legalwork_task_get\]`;
 

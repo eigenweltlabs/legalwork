@@ -171,6 +171,7 @@ import {
   requireIntakeClient,
 } from "./eigenwelt-intake.js";
 import { taskStore } from "./task-store.js";
+import { startTaskReminderTimer } from "./task-notifications.js";
 import { runTaskSync, scheduleTaskSync, signOutOfFirmTasks, startTaskSyncTimer } from "./task-sync.js";
 import {
   connectedTaskOrgId,
@@ -728,6 +729,8 @@ export async function startServer(config: ServerConfig): Promise<StartedServer> 
   // Tasks push and pull with the firm's account in the background (a no-op
   // while no firm is connected); each local write also asks for a round.
   startTaskSyncTimer(config);
+  // Due days are checked every minute, connected or not, for the app to announce.
+  startTaskReminderTimer(config);
   const officeTools = new OfficeToolRelay();
   const benchmarkRunner = new BenchmarkRunner({
     config,
@@ -3143,6 +3146,18 @@ function createRoutes(
       signedOut: orgId === null && store.signedOutBefore(),
     };
   };
+
+  // What the app announces about the tasks (task-notifications.ts): every
+  // notification noted since the last claim, read against its task as it
+  // stands. A claim marks them delivered, so each is shown once, by one
+  // window. Not workspace-scoped: the app polls it from any screen.
+  addRoute(routes, "POST", "/task-notifications/claim", "client", async (ctx) => {
+    requireClientScope(ctx, "collaborator");
+    const store = await taskStore(config);
+    const { connection, orgId } = await localTaskConnection();
+    const userId = orgId === null ? null : connection.account?.userId ?? null;
+    return jsonResponse({ notifications: store.claimNotifications({ userId, orgId }) });
+  });
 
   addRoute(routes, "GET", "/workspace/:id/task-sync", "client", async (ctx) => {
     await resolveWorkspace(config, ctx.params.id);

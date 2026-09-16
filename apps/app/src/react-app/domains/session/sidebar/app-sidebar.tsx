@@ -43,6 +43,7 @@ import {
   SidebarGroup,
   SidebarGroupContent,
   SidebarMenu,
+  SidebarMenuBadge,
   SidebarMenuButton,
   SidebarMenuItem,
   SidebarMenuSub,
@@ -50,6 +51,7 @@ import {
   SidebarMenuSubItem,
   SidebarRail,
 } from "@/components/ui/sidebar";
+import { useUnreadTaskCount } from "@/react-app/kernel/notification-store";
 import {
   Collapsible,
   CollapsibleContent,
@@ -519,6 +521,8 @@ const NAV_ITEM_CLASS =
 export function AppSidebar(props: AppSidebarProps) {
   const { config: shellConfig } = useShellConfig();
   const navigate = useNavigate();
+  const unreadTasks = useUnreadTaskCount();
+  const showUnreadTasks = unreadTasks > 0 && props.activeNav !== "tasks";
   const goSettings = React.useCallback(
     (tab: string) => {
       const ws = props.selectedWorkspaceId.trim();
@@ -723,7 +727,18 @@ export function AppSidebar(props: AppSidebarProps) {
               >
                 <Inbox className="size-[18px]" strokeWidth={1.5} />
                 <span>{t("sidebar.tasks")}</span>
+                {/* The space keeps the spoken name "Tasks (2 new)"; a flex row ignores it. */}
+                {showUnreadTasks ? <>{" "}<span className="sr-only">{t("sidebar.tasks_unread", { count: unreadTasks })}</span></> : null}
               </SidebarMenuButton>
+              {/* Tasks announced since the pane was last open (task notifications). */}
+              {showUnreadTasks ? (
+                <SidebarMenuBadge
+                  aria-hidden
+                  className="end-2 rounded-full bg-primary px-1.5 text-[11px] font-semibold text-primary-foreground peer-hover/menu-button:text-primary-foreground peer-data-active/menu-button:text-primary-foreground"
+                >
+                  {unreadTasks > 9 ? "9+" : unreadTasks}
+                </SidebarMenuBadge>
+              ) : null}
             </SidebarMenuItem>
           ) : null}
           <SidebarMenuItem>

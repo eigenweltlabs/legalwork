@@ -119,6 +119,32 @@ export type TaskSessionLink = {
   startedAt: string;
 };
 
+/**
+ * What the app announces about a task while it runs (task-notifications.ts):
+ * it arrived from the firm, it was assigned to the signed-in member, it is due
+ * today, it is overdue.
+ */
+export type TaskNotificationKind = "new" | "assigned" | "due_today" | "overdue";
+
+/**
+ * Whose a task is, as the signed-in member sees it — what the app's "which
+ * tasks" setting filters on. `mine`: assigned to them, or not assigned and
+ * filed by them (without a firm, every unassigned task is theirs).
+ */
+export type TaskAudience = "mine" | "unassigned" | "others";
+
+export type TaskNotification = {
+  id: string;
+  kind: TaskNotificationKind;
+  taskId: string;
+  /** The task as it stands when the notification is claimed. */
+  title: string;
+  origin: TaskOrigin;
+  dueDate: string | null;
+  audience: TaskAudience;
+  createdAt: string;
+};
+
 export type TaskDetail = { task: Task; submission: unknown; notes: TaskNote[] };
 
 export type TaskListParams = {
@@ -395,6 +421,19 @@ const SCHEMA = [
     updated_at INTEGER NOT NULL,
     PRIMARY KEY (org_id, user_id)
   )`,
+  // What the app is to announce about the tasks: one row per task and
+  // occasion (a due day, the moment of an assignment), so nothing is announced
+  // twice. Ids only — the text is read from the task when the app claims it.
+  `CREATE TABLE IF NOT EXISTS task_notifications (
+    id TEXT PRIMARY KEY NOT NULL,
+    task_id TEXT NOT NULL,
+    kind TEXT NOT NULL,
+    occasion TEXT NOT NULL,
+    created_at INTEGER NOT NULL,
+    delivered_at INTEGER,
+    UNIQUE (task_id, kind, occasion)
+  )`,
+  "CREATE INDEX IF NOT EXISTS task_notifications_pending ON task_notifications(delivered_at, created_at)",
 ];
 
 // Columns added after the table's first release. SQLite has no ADD COLUMN IF
@@ -497,6 +536,54 @@ function toPriority(value: unknown): TaskPriority {
 function toOrigin(value: unknown): TaskOrigin {
   return value === "intake" ? "intake" : "desktop";
 }
+
+function toNotificationKind(value: unknown): TaskNotificationKind | null {
+  return value === "new" || value === "assigned" || value === "due_today" || value === "overdue" ? value : null;
+}
+
+/** Open or in progress: the tasks someone still has to do. */
+function isOpenStatus(status: TaskStatus): boolean {
+  return status === "open" || status === "in_progress";
+}
+
+/**
+ * The calendar day of a moment on this machine, `YYYY-MM-DD`. Due dates are
+ * compared by it, as the pane shows them: a date-only due date is local
+ * midnight, and a task is overdue from the day after.
+ */
+export function localDayKey(ms: number): string {
+  const date = new Date(ms);
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${date.getFullYear()}-${month}-${day}`;
+}
+
+/** The due-date notification a task is up for at `now`: its kind, and the due day it is about. */
+export function dueOccasion(
+  task: Pick<Task, "status" | "dueDate" | "deletedAt">,
+  now: number,
+): { kind: "due_today" | "overdue"; occasion: string } | null {
+  if (task.deletedAt !== null || !isOpenStatus(task.status)) return null;
+  const due = epoch(task.dueDate);
+  if (due === null) return null;
+  const dueDay = localDayKey(due);
+  const today = localDayKey(now);
+  if (dueDay === today) return { kind: "due_today", occasion: dueDay };
+  if (dueDay < today) return { kind: "overdue", occasion: dueDay };
+  return null;
+}
+
+/** Whose a task is for the signed-in member `me` (null: no firm connected). */
+export function taskAudience(task: Pick<Task, "origin" | "assigneeUserId" | "createdByUserId">, me: string | null): TaskAudience {
+  if (task.assigneeUserId !== null) return me !== null && task.assigneeUserId === me ? "mine" : "others";
+  if (me === null) return "mine";
+  // Unassigned intake work is the firm's to triage, whoever looks at it.
+  if (task.origin === "intake") return "unassigned";
+  return task.createdByUserId === null || task.createdByUserId === me ? "mine" : "unassigned";
+}
+
+/** How long a delivered notification is kept once it can no longer matter. */
+const NOTIFICATION_KEEP_MS = 30 * 86_400_000;
 
 /**
  * The ordering expression of a sort, over an alias. `priority` is not a
@@ -882,6 +969,7 @@ export class TaskStore {
         );
       }
       this.enqueue(id, { kind: "create", changedAt: new Date(now).toISOString() }, now);
+      this.acknowledgeDue(id, { status: "open", dueDate: input.dueDate ?? null, deletedAt: null }, now);
       return this.requireTask(id);
     });
   }
@@ -957,7 +1045,9 @@ export class TaskStore {
       if (patch.note !== undefined) {
         this.appendNote(task.id, patch.note, patch.noteSource ?? "member", actor, now);
       }
-      return this.requireTask(id);
+      const updated = this.requireTask(id);
+      if (fields.dueDate !== undefined || fields.status !== undefined) this.acknowledgeDue(id, updated, now);
+      return updated;
     });
   }
 
@@ -1003,6 +1093,7 @@ export class TaskStore {
       if (!task.deletedAt) return task;
       this.db.run("UPDATE tasks SET deleted_at = NULL, updated_at = ? WHERE id = ?", [now, id]);
       this.enqueue(id, { kind: "restore", changedAt: new Date(now).toISOString() }, now);
+      this.acknowledgeDue(id, { ...task, deletedAt: null }, now);
       return this.requireTask(id);
     });
   }
@@ -1128,6 +1219,144 @@ export class TaskStore {
         ]);
       }
     });
+  }
+
+  // --- Notifications (task-notifications.ts) ---------------------------------
+
+  /**
+   * Note that a task is to be announced. A task and occasion is noted once;
+   * `delivered` notes it as already known, and also settles a note still
+   * waiting — nothing is shown for it.
+   */
+  recordNotification(
+    taskId: string,
+    kind: TaskNotificationKind,
+    occasion: string,
+    now: number = Date.now(),
+    options: { delivered?: boolean } = {},
+  ): void {
+    const delivered = options.delivered === true;
+    this.db.run(
+      `INSERT INTO task_notifications (id, task_id, kind, occasion, created_at, delivered_at) VALUES (?, ?, ?, ?, ?, ?)
+       ON CONFLICT(task_id, kind, occasion) DO ${delivered ? "UPDATE SET delivered_at = COALESCE(task_notifications.delivered_at, excluded.delivered_at)" : "NOTHING"}`,
+      [randomUUID(), taskId, kind, occasion, now, delivered ? now : null],
+    );
+  }
+
+  /**
+   * A due date set, or a task reopened, on this machine is known to whoever
+   * did it: the reminder it would trigger today is noted as delivered. The
+   * reminders of the days after come as usual.
+   */
+  private acknowledgeDue(taskId: string, task: Pick<Task, "status" | "dueDate" | "deletedAt">, now: number): void {
+    const due = dueOccasion(task, now);
+    if (due) this.recordNotification(taskId, due.kind, due.occasion, now, { delivered: true });
+  }
+
+  /**
+   * Note every open task that is due today or overdue and has not been noted
+   * for that due day — of all tasks, or of the ones named.
+   */
+  recordDueNotifications(now: number = Date.now(), taskIds?: string[]): number {
+    if (taskIds && taskIds.length === 0) return 0;
+    const only = taskIds ? ` AND id IN (${taskIds.map(() => "?").join(", ")})` : "";
+    const rows = this.db.all(
+      `SELECT id, status, due_date FROM tasks WHERE deleted_at IS NULL AND status IN ('open', 'in_progress') AND due_date IS NOT NULL${only}`,
+      taskIds ?? [],
+    );
+    if (rows.length === 0) return 0;
+    const noted = new Set(
+      this.db
+        .all("SELECT task_id, kind, occasion FROM task_notifications WHERE kind IN ('due_today', 'overdue')")
+        .map((row) => `${text(row.task_id)}\n${text(row.kind)}\n${text(row.occasion)}`),
+    );
+    const due = rows.flatMap((row) => {
+      const occasion = dueOccasion({ status: toStatus(row.status), dueDate: nullableText(row.due_date), deletedAt: null }, now);
+      const taskId = text(row.id);
+      return occasion && !noted.has(`${taskId}\n${occasion.kind}\n${occasion.occasion}`) ? [{ taskId, ...occasion }] : [];
+    });
+    if (due.length === 0) return 0;
+    this.transaction(() => {
+      for (const entry of due) this.recordNotification(entry.taskId, entry.kind, entry.occasion, now);
+    });
+    return due.length;
+  }
+
+  /**
+   * Hand the waiting notifications to the app, once: they are marked
+   * delivered in the same step. Each is read against its task as it stands
+   * now, and one that no longer applies — the task is gone, closed, hidden
+   * with another firm, no longer due that day, no longer assigned to the
+   * member — is dropped rather than shown.
+   */
+  claimNotifications(viewer: { userId: string | null; orgId: string | null }, now: number = Date.now()): TaskNotification[] {
+    if (!this.db.get("SELECT 1 AS waiting FROM task_notifications WHERE delivered_at IS NULL LIMIT 1")) return [];
+    const rows = this.transaction(() => {
+      const waiting = this.db.all(
+        `SELECT n.id, n.task_id, n.kind, n.occasion, n.created_at, t.id AS task_row, t.title, t.origin, t.status, t.due_date,
+           t.assignee_user_id, t.created_by_user_id, t.deleted_at, t.remote_org_id
+         FROM task_notifications AS n LEFT JOIN tasks AS t ON t.id = n.task_id
+         WHERE n.delivered_at IS NULL ORDER BY n.created_at, n.id`,
+      );
+      const ids = waiting.map((row) => text(row.id));
+      for (let start = 0; start < ids.length; start += 500) {
+        const chunk = ids.slice(start, start + 500);
+        this.db.run(`UPDATE task_notifications SET delivered_at = ? WHERE id IN (${chunk.map(() => "?").join(", ")})`, [
+          now,
+          ...chunk,
+        ]);
+      }
+      return waiting;
+    });
+    return rows.flatMap((row): TaskNotification[] => {
+      const kind = toNotificationKind(row.kind);
+      if (!kind || row.task_row === null || row.task_row === undefined) return [];
+      const origin = toOrigin(row.origin);
+      const remoteOrgId = nullableText(row.remote_org_id);
+      // The same narrowing as the list: another firm's intake work is not shown.
+      if (viewer.orgId && origin === "intake" && remoteOrgId !== null && remoteOrgId !== viewer.orgId) return [];
+      const task = {
+        origin,
+        status: toStatus(row.status),
+        dueDate: nullableText(row.due_date),
+        deletedAt: iso(nullableNumber(row.deleted_at)),
+        assigneeUserId: nullableText(row.assignee_user_id),
+        createdByUserId: nullableText(row.created_by_user_id),
+      };
+      if (task.deletedAt !== null || !isOpenStatus(task.status)) return [];
+      if (kind === "due_today" || kind === "overdue") {
+        const due = dueOccasion(task, now);
+        if (!due || due.kind !== kind || due.occasion !== text(row.occasion)) return [];
+      }
+      if (kind === "assigned" && (viewer.userId === null || task.assigneeUserId !== viewer.userId)) return [];
+      return [
+        {
+          id: text(row.id),
+          kind,
+          taskId: text(row.task_id),
+          title: text(row.title),
+          origin,
+          dueDate: task.dueDate,
+          audience: taskAudience(task, viewer.userId),
+          createdAt: iso(nullableNumber(row.created_at)) ?? new Date(now).toISOString(),
+        },
+      ];
+    });
+  }
+
+  /**
+   * Forget delivered notifications that can no longer matter: an arrival
+   * (it cannot come again), or a reminder for a task that is gone or closed —
+   * after a month, so the notes that keep a reminder from repeating stay
+   * while their task is still open.
+   */
+  pruneNotifications(now: number = Date.now()): void {
+    this.db.run(
+      `DELETE FROM task_notifications WHERE delivered_at IS NOT NULL AND delivered_at < ? AND (
+         kind IN ('new', 'assigned')
+         OR task_id NOT IN (SELECT id FROM tasks WHERE deleted_at IS NULL AND status IN ('open', 'in_progress')))`,
+      [now - NOTIFICATION_KEEP_MS],
+    );
   }
 
   // --- Sync primitives (task-sync.ts) -----------------------------------------
@@ -1313,6 +1542,7 @@ export class TaskStore {
       this.db.run("DELETE FROM task_sync_outbox WHERE task_id = ?", [id]);
       this.db.run("DELETE FROM task_notes WHERE task_id = ?", [id]);
       this.db.run("DELETE FROM task_attachments WHERE task_id = ?", [id]);
+      this.db.run("DELETE FROM task_notifications WHERE task_id = ?", [id]);
       this.db.run("DELETE FROM tasks WHERE id = ?", [id]);
     });
     await rm(join(this.filesDir, id), { recursive: true, force: true });
@@ -1345,6 +1575,7 @@ export class TaskStore {
         this.db.run("DELETE FROM task_sync_outbox WHERE task_id = ?", [id]);
         this.db.run("DELETE FROM task_notes WHERE task_id = ?", [id]);
         this.db.run("DELETE FROM task_attachments WHERE task_id = ?", [id]);
+        this.db.run("DELETE FROM task_notifications WHERE task_id = ?", [id]);
         this.db.run("DELETE FROM tasks WHERE id = ?", [id]);
       }
       this.db.run("DELETE FROM task_members WHERE org_id = ?", [orgId]);
@@ -1387,6 +1618,15 @@ export class TaskStore {
 }
 
 const storeByPath = new Map<string, Promise<TaskStore>>();
+
+/**
+ * Whether this machine has a runtime DB (and so maybe tasks) yet. Background
+ * work that only reads tasks checks this first, so it never creates the file
+ * (or its folders) where there is nothing to read.
+ */
+export function taskStoreAvailable(config: ServerConfig): boolean {
+  return storeByPath.has(runtimeDbPath(config)) || existsSync(runtimeDbPath(config));
+}
 
 /** The machine's task store, opened once per runtime DB path. */
 export function taskStore(config: ServerConfig): Promise<TaskStore> {

@@ -6,6 +6,7 @@ const NATIVE_MENU_OPEN_SESSION_WINDOW_EVENT = "legalwork:native-menu:open-sessio
 const NATIVE_MENU_TOGGLE_SIDEBAR_EVENT = "legalwork:native-menu:toggle-sidebar";
 const NATIVE_MENU_CHECK_UPDATES_EVENT = "legalwork:native-menu:check-updates";
 const NATIVE_MENU_ZOOM_EVENT = "legalwork:native-menu:zoom";
+const DESKTOP_NOTIFICATION_CLICK_EVENT = "legalwork:desktop-notification-click";
 
 function normalizePlatform(value) {
   if (value === "darwin" || value === "linux") return value;
@@ -230,6 +231,15 @@ ipcRenderer.on(NATIVE_MENU_CHECK_UPDATES_EVENT, () => {
 ipcRenderer.on(NATIVE_MENU_ZOOM_EVENT, (_event, action) => {
   if (typeof window === "undefined") return;
   window.dispatchEvent(new CustomEvent(NATIVE_MENU_ZOOM_EVENT, { detail: action }));
+});
+
+// A system notification the page asked for was clicked (see
+// desktopNotificationShow); the window is already in front.
+ipcRenderer.on(DESKTOP_NOTIFICATION_CLICK_EVENT, (_event, payload) => {
+  if (typeof window === "undefined") return;
+  const id = typeof payload?.id === "string" ? payload.id : "";
+  if (!id) return;
+  window.dispatchEvent(new CustomEvent(DESKTOP_NOTIFICATION_CLICK_EVENT, { detail: { id } }));
 });
 
 if (!applyShellDocumentMarkers() && typeof document !== "undefined") {

@@ -295,6 +295,54 @@ describe("task-sync", () => {
     expect(store.outboxSize()).toBe(1);
   });
 
+  test("the first pull is the backlog; later pulls note new and assigned tasks with their due day", async () => {
+    const { config, store } = await makeConfig();
+    await connect(config);
+    const pulled = (overrides: Partial<IntakeTask> & { id: string }) => ({ ...remoteTask(overrides), notes: [], submission: null });
+    const page = (tasks: ReturnType<typeof pulled>[]) => ({ tasks, nextCursor: null, hidden: [] });
+    const backlogId = "55555555-5555-4555-8555-555555555555";
+    const claim = () =>
+      store
+        .claimNotifications({ userId: ACCOUNT.userId, orgId: ORG })
+        .map((note) => `${note.title}: ${note.kind}`)
+        .sort();
+
+    const backlog = pulled({ id: backlogId, title: "Alt", assigneeUserId: "user_ada", createdByUserId: "user_bob", updatedAt: "2026-09-16T08:00:00.000Z" });
+    await runTaskSync(config, { platform: fakePlatform({ pages: [page([backlog])] }).platform });
+    expect(claim()).toEqual([]);
+
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    await runTaskSync(config, {
+      platform: fakePlatform({
+        pages: [
+          page([
+            pulled({ id: "66666666-6666-4666-8666-666666666666", title: "Neu", createdByUserId: "user_bob", updatedAt: "2026-09-16T09:00:00.000Z" }),
+            pulled({
+              id: "77777777-7777-4777-8777-777777777777",
+              title: "Für Ada",
+              createdByUserId: "user_bob",
+              assigneeUserId: "user_ada",
+              dueDate: today.toISOString(),
+              updatedAt: "2026-09-16T09:01:00.000Z",
+            }),
+            // Filed by Ada on the web: she knows.
+            pulled({ id: "88888888-8888-4888-8888-888888888888", title: "Von Ada", createdByUserId: "user_ada", assigneeUserId: "user_ada", updatedAt: "2026-09-16T09:02:00.000Z" }),
+            // Handed from Ada to Bob: nothing for Ada.
+            { ...backlog, assigneeUserId: "user_bob", updatedAt: "2026-09-16T09:03:00.000Z" },
+          ]),
+        ],
+      }).platform,
+    });
+    expect(claim()).toEqual(["Für Ada: assigned", "Für Ada: due_today", "Neu: new"]);
+
+    // Back to Ada: a new assignment, announced again.
+    await runTaskSync(config, {
+      platform: fakePlatform({ pages: [page([{ ...backlog, assigneeUserId: "user_ada", updatedAt: "2026-09-16T10:00:00.000Z" }])] }).platform,
+    });
+    expect(claim()).toEqual(["Alt: assigned"]);
+  });
+
   test("concurrent callers share the round in flight", async () => {
     const { config } = await makeConfig();
     await connect(config);

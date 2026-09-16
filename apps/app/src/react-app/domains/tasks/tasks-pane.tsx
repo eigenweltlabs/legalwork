@@ -110,8 +110,12 @@ export type TasksPaneProps = {
   defaultModel: ModelRef | null;
   /** Reveal a local run's session in the chat view. */
   onOpenSession: (workspaceId: string, sessionId: string) => void;
-  /** A task to show, asked for from outside (a chip in the chat); `at` makes a repeat ask distinct. */
-  openTask?: { id: string; at: number } | null;
+  /**
+   * A task to show, asked for from outside (a task notification, see
+   * tasks-pane-request.ts); a null id shows the list. `at` makes a repeat
+   * ask distinct.
+   */
+  openTask?: { id: string | null; at: number } | null;
 };
 
 export function TasksPane(props: TasksPaneProps) {

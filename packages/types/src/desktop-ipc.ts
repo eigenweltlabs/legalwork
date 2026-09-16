@@ -743,6 +743,17 @@ export type DesktopCommandMap = {
     args: [openAtLogin: boolean];
     result: { openAtLogin: boolean; requiresApproval: boolean };
   };
+  /**
+   * A system notification (task announcements while the app is in the
+   * background). Shown by the main process, so a click can bring the window
+   * back — restored, shown and focused — which the page itself cannot; the
+   * click is then reported to the page as `legalwork:desktop-notification-click`
+   * with the notification's id. Resolves false where the system cannot show one.
+   */
+  desktopNotificationShow: {
+    args: [notification: { id: string; title: string; body?: string }];
+    result: boolean;
+  };
 
   // Window / OS utilities (dunder commands)
   __openPath: { args: [target: string]; result: unknown };

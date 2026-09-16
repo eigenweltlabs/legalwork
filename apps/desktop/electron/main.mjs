@@ -19,7 +19,7 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { app, BrowserWindow, clipboard, desktopCapturer, dialog, globalShortcut, ipcMain, nativeImage, nativeTheme, powerMonitor, powerSaveBlocker, protocol, session, shell, systemPreferences } from "electron";
+import { app, BrowserWindow, clipboard, desktopCapturer, dialog, globalShortcut, ipcMain, nativeImage, nativeTheme, Notification, powerMonitor, powerSaveBlocker, protocol, session, shell, systemPreferences } from "electron";
 import { configureFakeMediaForTests, installMediaPermissionHandlers } from "./media-permissions.mjs";
 import { appendLoopbackFeatureFlags, disableLoopbackAudio, enableLoopbackAudio, isLoopbackCaptureArmed } from "./audio/loopback.mjs";
 import { captureAuthStatus, openCapturePermissionSettings, requestCapturePermission } from "./audio/capture-permissions.mjs";
@@ -915,6 +915,50 @@ function syncBackgroundPresence() {
   } else {
     appTray.destroy();
   }
+}
+
+// ── System notifications (task announcements) ─────────────────────────────
+//
+// The renderer decides what to announce; the main process shows it, so a
+// click can bring back a hidden or minimized window. A notification is kept
+// referenced until it is clicked or dismissed — one that is garbage-collected
+// loses its click. The click reaches the page as an event with the id; a page
+// that is still loading (the window was re-created) only gets the window.
+const DESKTOP_NOTIFICATION_CLICK_EVENT = "legalwork:desktop-notification-click";
+const MAX_LIVE_NOTIFICATIONS = 50;
+const liveNotifications = new Map();
+
+function showDesktopNotification(input) {
+  if (!Notification.isSupported()) return false;
+  const id = String(input?.id ?? "").trim().slice(0, 200);
+  const title = String(input?.title ?? "").trim().slice(0, 200);
+  if (!id || !title) return false;
+  const body = String(input?.body ?? "").slice(0, 500);
+  const notification = new Notification({ title, body });
+  const forget = () => {
+    if (liveNotifications.get(id) === notification) liveNotifications.delete(id);
+  };
+  notification.on("click", () => {
+    forget();
+    void createMainWindow().then((win) => {
+      if (win.isDestroyed()) return;
+      if (win.isMinimized()) win.restore();
+      win.show();
+      win.focus();
+      if (process.platform === "darwin") app.focus({ steal: true });
+      if (!win.webContents.isLoading()) {
+        win.webContents.send(DESKTOP_NOTIFICATION_CLICK_EVENT, { id });
+      }
+    });
+  });
+  notification.on("close", forget);
+  liveNotifications.set(id, notification);
+  while (liveNotifications.size > MAX_LIVE_NOTIFICATIONS) {
+    const oldest = liveNotifications.keys().next().value;
+    liveNotifications.delete(oldest);
+  }
+  notification.show();
+  return true;
 }
 
 function normalizePlatform(value) {
@@ -2475,6 +2519,13 @@ const desktopCommandHandlers = {
         };
       } catch {
         return { openAtLogin, requiresApproval: false };
+      }
+  },
+  "desktopNotificationShow": async (event, ...args) => {
+      try {
+        return showDesktopNotification(args[0]);
+      } catch {
+        return false;
       }
   },
   "windowSetStealth": async (event, ...args) => {

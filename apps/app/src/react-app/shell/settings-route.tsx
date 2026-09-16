@@ -74,6 +74,7 @@ import "@/react-app/domains/settings/google-workspace-config";
 import { useSettingsExtensionController } from "@/react-app/domains/settings/settings-extension-controller";
 import { buildExtensionItems } from "@/react-app/domains/settings/extension-items";
 import { isLegalWorkExtensionEnabled, LEGALWORK_EXTENSION_STATE_CHANGED, setLegalWorkExtensionEnabled } from "@/react-app/domains/settings/extension-state";
+import { NotificationsView } from "@/react-app/domains/settings/pages/notifications-view";
 import { PreferencesView } from "@/react-app/domains/settings/pages/preferences-view";
 import { PersonalisationView } from "@/react-app/domains/settings/pages/personalisation-view";
 import { ShellCustomizationView } from "@/react-app/domains/settings/pages/shell-view";
@@ -109,6 +110,7 @@ import {
 } from "@/react-app/domains/settings/state/template-workflow-generation";
 import { usePlatform } from "@/react-app/kernel/platform";
 import { useLocal } from "@/react-app/kernel/local-provider";
+import { useNotificationStore } from "@/react-app/kernel/notification-store";
 import {
   legalworkServerInfo,
   legalworkServerRestart,
@@ -227,6 +229,7 @@ function parseSettingsPath(pathname: string): {
     case "ai":
     case "account":
     case "personalisation":
+    case "notifications":
     case "preferences":
     case "permissions":
     case "safety":
@@ -902,6 +905,8 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
         }
         invalidateEigenweltEntitlements();
       }
+      // The firm's tasks left this machine: so do the announcements naming them.
+      useNotificationStore.getState().removeKind("tasks");
       // Await a FULL provider refresh (dispose → re-read the rebuilt
       // engine config → setProviders / setProviderConnectedIds) so the account
       // view's providers-derived state (model count + connected id set) drops
@@ -2069,6 +2074,8 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
             onBackToList={() => navigateSettingsPath("benchmark")}
           />
         );
+      case "notifications":
+        return <NotificationsView />;
       case "preferences":
         return (
           <PreferencesView

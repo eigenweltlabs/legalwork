@@ -19,11 +19,17 @@ export type NotificationKind =
   | "reload"
   | "cloud"
   | "update"
-  | "system";
+  | "system"
+  | "tasks";
+
+/** A task an entry is about, with the title it had when announced. */
+export type NotificationTaskRef = { id: string; title: string };
 
 export type NotificationAction =
   | { type: "open-model-picker"; providerIds: string[] }
-  | { type: "reload-engine" };
+  | { type: "reload-engine" }
+  /** One task opens itself; several open the task list. `total` counts past the kept refs. */
+  | { type: "open-tasks"; tasks: NotificationTaskRef[]; total: number };
 
 export type AppNotification = {
   id: string;
@@ -57,6 +63,10 @@ type NotificationStore = {
   add: (input: NotificationInput) => void;
   markAllRead: () => void;
   clearAll: () => void;
+  /** Mark the unread entries of one kind read (task announcements, once the Tasks pane is open). */
+  markKindRead: (kind: NotificationKind) => void;
+  /** Drop every entry of a kind (the firm's tasks, once they left this machine). */
+  removeKind: (kind: NotificationKind) => void;
 };
 
 function prune(notifications: AppNotification[]): AppNotification[] {
@@ -71,7 +81,7 @@ function createId(now: number): string {
 }
 
 const SEVERITIES: NotificationSeverity[] = ["info", "success", "warning", "error"];
-const KINDS: NotificationKind[] = ["providers", "reload", "cloud", "update", "system"];
+const KINDS: NotificationKind[] = ["providers", "reload", "cloud", "update", "system", "tasks"];
 
 function isSeverity(value: unknown): value is NotificationSeverity {
   return typeof value === "string" && SEVERITIES.some((entry) => entry === value);
@@ -88,6 +98,21 @@ function isAction(value: unknown): value is NotificationAction {
   if (type === "open-model-picker") {
     const providerIds = Reflect.get(value, "providerIds");
     return Array.isArray(providerIds) && providerIds.every((id) => typeof id === "string");
+  }
+  if (type === "open-tasks") {
+    const tasks = Reflect.get(value, "tasks");
+    const total = Reflect.get(value, "total");
+    return (
+      typeof total === "number" &&
+      Array.isArray(tasks) &&
+      tasks.every(
+        (task) =>
+          typeof task === "object" &&
+          task !== null &&
+          typeof Reflect.get(task, "id") === "string" &&
+          typeof Reflect.get(task, "title") === "string",
+      )
+    );
   }
   return false;
 }
@@ -191,6 +216,24 @@ export const useNotificationStore = create<NotificationStore>()(
           };
         }),
       clearAll: () => set({ notifications: [] }),
+      markKindRead: (kind) =>
+        set((state) => {
+          if (!state.notifications.some((notification) => notification.kind === kind && notification.readAt === null)) {
+            return state;
+          }
+          const now = Date.now();
+          return {
+            notifications: state.notifications.map((notification) =>
+              notification.kind === kind && notification.readAt === null ? { ...notification, readAt: now } : notification,
+            ),
+          };
+        }),
+      removeKind: (kind) =>
+        set((state) =>
+          state.notifications.some((notification) => notification.kind === kind)
+            ? { notifications: state.notifications.filter((notification) => notification.kind !== kind) }
+            : state,
+        ),
     }),
     {
       name: PERSISTED_NOTIFICATION_STORE_KEY,
@@ -209,6 +252,27 @@ export const useNotificationStore = create<NotificationStore>()(
     },
   ),
 );
+
+/**
+ * How many tasks the unread task announcements name, each task once — the
+ * count next to Tasks in the sidebar.
+ */
+export function countUnreadTasks(notifications: readonly AppNotification[]): number {
+  const ids = new Set<string>();
+  let beyondKept = 0;
+  for (const notification of notifications) {
+    if (notification.kind !== "tasks" || notification.readAt !== null) continue;
+    const action = notification.action;
+    if (action?.type !== "open-tasks") continue;
+    for (const task of action.tasks) ids.add(task.id);
+    beyondKept += Math.max(0, action.total - action.tasks.length);
+  }
+  return ids.size + beyondKept;
+}
+
+export function useUnreadTaskCount(): number {
+  return useNotificationStore((state) => countUnreadTasks(state.notifications));
+}
 
 export function useUnreadNotificationCount(): number {
   return useNotificationStore((state) =>

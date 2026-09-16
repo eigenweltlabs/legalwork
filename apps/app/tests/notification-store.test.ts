@@ -21,7 +21,7 @@ Object.defineProperty(globalThis, "localStorage", {
   configurable: true,
 });
 
-const { useNotificationStore } = await import("../src/react-app/kernel/notification-store");
+const { countUnreadTasks, useNotificationStore } = await import("../src/react-app/kernel/notification-store");
 
 function reset() {
   useNotificationStore.setState({ notifications: [] });
@@ -106,6 +106,65 @@ describe("notification store", () => {
     add({ kind: "system", title: "Two" });
     clearAll();
     expect(useNotificationStore.getState().notifications).toHaveLength(0);
+  });
+
+  test("unread task announcements count their tasks once, until their kind is read", () => {
+    const { add, markKindRead } = useNotificationStore.getState();
+    const tasks = (ids: string[], total = ids.length) => ({
+      type: "open-tasks" as const,
+      tasks: ids.map((id) => ({ id, title: id.toUpperCase() })),
+      total,
+    });
+    add({ kind: "tasks", title: "Assigned", dedupeKey: "tasks:assigned", action: tasks(["a", "b"]) });
+    add({ kind: "tasks", title: "Overdue", dedupeKey: "tasks:overdue", action: tasks(["b", "c"], 5) });
+    add({ kind: "system", title: "Other" });
+    // a, b, c named, and 3 more the overdue entry counts past what it kept.
+    expect(countUnreadTasks(useNotificationStore.getState().notifications)).toBe(6);
+
+    markKindRead("tasks");
+    const after = useNotificationStore.getState().notifications;
+    expect(countUnreadTasks(after)).toBe(0);
+    expect(after.find((entry) => entry.kind === "system")?.readAt).toBeNull();
+    markKindRead("tasks");
+    expect(useNotificationStore.getState().notifications).toBe(after);
+  });
+
+  test("removeKind drops one kind and keeps the rest", () => {
+    const { add, removeKind } = useNotificationStore.getState();
+    add({ kind: "tasks", title: "Overdue", dedupeKey: "tasks:overdue" });
+    add({ kind: "system", title: "Kept" });
+    removeKind("tasks");
+    expect(useNotificationStore.getState().notifications.map((entry) => entry.title)).toEqual(["Kept"]);
+    const before = useNotificationStore.getState().notifications;
+    removeKind("tasks");
+    expect(useNotificationStore.getState().notifications).toBe(before);
+  });
+
+  test("a task entry and its action survive a reload; a malformed action does not", async () => {
+    const { add } = useNotificationStore.getState();
+    add({
+      kind: "tasks",
+      title: "2 tasks overdue",
+      dedupeKey: "tasks:overdue",
+      action: { type: "open-tasks", tasks: [{ id: "a", title: "A" }, { id: "b", title: "B" }], total: 2 },
+      actionLabel: "Show tasks",
+    });
+    const persisted = JSON.parse(storage.get("legalwork:notifications:v1") ?? "{}");
+    persisted.state.notifications.push({
+      ...persisted.state.notifications[0],
+      id: "ntf_broken",
+      action: { type: "open-tasks", tasks: [{ id: 1 }], total: 1 },
+    });
+    // Emptying the store writes through, so the stored copy goes back after it.
+    useNotificationStore.setState({ notifications: [] });
+    storage.set("legalwork:notifications:v1", JSON.stringify(persisted));
+    await useNotificationStore.persist.rehydrate();
+
+    const [entry, broken] = useNotificationStore.getState().notifications;
+    expect(entry.kind).toBe("tasks");
+    expect(entry.action).toEqual({ type: "open-tasks", tasks: [{ id: "a", title: "A" }, { id: "b", title: "B" }], total: 2 });
+    expect(broken.id).toBe("ntf_broken");
+    expect(broken.action).toBeUndefined();
   });
 
   test("caps the list at 100 entries", () => {

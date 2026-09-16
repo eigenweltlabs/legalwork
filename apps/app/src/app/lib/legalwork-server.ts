@@ -447,6 +447,27 @@ export type LegalworkTaskSyncStatus = {
   signedOut: boolean;
 };
 
+/** Something to announce about a task (the server's task-notifications.ts). */
+export type LegalworkTaskNotificationKind = "new" | "assigned" | "due_today" | "overdue";
+
+/**
+ * Whose the task is, for the signed-in member: `mine` (assigned to them, or
+ * filed by them and not assigned), `unassigned`, or `others`.
+ */
+export type LegalworkTaskAudience = "mine" | "unassigned" | "others";
+
+export type LegalworkTaskNotification = {
+  id: string;
+  kind: LegalworkTaskNotificationKind;
+  taskId: string;
+  /** The task's title when the notification was claimed. */
+  title: string;
+  origin: LegalworkTaskOrigin;
+  dueDate: string | null;
+  audience: LegalworkTaskAudience;
+  createdAt: string;
+};
+
 // The shared WorkspaceWire contract now carries the opencode block; keep the
 // historical name as an alias for the many existing imports.
 export type LegalworkWorkspaceInfo = WorkspaceInfo;
@@ -2427,6 +2448,17 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
         `/workspace/${encodeURIComponent(workspaceId)}/task-sync`,
         { token, hostToken, method: "POST", timeoutMs: timeouts.binary },
       ),
+    /**
+     * Take the task notifications noted since the last call. Each is handed
+     * out once: whoever claims it is the one to show it.
+     */
+    claimTaskNotifications: () =>
+      requestJson<{ notifications: LegalworkTaskNotification[] }>(baseUrl, "/task-notifications/claim", {
+        token,
+        hostToken,
+        method: "POST",
+        timeoutMs: timeouts.status,
+      }),
     listReloadEvents: (workspaceId: string, options?: { since?: number }) => {
       const query = typeof options?.since === "number" ? `?since=${options.since}` : "";
       return requestJson<{ items: LegalworkReloadEvent[]; cursor?: number }>(

@@ -20,6 +20,7 @@ import {
 } from "./eigenwelt-intake.js";
 import { ensureFreshPlatformToken } from "./eigenwelt-refresh.js";
 import { ApiError } from "./errors.js";
+import { arrivalNotification, noteArrival } from "./task-notifications.js";
 import { taskStore, type Task, type TaskOutboxEntry, type TaskStore } from "./task-store.js";
 import { connectedTaskOrgId } from "./tasks-api.js";
 import type { ServerConfig } from "./types.js";
@@ -39,6 +40,9 @@ import type { ServerConfig } from "./types.js";
  * Conflicts are the platform's to settle, per field: a push carries when the
  * change was made, and the platform applies a field only when nothing newer
  * has set it since. Whatever it settled on comes back with the next pull.
+ *
+ * A pull also notes what the member should hear about — a task that arrived,
+ * a task assigned to them (task-notifications.ts).
  */
 
 export type TaskSyncResult = {
@@ -247,11 +251,14 @@ async function pullChanges(
   store: TaskStore,
   orgId: string,
   since: string | null,
+  me: string | null,
 ): Promise<{ pulled: number; hidden: number; cursor: string | null }> {
   let pulled = 0;
   let newest: string | null = null;
   let pageCursor: string | undefined;
   const hiddenIds = new Set<string>();
+  // The first pull brings the firm's whole backlog: none of it is news.
+  const announce = since !== null;
   do {
     const page = await platform.pullTasks(client, {
       ...(since === null ? {} : { updatedSince: since }),
@@ -263,7 +270,12 @@ async function pullChanges(
       ...(pageCursor === undefined ? {} : { cursor: pageCursor }),
     });
     for (const remote of page.tasks) {
-      store.applyRemoteTask(remote, orgId);
+      const before = announce ? store.getTask(remote.id) : null;
+      const after = store.applyRemoteTask(remote, orgId);
+      const arrival = announce ? arrivalNotification(before, after, me) : null;
+      // An assignment is one occasion per change, so a task reassigned back
+      // to the member is announced again.
+      if (arrival) noteArrival(store, after, arrival, arrival === "assigned" ? remote.updatedAt : "");
       if (newest === null || remote.updatedAt > newest) newest = remote.updatedAt;
       pulled += 1;
     }
@@ -332,7 +344,7 @@ async function runRound(config: ServerConfig, platform: TaskSyncPlatform): Promi
     state.lastPushAt = now;
     if (push.abort !== null) throw push.abort;
 
-    const pull = await pullChanges(platform, client, store, orgId, cursor);
+    const pull = await pullChanges(platform, client, store, orgId, cursor, connection.account?.userId ?? null);
     result.pulled = pull.pulled;
     result.hidden = pull.hidden;
     cursor = pull.cursor;

@@ -186,6 +186,7 @@ export const SETTINGS_TAB_VALUES = [
   "ai",
   "account",
   "personalisation",
+  "notifications",
   "benchmark",
   "preferences",
   "permissions",

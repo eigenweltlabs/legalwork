@@ -1,6 +1,7 @@
 /** @jsxImportSource react */
 import {
   ArrowRight,
+  Bell,
   FileStack,
   FolderLock,
   KeyRound,
@@ -46,6 +47,12 @@ const globalItems = (): SettingsItem[] => [
     icon: Sparkles,
     title: t("settings.tab_personalisation"),
     desc: `${t("settings.tab_description_personalisation")}.`,
+  },
+  {
+    tab: "notifications",
+    icon: Bell,
+    title: t("settings.tab_notifications"),
+    desc: `${t("settings.tab_description_notifications")}.`,
   },
   { tab: "safety", icon: ShieldCheck, title: t("settings.tab_safety"), desc: `${t("settings.tab_description_safety")}.` },
   { tab: "shell", icon: Layout, title: t("settings.tab_shell"), desc: `${t("settings.tab_description_shell")}.` },

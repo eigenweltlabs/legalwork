@@ -10,6 +10,11 @@ import { useLocation, useNavigate, useParams } from "react-router-dom";
 import { EvalsPane } from "./evals-route";
 import { RecorderPane } from "../domains/recorder/recorder-pane";
 import { TasksPane } from "../domains/tasks/tasks-pane";
+import {
+  TASKS_PANE_OPEN_EVENT,
+  takePendingTasksPaneRequest,
+  type TasksPaneOpenDetail,
+} from "../domains/tasks/tasks-pane-request";
 import { PremiumUpsellHost } from "../domains/recorder/premium-upsell-context";
 import {
   RECORDER_TRANSCRIPT_EVENT,
@@ -96,6 +101,7 @@ import {
   workspaceLabel,
 } from "@/react-app/shell/route-workspaces";
 import { useLocal } from "@/react-app/kernel/local-provider";
+import { useNotificationStore } from "@/react-app/kernel/notification-store";
 import { usePlatform } from "@/react-app/kernel/platform";
 import { SessionPage, type OpenSessionTab } from "@/react-app/domains/session/chat/session-page";
 import type { ConnectAiAction } from "@/react-app/domains/session/surface/session-surface";
@@ -180,6 +186,9 @@ import {
   RETIRED_FREE_PROVIDER_IDS,
   useProviderListQuery,
 } from "@/react-app/infra/provider-list-query";
+
+/** How long a task opened on arrival from another screen outlasts the route settling. */
+const TASK_OPEN_SETTLE_MS = 4_000;
 
 /**
  * Serialize an SDK error value into a string that parseSessionError can parse.
@@ -334,6 +343,14 @@ export function SessionRoute() {
   const [showExtensions, setShowExtensions] = useState(false);
   const [showRecorder, setShowRecorder] = useState(false);
   const [showTasks, setShowTasks] = useState(false);
+  // A task a notification asked to show: the pane opens on it (see
+  // TASKS_PANE_OPEN_EVENT); a null id opens the task list. Chat chips open
+  // their task in the side panel instead.
+  const [openTask, setOpenTask] = useState<{ id: string | null; at: number } | null>(null);
+  // An ask made outside the session view (Settings) is taken when this route
+  // mounts, while it still settles on a session: the resets that follow must
+  // not close the pane it opened (see the pane-closing effect below).
+  const keepTasksPaneUntil = useRef(0);
   const showEvalsPane = useCallback(() => {
     setShowEvals(true);
     setShowWorkflows(false);
@@ -362,6 +379,36 @@ export function SessionRoute() {
     setShowExtensions(false);
     setShowRecorder(false);
   }, []);
+  // The Tasks pane is where task announcements are read: while it is open,
+  // the count next to Tasks in the sidebar stays clear. A detached window
+  // leaves the (shared, persisted) announcements to the main one.
+  useEffect(() => {
+    if (!showTasks || detached) return;
+    const markRead = () => useNotificationStore.getState().markKindRead("tasks");
+    markRead();
+    return useNotificationStore.subscribe((state) => {
+      if (state.notifications.some((notification) => notification.kind === "tasks" && notification.readAt === null)) {
+        markRead();
+      }
+    });
+  }, [detached, showTasks]);
+  useEffect(() => {
+    const pending = takePendingTasksPaneRequest();
+    if (pending) {
+      keepTasksPaneUntil.current = Date.now() + TASK_OPEN_SETTLE_MS;
+      setOpenTask({ id: pending.taskId, at: Date.now() });
+      showTasksPane();
+    }
+    const handleRequest = (event: Event) => {
+      // Taken here: nothing is left for a later mount.
+      takePendingTasksPaneRequest();
+      const taskId = (event as CustomEvent<Partial<TasksPaneOpenDetail>>).detail?.taskId ?? null;
+      setOpenTask({ id: taskId, at: Date.now() });
+      showTasksPane();
+    };
+    window.addEventListener(TASKS_PANE_OPEN_EVENT, handleRequest);
+    return () => window.removeEventListener(TASKS_PANE_OPEN_EVENT, handleRequest);
+  }, [showTasksPane]);
   const platform = usePlatform();
   const { config: shellConfig } = useShellConfig();
   const local = useLocal();
@@ -1838,7 +1885,7 @@ export function SessionRoute() {
     setShowEvals(false);
     setShowWorkflows(false);
     setShowExtensions(false);
-    setShowTasks(false);
+    if (Date.now() >= keepTasksPaneUntil.current) setShowTasks(false);
   }, [selectedSessionId, selectedWorkspaceId]);
 
   return (
@@ -2016,6 +2063,7 @@ export function SessionRoute() {
             token={token}
             workspaces={sidebarWorkspaces}
             defaultModel={local.prefs.defaultModel}
+            openTask={openTask}
             onOpenSession={(workspaceId, sessionId) => {
               setShowTasks(false);
               writeActiveWorkspaceId(workspaceId || null);

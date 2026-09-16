@@ -18,6 +18,7 @@ import { SessionRoute } from "./session-route";
 import { SettingsRoute } from "./settings-route";
 import { ShellConfigProvider } from "./shell-config";
 import { StealthMode } from "./stealth-mode";
+import { TaskNotificationsListener } from "./task-notifications-listener";
 import { WelcomeRoute } from "./welcome-route";
 
 
@@ -159,6 +160,7 @@ export function AppRoot() {
         true app-level signal.
       */}
       <NewProvidersListener />
+      <TaskNotificationsListener />
       <StealthMode />
       <DevProfilerOverlay />
       <ReactRenderWatchdogOverlay />
