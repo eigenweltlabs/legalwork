@@ -821,9 +821,10 @@ export function SessionRoute() {
   const onboardingWentBack = useRef(false);
   // The AI step (the plan screen) is the last one, so finishing it finishes
   // onboarding. It finishes by itself once a model is usable: "connected"
-  // (Eigenwelt), "byo" (an own provider) or "existing" (one was there before).
+  // (Eigenwelt), "own_model" (an own provider) or "existing" (one was there
+  // before).
   const finishOnboarding = useCallback(
-    (ai: "connected" | "byo" | "existing") => {
+    (ai: "connected" | "own_model" | "existing") => {
       captureAnalyticsEvent("onboarding_completed", { ai });
       setOnboardingStage("done");
     },
@@ -1001,21 +1002,60 @@ export function SessionRoute() {
         firmName: eigenweltView.account?.orgName ?? null,
       }
     : rememberedEigenweltAccount;
-  // Which way the plan screen got to a usable model, for the onboarding funnel.
-  const aiPlansPathRef = useRef<"eigenwelt" | "byo" | null>(null);
+  // Plan screen analytics, in memory like every other app event: one visit is
+  // one stretch the screen is up. ai_plans_viewed { mode, variant, trigger }
+  // says why it shows: "onboarding", "app_start" (no model when the app
+  // opened) or "lost_access" (a model worked earlier in this run, then a
+  // sign-out, an ended subscription or a removed provider took it away).
+  // ai_plans_completed { mode, variant, method } says how it closed with a
+  // usable model: "eigenwelt", "own_model" or "existing" (it came from
+  // elsewhere, e.g. Settings).
+  const aiPlansPathRef = useRef<"eigenwelt" | "own_model" | null>(null);
+  const aiPlansVisitRef = useRef<{ mode: "onboarding" | "gate"; variant: string } | null>(null);
+  const aiHadModelThisRunRef = useRef(false);
+  useEffect(() => {
+    const visit = aiPlansVisitRef.current;
+    if (!aiPlansScreenVisible) {
+      if (visit && aiAccess === "ready") {
+        captureAnalyticsEvent("ai_plans_completed", {
+          mode: visit.mode,
+          variant: visit.variant,
+          method: aiPlansPathRef.current ?? "existing",
+        });
+      }
+      aiPlansVisitRef.current = null;
+      aiPlansPathRef.current = null;
+      if (aiAccess === "ready") aiHadModelThisRunRef.current = true;
+      return;
+    }
+    // Wait until the account is known, so a late answer is not a second view.
+    if (!aiPlansVariant) return;
+    const mode = onboardingStage === "ai" ? "onboarding" : "gate";
+    if (visit && visit.mode === mode && visit.variant === aiPlansVariant) return;
+    if (!visit && mode === "onboarding") captureAnalyticsEvent("onboarding_ai_viewed");
+    const trigger =
+      mode === "onboarding" ? "onboarding" : aiHadModelThisRunRef.current ? "lost_access" : "app_start";
+    aiPlansVisitRef.current = { mode, variant: aiPlansVariant };
+    captureAnalyticsEvent("ai_plans_viewed", { mode, variant: aiPlansVariant, trigger });
+  }, [aiAccess, aiPlansScreenVisible, aiPlansVariant, onboardingStage]);
   useEffect(() => {
     if (onboardingStage !== "ai" || aiAccess !== "ready") return;
     const path = aiPlansPathRef.current;
-    aiPlansPathRef.current = null;
     captureAnalyticsEvent("onboarding_ai_completed", { method: path ?? "existing" });
-    finishOnboarding(path === "eigenwelt" ? "connected" : path ?? "existing");
+    finishOnboarding(path === "eigenwelt" ? "connected" : (path ?? "existing"));
   }, [aiAccess, finishOnboarding, onboardingStage]);
   // "I bring my own model" opens the provider connection without the
   // Eigenwelt entry (that choice has its own cards). Closing the dialog
   // without connecting leaves the plan screen where it was.
+  // ai_plans_own_model_closed { connected } tells the two apart.
   const [providerModalFromPlans, setProviderModalFromPlans] = useState(false);
   const providerModalOpen = sessionProviderAuthSnapshot.providerAuthModalOpen;
   const providerModalWasOpen = useRef(false);
+  const providersAtOwnModelOpenRef = useRef<{
+    ids: string[];
+    mode: "onboarding" | "gate";
+    variant: string;
+  } | null>(null);
   useEffect(() => {
     if (providerModalOpen) {
       providerModalWasOpen.current = true;
@@ -1023,16 +1063,31 @@ export function SessionRoute() {
     }
     if (!providerModalWasOpen.current) return;
     providerModalWasOpen.current = false;
+    const opened = providersAtOwnModelOpenRef.current;
+    providersAtOwnModelOpenRef.current = null;
+    if (opened) {
+      captureAnalyticsEvent("ai_plans_own_model_closed", {
+        connected: providerConnectedIds.some((id) => !opened.ids.includes(id)),
+        mode: opened.mode,
+        variant: opened.variant,
+      });
+    }
     setProviderModalFromPlans(false);
-  }, [providerModalOpen]);
+  }, [providerConnectedIds, providerModalOpen]);
   const openProvidersFromPlans = useCallback(() => {
-    aiPlansPathRef.current = "byo";
+    aiPlansPathRef.current = "own_model";
+    providersAtOwnModelOpenRef.current = {
+      ids: providerConnectedIds,
+      mode: onboardingStage === "ai" ? "onboarding" : "gate",
+      variant: aiPlansVariant ?? "new",
+    };
     setProviderModalFromPlans(true);
     void sessionProviderAuthStore.openProviderAuthModal({ returnFocusTarget: "none" }).catch(() => {
+      providersAtOwnModelOpenRef.current = null;
       setProviderModalFromPlans(false);
       toast.error(t("providers.load_failed"));
     });
-  }, [sessionProviderAuthStore]);
+  }, [aiPlansVariant, onboardingStage, providerConnectedIds, sessionProviderAuthStore]);
   // "no-models": the plan screen polls this after opening the billing page.
   // Once the plan includes the models, bring the Eigenwelt provider online.
   const checkEigenweltPlanModels = useCallback(async () => {
@@ -2152,6 +2207,7 @@ export function SessionRoute() {
       mcpConnectedCount={mcpConnectedCount}
       onOpenSettings={() => handleOpenSettings("/settings/general")}
       onOpenProviderAuth={() => sessionProviderAuthStore.openProviderAuthModal({ returnFocusTarget: "composer" })}
+      titlebarControlsHidden={aiPlansScreenVisible}
       providerAuthModal={sessionProviderAuthSnapshot.providerAuthModalOpen ? {
         open: true,
         loading: false,

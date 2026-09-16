@@ -2642,7 +2642,6 @@ const de = {
     "LegalWork benötigt ein KI-Modell, um zu arbeiten. Wechseln Sie für {firm} zu Plus oder Pro, oder verbinden Sie einen Modellanbieter, den Sie bereits nutzen.",
   "ai_plans.your_firm": "Ihre Kanzlei",
   "ai_plans.per_seat_month": "pro Platz / Monat",
-  "ai_plans.price_note": "bei jährlicher Abrechnung. {monthly} bei monatlicher Abrechnung.",
   "ai_plans.tagline_plus": "Ideal für Kanzleien, die mit KI starten",
   "ai_plans.tagline_pro": "Ideal für tägliche Entwürfe, Prüfung und Recherche",
   "ai_plans.try": "{plan} 7 Tage kostenlos testen",
@@ -2659,19 +2658,14 @@ const de = {
   "ai_plans.feature_retention": "Keine Datenspeicherung, niemals für Training verwendet",
   "ai_plans.feature_pro_headroom":
     "Mehr als das Doppelte der inkludierten Nutzung von Plus, für Kanzleien, die täglich mit KI arbeiten",
-  "ai_plans.footnote_trial":
-    "Plus und Pro starten mit 7 Tagen kostenlosem Test, heute wird nichts berechnet. Nettopreise zzgl. Umsatzsteuer.",
-  "ai_plans.footnote_paid":
-    "Plus und Pro werden ab Abschluss des Abos abgerechnet. Nettopreise zzgl. Umsatzsteuer.",
   "ai_plans.byo_name": "Eigenes Modell",
+  "ai_plans.byo_price_suffix": "Nutzung rechnet Ihr Anbieter ab",
+  "ai_plans.byo_feature_requirement":
+    "Erfordert einen API-Schlüssel eines Modellanbieters oder ein lokales Modell",
   "ai_plans.byo_tagline": "Für Kanzleien mit eigenem Modellanbieter",
-  "ai_plans.byo_price": "Kostenlos",
-  "ai_plans.byo_requirement": "Erfordert einen eigenen Modellanbieter: API-Schlüssel oder lokales Modell.",
   "ai_plans.byo_cta": "Ich nutze mein eigenes Modell",
   "ai_plans.byo_feature_app": "Chat, Entwürfe, Prüfung und Redlining mit dem Modell, das Sie verbinden",
   "ai_plans.byo_feature_providers": "OpenAI, Anthropic, Google, Mistral oder ein lokales Modell",
-  "ai_plans.byo_feature_billing": "Die Nutzung rechnet Ihr Anbieter ab, LegalWork selbst ist kostenlos",
-  "ai_plans.byo_not_included": "Premium-Transkription und das Teilen im Team gibt es mit Plus oder Pro",
   "ai_plans.sign_in_prompt": "Sie haben bereits ein Eigenwelt-Konto?",
   "ai_plans.sign_in_link": "Anmelden",
   "ai_plans.back_to_sign_in": "Zurück zur Anmeldung",

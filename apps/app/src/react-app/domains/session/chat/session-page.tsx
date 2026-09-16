@@ -191,6 +191,11 @@ export type SessionPageProps = {
   todos: TodoItem[];
   sessionLoadingById: (sessionId: string | null) => boolean;
   providerAuthModal?: ProviderAuthModalProps | null;
+  /**
+   * A full-window screen covers the page (the plan screen): hide the macOS
+   * titlebar sidebar toggle, which otherwise stays clickable above it.
+   */
+  titlebarControlsHidden?: boolean;
   activePermission?: PendingPermission | null;
   permissionReplyBusy?: boolean;
   respondPermission?: (requestID: string, reply: "once" | "always" | "reject") => void;
@@ -1519,7 +1524,7 @@ export function SessionPage(props: SessionPageProps) {
           </div>
         </SidebarInset>
         )}
-        {!props.detached && shellConfig.sidebar ? <SidebarTrigger className="hidden mac:absolute mac:left-[64px] top-[3px] z-50 mac:flex titlebar-no-drag" /> : null}
+        {!props.detached && shellConfig.sidebar && !props.titlebarControlsHidden ? <SidebarTrigger className="hidden mac:absolute mac:left-[64px] top-[3px] z-50 mac:flex titlebar-no-drag" /> : null}
       </SidebarProvider>
 
       {props.providerAuthModal ? <ProviderAuthModal {...props.providerAuthModal} /> : null}
