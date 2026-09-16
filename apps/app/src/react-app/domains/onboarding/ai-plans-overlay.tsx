@@ -102,15 +102,16 @@ const TAGLINE: Record<EigenweltPlanId, string> = {
   pro: "ai_plans.tagline_pro",
 };
 
-/** What each plan lists after its included usage; Pro only adds to Plus. */
+/** What each plan lists, in order; "usage" is the included amount. Pro only adds to Plus. */
 const FEATURES: Record<EigenweltPlanId, string[]> = {
   plus: [
     "ai_plans.feature_models",
+    "usage",
     "ai_plans.feature_hub",
-    "ai_plans.feature_seats",
+    "ai_plans.feature_hosting",
     "ai_plans.feature_retention",
   ],
-  pro: ["ai_plans.feature_pro_headroom"],
+  pro: ["usage", "ai_plans.feature_pro_headroom"],
 };
 
 // Side by side, each card spans the row's five tracks (name, tagline, price,
@@ -220,13 +221,14 @@ function PlanCard(props: {
               {t("ai_plans.everything_in_plus")}
             </FeatureRow>
           ) : null}
-          <FeatureRow>
-            {t("ai_plans.feature_usage", {
-              amount: formatEuroCents(plan.includedMonthlyUsageCents, locale),
-            })}
-          </FeatureRow>
           {FEATURES[plan.id].map((key) => (
-            <FeatureRow key={key}>{t(key)}</FeatureRow>
+            <FeatureRow key={key}>
+              {key === "usage"
+                ? t("ai_plans.feature_usage", {
+                    amount: formatEuroCents(plan.includedMonthlyUsageCents, locale),
+                  })
+                : t(key)}
+            </FeatureRow>
           ))}
         </>
       }
