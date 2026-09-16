@@ -32,6 +32,22 @@ test("dynamic imports of a bare specifier are reported", () => {
   assert.deepEqual(findUnresolvableImports(dir), [{ file: "a.js", imports: ["zod"] }]);
 });
 
+test("multi-line imports and re-exports are reported", () => {
+  const dir = fixture({
+    "a.js": 'import {\n  a,\n  b as c\n} from "zod";\nexport * from "yaml";\nexport { d } from "./d.js";\n',
+  });
+  assert.deepEqual(findUnresolvableImports(dir), [{ file: "a.js", imports: ["yaml", "zod"] }]);
+});
+
+// The task tools read a mail's sender under "from"; reading that string as an
+// import failed the alpha build.
+test('a string that reads "from" is not an import', () => {
+  const dir = fixture({
+    "a.js": 'const sender = pick(a, ["submitter", "from"]) || pick(b, ["from", "sender"]);\n',
+  });
+  assert.deepEqual(findUnresolvableImports(dir), []);
+});
+
 // electron-builder filters these out, so they must not fail the build.
 test("compiled test files are ignored", () => {
   const dir = fixture({ "a.test.js": 'import { test } from "bun:test";\n' });
