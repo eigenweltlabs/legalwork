@@ -45,6 +45,13 @@
     @slot;
   }
 }
+/* A large window, at least 1440 by 900: full-window screens (the plan screen)
+   grow into the space instead of keeping their compact size. */
+@custom-variant roomy {
+  @media (min-width: 1440px) and (min-height: 900px) {
+    @slot;
+  }
+}
 
 @utility titlebar-drag {
   app-region: drag;

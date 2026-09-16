@@ -118,8 +118,8 @@ const FEATURES: Record<EigenweltPlanId, string[]> = {
 // action, features), so the buttons line up across the cards whatever the
 // length of the text above them.
 const cardClass =
-  "flex flex-col rounded-2xl border border-dls-border bg-dls-surface p-5 shadow-[0_24px_60px_-34px_rgba(15,23,42,0.45)] md:row-span-5 md:grid md:grid-rows-subgrid md:gap-y-0 xl:p-6";
-const planButtonClass = "h-11 w-full rounded-full text-[14px]";
+  "flex flex-col rounded-2xl border border-dls-border bg-dls-surface p-5 shadow-[0_24px_60px_-34px_rgba(15,23,42,0.45)] md:row-span-5 md:grid md:grid-rows-subgrid md:gap-y-0 xl:p-6 roomy:p-7";
+const planButtonClass = "h-11 w-full rounded-full text-[14px] roomy:h-12 roomy:text-[15px]";
 const textLinkClass =
   "font-medium text-dls-text underline underline-offset-2 transition-opacity hover:opacity-80 disabled:pointer-events-none disabled:opacity-45";
 
@@ -150,7 +150,11 @@ function FeatureRow(props: { children: ReactNode; strong?: boolean; icon?: Lucid
   return (
     <li className={props.strong ? "flex items-start gap-2.5 font-medium" : "flex items-start gap-2.5"}>
       <Icon
-        className={props.strong ? "mt-px size-4 shrink-0" : "mt-px size-4 shrink-0 text-dls-secondary"}
+        className={
+          props.strong
+            ? "mt-px size-4 shrink-0 roomy:mt-[3px]"
+            : "mt-px size-4 shrink-0 text-dls-secondary roomy:mt-[3px]"
+        }
       />
       <span>{props.children}</span>
     </li>
@@ -170,23 +174,25 @@ function CardFrame(props: {
 }) {
   return (
     <article className={cardClass} data-testid={props.testId}>
-      <h2 className="flex items-center gap-2 text-[26px] font-medium leading-none tracking-[-0.03em] text-dls-text">
+      <h2 className="flex items-center gap-2 text-[26px] font-medium leading-none tracking-[-0.03em] text-dls-text roomy:gap-2.5 roomy:text-[30px]">
         {props.icon ? (
-          <span aria-hidden className="flex size-6 shrink-0 items-center justify-center">
+          <span aria-hidden className="flex size-6 shrink-0 items-center justify-center roomy:size-7">
             {props.icon}
           </span>
         ) : null}
         {props.name}
       </h2>
-      <p className="mt-2 text-[13.5px] leading-5 text-dls-secondary">{props.tagline}</p>
-      <div className="mt-4 flex flex-wrap items-baseline gap-x-1.5 gap-y-1">
-        <span className="text-[34px] font-medium leading-none tracking-[-0.04em] text-dls-text tabular-nums">
+      <p className="mt-2 text-[13.5px] leading-5 text-dls-secondary roomy:mt-2.5 roomy:text-[14.5px] roomy:leading-[22px]">
+        {props.tagline}
+      </p>
+      <div className="mt-4 flex flex-wrap items-baseline gap-x-1.5 gap-y-1 roomy:mt-5 roomy:gap-x-2">
+        <span className="text-[34px] font-medium leading-none tracking-[-0.04em] text-dls-text tabular-nums roomy:text-[44px]">
           {props.price}
         </span>
-        <span className="text-[13px] text-dls-secondary">{props.priceSuffix}</span>
+        <span className="text-[13px] text-dls-secondary roomy:text-[15px]">{props.priceSuffix}</span>
       </div>
-      <div className="mt-5">{props.action}</div>
-      <ul className="mt-5 space-y-2 border-t border-dls-border pt-5 text-[13px] leading-[18px] text-dls-text">
+      <div className="mt-5 roomy:mt-6">{props.action}</div>
+      <ul className="mt-5 space-y-2 border-t border-dls-border pt-5 text-[13px] leading-[18px] text-dls-text roomy:mt-6 roomy:space-y-2.5 roomy:pt-6 roomy:text-[14px] roomy:leading-5">
         {props.features}
       </ul>
     </article>
@@ -204,7 +210,7 @@ function PlanCard(props: {
   return (
     <CardFrame
       testId={`ai-plan-${plan.id}`}
-      icon={<BrandMark size={24} />}
+      icon={<BrandMark size={28} className="size-6 roomy:size-7" />}
       name={plan.name}
       tagline={t(TAGLINE[plan.id])}
       price={formatEuroCents(plan.yearlyPerMonthCents, locale)}
@@ -272,7 +278,7 @@ function OwnModelCard(props: { disabled: boolean; onChoose: () => void }) {
 /** A single centered card: the sign-in greeting and the waiting states. */
 function FocusCard(props: { children: ReactNode }) {
   return (
-    <div className="mx-auto w-full max-w-[440px] rounded-2xl border border-dls-border bg-dls-surface px-8 py-9 text-center shadow-[0_24px_60px_-34px_rgba(15,23,42,0.45)]">
+    <div className="mx-auto w-full max-w-[440px] rounded-2xl border border-dls-border bg-dls-surface px-8 py-9 text-center shadow-[0_24px_60px_-34px_rgba(15,23,42,0.45)] roomy:max-w-[480px] roomy:px-10 roomy:py-11">
       {props.children}
     </div>
   );
@@ -282,7 +288,7 @@ function BackButton(props: { onClick: () => void }) {
   return (
     <button
       type="button"
-      className="inline-flex items-center gap-1.5 text-[13px] text-dls-secondary transition-colors hover:text-dls-text"
+      className="inline-flex items-center gap-1.5 text-[13px] text-dls-secondary transition-colors hover:text-dls-text roomy:text-[14px]"
       onClick={props.onClick}
     >
       <ArrowLeft className="size-3.5" />
@@ -497,6 +503,8 @@ export function AiPlansOverlay(props: AiPlansOverlayProps) {
     mode === "onboarding" && props.onBack ? <BackButton onClick={props.onBack} /> : null;
 
   let body: ReactNode;
+  // Pinned to the bottom of the window: Back on the left, the account line in the middle.
+  let footerCenter: ReactNode = null;
   if (phase.kind === "browser" || phase.kind === "upgrade" || phase.kind === "connecting") {
     const waitingBody =
       phase.kind === "browser"
@@ -557,7 +565,7 @@ export function AiPlansOverlay(props: AiPlansOverlayProps) {
     );
   } else if (signInFirst) {
     body = (
-      <div className="mx-auto flex w-full max-w-[440px] flex-col gap-6">
+      <div className="mx-auto flex w-full max-w-[480px] flex-col">
         {stepDots}
         <FocusCard>
           <BrandMark size={52} className="mx-auto" />
@@ -594,26 +602,25 @@ export function AiPlansOverlay(props: AiPlansOverlayProps) {
             {t("ai_plans.other_options")}
           </button>
         </FocusCard>
-        {backRow ? <div>{backRow}</div> : null}
       </div>
     );
   } else {
     body = (
       <>
-        <header className="mx-auto max-w-[760px] text-center">
+        <header className="mx-auto max-w-[760px] text-center roomy:max-w-[900px]">
           {stepDots}
           <h1
             id={titleId}
-            className="text-[30px] font-medium leading-[1.08] tracking-[-0.035em] text-dls-text lg:text-[32px]"
+            className="text-[30px] font-medium leading-[1.08] tracking-[-0.035em] text-dls-text lg:text-[32px] roomy:text-[38px]"
           >
             {title}
           </h1>
-          <p className="mx-auto mt-2.5 max-w-[740px] text-[14px] leading-[1.6] text-dls-secondary">
+          <p className="mx-auto mt-2.5 max-w-[740px] text-[14px] leading-[1.6] text-dls-secondary roomy:mt-3 roomy:max-w-[860px] roomy:text-[15.5px]">
             {subtitle}
           </p>
           {notice ? <div className="mt-4">{notice}</div> : null}
         </header>
-        <div className="mt-7 grid gap-4 md:grid-cols-3 md:gap-x-4 md:gap-y-0 xl:gap-x-5">
+        <div className="mt-10 grid gap-4 md:grid-cols-3 md:gap-x-4 md:gap-y-0 xl:gap-x-5 roomy:mt-14 roomy:gap-x-7">
           <OwnModelCard disabled={disabled} onChoose={bringOwnModel} />
           {EIGENWELT_PLANS.map((plan) => (
             <PlanCard
@@ -626,44 +633,42 @@ export function AiPlansOverlay(props: AiPlansOverlayProps) {
             />
           ))}
         </div>
-        <footer className="mt-6 flex flex-col items-center gap-3 md:grid md:grid-cols-[1fr_auto_1fr]">
-          <div className="justify-self-start">{backRow}</div>
-          <p className="text-center text-[13px] text-dls-secondary">
-            {variant === "new" ? (
-              <>
-                {t("ai_plans.sign_in_prompt")}{" "}
-                <button
-                  type="button"
-                  className={textLinkClass}
-                  disabled={disabled}
-                  onClick={() => void signIn(null)}
-                >
-                  {t("ai_plans.sign_in_link")}
-                </button>
-              </>
-            ) : variant === "signed-out" ? (
-              <button type="button" className={textLinkClass} onClick={() => setShowPlans(false)}>
-                {t("ai_plans.back_to_sign_in")}
-              </button>
-            ) : (
-              <>
-                {account ? `${t("ai_plans.signed_in_as", { account })} ` : null}
-                {props.onUseOtherAccount ? (
-                  <button
-                    type="button"
-                    className={textLinkClass}
-                    disabled={switchingAccount}
-                    onClick={() => void switchAccount()}
-                  >
-                    {t("ai_plans.use_other_account")}
-                  </button>
-                ) : null}
-              </>
-            )}
-          </p>
-          <div />
-        </footer>
       </>
+    );
+    footerCenter = (
+      <p className="text-center text-[13px] text-dls-secondary roomy:text-[14px]">
+        {variant === "new" ? (
+          <>
+            {t("ai_plans.sign_in_prompt")}{" "}
+            <button
+              type="button"
+              className={textLinkClass}
+              disabled={disabled}
+              onClick={() => void signIn(null)}
+            >
+              {t("ai_plans.sign_in_link")}
+            </button>
+          </>
+        ) : variant === "signed-out" ? (
+          <button type="button" className={textLinkClass} onClick={() => setShowPlans(false)}>
+            {t("ai_plans.back_to_sign_in")}
+          </button>
+        ) : (
+          <>
+            {account ? `${t("ai_plans.signed_in_as", { account })} ` : null}
+            {props.onUseOtherAccount ? (
+              <button
+                type="button"
+                className={textLinkClass}
+                disabled={switchingAccount}
+                onClick={() => void switchAccount()}
+              >
+                {t("ai_plans.use_other_account")}
+              </button>
+            ) : null}
+          </>
+        )}
+      </p>
     );
   }
 
@@ -684,8 +689,15 @@ export function AiPlansOverlay(props: AiPlansOverlayProps) {
         className="pointer-events-none absolute inset-x-0 top-0 z-10 h-10 mac:pointer-events-auto mac:titlebar-drag"
       />
       <div className="min-h-0 flex-1 overflow-y-auto">
-        <div className="mx-auto flex min-h-full w-full max-w-[1200px] flex-col justify-center px-6 py-4 lg:px-8">
-          {body}
+        <div className="mx-auto flex min-h-full w-full max-w-[1200px] flex-col px-6 lg:px-8 roomy:max-w-[1360px] roomy:px-12">
+          <div className="flex flex-1 flex-col justify-center py-8 roomy:py-10">{body}</div>
+          {backRow || footerCenter ? (
+            <footer className="flex flex-col items-center gap-3 pb-6 pt-2 md:grid md:grid-cols-[1fr_auto_1fr] roomy:pb-8">
+              <div className="justify-self-start">{backRow}</div>
+              {footerCenter ?? <div />}
+              <div />
+            </footer>
+          ) : null}
         </div>
       </div>
     </div>
