@@ -4,15 +4,15 @@
  *
  * An inbox, so it reads like one: the queue on the left, the open task on the
  * right, and the list stays put while a legal assistant works down it. Below
- * 880 px of pane width the two stack, list first, with a way back. Status is
- * a tab row (the "All" tab groups by status), the other filters are chips.
+ * 880 px of pane width the two stack, list first, with a way back. Status,
+ * including the trash, is one selector alongside the other filter chips.
  *
  * Tasks live in the LegalWork server's own store, so the pane works with no
  * Eigenwelt account: tasks are filed, edited, annotated and trashed here. A
  * connected firm additionally gets what arrived at its intake addresses, and
  * everything is synced with the firm's account in the background. The user is
- * not asked to care about that: nothing says when or whether a sync happened,
- * only a failure is shown, and the refresh button quietly runs a round.
+ * not asked to care about that: a connection problem explains that local work
+ * remains safe, and the refresh button quietly runs another round.
  *
  * Deliberately small otherwise: no sub-tasks, labels, cycles, saved views or
  * drag ordering; this is a queue to work through, not a project tracker.
@@ -25,11 +25,12 @@ import { useEffect, useMemo, useState } from "react";
 import {
   ArrowDownWideNarrow,
   AtSign,
+  CloudOff,
+  ListFilter,
   Loader2,
   Plus,
   RefreshCw,
-  Trash2,
-  TriangleAlert,
+  Tags,
   UserRound,
   type LucideIcon,
 } from "lucide-react";
@@ -54,7 +55,6 @@ import type {
 import type { ModelRef } from "@/app/types";
 import { t } from "@/i18n";
 import { cn } from "@/lib/utils";
-import { HubTabs, type HubTab } from "@/react-app/domains/settings/segmented-tabs";
 import type { RouteWorkspace } from "@/react-app/shell/route-workspaces";
 import {
   StartWorkflowDialog,
@@ -81,6 +81,7 @@ import {
   useTaskAccess,
   useTaskMembers,
   useTaskSyncStatus,
+  useTaskTags,
   useTasks,
   useUpdateTask,
   useUploadTaskAttachments,
@@ -91,9 +92,9 @@ import {
 const ANY = "__any__";
 const ASSIGNEE_ME = "__me__";
 
-type SortKey = "created" | "updated" | "priority";
-/** The tab row: every status a queue is worked in, plus everything grouped. */
+type SortKey = "created" | "updated" | "due" | "priority";
 type StatusTab = "all" | Extract<LegalworkTaskStatus, "open" | "in_progress" | "done">;
+type StatusFilter = StatusTab | "trash";
 
 export type TasksPaneProps = {
   /** The local LegalWork server, which holds the task store (and the firm connection). */
@@ -121,6 +122,7 @@ export function TasksPane(props: TasksPaneProps) {
   const [assignee, setAssignee] = useState(ANY);
   const [statusTab, setStatusTab] = useState<StatusTab>("all");
   const [endpointId, setEndpointId] = useState(ANY);
+  const [tag, setTag] = useState(ANY);
   const [sort, setSort] = useState<SortKey>("created");
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
   const [startMode, setStartMode] = useState<StartTaskMode | null>(null);
@@ -142,16 +144,18 @@ export function TasksPane(props: TasksPaneProps) {
       ...(resolvedAssignee ? { assignee: resolvedAssignee } : {}),
       ...(statusTab === "all" || inTrash ? {} : { status: statusTab }),
       ...(endpointId === ANY ? {} : { endpointId }),
+      ...(tag === ANY ? {} : { tag }),
       ...(inTrash ? { deleted: "only" as const } : {}),
       sort: inTrash ? "updated" : sort,
-      // Dates read newest-first; priority carries its own documented order
-      // (Urgent first, None last), so it is left to the store.
-      ...(sort === "priority" && !inTrash ? {} : { order: "desc" as const }),
+      // Created and updated read newest-first. Due dates read soonest-first,
+      // and priority carries its own documented order in the store.
+      ...((sort === "priority" || sort === "due") && !inTrash ? {} : { order: "desc" as const }),
     };
-  }, [access.accountUserId, assignee, endpointId, inTrash, sort, statusTab]);
+  }, [access.accountUserId, assignee, endpointId, inTrash, sort, statusTab, tag]);
 
   const tasksQuery = useTasks(context, query);
   const membersQuery = useTaskMembers(context);
+  const tagsQuery = useTaskTags(context);
   const syncQuery = useTaskSyncStatus(context);
   const detailQuery = useTask(context, selectedTaskId);
   const runSync = useRunTaskSync(context);
@@ -164,6 +168,7 @@ export function TasksPane(props: TasksPaneProps) {
 
   const tasks = flattenTaskPages(tasksQuery.data?.pages);
   const members = membersQuery.data ?? [];
+  const tags = tagsQuery.data ?? [];
   const recordRun = useTaskRunStore((state) => state.recordRun);
 
   /**
@@ -192,11 +197,12 @@ export function TasksPane(props: TasksPaneProps) {
   // fetch only adds the submission, the history and any field changed meanwhile.
   const selectedTask =
     detailQuery.data?.task ?? tasks.find((task) => task.id === selectedTaskId) ?? null;
-  const filtered = assignee !== ANY || endpointId !== ANY || statusTab !== "all";
+  const filtered = assignee !== ANY || endpointId !== ANY || tag !== ANY || statusTab !== "all";
   const syncing = runSync.isPending;
   const refreshing = syncing || (tasksQuery.isFetching && !tasksQuery.isFetchingNextPage);
-  const busy = updateTask.isPending || deleteTask.isPending || restoreTask.isPending || starting;
-  // The only thing the user hears about syncing: that it failed, and why.
+  const busy = deleteTask.isPending || restoreTask.isPending || starting;
+  // Sync trouble never blocks the local store. Keep service details out of the
+  // interface and tell the user what matters: their tasks remain usable.
   const syncError = syncQuery.data?.connected ? syncQuery.data.error : null;
   // Signed out after being signed in: the firm's tasks are in its account,
   // not gone — the empty list says so rather than looking like a fresh start.
@@ -206,7 +212,9 @@ export function TasksPane(props: TasksPaneProps) {
   const clearFilters = () => {
     setAssignee(ANY);
     setEndpointId(ANY);
+    setTag(ANY);
     setStatusTab("all");
+    setView("tasks");
   };
 
   const switchView = (next: "tasks" | "trash") => {
@@ -218,7 +226,7 @@ export function TasksPane(props: TasksPaneProps) {
     // A connected firm gets a real round trip; otherwise the store is re-read.
     if (syncQuery.data?.connected) {
       runSync.mutate(undefined, {
-        onError: (error) => toast.error(t("tasks.sync_failed"), { description: error instanceof Error ? error.message : undefined }),
+        onError: () => toast.info(t("tasks.sync_unavailable"), { description: t("tasks.sync_unavailable_detail") }),
       });
       return;
     }
@@ -318,12 +326,7 @@ export function TasksPane(props: TasksPaneProps) {
     }
   };
 
-  const statusTabs: ReadonlyArray<HubTab<StatusTab>> = [
-    { id: "all", label: t("tasks.status_all") },
-    { id: "open", label: taskStatusLabel("open") },
-    { id: "in_progress", label: taskStatusLabel("in_progress") },
-    { id: "done", label: taskStatusLabel("done") },
-  ];
+  const statusFilter: StatusFilter = inTrash ? "trash" : statusTab;
   const countLabel = tasksQuery.data && tasks.length
     ? tasksQuery.hasNextPage
       ? t("tasks.count_more", { count: tasks.length })
@@ -374,23 +377,6 @@ export function TasksPane(props: TasksPaneProps) {
                     <Button
                       variant="ghost"
                       size="icon-sm"
-                      aria-label={t("tasks.trash")}
-                      aria-pressed={inTrash}
-                      className={cn(inTrash && "bg-muted text-foreground")}
-                      onClick={() => switchView(inTrash ? "tasks" : "trash")}
-                    />
-                  }
-                >
-                  <Trash2 />
-                </TooltipTrigger>
-                <TooltipContent>{t("tasks.trash")}</TooltipContent>
-              </Tooltip>
-              <Tooltip>
-                <TooltipTrigger
-                  render={
-                    <Button
-                      variant="ghost"
-                      size="icon-sm"
                       aria-label={t("tasks.refresh")}
                       aria-busy={refreshing}
                       disabled={syncing}
@@ -404,53 +390,88 @@ export function TasksPane(props: TasksPaneProps) {
               </Tooltip>
             </div>
           </div>
-          {inTrash ? null : (
-            <HubTabs items={statusTabs} value={statusTab} onChange={setStatusTab} className="w-full max-w-md [&>button]:flex-1 [&>button]:justify-center [&>button]:px-2 [&>button]:text-xs" />
-          )}
-          {inTrash ? null : (
-            <div className="flex flex-wrap items-center gap-1.5">
-              {members.length > 0 || access.accountUserId ? (
+          <div className="flex flex-wrap items-center gap-1.5">
+            <FilterChip
+              icon={ListFilter}
+              label={t("tasks.column_status")}
+              value={statusFilter}
+              onChange={(value) => {
+                if (value === "trash") {
+                  switchView("trash");
+                  return;
+                }
+                if (value === "all" || value === "open" || value === "in_progress" || value === "done") {
+                  setView("tasks");
+                  setStatusTab(value);
+                  setSelectedTaskId(null);
+                }
+              }}
+              options={[
+                { value: "all", label: t("tasks.status_all") },
+                { value: "open", label: taskStatusLabel("open") },
+                { value: "in_progress", label: taskStatusLabel("in_progress") },
+                { value: "done", label: taskStatusLabel("done") },
+                { value: "trash", label: t("tasks.trash") },
+              ]}
+            />
+            {inTrash ? null : (
+              <>
+                {members.length > 0 || access.accountUserId ? (
+                  <FilterChip
+                    icon={UserRound}
+                    label={t("tasks.column_assignee")}
+                    value={assignee}
+                    onChange={setAssignee}
+                    options={[
+                      { value: ANY, label: t("tasks.assignee_anyone") },
+                      ...(access.accountUserId ? [{ value: ASSIGNEE_ME, label: t("tasks.assignee_me") }] : []),
+                      ...taskMemberOptions(members),
+                    ]}
+                  />
+                ) : null}
+                {endpointOptions.length > 0 || endpointId !== ANY ? (
+                  <FilterChip
+                    icon={AtSign}
+                    label={t("tasks.column_endpoint")}
+                    value={endpointId}
+                    onChange={setEndpointId}
+                    options={[{ value: ANY, label: t("tasks.endpoint_any") }, ...endpointOptions]}
+                  />
+                ) : null}
+                {tags.length > 0 || tag !== ANY ? (
+                  <FilterChip
+                    icon={Tags}
+                    label={t("tasks.tags")}
+                    value={tag}
+                    onChange={setTag}
+                    options={[
+                      { value: ANY, label: t("tasks.tags_any") },
+                      ...tags.map((entry) => ({ value: entry, label: entry })),
+                    ]}
+                  />
+                ) : null}
                 <FilterChip
-                  icon={UserRound}
-                  label={t("tasks.column_assignee")}
-                  value={assignee}
-                  onChange={setAssignee}
+                  icon={ArrowDownWideNarrow}
+                  compact
+                  label={t("tasks.sort_label")}
+                  value={sort}
+                  onChange={(value) => {
+                    if (value === "created" || value === "updated" || value === "due" || value === "priority") setSort(value);
+                  }}
                   options={[
-                    { value: ANY, label: t("tasks.assignee_anyone") },
-                    ...(access.accountUserId ? [{ value: ASSIGNEE_ME, label: t("tasks.assignee_me") }] : []),
-                    ...taskMemberOptions(members),
+                    { value: "created", label: t("tasks.sort_created") },
+                    { value: "updated", label: t("tasks.sort_updated") },
+                    { value: "due", label: t("tasks.sort_due") },
+                    { value: "priority", label: t("tasks.sort_priority") },
                   ]}
                 />
-              ) : null}
-              {endpointOptions.length > 0 || endpointId !== ANY ? (
-                <FilterChip
-                  icon={AtSign}
-                  label={t("tasks.column_endpoint")}
-                  value={endpointId}
-                  onChange={setEndpointId}
-                  options={[{ value: ANY, label: t("tasks.endpoint_any") }, ...endpointOptions]}
-                />
-              ) : null}
-              <FilterChip
-                icon={ArrowDownWideNarrow}
-                compact
-                label={t("tasks.sort_label")}
-                value={sort}
-                onChange={(value) => {
-                  if (value === "created" || value === "updated" || value === "priority") setSort(value);
-                }}
-                options={[
-                  { value: "created", label: t("tasks.sort_created") },
-                  { value: "updated", label: t("tasks.sort_updated") },
-                  { value: "priority", label: t("tasks.sort_priority") },
-                ]}
-              />
-            </div>
-          )}
+              </>
+            )}
+          </div>
           {syncError ? (
-            <p role="status" className="flex items-center gap-1.5 text-[11px] text-red-9">
-              <TriangleAlert aria-hidden className="size-3 shrink-0" />
-              <span className="truncate">{t("tasks.sync_status_error", { error: syncError })}</span>
+            <p role="status" className="flex items-start gap-2 rounded-lg bg-muted/50 px-2.5 py-2 text-xs text-muted-foreground">
+              <CloudOff aria-hidden className="mt-0.5 size-3.5 shrink-0" />
+              <span><strong className="font-medium text-foreground">{t("tasks.sync_unavailable")}</strong> {t("tasks.sync_unavailable_detail")}</span>
             </p>
           ) : null}
         </header>
@@ -491,6 +512,7 @@ export function TasksPane(props: TasksPaneProps) {
             notes={detailQuery.data?.notes ?? []}
             submissionPending={detailQuery.isLoading}
             members={members}
+            tagSuggestions={tags}
             busy={busy}
             accountUserId={access.accountUserId}
             onBack={() => setSelectedTaskId(null)}
@@ -528,6 +550,7 @@ export function TasksPane(props: TasksPaneProps) {
           busy={createTask.isPending}
           connected={Boolean(syncQuery.data?.connected ?? access.connected)}
           members={members}
+          tagSuggestions={tags}
           onClose={() => setCreating(false)}
           onCreate={create}
         />

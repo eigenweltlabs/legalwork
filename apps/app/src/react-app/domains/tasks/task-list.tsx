@@ -198,6 +198,12 @@ function TaskRow(props: {
             <span className="truncate">{t("tasks.deleted_on", { date: formatTaskDate(task.deletedAt) })}</span>
           ) : (
             <>
+              {task.tags.slice(0, 2).map((tag) => (
+                <span key={tag} className="max-w-24 truncate rounded bg-muted px-1.5 py-0.5 text-[10px] text-foreground/80">
+                  {tag}
+                </span>
+              ))}
+              {task.tags.length ? <span aria-hidden className="text-muted-foreground/50">·</span> : null}
               <span className="truncate">{taskOriginLabel(task)}</span>
               <span aria-hidden className="text-muted-foreground/50">·</span>
               <span className={cn("truncate", !task.assigneeUserId && "text-muted-foreground/70")}>{assignee}</span>

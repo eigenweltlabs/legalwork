@@ -5,7 +5,7 @@
  * for the assignee, and the sync mark that says where a task stands against
  * the firm's account.
  */
-import { Circle, CircleCheck, CircleDashed, CircleDotDashed, CircleSlash, TriangleAlert } from "lucide-react";
+import { Circle, CircleCheck, CircleDashed, CircleDotDashed, CircleSlash, CloudOff } from "lucide-react";
 
 import type { LegalworkTaskPriority, LegalworkTaskStatus, LegalworkTaskSync } from "@/app/lib/legalwork-server";
 import { t } from "@/i18n";
@@ -133,5 +133,5 @@ export function AssigneeMark(props: { name: string | null; className?: string })
  */
 export function SyncMark(props: { sync: LegalworkTaskSync; className?: string }) {
   if (!props.sync.error) return null;
-  return <TriangleAlert aria-label={t("tasks.sync_failed")} strokeWidth={1.75} className={cn("size-3 shrink-0 text-red-9", props.className)} />;
+  return <CloudOff aria-label={t("tasks.sync_unavailable")} strokeWidth={1.75} className={cn("size-3 shrink-0 text-muted-foreground", props.className)} />;
 }

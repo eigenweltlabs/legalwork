@@ -5,6 +5,7 @@ import {
   ArrowRight,
   Globe,
   FolderInput,
+  ListTodo,
   Loader2,
   Plus,
   PanelsTopLeft,
@@ -44,6 +45,7 @@ import { useControlOpenFiles, useControlAction, type LegalworkControlAction } fr
 import type { OpenTarget } from "../artifacts/open-target";
 import { useSidePanelTabs } from "./use-side-panel-tabs";
 import { t } from "@/i18n";
+import { TaskPanel } from "@/react-app/domains/tasks/task-panel";
 import {
   computeBounds,
   getElectronBrowser,
@@ -134,6 +136,8 @@ function SidePanelTab({ tab, active, onSelect, onClose }: SidePanelTabProps) {
             ) : (
               <Globe />
             )
+          ) : tab.type === "task" ? (
+            <ListTodo />
           ) : (
             <ArtifactIcon type={tab.preview} />
           )}
@@ -698,6 +702,16 @@ export function SidePanel({
               workspaceRoot={workspaceRoot}
               isRemoteWorkspace={isRemoteWorkspace}
               onClose={onClose}
+            />
+          </div>
+        ) : activeTab?.type === "task" ? (
+          <div className="min-h-0 flex-1 overflow-hidden">
+            <TaskPanel
+              sessionId={sessionId}
+              tab={activeTab}
+              client={client}
+              workspaceId={workspaceId}
+              onClose={() => closeTab(activeTab)}
             />
           </div>
         ) : null}

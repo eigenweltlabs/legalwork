@@ -69,6 +69,7 @@ function remoteTask(overrides: Partial<IntakeTask> & { id: string }): IntakeTask
     updatedAt: "2026-09-16T08:00:00.000Z",
     deletedAt: null,
     ...overrides,
+    tags: overrides.tags ?? [],
   };
 }
 

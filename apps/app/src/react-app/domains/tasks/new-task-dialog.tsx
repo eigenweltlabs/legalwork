@@ -32,6 +32,7 @@ import type { LegalworkTaskCreate, LegalworkTaskMember, LegalworkTaskPriority } 
 import { t } from "@/i18n";
 import { TASK_PRIORITIES, priorityForKey, taskMemberOptions, taskPriorityLabel } from "./task-format";
 import { AssigneeMark, OptionText, PriorityMark, PriorityOption } from "./task-glyphs";
+import { TaskTagInput } from "./task-tag-input";
 
 /** The "unassigned" choice needs a non-empty Select value of its own. */
 const UNASSIGNED = "__unassigned__";
@@ -43,6 +44,7 @@ export type NewTaskDialogProps = {
   connected: boolean;
   /** The firm's members, as the server last knew them. */
   members: LegalworkTaskMember[];
+  tagSuggestions: string[];
   onClose: () => void;
   onCreate: (input: LegalworkTaskCreate) => void;
 };
@@ -55,6 +57,7 @@ export function NewTaskDialog(props: NewTaskDialogProps) {
   const [priorityOpen, setPriorityOpen] = useState(false);
   const [dueDate, setDueDate] = useState("");
   const [assignee, setAssignee] = useState(UNASSIGNED);
+  const [tags, setTags] = useState<string[]>([]);
 
   const priorityItems = TASK_PRIORITIES.map((value) => ({ value: String(value), label: taskPriorityLabel(value) }));
   const showAssignee = props.connected && props.members.length > 0;
@@ -73,6 +76,7 @@ export function NewTaskDialog(props: NewTaskDialogProps) {
       priority,
       ...(dueDate ? { dueDate } : {}),
       ...(showAssignee && assignee !== UNASSIGNED ? { assigneeUserId: assignee } : {}),
+      ...(tags.length ? { tags } : {}),
     });
   };
 
@@ -106,6 +110,10 @@ export function NewTaskDialog(props: NewTaskDialogProps) {
                 placeholder={t("tasks.field_description_placeholder")}
                 onChange={(event) => setDescription(event.target.value)}
               />
+            </div>
+            <div className="flex flex-col gap-1.5">
+              <Label>{t("tasks.tags")}</Label>
+              <TaskTagInput tags={tags} suggestions={props.tagSuggestions} onChange={setTags} />
             </div>
             <div className="grid gap-4 sm:grid-cols-2">
               <div className="flex flex-col gap-1.5">

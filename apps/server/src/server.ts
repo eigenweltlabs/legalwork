@@ -2924,17 +2924,29 @@ function createRoutes(
   // recorded for the push to the platform, and only an attachment whose bytes
   // are not here yet reaches for the platform on demand. The store is the
   // machine's, so the route's workspace only scopes the request.
-  const taskConnection = async () => {
-    await ensureFreshPlatformToken(config).catch(() => null);
+  const localTaskConnection = async () => {
     const connection = await readEigenweltConnection(config);
     return { connection, actor: taskActorOf(connection), orgId: connectedTaskOrgId(connection) };
+  };
+
+  /** Network is reserved for an action that actually needs the platform. */
+  const remoteTaskConnection = async () => {
+    await ensureFreshPlatformToken(config).catch(() => null);
+    return localTaskConnection();
   };
 
   addRoute(routes, "GET", "/workspace/:id/tasks", "client", async (ctx) => {
     await resolveWorkspace(config, ctx.params.id);
     const store = await taskStore(config);
-    const { orgId } = await taskConnection();
+    const { orgId } = await localTaskConnection();
     return jsonResponse(store.listTasks(parseTaskListParams(ctx.url.searchParams), orgId));
+  });
+
+  addRoute(routes, "GET", "/workspace/:id/task-tags", "client", async (ctx) => {
+    await resolveWorkspace(config, ctx.params.id);
+    const store = await taskStore(config);
+    const { orgId } = await localTaskConnection();
+    return jsonResponse({ tags: store.listTags(orgId) });
   });
 
   addRoute(routes, "POST", "/workspace/:id/tasks", "client", async (ctx) => {
@@ -2942,7 +2954,7 @@ function createRoutes(
     requireClientScope(ctx, "collaborator");
     const workspace = await resolveWorkspace(config, ctx.params.id);
     const store = await taskStore(config);
-    const { actor } = await taskConnection();
+    const { actor } = await localTaskConnection();
     const body = await readJsonBodyLimited(ctx.request, 512 * 1024);
     // An agent filing from a session names it; that link stays on this machine.
     const task = store.createTask(parseTaskCreate(body, workspace.id), actor);
@@ -2961,7 +2973,7 @@ function createRoutes(
     requireClientScope(ctx, "collaborator");
     await resolveWorkspace(config, ctx.params.id);
     const store = await taskStore(config);
-    const { actor } = await taskConnection();
+    const { actor } = await localTaskConnection();
     const body = await readJsonBodyLimited(ctx.request, 512 * 1024);
     const task = store.patchTask(ctx.params.taskId, parseTaskPatch(body), actor);
     scheduleTaskSync(config);
@@ -3071,7 +3083,7 @@ function createRoutes(
       if (!attachment) throw new ApiError(404, "task_attachment_not_found", "That attachment does not exist.");
       let bytes = await store.readAttachment(taskId, attachmentId);
       if (!bytes) {
-        const { connection, orgId } = await taskConnection();
+        const { connection, orgId } = await remoteTaskConnection();
         if (!orgId) {
           throw new ApiError(
             409,
@@ -3102,7 +3114,7 @@ function createRoutes(
   addRoute(routes, "GET", "/workspace/:id/task-members", "client", async (ctx) => {
     await resolveWorkspace(config, ctx.params.id);
     const store = await taskStore(config);
-    const { connection, orgId } = await taskConnection();
+    const { connection, orgId } = await remoteTaskConnection();
     if (orgId) {
       try {
         store.replaceMembers(orgId, await intakeListMembers(requireIntakeClient(connection)));
@@ -3117,7 +3129,7 @@ function createRoutes(
   // runs a round now (the pane's refresh button) and answers with the result.
   const taskSyncStatus = async () => {
     const store = await taskStore(config);
-    const { connection, orgId } = await taskConnection();
+    const { connection, orgId } = await localTaskConnection();
     const state = orgId ? store.getSyncState(orgId) : null;
     return {
       connected: orgId !== null,

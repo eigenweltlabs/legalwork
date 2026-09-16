@@ -468,7 +468,7 @@ function UserSkillChip(props: { name: string }) {
 
 /** A task the message refers to by id. The title comes from this machine's
  *  run record, not from the message: the message carries only the id. A click
- *  opens the task in the Tasks pane. */
+ *  opens the task in the side panel. */
 function UserTaskChip(props: { taskId: string }) {
   const title = useTaskRunStore((state) => state.runsByTaskId[props.taskId]?.taskTitle)
   return (
@@ -477,7 +477,7 @@ function UserTaskChip(props: { taskId: string }) {
       className="mx-0.5 inline-flex max-w-72 items-center gap-1.5 rounded-full border border-blue-6/35 bg-blue-3/20 px-2.5 py-1 text-xs font-medium text-blue-11 align-middle transition-colors hover:bg-blue-3/40"
       title={t("message_list.open_task")}
       aria-label={t("message_list.task_badge", { id: props.taskId })}
-      onClick={() => requestOpenTask(props.taskId)}
+      onClick={() => requestOpenTask(props.taskId, title ?? t("message_list.task_badge_fallback"))}
     >
       <Inbox className="size-3.5 shrink-0" />
       <span className="truncate">{title ?? t("message_list.task_badge_fallback")}</span>

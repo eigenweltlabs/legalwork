@@ -4,7 +4,10 @@ import {
   ANONYMOUS_ACTOR,
   isTaskPriority,
   isTaskStatus,
+  normalizeTaskTags,
   TASK_NOTE_MAX_CHARS,
+  TASK_TAG_MAX_CHARS,
+  TASK_TAGS_MAX,
   TASK_PAGE_MAX,
   type TaskActor,
   type TaskCreate,
@@ -76,6 +79,16 @@ function parseAssignee(value: unknown): string | null {
   return value.trim() || null;
 }
 
+function parseTags(value: unknown): string[] {
+  if (!Array.isArray(value) || value.some((tag) => typeof tag !== "string")) {
+    throw new ApiError(400, "invalid_task_tags", "tags must be a list of text values.");
+  }
+  if (value.length > TASK_TAGS_MAX || value.some((tag) => tag.length > TASK_TAG_MAX_CHARS)) {
+    throw new ApiError(400, "invalid_task_tags", `Use at most ${TASK_TAGS_MAX} tags of ${TASK_TAG_MAX_CHARS} characters each.`);
+  }
+  return normalizeTaskTags(value);
+}
+
 /** The list filter/sort/paging params off a request's query. */
 export function parseTaskListParams(search: URLSearchParams): TaskListParams {
   const params: TaskListParams = {};
@@ -85,10 +98,15 @@ export function parseTaskListParams(search: URLSearchParams): TaskListParams {
   if (status) params.status = parseStatus(status);
   const endpointId = search.get("endpointId")?.trim();
   if (endpointId) params.endpointId = endpointId;
+  const tag = search.get("tag")?.trim();
+  if (tag) {
+    if (tag.length > TASK_TAG_MAX_CHARS) throw new ApiError(400, "invalid_task_tag", "tag is too long.");
+    params.tag = tag;
+  }
   const sort = search.get("sort")?.trim();
   if (sort) {
-    if (sort !== "created" && sort !== "updated" && sort !== "priority") {
-      throw new ApiError(400, "invalid_task_sort", "sort must be created, updated or priority.");
+    if (sort !== "created" && sort !== "updated" && sort !== "due" && sort !== "priority") {
+      throw new ApiError(400, "invalid_task_sort", "sort must be created, updated, due or priority.");
     }
     params.sort = sort;
   }
@@ -154,6 +172,7 @@ export function parseTaskCreate(body: Record<string, unknown>, workspaceId?: str
   }
   if (body.dueDate !== undefined) create.dueDate = parseDueDate(body.dueDate);
   if (body.assigneeUserId !== undefined) create.assigneeUserId = parseAssignee(body.assigneeUserId);
+  if (body.tags !== undefined) create.tags = parseTags(body.tags);
   return create;
 }
 
@@ -209,6 +228,7 @@ export function parseTaskPatch(body: Record<string, unknown>): TaskPatch {
   }
   if (body.dueDate !== undefined) patch.dueDate = parseDueDate(body.dueDate);
   if (body.assigneeUserId !== undefined) patch.assigneeUserId = parseAssignee(body.assigneeUserId);
+  if (body.tags !== undefined) patch.tags = parseTags(body.tags);
   if (body.note !== undefined) {
     if (typeof body.note !== "string" || !body.note.trim()) {
       throw new ApiError(400, "invalid_task_note", "note must be a non-empty string.");

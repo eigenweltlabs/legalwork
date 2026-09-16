@@ -44,8 +44,8 @@ describe("tasks-api: who is acting", () => {
 describe("tasks-api: list params", () => {
   test("parses the filters, clamps the page size and refuses nonsense", () => {
     expect(
-      parseTaskListParams(new URLSearchParams("assignee=user_1&status=done&sort=updated&order=desc&limit=10&cursor=c1&deleted=only")),
-    ).toEqual({ assignee: "user_1", status: "done", sort: "updated", order: "desc", limit: 10, cursor: "c1", deleted: "only" });
+      parseTaskListParams(new URLSearchParams("assignee=user_1&status=done&tag=Project%20Alpha&sort=updated&order=desc&limit=10&cursor=c1&deleted=only")),
+    ).toEqual({ assignee: "user_1", status: "done", tag: "Project Alpha", sort: "updated", order: "desc", limit: 10, cursor: "c1", deleted: "only" });
     expect(parseTaskListParams(new URLSearchParams("limit=5000")).limit).toBe(200);
     expect(parseTaskListParams(new URLSearchParams())).toEqual({});
     for (const bad of ["status=archived", "sort=name", "order=up", "limit=0", "limit=x", "deleted=yes"]) {
@@ -70,6 +70,7 @@ describe("tasks-api: create and patch bodies", () => {
     expect(() => parseTaskCreate({ title: "Neu", sessionId: "" }, "ws-1")).toThrow(ApiError);
     expect(() => parseTaskCreate({ title: "Neu", priority: 9 })).toThrow(ApiError);
     expect(() => parseTaskCreate({ title: "Neu", description: 1 })).toThrow(ApiError);
+    expect(parseTaskCreate({ title: "Neu", tags: [" Project ", "project"] }).tags).toEqual(["Project"]);
   });
 
   test("a session started from a task names the session, its folder and how it was started", () => {

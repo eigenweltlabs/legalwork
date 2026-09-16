@@ -39,6 +39,7 @@ export type IntakeTask = {
   description: string;
   status: IntakeTaskStatus;
   priority: IntakeTaskPriority;
+  tags: string[];
   dueDate: string | null;
   assigneeUserId: string | null;
   assigneeName: string | null;
@@ -80,13 +81,14 @@ export type IntakeTaskNote = {
  * is relayed through untouched. */
 export type IntakeTaskDetail = { task: IntakeTask; submission: unknown; notes: IntakeTaskNote[] };
 
-export type IntakeTaskSort = "created" | "updated" | "priority";
+export type IntakeTaskSort = "created" | "updated" | "due" | "priority";
 export type IntakeTaskOrder = "asc" | "desc";
 
 export type IntakeTaskListParams = {
   assignee?: string;
   status?: IntakeTaskStatus;
   endpointId?: string;
+  tag?: string;
   sort?: IntakeTaskSort;
   order?: IntakeTaskOrder;
   limit?: number;
@@ -115,6 +117,7 @@ export type IntakeTaskPatch = {
   assigneeUserId?: string | null;
   priority?: IntakeTaskPriority;
   dueDate?: string | null;
+  tags?: string[];
   /** When the client made the change; the platform applies each field only
    *  if nothing newer has set it since (last-writer-wins per field). */
   changedAt?: string;
@@ -137,6 +140,7 @@ export type IntakeTaskCreate = {
   priority?: IntakeTaskPriority;
   dueDate?: string | null;
   assigneeUserId?: string | null;
+  tags?: string[];
   /** When the client filed it, for a task created offline and pushed later. */
   createdAt?: string;
 };
@@ -363,6 +367,10 @@ function toAttachments(value: unknown): IntakeAttachment[] {
   return attachments;
 }
 
+function toTags(value: unknown): string[] {
+  return Array.isArray(value) ? value.filter((tag): tag is string => typeof tag === "string") : [];
+}
+
 /** Normalize one platform task. Returns null when it carries no id to act on. */
 export function parseIntakeTask(value: unknown): IntakeTask | null {
   if (!isRecord(value)) return null;
@@ -380,6 +388,7 @@ export function parseIntakeTask(value: unknown): IntakeTask | null {
     description: toText(value.description),
     status: toStatus(value.status),
     priority: toPriority(value.priority),
+    tags: toTags(value.tags),
     dueDate: toNullableText(value.dueDate),
     assigneeUserId: toNullableText(value.assigneeUserId),
     assigneeName: toNullableText(value.assigneeName),
@@ -455,6 +464,7 @@ function taskListQuery(params: IntakeTaskListParams): string {
   if (params.assignee) query.set("assignee", params.assignee);
   if (params.status) query.set("status", params.status);
   if (params.endpointId) query.set("endpointId", params.endpointId);
+  if (params.tag) query.set("tag", params.tag);
   if (params.sort) query.set("sort", params.sort);
   if (params.order) query.set("order", params.order);
   if (params.limit !== undefined) query.set("limit", String(params.limit));

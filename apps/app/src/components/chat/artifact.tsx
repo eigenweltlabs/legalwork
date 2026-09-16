@@ -76,7 +76,7 @@ function TaskButton({ task }: { task: FiledTask }) {
   return (
     <DescriptiveButton
       className="w-fit max-w-full flex-none items-center gap-1.5 rounded-xl px-2 py-1.5 whitespace-nowrap"
-      onClick={() => requestOpenTask(task.id)}
+      onClick={() => requestOpenTask(task.id, name)}
       title={t("message_list.open_task")}
     >
       <DescriptiveButtonIcon className="size-5">

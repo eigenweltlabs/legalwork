@@ -33,7 +33,7 @@ export type TaskStatus = "open" | "in_progress" | "done" | "cancelled";
 export type TaskPriority = 0 | 1 | 2 | 3 | 4;
 export type TaskOrigin = "desktop" | "intake";
 export type TaskNoteSource = "member" | "agent";
-export type TaskSort = "created" | "updated" | "priority";
+export type TaskSort = "created" | "updated" | "due" | "priority";
 export type TaskOrder = "asc" | "desc";
 
 export type TaskAttachment = {
@@ -75,6 +75,7 @@ export type Task = {
   description: string;
   status: TaskStatus;
   priority: TaskPriority;
+  tags: string[];
   /** ISO timestamp; a date-only due date is stored as local midnight. */
   dueDate: string | null;
   assigneeUserId: string | null;
@@ -124,6 +125,7 @@ export type TaskListParams = {
   assignee?: string;
   status?: TaskStatus;
   endpointId?: string;
+  tag?: string;
   sort?: TaskSort;
   order?: TaskOrder;
   limit?: number;
@@ -142,6 +144,7 @@ export type TaskCreate = {
   priority?: TaskPriority;
   dueDate?: string | null;
   assigneeUserId?: string | null;
+  tags?: string[];
   /** The agent session filing the task, when one is. */
   createdInSession?: { sessionId: string; workspaceId: string };
 };
@@ -153,6 +156,7 @@ export type TaskPatch = {
   priority?: TaskPriority;
   dueDate?: string | null;
   assigneeUserId?: string | null;
+  tags?: string[];
   /** Appended to the task's history; never edits an earlier entry. */
   note?: string;
   noteSource?: TaskNoteSource;
@@ -176,9 +180,9 @@ export type TaskMember = {
 };
 
 /** The scalar fields a patch may change and the platform arbitrates per field. */
-export type TaskScalarField = "title" | "description" | "status" | "priority" | "dueDate" | "assigneeUserId";
+export type TaskScalarField = "title" | "description" | "status" | "priority" | "dueDate" | "assigneeUserId" | "tags";
 
-const SCALAR_FIELDS: TaskScalarField[] = ["title", "description", "status", "priority", "dueDate", "assigneeUserId"];
+const SCALAR_FIELDS: TaskScalarField[] = ["title", "description", "status", "priority", "dueDate", "assigneeUserId", "tags"];
 
 /**
  * A recorded local write, waiting to be pushed. The payload is what the push
@@ -221,6 +225,7 @@ export type RemoteTask = {
   description: string;
   status: TaskStatus;
   priority: TaskPriority;
+  tags: string[];
   dueDate: string | null;
   assigneeUserId: string | null;
   assigneeName: string | null;
@@ -244,6 +249,8 @@ export type RemoteTask = {
 export const TASK_TITLE_MAX_CHARS = 500;
 export const TASK_DESCRIPTION_MAX_CHARS = 100_000;
 export const TASK_NOTE_MAX_CHARS = 4_000;
+export const TASK_TAG_MAX_CHARS = 80;
+export const TASK_TAGS_MAX = 20;
 export const TASK_PAGE_DEFAULT = 50;
 export const TASK_PAGE_MAX = 200;
 
@@ -300,6 +307,7 @@ const SCHEMA = [
     description TEXT NOT NULL DEFAULT '',
     status TEXT NOT NULL DEFAULT 'open',
     priority INTEGER NOT NULL DEFAULT 2,
+    tags_json TEXT NOT NULL DEFAULT '[]',
     due_date TEXT,
     assignee_user_id TEXT,
     assignee_name TEXT,
@@ -392,7 +400,7 @@ const SCHEMA = [
 // Columns added after the table's first release. SQLite has no ADD COLUMN IF
 // NOT EXISTS, so each ALTER runs best-effort (throws "duplicate column" once
 // the column exists — ignored). Empty for now; kept for the next one.
-const MIGRATION_COLUMNS: string[] = [];
+const MIGRATION_COLUMNS: string[] = ["ALTER TABLE tasks ADD COLUMN tags_json TEXT NOT NULL DEFAULT '[]'"];
 
 /** The one flag the store keeps about the account: a sign-out happened, and no sign-in since. */
 const SIGNED_OUT_FLAG = "signed_out_at";
@@ -416,6 +424,36 @@ function attachmentsDir(config: ServerConfig): string {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function tagsFromJson(value: unknown): string[] {
+  if (typeof value !== "string") return [];
+  try {
+    const parsed: unknown = JSON.parse(value);
+    return Array.isArray(parsed) ? parsed.filter((tag): tag is string => typeof tag === "string") : [];
+  } catch {
+    return [];
+  }
+}
+
+export function normalizeTaskTags(tags: string[]): string[] {
+  const normalized: string[] = [];
+  const seen = new Set<string>();
+  for (const raw of tags) {
+    const tag = raw.trim();
+    if (!tag) continue;
+    if (tag.length > TASK_TAG_MAX_CHARS) {
+      throw new ApiError(400, "invalid_task_tags", `A tag is at most ${TASK_TAG_MAX_CHARS} characters.`);
+    }
+    const key = tag.toLocaleLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    normalized.push(tag);
+  }
+  if (normalized.length > TASK_TAGS_MAX) {
+    throw new ApiError(400, "invalid_task_tags", `A task can have at most ${TASK_TAGS_MAX} tags.`);
+  }
+  return normalized;
 }
 
 function text(value: unknown): string {
@@ -471,6 +509,10 @@ function sortExpression(alias: string, sort: TaskSort): string {
       return `${alias}.created_at`;
     case "updated":
       return `${alias}.updated_at`;
+    case "due":
+      // Undated work follows every real due date in ascending order. The
+      // fallback also keeps keyset cursor comparisons deterministic.
+      return `COALESCE(${alias}.due_date, '9999-12-31T23:59:59.999Z')`;
     case "priority":
       return `CASE WHEN ${alias}.priority = 0 THEN 5 ELSE ${alias}.priority END`;
   }
@@ -633,6 +675,7 @@ export class TaskStore {
         description: text(row.description),
         status: toStatus(row.status),
         priority: toPriority(row.priority),
+        tags: tagsFromJson(row.tags_json),
         dueDate: nullableText(row.due_date),
         assigneeUserId: nullableText(row.assignee_user_id),
         assigneeName: nullableText(row.assignee_name),
@@ -716,7 +759,7 @@ export class TaskStore {
    */
   listTasks(params: TaskListParams = {}, orgId: string | null = null): TaskPage {
     const sort: TaskSort = params.sort ?? "created";
-    const order: TaskOrder = params.order ?? (sort === "priority" ? "asc" : "desc");
+    const order: TaskOrder = params.order ?? (sort === "priority" || sort === "due" ? "asc" : "desc");
     const limit = Math.min(Math.max(params.limit ?? TASK_PAGE_DEFAULT, 1), TASK_PAGE_MAX);
     const where: string[] = [];
     const values: SqlValue[] = [];
@@ -734,6 +777,10 @@ export class TaskStore {
     if (params.endpointId) {
       where.push("t.endpoint_id = ?");
       values.push(params.endpointId);
+    }
+    if (params.tag) {
+      where.push("EXISTS (SELECT 1 FROM json_each(t.tags_json) AS task_tag WHERE task_tag.value = ?)");
+      values.push(params.tag);
     }
     if (orgId) {
       where.push("(t.origin = 'desktop' OR t.remote_org_id IS NULL OR t.remote_org_id = ?)");
@@ -772,6 +819,20 @@ export class TaskStore {
     );
   }
 
+  /** Every tag on a visible, live task, for autocomplete and the list filter. */
+  listTags(orgId: string | null = null): string[] {
+    const rows = this.db.all(
+      `SELECT DISTINCT task_tag.value AS tag
+       FROM tasks AS t, json_each(t.tags_json) AS task_tag
+       WHERE t.deleted_at IS NULL
+         AND (? IS NULL OR t.origin = 'desktop' OR t.remote_org_id IS NULL OR t.remote_org_id = ?)
+         AND typeof(task_tag.value) = 'text'
+       ORDER BY task_tag.value COLLATE NOCASE`,
+      [orgId, orgId],
+    );
+    return rows.map((row) => text(row.tag)).filter(Boolean);
+  }
+
   // --- Local writes (each one lands in the outbox) --------------------------
 
   private enqueue(taskId: string, op: TaskSyncOp, now: number): void {
@@ -793,18 +854,20 @@ export class TaskStore {
       throw new ApiError(400, "invalid_task_description", "The description is too long.");
     }
     const id = input.id?.trim() || randomUUID();
+    const tags = normalizeTaskTags(input.tags ?? []);
     return this.transaction(() => {
       const existing = this.getTask(id);
       // A retried create (same id) is the same task, never a second one.
       if (existing) return existing;
       this.db.run(
-        `INSERT INTO tasks (id, origin, title, description, status, priority, due_date, assignee_user_id, created_by_user_id, created_at, updated_at)
-         VALUES (?, 'desktop', ?, ?, 'open', ?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO tasks (id, origin, title, description, status, priority, tags_json, due_date, assignee_user_id, created_by_user_id, created_at, updated_at)
+         VALUES (?, 'desktop', ?, ?, 'open', ?, ?, ?, ?, ?, ?, ?)`,
         [
           id,
           title,
           description,
           input.priority ?? 2,
+          JSON.stringify(tags),
           input.dueDate ?? null,
           input.assigneeUserId ?? null,
           actor.userId,
@@ -850,6 +913,7 @@ export class TaskStore {
       if (patch.priority !== undefined) fields.priority = patch.priority;
       if (patch.dueDate !== undefined) fields.dueDate = patch.dueDate;
       if (patch.assigneeUserId !== undefined) fields.assigneeUserId = patch.assigneeUserId;
+      if (patch.tags !== undefined) fields.tags = normalizeTaskTags(patch.tags);
 
       const sets: string[] = [];
       const values: SqlValue[] = [];
@@ -860,11 +924,12 @@ export class TaskStore {
         priority: "priority",
         dueDate: "due_date",
         assigneeUserId: "assignee_user_id",
+        tags: "tags_json",
       };
       for (const field of SCALAR_FIELDS) {
         if (!(field in fields)) continue;
         sets.push(`${column[field]} = ?`);
-        values.push(fields[field] ?? null);
+        values.push(field === "tags" ? JSON.stringify(fields.tags ?? []) : fields[field] ?? null);
       }
       if (fields.assigneeUserId !== undefined) {
         // The name is display data; the member list fills it in when known.
@@ -1146,13 +1211,13 @@ export class TaskStore {
       const createdAt = local ? epoch(local.createdAt) ?? now : epoch(remote.createdAt) ?? now;
       const submissionJson = remote.submission === undefined || remote.submission === null ? null : JSON.stringify(remote.submission);
       this.db.run(
-        `INSERT INTO tasks (id, origin, title, description, status, priority, due_date, assignee_user_id, assignee_name, created_by_user_id,
+        `INSERT INTO tasks (id, origin, title, description, status, priority, tags_json, due_date, assignee_user_id, assignee_name, created_by_user_id,
            endpoint_id, endpoint_name, submission_id, submission_json, assignment_note, workflow_hub_item_id, workflow_version, cloud_run_id,
            last_local_run_at, created_at, updated_at, deleted_at, remote_org_id, remote_updated_at, synced_at, sync_error)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)
          ON CONFLICT(id) DO UPDATE SET
            origin = excluded.origin, title = excluded.title, description = excluded.description, status = excluded.status,
-           priority = excluded.priority, due_date = excluded.due_date, assignee_user_id = excluded.assignee_user_id,
+           priority = excluded.priority, tags_json = excluded.tags_json, due_date = excluded.due_date, assignee_user_id = excluded.assignee_user_id,
            assignee_name = excluded.assignee_name, created_by_user_id = excluded.created_by_user_id, endpoint_id = excluded.endpoint_id,
            endpoint_name = excluded.endpoint_name, submission_id = excluded.submission_id,
            submission_json = COALESCE(excluded.submission_json, tasks.submission_json), assignment_note = excluded.assignment_note,
@@ -1167,6 +1232,7 @@ export class TaskStore {
           pick("description", remote.description),
           pick("status", remote.status),
           pick("priority", remote.priority),
+          JSON.stringify(pick("tags", remote.tags)),
           pick("dueDate", remote.dueDate),
           pick("assigneeUserId", remote.assigneeUserId),
           local && dirty.fields.has("assigneeUserId") ? local.assigneeName : remote.assigneeName,

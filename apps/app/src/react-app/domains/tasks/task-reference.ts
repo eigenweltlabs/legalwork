@@ -6,11 +6,13 @@
  * fetches the task itself and the sender's text arrives inside the tool's
  * untrusted block, never as the user's words. An assistant turn links a task
  * the way it links a document: `[title](legalworktask://<id>)`, which the
- * markdown renderer turns into a chip that opens the task in the Tasks pane.
+ * markdown renderer turns into a chip that opens the task in the side panel.
  * Both are rendered by components/chat/message-list.tsx and
  * components/markdown/markdown.tsx; the task tools' system prompt tells the
  * agent what each means.
  */
+
+import { requestPanelTab } from "@/react-app/domains/session/panel/panel-tab-store";
 
 export const TASK_REFERENCE_SOURCE = String.raw`\[task [\w-]+ via legalwork_task_get\]`;
 
@@ -36,12 +38,6 @@ export function parseTaskLink(href: string): { taskId: string } | null {
   return match?.[1] ? { taskId: match[1] } : null;
 }
 
-/** Fired on `window` when a chip asks for a task to be shown; the session
- *  route opens the Tasks pane on it. */
-export const TASK_OPEN_EVENT = "legalwork:task-open";
-
-export type TaskOpenEventDetail = { taskId: string };
-
-export function requestOpenTask(taskId: string): void {
-  window.dispatchEvent(new CustomEvent<TaskOpenEventDetail>(TASK_OPEN_EVENT, { detail: { taskId } }));
+export function requestOpenTask(taskId: string, label = "Task"): void {
+  requestPanelTab({ id: `task:${taskId}`, type: "task", taskId, label });
 }

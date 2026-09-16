@@ -494,7 +494,7 @@ function MarkdownBlockInner({
         event.preventDefault();
         event.stopPropagation();
         const taskId = taskRefLink.dataset.legalworkTaskRef ?? "";
-        if (taskId) requestOpenTask(taskId);
+        if (taskId) requestOpenTask(taskId, taskRefLink.textContent?.trim() || undefined);
         return;
       }
 

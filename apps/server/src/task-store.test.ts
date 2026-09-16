@@ -59,6 +59,7 @@ function remoteTask(overrides: Partial<RemoteTask> = {}): RemoteTask {
     updatedAt: "2026-09-02T09:00:00.000Z",
     deletedAt: null,
     ...overrides,
+    tags: overrides.tags ?? [],
   };
 }
 
@@ -175,6 +176,24 @@ describe("task-store: local tasks", () => {
     });
   });
 
+  test("normalizes, lists and filters tags while offline", async () => {
+    const { store } = await makeStore();
+    const first = store.createTask({ title: "Project Alpha", tags: [" Project Alpha ", "Urgent", "project alpha"] }, ANON, 1_000);
+    store.createTask({ title: "Project Beta", tags: ["Project Beta"] }, ANON, 2_000);
+
+    expect(first.tags).toEqual(["Project Alpha", "Urgent"]);
+    expect(store.listTags()).toEqual(["Project Alpha", "Project Beta", "Urgent"]);
+    expect(store.listTasks({ tag: "Project Alpha" }).tasks.map((task) => task.id)).toEqual([first.id]);
+
+    const updated = store.patchTask(first.id, { tags: ["Urgent", "Client"] }, ANON, 3_000);
+    expect(updated.tags).toEqual(["Urgent", "Client"]);
+    expect(store.listOutbox().at(-1)?.op).toEqual({
+      kind: "patch",
+      fields: { tags: ["Urgent", "Client"] },
+      changedAt: new Date(3_000).toISOString(),
+    });
+  });
+
   test("an empty patch is refused", async () => {
     const { store } = await makeStore();
     const task = store.createTask({ title: "Akte anlegen" }, ANON);
@@ -229,14 +248,15 @@ describe("task-store: local tasks", () => {
 });
 
 describe("task-store: listing", () => {
-  test("filters by status and assignee, and sorts priority Urgent first with None last", async () => {
+  test("filters by status and assignee, and sorts priority and due dates", async () => {
     const { store } = await makeStore();
     const none = store.createTask({ title: "none", priority: 0 }, ANON, 1_000);
-    const low = store.createTask({ title: "low", priority: 4, assigneeUserId: "user_bob" }, ANON, 2_000);
-    const urgent = store.createTask({ title: "urgent", priority: 1, assigneeUserId: "user_ada" }, ANON, 3_000);
+    const low = store.createTask({ title: "low", priority: 4, dueDate: "2026-09-18", assigneeUserId: "user_bob" }, ANON, 2_000);
+    const urgent = store.createTask({ title: "urgent", priority: 1, dueDate: "2026-09-20", assigneeUserId: "user_ada" }, ANON, 3_000);
     store.patchTask(low.id, { status: "done" }, ANON, 4_000);
 
     expect(store.listTasks({ sort: "priority" }).tasks.map((row) => row.title)).toEqual(["urgent", "low", "none"]);
+    expect(store.listTasks({ sort: "due" }).tasks.map((row) => row.title)).toEqual(["low", "urgent", "none"]);
     expect(store.listTasks({ status: "done" }).tasks.map((row) => row.id)).toEqual([low.id]);
     expect(store.listTasks({ assignee: "user_ada" }).tasks.map((row) => row.id)).toEqual([urgent.id]);
     // Newest first by default.

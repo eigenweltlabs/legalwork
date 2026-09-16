@@ -335,6 +335,7 @@ export type LegalworkTask = {
   description: string;
   status: LegalworkTaskStatus;
   priority: LegalworkTaskPriority;
+  tags: string[];
   dueDate: string | null;
   assigneeUserId: string | null;
   assigneeName: string | null;
@@ -383,7 +384,8 @@ export type LegalworkTaskListParams = {
   assignee?: string;
   status?: LegalworkTaskStatus;
   endpointId?: string;
-  sort?: "created" | "updated" | "priority";
+  tag?: string;
+  sort?: "created" | "updated" | "due" | "priority";
   order?: "asc" | "desc";
   limit?: number;
   cursor?: string;
@@ -398,6 +400,7 @@ export type LegalworkTaskCreate = {
   /** A calendar day (YYYY-MM-DD, the firm's local day) or an ISO timestamp. */
   dueDate?: string | null;
   assigneeUserId?: string | null;
+  tags?: string[];
 };
 
 export type LegalworkTaskPatch = {
@@ -407,6 +410,7 @@ export type LegalworkTaskPatch = {
   assigneeUserId?: string | null;
   priority?: LegalworkTaskPriority;
   dueDate?: string | null;
+  tags?: string[];
   /** Appended to the task's history; it never replaces triage's note. */
   note?: string;
   noteSource?: LegalworkTaskNoteSource;
@@ -2309,6 +2313,7 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
       if (params?.assignee) query.set("assignee", params.assignee);
       if (params?.status) query.set("status", params.status);
       if (params?.endpointId) query.set("endpointId", params.endpointId);
+      if (params?.tag) query.set("tag", params.tag);
       if (params?.sort) query.set("sort", params.sort);
       if (params?.order) query.set("order", params.order);
       if (params?.limit !== undefined) query.set("limit", String(params.limit));
@@ -2401,6 +2406,12 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
       requestJson<{ members: LegalworkTaskMember[] }>(
         baseUrl,
         `/workspace/${encodeURIComponent(workspaceId)}/task-members`,
+        { token, hostToken, timeoutMs: timeouts.config },
+      ),
+    listTaskTags: (workspaceId: string) =>
+      requestJson<{ tags: string[] }>(
+        baseUrl,
+        `/workspace/${encodeURIComponent(workspaceId)}/task-tags`,
         { token, hostToken, timeoutMs: timeouts.config },
       ),
     taskSyncStatus: (workspaceId: string) =>

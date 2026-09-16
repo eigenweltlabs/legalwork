@@ -35,6 +35,7 @@ export type TaskQueryContext = {
 const TASKS_ROOT = "tasks";
 const TASK_ROOT = "task";
 const MEMBERS_ROOT = "task-members";
+const TAGS_ROOT = "task-tags";
 const SYNC_ROOT = "task-sync";
 
 /** Filters/sort as the list request carries them (no paging keys). */
@@ -115,6 +116,19 @@ export function useTaskMembers(context: TaskQueryContext) {
   });
 }
 
+/** Tags already used on this machine, available even while the firm is offline. */
+export function useTaskTags(context: TaskQueryContext) {
+  const { client, workspaceId } = context;
+  return useQuery({
+    queryKey: [TAGS_ROOT, workspaceId],
+    enabled: Boolean(client && workspaceId),
+    queryFn: async (): Promise<string[]> => {
+      if (!client || !workspaceId) return [];
+      return (await client.listTaskTags(workspaceId)).tags;
+    },
+  });
+}
+
 /**
  * Where the store stands against the platform. Polled, so a round that ran
  * in the background (a push landing, a pull bringing a colleague's change)
@@ -145,6 +159,7 @@ export function useTaskSyncStatus(context: TaskQueryContext) {
     void queryClient.invalidateQueries({ queryKey: [TASKS_ROOT, workspaceId] });
     void queryClient.invalidateQueries({ queryKey: [TASK_ROOT, workspaceId] });
     void queryClient.invalidateQueries({ queryKey: [MEMBERS_ROOT, workspaceId] });
+    void queryClient.invalidateQueries({ queryKey: [TAGS_ROOT, workspaceId] });
   }, [lastSyncAt, queryClient, workspaceId]);
   return query;
 }
@@ -154,6 +169,7 @@ function useInvalidateTasks(context: TaskQueryContext) {
   return (taskId?: string) => {
     void queryClient.invalidateQueries({ queryKey: [TASKS_ROOT, context.workspaceId] });
     void queryClient.invalidateQueries({ queryKey: [SYNC_ROOT, context.workspaceId] });
+    void queryClient.invalidateQueries({ queryKey: [TAGS_ROOT, context.workspaceId] });
     if (taskId) void queryClient.invalidateQueries({ queryKey: taskQueryKey(context.workspaceId, taskId) });
   };
 }
@@ -171,6 +187,7 @@ export function useRunTaskSync(context: TaskQueryContext) {
       void queryClient.invalidateQueries({ queryKey: [TASKS_ROOT, workspaceId] });
       void queryClient.invalidateQueries({ queryKey: [TASK_ROOT, workspaceId] });
       void queryClient.invalidateQueries({ queryKey: [MEMBERS_ROOT, workspaceId] });
+      void queryClient.invalidateQueries({ queryKey: [TAGS_ROOT, workspaceId] });
       void queryClient.invalidateQueries({ queryKey: [SYNC_ROOT, workspaceId] });
     },
   });

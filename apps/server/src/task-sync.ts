@@ -125,6 +125,7 @@ async function pushOne(
         title: task.title,
         description: task.description,
         priority: task.priority,
+        tags: task.tags,
         dueDate: task.dueDate,
         assigneeUserId: task.assigneeUserId,
         createdAt: task.createdAt,
