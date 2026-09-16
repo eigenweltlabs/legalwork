@@ -50,7 +50,7 @@ describe("onboarding transitions", () => {
 });
 
 describe("provider order in the connect dialog", () => {
-  test("Eigenwelt, OpenAI and Anthropic lead, everything else is alphabetical", () => {
+  test("only Eigenwelt is pinned, every other provider sorts by name", () => {
     const providers = [
       { id: "302ai", name: "302.AI" },
       { id: "opencode", name: "OpenCode Zen" },
@@ -62,11 +62,11 @@ describe("provider order in the connect dialog", () => {
     ];
     expect(providers.toSorted(compareProviders).map((provider) => provider.id)).toEqual([
       "eigenwelt",
-      "OpenAI",
-      "anthropic",
       "302ai",
       "abacus",
+      "anthropic",
       "mistral",
+      "OpenAI",
       "opencode",
     ]);
   });

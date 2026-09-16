@@ -1,8 +1,8 @@
 import type { ProviderListResponse } from "@opencode-ai/sdk/v2/client";
 
-// The provider list opens with Eigenwelt, then the two providers most firms
-// bring. Everything else, OpenCode Zen included, follows alphabetically.
-const PINNED_PROVIDER_ORDER = ["eigenwelt", "openai", "anthropic"] as const;
+// Only Eigenwelt is pinned. Every other provider, OpenAI and Anthropic
+// included, sorts by name.
+const PINNED_PROVIDER_ORDER = ["eigenwelt"] as const;
 
 export const providerPriorityRank = (id: string) => {
   const normalized = id.trim().toLowerCase();
