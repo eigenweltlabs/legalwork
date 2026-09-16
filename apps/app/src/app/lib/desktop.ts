@@ -528,6 +528,7 @@ const {
   desktopLoginItemGet,
   desktopLoginItemSet,
   desktopNotificationShow,
+  desktopBadgeSet,
 } = desktopBridge;
 
 export {
@@ -639,4 +640,5 @@ export {
   desktopLoginItemGet,
   desktopLoginItemSet,
   desktopNotificationShow,
+  desktopBadgeSet,
 };

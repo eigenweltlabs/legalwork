@@ -33,6 +33,7 @@ const {
 } = await import("../src/react-app/domains/tasks/task-notification-preferences");
 const { requestTasksPane, takePendingTasksPaneRequest, TASKS_PANE_OPEN_EVENT } = await import("../src/react-app/domains/tasks/tasks-pane-request");
 const { isSessionViewPath } = await import("../src/react-app/shell/show-tasks-pane");
+const { appBadgeLabel } = await import("../src/react-app/shell/app-badge");
 
 import type { LegalworkTaskNotification } from "../src/app/lib/legalwork-server";
 import type { AppNotification } from "../src/react-app/kernel/notification-store";
@@ -226,6 +227,7 @@ describe("task notification settings", () => {
       overdue: true,
       scope: "mine",
       system: true,
+      appBadge: true,
     });
   });
 
@@ -251,6 +253,14 @@ describe("task notification settings", () => {
     await useTaskNotificationPreferences.persist.rehydrate();
     expect(useTaskNotificationPreferences.getState()).toMatchObject({ scope: "unassigned", system: false, overdue: true });
     useTaskNotificationPreferences.setState({ ...DEFAULT_TASK_NOTIFICATION_PREFERENCES });
+  });
+});
+
+describe("the app icon", () => {
+  test("reads like the sidebar count", () => {
+    expect(appBadgeLabel(1)).toBe("1");
+    expect(appBadgeLabel(9)).toBe("9");
+    expect(appBadgeLabel(12)).toBe("9+");
   });
 });
 

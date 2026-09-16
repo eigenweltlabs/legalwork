@@ -21,7 +21,7 @@ import {
   LayoutStack,
 } from "../settings-layout";
 
-type ToggleKey = "arrivals" | "dueToday" | "overdue" | "system";
+type ToggleKey = "arrivals" | "dueToday" | "overdue" | "system" | "appBadge";
 
 /**
  * A switch row's content. The row itself (LayoutSectionItem) stays at the
@@ -125,6 +125,13 @@ export function NotificationsView() {
             field="system"
             title={t("settings.notifications_system")}
             description={t("settings.notifications_system_desc")}
+          />
+        </LayoutSectionItem>
+        <LayoutSectionItem>
+          <ToggleRow
+            field="appBadge"
+            title={t("settings.notifications_app_badge")}
+            description={t("settings.notifications_app_badge_desc")}
           />
         </LayoutSectionItem>
       </LayoutSection>

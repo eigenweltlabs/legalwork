@@ -379,18 +379,30 @@ export function SessionRoute() {
     setShowExtensions(false);
     setShowRecorder(false);
   }, []);
-  // The Tasks pane is where task announcements are read: while it is open,
-  // the count next to Tasks in the sidebar stays clear. A detached window
-  // leaves the (shared, persisted) announcements to the main one.
+  // The Tasks pane is where task announcements are read — once the user looks
+  // at it: while it is open AND the window is in front, the counts next to
+  // Tasks and on the app icon stay clear. An announcement that arrives while
+  // the window is in the background stays counted until the window comes
+  // back. A detached window leaves the (shared, persisted) announcements to
+  // the main one.
   useEffect(() => {
     if (!showTasks || detached) return;
-    const markRead = () => useNotificationStore.getState().markKindRead("tasks");
-    markRead();
-    return useNotificationStore.subscribe((state) => {
-      if (state.notifications.some((notification) => notification.kind === "tasks" && notification.readAt === null)) {
-        markRead();
+    const markRead = () => {
+      if (document.visibilityState !== "visible" || !document.hasFocus()) return;
+      const store = useNotificationStore.getState();
+      if (store.notifications.some((notification) => notification.kind === "tasks" && notification.readAt === null)) {
+        store.markKindRead("tasks");
       }
-    });
+    };
+    markRead();
+    const unsubscribe = useNotificationStore.subscribe(markRead);
+    window.addEventListener("focus", markRead);
+    document.addEventListener("visibilitychange", markRead);
+    return () => {
+      unsubscribe();
+      window.removeEventListener("focus", markRead);
+      document.removeEventListener("visibilitychange", markRead);
+    };
   }, [detached, showTasks]);
   useEffect(() => {
     const pending = takePendingTasksPaneRequest();

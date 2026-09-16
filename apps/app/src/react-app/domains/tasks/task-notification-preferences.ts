@@ -22,6 +22,8 @@ export type TaskNotificationPreferences = {
   scope: TaskNotificationScope;
   /** Also a system notification while LegalWork is in the background. */
   system: boolean;
+  /** The unread count on the app icon (Dock, launcher, taskbar). */
+  appBadge: boolean;
 };
 
 export const DEFAULT_TASK_NOTIFICATION_PREFERENCES: TaskNotificationPreferences = {
@@ -30,6 +32,7 @@ export const DEFAULT_TASK_NOTIFICATION_PREFERENCES: TaskNotificationPreferences 
   overdue: true,
   scope: "mine",
   system: true,
+  appBadge: true,
 };
 
 function isScope(value: unknown): value is TaskNotificationScope {
@@ -40,7 +43,7 @@ function isScope(value: unknown): value is TaskNotificationScope {
 export function sanitizeTaskNotificationPreferences(value: unknown): TaskNotificationPreferences {
   const defaults = DEFAULT_TASK_NOTIFICATION_PREFERENCES;
   if (typeof value !== "object" || value === null) return { ...defaults };
-  const flag = (key: "arrivals" | "dueToday" | "overdue" | "system") => {
+  const flag = (key: "arrivals" | "dueToday" | "overdue" | "system" | "appBadge") => {
     const stored = Reflect.get(value, key);
     return typeof stored === "boolean" ? stored : defaults[key];
   };
@@ -51,6 +54,7 @@ export function sanitizeTaskNotificationPreferences(value: unknown): TaskNotific
     overdue: flag("overdue"),
     scope: isScope(scope) ? scope : defaults.scope,
     system: flag("system"),
+    appBadge: flag("appBadge"),
   };
 }
 
@@ -67,7 +71,14 @@ export const useTaskNotificationPreferences = create<TaskNotificationPreferences
     {
       name: TASK_NOTIFICATION_PREFERENCES_KEY,
       storage: createJSONStorage(() => localStorage),
-      partialize: ({ arrivals, dueToday, overdue, scope, system }) => ({ arrivals, dueToday, overdue, scope, system }),
+      partialize: ({ arrivals, dueToday, overdue, scope, system, appBadge }) => ({
+        arrivals,
+        dueToday,
+        overdue,
+        scope,
+        system,
+        appBadge,
+      }),
       merge: (persisted, current) => ({ ...current, ...sanitizeTaskNotificationPreferences(persisted) }),
     },
   ),

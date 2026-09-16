@@ -6,7 +6,7 @@ import { toast } from "@/components/ui/sonner";
 import { desktopNotificationShow } from "@/app/lib/desktop";
 import { createLegalworkServerClient, type LegalworkTaskNotification } from "@/app/lib/legalwork-server";
 import { isDesktopRuntime } from "@/app/utils";
-import { useNotificationStore } from "@/react-app/kernel/notification-store";
+import { useNotificationStore, useUnreadTaskCount } from "@/react-app/kernel/notification-store";
 import { usePlatform, type Platform } from "@/react-app/kernel/platform";
 
 import { useTaskNotificationPreferences } from "../domains/tasks/task-notification-preferences";
@@ -20,6 +20,7 @@ import {
   taskSystemNotificationId,
   taskSystemNotificationTarget,
 } from "../domains/tasks/task-notifications";
+import { setAppBadge } from "./app-badge";
 import { resolveLegalworkConnection } from "./legalwork-connection";
 import { notifyEvent } from "./notifications";
 import { useShowTasksPane } from "./show-tasks-pane";
@@ -48,9 +49,10 @@ function nonce(): string {
  * toast while the window is in front, a system notification while it is not.
  * Each is also kept as a notification center entry, which is what the count
  * next to Tasks in the sidebar reads until the Tasks pane is opened (the bell
- * itself is hidden in LegalWork). A click opens the task in the Tasks pane,
- * or the task list for several. Mounted once per app window; a detached session window leaves
- * the claiming to the main one.
+ * itself is hidden in LegalWork) and the app icon shows as well. A click
+ * opens the task in the Tasks pane, or the task list for several. Mounted
+ * once per app window; a detached session window leaves the claiming, and
+ * the app icon, to the main one.
  */
 export function TaskNotificationsListener() {
   const { search } = useLocation();
@@ -63,6 +65,13 @@ export function TaskNotificationsListener() {
     showTasksPaneRef.current = showTasksPane;
     platformRef.current = platform;
   });
+
+  const unreadTasks = useUnreadTaskCount();
+  const appBadge = useTaskNotificationPreferences((state) => state.appBadge);
+  useEffect(() => {
+    if (detached || !isDesktopRuntime()) return;
+    void setAppBadge(appBadge ? unreadTasks : 0).catch(() => undefined);
+  }, [appBadge, detached, unreadTasks]);
 
   useEffect(() => {
     if (detached) return;

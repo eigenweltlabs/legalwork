@@ -2528,6 +2528,26 @@ const desktopCommandHandlers = {
         return false;
       }
   },
+  "desktopBadgeSet": async (event, ...args) => {
+      const input = args[0] ?? {};
+      const count = Math.max(0, Math.min(9999, Math.floor(Number(input.count) || 0)));
+      try {
+        if (process.platform === "win32") {
+          // No count on Windows: a small image over the taskbar icon instead.
+          const win = BrowserWindow.fromWebContents(event.sender) ?? mainWindow;
+          if (!win || win.isDestroyed()) return false;
+          const dataUrl = typeof input.overlayDataUrl === "string" && input.overlayDataUrl.startsWith("data:image/png;base64,")
+            ? input.overlayDataUrl
+            : null;
+          const image = count > 0 && dataUrl ? nativeImage.createFromDataURL(dataUrl) : null;
+          win.setOverlayIcon(image && !image.isEmpty() ? image : null, count > 0 ? String(input.description ?? "").slice(0, 200) : "");
+          return true;
+        }
+        return app.setBadgeCount(count);
+      } catch {
+        return false;
+      }
+  },
   "windowSetStealth": async (event, ...args) => {
       const enabled = Boolean(args[0]);
       if (!mainWindow || mainWindow.isDestroyed()) return false;
