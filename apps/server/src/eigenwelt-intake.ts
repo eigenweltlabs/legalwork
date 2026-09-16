@@ -25,10 +25,15 @@ export type IntakeAttachment = {
   size: number;
 };
 
+export type IntakeTaskOrigin = "intake" | "desktop";
+
 export type IntakeTask = {
   id: string;
-  endpointId: string;
-  endpointName: string;
+  /** Triaged out of a submission, or filed from a LegalWork machine. */
+  origin: IntakeTaskOrigin;
+  /** Null for a task filed from LegalWork, which arrived at no address. */
+  endpointId: string | null;
+  endpointName: string | null;
   submissionId: string | null;
   title: string;
   description: string;
@@ -37,6 +42,7 @@ export type IntakeTask = {
   dueDate: string | null;
   assigneeUserId: string | null;
   assigneeName: string | null;
+  createdByUserId: string | null;
   assignmentNote: string | null;
   workflowHubItemId: string | null;
   workflowVersion: number | null;
@@ -45,6 +51,8 @@ export type IntakeTask = {
   attachments: IntakeAttachment[];
   createdAt: string;
   updatedAt: string;
+  /** Set while the task is in the platform's trash. */
+  deletedAt: string | null;
 };
 
 export type IntakeMember = {
@@ -54,9 +62,23 @@ export type IntakeMember = {
   role: string;
 };
 
-/** `GET /tasks/:id` also returns the submission the task was triaged from. The
- * contract does not pin that shape, so it is relayed through untouched. */
-export type IntakeTaskDetail = { task: IntakeTask; submission: unknown };
+export type IntakeTaskNoteSource = "member" | "agent";
+
+/** One entry of a task's history. Written by a member, or by an agent for them. */
+export type IntakeTaskNote = {
+  id: string;
+  body: string;
+  source: IntakeTaskNoteSource;
+  authorUserId: string;
+  authorName: string | null;
+  authorEmail: string | null;
+  createdAt: string;
+};
+
+/** `GET /tasks/:id` also returns the submission the task was triaged from and
+ * the task's history. The contract does not pin the submission's shape, so it
+ * is relayed through untouched. */
+export type IntakeTaskDetail = { task: IntakeTask; submission: unknown; notes: IntakeTaskNote[] };
 
 export type IntakeTaskSort = "created" | "updated" | "priority";
 export type IntakeTaskOrder = "asc" | "desc";
@@ -69,23 +91,54 @@ export type IntakeTaskListParams = {
   order?: IntakeTaskOrder;
   limit?: number;
   cursor?: string;
+  /** Only tasks changed after this moment (ISO) — the sync's delta pull. */
+  updatedSince?: string;
+  /** Live tasks by default; "only" is the trash, "include" both. */
+  deleted?: "only" | "include";
+  /** Extras per task: "notes", "submission". */
+  include?: ("notes" | "submission")[];
 };
 
 export type IntakeTaskPage = { tasks: IntakeTask[]; nextCursor: string | null };
 
+/** A task as the sync pulls it: with its history and the message it came from. */
+export type IntakeTaskPulled = IntakeTask & { notes: IntakeTaskNote[]; submission: unknown };
+
+/** A delta page: the changed tasks, and the ids of changed tasks the caller
+ *  may no longer see (handed away on a walled endpoint, say). */
+export type IntakeTaskPullPage = { tasks: IntakeTaskPulled[]; nextCursor: string | null; hidden: string[] };
+
 export type IntakeTaskPatch = {
+  title?: string;
+  description?: string;
   status?: IntakeTaskStatus;
   assigneeUserId?: string | null;
   priority?: IntakeTaskPriority;
+  dueDate?: string | null;
+  /** When the client made the change; the platform applies each field only
+   *  if nothing newer has set it since (last-writer-wins per field). */
+  changedAt?: string;
+  /** Appended to the task's history; it never replaces triage's note. */
   note?: string;
+  noteSource?: IntakeTaskNoteSource;
+  /** The client's own id and time for the note, so a retried push appends it once. */
+  noteId?: string;
+  noteCreatedAt?: string;
   lastLocalRunAt?: string | null;
 };
 
 export type IntakeTaskCreate = {
-  endpointId: string;
+  /** The client's own id: the same id sent again is the same task. */
+  id?: string;
+  /** Files the task on an endpoint; absent for a task filed from LegalWork. */
+  endpointId?: string;
   title: string;
   description?: string;
+  priority?: IntakeTaskPriority;
+  dueDate?: string | null;
   assigneeUserId?: string | null;
+  /** When the client filed it, for a task created offline and pushed later. */
+  createdAt?: string;
 };
 
 /** Feature key the platform grants on plans that include Intake. */
@@ -101,6 +154,8 @@ export const EIGENWELT_INTAKE_MAX_UPLOAD_BYTES = 25 * 1024 * 1024;
 export const EIGENWELT_INTAKE_MAX_UPLOAD_FILES = 20;
 /** Page size cap for the task list; the platform applies its own default. */
 export const EIGENWELT_INTAKE_MAX_PAGE_SIZE = 200;
+/** One history note, as the platform caps it (TASK_NOTE_MAX_CHARS). */
+export const EIGENWELT_INTAKE_MAX_NOTE_CHARS = 4_000;
 
 const INTAKE_NOT_ENTITLED_MESSAGE =
   "Intake is not included in your firm's Eigenwelt plan. An organization admin can add it.";
@@ -116,21 +171,19 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 export type IntakeClient = { platformURL: string; platformToken: string };
 
 /**
- * Build an intake client from a stored connection, or fail with a clear 403.
+ * Build a platform client from a stored connection, or fail with a clear 403.
  *
- * The entitlement is checked here when the stored plan is known, so an
- * un-entitled firm never spends a round-trip (and never leaks its task list's
- * existence). When no entitlements block is stored — a legacy sign-in — the
- * platform still gates every route and its 403 `not_entitled` is mapped onto
- * the SAME `intake_not_entitled` code, so the app renders one message either
- * way.
+ * Deliberately NOT gated on the `intake` feature: the task routes serve every
+ * signed-in firm, because a firm's own (desktop) tasks sync with its account
+ * on any plan. `intake` only decides whether mail can arrive at the firm's
+ * addresses, and the platform enforces that where it matters — its
+ * `not_entitled` answers are mapped onto `intake_not_entitled` below.
  */
 export function requireIntakeClient(connection: {
   platformURL: string | null;
   platformToken: string | null;
-  entitlements: { features: string[] } | null;
 }): IntakeClient {
-  // Intake traffic always targets the configured trusted platform. The stored
+  // Platform traffic always targets the configured trusted platform. The stored
   // URL is display metadata from OAuth and must never become a server-side
   // fetch destination.
   const platformURL = eigenweltPlatformUrl();
@@ -139,12 +192,8 @@ export function requireIntakeClient(connection: {
     throw new ApiError(
       403,
       "intake_not_connected",
-      "Intake needs an Eigenwelt subscription. Sign in with Eigenwelt to enable it.",
+      "Syncing tasks needs an Eigenwelt account. Sign in with Eigenwelt to enable it.",
     );
-  }
-  const features = connection.entitlements?.features;
-  if (features && !features.includes(EIGENWELT_INTAKE_FEATURE)) {
-    throw new ApiError(403, "intake_not_entitled", INTAKE_NOT_ENTITLED_MESSAGE);
   }
   return { platformURL, platformToken };
 }
@@ -171,6 +220,10 @@ async function intakeFetch(
   try {
     response = await fetch(`${client.platformURL}${path}`, {
       method,
+      // The platform never redirects an API call: a redirect is a gate turning
+      // the request away (to its sign-in page, say), and following it would
+      // hand back an HTML page with a 200.
+      redirect: "manual",
       headers: {
         Authorization: `Bearer ${client.platformToken}`,
         Accept: init.accept ?? "application/json",
@@ -180,6 +233,13 @@ async function intakeFetch(
     });
   } catch {
     throw new ApiError(502, "intake_unreachable", "Could not reach the Eigenwelt intake service.");
+  }
+  if (response.status >= 300 && response.status < 400) {
+    throw new ApiError(
+      502,
+      "intake_redirected",
+      "The Eigenwelt intake service redirected the request instead of answering it.",
+    );
   }
   if (!response.ok) throw await intakeFailure(response);
   return response;
@@ -196,7 +256,21 @@ async function intakeRequest(
     contentType: body === undefined ? undefined : "application/json",
   });
   const text = await response.text();
-  return text ? safeParseJson(text) : null;
+  return text ? parseJsonBody(text) : null;
+}
+
+/** A 2xx body that is not JSON came from the wrong responder (an HTML page, a
+ *  proxy). It must fail, not read as "nothing there". */
+function parseJsonBody(text: string): unknown {
+  try {
+    return JSON.parse(text);
+  } catch {
+    throw new ApiError(
+      502,
+      "intake_bad_response",
+      "The Eigenwelt intake service sent a response LegalWork could not read.",
+    );
+  }
 }
 
 function safeParseJson(text: string): unknown {
@@ -294,10 +368,13 @@ export function parseIntakeTask(value: unknown): IntakeTask | null {
   if (!isRecord(value)) return null;
   const id = toText(value.id);
   if (!id) return null;
+  const endpointId = toNullableText(value.endpointId);
   return {
     id,
-    endpointId: toText(value.endpointId),
-    endpointName: toText(value.endpointName),
+    // An older platform sends no origin; a task with an endpoint arrived there.
+    origin: value.origin === "desktop" || (value.origin === undefined && endpointId === null) ? "desktop" : "intake",
+    endpointId,
+    endpointName: toNullableText(value.endpointName),
     submissionId: toNullableText(value.submissionId),
     title: toText(value.title),
     description: toText(value.description),
@@ -306,6 +383,7 @@ export function parseIntakeTask(value: unknown): IntakeTask | null {
     dueDate: toNullableText(value.dueDate),
     assigneeUserId: toNullableText(value.assigneeUserId),
     assigneeName: toNullableText(value.assigneeName),
+    createdByUserId: toNullableText(value.createdByUserId),
     assignmentNote: toNullableText(value.assignmentNote),
     workflowHubItemId: toNullableText(value.workflowHubItemId),
     workflowVersion:
@@ -317,7 +395,31 @@ export function parseIntakeTask(value: unknown): IntakeTask | null {
     attachments: toAttachments(value.attachments),
     createdAt: toText(value.createdAt),
     updatedAt: toText(value.updatedAt),
+    deletedAt: toNullableText(value.deletedAt),
   };
+}
+
+/** A task's history, oldest first, as the platform sends it. Entries without an
+ * id or a body are dropped rather than shown as blank rows. */
+function toTaskNotes(value: unknown): IntakeTaskNote[] {
+  if (!Array.isArray(value)) return [];
+  const notes: IntakeTaskNote[] = [];
+  for (const entry of value) {
+    if (!isRecord(entry)) continue;
+    const id = toText(entry.id);
+    const body = toText(entry.body);
+    if (!id || !body) continue;
+    notes.push({
+      id,
+      body,
+      source: entry.source === "agent" ? "agent" : "member",
+      authorUserId: toText(entry.authorUserId),
+      authorName: toNullableText(entry.authorName),
+      authorEmail: toNullableText(entry.authorEmail),
+      createdAt: toText(entry.createdAt),
+    });
+  }
+  return notes;
 }
 
 /**
@@ -345,123 +447,10 @@ function parseIntakeMember(value: unknown): IntakeMember | null {
 }
 
 // ---------------------------------------------------------------------------
-// Request validation (shared by the relay routes)
-// ---------------------------------------------------------------------------
-
-function parseStatusParam(value: string): IntakeTaskStatus {
-  if (value === "open" || value === "in_progress" || value === "done" || value === "cancelled") {
-    return value;
-  }
-  throw new ApiError(400, "invalid_intake_status", "status must be open, in_progress, done or cancelled.");
-}
-
-function parsePriorityValue(value: unknown): IntakeTaskPriority {
-  if (value === 0 || value === 1 || value === 2 || value === 3 || value === 4) return value;
-  throw new ApiError(400, "invalid_intake_priority", "priority must be a whole number from 0 to 4.");
-}
-
-/** Validate the list filter/sort/paging params off a relay request's query. */
-export function parseIntakeTaskListParams(search: URLSearchParams): IntakeTaskListParams {
-  const params: IntakeTaskListParams = {};
-  const assignee = search.get("assignee")?.trim();
-  if (assignee) params.assignee = assignee;
-  const status = search.get("status")?.trim();
-  if (status) params.status = parseStatusParam(status);
-  const endpointId = search.get("endpointId")?.trim();
-  if (endpointId) params.endpointId = endpointId;
-  const sort = search.get("sort")?.trim();
-  if (sort) {
-    if (sort !== "created" && sort !== "updated" && sort !== "priority") {
-      throw new ApiError(400, "invalid_intake_sort", "sort must be created, updated or priority.");
-    }
-    params.sort = sort;
-  }
-  const order = search.get("order")?.trim();
-  if (order) {
-    if (order !== "asc" && order !== "desc") {
-      throw new ApiError(400, "invalid_intake_order", "order must be asc or desc.");
-    }
-    params.order = order;
-  }
-  const limit = search.get("limit")?.trim();
-  if (limit) {
-    const parsed = Number(limit);
-    if (!Number.isInteger(parsed) || parsed < 1) {
-      throw new ApiError(400, "invalid_intake_limit", "limit must be a positive whole number.");
-    }
-    params.limit = Math.min(parsed, EIGENWELT_INTAKE_MAX_PAGE_SIZE);
-  }
-  const cursor = search.get("cursor")?.trim();
-  if (cursor) params.cursor = cursor;
-  return params;
-}
-
-/** Validate a PATCH body. Only the keys the caller sent are forwarded. */
-export function parseIntakeTaskPatch(body: Record<string, unknown>): IntakeTaskPatch {
-  const patch: IntakeTaskPatch = {};
-  if (body.status !== undefined) {
-    patch.status = parseStatusParam(typeof body.status === "string" ? body.status : "");
-  }
-  // null clears the assignee; the platform's task shape allows an unassigned task.
-  if (body.assigneeUserId !== undefined) {
-    if (body.assigneeUserId !== null && typeof body.assigneeUserId !== "string") {
-      throw new ApiError(400, "invalid_intake_assignee", "assigneeUserId must be a user id or null.");
-    }
-    patch.assigneeUserId = body.assigneeUserId === null ? null : body.assigneeUserId.trim() || null;
-  }
-  if (body.priority !== undefined) patch.priority = parsePriorityValue(body.priority);
-  if (body.note !== undefined) {
-    if (typeof body.note !== "string") {
-      throw new ApiError(400, "invalid_intake_note", "note must be a string.");
-    }
-    patch.note = body.note;
-  }
-  if (body.lastLocalRunAt !== undefined) {
-    if (body.lastLocalRunAt !== null && typeof body.lastLocalRunAt !== "string") {
-      throw new ApiError(400, "invalid_intake_run_at", "lastLocalRunAt must be an ISO timestamp or null.");
-    }
-    patch.lastLocalRunAt = body.lastLocalRunAt;
-  }
-  if (Object.keys(patch).length === 0) {
-    throw new ApiError(400, "invalid_intake_patch", "Nothing to update.");
-  }
-  return patch;
-}
-
-/** Validate a create body. */
-export function parseIntakeTaskCreate(body: Record<string, unknown>): IntakeTaskCreate {
-  const endpointId = typeof body.endpointId === "string" ? body.endpointId.trim() : "";
-  if (!endpointId) {
-    throw new ApiError(400, "invalid_intake_endpoint", "endpointId is required.");
-  }
-  const title = typeof body.title === "string" ? body.title.trim() : "";
-  if (!title) {
-    throw new ApiError(400, "invalid_intake_title", "title is required.");
-  }
-  const create: IntakeTaskCreate = { endpointId, title };
-  if (body.description !== undefined) {
-    if (typeof body.description !== "string") {
-      throw new ApiError(400, "invalid_intake_description", "description must be a string.");
-    }
-    create.description = body.description;
-  }
-  if (body.assigneeUserId !== undefined) {
-    if (body.assigneeUserId !== null && typeof body.assigneeUserId !== "string") {
-      throw new ApiError(400, "invalid_intake_assignee", "assigneeUserId must be a user id or null.");
-    }
-    create.assigneeUserId = body.assigneeUserId === null ? null : body.assigneeUserId.trim() || null;
-  }
-  return create;
-}
-
-// ---------------------------------------------------------------------------
 // Task routes
 // ---------------------------------------------------------------------------
 
-export async function intakeListTasks(
-  client: IntakeClient,
-  params: IntakeTaskListParams = {},
-): Promise<IntakeTaskPage> {
+function taskListQuery(params: IntakeTaskListParams): string {
   const query = new URLSearchParams();
   if (params.assignee) query.set("assignee", params.assignee);
   if (params.status) query.set("status", params.status);
@@ -470,16 +459,94 @@ export async function intakeListTasks(
   if (params.order) query.set("order", params.order);
   if (params.limit !== undefined) query.set("limit", String(params.limit));
   if (params.cursor) query.set("cursor", params.cursor);
+  if (params.updatedSince) query.set("updatedSince", params.updatedSince);
+  if (params.deleted) query.set("deleted", params.deleted);
+  if (params.include?.length) query.set("include", params.include.join(","));
   const search = query.toString();
-  const json = await intakeRequest(client, "GET", `/api/intake/tasks${search ? `?${search}` : ""}`);
+  return `/api/intake/tasks${search ? `?${search}` : ""}`;
+}
+
+export async function intakeListTasks(
+  client: IntakeClient,
+  params: IntakeTaskListParams = {},
+): Promise<IntakeTaskPage> {
+  const page = await intakePullTasks(client, params);
+  return { tasks: page.tasks, nextCursor: page.nextCursor };
+}
+
+/**
+ * A page of tasks with everything the sync mirrors: each task's history and
+ * submission when `include` asks for them, and the `hidden` ids of a delta.
+ */
+export async function intakePullTasks(
+  client: IntakeClient,
+  params: IntakeTaskListParams = {},
+): Promise<IntakeTaskPullPage> {
+  const json = await intakeRequest(client, "GET", taskListQuery(params));
   const raw = isRecord(json) && Array.isArray(json.tasks) ? json.tasks : [];
-  const tasks: IntakeTask[] = [];
+  const tasks: IntakeTaskPulled[] = [];
   for (const entry of raw) {
     const task = parseIntakeTask(entry);
-    if (task) tasks.push(task);
+    if (!task) continue;
+    tasks.push({
+      ...task,
+      notes: isRecord(entry) ? toTaskNotes(entry.notes) : [],
+      submission: isRecord(entry) ? entry.submission ?? null : null,
+    });
   }
   const nextCursor = isRecord(json) ? toNullableText(json.nextCursor) : null;
-  return { tasks, nextCursor };
+  const hidden =
+    isRecord(json) && Array.isArray(json.hidden)
+      ? json.hidden.filter((id): id is string => typeof id === "string" && id !== "")
+      : [];
+  return { tasks, nextCursor, hidden };
+}
+
+/** Soft: the task goes to the platform's trash; `intakeRestoreTask` brings it back. */
+export async function intakeDeleteTask(client: IntakeClient, taskId: string): Promise<IntakeTask | null> {
+  const json = await intakeRequest(client, "DELETE", `/api/intake/tasks/${encodeURIComponent(taskId)}`);
+  return parseWrittenTask(json);
+}
+
+export async function intakeRestoreTask(client: IntakeClient, taskId: string): Promise<IntakeTask | null> {
+  const json = await intakeRequest(client, "POST", `/api/intake/tasks/${encodeURIComponent(taskId)}/restore`);
+  return parseWrittenTask(json);
+}
+
+/**
+ * Upload ONE attachment under the client's own id. The platform keeps the id,
+ * and the same upload sent again (a retry after a lost answer) comes back as
+ * the attachment that already exists, so a push can never store a file twice.
+ */
+export async function intakeUploadAttachment(
+  client: IntakeClient,
+  taskId: string,
+  file: { id: string; filename: string; contentType: string; bytes: Uint8Array },
+): Promise<IntakeAttachment | null> {
+  if (file.bytes.byteLength > EIGENWELT_INTAKE_MAX_UPLOAD_BYTES) {
+    throw new ApiError(413, "intake_too_large", `"${file.filename}" is larger than 25 MiB.`);
+  }
+  const form = new FormData();
+  form.append("id", file.id);
+  form.append("files[]", new File([file.bytes as BlobPart], file.filename, { type: file.contentType }), file.filename);
+  const response = await intakeFetch(
+    client,
+    "POST",
+    `/api/intake/tasks/${encodeURIComponent(taskId)}/attachments`,
+    { body: form },
+  );
+  const text = await response.text();
+  const json = text ? parseJsonBody(text) : null;
+  const stored = isRecord(json) ? toAttachments(json.attachments) : [];
+  return stored[0] ?? null;
+}
+
+export async function intakeDeleteAttachment(client: IntakeClient, taskId: string, attachmentId: string): Promise<void> {
+  await intakeRequest(
+    client,
+    "DELETE",
+    `/api/intake/tasks/${encodeURIComponent(taskId)}/attachments/${encodeURIComponent(attachmentId)}`,
+  );
 }
 
 export async function intakeGetTask(client: IntakeClient, taskId: string): Promise<IntakeTaskDetail> {
@@ -488,7 +555,11 @@ export async function intakeGetTask(client: IntakeClient, taskId: string): Promi
   if (!task) {
     throw new ApiError(502, "intake_request_failed", "The intake service returned an invalid task.");
   }
-  return { task, submission: isRecord(json) ? json.submission ?? null : null };
+  return {
+    task,
+    submission: isRecord(json) ? json.submission ?? null : null,
+    notes: isRecord(json) ? toTaskNotes(json.notes) : [],
+  };
 }
 
 export async function intakePatchTask(
@@ -545,7 +616,7 @@ export async function intakeUploadAttachments(
     { body: form },
   );
   const text = await response.text();
-  return parseWrittenTask(text ? safeParseJson(text) : null);
+  return parseWrittenTask(text ? parseJsonBody(text) : null);
 }
 
 export type IntakeAttachmentBytes = {

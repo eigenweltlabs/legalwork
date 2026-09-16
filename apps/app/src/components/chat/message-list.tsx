@@ -8,6 +8,7 @@ import {
   Check,
   Copy,
   FileIcon,
+  Inbox,
   LoaderCircle,
   Pencil,
   Split,
@@ -50,6 +51,7 @@ import { WebsearchTool } from "@/components/tools/websearch"
 import { useMessageList, useSessionErrorMessage } from "@/components/chat/message-list-provider"
 import { ToolRun } from "./tool-run"
 import { ArtifactList } from "@/components/chat/artifact"
+import { filedTasksOf } from "@/components/chat/filed-tasks"
 import { collectLegalMemoryDocuments } from "@/lib/legalmemory-documents"
 import { LegalMemoryMatterGraph } from "@/components/chat/legalmemory-matter-graph"
 import { LegalMemorySourcesCard } from "@/components/chat/legalmemory-sources-card"
@@ -100,6 +102,8 @@ import { cn } from "@/lib/utils"
 import { useOpenTargets } from "@/lib/target-provider"
 import { resolveFilePartOpenTarget, resolvePathOpenTarget } from "@/react-app/domains/session/artifacts/open-target"
 import { WORKSPACE_ATTACHMENT_LINK_SOURCE, parseWorkspaceAttachmentLink } from "@/react-app/domains/session/surface/composer/workspace-attachment"
+import { TASK_REFERENCE_SOURCE, parseTaskReference, requestOpenTask } from "@/react-app/domains/tasks/task-reference"
+import { useTaskRunStore } from "@/react-app/domains/tasks/task-run-store"
 import { LEGALMEMORY_OPEN_EVENT, parseLegalMemoryRef } from "@/components/markdown/legalmemory-ref"
 import { STORAGE_LINK_SOURCE, STORAGE_OPEN_EVENT, parseStorageRefLink, type StorageRef } from "@/components/markdown/storage-ref"
 import { groupMessages, isMessageGroup, getLastTextPart, getAssistantRenderGroups, groupAssistantToolRuns, getFileTitle, getMediaBadge, getMessageCreated, formatMessageTimestamp, type UIMessageWithIndex, getMessagesText } from "./utils"
@@ -445,7 +449,7 @@ type UserMessageProps = {
 }
 
 const LEGACY_USER_MEMORY_INSTRUCTION_RE = /Read the downloaded LegalMemory copy at workspace path "[^"]+" before answering\. It is "([^"]+)" \((legalmemory:\/\/document\/[\w.:-]+), document_id [^)]+\)\. Use a document-capable tool appropriate for its format \(for example, extract or convert DOCX rather than reading it as plain text\)\. This is a local path reference, not a binary chat attachment\.\s*/g
-const USER_RICH_TOKEN_RE = new RegExp(String.raw`(Load \[skill [^\]]+\] and follow its instructions\.|\[skill [^\]]+\]|\[[^\]\n]+\]\(legalmemory:\/\/document\/[\w.:-]+\)|${STORAGE_LINK_SOURCE}|${WORKSPACE_ATTACHMENT_LINK_SOURCE})`)
+const USER_RICH_TOKEN_RE = new RegExp(String.raw`(Load \[skill [^\]]+\] and follow its instructions\.|\[skill [^\]]+\]|\[[^\]\n]+\]\(legalmemory:\/\/document\/[\w.:-]+\)|${STORAGE_LINK_SOURCE}|${WORKSPACE_ATTACHMENT_LINK_SOURCE}|${TASK_REFERENCE_SOURCE})`)
 
 function cleanUserMessageText(text: string) {
   return text.replace(
@@ -459,6 +463,26 @@ function UserSkillChip(props: { name: string }) {
     <span className="mx-0.5 inline-flex items-center rounded-full border border-violet-6/35 bg-violet-3/20 px-2.5 py-1 text-xs font-medium text-violet-11 align-middle" title={t("message_list.skill_badge", { name: props.name })}>
       {props.name}
     </span>
+  )
+}
+
+/** A task the message refers to by id. The title comes from this machine's
+ *  run record, not from the message: the message carries only the id. A click
+ *  opens the task in the Tasks pane. */
+function UserTaskChip(props: { taskId: string }) {
+  const title = useTaskRunStore((state) => state.runsByTaskId[props.taskId]?.taskTitle)
+  return (
+    <button
+      type="button"
+      className="mx-0.5 inline-flex max-w-72 items-center gap-1.5 rounded-full border border-blue-6/35 bg-blue-3/20 px-2.5 py-1 text-xs font-medium text-blue-11 align-middle transition-colors hover:bg-blue-3/40"
+      title={t("message_list.open_task")}
+      aria-label={t("message_list.task_badge", { id: props.taskId })}
+      onClick={() => requestOpenTask(props.taskId)}
+    >
+      <Inbox className="size-3.5 shrink-0" />
+      <span className="truncate">{title ?? t("message_list.task_badge_fallback")}</span>
+      <ArrowUpRight className="size-3.5 shrink-0 opacity-70" />
+    </button>
   )
 }
 
@@ -537,6 +561,8 @@ function renderUserTextWithReferenceChips(rawText: string) {
     offset += segment.length
     const attachment = parseWorkspaceAttachmentLink(segment)
     if (attachment) return <UserWorkspaceAttachmentChip key={key} {...attachment} />
+    const taskReference = parseTaskReference(segment)
+    if (taskReference) return <UserTaskChip key={key} taskId={taskReference.taskId} />
     const skillMatch = segment.match(/^(?:Load )?\[skill ([^\]]+)\](?: and follow its instructions\.)?$/)
     if (skillMatch?.[1]) return <UserSkillChip key={key} name={skillMatch[1]} />
     const storageRef = parseStorageRefLink(segment)
@@ -857,6 +883,9 @@ function MessageArtifacts(props: { message: UIMessage }) {
   return <ArtifactList messages={[props.message]} includeTargetFallbacks={false} />;
 }
 
+/** A stable empty list, so a tasks-only strip does not re-derive artifacts on every render. */
+const EMPTY_MESSAGES: UIMessage[] = []
+
 interface AssistantMessageGroupProps {
   items: UIMessageWithIndex[]
   messages: UIMessage[]
@@ -883,6 +912,14 @@ function MessageGroup({
             .map((part) => (part as { output?: unknown }).output),
         ),
       ),
+    [items],
+  )
+  // The tasks this turn filed, likewise read off the tool results and shown
+  // once, under the finished answer — the tool call and the prose that
+  // follows it are separate messages, so a per-message strip would put the
+  // task under the step that ran the tool rather than at the end.
+  const filedTasks = React.useMemo(
+    () => filedTasksOf(items.flatMap((item) => item.message.parts)),
     [items],
   )
   // Matter titles, resolved once and reused. A hit names its matter only by id.
@@ -927,6 +964,7 @@ function MessageGroup({
   return (
       <div className="flex flex-col gap-2 group/message-group">
       {displayItems.map(renderItem)}
+      {filedTasks.length > 0 ? <ArtifactList messages={EMPTY_MESSAGES} tasks={filedTasks} /> : null}
       {/* The graph and the sources belong under the finished answer, not among
           the retrieval steps. They are collected across the whole turn, since
           the tool calls and the prose that follows them are separate messages. */}

@@ -17,6 +17,8 @@ For a fuller application review, open `http://localhost:5173/session-preview.htm
 
 For the actual settings shell, open `http://localhost:5173/settings-preview.html`. Use its Full page / Compact panel controls and navigate to Privacy to inspect real settings controls. Compact settings can also be opened at `settings-preview.html?compact&tab=preferences`. These fixtures use local sample state and never contact a provider.
 
+For the intake Tasks pane, open `http://localhost:5173/tasks-preview.html`. It renders the real queue, task detail and start dialogs with sample tasks; `?empty`, `?error`, `?locked` and `?lang=de` show the other states. Add `&long` to check long titles, triage notes and duplicate assignee names. Use `?local-run` for an existing local run, or `?no-folders`, `?no-workflows` and `?workflow-error` for start-dialog states. The compact action bar stays visible while the task scrolls; attachments, triage note, original message and details share the same icon-led disclosure rows. Status shapes identify queue items; priority and timestamps live in Details. Narrow the window below 880 px of pane width to review the stacked layout with its back navigation.
+
 The normal `pnpm dev` command still starts Electron. `pnpm dev -- --host 0.0.0.0 --port 4173` serves the app for supervised browser review from the monorepo root. That review mode disables hot reload; refresh deliberately after changes. `pnpm dev:ui` retains normal hot reload.
 
 Build the reference separately:

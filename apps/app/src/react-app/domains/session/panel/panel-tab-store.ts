@@ -13,6 +13,17 @@ export const PERSISTED_PANEL_TAB_STORE_KEY = "legalwork:panel-tabs:v1";
  */
 export const EVALS_PANEL_SESSION_ID = "__evals__";
 
+/**
+ * Asks the session page to open a tab in its side panel and reveal the panel.
+ * For views that have a file to show but do not own the panel (the Tasks pane
+ * is a mainView); the page opens it under whichever panel key is current.
+ */
+export const PANEL_OPEN_TAB_EVENT = "legalwork:panel-open-tab";
+
+export function requestPanelTab(tab: PanelTab): void {
+  window.dispatchEvent(new CustomEvent<PanelTab>(PANEL_OPEN_TAB_EVENT, { detail: tab }));
+}
+
 export type PanelTabType = "artifact" | "browser";
 
 export type { BrowserPanelTab } from "../../../../app/lib/desktop-types";

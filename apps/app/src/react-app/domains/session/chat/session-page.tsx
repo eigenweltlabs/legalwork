@@ -67,7 +67,13 @@ import { FileSidebars } from "../panel/file-sidebars";
 import { MemoryDriveIcon } from "../panel/memory-drive-icon";
 import { LegalMemoryFilesPanel } from "../panel/legalmemory-files-panel";
 import { TerminalDock } from "../terminal/terminal-dock";
-import { EVALS_PANEL_SESSION_ID, useActivePanelTab, usePanelTabStore } from "../panel/panel-tab-store";
+import {
+  EVALS_PANEL_SESSION_ID,
+  PANEL_OPEN_TAB_EVENT,
+  useActivePanelTab,
+  usePanelTabStore,
+  type PanelTab,
+} from "../panel/panel-tab-store";
 import { storageFileTab } from "../panel/storage-file-tab";
 import type { StorageEntry, StorageRoot } from "@legalwork/types/file-storage";
 import { useWorkspaceShellLayout } from "../../../shell/workspace-shell-layout";
@@ -382,6 +388,19 @@ export function SessionPage(props: SessionPageProps) {
     if (activeSidePanel === "panel" && panel !== "panel" && !confirmDiscardDocuments()) return;
     setSidePanelState(panelStateSessionId, panel);
   }, [activeSidePanel, panelStateSessionId, setSidePanelState, setFileSidebarState]);
+
+  // A mainView (the Tasks pane) hands the page a file to show in the panel.
+  useEffect(() => {
+    const handleOpenTab = (event: Event) => {
+      const tab = (event as CustomEvent<PanelTab>).detail;
+      if (!tab) return;
+      openTab(panelStateSessionId, tab);
+      preserveSidePanelOnPanelOpenRef.current = true;
+      setCurrentSidePanel("panel");
+    };
+    window.addEventListener(PANEL_OPEN_TAB_EVENT, handleOpenTab);
+    return () => window.removeEventListener(PANEL_OPEN_TAB_EVENT, handleOpenTab);
+  }, [openTab, panelStateSessionId, setCurrentSidePanel]);
 
   const closeFileSidebar = useCallback(() => {
     setFileSidebarState(panelStateSessionId, null);

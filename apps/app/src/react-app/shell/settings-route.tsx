@@ -9,6 +9,7 @@ import { createClient } from "@/app/lib/opencode";
 import {
   createLegalworkServerClient,
   isLoopbackLegalworkServerUrl,
+  LegalworkServerError,
   readLegalworkServerSettings,
   type LegalworkServerCapabilities,
   type LegalworkServerClient,
@@ -884,14 +885,20 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
   // AND the global provider manifest server-side (revoking the refresh-token
   // family), then reloads the engine so the eigenwelt provider drops from every
   // workspace. Errors propagate to the account view, which surfaces a toast.
-  const disconnectEigenwelt = useCallback(async () => {
+  const disconnectEigenwelt = useCallback(async (options?: { force?: boolean }) => {
     setDisconnectingProviderId(EIGENWELT_PROVIDER_ID);
     try {
       if (legalworkClient && hubWorkspaceId) {
         try {
-          await legalworkClient.eigenweltSaveConnection(hubWorkspaceId, { disconnect: true });
-        } catch {
-          // best-effort: still reset the local view + engine below.
+          await legalworkClient.eigenweltSaveConnection(hubWorkspaceId, {
+            disconnect: true,
+            ...(options?.force ? { force: true } : {}),
+          });
+        } catch (error) {
+          // The server refuses while changes made here have not reached the
+          // firm: the account view asks the user, nothing is reset yet.
+          if (error instanceof LegalworkServerError && error.code === "tasks_pending") throw error;
+          // Anything else is best-effort: still reset the local view + engine below.
         }
         invalidateEigenweltEntitlements();
       }

@@ -8,9 +8,6 @@ import {
   intakeListTasks,
   intakePatchTask,
   intakeUploadAttachments,
-  parseIntakeTaskCreate,
-  parseIntakeTaskListParams,
-  parseIntakeTaskPatch,
   requireIntakeClient,
   EIGENWELT_INTAKE_MAX_UPLOAD_FILES,
   type IntakeClient,
@@ -90,44 +87,22 @@ describe("requireIntakeClient", () => {
         // A stored (display-only) URL never becomes the fetch destination.
         platformURL: "https://evil.example",
         platformToken: "tok_secret",
-        entitlements: { features: ["premium_models", "intake"] },
       }),
     ).toEqual({ platformURL: "https://platform.test", platformToken: "tok_secret" });
   });
 
-  test("refuses a firm whose plan lacks intake", () => {
-    expect(() =>
-      requireIntakeClient({
-        platformURL: null,
-        platformToken: "tok_secret",
-        entitlements: { features: ["premium_models"] },
-      }),
-    ).toThrow(ApiError);
-    try {
-      requireIntakeClient({
-        platformURL: null,
-        platformToken: "tok_secret",
-        entitlements: { features: [] },
-      });
-      throw new Error("expected a refusal");
-    } catch (error) {
-      expect(error).toMatchObject({ status: 403, code: "intake_not_entitled" });
-    }
+  test("does not gate on the plan: a signed-in firm without intake still syncs its own tasks", () => {
+    // The stored entitlements block is not even consulted — the platform decides.
+    expect(requireIntakeClient({ platformURL: null, platformToken: "tok_secret" }).platformToken).toBe("tok_secret");
   });
 
   test("refuses when no platform token is stored", () => {
     try {
-      requireIntakeClient({ platformURL: null, platformToken: null, entitlements: null });
+      requireIntakeClient({ platformURL: null, platformToken: null });
       throw new Error("expected a refusal");
     } catch (error) {
       expect(error).toMatchObject({ status: 403, code: "intake_not_connected" });
     }
-  });
-
-  test("leaves the decision to the platform when no entitlements are stored", () => {
-    expect(
-      requireIntakeClient({ platformURL: null, platformToken: "tok_secret", entitlements: null }).platformToken,
-    ).toBe("tok_secret");
   });
 });
 
@@ -185,6 +160,31 @@ describe("intakeListTasks", () => {
   });
 });
 
+describe("platform answers that are not intake answers", () => {
+  test("refuses a redirect instead of following it to the sign-in page", async () => {
+    stubFetch(() => new Response(null, { status: 307, headers: { Location: "/sign-in" } }));
+    await expect(intakeListTasks(client)).rejects.toMatchObject({
+      status: 502,
+      code: "intake_redirected",
+    });
+    expect(calls[0]?.init.redirect).toBe("manual");
+  });
+
+  test("fails on a non-JSON body instead of reading it as an empty list", async () => {
+    stubFetch(
+      () =>
+        new Response("<!doctype html><title>Sign in</title>", {
+          status: 200,
+          headers: { "Content-Type": "text/html" },
+        }),
+    );
+    await expect(intakeListTasks(client)).rejects.toMatchObject({
+      status: 502,
+      code: "intake_bad_response",
+    });
+  });
+});
+
 describe("intakeGetTask", () => {
   test("requests one task and relays the submission untouched", async () => {
     stubFetch(() => jsonResponse({ task: TASK, submission: { rawPayload: "…" } }));
@@ -193,6 +193,28 @@ describe("intakeGetTask", () => {
     expect(calls[0].url).toBe("https://platform.test/api/intake/tasks/task%201%2F2");
     expect(detail.task.id).toBe("task_1");
     expect(detail.submission).toEqual({ rawPayload: "…" });
+    expect(detail.notes).toEqual([]);
+  });
+
+  test("relays the task's history, dropping entries it cannot show", async () => {
+    stubFetch(() =>
+      jsonResponse({
+        task: TASK,
+        submission: null,
+        notes: [
+          { id: "n1", body: "Prüfvermerk erstellt.", source: "agent", authorUserId: "u1", authorName: "Ada", authorEmail: "ada@kanzlei.de", createdAt: "2026-09-15T09:20:42.000Z" },
+          { id: "n2", body: "", source: "member", authorUserId: "u2" },
+          { body: "no id" },
+          { id: "n3", body: "Gegengelesen.", source: "robot", authorUserId: "u2", createdAt: "2026-09-15T10:00:00.000Z" },
+        ],
+      }),
+    );
+    const detail = await intakeGetTask(client, "task_1");
+    expect(detail.notes).toEqual([
+      { id: "n1", body: "Prüfvermerk erstellt.", source: "agent", authorUserId: "u1", authorName: "Ada", authorEmail: "ada@kanzlei.de", createdAt: "2026-09-15T09:20:42.000Z" },
+      // An unknown source is shown as a member's, never promoted to an agent's.
+      { id: "n3", body: "Gegengelesen.", source: "member", authorUserId: "u2", authorName: null, authorEmail: null, createdAt: "2026-09-15T10:00:00.000Z" },
+    ]);
   });
 
   test("fails loudly when the platform returns no usable task", async () => {
@@ -360,50 +382,3 @@ describe("error mapping", () => {
   });
 });
 
-describe("request validation", () => {
-  test("parses and rejects list params", () => {
-    expect(
-      parseIntakeTaskListParams(
-        new URLSearchParams("assignee=user_1&status=done&sort=updated&order=desc&limit=10&cursor=c1"),
-      ),
-    ).toEqual({
-      assignee: "user_1",
-      status: "done",
-      sort: "updated",
-      order: "desc",
-      limit: 10,
-      cursor: "c1",
-    });
-    // An absurd page size is clamped rather than refused.
-    expect(parseIntakeTaskListParams(new URLSearchParams("limit=5000")).limit).toBe(200);
-    expect(parseIntakeTaskListParams(new URLSearchParams())).toEqual({});
-    for (const bad of ["status=archived", "sort=name", "order=up", "limit=0", "limit=x"]) {
-      expect(() => parseIntakeTaskListParams(new URLSearchParams(bad))).toThrow(ApiError);
-    }
-  });
-
-  test("parses a patch body and refuses an empty or malformed one", () => {
-    expect(parseIntakeTaskPatch({ status: "done", priority: 3, note: "ok" })).toEqual({
-      status: "done",
-      priority: 3,
-      note: "ok",
-    });
-    expect(parseIntakeTaskPatch({ assigneeUserId: "  " })).toEqual({ assigneeUserId: null });
-    expect(parseIntakeTaskPatch({ lastLocalRunAt: null })).toEqual({ lastLocalRunAt: null });
-    expect(() => parseIntakeTaskPatch({})).toThrow(ApiError);
-    expect(() => parseIntakeTaskPatch({ status: "archived" })).toThrow(ApiError);
-    expect(() => parseIntakeTaskPatch({ priority: 9 })).toThrow(ApiError);
-    expect(() => parseIntakeTaskPatch({ assigneeUserId: 7 })).toThrow(ApiError);
-  });
-
-  test("requires an endpoint and a title to create", () => {
-    expect(parseIntakeTaskCreate({ endpointId: " ep_1 ", title: " New ", assigneeUserId: null })).toEqual({
-      endpointId: "ep_1",
-      title: "New",
-      assigneeUserId: null,
-    });
-    expect(() => parseIntakeTaskCreate({ title: "New" })).toThrow(ApiError);
-    expect(() => parseIntakeTaskCreate({ endpointId: "ep_1" })).toThrow(ApiError);
-    expect(() => parseIntakeTaskCreate({ endpointId: "ep_1", title: "New", description: 1 })).toThrow(ApiError);
-  });
-});

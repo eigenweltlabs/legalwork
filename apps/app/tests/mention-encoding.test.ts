@@ -1,6 +1,10 @@
 import { describe, expect, test } from "bun:test";
 
 import {
+  createTaskComposerMention,
+  parseTaskComposerMention,
+  taskComposerDisplayText,
+  taskComposerInstruction,
   createLegalMemoryComposerMention,
   createLegalMemoryFolderComposerMention,
   decodeComposerMentionValue,
@@ -170,5 +174,35 @@ describe("storage mentions", () => {
     expect(parseStorageComposerMention("legalmemory://document/abc")).toBeNull();
     expect(parseStorageComposerMention("not a uri")).toBeNull();
     expect(parseStorageComposerMention("legalworkstorage://conn-only")).toBeNull();
+  });
+});
+
+describe("intake task mention", () => {
+  const TASK_ID = "6803168d-3938-445e-b079-8cf13a0099b6";
+
+  test("carries the task id and nothing the sender wrote", () => {
+    const value = createTaskComposerMention(TASK_ID);
+    expect(value).toBe(`legalwork-task://${TASK_ID}`);
+    expect(parseTaskComposerMention(value)).toEqual({ taskId: TASK_ID });
+    // One `@token`: nothing in the value needs encoding.
+    expect(decodeComposerMentionValue(encodeComposerMentionValue(value))).toBe(value);
+  });
+
+  test("sends the task badge, which names the tool that reads it", () => {
+    expect(taskComposerDisplayText(createTaskComposerMention(TASK_ID))).toBe(
+      `[task ${TASK_ID} via legalwork_task_get]`,
+    );
+  });
+
+  test("tells the model for one turn how to read the task and where its files are", () => {
+    const instruction = taskComposerInstruction(createTaskComposerMention(TASK_ID));
+    expect(instruction).toContain("legalwork_task_get");
+    expect(instruction).toContain(`.legalwork/tasks/${TASK_ID}/`);
+  });
+
+  test("leaves other values alone", () => {
+    expect(parseTaskComposerMention("legalmemory://document/abc")).toBeNull();
+    expect(parseTaskComposerMention("legalwork-task://")).toBeNull();
+    expect(taskComposerDisplayText("docs/a.md")).toBe("docs/a.md");
   });
 });

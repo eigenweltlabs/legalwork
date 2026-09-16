@@ -8,7 +8,7 @@
  * "no original message" instead of throwing inside the detail view.
  */
 
-export type IntakeSubmissionView = {
+export type TaskSubmissionView = {
   /** Sender as displayed: the parsed address, or whatever the payload names. */
   from: string | null;
   to: string | null;
@@ -65,15 +65,26 @@ function addressToString(value: unknown): string | null {
 }
 
 /**
+ * Inbound mail is stored as `{ provider, item }`, the relay's own item, so its
+ * fields (`From`, `To`, `Subject`, `RawTextBody`, …) sit one level down. The
+ * API channel stores its fields flat and carries neither key.
+ */
+function unwrapInboundEnvelope(payload: Record<string, unknown>): Record<string, unknown> {
+  return typeof payload.provider === "string" && isRecord(payload.item) ? payload.item : payload;
+}
+
+/**
  * Normalize `{ task, submission }`'s submission half into something renderable.
  * Accepts both the wrapper (`{ rawPayload, senderEmail, … }`) and a bare raw
  * payload, because only the wrapper's existence is pinned by the contract.
  */
-export function readIntakeSubmission(submission: unknown): IntakeSubmissionView | null {
+export function readTaskSubmission(submission: unknown): TaskSubmissionView | null {
   if (!isRecord(submission)) return null;
-  const rawPayload = isRecord(submission.rawPayload) ? submission.rawPayload : submission;
+  const rawPayload = unwrapInboundEnvelope(
+    isRecord(submission.rawPayload) ? submission.rawPayload : submission,
+  );
 
-  const view: IntakeSubmissionView = {
+  const view: TaskSubmissionView = {
     from:
       readAddress(rawPayload, ["from", "From", "sender", "Sender", "submitter"]) ??
       readString(submission, ["senderEmail"]),

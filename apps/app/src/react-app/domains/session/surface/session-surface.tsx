@@ -77,6 +77,8 @@ import {
   createStorageComposerMention,
   storageComposerInstruction,
   storageComposerDisplayText,
+  taskComposerDisplayText,
+  taskComposerInstruction,
   type ComposerMentionKind,
 } from "./composer/mention-encoding";
 import { desktopBridge } from "@/app/lib/desktop";
@@ -1131,6 +1133,10 @@ export function SessionSurface(props: SessionSurfaceProps) {
           modelContexts.push(storageComposerInstruction(value));
           return [{ type: "text", text: storageComposerDisplayText(value) } satisfies ComposerDraft["parts"][number]];
         }
+        if (kind === "task") {
+          modelContexts.push(taskComposerInstruction(value));
+          return [{ type: "text", text: taskComposerDisplayText(value) } satisfies ComposerDraft["parts"][number]];
+        }
         if (kind === "app") return [{ type: "app", name: value } satisfies ComposerDraft["parts"][number]];
       }
       return [{ type: "text", text: segment } satisfies ComposerDraft["parts"][number]];
@@ -1149,9 +1155,11 @@ export function SessionSurface(props: SessionSurfaceProps) {
           ? legalMemoryComposerDisplayText(value)
           : kind === "storage"
             ? storageComposerDisplayText(value)
-            : kind === "upload"
-              ? workspaceAttachmentDisplayText(value)
-              : `@${value}`,
+            : kind === "task"
+              ? taskComposerDisplayText(value)
+              : kind === "upload"
+                ? workspaceAttachmentDisplayText(value)
+                : `@${value}`,
       );
     }
     const slashCommand = parseSlashCommandInvocation(resolved);

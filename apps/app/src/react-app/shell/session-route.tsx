@@ -10,6 +10,7 @@ import { useLocation, useNavigate, useParams } from "react-router-dom";
 import { EvalsPane } from "./evals-route";
 import { RecorderPane } from "../domains/recorder/recorder-pane";
 import { TasksPane } from "../domains/tasks/tasks-pane";
+import { TASK_OPEN_EVENT } from "../domains/tasks/task-reference";
 import { PremiumUpsellHost } from "../domains/recorder/premium-upsell-context";
 import {
   RECORDER_TRANSCRIPT_EVENT,
@@ -334,6 +335,8 @@ export function SessionRoute() {
   const [showExtensions, setShowExtensions] = useState(false);
   const [showRecorder, setShowRecorder] = useState(false);
   const [showTasks, setShowTasks] = useState(false);
+  // A task a chat chip asked to show: the pane opens on it (see TASK_OPEN_EVENT).
+  const [openTask, setOpenTask] = useState<{ id: string; at: number } | null>(null);
   const showEvalsPane = useCallback(() => {
     setShowEvals(true);
     setShowWorkflows(false);
@@ -362,6 +365,16 @@ export function SessionRoute() {
     setShowExtensions(false);
     setShowRecorder(false);
   }, []);
+  useEffect(() => {
+    const handleOpenTask = (event: Event) => {
+      const taskId = (event as CustomEvent<{ taskId?: string }>).detail?.taskId;
+      if (!taskId) return;
+      setOpenTask({ id: taskId, at: Date.now() });
+      showTasksPane();
+    };
+    window.addEventListener(TASK_OPEN_EVENT, handleOpenTask);
+    return () => window.removeEventListener(TASK_OPEN_EVENT, handleOpenTask);
+  }, [showTasksPane]);
   const platform = usePlatform();
   const { config: shellConfig } = useShellConfig();
   const local = useLocal();
@@ -858,12 +871,6 @@ export function SessionRoute() {
     eigenweltEntitlementsQuery.data?.entitlements,
     "premium_models",
   );
-  // Tasks (the firm's intake inbox) only exists for a connected firm whose plan
-  // includes it; the same query already runs for the model list, so this is a
-  // read, not another fetch.
-  const intakeEntitled =
-    Boolean(eigenweltEntitlementsQuery.data?.connected) &&
-    hasEigenweltFeature(eigenweltEntitlementsQuery.data?.entitlements, "intake");
   const engineEigenweltModelIds = useMemo(() => {
     const list = providerListQuery.data;
     if (!list) return null;
@@ -2022,6 +2029,7 @@ export function SessionRoute() {
             token={token}
             workspaces={sidebarWorkspaces}
             defaultModel={local.prefs.defaultModel}
+            openTask={openTask}
             onOpenSession={(workspaceId, sessionId) => {
               setShowTasks(false);
               writeActiveWorkspaceId(workspaceId || null);
@@ -2064,10 +2072,9 @@ export function SessionRoute() {
         onShowExtensions: () => navigate(`/workspace/${encodeURIComponent(selectedWorkspaceId)}/settings/extensions/mcp`),
         onShowFileStorage: () => navigate(`/workspace/${encodeURIComponent(selectedWorkspaceId)}/settings/extensions/storage`),
         onShowRecorder: showRecorderPane,
-        // Entitlement gate for the whole Tasks surface: without the handler the
-        // sidebar renders no row at all, so a firm whose plan lacks intake (or
-        // whose subscription lapsed) simply never sees it.
-        onShowTasks: intakeEntitled ? showTasksPane : undefined,
+        // Tasks live on this machine, so the surface exists for everyone — a
+        // connected firm additionally syncs them with its Eigenwelt account.
+        onShowTasks: showTasksPane,
         activeNav: showWorkflows ? "workflows" : showExtensions ? "extensions" : showEvals ? "evals" : showRecorder ? "recorder" : showTasks ? "tasks" : null,
         workspaceSessionGroups,
         selectedWorkspaceId,

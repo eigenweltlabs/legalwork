@@ -187,14 +187,14 @@ export type SkillsViewProps = {
 // still recognized as a fallback for anything created before the switch.
 export type WorkflowType = "tabular" | "assistant";
 const WORKFLOW_PREFIX = "workflow-";
-function isWorkflowCard(card: SkillCard): boolean {
+export function isWorkflowCard(card: Pick<SkillCard, "name" | "kind">): boolean {
   return card.kind === "workflow" || card.name.startsWith(WORKFLOW_PREFIX);
 }
 function cardWorkflowType(card: SkillCard): WorkflowType {
   if (card.workflowType === "tabular" || card.name.startsWith("workflow-tabular-")) return "tabular";
   return "assistant";
 }
-function workflowDisplayName(name: string): string {
+export function workflowDisplayName(name: string): string {
   const slug = name.replace(/^workflow-(?:tabular|assistant)-/, "").replace(/^workflow-/, "");
   return slug.replace(/-/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
 }

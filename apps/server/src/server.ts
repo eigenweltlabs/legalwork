@@ -164,18 +164,22 @@ import {
   type EigenweltHubKind,
 } from "./eigenwelt-hub.js";
 import {
-  intakeCreateTask,
+  EIGENWELT_INTAKE_MAX_UPLOAD_BYTES,
+  EIGENWELT_INTAKE_MAX_UPLOAD_FILES,
   intakeDownloadAttachment,
-  intakeGetTask,
   intakeListMembers,
-  intakeListTasks,
-  intakePatchTask,
-  intakeUploadAttachments,
-  parseIntakeTaskCreate,
-  parseIntakeTaskListParams,
-  parseIntakeTaskPatch,
   requireIntakeClient,
 } from "./eigenwelt-intake.js";
+import { taskStore } from "./task-store.js";
+import { runTaskSync, scheduleTaskSync, signOutOfFirmTasks, startTaskSyncTimer } from "./task-sync.js";
+import {
+  connectedTaskOrgId,
+  parseTaskCreate,
+  parseTaskListParams,
+  parseTaskPatch,
+  parseTaskSessionLink,
+  taskActorOf,
+} from "./tasks-api.js";
 import { sanitizePresetFragment } from "./hub-sanitize.js";
 import {
   forgetHubInstall,
@@ -721,6 +725,9 @@ export async function startServer(config: ServerConfig): Promise<StartedServer> 
     watcherHandle.close();
     watcherHandle = startReloadWatchers({ config, reloadEvents, logger });
   };
+  // Tasks push and pull with the firm's account in the background (a no-op
+  // while no firm is connected); each local write also asks for a round.
+  startTaskSyncTimer(config);
   const officeTools = new OfficeToolRelay();
   const benchmarkRunner = new BenchmarkRunner({
     config,
@@ -2157,8 +2164,19 @@ function createRoutes(
 
     // Sign-out (explicit): revoke the refresh-token family + clear the
     // connection AND the global paid-provider manifest, so the eigenwelt
-    // provider drops out of every workspace's engine config.
+    // provider drops out of every workspace's engine config. The firm's
+    // tasks leave this machine first (a last push, then the wipe); changes
+    // that could not be pushed stop the sign-out until `force` says otherwise.
     if (body.disconnect === true) {
+      const tasks = await signOutOfFirmTasks(config, { force: body.force === true });
+      if (!tasks.ok) {
+        throw new ApiError(
+          409,
+          "tasks_pending",
+          `${tasks.pending} change(s) made on this computer have not reached the firm yet.`,
+          { pending: tasks.pending },
+        );
+      }
       await revokeEigenweltConnection(config);
       await clearCachedEigenweltPaidManifest(config);
       await rebuildEngineConfigFile(workspace);
@@ -2207,7 +2225,12 @@ function createRoutes(
     // pull now (the post-checkout "waiting for your subscription" poll).
     const force = ctx.url.searchParams.get("refresh") === "1";
     const view = await readFreshEntitlementsView(config, { force });
-    if (view.connected) await syncEigenweltModels(force);
+    if (view.connected) {
+      await syncEigenweltModels(force);
+      // The app reads this right after a sign-in and every few minutes after:
+      // a good moment to bring the tasks up to date too.
+      scheduleTaskSync(config);
+    }
     const cachedManifest = await readCachedEigenweltPaidManifest(config);
     const modelsRevision = eigenweltPaidManifestRevision(cachedManifest);
     // What the engine config now serves; the app compares it with the engine's
@@ -2896,92 +2919,229 @@ function createRoutes(
     return jsonResponse({ ok: true, installs });
   });
 
-  // Intake: the firm's shared inbox on the platform, relayed with the stored
-  // platformToken exactly like the Firm Hub above — the app never sees it. Only
-  // the task-facing routes are proxied; endpoint/key administration stays
-  // browser-session-only on the platform.
-  const resolveIntakeClient = async (workspaceId: string) => {
-    await ensureFreshPlatformToken(config, workspaceId);
-    return requireIntakeClient(await readEigenweltConnection(config, workspaceId));
+  // Tasks: the firm's work as this machine holds it (task-store.ts). Every
+  // route reads and writes the local store, connected or not; a write is
+  // recorded for the push to the platform, and only an attachment whose bytes
+  // are not here yet reaches for the platform on demand. The store is the
+  // machine's, so the route's workspace only scopes the request.
+  const taskConnection = async () => {
+    await ensureFreshPlatformToken(config).catch(() => null);
+    const connection = await readEigenweltConnection(config);
+    return { connection, actor: taskActorOf(connection), orgId: connectedTaskOrgId(connection) };
   };
 
-  addRoute(routes, "GET", "/workspace/:id/intake/tasks", "client", async (ctx) => {
-    const workspace = await resolveWorkspace(config, ctx.params.id);
-    const client = await resolveIntakeClient(workspace.id);
-    const params = parseIntakeTaskListParams(ctx.url.searchParams);
-    return jsonResponse(await intakeListTasks(client, params));
+  addRoute(routes, "GET", "/workspace/:id/tasks", "client", async (ctx) => {
+    await resolveWorkspace(config, ctx.params.id);
+    const store = await taskStore(config);
+    const { orgId } = await taskConnection();
+    return jsonResponse(store.listTasks(parseTaskListParams(ctx.url.searchParams), orgId));
   });
 
-  addRoute(routes, "POST", "/workspace/:id/intake/tasks", "client", async (ctx) => {
+  addRoute(routes, "POST", "/workspace/:id/tasks", "client", async (ctx) => {
     ensureWritable(config);
     requireClientScope(ctx, "collaborator");
     const workspace = await resolveWorkspace(config, ctx.params.id);
-    const client = await resolveIntakeClient(workspace.id);
+    const store = await taskStore(config);
+    const { actor } = await taskConnection();
     const body = await readJsonBodyLimited(ctx.request, 512 * 1024);
-    const task = await intakeCreateTask(client, parseIntakeTaskCreate(body));
+    // An agent filing from a session names it; that link stays on this machine.
+    const task = store.createTask(parseTaskCreate(body, workspace.id), actor);
+    scheduleTaskSync(config);
+    return jsonResponse({ ok: true, task }, 201);
+  });
+
+  addRoute(routes, "GET", "/workspace/:id/tasks/:taskId", "client", async (ctx) => {
+    await resolveWorkspace(config, ctx.params.id);
+    const store = await taskStore(config);
+    return jsonResponse(store.getDetail(ctx.params.taskId));
+  });
+
+  addRoute(routes, "PATCH", "/workspace/:id/tasks/:taskId", "client", async (ctx) => {
+    ensureWritable(config);
+    requireClientScope(ctx, "collaborator");
+    await resolveWorkspace(config, ctx.params.id);
+    const store = await taskStore(config);
+    const { actor } = await taskConnection();
+    const body = await readJsonBodyLimited(ctx.request, 512 * 1024);
+    const task = store.patchTask(ctx.params.taskId, parseTaskPatch(body), actor);
+    scheduleTaskSync(config);
     return jsonResponse({ ok: true, task });
   });
 
-  addRoute(routes, "GET", "/workspace/:id/intake/tasks/:taskId", "client", async (ctx) => {
-    const workspace = await resolveWorkspace(config, ctx.params.id);
-    const client = await resolveIntakeClient(workspace.id);
-    return jsonResponse(await intakeGetTask(client, ctx.params.taskId));
-  });
-
-  addRoute(routes, "PATCH", "/workspace/:id/intake/tasks/:taskId", "client", async (ctx) => {
+  // Soft: the task goes to the trash and comes back with /restore. An agent
+  // may delete a task, so a mistake has to be undoable.
+  addRoute(routes, "DELETE", "/workspace/:id/tasks/:taskId", "client", async (ctx) => {
     ensureWritable(config);
     requireClientScope(ctx, "collaborator");
-    const workspace = await resolveWorkspace(config, ctx.params.id);
-    const client = await resolveIntakeClient(workspace.id);
-    const body = await readJsonBodyLimited(ctx.request, 512 * 1024);
-    const task = await intakePatchTask(client, ctx.params.taskId, parseIntakeTaskPatch(body));
+    await resolveWorkspace(config, ctx.params.id);
+    const store = await taskStore(config);
+    const task = store.deleteTask(ctx.params.taskId);
+    scheduleTaskSync(config);
     return jsonResponse({ ok: true, task });
   });
 
-  addRoute(routes, "POST", "/workspace/:id/intake/tasks/:taskId/attachments", "client", async (ctx) => {
+  // A session started from a task (a workflow run, or a plain session) is
+  // tied to it here, on this machine only — never pushed to the platform.
+  addRoute(routes, "POST", "/workspace/:id/tasks/:taskId/sessions", "client", async (ctx) => {
     ensureWritable(config);
     requireClientScope(ctx, "collaborator");
-    const workspace = await resolveWorkspace(config, ctx.params.id);
-    const client = await resolveIntakeClient(workspace.id);
+    await resolveWorkspace(config, ctx.params.id);
+    const store = await taskStore(config);
+    const body = await readJsonBodyLimited(ctx.request, 64 * 1024);
+    return jsonResponse({ ok: true, task: store.recordTaskSession(ctx.params.taskId, parseTaskSessionLink(body)) });
+  });
+
+  addRoute(routes, "POST", "/workspace/:id/tasks/:taskId/restore", "client", async (ctx) => {
+    ensureWritable(config);
+    requireClientScope(ctx, "collaborator");
+    await resolveWorkspace(config, ctx.params.id);
+    const store = await taskStore(config);
+    const task = store.restoreTask(ctx.params.taskId);
+    scheduleTaskSync(config);
+    return jsonResponse({ ok: true, task });
+  });
+
+  addRoute(routes, "POST", "/workspace/:id/tasks/:taskId/attachments", "client", async (ctx) => {
+    ensureWritable(config);
+    requireClientScope(ctx, "collaborator");
+    await resolveWorkspace(config, ctx.params.id);
+    const store = await taskStore(config);
     const contentType = ctx.request.headers.get("content-type") ?? "";
     if (!contentType.toLowerCase().includes("multipart/form-data")) {
       throw new ApiError(400, "invalid_payload", "Expected multipart/form-data");
     }
     const form = await ctx.request.formData();
-    // `files[]` is the platform's field name and what the app sends; `files`
-    // is accepted too because several form helpers drop the brackets.
+    // `files[]` is what the app sends; `files` is accepted too because several
+    // form helpers drop the brackets.
     const entries = [...form.getAll("files[]"), ...form.getAll("files")];
     const files = entries.filter((entry): entry is File => entry instanceof File);
-    const task = await intakeUploadAttachments(client, ctx.params.taskId, files);
+    if (files.length === 0) throw new ApiError(400, "invalid_task_upload", "Attach at least one file.");
+    // The same caps the push to the platform has (eigenwelt-intake.ts), so a
+    // file accepted here is never one the platform will refuse later.
+    if (files.length > EIGENWELT_INTAKE_MAX_UPLOAD_FILES) {
+      throw new ApiError(413, "task_upload_too_large", `At most ${EIGENWELT_INTAKE_MAX_UPLOAD_FILES} files per upload.`);
+    }
+    for (const file of files) {
+      if (file.size > EIGENWELT_INTAKE_MAX_UPLOAD_BYTES) {
+        throw new ApiError(413, "task_upload_too_large", `"${file.name}" is larger than 25 MiB.`);
+      }
+    }
+    let task = store.getTask(ctx.params.taskId);
+    if (!task) throw new ApiError(404, "task_not_found", "That task does not exist.");
+    for (const file of files) {
+      task = await store.addAttachment(ctx.params.taskId, {
+        filename: file.name || "attachment",
+        contentType: file.type || "application/octet-stream",
+        bytes: new Uint8Array(await file.arrayBuffer()),
+      });
+    }
+    scheduleTaskSync(config);
     return jsonResponse({ ok: true, task });
   });
 
   addRoute(
     routes,
-    "GET",
-    "/workspace/:id/intake/tasks/:taskId/attachments/:attachmentId",
+    "DELETE",
+    "/workspace/:id/tasks/:taskId/attachments/:attachmentId",
     "client",
     async (ctx) => {
-      const workspace = await resolveWorkspace(config, ctx.params.id);
-      const client = await resolveIntakeClient(workspace.id);
-      const attachment = await intakeDownloadAttachment(client, ctx.params.taskId, ctx.params.attachmentId);
-      const headers = new Headers();
-      headers.set("Content-Type", attachment.contentType);
-      headers.set("Content-Length", String(attachment.bytes.byteLength));
-      if (attachment.filename) {
-        headers.set(
-          "Content-Disposition",
-          `attachment; filename="${attachment.filename.replace(/[^A-Za-z0-9._-]/g, "_")}"`,
-        );
-      }
-      return new Response(attachment.bytes, { status: 200, headers });
+      ensureWritable(config);
+      requireClientScope(ctx, "collaborator");
+      await resolveWorkspace(config, ctx.params.id);
+      const store = await taskStore(config);
+      const task = await store.deleteAttachment(ctx.params.taskId, ctx.params.attachmentId);
+      scheduleTaskSync(config);
+      return jsonResponse({ ok: true, task });
     },
   );
 
-  addRoute(routes, "GET", "/workspace/:id/intake/members", "client", async (ctx) => {
-    const workspace = await resolveWorkspace(config, ctx.params.id);
-    const client = await resolveIntakeClient(workspace.id);
-    return jsonResponse({ members: await intakeListMembers(client) });
+  // The bytes, from this machine when they are here. An intake attachment is
+  // fetched from the platform the first time it is opened and kept from then
+  // on — which needs the firm to be connected that one time.
+  addRoute(
+    routes,
+    "GET",
+    "/workspace/:id/tasks/:taskId/attachments/:attachmentId",
+    "client",
+    async (ctx) => {
+      await resolveWorkspace(config, ctx.params.id);
+      const store = await taskStore(config);
+      const { taskId, attachmentId } = ctx.params;
+      const attachment = store.getAttachment(taskId, attachmentId);
+      if (!attachment) throw new ApiError(404, "task_attachment_not_found", "That attachment does not exist.");
+      let bytes = await store.readAttachment(taskId, attachmentId);
+      if (!bytes) {
+        const { connection, orgId } = await taskConnection();
+        if (!orgId) {
+          throw new ApiError(
+            409,
+            "task_attachment_offline",
+            "This file is still on the platform. Sign in with Eigenwelt to fetch it.",
+          );
+        }
+        const download = await intakeDownloadAttachment(requireIntakeClient(connection), taskId, attachmentId);
+        bytes = new Uint8Array(download.bytes);
+        await store.cacheAttachment(taskId, attachmentId, bytes);
+      }
+      const headers = new Headers();
+      headers.set("Content-Type", attachment.contentType);
+      headers.set("Content-Length", String(bytes.byteLength));
+      headers.set(
+        "Content-Disposition",
+        `attachment; filename="${attachment.filename.replace(/[^A-Za-z0-9._-]/g, "_")}"`,
+      );
+      // A copy of exactly the file's bytes: a Buffer from readFile may sit on a
+      // shared pool, whose ArrayBuffer is larger than the file.
+      const body = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer;
+      return new Response(body, { status: 200, headers });
+    },
+  );
+
+  // The firm's members, for the assignee picker: the cached list, refreshed
+  // from the platform whenever the firm is connected (and kept for when it is not).
+  addRoute(routes, "GET", "/workspace/:id/task-members", "client", async (ctx) => {
+    await resolveWorkspace(config, ctx.params.id);
+    const store = await taskStore(config);
+    const { connection, orgId } = await taskConnection();
+    if (orgId) {
+      try {
+        store.replaceMembers(orgId, await intakeListMembers(requireIntakeClient(connection)));
+      } catch {
+        // Offline or refused: the cached list still names the colleagues.
+      }
+    }
+    return jsonResponse({ members: store.listMembers(orgId) });
+  });
+
+  // Where the local store stands against the platform (task-sync.ts); POST
+  // runs a round now (the pane's refresh button) and answers with the result.
+  const taskSyncStatus = async () => {
+    const store = await taskStore(config);
+    const { connection, orgId } = await taskConnection();
+    const state = orgId ? store.getSyncState(orgId) : null;
+    return {
+      connected: orgId !== null,
+      orgId,
+      accountUserId: connection.account?.userId ?? null,
+      pending: store.outboxSize(),
+      lastSyncAt: state?.lastPullAt ?? null,
+      error: state?.lastError ?? null,
+      // Signed out after a sign-out took the firm's tasks: the pane says so
+      // rather than showing a bare empty list. Nothing about the firm is kept.
+      signedOut: orgId === null && store.signedOutBefore(),
+    };
+  };
+
+  addRoute(routes, "GET", "/workspace/:id/task-sync", "client", async (ctx) => {
+    await resolveWorkspace(config, ctx.params.id);
+    return jsonResponse(await taskSyncStatus());
+  });
+
+  addRoute(routes, "POST", "/workspace/:id/task-sync", "client", async (ctx) => {
+    ensureWritable(config);
+    await resolveWorkspace(config, ctx.params.id);
+    const round = await runTaskSync(config);
+    return jsonResponse({ ...(await taskSyncStatus()), round });
   });
 
   addRoute(routes, "GET", "/workspace/:id/audit", "client", async (ctx) => {

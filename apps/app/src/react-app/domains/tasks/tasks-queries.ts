@@ -1,12 +1,14 @@
 /**
  * Data access for the Tasks pane.
  *
- * Everything goes through the LegalWork server's intake relay: the platform
- * token stays on the server, so the app only ever sees relayed JSON. The
- * `workspaceId` in every call is transport only — it picks which stored firm
- * connection relays the request; intake itself is org-level, which is why the
- * pane is global and has no workspace-scoped route.
+ * Everything goes to the LegalWork server's own task store: tasks live on this
+ * machine and work with no Eigenwelt account at all. When the firm is
+ * connected, the server syncs the store with the account in the background;
+ * the pane only learns about that through the sync status it shows. The
+ * `workspaceId` in every call is transport only — tasks are the machine's,
+ * which is why the pane is global and has no workspace-scoped route.
  */
+import { useEffect, useRef } from "react";
 import {
   useInfiniteQuery,
   useMutation,
@@ -15,71 +17,67 @@ import {
 } from "@tanstack/react-query";
 
 import type {
-  EigenweltIntakeMember,
-  EigenweltIntakeTask,
-  EigenweltIntakeTaskListParams,
-  EigenweltIntakeTaskPatch,
+  LegalworkTask,
+  LegalworkTaskCreate,
+  LegalworkTaskListParams,
+  LegalworkTaskMember,
+  LegalworkTaskPatch,
+  LegalworkTaskSyncStatus,
   LegalworkServerClient,
 } from "@/app/lib/legalwork-server";
-import {
-  eigenweltBillingUrl,
-  hasEigenweltFeature,
-  useEigenweltEntitlements,
-} from "../connections/eigenwelt-entitlements";
+import { useEigenweltEntitlements } from "../connections/eigenwelt-entitlements";
 
-export type IntakeQueryContext = {
+export type TaskQueryContext = {
   client: LegalworkServerClient | null;
   workspaceId: string;
 };
 
-const TASKS_ROOT = "intake-tasks";
-const TASK_ROOT = "intake-task";
-const MEMBERS_ROOT = "intake-members";
+const TASKS_ROOT = "tasks";
+const TASK_ROOT = "task";
+const MEMBERS_ROOT = "task-members";
+const SYNC_ROOT = "task-sync";
 
 /** Filters/sort as the list request carries them (no paging keys). */
-export type IntakeTaskQuery = Omit<EigenweltIntakeTaskListParams, "cursor" | "limit">;
+export type TaskQuery = Omit<LegalworkTaskListParams, "cursor" | "limit">;
 
 /** One page at a time; the pane offers an explicit "load more" rather than infinite scroll. */
 const PAGE_SIZE = 50;
 
-export function intakeTasksQueryKey(workspaceId: string, query: IntakeTaskQuery) {
+export function tasksQueryKey(workspaceId: string, query: TaskQuery) {
   return [TASKS_ROOT, workspaceId, query] as const;
 }
 
-export function intakeTaskQueryKey(workspaceId: string, taskId: string) {
+export function taskQueryKey(workspaceId: string, taskId: string) {
   return [TASK_ROOT, workspaceId, taskId] as const;
 }
 
 /**
- * Whether the Tasks surface may render at all: signed in with an Eigenwelt
- * account AND the firm's plan grants `intake`. A lapsed subscription simply
- * flips `entitled` back to false — nothing here throws.
+ * The firm connection as the pane needs it: whether there is one (assignees
+ * and sync exist only then) and who is signed in (the "assigned to me" filter
+ * value). Nothing here gates the pane — tasks work without an account.
  */
-export function useIntakeAccess(context: IntakeQueryContext) {
+export function useTaskAccess(context: TaskQueryContext) {
   const entitlementsQuery = useEigenweltEntitlements({
     client: context.client,
     workspaceId: context.workspaceId || null,
   });
   const view = entitlementsQuery.data ?? null;
   return {
-    loading: entitlementsQuery.isLoading,
     connected: Boolean(view?.connected),
-    entitled: Boolean(view?.connected) && hasEigenweltFeature(view?.entitlements, "intake"),
     /** Clerk user id of the signed-in member — the "assigned to me" filter value. */
     accountUserId: view?.account?.userId ?? null,
-    billingUrl: eigenweltBillingUrl(view?.platformURL),
   };
 }
 
-export function useIntakeTasks(context: IntakeQueryContext, query: IntakeTaskQuery, enabled: boolean) {
+export function useTasks(context: TaskQueryContext, query: TaskQuery) {
   const { client, workspaceId } = context;
   return useInfiniteQuery({
-    queryKey: intakeTasksQueryKey(workspaceId, query),
-    enabled: enabled && Boolean(client && workspaceId),
+    queryKey: tasksQueryKey(workspaceId, query),
+    enabled: Boolean(client && workspaceId),
     initialPageParam: "",
     queryFn: async ({ pageParam }) => {
       if (!client || !workspaceId) return { tasks: [], nextCursor: null };
-      return client.intakeListTasks(workspaceId, {
+      return client.listTasks(workspaceId, {
         ...query,
         limit: PAGE_SIZE,
         ...(pageParam ? { cursor: pageParam } : {}),
@@ -89,56 +87,175 @@ export function useIntakeTasks(context: IntakeQueryContext, query: IntakeTaskQue
   });
 }
 
-export function useIntakeTask(context: IntakeQueryContext, taskId: string | null) {
+export function useTask(context: TaskQueryContext, taskId: string | null) {
   const { client, workspaceId } = context;
   return useQuery({
-    queryKey: intakeTaskQueryKey(workspaceId, taskId ?? ""),
+    queryKey: taskQueryKey(workspaceId, taskId ?? ""),
     enabled: Boolean(client && workspaceId && taskId),
     queryFn: async () => {
       if (!client || !workspaceId || !taskId) return null;
-      return client.intakeGetTask(workspaceId, taskId);
+      return client.getTask(workspaceId, taskId);
     },
   });
 }
 
-export function useIntakeMembers(context: IntakeQueryContext, enabled: boolean) {
+/** The firm's members for the assignee picker — cached by the server, so they
+ *  are known while offline too; empty when the firm was never connected. */
+export function useTaskMembers(context: TaskQueryContext) {
   const { client, workspaceId } = context;
   return useQuery({
     queryKey: [MEMBERS_ROOT, workspaceId],
-    enabled: enabled && Boolean(client && workspaceId),
+    enabled: Boolean(client && workspaceId),
     // The firm's member list changes far more slowly than its tasks.
     staleTime: 5 * 60_000,
-    queryFn: async (): Promise<EigenweltIntakeMember[]> => {
+    queryFn: async (): Promise<LegalworkTaskMember[]> => {
       if (!client || !workspaceId) return [];
-      return (await client.intakeListMembers(workspaceId)).members;
+      return (await client.listTaskMembers(workspaceId)).members;
     },
   });
 }
 
 /**
- * PATCH one task (status, assignee, priority, note, `lastLocalRunAt`) and
- * refresh both the row and the detail. The relay answers with the updated task
- * but may answer `task: null`, so the caches are invalidated rather than
- * written through.
+ * Where the store stands against the platform. Polled, so a round that ran
+ * in the background (a push landing, a pull bringing a colleague's change)
+ * shows without a click: whenever the last sync moment moves, the task
+ * queries are re-read.
  */
-export function useUpdateIntakeTask(context: IntakeQueryContext) {
+export function useTaskSyncStatus(context: TaskQueryContext) {
+  const { client, workspaceId } = context;
+  const queryClient = useQueryClient();
+  const seenSyncAt = useRef<number | null | undefined>(undefined);
+  const query = useQuery({
+    queryKey: [SYNC_ROOT, workspaceId],
+    enabled: Boolean(client && workspaceId),
+    refetchInterval: 30_000,
+    queryFn: async (): Promise<LegalworkTaskSyncStatus | null> => {
+      if (!client || !workspaceId) return null;
+      return client.taskSyncStatus(workspaceId);
+    },
+  });
+  const lastSyncAt = query.data?.lastSyncAt ?? null;
+  useEffect(() => {
+    if (seenSyncAt.current === undefined) {
+      seenSyncAt.current = lastSyncAt;
+      return;
+    }
+    if (seenSyncAt.current === lastSyncAt) return;
+    seenSyncAt.current = lastSyncAt;
+    void queryClient.invalidateQueries({ queryKey: [TASKS_ROOT, workspaceId] });
+    void queryClient.invalidateQueries({ queryKey: [TASK_ROOT, workspaceId] });
+    void queryClient.invalidateQueries({ queryKey: [MEMBERS_ROOT, workspaceId] });
+  }, [lastSyncAt, queryClient, workspaceId]);
+  return query;
+}
+
+function useInvalidateTasks(context: TaskQueryContext) {
+  const queryClient = useQueryClient();
+  return (taskId?: string) => {
+    void queryClient.invalidateQueries({ queryKey: [TASKS_ROOT, context.workspaceId] });
+    void queryClient.invalidateQueries({ queryKey: [SYNC_ROOT, context.workspaceId] });
+    if (taskId) void queryClient.invalidateQueries({ queryKey: taskQueryKey(context.workspaceId, taskId) });
+  };
+}
+
+/** Push and pull now, then re-read everything the round may have changed. */
+export function useRunTaskSync(context: TaskQueryContext) {
   const { client, workspaceId } = context;
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: async (input: { taskId: string; patch: EigenweltIntakeTaskPatch }) => {
-      if (!client || !workspaceId) throw new Error("not connected");
-      return client.intakePatchTask(workspaceId, input.taskId, input.patch);
+    mutationFn: async () => {
+      if (!client || !workspaceId) return null;
+      return client.runTaskSync(workspaceId);
     },
-    onSuccess: (_result, input) => {
+    onSettled: () => {
       void queryClient.invalidateQueries({ queryKey: [TASKS_ROOT, workspaceId] });
-      void queryClient.invalidateQueries({ queryKey: intakeTaskQueryKey(workspaceId, input.taskId) });
+      void queryClient.invalidateQueries({ queryKey: [TASK_ROOT, workspaceId] });
+      void queryClient.invalidateQueries({ queryKey: [MEMBERS_ROOT, workspaceId] });
+      void queryClient.invalidateQueries({ queryKey: [SYNC_ROOT, workspaceId] });
     },
   });
 }
 
+export function useCreateTask(context: TaskQueryContext) {
+  const { client, workspaceId } = context;
+  const invalidate = useInvalidateTasks(context);
+  return useMutation({
+    mutationFn: async (input: LegalworkTaskCreate): Promise<LegalworkTask> => {
+      if (!client || !workspaceId) throw new Error("not connected");
+      return (await client.createTask(workspaceId, input)).task;
+    },
+    onSuccess: () => invalidate(),
+  });
+}
+
+/**
+ * PATCH one task (fields, note, `lastLocalRunAt`) and refresh both the row
+ * and the detail. The caches are invalidated rather than written through so
+ * the list's ordering and grouping follow the store, not a guess.
+ */
+export function useUpdateTask(context: TaskQueryContext) {
+  const { client, workspaceId } = context;
+  const invalidate = useInvalidateTasks(context);
+  return useMutation({
+    mutationFn: async (input: { taskId: string; patch: LegalworkTaskPatch }) => {
+      if (!client || !workspaceId) throw new Error("not connected");
+      return client.patchTask(workspaceId, input.taskId, input.patch);
+    },
+    onSuccess: (_result, input) => invalidate(input.taskId),
+  });
+}
+
+export function useDeleteTask(context: TaskQueryContext) {
+  const { client, workspaceId } = context;
+  const invalidate = useInvalidateTasks(context);
+  return useMutation({
+    mutationFn: async (taskId: string) => {
+      if (!client || !workspaceId) throw new Error("not connected");
+      return client.deleteTask(workspaceId, taskId);
+    },
+    onSuccess: (_result, taskId) => invalidate(taskId),
+  });
+}
+
+export function useRestoreTask(context: TaskQueryContext) {
+  const { client, workspaceId } = context;
+  const invalidate = useInvalidateTasks(context);
+  return useMutation({
+    mutationFn: async (taskId: string) => {
+      if (!client || !workspaceId) throw new Error("not connected");
+      return client.restoreTask(workspaceId, taskId);
+    },
+    onSuccess: (_result, taskId) => invalidate(taskId),
+  });
+}
+
+export function useUploadTaskAttachments(context: TaskQueryContext) {
+  const { client, workspaceId } = context;
+  const invalidate = useInvalidateTasks(context);
+  return useMutation({
+    mutationFn: async (input: { taskId: string; files: File[] }) => {
+      if (!client || !workspaceId) throw new Error("not connected");
+      return client.uploadTaskAttachments(workspaceId, input.taskId, input.files);
+    },
+    onSuccess: (_result, input) => invalidate(input.taskId),
+  });
+}
+
+export function useDeleteTaskAttachment(context: TaskQueryContext) {
+  const { client, workspaceId } = context;
+  const invalidate = useInvalidateTasks(context);
+  return useMutation({
+    mutationFn: async (input: { taskId: string; attachmentId: string }) => {
+      if (!client || !workspaceId) throw new Error("not connected");
+      return client.deleteTaskAttachment(workspaceId, input.taskId, input.attachmentId);
+    },
+    onSuccess: (_result, input) => invalidate(input.taskId),
+  });
+}
+
 /** Flatten the loaded pages into the row list the pane renders. */
-export function flattenIntakeTaskPages(
-  pages: Array<{ tasks: EigenweltIntakeTask[] }> | undefined,
-): EigenweltIntakeTask[] {
+export function flattenTaskPages(
+  pages: Array<{ tasks: LegalworkTask[] }> | undefined,
+): LegalworkTask[] {
   return (pages ?? []).flatMap((page) => page.tasks);
 }

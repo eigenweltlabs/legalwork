@@ -1,16 +1,25 @@
 /**
- * "Start workflow" — run an intake task locally.
+ * "Start workflow" / "Start session" — work on a task in a folder.
  *
- * The task lives on the platform; the run does not. Attachments are pulled
- * through the relay and written into the chosen folder, a session is created
- * there and seeded with the task's context, and the workflow skill is invoked.
+ * The task lives in the server's store; the run lives in the folder. Its
+ * attachments are read from the server (fetched from the platform first if
+ * they are not on this machine yet) and written into the chosen folder, and a
+ * session is created there. The task is named by id (task-reference.ts), never by content:
+ * the agent reads it itself with legalwork_task_get, so the sender's text
+ * arrives inside the tool's untrusted block, never as the user's words.
+ *
+ * With a workflow, the first message invokes the workflow skill and the agent
+ * starts right away. Without one, nothing is sent: the task goes into the new
+ * session's message box as a pill with a short ask, for the user to edit or
+ * send.
  * The only thing that travels back to the platform is `lastLocalRunAt`: a
  * content-free marker that says "someone ran this on their machine", never
- * which machine, which folder or which session.
+ * which machine, which folder or which session. Which session it was is kept
+ * by the local server, tied to the task, so the task can open it again.
  */
 import { createClient, unwrap } from "@/app/lib/opencode";
 import type {
-  EigenweltIntakeTask,
+  LegalworkTask,
   LegalworkServerClient,
 } from "@/app/lib/legalwork-server";
 import { toSessionTransportDirectory } from "@/app/lib/session-scope";
@@ -18,6 +27,12 @@ import { resolveWorkspaceEndpoint } from "@/app/lib/workspace-endpoint";
 import type { ModelRef } from "@/app/types";
 import type { RouteWorkspace } from "@/react-app/shell/route-workspaces";
 import { t } from "@/i18n";
+import { useComposerStateStore } from "@/react-app/domains/session/surface/composer-state-store";
+import {
+  createTaskComposerMention,
+  encodeComposerMentionValue,
+} from "@/react-app/domains/session/surface/composer/mention-encoding";
+import { taskReference } from "./task-reference";
 
 /** Where a task's downloaded attachments live inside the chosen folder. */
 function taskAttachmentDir(taskId: string): string {
@@ -37,14 +52,15 @@ function safeAttachmentName(filename: string, fallback: string): string {
 export type StartWorkflowInput = {
   /** Relay handle: the server that holds the firm's platform token. */
   relay: { client: LegalworkServerClient; workspaceId: string };
-  task: EigenweltIntakeTask;
+  task: LegalworkTask;
   /** Folder the run happens in. */
   workspace: RouteWorkspace;
   /** Local LegalWork server handle, used to resolve the folder's endpoint. */
   baseUrl: string;
   token: string;
-  /** Workflow skill name (`kind: "workflow"`) from the user's own library. */
-  workflowName: string;
+  /** Workflow skill name (`kind: "workflow"`) from the user's own library;
+   *  null opens a plain session that only carries the task's context. */
+  workflowName: string | null;
   model: ModelRef | null;
 };
 
@@ -55,21 +71,30 @@ export type StartWorkflowResult = {
   attachmentPaths: string[];
 };
 
-function buildSeedPrompt(task: EigenweltIntakeTask, workflowName: string, attachmentPaths: string[]): string {
-  const lines: string[] = [t("tasks.run_prompt_heading", { workflow: workflowName }), ""];
-  lines.push(`${t("tasks.column_title")}: ${task.title}`);
-  lines.push(`${t("tasks.column_endpoint")}: ${task.endpointName}`);
-  if (task.assignmentNote?.trim()) {
-    lines.push(`${t("tasks.assignment_note")}: ${task.assignmentNote.trim()}`);
-  }
-  if (task.description.trim()) {
-    lines.push("", `${t("tasks.field_description")}:`, task.description.trim());
-  }
+/**
+ * A workflow run's first message: the task reference, and where its files are.
+ * Only the folder is named, never a filename — filenames are sender-chosen, and
+ * the agent gets them from legalwork_task_get inside the untrusted block.
+ */
+function buildSeedPrompt(task: LegalworkTask, workflowName: string, attachmentPaths: string[]): string {
+  const lines = [t("tasks.run_prompt_heading", { workflow: workflowName, task: taskReference(task.id) })];
   if (attachmentPaths.length) {
-    lines.push("", `${t("tasks.run_prompt_attachments")}:`);
-    for (const path of attachmentPaths) lines.push(`- ${path}`);
+    lines.push(t("tasks.run_prompt_attachments", { folder: `${taskAttachmentDir(task.id)}/` }));
   }
-  return lines.join("\n");
+  return lines.join("\n\n");
+}
+
+/**
+ * Put the task into a session's message box: a task pill and a short ask. The
+ * pill becomes the task badge when the user sends, along with a one-turn
+ * instruction to read the task (mention-encoding.ts). The mention is registered
+ * first so the editor knows the token is a pill when the draft arrives.
+ */
+function prefillTaskSession(sessionId: string, taskId: string): void {
+  const reference = createTaskComposerMention(taskId);
+  const composer = useComposerStateStore.getState();
+  composer.setMentions(sessionId, { [reference]: "task" });
+  composer.setDraft(sessionId, `@${encodeComposerMentionValue(reference)} ${t("tasks.session_draft_message")}`);
 }
 
 export async function startTaskWorkflow(input: StartWorkflowInput): Promise<StartWorkflowResult> {
@@ -79,12 +104,12 @@ export async function startTaskWorkflow(input: StartWorkflowInput): Promise<Star
   });
   if (!endpoint) throw new Error(t("tasks.run_workspace_unreachable"));
 
-  // Attachments first: the seeded prompt names their paths, so they have to be
-  // on disk before the agent reads it.
+  // Attachments first: the agent is pointed at their folder, so they have to
+  // be on disk before it reads the task.
   const attachmentPaths: string[] = [];
   const directory = taskAttachmentDir(input.task.id);
   for (const [index, attachment] of input.task.attachments.entries()) {
-    const download = await input.relay.client.intakeDownloadAttachment(
+    const download = await input.relay.client.downloadTaskAttachment(
       input.relay.workspaceId,
       input.task.id,
       attachment.id,
@@ -112,20 +137,31 @@ export async function startTaskWorkflow(input: StartWorkflowInput): Promise<Star
     }),
   );
 
-  const result = await opencode.session.promptAsync({
-    sessionID: session.id,
-    directory: transportDirectory,
-    model: input.model ?? undefined,
-    parts: [{ type: "text", text: buildSeedPrompt(input.task, input.workflowName, attachmentPaths) }],
-  });
-  if (result.error !== undefined) {
-    throw new Error(t("tasks.run_prompt_failed"));
+  if (input.workflowName) {
+    const result = await opencode.session.promptAsync({
+      sessionID: session.id,
+      directory: transportDirectory,
+      model: input.model ?? undefined,
+      parts: [{ type: "text", text: buildSeedPrompt(input.task, input.workflowName, attachmentPaths) }],
+    });
+    if (result.error !== undefined) throw new Error(t("tasks.run_prompt_failed"));
+  } else {
+    prefillTaskSession(session.id, input.task.id);
   }
 
-  // Content-free marker so the rest of the firm can see the task was picked up
-  // locally. A failure here must not lose the run the user already started.
+  // Tie the session to the task on this machine, and leave the firm a
+  // content-free marker that the task was picked up locally. A failure in
+  // either must not lose the run the user already started.
   await input.relay.client
-    .intakePatchTask(input.relay.workspaceId, input.task.id, {
+    .recordTaskSession(input.relay.workspaceId, input.task.id, {
+      sessionId: session.id,
+      workspaceId: input.workspace.id,
+      kind: input.workflowName ? "workflow" : "session",
+      workflowName: input.workflowName,
+    })
+    .catch(() => undefined);
+  await input.relay.client
+    .patchTask(input.relay.workspaceId, input.task.id, {
       lastLocalRunAt: new Date().toISOString(),
     })
     .catch(() => undefined);
