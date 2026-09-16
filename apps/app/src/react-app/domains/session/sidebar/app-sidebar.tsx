@@ -734,7 +734,7 @@ export function AppSidebar(props: AppSidebarProps) {
               {showUnreadTasks ? (
                 <SidebarMenuBadge
                   aria-hidden
-                  className="end-2 rounded-full bg-primary px-1.5 text-[11px] font-semibold text-primary-foreground peer-hover/menu-button:text-primary-foreground peer-data-active/menu-button:text-primary-foreground"
+                  className="end-2.5 h-4 min-w-4 rounded-full bg-primary px-1 text-[10px] leading-none font-semibold text-primary-foreground peer-hover/menu-button:text-primary-foreground peer-data-active/menu-button:text-primary-foreground peer-data-[size=default]/menu-button:top-2.5"
                 >
                   {unreadTasks > 9 ? "9+" : unreadTasks}
                 </SidebarMenuBadge>

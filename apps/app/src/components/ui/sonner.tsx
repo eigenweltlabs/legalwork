@@ -4,6 +4,7 @@ import { CircleCheckIcon, InfoIcon, TriangleAlertIcon, OctagonXIcon, Loader2Icon
 import { cva, type VariantProps } from "class-variance-authority"
 import { getResolvedThemeMode, subscribeToTheme } from "@/app/theme"
 import { Button } from "@/components/ui/button"
+import { t } from "@/i18n"
 import { cn } from "@/lib/utils"
 
 function useTheme() {
@@ -131,18 +132,31 @@ interface ToastCardProps {
   notification?: boolean
 }
 
+/** The title, with the close button in the card's top-right corner. */
+function ToastTitleRow({ id, title }: { id: string | number; title: React.ReactNode }) {
+  return (
+    <div className="flex items-start gap-2">
+      <p className="min-w-0 flex-1 text-sm font-medium">{title}</p>
+      <Button
+        variant="ghost"
+        size="icon-xs"
+        aria-label={t("common.close")}
+        className="-me-1.5 -mt-0.5 shrink-0 text-muted-foreground hover:text-foreground"
+        onClick={() => sonnerToast.dismiss(id)}
+      >
+        <XIcon className="size-4" />
+      </Button>
+    </div>
+  )
+}
+
 function ToastCard({ id, type, title, description, action, cancel, notification }: ToastCardProps) {
   if (notification) {
     return (
       <div className={cn("flex w-full gap-3 rounded-2xl border border-border bg-popover p-4 text-popover-foreground shadow-md md:max-w-sm ring-1 ring-popover-border/20 items-center")}>
         <ToastIcon type={type} size="sm" />
         <div className="flex min-w-0 flex-1 flex-col gap-1">
-          <div className="flex items-center gap-2">
-            <p className="text-sm font-medium">{title}</p>
-            <Button variant="ghost" size="sm" onClick={() => sonnerToast.dismiss(id)}>
-              <XIcon className="size-4" />
-            </Button>
-          </div>
+          <ToastTitleRow id={id} title={title} />
           {description ? <p className="text-sm text-muted-foreground">{description}</p> : null}
         </div>
       </div>
@@ -153,12 +167,7 @@ function ToastCard({ id, type, title, description, action, cancel, notification 
     <div className={cn("flex w-full items-start gap-3 rounded-2xl border border-border bg-popover p-4 text-popover-foreground shadow-md md:max-w-sm ring-1 ring-popover-border/20")}>
       <ToastIcon type={type} />
       <div className="flex min-w-0 flex-1 flex-col gap-1">
-        <div className="flex items-center gap-2">
-         <p className="text-sm font-medium">{title}</p>
-         <Button variant="ghost" size="sm" onClick={() => sonnerToast.dismiss(id)}>
-          <XIcon className="size-4" />
-          </Button>
-        </div>
+        <ToastTitleRow id={id} title={title} />
         {description ? <p className="text-sm text-muted-foreground">{description}</p> : null}
         {action || cancel ? (
           <div className="mt-2 flex gap-2">
