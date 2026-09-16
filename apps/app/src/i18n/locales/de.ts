@@ -2659,6 +2659,7 @@ const de = {
   "ai_plans.feature_pro_headroom":
     "Mehr als das Doppelte der inkludierten Nutzung von Plus, für Kanzleien, die täglich mit KI arbeiten",
   "ai_plans.byo_name": "Eigenes Modell",
+  "ai_plans.byo_price": "Kostenlos",
   "ai_plans.byo_price_suffix": "Nutzung rechnet Ihr Anbieter ab",
   "ai_plans.byo_feature_requirement":
     "Erfordert einen API-Schlüssel eines Modellanbieters oder ein lokales Modell",

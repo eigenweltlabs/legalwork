@@ -30,7 +30,7 @@
  *   ai_plans_account_switched               "Use another account"
  */
 import { useEffect, useId, useRef, useState, type ReactNode } from "react";
-import { ArrowLeft, Check, KeyRound, Loader2, Plug, Sparkles, type LucideIcon } from "lucide-react";
+import { ArrowLeft, Check, KeyRound, Loader2, Sparkles, type LucideIcon } from "lucide-react";
 
 import legalworkMark from "@/assets/legalwork-mark-dark.svg";
 import { Button } from "@/components/ui/button";
@@ -158,7 +158,7 @@ function FeatureRow(props: { children: ReactNode; strong?: boolean; icon?: Lucid
 
 /** Name, tagline, price row, action, features: the platform's card, in the app's tokens. Five children, one per track. */
 function CardFrame(props: {
-  icon: ReactNode;
+  icon?: ReactNode;
   name: string;
   tagline: string;
   price: string;
@@ -170,9 +170,11 @@ function CardFrame(props: {
   return (
     <article className={cardClass} data-testid={props.testId}>
       <h2 className="flex items-center gap-2 text-[26px] font-medium leading-none tracking-[-0.03em] text-dls-text">
-        <span aria-hidden className="flex size-6 shrink-0 items-center justify-center">
-          {props.icon}
-        </span>
+        {props.icon ? (
+          <span aria-hidden className="flex size-6 shrink-0 items-center justify-center">
+            {props.icon}
+          </span>
+        ) : null}
         {props.name}
       </h2>
       <p className="mt-2 text-[13.5px] leading-5 text-dls-secondary">{props.tagline}</p>
@@ -232,14 +234,13 @@ function PlanCard(props: {
   );
 }
 
-function OwnModelCard(props: { locale: string; disabled: boolean; onChoose: () => void }) {
+function OwnModelCard(props: { disabled: boolean; onChoose: () => void }) {
   return (
     <CardFrame
       testId="ai-plan-byo"
-      icon={<Plug className="size-[22px] text-dls-secondary" strokeWidth={1.75} />}
       name={t("ai_plans.byo_name")}
       tagline={t("ai_plans.byo_tagline")}
-      price={formatEuroCents(0, props.locale)}
+      price={t("ai_plans.byo_price")}
       priceSuffix={t("ai_plans.byo_price_suffix")}
       action={
         <Button
@@ -611,7 +612,7 @@ export function AiPlansOverlay(props: AiPlansOverlayProps) {
           {notice ? <div className="mt-4">{notice}</div> : null}
         </header>
         <div className="mt-7 grid gap-4 md:grid-cols-3 md:gap-x-4 md:gap-y-0 xl:gap-x-5">
-          <OwnModelCard locale={locale} disabled={disabled} onChoose={bringOwnModel} />
+          <OwnModelCard disabled={disabled} onChoose={bringOwnModel} />
           {EIGENWELT_PLANS.map((plan) => (
             <PlanCard
               key={plan.id}
