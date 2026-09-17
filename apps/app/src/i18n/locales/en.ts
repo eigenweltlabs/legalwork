@@ -2368,6 +2368,7 @@ export default {
   "ai_plans.feature_hosting_retention": "Hosting in the EU or the US, zero data retention, never used for training",
   "ai_plans.feature_pro_headroom":
     "More than twice the included usage of Plus, for firms that work with AI every day",
+  "ai_plans.feature_priority_support": "Priority support",
   "ai_plans.byo_name": "Own model",
   "ai_plans.byo_price": "Free",
   "ai_plans.byo_price_suffix": "usage billed by your provider",

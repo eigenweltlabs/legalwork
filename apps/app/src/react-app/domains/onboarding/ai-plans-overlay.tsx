@@ -112,7 +112,7 @@ const FEATURES: Record<EigenweltPlanId, string[]> = {
     "ai_plans.feature_admin",
     "ai_plans.feature_hosting_retention",
   ],
-  pro: ["usage", "ai_plans.feature_pro_headroom"],
+  pro: ["usage", "ai_plans.feature_pro_headroom", "ai_plans.feature_priority_support"],
 };
 
 // Side by side, each card spans the row's five tracks (name, tagline, price,

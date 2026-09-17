@@ -2657,6 +2657,7 @@ const de = {
     "Hosting in der EU oder den USA, keine Datenspeicherung, niemals für Training verwendet",
   "ai_plans.feature_pro_headroom":
     "Mehr als das Doppelte der inkludierten Nutzung von Plus, für Kanzleien, die täglich mit KI arbeiten",
+  "ai_plans.feature_priority_support": "Priorisierter Support",
   "ai_plans.byo_name": "Eigenes Modell",
   "ai_plans.byo_price": "Kostenlos",
   "ai_plans.byo_price_suffix": "Nutzung rechnet Ihr Anbieter ab",
