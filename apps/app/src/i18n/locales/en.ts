@@ -2363,7 +2363,7 @@ export default {
   "ai_plans.everything_in_plus": "Everything in Plus and:",
   "ai_plans.feature_usage": "{amount} of AI usage included per seat each month",
   "ai_plans.feature_models": "Premium models in LegalWork: chat, drafting, review and redlining",
-  "ai_plans.feature_hub": "Knowledge Hub: share workflows, integrations and settings presets with every seat",
+  "ai_plans.feature_hub": "Team collaboration: share workflows, integrations and settings presets with every seat",
   "ai_plans.feature_hosting": "Hosting in the EU or the US, depending on what you choose",
   "ai_plans.feature_retention": "Zero data retention, never used for training",
   "ai_plans.feature_pro_headroom":

@@ -2652,7 +2652,7 @@ const de = {
   "ai_plans.feature_usage": "{amount} KI-Nutzung pro Platz und Monat inklusive",
   "ai_plans.feature_models": "Premium-Modelle in LegalWork: Chat, Entwürfe, Prüfung und Redlining",
   "ai_plans.feature_hub":
-    "Knowledge Hub: Workflows, Integrationen und Einstellungsvorlagen mit jedem Platz teilen",
+    "Zusammenarbeit im Team: Workflows, Integrationen und Einstellungsvorlagen mit jedem Platz teilen",
   "ai_plans.feature_hosting": "Hosting in der EU oder den USA, je nach Ihrer Wahl",
   "ai_plans.feature_retention": "Keine Datenspeicherung, niemals für Training verwendet",
   "ai_plans.feature_pro_headroom":
