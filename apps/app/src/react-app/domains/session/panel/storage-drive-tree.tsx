@@ -5,6 +5,7 @@ import { AlertCircle, ChevronRight, FolderPlus, Loader2, LockKeyhole, RefreshCw,
 import { type StorageEntry, type StorageRoot } from "@legalwork/types/file-storage";
 import type { LegalworkServerClient } from "@/app/lib/legalwork-server";
 import { writeStorageFileDrag } from "@/app/lib/storage-file-drag";
+import { hasTaskAttachmentDrag, readTaskAttachmentDrag, type TaskAttachmentDragItem } from "@/app/lib/task-attachment-drag";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -72,6 +73,28 @@ export function StorageDriveTree({ client, workspaceId, roots, onOpenFile }: Tre
     await refreshFolder(target);
     setBusy("");
     setError(failures.join("\n"));
+  };
+  const copyTaskAttachment = async (target: Location, attachment: TaskAttachmentDragItem) => {
+    if (busy || !target.root.writable) return;
+    setSelected(target);
+    setError("");
+    setBusy(t("storage.upload_progress", { current: 1, total: 1, name: attachment.filename }));
+    try {
+      const download = await client.downloadTaskAttachment(workspaceId, attachment.taskId, attachment.attachmentId);
+      const filename = attachment.filename.split(/[/\\]/).pop() || "attachment";
+      await client.writeStorageFile(
+        workspaceId,
+        target.root.id,
+        target.path ? `${target.path}/${filename}` : filename,
+        download.data,
+        download.contentType || attachment.contentType || "application/octet-stream",
+      );
+      await refreshFolder(target);
+    } catch (cause) {
+      setError(`${attachment.filename}: ${cause instanceof Error ? cause.message : t("storage.failed")}`);
+    } finally {
+      setBusy("");
+    }
   };
   return (
     <section aria-label={t("storage.connected_folders")} className="min-h-0 space-y-1 px-2 py-2">
@@ -152,6 +175,7 @@ export function StorageDriveTree({ client, workspaceId, roots, onOpenFile }: Tre
           onSelect={setSelected}
           onFile={(entry) => onOpenFile(root, entry)}
           onUpload={upload}
+          onTaskAttachmentDrop={copyTaskAttachment}
           onChooseUpload={(target) => { setSelected(target); uploadInput.current?.click(); }}
           onNewFolder={(target) => { setSelected(target); setFolderName(""); setError(""); setNewFolder(true); }}
           busy={Boolean(busy)}
@@ -235,6 +259,7 @@ type FolderProps = Location & {
   onSelect: (target: Location) => void;
   onFile: (entry: StorageEntry) => void;
   onUpload: (target: Location, files: File[]) => Promise<void>;
+  onTaskAttachmentDrop: (target: Location, attachment: TaskAttachmentDragItem) => Promise<void>;
   onChooseUpload: (target: Location) => void;
   onNewFolder: (target: Location) => void;
   busy: boolean;
@@ -287,7 +312,11 @@ function StorageFolder(props: FolderProps) {
             setOpen((value) => !value);
           }}
           onDragOver={(event) => {
-            if (root.writable && !busy && event.dataTransfer.types.includes("Files")) {
+            if (
+              root.writable &&
+              !busy &&
+              (event.dataTransfer.types.includes("Files") || hasTaskAttachmentDrag(event.dataTransfer))
+            ) {
               event.preventDefault();
               event.dataTransfer.dropEffect = "copy";
               setDragging(true);
@@ -299,6 +328,11 @@ function StorageFolder(props: FolderProps) {
             if (!root.writable || busy) return;
             event.preventDefault();
             setOpen(true);
+            const attachment = readTaskAttachmentDrag(event.dataTransfer);
+            if (attachment) {
+              void props.onTaskAttachmentDrop({ root, path }, attachment);
+              return;
+            }
             void onUpload({ root, path }, Array.from(event.dataTransfer.files));
           }}
         >

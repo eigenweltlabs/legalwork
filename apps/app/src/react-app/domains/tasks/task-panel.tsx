@@ -3,6 +3,7 @@ import { useEffect } from "react";
 import { ListTodo, Loader2 } from "lucide-react";
 
 import type { LegalworkTaskAttachment, LegalworkServerClient } from "@/app/lib/legalwork-server";
+import { storageFileDragToFile } from "@/app/lib/storage-file-drag";
 import { Button } from "@/components/ui/button";
 import { toast } from "@/components/ui/sonner";
 import { t } from "@/i18n";
@@ -127,6 +128,10 @@ export function TaskPanel(props: TaskPanelProps) {
       onDownloadAttachment={downloadAttachment}
       onOpenAttachment={openAttachment}
       onUploadAttachments={(files) => uploadAttachments.mutateAsync({ taskId: task.id, files })}
+      onUploadStorageAttachment={async (storageFile) => {
+        const file = await storageFileDragToFile(client, workspaceId, storageFile);
+        return uploadAttachments.mutateAsync({ taskId: task.id, files: [file] });
+      }}
       onRemoveAttachment={(attachment) => deleteAttachment.mutateAsync({ taskId: task.id, attachmentId: attachment.id })}
     />
   );

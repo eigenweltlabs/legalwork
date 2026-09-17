@@ -4,6 +4,7 @@ import { useInfiniteQuery } from "@tanstack/react-query";
 import { Loader2 } from "lucide-react";
 import { STORAGE_PAGE_SIZE, type StorageEntry, type StorageRoot } from "@legalwork/types/file-storage";
 import type { LegalworkServerClient } from "@/app/lib/legalwork-server";
+import { writeStorageFileDrag } from "@/app/lib/storage-file-drag";
 import { Button } from "@/components/ui/button";
 import { t } from "@/i18n";
 import { StorageEntryMenu } from "./storage-entry-menu";
@@ -67,7 +68,9 @@ function ConnectionSearch({
         <div className="group flex items-center">
         <button
           type="button"
+          draggable
           title={`${root.name} / ${entry.path}`}
+          onDragStart={(event) => writeStorageFileDrag(event.dataTransfer, root, entry)}
           onClick={() => onOpenFile(root, entry)}
           className="flex min-h-11 min-w-0 flex-1 items-center gap-2 rounded-lg px-2 py-1 text-left hover:bg-muted/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
         >

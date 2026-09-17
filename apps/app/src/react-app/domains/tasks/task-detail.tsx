@@ -10,7 +10,7 @@
  * attachments, sessions, history, the original message, details — is folded
  * when a task opens, so what is asked is the first and only thing in view.
  */
-import { useEffect, useId, useMemo, useRef, useState, type FormEvent, type KeyboardEvent, type ReactNode } from "react";
+import { useEffect, useId, useMemo, useRef, useState, type DragEvent, type FormEvent, type KeyboardEvent, type ReactNode } from "react";
 import DOMPurify from "dompurify";
 import {
   ArrowLeft,
@@ -65,6 +65,8 @@ import type {
   LegalworkTaskPatch,
   LegalworkTaskSessionLink,
 } from "@/app/lib/legalwork-server";
+import { hasStorageFileDrag, readStorageFileDrag, type StorageFileDragItem } from "@/app/lib/storage-file-drag";
+import { writeTaskAttachmentDrag } from "@/app/lib/task-attachment-drag";
 import { formatBytes } from "@/app/utils";
 import { t } from "@/i18n";
 import { getArtifactType } from "@/lib/artifacts";
@@ -127,10 +129,35 @@ function documentIconKind(filename: string): DocumentIconKind {
 }
 
 /** A folded block of the task; every one starts closed, so a task opens on its ask alone. */
-function Section(props: { title: string; children: ReactNode; icon: ReactNode; actions?: ReactNode }) {
+function Section(props: {
+  title: string;
+  children: ReactNode;
+  icon: ReactNode;
+  actions?: ReactNode;
+  dropZone?: {
+    active: boolean;
+    label: string;
+    onDragOver: (event: DragEvent<HTMLDetailsElement>) => void;
+    onDragLeave: (event: DragEvent<HTMLDetailsElement>) => void;
+    onDrop: (event: DragEvent<HTMLDetailsElement>) => void;
+  };
+}) {
   return (
-    <details className="group/section border-t border-border">
-      <summary className="flex cursor-pointer list-none items-center gap-3 rounded-md py-4 text-sm font-medium text-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring/30 [&::-webkit-details-marker]:hidden">
+    <details
+      className={cn(
+        "group/section border-t border-border",
+        props.dropZone?.active && "rounded-[var(--lw-radius-lg)] ring-2 ring-primary/35",
+      )}
+      onDragOver={props.dropZone?.onDragOver}
+      onDragLeave={props.dropZone?.onDragLeave}
+      onDrop={props.dropZone?.onDrop}
+    >
+      <summary className="relative flex cursor-pointer list-none items-center gap-3 rounded-md py-4 text-sm font-medium text-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring/30 [&::-webkit-details-marker]:hidden">
+        {props.dropZone?.active ? (
+          <span className="pointer-events-none absolute inset-0 z-20 flex items-center justify-center rounded-[var(--lw-radius-lg)] bg-background/90">
+            {props.dropZone.label}
+          </span>
+        ) : null}
         {props.icon}
         <h2 className="flex-1">{props.title}</h2>
         {props.actions}
@@ -294,6 +321,7 @@ export type TaskDetailProps = {
   /** Shows the attachment in the side panel's viewer. */
   onOpenAttachment: (attachment: LegalworkTaskAttachment) => Promise<void>;
   onUploadAttachments: (files: File[]) => Promise<unknown>;
+  onUploadStorageAttachment: (file: StorageFileDragItem) => Promise<unknown>;
   onRemoveAttachment: (attachment: LegalworkTaskAttachment) => Promise<unknown>;
 };
 
@@ -306,6 +334,7 @@ export function TaskDetail(props: TaskDetailProps) {
   const [openingId, setOpeningId] = useState<string | null>(null);
   const [removingId, setRemovingId] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
+  const [draggingAttachment, setDraggingAttachment] = useState(false);
   const [draftTitle, setDraftTitle] = useState(task.title);
   const [draftDescription, setDraftDescription] = useState(task.description);
   const [draftTags, setDraftTags] = useState(task.tags);
@@ -445,6 +474,20 @@ export function TaskDetail(props: TaskDetailProps) {
       if (fileInputRef.current) fileInputRef.current.value = "";
     }
   };
+
+  const uploadStorageAttachment = async (file: StorageFileDragItem) => {
+    setUploading(true);
+    try {
+      await props.onUploadStorageAttachment(file);
+    } catch (error) {
+      toast.error(t("tasks.upload_failed"), { description: error instanceof Error ? error.message : undefined });
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  const dragHasAttachment = (dataTransfer: DataTransfer) =>
+    Array.from(dataTransfer.types).includes("Files") || hasStorageFileDrag(dataTransfer);
 
   const noteAuthor = (note: LegalworkTaskNote): string => {
     if (note.authorUserId && props.accountUserId && note.authorUserId === props.accountUserId) return t("tasks.assignee_you");
@@ -669,6 +712,34 @@ export function TaskDetail(props: TaskDetailProps) {
           <Section
             title={task.attachments.length ? t("tasks.attachments_count", { count: task.attachments.length }) : t("tasks.attachments_empty")}
             icon={<Paperclip aria-hidden className="size-4 text-muted-foreground" />}
+            dropZone={{
+              active: draggingAttachment,
+              label: t("tasks.drop_attachments"),
+              onDragOver: (event) => {
+                if (locked || uploading || !dragHasAttachment(event.dataTransfer)) return;
+                event.preventDefault();
+                event.stopPropagation();
+                event.dataTransfer.dropEffect = "copy";
+                setDraggingAttachment(true);
+              },
+              onDragLeave: (event) => {
+                const next = event.relatedTarget;
+                if (next instanceof Node && event.currentTarget.contains(next)) return;
+                setDraggingAttachment(false);
+              },
+              onDrop: (event) => {
+                if (locked || uploading || !dragHasAttachment(event.dataTransfer)) return;
+                event.preventDefault();
+                event.stopPropagation();
+                setDraggingAttachment(false);
+                const storageFile = readStorageFileDrag(event.dataTransfer);
+                if (storageFile) {
+                  void uploadStorageAttachment(storageFile);
+                  return;
+                }
+                void upload(Array.from(event.dataTransfer.files));
+              },
+            }}
             actions={
               inTrash ? null : (
                 <Button
@@ -709,11 +780,13 @@ export function TaskDetail(props: TaskDetailProps) {
                   >
                     <button
                       type="button"
+                      draggable
                       className="flex min-w-0 flex-1 items-center gap-3 rounded-[var(--lw-radius-md)] text-start outline-none focus-visible:ring-3 focus-visible:ring-ring/30 disabled:cursor-progress"
                       title={t("tasks.open_attachment")}
                       aria-label={`${t("tasks.open_attachment")}: ${attachment.filename}`}
                       aria-busy={openingId === attachment.id}
                       disabled={openingId === attachment.id}
+                      onDragStart={(event) => writeTaskAttachmentDrag(event.dataTransfer, task.id, attachment)}
                       onClick={() => void open(attachment)}
                     >
                       {openingId === attachment.id ? (

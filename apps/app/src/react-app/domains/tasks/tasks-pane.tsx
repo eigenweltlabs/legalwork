@@ -62,6 +62,7 @@ import {
   type StartWorkflowSelection,
 } from "./start-workflow-dialog";
 import { importViewerFile } from "@/react-app/domains/session/panel/import-viewer-file";
+import { storageFileDragToFile } from "@/app/lib/storage-file-drag";
 import { requestPanelTab } from "@/react-app/domains/session/panel/panel-tab-store";
 import { NewTaskDialog } from "./new-task-dialog";
 import { startTaskWorkflow } from "./start-workflow";
@@ -500,6 +501,25 @@ export function TasksPane(props: TasksPaneProps) {
             hasNextPage={Boolean(tasksQuery.hasNextPage)}
             fetchingNextPage={tasksQuery.isFetchingNextPage}
             onSelect={setSelectedTaskId}
+            onStartSession={(task) => {
+              setSelectedTaskId(task.id);
+              setStartMode("session");
+            }}
+            onStartWorkflow={(task) => {
+              setSelectedTaskId(task.id);
+              setStartMode("workflow");
+            }}
+            members={members}
+            tagSuggestions={tags}
+            onPatch={(task, patch) => {
+              updateTask.mutate(
+                { taskId: task.id, patch },
+                { onError: (error) => toast.error(t("tasks.update_failed"), { description: error instanceof Error ? error.message : undefined }) },
+              );
+            }}
+            onDelete={remove}
+            onRestore={restore}
+            busy={busy}
             onLoadMore={() => void tasksQuery.fetchNextPage()}
             onRetry={() => void tasksQuery.refetch()}
             onClearFilters={clearFilters}
@@ -529,6 +549,11 @@ export function TasksPane(props: TasksPaneProps) {
             onDownloadAttachment={(attachment) => downloadAttachment(selectedTask, attachment)}
             onOpenAttachment={(attachment) => openAttachment(selectedTask, attachment)}
             onUploadAttachments={(files) => uploadAttachments.mutateAsync({ taskId: selectedTask.id, files })}
+            onUploadStorageAttachment={async (storageFile) => {
+              if (!props.client) throw new Error(t("tasks.upload_failed"));
+              const file = await storageFileDragToFile(props.client, props.workspaceId, storageFile);
+              return uploadAttachments.mutateAsync({ taskId: selectedTask.id, files: [file] });
+            }}
             onRemoveAttachment={(attachment) => deleteAttachment.mutateAsync({ taskId: selectedTask.id, attachmentId: attachment.id })}
           />
         </section>

@@ -7,17 +7,31 @@
  * it came from, who has it, when it is due), not a grid of columns to compare.
  * The arrow keys move the selection so a queue can be walked without the mouse.
  */
-import { useRef, type KeyboardEvent } from "react";
-import { CalendarClock, Cloud, CloudOff, Inbox, Loader2, Paperclip, Play, Trash2, TriangleAlert } from "lucide-react";
+import { useRef, useState, type KeyboardEvent, type ReactNode } from "react";
+import { ArchiveRestore, CalendarClock, Cloud, CloudOff, Inbox, Loader2, MessageSquarePlus, PanelRightOpen, Paperclip, Play, Tags, Trash2, TriangleAlert } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
+import {
+  ContextMenu,
+  ContextMenuCheckboxItem,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuRadioGroup,
+  ContextMenuRadioItem,
+  ContextMenuSeparator,
+  ContextMenuShortcut,
+  ContextMenuSub,
+  ContextMenuSubContent,
+  ContextMenuSubTrigger,
+  ContextMenuTrigger,
+} from "@/components/ui/context-menu";
 import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "@/components/ui/empty";
 import { Skeleton } from "@/components/ui/skeleton";
-import type { LegalworkTask, LegalworkTaskStatus } from "@/app/lib/legalwork-server";
+import type { LegalworkTask, LegalworkTaskMember, LegalworkTaskPatch, LegalworkTaskStatus } from "@/app/lib/legalwork-server";
 import { t } from "@/i18n";
 import { cn } from "@/lib/utils";
-import { formatTaskDate, formatTaskDueDate, taskDueTone, taskStatusLabel } from "./task-format";
-import { PriorityMark, StatusGlyph, SyncMark } from "./task-glyphs";
+import { formatTaskDate, formatTaskDueDate, priorityForKey, TASK_PRIORITIES, TASK_STATUSES, taskDueDateInputValue, taskDueTone, taskMemberOptions, taskPriorityLabel, taskStatusLabel } from "./task-format";
+import { AssigneeMark, OptionText, PriorityMark, StatusGlyph, SyncMark } from "./task-glyphs";
 
 export type TaskListGroup = { status: LegalworkTaskStatus; tasks: LegalworkTask[] };
 
@@ -40,6 +54,14 @@ export type TaskListProps = {
   hasNextPage: boolean;
   fetchingNextPage: boolean;
   onSelect: (taskId: string) => void;
+  onStartSession: (task: LegalworkTask) => void;
+  onStartWorkflow: (task: LegalworkTask) => void;
+  members: LegalworkTaskMember[];
+  tagSuggestions: string[];
+  onPatch: (task: LegalworkTask, patch: LegalworkTaskPatch) => void;
+  onDelete: (task: LegalworkTask) => void;
+  onRestore: (task: LegalworkTask) => void;
+  busy: boolean;
   onLoadMore: () => void;
   onRetry: () => void;
   onClearFilters: () => void;
@@ -126,6 +148,14 @@ export function TaskList(props: TaskListProps) {
       selected={task.id === props.selectedTaskId}
       accountUserId={props.accountUserId}
       onSelect={props.onSelect}
+      onStartSession={props.onStartSession}
+      onStartWorkflow={props.onStartWorkflow}
+      members={props.members}
+      tagSuggestions={props.tagSuggestions}
+      onPatch={props.onPatch}
+      onDelete={props.onDelete}
+      onRestore={props.onRestore}
+      busy={props.busy}
     />
   );
 
@@ -161,11 +191,190 @@ export function taskOriginLabel(task: Pick<LegalworkTask, "origin" | "endpointNa
   return t("tasks.origin_desktop");
 }
 
+function TaskRowMenu(props: {
+  task: LegalworkTask;
+  children: ReactNode;
+  busy: boolean;
+  members: LegalworkTaskMember[];
+  tagSuggestions: string[];
+  onOpen: () => void;
+  onStartSession: () => void;
+  onStartWorkflow: () => void;
+  onPatch: (patch: LegalworkTaskPatch) => void;
+  onDelete: () => void;
+  onRestore: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const inTrash = props.task.deletedAt !== null;
+  const memberOptions = taskMemberOptions(props.members);
+  if (props.task.assigneeUserId && !memberOptions.some((option) => option.value === props.task.assigneeUserId)) {
+    const label = props.task.assigneeName ?? props.task.assigneeUserId;
+    memberOptions.push({ value: props.task.assigneeUserId, label, primary: label });
+  }
+  const showAssignee = props.members.length > 0 || Boolean(props.task.assigneeUserId);
+  const currentAssignee = props.task.assigneeName ?? memberOptions.find((option) => option.value === props.task.assigneeUserId)?.primary ?? null;
+  const tagOptions = Array.from(new Set([...props.tagSuggestions, ...props.task.tags])).sort((left, right) => left.localeCompare(right));
+  const dueDates = taskDueDatePresets();
+  return (
+    <ContextMenu open={open} onOpenChange={setOpen}>
+      <ContextMenuTrigger render={<div role="listitem" />}>{props.children}</ContextMenuTrigger>
+      <ContextMenuContent className="w-56">
+        <ContextMenuItem onClick={props.onOpen}>
+          <PanelRightOpen />
+          {t("tasks.notify_open_task")}
+        </ContextMenuItem>
+        <ContextMenuSeparator />
+        {inTrash ? (
+          <ContextMenuItem disabled={props.busy} onClick={props.onRestore}>
+            <ArchiveRestore />
+            {t("tasks.restore")}
+          </ContextMenuItem>
+        ) : (
+          <>
+            <ContextMenuSub>
+              <ContextMenuSubTrigger className="gap-2.5">
+                <StatusGlyph status={props.task.status} />
+                {t("tasks.column_status")}
+              </ContextMenuSubTrigger>
+              <ContextMenuSubContent
+                className="w-56"
+                onKeyDown={(event) => {
+                  const priority = priorityForKey(event);
+                  if (priority === null) return;
+                  event.preventDefault();
+                  props.onPatch({ priority });
+                  setOpen(false);
+                }}
+              >
+                <ContextMenuRadioGroup value={props.task.status}>
+                  {TASK_STATUSES.map((status) => (
+                    <ContextMenuRadioItem key={status} value={status} onClick={() => props.onPatch({ status })}>
+                      <StatusGlyph status={status} />
+                      {taskStatusLabel(status)}
+                    </ContextMenuRadioItem>
+                  ))}
+                </ContextMenuRadioGroup>
+              </ContextMenuSubContent>
+            </ContextMenuSub>
+            <ContextMenuSub>
+              <ContextMenuSubTrigger className="gap-2.5">
+                <PriorityMark priority={props.task.priority} />
+                {t("tasks.field_priority")}
+              </ContextMenuSubTrigger>
+              <ContextMenuSubContent className="w-56">
+                <ContextMenuRadioGroup value={String(props.task.priority)}>
+                  {TASK_PRIORITIES.map((priority) => (
+                    <ContextMenuRadioItem key={priority} value={String(priority)} onClick={() => props.onPatch({ priority })}>
+                      <PriorityMark priority={priority} />
+                      {taskPriorityLabel(priority)}
+                      <ContextMenuShortcut>{priority}</ContextMenuShortcut>
+                    </ContextMenuRadioItem>
+                  ))}
+                </ContextMenuRadioGroup>
+              </ContextMenuSubContent>
+            </ContextMenuSub>
+            {showAssignee ? (
+              <ContextMenuSub>
+                <ContextMenuSubTrigger className="gap-2.5">
+                  <AssigneeMark name={currentAssignee} />
+                  {t("tasks.column_assignee")}
+                </ContextMenuSubTrigger>
+                <ContextMenuSubContent className="w-72">
+                  <ContextMenuRadioGroup value={props.task.assigneeUserId ?? ""}>
+                    <ContextMenuRadioItem value="" onClick={() => props.onPatch({ assigneeUserId: null })}>
+                      <AssigneeMark name={null} />
+                      {t("tasks.unassigned")}
+                    </ContextMenuRadioItem>
+                    {memberOptions.map((option) => (
+                      <ContextMenuRadioItem key={option.value} value={option.value} onClick={() => props.onPatch({ assigneeUserId: option.value })}>
+                        <AssigneeMark name={option.primary} />
+                        <OptionText primary={option.primary} detail={option.detail} />
+                      </ContextMenuRadioItem>
+                    ))}
+                  </ContextMenuRadioGroup>
+                </ContextMenuSubContent>
+              </ContextMenuSub>
+            ) : null}
+            <ContextMenuSub>
+              <ContextMenuSubTrigger className="gap-2.5">
+                <CalendarClock />
+                {t("tasks.field_due")}
+              </ContextMenuSubTrigger>
+              <ContextMenuSubContent className="w-56">
+                <ContextMenuRadioGroup value={taskDueDateInputValue(props.task.dueDate)}>
+                  {dueDates.map((option) => (
+                    <ContextMenuRadioItem key={option.value} value={option.value} onClick={() => props.onPatch({ dueDate: option.value })}>
+                      <CalendarClock />
+                      {option.label}
+                    </ContextMenuRadioItem>
+                  ))}
+                  <ContextMenuSeparator />
+                  <ContextMenuRadioItem value="" onClick={() => props.onPatch({ dueDate: null })}>
+                    <CalendarClock />
+                    {t("tasks.due_none")}
+                  </ContextMenuRadioItem>
+                </ContextMenuRadioGroup>
+              </ContextMenuSubContent>
+            </ContextMenuSub>
+            {tagOptions.length > 0 ? (
+              <ContextMenuSub>
+                <ContextMenuSubTrigger className="gap-2.5">
+                  <Tags />
+                  {t("tasks.tags")}
+                </ContextMenuSubTrigger>
+                <ContextMenuSubContent className="w-64">
+                  {tagOptions.map((tag) => {
+                    const checked = props.task.tags.includes(tag);
+                    return (
+                      <ContextMenuCheckboxItem
+                        key={tag}
+                        checked={checked}
+                        onClick={() => props.onPatch({ tags: checked ? props.task.tags.filter((entry) => entry !== tag) : [...props.task.tags, tag] })}
+                      >
+                        <Tags />
+                        <span className="truncate">{tag}</span>
+                      </ContextMenuCheckboxItem>
+                    );
+                  })}
+                </ContextMenuSubContent>
+              </ContextMenuSub>
+            ) : null}
+            <ContextMenuSeparator />
+            <ContextMenuItem disabled={props.busy} onClick={props.onStartSession}>
+              <MessageSquarePlus />
+              {t("tasks.start_session")}
+            </ContextMenuItem>
+            {props.task.cloudRunId ? null : (
+              <ContextMenuItem disabled={props.busy} onClick={props.onStartWorkflow}>
+                <Play />
+                {t("tasks.start_workflow")}
+              </ContextMenuItem>
+            )}
+            <ContextMenuSeparator />
+            <ContextMenuItem disabled={props.busy} variant="destructive" onClick={props.onDelete}>
+              <Trash2 />
+              {t("tasks.delete")}
+            </ContextMenuItem>
+          </>
+        )}
+      </ContextMenuContent>
+    </ContextMenu>
+  );
+}
+
 function TaskRow(props: {
   task: LegalworkTask;
   selected: boolean;
   accountUserId: string | null;
+  members: LegalworkTaskMember[];
+  tagSuggestions: string[];
   onSelect: (taskId: string) => void;
+  onStartSession: (task: LegalworkTask) => void;
+  onStartWorkflow: (task: LegalworkTask) => void;
+  onPatch: (task: LegalworkTask, patch: LegalworkTaskPatch) => void;
+  onDelete: (task: LegalworkTask) => void;
+  onRestore: (task: LegalworkTask) => void;
+  busy: boolean;
 }) {
   const { task } = props;
   const assignee = !task.assigneeUserId
@@ -176,7 +385,18 @@ function TaskRow(props: {
   const dueTone = task.status === "done" || task.status === "cancelled" ? "later" : taskDueTone(task.dueDate);
 
   return (
-    <div role="listitem">
+    <TaskRowMenu
+      task={task}
+      busy={props.busy}
+      members={props.members}
+      tagSuggestions={props.tagSuggestions}
+      onOpen={() => props.onSelect(task.id)}
+      onStartSession={() => props.onStartSession(task)}
+      onStartWorkflow={() => props.onStartWorkflow(task)}
+      onPatch={(patch) => props.onPatch(task, patch)}
+      onDelete={() => props.onDelete(task)}
+      onRestore={() => props.onRestore(task)}
+    >
       <button
         type="button"
         data-task-row={task.id}
@@ -241,6 +461,25 @@ function TaskRow(props: {
           </span>
         </span>
       </button>
-    </div>
+    </TaskRowMenu>
   );
+}
+
+function taskDueDatePresets(now: Date = new Date()): Array<{ value: string; label: string }> {
+  const dateOn = (daysFromToday: number) => {
+    const date = new Date(now.getFullYear(), now.getMonth(), now.getDate() + daysFromToday);
+    const month = String(date.getMonth() + 1).padStart(2, "0");
+    const day = String(date.getDate()).padStart(2, "0");
+    return `${date.getFullYear()}-${month}-${day}`;
+  };
+  const weekday = now.getDay();
+  const endOfWeek = weekday <= 5 ? 5 - weekday : 12 - weekday;
+  const nextWeek = weekday === 0 ? 1 : 8 - weekday;
+  const presets = [
+    { value: dateOn(0), label: t("tasks.due_preset_today") },
+    { value: dateOn(1), label: t("tasks.due_preset_tomorrow") },
+    { value: dateOn(endOfWeek), label: t("tasks.due_preset_end_of_week") },
+    { value: dateOn(nextWeek), label: t("tasks.due_preset_next_week") },
+  ];
+  return presets.filter((preset, index) => presets.findIndex((other) => other.value === preset.value) === index);
 }
