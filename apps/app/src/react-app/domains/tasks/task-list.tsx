@@ -232,7 +232,7 @@ function TaskRowMenu(props: {
         ) : (
           <>
             <ContextMenuSub>
-              <ContextMenuSubTrigger>
+              <ContextMenuSubTrigger className="gap-2.5">
                 <StatusGlyph status={props.task.status} />
                 {t("tasks.column_status")}
               </ContextMenuSubTrigger>
@@ -257,7 +257,7 @@ function TaskRowMenu(props: {
               </ContextMenuSubContent>
             </ContextMenuSub>
             <ContextMenuSub>
-              <ContextMenuSubTrigger>
+              <ContextMenuSubTrigger className="gap-2.5">
                 <PriorityMark priority={props.task.priority} />
                 {t("tasks.field_priority")}
               </ContextMenuSubTrigger>
@@ -275,7 +275,7 @@ function TaskRowMenu(props: {
             </ContextMenuSub>
             {showAssignee ? (
               <ContextMenuSub>
-                <ContextMenuSubTrigger>
+                <ContextMenuSubTrigger className="gap-2.5">
                   <AssigneeMark name={currentAssignee} />
                   {t("tasks.column_assignee")}
                 </ContextMenuSubTrigger>
@@ -296,7 +296,7 @@ function TaskRowMenu(props: {
               </ContextMenuSub>
             ) : null}
             <ContextMenuSub>
-              <ContextMenuSubTrigger>
+              <ContextMenuSubTrigger className="gap-2.5">
                 <CalendarClock />
                 {t("tasks.field_due")}
               </ContextMenuSubTrigger>
@@ -318,7 +318,7 @@ function TaskRowMenu(props: {
             </ContextMenuSub>
             {tagOptions.length > 0 ? (
               <ContextMenuSub>
-                <ContextMenuSubTrigger>
+                <ContextMenuSubTrigger className="gap-2.5">
                   <Tags />
                   {t("tasks.tags")}
                 </ContextMenuSubTrigger>
