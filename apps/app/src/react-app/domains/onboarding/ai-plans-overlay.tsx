@@ -28,9 +28,10 @@
  *   ai_plans_connected           { choice } the sign-in finished
  *   ai_plans_other_options_clicked          "See plans and other options"
  *   ai_plans_account_switched               "Use another account"
+ *   ai_plans_updates_opened                 "Check for updates"
  */
 import { useEffect, useId, useRef, useState, type ReactNode } from "react";
-import { ArrowLeft, Check, KeyRound, Loader2, Sparkles, type LucideIcon } from "lucide-react";
+import { ArrowLeft, Check, KeyRound, Loader2, RefreshCcw, Sparkles, type LucideIcon } from "lucide-react";
 
 import legalworkMark from "@/assets/legalwork-mark-dark.svg";
 import { Button } from "@/components/ui/button";
@@ -82,6 +83,11 @@ export type AiPlansOverlayProps = {
   onUseOtherAccount?: () => Promise<void>;
   /** Onboarding: back to the previous step. */
   onBack?: () => void;
+  /**
+   * Open the app's update settings above the screen. Offered in every state,
+   * so an app that cannot get past this screen can still be updated.
+   */
+  onOpenUpdates?: () => void;
 };
 
 type Phase =
@@ -298,6 +304,19 @@ function BackButton(props: { onClick: () => void }) {
   );
 }
 
+function UpdatesLink(props: { onClick: () => void }) {
+  return (
+    <button
+      type="button"
+      className="inline-flex items-center gap-1.5 text-[13px] text-dls-secondary transition-colors hover:text-dls-text roomy:text-[14px]"
+      onClick={props.onClick}
+    >
+      <RefreshCcw className="size-3.5" />
+      {t("ai_plans.check_updates")}
+    </button>
+  );
+}
+
 export function AiPlansOverlay(props: AiPlansOverlayProps) {
   const locale = useLocale();
   const titleId = useId();
@@ -502,9 +521,19 @@ export function AiPlansOverlay(props: AiPlansOverlayProps) {
 
   const backRow =
     mode === "onboarding" && props.onBack ? <BackButton onClick={props.onBack} /> : null;
+  const onOpenUpdates = props.onOpenUpdates;
+  const updatesLink = onOpenUpdates ? (
+    <UpdatesLink
+      onClick={() => {
+        captureAnalyticsEvent("ai_plans_updates_opened", { mode, variant });
+        onOpenUpdates();
+      }}
+    />
+  ) : null;
 
   let body: ReactNode;
-  // Pinned to the bottom of the window: Back on the left, the account line in the middle.
+  // Pinned to the bottom of the window: Back on the left, the account line in
+  // the middle, the update check on the right.
   let footerCenter: ReactNode = null;
   if (phase.kind === "browser" || phase.kind === "upgrade" || phase.kind === "connecting") {
     const waitingBody =
@@ -697,11 +726,11 @@ export function AiPlansOverlay(props: AiPlansOverlayProps) {
       <div className="min-h-0 flex-1 overflow-y-auto">
         <div className="mx-auto flex min-h-full w-full max-w-[1200px] flex-col px-6 lg:px-8 roomy:max-w-[1360px] roomy:px-12">
           <div className="flex flex-1 flex-col justify-center py-8 roomy:py-10">{body}</div>
-          {backRow || footerCenter ? (
+          {backRow || footerCenter || updatesLink ? (
             <footer className="flex flex-col items-center gap-3 pb-6 pt-2 md:grid md:grid-cols-[1fr_auto_1fr] roomy:pb-8">
               <div className="justify-self-start">{backRow}</div>
               {footerCenter ?? <div />}
-              <div />
+              <div className="justify-self-end">{updatesLink}</div>
             </footer>
           ) : null}
         </div>

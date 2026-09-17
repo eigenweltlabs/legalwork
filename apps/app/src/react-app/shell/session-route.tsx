@@ -22,6 +22,8 @@ import {
   useRecorderStore,
 } from "../domains/recorder/recorder-store";
 import { toast } from "@/components/ui/sonner";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { useUpdateCheckRequestStore } from "@/react-app/domains/settings/state/update-check-request";
 import type {
   AgentPartInput,
   FilePartInput,
@@ -1044,6 +1046,14 @@ export function SessionRoute() {
     captureAnalyticsEvent("onboarding_ai_completed", { method: path ?? "existing" });
     finishOnboarding(path === "eigenwelt" ? "connected" : (path ?? "existing"));
   }, [aiAccess, finishOnboarding, onboardingStage]);
+  // "Check for updates" on the plan screen: the Updates settings in a dialog
+  // above it, so an app that cannot get past the screen can still update. It
+  // starts a check the way the app menu's "Check for Updates…" does.
+  const [plansUpdatesOpen, setPlansUpdatesOpen] = useState(false);
+  const openPlansUpdates = useCallback(() => {
+    useUpdateCheckRequestStore.getState().requestUpdateCheck();
+    setPlansUpdatesOpen(true);
+  }, []);
   // "I bring my own model" opens the provider connection without the
   // Eigenwelt entry (that choice has its own cards). Closing the dialog
   // without connecting leaves the plan screen where it was.
@@ -2175,8 +2185,22 @@ export function SessionRoute() {
               }
             : undefined
         }
+        onOpenUpdates={isDesktopRuntime() ? openPlansUpdates : undefined}
       />
     ) : null}
+    <Dialog open={plansUpdatesOpen} onOpenChange={setPlansUpdatesOpen}>
+      <DialogContent className="flex max-h-[calc(100vh-2rem)] min-h-0 flex-col gap-0 bg-background p-0 sm:max-w-2xl">
+        <DialogHeader className="px-6 pb-1 pt-6">
+          <DialogTitle>{t("settings.tab_updates")}</DialogTitle>
+          <DialogDescription>{t("settings.tab_description_updates")}</DialogDescription>
+        </DialogHeader>
+        {plansUpdatesOpen ? (
+          <div className="flex min-h-0 flex-1 flex-col">
+            <SettingsSurface embedded singleView initialPath="updates" workspaceId={selectedWorkspaceId} />
+          </div>
+        ) : null}
+      </DialogContent>
+    </Dialog>
     <SessionPage
       detached={detached}
       selectedSessionId={selectedSessionId}

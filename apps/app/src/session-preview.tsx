@@ -155,6 +155,7 @@ function PlansPreview() {
         }}
         onUseOtherAccount={async () => setPlans({ ...plans, variant: "new" })}
         onBack={plans.onboarding ? previewNotice : undefined}
+        onOpenUpdates={previewNotice}
       />
       {providersOpen ? (
         <ProviderAuthModal

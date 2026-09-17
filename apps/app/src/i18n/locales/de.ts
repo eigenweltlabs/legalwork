@@ -2687,6 +2687,7 @@ const de = {
     "Der Tarifwechsel ist noch nicht angekommen. Die Modelle werden automatisch freigeschaltet, sobald Ihr Tarif sie enthält.",
   "ai_plans.open_again": "Seite erneut öffnen",
   "ai_plans.cancel": "Abbrechen",
+  "ai_plans.check_updates": "Nach Updates suchen",
   "ai_plans.connecting": "LegalWork wird verbunden…",
   "ai_plans.server_starting": "LegalWork startet noch. Die Tarife sind gleich verfügbar.",
   "recorder.speaker_label": "Sprecher {n}",

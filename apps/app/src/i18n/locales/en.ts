@@ -2396,6 +2396,7 @@ export default {
     "The plan change has not arrived yet. The models unlock on their own once your plan includes them.",
   "ai_plans.open_again": "Open the page again",
   "ai_plans.cancel": "Cancel",
+  "ai_plans.check_updates": "Check for updates",
   "ai_plans.connecting": "Connecting LegalWork…",
   "ai_plans.server_starting": "LegalWork is still starting. The plans are ready in a moment.",
   "recorder.speaker_label": "Speaker {n}",

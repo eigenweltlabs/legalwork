@@ -49,6 +49,37 @@ describe("onboarding transitions", () => {
   });
 });
 
+describe("the plan screen's way to updates", () => {
+  const render = (props: Partial<AiPlansOverlayProps>) =>
+    renderToStaticMarkup(
+      React.createElement(AiPlansOverlay, {
+        mode: "gate",
+        variant: "new",
+        account: null,
+        serverReady: true,
+        onStartSignIn: async () => ({ authorizeUrl: "", sessionId: "" }),
+        onWaitSignIn: async () => ({ connected: false }),
+        onSignedIn: () => {},
+        onBringOwnModel: () => {},
+        onOpenBilling: () => {},
+        onCheckModels: async () => false,
+        ...props,
+      }),
+    );
+
+  test("offers the update check in every variant when the app can update", () => {
+    for (const variant of ["new", "signed-out", "ended", "no-models"] as const) {
+      for (const mode of ["gate", "onboarding"] as const) {
+        expect(render({ variant, mode, onOpenUpdates: () => {} })).toContain("Check for updates");
+      }
+    }
+  });
+
+  test("hides it where the app cannot update itself", () => {
+    expect(render({})).not.toContain("Check for updates");
+  });
+});
+
 describe("provider order in the connect dialog", () => {
   test("only Eigenwelt is pinned, every other provider sorts by name", () => {
     const providers = [
