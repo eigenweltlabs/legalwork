@@ -509,6 +509,14 @@ export function TasksPane(props: TasksPaneProps) {
               setSelectedTaskId(task.id);
               setStartMode("workflow");
             }}
+            members={members}
+            tagSuggestions={tags}
+            onPatch={(task, patch) => {
+              updateTask.mutate(
+                { taskId: task.id, patch },
+                { onError: (error) => toast.error(t("tasks.update_failed"), { description: error instanceof Error ? error.message : undefined }) },
+              );
+            }}
             onDelete={remove}
             onRestore={restore}
             busy={busy}
