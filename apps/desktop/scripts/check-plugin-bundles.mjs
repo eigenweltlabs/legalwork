@@ -22,8 +22,15 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const pluginDir = resolve(__dirname, "..", "server", "dist", "opencode-plugins");
 
-/** Bare specifiers only: "./x" and "../x" resolve next to the file and are fine. */
-const IMPORT = /\bfrom\s*["']([^"'.][^"']*)["']|\bimport\s*\(\s*["']([^"'.][^"']*)["']/g;
+/**
+ * Bare specifiers only: "./x" and "../x" resolve next to the file and are fine.
+ * A `from "x"` counts only after an import or export keyword with nothing but
+ * bindings, braces, commas and `*` in between. Plugin code may hold the string
+ * "from" (task tools read a mail's sender under that key), and a bare
+ * `from\s*"` pattern took the text up to the next quote for an import.
+ */
+const IMPORT =
+  /\b(?:import|export)\b[\p{ID_Continue}$\s*{},]*?\bfrom\s*["']([^"'.][^"']*)["']|\bimport\s*\(\s*["']([^"'.][^"']*)["']/gu;
 
 export function findUnresolvableImports(dir = pluginDir) {
   const offenders = [];
