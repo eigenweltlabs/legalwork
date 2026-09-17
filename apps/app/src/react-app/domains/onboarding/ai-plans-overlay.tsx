@@ -162,7 +162,7 @@ function FeatureRow(props: { children: ReactNode; strong?: boolean; icon?: Lucid
   );
 }
 
-/** Name, tagline, price row, action, features: the platform's card, in the app's tokens. Five children, one per track. */
+/** Name, tagline, price with its terms below, action, features: the platform's card, in the app's tokens. Five children, one per track. */
 function CardFrame(props: {
   icon?: ReactNode;
   name: string;
@@ -186,11 +186,13 @@ function CardFrame(props: {
       <p className="mt-2 text-[13.5px] leading-5 text-dls-secondary roomy:mt-2.5 roomy:text-[14.5px] roomy:leading-[22px]">
         {props.tagline}
       </p>
-      <div className="mt-4 flex flex-wrap items-baseline gap-x-1.5 gap-y-1 roomy:mt-5 roomy:gap-x-2">
-        <span className="text-[34px] font-medium leading-none tracking-[-0.04em] text-dls-text tabular-nums roomy:text-[44px]">
+      <div className="mt-4 roomy:mt-5">
+        <div className="text-[34px] font-medium leading-none tracking-[-0.04em] text-dls-text tabular-nums roomy:text-[44px]">
           {props.price}
-        </span>
-        <span className="text-[13px] text-dls-secondary roomy:text-[15px]">{props.priceSuffix}</span>
+        </div>
+        <div className="mt-1.5 text-[13px] leading-[18px] text-dls-secondary roomy:mt-2 roomy:text-[15px] roomy:leading-[22px]">
+          {props.priceSuffix}
+        </div>
       </div>
       <div className="mt-5 roomy:mt-6">{props.action}</div>
       <ul className="mt-5 space-y-2 border-t border-dls-border pt-5 text-[13px] leading-[18px] text-dls-text roomy:mt-6 roomy:space-y-2.5 roomy:pt-6 roomy:text-[14px] roomy:leading-5">
@@ -268,8 +270,6 @@ function OwnModelCard(props: { disabled: boolean; onChoose: () => void }) {
           <FeatureRow strong icon={KeyRound}>
             {t("ai_plans.byo_feature_requirement")}
           </FeatureRow>
-          <FeatureRow>{t("ai_plans.byo_feature_app")}</FeatureRow>
-          <FeatureRow>{t("ai_plans.byo_feature_providers")}</FeatureRow>
         </>
       }
     />

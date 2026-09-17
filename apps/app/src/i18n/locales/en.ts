@@ -2374,8 +2374,6 @@ export default {
   "ai_plans.byo_feature_requirement": "Needs an API key from a model provider, or a local model",
   "ai_plans.byo_tagline": "For firms with their own model provider",
   "ai_plans.byo_cta": "I bring my own model",
-  "ai_plans.byo_feature_app": "Chat, drafting, review and redlining with the model you connect",
-  "ai_plans.byo_feature_providers": "OpenAI, Anthropic, Google, Mistral or a local model",
   "ai_plans.sign_in_prompt": "Already have an Eigenwelt account?",
   "ai_plans.sign_in_link": "Sign in",
   "ai_plans.back_to_sign_in": "Back to sign-in",

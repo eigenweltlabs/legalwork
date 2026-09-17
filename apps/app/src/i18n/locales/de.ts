@@ -2664,8 +2664,6 @@ const de = {
     "Erfordert einen API-Schlüssel eines Modellanbieters oder ein lokales Modell",
   "ai_plans.byo_tagline": "Für Kanzleien mit eigenem Modellanbieter",
   "ai_plans.byo_cta": "Ich nutze mein eigenes Modell",
-  "ai_plans.byo_feature_app": "Chat, Entwürfe, Prüfung und Redlining mit dem Modell, das Sie verbinden",
-  "ai_plans.byo_feature_providers": "OpenAI, Anthropic, Google, Mistral oder ein lokales Modell",
   "ai_plans.sign_in_prompt": "Sie haben bereits ein Eigenwelt-Konto?",
   "ai_plans.sign_in_link": "Anmelden",
   "ai_plans.back_to_sign_in": "Zurück zur Anmeldung",
