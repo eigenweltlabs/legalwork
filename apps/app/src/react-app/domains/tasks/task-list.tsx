@@ -7,10 +7,11 @@
  * it came from, who has it, when it is due), not a grid of columns to compare.
  * The arrow keys move the selection so a queue can be walked without the mouse.
  */
-import { useRef, type KeyboardEvent } from "react";
-import { CalendarClock, Cloud, CloudOff, Inbox, Loader2, Paperclip, Play, Trash2, TriangleAlert } from "lucide-react";
+import { useRef, type KeyboardEvent, type ReactNode } from "react";
+import { ArchiveRestore, CalendarClock, Cloud, CloudOff, Inbox, Loader2, MessageSquarePlus, PanelRightOpen, Paperclip, Play, Trash2, TriangleAlert } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
+import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuSeparator, ContextMenuTrigger } from "@/components/ui/context-menu";
 import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "@/components/ui/empty";
 import { Skeleton } from "@/components/ui/skeleton";
 import type { LegalworkTask, LegalworkTaskStatus } from "@/app/lib/legalwork-server";
@@ -40,6 +41,11 @@ export type TaskListProps = {
   hasNextPage: boolean;
   fetchingNextPage: boolean;
   onSelect: (taskId: string) => void;
+  onStartSession: (task: LegalworkTask) => void;
+  onStartWorkflow: (task: LegalworkTask) => void;
+  onDelete: (task: LegalworkTask) => void;
+  onRestore: (task: LegalworkTask) => void;
+  busy: boolean;
   onLoadMore: () => void;
   onRetry: () => void;
   onClearFilters: () => void;
@@ -126,6 +132,11 @@ export function TaskList(props: TaskListProps) {
       selected={task.id === props.selectedTaskId}
       accountUserId={props.accountUserId}
       onSelect={props.onSelect}
+      onStartSession={props.onStartSession}
+      onStartWorkflow={props.onStartWorkflow}
+      onDelete={props.onDelete}
+      onRestore={props.onRestore}
+      busy={props.busy}
     />
   );
 
@@ -161,11 +172,65 @@ export function taskOriginLabel(task: Pick<LegalworkTask, "origin" | "endpointNa
   return t("tasks.origin_desktop");
 }
 
+function TaskRowMenu(props: {
+  task: LegalworkTask;
+  children: ReactNode;
+  busy: boolean;
+  onOpen: () => void;
+  onStartSession: () => void;
+  onStartWorkflow: () => void;
+  onDelete: () => void;
+  onRestore: () => void;
+}) {
+  const inTrash = props.task.deletedAt !== null;
+  return (
+    <ContextMenu>
+      <ContextMenuTrigger render={<div role="listitem" />}>{props.children}</ContextMenuTrigger>
+      <ContextMenuContent className="w-56">
+        <ContextMenuItem onClick={props.onOpen}>
+          <PanelRightOpen />
+          {t("tasks.notify_open_task")}
+        </ContextMenuItem>
+        <ContextMenuSeparator />
+        {inTrash ? (
+          <ContextMenuItem disabled={props.busy} onClick={props.onRestore}>
+            <ArchiveRestore />
+            {t("tasks.restore")}
+          </ContextMenuItem>
+        ) : (
+          <>
+            <ContextMenuItem disabled={props.busy} onClick={props.onStartSession}>
+              <MessageSquarePlus />
+              {t("tasks.start_session")}
+            </ContextMenuItem>
+            {props.task.cloudRunId ? null : (
+              <ContextMenuItem disabled={props.busy} onClick={props.onStartWorkflow}>
+                <Play />
+                {t("tasks.start_workflow")}
+              </ContextMenuItem>
+            )}
+            <ContextMenuSeparator />
+            <ContextMenuItem disabled={props.busy} variant="destructive" onClick={props.onDelete}>
+              <Trash2 />
+              {t("tasks.delete")}
+            </ContextMenuItem>
+          </>
+        )}
+      </ContextMenuContent>
+    </ContextMenu>
+  );
+}
+
 function TaskRow(props: {
   task: LegalworkTask;
   selected: boolean;
   accountUserId: string | null;
   onSelect: (taskId: string) => void;
+  onStartSession: (task: LegalworkTask) => void;
+  onStartWorkflow: (task: LegalworkTask) => void;
+  onDelete: (task: LegalworkTask) => void;
+  onRestore: (task: LegalworkTask) => void;
+  busy: boolean;
 }) {
   const { task } = props;
   const assignee = !task.assigneeUserId
@@ -176,7 +241,15 @@ function TaskRow(props: {
   const dueTone = task.status === "done" || task.status === "cancelled" ? "later" : taskDueTone(task.dueDate);
 
   return (
-    <div role="listitem">
+    <TaskRowMenu
+      task={task}
+      busy={props.busy}
+      onOpen={() => props.onSelect(task.id)}
+      onStartSession={() => props.onStartSession(task)}
+      onStartWorkflow={() => props.onStartWorkflow(task)}
+      onDelete={() => props.onDelete(task)}
+      onRestore={() => props.onRestore(task)}
+    >
       <button
         type="button"
         data-task-row={task.id}
@@ -241,6 +314,6 @@ function TaskRow(props: {
           </span>
         </span>
       </button>
-    </div>
+    </TaskRowMenu>
   );
 }

@@ -500,6 +500,17 @@ export function TasksPane(props: TasksPaneProps) {
             hasNextPage={Boolean(tasksQuery.hasNextPage)}
             fetchingNextPage={tasksQuery.isFetchingNextPage}
             onSelect={setSelectedTaskId}
+            onStartSession={(task) => {
+              setSelectedTaskId(task.id);
+              setStartMode("session");
+            }}
+            onStartWorkflow={(task) => {
+              setSelectedTaskId(task.id);
+              setStartMode("workflow");
+            }}
+            onDelete={remove}
+            onRestore={restore}
+            busy={busy}
             onLoadMore={() => void tasksQuery.fetchNextPage()}
             onRetry={() => void tasksQuery.refetch()}
             onClearFilters={clearFilters}
