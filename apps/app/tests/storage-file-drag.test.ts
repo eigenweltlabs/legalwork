@@ -5,6 +5,7 @@ import {
   hasStorageFileDrag,
   materializeStorageFile,
   readStorageFileDrag,
+  storageFileDragToFile,
   writeStorageFileDrag,
 } from "../src/app/lib/storage-file-drag";
 
@@ -109,6 +110,37 @@ describe("storage-file-drag", () => {
 
     expect(copy.localPath).toBe("copy.docx");
     expect(reads).toBe(3);
+  });
+
+  test("turns the checked-out bytes into a named upload file", async () => {
+    const client = {
+      checkoutStorageFile: async () => ({
+        localPath: "copy.docx",
+        contentType: "application/octet-stream",
+        version: "v1",
+        size: 8,
+        updatedAt: 1,
+        writable: true,
+        localWritable: true,
+      }),
+      downloadWorkspaceFile: async () => ({
+        data: new TextEncoder().encode("document").buffer,
+        contentType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        filename: "engagement-letter.docx",
+        updatedAt: 1,
+      }),
+    };
+
+    const file = await storageFileDragToFile(client, "ws-1", {
+      connectionId: "conn-1",
+      connectionName: "Secure Cloud",
+      path: entry.path,
+      name: entry.name,
+    });
+
+    expect(file.name).toBe("engagement-letter.docx");
+    expect(file.type).toBe("application/vnd.openxmlformats-officedocument.wordprocessingml.document");
+    expect(await file.text()).toBe("document");
   });
 
   test("surfaces the checkout failure rather than inserting a dangling mention", async () => {

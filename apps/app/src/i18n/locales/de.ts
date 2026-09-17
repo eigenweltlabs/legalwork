@@ -4485,6 +4485,7 @@ const de = {
   "tasks.note_placeholder": "Was ist passiert, was bleibt offen …",
   "tasks.note_failed": "Die Notiz konnte nicht gespeichert werden.",
   "tasks.add_attachment": "Dateien hinzufügen",
+  "tasks.drop_attachments": "Dateien hier ablegen, um sie anzuhängen",
   "tasks.upload_failed": "Die Dateien konnten nicht angehängt werden.",
   "tasks.remove_attachment": "Entfernen",
   "tasks.remove_attachment_failed": "Der Anhang konnte nicht entfernt werden.",

@@ -4096,6 +4096,7 @@ export default {
   "tasks.note_placeholder": "What happened, what is left…",
   "tasks.note_failed": "The note could not be saved.",
   "tasks.add_attachment": "Add files",
+  "tasks.drop_attachments": "Drop files to attach",
   "tasks.upload_failed": "The files could not be attached.",
   "tasks.remove_attachment": "Remove",
   "tasks.remove_attachment_failed": "The attachment could not be removed.",

@@ -16,6 +16,8 @@ export type StorageFileDragItem = {
   name: string;
 };
 
+type StorageFileDragClient = Pick<LegalworkServerClient, "checkoutStorageFile" | "downloadWorkspaceFile">;
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
 }
@@ -63,16 +65,36 @@ export function readStorageFileDrag(dataTransfer: DataTransfer): StorageFileDrag
  * local path instead of a transient miss. Mirrors materializeLegalMemoryFile.
  */
 export async function materializeStorageFile(
-  client: LegalworkServerClient,
+  client: StorageFileDragClient,
   workspaceId: string,
   item: StorageFileDragItem,
 ): Promise<StorageWorkingCopy> {
+  return (await readStorageFileDragItem(client, workspaceId, item)).copy;
+}
+
+/** Turn a connected-storage drag into a browser File for an ordinary upload. */
+export async function storageFileDragToFile(
+  client: StorageFileDragClient,
+  workspaceId: string,
+  item: StorageFileDragItem,
+): Promise<File> {
+  const { copy, download } = await readStorageFileDragItem(client, workspaceId, item);
+  return new File([download.data], item.name, {
+    type: download.contentType ?? copy.contentType ?? "application/octet-stream",
+  });
+}
+
+async function readStorageFileDragItem(
+  client: StorageFileDragClient,
+  workspaceId: string,
+  item: StorageFileDragItem,
+) {
   const copy = await client.checkoutStorageFile(workspaceId, item.connectionId, item.path);
   let readinessError: unknown;
   for (let attempt = 0; attempt < 12; attempt += 1) {
     try {
-      await client.downloadWorkspaceFile(workspaceId, copy.localPath);
-      return copy;
+      const download = await client.downloadWorkspaceFile(workspaceId, copy.localPath);
+      return { copy, download };
     } catch (error) {
       readinessError = error;
       await new Promise((resolve) => globalThis.setTimeout(resolve, 150));
