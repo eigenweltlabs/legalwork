@@ -2651,8 +2651,8 @@ const de = {
   "ai_plans.everything_in_plus": "Alles aus Plus und:",
   "ai_plans.feature_usage": "{amount} KI-Nutzung pro Platz und Monat inklusive",
   "ai_plans.feature_models": "Premium-Modelle in LegalWork: Chat, Entwürfe, Prüfung und Redlining",
-  "ai_plans.feature_hub":
-    "Zusammenarbeit im Team: Workflows, Integrationen und Einstellungsvorlagen mit jedem Platz teilen",
+  "ai_plans.feature_hub": "Zusammenarbeit im Team: Workflows, Integrationen, Einstellungen und Aufgaben teilen",
+  "ai_plans.feature_admin": "Admin-Dashboard: Modelle festlegen, Speicher für alle verbinden, Nutzung zuteilen",
   "ai_plans.feature_hosting_retention":
     "Hosting in der EU oder den USA, keine Datenspeicherung, niemals für Training verwendet",
   "ai_plans.feature_pro_headroom":
