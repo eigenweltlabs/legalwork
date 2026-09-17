@@ -109,8 +109,7 @@ const FEATURES: Record<EigenweltPlanId, string[]> = {
     "ai_plans.feature_models",
     "usage",
     "ai_plans.feature_hub",
-    "ai_plans.feature_hosting",
-    "ai_plans.feature_retention",
+    "ai_plans.feature_hosting_retention",
   ],
   pro: ["usage", "ai_plans.feature_pro_headroom"],
 };

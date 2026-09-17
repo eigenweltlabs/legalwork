@@ -2653,8 +2653,8 @@ const de = {
   "ai_plans.feature_models": "Premium-Modelle in LegalWork: Chat, Entwürfe, Prüfung und Redlining",
   "ai_plans.feature_hub":
     "Zusammenarbeit im Team: Workflows, Integrationen und Einstellungsvorlagen mit jedem Platz teilen",
-  "ai_plans.feature_hosting": "Hosting in der EU oder den USA, je nach Ihrer Wahl",
-  "ai_plans.feature_retention": "Keine Datenspeicherung, niemals für Training verwendet",
+  "ai_plans.feature_hosting_retention":
+    "Hosting in der EU oder den USA, keine Datenspeicherung, niemals für Training verwendet",
   "ai_plans.feature_pro_headroom":
     "Mehr als das Doppelte der inkludierten Nutzung von Plus, für Kanzleien, die täglich mit KI arbeiten",
   "ai_plans.byo_name": "Eigenes Modell",
