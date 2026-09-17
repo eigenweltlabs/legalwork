@@ -85,6 +85,11 @@ beforeAll(async () => {
     hostname: "127.0.0.1",
     port: 0,
     async fetch(req) {
+      // Only the team storage feed counts. The server's other background
+      // traffic to the platform (the task sync, for one) is not this test's.
+      if (!new URL(req.url).pathname.startsWith("/api/storage-connections")) {
+        return Response.json({ code: "not_found" }, { status: 404 });
+      }
       calls++;
       expect(req.headers.get("authorization")).toStartWith("Bearer ");
       const captured = payload;

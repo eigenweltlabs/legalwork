@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdtemp, rm } from "node:fs/promises";
+import { createServer, type Server } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -7,7 +8,7 @@ import { writeEigenweltConnection } from "./eigenwelt-connection-store.js";
 import type { IntakeClient, IntakeTask, IntakeTaskPatch, IntakeTaskPullPage } from "./eigenwelt-intake.js";
 import { ApiError } from "./errors.js";
 import { taskStore, type TaskStore } from "./task-store.js";
-import { runTaskSync, signOutOfFirmTasks, type TaskSyncPlatform } from "./task-sync.js";
+import { runTaskSync, signOutOfFirmTasks, startTaskSyncTimer, type TaskSyncPlatform } from "./task-sync.js";
 import type { ServerConfig } from "./types.js";
 
 const ORG = "org_kanzlei";
@@ -407,5 +408,43 @@ describe("task-sync: signing out", () => {
     expect(await signOutOfFirmTasks(config, { platform })).toEqual({ ok: true, removed: 0 });
     expect(calls).toEqual([]);
     expect(store.listTasks().tasks).toHaveLength(1);
+  });
+});
+
+describe("task-sync: the background timer", () => {
+  /** Points the app at a platform that fails every call, and counts them. */
+  async function countingPlatform(): Promise<{ calls: () => number }> {
+    let calls = 0;
+    const server: Server = createServer((req, res) => {
+      calls += 1;
+      req.resume();
+      res.writeHead(500, { "Content-Type": "application/json" }).end(JSON.stringify({ code: "unavailable" }));
+    });
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", () => resolve()));
+    cleanups.push(() => new Promise<void>((resolve) => server.close(() => resolve())));
+    const address = server.address();
+    if (!address || typeof address === "string") throw new Error("platform failed to bind");
+    process.env.EIGENWELT_PLATFORM_URL = `http://127.0.0.1:${address.port}`;
+    return { calls: () => calls };
+  }
+
+  test("its first round reaches the platform, but not once the server has stopped", async () => {
+    const { config } = await makeConfig();
+    await connect(config);
+    const platform = await countingPlatform();
+
+    const stopRunning = startTaskSyncTimer(config, 60_000, 20);
+    await Bun.sleep(300);
+    stopRunning();
+    // Let a round still in flight finish before counting.
+    await runTaskSync(config);
+    const before = platform.calls();
+    expect(before).toBeGreaterThan(0);
+
+    // A server that stops before its first round leaves the platform alone.
+    const stopEarly = startTaskSyncTimer(config, 60_000, 20);
+    stopEarly();
+    await Bun.sleep(300);
+    expect(platform.calls()).toBe(before);
   });
 });

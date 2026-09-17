@@ -403,14 +403,33 @@ export function scheduleTaskSync(config: ServerConfig, delayMs: number = WRITE_D
   pendingRounds.set(key, timer);
 }
 
-/** Rounds in the background while the server is up. Returns the stop function. */
-export function startTaskSyncTimer(config: ServerConfig, intervalMs: number = TIMER_INTERVAL_MS): () => void {
+function cancelScheduledTaskSync(key: string): void {
+  const pending = pendingRounds.get(key);
+  if (pending) clearTimeout(pending);
+  pendingRounds.delete(key);
+}
+
+/**
+ * Rounds in the background while the server is up. Returns the stop function,
+ * which also drops a scheduled round that has not started yet: a stopped
+ * server must not reach the platform afterwards.
+ */
+export function startTaskSyncTimer(
+  config: ServerConfig,
+  intervalMs: number = TIMER_INTERVAL_MS,
+  firstRoundDelayMs = 3_000,
+): () => void {
   const timer = setInterval(() => {
     void runTaskSync(config).catch(() => undefined);
   }, intervalMs);
   timer.unref?.();
   // The first round does not wait for the interval: a fresh start with a
   // connected firm should show the platform's tasks right away.
-  scheduleTaskSync(config, 3_000);
-  return () => clearInterval(timer);
+  scheduleTaskSync(config, firstRoundDelayMs);
+  const startKey = keyOf(config);
+  return () => {
+    clearInterval(timer);
+    cancelScheduledTaskSync(startKey);
+    cancelScheduledTaskSync(keyOf(config));
+  };
 }
