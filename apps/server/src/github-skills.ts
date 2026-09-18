@@ -161,7 +161,8 @@ function rewriteSkillFrontmatter(md: string, finalName: string): string {
   const description = typeof data.description === "string" ? data.description.trim() : "";
   validateDescription(description);
   const { kind: _kind, workflow_type: _workflowType, name: _name, ...rest } = data as Record<string, unknown>;
-  const content = buildFrontmatter({ ...rest, name: finalName, description }) + body.replace(/^\n/, "");
+  const content = buildFrontmatter({ ...rest, name: finalName, description }) +
+    "<!-- Modified by LegalWork: skill name and workflow metadata adapted for import. -->\n" + body.replace(/^\n/, "");
   return content.endsWith("\n") ? content : `${content}\n`;
 }
 

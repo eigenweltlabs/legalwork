@@ -53,6 +53,7 @@ import { createApplicationMenu } from "./app-menu.mjs";
 import { createBrowserPanel } from "./browser-panel.mjs";
 import { createWorkspaceStore } from "./workspace-store.mjs";
 import { exportSkillFolder, readSkillArchive } from "./workspace-archive.mjs";
+import { extractDescription } from "./skill-description.mjs";
 
 const mcpOAuthCallbacks = createMcpOAuthCallbackBroker();
 const mcpOAuthOwners = new WeakSet();
@@ -1496,22 +1497,6 @@ function extractFrontmatterValue(raw, keys) {
 
 function extractTrigger(raw) {
   return extractFrontmatterValue(raw, ["trigger", "when"]);
-}
-
-function extractDescription(raw) {
-  let inFrontmatter = false;
-  for (const line of raw.split(/\r?\n/)) {
-    const trimmed = line.trim();
-    if (!trimmed) continue;
-    if (trimmed === "---") {
-      inFrontmatter = !inFrontmatter;
-      continue;
-    }
-    if (inFrontmatter || trimmed.startsWith("#")) continue;
-    const cleaned = trimmed.replace(/`/g, "");
-    return cleaned.length > 180 ? `${cleaned.slice(0, 180)}...` : cleaned;
-  }
-  return null;
 }
 
 async function listLocalSkills(projectDir) {

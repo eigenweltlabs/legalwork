@@ -662,7 +662,13 @@ export function createExtensionsStore(options: {
             // files aren't supported on that path).
             const md = skill.files.find((file) => file.path === "SKILL.md");
             if (md) {
-              await legalworkClient.upsertSkill(legalworkWorkspaceId, { name: skill.name, content: base64ToUtf8(md.contentBase64) });
+              // Keep bundled license and attribution text even on the single-file remote path.
+              const notices = skill.files.filter((file) => /(^|\/)(licen[cs]e|notice|copying)(\.[^/]*)?$/i.test(file.path));
+              const content = [
+                base64ToUtf8(md.contentBase64),
+                ...notices.map((file) => `\n\n## ${file.path}\n\n${base64ToUtf8(file.contentBase64)}`),
+              ].join("");
+              await legalworkClient.upsertSkill(legalworkWorkspaceId, { name: skill.name, content });
               installed += 1;
             } else {
               writeFailed.push(skill.name);
