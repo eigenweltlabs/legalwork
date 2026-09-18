@@ -381,11 +381,17 @@ export type LegalworkTaskMember = {
   role: string;
 };
 
+export type LegalworkTaskEndpoint = { id: string; name: string };
+
 export type LegalworkTaskListParams = {
   assignee?: string;
+  assignees?: string[];
   status?: LegalworkTaskStatus;
+  statuses?: LegalworkTaskStatus[];
   endpointId?: string;
+  endpointIds?: string[];
   tag?: string;
+  tags?: string[];
   sort?: "created" | "updated" | "due" | "priority";
   order?: "asc" | "desc";
   limit?: number;
@@ -2342,9 +2348,13 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
     listTasks: (workspaceId: string, params?: LegalworkTaskListParams) => {
       const query = new URLSearchParams();
       if (params?.assignee) query.set("assignee", params.assignee);
+      for (const assignee of params?.assignees ?? []) query.append("assignee", assignee);
       if (params?.status) query.set("status", params.status);
+      for (const status of params?.statuses ?? []) query.append("status", status);
       if (params?.endpointId) query.set("endpointId", params.endpointId);
+      for (const endpointId of params?.endpointIds ?? []) query.append("endpointId", endpointId);
       if (params?.tag) query.set("tag", params.tag);
+      for (const tag of params?.tags ?? []) query.append("tag", tag);
       if (params?.sort) query.set("sort", params.sort);
       if (params?.order) query.set("order", params.order);
       if (params?.limit !== undefined) query.set("limit", String(params.limit));
@@ -2443,6 +2453,12 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
       requestJson<{ tags: string[] }>(
         baseUrl,
         `/workspace/${encodeURIComponent(workspaceId)}/task-tags`,
+        { token, hostToken, timeoutMs: timeouts.config },
+      ),
+    listTaskEndpoints: (workspaceId: string) =>
+      requestJson<{ endpoints: LegalworkTaskEndpoint[] }>(
+        baseUrl,
+        `/workspace/${encodeURIComponent(workspaceId)}/task-endpoints`,
         { token, hostToken, timeoutMs: timeouts.config },
       ),
     taskSyncStatus: (workspaceId: string) =>

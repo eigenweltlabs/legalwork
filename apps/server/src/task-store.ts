@@ -149,9 +149,13 @@ export type TaskDetail = { task: Task; submission: unknown; notes: TaskNote[] };
 
 export type TaskListParams = {
   assignee?: string;
+  assignees?: string[];
   status?: TaskStatus;
+  statuses?: TaskStatus[];
   endpointId?: string;
+  endpointIds?: string[];
   tag?: string;
+  tags?: string[];
   sort?: TaskSort;
   order?: TaskOrder;
   limit?: number;
@@ -857,17 +861,33 @@ export class TaskStore {
       where.push("t.assignee_user_id = ?");
       values.push(params.assignee);
     }
+    if (params.assignees?.length) {
+      where.push(`t.assignee_user_id IN (${params.assignees.map(() => "?").join(", ")})`);
+      values.push(...params.assignees);
+    }
     if (params.status) {
       where.push("t.status = ?");
       values.push(params.status);
+    }
+    if (params.statuses?.length) {
+      where.push(`t.status IN (${params.statuses.map(() => "?").join(", ")})`);
+      values.push(...params.statuses);
     }
     if (params.endpointId) {
       where.push("t.endpoint_id = ?");
       values.push(params.endpointId);
     }
+    if (params.endpointIds?.length) {
+      where.push(`t.endpoint_id IN (${params.endpointIds.map(() => "?").join(", ")})`);
+      values.push(...params.endpointIds);
+    }
     if (params.tag) {
       where.push("EXISTS (SELECT 1 FROM json_each(t.tags_json) AS task_tag WHERE task_tag.value = ?)");
       values.push(params.tag);
+    }
+    if (params.tags?.length) {
+      where.push(`EXISTS (SELECT 1 FROM json_each(t.tags_json) AS task_tag WHERE task_tag.value IN (${params.tags.map(() => "?").join(", ")}))`);
+      values.push(...params.tags);
     }
     if (orgId) {
       where.push("(t.origin = 'desktop' OR t.remote_org_id IS NULL OR t.remote_org_id = ?)");
@@ -897,9 +917,13 @@ export class TaskStore {
   }
 
   /** Every endpoint the local tasks name, for the pane's filter. */
-  listEndpoints(): { id: string; name: string }[] {
+  listEndpoints(orgId: string | null = null): { id: string; name: string }[] {
     const rows = this.db.all(
-      "SELECT DISTINCT endpoint_id, endpoint_name FROM tasks WHERE endpoint_id IS NOT NULL AND deleted_at IS NULL ORDER BY endpoint_name",
+      `SELECT DISTINCT endpoint_id, endpoint_name FROM tasks
+       WHERE endpoint_id IS NOT NULL AND deleted_at IS NULL
+         AND (? IS NULL OR origin = 'desktop' OR remote_org_id IS NULL OR remote_org_id = ?)
+       ORDER BY endpoint_name`,
+      [orgId, orgId],
     );
     return rows.flatMap((row) =>
       nullableText(row.endpoint_id) ? [{ id: text(row.endpoint_id), name: text(row.endpoint_name) }] : [],

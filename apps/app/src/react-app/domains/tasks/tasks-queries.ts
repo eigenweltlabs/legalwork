@@ -19,6 +19,7 @@ import {
 import type {
   LegalworkTask,
   LegalworkTaskCreate,
+  LegalworkTaskEndpoint,
   LegalworkTaskListParams,
   LegalworkTaskMember,
   LegalworkTaskPatch,
@@ -36,6 +37,7 @@ const TASKS_ROOT = "tasks";
 const TASK_ROOT = "task";
 const MEMBERS_ROOT = "task-members";
 const TAGS_ROOT = "task-tags";
+const ENDPOINTS_ROOT = "task-endpoints";
 const SYNC_ROOT = "task-sync";
 
 /** Filters/sort as the list request carries them (no paging keys). */
@@ -129,6 +131,20 @@ export function useTaskTags(context: TaskQueryContext) {
   });
 }
 
+/** Intake addresses represented by visible local tasks, independent of the
+ * current task-list filters so several addresses can be selected in sequence. */
+export function useTaskEndpoints(context: TaskQueryContext) {
+  const { client, workspaceId } = context;
+  return useQuery({
+    queryKey: [ENDPOINTS_ROOT, workspaceId],
+    enabled: Boolean(client && workspaceId),
+    queryFn: async (): Promise<LegalworkTaskEndpoint[]> => {
+      if (!client || !workspaceId) return [];
+      return (await client.listTaskEndpoints(workspaceId)).endpoints;
+    },
+  });
+}
+
 /**
  * Where the store stands against the platform. Polled, so a round that ran
  * in the background (a push landing, a pull bringing a colleague's change)
@@ -160,6 +176,7 @@ export function useTaskSyncStatus(context: TaskQueryContext) {
     void queryClient.invalidateQueries({ queryKey: [TASK_ROOT, workspaceId] });
     void queryClient.invalidateQueries({ queryKey: [MEMBERS_ROOT, workspaceId] });
     void queryClient.invalidateQueries({ queryKey: [TAGS_ROOT, workspaceId] });
+    void queryClient.invalidateQueries({ queryKey: [ENDPOINTS_ROOT, workspaceId] });
   }, [lastSyncAt, queryClient, workspaceId]);
   return query;
 }
@@ -170,6 +187,7 @@ function useInvalidateTasks(context: TaskQueryContext) {
     void queryClient.invalidateQueries({ queryKey: [TASKS_ROOT, context.workspaceId] });
     void queryClient.invalidateQueries({ queryKey: [SYNC_ROOT, context.workspaceId] });
     void queryClient.invalidateQueries({ queryKey: [TAGS_ROOT, context.workspaceId] });
+    void queryClient.invalidateQueries({ queryKey: [ENDPOINTS_ROOT, context.workspaceId] });
     if (taskId) void queryClient.invalidateQueries({ queryKey: taskQueryKey(context.workspaceId, taskId) });
   };
 }
@@ -188,6 +206,7 @@ export function useRunTaskSync(context: TaskQueryContext) {
       void queryClient.invalidateQueries({ queryKey: [TASK_ROOT, workspaceId] });
       void queryClient.invalidateQueries({ queryKey: [MEMBERS_ROOT, workspaceId] });
       void queryClient.invalidateQueries({ queryKey: [TAGS_ROOT, workspaceId] });
+      void queryClient.invalidateQueries({ queryKey: [ENDPOINTS_ROOT, workspaceId] });
       void queryClient.invalidateQueries({ queryKey: [SYNC_ROOT, workspaceId] });
     },
   });

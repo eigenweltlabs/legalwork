@@ -44,11 +44,21 @@ describe("tasks-api: who is acting", () => {
 describe("tasks-api: list params", () => {
   test("parses the filters, clamps the page size and refuses nonsense", () => {
     expect(
-      parseTaskListParams(new URLSearchParams("assignee=user_1&status=done&tag=Project%20Alpha&sort=updated&order=desc&limit=10&cursor=c1&deleted=only")),
-    ).toEqual({ assignee: "user_1", status: "done", tag: "Project Alpha", sort: "updated", order: "desc", limit: 10, cursor: "c1", deleted: "only" });
+      parseTaskListParams(new URLSearchParams("assignee=user_1&assignee=user_2&status=done&status=open&endpointId=ep_1&endpointId=ep_2&tag=Project%20Alpha&tag=Urgent&sort=updated&order=desc&limit=10&cursor=c1&deleted=only")),
+    ).toEqual({
+      assignees: ["user_1", "user_2"],
+      statuses: ["done", "open"],
+      endpointIds: ["ep_1", "ep_2"],
+      tags: ["Project Alpha", "Urgent"],
+      sort: "updated",
+      order: "desc",
+      limit: 10,
+      cursor: "c1",
+      deleted: "only",
+    });
     expect(parseTaskListParams(new URLSearchParams("limit=5000")).limit).toBe(200);
     expect(parseTaskListParams(new URLSearchParams())).toEqual({});
-    for (const bad of ["status=archived", "sort=name", "order=up", "limit=0", "limit=x", "deleted=yes"]) {
+    for (const bad of ["status=archived", "status=open&status=archived", "sort=name", "order=up", "limit=0", "limit=x", "deleted=yes"]) {
       expect(() => parseTaskListParams(new URLSearchParams(bad))).toThrow(ApiError);
     }
   });

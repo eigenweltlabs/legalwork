@@ -25,6 +25,7 @@ import { useEffect, useMemo, useState } from "react";
 import {
   ArrowDownWideNarrow,
   AtSign,
+  ChevronDown,
   CloudOff,
   ListFilter,
   Loader2,
@@ -44,12 +45,18 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import {
+  DropdownMenu,
+  DropdownMenuCheckboxItem,
+  DropdownMenuContent,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { toast } from "@/components/ui/sonner";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import type {
   LegalworkTask,
   LegalworkTaskAttachment,
-  LegalworkTaskStatus,
   LegalworkServerClient,
 } from "@/app/lib/legalwork-server";
 import type { ModelRef } from "@/app/types";
@@ -72,6 +79,12 @@ import { OptionText } from "./task-glyphs";
 import { TaskList, type TaskListGroup } from "./task-list";
 import { useTaskRunStore, type TaskLocalRun } from "./task-run-store";
 import {
+  TASK_FILTER_ASSIGNEE_ME as ASSIGNEE_ME,
+  useTaskFilterStore,
+  type TaskSortKey as SortKey,
+  type TaskStatusValue,
+} from "./task-filter-store";
+import {
   flattenTaskPages,
   useCreateTask,
   useDeleteTask,
@@ -80,6 +93,7 @@ import {
   useRunTaskSync,
   useTask,
   useTaskAccess,
+  useTaskEndpoints,
   useTaskMembers,
   useTaskSyncStatus,
   useTaskTags,
@@ -88,14 +102,6 @@ import {
   useUploadTaskAttachments,
   type TaskQuery,
 } from "./tasks-queries";
-
-/** Filter values that stand for "no filter" — Select needs a real value. */
-const ANY = "__any__";
-const ASSIGNEE_ME = "__me__";
-
-type SortKey = "created" | "updated" | "due" | "priority";
-type StatusTab = "all" | Extract<LegalworkTaskStatus, "open" | "in_progress" | "done">;
-type StatusFilter = StatusTab | "trash";
 
 export type TasksPaneProps = {
   /** The local LegalWork server, which holds the task store (and the firm connection). */
@@ -123,12 +129,19 @@ export function TasksPane(props: TasksPaneProps) {
   const context = { client: props.client, workspaceId: props.workspaceId };
   const access = useTaskAccess(context);
 
-  const [view, setView] = useState<"tasks" | "trash">("tasks");
-  const [assignee, setAssignee] = useState(ANY);
-  const [statusTab, setStatusTab] = useState<StatusTab>("all");
-  const [endpointId, setEndpointId] = useState(ANY);
-  const [tag, setTag] = useState(ANY);
-  const [sort, setSort] = useState<SortKey>("created");
+  const view = useTaskFilterStore((state) => state.view);
+  const setView = useTaskFilterStore((state) => state.setView);
+  const assignees = useTaskFilterStore((state) => state.assignees);
+  const setAssignees = useTaskFilterStore((state) => state.setAssignees);
+  const statuses = useTaskFilterStore((state) => state.statuses);
+  const setStatuses = useTaskFilterStore((state) => state.setStatuses);
+  const endpointIds = useTaskFilterStore((state) => state.endpointIds);
+  const setEndpointIds = useTaskFilterStore((state) => state.setEndpointIds);
+  const selectedTags = useTaskFilterStore((state) => state.tags);
+  const setSelectedTags = useTaskFilterStore((state) => state.setTags);
+  const sort = useTaskFilterStore((state) => state.sort);
+  const setSort = useTaskFilterStore((state) => state.setSort);
+  const clearFilters = useTaskFilterStore((state) => state.clear);
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
   const [startMode, setStartMode] = useState<StartTaskMode | null>(null);
   const [starting, setStarting] = useState(false);
@@ -140,27 +153,29 @@ export function TasksPane(props: TasksPaneProps) {
     if (!openTask) return;
     setView("tasks");
     setSelectedTaskId(openTask.id);
-  }, [openTask]);
+  }, [openTask, setView]);
 
   const query = useMemo<TaskQuery>(() => {
-    const resolvedAssignee =
-      assignee === ANY ? undefined : assignee === ASSIGNEE_ME ? access.accountUserId ?? undefined : assignee;
+    const resolvedAssignees = [...new Set(assignees
+      .map((assignee) => assignee === ASSIGNEE_ME ? access.accountUserId : assignee)
+      .filter((assignee): assignee is string => Boolean(assignee)))];
     return {
-      ...(resolvedAssignee ? { assignee: resolvedAssignee } : {}),
-      ...(statusTab === "all" || inTrash ? {} : { status: statusTab }),
-      ...(endpointId === ANY ? {} : { endpointId }),
-      ...(tag === ANY ? {} : { tag }),
+      ...(resolvedAssignees.length ? { assignees: resolvedAssignees } : {}),
+      ...(statuses.length && !inTrash ? { statuses } : {}),
+      ...(endpointIds.length ? { endpointIds } : {}),
+      ...(selectedTags.length ? { tags: selectedTags } : {}),
       ...(inTrash ? { deleted: "only" as const } : {}),
       sort: inTrash ? "updated" : sort,
       // Created and updated read newest-first. Due dates read soonest-first,
       // and priority carries its own documented order in the store.
       ...((sort === "priority" || sort === "due") && !inTrash ? {} : { order: "desc" as const }),
     };
-  }, [access.accountUserId, assignee, endpointId, inTrash, sort, statusTab, tag]);
+  }, [access.accountUserId, assignees, endpointIds, inTrash, selectedTags, sort, statuses]);
 
   const tasksQuery = useTasks(context, query);
   const membersQuery = useTaskMembers(context);
   const tagsQuery = useTaskTags(context);
+  const endpointsQuery = useTaskEndpoints(context);
   const syncQuery = useTaskSyncStatus(context);
   const detailQuery = useTask(context, selectedTaskId);
   const runSync = useRunTaskSync(context);
@@ -176,33 +191,31 @@ export function TasksPane(props: TasksPaneProps) {
   const tags = tagsQuery.data ?? [];
   const recordRun = useTaskRunStore((state) => state.recordRun);
 
-  /**
-   * Endpoint administration is browser-session-only on the platform, so the
-   * server exposes no endpoint list. The filter offers the endpoints actually
-   * present in the loaded tasks, which is what a member can act on anyway —
-   * and it only appears once an intake task is here at all.
-   */
+  /** The server derives this list from every visible local task, independently
+   * of the active facets, so choosing one address never hides the others. */
   const endpointOptions = useMemo(() => {
-    const byId = new Map<string, string>();
-    for (const task of tasks) if (task.endpointId) byId.set(task.endpointId, task.endpointName ?? t("tasks.origin_intake"));
-    return [...byId.entries()].map(([id, name]) => ({ value: id, label: name }));
-  }, [tasks]);
+    const options = (endpointsQuery.data ?? []).map((endpoint) => ({ value: endpoint.id, label: endpoint.name }));
+    for (const selected of endpointIds) {
+      if (!options.some((option) => option.value === selected)) options.push({ value: selected, label: selected });
+    }
+    return options;
+  }, [endpointIds, endpointsQuery.data]);
 
   // "All" keeps the queue legible by sectioning it: what needs attention on
   // top, finished work at the bottom, in the chosen order within each.
   const groups = useMemo<TaskListGroup[] | null>(() => {
-    if (statusTab !== "all" || inTrash) return null;
+    if (statuses.length === 1 || inTrash) return null;
     return TASK_STATUSES.map((status) => ({
       status,
       tasks: tasks.filter((task) => task.status === status),
     })).filter((group) => group.tasks.length > 0);
-  }, [inTrash, statusTab, tasks]);
+  }, [inTrash, statuses.length, tasks]);
 
   // Open the detail from the row already in hand so the click is instant; the
   // fetch only adds the submission, the history and any field changed meanwhile.
   const selectedTask =
     detailQuery.data?.task ?? tasks.find((task) => task.id === selectedTaskId) ?? null;
-  const filtered = assignee !== ANY || endpointId !== ANY || tag !== ANY || statusTab !== "all";
+  const filtered = assignees.length > 0 || endpointIds.length > 0 || selectedTags.length > 0 || statuses.length > 0 || inTrash;
   const syncing = runSync.isPending;
   const refreshing = syncing || (tasksQuery.isFetching && !tasksQuery.isFetchingNextPage);
   const busy = deleteTask.isPending || restoreTask.isPending || starting;
@@ -213,14 +226,6 @@ export function TasksPane(props: TasksPaneProps) {
   // not gone — the empty list says so rather than looking like a fresh start.
   const emptyHint =
     syncQuery.data && !syncQuery.data.connected && syncQuery.data.signedOut ? t("tasks.empty_signed_out_body") : null;
-
-  const clearFilters = () => {
-    setAssignee(ANY);
-    setEndpointId(ANY);
-    setTag(ANY);
-    setStatusTab("all");
-    setView("tasks");
-  };
 
   const switchView = (next: "tasks" | "trash") => {
     setView(next);
@@ -331,7 +336,6 @@ export function TasksPane(props: TasksPaneProps) {
     }
   };
 
-  const statusFilter: StatusFilter = inTrash ? "trash" : statusTab;
   const countLabel = tasksQuery.data && tasks.length
     ? tasksQuery.hasNextPage
       ? t("tasks.count_more", { count: tasks.length })
@@ -396,66 +400,63 @@ export function TasksPane(props: TasksPaneProps) {
             </div>
           </div>
           <div className="flex flex-wrap items-center gap-1.5">
-            <FilterChip
+            <MultiFilterChip
               icon={ListFilter}
               label={t("tasks.column_status")}
-              value={statusFilter}
-              onChange={(value) => {
-                if (value === "trash") {
-                  switchView("trash");
-                  return;
-                }
-                if (value === "all" || value === "open" || value === "in_progress" || value === "done") {
-                  setView("tasks");
-                  setStatusTab(value);
-                  setSelectedTaskId(null);
-                }
+              emptyLabel={t("tasks.status_all")}
+              selected={statuses}
+              onChange={(values) => {
+                setView("tasks");
+                setStatuses(values.filter(isTaskStatusValue));
+                setSelectedTaskId(null);
               }}
               options={[
-                { value: "all", label: t("tasks.status_all") },
                 { value: "open", label: taskStatusLabel("open") },
                 { value: "in_progress", label: taskStatusLabel("in_progress") },
                 { value: "done", label: taskStatusLabel("done") },
-                { value: "trash", label: t("tasks.trash") },
               ]}
+              special={{
+                label: t("tasks.trash"),
+                active: inTrash,
+                onSelect: () => switchView("trash"),
+              }}
             />
             {inTrash ? null : (
               <>
                 {members.length > 0 || access.accountUserId ? (
-                  <FilterChip
+                  <MultiFilterChip
                     icon={UserRound}
                     label={t("tasks.column_assignee")}
-                    value={assignee}
-                    onChange={setAssignee}
+                    emptyLabel={t("tasks.assignee_anyone")}
+                    selected={assignees}
+                    onChange={setAssignees}
                     options={[
-                      { value: ANY, label: t("tasks.assignee_anyone") },
                       ...(access.accountUserId ? [{ value: ASSIGNEE_ME, label: t("tasks.assignee_me") }] : []),
                       ...taskMemberOptions(members),
                     ]}
                   />
                 ) : null}
-                {endpointOptions.length > 0 || endpointId !== ANY ? (
-                  <FilterChip
+                {endpointOptions.length > 0 || endpointIds.length > 0 ? (
+                  <MultiFilterChip
                     icon={AtSign}
                     label={t("tasks.column_endpoint")}
-                    value={endpointId}
-                    onChange={setEndpointId}
-                    options={[{ value: ANY, label: t("tasks.endpoint_any") }, ...endpointOptions]}
+                    emptyLabel={t("tasks.endpoint_any")}
+                    selected={endpointIds}
+                    onChange={setEndpointIds}
+                    options={endpointOptions}
                   />
                 ) : null}
-                {tags.length > 0 || tag !== ANY ? (
-                  <FilterChip
+                {tags.length > 0 || selectedTags.length > 0 ? (
+                  <MultiFilterChip
                     icon={Tags}
                     label={t("tasks.tags")}
-                    value={tag}
-                    onChange={setTag}
-                    options={[
-                      { value: ANY, label: t("tasks.tags_any") },
-                      ...tags.map((entry) => ({ value: entry, label: entry })),
-                    ]}
+                    emptyLabel={t("tasks.tags_any")}
+                    selected={selectedTags}
+                    onChange={setSelectedTags}
+                    options={tags.map((entry) => ({ value: entry, label: entry }))}
                   />
                 ) : null}
-                <FilterChip
+                <SortFilterChip
                   icon={ArrowDownWideNarrow}
                   compact
                   label={t("tasks.sort_label")}
@@ -589,12 +590,12 @@ export function TasksPane(props: TasksPaneProps) {
 }
 
 /** A filter as a chip: its icon says which, its value says what. */
-function FilterChip(props: {
+function SortFilterChip(props: {
   icon: LucideIcon;
   compact?: boolean;
   label: string;
   value: string;
-  options: Array<{ value: string; label: string; primary?: string; detail?: string }>;
+  options: FilterOption[];
   onChange: (value: string) => void;
 }) {
   const Icon = props.icon;
@@ -622,4 +623,88 @@ function FilterChip(props: {
       </SelectContent>
     </Select>
   );
+}
+
+type FilterOption = { value: string; label: string; primary?: string; detail?: string };
+
+function MultiFilterChip(props: {
+  icon: LucideIcon;
+  label: string;
+  emptyLabel: string;
+  selected: string[];
+  options: FilterOption[];
+  onChange: (values: string[]) => void;
+  special?: { label: string; active: boolean; onSelect: () => void };
+}) {
+  const Icon = props.icon;
+  const active = props.selected.length > 0 || Boolean(props.special?.active);
+  const selectedLabel = props.special?.active
+    ? props.special.label
+    : props.selected.length === 0
+      ? props.emptyLabel
+      : props.selected.length === 1
+        ? props.options.find((option) => option.value === props.selected[0])?.label ?? props.selected[0]
+        : t("tasks.selected_count", { count: props.selected.length });
+  const toggle = (value: string) => {
+    props.onChange(
+      props.selected.includes(value)
+        ? props.selected.filter((entry) => entry !== value)
+        : [...props.selected, value],
+    );
+  };
+
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger
+        render={
+          <Button
+            variant="ghost"
+            size="sm"
+            aria-label={props.label}
+            title={selectedLabel}
+            className={cn(
+              "h-7 min-w-0 max-w-full gap-1.5 rounded-lg border border-transparent bg-transparent px-2 text-xs text-foreground hover:bg-muted/60",
+              active && "border-primary/30 bg-primary/10 text-primary hover:bg-primary/15",
+            )}
+          >
+            <Icon aria-hidden className={cn("size-3.5 text-muted-foreground", active && "text-primary")} />
+            <span className="min-w-0 truncate">{selectedLabel}</span>
+            <ChevronDown aria-hidden className="size-3 text-muted-foreground" />
+          </Button>
+        }
+      />
+      <DropdownMenuContent align="start" className="w-auto min-w-(--anchor-width) max-w-80">
+        <DropdownMenuCheckboxItem
+          checked={!props.special?.active && props.selected.length === 0}
+          onCheckedChange={() => props.onChange([])}
+          onSelect={(event) => event.preventDefault()}
+        >
+          {props.emptyLabel}
+        </DropdownMenuCheckboxItem>
+        <DropdownMenuSeparator />
+        {props.options.map((option) => (
+          <DropdownMenuCheckboxItem
+            key={option.value}
+            checked={!props.special?.active && props.selected.includes(option.value)}
+            onCheckedChange={() => toggle(option.value)}
+            onSelect={(event) => event.preventDefault()}
+          >
+            <OptionText primary={option.primary ?? option.label} detail={option.detail} />
+          </DropdownMenuCheckboxItem>
+        ))}
+        {props.special ? (
+          <>
+            <DropdownMenuSeparator />
+            <DropdownMenuCheckboxItem checked={props.special.active} onCheckedChange={props.special.onSelect}>
+              {props.special.label}
+            </DropdownMenuCheckboxItem>
+          </>
+        ) : null}
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
+
+function isTaskStatusValue(value: string): value is TaskStatusValue {
+  return value === "open" || value === "in_progress" || value === "done";
 }

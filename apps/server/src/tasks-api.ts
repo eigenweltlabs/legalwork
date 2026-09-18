@@ -92,17 +92,19 @@ function parseTags(value: unknown): string[] {
 /** The list filter/sort/paging params off a request's query. */
 export function parseTaskListParams(search: URLSearchParams): TaskListParams {
   const params: TaskListParams = {};
-  const assignee = search.get("assignee")?.trim();
-  if (assignee) params.assignee = assignee;
-  const status = search.get("status")?.trim();
-  if (status) params.status = parseStatus(status);
-  const endpointId = search.get("endpointId")?.trim();
-  if (endpointId) params.endpointId = endpointId;
-  const tag = search.get("tag")?.trim();
-  if (tag) {
-    if (tag.length > TASK_TAG_MAX_CHARS) throw new ApiError(400, "invalid_task_tag", "tag is too long.");
-    params.tag = tag;
-  }
+  const assignees = search.getAll("assignee").map((value) => value.trim()).filter(Boolean);
+  if (assignees.length === 1) params.assignee = assignees[0];
+  else if (assignees.length > 1) params.assignees = assignees;
+  const statuses = search.getAll("status").map((value) => value.trim()).filter(Boolean).map(parseStatus);
+  if (statuses.length === 1) params.status = statuses[0];
+  else if (statuses.length > 1) params.statuses = statuses;
+  const endpointIds = search.getAll("endpointId").map((value) => value.trim()).filter(Boolean);
+  if (endpointIds.length === 1) params.endpointId = endpointIds[0];
+  else if (endpointIds.length > 1) params.endpointIds = endpointIds;
+  const tags = search.getAll("tag").map((value) => value.trim()).filter(Boolean);
+  if (tags.some((tag) => tag.length > TASK_TAG_MAX_CHARS)) throw new ApiError(400, "invalid_task_tag", "tag is too long.");
+  if (tags.length === 1) params.tag = tags[0];
+  else if (tags.length > 1) params.tags = tags;
   const sort = search.get("sort")?.trim();
   if (sort) {
     if (sort !== "created" && sort !== "updated" && sort !== "due" && sort !== "priority") {
