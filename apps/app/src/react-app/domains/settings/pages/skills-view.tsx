@@ -43,6 +43,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { t } from "@/i18n";
+import { LegalQuantsImportButton } from "./legalquants-import";
 import { HubScopeToggle, useHubScope } from "./hub-scope-context";
 import type {
   HubSkillCard,
@@ -648,6 +649,12 @@ export function SkillsView(props: SkillsViewProps) {
                   canUseDesktopTools={props.canUseDesktopTools}
                   existingNames={installedNames}
                   extensions={extensions}
+                />
+                <LegalQuantsImportButton
+                  busy={props.busy}
+                  existingNames={installedNames}
+                  extensions={extensions}
+                  className={ghostActionClass}
                 />
                 <WorkflowCreatorButton
                   disabled={props.busy}
@@ -1766,16 +1773,18 @@ function ImportSkillsButton(props: {
     return asWorkflow ? `workflow-assistant-${base}` : base;
   };
 
-  const runScan = async () => {
-    const trimmed = url.trim();
+  const runScan = async (sourceUrl = url, sourceRef = ref) => {
+    const trimmed = sourceUrl.trim();
     if (!trimmed) return;
     setScanning(true);
     setError(null);
     setScanned(null);
     setSelected(new Set());
     setStatus(null);
+    setFilter("");
     try {
-      const result = await extensions.scanGithubSkills(trimmed, ref.trim() || undefined);
+      const result = await extensions.scanGithubSkills(trimmed, sourceRef.trim() || undefined);
+      setRef(result.ref);
       setScanned(result.skills);
       if (result.skills.length === 0) setError(t("skills.repo_no_skills"));
     } catch (err) {
@@ -1884,7 +1893,12 @@ function ImportSkillsButton(props: {
               <div className="flex flex-col gap-2 sm:flex-row">
                 <input
                   value={url}
-                  onChange={(event) => setUrl(event.currentTarget.value)}
+                  disabled={scanning || importing}
+                  onChange={(event) => {
+                    setUrl(event.currentTarget.value);
+                    setScanned(null);
+                    setSelected(new Set());
+                  }}
                   placeholder="https://github.com/owner/repo"
                   className={inputClass}
                   spellCheck={false}
@@ -1894,12 +1908,17 @@ function ImportSkillsButton(props: {
                 />
                 <input
                   value={ref}
-                  onChange={(event) => setRef(event.currentTarget.value)}
+                  disabled={scanning || importing}
+                  onChange={(event) => {
+                    setRef(event.currentTarget.value);
+                    setScanned(null);
+                    setSelected(new Set());
+                  }}
                   placeholder={t("skills.branch_optional")}
                   className={`${inputClass} sm:max-w-[36%]`}
                   spellCheck={false}
                 />
-                <Button type="button" onClick={() => void runScan()} disabled={scanning || !url.trim()}>
+                <Button type="button" onClick={() => void runScan()} disabled={scanning || importing || !url.trim()}>
                   {scanning ? <Loader2 size={14} className="animate-spin" /> : <Search size={14} />}
                   Scan
                 </Button>
