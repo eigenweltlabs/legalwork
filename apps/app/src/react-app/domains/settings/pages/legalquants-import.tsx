@@ -7,7 +7,6 @@ import { t } from "@/i18n";
 import type { SkillsExtensionsStore } from "./skills-view";
 
 const SOURCE = "https://github.com/LegalQuants/lq-plugin-oss/tree/main/skills";
-const CATEGORIES = ["litigation", "transactional", "core", "companion"];
 type Catalog = Awaited<ReturnType<SkillsExtensionsStore["scanGithubSkills"]>>;
 type Props = {
   busy: boolean;
@@ -27,6 +26,12 @@ export function LegalQuantsImportButton(props: Props) {
 }
 
 function LegalQuantsImportModal({ extensions, existingNames, onClose }: Props & { onClose: () => void }) {
+  const categories = [
+    { key: "litigation", label: t("skills.legalquants_litigation") },
+    { key: "transactional", label: t("skills.legalquants_transactional") },
+    { key: "core", label: t("skills.legalquants_core") },
+    { key: "companion", label: t("skills.legalquants_companion") },
+  ];
   const [catalog, setCatalog] = useState<Catalog | null>(null);
   const [attempt, setAttempt] = useState(0);
   const [error, setError] = useState<string | null>(null);
@@ -96,8 +101,8 @@ function LegalQuantsImportModal({ extensions, existingNames, onClose }: Props & 
           <input aria-label={t("skills.legalquants_search")} placeholder={t("skills.legalquants_search")} value={query} onChange={(event) => setQuery(event.currentTarget.value)} className="w-full rounded-xl border border-dls-border bg-dls-hover py-2 pl-9 pr-3 text-sm text-dls-text focus:outline-none focus:ring-2 focus:ring-[rgba(var(--dls-accent-rgb),0.25)]" />
         </div>
         <div className="flex flex-wrap gap-1.5">
-          {CATEGORIES.map((key) => <button key={key} type="button" aria-pressed={category === key} onClick={() => setCategory(key)} className={`rounded-full px-3 py-1.5 text-xs transition-colors ${category === key ? "bg-dls-text text-dls-surface" : "bg-dls-hover text-dls-secondary hover:text-dls-text"}`}>
-            {t(`skills.legalquants_${key}`)} <span className="ml-1 opacity-60">{catalog.skills.filter((skill) => skill.dir.startsWith(`skills/${key}/`) && matches(skill.name, skill.description)).length}</span>
+          {categories.map(({ key, label }) => <button key={key} type="button" aria-pressed={category === key} onClick={() => setCategory(key)} className={`rounded-full px-3 py-1.5 text-xs transition-colors ${category === key ? "bg-dls-text text-dls-surface" : "bg-dls-hover text-dls-secondary hover:text-dls-text"}`}>
+            {label} <span className="ml-1 opacity-60">{catalog.skills.filter((skill) => skill.dir.startsWith(`skills/${key}/`) && matches(skill.name, skill.description)).length}</span>
           </button>)}
         </div>
         <div className="flex items-center justify-between text-xs text-dls-secondary">
