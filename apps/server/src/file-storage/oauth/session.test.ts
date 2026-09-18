@@ -14,7 +14,8 @@ test("vault encrypts tokens, rejects tampering and serializes updates", async ()
   const path = await setup(); const vault = new OAuthVault(path);
   await Promise.all([vault.set("a", { accessToken: "private-access", refreshToken: "private-refresh", expiresAt: 123 }), vault.set("b", { accessToken: "b", refreshToken: "b", expiresAt: 123 })]);
   expect((await readFile(path)).includes(Buffer.from("private-access"))).toBe(false);
-  expect((await stat(path)).mode & 0o777).toBe(0o600);
+  // Windows reports synthetic mode bits; Unix permissions apply on POSIX hosts.
+  if (process.platform !== "win32") expect((await stat(path)).mode & 0o777).toBe(0o600);
   expect((await vault.get("a"))?.refreshToken).toBe("private-refresh");
   expect((await vault.get("b"))?.accessToken).toBe("b");
   await vault.set("a"); expect(await vault.get("a")).toBeUndefined();
