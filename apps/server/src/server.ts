@@ -2956,6 +2956,13 @@ function createRoutes(
     return jsonResponse({ tags: store.listTags(orgId) });
   });
 
+  addRoute(routes, "GET", "/workspace/:id/task-endpoints", "client", async (ctx) => {
+    await resolveWorkspace(config, ctx.params.id);
+    const store = await taskStore(config);
+    const { orgId } = await localTaskConnection();
+    return jsonResponse({ endpoints: store.listEndpoints(orgId) });
+  });
+
   addRoute(routes, "POST", "/workspace/:id/tasks", "client", async (ctx) => {
     ensureWritable(config);
     requireClientScope(ctx, "collaborator");

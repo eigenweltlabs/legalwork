@@ -3983,6 +3983,7 @@ export default {
   "tasks.assignee_me": "Assigned to me",
   "tasks.unassigned": "Unassigned",
   "tasks.endpoint_any": "Any address",
+  "tasks.selected_count": "{count} selected",
   "tasks.sort_label": "Sort",
   "tasks.sort_created": "Created",
   "tasks.sort_updated": "Updated",

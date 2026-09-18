@@ -184,6 +184,7 @@ describe("task-store: local tasks", () => {
     expect(first.tags).toEqual(["Project Alpha", "Urgent"]);
     expect(store.listTags()).toEqual(["Project Alpha", "Project Beta", "Urgent"]);
     expect(store.listTasks({ tag: "Project Alpha" }).tasks.map((task) => task.id)).toEqual([first.id]);
+    expect(store.listTasks({ tags: ["Project Alpha", "Project Beta"] }).tasks.map((task) => task.title)).toEqual(["Project Beta", "Project Alpha"]);
 
     const updated = store.patchTask(first.id, { tags: ["Urgent", "Client"] }, ANON, 3_000);
     expect(updated.tags).toEqual(["Urgent", "Client"]);
@@ -259,6 +260,8 @@ describe("task-store: listing", () => {
     expect(store.listTasks({ sort: "due" }).tasks.map((row) => row.title)).toEqual(["low", "urgent", "none"]);
     expect(store.listTasks({ status: "done" }).tasks.map((row) => row.id)).toEqual([low.id]);
     expect(store.listTasks({ assignee: "user_ada" }).tasks.map((row) => row.id)).toEqual([urgent.id]);
+    expect(store.listTasks({ statuses: ["open", "done"] }).tasks.map((row) => row.id)).toEqual([urgent.id, low.id, none.id]);
+    expect(store.listTasks({ assignees: ["user_ada", "user_bob"] }).tasks.map((row) => row.id)).toEqual([urgent.id, low.id]);
     // Newest first by default.
     expect(store.listTasks().tasks.map((row) => row.id)).toEqual([urgent.id, low.id, none.id]);
   });
@@ -284,11 +287,12 @@ describe("task-store: listing", () => {
 
   test("shows another firm's intake tasks only while that firm is connected", async () => {
     const { store } = await makeStore();
-    store.applyRemoteTask(remoteTask({ id: "a-task" }), "org_a");
-    store.applyRemoteTask(remoteTask({ id: "b-task" }), "org_b");
+    store.applyRemoteTask(remoteTask({ id: "a-task", endpointId: "ep-a", endpointName: "A intake" }), "org_a");
+    store.applyRemoteTask(remoteTask({ id: "b-task", endpointId: "ep-b", endpointName: "B intake" }), "org_b");
     const local = store.createTask({ title: "mine" }, ANON);
 
     expect(store.listTasks({}, "org_a").tasks.map((row) => row.id).sort()).toEqual(["a-task", local.id].sort());
+    expect(store.listEndpoints("org_a")).toEqual([{ id: "ep-a", name: "A intake" }]);
     expect(store.listTasks({}, null).tasks).toHaveLength(3);
   });
 });

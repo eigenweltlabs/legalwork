@@ -4372,6 +4372,7 @@ const de = {
   "tasks.assignee_me": "Mir zugewiesen",
   "tasks.unassigned": "Nicht zugewiesen",
   "tasks.endpoint_any": "Alle Adressen",
+  "tasks.selected_count": "{count} ausgewählt",
   "tasks.sort_label": "Sortierung",
   "tasks.sort_created": "Erstellt",
   "tasks.sort_updated": "Aktualisiert",
