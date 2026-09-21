@@ -10,6 +10,7 @@ import { pathToFileURL } from "node:url";
 
 import { createOfficeAddinManager } from "./office-addin-manager.mjs";
 import { ensureOpencodeStateDir } from "./opencode-state-dir.mjs";
+import { createHostApprovalHandler } from "./host-approvals.mjs";
 
 const __runtimeDir = path.dirname(fileURLToPath(import.meta.url));
 
@@ -568,7 +569,15 @@ function loadUserEnvFile() {
   }
 }
 
-export function createRuntimeManager({ app, desktopRoot, listLocalWorkspacePaths, recorder, onSidecarExit }) {
+export function createRuntimeManager({ app, desktopRoot, listLocalWorkspacePaths, recorder, onSidecarExit, getApprovalWindow }) {
+  const requestHostApproval = createHostApprovalHandler({
+    getWindow: getApprovalWindow,
+    showMessageBox: async (window, options) => {
+      const { dialog } = await import("electron");
+      if (options.signal.aborted || window.isDestroyed()) return { response: 0, checkboxChecked: false };
+      return dialog.showMessageBox(window, options);
+    },
+  });
   const engineState = createEngineState();
   const legalworkServerState = createLegalworkServerState();
   const orchestratorState = createOrchestratorState();
@@ -1362,7 +1371,10 @@ export function createRuntimeManager({ app, desktopRoot, listLocalWorkspacePaths
       host,
       port: portSelection.port,
       corsOrigins: ["*"],
-      approvalMode: "auto",
+      // Preserve the local convenience default without overriding an explicit
+      // LEGALWORK_APPROVAL_MODE or server.json approval.mode setting.
+      defaultApprovalMode: "auto",
+      requestHostApproval,
       configPath: serverConfigPath,
       workspaces: workspacePaths,
       token: tokens.clientToken,

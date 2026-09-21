@@ -2,6 +2,7 @@
 import { spawnSync } from "node:child_process";
 import { mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { basename, dirname, extname, join, resolve } from "node:path";
+import { createChecksums, isElectronReleaseAsset, mergeChecksums } from "./checksums.mjs";
 
 const args = process.argv.slice(2);
 const manifestsOnly = args.includes("--manifests-only");
@@ -39,9 +40,7 @@ function isUpdaterManifest(path) {
 }
 
 function isReleaseAsset(path) {
-  if (isUpdaterManifest(path)) return false;
-  if (!basename(path).startsWith("legalwork-")) return false;
-  return /\.(AppImage|blockmap|dmg|exe|rpm|zip)$/i.test(path) || /\.tar\.gz$/i.test(path);
+  return isElectronReleaseAsset(path);
 }
 
 function runGh(args) {
@@ -182,8 +181,16 @@ function validateManifest(name, manifest) {
 const files = walk(distRoot);
 const releaseAssets = files.filter(isReleaseAsset);
 const manifestsByName = new Map();
+// Matrix jobs hash the final signed installers before uploading them. Their
+// lists travel with the manifests so this job never needs to download binaries.
+const checksums = manifestsOnly
+  ? await mergeChecksums(files.filter((path) => basename(path) === "SHA256SUMS"))
+  : await createChecksums(releaseAssets);
 
 for (const path of files.filter(isUpdaterManifest)) {
+  if (manifestsOnly && !files.includes(join(dirname(path), "SHA256SUMS"))) {
+    throw new Error(`Missing SHA256SUMS alongside ${path}`);
+  }
   const name = basename(path);
   const current = manifestsByName.get(name) || [];
   current.push(path);
@@ -200,15 +207,30 @@ if (manifestsByName.size === 0) {
   process.exit(1);
 }
 
+// Validate the complete publication before replacing any release assets.
+const checksumNames = new Set(checksums.trimEnd().split("\n").map((line) => line.slice(66)));
+const mergedManifests = [...manifestsByName.entries()].sort().map(([name, paths]) => {
+  const manifest = mergeManifests(name, paths);
+  validateManifest(name, manifest);
+  for (const file of manifest.files) {
+    if (!checksumNames.has(file.url)) {
+      throw new Error(`Missing SHA256SUMS entry for ${file.url} referenced by ${name}`);
+    }
+  }
+  return [name, manifest];
+});
+
 if (!manifestsOnly) {
   runGh(["release", "upload", releaseTag, ...releaseAssets, "--repo", repo, "--clobber"]);
 }
 
-for (const [name, paths] of [...manifestsByName.entries()].sort()) {
-  const manifest = mergeManifests(name, paths);
-  validateManifest(name, manifest);
+for (const [name, manifest] of mergedManifests) {
   const outputPath = join(outputDir, name);
   mkdirSync(dirname(outputPath), { recursive: true });
   writeFileSync(outputPath, stringifyManifest(manifest), "utf8");
   runGh(["release", "upload", releaseTag, `${outputPath}#${name}`, "--repo", repo, "--clobber"]);
 }
+
+const checksumPath = join(outputDir, "SHA256SUMS");
+writeFileSync(checksumPath, checksums, "utf8");
+runGh(["release", "upload", releaseTag, checksumPath, "--repo", repo, "--clobber"]);

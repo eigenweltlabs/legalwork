@@ -144,7 +144,7 @@ Auth policy:
 
 ## Approvals
 
-All writes are gated by host approval.
+Gated HTTP writes use the configured host approval mode. These approvals are separate from OpenCode's tool permission prompts.
 
 Host APIs accept either:
 
@@ -156,4 +156,6 @@ Approvals endpoints:
 - `GET /approvals`
 - `POST /approvals/:id` with `{ "reply": "allow" | "deny" }`
 
-Set `LEGALWORK_APPROVAL_MODE=auto` to auto-approve during local development.
+The standalone server defaults to `manual`. The desktop defaults to `auto` for convenient local use, while preserving explicit `LEGALWORK_APPROVAL_MODE` and `server.json` `approval.mode` settings. Set either to `manual` to require host confirmation for gated writes, including requests from the desktop, agents, and remote clients. The desktop presents these requests in a native dialog; dismissing it, closing the host window, or reaching the approval timeout denies the request. The host API above remains available in either environment.
+
+Precedence is explicit `--approval`, `LEGALWORK_APPROVAL_MODE`, `server.json` `approval.mode`, then the environment's default. `LEGALWORK_APPROVAL_TIMEOUT_MS` or `approval.timeoutMs` controls the wait (30 seconds by default). `auto` skips this additional confirmation; token authentication and scope checks still apply.

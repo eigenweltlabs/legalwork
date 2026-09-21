@@ -1,10 +1,10 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { LegalWorkSkillTools } from "./legalwork-skill-tools.js";
 import {
-  LegalWorkSkillTools,
   buildSkillMarkdown,
   fitSkillName,
   resolveSkillName,
-} from "./legalwork-skill-tools.js";
+} from "../skill-tool-content.js";
 
 type Recorded = { url: string; method: string; body: Record<string, unknown> | null };
 

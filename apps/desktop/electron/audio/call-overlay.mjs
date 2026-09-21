@@ -73,10 +73,10 @@ export class CallOverlay {
       hasShadow: false,
       show: false,
       webPreferences: {
-        preload: path.join(__dirname, "call-overlay-preload.mjs"),
+        preload: path.join(__dirname, "call-overlay-preload.cjs"),
         contextIsolation: true,
         nodeIntegration: false,
-        sandbox: false,
+        sandbox: true,
         backgroundThrottling: false,
       },
     });

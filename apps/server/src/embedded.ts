@@ -25,6 +25,10 @@ import type { ServeResult } from "./serve-node.js";
 import type { ServerConfig } from "./types.js";
 
 export type EmbeddedServerOptions = CliArgs & {
+  /** Fallback only; explicit CLI, environment and file approval settings take precedence. */
+  defaultApprovalMode?: ServerConfig["approval"]["mode"];
+  /** Host-owned approval presentation for manual mode. */
+  requestHostApproval?: ServerConfig["requestHostApproval"];
   /** When true, spawn a managed OpenCode child process. */
   manageOpencode?: boolean;
   /** Path to the OpenCode binary. Falls back to LEGALWORK_OPENCODE_BIN env. */
@@ -51,16 +55,17 @@ export type EmbeddedServerHandle = {
 };
 
 export async function startEmbeddedServer(options: EmbeddedServerOptions): Promise<EmbeddedServerHandle> {
-  const config = await resolveServerConfig(options);
+  const config = await resolveServerConfig(options, { approvalMode: options.defaultApprovalMode });
+  config.requestHostApproval = options.requestHostApproval;
   config.pickDirectory = options.pickDirectory ?? null;
   config.recorder = options.recorder ?? null;
   const serverUrl = `http://${config.host === "0.0.0.0" ? "127.0.0.1" : config.host}:${config.port}`;
   // No trailing slash: the engine appends "/api.json" to this value, so a
   // trailing slash produces the malformed "https://…com//api.json" seen in
   // user-reported engine logs.
-  const opencodeModelsUrl = process.env.LEGALWORK_DEV_MODE === "1"
+  const opencodeModelsUrl = process.env.OPENCODE_MODELS_URL?.trim().replace(/\/+$/, "") || (process.env.LEGALWORK_DEV_MODE === "1"
     ? "http://localhost:8791/models"
-    : "https://models.eigenweltlabs.com";
+    : "https://models.eigenweltlabs.com");
 
   // Spawn managed OpenCode if requested and no explicit base URL was provided.
   let managedOpencode: ManagedOpencodeServer | null = null;

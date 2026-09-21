@@ -1964,6 +1964,14 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
           timeoutMs: timeouts.workspaceImport,
         },
       ),
+    discoverProviderModels: (workspaceId: string, input: { baseURL: string; apiKey: string }) =>
+      requestJson<{ models: string[] }>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/provider-models`, {
+        token,
+        hostToken,
+        method: "POST",
+        body: input,
+        timeoutMs: 15_000,
+      }),
     getConfig: (workspaceId: string) =>
       requestJson<{ opencode: Record<string, unknown>; legalwork: Record<string, unknown>; updatedAt?: number | null }>(
         baseUrl,

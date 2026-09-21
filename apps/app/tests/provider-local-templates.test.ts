@@ -31,7 +31,7 @@ describe("local runtime templates", () => {
 
   test("only the engine auto-detected runtimes are flagged", () => {
     const autoDetected = localRuntimeTemplates().filter((t) => t.autoDetected).map((t) => t.id);
-    expect(autoDetected.sort()).toEqual(["lmstudio", "ollama"]);
+    expect(autoDetected.sort()).toEqual(["ollama"]);
   });
 });
 

@@ -3427,7 +3427,7 @@ const de = {
   "local_templates.ollama_note":
     "Hinweis: Ein lokales Ollama wird bereits automatisch erkannt und seine Modelle erscheinen live, ein Eintrag hier ist nicht nötig. Ändern Sie die URL, um auf einen entfernten oder abweichenden Host zu zeigen.",
   "local_templates.lmstudio_note":
-    "Hinweis: Ein lokales LM Studio wird bereits automatisch erkannt und seine Modelle erscheinen live, ein Eintrag hier ist nicht nötig. Ändern Sie die URL, um auf einen entfernten oder abweichenden Host zu zeigen.",
+    "Starten Sie den LM-Studio-Server und laden Sie die Modelle seines Endpunkts. Bei einem entfernten Worker bezieht sich localhost auf diesen Worker. Laden Sie die Liste nach Modelländerungen erneut und speichern Sie sie.",
   "workbook.unsupported_styles": "Diese Arbeitsmappe enthält nicht unterstützte Formatierungen.",
   "workbook.unsupported_relationship": "Nicht unterstützte Arbeitsblatt-Beziehung.",
   "workbook.protected_sheets":

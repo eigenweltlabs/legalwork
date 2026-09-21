@@ -3085,7 +3085,7 @@ export default {
   "local_templates.ollama_note":
     "Heads up: a local Ollama is already detected automatically and its models show up live, adding it here is not required. Change the URL to point at a remote or non-default host.",
   "local_templates.lmstudio_note":
-    "Heads up: a local LM Studio is already detected automatically and its models show up live, adding it here is not required. Change the URL to point at a remote or non-default host.",
+    "Start the LM Studio server, then fetch the models offered by its endpoint. For a remote worker, localhost refers to that worker. Fetch again after changing the available models, then save.",
   "workbook.unsupported_styles": "This workbook has unsupported styles.",
   "workbook.unsupported_relationship": "Unsupported worksheet relationship.",
   "workbook.protected_sheets": "This workbook contains protected sheets. Open it in Excel to edit it.",

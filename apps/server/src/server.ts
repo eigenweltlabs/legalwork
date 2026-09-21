@@ -116,6 +116,7 @@ import {
   writeLegalworkRuntimeConfigFile,
 } from "./legalwork-runtime-config.js";
 import { providerRepairNotices } from "./runtime-provider-repair.js";
+import { discoverProviderModels } from "./provider-model-discovery.js";
 import {
   eigenweltHasPremiumModels,
   fetchEigenweltManifest,
@@ -713,7 +714,7 @@ export type StartedServer = ServeResult & {
 };
 
 export async function startServer(config: ServerConfig): Promise<StartedServer> {
-  const approvals = new ApprovalService(config.approval);
+  const approvals = new ApprovalService(config.approval, config.requestHostApproval);
   const reloadEvents = new ReloadEventStore();
   const tokens = new TokenService(config);
   const env = new EnvService();
@@ -944,6 +945,7 @@ export async function startServer(config: ServerConfig): Promise<StartedServer> 
     ...server,
     wordAddinPort: wordAddinServer?.port ?? null,
     stop: async () => {
+      approvals.dispose();
       stopTaskSync();
       stopTaskReminders();
       benchmarkRunner.dispose();
@@ -1580,6 +1582,13 @@ function createRoutes(
     }
     const deletedDirectories = await deleteAllLocalMemories(config);
     return jsonResponse({ ok: true, deletedDirectories });
+  });
+
+  addRoute(routes, "POST", "/workspace/:id/provider-models", "client", async (ctx) => {
+    requireClientScope(ctx, "collaborator");
+    await resolveWorkspace(config, ctx.params.id);
+    const body = await readJsonBody(ctx.request);
+    return jsonResponse({ models: await discoverProviderModels(body.baseURL, body.apiKey) });
   });
 
   addRoute(routes, "GET", "/workspace/:id/config", "client", async (ctx) => {
@@ -4730,7 +4739,7 @@ async function requireApproval(
   input: Omit<ApprovalRequest, "id" | "createdAt" | "actor">,
 ): Promise<void> {
   const actor = ctx.actor ?? { type: "remote" };
-  const result = await ctx.approvals.requestApproval({ ...input, actor });
+  const result = await ctx.approvals.requestApproval({ ...input, actor }, ctx.request.signal);
   if (!result.allowed) {
     throw new ApiError(403, "write_denied", "Write request denied", {
       requestId: result.id,

@@ -2251,6 +2251,8 @@ export function SessionRoute() {
           return result;
         },
         onSubmitCustomProvider: sessionProviderAuthStore.submitCustomProvider,
+        onFetchCustomModels: sessionProviderAuthStore.fetchCustomProviderModels,
+        onReadCustomProvider: sessionProviderAuthStore.readCustomProviderForEdit,
         // From the plan screen's "own model" card: providers only.
         onEigenweltSignIn: providerModalFromPlans ? undefined : sessionProviderAuthStore.startEigenweltSignIn,
         onEigenweltWait: providerModalFromPlans ? undefined : sessionProviderAuthStore.completeEigenweltSignIn,

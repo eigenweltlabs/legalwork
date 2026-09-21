@@ -325,7 +325,7 @@ importers:
         version: '@lydell/node-pty@1.2.0-beta.12'
       openai:
         specifier: ^7.8.0
-        version: 7.8.0(@aws-sdk/credential-provider-node@3.972.82)(@smithy/signature-v4@5.7.3)(zod@4.3.6)
+        version: 7.8.0(@aws-sdk/credential-provider-node@3.972.82)(@smithy/signature-v4@5.7.3)(ws@8.19.0)(zod@4.3.6)
       reflect-metadata:
         specifier: ^0.2.2
         version: 0.2.2
@@ -341,6 +341,9 @@ importers:
       webdav:
         specifier: ^5.10.0
         version: 5.10.0
+      ws:
+        specifier: ^8.19.0
+        version: 8.19.0
       yaml:
         specifier: ^2.6.1
         version: 2.8.2
@@ -354,6 +357,9 @@ importers:
       '@ricky0123/vad-web':
         specifier: 0.0.30
         version: 0.0.30
+      '@types/ws':
+        specifier: ^8.18.1
+        version: 8.18.1
       electron:
         specifier: ^35.0.0
         version: 35.7.5
@@ -478,7 +484,7 @@ importers:
         version: 10.1.1
       openai:
         specifier: ^7.8.0
-        version: 7.8.0(@aws-sdk/credential-provider-node@3.972.82)(@smithy/signature-v4@5.7.3)(zod@4.3.6)
+        version: 7.8.0(@aws-sdk/credential-provider-node@3.972.82)(@smithy/signature-v4@5.7.3)(ws@8.19.0)(zod@4.3.6)
       smb3-client:
         specifier: 0.2.0
         version: 0.2.0(patch_hash=6750c79b7b43bafb5401de9ce8b3aaddd1332b0bc77dccc00e118c2e1d064a9d)
@@ -15914,10 +15920,11 @@ snapshots:
       powershell-utils: 0.1.0
       wsl-utils: 0.3.1
 
-  openai@7.8.0(@aws-sdk/credential-provider-node@3.972.82)(@smithy/signature-v4@5.7.3)(zod@4.3.6):
+  openai@7.8.0(@aws-sdk/credential-provider-node@3.972.82)(@smithy/signature-v4@5.7.3)(ws@8.19.0)(zod@4.3.6):
     optionalDependencies:
       '@aws-sdk/credential-provider-node': 3.972.82
       '@smithy/signature-v4': 5.7.3
+      ws: 8.19.0
       zod: 4.3.6
 
   opentype.js@2.0.0: {}

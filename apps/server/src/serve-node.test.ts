@@ -3,6 +3,35 @@ import { setTimeout as delay } from "node:timers/promises";
 import { serve } from "./serve-node.js";
 
 describe("serve", () => {
+  test("aborts the Web request when the client disconnects while awaiting approval", async () => {
+    let started: () => void = () => {};
+    const ready = new Promise<void>((resolve) => { started = resolve; });
+    let aborted: () => void = () => {};
+    const cancelled = new Promise<void>((resolve) => { aborted = resolve; });
+    const server = await serve({
+      hostname: "127.0.0.1",
+      port: 0,
+      fetch: async (request) => {
+        started();
+        await new Promise<void>((resolve) => request.signal.addEventListener("abort", () => {
+          aborted();
+          resolve();
+        }, { once: true }));
+        return Response.json({ allowed: false });
+      },
+    });
+    try {
+      const controller = new AbortController();
+      const response = fetch(`http://127.0.0.1:${server.port}/approval`, { signal: controller.signal }).catch(() => undefined);
+      await ready;
+      controller.abort();
+      await cancelled;
+      await response;
+    } finally {
+      await server.stop();
+    }
+  });
+
   test("does not write an error response after a streaming response has ended", async () => {
     const uncaught: unknown[] = [];
     const onUncaughtException = (error: unknown) => {
