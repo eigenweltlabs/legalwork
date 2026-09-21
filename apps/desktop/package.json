@@ -19,6 +19,7 @@
     "electron": "pnpm exec electron ./electron/main.mjs",
     "check:electron": "node ./scripts/check-electron-bridge.mjs",
     "typecheck:electron": "pnpm --dir ../server exec tsc -p ../desktop/tsconfig.electron.json --noEmit",
+    "test:browser-panel": "electron scripts/browser-panel-regression.mjs",
     "prepare:sidecar": "node ./scripts/prepare-sidecar.mjs",
     "build:audiotap": "node ./scripts/build-audiotap.mjs",
     "build:key-monitor": "node ./scripts/build-key-monitor.mjs",

@@ -69,6 +69,7 @@ export function createBrowserPanel({ getWindow, getWindowForEvent }) {
       }
     }
     hostWindow = nextWindow;
+    attachActiveBrowserView();
   }
 
   function resetMenuOverlayReady({ resolvePending = false } = {}) {
@@ -721,7 +722,7 @@ export function createBrowserPanel({ getWindow, getWindowForEvent }) {
       return attachBrowserView(bounds);
     });
     ipcMain.handle("legalwork:browser:hide", (event) => {
-      selectHostWindow(event);
+      if (event.sender !== window()?.webContents) return;
       return hideBrowserView();
     });
     ipcMain.handle("legalwork:browser:openUrl", (event, url, provider) => {
@@ -748,15 +749,16 @@ export function createBrowserPanel({ getWindow, getWindowForEvent }) {
       return getActiveWebContents()?.reload();
     });
     ipcMain.handle("legalwork:browser:bounds", (event, bounds) => {
-      selectHostWindow(event);
+      // Both chat windows rerender while messages stream. A background
+      // window's layout update must not take the native view from its host.
+      if (event.sender !== window()?.webContents) return;
       lastBrowserBounds = bounds;
       const view = getActiveBrowserView();
       if (view && browserViewVisible && bounds.width > 0 && bounds.height > 0) {
         view.setBounds(scaleRendererBounds(bounds));
       }
     });
-    ipcMain.handle("legalwork:browser:state", (event) => {
-      selectHostWindow(event);
+    ipcMain.handle("legalwork:browser:state", () => {
       return browserStatePayload();
     });
     ipcMain.handle("legalwork:browser:createTab", (event, url) => {
@@ -781,8 +783,7 @@ export function createBrowserPanel({ getWindow, getWindowForEvent }) {
       selectHostWindow(event);
       return reorderBrowserTabs(tabIds);
     });
-    ipcMain.handle("legalwork:browser:listTabs", (event) => {
-      selectHostWindow(event);
+    ipcMain.handle("legalwork:browser:listTabs", () => {
       return listBrowserTabs();
     });
     ipcMain.handle("legalwork:browser:setProxy", (_event, proxy) => setBrowserProxy(proxy));
