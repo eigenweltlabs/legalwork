@@ -144,9 +144,7 @@ export async function listSkills(workspaceRoot: string, includeGlobal: boolean):
   }
 
   if (includeGlobal) {
-    // Respect XDG_CONFIG_HOME so the server sees the same global skills dir as the engine.
-    const configHome = process.env.XDG_CONFIG_HOME?.trim() || join(homedir(), ".config");
-    const globalLegalWork = join(configHome, "opencode", "skills");
+    const globalLegalWork = globalSkillsDir();
     const globalClaude = join(homedir(), ".claude", "skills");
     const globalAgents = join(homedir(), ".agents", "skills");
     const globalAgentLegacy = join(homedir(), ".agent", "skills");
