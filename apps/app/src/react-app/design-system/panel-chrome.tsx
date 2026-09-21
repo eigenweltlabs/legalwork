@@ -15,10 +15,10 @@ type PanelHeaderProps = {
 /** Shared compact chrome for file browsers and document previews. */
 export function PanelHeader({ title, icon, meta, children, className, wrapActions = false }: PanelHeaderProps) {
   return (
-    <div className={cn("@container/panel-header shrink-0 border-b border-border/70 bg-background/80 backdrop-blur-xl mac:titlebar-no-drag", className)}>
+    <div className={cn("@container/panel-header shrink-0 bg-background/80 backdrop-blur-xl mac:titlebar-no-drag", className)}>
       <div className={cn(
-        "flex h-12 items-center gap-2 pe-2 ps-4",
-        wrapActions && "h-auto flex-wrap gap-y-2 py-2 @min-[400px]/panel-header:h-12 @min-[400px]/panel-header:flex-nowrap @min-[400px]/panel-header:py-0",
+        "flex h-11 items-center gap-2 border-b border-border/70 pe-2 ps-4",
+        wrapActions && "h-auto flex-wrap gap-y-2 py-2 @min-[400px]/panel-header:h-11 @min-[400px]/panel-header:flex-nowrap @min-[400px]/panel-header:py-0",
       )}>
         {icon}
         <h2 className="min-w-0 flex-1 truncate text-[13px] font-semibold tracking-[-0.01em] text-foreground" title={title}>{title}</h2>

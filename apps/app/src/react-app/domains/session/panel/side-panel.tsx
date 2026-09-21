@@ -639,8 +639,8 @@ export function SidePanel({
             </motion.div>
           ) : null}
         </AnimatePresence>
-        <div className="shrink-0 border-b border-border/70 bg-muted/35 backdrop-blur-xl">
-          <div className="flex h-12 items-center gap-1 px-2">
+        <div className="shrink-0 bg-muted/35 backdrop-blur-xl">
+          <div className="flex h-11 items-center gap-1 border-b border-border/70 px-2">
             <div className="no-scrollbar min-w-0 overflow-x-auto">
               <PanelTabList
                 values={tabs.map((tab) => tab.id)}

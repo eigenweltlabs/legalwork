@@ -272,6 +272,15 @@
 /* ---------------------------------------------------------------------------
    Base
    --------------------------------------------------------------------------- */
+/* Keep scrolling available without native or custom scrollbar chrome. */
+* {
+  scrollbar-width: none;
+}
+*::-webkit-scrollbar,
+[data-slot="scroll-area-scrollbar"] {
+  display: none;
+}
+
 html,
 body {
   height: 100%;
