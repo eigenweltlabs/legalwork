@@ -59,7 +59,7 @@ import {
   slugifyProviderId,
   type LocalRuntimeTemplate,
 } from "./local-templates";
-import { findCustomModelLimitProblem } from "./custom-provider-config";
+import { findCustomModelLimitProblem, replaceDiscoveredModels } from "./custom-provider-config";
 import { defaultOutputLimit } from "@legalwork/types/model-limits";
 
 /** Base URLs that default to the Responses API (`@ai-sdk/openai`). */
@@ -144,6 +144,14 @@ type BrandedCustomProvider = {
 // Built per call, not once at import: `t()` reads the current language, so a
 // module-level constant would freeze these descriptions.
 const brandedCustomProviders = (): BrandedCustomProvider[] => [
+  {
+    id: "lmstudio",
+    name: "LM Studio",
+    apiType: "chat",
+    baseUrlPlaceholder: "http://localhost:1234/v1",
+    baseUrlDefault: "http://localhost:1234/v1",
+    description: t("local_templates.lmstudio_note"),
+  },
   {
     id: "apertus",
     name: "Apertus AI",
@@ -237,8 +245,7 @@ const PROVIDER_LABELS: Record<string, string> = {
   vllm: "vLLM (local)",
   localai: "LocalAI (local)",
 };
-// Note: `ollama` / `lmstudio` labels are kept so opencode's auto-detected
-// local providers still render with a friendly name in the provider list.
+// Built-in local providers keep friendly names in the provider list.
 
 export type ProviderAuthModalProps = {
   open: boolean;
@@ -253,6 +260,8 @@ export type ProviderAuthModalProps = {
   onSelect: (providerId: string, methodIndex?: number) => Promise<ProviderOAuthStartResult>;
   onSubmitApiKey: (providerId: string, apiKey: string) => Promise<string | void>;
   onSubmitCustomProvider?: (input: CustomProviderInstallInput) => Promise<string | void>;
+  onFetchCustomModels?: (input: { baseURL: string; apiKey: string }) => Promise<string[]>;
+  onReadCustomProvider?: (providerId: string) => Promise<CustomProviderEditData | null>;
   /** Starts the server-owned t("provider_auth.sign_in_eigenwelt") flow. */
   onEigenweltSignIn?: () => Promise<{ authorizeUrl: string; sessionId: string }>;
   /** Long-polls the Eigenwelt sign-in session until the connection is finalized. */
@@ -324,6 +333,7 @@ export default function ProviderAuthModal(props: ProviderAuthModalProps) {
   const oauthStartBusyRef = useRef(false);
   const autoOpenedPreferredProviderIdRef = useRef<string | null>(null);
   const customEditPrefilledRef = useRef<string | null>(null);
+  const customRequestRef = useRef(0);
   // Bumped when the modal closes / navigates back / restarts the flow so the
   // store's Eigenwelt sign-in long-poll for a stale attempt stops instead of
   // finalizing. Each attempt captures the token at start and cancels itself
@@ -331,6 +341,7 @@ export default function ProviderAuthModal(props: ProviderAuthModalProps) {
   const eigenweltWaitTokenRef = useRef(0);
 
   const isEditingCustomProvider = customEditMode;
+  const isLmStudio = customFixedProviderId === "lmstudio" || customFixedProviderId === "lm-studio" || customTemplateId === "lmstudio";
   const activeBrandedProvider =
     !customEditMode && customBrandName
       ? brandedCustomProviders().find((provider) => provider.id === customFixedProviderId) ?? null
@@ -463,8 +474,7 @@ export default function ProviderAuthModal(props: ProviderAuthModalProps) {
       nextEntries.sort(compareProviders);
 
       // One consolidated "Local model" entry with per-runtime templates
-      // (llama.cpp, vLLM, LocalAI, …). Ollama / LM Studio on the default host
-      // are auto-detected by the engine and appear via auth methods above.
+      // (llama.cpp, vLLM, LocalAI, …), with endpoint discovery on the worker.
       nextEntries.push({
         id: LOCAL_PROVIDER_ENTRY_ID,
         name: t("providers.local_model_name"),
@@ -550,6 +560,7 @@ export default function ProviderAuthModal(props: ProviderAuthModalProps) {
       oauthCodeCopiedResetRef.current = null;
     }
     eigenweltWaitTokenRef.current += 1;
+    customRequestRef.current += 1;
     setView("list");
     setSelectedProviderId(null);
     setApiKeyInput("");
@@ -614,14 +625,7 @@ export default function ProviderAuthModal(props: ProviderAuthModalProps) {
     }
   }, [props.open]);
 
-  // Open straight into the custom form, pre-filled, when asked to edit an
-  // existing custom provider. Guarded by a ref so it prefills once per open
-  // (and never clobbers in-progress edits on re-render).
-  useEffect(() => {
-    if (!props.open) return;
-    const edit = props.customEdit;
-    if (!edit || customEditPrefilledRef.current === edit.providerId) return;
-    customEditPrefilledRef.current = edit.providerId;
+  function applyCustomEdit(edit: CustomProviderEditData) {
     setCustomEditMode(true);
     setCustomFixedProviderId(edit.providerId);
     setCustomBrandName(null);
@@ -645,6 +649,17 @@ export default function ProviderAuthModal(props: ProviderAuthModalProps) {
     setLocalError(null);
     setSelectedProviderId(CUSTOM_PROVIDER_ENTRY_ID);
     setView("custom");
+  }
+
+  // Open straight into the custom form, pre-filled, when asked to edit an
+  // existing custom provider. Guarded by a ref so it prefills once per open
+  // (and never clobbers in-progress edits on re-render).
+  useEffect(() => {
+    if (!props.open) return;
+    const edit = props.customEdit;
+    if (!edit || customEditPrefilledRef.current === edit.providerId) return;
+    customEditPrefilledRef.current = edit.providerId;
+    applyCustomEdit(edit);
   }, [props.open, props.customEdit]);
 
   useEffect(() => {
@@ -933,7 +948,7 @@ export default function ProviderAuthModal(props: ProviderAuthModalProps) {
     setView("api");
   };
 
-  const handleEntrySelect = (entry: ProviderAuthEntry) => {
+  const handleEntrySelect = async (entry: ProviderAuthEntry) => {
     if (actionDisabled) return;
     setLocalError(null);
     setSelectedProviderId(entry.id);
@@ -951,6 +966,21 @@ export default function ProviderAuthModal(props: ProviderAuthModalProps) {
     const branded = brandedCustomProviders().find((provider) => provider.id === entry.id);
     if (branded) {
       startCustomProvider(branded);
+      if (entry.id === "lmstudio" && props.onReadCustomProvider) {
+        const request = ++customRequestRef.current;
+        setCustomBusy(true);
+        try {
+          const edit = await props.onReadCustomProvider(entry.id);
+          if (request !== customRequestRef.current) return;
+          if (edit) applyCustomEdit(edit);
+        } catch (error) {
+          if (request === customRequestRef.current) {
+            setLocalError(error instanceof Error ? error.message : t("providers.add_failed"));
+          }
+        } finally {
+          if (request === customRequestRef.current) setCustomBusy(false);
+        }
+      }
       return;
     }
 
@@ -1024,32 +1054,29 @@ export default function ProviderAuthModal(props: ProviderAuthModalProps) {
       setLocalError("Enter a base URL first.");
       return;
     }
+    const request = ++customRequestRef.current;
     setCustomFetching(true);
     setLocalError(null);
     try {
-      const headers: Record<string, string> = { Accept: "application/json" };
-      const key = customApiKey.trim();
-      if (key) headers.Authorization = `Bearer ${key}`;
-      const response = await fetch(`${base}/models`, { headers });
-      if (!response.ok) {
-        throw new Error(`HTTP ${response.status}`);
+      if (!props.onFetchCustomModels) {
+        throw new Error("Connect to the LegalWork worker to fetch models.");
       }
-      const payload = (await response.json()) as { data?: Array<{ id?: unknown }> };
-      const ids = Array.isArray(payload?.data)
-        ? payload.data
-            .map((entry) => (typeof entry?.id === "string" ? entry.id : null))
-            .filter((id): id is string => Boolean(id))
-        : [];
-      if (!ids.length) {
-        throw new Error(t("providers.no_models_returned"));
-      }
+      const ids = await props.onFetchCustomModels({ baseURL: base, apiKey: customApiKey.trim() });
+      if (request !== customRequestRef.current) return;
       setCustomFetchedModels(ids);
+      // A successful refresh replaces LM Studio's inventory, retaining only
+      // capability edits for IDs the endpoint still offers.
+      if (isLmStudio) {
+        setCustomModels((current) => replaceDiscoveredModels(current, ids, makeCustomModelDraft));
+      }
+      if (!ids.length) setLocalError(t("providers.no_models_returned"));
     } catch (error) {
+      if (request !== customRequestRef.current) return;
       setCustomFetchedModels([]);
       const detail = error instanceof Error ? error.message : "request failed";
       setLocalError(`Couldn't list models — enter IDs manually. (${detail})`);
     } finally {
-      setCustomFetching(false);
+      if (request === customRequestRef.current) setCustomFetching(false);
     }
   };
 
@@ -1103,6 +1130,10 @@ export default function ProviderAuthModal(props: ProviderAuthModalProps) {
   // Apply a runtime template: prefill Base URL, API type, and (when the name is
   // still blank or matches another template's name) the display name.
   const applyLocalTemplate = (template: LocalRuntimeTemplate) => {
+    customRequestRef.current += 1;
+    setCustomFetching(false);
+    setCustomFetchedModels([]);
+    if (isLmStudio || template.id === "lmstudio") setCustomModels([]);
     setCustomTemplateId(template.id);
     setCustomBaseURL(template.baseURL);
     setCustomBaseUrlPlaceholder(template.placeholder);
@@ -1113,7 +1144,7 @@ export default function ProviderAuthModal(props: ProviderAuthModalProps) {
   };
 
   const handleCustomSubmit = async () => {
-    if (!props.onSubmitCustomProvider || actionDisabled || customBusy) return;
+    if (!props.onSubmitCustomProvider || actionDisabled || customBusy || customFetching) return;
 
     const name = customName.trim();
     const baseURL = customBaseURL.trim();
@@ -1653,7 +1684,7 @@ export default function ProviderAuthModal(props: ProviderAuthModalProps) {
                           ? t("provider_auth.update_compatible")
                           : customShowLocalTemplates
                             ? t("provider_auth.pick_runtime")
-                            : activeBrandedProvider?.description ?? t("provider_auth.any_endpoint")}
+                            : isLmStudio ? t("local_templates.lmstudio_note") : activeBrandedProvider?.description ?? t("provider_auth.any_endpoint")}
                       </div>
                     </div>
                     <Button variant="outline" onClick={handleBack} disabled={actionDisabled || customBusy}>
@@ -1729,6 +1760,10 @@ export default function ProviderAuthModal(props: ProviderAuthModalProps) {
                     value={customBaseURL}
                     onChange={(event) => {
                       const value = event.currentTarget.value;
+                      customRequestRef.current += 1;
+                      setCustomFetching(false);
+                      setCustomFetchedModels([]);
+                      if (isLmStudio) setCustomModels([]);
                       setCustomBaseURL(value);
                       // Default OpenAI/Azure URLs to the Responses API; the user
                       // can still override. Once they pick manually, stop inferring.
@@ -1793,6 +1828,9 @@ export default function ProviderAuthModal(props: ProviderAuthModalProps) {
                     placeholder={isEditingCustomProvider ? t("provider_auth.leave_blank_key") : "sk-..."}
                     value={customApiKey}
                     onChange={(event) => {
+                      customRequestRef.current += 1;
+                      setCustomFetching(false);
+                      setCustomFetchedModels([]);
                       setCustomApiKey(event.currentTarget.value);
                       if (localError) setLocalError(null);
                     }}
@@ -1969,6 +2007,7 @@ export default function ProviderAuthModal(props: ProviderAuthModalProps) {
                       disabled={
                         actionDisabled ||
                         customBusy ||
+                        customFetching ||
                         !customName.trim() ||
                         !customBaseURL.trim() ||
                         (customModels.length === 0 && !customModelInput.trim())

@@ -80,3 +80,12 @@ export function customProviderModelFromEntry(id: string, raw: unknown): CustomPr
     outputLimit: typeof limit.output === "number" ? limit.output : null,
   };
 }
+
+/** Keep edits for offered models and remove IDs no longer in the endpoint inventory. */
+export function replaceDiscoveredModels<T extends { id: string }>(
+  current: readonly T[],
+  ids: readonly string[],
+  create: (id: string) => T,
+): T[] {
+  return ids.map((id) => current.find((model) => model.id === id) ?? create(id));
+}

@@ -89,7 +89,7 @@ async function waitForDrainOrClose(nodeRes: ServerResponse): Promise<void> {
 /**
  * Convert a Node.js IncomingMessage into a Web API Request.
  */
-function toWebRequest(nodeReq: IncomingMessage, hostname: string, port: number, scheme: "http" | "https"): Request {
+function toWebRequest(nodeReq: IncomingMessage, hostname: string, port: number, scheme: "http" | "https", signal: AbortSignal): Request {
   const url = `${scheme}://${hostname}:${port}${nodeReq.url ?? "/"}`;
   const method = nodeReq.method ?? "GET";
   const headers = new Headers();
@@ -116,6 +116,7 @@ function toWebRequest(nodeReq: IncomingMessage, hostname: string, port: number, 
     method,
     headers,
     body,
+    signal,
     // @ts-expect-error duplex is required for streaming request bodies in Node
     duplex: hasBody ? "half" : undefined,
   });
@@ -170,6 +171,11 @@ export function serve(options: ServeOptions): Promise<ServeResult> {
   const scheme: "http" | "https" = options.tls ? "https" : "http";
 
   const handleRequest = async (nodeReq: IncomingMessage, nodeRes: ServerResponse) => {
+    const controller = new AbortController();
+    const abort = () => controller.abort();
+    const close = () => { if (!nodeRes.writableEnded) abort(); };
+    nodeReq.once("aborted", abort);
+    nodeRes.once("close", close);
     nodeRes.on("error", (error) => {
       if (isWriteAfterEndError(error)) {
         console.warn("[serve-node] Ignored response write after end");
@@ -179,7 +185,7 @@ export function serve(options: ServeOptions): Promise<ServeResult> {
     });
 
     try {
-      const webReq = toWebRequest(nodeReq, hostname, boundPort, scheme);
+      const webReq = toWebRequest(nodeReq, hostname, boundPort, scheme, controller.signal);
       const webRes = await fetchHandler(webReq);
       await writeWebResponse(webRes, nodeRes);
     } catch (error) {
@@ -195,6 +201,9 @@ export function serve(options: ServeOptions): Promise<ServeResult> {
         nodeRes.writeHead(500, { "Content-Type": "application/json" });
       }
       endResponse(nodeRes, JSON.stringify({ error: "internal_error" }));
+    } finally {
+      nodeReq.off("aborted", abort);
+      nodeRes.off("close", close);
     }
   };
 

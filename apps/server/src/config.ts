@@ -243,7 +243,10 @@ async function loadFileConfig(configPath: string): Promise<FileConfig> {
   return parsed ?? {};
 }
 
-export async function resolveServerConfig(cli: CliArgs): Promise<ServerConfig> {
+export async function resolveServerConfig(
+  cli: CliArgs,
+  defaults: { approvalMode?: ApprovalMode } = {},
+): Promise<ServerConfig> {
   const envConfigPath = process.env.LEGALWORK_SERVER_CONFIG;
   const configPath = cli.configPath ?? envConfigPath ?? resolve(homedir(), ".config", "legalwork", "server.json");
   const fileConfig = await loadFileConfig(configPath);
@@ -309,6 +312,7 @@ export async function resolveServerConfig(cli: CliArgs): Promise<ServerConfig> {
     cli.approvalMode ??
     (process.env.LEGALWORK_APPROVAL_MODE as ApprovalMode | undefined) ??
     fileConfig.approval?.mode ??
+    defaults.approvalMode ??
     "manual";
 
   const approvalTimeoutMs =

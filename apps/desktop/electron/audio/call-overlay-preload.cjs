@@ -1,4 +1,4 @@
-import { contextBridge, ipcRenderer } from "electron";
+const { contextBridge, ipcRenderer } = require("electron");
 
 const AUDIO_EVENT_CHANNEL = "legalwork:audio:event";
 

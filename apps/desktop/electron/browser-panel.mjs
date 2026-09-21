@@ -5,6 +5,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { app, WebContentsView, clipboard, session, shell } from "electron";
+import { createBrowserAutomationBroker } from "./browser-automation-broker.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const BROWSER_SESSION_PARTITION = "persist:legalwork-browser";
@@ -12,15 +13,15 @@ const BROWSER_DEFAULT_URL = "about:blank";
 // URL a user-initiated new tab (the "+" button / opening the browser panel)
 // lands on. The agent's programmatic path keeps BROWSER_DEFAULT_URL.
 const BROWSER_NEW_TAB_URL = "https://www.google.com";
-const BROWSER_TARGET_RESOLVE_TIMEOUT_MS = 2500;
-const BROWSER_TARGET_RESOLVE_INTERVAL_MS = 80;
 const MENU_OVERLAY_HTML = "overlay.html";
 const MENU_OVERLAY_WIDTH = 196;
 const MENU_OVERLAY_HEIGHT = 176;
 const MENU_OVERLAY_READY_TIMEOUT_MS = 2000;
 
-export function createBrowserPanel({ getWindow, getWindowForEvent, remoteDebugPort }) {
+export function createBrowserPanel({ getWindow, getWindowForEvent }) {
   const browserTabs = new Map();
+  const automationBroker = createBrowserAutomationBroker();
+  app.once("will-quit", () => { void automationBroker.close(); });
   let browserTabOrder = [];
   let activeBrowserTabId = null;
   let browserViewVisible = false;
@@ -140,41 +141,6 @@ export function createBrowserPanel({ getWindow, getWindowForEvent, remoteDebugPo
     });
   }
 
-  function cdpBrowserUrl() {
-    return `http://127.0.0.1:${remoteDebugPort}`;
-  }
-
-  function browserTargetMarkerUrl(tabId) {
-    const marker = `legalwork-browser-tab:${tabId}`;
-    const html = `<!doctype html><title>${marker}</title><meta name="legalwork-browser-tab" content="${tabId}"><body>${marker}</body>`;
-    return `data:text/html;charset=utf-8,${encodeURIComponent(html)}`;
-  }
-
-  async function listCdpTargets() {
-    if (!remoteDebugPort || remoteDebugPort <= 0) return [];
-    const response = await fetch(`${cdpBrowserUrl()}/json/list`, { signal: AbortSignal.timeout(1000) });
-    if (!response.ok) throw new Error(`CDP target list failed: HTTP ${response.status}`);
-    const targets = await response.json();
-    return Array.isArray(targets) ? targets : [];
-  }
-
-  async function resolveBrowserCdpTargetId(tabId) {
-    const marker = encodeURIComponent(`legalwork-browser-tab:${tabId}`);
-    const deadline = Date.now() + BROWSER_TARGET_RESOLVE_TIMEOUT_MS;
-    while (Date.now() < deadline) {
-      const targets = await listCdpTargets().catch(() => []);
-      const target = targets.find((candidate) => (
-        candidate?.type === "page" &&
-        typeof candidate.id === "string" &&
-        typeof candidate.url === "string" &&
-        candidate.url.includes(marker)
-      ));
-      if (target?.id) return target.id;
-      await new Promise((resolve) => setTimeout(resolve, BROWSER_TARGET_RESOLVE_INTERVAL_MS));
-    }
-    throw new Error("Could not resolve built-in browser CDP target.");
-  }
-
   async function openBrowserUrlForAutomation(rawUrl, provider = "auto") {
     const requestedProvider = String(provider || "auto").trim().toLowerCase();
     if (requestedProvider && requestedProvider !== "auto" && requestedProvider !== "builtin") {
@@ -182,13 +148,11 @@ export function createBrowserPanel({ getWindow, getWindowForEvent, remoteDebugPo
     }
     const url = normalizeBrowserUrl(rawUrl);
     const tab = createBrowserTab("about:blank", { select: true });
-    await tab.view.webContents.loadURL(browserTargetMarkerUrl(tab.tabId));
-    const targetId = await resolveBrowserCdpTargetId(tab.tabId);
     await tab.view.webContents.loadURL(url);
+    const connection = await automationBroker.grant(tab.view.webContents);
     return {
       provider: "builtin",
-      browser_url: cdpBrowserUrl(),
-      target_id: targetId,
+      ...connection,
       tab_id: tab.tabId,
       url,
     };
@@ -316,13 +280,12 @@ export function createBrowserPanel({ getWindow, getWindowForEvent, remoteDebugPo
 
     const view = new WebContentsView({
       webPreferences: {
-        // Electron only runs ESM preload scripts reliably with sandbox disabled.
         // Keep the bridge isolated and node-free for the React overlay document.
         backgroundThrottling: false,
-        sandbox: false,
+        sandbox: true,
         contextIsolation: true,
         nodeIntegration: false,
-        preload: path.join(__dirname, "menu-overlay-preload.mjs"),
+        preload: path.join(__dirname, "menu-overlay-preload.cjs"),
       },
     });
     view.setBackgroundColor?.("#00000000");
@@ -523,8 +486,7 @@ export function createBrowserPanel({ getWindow, getWindowForEvent, remoteDebugPo
     view.webContents.on("did-start-navigation", (_event, targetUrl, isInPlace, isMainFrame) => {
       if (!isMainFrame || isInPlace) return;
       const target = String(targetUrl ?? "");
-      // data: loads are internal plumbing (CDP target-marker pages), not
-      // user-visible navigations — don't surface the panel for them.
+      // Blank and data pages are not user-visible browser navigations.
       if (target === "about:blank" || target.startsWith("data:")) return;
       // Agent-driven CDP navigation can target a background tab whose view is
       // detached. Bring that tab on screen, otherwise navigation "succeeds"

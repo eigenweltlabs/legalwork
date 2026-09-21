@@ -1,6 +1,5 @@
 import { execFileSync, spawn } from "node:child_process";
 import { createServer } from "node:http";
-import net from "node:net";
 import { createReadStream, existsSync, mkdirSync, statSync, writeFileSync } from "node:fs";
 import { Readable } from "node:stream";
 import {
@@ -20,6 +19,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { app, BrowserWindow, clipboard, desktopCapturer, dialog, globalShortcut, ipcMain, nativeImage, nativeTheme, Notification, powerMonitor, powerSaveBlocker, protocol, session, shell, systemPreferences } from "electron";
+import { configureRemoteDebugging } from "./remote-debugging.mjs";
 import { configureFakeMediaForTests, installMediaPermissionHandlers } from "./media-permissions.mjs";
 import { appendLoopbackFeatureFlags, disableLoopbackAudio, enableLoopbackAudio, isLoopbackCaptureArmed } from "./audio/loopback.mjs";
 import { captureAuthStatus, openCapturePermissionSettings, requestCapturePermission } from "./audio/capture-permissions.mjs";
@@ -608,42 +608,6 @@ if (process.platform === "darwin") {
 }
 nativeTheme.on("updated", applyDockIcon);
 
-// Expose Chrome DevTools Protocol so the opencode-chrome-devtools plugin can
-// drive the built-in browser panel.  Use LEGALWORK_ELECTRON_REMOTE_DEBUG_PORT to
-// pin a specific port; otherwise probe for a free one starting at 9223.
-// Must resolve before app.commandLine.appendSwitch (before `ready`).
-function probePort(port) {
-  return new Promise((resolve) => {
-    const srv = net.createServer();
-    srv.once("error", () => resolve(false));
-    srv.listen({ port, host: "127.0.0.1" }, () => {
-      srv.close(() => resolve(true));
-    });
-  });
-}
-
-async function findFreeCdpPort(candidates) {
-  for (const port of candidates) {
-    if (await probePort(port)) return port;
-  }
-  return 0;
-}
-
-const explicitCdpPort = Number.parseInt(
-  process.env.LEGALWORK_ELECTRON_REMOTE_DEBUG_PORT?.trim() ?? "",
-  10,
-);
-const remoteDebugPort = Number.isFinite(explicitCdpPort) && explicitCdpPort > 0
-  ? explicitCdpPort
-  : await findFreeCdpPort([9223, 9224, 9225, 9226, 9227]);
-if (remoteDebugPort > 0) {
-  app.commandLine.appendSwitch("remote-debugging-port", String(remoteDebugPort));
-  app.commandLine.appendSwitch("remote-debugging-address", "127.0.0.1");
-}
-// Make the resolved port available to the embedded server so it flows into
-// agent instructions via ensureLegalworkAgent → resolveAgentTemplate.
-process.env.LEGALWORK_ELECTRON_REMOTE_DEBUG_PORT = String(remoteDebugPort);
-
 // Apply extra Chromium flags from ELECTRON_EXTRA_LAUNCH_ARGS.
 // Used in headless environments to pass e.g. --disable-gpu.
 const extraLaunchArgs = (process.env.ELECTRON_EXTRA_LAUNCH_ARGS ?? "").trim();
@@ -659,6 +623,8 @@ if (extraLaunchArgs) {
     }
   }
 }
+// Browser automation uses the per-tab broker, not Chromium's global listener.
+configureRemoteDebugging(app);
 configureFakeMediaForTests(app, envFlagEnabled("LEGALWORK_ELECTRON_FAKE_MEDIA"));
 // System-audio loopback (Recorder tab) needs Chromium feature flags on
 // macOS/Linux before app-ready; Windows WASAPI loopback works out of the box.
@@ -754,7 +720,6 @@ process.on("uncaughtExceptionMonitor", (error) => relayAppError("main_uncaught",
 process.on("unhandledRejection", (reason) => relayAppError("main_unhandledrejection", reason, "server"));
 
 const browserPanel = createBrowserPanel({
-  remoteDebugPort,
   getWindow: () => mainWindow,
   getWindowForEvent: (event) => BrowserWindow.fromWebContents(event?.sender) ?? null,
 });
@@ -1119,6 +1084,7 @@ async function syncSkillFrontmatterName(skillMdPath, name) {
 
 const runtimeManager = createRuntimeManager({
   app,
+  getApprovalWindow: () => mainWindow,
   desktopRoot: path.resolve(__dirname, ".."),
   listLocalWorkspacePaths: () => workspaceStore.listLocalWorkspacePaths(),
   recorder: {
@@ -1621,7 +1587,7 @@ async function openDetachedSessionWindow(event, input = {}) {
     return true;
   }
 
-  const preloadPath = path.join(__dirname, "preload.mjs");
+  const preloadPath = path.join(__dirname, "preload.cjs");
   const windowAppearanceOptions = {};
   if (process.platform === "darwin") {
     Object.assign(windowAppearanceOptions, {
@@ -1646,7 +1612,7 @@ async function openDetachedSessionWindow(event, input = {}) {
       preload: preloadPath,
       contextIsolation: true,
       nodeIntegration: false,
-      sandbox: false,
+      sandbox: true,
       plugins: true,
     },
   });
@@ -2703,7 +2669,7 @@ async function handleDesktopInvoke(event, command, ...args) {
 async function createMainWindow() {
   if (mainWindow) return mainWindow;
 
-  const preloadPath = path.join(__dirname, "preload.mjs");
+  const preloadPath = path.join(__dirname, "preload.cjs");
   const windowAppearanceOptions = {};
   if (process.platform === "darwin") {
     Object.assign(windowAppearanceOptions, {
@@ -2728,9 +2694,9 @@ async function createMainWindow() {
       preload: preloadPath,
       contextIsolation: true,
       nodeIntegration: false,
-      sandbox: false,
+      sandbox: true,
       // Enable Chromium's built-in PDF viewer (PDFium) so the in-app artifact
-      // panel can render PDFs inline in a (non-sandboxed) iframe.
+      // panel can render PDFs inline in an iframe.
       plugins: true,
     },
   });

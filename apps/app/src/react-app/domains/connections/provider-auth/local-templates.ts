@@ -22,10 +22,8 @@ export type LocalRuntimeTemplate = {
   /** Shown under the picker when this template is active. */
   note: string;
   /**
-   * True when the opencode engine already auto-detects this runtime on the
-   * default host (its built-in `loadLocal` probes the endpoint and lists
-   * installed models live). Adding it manually is optional and, on the default
-   * host, replaces that live list — the picker shows a heads-up.
+   * Highlights the note for runtimes with separate automatic setup.
+   * LM Studio uses explicit endpoint discovery and does not set this flag.
    */
   autoDetected?: boolean;
 };
@@ -79,7 +77,6 @@ export const localRuntimeTemplates = (): LocalRuntimeTemplate[] => [
     baseURL: "http://localhost:1234/v1",
     placeholder: "http://localhost:1234/v1",
     apiType: "chat",
-    autoDetected: true,
     note: t("local_templates.lmstudio_note"),
   },
 ];

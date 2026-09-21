@@ -128,6 +128,8 @@ export interface ServerConfig {
   pickDirectory?: ((options: { title?: string; defaultPath?: string; returnFocusTo?: string }) => Promise<string | null>) | null;
   /** Desktop-owned recorder controls used by browser-hosted Office add-ins. */
   recorder?: RecorderBridge | null;
+  /** In-process host confirmation. Never set from client input or persisted config. */
+  requestHostApproval?: HostApprovalHandler;
   opencodeBaseUrl?: string;
   opencodeDirectory?: string;
   opencodeUsername?: string;
@@ -271,6 +273,11 @@ export interface ApprovalRequest {
   createdAt: number;
   actor: Actor;
 }
+
+export type HostApprovalHandler = (
+  request: ApprovalRequest,
+  signal: AbortSignal,
+) => Promise<"allow" | "deny">;
 
 export interface AuditEntry {
   id: string;

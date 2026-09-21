@@ -5,6 +5,7 @@ import {
   customProviderModelEntry,
   customProviderModelFromEntry,
   findCustomModelLimitProblem,
+  replaceDiscoveredModels,
 } from "../src/react-app/domains/connections/provider-auth/custom-provider-config";
 
 describe("custom provider model config", () => {
@@ -77,5 +78,18 @@ describe("findCustomModelLimitProblem", () => {
       modelId: "m",
       reason: "output-not-below-context",
     });
+  });
+});
+
+describe("discovered model refresh", () => {
+  test("removes retired IDs, adds actual new IDs, and preserves capability edits", () => {
+    const kept = { id: "local/qwen", contextLimit: 64000, toolCall: false };
+    const current = [kept, { id: "catalog/stale", contextLimit: 32000, toolCall: true }];
+    const create = (id: string) => ({ id, contextLimit: 0, toolCall: true });
+    expect(replaceDiscoveredModels(current, ["local/new", "local/qwen"], create)).toEqual([
+      { id: "local/new", contextLimit: 0, toolCall: true }, kept,
+    ]);
+    expect(replaceDiscoveredModels(current, [], create)).toEqual([]);
+    expect(current).toHaveLength(2);
   });
 });

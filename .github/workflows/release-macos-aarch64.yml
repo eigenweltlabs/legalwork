@@ -138,6 +138,9 @@ jobs:
             "**Download the latest version:** [macOS (Apple Silicon)](https://eigenweltlabs.com/legalwork/download/mac?src=release-notes) · [macOS (Intel)](https://eigenweltlabs.com/legalwork/download/mac-intel?src=release-notes) · [Windows](https://eigenweltlabs.com/legalwork/download/win?src=release-notes) · [Linux x64](https://eigenweltlabs.com/legalwork/download/linux?src=release-notes) · [Linux arm64](https://eigenweltlabs.com/legalwork/download/linux-arm64?src=release-notes)" \
             "$RELEASE_BODY"
 
+          printf -v RELEASE_BODY '%s\n\n%s' "$RELEASE_BODY" \
+            "**Verify downloads:** [SHA256SUMS](https://github.com/$GITHUB_REPOSITORY/releases/download/$TAG/SHA256SUMS) · [Verification instructions](https://github.com/$GITHUB_REPOSITORY/blob/$TAG/docs/verify-downloads.md)"
+
           draft="${INPUT_DRAFT:-}"
           if [ -z "$draft" ]; then
             if [ "${GITHUB_EVENT_NAME}" = "push" ]; then
@@ -543,11 +546,17 @@ jobs:
           fi
           gh release upload "$RELEASE_TAG" "${assets[@]}" --repo "$GITHUB_REPOSITORY" --clobber
 
+      - name: Checksum final Electron release assets
+        shell: bash
+        run: node scripts/release/checksums.mjs apps/desktop/dist-electron
+
       - name: Upload Electron updater manifest artifact
         uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.artifact }}
-          path: apps/desktop/dist-electron/latest*.yml
+          path: |
+            apps/desktop/dist-electron/latest*.yml
+            apps/desktop/dist-electron/SHA256SUMS
           if-no-files-found: error
 
   publish-electron-assets:
