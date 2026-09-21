@@ -1783,6 +1783,7 @@ export function createExtensionsStore(options: {
           name: trimmed,
           content: input.content,
           description: input.description,
+          scope: isDesktopRuntime() && isLocalWorkspace ? "global" : "project",
         });
         options.markReloadRequired?.("skills", { type: "skill", name: trimmed, action: "updated" });
         await refreshSkills({ force: true });

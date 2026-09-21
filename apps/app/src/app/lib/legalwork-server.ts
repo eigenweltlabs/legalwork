@@ -2600,7 +2600,7 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
         { token, hostToken },
       );
     },
-    upsertSkill: (workspaceId: string, payload: { name: string; content: string; description?: string }) =>
+    upsertSkill: (workspaceId: string, payload: { name: string; content: string; description?: string; scope?: "project" | "global" }) =>
       requestJson<LegalworkSkillItem>(baseUrl, `/workspace/${workspaceId}/skills`, {
         token,
         hostToken,

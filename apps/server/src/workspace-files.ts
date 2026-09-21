@@ -3,13 +3,12 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 
 /**
- * The GLOBAL skills dir the desktop app reads from and installs into
- * ($XDG_CONFIG_HOME/opencode/skills). On desktop skills/workflows live here and
- * are synced into projects automatically, so hub installs must land here (not in
- * a single project's .opencode/skills, which the desktop list never scans).
+ * Global library shared with desktop import/listing and available in every workspace.
+ * XDG_CONFIG_HOME takes precedence; Windows defaults to APPDATA, others to ~/.config.
  */
 export function globalSkillsDir(): string {
-  const configHome = process.env.XDG_CONFIG_HOME?.trim() || join(homedir(), ".config");
+  const windowsConfigHome = process.platform === "win32" ? process.env.APPDATA?.trim() : undefined;
+  const configHome = process.env.XDG_CONFIG_HOME?.trim() || windowsConfigHome || join(homedir(), ".config");
   return join(configHome, "opencode", "skills");
 }
 

@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { ApiError } from "./errors.js";
 import { exists } from "./utils.js";
 import { validateSkillName } from "./validators.js";
-import { projectSkillsDir } from "./workspace-files.js";
+import { globalSkillsDir, projectSkillsDir } from "./workspace-files.js";
 
 // Attached files (firm templates, playbooks, …) live INSIDE the skill's own
 // folder: .opencode/skills/<name>/resources/<file>. A workflow plus its
@@ -62,12 +62,10 @@ async function findSkillDirInBase(baseDir: string, skillName: string): Promise<s
 }
 
 // Same global roots the skills listing scans (see listSkills in skills.ts).
-// The desktop app installs skills globally ($XDG_CONFIG_HOME/opencode/skills),
-// so the resource routes must resolve those folders too, not just the workspace.
+// Resolve the desktop's global library too, including its Windows location.
 function globalSkillsBaseDirs(): string[] {
-  const configHome = process.env.XDG_CONFIG_HOME?.trim() || join(homedir(), ".config");
   return [
-    join(configHome, "opencode", "skills"),
+    globalSkillsDir(),
     join(homedir(), ".claude", "skills"),
     join(homedir(), ".agents", "skills"),
     join(homedir(), ".agent", "skills"),
