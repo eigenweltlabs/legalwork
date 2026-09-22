@@ -108,7 +108,12 @@ try {
   if (suites.length === 0) throw new Error('No native mail suites found.');
   console.log(`Running ${suite === null ? 'all ' : 'selected '}${suites.length} native mail suites (no provider network or real credentials).`);
   if (testNamePattern) console.log(`Test name filter: ${testNamePattern}`);
-  await run(['--test', ...(selected ? ['--test-reporter=tap'] : []), `--test-concurrency=${concurrency}`, ...(testNamePattern ? [`--test-name-pattern=${testNamePattern}`] : []), ...suites], 300_000);
+  // The complete 65-file matrix was still making progress when Windows reached
+  // the old five-minute process cap. Keep individual hangs bounded separately
+  // from the aggregate workload; a focused file retains its original ceiling.
+  const testTimeoutMs = 120_000, suiteTimeoutMs = suites.length === 1 ? 300_000 : 900_000;
+  console.log(`Native limits: ${testTimeoutMs}ms per test, ${suiteTimeoutMs}ms for ${suites.length} suite files.`);
+  await run(['--test', `--test-timeout=${testTimeoutMs}`, ...(selected ? ['--test-reporter=tap'] : []), `--test-concurrency=${concurrency}`, ...(testNamePattern ? [`--test-name-pattern=${testNamePattern}`] : []), ...suites], suiteTimeoutMs);
   console.log(`Mail acceptance passed in ${((performance.now() - started) / 1000).toFixed(1)}s.`);
 } finally {
   await rm(output, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
