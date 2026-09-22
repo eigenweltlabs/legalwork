@@ -1,25 +1,21 @@
-const {app,BrowserWindow,safeStorage,session}=require('electron');
-const {readFile,writeFile,mkdir}=require('node:fs/promises');
-const {join}=require('node:path');
-const {pathToFileURL}=require('node:url');
-const assert=require('node:assert/strict');
+// Awaited ESM entry loading preserves privileged-scheme registration before ready.
+import {app,BrowserWindow,session} from 'electron';
+import {writeFile} from 'node:fs/promises';
+import {readFileSync} from 'node:fs';
+import assert from 'node:assert/strict';
+import {join} from 'node:path';
+import {pathToFileURL} from 'node:url';
 const delay=ms=>new Promise(r=>setTimeout(r,ms));
 const dist=values=>{const s=[...values].sort((a,b)=>a-b);return{count:s.length,p50:s[Math.floor((s.length-1)*.5)]??0,p95:s[Math.floor((s.length-1)*.95)]??0,max:s.at(-1)??0};};
+const config=JSON.parse(readFileSync(process.argv[2],'utf8'));app.setPath('userData',config.profile);
+assert.equal(app.isReady(),false,'ESM entry must import actual main before ready');
+app.once('ready',()=>session.defaultSession.webRequest.onBeforeRequest((details,done)=>{const url=new URL(details.url);done({cancel:['http:','https:'].includes(url.protocol)&&!['127.0.0.1','localhost','[::1]'].includes(url.hostname)});}));
+const originalFetch=globalThis.fetch;globalThis.fetch=(input,init)=>{const url=new URL(typeof input==='string'?input:input instanceof URL?input.href:input.url);if(!['127.0.0.1','localhost','[::1]'].includes(url.hostname))return Promise.reject(Error('Synthetic desktop benchmark forbids external network'));return originalFetch(input,init);};
+await import(pathToFileURL(join(config.repository,'apps/desktop/electron/main.mjs')).href);
+// Leave the entry module free to finish: awaiting ready at top level would delay ready itself.
 (async()=>{
- const config=JSON.parse(await readFile(process.argv[2],'utf8'));app.setPath('userData',config.profile);
- const started=performance.now();await app.whenReady();
- assert.equal(safeStorage.isEncryptionAvailable(),true,'real OS vault required');
- const metadata=JSON.parse(await readFile(join(config.profile,'benchmark-profile.json'),'utf8'));
- assert.equal(metadata.kind,'legalwork-synthetic-benchmark');assert.equal(metadata.ownerId,'desktop-local');
- const {enforceMailWindowsAcl}=await import(pathToFileURL(join(config.repository,'apps/desktop/server/dist/mail/storage/windows-acl.js')).href);
- await enforceMailWindowsAcl(join(config.profile,'mail'),true);
- const keyPath=join(config.profile,'mail/mail-key-v1.json');
- await writeFile(keyPath,JSON.stringify({version:1,wrappedKey:safeStorage.encryptString(metadata.key).toString('base64')}),{mode:0o600,flag:'wx'});metadata.key='';await enforceMailWindowsAcl(keyPath,false);
- const workspace=join(config.profile,'synthetic-workspace');await mkdir(workspace,{recursive:true});
- await writeFile(join(config.profile,'legalwork-workspaces.json'),JSON.stringify({selectedId:'benchmark-workspace',activeId:'benchmark-workspace',watchedId:null,workspaces:[{id:'benchmark-workspace',name:'Synthetic benchmark',path:workspace,workspaceType:'local',preset:'starter'}]}));
- session.defaultSession.webRequest.onBeforeRequest((details,done)=>{const url=new URL(details.url);done({cancel:['http:','https:'].includes(url.protocol)&&!['127.0.0.1','localhost','[::1]'].includes(url.hostname)});});
- const originalFetch=globalThis.fetch;globalThis.fetch=(input,init)=>{const url=new URL(typeof input==='string'?input:input instanceof URL?input.href:input.url);if(!['127.0.0.1','localhost','[::1]'].includes(url.hostname))return Promise.reject(Error('Synthetic desktop benchmark forbids external network'));return originalFetch(input,init);};
- await import(pathToFileURL(join(config.repository,'apps/desktop/electron/main.mjs')).href);
+ // performance.now() includes this measured process's module/startup work; key preparation is separate.
+ const started=0;await app.whenReady();
  let win;const windowDeadline=Date.now()+60000;
  while(Date.now()<windowDeadline){win=BrowserWindow.getAllWindows().find(w=>w.webContents.getURL().includes('index.html'));if(win&&!win.webContents.isLoadingMainFrame())break;await delay(50);}
  assert(win,'actual main application window required');win.setSize(1440,1000);win.show();win.focus();
