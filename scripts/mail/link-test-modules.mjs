@@ -32,3 +32,16 @@ export async function unlinkTestModules(destination){
   }
   await rmdir(destination);
 }
+
+// Diagnose the exact owned entry on Windows instead of reporting only the root.
+// lstat + unlink deliberately never follows dependency junctions or symlinks.
+export async function removeTestTree(root){
+  let stat;try{stat=await lstat(root);}catch(error){if(error.code==='ENOENT')return;throw error;}
+  if(stat.isSymbolicLink()||!stat.isDirectory()){await unlink(root);return;}
+  const errors=[];
+  for(const name of await readdir(root)){
+    try{await removeTestTree(join(root,name));}catch(error){errors.push(error);}
+  }
+  if(errors.length)throw new AggregateError(errors,`Fixture entries retained beneath ${root}`);
+  await rmdir(root);
+}

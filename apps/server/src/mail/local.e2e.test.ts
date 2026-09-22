@@ -1,4 +1,4 @@
-import {linkTestModules,unlinkTestModules} from '../../../../scripts/mail/link-test-modules.mjs';
+import {linkTestModules,unlinkTestModules,removeTestTree} from '../../../../scripts/mail/link-test-modules.mjs';
 import { createRequire } from 'node:module';
 import {setTimeout as delay} from 'node:timers/promises';
 import {test,expect} from 'bun:test';
@@ -16,7 +16,7 @@ import type {Route} from '../routes/registry.js';
 test('actual HTTP drafts, immutable submission replay, events and encrypted worker restart',async()=>{
  const root=await mkdtemp(join(tmpdir(),'mail-local-e2e-')),serverRoot=join(import.meta.dir,'../..'),key=randomBytes(32),databasePath=join(root,'mail.sqlite');
  const envNames=['LEGALWORK_ENV_STORE','LEGALWORK_TOKEN_STORE','XDG_DATA_HOME'];const originalEnv=new Map(envNames.map(name=>[name,process.env[name]]));for(const name of envNames)process.env[name]=join(root,name);
- let service:LocalMailService|undefined;let server:Awaited<ReturnType<typeof startServer>>|undefined;
+ let primaryError:unknown;let service:LocalMailService|undefined;let server:Awaited<ReturnType<typeof startServer>>|undefined;
  try{
   const nodePath=Bun.which('node');if(!nodePath)throw Error('Node required');
   await writeFile(join(root,'package.json'),'{"type":"module"}');await linkTestModules(await realpath(join(serverRoot,'node_modules')),join(root,'node_modules'));
@@ -59,5 +59,6 @@ test('actual HTTP drafts, immutable submission replay, events and encrypted work
   const attached={draftId:randomUUID(),expected:null,content:{...input.content,from:'sender@example.test',bcc:['hidden@example.test'],inReplyTo:'<original@example.test>',references:['<original@example.test>'],attachments:[{locator:null,partId:uploadId,referenceId,filename:'秘密.txt',contentType:'text/plain'}]}};
   const uploadedResponse=await post(drafts+'save',attached);expect(uploadedResponse.status).toBe(200);const uploaded=await uploadedResponse.json();await service.lock();await service.unlock();const part=await post(drafts+'attachment',{draftId:uploaded.id,version:uploaded.version,ordinal:0,referenceId,offset:16380,limit:30});expect(part.status).toBe(200);expect(Buffer.from((await part.json()).chunk.data,'base64')).toEqual(bytes.subarray(16380,16410));
   const routes:Route[]=[];registerMailRoutes(routes,'0.0.0.0',service);expect(routes).toHaveLength(0);
- }finally{await server?.stop();await service?.stop();key.fill(0);for(const name of envNames){const old=originalEnv.get(name);if(old===undefined)delete process.env[name];else process.env[name]=old;}await unlinkTestModules(join(root,'node_modules'));await rm(root,{recursive:true,force:true});}
+ }catch(error){primaryError=error;throw error;}finally{try{await server?.stop();await service?.stop();key.fill(0);for(const name of envNames){const old=originalEnv.get(name);if(old===undefined)delete process.env[name];else process.env[name]=old;}await unlinkTestModules(join(root,'node_modules'));await removeTestTree(root);
+ }catch(cleanupError){if(primaryError!==undefined)throw new AggregateError([primaryError,cleanupError],'HTTP draft fixture failed and cleanup retained entries');throw cleanupError;}}
 },60000);
