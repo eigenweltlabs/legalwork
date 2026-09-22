@@ -13,3 +13,8 @@ export async function buildBrowserFixture(options:{entrypoints:string[];outdir:s
   if(result.status!==0)throw Error(result.stderr||result.stdout||`Browser fixture build exited ${result.status}`);
  } finally {await rm(builder,{force:true});}
 }
+
+/** Keep Xvfb access when a fixture deliberately strips the parent environment. */
+export function electronDisplayEnvironment(environment:NodeJS.ProcessEnv=process.env,platform:NodeJS.Platform=process.platform):NodeJS.ProcessEnv {
+ return platform==='linux'?{DISPLAY:environment.DISPLAY,XAUTHORITY:environment.XAUTHORITY}:{};
+}
