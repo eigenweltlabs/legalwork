@@ -1,3 +1,4 @@
+import { folderMutationPrecondition } from "../storage/mutation-precondition.js";
 import {linkTestModules} from '../../../../../scripts/mail/link-test-modules.mjs';
 import { afterAll, afterEach, beforeAll, expect, test } from "bun:test";
 import { randomBytes } from "node:crypto";
@@ -91,7 +92,7 @@ test("owned account/folder pagination and foreign/missing account isolation", as
     { id: "a", provider: "gmail", displayName: "Synthetic a" }, { id: "b", provider: "gmail", displayName: "Synthetic b" },
   ], nextCursor: "b" });
   expect(await client.request({ operation: "mail.accounts.list", limit: 2, after: "b" })).toEqual({ accounts: [{ id: "c", provider: "gmail", displayName: "Synthetic c" }], nextCursor: null });
-  expect(await client.request({ operation: "mail.folders.list", accountId: "a", limit: 1 })).toEqual({ folders: [{ id: "f1", name: "f1", kind: "label", parentId: null }], nextCursor: "f1" });
+  expect(await client.request({ operation: "mail.folders.list", accountId: "a", limit: 1 })).toEqual({ folders: [{ id: "f1", name: "f1", kind: "label", parentId: null, mutationPrecondition: folderMutationPrecondition({name: "f1", parentId: null}) }], nextCursor: "f1" });
   for (const accountId of ["foreign", "absent"]) {
     await expect(client.request({ operation: "mail.folders.list", accountId })).rejects.toThrow("not_found");
     await expect(client.request({ operation: "mail.status", accountId })).rejects.toThrow("not_found");

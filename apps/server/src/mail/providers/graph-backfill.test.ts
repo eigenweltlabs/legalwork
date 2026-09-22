@@ -1,10 +1,10 @@
 import { randomBytes } from "node:crypto";
-import { pathToFileURL } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { startServer } from "../../server.js";
 import { LocalMailService } from "../service.js";
 import { test, expect } from "bun:test";
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, writeFileSync, symlinkSync, copyFileSync, rmSync, realpathSync } from "node:fs";
+import { mkdtempSync, writeFileSync, symlinkSync, rmSync, realpathSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 test("Graph acceptance runs in encrypted Node with no live requests", async () => {
@@ -18,9 +18,8 @@ test("Graph acceptance runs in encrypted Node with no live requests", async () =
             throw Error(compile.stdout + compile.stderr);
         writeFileSync(join(out, "package.json"), '{"type":"module"}');
         symlinkSync(realpathSync(join(server, "node_modules")), join(out, "node_modules"), "dir");
-        const target = join(out, "mail/providers/graph-backfill.node-test.mjs");
-        copyFileSync(join(import.meta.dir, "graph-backfill.node-test.mjs"), target);
-        const result = spawnSync("node", ["--test", target], { encoding: "utf8", timeout: 60000 });
+        const runner = fileURLToPath(new URL("../../../scripts/mail-acceptance.mjs", import.meta.url));
+        const result = spawnSync("node", [runner, "--suite", "providers/graph-backfill"], { encoding: "utf8", timeout: 180000 });
         if (result.status !== 0)
             throw Error(result.stdout + result.stderr);
         expect(result.status).toBe(0);
@@ -38,7 +37,17 @@ test("Graph acceptance runs in encrypted Node with no live requests", async () =
         if (seed.status !== 0)
             throw Error(seed.stdout + seed.stderr);
         const bootstrap = join(out, "http-worker.mjs");
-        writeFileSync(bootstrap, `globalThis.fetch=async(input,init)=>{if(!String(input).startsWith('https://graph.microsoft.com/v1.0/me/')||init.headers.Prefer!=='IdType="ImmutableId"')throw Error('Unexpected provider request');return Response.json({value:[]});};await import(${JSON.stringify(pathToFileURL(worker).href)});`);
+        writeFileSync(bootstrap, `globalThis.fetch=async(input,init)=>{
+          const url=new URL(String(input));
+          if(url.origin!=='https://graph.microsoft.com'||init.method!=='GET'||init.headers.Prefer!=='IdType="ImmutableId"')throw Error('Unexpected provider request');
+          const inbox={id:'inbox',displayName:'Inbox',parentFolderId:'root',childFolderCount:0};
+          if(url.pathname==='/v1.0/me/mailFolders/inbox')return Response.json(inbox);
+          if(url.pathname==='/v1.0/me/mailFolders/msgfolderroot')return Response.json({id:'root',displayName:'Root',parentFolderId:'root',childFolderCount:1});
+          if(url.pathname==='/v1.0/me/mailFolders')return Response.json({value:[inbox]});
+          if(url.pathname==='/v1.0/me/mailFolders/inbox/childFolders'||url.pathname==='/v1.0/me/messages')return Response.json({value:[]});
+          if(url.pathname==='/v1.0/me/mailFolders/inbox/messages/delta')return Response.json({value:[],'@odata.deltaLink':'https://graph.microsoft.com/v1.0/me/mailFolders/inbox/messages/delta?$deltatoken=synthetic'});
+          throw Error('Unexpected provider request');
+        };await import(${JSON.stringify(pathToFileURL(worker).href)});`);
         const service = new LocalMailService({ ownerId: "owner", databasePath, loadKey: async () => Buffer.from(key), entryPoint: bootstrap, executable: { kind: "node", path: Bun.which("node")! }, loadProviderSettings: async () => settings });
         const running = await startServer({ host: "127.0.0.1", port: 0, token: "synthetic-collaborator", hostToken: "synthetic-host", configPath: join(out, "server.json"), approval: { mode: "auto", timeoutMs: 1000 }, corsOrigins: [], workspaces: [], authorizedRoots: [], readOnly: false, startedAt: Date.now(), tokenSource: "cli", hostTokenSource: "cli", logFormat: "pretty", logRequests: false }, { mail: service });
         const base = `http://127.0.0.1:${running.port}/mail/v1`, headers = { "x-legalwork-host-token": "synthetic-host" };
@@ -77,4 +86,4 @@ test("Graph acceptance runs in encrypted Node with no live requests", async () =
         }
         rmSync(out, { recursive: true, force: true });
     }
-}, 95000);
+}, 215000);
