@@ -7,7 +7,7 @@ import { setGoogleFontsEnabled } from "@eigenpal/docx-editor-core";
 import { acceptChangeById, rejectChangeById } from "@eigenpal/docx-editor-core/prosemirror/commands";
 import { extractTrackedChanges } from "@eigenpal/docx-editor-core/prosemirror/utils/extractTrackedChanges";
 import "@eigenpal/docx-editor-react/styles.css";
-import "./docx-office-fonts.css";
+import "./office-fonts.css";
 
 import { getInitialThemeMode, subscribeToTheme, type ThemeMode } from "@/app/theme";
 import { Button } from "@/components/ui/button";
@@ -21,7 +21,7 @@ import { t } from "@/i18n";
 
 // The editor otherwise injects a fonts.googleapis.com stylesheet for any font a
 // document names that isn't installed locally — which would tell Google the
-// typefaces used in a client's file. docx-office-fonts.css covers the Office
+// typefaces used in a client's file. office-fonts.css covers the Office
 // fonts it used to fetch, with metrically compatible clones bundled in the app,
 // so documents still paginate like Word. Page-global, so it is set once at
 // import, before any document.

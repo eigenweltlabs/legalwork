@@ -64,6 +64,9 @@ importers:
       '@fontsource-variable/inter':
         specifier: ^5.2.8
         version: 5.2.8
+      '@fontsource/anton':
+        specifier: 5.3.0
+        version: 5.3.0
       '@fontsource/arimo':
         specifier: 5.3.0
         version: 5.3.0
@@ -73,7 +76,31 @@ importers:
       '@fontsource/carlito':
         specifier: 5.3.0
         version: 5.3.0
+      '@fontsource/comic-neue':
+        specifier: 5.3.0
+        version: 5.3.0
       '@fontsource/cousine':
+        specifier: 5.3.0
+        version: 5.3.0
+      '@fontsource/eb-garamond':
+        specifier: 5.3.0
+        version: 5.3.0
+      '@fontsource/fira-code':
+        specifier: 5.3.0
+        version: 5.3.0
+      '@fontsource/inconsolata':
+        specifier: 5.3.0
+        version: 5.3.0
+      '@fontsource/libre-franklin':
+        specifier: 5.3.0
+        version: 5.3.0
+      '@fontsource/open-sans':
+        specifier: 5.3.0
+        version: 5.3.0
+      '@fontsource/poppins':
+        specifier: 5.3.0
+        version: 5.3.0
+      '@fontsource/source-sans-pro':
         specifier: 5.3.0
         version: 5.3.0
       '@fontsource/tinos':
@@ -1538,6 +1565,9 @@ packages:
   '@fontsource-variable/inter@5.2.8':
     resolution: {integrity: sha512-kOfP2D+ykbcX/P3IFnokOhVRNoTozo5/JxhAIVYLpea/UBmCQ/YWPBfWIDuBImXX/15KH+eKh4xpEUyS2sQQGQ==}
 
+  '@fontsource/anton@5.3.0':
+    resolution: {integrity: sha512-OR1D5n124n2XRs66SbX7IjcOSptljEJE8FcDNnlni2y1/M6KpTx7cU2PIWzTSsBj4WFkHPw24On8qw3qkQZuTw==}
+
   '@fontsource/arimo@5.3.0':
     resolution: {integrity: sha512-nhxZ2sTVZYX8DJBgLuyX360B5vE4mxqpmjlKTRfucIqfcWRVx9vOYzWBc1IgEX0ist48VMC10PRKbFyH+4QFvQ==}
 
@@ -1547,8 +1577,32 @@ packages:
   '@fontsource/carlito@5.3.0':
     resolution: {integrity: sha512-oPqvLGK/dtVzC4KjdDcV/YzQq37sZdMXxD58ADvguPo3dm6yzbBKs40ADmevJF0wLvyvJY7/fPl5YkCQ1njWUw==}
 
+  '@fontsource/comic-neue@5.3.0':
+    resolution: {integrity: sha512-uZsyUTExw8tCySNhL65dN6rEUhASMPGintSS5Kw/ZkrQTK1vcAgramzOLT/mZKtZ+EXr03MHj0s5osVVJITCow==}
+
   '@fontsource/cousine@5.3.0':
     resolution: {integrity: sha512-EhVes1KpHrmPwGVCoVxYpdiIi/L2LRGxbAuv07m3TdY76f9Vmwyhd/TNqi2RC0NOvMCNt2FtYPJcAfFfkK9DoQ==}
+
+  '@fontsource/eb-garamond@5.3.0':
+    resolution: {integrity: sha512-VplwHpB8FLuzl+4G5LDci1b3Z4SghiuXH8XEgaxjnOb5aue5mEt1njmDKeO6iyLeGa73LffU7PC7hzncLRx0ZA==}
+
+  '@fontsource/fira-code@5.3.0':
+    resolution: {integrity: sha512-EJL968RJRkakubAj/coU8pSUaeTE5UNoRjtzAr6kGiSZ3jWuN8/AKWHwym/PFUaQL1q7IL/H+EXs4358YhrTBQ==}
+
+  '@fontsource/inconsolata@5.3.0':
+    resolution: {integrity: sha512-12UZvQzR9rcgFv1Wb2vy9NvMqleh4fVZ9W5Ww/S3CamaRLeUfCkfXersbiqcyCkH82etGTTRyHd5cJYDJ2W27w==}
+
+  '@fontsource/libre-franklin@5.3.0':
+    resolution: {integrity: sha512-owd+HDvD4hnGHG1jO3rHtg0BiNT0DJbZMaSqJ7g4r0646G5Q91MjTFWxZbpwg8njLu4BSH3EBqwkVSMLud6brg==}
+
+  '@fontsource/open-sans@5.3.0':
+    resolution: {integrity: sha512-V1bdMlGNyZrJwzrdusshMOw2YR0aqYDL7kOo9dkxUEKl8dFv66A9HLckOOXl572sG/7ohhDQrCrTFGSn9LZcSw==}
+
+  '@fontsource/poppins@5.3.0':
+    resolution: {integrity: sha512-cms1nM7U6SN8epIV1WMVOV8VsA645aSm3wHfzIQnkk188U341ThbJGSl2Sv54V29gnDbT2arMPfLzvVIIVCceQ==}
+
+  '@fontsource/source-sans-pro@5.3.0':
+    resolution: {integrity: sha512-nd96qXI4stbyRPNEygS2cNhMkAc1kkW9+ORmIOK0oelPTyiitRPk/+9+HUuUYuEjwRRkK/+Gat2J9/NMJest/A==}
 
   '@fontsource/tinos@5.3.0':
     resolution: {integrity: sha512-VVDyyZdbcsLKxo/W7rClAvacD/7DsGc7J5xzzp51Tndib8kDkEe/0bqbb3Xb3iH6+IUjt07aRsvtQ9MGeGGi4w==}
@@ -9828,13 +9882,31 @@ snapshots:
 
   '@fontsource-variable/inter@5.2.8': {}
 
+  '@fontsource/anton@5.3.0': {}
+
   '@fontsource/arimo@5.3.0': {}
 
   '@fontsource/caladea@5.3.0': {}
 
   '@fontsource/carlito@5.3.0': {}
 
+  '@fontsource/comic-neue@5.3.0': {}
+
   '@fontsource/cousine@5.3.0': {}
+
+  '@fontsource/eb-garamond@5.3.0': {}
+
+  '@fontsource/fira-code@5.3.0': {}
+
+  '@fontsource/inconsolata@5.3.0': {}
+
+  '@fontsource/libre-franklin@5.3.0': {}
+
+  '@fontsource/open-sans@5.3.0': {}
+
+  '@fontsource/poppins@5.3.0': {}
+
+  '@fontsource/source-sans-pro@5.3.0': {}
 
   '@fontsource/tinos@5.3.0': {}
 

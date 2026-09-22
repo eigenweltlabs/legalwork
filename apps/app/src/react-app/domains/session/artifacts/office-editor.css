@@ -5,9 +5,6 @@
 .office-slides [title="Save"], .office-slides [aria-label="Save"] { display: none; }
 .office-sheets { color-scheme: light; }
 
-/* Substitute a bundled sans-serif when Office's Calibri is unavailable. */
-@font-face { font-family: "Calibri"; src: local("Calibri"), url("@fontsource-variable/inter/files/inter-latin-wght-normal.woff2") format("woff2"); font-weight: 100 900; font-display: swap; }
-
 .office-slides [data-pptx-title-bar] { display: none; }
 
 /* Workspace persistence is reported by ArtifactFrame, not the vendor's export status. */
