@@ -3,15 +3,21 @@ import { MailSearchStore } from "../storage/search.js";
 /** One message per event-loop turn; rotate accounts instead of draining a busy mailbox. */
 export class MailSearchIndexer {
   private timer:ReturnType<typeof setTimeout>|undefined;
+  private immediate:ReturnType<typeof setImmediate>|undefined;
   private closed=false;
   private after="";
   private readonly search:MailSearchStore;
   constructor(private readonly database:MailDatabase,private readonly ownerId:string){this.search=new MailSearchStore(database,ownerId);}
-  start():void{if(!this.closed&&!this.timer)this.schedule(0);}
-  close():void{this.closed=true;clearTimeout(this.timer);this.timer=undefined;}
-  private schedule(delay:number):void{this.timer=setTimeout(()=>this.tick(),delay);this.timer.unref();}
+  start():void{if(!this.closed&&!this.timer&&!this.immediate)this.schedule(true);}
+  close():void{this.closed=true;clearTimeout(this.timer);clearImmediate(this.immediate);this.timer=undefined;this.immediate=undefined;}
+  private schedule(busy:boolean):void{
+    // Yield after one document without Windows timer quantization per document.
+    // Empty queues and failures retain the existing one-second backoff.
+    if(busy){this.immediate=setImmediate(()=>this.tick());this.immediate.unref();}
+    else{this.timer=setTimeout(()=>this.tick(),1000);this.timer.unref();}
+  }
   private tick():void{
-    this.timer=undefined;if(this.closed)return;let busy=false;
+    this.timer=undefined;this.immediate=undefined;if(this.closed)return;let busy=false;
     try{
       const select=(after:string)=>this.database.get(`SELECT a.id FROM mail_accounts a WHERE a.owner_id=? AND a.id>?
         AND NOT EXISTS(SELECT 1 FROM mail_imap_credentials i WHERE i.account_id=a.id AND i.state='disconnected')
@@ -20,6 +26,6 @@ export class MailSearchIndexer {
       const row=select(this.after)??select("");
       if(row&&typeof row.id==='string'){this.after=row.id;this.search.indexNext(row.id);busy=true;}
     }catch{/* Keep failures private; leave durable work queued and try another account. */}
-    if(!this.closed)this.schedule(busy?1:1000);
+    if(!this.closed)this.schedule(busy);
   }
 }

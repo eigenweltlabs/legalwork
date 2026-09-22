@@ -72,10 +72,29 @@ test('v7 upgrade is atomic, idempotent and rebuilds existing locally stored mail
 
 test('incremental scheduler rotates accounts, sees later ingestion and stops before database shutdown',async()=>fixture(async f=>{
  f.seed();for(let n=0;n<40;n++)f.repository.ingestMessage('a',{locator:{provider:'gmail',messageId:'more'+n},subject:'Fair',rfcMessageId:null,memberships:[]});f.repository.createAccount({id:'b',provider:'gmail',displayName:'Second'});f.repository.ingestMessage('b',{locator:{provider:'gmail',messageId:'b'},subject:'Other',rfcMessageId:null,memberships:[]});
- const indexer=new MailSearchIndexer(f.db,'owner');try{indexer.start();const deadline=Date.now()+2000;while(!f.db.get("SELECT 1 FROM mail_search_documents WHERE account_id='b'")&&Date.now()<deadline)await delay(10);assert.ok(f.db.get("SELECT 1 FROM mail_search_documents WHERE account_id='b'"));assert.ok(f.db.get("SELECT 1 FROM mail_search_dirty WHERE account_id='a'"));
+ const order=[];const observed={...f.db,run(sql,parameters){const result=f.db.run(sql,parameters);if(sql.startsWith('DELETE FROM mail_search_dirty'))order.push(parameters[0]);return result;}};
+ const indexer=new MailSearchIndexer(observed,'owner');try{indexer.start();const deadline=Date.now()+2000;while(!f.db.get("SELECT 1 FROM mail_search_documents WHERE account_id='b'")&&Date.now()<deadline)await delay(10);assert.ok(f.db.get("SELECT 1 FROM mail_search_documents WHERE account_id='b'"));assert.deepEqual(order.slice(0,2),['a','b'],'busy first account cannot starve second account');
  f.repository.ingestMessage('b',{locator:{provider:'gmail',messageId:'later'},subject:'Later',rfcMessageId:null,memberships:[]});while(!new MailSearchStore(f.db,'owner').search({accountIds:['b'],keywords:['Later']}).total&&Date.now()<deadline)await delay(10);assert.equal(new MailSearchStore(f.db,'owner').search({accountIds:['b'],keywords:['Later']}).total,1);
  }finally{indexer.close();}const before=f.db.get('SELECT count(*) AS n FROM mail_search_documents').n;await delay(80);assert.equal(f.db.get('SELECT count(*) AS n FROM mail_search_documents').n,before);
 }));
+test('busy indexing yields to foreground work and close cancels its queued continuation',async()=>fixture(async f=>{
+ f.seed();for(let n=0;n<4;n++)f.repository.ingestMessage('a',{locator:{provider:'gmail',messageId:'yield-'+n},subject:'Yield',rfcMessageId:null,memberships:[]});
+ let notify,foreground;const seen=new Promise(resolve=>{notify=resolve;});let indexer;
+ const observed={...f.db,run(sql,parameters){const result=f.db.run(sql,parameters);if(sql.startsWith('DELETE FROM mail_search_dirty')&&!foreground)foreground=setImmediate(()=>{
+  const count=f.db.get('SELECT count(*) AS n FROM mail_search_documents').n;indexer.close();notify(count);
+ });return result;}};
+ indexer=new MailSearchIndexer(observed,'owner');let deadline;
+ try{indexer.start();indexer.start();const count=await Promise.race([seen,new Promise((_,reject)=>{deadline=setTimeout(()=>reject(Error('foreground callback starved')),2000);})]);assert.equal(count,1,'only one document may run before the queued foreground callback');await delay(30);assert.equal(f.db.get('SELECT count(*) AS n FROM mail_search_documents').n,1);assert.equal(f.db.get('SELECT count(*) AS n FROM mail_search_dirty').n,4);indexer.start();await delay(30);assert.equal(f.db.get('SELECT count(*) AS n FROM mail_search_documents').n,1,'closed indexer cannot restart');}
+ finally{clearTimeout(deadline);clearImmediate(foreground);indexer.close();}
+}));
+
+test('failed indexing retains durable work, backs off and resumes with another account',async()=>fixture(async f=>{
+ f.seed();f.repository.createAccount({id:'b',provider:'gmail',displayName:'Second'});f.repository.ingestMessage('b',{locator:{provider:'gmail',messageId:'retry'},subject:'Retry',rfcMessageId:null,memberships:[]});
+ let failures=0,attempts=0;const order=[];const observed={...f.db,all(sql,parameters){if(sql.includes('FROM mail_search_dirty q')){attempts++;if(parameters[0]==='a'&&failures++===0)throw Error('synthetic index read failure');}return f.db.all(sql,parameters);},run(sql,parameters){const result=f.db.run(sql,parameters);if(sql.startsWith('DELETE FROM mail_search_dirty'))order.push(parameters[0]);return result;}};
+ const indexer=new MailSearchIndexer(observed,'owner');try{indexer.start();const deadline=Date.now()+4000;while(!failures&&Date.now()<deadline)await delay(5);assert.equal(failures,1);assert.equal(f.db.get('SELECT count(*) AS n FROM mail_search_dirty').n,2);await delay(200);assert.equal(attempts,1,'a failed document must not busy-spin');while(f.db.get('SELECT count(*) AS n FROM mail_search_dirty').n&&Date.now()<deadline)await delay(10);assert.equal(f.db.get('SELECT count(*) AS n FROM mail_search_dirty').n,0);assert.deepEqual(order,['b','a'],'retry rotates accounts without losing failed work');}
+ finally{indexer.close();}
+}));
+
 test('unclosed repeated script tags have bounded extraction and an invalid received date cannot poison the batch',async()=>fixture(async f=>{
  f.seed();const html='<script>'.repeat(250000),raw=Buffer.from('Subject: Adversarial\r\nContent-Type: text/html\r\n\r\n'+html);await f.project(await f.raw(raw));assert.equal(f.projection.read('a',locator).state,'complete');f.db.run("INSERT INTO mail_gmail_metadata(account_id,message_key,internal_date,thread_id,label_ids_json) SELECT account_id,message_key,9000000000000000,'thread','[]' FROM mail_messages WHERE account_id='a'");
  f.repository.ingestMessage('a',{locator:{provider:'gmail',messageId:'following'},rfcMessageId:null,subject:'Following',memberships:[]});const search=new MailSearchStore(f.db,'owner'),started=performance.now();const result=search.rebuild({accountId:'a'});assert.ok(performance.now()-started<1500,'2MiB unmatched tags must not stall the worker');assert.equal(result.pending,0);assert.equal(search.search({keywords:['Following']}).total,1);assert.equal(search.search({keywords:['script']}).total,0);assert.ok(result.incomplete>=1);
