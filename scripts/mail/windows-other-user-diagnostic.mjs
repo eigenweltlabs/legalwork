@@ -24,7 +24,7 @@ try {
  for(const path of [short,long])await writeFile(path,'synthetic-private-file');
  assert(long.length>260);
  execFileSync(shell,['-NoProfile','-NonInteractive','-EncodedCommand',Buffer.from(protect,'utf16le').toString('base64')],{input:JSON.stringify(root),timeout:15000,stdio:['pipe','pipe','pipe']});
- for(const environmentKind of ['native'])for(const variant of ['instrumented'])for(const loadProfile of ['true','false'])for(const shortCommand of ['false','true'])for(const [label,path] of [['short',short],['long',long]]){
+ for(const environmentKind of ['native'])for(const variant of ['instrumented'])for(const loadProfile of ['true'])for(const shortCommand of ['false','true'])for(const [label,path] of [['short',short],['long',long]]){
   const script=variant==='original'?'windows-other-user.ps1':variant==='directory'?'windows-other-user-directory.ps1':'windows-other-user-probe.ps1';
   const started=Date.now();
   const result=spawnSync(shell,['-NoProfile','-NonInteractive','-File',join('scripts/mail',script)],{input:JSON.stringify({path}),encoding:'utf8',timeout:45000,stdio:['pipe','pipe','pipe'],env:{...process.env,MAIL_OTHER_USER_LOAD_PROFILE:loadProfile,MAIL_OTHER_USER_SHORT_COMMAND:shortCommand,...(environmentKind==='native'?{PSModulePath:join(process.env.SystemRoot,'System32/WindowsPowerShell/v1.0/Modules')}:{})}});
