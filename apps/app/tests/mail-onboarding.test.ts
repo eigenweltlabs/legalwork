@@ -1,4 +1,4 @@
-import {buildBrowserFixture} from './fixtures/build-browser';
+import {buildBrowserFixture,electronDisplayEnvironment} from './fixtures/build-browser';
 import {linkTestModules} from '../../../scripts/mail/link-test-modules.mjs';
 import {test,expect} from 'bun:test';
 import {mkdtemp,writeFile,rm,symlink} from 'node:fs/promises';
@@ -62,7 +62,7 @@ test('actual renderer completes browser onboarding and confines iCloud passwords
   `);
   const require=createRequire(resolve(app,'../desktop/package.json'));
   const result=await new Promise<{code:number|null;output:string}>((done,reject)=>{
-   const child=spawn(require('electron'),[probe],{env:{PATH:process.env.PATH,...(process.platform==='win32'?{SystemRoot:process.env.SystemRoot,WINDIR:process.env.WINDIR}:{})},stdio:['ignore','pipe','pipe']});let output='';
+   const child=spawn(require('electron'),[probe],{env:{...electronDisplayEnvironment(),PATH:process.env.PATH,...(process.platform==='win32'?{SystemRoot:process.env.SystemRoot,WINDIR:process.env.WINDIR}:{})},stdio:['ignore','pipe','pipe']});let output='';
    const timer=setTimeout(()=>{child.kill();reject(Error(output+' renderer timeout'));},15000);
    child.stdout.on('data',value=>output+=value);child.stderr.on('data',value=>output+=value);child.on('error',reject);child.on('close',code=>{clearTimeout(timer);done({code,output});});
   });if(result.code!==0)throw Error(result.output);expect(result.output).toContain('ONBOARDING_PASS');
