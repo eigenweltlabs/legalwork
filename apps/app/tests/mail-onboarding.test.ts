@@ -1,3 +1,4 @@
+import {buildBrowserFixture} from './fixtures/build-browser';
 import {linkTestModules} from '../../../scripts/mail/link-test-modules.mjs';
 import {test,expect} from 'bun:test';
 import {mkdtemp,writeFile,rm,symlink} from 'node:fs/promises';
@@ -34,7 +35,7 @@ test('actual renderer completes browser onboarding and confines iCloud passwords
     window.__opened=[];window.__changed=0;window.__LEGALWORK_ELECTRON__={shell:{openExternal:async url=>window.__opened.push(url)}};
     createRoot(document.getElementById('root')).render(<MailOnboarding client={new MailClient('http://127.0.0.1:${server.port}','synthetic')} accounts={[]} onChanged={()=>window.__changed++} onClose={()=>{}}/>);
   `);
-  const built=await Bun.build({entrypoints:[entry],outdir:root,target:'browser',alias:{'@':join(app,'src')},plugins:[{name:'fixture-zod',setup(build){build.onResolve({filter:/^zod$/},()=>({path:join(app,'node_modules/zod/index.js')}));}}],minify:true});if(!built.success)throw Error(built.logs.map(String).join('\n'));
+  await buildBrowserFixture({entrypoints:[entry],outdir:root,alias:{'@':join(app,'src')},minify:true});
   await writeFile(join(root,'index.html'),'<meta charset="utf-8"><div id="root"></div><script src="entry.js"></script>');
   const probe=join(root,'probe.cjs');await writeFile(probe,`
     const {app,BrowserWindow}=require('electron');const assert=require('node:assert/strict');
