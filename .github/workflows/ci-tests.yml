@@ -308,6 +308,17 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Prepare sandboxed Electron on Linux
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          set -euo pipefail
+          sandbox_path="$(pnpm --filter @legalwork/desktop exec node -p "require('node:path').join(require('node:path').dirname(require('electron')), 'chrome-sandbox')")"
+          test -f "$sandbox_path"
+          sudo chown root:root "$sandbox_path"
+          sudo chmod 4755 "$sandbox_path"
+          command -v xvfb-run
+
       - name: Prepare checksum-pinned Node for worker tests
         if: needs.changes.outputs.server == 'true' || needs.changes.outputs.desktop == 'true'
         run: node apps/desktop/scripts/prepare-node-runtime.mjs
@@ -326,7 +337,13 @@ jobs:
 
       - name: Run app unit tests
         if: needs.changes.outputs.app == 'true'
-        run: pnpm --filter @legalwork/app test
+        shell: bash
+        run: |
+          if [ "$RUNNER_OS" = Linux ]; then
+            xvfb-run --auto-servernum pnpm --filter @legalwork/app test
+          else
+            pnpm --filter @legalwork/app test
+          fi
       - name: Verify engine source policy, preparation and immutable artifacts
         if: needs.changes.outputs.engine == 'true' || needs.changes.outputs.tooling == 'true'
         run: node --test packages/opencode-release/*.test.mjs packages/opencode-release/build/*.test.mjs
