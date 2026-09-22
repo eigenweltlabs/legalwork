@@ -1,4 +1,4 @@
-import {buildBrowserFixture} from './fixtures/build-browser';
+import {buildBrowserFixture,electronDisplayEnvironment} from './fixtures/build-browser';
 import { test, expect } from 'bun:test';
 import { mkdtemp,writeFile,rm,copyFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -59,6 +59,6 @@ test('isolated compose UI saves/reopens incomplete work, formats safely, attache
     console.log('COMPOSE_PASS');app.exit(0);
    }).catch(error=>{console.error(error);app.exit(1)});
   `);
-  const require=createRequire(resolve(app,'../desktop/package.json'));const outcome=await new Promise<{code:number|null;output:string}>((done,reject)=>{const child=spawn(require('electron'),[probe],{env:{PATH:process.env.PATH,HOME:process.env.HOME,...(process.platform==='win32'?{SystemRoot:process.env.SystemRoot,WINDIR:process.env.WINDIR}:{})},stdio:['ignore','pipe','pipe']});let output='';const timer=setTimeout(()=>{child.kill();reject(Error(output+' compose UI timeout'));},20000);child.stdout.on('data',value=>output+=value);child.stderr.on('data',value=>output+=value);child.on('error',reject);child.on('close',code=>{clearTimeout(timer);done({code,output});});});if(outcome.code!==0)throw Error(outcome.output);expect(outcome.output).toContain('COMPOSE_PASS');expect(saveCount).toBeGreaterThan(4);expect([...saved.values()][0].content.attachments).toHaveLength(2);if(process.env.EIG142_SCREENSHOT)await copyFile(join(root,'compose.png'),process.env.EIG142_SCREENSHOT);
+  const require=createRequire(resolve(app,'../desktop/package.json'));const outcome=await new Promise<{code:number|null;output:string}>((done,reject)=>{const child=spawn(require('electron'),[probe],{env:{...electronDisplayEnvironment(),PATH:process.env.PATH,HOME:process.env.HOME,...(process.platform==='win32'?{SystemRoot:process.env.SystemRoot,WINDIR:process.env.WINDIR}:{})},stdio:['ignore','pipe','pipe']});let output='';const timer=setTimeout(()=>{child.kill();reject(Error(output+' compose UI timeout'));},20000);child.stdout.on('data',value=>output+=value);child.stderr.on('data',value=>output+=value);child.on('error',reject);child.on('close',code=>{clearTimeout(timer);done({code,output});});});if(outcome.code!==0)throw Error(outcome.output);expect(outcome.output).toContain('COMPOSE_PASS');expect(saveCount).toBeGreaterThan(4);expect([...saved.values()][0].content.attachments).toHaveLength(2);if(process.env.EIG142_SCREENSHOT)await copyFile(join(root,'compose.png'),process.env.EIG142_SCREENSHOT);
  }finally{server.stop(true);await rm(root,{recursive:true,force:true});}
 },30000);
