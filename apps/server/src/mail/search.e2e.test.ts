@@ -41,5 +41,5 @@ test('actual HTTP -> service -> Node worker -> encrypted local search, authoriza
   await service.lock();expect((await post('/search',{})).status).toBe(423);await service.unlock();expect((await (await post('/search',{keywords:['Prüfung']})).json()).total).toBe(1);
   expect((await post('/search/rebuild',{accountId:'a',reset:true,limit:1})).status).toBe(200);
   const routes:Route[]=[];registerMailRoutes(routes,'0.0.0.0',service);expect(routes).toHaveLength(0);
- }finally{await server?.stop();await service?.stop();key.fill(0);for(const name of envNames){const old=originalEnv.get(name);if(old===undefined)delete process.env[name];else process.env[name]=old;}await rm(root,{recursive:true,force:true});}
+ }finally{await server?.stop();await service?.stop();key.fill(0);for(const name of envNames){const old=originalEnv.get(name);if(old===undefined)delete process.env[name];else process.env[name]=old;}await rm(root,{recursive:true,force:true,maxRetries:5,retryDelay:200});}
 },60000);

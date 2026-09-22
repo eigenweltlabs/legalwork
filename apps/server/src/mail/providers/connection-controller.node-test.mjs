@@ -69,10 +69,17 @@ test('close is idempotent, blocks new flows and fences late listener startup',as
  const startup=deferred();let cancelled=0;const c=make({oauth:async()=>startup.promise});const begin=c.begin(gmail);const rejected=assert.rejects(begin,/closed/);
  await c.close();await c.close();await rejected;startup.resolve({...flow(Promise.resolve(tokens())),cancel:async()=>{cancelled++;}});await new Promise(r=>setTimeout(r,0));assert.ok(cancelled>=1);assert.equal(accounts.listAccounts().length,0);await assert.rejects(c.begin(gmail),/closed/);
 }));
-test('expiry is distinct, provider count is bounded and terminal statuses expire',async()=>fixture(async({make})=>{
+test('expiry is distinct, provider count is bounded and terminal statuses expire',async t=>fixture(async({make})=>{
+ // Expiry and retention are separate boundaries; real 15ms sleeps can cross both
+ // on coarse Windows timers or a busy host, pruning the status before inspection.
+ t.mock.timers.enable({apis:['Date','setTimeout'],now:Date.now()});
  const c=make({oauth:async()=>flow(new Promise(()=>{})),lifetimeMs:10,retentionMs:10,maxRetained:1});const begun=await c.begin(gmail);
- await assert.rejects(c.begin(gmail),/provider_busy/);await new Promise(r=>setTimeout(r,15));assert.equal(c.poll(begun.connectionId).state,'expired');await assert.rejects(c.begin(gmail),/capacity/);
- await new Promise(r=>setTimeout(r,15));assert.throws(()=>c.poll(begun.connectionId),/not_found/);const next=await c.begin(gmail);await c.cancel(next.connectionId);assert.equal(c.poll(next.connectionId).state,'cancelled');
+ await assert.rejects(c.begin(gmail),/provider_busy/);
+ t.mock.timers.tick(9);assert.equal(c.poll(begun.connectionId).state,'pending');
+ t.mock.timers.tick(1);assert.equal(c.poll(begun.connectionId).state,'expired');await assert.rejects(c.begin(gmail),/capacity/);
+ t.mock.timers.tick(9);assert.equal(c.poll(begun.connectionId).state,'expired');
+ t.mock.timers.tick(1);assert.throws(()=>c.poll(begun.connectionId),/not_found/);
+ const next=await c.begin(gmail);await c.cancel(next.connectionId);assert.equal(c.poll(next.connectionId).state,'cancelled');
 }));
 test('resource grants gate connections while missing refresh remains explicit nonrenewable',async()=>fixture(async({make,accounts})=>{
  const denied=make({oauth:async()=>flow(Promise.resolve(tokens({grantedScopes:null})))});const rejected=await settle(denied,(await denied.begin(gmail)).connectionId);assert.equal(rejected.error,'permissions_missing');assert.equal(accounts.listAccounts().length,0);
