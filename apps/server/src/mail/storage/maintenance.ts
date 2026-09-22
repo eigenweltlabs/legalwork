@@ -61,7 +61,8 @@ export async function prepareMailStore(input: MailMaintenanceInput): Promise<{ a
     if(input.restore){const search=new MailSearchStore(destination,input.ownerId,{offlineMaintenance:true});for(const account of destination.all("SELECT id FROM mail_accounts ORDER BY id")){if(typeof account.id!=="string")throw new MailMaintenanceError();let result=search.rebuild({accountId:account.id,reset:true,limit:25});while(result.pending>0){result=search.rebuild({accountId:account.id,limit:25});if(!result.processed&&result.pending)throw new MailMaintenanceError();}}}
     if (destination.get("PRAGMA wal_checkpoint(TRUNCATE)")?.busy !== 0) throw new MailMaintenanceError();
     destination.close(); destination = undefined;
-    const file = await open(input.destinationPath, constants.O_RDONLY | constants.O_NOFOLLOW); try { await file.sync(); } finally { await file.close(); }
+    // Windows FlushFileBuffers requires a writable handle; do not truncate the candidate.
+    const file = await open(input.destinationPath, constants.O_RDWR | constants.O_NOFOLLOW); try { await file.sync(); } finally { await file.close(); }
     return { accounts:inventory.accounts,messages:inventory.messages,references:inventory.references,schemaVersion:MAIL_SCHEMA_VERSION,inventory };
   } catch { throw new MailMaintenanceError(); }
   finally { source?.close(); destination?.close(); oldKey.fill(0); newKey.fill(0); }
