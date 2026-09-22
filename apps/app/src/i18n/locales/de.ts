@@ -3154,13 +3154,20 @@ const de = {
   "docx.editor_not_ready": "Der Dokumenteditor ist noch nicht bereit.",
   "docx.unknown_change_ids":
     "Keine dieser IDs für nachverfolgte Änderungen existiert im geöffneten Dokument.",
-  "docx.font_missing_title": "Schrift nicht verfügbar",
-  "docx.font_missing_body":
+  "docx.font_missing_title_one": "Schrift nicht verfügbar",
+  "docx.font_missing_title_other": "Schriften nicht verfügbar",
+  "docx.font_missing_body_one":
     "Dieses Dokument verwendet {fonts}. Ohne sie können Zeilen- und Seitenumbrüche abweichen. Beim Laden sieht Google den Namen der Schrift und Ihre IP-Adresse, nie Ihr Dokument.",
-  "docx.font_missing_confirm": "Schrift herunterladen",
-  "docx.font_missing_cancel": "Ersatzschrift verwenden",
-  "docx.font_download_failed":
-    "Die Schrift konnte nicht geladen werden. Es wird eine Ersatzschrift verwendet.",
+  "docx.font_missing_body_other":
+    "Dieses Dokument verwendet {fonts}. Ohne sie können Zeilen- und Seitenumbrüche abweichen. Beim Laden sieht Google die Namen der Schriften und Ihre IP-Adresse, nie Ihr Dokument.",
+  "docx.font_missing_confirm_one": "Schrift herunterladen",
+  "docx.font_missing_confirm_other": "Schriften herunterladen",
+  "docx.font_missing_cancel_one": "Ersatzschrift verwenden",
+  "docx.font_missing_cancel_other": "Ersatzschriften verwenden",
+  "docx.font_download_failed_one":
+    "{fonts} ist bei Google nicht verfügbar. Es wird eine Ersatzschrift verwendet.",
+  "docx.font_download_failed_other":
+    "{fonts} sind bei Google nicht verfügbar. Es werden Ersatzschriften verwendet.",
   "docx.recovery_unavailable":
     "Die Entwurfswiederherstellung ist auf diesem Gerät nicht verfügbar. Speichern Sie regelmäßig.",
   "docx.checking_draft": "Es wird nach einem ungespeicherten Entwurf gesucht…",

@@ -27,6 +27,49 @@ async function docxNaming(...families: string[]): Promise<ArrayBuffer> {
   return out;
 }
 
+/**
+ * A .docx whose body text defers to the theme, the way Word writes a new
+ * document: the styles name a slot, and only the theme says which family it is.
+ */
+async function docxWithTheme(options: {
+  major: string;
+  minor: string;
+  /** How the document refers to the theme; omit for a theme nothing uses. */
+  reference?: "minor" | "major" | "drawing-minor" | "drawing-major" | "none";
+}): Promise<ArrayBuffer> {
+  const { default: JSZip } = await import("jszip");
+  const reference = options.reference ?? "minor";
+  const styles =
+    reference === "minor"
+      ? '<w:rFonts w:asciiTheme="minorHAnsi" w:hAnsiTheme="minorHAnsi"/>'
+      : reference === "major"
+        ? '<w:rFonts w:asciiTheme="majorHAnsi" w:hAnsiTheme="majorHAnsi"/>'
+        : "";
+  const drawing =
+    reference === "drawing-minor"
+      ? '<a:latin typeface="+mn-lt"/>'
+      : reference === "drawing-major"
+        ? '<a:latin typeface="+mj-lt"/>'
+        : "";
+  const zip = new JSZip();
+  zip.file(
+    "word/styles.xml",
+    `<?xml version="1.0"?><w:styles xmlns:w="x"><w:docDefaults><w:rPrDefault><w:rPr>${styles}</w:rPr></w:rPrDefault></w:docDefaults></w:styles>`,
+  );
+  zip.file(
+    "word/document.xml",
+    `<?xml version="1.0"?><w:document xmlns:w="x" xmlns:a="y"><w:body><w:p><w:r><w:rPr>${drawing}</w:rPr><w:t>x</w:t></w:r></w:p></w:body></w:document>`,
+  );
+  zip.file(
+    "word/theme/theme1.xml",
+    `<?xml version="1.0"?><a:theme xmlns:a="y"><a:themeElements><a:fontScheme name="Office">` +
+      `<a:majorFont><a:latin typeface="${options.major}" panose="02110004020202020204"/><a:ea typeface=""/><a:cs typeface=""/></a:majorFont>` +
+      `<a:minorFont><a:latin typeface="${options.minor}" panose="02110004020202020204"/><a:ea typeface=""/><a:cs typeface=""/></a:minorFont>` +
+      `</a:fontScheme></a:themeElements></a:theme>`,
+  );
+  return await zip.generateAsync({ type: "arraybuffer" });
+}
+
 const originalWindow = globalThis.window;
 
 function memoryStorage(): Storage {
@@ -100,6 +143,49 @@ describe("unresolvedDocumentFonts", () => {
 
   test("returns nothing for a package it cannot read", async () => {
     expect(await unresolvedDocumentFonts(new ArrayBuffer(8))).toEqual([]);
+  });
+
+  test("flags the theme font of a document that defers to the theme", async () => {
+    // What Word 365 writes for a new blank document: no font named in the text,
+    // Aptos in the theme. Missing this meant the app's most common document
+    // silently fell back to another face.
+    const buffer = await docxWithTheme({ major: "Aptos Display", minor: "Aptos" });
+    expect(await unresolvedDocumentFonts(buffer)).toEqual(["Aptos"]);
+  });
+
+  test("flags the major theme font when a heading style uses that slot", async () => {
+    const buffer = await docxWithTheme({ major: "Aptos Display", minor: "Aptos", reference: "major" });
+    expect(await unresolvedDocumentFonts(buffer)).toEqual(["Aptos Display"]);
+  });
+
+  test("reads +mn-lt and +mj-lt references from shape text", async () => {
+    const minor = await docxWithTheme({ major: "Aptos Display", minor: "Aptos", reference: "drawing-minor" });
+    expect(await unresolvedDocumentFonts(minor)).toEqual(["Aptos"]);
+    const major = await docxWithTheme({ major: "Aptos Display", minor: "Aptos", reference: "drawing-major" });
+    expect(await unresolvedDocumentFonts(major)).toEqual(["Aptos Display"]);
+  });
+
+  test("ignores a theme font when nothing defers to the theme", async () => {
+    const buffer = await docxWithTheme({ major: "Aptos Display", minor: "Aptos", reference: "none" });
+    expect(await unresolvedDocumentFonts(buffer)).toEqual([]);
+  });
+
+  test("ignores a theme font that is bundled anyway", async () => {
+    // The older Office theme, still in most documents in circulation.
+    const buffer = await docxWithTheme({ major: "Calibri Light", minor: "Calibri" });
+    expect(await unresolvedDocumentFonts(buffer)).toEqual([]);
+  });
+
+  test("names a font used only by shape text", async () => {
+    const { default: JSZip } = await import("jszip");
+    const zip = new JSZip();
+    zip.file(
+      "word/document.xml",
+      '<?xml version="1.0"?><w:document xmlns:w="x" xmlns:a="y"><w:body><w:p><w:r><w:rPr>' +
+        '<a:latin typeface="Zeta Display"/></w:rPr><w:t>x</w:t></w:r></w:p></w:body></w:document>',
+    );
+    const buffer = await zip.generateAsync({ type: "arraybuffer" });
+    expect(await unresolvedDocumentFonts(buffer)).toEqual(["Zeta Display"]);
   });
 
   test("the shipped fixture needs no font download", async () => {

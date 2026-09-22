@@ -58,12 +58,51 @@ function decided(): Decisions {
 }
 
 const FONT_ATTR = /w:(?:ascii|hAnsi|cs)="([^"]+)"/g;
+/** DrawingML — text boxes and shapes — names its fonts as <a:latin typeface="…">. */
+const DRAWING_FONT = /<a:latin[^>]*typeface="([^"]*)"/g;
 /** Word writes theme references as +mn-lt / +mj-lt rather than a family name. */
 const THEME_REFERENCE = /^[+@]/;
+/** A style or run deferring to the theme: w:asciiTheme="minorHAnsi" and friends. */
+const THEME_ATTR = /w:(?:ascii|hAnsi)Theme="(major|minor)[A-Za-z]*"/g;
+/** The family a theme slot resolves to: <a:minorFont><a:latin typeface="Aptos"/>. */
+const THEME_FONT = /<a:(major|minor)Font>[\s\S]*?<a:latin[^>]*typeface="([^"]*)"/g;
 
-/** Every font family named anywhere in the document package. */
+type ThemeSlot = "major" | "minor";
+
+function themeSlot(reference: string): ThemeSlot | null {
+  if (reference.startsWith("+mj") || reference.startsWith("+major")) return "major";
+  if (reference.startsWith("+mn") || reference.startsWith("+minor")) return "minor";
+  return null;
+}
+
+/**
+ * Every font family the document asks for.
+ *
+ * Two ways a .docx names a font. Most parts name it outright (w:ascii, and
+ * <a:latin> for shape text). But body text and headings usually defer to the
+ * document theme — w:asciiTheme="minorHAnsi" — and only word/theme/theme1.xml
+ * says which family that is. Word 365 has written Aptos there since 2024, so
+ * skipping the theme would miss the font of every new document it creates.
+ *
+ * A theme font counts only when some part actually defers to that slot, so a
+ * theme nothing uses is not reported as missing.
+ */
 async function documentFontFamilies(buffer: ArrayBuffer): Promise<Set<string>> {
   const families = new Set<string>();
+  const slotsInUse = new Set<ThemeSlot>();
+  const themeParts: string[] = [];
+
+  const collect = (value: string) => {
+    const family = value.trim();
+    if (!family) return;
+    if (THEME_REFERENCE.test(family)) {
+      const slot = themeSlot(family);
+      if (slot) slotsInUse.add(slot);
+      return;
+    }
+    families.add(family);
+  };
+
   const zip = await JSZip.loadAsync(buffer);
   const parts = Object.keys(zip.files).filter(
     (name) => name.startsWith("word/") && name.endsWith(".xml"),
@@ -72,9 +111,21 @@ async function documentFontFamilies(buffer: ArrayBuffer): Promise<Set<string>> {
     const file = zip.file(name);
     if (!file) continue;
     const xml = await file.async("string");
-    for (const match of xml.matchAll(FONT_ATTR)) {
-      const family = match[1].trim();
-      if (family && !THEME_REFERENCE.test(family)) families.add(family);
+    if (name.startsWith("word/theme/")) {
+      themeParts.push(xml);
+      continue;
+    }
+    for (const match of xml.matchAll(FONT_ATTR)) collect(match[1]);
+    for (const match of xml.matchAll(DRAWING_FONT)) collect(match[1]);
+    for (const match of xml.matchAll(THEME_ATTR)) slotsInUse.add(match[1] as ThemeSlot);
+  }
+
+  if (slotsInUse.size > 0) {
+    for (const xml of themeParts) {
+      for (const match of xml.matchAll(THEME_FONT)) {
+        const family = match[2].trim();
+        if (family && slotsInUse.has(match[1] as ThemeSlot)) families.add(family);
+      }
     }
   }
   return families;
@@ -106,12 +157,18 @@ export async function unresolvedDocumentFonts(buffer: ArrayBuffer): Promise<stri
  * the duration. The flag is page-global and defaults to off, so it is restored
  * immediately: consent covers the fonts the user was shown, not the next
  * document that happens to open.
+ *
+ * Returns the families that still cannot be rendered. Google does not have
+ * every font a document can name — Calibri Light and Aptos are Microsoft's,
+ * a firm's own face is nobody's — and the loader reports that by resolving
+ * without the font rather than by throwing, so the caller has to ask.
  */
-export async function loadFontsFromGoogle(families: string[]): Promise<void> {
+export async function loadFontsFromGoogle(families: string[]): Promise<string[]> {
   setGoogleFontsEnabled(true);
   try {
     await loadFonts(families);
   } finally {
     setGoogleFontsEnabled(false);
   }
+  return families.filter((family) => !canRenderFont(family));
 }

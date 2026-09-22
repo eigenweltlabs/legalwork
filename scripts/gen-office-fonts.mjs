@@ -6,10 +6,21 @@
  * which told Google the typefaces inside a client's file. That lookup is off
  * (setGoogleFontsEnabled(false) for .docx, a patch for .pptx), so the faces it
  * used to fetch are bundled instead: one @font-face per Office family aliasing
- * it to the metrically compatible open clone the editor itself picked.
+ * it to the open substitute the editor itself picked.
+ *
+ * Two kinds of substitute, and the difference matters for a redlining tool:
+ *
+ *   - METRIC_COMPATIBLE (6 of 23): Carlito, Caladea, Arimo, Tinos and Cousine
+ *     were drawn to the advance widths of Calibri, Cambria, Arial/Helvetica,
+ *     Times New Roman and Courier New. Every line breaks where Word breaks it,
+ *     so pagination holds.
+ *   - Everything else: a similar-looking face with its own widths. Georgia is
+ *     not Times, Verdana is not Open Sans. The text is readable and close in
+ *     colour, but lines re-wrap and page counts can differ from Word.
  *
  * FONT_MAPPING mirrors the table inside @eigenpal/docx-editor-core, so a
- * document renders exactly as it did when the clone came off the network.
+ * document renders exactly as it did when the substitute came off the network —
+ * this bundles what was already being fetched, it does not improve on it.
  * `local()` comes first in every rule, so a machine that really has the font
  * uses it and no file is fetched at all.
  *
@@ -26,7 +37,7 @@ const OUT = resolve(repoRoot, ARTIFACTS, "office-fonts.css");
 // covers (the font-consent prompt). Generated alongside so the two cannot drift.
 const OUT_FAMILIES = resolve(repoRoot, ARTIFACTS, "office-font-families.ts");
 
-/** Office family -> metrically compatible open clone. Mirrors FONT_MAPPING. */
+/** Office family -> open substitute. Mirrors FONT_MAPPING in the editor core. */
 const FONT_MAPPING = {
   "Calibri": "carlito",
   "Cambria": "caladea",
@@ -52,6 +63,15 @@ const FONT_MAPPING = {
   "Lucida Console": "inconsolata",
   "Monaco": "fira-code",
 };
+
+/**
+ * The mappings whose substitute shares the original's advance widths, so line
+ * and page breaks match Word. Per pair, not per substitute: Tinos is metric
+ * compatible with Times New Roman but not with Georgia, which is a wider face.
+ */
+const METRIC_COMPATIBLE = new Set([
+  "Calibri", "Cambria", "Arial", "Helvetica", "Times New Roman", "Courier New",
+]);
 
 /** unicode-range values, copied from fontsource's own per-subset CSS. */
 const SUBSETS = {
@@ -99,8 +119,11 @@ const lines = [
   " * A document names fonts like Calibri or Times New Roman that only exist on",
   " * Windows. Rather than fetch a substitute from Google Fonts — which would",
   " * disclose the typefaces inside a client's file — each family is aliased to",
-  " * the metrically compatible open clone that the editor used to download.",
-  " * Same advance widths, so line and page breaks match the original.",
+  " * the open substitute that the editor used to download.",
+  " *",
+  " * Each rule below says which kind it is. Six mappings are metric compatible:",
+  " * same advance widths, so lines and pages break as in Word. The rest only",
+  " * look similar, so text stays readable but can re-wrap.",
   " *",
   " * `local()` is first in every rule: a machine that really has the font uses",
   " * it and nothing is fetched at all.",
@@ -129,7 +152,10 @@ for (const [family, clone] of Object.entries(FONT_MAPPING)) {
       }
     }
   }
-  lines.push(`/* ${family} -> ${clone} */`, ...rules, "");
+  const kind = METRIC_COMPATIBLE.has(family)
+    ? "metric compatible: same widths, breaks as in Word"
+    : "look-alike: different widths, lines can re-wrap";
+  lines.push(`/* ${family} -> ${clone} (${kind}) */`, ...rules, "");
   ruleCount += rules.length;
 }
 

@@ -23,9 +23,11 @@ import { t } from "@/i18n";
 
 // The editor otherwise injects a fonts.googleapis.com stylesheet for any font a
 // document names that isn't installed locally — which would tell Google the
-// typefaces used in a client's file. office-fonts.css covers the Office
-// fonts it used to fetch, with metrically compatible clones bundled in the app,
-// so documents still paginate like Word. Page-global, so it is set once at
+// typefaces used in a client's file. office-fonts.css bundles the substitutes
+// it used to fetch, so nothing is disclosed and nothing changes about how a
+// document renders. Calibri, Cambria, Arial, Helvetica, Times New Roman and
+// Courier New keep Word's pagination, being metric compatible; the other
+// families are look-alikes and can re-wrap. Page-global, so it is set once at
 // import, before any document.
 setGoogleFontsEnabled(false);
 
@@ -201,15 +203,30 @@ function LiveDocxEditor({ name, content, author, readOnly = false, onSave, onDir
       .catch(() => {});
   }, [documentBuffer]);
 
+  const fontsUnavailable = useCallback((families: string[]) => {
+    // Say so rather than leaving a pressed button looking like it did nothing.
+    // Remember the answer too, so the same dead end is not offered again — but
+    // not when this machine was simply offline, where a later open can still
+    // succeed.
+    if (navigator.onLine !== false) rememberFontDecision(families, false);
+    toast.error(t("docx.font_download_failed", { count: families.length, fonts: families.join(", ") }));
+  }, []);
+
   const resolveFonts = useCallback((allowed: boolean) => {
     const families = missingFonts;
     setMissingFonts([]);
-    rememberFontDecision(families, allowed);
-    if (!allowed) return;
+    if (!allowed) {
+      rememberFontDecision(families, false);
+      return;
+    }
     void loadFontsFromGoogle(families)
-      .then(fitPage)
-      .catch(() => toast.error(t("docx.font_download_failed")));
-  }, [missingFonts, fitPage]);
+      .then((failed) => {
+        fitPage();
+        rememberFontDecision(families.filter((family) => !failed.includes(family)), true);
+        if (failed.length > 0) fontsUnavailable(failed);
+      })
+      .catch(() => fontsUnavailable(families));
+  }, [missingFonts, fitPage, fontsUnavailable]);
 
   const checkDocument = useCallback(() => {
     const document = editorRef.current?.getDocument();
@@ -409,10 +426,10 @@ function LiveDocxEditor({ name, content, author, readOnly = false, onSave, onDir
       </div>
       <ConfirmModal
         open={missingFonts.length > 0}
-        title={t("docx.font_missing_title")}
-        message={t("docx.font_missing_body", { fonts: missingFonts.join(", ") })}
-        confirmLabel={t("docx.font_missing_confirm")}
-        cancelLabel={t("docx.font_missing_cancel")}
+        title={t("docx.font_missing_title", { count: missingFonts.length })}
+        message={t("docx.font_missing_body", { count: missingFonts.length, fonts: missingFonts.join(", ") })}
+        confirmLabel={t("docx.font_missing_confirm", { count: missingFonts.length })}
+        cancelLabel={t("docx.font_missing_cancel", { count: missingFonts.length })}
         confirmButtonVariant="secondary"
         onConfirm={() => resolveFonts(true)}
         onCancel={() => resolveFonts(false)}
