@@ -1,4 +1,4 @@
-import {mkdir,readdir,realpath,symlink} from 'node:fs/promises';
+import {mkdir,readdir,realpath,symlink,lstat,unlink,rmdir} from 'node:fs/promises';
 import {join} from 'node:path';
 
 // Windows resolves relative pnpm links beneath an aggregate junction from the
@@ -13,4 +13,22 @@ export async function linkTestModules(source,destination,platform=process.platfo
       for(const name of await readdir(join(source,entry)))await symlink(await realpath(join(source,entry,name)),join(destination,entry,name),'junction');
     }else await symlink(await realpath(join(source,entry)),join(destination,entry),'junction');
   }
+}
+
+// Remove only the fixture-owned links, never recursively traverse their targets.
+// Explicit unlinking also keeps Windows junction cleanup separate from root removal.
+export async function unlinkTestModules(destination){
+  let stat;try{stat=await lstat(destination);}catch(error){if(error.code==='ENOENT')return;throw error;}
+  if(stat.isSymbolicLink()){await unlink(destination);return;}
+  for(const entry of await readdir(destination)){
+    const path=join(destination,entry),entryStat=await lstat(path);
+    if(entryStat.isSymbolicLink()){await unlink(path);continue;}
+    if(!entry.startsWith('@')||!entryStat.isDirectory())throw new Error('Unexpected entry in test module links');
+    for(const name of await readdir(path)){
+      const scoped=join(path,name);if(!(await lstat(scoped)).isSymbolicLink())throw new Error('Unexpected scoped test module entry');
+      await unlink(scoped);
+    }
+    await rmdir(path);
+  }
+  await rmdir(destination);
 }

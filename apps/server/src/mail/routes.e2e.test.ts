@@ -1,4 +1,4 @@
-import {linkTestModules} from '../../../../scripts/mail/link-test-modules.mjs';
+import {linkTestModules,unlinkTestModules} from '../../../../scripts/mail/link-test-modules.mjs';
 import { createRequire } from 'node:module';
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import { mkdtemp, rm, mkdir, realpath, symlink, writeFile } from "node:fs/promises";
@@ -37,7 +37,8 @@ afterEach(async () => {
     const value = originalEnv.get(name);
     if (value === undefined) delete process.env[name]; else process.env[name] = value;
   }
-  await rm(directory, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
+  await unlinkTestModules(join(directory,"runtime","node_modules"));
+  await rm(directory, { recursive: true, force: true });
 });
 function mockService() {
   let state: MailServiceStatus["state"] = "locked";
