@@ -1,7 +1,7 @@
 import { enforceMailWindowsAcl } from "./windows-acl.js";
 import { constants } from "node:fs";
 import { lstat, mkdir, open, stat } from "node:fs/promises";
-import { dirname, isAbsolute } from "node:path";
+import { dirname, isAbsolute, toNamespacedPath } from "node:path";
 import { createRequire } from "node:module";
 import type { MailDatabase, MailSqlRow, MailSqlValue } from "./database-interface.js";
 
@@ -107,7 +107,9 @@ export async function openEncryptedMailDatabase(options: EncryptedMailDatabaseOp
       catch (error) { if (!hasCode(error, "ENOENT")) throw error; }
     }
 
-    native = new Database(path, { fileMustExist: true });
+    // The native Win32 VFS needs the extended-path prefix beyond MAX_PATH.
+    // Node filesystem operations already support these paths; retain their ACL checks.
+    native = new Database(toNamespacedPath(path), { fileMustExist: true });
     native.pragma("cipher='sqlcipher'");
     native.pragma("legacy=0");
     native.pragma("temp_store=MEMORY");

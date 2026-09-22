@@ -40,10 +40,12 @@ test('main-process maintenance promotes generations and restores a passphrase ba
   const hangingEntry=join(f.directory,'hanging.cjs'),pidFile=join(f.directory,'child.pid');
   await writeFile(hangingEntry,`process.stdin.resume();process.stdin.on('end',()=>{require('node:fs').writeFileSync(${JSON.stringify(pidFile)},String(process.pid));setInterval(()=>{},1000)});`);
   const hanging=createMailStoreMaintenance({...options,entryPoint:hangingEntry}),abort=new AbortController();
-  const pending=hanging.rotate(abort.signal);let pid;
-  try { for(let attempt=0;attempt<100;attempt++){try{pid=Number(await readFile(pidFile,'utf8'));break;}catch{await new Promise(resolve=>setTimeout(resolve,10));}}assert.ok(pid); }
-  finally { abort.abort(); }
-  await assert.rejects(pending,{message:'mail_maintenance_failed'});assert.throws(()=>process.kill(pid,0),{code:'ESRCH'});
+  const pending=assert.rejects(hanging.rotate(abort.signal),{message:'mail_maintenance_failed'});let pid;
+  // Windows validates multiple protected ACLs before starting this child.
+  const deadline=Date.now()+10000;
+  try { while(Date.now()<deadline){try{pid=Number(await readFile(pidFile,'utf8'));break;}catch{await new Promise(resolve=>setTimeout(resolve,25));}}assert.ok(pid); }
+  finally { abort.abort(); await pending; }
+  assert.throws(()=>process.kill(pid,0),{code:'ESRCH'});
   const backup=join(f.directory,'backup'),passphrase='synthetic recovery passphrase long enough';await manager.exportBackup(backup,passphrase);
   const before=await readFile(join(backup,'mail.sqlite'));
   // A damaged active database must not prevent clean candidate recovery from the verified backup.
