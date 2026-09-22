@@ -565,14 +565,11 @@ importers:
       ws:
         specifier: ^8.19.0
         version: 8.19.0
-      tesseract.js:
-        specifier: 7.0.0
-        version: 7.0.0(patch_hash=099172144c6ab81e0397c535957ebd0d4ff6e7acbc4ea3327107f0214dc78ed8)(encoding@0.1.13)
       yaml:
         specifier: ^2.6.1
         version: 2.8.2
       zod:
-        specifier: ^4.3.6
+        specifier: 4.3.6
         version: 4.3.6
     devDependencies:
       '@legalwork/types':
@@ -756,14 +753,23 @@ importers:
       saxes:
         specifier: 6.0.0
         version: 6.0.0
+      smb3-client:
+        specifier: 0.2.0
+        version: 0.2.0(patch_hash=6750c79b7b43bafb5401de9ce8b3aaddd1332b0bc77dccc00e118c2e1d064a9d)
+      ssh2-sftp-client:
+        specifier: ^12.1.1
+        version: 12.1.1
       tesseract.js:
         specifier: 7.0.0
         version: 7.0.0(patch_hash=099172144c6ab81e0397c535957ebd0d4ff6e7acbc4ea3327107f0214dc78ed8)(encoding@0.1.13)
+      webdav:
+        specifier: ^5.10.0
+        version: 5.10.0
       yaml:
         specifier: ^2.6.1
         version: 2.8.2
       zod:
-        specifier: ^4.3.6
+        specifier: 4.3.6
         version: 4.3.6
     devDependencies:
       '@legalwork/openui':
@@ -10232,10 +10238,10 @@ snapshots:
     dependencies:
       zod: 3.25.76
 
-  '@ai-sdk/gateway@3.0.88(zod@4.5.4)':
+  '@ai-sdk/gateway@3.0.88(zod@4.3.6)':
     dependencies:
       '@ai-sdk/provider': 3.0.8
-      '@ai-sdk/provider-utils': 4.0.22(zod@4.5.4)
+      '@ai-sdk/provider-utils': 4.0.22(zod@4.3.6)
       '@vercel/oidc': 3.1.0
       zod: 4.5.4
     optional: true
@@ -10247,7 +10253,7 @@ snapshots:
       '@vercel/oidc': 3.1.0
       zod: 4.6.7
 
-  '@ai-sdk/provider-utils@4.0.22(zod@4.5.4)':
+  '@ai-sdk/provider-utils@4.0.22(zod@4.3.6)':
     dependencies:
       '@ai-sdk/provider': 3.0.8
       '@standard-schema/spec': 1.1.0
@@ -15480,9 +15486,9 @@ snapshots:
 
   ai@6.0.146(zod@4.5.4):
     dependencies:
-      '@ai-sdk/gateway': 3.0.88(zod@4.5.4)
+      '@ai-sdk/gateway': 3.0.88(zod@4.3.6)
       '@ai-sdk/provider': 3.0.8
-      '@ai-sdk/provider-utils': 4.0.22(zod@4.5.4)
+      '@ai-sdk/provider-utils': 4.0.22(zod@4.3.6)
       '@opentelemetry/api': 1.9.0
       zod: 4.5.4
     optional: true
