@@ -35,7 +35,7 @@ try{await import(pathToFileURL(join(config.repository,'apps/desktop/electron/mai
   await run(`window.bench={frames:[],longTasks:[],wheels:[]};addEventListener('wheel',event=>{const begin=performance.now(),trusted=event.isTrusted;requestAnimationFrame(()=>requestAnimationFrame(()=>window.bench.wheels.push({ms:performance.now()-begin,trusted})))},true);let last=performance.now();function frame(now){window.bench.frames.push(now-last);last=now;requestAnimationFrame(frame)}requestAnimationFrame(frame);new PerformanceObserver(list=>{window.bench.longTasks.push(...list.getEntries().map(e=>e.duration))}).observe({type:'longtask',buffered:false});`);
   const click=async(selector,index=0)=>{const rect=await run(`(()=>{const e=document.querySelectorAll(${JSON.stringify(selector)})[${index}];if(!e)throw Error('missing target');e.scrollIntoView({block:'nearest'});const r=e.getBoundingClientRect();return{x:r.x+r.width/2,y:r.y+r.height/2};})()`);win.webContents.sendInputEvent({type:'mouseDown',button:'left',clickCount:1,...rect});win.webContents.sendInputEvent({type:'mouseUp',button:'left',clickCount:1,...rect});};
   const cycle=async name=>{
-   stage=name;await run('window.bench.frames=[];window.bench.longTasks=[]');const actions=[];
+   stage=name;await run('window.bench.frames=[];window.bench.longTasks=[]');const actions=[];const samples={name,actions};report.stages.push(samples);
    for(let i=0;i<10;i++){
     const row=i%await run("document.querySelectorAll('.mail-message-row').length"),identifier=await run(`document.querySelectorAll('.mail-message-row')[${row}].textContent.match(new RegExp('AZ-[0-9]{6}/34[.]5'))[0]`);
     const messageNumber=Number(identifier.slice(3,9)),identity=JSON.stringify([['benchmark-a','benchmark-b','benchmark-c'][messageNumber%3],{provider:'gmail',messageId:'message-'+String(messageNumber).padStart(6,'0')}]);
@@ -56,7 +56,7 @@ try{await import(pathToFileURL(join(config.repository,'apps/desktop/electron/mai
     const before=performance.now();await win.webContents.insertText(query);
     const snapshotSource=`(()=>({query:document.querySelector('input[aria-label="Search mail"]')?.value,status:document.querySelector('.mail-results-toolbar [role=status]')?.textContent,keys:[...document.querySelectorAll('[aria-label="Search results"] .mail-search-subject')].map(e=>e.dataset.mailRowKey)}))()`;
     const expectedKeys=pendingBefore.items.map(hit=>hit.accountId+'|'+JSON.stringify(hit.locator));
-    await until(`(()=>{const state=${snapshotSource};return state.query===${JSON.stringify(query)} && /^[0-9]+ matches?$/.test(state.status??'') ${name==='steady'?`&& parseInt(state.status,10)===${expectedTotal} && JSON.stringify(state.keys)===${JSON.stringify(JSON.stringify(expectedKeys))}`:''};})()`);
+    await until(`(()=>{const state=${snapshotSource};return state.query===${JSON.stringify(query)} && /^[0-9]+ match(?:es)?$/.test(state.status??'') ${name==='steady'?`&& parseInt(state.status,10)===${expectedTotal} && JSON.stringify(state.keys)===${JSON.stringify(JSON.stringify(expectedKeys))}`:''};})()`);
     await run('new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)))');
     const measuredMs=performance.now()-before,state=await run(snapshotSource),pendingAfter=await mail('search',{literal:query,limit:20}),total=parseInt(state.status,10);
     assert(total>=pendingBefore.total&&total<=pendingAfter.total,'painted result count must match production query progress');
@@ -65,7 +65,7 @@ try{await import(pathToFileURL(join(config.repository,'apps/desktop/electron/mai
     actions.push({kind:'searchInputToResultsPaint',query,ms:measuredMs,status:state.status,identities:state.keys,expectedTotal,pendingBefore:pendingBefore.pending,pendingAfter:pendingAfter.pending,incomplete:pendingAfter.incomplete});
     await click('button[aria-label="Clear search"]');await until("document.querySelectorAll('.mail-message-row').length>0 && !document.querySelector('.mail-results-toolbar')");
    }
-   const telemetry=await run('window.bench');report.stages.push({name,actions,frameIntervalMs:dist(telemetry.frames),longTaskMs:dist(telemetry.longTasks),visibleRows:await run("document.querySelectorAll('.mail-message-row').length")});
+   const telemetry=await run('window.bench');Object.assign(samples,{frameIntervalMs:dist(telemetry.frames),longTaskMs:dist(telemetry.longTasks),visibleRows:await run("document.querySelectorAll('.mail-message-row').length")});
 
   };
   await cycle('steady');
@@ -77,5 +77,5 @@ try{await import(pathToFileURL(join(config.repository,'apps/desktop/electron/mai
   do{progress=await mail('search',{literal:'diligence',limit:1});if(!progress.pending)break;await delay(1000);}while(Date.now()<deadline);
   assert.equal(progress.pending,0,'reindex must finish without hidden dirty work');assert.equal(progress.total,config.count-Math.ceil(config.count/1000));report.rebuildComplete={pending:progress.pending,total:progress.total,incomplete:progress.incomplete};
   report.elapsedMs=performance.now()-started;await writeFile(config.output,JSON.stringify(report,null,2)+'\n');console.log('MAIL_RENDERER_BENCHMARK_PASS');app.quit();
- }catch(error){report.errors.push({stage,message:error.message});report.domDiagnostic=await run('document.body.innerText.slice(0,2000)').catch(()=>null);await writeFile(config.output,JSON.stringify(report,null,2)+'\n');throw error;}finally{clearInterval(memoryTimer);}
+ }catch(error){report.errors.push({stage,message:error.message});report.domDiagnostic=await run(`({text:document.body.innerText.slice(0,2000),query:document.querySelector('input[aria-label="Search mail"]')?.value,status:document.querySelector('.mail-results-toolbar [role=status]')?.textContent,identities:[...document.querySelectorAll('[aria-label="Search results"] .mail-search-subject')].map(e=>e.dataset.mailRowKey)})`).catch(()=>null);await writeFile(config.output,JSON.stringify(report,null,2)+'\n');throw error;}finally{clearInterval(memoryTimer);}
 })().catch(error=>{console.error(error);app.exit(1);});
