@@ -1,3 +1,4 @@
+import {buildBrowserFixture} from './fixtures/build-browser';
 import { test, expect } from 'bun:test';
 import { mkdtemp,writeFile,rm,copyFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -36,7 +37,7 @@ test('isolated compose UI saves/reopens incomplete work, formats safely, attache
    function Fixture(){const[client,setClient]=useState(makeClient),[visible,setVisible]=useState(true),[selection,set]=useState({account:'a',id:crypto.randomUUID(),version:null,content:emptyCompose('me@example.test')});window.__swapClient=()=>setClient(makeClient());if(!visible)return React.createElement('div',null,'Left drafts');return selection?React.createElement(MailComposer,{key:selection.id,client,accounts,initial:selection,onClose:()=>set(null),onSwitch:set}):React.createElement(MailDrafts,{client,accounts,onOpen:value=>{window.__opens=(window.__opens||0)+1;set(value);},onClose:()=>setVisible(false)})}
    createRoot(document.getElementById('root')).render(React.createElement(Fixture));
   `);
-  const result=await Bun.build({entrypoints:[entry],outdir:root,target:'browser',minify:true,plugins:[{name:'zod',setup(build){build.onResolve({filter:/^zod$/},()=>({path:join(app,'node_modules/zod/index.js')}));}}]});if(!result.success)throw Error(result.logs.map(String).join('\n'));
+  await buildBrowserFixture({entrypoints:[entry],outdir:root,minify:true});
   const css=await Bun.file(join(app,'src/react-app/domains/mail/mail-reader.css')).text();await writeFile(join(root,'index.html'),`<meta charset="utf-8"><style>:root{--border:#ddd;--foreground:#222;--muted:#eee}body{font-family:system-ui;margin:0;height:700px}#root{height:100%}${css}</style><div id="root"></div><script src="entry.js"></script>`);
   const probe=join(root,'probe.cjs');await writeFile(probe,`
    const{app,BrowserWindow}=require('electron'),assert=require('node:assert/strict');app.setPath('userData',${JSON.stringify(join(root,'profile'))});app.whenReady().then(async()=>{

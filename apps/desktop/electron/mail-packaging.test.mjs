@@ -109,7 +109,7 @@ test("actual Electron starts built encrypted worker inside ASAR and resolves unp
   const builderRequire = createRequire(require.resolve("electron-builder"));
   const appBuilderRequire = createRequire(builderRequire.resolve("app-builder-lib"));
   const asar = appBuilderRequire("@electron/asar");
-  const root = await mkdtemp(join(tmpdir(), "legalwork-mail-asar-"));
+  const root = await realpath(await mkdtemp(join(tmpdir(), "legalwork-mail-asar-")));
   try {
     const built = join(root, "built");
     execFileSync(process.execPath, [createRequire(join(server, "package.json")).resolve("typescript/bin/tsc"), "--outDir", built, "--rootDir", "src", "--module", "NodeNext", "--moduleResolution", "NodeNext", "--target", "ES2022", "--strict", "--skipLibCheck", "--types", "node,bun-types", "src/mail/runtime/worker.ts", "src/mail/runtime/maintenance-worker.ts"], { cwd: server, stdio: "pipe", timeout: 30_000 });
