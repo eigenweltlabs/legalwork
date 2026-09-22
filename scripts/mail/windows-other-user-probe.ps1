@@ -10,7 +10,11 @@ function Phase([string]$name) { [Console]::Error.WriteLine('mail_other_user_phas
 $control = Join-Path $env:PUBLIC ($account + '.txt')
 try {
   foreach ($module in @('Microsoft.PowerShell.Management', 'Microsoft.PowerShell.Security', 'Microsoft.PowerShell.Utility', 'Microsoft.PowerShell.LocalAccounts')) {
-    Import-Module ($PSHOME + '/Modules/' + $module + '/' + $module + '.psd1') -ErrorAction Stop
+    $modulePath = $PSHOME + '/Modules/' + $module
+    $directoryExists = [System.IO.Directory]::Exists($modulePath)
+    $manifestExists = [System.IO.File]::Exists($modulePath + '/' + $module + '.psd1')
+    [Console]::Error.WriteLine(('module_probe={0} directory={1} manifest={2}' -f $module, $directoryExists, $manifestExists))
+    Import-Module $modulePath -ErrorAction Stop
   }
   Phase 'control'
   $value = [Console]::In.ReadToEnd() | ConvertFrom-Json
