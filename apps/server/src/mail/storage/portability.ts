@@ -43,7 +43,8 @@ export class MailPortabilityStore{
   const id=randomUUID(),destination=join(path,`legalwork-mail-${id}`),namespace=randomUUID();await mkdir(destination,{mode:0o700});await writeFile(join(destination,'.legalwork-export'),id,{flag:'wx',mode:0o600});await mkdir(join(destination,'messages'),{mode:0o700});
   const header=JSON.stringify({type:'legalwork-mail-archive',version:1,namespace,format})+'\n';await writeFile(join(destination,'manifest.ndjson'),header,{flag:'wx',mode:0o600});
   if(format==='mboxrd')await writeFile(join(destination,'messages.mbox'),'',{flag:'wx',mode:0o600});
-  for(const name of ['.legalwork-export','manifest.ndjson',...(format==='mboxrd'?['messages.mbox']:[])]){const file=await open(join(destination,name),'r');try{await file.sync();}finally{await file.close();}}
+  // Windows requires write access when flushing already-created export files.
+  for(const name of ['.legalwork-export','manifest.ndjson',...(format==='mboxrd'?['messages.mbox']:[])]){const file=await open(join(destination,name),'r+');try{await file.sync();}finally{await file.close();}}
   await syncDirectory(destination);await syncDirectory(path);
   if(this.closed)throw Error("portability_closed");
   this.db.transaction(()=>{this.readable(accountId);this.db.run("INSERT INTO mail_portability_jobs(id,account_id,direction,format,path,namespace,state,label,manifest_offset) VALUES(?,?,'export',?,?,?,'ready',?,?)",[id,accountId,format,destination,namespace,basename(destination),Buffer.byteLength(header)]);

@@ -66,6 +66,27 @@ test('encrypted FTS and bytes survive a fresh process; DB/WAL are private and co
   assert.deepEqual(JSON.parse(child.stdout),{body:marker});
 }));
 
+test('long Unicode profile paths preserve encrypted WAL, search, rekey and reopen', async () => fixture(async (_,dir) => {
+  const path = join(dir, "profile space ü $ apostrophe'", 'p'.repeat(100), 'q'.repeat(100), 'mail.sqlite');
+  assert.ok(path.length > 260);
+  const key = privateKey(), next = privateKey(), marker = 'syntheticlongprofilemarker';
+  let db;
+  try {
+    db = await openEncryptedMailDatabase({path,key});
+    db.exec('PRAGMA wal_autocheckpoint=0; CREATE VIRTUAL TABLE proof USING fts5(body)');
+    db.run('INSERT INTO proof VALUES (?)',[marker]);
+    assert.deepEqual(db.get('SELECT body FROM proof WHERE proof MATCH ?',[marker]),{body:marker});
+    for (const file of [path,path+'-wal']) assert.equal((await readFile(file)).includes(Buffer.from(marker)),false);
+    db.rekey(next);
+    db.close(); db = undefined;
+    await assert.rejects(openEncryptedMailDatabase({path,key}));
+    db = await openEncryptedMailDatabase({path,key:next});
+    assert.deepEqual(db.get('SELECT body FROM proof WHERE proof MATCH ?',[marker]),{body:marker});
+    db.run('INSERT INTO proof VALUES (?)',[marker+'reopened']);
+    for (const file of [path,path+'-wal']) assert.equal((await readFile(file)).includes(Buffer.from(marker)),false);
+  } finally { db?.close(); key.fill(0); next.fill(0); }
+}));
+
 test('wrong key leaves an existing encrypted database byte-identical and readable', async () => fixture(async path => {
   const key=privateKey();
   const db=await openEncryptedMailDatabase({path,key});
