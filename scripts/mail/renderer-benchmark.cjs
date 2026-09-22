@@ -42,7 +42,8 @@ const dist=values=>{const s=[...values].sort((a,b)=>a-b);return{count:s.length,p
    stage=name;await run('window.bench.frames=[];window.bench.longTasks=[]');const actions=[];
    for(let i=0;i<10;i++){
     const row=i%await run("document.querySelectorAll('.mail-message-row').length"),identifier=await run(`document.querySelectorAll('.mail-message-row')[${row}].textContent.match(new RegExp('AZ-[0-9]{6}/34[.]5'))[0]`);
-    const before=performance.now();await click('.mail-message-row',row);await until(`!!document.querySelector('.mail-message-body') && document.querySelector('.mail-message-body').textContent.includes(${JSON.stringify(identifier)})`);
+    const messageNumber=Number(identifier.slice(3,9)),identity=JSON.stringify([['benchmark-a','benchmark-b','benchmark-c'][messageNumber%3],{provider:'gmail',messageId:'message-'+String(messageNumber).padStart(6,'0')}]);
+    const before=performance.now();await click('.mail-message-row',row);await until(`(()=>{const article=document.querySelector('#mail-print-root');return article?.dataset.mailIdentity===${JSON.stringify(identity)} && [...article.querySelectorAll('.mail-plain-body')].some(body=>body.getClientRects().length>0 && getComputedStyle(body).visibility==='visible' && body.textContent.includes(${JSON.stringify(identifier)}));})()`);
     await run('new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)))');actions.push({kind:'openMessageToPaint',ms:performance.now()-before});
     const wheels=await run('window.bench.wheels.length'),prior=await run("document.querySelector('.mail-message-scroll').scrollTop");
     const rect=await run("(()=>{const r=document.querySelector('.mail-message-scroll').getBoundingClientRect();return{x:r.x+r.width/2,y:r.y+r.height/2}})()");
@@ -51,10 +52,21 @@ const dist=values=>{const s=[...values].sort((a,b)=>a-b);return{count:s.length,p
     actions.push({kind:'trustedScrollInputToObservedFrame',ms:performance.now()-dispatched,eventHandlerToSecondFrameMs:wheel.ms,changed:await run("document.querySelector('.mail-message-scroll').scrollTop")!==prior});
    }
    assert.ok(actions.some(action=>action.changed),'wheel input must move actual message list');
-   for(const query of ['diligence','AZ-000001/34.5','AttachmentEvidence000011']){
+   for(const [query,expectedTotal,expectedNumber] of [['diligence',config.count-Math.ceil(config.count/1000),null],['AZ-000001/34.5',1,1],['AttachmentEvidence000011',1,11]]){
+    // Independent production-query validation is outside the UI timing interval.
+    const pendingBefore=await mail('search',{literal:query,limit:20});
+    if(name==='steady'){assert.equal(pendingBefore.pending,0);assert.equal(pendingBefore.total,expectedTotal);}
     await click('input[aria-label="Search mail"]');win.webContents.sendInputEvent({type:'keyDown',keyCode:'A',modifiers:['control']});win.webContents.sendInputEvent({type:'keyUp',keyCode:'A',modifiers:['control']});
-    const before=performance.now();await win.webContents.insertText(query);await until("!!document.querySelector('.mail-results-toolbar [role=status]') && /\\d+ match/.test(document.querySelector('.mail-results-toolbar [role=status]').textContent)");await run('new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)))');
-    actions.push({kind:'searchInputToResultsPaint',query,ms:performance.now()-before,status:await run("document.querySelector('.mail-results-toolbar [role=status]').textContent")});
+    const before=performance.now();await win.webContents.insertText(query);
+    const snapshotSource=`(()=>({query:document.querySelector('input[aria-label="Search mail"]')?.value,status:document.querySelector('.mail-results-toolbar [role=status]')?.textContent,keys:[...document.querySelectorAll('[aria-label="Search results"] .mail-search-subject')].map(e=>e.dataset.mailRowKey)}))()`;
+    const expectedKeys=pendingBefore.items.map(hit=>hit.accountId+'|'+JSON.stringify(hit.locator));
+    await until(`(()=>{const state=${snapshotSource};return state.query===${JSON.stringify(query)} && /^[0-9]+ matches?$/.test(state.status??'') ${name==='steady'?`&& parseInt(state.status,10)===${expectedTotal} && JSON.stringify(state.keys)===${JSON.stringify(JSON.stringify(expectedKeys))}`:''};})()`);
+    await run('new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)))');
+    const measuredMs=performance.now()-before,state=await run(snapshotSource),pendingAfter=await mail('search',{literal:query,limit:20}),total=parseInt(state.status,10);
+    assert(total>=pendingBefore.total&&total<=pendingAfter.total,'painted result count must match production query progress');
+    assert.equal(state.keys.length,Math.min(total,20),'painted result rows must match count');
+    for(const key of state.keys){const separator=key.indexOf('|'),accountId=key.slice(0,separator),locator=JSON.parse(key.slice(separator+1)),number=Number(locator.messageId?.slice(8));assert.equal(locator.provider,'gmail');assert(Number.isSafeInteger(number)&&number>=0&&number<config.count);assert.equal(accountId,['benchmark-a','benchmark-b','benchmark-c'][number%3]);if(expectedNumber!==null)assert.equal(number,expectedNumber);else assert.notEqual(number%1000,3,'malformed originals cannot match diligence');}
+    actions.push({kind:'searchInputToResultsPaint',query,ms:measuredMs,status:state.status,identities:state.keys,expectedTotal,pendingBefore:pendingBefore.pending,pendingAfter:pendingAfter.pending,incomplete:pendingAfter.incomplete});
     await click('button[aria-label="Clear search"]');await until("document.querySelectorAll('.mail-message-row').length>0 && !document.querySelector('.mail-results-toolbar')");
    }
    const telemetry=await run('window.bench');report.stages.push({name,actions,frameIntervalMs:dist(telemetry.frames),longTaskMs:dist(telemetry.longTasks),visibleRows:await run("document.querySelectorAll('.mail-message-row').length")});
@@ -62,6 +74,8 @@ const dist=values=>{const s=[...values].sort((a,b)=>a-b);return{count:s.length,p
   };
   await cycle('steady');
   report.rebuildStart=[];for(const accountId of ['benchmark-a','benchmark-b','benchmark-c'])report.rebuildStart.push(await mail('search/rebuild',{accountId,reset:true,limit:1}));
+  const overlap=await mail('search',{literal:'diligence',limit:1});report.backgroundCycleStart={pending:overlap.pending,total:overlap.total,incomplete:overlap.incomplete};
+  if(config.count===100000)assert(overlap.pending>0,'100k background cycle must overlap actual reindex work');
   await cycle('background-reindex');
   const deadline=Date.now()+15*60000;let progress;
   do{progress=await mail('search',{literal:'diligence',limit:1});if(!progress.pending)break;await delay(1000);}while(Date.now()<deadline);
