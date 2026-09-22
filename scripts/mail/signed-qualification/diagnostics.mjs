@@ -10,4 +10,3 @@ export function qualificationTrace(stage,error) {
 }
 qualificationTrace('module-loaded');
 process.on('uncaughtExceptionMonitor',error=>qualificationTrace('uncaught-exception',error));
-process.on('unhandledRejection',error=>qualificationTrace('unhandled-rejection',error));

@@ -13,6 +13,7 @@ for(const [anchor,stage] of [
   assert.equal(source.split(anchor).length,2,stage);
   source=source.replace(anchor,`    qualificationTrace('${stage}');\n${anchor}`);
 }
+assert.equal(source.split('  app.whenReady().then(async () => {').length,2,'app-ready anchor');
 source=source.replace('  app.whenReady().then(async () => {',"  app.whenReady().then(async () => {\n    qualificationTrace('app-ready');");
 const anchor='    void ensureAutoUpdater();';
 assert.equal(source.split(anchor).length,2);

@@ -25,6 +25,11 @@ try {
     try {result=JSON.parse(await readFile(join(evidence,'install.json'),'utf8'));break;}catch(error){if(error.code!=='ENOENT')throw error;}
     await new Promise(resolve=>setTimeout(resolve,500));
   }
+  if(!result) {
+    // Names and PIDs only: never command arguments or environment values.
+    const processes=execFileSync('ps',['-axo','pid,ppid,comm'],{encoding:'utf8',timeout:5000});
+    await writeFile(join(evidence,'timeout-processes.txt'),processes.split('\n').filter((line,index)=>index===0||/LegalWork|ShipIt|\/open$/.test(line)).join('\n')+'\n');
+  }
   assert(result,'Actual ad-hoc startup did not reach/complete fixture; inspect startup and LaunchServices logs');assert.equal(result.passed,true);
   await writeFile(join(evidence,'smoke-scope.json'),JSON.stringify({passed:true,scope:'actual main/runtime startup and retained-store fixture in fresh ad-hoc build',signedLifecycleAccepted:false})+'\n');
 } catch(error) {
