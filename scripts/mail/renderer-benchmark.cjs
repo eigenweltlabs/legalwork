@@ -1,0 +1,71 @@
+const {app,BrowserWindow,safeStorage,session}=require('electron');
+const {readFile,writeFile,mkdir}=require('node:fs/promises');
+const {join}=require('node:path');
+const {pathToFileURL}=require('node:url');
+const assert=require('node:assert/strict');
+const delay=ms=>new Promise(r=>setTimeout(r,ms));
+const dist=values=>{const s=[...values].sort((a,b)=>a-b);return{count:s.length,p50:s[Math.floor((s.length-1)*.5)]??0,p95:s[Math.floor((s.length-1)*.95)]??0,max:s.at(-1)??0};};
+(async()=>{
+ const config=JSON.parse(await readFile(process.argv[2],'utf8'));app.setPath('userData',config.profile);
+ const started=performance.now();await app.whenReady();
+ assert.equal(safeStorage.isEncryptionAvailable(),true,'real OS vault required');
+ const metadata=JSON.parse(await readFile(join(config.profile,'benchmark-profile.json'),'utf8'));
+ assert.equal(metadata.kind,'legalwork-synthetic-benchmark');assert.equal(metadata.ownerId,'desktop-local');
+ const {enforceMailWindowsAcl}=await import(pathToFileURL(join(config.repository,'apps/desktop/server/dist/mail/storage/windows-acl.js')).href);
+ await enforceMailWindowsAcl(join(config.profile,'mail'),true);
+ const keyPath=join(config.profile,'mail/mail-key-v1.json');
+ await writeFile(keyPath,JSON.stringify({version:1,wrappedKey:safeStorage.encryptString(metadata.key).toString('base64')}),{mode:0o600,flag:'wx'});metadata.key='';await enforceMailWindowsAcl(keyPath,false);
+ const workspace=join(config.profile,'synthetic-workspace');await mkdir(workspace,{recursive:true});
+ await writeFile(join(config.profile,'legalwork-workspaces.json'),JSON.stringify({selectedId:'benchmark-workspace',activeId:'benchmark-workspace',watchedId:null,workspaces:[{id:'benchmark-workspace',name:'Synthetic benchmark',path:workspace,workspaceType:'local',preset:'starter'}]}));
+ session.defaultSession.webRequest.onBeforeRequest((details,done)=>{const url=new URL(details.url);done({cancel:['http:','https:'].includes(url.protocol)&&!['127.0.0.1','localhost','[::1]'].includes(url.hostname)});});
+ const originalFetch=globalThis.fetch;globalThis.fetch=(input,init)=>{const url=new URL(typeof input==='string'?input:input instanceof URL?input.href:input.url);if(!['127.0.0.1','localhost','[::1]'].includes(url.hostname))return Promise.reject(Error('Synthetic desktop benchmark forbids external network'));return originalFetch(input,init);};
+ await import(pathToFileURL(join(config.repository,'apps/desktop/electron/main.mjs')).href);
+ let win;const windowDeadline=Date.now()+60000;
+ while(Date.now()<windowDeadline){win=BrowserWindow.getAllWindows().find(w=>w.webContents.getURL().includes('index.html'));if(win&&!win.webContents.isLoadingMainFrame())break;await delay(50);}
+ assert(win,'actual main application window required');win.setSize(1440,1000);win.show();win.focus();
+ let stage='startup';const report={kind:'built-app-synthetic-mail-renderer',count:config.count,corpusSha256:config.corpusSha256,sourceSha256:config.sourceSha256,coldDefinition:'new renderer and service; OS cache retained',scope:'Built LegalWork main.mjs, production preload, complete React shell, embedded HTTP server, Electron mail worker and actual OS safeStorage. Unpackaged build; no installer or provider transport.',commit:process.env.GITHUB_SHA??null,stages:[],memory:{electronFamilySampledPeakWorkingSetBytes:0,sampleIntervalMs:1000},errors:[]};
+ const memoryTimer=setInterval(()=>{report.memory.electronFamilySampledPeakWorkingSetBytes=Math.max(report.memory.electronFamilySampledPeakWorkingSetBytes,app.getAppMetrics().reduce((sum,p)=>sum+p.memory.workingSetSize*1024,0));},1000);
+ const run=async(source)=>{let timer;try{return await Promise.race([win.webContents.executeJavaScript(source,true),new Promise((_,reject)=>{timer=setTimeout(()=>reject(Error(stage+' renderer execution deadline')),10000);})]);}finally{clearTimeout(timer);}};
+ const until=async(source,timeout=30000)=>{const deadline=Date.now()+timeout;while(Date.now()<deadline){if(await run(source))return;await delay(25);}throw Error(stage+' UI state deadline '+source);};
+ try{
+  await run("window.location.hash='/mail'");
+  await until("!!window.__LEGALWORK_ELECTRON__",10000);
+  const infoDeadline=Date.now()+60000;let info;
+  while(Date.now()<infoDeadline){info=await run("window.__LEGALWORK_ELECTRON__.invokeDesktop('legalworkServerInfo')");if(info?.running&&info.hostToken)break;await delay(100);}
+  assert(info?.running&&info.hostToken,'actual embedded server required');
+  const mail=async(path,body)=>{const response=await fetch(info.baseUrl+'/mail/v1/'+path,{method:'POST',headers:{'Content-Type':'application/json','X-LegalWork-Host-Token':info.hostToken},body:JSON.stringify(body)});assert(response.ok,`mail ${path} status ${response.status}`);return response.json();};
+  await until("document.querySelectorAll('.mail-message-row').length>0",60000);
+  report.startupToMailRowsMs=performance.now()-started;
+  await run(`window.bench={frames:[],longTasks:[],wheels:[]};addEventListener('wheel',event=>{const begin=performance.now(),trusted=event.isTrusted;requestAnimationFrame(()=>requestAnimationFrame(()=>window.bench.wheels.push({ms:performance.now()-begin,trusted})))},true);let last=performance.now();function frame(now){window.bench.frames.push(now-last);last=now;requestAnimationFrame(frame)}requestAnimationFrame(frame);new PerformanceObserver(list=>{window.bench.longTasks.push(...list.getEntries().map(e=>e.duration))}).observe({type:'longtask',buffered:false});`);
+  const click=async(selector,index=0)=>{const rect=await run(`(()=>{const e=document.querySelectorAll(${JSON.stringify(selector)})[${index}];if(!e)throw Error('missing target');e.scrollIntoView({block:'nearest'});const r=e.getBoundingClientRect();return{x:r.x+r.width/2,y:r.y+r.height/2};})()`);win.webContents.sendInputEvent({type:'mouseDown',button:'left',clickCount:1,...rect});win.webContents.sendInputEvent({type:'mouseUp',button:'left',clickCount:1,...rect});};
+  const cycle=async name=>{
+   stage=name;await run('window.bench.frames=[];window.bench.longTasks=[]');const actions=[];
+   for(let i=0;i<10;i++){
+    const row=i%await run("document.querySelectorAll('.mail-message-row').length"),identifier=await run(`document.querySelectorAll('.mail-message-row')[${row}].textContent.match(new RegExp('AZ-[0-9]{6}/34[.]5'))[0]`);
+    const before=performance.now();await click('.mail-message-row',row);await until(`!!document.querySelector('.mail-message-body') && document.querySelector('.mail-message-body').textContent.includes(${JSON.stringify(identifier)})`);
+    await run('new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)))');actions.push({kind:'openMessageToPaint',ms:performance.now()-before});
+    const wheels=await run('window.bench.wheels.length'),prior=await run("document.querySelector('.mail-message-scroll').scrollTop");
+    const rect=await run("(()=>{const r=document.querySelector('.mail-message-scroll').getBoundingClientRect();return{x:r.x+r.width/2,y:r.y+r.height/2}})()");
+    win.webContents.sendInputEvent({type:'mouseWheel',deltaY:i%2?-200:200,deltaX:0,...rect});await until(`window.bench.wheels.length>${wheels}`);
+    const wheel=await run('window.bench.wheels.at(-1)');assert.equal(wheel.trusted,true);
+    actions.push({kind:'trustedScrollEventToSecondFrame',ms:wheel.ms,changed:await run("document.querySelector('.mail-message-scroll').scrollTop")!==prior});
+   }
+   assert.ok(actions.some(action=>action.changed),'wheel input must move actual message list');
+   for(const query of ['diligence','AZ-000001/34.5','AttachmentEvidence000011']){
+    await click('input[aria-label="Search mail"]');win.webContents.sendInputEvent({type:'keyDown',keyCode:'A',modifiers:['control']});win.webContents.sendInputEvent({type:'keyUp',keyCode:'A',modifiers:['control']});
+    const before=performance.now();await win.webContents.insertText(query);await until("!!document.querySelector('.mail-results-toolbar [role=status]') && /\\d+ match/.test(document.querySelector('.mail-results-toolbar [role=status]').textContent)");await run('new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)))');
+    actions.push({kind:'searchInputToResultsPaint',query,ms:performance.now()-before,status:await run("document.querySelector('.mail-results-toolbar [role=status]').textContent")});
+    await click('button[aria-label="Clear search"]');await until("document.querySelectorAll('.mail-message-row').length>0 && !document.querySelector('.mail-results-toolbar')");
+   }
+   const telemetry=await run('window.bench');report.stages.push({name,actions,frameIntervalMs:dist(telemetry.frames),longTaskMs:dist(telemetry.longTasks),visibleRows:await run("document.querySelectorAll('.mail-message-row').length")});
+
+  };
+  await cycle('steady');
+  report.rebuildStart=[];for(const accountId of ['benchmark-a','benchmark-b','benchmark-c'])report.rebuildStart.push(await mail('search/rebuild',{accountId,reset:true,limit:1}));
+  await cycle('background-reindex');
+  const deadline=Date.now()+15*60000;let progress;
+  do{progress=await mail('search',{literal:'diligence',limit:1});if(!progress.pending)break;await delay(1000);}while(Date.now()<deadline);
+  assert.equal(progress.pending,0,'reindex must finish without hidden dirty work');assert.equal(progress.total,config.count-Math.ceil(config.count/1000));report.rebuildComplete={pending:progress.pending,total:progress.total,incomplete:progress.incomplete};
+  report.elapsedMs=performance.now()-started;await writeFile(config.output,JSON.stringify(report,null,2)+'\n');console.log('MAIL_RENDERER_BENCHMARK_PASS');app.quit();
+ }catch(error){report.errors.push({stage,message:error.message});report.domDiagnostic=await run('document.body.innerText.slice(0,2000)').catch(()=>null);await writeFile(config.output,JSON.stringify(report,null,2)+'\n');throw error;}finally{clearInterval(memoryTimer);}
+})().catch(error=>{console.error(error);app.exit(1);});
