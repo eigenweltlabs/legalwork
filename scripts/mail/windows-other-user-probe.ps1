@@ -36,7 +36,10 @@ try {
   [Console]::Error.WriteLine('child_phase=started')
   $controlRead = $false
   Import-Module ($PSHOME + '/Modules/Microsoft.PowerShell.Utility/Microsoft.PowerShell.Utility.psd1') -ErrorAction Stop
-  $data = [Console]::In.ReadToEnd() | ConvertFrom-Json
+  [Console]::Error.WriteLine('child_phase=module-imported')
+  $jsonText = [Console]::In.ReadToEnd()
+  [Console]::Error.WriteLine('child_input_characters=' + $jsonText.Length)
+  $data = $jsonText | ConvertFrom-Json
   [Console]::Error.WriteLine('child_phase=input-read')
   if ([System.Security.Principal.WindowsIdentity]::GetCurrent().User.Value -ne $data.expectedSid) { [Console]::Out.Write('wrong_identity'); exit 1 }
   [Console]::Error.WriteLine('child_phase=identity-verified')
@@ -54,6 +57,10 @@ catch { [Console]::Error.WriteLine('child_exception=' + $_.Exception.GetType().N
   $payload = $inputValue
   if ($env:MAIL_OTHER_USER_SHORT_COMMAND -eq 'true') {
     $command = '& ([ScriptBlock]::Create([Text.Encoding]::UTF8.GetString([Convert]::FromBase64String([Console]::In.ReadLine()))))'
+    if ($env:MAIL_OTHER_USER_ENCODING_ONCE -eq 'true') {
+      $command = '[Console]::InputEncoding=[Text.UTF8Encoding]::new($false); ' + $command
+      $program = $program.Replace('[Console]::InputEncoding = [System.Text.UTF8Encoding]::new($false)', '')
+    }
     $payload = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($program)) + "`n" + $inputValue
   }
   $info.Arguments = '-NoProfile -NonInteractive -EncodedCommand ' + [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($command))
