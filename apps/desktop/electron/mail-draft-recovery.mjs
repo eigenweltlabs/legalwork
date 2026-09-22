@@ -6,9 +6,10 @@ const uuid=value=>typeof value==='string'&&/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}
 const fail=()=>{throw Error('mail_draft_recovery_unavailable');};
 /** Trusted main-frame IPC only. Independent OS-vault encrypted recovery writes remain
  * available when the mail worker is restarting. No keys or plaintext files leave main. */
-export function createMailDraftRecovery({directory,safeStorage,beforeAccess,windowsAcl,canRead=async()=>false,platform=process.platform}){
+export function createMailDraftRecovery({directory,safeStorage,beforeAccess,windowsAcl,canRead=async(_accountId)=>false,platform=process.platform}){
  let pending=Promise.resolve(),closing=false;
- const serial=work=>{const result=pending.then(work);pending=result.catch(()=>{});return result;};
+ /** @template T @param {()=>Promise<T>} work @returns {Promise<T>} */
+ const serial=work=>{const result=pending.then(work);pending=result.then(()=>{},()=>{});return result;};
  const file=id=>join(directory,createHash('sha256').update(id).digest('hex')+'.draft');
  async function ready(){await beforeAccess();if(!safeStorage.isEncryptionAvailable()||(platform==='linux'&&!['gnome_libsecret','kwallet','kwallet5','kwallet6'].includes(safeStorage.getSelectedStorageBackend())))fail();await mkdir(directory,{recursive:true,mode:0o700});const info=await lstat(directory);if(!info.isDirectory()||info.isSymbolicLink()||(platform!=='win32'&&((info.mode&0o077)!==0||info.uid!==process.getuid?.())))fail();if(platform==='win32'){if(!windowsAcl)fail();await windowsAcl(directory,true);}for(const name of await readdir(directory))if(/^[0-9a-f-]{36}\.tmp$/.test(name))await unlink(join(directory,name));}
  async function sync(){if(platform==='win32')return;const handle=await open(directory,constants.O_RDONLY|constants.O_NOFOLLOW);try{await handle.sync();}finally{await handle.close();}}

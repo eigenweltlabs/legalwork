@@ -1,7 +1,13 @@
 import {link,open,lstat,rm} from 'node:fs/promises';
 const filesystem={link,open,lstat,rm};
 const unsupportedLink=new Set(['ENOTSUP','EOPNOTSUPP','ENOSYS','EPERM','EXDEV']);
-/** Publish already-verified private bytes without replacing an intervening destination.
+/**
+ * @typedef {{stat:(options:{bigint:true})=>Promise<import('node:fs').BigIntStats>,read:(buffer:Buffer,offset:number,length:number,position:null)=>Promise<{bytesRead:number}>,write:(buffer:Buffer,offset:number,length:number,position:null)=>Promise<{bytesWritten:number}>,sync:()=>Promise<void>,close:()=>Promise<void>}} PublicationHandle
+ * @param {import('node:fs').PathLike} source
+ * @param {import('node:fs').PathLike} destination
+ * @param {AbortSignal} signal
+ * @param {{link:typeof link,open:(path:import('node:fs').PathLike,flags:string,mode?:number)=>Promise<PublicationHandle>,lstat:(path:import('node:fs').PathLike,options:{bigint:true})=>Promise<import('node:fs').BigIntStats>,rm:typeof rm}} [io]
+ * Publish already-verified private bytes without replacing an intervening destination.
  * FAT/exFAT and some mounts need a non-atomic, exclusive-create copy fallback. */
 export async function publishNewMailFile(source,destination,signal,io=filesystem){
   signal.throwIfAborted();
