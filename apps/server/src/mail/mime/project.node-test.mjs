@@ -31,8 +31,19 @@ test('part IDs and output are independent of original chunk boundaries',async()=
  const second=await parse(raw,{source:tiny()});assert.deepEqual(second,first);assert.ok(first.attachments.every(a=>a.partId.startsWith(`mime-v1:${hash([raw])}:part:`)));
 });
 test('8MiB generated attachment streams to awaited sink without full-content materialization',async()=>{
- const f=fixture(9),digest=createHash('sha256');let received=0,calls=0,max=0;
- const result=await projectMime({source:f.chunks(),originalSha256:hash(f.chunks()),onAttachment:async(_meta,chunks)=>{for await(const bytes of chunks){received+=bytes.byteLength;max=Math.max(max,bytes.byteLength);digest.update(bytes);if(calls++%50===0)await new Promise(r=>setImmediate(r));}}});
+ const f=fixture(9),digest=createHash('sha256');let received=0,calls=0,max=0,produced=0,release,entered;
+ const gate=new Promise(resolve=>release=resolve),waiting=new Promise(resolve=>entered=resolve);
+ function* source(){for(const bytes of f.chunks()){produced+=bytes.byteLength;yield bytes;}}
+ // Hold the first sink write explicitly instead of thousands of setImmediate
+ // waits, which made this correctness fixture exceed the parser deadline on Intel CI.
+ const pending=projectMime({source:source(),originalSha256:hash(f.chunks()),onAttachment:async(_meta,chunks)=>{
+  for await(const bytes of chunks){received+=bytes.byteLength;max=Math.max(max,bytes.byteLength);digest.update(bytes);if(calls++===0){entered();await gate;}}
+ }});
+ try{
+  await Promise.race([waiting,pending]);
+  assert.equal(calls,1);assert.ok(received<8*1024*1024);assert.ok(produced<8*1024*1024,'source must not materialize the full attachment before the awaited sink');
+ }finally{release();await pending;}
+ const result=await pending;
  assert.equal(received,8*1024*1024);assert.ok(max<=65536);assert.ok(calls>128);assert.equal(result.attachments[0].bytes,received);assert.equal(result.attachments[0].sha256,digest.digest('hex'));
 });
 test('malformed base64 and unclosed boundaries fail visibly instead of completing',async()=>{
