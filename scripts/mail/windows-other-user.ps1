@@ -16,18 +16,18 @@ try {
   $controlAcl = Get-Acl -LiteralPath $control
   $readRule = New-Object System.Security.AccessControl.FileSystemAccessRule([System.Security.Principal.SecurityIdentifier]'S-1-5-11', [System.Security.AccessControl.FileSystemRights]::Read, [System.Security.AccessControl.AccessControlType]::Allow)
   $controlAcl.AddAccessRule($readRule); Set-Acl -LiteralPath $control -AclObject $controlAcl
-  $inputValue = @{path=$value.path;control=$control} | ConvertTo-Json -Compress
   $secure = ConvertTo-SecureString $password -AsPlainText -Force
   $localUser = New-LocalUser -Name $account -Password $secure -AccountNeverExpires
   $created = $true
+  $inputValue = @{path=$value.path;control=$control;expectedSid=$localUser.SID.Value} | ConvertTo-Json -Compress
   $users = Get-LocalGroup -SID 'S-1-5-32-545'
   if (!(@(Get-LocalGroupMember -Group $users | Where-Object { $_.SID -eq $localUser.SID }).Count)) { Add-LocalGroupMember -Group $users -Member $localUser }
   $program = @'
-[Console]::InputEncoding = [System.Text.UTF8Encoding]::new($false)
 try {
   $controlRead = $false
   Import-Module ($PSHOME + '/Modules/Microsoft.PowerShell.Utility/Microsoft.PowerShell.Utility.psd1') -ErrorAction Stop
   $data = [Console]::In.ReadToEnd() | ConvertFrom-Json
+  if ([System.Security.Principal.WindowsIdentity]::GetCurrent().User.Value -ne $data.expectedSid) { [Console]::Out.Write('wrong_identity'); exit 1 }
   if ([System.IO.File]::ReadAllText($data.control) -ne 'synthetic-readable-control') { [Console]::Out.Write('control_failed'); exit 1 }
   $controlRead = $true
   [System.IO.File]::ReadAllBytes($data.path) | Out-Null
@@ -37,13 +37,18 @@ catch { [Console]::Out.Write('failed'); exit 1 }
 '@
   $info = New-Object System.Diagnostics.ProcessStartInfo
   $info.FileName = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
-  $info.Arguments = '-NoProfile -NonInteractive -EncodedCommand ' + [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($program))
+  # CreateProcessWithLogonW limits the command line to 1024 characters.
+  # Set encoding before ReadLine; resetting it later discards buffered JSON input.
+  $bootstrap = '[Console]::InputEncoding=[Text.UTF8Encoding]::new($false); & ([ScriptBlock]::Create([Text.Encoding]::UTF8.GetString([Convert]::FromBase64String([Console]::In.ReadLine()))))'
+  $info.Arguments = '-NoProfile -NonInteractive -EncodedCommand ' + [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($bootstrap))
+  if ($info.FileName.Length + $info.Arguments.Length + 3 -ge 1024) { throw 'command-line' }
   $info.UserName = $account; $info.Domain = $env:COMPUTERNAME; $info.Password = $secure
   $info.UseShellExecute = $false; $info.LoadUserProfile = $true
   $info.RedirectStandardInput = $true; $info.RedirectStandardOutput = $true; $info.RedirectStandardError = $true; $info.CreateNoWindow = $true
   $child = New-Object System.Diagnostics.Process; $child.StartInfo = $info
   if (!$child.Start()) { throw 'start' }
-  $bytes = [System.Text.Encoding]::UTF8.GetBytes($inputValue)
+  $payload = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($program)) + "`n" + $inputValue
+  $bytes = [System.Text.Encoding]::UTF8.GetBytes($payload)
   $child.StandardInput.BaseStream.Write($bytes, 0, $bytes.Length); $child.StandardInput.BaseStream.Flush(); $child.StandardInput.Close()
   if (!$child.WaitForExit(20000)) { $child.Kill(); throw 'timeout' }
   if ($child.ExitCode -ne 0 -or $child.StandardOutput.ReadToEnd() -ne 'denied') { throw 'isolation' }
