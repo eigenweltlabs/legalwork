@@ -2838,7 +2838,7 @@ export default {
   "docx.unknown_change_ids": "None of those tracked-change IDs exist in the open document.",
   "docx.recovery_unavailable": "Draft recovery is unavailable on this device. Save frequently.",
   "docx.font_missing_title": "Font not available",
-  "docx.font_missing_body": "This document uses {fonts}. Without it, line and page breaks may shift. Downloading shows Google the font name, never your document.",
+  "docx.font_missing_body": "This document uses {fonts}. Without it, line and page breaks may shift. Downloading shows Google the font name and your IP address, never your document.",
   "docx.font_missing_confirm": "Download the font",
   "docx.font_missing_cancel": "Use a substitute",
   "docx.font_download_failed": "The font could not be downloaded. A substitute is being used.",

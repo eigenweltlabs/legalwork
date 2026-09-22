@@ -3156,7 +3156,7 @@ const de = {
     "Keine dieser IDs für nachverfolgte Änderungen existiert im geöffneten Dokument.",
   "docx.font_missing_title": "Schrift nicht verfügbar",
   "docx.font_missing_body":
-    "Dieses Dokument verwendet {fonts}. Ohne sie können Zeilen- und Seitenumbrüche abweichen. Beim Laden sieht Google den Namen der Schrift, nie Ihr Dokument.",
+    "Dieses Dokument verwendet {fonts}. Ohne sie können Zeilen- und Seitenumbrüche abweichen. Beim Laden sieht Google den Namen der Schrift und Ihre IP-Adresse, nie Ihr Dokument.",
   "docx.font_missing_confirm": "Schrift herunterladen",
   "docx.font_missing_cancel": "Ersatzschrift verwenden",
   "docx.font_download_failed":
