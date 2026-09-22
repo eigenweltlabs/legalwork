@@ -30,3 +30,12 @@ jobs:
       - name: Archive import and durable exports
         if: ${{ !cancelled() }}
         run: node apps/server/scripts/mail-acceptance.mjs --suite storage/portability
+      - name: Gmail stalled raw handler acquisition
+        if: ${{ !cancelled() }}
+        run: node apps/server/scripts/mail-acceptance.mjs --suite providers/gmail-backfill --test-name-pattern "raw-handler acquisition timeout"
+      - name: Graph bounded folder hierarchy transaction
+        if: ${{ !cancelled() }}
+        run: node apps/server/scripts/mail-acceptance.mjs --suite providers/graph-backfill --test-name-pattern "folder hierarchy application"
+      - name: Offline original EML rendering boundary
+        if: ${{ !cancelled() }}
+        run: node apps/server/scripts/mail-acceptance.mjs --suite mime/project --test-name-pattern "original rendering EML"
