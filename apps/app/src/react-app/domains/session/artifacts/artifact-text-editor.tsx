@@ -2,7 +2,7 @@
 import { useEffect, useRef } from "react";
 import { defaultKeymap, history, historyKeymap } from "@codemirror/commands";
 import { markdown } from "@codemirror/lang-markdown";
-import { EditorState } from "@codemirror/state";
+import { Compartment, EditorState } from "@codemirror/state";
 import { EditorView, keymap, lineNumbers } from "@codemirror/view";
 import { cn } from "@/lib/utils";
 
@@ -10,6 +10,7 @@ type ArtifactTextEditorProps = {
   className?: string;
   value: string;
   language: "markdown" | "text";
+  readOnly?: boolean;
   onChange: (value: string) => void;
 };
 
@@ -17,6 +18,7 @@ export function ArtifactTextEditor(props: ArtifactTextEditorProps) {
   const rootRef = useRef<HTMLDivElement>(null);
   const viewRef = useRef<EditorView | null>(null);
   const onChangeRef = useRef(props.onChange);
+  const readOnlyCompartment = useRef(new Compartment());
 
   useEffect(() => {
     onChangeRef.current = props.onChange;
@@ -34,6 +36,7 @@ export function ArtifactTextEditor(props: ArtifactTextEditorProps) {
       state: EditorState.create({
         doc: props.value,
         extensions: [
+          readOnlyCompartment.current.of([EditorState.readOnly.of(Boolean(props.readOnly)), EditorView.editable.of(!props.readOnly)]),
           lineNumbers(),
           history(),
           keymap.of([...defaultKeymap, ...historyKeymap]),
@@ -64,6 +67,12 @@ export function ArtifactTextEditor(props: ArtifactTextEditorProps) {
       viewRef.current = null;
     };
   }, [props.language]);
+
+  useEffect(() => {
+    viewRef.current?.dispatch({ effects: readOnlyCompartment.current.reconfigure([
+      EditorState.readOnly.of(Boolean(props.readOnly)), EditorView.editable.of(!props.readOnly),
+    ]) });
+  }, [props.readOnly]);
 
   useEffect(() => {
     const view = viewRef.current;

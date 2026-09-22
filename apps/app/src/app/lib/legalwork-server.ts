@@ -2623,10 +2623,10 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
         `/workspace/${workspaceId}/skills/${encodeURIComponent(skill)}/resources`,
         { token, hostToken },
       ),
-    getSkillResource: (workspaceId: string, skill: string, name: string) =>
+    getSkillResource: (workspaceId: string, skill: string, name: string, encoding: "utf8" | "base64" = "utf8") =>
       requestJson<LegalworkSkillResourceContent>(
         baseUrl,
-        `/workspace/${workspaceId}/skills/${encodeURIComponent(skill)}/resources/${encodeURIComponent(name)}`,
+        `/workspace/${workspaceId}/skills/${encodeURIComponent(skill)}/resources/${encodeURIComponent(name)}?encoding=${encoding}`,
         { token, hostToken },
       ),
     upsertSkillResource: (

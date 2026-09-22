@@ -24,22 +24,22 @@ export function savedDocxSnapshot(current: DocxSnapshot, data: ArrayBuffer, upda
   return { ...current, data, updatedAt };
 }
 
-const unsavedDocuments = new Map<string, { name: string; isDirty: () => boolean; discard?: () => void }>();
+const unsavedDocuments = new Map<string, { name: string; isDirty: () => boolean; discard?: () => void; retainOnSwitch: boolean }>();
 
 export function artifactDocumentKey(workspaceId: string, sessionId: string, targetId: string) {
   return JSON.stringify([workspaceId, sessionId, targetId]);
 }
 
-export function registerUnsavedDocument(key: string, name: string, isDirty: () => boolean, discard?: () => void) {
-  const entry = { name, isDirty, discard };
+export function registerUnsavedDocument(key: string, name: string, isDirty: () => boolean, discard?: () => void, retainOnSwitch = false) {
+  const entry = { name, isDirty, discard, retainOnSwitch };
   unsavedDocuments.set(key, entry);
   return () => {
     if (unsavedDocuments.get(key) === entry) unsavedDocuments.delete(key);
   };
 }
 
-export function confirmDiscardDocuments(key?: string, confirm?: (message: string) => boolean) {
-  const entries = [...unsavedDocuments.entries()].filter(([id, entry]) => (!key || id === key) && entry.isDirty());
+export function confirmDiscardDocuments(key?: string, confirm?: (message: string) => boolean, switching = false) {
+  const entries = [...unsavedDocuments.entries()].filter(([id, entry]) => (!key || id === key) && !(switching && entry.retainOnSwitch) && entry.isDirty());
   const names = entries.map(([, entry]) => entry.name);
   if (!names.length) return true;
   const ask = confirm ?? ((message: string) => window.confirm(message));

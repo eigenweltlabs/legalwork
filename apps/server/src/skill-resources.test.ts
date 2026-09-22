@@ -86,6 +86,24 @@ describe("skill resources CRUD", () => {
     expect(written.equals(bytes)).toBe(true);
   });
 
+  test("reads and updates a DOCX attachment as exact binary bytes at the same path", async () => {
+    await createSkill();
+    const name = "letterhead.docx";
+    const bytes = Buffer.from([80, 75, 3, 4, 0, 255, 128, 1]);
+    const created = await upsertSkillResource(workspace, SKILL, { name, contentBase64: bytes.toString("base64") });
+    const originalSkill = await readFile(skillMd(), "utf8");
+    const loaded = await readSkillResource(workspace, SKILL, name, "base64");
+    expect(loaded.item.path).toBe(created.path);
+    expect(Buffer.from(loaded.content, "base64")).toEqual(bytes);
+    const edited = Buffer.concat([bytes, Buffer.from([240, 159, 0, 255])]);
+    const saved = await upsertSkillResource(workspace, SKILL, { name, contentBase64: edited.toString("base64") });
+    expect(saved.action).toBe("updated");
+    expect(saved.path).toBe(created.path);
+    expect(await readFile(created.path)).toEqual(edited);
+    expect(Buffer.from((await readSkillResource(workspace, SKILL, name, "base64")).content, "base64")).toEqual(edited);
+    expect(await readFile(skillMd(), "utf8")).toBe(originalSkill);
+  });
+
   test("rejects reading non-text resources in the editor", async () => {
     await createSkill();
     await upsertSkillResource(workspace, SKILL, { name: "letterhead.docx", contentBase64: "aGk=" });

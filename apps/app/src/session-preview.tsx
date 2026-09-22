@@ -31,6 +31,7 @@ import { ShellConfigProvider } from "@/react-app/shell/shell-config";
 import { ReloadCoordinatorProvider } from "@/react-app/shell/reload-coordinator";
 import { WorkspaceProvider } from "@/react-app/shell/workspace-provider";
 import "./app/index.css";
+import { WorkflowsPreview } from "./workflows-preview";
 
 if (!import.meta.env.DEV) throw new Error("The session fixture is available only in development.");
 initLocale();
@@ -236,6 +237,7 @@ function SessionPreview() {
   useLocale();
   const [selectedSessionId, setSelectedSessionId] = useState(welcomeId);
   const [revision, setRevision] = useState(0);
+  const [showWorkflows, setShowWorkflows] = useState(new URLSearchParams(window.location.search).has("workflows"));
   const groups: WorkspaceSessionGroup[] = [
     { workspace, status: "ready", sessions: Array.from(snapshots.values()).map((item) => item.session) },
     { workspace: otherWorkspace, status: "ready", sessions: [] },
@@ -260,6 +262,7 @@ function SessionPreview() {
       </div>
       <div className="min-h-0 flex-1">
         <SessionPage
+          mainView={showWorkflows ? <WorkflowsPreview /> : undefined}
           selectedSessionId={selectedSessionId} selectedWorkspaceId={workspace.id} selectedWorkspaceDisplay={workspace}
           selectedWorkspaceRoot={workspace.path} runtimeWorkspaceId={workspace.id} workspaces={[workspace, otherWorkspace]}
           clientConnected legalworkServerStatus="connected" legalworkServerClient={fixtureClient}
@@ -275,10 +278,11 @@ function SessionPreview() {
             workspaceSessionGroups: groups, selectedWorkspaceId: workspace.id, selectedSessionId, developerMode: false,
             sessionStatusById: {}, connectingWorkspaceId: null, workspaceConnectionStateById: {}, newChatDisabled: false,
             sidebarHydratedFromCache: true, startupPhase: "ready", onSelectWorkspace: previewNotice,
-            onOpenSession: (_workspaceId, id) => setSelectedSessionId(id), onCreateChatInWorkspace: newTask,
+            onOpenSession: (_workspaceId, id) => { setShowWorkflows(false); setSelectedSessionId(id); }, onCreateChatInWorkspace: newTask,
             onOpenRenameWorkspace: previewNotice, onRevealWorkspace: previewNotice, onForgetWorkspace: previewNotice,
             onOpenCreateWorkspace: previewNotice, onCreateChatInNewWorkspace: previewNotice,
-            onShowEvals: previewNotice, onShowWorkflows: previewNotice, onShowExtensions: previewNotice, onShowRecorder: previewNotice,
+            onShowEvals: previewNotice, onShowWorkflows: () => setShowWorkflows(true), onShowExtensions: previewNotice, onShowRecorder: previewNotice,
+            activeNav: showWorkflows ? "workflows" : null,
           }}
           surface={{
             workspaceRoot: workspace.path, developerMode: false, modelLabel: "Preview model", onModelClick: previewNotice,

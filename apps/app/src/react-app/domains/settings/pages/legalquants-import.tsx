@@ -9,6 +9,8 @@ import type { SkillsExtensionsStore } from "./skills-view";
 const SOURCE = "https://github.com/LegalQuants/lq-plugin-oss/tree/main/skills";
 type Catalog = Awaited<ReturnType<SkillsExtensionsStore["scanGithubSkills"]>>;
 type Props = {
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
   busy: boolean;
   existingNames: Set<string>;
   extensions: Pick<SkillsExtensionsStore, "scanGithubSkills" | "importGithubSkills">;
@@ -16,9 +18,11 @@ type Props = {
 };
 
 export function LegalQuantsImportButton(props: Props) {
-  const [open, setOpen] = useState(false);
+  const [internalOpen, setInternalOpen] = useState(false);
+  const open = props.open ?? internalOpen;
+  const setOpen = props.onOpenChange ?? setInternalOpen;
   return <>
-    <button type="button" className={props.className} disabled={props.busy} onClick={() => setOpen(true)}>
+    <button hidden={props.open !== undefined} type="button" className={props.className} disabled={props.busy} onClick={() => setOpen(true)}>
       <Download size={14} /> LegalQuants
     </button>
     {open ? <LegalQuantsImportModal {...props} onClose={() => setOpen(false)} /> : null}

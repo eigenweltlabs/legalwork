@@ -973,10 +973,21 @@ export function createExtensionsStore(options: {
     return { legalworkClient, legalworkWorkspaceId, canUse };
   };
 
+  let skillResourcesRequest = 0;
+  let activeResourcesSkill = "";
+  let activeResourcesContext = "";
   async function refreshSkillResources(skillName: string) {
     const skill = skillName.trim();
     if (!skill) return;
+    const request = ++skillResourcesRequest;
+    const context = getWorkspaceContextKey();
+    if (activeResourcesSkill !== skill || activeResourcesContext !== context) {
+      activeResourcesContext = context;
+      activeResourcesSkill = skill;
+      mutateState((current) => ({ ...current, skillResources: [], skillResourcesStatus: null }));
+    }
     const { legalworkClient, legalworkWorkspaceId, canUse } = await resolveSkillResourcesTarget();
+    if (request !== skillResourcesRequest || context !== getWorkspaceContextKey()) return;
     if (!canUse || !legalworkClient || !legalworkWorkspaceId) {
       mutateState((current) => ({
         ...current,
@@ -987,6 +998,7 @@ export function createExtensionsStore(options: {
     }
     try {
       const response = await legalworkClient.listSkillResources(legalworkWorkspaceId, skill);
+      if (request !== skillResourcesRequest || context !== getWorkspaceContextKey()) return;
       const next: SkillResourceCard[] = Array.isArray(response.items)
         ? response.items.map((item) => ({
             name: item.name,
@@ -997,6 +1009,7 @@ export function createExtensionsStore(options: {
         : [];
       mutateState((current) => ({ ...current, skillResources: next, skillResourcesStatus: null }));
     } catch (error) {
+      if (request !== skillResourcesRequest || context !== getWorkspaceContextKey()) return;
       mutateState((current) => ({
         ...current,
         skillResources: [],
@@ -1008,6 +1021,7 @@ export function createExtensionsStore(options: {
   async function readSkillResource(
     skillName: string,
     fileName: string,
+    encoding: "utf8" | "base64" = "utf8",
   ): Promise<{ name: string; path: string; content: string } | null> {
     const skill = skillName.trim();
     const name = fileName.trim();
@@ -1018,7 +1032,7 @@ export function createExtensionsStore(options: {
       return null;
     }
     try {
-      const result = await legalworkClient.getSkillResource(legalworkWorkspaceId, skill, name);
+      const result = await legalworkClient.getSkillResource(legalworkWorkspaceId, skill, name, encoding);
       return { name: result.item.name, path: result.item.path, content: result.content };
     } catch (error) {
       setStateField(
@@ -1049,7 +1063,7 @@ export function createExtensionsStore(options: {
           ? { contentBase64: input.contentBase64 }
           : { content: input.content ?? "" }),
       });
-      await refreshSkillResources(skill);
+      if (activeResourcesSkill === skill) await refreshSkillResources(skill);
       return {
         ok: true,
         message: result.action === "added" ? t("skill_resources.added") : t("skill_resources.updated"),
@@ -1075,7 +1089,7 @@ export function createExtensionsStore(options: {
     options.setError(null);
     try {
       await legalworkClient.deleteSkillResource(legalworkWorkspaceId, skill, name);
-      await refreshSkillResources(skill);
+      if (activeResourcesSkill === skill) await refreshSkillResources(skill);
       return { ok: true, message: t("skill_resources.removed") };
     } catch (error) {
       const message = error instanceof Error ? error.message : t("skills.unknown_error");
@@ -1769,7 +1783,7 @@ export function createExtensionsStore(options: {
 
   async function saveSkill(input: { name: string; content: string; description?: string }) {
     const trimmed = input.name.trim();
-    if (!trimmed) return;
+    if (!trimmed) throw new Error(t("extensions.skill_name_required"));
     const root = options.selectedWorkspaceRoot().trim();
     const isRemoteWorkspace = options.workspaceType() === "remote";
     const isLocalWorkspace = options.workspaceType() === "local";
@@ -1796,6 +1810,7 @@ export function createExtensionsStore(options: {
       } catch (error) {
         const message = error instanceof Error ? error.message : t("skills.unknown_error");
         options.setError(addOpencodeCacheHint(message));
+        throw error;
       } finally {
         options.setBusy(false);
       }
@@ -1804,25 +1819,25 @@ export function createExtensionsStore(options: {
 
     if (hasLegalworkTarget) {
       setStateField("skillsStatus", t("extensions.server_cannot_write_skills"));
-      return;
+      throw new Error(t("extensions.server_cannot_write_skills"));
     }
 
     if (!root) {
       setStateField("skillsStatus", t("skills.pick_workspace_first"));
-      return;
+      throw new Error(t("skills.pick_workspace_first"));
     }
 
     if (isRemoteWorkspace) {
       setStateField("skillsStatus", "LegalWork server unavailable. Connect to edit skills.");
-      return;
+      throw new Error("LegalWork server unavailable. Connect to edit skills.");
     }
     if (!isDesktopRuntime()) {
       setStateField("skillsStatus", t("skills.desktop_required"));
-      return;
+      throw new Error(t("skills.desktop_required"));
     }
     if (!isLocalWorkspace) {
       setStateField("skillsStatus", "Local workers are required to edit skills.");
-      return;
+      throw new Error("Local workers are required to edit skills.");
     }
 
     options.setBusy(true);
@@ -1831,7 +1846,7 @@ export function createExtensionsStore(options: {
     try {
       const result = (await writeLocalSkill("", trimmed, input.content)) as { ok: boolean; stderr?: string; stdout?: string };
       if (!result.ok) {
-        setStateField("skillsStatus", result.stderr || result.stdout || t("skills.unknown_error"));
+        throw new Error(result.stderr || result.stdout || t("skills.unknown_error"));
       } else {
         setStateField("skillsStatus", result.stdout || "Saved.");
         options.markReloadRequired?.("skills", { type: "skill", name: trimmed, action: "updated" });
@@ -1840,6 +1855,7 @@ export function createExtensionsStore(options: {
     } catch (error) {
       const message = error instanceof Error ? error.message : t("skills.unknown_error");
       options.setError(addOpencodeCacheHint(message));
+      throw error;
     } finally {
       options.setBusy(false);
     }

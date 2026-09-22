@@ -96,6 +96,7 @@ import { OfficeAddinsView } from "@/react-app/domains/settings/pages/office-addi
 import { RecorderSettingsView } from "@/react-app/domains/settings/pages/recorder-view";
 import { MessagingView } from "@/react-app/domains/settings/pages/messaging-view";
 import { SkillsView } from "@/react-app/domains/settings/pages/skills-view";
+import { WorkflowsView } from "@/react-app/domains/settings/pages/workflows-view";
 import { UpdatesView } from "@/react-app/domains/settings/pages/updates-view";
 import { useDebugViewModel } from "@/react-app/domains/settings/state/debug-view-model";
 import { useMessagingViewProps } from "@/react-app/domains/settings/state/messaging-view-state";
@@ -2108,9 +2109,12 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
       case "shell":
         return <ShellCustomizationView />;
       case "skills":
-      case "workflows":
+      case "workflows": {
+        const View = route.tab === "workflows" ? WorkflowsView : SkillsView;
         return (
-          <SkillsView
+          <View
+            workspaceId={selectedWorkspaceId}
+            inlineEditor={props.singleView !== true}
             kind={route.tab === "workflows" ? "workflows" : "skills"}
             workspaceName={selectedWorkspaceName}
             busy={busy}
@@ -2169,6 +2173,7 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
             }}
           />
         );
+      }
       case "extensions":
         return (
           <ExtensionsView
@@ -2411,7 +2416,9 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
         // Standalone page (Skills / Integrations) hosted in the main app shell: render
         // just the active view, no settings nav chrome. Matches SettingsContent's padding
         // and centering so the view sits where it does inside Settings.
-        <div className="min-w-0 min-h-0 flex-1 overflow-y-auto flex flex-col items-center gap-6 p-4 md:gap-8 md:p-6 lg:p-8 bg-background">
+        <div className={route.tab === "workflows"
+          ? "flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-background"
+          : "min-w-0 min-h-0 flex-1 overflow-y-auto flex flex-col items-center gap-6 p-4 md:gap-8 md:p-6 lg:p-8 bg-background"}>
           {settingsView}
         </div>
       ) : (
