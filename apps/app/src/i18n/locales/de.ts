@@ -3154,11 +3154,9 @@ const de = {
   "docx.editor_not_ready": "Der Dokumenteditor ist noch nicht bereit.",
   "docx.unknown_change_ids":
     "Keine dieser IDs für nachverfolgte Änderungen existiert im geöffneten Dokument.",
-  "docx.font_missing_title": "Dieses Dokument verwendet eine Schrift, die Sie nicht haben",
+  "docx.font_missing_title": "Schrift nicht verfügbar",
   "docx.font_missing_body":
-    "{fonts} ist auf diesem Computer nicht installiert und in LegalWork nicht enthalten. Der Text bleibt lesbar, aber Zeilen- und Seitenumbrüche können vom Original abweichen.",
-  "docx.font_missing_privacy":
-    "LegalWork kann die Schrift von Google Fonts laden. Google sieht dabei den Namen der Schrift und Ihre IP-Adresse. Ihr Dokument wird nie übertragen. Diese Entscheidung wird für diese Schrift gespeichert.",
+    "Dieses Dokument verwendet {fonts}. Ohne sie können Zeilen- und Seitenumbrüche abweichen. Beim Laden sieht Google den Namen der Schrift, nie Ihr Dokument.",
   "docx.font_missing_confirm": "Schrift herunterladen",
   "docx.font_missing_cancel": "Ersatzschrift verwenden",
   "docx.font_download_failed":

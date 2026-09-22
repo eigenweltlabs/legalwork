@@ -410,14 +410,7 @@ function LiveDocxEditor({ name, content, author, readOnly = false, onSave, onDir
       <ConfirmModal
         open={missingFonts.length > 0}
         title={t("docx.font_missing_title")}
-        message={
-          <>
-            {t("docx.font_missing_body", { fonts: missingFonts.join(", ") })}
-            <br />
-            <br />
-            {t("docx.font_missing_privacy")}
-          </>
-        }
+        message={t("docx.font_missing_body", { fonts: missingFonts.join(", ") })}
         confirmLabel={t("docx.font_missing_confirm")}
         cancelLabel={t("docx.font_missing_cancel")}
         confirmButtonVariant="secondary"
