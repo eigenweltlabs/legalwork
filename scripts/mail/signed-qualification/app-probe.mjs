@@ -1,6 +1,7 @@
 // Runs inside the signed production main process after its normal window loads.
 // Uses production preload/IPC updater commands; only feed locations are replaced.
 import assert from 'node:assert/strict';
+import {qualificationTrace} from './mail-signed-diagnostics.mjs';
 import {readFile, writeFile, mkdir, rename} from 'node:fs/promises';
 import {join} from 'node:path';
 import {pathToFileURL} from 'node:url';
@@ -8,6 +9,7 @@ import {createHash, randomUUID} from 'node:crypto';
 import {createMailKeyStore} from './mail-key-store.mjs';
 const hash=value=>createHash('sha256').update(value).digest('hex');
 export async function qualifySignedApp({app,win,safeStorage}) {
+  qualificationTrace('probe-enter');
   const profile=app.getPath('userData');
   const config=JSON.parse(await readFile(join(profile,'mail-signed-qualification.json'),'utf8'));
   const record=async(name,value)=>{const destination=join(config.evidence,name+'.json');await writeFile(destination+'.tmp',JSON.stringify(value)+'\n');await rename(destination+'.tmp',destination);};
@@ -16,7 +18,7 @@ export async function qualifySignedApp({app,win,safeStorage}) {
     assert.equal(app.isPackaged,true);assert.equal(process.platform,'darwin');assert.equal(process.arch,config.arch);
     assert.equal(app.getName(),'LegalWork');assert.equal(safeStorage.isEncryptionAvailable(),true);
     const version=app.getVersion();assert([config.baseVersion,config.targetVersion].includes(version));
-    stage='retained-mail-store';
+    stage='retained-mail-store';qualificationTrace(stage);
     // Separate fixture store in the real application profile: no account is
     // registered with the running app, so synthetic credentials cannot be sent.
     const directory=join(profile,'qualification-mail');await mkdir(directory,{recursive:true,mode:0o700});

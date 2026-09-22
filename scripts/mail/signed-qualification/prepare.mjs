@@ -3,11 +3,25 @@ import {readFile, writeFile, copyFile} from 'node:fs/promises';
 import assert from 'node:assert/strict';
 const main='apps/desktop/electron/main.mjs', updater='apps/desktop/electron/updater.mjs';
 let source=await readFile(main,'utf8');
+source="import {qualificationTrace} from './mail-signed-diagnostics.mjs';\n"+source;
+for(const [anchor,stage] of [
+  ['    await runtimeManager.prepareFreshRuntime()', 'prepare-runtime'],
+  ['    await workspaceStore.migrateLegacyElectronWorkspaceStateIfNeeded();','workspace-migration'],
+  ['    await systemDictation.initialize();','dictation-initialize'],
+  ['    // Initialize the packaged updater after the window is up','window-loaded'],
+]) {
+  assert.equal(source.split(anchor).length,2,stage);
+  source=source.replace(anchor,`    qualificationTrace('${stage}');\n${anchor}`);
+}
+source=source.replace('  app.whenReady().then(async () => {',"  app.whenReady().then(async () => {\n    qualificationTrace('app-ready');");
 const anchor='    void ensureAutoUpdater();';
 assert.equal(source.split(anchor).length,2);
-source=source.replace(anchor,`    await ensureAutoUpdater();
+source=source.replace(anchor,`    qualificationTrace('updater-initialize');
+    await ensureAutoUpdater();
+    qualificationTrace('probe-import');
     await (await import('./mail-signed-qualification.mjs')).qualifySignedApp({app, win, safeStorage});`);
 await writeFile(main,source);
+await copyFile('scripts/mail/signed-qualification/diagnostics.mjs','apps/desktop/electron/mail-signed-diagnostics.mjs');
 await copyFile('scripts/mail/signed-qualification/app-probe.mjs','apps/desktop/electron/mail-signed-qualification.mjs');
 source=await readFile(updater,'utf8');
 const marker='export const ELECTRON_UPDATER_FEEDS = Object.freeze({';

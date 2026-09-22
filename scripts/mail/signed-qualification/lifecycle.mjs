@@ -69,7 +69,8 @@ async function waitResult(name,timeout=240000) {
 }
 async function launch(name) {
   await writeFile(control,JSON.stringify(config));
-  const child=spawn('open',['-n','-W',appPath],{stdio:'inherit'});child.once('error',error=>{void writeFile(join(evidence,'failure.json'),JSON.stringify({passed:false,stage:'launch-services',message:error.message}));});
+  const child=spawn('open',['-n','-W','--stdout',join(evidence,name+'-stdout.txt'),'--stderr',join(evidence,name+'-stderr.txt'),appPath],{stdio:'inherit'});child.once('error',error=>{void writeFile(join(evidence,'failure.json'),JSON.stringify({passed:false,stage:'launch-services',message:error.message}));});
+  child.once('exit',(code,signal)=>{void writeFile(join(evidence,name+'-launch-services.json'),JSON.stringify({code,signal}));});
   const result=await waitResult(name);
   // The application records its PID; ensure it actually quits before changing files.
   const until=Date.now()+30000;
