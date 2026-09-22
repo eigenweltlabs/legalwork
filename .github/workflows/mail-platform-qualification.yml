@@ -42,6 +42,10 @@ jobs:
           pnpm --dir apps/desktop exec electron-builder --config electron-builder.yml \
             --mac --arm64 --dir --publish never -c.mac.identity=- \
             -c.extraMetadata.version=0.0.1 -c.directories.output="$RUNNER_TEMP/mail-startup-app"
+      - name: Record keychain paths without reading credentials
+        run: |
+          security default-keychain -d user > "$RUNNER_TEMP/mail-startup-evidence/default-keychain.txt"
+          security list-keychains -d user > "$RUNNER_TEMP/mail-startup-evidence/search-keychains.txt"
       - name: Observe actual startup and fixture wiring only
         timeout-minutes: 5
         run: node scripts/mail/signed-qualification/smoke.mjs "$RUNNER_TEMP/mail-startup-app/mac-arm64/LegalWork.app" "$RUNNER_TEMP/mail-startup-evidence"

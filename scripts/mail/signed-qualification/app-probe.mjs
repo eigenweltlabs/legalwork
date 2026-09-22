@@ -16,13 +16,16 @@ export async function qualifySignedApp({app,win,safeStorage}) {
   let stage='identity';
   try {
     assert.equal(app.isPackaged,true);assert.equal(process.platform,'darwin');assert.equal(process.arch,config.arch);
-    assert.equal(app.getName(),'LegalWork');assert.equal(safeStorage.isEncryptionAvailable(),true);
+    assert.equal(app.getName(),'LegalWork');qualificationTrace('safe-storage-availability-before');
+    assert.equal(safeStorage.isEncryptionAvailable(),true);qualificationTrace('safe-storage-availability-after');
     const version=app.getVersion();assert([config.baseVersion,config.targetVersion].includes(version));
     stage='retained-mail-store';qualificationTrace(stage);
     // Separate fixture store in the real application profile: no account is
     // registered with the running app, so synthetic credentials cannot be sent.
     const directory=join(profile,'qualification-mail');await mkdir(directory,{recursive:true,mode:0o700});
+    qualificationTrace('mail-key-load-before');
     const key=await createMailKeyStore({directory,safeStorage}).load({allowCreate:config.phase==='install'});
+    qualificationTrace('mail-key-load-after');
     let db;
     try {
       const module=name=>import(pathToFileURL(join(process.resourcesPath,'app.asar/server/dist/mail/storage',name+'.js')).href);
