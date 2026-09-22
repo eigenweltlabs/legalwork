@@ -70,12 +70,17 @@ test('sink must consume fully; sink/source exceptions remain fixed and original 
  await assert.rejects(parse(raw,{source:source()}),reject('source_failed'));assert.deepEqual(raw,original);
  await assert.rejects(parse(raw,{originalSha256:'a'.repeat(64)}),reject('hash_mismatch'));
 });
-test('deadline and cancellation bound ignored source/sink waits and fence later writes',async()=>{
+test('deadline and cancellation bound ignored source/sink waits and fence later writes',async t=>{
  const raw=text(['Content-Type: text/plain','','hello']);
  async function* hanging(){await new Promise(()=>{});yield raw;}
  await assert.rejects(parse(raw,{source:hanging(),limits:{timeoutMs:10}}),reject('timeout'));
- const f=fixture(7),mime=Buffer.concat([...f.chunks()]);let sinkSignal;
- await assert.rejects(parse(mime,{limits:{timeoutMs:10},onAttachment:async(_meta,_chunks,signal)=>{sinkSignal=signal;await new Promise(()=>{});}}),reject('timeout'));assert.equal(sinkSignal.aborted,true);
+ const f=fixture(7),mime=Buffer.concat([...f.chunks()]);let sinkSignal,expireSink;
+ const schedule=setTimeout;
+ // Expire the watchdog after reaching the uncooperative sink. A 10ms whole-
+ // parse budget can expire during healthy header parsing before the sink exists.
+ t.mock.method(globalThis,'setTimeout',(callback,ms,...args)=>{if(ms===30000)expireSink=()=>callback(...args);return schedule(callback,ms,...args);});
+ await assert.rejects(parse(mime,{onAttachment:async(_meta,_chunks,signal)=>{sinkSignal=signal;assert.equal(typeof expireSink,'function');expireSink();await new Promise(()=>{});}}),reject('timeout'));
+ t.mock.restoreAll();assert.equal(sinkSignal.aborted,true);
  const controller=new AbortController();controller.abort();let calls=0;
  await assert.rejects(parse(mime,{signal:controller.signal,onAttachment:async()=>{calls++;}}),reject('cancelled'));assert.equal(calls,0);
  const active=new AbortController();await assert.rejects(parse(mime,{signal:active.signal,onAttachment:async(_meta,chunks)=>{active.abort();for await(const bytes of chunks){throw Error('must not emit after abort');}}}),reject('cancelled'));
