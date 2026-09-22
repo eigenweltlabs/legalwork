@@ -14,7 +14,8 @@ test('Windows overlay uses native BGRA image and clears/reapplies on window crea
  assert.notDeepEqual(badgeBitmap(1),badgeBitmap(2));assert.deepEqual(badgeBitmap(100),badgeBitmap(999));
 });
 test('background refresh follows local read/sync/disconnect and respects preference/in-flight stop', async () => {
- let count=7,state='ready',resolve;const values=[];
+ let count=7,state='ready';
+ /** @type {(count:number)=>void} */ let resolve;const values=[];
  const service={status:()=>({state}),unreadInboxCount:async()=>count};
  const controller=createMailBadgeController({service,badge:{set:(_,v)=>values.push(v)},intervalMs:999999});
  await new Promise(r=>setImmediate(r));assert.equal(values.at(-1),7);
@@ -23,13 +24,13 @@ test('background refresh follows local read/sync/disconnect and respects prefere
  controller.setEnabled(true);await new Promise(r=>setImmediate(r));assert.equal(values.at(-1),3);
  count=0;await controller.refresh();assert.equal(values.at(-1),0);
  state='locked';await controller.refresh();assert.equal(values.at(-1),0);state='ready';
- service.unreadInboxCount=()=>new Promise(r=>{resolve=r});const pending=controller.refresh();controller.stop();resolve(8);await pending;assert.equal(values.at(-1),0);
+ service.unreadInboxCount=()=>new Promise(r=>{resolve=r});const pending=controller.refresh();controller.stop();assert.ok(resolve);resolve(8);await pending;assert.equal(values.at(-1),0);
 });
 
 test('Settings preference persists independently and restores on controller replacement', async () => {
  const {EventEmitter}=await import('node:events');const {mkdtemp,rm}=await import('node:fs/promises');const {tmpdir}=await import('node:os');const {join}=await import('node:path');
  const {configureMailBadge,getMailBadgeEnabled,setMailBadgeEnabled}=await import('./app-badge.mjs');
- const directory=await mkdtemp(join(tmpdir(),'badge-preference-'));const app=new EventEmitter();app.getPath=()=>directory;app.dock={setBadge:()=>{}};
+ const directory=await mkdtemp(join(tmpdir(),'badge-preference-'));const app=Object.assign(new EventEmitter(),{getPath:()=>directory,dock:{setBadge:()=>{}}});
  const makeService=()=>({status:()=>({state:'ready'}),unreadInboxCount:async()=>4,stop:async()=>{}});let service=makeService();
  try {
   await configureMailBadge({app,nativeImage:null,BrowserWindow:{getAllWindows:()=>[]},service});assert.equal(getMailBadgeEnabled(),true);
@@ -43,8 +44,7 @@ test('Tasks and Mail share the OS badge through mail restart and independent pre
  const {EventEmitter}=await import('node:events');const {mkdtemp,rm}=await import('node:fs/promises');const {tmpdir}=await import('node:os');const {join}=await import('node:path');
  const {getAppBadge,configureMailBadge,setMailBadgeEnabled}=await import('./app-badge.mjs');
  const directory=await mkdtemp(join(tmpdir(),'shared-badge-'));const values=[];
- const record=value=>values.push(parseInt(value,10)||0);const app=new EventEmitter();
- app.getPath=()=>directory;app.dock={setBadge:record};app.setBadgeCount=record;
+ const record=value=>values.push(parseInt(value,10)||0);const app=Object.assign(new EventEmitter(),{getPath:()=>directory,dock:{setBadge:record},setBadgeCount:record});
  const options={app,nativeImage:{createFromBitmap:()=>({})},BrowserWindow:{getAllWindows:()=>[{isDestroyed:()=>false,setOverlayIcon:(_image,label)=>record(label)}]}};
  const makeService=count=>({status:()=>({state:'ready'}),unreadInboxCount:async()=>count,stop:async()=>{}});
  const first=makeService(4),second=makeService(5);const settle=()=>new Promise(resolve=>setImmediate(resolve));

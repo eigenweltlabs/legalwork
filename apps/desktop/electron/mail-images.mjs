@@ -11,17 +11,31 @@ import {z} from 'zod';
 const id=z.string().min(1).max(4096),locator=z.union([z.object({provider:z.literal('gmail'),messageId:id}).strict(),z.object({provider:z.literal('graph'),messageId:id}).strict(),z.object({provider:z.literal('imap'),mailboxId:id,uidValidity:z.number().int().positive(),uid:z.number().int().positive()}).strict(),z.object({provider:z.literal('archive'),namespace:id,entryId:id}).strict()]);
 const inputSchema=z.object({accountId:id,locator,partId:z.string().max(4096),referenceId:z.string().regex(/^sha256:[0-9a-f]{64}$/)}).strict();
 const blocked=new BlockList();
-for(const [address,prefix] of [['0.0.0.0',8],['10.0.0.0',8],['100.64.0.0',10],['127.0.0.0',8],['169.254.0.0',16],['172.16.0.0',12],['192.0.0.0',24],['192.0.2.0',24],['192.88.99.0',24],['192.168.0.0',16],['198.18.0.0',15],['198.51.100.0',24],['203.0.113.0',24],['224.0.0.0',3]])blocked.addSubnet(address,prefix,'ipv4');
-for(const [address,prefix] of [['2001::',23],['2001:db8::',32],['2002::',16],['3fff::',20]])blocked.addSubnet(address,prefix,'ipv6');
+/** @type {[string,number][]} */
+const ipv4Ranges=[['0.0.0.0',8],['10.0.0.0',8],['100.64.0.0',10],['127.0.0.0',8],['169.254.0.0',16],['172.16.0.0',12],['192.0.0.0',24],['192.0.2.0',24],['192.88.99.0',24],['192.168.0.0',16],['198.18.0.0',15],['198.51.100.0',24],['203.0.113.0',24],['224.0.0.0',3]];
+for(const [address,prefix] of ipv4Ranges)blocked.addSubnet(address,prefix,'ipv4');
+/** @type {[string,number][]} */
+const ipv6Ranges=[['2001::',23],['2001:db8::',32],['2002::',16],['3fff::',20]];
+for(const [address,prefix] of ipv6Ranges)blocked.addSubnet(address,prefix,'ipv6');
 export function publicMailAddress(address){const family=isIP(address);return family===4?!blocked.check(address,'ipv4'):family===6&&/^[23][0-9a-f]{3}:/i.test(address)&&!blocked.check(address,'ipv6');}
 export function imageUrl(value){try{if(typeof value!=='string'||value.length>4096)return null;const url=new URL(value);return ['http:','https:'].includes(url.protocol)&&!url.username&&!url.password&&(!url.port||url.port==='443'||url.port==='80')?url:null;}catch{return null;}}
 /** Only URLs recovered from the immutable stored MIME body are eligible. */
 export function messageImageUrls(bodies){const urls=new Set();let nodes=0;
  const add=value=>{const url=imageUrl(value);if(url&&urls.size<100)urls.add(url.href);};
  const css=(value,inline)=>{if(value.length>128*1024)return;try{const ast=parseCss(value,{context:inline?'declarationList':'stylesheet'});walk(ast,function(node){if(node.type==='Atrule'&&node.name.toLowerCase()!=='media')return walk.skip;if(node.type==='Declaration'){if(['background','background-image'].includes(node.property.toLowerCase()))walk(node.value,child=>{if(child.type==='Url')add(child.value);});return walk.skip;}});}catch{}};
- for(const body of bodies){if(body.contentType!=='text/html'||body.presentation===false)continue;const root=parse(body.text);const queue=[root];while(queue.length){const node=queue.pop();if(++nodes>15000)throw Error('mail_image_limit');for(const attr of node.attrs??[]){if(node.tagName==='img'&&attr.name==='src'||attr.name==='background')add(attr.value);if(attr.name==='style')css(attr.value,true);}if(node.tagName==='style')css((node.childNodes??[]).map(child=>child.value??'').join(''),false);queue.push(...node.childNodes??[]);}}
+ for(const body of bodies){if(body.contentType!=='text/html'||body.presentation===false)continue;const root=parse(body.text);
+ /** @type {import("parse5").DefaultTreeAdapterTypes.Node[]} */
+ const queue=[root];while(queue.length){const node=queue.pop();if(++nodes>15000)throw Error('mail_image_limit');for(const attr of ('attrs' in node?node.attrs:[])){if('tagName' in node&&node.tagName==='img'&&attr.name==='src'||attr.name==='background')add(attr.value);if(attr.name==='style')css(attr.value,true);}if('tagName' in node&&node.tagName==='style')css(node.childNodes.map(child=>'value' in child?child.value:'').join(''),false);if('childNodes' in node)queue.push(...node.childNodes);}}
  return [...urls];
 }
+/**
+ * @typedef {import('node:stream').Readable & {statusCode?:number,headers:import('node:http').IncomingHttpHeaders}} ImageResponse
+ * @typedef {{setTimeout:(ms:number,callback:()=>void)=>unknown,end:()=>unknown,destroy:(error:Error)=>unknown,on:(event:'error',callback:(error:Error)=>void)=>unknown}} ImageRequest
+ * @param {string} url
+ * @param {AbortSignal} signal
+ * @param {(hostname:string,options:{all:true,verbatim:true})=>Promise<import('node:dns').LookupAddress[]>} [resolve]
+ * @param {(protocol:string)=>(url:URL,options:import('node:http').RequestOptions,callback:(response:ImageResponse)=>void)=>ImageRequest} [requestFor]
+ */
 export async function fetchMailImage(url,signal,resolve=lookup,requestFor=protocol=>protocol==='https:'?httpsRequest:httpRequest){
  let current=imageUrl(url);if(!current)throw Error('mail_image_url');
  for(let redirects=0;redirects<=4;redirects++){

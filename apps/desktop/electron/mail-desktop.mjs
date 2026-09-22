@@ -84,4 +84,4 @@ export async function configureMailDesktop({ app, service, Notification, powerMo
 }
 export function getMailDesktopSettings() { return { preferences: { ...preferences }, status: controller?.status() ?? { supported: false, state: 'unavailable' } }; }
 export function setMailDesktopSettings(value) { const next = preferenceSchema.parse(value); if (!path)
-    return Promise.reject(Error('Mail settings unavailable')); const target = path; const operation = writes.then(async () => { await writeFile(target + '.tmp', JSON.stringify(next), { mode: 0o600 }); await rename(target + '.tmp', target); preferences = next; await controller?.configure(next); return getMailDesktopSettings(); }); writes = operation.catch(() => { }); return operation; }
+    return Promise.reject(Error('Mail settings unavailable')); const target = path; const operation = writes.then(async () => { await writeFile(target + '.tmp', JSON.stringify(next), { mode: 0o600 }); await rename(target + '.tmp', target); preferences = next; await controller?.configure(next); return getMailDesktopSettings(); }); writes = operation.then(() => {}, () => {}); return operation; }
