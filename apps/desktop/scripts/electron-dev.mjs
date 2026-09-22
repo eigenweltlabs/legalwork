@@ -1,5 +1,6 @@
 import { spawn, spawnSync } from "node:child_process";
 import net from "node:net";
+import { matchesDevCheckout } from "./dev-server-identity.mjs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -77,6 +78,7 @@ async function probeHost(host, port) {
 }
 
 async function looksLikeVite(url) {
+  if (!explicitStartUrl) return matchesDevCheckout(url, resolve(repoRoot, "apps/app"));
   try {
     const response = await fetchWithTimeout(`${url}/@vite/client`);
     if (!response.ok) return false;
@@ -107,7 +109,7 @@ async function waitForVite(url, timeoutMs = 60_000) {
         return candidate;
       }
     }
-    for (const candidate of [url, ...viteProbeUrls].filter(Boolean)) {
+    for (const candidate of explicitStartUrl ? [url, ...viteProbeUrls].filter(Boolean) : []) {
       if (await portIsOpenForVite(candidate)) {
         return candidate;
       }
@@ -235,6 +237,9 @@ for (const candidate of initialProbeUrls) {
 if (!viteReady) {
   for (const candidate of initialProbeUrls) {
     if (await portIsOpenForVite(candidate)) {
+      if (!explicitStartUrl) {
+        throw new Error(`Development port ${devPort} is occupied without a matching checkout identity. Choose a free PORT or deliberately set LEGALWORK_ELECTRON_START_URL.`);
+      }
       viteReady = true;
       break;
     }

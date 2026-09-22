@@ -33,6 +33,7 @@ import { PanelEmptyState } from "@/react-app/design-system/panel-chrome";
 
 import { ArtifactIcon } from "../artifacts/artifact-icon";
 import { confirmDiscardDocuments } from "../artifacts/docx-document-state";
+import { MailAttachmentPreview } from "../artifacts/mail-attachment-preview";
 import { ArtifactPanel } from "../artifacts/artifact-panel";
 import {
   type BrowserPanelTab,
@@ -694,7 +695,7 @@ export function SidePanel({
           <BrowserPanelContent tab={activeTab} onClose={onClose} />
         ) : activeTab?.type === "artifact" ? (
           <div className="min-h-0 flex-1 overflow-hidden">
-            <ArtifactPanel
+            {activeTab.mailSourceId ? <MailAttachmentPreview sourceId={activeTab.mailSourceId} /> : <ArtifactPanel
               sessionId={sessionId}
               tab={activeTab}
               client={client}
@@ -702,7 +703,7 @@ export function SidePanel({
               workspaceRoot={workspaceRoot}
               isRemoteWorkspace={isRemoteWorkspace}
               onClose={onClose}
-            />
+            />}
           </div>
         ) : activeTab?.type === "task" ? (
           <div className="min-h-0 flex-1 overflow-hidden">

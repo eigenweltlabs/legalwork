@@ -1,0 +1,281 @@
+import type { OAuthFetch } from "./oauth.js";
+
+export type GmailTransportErrorCode = "invalid_input" | "invalid_response" | "response_too_large" | "raw_too_large"
+  | "access_token_rejected" | "reconsent_required" | "forbidden" | "rate_limited" | "quota_exceeded"
+  | "transient" | "not_found" | "request_rejected" | "timeout" | "cancelled" | "consumer_failed";
+export type GmailFailureReason = 'dailyLimitExceeded' | 'quotaExceeded' | 'rateLimitExceeded' | 'userRateLimitExceeded' | 'insufficientPermissions' | 'domainPolicy' | 'authError' | 'backendError';
+function safeFailureReason(value: unknown): GmailFailureReason | null {
+  if(value==='dailyLimitExceeded'||value==='quotaExceeded'||value==='rateLimitExceeded'||value==='userRateLimitExceeded'||value==='insufficientPermissions'||value==='domainPolicy'||value==='authError'||value==='backendError')return value;
+  return null;
+}
+export class GmailTransportError extends Error {
+  readonly retryable: boolean;
+  constructor(readonly code: GmailTransportErrorCode, readonly retryAfterMs: number | null = null, readonly httpStatus: number | null = null, readonly reason: GmailFailureReason | null = null) {
+    super(`mail_gmail_${code}`);
+    this.retryable = code === "rate_limited" || code === "transient" || code === "timeout";
+  }
+}
+export type GmailLabel = { id: string; name: string; type: "system" | "user" };
+export type GmailMessagePage = { messages: { id: string; threadId: string }[]; nextPageToken: string | null; resultSizeEstimate: number | null };
+export type GmailRawMetadata = { id: string; threadId: string; labelIds: string[]; historyId: string; internalDate: string; sizeEstimate: number; rawBytes: number };
+export type GmailHistoryChange = { kind: "added" | "deleted" | "labelsAdded" | "labelsRemoved" | "changed"; messageId: string; threadId: string; labelIds: string[] };
+export type GmailHistoryPage = { historyId: string; nextPageToken: string | null; records: { id: string; changes: GmailHistoryChange[] }[] };
+export type GmailMetadata = { id: string; threadId: string; labelIds: string[]; historyId: string; internalDate: string | null };
+const BASE = "https://gmail.googleapis.com/gmail/v1/users/me";
+const MiB = 1024 * 1024;
+const ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
+function record(value: unknown): value is Record<string, unknown> { return value !== null && typeof value === "object" && !Array.isArray(value); }
+function id(value: unknown): value is string { return typeof value === "string" && /^[\x21-\x7e]{1,256}$/.test(value) && value !== "." && value !== ".."; }
+function pageToken(value: unknown): value is string { return typeof value === "string" && /^[\x21-\x7e]{1,4096}$/.test(value); }
+function integer(value: unknown): value is number { return typeof value === "number" && Number.isSafeInteger(value) && value >= 0; }
+function decimal(value: unknown): value is string { return typeof value === "string" && /^(0|[1-9][0-9]{0,31})$/.test(value); }
+function retryAfter(value: string | null): number | null {
+  if (!value || value.length > 128) return null;
+  const delay = /^[0-9]+$/.test(value) ? Number(value) * 1000
+    : /^(Mon|Tue|Wed|Thu|Fri|Sat|Sun), \d{2} [A-Z][a-z]{2} \d{4} \d{2}:\d{2}:\d{2} GMT$/.test(value) ? Math.max(0, Date.parse(value) - Date.now()) : NaN;
+  return Number.isSafeInteger(delay) && delay >= 0 ? delay : null;
+}
+function reject(code: GmailTransportErrorCode): never { throw new GmailTransportError(code); }
+async function json(response: Response, limit: number, signal: AbortSignal): Promise<unknown> {
+  if (!response.body || response.headers.get("content-type")?.split(";")[0]?.trim().toLowerCase() !== "application/json") {
+    void response.body?.cancel().catch(() => {}); return reject("invalid_response");
+  }
+  const reader = response.body.getReader();
+  const abort = () => { void reader.cancel().catch(() => {}); };
+  signal.addEventListener("abort", abort, { once: true });
+  const chunks: Uint8Array[] = [];
+  let bytes = 0;
+  try {
+    while (true) {
+      if (signal.aborted) return reject("cancelled");
+      const chunk = await reader.read();
+      if (chunk.done) break;
+      bytes += chunk.value.byteLength;
+      if (bytes > limit) return reject("response_too_large");
+      if (!chunk.value.byteLength || chunks.length >= 65536) return reject("invalid_response");
+      chunks.push(chunk.value);
+    }
+    try { return JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(Buffer.concat(chunks))); }
+    catch { return reject("invalid_response"); }
+  } finally { signal.removeEventListener("abort", abort); void reader.cancel().catch(() => {}); }
+}
+/** Validates base64url alphabet, optional canonical padding, unused bits and decoded size before delivery. */
+function rawLength(raw: unknown, limit: number): number {
+  if (typeof raw !== "string" || !/^[A-Za-z0-9_-]+={0,2}$/.test(raw)) return reject("invalid_response");
+  const padding = raw.endsWith("==") ? 2 : raw.endsWith("=") ? 1 : 0;
+  const lengthWithoutPadding = raw.length - padding;
+  const remainder = lengthWithoutPadding % 4;
+  if (remainder === 1 || (padding > 0 && (raw.length % 4 !== 0 || padding !== 4 - remainder))) return reject("invalid_response");
+  const last = ALPHABET.indexOf(raw[lengthWithoutPadding - 1] ?? "");
+  if ((remainder === 2 && (last & 15) !== 0) || (remainder === 3 && (last & 3) !== 0)) return reject("invalid_response");
+  const length = Math.floor(lengthWithoutPadding * 3 / 4);
+  if (length > limit) return reject("raw_too_large");
+  return length;
+}
+
+/** Read-only trusted worker transport. No token refresh, persistence, pagination loop, retries or MIME parsing. */
+export class GmailReadTransport {
+  private readonly accessToken: string;
+  private readonly fetch: OAuthFetch;
+  private readonly timeoutMs: number;
+  private readonly maxRawBytes: number;
+  private readonly pending = new Set<Promise<unknown>>();
+  /** Diagnostic owners can retain their slot until aborted physical work settles. */
+  async settled(): Promise<void> { await Promise.allSettled([...this.pending]); }
+  constructor(options: { accessToken: string; fetch?: OAuthFetch; timeoutMs?: number; maxRawBytes?: number }) {
+    this.timeoutMs = options.timeoutMs ?? 30000; this.maxRawBytes = options.maxRawBytes ?? 64 * MiB;
+    if (typeof options.accessToken !== "string" || !/^[\x21-\x7e]{1,16384}$/.test(options.accessToken)
+      || !Number.isInteger(this.timeoutMs) || this.timeoutMs < 10 || this.timeoutMs > 120000
+      || !Number.isInteger(this.maxRawBytes) || this.maxRawBytes < 1 || this.maxRawBytes > 128 * MiB) throw new GmailTransportError("invalid_input");
+    this.accessToken = options.accessToken; this.fetch = options.fetch ?? fetch;
+  }
+  private async run<T>(signal: AbortSignal | undefined, work: (signal: AbortSignal, checkpoint: () => void) => Promise<T>): Promise<T> {
+    if (signal?.aborted) return reject("cancelled");
+    const controller = new AbortController(); let timedOut = false;
+    const expiresAt = Date.now() + this.timeoutMs;
+    const checkpoint = () => {
+      if (Date.now() >= expiresAt) { timedOut = true; controller.abort(); return reject("timeout"); }
+      if (controller.signal.aborted) return reject("cancelled");
+    };
+    let rejectDeadline: (error: GmailTransportError) => void = () => {};
+    const deadline = new Promise<never>((_, rejectPromise) => { rejectDeadline = rejectPromise; });
+    const abort = () => { controller.abort(); rejectDeadline(new GmailTransportError("cancelled")); };
+    signal?.addEventListener("abort", abort, { once: true });
+    const timer = setTimeout(() => { timedOut = true; controller.abort(); rejectDeadline(new GmailTransportError("timeout")); }, this.timeoutMs);
+    const operation = work(controller.signal, checkpoint);
+    this.pending.add(operation);
+    void operation.then(() => this.pending.delete(operation), () => this.pending.delete(operation));
+    try { const result = await Promise.race([operation, deadline]); checkpoint(); return result; }
+    catch (error) {
+      if (timedOut) return reject("timeout"); if (signal?.aborted) return reject("cancelled");
+      if (error instanceof GmailTransportError) throw error;
+      return reject("transient");
+    } finally { clearTimeout(timer); signal?.removeEventListener("abort", abort); }
+  }
+  private async get(url: string, limit: number, signal: AbortSignal): Promise<Record<string, unknown>> {
+    if (signal.aborted) return reject("cancelled");
+    const response = await this.fetch(url, { method: "GET", redirect: "error", signal,
+      headers: { Authorization: `Bearer ${this.accessToken}`, Accept: "application/json" } });
+    if (signal.aborted) { void response.body?.cancel().catch(() => {}); return reject("cancelled"); }
+    if (response.status !== 200 && response.status !== 403 && response.status !== 429) {
+      void response.body?.cancel().catch(() => {});
+      throw new GmailTransportError(response.status === 401 ? "access_token_rejected" : response.status === 404 ? "not_found"
+        : response.status === 429 ? "rate_limited" : response.status === 408 || response.status >= 500 ? "transient" : "request_rejected", retryAfter(response.headers.get("retry-after")), response.status);
+    }
+    if (response.status === 403 || response.status === 429) {
+      let data: unknown;
+      try { data = await json(response, 65536, signal); } catch { throw new GmailTransportError(response.status === 429 ? "rate_limited" : "forbidden", retryAfter(response.headers.get("retry-after")), response.status); }
+      const reasons = record(data) && record(data.error) && Array.isArray(data.error.errors) && data.error.errors.length <= 32
+        ? data.error.errors.flatMap(item => record(item) && typeof item.reason === "string" ? [item.reason] : []) : [];
+      const code = response.status === 429 ? "rate_limited" : reasons.includes("dailyLimitExceeded") || reasons.includes("quotaExceeded") ? "quota_exceeded"
+        : reasons.includes("rateLimitExceeded") || reasons.includes("userRateLimitExceeded") ? "rate_limited"
+        : reasons.includes("insufficientPermissions") ? "reconsent_required" : "forbidden";
+      const reason = reasons.map(safeFailureReason).find(value => value !== null) ?? null;
+      throw new GmailTransportError(code, retryAfter(response.headers.get("retry-after")), response.status, reason);
+    }
+    const data = await json(response, limit, signal);
+    if (!record(data) || data.error !== undefined) return reject("invalid_response");
+    return data;
+  }
+  listLabels(options: { signal?: AbortSignal } = {}): Promise<{ labels: GmailLabel[] }> {
+    return this.run(options.signal, async signal => {
+      const data = await this.get(`${BASE}/labels`, 4 * MiB, signal);
+      if (data.nextPageToken !== undefined || data.nextLink !== undefined) return reject("invalid_response");
+      const values = data.labels === undefined ? [] : data.labels;
+      if (!Array.isArray(values) || values.length > 10000) return reject("invalid_response");
+      const seen = new Set<string>();
+      const labels = values.map((value): GmailLabel => {
+        if (!record(value) || !id(value.id) || typeof value.name !== "string" || !value.name.length || Buffer.byteLength(value.name) > 4096
+          || (value.type !== "system" && value.type !== "user") || seen.has(value.id)) return reject("invalid_response");
+        seen.add(value.id); return { id: value.id, name: value.name, type: value.type };
+      });
+      return { labels };
+    });
+  }
+  /** Pending aliases are deliberately not usable sender identities. No provider HTML is imported. */
+  listSendAs(options: { signal?: AbortSignal } = {}): Promise<{ address: string; displayName: string; primary: boolean; default: boolean }[]> {
+    return this.run(options.signal, async signal => {
+      const data = await this.get(`${BASE}/settings/sendAs`, 256 * 1024, signal);
+      if (!Array.isArray(data.sendAs) || data.sendAs.length > 100 || data.nextPageToken !== undefined) return reject("invalid_response");
+      const seen = new Set<string>();
+      const result = data.sendAs.flatMap(value => {
+        if (!record(value) || typeof value.sendAsEmail !== 'string' || value.sendAsEmail.length > 254
+          || !/^[A-Za-z0-9.!#$%&'*+/=?^_`{|}~-]+@[A-Za-z0-9.-]+$/.test(value.sendAsEmail)
+          || value.sendAsEmail.includes('..') || (value.isPrimary !== undefined && typeof value.isPrimary !== 'boolean')
+          || (value.isDefault !== undefined && typeof value.isDefault !== 'boolean')
+          || (value.verificationStatus !== undefined && value.verificationStatus !== 'accepted' && value.verificationStatus !== 'pending')
+          || (value.displayName !== undefined && (typeof value.displayName !== 'string' || value.displayName.length > 512 || /[\u0000-\u001f\u007f]/.test(value.displayName)))) return reject('invalid_response');
+        const address = value.sendAsEmail.toLowerCase();
+        if (seen.has(address)) return reject('invalid_response');
+        seen.add(address);
+        if (value.verificationStatus === 'pending' || (value.isPrimary !== true && value.verificationStatus !== 'accepted')) return [];
+        return [{address, displayName: typeof value.displayName === 'string' ? value.displayName : '', primary: value.isPrimary === true, default: value.isDefault === true}];
+      });
+      if (result.filter(value => value.primary).length !== 1 || result.filter(value => value.default).length > 1) return reject('invalid_response');
+      return result;
+    });
+  }
+  getProfile(options: { signal?: AbortSignal } = {}): Promise<{ historyId: string }> {
+    return this.run(options.signal, async signal => {
+      const data = await this.get(`${BASE}/profile`, 65536, signal);
+      if (!decimal(data.historyId)) return reject("invalid_response");
+      return { historyId: data.historyId };
+    });
+  }
+  getMetadata(messageId: string, options: { signal?: AbortSignal } = {}): Promise<GmailMetadata> {
+    if (!id(messageId)) return Promise.reject(new GmailTransportError("invalid_input"));
+    return this.run(options.signal, async signal => {
+      const data = await this.get(`${BASE}/messages/${encodeURIComponent(messageId)}?format=minimal`, MiB, signal);
+      const labels = data.labelIds === undefined ? [] : data.labelIds;
+      if (data.id !== messageId || !id(data.threadId) || !decimal(data.historyId) || !Array.isArray(labels)
+        || labels.length > 10000 || !labels.every(id) || (data.internalDate !== undefined && !decimal(data.internalDate))) return reject("invalid_response");
+      return { id: messageId, threadId: data.threadId, labelIds: [...new Set(labels)], historyId: data.historyId, internalDate: typeof data.internalDate === "string" ? data.internalDate : null };
+    });
+  }
+  /** Prefer specific events; references without one require a current metadata read. */
+  listHistory(options: { startHistoryId: string; pageToken?: string; pageSize?: number; signal?: AbortSignal }): Promise<GmailHistoryPage> {
+    const size = options.pageSize ?? 100;
+    if (!decimal(options.startHistoryId) || !Number.isInteger(size) || size < 1 || size > 500 || (options.pageToken !== undefined && !pageToken(options.pageToken))) return Promise.reject(new GmailTransportError("invalid_input"));
+    const url = new URL(`${BASE}/history`); url.searchParams.set("startHistoryId", options.startHistoryId); url.searchParams.set("maxResults", String(size));
+    if (options.pageToken !== undefined) url.searchParams.set("pageToken", options.pageToken);
+    return this.run(options.signal, async signal => {
+      const data = await this.get(url.toString(), 4 * MiB, signal);
+      if (!decimal(data.historyId) || BigInt(data.historyId) < BigInt(options.startHistoryId)
+        || (data.nextPageToken !== undefined && (!pageToken(data.nextPageToken) || data.nextPageToken === options.pageToken))) return reject("invalid_response");
+      const values = data.history === undefined ? [] : data.history;
+      if (!Array.isArray(values) || values.length > size) return reject("invalid_response");
+      const records: GmailHistoryPage["records"] = []; let previous = BigInt(options.startHistoryId), changesCount = 0, labelCount = 0;
+      for (const value of values) {
+        if (!record(value) || !decimal(value.id) || BigInt(value.id) <= previous || BigInt(value.id) > BigInt(data.historyId)) return reject("invalid_response");
+        previous = BigInt(value.id); const changes: GmailHistoryChange[] = [];
+        for (const [field, kind] of [["messagesAdded", "added"], ["labelsAdded", "labelsAdded"], ["labelsRemoved", "labelsRemoved"], ["messagesDeleted", "deleted"]] satisfies [string, GmailHistoryChange["kind"]][]) {
+          const events = value[field] === undefined ? [] : value[field];
+          if (!Array.isArray(events) || events.length > 1000) return reject("invalid_response");
+          for (const event of events) {
+            if (!record(event) || !record(event.message) || !id(event.message.id) || !id(event.message.threadId) || ++changesCount > 1000) return reject("invalid_response");
+            const labels: unknown = kind === "labelsAdded" || kind === "labelsRemoved" ? event.labelIds : [];
+            if (!Array.isArray(labels) || labels.length > 1000 || !labels.every(id) || (labelCount += labels.length) > 10000) return reject("invalid_response");
+            changes.push({ kind, messageId: event.message.id, threadId: event.message.threadId, labelIds: [...new Set(labels)] });
+          }
+        }
+        // Gmail can return messages[] without a specific event. Preserve those
+        // references for reconciliation instead of rejecting or skipping the page.
+        const referenced = value.messages === undefined ? [] : value.messages;
+        if (!Array.isArray(referenced) || referenced.length > 1000) return reject("invalid_response");
+        const described = new Set(changes.map(change => change.messageId));
+        for (const message of referenced) {
+          if (!record(message) || !id(message.id) || !id(message.threadId)) return reject("invalid_response");
+          if (described.has(message.id)) continue;
+          if (++changesCount > 1000) return reject("invalid_response");
+          described.add(message.id);
+          changes.push({ kind: "changed", messageId: message.id, threadId: message.threadId, labelIds: [] });
+        }
+        records.push({ id: value.id, changes });
+      }
+      return { historyId: data.historyId, nextPageToken: typeof data.nextPageToken === "string" ? data.nextPageToken : null, records };
+    });
+  }
+  listMessages(options: { pageToken?: string; pageSize?: number; recentAfterSeconds?: number; signal?: AbortSignal } = {}): Promise<GmailMessagePage> {
+    const size = options.pageSize ?? 100;
+    if ((options.recentAfterSeconds !== undefined && (!Number.isSafeInteger(options.recentAfterSeconds) || options.recentAfterSeconds < 0)) || !Number.isInteger(size) || size < 1 || size > 500 || (options.pageToken !== undefined && !pageToken(options.pageToken))) return Promise.reject(new GmailTransportError("invalid_input"));
+    const inputToken = options.pageToken;
+    const url = new URL(`${BASE}/messages`); url.searchParams.set("includeSpamTrash", "true"); url.searchParams.set("maxResults", String(size));
+    if (inputToken !== undefined) url.searchParams.set("pageToken", inputToken);
+    if (options.recentAfterSeconds !== undefined) url.searchParams.set("q", `after:${options.recentAfterSeconds}`);
+    return this.run(options.signal, async signal => {
+      const data = await this.get(url.toString(), MiB, signal);
+      const values = data.messages === undefined ? [] : data.messages;
+      if (!Array.isArray(values) || values.length > size || data.nextLink !== undefined
+        || (data.nextPageToken !== undefined && (!pageToken(data.nextPageToken) || data.nextPageToken === inputToken))
+        || (data.resultSizeEstimate !== undefined && (!integer(data.resultSizeEstimate) || data.resultSizeEstimate > 4294967295))) return reject("invalid_response");
+      const seen = new Set<string>();
+      const messages = values.map(value => {
+        if (!record(value) || !id(value.id) || !id(value.threadId) || seen.has(value.id)) return reject("invalid_response");
+        seen.add(value.id); return { id: value.id, threadId: value.threadId };
+      });
+      return { messages, nextPageToken: typeof data.nextPageToken === "string" ? data.nextPageToken : null,
+        resultSizeEstimate: typeof data.resultSizeEstimate === "number" ? data.resultSizeEstimate : null };
+    });
+  }
+  /** Chunks are provisional until this promise succeeds and caller durably finalizes its own sink. */
+  consumeRaw(messageId: string, consume: (chunk: Uint8Array) => Promise<void>, options: { signal?: AbortSignal } = {}): Promise<GmailRawMetadata> {
+    if (!id(messageId) || typeof consume !== "function") return Promise.reject(new GmailTransportError("invalid_input"));
+    return this.run(options.signal, async (signal, checkpoint) => {
+      const data = await this.get(`${BASE}/messages/${encodeURIComponent(messageId)}?format=raw`, Math.ceil(this.maxRawBytes / 3) * 4 + 65536, signal);
+      const labels = data.labelIds === undefined ? [] : data.labelIds;
+      if (data.id !== messageId || !id(data.threadId) || !Array.isArray(labels) || labels.length > 10000 || !labels.every(id)
+        || new Set(labels).size !== labels.length || !decimal(data.historyId) || !decimal(data.internalDate)
+        || !Number.isSafeInteger(Number(data.internalDate)) || !integer(data.sizeEstimate)) return reject("invalid_response");
+      const rawBytes = rawLength(data.raw, this.maxRawBytes);
+      if (typeof data.raw !== "string") return reject("invalid_response");
+      // 64 KiB encoded blocks decode to at most 48 KiB; no full decoded MIME allocation.
+      for (let offset = 0; offset < data.raw.length; offset += 65536) {
+        checkpoint();
+        const chunk = Buffer.from(data.raw.slice(offset, offset + 65536), "base64url");
+        try { await consume(chunk); } catch { return reject("consumer_failed"); }
+      }
+      checkpoint();
+      return { id: messageId, threadId: data.threadId, labelIds: labels, historyId: data.historyId, internalDate: data.internalDate, sizeEstimate: data.sizeEstimate, rawBytes };
+    });
+  }
+}

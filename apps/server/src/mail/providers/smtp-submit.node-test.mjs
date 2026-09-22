@@ -1,0 +1,12 @@
+import {test} from 'node:test';
+import assert from 'node:assert/strict';
+import SMTPConnection from 'nodemailer/lib/smtp-connection';
+import {SmtpSubmission} from './smtp-submit.js';
+import {smtpServerFixture as serverFixture} from '../testing/smtp-server.mjs';
+
+const raw=Buffer.from('From: self@example.com\r\nTo: accepted@example.com\r\n\r\nSynthetic body\r\n'),envelope={from:'self@example.com',to:['accepted@example.com','rejected@example.com']};
+for(const starttls of [false,true])test(`SMTP ${starttls?'required STARTTLS':'implicit TLS'} authenticates over verified TLS and reports partial recipients`,async()=>serverFixture({starttls},async fixture=>{
+ const smtp=new SmtpSubmission({host:'127.0.0.1',port:fixture.port,username:'synthetic',security:starttls?'starttls':'tls',sentCopy:'append'},'synthetic-password',new AbortController().signal,options=>{assert.equal(options.tls.rejectUnauthorized,true);assert.equal(options.logger,false);return new SMTPConnection({...options,tls:{...options.tls,ca:fixture.cert,servername:'localhost'}});});try{await smtp.prepare();const result=await smtp.send(envelope,raw);assert.deepEqual(result.accepted,['accepted@example.com']);assert.deepEqual(result.rejected,[{address:'rejected@example.com',code:'550'}]);assert.equal(result.delivery,'unknown');assert.equal(fixture.messages,1);assert.equal(fixture.commands.includes('STARTTLS'),starttls);}finally{smtp.close();}
+}));
+test('SMTP without required STARTTLS never authenticates or sends',async()=>serverFixture({starttls:true,noTls:true},async fixture=>{const smtp=new SmtpSubmission({host:'127.0.0.1',port:fixture.port,username:'synthetic',security:'starttls',sentCopy:'append'},'synthetic-password',new AbortController().signal);try{await assert.rejects(smtp.prepare());assert.equal(fixture.commands.includes('AUTH'),false);assert.equal(fixture.messages,0);}finally{smtp.close();}}));
+test('SMTP lost final DATA acknowledgment is uncertain and does not repeat DATA',async()=>serverFixture({lostAck:true},async fixture=>{const smtp=new SmtpSubmission({host:'127.0.0.1',port:fixture.port,username:'synthetic',security:'tls',sentCopy:'append'},'synthetic-password',new AbortController().signal,options=>new SMTPConnection({...options,tls:{...options.tls,ca:fixture.cert,servername:'localhost'}}));try{await smtp.prepare();await assert.rejects(smtp.send(envelope,raw),error=>error.code==='outcome_unknown'&&!error.knownRejected);assert.equal(fixture.messages,1);}finally{smtp.close();}}));

@@ -119,8 +119,25 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Prepare sandboxed Electron on Linux
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          set -euo pipefail
+          sandbox_path="$(pnpm --filter @legalwork/desktop exec node -p "require('node:path').join(require('node:path').dirname(require('electron')), 'chrome-sandbox')")"
+          test -f "$sandbox_path"
+          sudo chown root:root "$sandbox_path"
+          sudo chmod 4755 "$sandbox_path"
+          command -v xvfb-run
+
       - name: Run app unit tests
-        run: pnpm --filter @legalwork/app test
+        shell: bash
+        run: |
+          if [ "$RUNNER_OS" = Linux ]; then
+            xvfb-run --auto-servernum pnpm --filter @legalwork/app test
+          else
+            pnpm --filter @legalwork/app test
+          fi
 
       - name: Run server unit tests
         run: pnpm --filter legalwork-server test

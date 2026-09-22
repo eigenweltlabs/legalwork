@@ -64,3 +64,8 @@ apps/app/dist-docx-performance/
 # Browser verification artifacts
 /.playwright-cli/
 /output/playwright/
+
+# Generated mail reports and dependency notices
+/docs/mail/
+/mail-qualification-evidence/
+/apps/app/public/third-party/mail/

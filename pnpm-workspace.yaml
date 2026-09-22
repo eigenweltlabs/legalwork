@@ -27,6 +27,7 @@ allowBuilds:
   ssh2: false
   "@whiskeysockets/baileys": true
   better-sqlite3: true
+  better-sqlite3-multiple-ciphers: true
   core-js: false
   electron: true
   esbuild: true
@@ -34,8 +35,11 @@ allowBuilds:
   node-pty: true
   protobufjs: true
   sharp: true
+  tesseract.js: false
 patchedDependencies:
+  '@zone-eu/mailsplit@5.4.16': patches/@zone-eu__mailsplit@5.4.16.patch
   '@eigenpal/docx-editor-core@1.8.3': patches/@eigenpal__docx-editor-core@1.8.3.patch
   '@eigenpal/docx-editor-react@1.8.3': patches/@eigenpal__docx-editor-react@1.8.3.patch
   pptx-react-viewer@3.5.4: patches/pptx-react-viewer@3.5.4.patch
   smb3-client@0.2.0: patches/smb3-client@0.2.0.patch
+  tesseract.js@7.0.0: patches/tesseract.js@7.0.0.patch

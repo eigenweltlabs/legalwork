@@ -1,0 +1,20 @@
+{
+  "extends": "../tsconfig.json",
+  "compilerOptions": {
+    "paths": {
+      "@/*": [
+        "./src/*"
+      ],
+      "zod": [
+        "./node_modules/zod/index.d.ts"
+      ]
+    }
+  },
+  "include": [
+    "../globals.d.ts",
+    "../src/react-app/domains/mail/mail-attachment-chat.tsx",
+    "../src/react-app/shell/session-route.tsx",
+    "../src/components/markdown/markdown.tsx",
+    "../src/react-app/domains/settings/pages/mail-accounts-view.tsx"
+  ]
+}

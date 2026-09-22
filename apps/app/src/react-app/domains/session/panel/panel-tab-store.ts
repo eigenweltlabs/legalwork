@@ -32,6 +32,8 @@ export type ArtifactPanelTab = {
   size?: number;
   updatedAt?: number;
   storage?: StorageFileSource;
+  /** In-memory mail source; never a workspace path. */
+  mailSourceId?: string;
 }
 
 export type TaskPanelTab = {
@@ -116,9 +118,9 @@ function reconcileOpenArtifactTabs(
       const target = targetMap.get(tab.id);
 
       if (!target) {
-        // Workspace and connected-storage tabs carry their own source. A
+        // Workspace, connected-storage and mail tabs carry their own source. A
         // transcript update must not close directly opened files.
-        return tab.value || tab.storage ? tab : null;
+        return tab.value || tab.storage || tab.mailSourceId ? tab : null;
       }
 
       return {
@@ -273,7 +275,8 @@ export const usePanelTabStore = create<PanelTabStore>()(
           return state;
         }
 
-        if (session.activeTabId === tabId && !confirmDiscardDocuments()) return state;
+        const closing = session.tabs[index];
+        if (session.activeTabId === tabId && !(closing.type === 'artifact' && closing.mailSourceId) && !confirmDiscardDocuments()) return state;
         const tabs = session.tabs.filter((tab) => tab.id !== tabId);
         const activeTabId = session.activeTabId === tabId
           ? resolveActiveTabId(tabs, tabs[index]?.id ?? tabs[index - 1]?.id ?? null)

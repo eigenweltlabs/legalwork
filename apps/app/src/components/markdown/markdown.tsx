@@ -1,3 +1,4 @@
+import {openMailSource,parseMailSourceHref} from '../../react-app/domains/mail/mail-chat-source';
 /** @jsxImportSource react */
 import { memo, useEffect, useMemo, useRef, useState } from "react";
 import { motion } from "motion/react";
@@ -285,6 +286,7 @@ const baseMarkedOptions = {
         return `<span class="inline-flex items-stretch overflow-hidden rounded-md border border-blue-6/35 bg-blue-3/20 text-xs font-medium text-blue-11 align-middle"><a href="#" data-legalwork-task-ref="${escapeAttribute(taskLink.taskId)}" title="${openTaskLabel}" class="inline-flex items-center gap-1 px-1.5 py-0.5 no-underline transition-colors hover:bg-blue-3/40">${inboxIcon}${this.parser.parseInline(tokens)}</a></span>`;
       }
 
+      if (parseMailSourceHref(href)) return `<a href="#" data-legalwork-link-href="${originalHref}"${titleAttr}>${this.parser.parseInline(tokens)}</a>`;
       const isFilePath = !/^(https?|wss?|ftp|mailto|tel|file):/i.test(href);
 
       if (isFilePath) {
@@ -513,11 +515,12 @@ function MarkdownBlockInner({
       const link = event.target.closest("a[data-legalwork-link-href]");
       if (link instanceof HTMLAnchorElement) {
         const href = link.dataset.legalworkLinkHref ?? link.getAttribute("href") ?? "";
+        if (openMailSource(href)) { event.preventDefault(); return; }
         const target = openTargetForHref(href, openTargets);
 
         if (target && onOpenTarget) {
           event.preventDefault();
-          onOpenTarget(target, { external: true });
+          onOpenTarget(target, { external: !(target.kind === "file" && /(?:^|\/)\.legalwork\/attachments\//.test(href)) });
           return;
         }
       }
