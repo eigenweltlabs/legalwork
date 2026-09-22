@@ -1,79 +1,94 @@
-name: Mail final platform qualification (non-release)
+name: EIG-141 single Windows reference benchmark
 on:
-  # Run after all mail tickets are complete; ticket work uses feature-specific tests.
   workflow_dispatch:
 permissions:
   contents: read
 concurrency:
-  group: mail-platform-${{ github.ref }}
-  cancel-in-progress: true
+  group: eig141-reference-single
+  cancel-in-progress: false
 jobs:
-  qualify:
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - os: macos-15
-            arch: arm64
-            application: apps/desktop/dist-electron/mac-arm64/LegalWork.app
-          - os: macos-15-intel
-            arch: x64
-            application: apps/desktop/dist-electron/mac/LegalWork.app
-          - os: windows-2022
-            arch: x64
-            application: apps/desktop/dist-electron/win-unpacked
-    runs-on: ${{ matrix.os }}
-    timeout-minutes: 60
-    env:
-      MAIL_EXPECT_ARCH: ${{ matrix.arch }}
+  reference:
+    runs-on: windows-2022
+    timeout-minutes: 350
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-node@v6
         with:
           node-version: '24.11.0'
-          architecture: ${{ matrix.arch }}
       - uses: pnpm/action-setup@v4
         with:
-          version: 11.4.0
+          version: '11.4.0'
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: '1.3.9'
       - name: Install locked dependencies
         run: pnpm install --frozen-lockfile
-      - name: Actual Electron vault, ACL, cipher and recovery
-        run: node scripts/mail/qualification-step.mjs vault node scripts/mail/platform-qualification.mjs
-      - name: Actual Node mail acceptance
-        if: ${{ !cancelled() }}
-        run: node scripts/mail/qualification-step.mjs native node apps/server/scripts/mail-acceptance.mjs
-      - name: Actual loopback HTTP mail APIs
-        if: ${{ !cancelled() }}
-        run: node scripts/mail/qualification-step.mjs http bun test apps/server/src/mail/routes.e2e.test.ts apps/server/src/mail/search.e2e.test.ts apps/server/src/mail/local.e2e.test.ts
-      - name: Normal shared app tests
-        if: ${{ !cancelled() }}
-        run: node scripts/mail/qualification-step.mjs app pnpm --filter @legalwork/app test
-      - name: Normal desktop tests
-        if: ${{ !cancelled() }}
-        run: node scripts/mail/qualification-step.mjs desktop pnpm --filter @legalwork/desktop test
-      - name: Additional mail desktop boundaries
-        if: ${{ !cancelled() }}
-        run: node scripts/mail/qualification-step.mjs desktop-mail node scripts/mail/desktop-qualification-tests.mjs
-      - name: Build complete desktop package without publication
-        if: ${{ !cancelled() }}
-        run: node scripts/mail/qualification-step.mjs build pnpm --dir apps/desktop run package:electron:dir --publish never
-        env:
-          NODE_OPTIONS: '--max-old-space-size=4096'
-          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
-          MACOS_NOTARIZE: 'false'
-          LEGALWORK_COMPUTER_USE_SIGN_IDENTITY: '-'
-          LEGALWORK_COMPUTER_USE_CODESIGN_IDENTITY: '-'
-      - name: Verify mail from the built application
-        if: ${{ !cancelled() }}
-        run: node scripts/mail/qualification-step.mjs packaged node scripts/mail/verify-built-application.mjs "${{ matrix.application }}"
-      - name: Archive bounded source-stamped qualification evidence
-        if: always()
+      - name: Build actual desktop main, embedded server and complete React application
+        run: pnpm --filter @legalwork/desktop build:electron
+      - name: Record actual reference candidate and disk headroom
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Path benchmark-evidence -Force | Out-Null
+          $machine = Get-CimInstance Win32_ComputerSystem
+          $cpu = Get-CimInstance Win32_Processor | Select-Object Name,NumberOfCores,NumberOfLogicalProcessors
+          $volume = Get-Volume -DriveLetter ([IO.Path]::GetPathRoot($env:RUNNER_TEMP).Substring(0,1))
+          $ram = [uint64]$machine.TotalPhysicalMemory
+          if ($ram -lt 15GB -or $ram -gt 17GB) { throw "Reference candidate RAM outside 16GiB tolerance: $ram" }
+          if ($volume.SizeRemaining -lt 10GB) { throw 'Need at least 10GiB free on corpus volume' }
+          @{ ramBytes=$ram; cpu=$cpu; filesystem=$volume.FileSystem; freeBytes=$volume.SizeRemaining; disk=(Get-PhysicalDisk | Select-Object MediaType,BusType,Size); runner='windows-2022'; source='1d9f3bac0 plus reviewed EIG-141 harness'; commit=$env:GITHUB_SHA; cache='OS cache not flushed; no OS-cold claim'; syntheticOnly=$true } | ConvertTo-Json -Depth 5 | Set-Content benchmark-evidence/hardware.json
+          node --test scripts/mail/link-test-modules.test.mjs
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Tiny synthetic harness and full app smoke before expensive generation
+        timeout-minutes: 12
+        shell: pwsh
+        run: |
+          $env:LEGALWORK_MAIL_BENCH_KEEP_PROFILE='1'
+          $env:LEGALWORK_MAIL_BENCH_OWNER='desktop-local'
+          node apps/server/scripts/mail-benchmark.mjs 100 "$PWD/benchmark-evidence/smoke.json" 2>&1 | Tee-Object benchmark-evidence/smoke.log
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $line = Select-String -Path benchmark-evidence/smoke.log -Pattern '^Retained isolated synthetic profile: ' | Select-Object -Last 1
+          if (!$line) { throw 'Missing synthetic smoke profile' }
+          $profile = $line.Line.Substring('Retained isolated synthetic profile: '.Length)
+          node scripts/mail/run-renderer-benchmark.mjs "$profile" "$PWD/benchmark-evidence/smoke-renderer.json"
+          $result = $LASTEXITCODE
+          Remove-Item -LiteralPath $profile -Recurse -Force
+          if ($result -ne 0) { exit $result }
+      - name: Exactly one fresh deterministic 100000-message baseline
+        timeout-minutes: 300
+        shell: pwsh
+        run: |
+          $env:LEGALWORK_MAIL_BENCH_KEEP_PROFILE='1'
+          $env:LEGALWORK_MAIL_BENCH_OWNER='desktop-local'
+          node apps/server/scripts/mail-benchmark.mjs 100000 "$PWD/benchmark-evidence/baseline.json" 2>&1 | Tee-Object benchmark-evidence/baseline.log
+          $result = $LASTEXITCODE
+          $line = Select-String -Path benchmark-evidence/baseline.log -Pattern '^Retained isolated synthetic profile: ' | Select-Object -Last 1
+          if ($line) { "EIG141_PROFILE=$($line.Line.Substring('Retained isolated synthetic profile: '.Length))" >> $env:GITHUB_ENV }
+          if ($result -ne 0) { exit $result }
+          if (!$line) { throw 'Successful 100k baseline did not retain its synthetic profile' }
+      - name: Full built app with same corpus, steady and background reindex
+        timeout-minutes: 22
+        run: node scripts/mail/run-renderer-benchmark.mjs "$env:EIG141_PROFILE" "$PWD/benchmark-evidence/renderer.json"
+      - name: Verify every synthetic original and export allowlisted reusable corpus
+        if: ${{ !cancelled() && env.EIG141_PROFILE != '' }}
+        timeout-minutes: 10
+        run: node apps/server/scripts/mail-benchmark.mjs --export "$env:EIG141_PROFILE" "$PWD/benchmark-corpus"
+      - name: Retain bounded measurement evidence
+        if: ${{ always() }}
         uses: actions/upload-artifact@v4
         with:
-          name: mail-qualification-${{ matrix.os }}-${{ matrix.arch }}-${{ github.sha }}
-          path: mail-qualification-evidence/
+          name: eig141-windows-reference-${{ github.sha }}
+          path: benchmark-evidence/
+          retention-days: 7
+          if-no-files-found: warn
+      - name: Retain exactly one generator-verified synthetic corpus and disposable test key
+        if: ${{ !cancelled() && hashFiles('benchmark-corpus/benchmark-profile.json') != '' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: eig141-synthetic-100k-${{ github.sha }}
+          path: |
+            benchmark-corpus/mail.sqlite
+            benchmark-corpus/benchmark-profile.json
+            benchmark-corpus/baseline.json
+          retention-days: 7
+          compression-level: 0
           if-no-files-found: error
-          retention-days: 14
