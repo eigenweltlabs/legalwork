@@ -4,7 +4,7 @@ import {join} from 'node:path';
 import {randomUUID} from 'node:crypto';
 
 /** Bun's test process also runs module mocks. Keep browser resolution in a fresh process. */
-export async function buildBrowserFixture(options:{entrypoints:string[];outdir:string;alias?:Record<string,string>;minify?:boolean}) {
+export async function buildBrowserFixture(options:{entrypoints:string[];outdir:string;alias?:Record<string,string>;minify?:boolean;format?:'esm'|'cjs'|'iife';naming?:string}) {
  const builder=join(options.outdir,`build-${randomUUID()}.mjs`);
  try {
   await writeFile(builder,`const result=await Bun.build(${JSON.stringify({...options,target:'browser'})});if(!result.success)throw Error(result.logs.map(String).join('\\n'));`);
