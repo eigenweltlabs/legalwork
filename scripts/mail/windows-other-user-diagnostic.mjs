@@ -24,8 +24,8 @@ try {
  for(const path of [short,long])await writeFile(path,'synthetic-private-file');
  assert(long.length>260);
  execFileSync(shell,['-NoProfile','-NonInteractive','-EncodedCommand',Buffer.from(protect,'utf16le').toString('base64')],{input:JSON.stringify(root),timeout:15000,stdio:['pipe','pipe','pipe']});
- for(const environmentKind of ['inherited','native'])for(const variant of ['original','instrumented'])for(const [label,path] of [['short',short],['long',long]]){
-  const script=variant==='original'?'windows-other-user.ps1':'windows-other-user-probe.ps1';
+ for(const environmentKind of ['inherited','native'])for(const variant of ['original','directory','instrumented'])for(const [label,path] of [['short',short],['long',long]]){
+  const script=variant==='original'?'windows-other-user.ps1':variant==='directory'?'windows-other-user-directory.ps1':'windows-other-user-probe.ps1';
   const started=Date.now();
   const result=spawnSync(shell,['-NoProfile','-NonInteractive','-File',join('scripts/mail',script)],{input:JSON.stringify({path}),encoding:'utf8',timeout:45000,stdio:['pipe','pipe','pipe'],env:{...process.env,...(environmentKind==='native'?{PSModulePath:join(process.env.SystemRoot,'System32/WindowsPowerShell/v1.0/Modules')}:{})}});
   const ok=result.status===0&&!result.error,stdout=result.stdout??'',stderr=result.stderr??'';
