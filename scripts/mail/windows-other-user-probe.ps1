@@ -50,6 +50,7 @@ catch { [Console]::Error.WriteLine('child_exception=' + $_.Exception.GetType().N
   $info.FileName = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
   $info.Arguments = '-NoProfile -NonInteractive -EncodedCommand ' + [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($program))
   $info.UserName = $account; $info.Domain = $env:COMPUTERNAME; $info.Password = $secure
+  if ($env:MAIL_OTHER_USER_WORKING_DIRECTORY -eq 'system') { $info.WorkingDirectory = $env:SystemRoot }
   $info.UseShellExecute = $false; $info.LoadUserProfile = $true
   $info.RedirectStandardInput = $true; $info.RedirectStandardOutput = $true; $info.RedirectStandardError = $true; $info.CreateNoWindow = $true
   $child = New-Object System.Diagnostics.Process; $child.StartInfo = $info
@@ -76,6 +77,8 @@ catch { [Console]::Error.WriteLine('child_exception=' + $_.Exception.GetType().N
   [Console]::Out.WriteLine('mail_other_os_user_denied')
 } catch {
   [Console]::Error.WriteLine(('mail_other_user_qualification_failed stage={0} exception={1}' -f $stage, $_.Exception.GetType().Name))
+  if ($null -ne $_.Exception.InnerException.NativeErrorCode) { [Console]::Error.WriteLine('exception_native_code=' + $_.Exception.InnerException.NativeErrorCode) }
+  if ($null -ne $_.Exception.InnerException.HResult) { [Console]::Error.WriteLine('exception_hresult=' + $_.Exception.InnerException.HResult) }
   if ($_.FullyQualifiedErrorId -match '^[A-Za-z0-9_,.+-]{1,256}$') { [Console]::Error.WriteLine('error_id=' + $_.FullyQualifiedErrorId) }
   if ($_.Exception.FileName) {
     $file = [System.IO.Path]::GetFileName($_.Exception.FileName)
