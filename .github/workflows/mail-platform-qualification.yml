@@ -53,6 +53,10 @@ jobs:
         if: ${{ !cancelled() }}
         timeout-minutes: 3
         run: node scripts/mail/qualification-step.mjs mime node apps/server/scripts/mail-acceptance.mjs --suite mime/project
+      - name: Windows Bun junction cleanup controls
+        if: ${{ !cancelled() && runner.os == 'Windows' }}
+        timeout-minutes: 2
+        run: node scripts/mail/qualification-step.mjs junction bun test scripts/mail/link-test-modules.test.mjs
       - name: Windows HTTP cleanup regressions
         if: ${{ !cancelled() && runner.os == 'Windows' }}
         timeout-minutes: 3
