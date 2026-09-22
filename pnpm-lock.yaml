@@ -465,7 +465,7 @@ importers:
         version: 1.0.0
       '@zone-eu/mailsplit':
         specifier: 5.4.16
-        version: 5.4.16
+        version: 5.4.16(patch_hash=e77c86023ea664193d0e738e3523c8a969c80a7c78fc76e474e3fdc0a05299c8)
       basic-ftp:
         specifier: ^6.2.1
         version: 6.2.1
