@@ -10,6 +10,7 @@ function Phase([string]$name) { [Console]::Error.WriteLine('mail_other_user_phas
 $control = Join-Path $env:PUBLIC ($account + '.txt')
 try {
   foreach ($module in @('Microsoft.PowerShell.Management', 'Microsoft.PowerShell.Security', 'Microsoft.PowerShell.Utility', 'Microsoft.PowerShell.LocalAccounts')) {
+    $stage = 'import-' + $module; Phase $stage
     $modulePath = $PSHOME + '/Modules/' + $module
     $directoryExists = [System.IO.Directory]::Exists($modulePath)
     $manifestExists = [System.IO.File]::Exists($modulePath + '/' + $module + '.psd1')
@@ -73,5 +74,13 @@ catch { [Console]::Error.WriteLine('child_exception=' + $_.Exception.GetType().N
   if (!$exited) { throw 'timeout' }
   if ($child.ExitCode -ne 0 -or $out -ne 'denied') { throw 'isolation' }
   [Console]::Out.WriteLine('mail_other_os_user_denied')
-} catch { [Console]::Error.WriteLine(('mail_other_user_qualification_failed stage={0} exception={1}' -f $stage, $_.Exception.GetType().Name)); exit 1 }
+} catch {
+  [Console]::Error.WriteLine(('mail_other_user_qualification_failed stage={0} exception={1}' -f $stage, $_.Exception.GetType().Name))
+  if ($_.FullyQualifiedErrorId -match '^[A-Za-z0-9_,.+-]{1,256}$') { [Console]::Error.WriteLine('error_id=' + $_.FullyQualifiedErrorId) }
+  if ($_.Exception.FileName) {
+    $file = [System.IO.Path]::GetFileName($_.Exception.FileName)
+    if ($file -match '^[A-Za-z0-9_.-]{1,128}$') { [Console]::Error.WriteLine('exception_file=' + $file) }
+  }
+  exit 1
+}
 finally { Remove-Item -LiteralPath $control -Force -ErrorAction SilentlyContinue; if ($created) { Remove-LocalUser -Name $account } }

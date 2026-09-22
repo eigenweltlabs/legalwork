@@ -24,13 +24,13 @@ try {
  for(const path of [short,long])await writeFile(path,'synthetic-private-file');
  assert(long.length>260);
  execFileSync(shell,['-NoProfile','-NonInteractive','-EncodedCommand',Buffer.from(protect,'utf16le').toString('base64')],{input:JSON.stringify(root),timeout:15000,stdio:['pipe','pipe','pipe']});
- for(const variant of ['original','instrumented'])for(const [label,path] of [['short',short],['long',long]]){
+ for(const environmentKind of ['inherited','native'])for(const variant of ['original','instrumented'])for(const [label,path] of [['short',short],['long',long]]){
   const script=variant==='original'?'windows-other-user.ps1':'windows-other-user-probe.ps1';
   const started=Date.now();
-  const result=spawnSync(shell,['-NoProfile','-NonInteractive','-File',join('scripts/mail',script)],{input:JSON.stringify({path}),encoding:'utf8',timeout:45000,stdio:['pipe','pipe','pipe']});
+  const result=spawnSync(shell,['-NoProfile','-NonInteractive','-File',join('scripts/mail',script)],{input:JSON.stringify({path}),encoding:'utf8',timeout:45000,stdio:['pipe','pipe','pipe'],env:{...process.env,...(environmentKind==='native'?{PSModulePath:join(process.env.SystemRoot,'System32/WindowsPowerShell/v1.0/Modules')}:{})}});
   const ok=result.status===0&&!result.error,stdout=result.stdout??'',stderr=result.stderr??'';
   // Print only fixed diagnostic phases/types and the exact assertion result, never raw errors.
-  const safe=(stdout+'\n'+stderr).split(/\r?\n/).filter(line=>/^(module_probe=[A-Za-z.]+ directory=(?:True|False) manifest=(?:True|False)|mail_other_(os_user_denied|user_phase=[a-z-]+|user_qualification_failed(?: stage=[a-z-]+ exception=[A-Za-z0-9]+)?)|child_(exit=-?\d+ stdout_chars=\d+ stderr_chars=\d+|phase=[a-z-]+|(?:inner_)?exception=[A-Za-z0-9]+))$/.test(line));
-  console.log(JSON.stringify({variant,pathKind:label,pathCharacters:path.length,ok,elapsedMs:Date.now()-started,diagnostics:safe}));
+  const safe=(stdout+'\n'+stderr).split(/\r?\n/).filter(line=>/^(error_id=[A-Za-z0-9_,.+-]{1,256}|exception_file=[A-Za-z0-9_.-]{1,128}|module_probe=[A-Za-z.]+ directory=(?:True|False) manifest=(?:True|False)|mail_other_(os_user_denied|user_phase=[A-Za-z.-]+|user_qualification_failed(?: stage=[A-Za-z.-]+ exception=[A-Za-z0-9]+)?)|child_(exit=-?\d+ stdout_chars=\d+ stderr_chars=\d+|phase=[a-z-]+|(?:inner_)?exception=[A-Za-z0-9]+))$/.test(line));
+  console.log(JSON.stringify({environmentKind,variant,pathKind:label,pathCharacters:path.length,ok,elapsedMs:Date.now()-started,diagnostics:safe}));
  }
 }finally{await rm(root,{recursive:true,force:true,maxRetries:5,retryDelay:200});}
