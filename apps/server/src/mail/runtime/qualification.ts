@@ -9,6 +9,7 @@ import type { MailAccessCoordinator } from '../providers/access-coordinator.js';
 import { GmailReadTransport, GmailTransportError } from '../providers/gmail.js';
 import { MimeProjectionStore } from '../storage/mime-projection-store.js';
 import { projectMime, MimeProjectionError, mimeInputChunks } from '../mime/project.js';
+const metadataIntervalMs = 250;
 const hash = (value: string | Uint8Array) => createHash('sha256').update(value).digest('hex');
 const locator = (messageId: string) => ({
     provider: 'gmail',
@@ -108,8 +109,12 @@ export class MailQualification {
             done: Promise.resolve()
         };
         this.job = job;
-        const timer = setTimeout(() => abort.abort('deadline'), this.options.timeoutMs ?? 180000);
-        job.done = this.run(input.accountId, report, abort.signal, status.version.generation).catch(error => {
+        // Reserve the mandatory per-message pacing time in addition to the bounded
+        // provider/sample overhead. The validated request caps maxMessages at 10,000.
+        const timeoutMs = this.options.timeoutMs ?? (180000 + (input.mode === 'full' ? input.maxMessages * metadataIntervalMs : 0));
+        const deadline = report.startedAt + timeoutMs;
+        const timer = setTimeout(() => abort.abort('deadline'), timeoutMs);
+        job.done = this.run(input.accountId, report, abort.signal, status.version.generation, deadline).catch(error => {
             if (report.phase !== 'finished')
                 report.failedPhase = report.phase;
             if (error instanceof GmailTransportError) {
@@ -186,7 +191,7 @@ export class MailQualification {
             fingerprint: hash(JSON.stringify([rows, [...members], labels, manifests]))
         };
     }
-    private async run(accountId: string, report: QualificationReport, signal: AbortSignal, generation: string) {
+    private async run(accountId: string, report: QualificationReport, signal: AbortSignal, generation: string, deadline: number) {
         const transports: GmailReadTransport[] = [];
         try {
             const db = this.options.database, credentials = new MailCredentialRepository(db, this.options.ownerId), reads = new MailReadStore(db, this.options.ownerId);
@@ -429,7 +434,6 @@ export class MailQualification {
                 // The live run established Gmail rate limiting. Pace metadata starts;
                 // retry only that confirmed read failure, never a raw MIME sink.
                 let nextMetadataAt = 0;
-                const deadline = report.startedAt + (this.options.timeoutMs ?? 180000);
                 for (const id of ids) {
                     for (let attempt = 0;; attempt++) {
                         const pace = Math.max(0, nextMetadataAt - Date.now());
@@ -439,7 +443,7 @@ export class MailQualification {
                             });
                         fence();
                         const reader = await transport();
-                        nextMetadataAt = Date.now() + 250;
+                        nextMetadataAt = Date.now() + metadataIntervalMs;
                         try {
                             const metadata = await reader.getMetadata(id, {
                                 signal
