@@ -13,7 +13,13 @@ function testDatabase(): MailDatabase {
   const row = z.record(z.string(), z.unknown());
   return {
     exec(sql) { sqlite.exec(sql); },
-    run(sql, parameters = []) { return sqlite.query(sql).run(...parameters); },
+    run(sql, parameters = []) {
+      const result = sqlite.query(sql).run(...parameters);
+      // Bun includes trigger writes in run().changes; the production adapter
+      // reports only the statement's affected rows, as SQLite changes() does.
+      const direct = z.object({ changes: z.number().int().nonnegative() }).parse(sqlite.query("SELECT changes() AS changes").get());
+      return { ...result, changes: direct.changes };
+    },
     get(sql, parameters = []) { const value = sqlite.query(sql).get(...parameters); return value === null ? undefined : row.parse(value); },
     all(sql, parameters = []) { return sqlite.query(sql).all(...parameters).map(value => row.parse(value)); },
     transaction<T>(body: () => T): T {
