@@ -28,7 +28,7 @@ importers:
     dependencies:
       '@ai-sdk/react':
         specifier: ^3.0.148
-        version: 3.0.148(react@19.2.4)(zod@4.5.4)
+        version: 3.0.148(react@19.2.4)(zod@4.3.6)
       '@base-ui/react':
         specifier: ^1.4.1
         version: 1.4.1(@types/react@19.2.14)(react-dom@19.2.4(react@19.2.4))(react@19.2.4)
@@ -49,13 +49,13 @@ importers:
         version: 6.39.14
       '@eigenpal/docx-editor-agents':
         specifier: 1.8.3
-        version: 1.8.3(ai@6.0.146(zod@4.5.4))(react@19.2.4)
+        version: 1.8.3(ai@6.0.146(zod@4.3.6))(react@19.2.4)
       '@eigenpal/docx-editor-core':
         specifier: 1.8.3
         version: 1.8.3(patch_hash=a852dfc46ccb55254be612de43b0993f2bb75043a7164a1221d6904f45f5c87a)(prosemirror-commands@1.7.1)(prosemirror-dropcursor@1.8.2)(prosemirror-history@1.5.0)(prosemirror-keymap@1.2.3)(prosemirror-model@1.25.9)(prosemirror-state@1.4.4)(prosemirror-tables@1.8.5)(prosemirror-transform@1.12.0)(prosemirror-view@1.41.9)
       '@eigenpal/docx-editor-react':
         specifier: 1.8.3
-        version: 1.8.3(patch_hash=0d08ecc710bd4527a6d0c3627ff58df001629bdd3a64408dc1b956a7ef4d1457)(@types/react-dom@19.2.3(@types/react@19.2.14))(@types/react@19.2.14)(ai@6.0.146(zod@4.5.4))(prosemirror-commands@1.7.1)(prosemirror-dropcursor@1.8.2)(prosemirror-history@1.5.0)(prosemirror-keymap@1.2.3)(prosemirror-model@1.25.9)(prosemirror-state@1.4.4)(prosemirror-tables@1.8.5)(prosemirror-transform@1.12.0)(prosemirror-view@1.41.9)(react-dom@19.2.4(react@19.2.4))(react@19.2.4)
+        version: 1.8.3(patch_hash=0d08ecc710bd4527a6d0c3627ff58df001629bdd3a64408dc1b956a7ef4d1457)(@types/react-dom@19.2.3(@types/react@19.2.14))(@types/react@19.2.14)(ai@6.0.146(zod@4.3.6))(prosemirror-commands@1.7.1)(prosemirror-dropcursor@1.8.2)(prosemirror-history@1.5.0)(prosemirror-keymap@1.2.3)(prosemirror-model@1.25.9)(prosemirror-state@1.4.4)(prosemirror-tables@1.8.5)(prosemirror-transform@1.12.0)(prosemirror-view@1.41.9)(react-dom@19.2.4(react@19.2.4))(react@19.2.4)
       '@fontsource-variable/geist':
         specifier: ^5.2.8
         version: 5.2.8
@@ -121,7 +121,7 @@ importers:
         version: 6.0.0
       ai:
         specifier: ^6.0.146
-        version: 6.0.146(zod@4.5.4)
+        version: 6.0.146(zod@4.3.6)
       boring-avatars:
         specifier: ^2.0.4
         version: 2.0.4(react-dom@19.2.4(react@19.2.4))(react@19.2.4)
@@ -175,7 +175,7 @@ importers:
         version: 12.38.0(react-dom@19.2.4(react@19.2.4))(react@19.2.4)
       pptx-react-viewer:
         specifier: 3.5.4
-        version: 3.5.4(patch_hash=20b354d293c6d6a9e93e8210d1d7798e269979150b9bad56607c7077173994ae)(@ai-sdk/react@3.0.148(react@19.2.4)(zod@4.5.4))(@xmldom/xmldom@0.9.12)(ai@6.0.146(zod@4.5.4))(fast-xml-parser@5.11.1)(framer-motion@12.38.0(react-dom@19.2.4(react@19.2.4))(react@19.2.4))(i18next@26.4.2(typescript@5.9.3))(jspdf@4.2.1)(jszip@3.10.1)(lucide-react@0.577.0(react@19.2.4))(react-dom@19.2.4(react@19.2.4))(react-i18next@17.0.13(i18next@26.4.2(typescript@5.9.3))(react-dom@19.2.4(react@19.2.4))(react@19.2.4)(typescript@5.9.3))(react-icons@5.7.0(react@19.2.4))(react@19.2.4)
+        version: 3.5.4(patch_hash=20b354d293c6d6a9e93e8210d1d7798e269979150b9bad56607c7077173994ae)(@ai-sdk/react@3.0.148(react@19.2.4)(zod@4.3.6))(@xmldom/xmldom@0.9.12)(ai@6.0.146(zod@4.3.6))(fast-xml-parser@5.11.1)(framer-motion@12.38.0(react-dom@19.2.4(react@19.2.4))(react@19.2.4))(i18next@26.4.2(typescript@5.9.3))(jspdf@4.2.1)(jszip@3.10.1)(lucide-react@0.577.0(react@19.2.4))(react-dom@19.2.4(react@19.2.4))(react-i18next@17.0.13(i18next@26.4.2(typescript@5.9.3))(react-dom@19.2.4(react@19.2.4))(react@19.2.4)(typescript@5.9.3))(react-icons@5.7.0(react@19.2.4))(react@19.2.4)
       prosemirror-commands:
         specifier: ^1.7.1
         version: 1.7.1
@@ -249,8 +249,8 @@ importers:
         specifier: ^0.18.5
         version: 0.18.5
       zod:
-        specifier: ^4.3.6
-        version: 4.5.4
+        specifier: 4.3.6
+        version: 4.3.6
       zustand:
         specifier: ^5.0.12
         version: 5.0.12(@types/react@19.2.14)(react@19.2.4)(use-sync-external-store@1.6.0(react@19.2.4))
@@ -393,20 +393,20 @@ importers:
       ssh2-sftp-client:
         specifier: ^12.1.1
         version: 12.1.1
+      tesseract.js:
+        specifier: 7.0.0
+        version: 7.0.0(patch_hash=099172144c6ab81e0397c535957ebd0d4ff6e7acbc4ea3327107f0214dc78ed8)(encoding@0.1.13)
       webdav:
         specifier: ^5.10.0
         version: 5.10.0
       ws:
         specifier: ^8.19.0
         version: 8.19.0
-      tesseract.js:
-        specifier: 7.0.0
-        version: 7.0.0(patch_hash=099172144c6ab81e0397c535957ebd0d4ff6e7acbc4ea3327107f0214dc78ed8)(encoding@0.1.13)
       yaml:
         specifier: ^2.6.1
         version: 2.8.2
       zod:
-        specifier: ^4.3.6
+        specifier: 4.3.6
         version: 4.3.6
     devDependencies:
       '@legalwork/types':
@@ -573,29 +573,29 @@ importers:
       openai:
         specifier: ^7.8.0
         version: 7.8.0(@aws-sdk/credential-provider-node@3.972.82)(@smithy/signature-v4@5.7.3)(ws@8.19.0)(zod@4.3.6)
-      smb3-client:
-        specifier: 0.2.0
-        version: 0.2.0(patch_hash=6750c79b7b43bafb5401de9ce8b3aaddd1332b0bc77dccc00e118c2e1d064a9d)
-      ssh2-sftp-client:
-        specifier: ^12.1.1
-        version: 12.1.1
-      webdav:
-        specifier: ^5.10.0
-        version: 5.10.0
       pdfjs-dist:
         specifier: 6.3.289
         version: 6.3.289
       saxes:
         specifier: 6.0.0
         version: 6.0.0
+      smb3-client:
+        specifier: 0.2.0
+        version: 0.2.0(patch_hash=6750c79b7b43bafb5401de9ce8b3aaddd1332b0bc77dccc00e118c2e1d064a9d)
+      ssh2-sftp-client:
+        specifier: ^12.1.1
+        version: 12.1.1
       tesseract.js:
         specifier: 7.0.0
         version: 7.0.0(patch_hash=099172144c6ab81e0397c535957ebd0d4ff6e7acbc4ea3327107f0214dc78ed8)(encoding@0.1.13)
+      webdav:
+        specifier: ^5.10.0
+        version: 5.10.0
       yaml:
         specifier: ^2.6.1
         version: 2.8.2
       zod:
-        specifier: ^4.3.6
+        specifier: 4.3.6
         version: 4.3.6
     devDependencies:
       '@legalwork/types':
@@ -8805,28 +8805,28 @@ snapshots:
 
   7zip-bin@5.2.0: {}
 
-  '@ai-sdk/gateway@3.0.88(zod@4.5.4)':
+  '@ai-sdk/gateway@3.0.88(zod@4.3.6)':
     dependencies:
       '@ai-sdk/provider': 3.0.8
-      '@ai-sdk/provider-utils': 4.0.22(zod@4.5.4)
+      '@ai-sdk/provider-utils': 4.0.22(zod@4.3.6)
       '@vercel/oidc': 3.1.0
-      zod: 4.5.4
+      zod: 4.3.6
 
-  '@ai-sdk/provider-utils@4.0.22(zod@4.5.4)':
+  '@ai-sdk/provider-utils@4.0.22(zod@4.3.6)':
     dependencies:
       '@ai-sdk/provider': 3.0.8
       '@standard-schema/spec': 1.1.0
       eventsource-parser: 3.0.6
-      zod: 4.5.4
+      zod: 4.3.6
 
   '@ai-sdk/provider@3.0.8':
     dependencies:
       json-schema: 0.4.0
 
-  '@ai-sdk/react@3.0.148(react@19.2.4)(zod@4.5.4)':
+  '@ai-sdk/react@3.0.148(react@19.2.4)(zod@4.3.6)':
     dependencies:
-      '@ai-sdk/provider-utils': 4.0.22(zod@4.5.4)
-      ai: 6.0.146(zod@4.5.4)
+      '@ai-sdk/provider-utils': 4.0.22(zod@4.3.6)
+      ai: 6.0.146(zod@4.3.6)
       react: 19.2.4
       swr: 2.4.1(react@19.2.4)
       throttleit: 2.1.0
@@ -9766,14 +9766,14 @@ snapshots:
     dependencies:
       '@noble/ciphers': 1.3.0
 
-  '@eigenpal/docx-editor-agents@1.8.3(ai@6.0.146(zod@4.5.4))(react@19.2.4)':
+  '@eigenpal/docx-editor-agents@1.8.3(ai@6.0.146(zod@4.3.6))(react@19.2.4)':
     dependencies:
       docxtemplater: 3.69.0
       jszip: 3.10.1
       pizzip: 3.2.0
       xml-js: 1.6.11
     optionalDependencies:
-      ai: 6.0.146(zod@4.5.4)
+      ai: 6.0.146(zod@4.3.6)
       react: 19.2.4
 
   '@eigenpal/docx-editor-core@1.8.3(patch_hash=a852dfc46ccb55254be612de43b0993f2bb75043a7164a1221d6904f45f5c87a)(prosemirror-commands@1.7.1)(prosemirror-dropcursor@1.8.2)(prosemirror-history@1.5.0)(prosemirror-keymap@1.2.3)(prosemirror-model@1.25.9)(prosemirror-state@1.4.4)(prosemirror-tables@1.8.5)(prosemirror-transform@1.12.0)(prosemirror-view@1.41.9)':
@@ -9794,9 +9794,9 @@ snapshots:
 
   '@eigenpal/docx-editor-i18n@1.8.3': {}
 
-  '@eigenpal/docx-editor-react@1.8.3(patch_hash=0d08ecc710bd4527a6d0c3627ff58df001629bdd3a64408dc1b956a7ef4d1457)(@types/react-dom@19.2.3(@types/react@19.2.14))(@types/react@19.2.14)(ai@6.0.146(zod@4.5.4))(prosemirror-commands@1.7.1)(prosemirror-dropcursor@1.8.2)(prosemirror-history@1.5.0)(prosemirror-keymap@1.2.3)(prosemirror-model@1.25.9)(prosemirror-state@1.4.4)(prosemirror-tables@1.8.5)(prosemirror-transform@1.12.0)(prosemirror-view@1.41.9)(react-dom@19.2.4(react@19.2.4))(react@19.2.4)':
+  '@eigenpal/docx-editor-react@1.8.3(patch_hash=0d08ecc710bd4527a6d0c3627ff58df001629bdd3a64408dc1b956a7ef4d1457)(@types/react-dom@19.2.3(@types/react@19.2.14))(@types/react@19.2.14)(ai@6.0.146(zod@4.3.6))(prosemirror-commands@1.7.1)(prosemirror-dropcursor@1.8.2)(prosemirror-history@1.5.0)(prosemirror-keymap@1.2.3)(prosemirror-model@1.25.9)(prosemirror-state@1.4.4)(prosemirror-tables@1.8.5)(prosemirror-transform@1.12.0)(prosemirror-view@1.41.9)(react-dom@19.2.4(react@19.2.4))(react@19.2.4)':
     dependencies:
-      '@eigenpal/docx-editor-agents': 1.8.3(ai@6.0.146(zod@4.5.4))(react@19.2.4)
+      '@eigenpal/docx-editor-agents': 1.8.3(ai@6.0.146(zod@4.3.6))(react@19.2.4)
       '@eigenpal/docx-editor-core': 1.8.3(patch_hash=a852dfc46ccb55254be612de43b0993f2bb75043a7164a1221d6904f45f5c87a)(prosemirror-commands@1.7.1)(prosemirror-dropcursor@1.8.2)(prosemirror-history@1.5.0)(prosemirror-keymap@1.2.3)(prosemirror-model@1.25.9)(prosemirror-state@1.4.4)(prosemirror-tables@1.8.5)(prosemirror-transform@1.12.0)(prosemirror-view@1.41.9)
       '@eigenpal/docx-editor-i18n': 1.8.3
       '@radix-ui/react-select': 2.3.1(@types/react-dom@19.2.3(@types/react@19.2.14))(@types/react@19.2.14)(react-dom@19.2.4(react@19.2.4))(react@19.2.4)
@@ -12978,13 +12978,13 @@ snapshots:
       clean-stack: 2.2.0
       indent-string: 4.0.0
 
-  ai@6.0.146(zod@4.5.4):
+  ai@6.0.146(zod@4.3.6):
     dependencies:
-      '@ai-sdk/gateway': 3.0.88(zod@4.5.4)
+      '@ai-sdk/gateway': 3.0.88(zod@4.3.6)
       '@ai-sdk/provider': 3.0.8
-      '@ai-sdk/provider-utils': 4.0.22(zod@4.5.4)
+      '@ai-sdk/provider-utils': 4.0.22(zod@4.3.6)
       '@opentelemetry/api': 1.9.0
-      zod: 4.5.4
+      zod: 4.3.6
 
   ajv-formats@3.0.1(ajv@8.20.0):
     optionalDependencies:
@@ -16604,7 +16604,7 @@ snapshots:
 
   powershell-utils@0.1.0: {}
 
-  pptx-react-viewer@3.5.4(patch_hash=20b354d293c6d6a9e93e8210d1d7798e269979150b9bad56607c7077173994ae)(@ai-sdk/react@3.0.148(react@19.2.4)(zod@4.5.4))(@xmldom/xmldom@0.9.12)(ai@6.0.146(zod@4.5.4))(fast-xml-parser@5.11.1)(framer-motion@12.38.0(react-dom@19.2.4(react@19.2.4))(react@19.2.4))(i18next@26.4.2(typescript@5.9.3))(jspdf@4.2.1)(jszip@3.10.1)(lucide-react@0.577.0(react@19.2.4))(react-dom@19.2.4(react@19.2.4))(react-i18next@17.0.13(i18next@26.4.2(typescript@5.9.3))(react-dom@19.2.4(react@19.2.4))(react@19.2.4)(typescript@5.9.3))(react-icons@5.7.0(react@19.2.4))(react@19.2.4):
+  pptx-react-viewer@3.5.4(patch_hash=20b354d293c6d6a9e93e8210d1d7798e269979150b9bad56607c7077173994ae)(@ai-sdk/react@3.0.148(react@19.2.4)(zod@4.3.6))(@xmldom/xmldom@0.9.12)(ai@6.0.146(zod@4.3.6))(fast-xml-parser@5.11.1)(framer-motion@12.38.0(react-dom@19.2.4(react@19.2.4))(react@19.2.4))(i18next@26.4.2(typescript@5.9.3))(jspdf@4.2.1)(jszip@3.10.1)(lucide-react@0.577.0(react@19.2.4))(react-dom@19.2.4(react@19.2.4))(react-i18next@17.0.13(i18next@26.4.2(typescript@5.9.3))(react-dom@19.2.4(react@19.2.4))(react@19.2.4)(typescript@5.9.3))(react-icons@5.7.0(react@19.2.4))(react@19.2.4):
     dependencies:
       clsx: 2.1.1
       dompurify: 3.4.14
@@ -16622,8 +16622,8 @@ snapshots:
       react-icons: 5.7.0(react@19.2.4)
       tailwind-merge: 3.6.0
     optionalDependencies:
-      '@ai-sdk/react': 3.0.148(react@19.2.4)(zod@4.5.4)
-      ai: 6.0.146(zod@4.5.4)
+      '@ai-sdk/react': 3.0.148(react@19.2.4)(zod@4.3.6)
+      ai: 6.0.146(zod@4.3.6)
       three: 0.185.1
       y-webrtc: 10.3.0(yjs@13.6.32)
       y-websocket: 3.1.0(yjs@13.6.32)
