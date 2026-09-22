@@ -1,6 +1,6 @@
 # Ephemeral hosted-runner qualification only. Never invoked by the desktop runtime.
 $ErrorActionPreference = 'Stop'
-[Console]::InputEncoding = New-Object System.Text.UTF8Encoding($false)
+[Console]::InputEncoding = [System.Text.UTF8Encoding]::new($false)
 if ($env:GITHUB_ACTIONS -ne 'true') { throw 'Ephemeral GitHub Actions runner required' }
 $account = 'mailq' + [Guid]::NewGuid().ToString('N').Substring(0,12)
 $password = [Guid]::NewGuid().ToString('N') + 'aA!7'
@@ -9,6 +9,9 @@ $stage = 'control'
 function Phase([string]$name) { [Console]::Error.WriteLine('mail_other_user_phase=' + $name) }
 $control = Join-Path $env:PUBLIC ($account + '.txt')
 try {
+  foreach ($module in @('Microsoft.PowerShell.Management', 'Microsoft.PowerShell.Security', 'Microsoft.PowerShell.Utility', 'Microsoft.PowerShell.LocalAccounts')) {
+    Import-Module ($PSHOME + '/Modules/' + $module + '/' + $module + '.psd1') -ErrorAction Stop
+  }
   Phase 'control'
   $value = [Console]::In.ReadToEnd() | ConvertFrom-Json
   [System.IO.File]::WriteAllText($control, 'synthetic-readable-control')
@@ -23,10 +26,11 @@ try {
   $users = Get-LocalGroup -SID 'S-1-5-32-545'
   if (!(@(Get-LocalGroupMember -Group $users | Where-Object { $_.SID -eq $localUser.SID }).Count)) { Add-LocalGroupMember -Group $users -Member $localUser }
   $program = @'
-[Console]::InputEncoding = New-Object System.Text.UTF8Encoding($false)
+[Console]::InputEncoding = [System.Text.UTF8Encoding]::new($false)
 try {
   [Console]::Error.WriteLine('child_phase=started')
   $controlRead = $false
+  Import-Module ($PSHOME + '/Modules/Microsoft.PowerShell.Utility/Microsoft.PowerShell.Utility.psd1') -ErrorAction Stop
   $data = [Console]::In.ReadToEnd() | ConvertFrom-Json
   [Console]::Error.WriteLine('child_phase=input-read')
   if ([System.IO.File]::ReadAllText($data.control) -ne 'synthetic-readable-control') { [Console]::Out.Write('control_failed'); exit 1 }
