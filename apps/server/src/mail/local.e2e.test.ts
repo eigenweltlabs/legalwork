@@ -13,8 +13,20 @@ import {registerMailRoutes} from '../routes/mail.js';
 import {startServer} from '../server.js';
 import type {ServerConfig} from '../types.js';
 import type {Route} from '../routes/registry.js';
-test('actual HTTP drafts, immutable submission replay, events and encrypted worker restart',async()=>{
- const root=await mkdtemp(join(tmpdir(),'mail-local-e2e-')),serverRoot=join(import.meta.dir,'../..'),key=randomBytes(32),databasePath=join(root,'mail.sqlite');
+const fixtureRoot=process.env.LEGALWORK_MAIL_HTTP_FIXTURE_ROOT;
+const title='actual HTTP drafts, immutable submission replay, events and encrypted worker restart';
+if(!fixtureRoot)test(title,async()=>{
+ const root=await mkdtemp(join(tmpdir(),'mail-local-e2e-'));let primaryError:unknown;
+ try{
+  // Shared runtime stores intentionally live for the Bun process. The parent
+  // removes this fixture only after child exit has closed those SQLite handles.
+  execFileSync(process.execPath,['test',import.meta.path],{env:{...process.env,LEGALWORK_MAIL_HTTP_FIXTURE_ROOT:root},stdio:'inherit',timeout:55000,killSignal:'SIGKILL'});
+ }catch(error){primaryError=error;throw error;}finally{
+  try{await removeTestTree(root);}catch(cleanupError){if(primaryError!==undefined)throw new AggregateError([primaryError,cleanupError],'HTTP fixture process failed and cleanup retained entries');throw cleanupError;}
+ }
+},60000);
+else test(title,async()=>{
+ const root=fixtureRoot,serverRoot=join(import.meta.dir,'../..'),key=randomBytes(32),databasePath=join(root,'mail.sqlite');
  const envNames=['LEGALWORK_ENV_STORE','LEGALWORK_TOKEN_STORE','XDG_DATA_HOME'];const originalEnv=new Map(envNames.map(name=>[name,process.env[name]]));for(const name of envNames)process.env[name]=join(root,name);
  let primaryError:unknown;let service:LocalMailService|undefined;let server:Awaited<ReturnType<typeof startServer>>|undefined;
  try{
@@ -59,6 +71,6 @@ test('actual HTTP drafts, immutable submission replay, events and encrypted work
   const attached={draftId:randomUUID(),expected:null,content:{...input.content,from:'sender@example.test',bcc:['hidden@example.test'],inReplyTo:'<original@example.test>',references:['<original@example.test>'],attachments:[{locator:null,partId:uploadId,referenceId,filename:'秘密.txt',contentType:'text/plain'}]}};
   const uploadedResponse=await post(drafts+'save',attached);expect(uploadedResponse.status).toBe(200);const uploaded=await uploadedResponse.json();await service.lock();await service.unlock();const part=await post(drafts+'attachment',{draftId:uploaded.id,version:uploaded.version,ordinal:0,referenceId,offset:16380,limit:30});expect(part.status).toBe(200);expect(Buffer.from((await part.json()).chunk.data,'base64')).toEqual(bytes.subarray(16380,16410));
   const routes:Route[]=[];registerMailRoutes(routes,'0.0.0.0',service);expect(routes).toHaveLength(0);
- }catch(error){primaryError=error;throw error;}finally{try{await server?.stop();await service?.stop();key.fill(0);for(const name of envNames){const old=originalEnv.get(name);if(old===undefined)delete process.env[name];else process.env[name]=old;}await unlinkTestModules(join(root,'node_modules'));await removeTestTree(root);
+ }catch(error){primaryError=error;throw error;}finally{try{await server?.stop();await service?.stop();key.fill(0);for(const name of envNames){const old=originalEnv.get(name);if(old===undefined)delete process.env[name];else process.env[name]=old;}await unlinkTestModules(join(root,'node_modules')); // Parent removes files after this Bun process exits.
  }catch(cleanupError){if(primaryError!==undefined)throw new AggregateError([primaryError,cleanupError],'HTTP draft fixture failed and cleanup retained entries');throw cleanupError;}}
 },60000);
