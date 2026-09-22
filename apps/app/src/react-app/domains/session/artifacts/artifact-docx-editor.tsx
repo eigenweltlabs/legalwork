@@ -3,6 +3,7 @@ import { type RefObject, useCallback, useEffect, useLayoutEffect, useRef, useSta
 import { DocxEditor, type DocxEditorRef, type EditorMode } from "@eigenpal/docx-editor-react";
 import { DocxReviewer } from "@eigenpal/docx-editor-agents";
 import { useDocxAgentTools } from "@eigenpal/docx-editor-agents/react";
+import { setGoogleFontsEnabled } from "@eigenpal/docx-editor-core";
 import { acceptChangeById, rejectChangeById } from "@eigenpal/docx-editor-core/prosemirror/commands";
 import { extractTrackedChanges } from "@eigenpal/docx-editor-core/prosemirror/utils/extractTrackedChanges";
 import "@eigenpal/docx-editor-react/styles.css";
@@ -16,6 +17,12 @@ import { useDocxReviewCard } from "./use-docx-review-card";
 import "./docx-editor-layout.css";
 import { useControlActions } from "../../../shell/control/control-provider";
 import { t } from "@/i18n";
+
+// The editor otherwise injects a fonts.googleapis.com stylesheet for any font a
+// document names that isn't installed locally — which would tell Google the
+// typefaces used in a client's file. Missing faces render via the CSS fallback
+// stack instead. Page-global, so it is set once at import, before any document.
+setGoogleFontsEnabled(false);
 
 export type DocxEditorApi = {
   /** Serialize and persist the current document. Never clears edits made during a save. */

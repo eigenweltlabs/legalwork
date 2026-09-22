@@ -6,6 +6,7 @@ import {
   HoverCardTrigger,
 } from "@/components/ui/hover-card"
 import { cn } from "@/lib/utils"
+import { Globe } from "lucide-react"
 import { createContext, useContext } from "react"
 import { t } from "@/i18n";
 
@@ -44,6 +45,10 @@ export function Source({ href, children }: SourceProps) {
 
 export type SourceTriggerProps = {
   label?: string | number
+  /**
+   * Show a leading site glyph. A generic mark, not the site's real favicon:
+   * fetching that would hand the cited URL to whichever service served it.
+   */
   showFavicon?: boolean
   className?: string
 }
@@ -62,15 +67,7 @@ export function SourceTrigger({
                 showFavicon ? "pe-2 ps-1" : "px-1",
                 className
               )} />}>{showFavicon && (
-                <img
-                  src={`https://www.google.com/s2/favicons?sz=64&domain_url=${encodeURIComponent(
-                    href
-                  )}`}
-                  alt="favicon"
-                  width={14}
-                  height={14}
-                  className="size-3.5 rounded-full"
-                />
+                <Globe className="size-3.5 shrink-0" aria-hidden />
               )}<span className="truncate tabular-nums text-center font-normal">{labelToShow}</span></HoverCardTrigger>
   )
 }
@@ -97,15 +94,7 @@ export function SourceContent({
         className="flex flex-col gap-2 p-3"
       >
         <div className="flex items-center gap-1.5">
-          <img
-            src={`https://www.google.com/s2/favicons?sz=64&domain_url=${encodeURIComponent(
-              href
-            )}`}
-            alt="favicon"
-            className="size-4 rounded-full"
-            width={16}
-            height={16}
-          />
+          <Globe className="size-4 shrink-0 text-muted-foreground" aria-hidden />
           <div className="text-primary truncate text-sm">
             {domain.replace("www.", "")}
           </div>

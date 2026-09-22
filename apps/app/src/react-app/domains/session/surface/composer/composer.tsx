@@ -4,6 +4,7 @@ import type { Agent } from "@opencode-ai/sdk/v2/client";
 import { AppWindowMac, ArrowUp, AudioLines, Blend, ChevronDown, ChevronRight, FileText, ListPlus, Paperclip, Plug, Settings, Square, Terminal, X, Zap } from "lucide-react";
 import fuzzysort from "fuzzysort";
 import { toast } from "@/components/ui/sonner";
+import { resolveBrandIconSrc } from "@/react-app/design-system/extension-icon-src";
 import { IconTile } from "@/react-app/design-system/surface";
 import "@/components/chat/session-surfaces.css";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuShortcut, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
@@ -241,11 +242,9 @@ function mcpStatusBadgeClass(status: McpServerStatus) {
 }
 
 function extensionIcon(entry: McpDirectoryInfo, size = 16) {
-  if (entry.iconSrc) {
-    return <img src={entry.iconSrc} alt="" width={size} height={size} loading="lazy" style={{ display: "block" }} />;
-  }
-  if (entry.iconSlug) {
-    return <img src={`https://cdn.simpleicons.org/${entry.iconSlug}`} alt="" width={size} height={size} loading="lazy" style={{ display: "block" }} />;
+  const src = resolveBrandIconSrc(entry.iconSrc, entry.iconSlug);
+  if (src) {
+    return <img src={src} alt="" width={size} height={size} loading="lazy" style={{ display: "block" }} />;
   }
   return <Plug size={size} className="text-gray-9" />;
 }
