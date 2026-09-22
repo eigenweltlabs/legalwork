@@ -124,9 +124,11 @@ test('escaped opaque slash is valid and a disappearing folder never cascades liv
 
 test('folder hierarchy application yields after 100 rows and resumes staged cursor after pause',()=>fixture(async f=>{
  const e=f.make();e.start('a');await until(()=>e.status('a').state==='complete');e.pause('a');await delay(20);
- f.db.transaction(()=>{for(let i=0;i<205;i++){const id='bulk-'+String(i).padStart(3,'0');f.db.run("INSERT INTO mail_graph_delta(account_id,folder_id,refresh,metadata_json) VALUES('a',?,0,?)",[id,JSON.stringify({id,displayName:id,parentFolderId:'root',childFolderCount:0})]);}f.db.run("UPDATE mail_graph_runs SET generation=lower(hex(randomblob(16)))");f.db.run("UPDATE mail_graph_poll SET phase='create',apply_after='',poll_at=NULL");});
+ // Stage hierarchy updates for already-reconciled folders. Message polling is tested separately;
+ // 205 unrelated delta turns must not consume this hierarchy pause/resume deadline.
+ f.db.transaction(()=>{for(let i=0;i<205;i++){const id='bulk-'+String(i).padStart(3,'0');f.db.run("INSERT INTO mail_graph_delta(account_id,folder_id,refresh,phase,metadata_json) VALUES('a',?,0,'done',?)",[id,JSON.stringify({id,displayName:id,parentFolderId:'root',childFolderCount:0})]);}f.db.run("UPDATE mail_graph_runs SET generation=lower(hex(randomblob(16)))");f.db.run("UPDATE mail_graph_poll SET phase='create',apply_after='',poll_at=NULL");});
  let paused=false;const observer=setInterval(()=>{const row=f.db.get('SELECT phase,apply_after FROM mail_graph_poll');if(!paused&&row.phase==='create'&&row.apply_after>='bulk-000'){paused=true;e.pause('a');}},0);
- try{e.start('a');await until(()=>paused);const cursor=f.db.get('SELECT apply_after FROM mail_graph_poll').apply_after;assert.ok(cursor>='bulk-000'&&cursor<'bulk-204');clearInterval(observer);await f.reopen();const next=f.make();next.start('a');await until(()=>next.status('a').state==='complete');assert.equal(f.db.get("SELECT count(*) AS n FROM mail_folders WHERE id GLOB 'bulk-*'").n,205);}finally{clearInterval(observer);}
+ try{e.start('a');await until(()=>paused);const cursor=f.db.get('SELECT apply_after FROM mail_graph_poll').apply_after;assert.equal(cursor,'bulk-098');assert.equal(f.db.get("SELECT count(*) AS n FROM mail_folders WHERE id GLOB 'bulk-*'").n,99);clearInterval(observer);await f.reopen();const next=f.make();next.start('a');await until(()=>next.status('a').state==='complete');assert.equal(f.db.get("SELECT count(*) AS n FROM mail_folders WHERE id GLOB 'bulk-*'").n,205);}finally{clearInterval(observer);}
 }));
 
 test('a revived folder discovers its newly created parent before applying the hierarchy',()=>fixture(async f=>{
