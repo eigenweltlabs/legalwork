@@ -1,33 +1,30 @@
-name: Mail final platform qualification (non-release)
+name: Mail signed macOS lifecycle qualification (NONPUBLISHING)
 on:
-  # Run after all mail tickets are complete; ticket work uses feature-specific tests.
   workflow_dispatch:
 permissions:
   contents: read
-concurrency:
-  group: mail-platform-${{ github.ref }}
-  cancel-in-progress: true
 jobs:
-  qualify:
+  signed-lifecycle:
     strategy:
       fail-fast: false
       matrix:
         include:
           - os: macos-15
             arch: arm64
-            application: apps/desktop/dist-electron/mac-arm64/LegalWork.app
+            target: aarch64-apple-darwin
           - os: macos-15-intel
             arch: x64
-            application: apps/desktop/dist-electron/mac/LegalWork.app
-          - os: windows-2022
-            arch: x64
-            application: apps/desktop/dist-electron/win-unpacked
+            target: x86_64-apple-darwin
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 60
+    timeout-minutes: 150
     env:
-      MAIL_EXPECT_ARCH: ${{ matrix.arch }}
+      QUALIFICATION_SOURCE: 5060005ed
+      TARGET: ${{ matrix.target }}
+      NODE_OPTIONS: --max-old-space-size=6144
     steps:
       - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
       - uses: actions/setup-node@v6
         with:
           node-version: '24.11.0'
@@ -40,40 +37,66 @@ jobs:
           bun-version: '1.3.9'
       - name: Install locked dependencies
         run: pnpm install --frozen-lockfile
-      - name: Actual Electron vault, ACL, cipher and recovery
-        run: node scripts/mail/qualification-step.mjs vault node scripts/mail/platform-qualification.mjs
-      - name: Actual Node mail acceptance
-        if: ${{ !cancelled() }}
-        run: node scripts/mail/qualification-step.mjs native node apps/server/scripts/mail-acceptance.mjs
-      - name: Actual loopback HTTP mail APIs
-        if: ${{ !cancelled() }}
-        run: node scripts/mail/qualification-step.mjs http bun test apps/server/src/mail/routes.e2e.test.ts apps/server/src/mail/search.e2e.test.ts apps/server/src/mail/local.e2e.test.ts
-      - name: Normal shared app tests
-        if: ${{ !cancelled() }}
-        run: node scripts/mail/qualification-step.mjs app pnpm --filter @legalwork/app test
-      - name: Normal desktop tests
-        if: ${{ !cancelled() }}
-        run: node scripts/mail/qualification-step.mjs desktop pnpm --filter @legalwork/desktop test
-      - name: Additional mail desktop boundaries
-        if: ${{ !cancelled() }}
-        run: node scripts/mail/qualification-step.mjs desktop-mail node scripts/mail/desktop-qualification-tests.mjs
-      - name: Build complete desktop package without publication
-        if: ${{ !cancelled() }}
-        run: node scripts/mail/qualification-step.mjs build pnpm --dir apps/desktop run package:electron:dir --publish never
+      - name: Validate qualification assertions
+        run: node --test scripts/mail/signed-qualification/policy.test.mjs
+      - name: Add temporary probe and loopback-only feeds before signing
+        run: |
+          git diff --exit-code "$QUALIFICATION_SOURCE" -- apps packages scripts/release
+          node scripts/mail/signed-qualification/prepare.mjs
+          mkdir -p "$RUNNER_TEMP/mail-signed-evidence"
+          git diff -- apps/desktop/electron/main.mjs apps/desktop/electron/updater.mjs > "$RUNNER_TEMP/mail-signed-evidence/instrumentation.patch"
+          git rev-parse HEAD > "$RUNNER_TEMP/mail-signed-evidence/qualification-commit.txt"
+          git rev-parse "$QUALIFICATION_SOURCE" > "$RUNNER_TEMP/mail-signed-evidence/product-source.txt"
+      - name: Build current desktop once
+        run: pnpm --filter @legalwork/desktop build:electron
+      - name: Write temporary notary API key
         env:
-          NODE_OPTIONS: '--max-old-space-size=4096'
-          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
-          MACOS_NOTARIZE: 'false'
-          LEGALWORK_COMPUTER_USE_SIGN_IDENTITY: '-'
-          LEGALWORK_COMPUTER_USE_CODESIGN_IDENTITY: '-'
-      - name: Verify mail from the built application
-        if: ${{ !cancelled() }}
-        run: node scripts/mail/qualification-step.mjs packaged node scripts/mail/verify-built-application.mjs "${{ matrix.application }}"
-      - name: Archive bounded source-stamped qualification evidence
+          APPLE_NOTARY_API_KEY_P8_BASE64: ${{ secrets.APPLE_NOTARY_API_KEY_P8_BASE64 }}
+        run: |
+          set -euo pipefail
+          printf '%s' "$APPLE_NOTARY_API_KEY_P8_BASE64" | base64 --decode > "$RUNNER_TEMP/AuthKey.p8"
+          chmod 600 "$RUNNER_TEMP/AuthKey.p8"
+      - name: Package two private qualification versions with production signing hooks
+        env:
+          CSC_LINK: ${{ secrets.APPLE_CODESIGN_CERT_P12_BASE64 }}
+          CSC_KEY_PASSWORD: ${{ secrets.APPLE_CODESIGN_CERT_PASSWORD }}
+          MACOS_NOTARIZE: 'true'
+          APPLE_API_KEY: ${{ secrets.APPLE_NOTARY_API_KEY_ID }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_NOTARY_API_ISSUER_ID }}
+          APPLE_API_KEY_PATH: ${{ runner.temp }}/AuthKey.p8
+          QUALIFICATION_ARCH: ${{ matrix.arch }}
+        run: |
+          set -euo pipefail
+          for phase in base target; do
+            version=0.0.1
+            if [ "$phase" = target ]; then version=0.0.2; fi
+            output="$RUNNER_TEMP/mail-signed-artifacts/$phase"
+            pnpm --dir apps/desktop exec electron-builder --config electron-builder.yml \
+              --mac dmg zip --"$QUALIFICATION_ARCH" --publish never \
+              -c.extraMetadata.version="$version" -c.directories.output="$output"
+            # Existing afterSign notarizes/staples the app. Also notarize the
+            # nonpublished DMG envelope used by the installation probe.
+            for dmg in "$output"/*.dmg; do
+              xcrun notarytool submit "$dmg" --key "$APPLE_API_KEY_PATH" \
+                --key-id "$APPLE_API_KEY" --issuer "$APPLE_API_ISSUER" \
+                --wait --output-format json > "$RUNNER_TEMP/mail-signed-evidence/$phase-dmg-notary.json"
+              xcrun stapler staple "$dmg"
+              xcrun stapler validate "$dmg"
+            done
+          done
+      - name: Actual signed DMG install, Squirrel update, uninstall and retained-data reinstall
+        timeout-minutes: 20
+        run: node scripts/mail/signed-qualification/lifecycle.mjs "$RUNNER_TEMP/mail-signed-artifacts" "$RUNNER_TEMP/mail-signed-evidence"
+      - name: Remove temporary notary key
+        if: always()
+        run: rm -f "$RUNNER_TEMP/AuthKey.p8"
+      - name: Retain metadata only; never profiles, keys or application artifacts
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: mail-qualification-${{ matrix.os }}-${{ matrix.arch }}-${{ github.sha }}
-          path: mail-qualification-evidence/
-          if-no-files-found: error
-          retention-days: 14
+          name: mail-signed-lifecycle-${{ matrix.arch }}-${{ github.sha }}
+          path: |
+            ${{ runner.temp }}/mail-signed-evidence/*.json
+            ${{ runner.temp }}/mail-signed-evidence/*.txt
+            ${{ runner.temp }}/mail-signed-evidence/*.patch
+          retention-days: 7
