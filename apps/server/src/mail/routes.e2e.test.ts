@@ -37,7 +37,7 @@ afterEach(async () => {
     const value = originalEnv.get(name);
     if (value === undefined) delete process.env[name]; else process.env[name] = value;
   }
-  await rm(directory, { recursive: true, force: true });
+  await rm(directory, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
 });
 function mockService() {
   let state: MailServiceStatus["state"] = "locked";
