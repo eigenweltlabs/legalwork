@@ -23,11 +23,11 @@ try {
   $controlAcl = Get-Acl -LiteralPath $control
   $readRule = New-Object System.Security.AccessControl.FileSystemAccessRule([System.Security.Principal.SecurityIdentifier]'S-1-5-11', [System.Security.AccessControl.FileSystemRights]::Read, [System.Security.AccessControl.AccessControlType]::Allow)
   $controlAcl.AddAccessRule($readRule); Set-Acl -LiteralPath $control -AclObject $controlAcl
-  $inputValue = @{path=$value.path;control=$control} | ConvertTo-Json -Compress
   $secure = ConvertTo-SecureString $password -AsPlainText -Force
   $stage = 'create-user'; Phase $stage
   $localUser = New-LocalUser -Name $account -Password $secure -AccountNeverExpires
   $created = $true
+  $inputValue = @{path=$value.path;control=$control;expectedSid=$localUser.SID.Value} | ConvertTo-Json -Compress
   $users = Get-LocalGroup -SID 'S-1-5-32-545'
   if (!(@(Get-LocalGroupMember -Group $users | Where-Object { $_.SID -eq $localUser.SID }).Count)) { Add-LocalGroupMember -Group $users -Member $localUser }
   $program = @'
@@ -38,6 +38,8 @@ try {
   Import-Module ($PSHOME + '/Modules/Microsoft.PowerShell.Utility/Microsoft.PowerShell.Utility.psd1') -ErrorAction Stop
   $data = [Console]::In.ReadToEnd() | ConvertFrom-Json
   [Console]::Error.WriteLine('child_phase=input-read')
+  if ([System.Security.Principal.WindowsIdentity]::GetCurrent().User.Value -ne $data.expectedSid) { [Console]::Out.Write('wrong_identity'); exit 1 }
+  [Console]::Error.WriteLine('child_phase=identity-verified')
   if ([System.IO.File]::ReadAllText($data.control) -ne 'synthetic-readable-control') { [Console]::Out.Write('control_failed'); exit 1 }
   $controlRead = $true
   [Console]::Error.WriteLine('child_phase=control-read')
@@ -48,10 +50,16 @@ catch { [Console]::Error.WriteLine('child_exception=' + $_.Exception.GetType().N
 '@
   $info = New-Object System.Diagnostics.ProcessStartInfo
   $info.FileName = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
-  $info.Arguments = '-NoProfile -NonInteractive -EncodedCommand ' + [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($program))
+  $command = $program
+  $payload = $inputValue
+  if ($env:MAIL_OTHER_USER_SHORT_COMMAND -eq 'true') {
+    $command = '& ([ScriptBlock]::Create([Text.Encoding]::UTF8.GetString([Convert]::FromBase64String([Console]::In.ReadLine()))))'
+    $payload = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($program)) + "`n" + $inputValue
+  }
+  $info.Arguments = '-NoProfile -NonInteractive -EncodedCommand ' + [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($command))
+  [Console]::Error.WriteLine('command_characters=' + ($info.FileName.Length + $info.Arguments.Length + 3))
   $info.UserName = $account; $info.Domain = $env:COMPUTERNAME; $info.Password = $secure
-  if ($env:MAIL_OTHER_USER_WORKING_DIRECTORY -eq 'system') { $info.WorkingDirectory = $env:SystemRoot }
-  $info.UseShellExecute = $false; $info.LoadUserProfile = $true
+  $info.UseShellExecute = $false; $info.LoadUserProfile = $env:MAIL_OTHER_USER_LOAD_PROFILE -eq 'true'
   $info.RedirectStandardInput = $true; $info.RedirectStandardOutput = $true; $info.RedirectStandardError = $true; $info.CreateNoWindow = $true
   $child = New-Object System.Diagnostics.Process; $child.StartInfo = $info
   $stage = 'start-other-user'; Phase $stage
@@ -61,7 +69,7 @@ catch { [Console]::Error.WriteLine('child_exception=' + $_.Exception.GetType().N
   $stdoutTask = $child.StandardOutput.ReadToEndAsync()
   $stderrTask = $child.StandardError.ReadToEndAsync()
   $stage = 'input'; Phase $stage
-  $bytes = [System.Text.Encoding]::UTF8.GetBytes($inputValue)
+  $bytes = [System.Text.Encoding]::UTF8.GetBytes($payload)
   $child.StandardInput.BaseStream.Write($bytes, 0, $bytes.Length); $child.StandardInput.BaseStream.Flush(); $child.StandardInput.Close()
   Phase 'input-closed'
   $stage = 'wait'; Phase $stage
