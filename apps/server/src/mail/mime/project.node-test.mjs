@@ -88,7 +88,7 @@ test('presentation selects the last supported alternative and related root while
 });
 
 test('original rendering EML fixtures project exact HTML and verified CID bytes',async()=>{
- const {readFile}=await import('node:fs/promises');const {resolve}=await import('node:path');const root=new URL('../testing/html-fixtures/',import.meta.url).pathname;
+ const {readFile}=await import('node:fs/promises');const {resolve}=await import('node:path');const {fileURLToPath}=await import('node:url');const root=fileURLToPath(new URL('../testing/html-fixtures/',import.meta.url));
  for(const name of ['newsletter','outlook-receipt','gmail-thread','malformed']){
   const raw=await readFile(resolve(root,name+'.eml')),expected=await readFile(resolve(root,name+'.html'),'utf8'),png=await readFile(resolve(root,'brand.png'));const attachments=[];
   const result=await parse(raw,{onAttachment:async(part,source)=>{const chunks=[];for await(const bytes of source)chunks.push(bytes);attachments.push({part,bytes:Buffer.concat(chunks)});}});
