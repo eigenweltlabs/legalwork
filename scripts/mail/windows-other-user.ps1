@@ -9,7 +9,7 @@ $control = Join-Path $env:PUBLIC ($account + '.txt')
 try {
   # The caller may be PowerShell 7; use only this Windows PowerShell's system modules.
   foreach ($module in @('Microsoft.PowerShell.Management', 'Microsoft.PowerShell.Security', 'Microsoft.PowerShell.Utility', 'Microsoft.PowerShell.LocalAccounts')) {
-    Import-Module ($PSHOME + '/Modules/' + $module + '/' + $module + '.psd1') -ErrorAction Stop
+    Import-Module ($PSHOME + '/Modules/' + $module) -ErrorAction Stop
   }
   $value = [Console]::In.ReadToEnd() | ConvertFrom-Json
   [System.IO.File]::WriteAllText($control, 'synthetic-readable-control')
