@@ -11,8 +11,20 @@ export function createAppBadge(app, nativeImage, getWindows, platform = process.
       const icon = count ? nativeImage.createFromBitmap(badgeBitmap(count), { width: 32, height: 32, scaleFactor: 1 }) : null;
       for (const window of getWindows()) if (!window.isDestroyed()) window.setOverlayIcon(icon, count ? `${count} unread items` : '');
     }
+    if (platform !== 'darwin' && platform !== 'win32') app.setBadgeCount?.(count);
   }
   return { render, set(source, count) { const next = Number.isSafeInteger(count) && count > 0 ? count : 0; if (counts.get(source) === next) return; counts.set(source, next); render(); } };
+}
+
+const appBadges = new WeakMap();
+export function getAppBadge({ app, nativeImage, BrowserWindow }) {
+  let badge = appBadges.get(app);
+  if (!badge) {
+    badge = createAppBadge(app, nativeImage, () => BrowserWindow.getAllWindows());
+    appBadges.set(app, badge);
+    app.on('browser-window-created', () => badge.render());
+  }
+  return badge;
 }
 
 // Electron's nativeImage does not decode SVG. Draw a crisp, portable BGRA overlay.
@@ -42,7 +54,7 @@ export function createMailBadgeController({ service, badge, enabled = true, inte
   const timer = setInterval(() => void refresh(), intervalMs);
   timer.unref?.();
   void refresh();
-  return { refresh, setEnabled(value) { enabled = value; revision++; if (!enabled) badge.set('mail', 0); void refresh(); }, stop() { stopped = true; clearInterval(timer); badge.set('mail', 0); } };
+  return { refresh, setEnabled(value) { enabled = value; revision++; if (!enabled) badge.set('mail', 0); void refresh(); }, stop() { if (stopped) return; stopped = true; clearInterval(timer); badge.set('mail', 0); } };
 }
 
 let preference = true;
@@ -53,13 +65,11 @@ export async function configureMailBadge({ app, nativeImage, BrowserWindow, serv
   preferencePath = join(app.getPath('userData'), 'mail-badge.json');
   try { preference = JSON.parse(await readFile(preferencePath, 'utf8')).enabled !== false; } catch { preference = true; }
   controller?.stop();
-  const badge = createAppBadge(app, nativeImage, () => BrowserWindow.getAllWindows());
-  const created = () => badge.render();
-  app.on('browser-window-created', created);
+  const badge = getAppBadge({ app, nativeImage, BrowserWindow });
   controller = createMailBadgeController({ service, badge, enabled: preference });
   const active = controller;
   const stop = service.stop.bind(service);
-  service.stop = async () => { active.stop(); app.removeListener('browser-window-created', created); if (controller === active) controller = undefined; await stop(); };
+  service.stop = async () => { active.stop(); if (controller === active) controller = undefined; await stop(); };
 }
 export function getMailBadgeEnabled() { return preference; }
 export async function setMailBadgeEnabled(enabled) {
