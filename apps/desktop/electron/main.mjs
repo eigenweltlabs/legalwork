@@ -3,7 +3,7 @@ import {getMailDesktopSettings,setMailDesktopSettings} from './mail-desktop.mjs'
 import {performMailPortability} from "./mail-portability.mjs";
 import {createMailDraftRecovery} from "./mail-draft-recovery.mjs";
 import {assertMailKeychainReady} from "./mail-keychain-preflight.mjs";
-import { getMailBadgeEnabled, setMailBadgeEnabled } from "./app-badge.mjs";
+import { getAppBadge, getMailBadgeEnabled, setMailBadgeEnabled } from "./app-badge.mjs";
 import { createMailArtifacts } from "./mail-artifacts.mjs";
 import { execFileSync, spawn } from "node:child_process";
 import { createServer } from "node:http";
@@ -2492,18 +2492,8 @@ const desktopCommandHandlers = {
       const input = args[0] ?? {};
       const count = Math.max(0, Math.min(9999, Math.floor(Number(input.count) || 0)));
       try {
-        if (process.platform === "win32") {
-          // No count on Windows: a small image over the taskbar icon instead.
-          const win = BrowserWindow.fromWebContents(event.sender) ?? mainWindow;
-          if (!win || win.isDestroyed()) return false;
-          const dataUrl = typeof input.overlayDataUrl === "string" && input.overlayDataUrl.startsWith("data:image/png;base64,")
-            ? input.overlayDataUrl
-            : null;
-          const image = count > 0 && dataUrl ? nativeImage.createFromDataURL(dataUrl) : null;
-          win.setOverlayIcon(image && !image.isEmpty() ? image : null, count > 0 ? String(input.description ?? "").slice(0, 200) : "");
-          return true;
-        }
-        return app.setBadgeCount(count);
+        getAppBadge({ app, nativeImage, BrowserWindow }).set('tasks', count);
+        return true;
       } catch {
         return false;
       }

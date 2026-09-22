@@ -38,3 +38,26 @@ test('Settings preference persists independently and restores on controller repl
   await setMailBadgeEnabled(true);assert.equal(getMailBadgeEnabled(),true);await assert.rejects(setMailBadgeEnabled('false'));
  } finally {await service.stop();await rm(directory,{recursive:true,force:true});}
 });
+
+test('Tasks and Mail share the OS badge through mail restart and independent preferences', async () => {
+ const {EventEmitter}=await import('node:events');const {mkdtemp,rm}=await import('node:fs/promises');const {tmpdir}=await import('node:os');const {join}=await import('node:path');
+ const {getAppBadge,configureMailBadge,setMailBadgeEnabled}=await import('./app-badge.mjs');
+ const directory=await mkdtemp(join(tmpdir(),'shared-badge-'));const values=[];
+ const record=value=>values.push(parseInt(value,10)||0);const app=new EventEmitter();
+ app.getPath=()=>directory;app.dock={setBadge:record};app.setBadgeCount=record;
+ const options={app,nativeImage:{createFromBitmap:()=>({})},BrowserWindow:{getAllWindows:()=>[{isDestroyed:()=>false,setOverlayIcon:(_image,label)=>record(label)}]}};
+ const makeService=count=>({status:()=>({state:'ready'}),unreadInboxCount:async()=>count,stop:async()=>{}});
+ const first=makeService(4),second=makeService(5);const settle=()=>new Promise(resolve=>setImmediate(resolve));
+ try {
+  const badge=getAppBadge(options);badge.set('tasks',2);
+  await configureMailBadge({...options,service:first});await settle();assert.equal(values.at(-1),6);
+  await configureMailBadge({...options,service:second});await settle();assert.equal(values.at(-1),7);
+  await first.stop();assert.equal(values.at(-1),7);
+  assert.equal(app.listenerCount('browser-window-created'),1);
+  app.emit('browser-window-created');assert.equal(values.at(-1),7);
+  await setMailBadgeEnabled(false);await settle();assert.equal(values.at(-1),2);
+  await setMailBadgeEnabled(true);await settle();assert.equal(values.at(-1),7);
+  badge.set('tasks',0);assert.equal(values.at(-1),5);
+  await second.stop();assert.equal(values.at(-1),0);
+ } finally {await first.stop();await second.stop();await rm(directory,{recursive:true,force:true});}
+});

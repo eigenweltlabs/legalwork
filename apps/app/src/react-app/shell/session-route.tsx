@@ -404,7 +404,7 @@ export function SessionRoute() {
   // back. A detached window leaves the (shared, persisted) announcements to
   // the main one.
   useEffect(() => {
-    if (!showTasks || detached) return;
+    if (!showTasks || showMail || detached) return;
     const markRead = () => {
       if (document.visibilityState !== "visible" || !document.hasFocus()) return;
       const store = useNotificationStore.getState();
@@ -421,7 +421,7 @@ export function SessionRoute() {
       window.removeEventListener("focus", markRead);
       document.removeEventListener("visibilitychange", markRead);
     };
-  }, [detached, showTasks]);
+  }, [detached, showTasks, showMail]);
   useEffect(() => {
     const pending = takePendingTasksPaneRequest();
     if (pending) {
@@ -490,7 +490,7 @@ export function SessionRoute() {
     rememberPendingCreatedSession,
     handleRuntimeSessionUpdated,
   } = useWorkspaceRouteState({
-    skipAutomaticNavigation: showMail || showWorkflows || showEvals || showRecorder || showExtensions,
+    skipAutomaticNavigation: showMail || showWorkflows || showEvals || showRecorder || showExtensions || showTasks,
     onServerSettingsChanged: () => setLegalworkServerSettingsVersion((value) => value + 1),
     onHostInfo: setLegalworkServerHostInfoState,
   });
