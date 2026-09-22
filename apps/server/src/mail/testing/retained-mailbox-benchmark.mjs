@@ -27,18 +27,20 @@ assert(!output.startsWith(source + sep), 'Report must be outside retained profil
 globalThis.fetch = () => { throw Error('No network in retained benchmark'); };
 const metadata = JSON.parse(await readFile(join(source, 'benchmark-profile.json'), 'utf8'));
 assert.equal(metadata.kind, 'legalwork-synthetic-benchmark'); assert.equal(metadata.count, 100000);
-const originalReportBytes = await readFile(metadata.report), originalReport = JSON.parse(originalReportBytes);
-const sourceState = await stat(join(source, 'mail.sqlite'));
+const originalReportBytes = await readFile(resolve(source,metadata.report)), originalReport = JSON.parse(originalReportBytes);
+const databasePath=join(source,metadata.database??'mail.sqlite'),ownerId=metadata.ownerId??'benchmark';
+assert(['benchmark','desktop-local'].includes(ownerId));
+const sourceState = await stat(databasePath);
 const key = Buffer.from(metadata.key, 'base64'); assert.equal(key.length, 32);
 const root = await mkdtemp(join(tmpdir(), 'mail-retained-copy-')), path = join(root, 'mail.sqlite');
 let db, executor, timer;
 try {
-  await copyFile(join(source, 'mail.sqlite'), path, constants.COPYFILE_FICLONE); await chmod(path, 0o600);
+  await copyFile(databasePath, path, constants.COPYFILE_FICLONE); await chmod(path, 0o600);
   db = await openEncryptedMailDatabase({ path, key });
   const sourceSchema = db.get('SELECT version FROM mail_schema_version').version;
   const migrationStart = performance.now(); migrateMailSchema(db); const migrationMs = performance.now() - migrationStart;
   assert.equal(db.get('SELECT count(*) n FROM mail_messages').n, 100000);
-  assert.equal(db.get("SELECT count(*) n FROM mail_accounts WHERE owner_id!='benchmark'").n, 0);
+  assert.equal(db.get("SELECT count(*) n FROM mail_accounts WHERE owner_id!=?",[ownerId]).n, 0);
   let phase = 'query'; const timings = [];
   const measured = { ...db };
   for (const method of ['get', 'all', 'run', 'exec']) measured[method] = (sql, ...args) => {
@@ -46,7 +48,7 @@ try {
     try { return db[method](sql, ...args); }
     finally { const ms = performance.now() - start; if (ms > 2) timings.push({ phase, method, sql, ms }); }
   };
-  const search = new MailSearchStore(measured, 'benchmark'), quality = [], warm = [];
+  const search = new MailSearchStore(measured, ownerId), quality = [], warm = [];
   for (const query of qualityQueries(100000)) {
     phase = query.name;
     const firstStart = performance.now(); let result = search.search(query.input);
@@ -60,19 +62,19 @@ try {
     quality.push({ name: query.name, input: query.input, expected: query.expected, actual: result.total,
       incomplete: result.incomplete, firstCallMs, samples, warmMs: distribution(samples) }); warm.push(...samples);
   }
-  const reads = new MailReadStore(measured, 'benchmark'), listSamples = [];
+  const reads = new MailReadStore(measured, ownerId), listSamples = [];
   phase = 'list';
   for (let i = 0; i < 10; i++) { const start = performance.now(); assert.equal(reads.list('benchmark-a', { order: 'received', limit: 25 }).items.length, 25); listSamples.push(performance.now() - start); await delay(0); }
   // Verify retained bytes through the production hash-verifying reader before any probe writes.
-  const content = new MailContentStore(measured, 'benchmark'); let hashesVerified = 0;
+  const content = new MailContentStore(measured, ownerId); let hashesVerified = 0;
   phase = 'quality-hashes';
   for (let i = 0; i < 100000; i += 1000) {
     const item = benchmarkMessage(i), row = db.get("SELECT ref_id FROM mail_content_manifests WHERE account_id=? AND message_key=? AND kind='raw' AND state='stored'", [item.accountId, JSON.stringify(['gmail', item.locator.messageId])]);
     const hash = createHash('sha256'); for (const bytes of content.read(item.accountId, row.ref_id)) hash.update(bytes);
     assert.equal(hash.digest('hex'), item.hash); hashesVerified++;
   }
-  const repo = new MailRepository(measured, 'benchmark'), runs = new GmailRunStore(measured, 'benchmark'), journal = new MailSyncJournal(measured, 'benchmark');
-  const projector = createStoredMimeProjector({ database: measured, ownerId: 'benchmark' }), references = new Map();
+  const repo = new MailRepository(measured, ownerId), runs = new GmailRunStore(measured, ownerId), journal = new MailSyncJournal(measured, ownerId);
+  const projector = createStoredMimeProjector({ database: measured, ownerId }), references = new Map();
   const run = runs.startOrResume('benchmark-a');
   executor = new MailSyncExecutor({ journal, maxConcurrentAccounts: 1, maxJobsPerRun: 100, handler: work => {
     if (work.job.kind === 'raw') return Promise.resolve(work.complete(() => {}));
@@ -115,7 +117,7 @@ try {
     host: { cpu: cpus()[0]?.model, logicalCpus: cpus().length, totalMemoryBytes: totalmem(), os: release(), node: process.versions.node },
     limits: 'Disposable clone only; no full ingestion/extraction/indexing repeat, no IPC or UI timing, no OS-cache flush or hardware-reference certification. Timer intervals include synchronous foreground reads. Raw-parent probe uses already stored synthetic raw and does not download.' };
   db.close(); db = undefined;
-  const finalState = await stat(join(source, 'mail.sqlite')); assert.equal(finalState.size, sourceState.size); assert.equal(finalState.mtimeMs, sourceState.mtimeMs);
+  const finalState = await stat(databasePath); assert.equal(finalState.size, sourceState.size); assert.equal(finalState.mtimeMs, sourceState.mtimeMs);
   await writeFile(output, JSON.stringify(report, null, 2) + '\n', { flag: 'wx', mode: 0o600 });
   console.log(JSON.stringify({ output, schema: report.schema, warmMs: report.warmMs, probes: probes.map(({ foreground, ...rest }) => rest), hashesVerified }));
 } finally { clearInterval(timer); executor?.close(); db?.close(); key.fill(0); await rm(root, { recursive: true, force: true }); }

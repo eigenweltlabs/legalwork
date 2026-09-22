@@ -59,6 +59,7 @@ import { MailSearchStore } from '../storage/search.js';
 import { MailReadStore } from '../storage/read-store.js';
 import { LocalMailService } from '../service.js';
 import { benchmarkMessage, qualityQueries, CORPUS_VERSION } from './large-mailbox-corpus.mjs';
+const ownerId=process.env.LEGALWORK_MAIL_BENCH_OWNER==='desktop-local'?'desktop-local':'benchmark';
 const delay = ms => new Promise(r => setTimeout(r, ms));
 const distribution = values => { const sorted = [...values].sort((a, b) => a - b); return { count: values.length, p50: sorted[Math.floor((sorted.length - 1) * .5)] ?? 0, p95: sorted[Math.floor((sorted.length - 1) * .95)] ?? 0, max: sorted.at(-1) ?? 0 }; };
 const size = async (path) => {
@@ -73,8 +74,8 @@ async function benchmark({ count, path, key }) {
     globalThis.fetch = () => { throw Error('Benchmark forbids provider network'); };
     let db = await openEncryptedMailDatabase({ path, key: Buffer.from(key, 'base64') });
     migrateMailSchema(db);
-    const repo = new MailRepository(db, 'benchmark'), content = new MailContentStore(db, 'benchmark'), runs = new GmailRunStore(db, 'benchmark'), journal = new MailSyncJournal(db, 'benchmark');
-    const projector = createStoredMimeProjector({ database: db, ownerId: 'benchmark' }), references = new Map(), scopes = new Map(), pageState = new Map();
+    const repo = new MailRepository(db, ownerId), content = new MailContentStore(db, ownerId), runs = new GmailRunStore(db, ownerId), journal = new MailSyncJournal(db, ownerId);
+    const projector = createStoredMimeProjector({ database: db, ownerId }), references = new Map(), scopes = new Map(), pageState = new Map();
     const executor = new MailSyncExecutor({ journal, maxConcurrentAccounts: 1, maxJobsPerRun: 100, handler: async (work) => {
             const item = references.get(work.job.message_key);
             try {
@@ -108,7 +109,7 @@ async function benchmark({ count, path, key }) {
             }
             const begin = performance.now();
             try {
-                new MailReadStore(db, 'benchmark').list('benchmark-a', { limit: 25, order: 'received' });
+                new MailReadStore(db, ownerId).list('benchmark-a', { limit: 25, order: 'received' });
                 process.send?.({ kind: 'pong', id: message.id, phase, queryMs: performance.now() - begin });
             }
             catch {
@@ -164,7 +165,7 @@ async function benchmark({ count, path, key }) {
     const beforeExtractionBytes = await size(path);
     phase = 'extract';
     completed = 0;
-    const extractionStart = performance.now(), extractor = new MailExtractionRunner(db, 'benchmark');
+    const extractionStart = performance.now(), extractor = new MailExtractionRunner(db, ownerId);
     extractor.start();
     while (db.get("SELECT count(*) n FROM mail_attachment_extractions WHERE state IN ('queued','running')").n) {
         completed = db.get("SELECT count(*) n FROM mail_attachment_extractions WHERE state IN ('complete','failed')").n;
@@ -176,7 +177,7 @@ async function benchmark({ count, path, key }) {
     const beforeIndexBytes = await size(path);
     phase = 'index';
     completed = 0;
-    const indexingStart = performance.now(), indexer = new MailSearchIndexer(db, 'benchmark');
+    const indexingStart = performance.now(), indexer = new MailSearchIndexer(db, ownerId);
     indexer.start();
     while (db.get('SELECT count(*) n FROM mail_search_dirty').n) {
         completed = db.get('SELECT count(*) n FROM mail_search_documents').n;
@@ -211,7 +212,7 @@ async function benchmark({ count, path, key }) {
             }
             return db.get(sql, params);
         } };
-    const warm = [], quality = [], search = new MailSearchStore(measuredDb, 'benchmark');
+    const warm = [], quality = [], search = new MailSearchStore(measuredDb, ownerId);
     for (const query of qualityQueries(count)) {
         const samples = [];
         let result;
@@ -242,7 +243,7 @@ async function benchmark({ count, path, key }) {
     phase = 'restart';
     const cold = [], startups = [];
     for (const query of qualityQueries(count)) {
-        const service = new LocalMailService({ ownerId: 'benchmark', databasePath: path, loadKey: async () => Buffer.from(key, 'base64'), executable: { kind: 'node', path: process.execPath }, entryPoint: fileURLToPath(new URL('../runtime/worker.js', import.meta.url)) });
+        const service = new LocalMailService({ ownerId, databasePath: path, loadKey: async () => Buffer.from(key, 'base64'), executable: { kind: 'node', path: process.execPath }, entryPoint: fileURLToPath(new URL('../runtime/worker.js', import.meta.url)) });
         const begin = performance.now();
         await service.unlock();
         startups.push(performance.now() - begin);
@@ -256,7 +257,7 @@ async function benchmark({ count, path, key }) {
     clearInterval(ticks);
     loop.disable();
     const cpuUsed = process.cpuUsage(cpu), rss = process.resourceUsage().maxRSS * 1024;
-    return { schemaVersion: MAIL_SCHEMA_VERSION, sourceSha256: process.env.LEGALWORK_MAIL_BENCH_SOURCE_SHA256, concurrency: { mime: 1, extractionProcesses: 1, indexDocumentsPerTurn: 1 }, corpus: { version: CORPUS_VERSION, count, sha256: corpusHash.digest('hex'), rawBytes, attachmentBytes, attachmentCount, malformedCount, formats, rawSizeBytes: distribution(rawSizes), attachmentSizeBytes: distribution(attachmentSizes), coverage: complete, verifiedRawSamples: hashSamples.length, neverOpenedAttachmentVerified: true }, ingestion: { ms: ingestionMs, messagesPerSecond: count / (ingestionMs / 1000) }, extraction: { ms: extractionMs, partsPerSecond: attachmentCount / (extractionMs / 1000) }, indexing: { ms: indexingMs, messagesPerSecond: count / (indexingMs / 1000) }, warmQueryMs: distribution(warm), quality, queryPlans: plans, coldProcessQueries: cold, startupMs: distribution(startups), memory: { workerPeakRssBytes: rss }, storage: { beforeExtractionBytes, beforeIndexBytes, indexAddedBytes: databaseBytes - beforeIndexBytes, databaseBytes, walBytes, databaseToRawRatio: databaseBytes / rawBytes, databaseToRawAndDecodedAttachmentRatio: databaseBytes / (rawBytes + attachmentBytes), tableBytes }, workerEventLoopMs: { p95: loop.percentile(95) / 1e6, max: loop.max / 1e6 }, cpuSeconds: { user: cpuUsed.user / 1e6, system: cpuUsed.system / 1e6 }, elapsedMs: performance.now() - started, coldDefinition: 'fresh service/Node worker and SQLite connection for each first query; OS filesystem cache was not flushed', energy: 'Benchmark worker CPU time only; extractor CPU and hardware joules/power not measured' };
+    return { ownerId, schemaVersion: MAIL_SCHEMA_VERSION, sourceSha256: process.env.LEGALWORK_MAIL_BENCH_SOURCE_SHA256, concurrency: { mime: 1, extractionProcesses: 1, indexDocumentsPerTurn: 1 }, corpus: { version: CORPUS_VERSION, count, sha256: corpusHash.digest('hex'), rawBytes, attachmentBytes, attachmentCount, malformedCount, formats, rawSizeBytes: distribution(rawSizes), attachmentSizeBytes: distribution(attachmentSizes), coverage: complete, verifiedRawSamples: hashSamples.length, neverOpenedAttachmentVerified: true }, ingestion: { ms: ingestionMs, messagesPerSecond: count / (ingestionMs / 1000) }, extraction: { ms: extractionMs, partsPerSecond: attachmentCount / (extractionMs / 1000) }, indexing: { ms: indexingMs, messagesPerSecond: count / (indexingMs / 1000) }, warmQueryMs: distribution(warm), quality, queryPlans: plans, coldProcessQueries: cold, startupMs: distribution(startups), memory: { workerPeakRssBytes: rss }, storage: { beforeExtractionBytes, beforeIndexBytes, indexAddedBytes: databaseBytes - beforeIndexBytes, databaseBytes, walBytes, databaseToRawRatio: databaseBytes / rawBytes, databaseToRawAndDecodedAttachmentRatio: databaseBytes / (rawBytes + attachmentBytes), tableBytes }, workerEventLoopMs: { p95: loop.percentile(95) / 1e6, max: loop.max / 1e6 }, cpuSeconds: { user: cpuUsed.user / 1e6, system: cpuUsed.system / 1e6 }, elapsedMs: performance.now() - started, coldDefinition: 'fresh service/Node worker and SQLite connection for each first query; OS filesystem cache was not flushed', energy: 'Benchmark worker CPU time only; extractor CPU and hardware joules/power not measured' };
 }
 if (process.env.LEGALWORK_MAIL_BENCH_CHILD === '1') {
     process.once('message', async (config) => {
@@ -271,11 +272,12 @@ if (process.env.LEGALWORK_MAIL_BENCH_CHILD === '1') {
 }
 else {
     const count = Number(process.argv[2]), output = process.argv[3], root = await mkdtemp(join(tmpdir(), 'legalwork-mail-benchmark-')), key = randomBytes(32), foreground = [], mainLoop = monitorEventLoopDelay({ resolution: 10 });
+    await mkdir(join(root,'mail'),{mode:0o700});
     mainLoop.enable();
     const begun = performance.now();
     let timer, sampler, retained = false;
         if (process.env.LEGALWORK_MAIL_BENCH_KEEP_PROFILE === '1') {
-            await writeFile(join(root, 'benchmark-profile.json'), JSON.stringify({ kind: 'legalwork-synthetic-benchmark', count, key: key.toString('base64'), report: output }), { mode: 0o600 });
+            await writeFile(join(root, 'benchmark-profile.json'), JSON.stringify({ kind: 'legalwork-synthetic-benchmark', count, ownerId, database:'mail/mail.sqlite', key: key.toString('base64'), report: output }), { mode: 0o600 });
             retained = true;
             console.log('Retained isolated synthetic profile: ' + root);
         }
@@ -310,13 +312,21 @@ else {
                 if (!finished)
                     reject(Error('benchmark worker exited ' + code));
             });
-            child.send({ count, path: join(root, 'mail.sqlite'), key: key.toString('base64') });
+            child.send({ count, path: join(root, 'mail/mail.sqlite'), key: key.toString('base64') });
         });
         sampler.stop();
         mainLoop.disable();
         result.memory.processFamilySampled = sampler.result;
         result.foreground = { ipcReadMs: distribution(foreground.filter(x => !x.error).map(x => x.ms)), byPhase: Object.fromEntries([...new Set(foreground.map(x => x.phase))].map(phase => [phase, distribution(foreground.filter(x => x.phase === phase && !x.error).map(x => x.ms))])), errors: foreground.filter(x => x.error).length, coordinatorEventLoopP95Ms: mainLoop.percentile(95) / 1e6, coordinatorEventLoopMaxMs: mainLoop.max / 1e6 };
         result.hardware = { cpu: cpus()[0].model, logicalCpus: cpus().length, ramBytes: totalmem(), platform: platform(), osRelease: release(), node: process.versions.node };
+        result.baselineKind='fresh-generated-reference-candidate';
+        result.commit=process.env.GITHUB_SHA??null;
+        if(count===100000){
+            assert.equal(result.corpus.sha256,'698fa2c64e3b253dd75455e748f83fc02b29fd6214988a7c6818c119f4d85425');
+            assert.equal(result.corpus.malformedCount,100);assert.equal(result.corpus.attachmentCount,10100);
+            assert.equal(result.corpus.coverage.body,99900);assert.equal(result.corpus.coverage.indexed,100000);
+            assert.deepEqual(result.corpus.coverage.extraction,[{state:'complete',error:null,n:9900},{state:'failed',error:'limit',n:100},{state:'failed',error:'unsupported',n:100}]);
+        }
         result.measuredAt = new Date().toISOString();
         result.wallMs = performance.now() - begun;
         await mkdir(dirname(output), { recursive: true });
