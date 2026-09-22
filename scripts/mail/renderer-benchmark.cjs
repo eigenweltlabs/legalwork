@@ -23,7 +23,7 @@ const dist=values=>{const s=[...values].sort((a,b)=>a-b);return{count:s.length,p
  let win;const windowDeadline=Date.now()+60000;
  while(Date.now()<windowDeadline){win=BrowserWindow.getAllWindows().find(w=>w.webContents.getURL().includes('index.html'));if(win&&!win.webContents.isLoadingMainFrame())break;await delay(50);}
  assert(win,'actual main application window required');win.setSize(1440,1000);win.show();win.focus();
- let stage='startup';const report={kind:'built-app-synthetic-mail-renderer',count:config.count,corpusSha256:config.corpusSha256,sourceSha256:config.sourceSha256,coldDefinition:'new renderer and service; OS cache retained',scope:'Built LegalWork main.mjs, production preload, complete React shell, embedded HTTP server, Electron mail worker and actual OS safeStorage. Unpackaged build; no installer or provider transport.',commit:process.env.GITHUB_SHA??null,stages:[],memory:{electronFamilySampledPeakWorkingSetBytes:0,sampleIntervalMs:1000},errors:[]};
+ let stage='startup';const report={kind:'built-app-synthetic-mail-renderer',count:config.count,corpusSha256:config.corpusSha256,sourceSha256:config.sourceSha256,coldDefinition:'new desktop process and service; OS cache retained',paintTimingDefinition:'Trusted input or insertText to observed matching DOM and two renderer frames; main-process observations include up to25ms polling delay. Scroll also records event-handler-to-frame latency separately.',scope:'Built LegalWork main.mjs, production preload, complete React shell, embedded HTTP server, Electron mail worker and actual OS safeStorage. Unpackaged build; no installer or provider transport.',commit:process.env.GITHUB_SHA??null,stages:[],memory:{electronFamilySampledPeakWorkingSetBytes:0,sampleIntervalMs:1000},errors:[]};
  const memoryTimer=setInterval(()=>{report.memory.electronFamilySampledPeakWorkingSetBytes=Math.max(report.memory.electronFamilySampledPeakWorkingSetBytes,app.getAppMetrics().reduce((sum,p)=>sum+p.memory.workingSetSize*1024,0));},1000);
  const run=async(source)=>{let timer;try{return await Promise.race([win.webContents.executeJavaScript(source,true),new Promise((_,reject)=>{timer=setTimeout(()=>reject(Error(stage+' renderer execution deadline')),10000);})]);}finally{clearTimeout(timer);}};
  const until=async(source,timeout=30000)=>{const deadline=Date.now()+timeout;while(Date.now()<deadline){if(await run(source))return;await delay(25);}throw Error(stage+' UI state deadline '+source);};
@@ -46,9 +46,9 @@ const dist=values=>{const s=[...values].sort((a,b)=>a-b);return{count:s.length,p
     await run('new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)))');actions.push({kind:'openMessageToPaint',ms:performance.now()-before});
     const wheels=await run('window.bench.wheels.length'),prior=await run("document.querySelector('.mail-message-scroll').scrollTop");
     const rect=await run("(()=>{const r=document.querySelector('.mail-message-scroll').getBoundingClientRect();return{x:r.x+r.width/2,y:r.y+r.height/2}})()");
-    win.webContents.sendInputEvent({type:'mouseWheel',deltaY:i%2?-200:200,deltaX:0,...rect});await until(`window.bench.wheels.length>${wheels}`);
+    const dispatched=performance.now();win.webContents.sendInputEvent({type:'mouseWheel',deltaY:i%2?-200:200,deltaX:0,...rect});await until(`window.bench.wheels.length>${wheels}`);
     const wheel=await run('window.bench.wheels.at(-1)');assert.equal(wheel.trusted,true);
-    actions.push({kind:'trustedScrollEventToSecondFrame',ms:wheel.ms,changed:await run("document.querySelector('.mail-message-scroll').scrollTop")!==prior});
+    actions.push({kind:'trustedScrollInputToObservedFrame',ms:performance.now()-dispatched,eventHandlerToSecondFrameMs:wheel.ms,changed:await run("document.querySelector('.mail-message-scroll').scrollTop")!==prior});
    }
    assert.ok(actions.some(action=>action.changed),'wheel input must move actual message list');
    for(const query of ['diligence','AZ-000001/34.5','AttachmentEvidence000011']){
