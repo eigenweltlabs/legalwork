@@ -30,8 +30,8 @@ test('part IDs and output are independent of original chunk boundaries',async()=
  async function* tiny(){for(let i=0;i<raw.length;i+=7)yield raw.subarray(i,i+7);}
  const second=await parse(raw,{source:tiny()});assert.deepEqual(second,first);assert.ok(first.attachments.every(a=>a.partId.startsWith(`mime-v1:${hash([raw])}:part:`)));
 });
-test('8MiB generated attachment streams to awaited sink without full-content materialization',async()=>{
- const f=fixture(9),digest=createHash('sha256');let received=0,calls=0,max=0,produced=0,release,entered;
+for(const sizeMiB of [8,32])test(`${sizeMiB}MiB generated attachment streams to awaited sink without full-content materialization`,async()=>{
+ const attachmentBytes=sizeMiB*1024*1024,f=fixture(9,attachmentBytes),digest=createHash('sha256');let received=0,calls=0,max=0,produced=0,release,entered;
  const gate=new Promise(resolve=>release=resolve),waiting=new Promise(resolve=>entered=resolve);
  function* source(){for(const bytes of f.chunks()){produced+=bytes.byteLength;yield bytes;}}
  // Hold the first sink write explicitly instead of thousands of setImmediate
@@ -41,10 +41,10 @@ test('8MiB generated attachment streams to awaited sink without full-content mat
  }});
  try{
   await Promise.race([waiting,pending]);
-  assert.equal(calls,1);assert.ok(received<8*1024*1024);assert.ok(produced<8*1024*1024,'source must not materialize the full attachment before the awaited sink');
+  assert.equal(calls,1);assert.ok(received<attachmentBytes);assert.ok(produced<attachmentBytes,'source must not materialize the full attachment before the awaited sink');
  }finally{release();await pending;}
  const result=await pending;
- assert.equal(received,8*1024*1024);assert.ok(max<=65536);assert.ok(calls>128);assert.equal(result.attachments[0].bytes,received);assert.equal(result.attachments[0].sha256,digest.digest('hex'));
+ assert.equal(received,attachmentBytes);assert.ok(max<=65536);assert.ok(calls>128);assert.equal(result.attachments[0].bytes,received);assert.equal(result.attachments[0].sha256,digest.digest('hex'));
 });
 test('malformed base64 and unclosed boundaries fail visibly instead of completing',async()=>{
  const f=fixture(8);await assert.rejects(projectMime({source:f.chunks(),originalSha256:hash(f.chunks()),onAttachment:discard}),reject('malformed'));
@@ -110,4 +110,22 @@ test('original rendering EML fixtures project exact HTML and verified CID bytes'
   const result=await parse(raw,{onAttachment:async(part,source)=>{const chunks=[];for await(const bytes of source)chunks.push(bytes);attachments.push({part,bytes:Buffer.concat(chunks)});}});
   assert.equal(result.bodies.filter(body=>body.presentation&&body.contentType==='text/html').length,1);assert.equal(result.bodies.find(body=>body.contentType==='text/html').text,expected);assert.equal(attachments[0].part.contentId,'brand');assert.deepEqual(attachments[0].bytes,png);
  }
+});
+
+test('large streaming parse yields to live cancellation before consuming the source',async()=>{
+ const controller=new AbortController(),f=fixture(9,32*1024*1024);let produced=0,timer;
+ function* source(){for(const bytes of f.chunks()){produced+=bytes.length;yield bytes;}}
+ try{
+  await assert.rejects(projectMime({source:source(),originalSha256:hash(f.chunks()),signal:controller.signal,onAttachment:async(_meta,chunks)=>{
+   timer=setTimeout(()=>controller.abort(),0);for await(const _bytes of chunks){}
+  }}),reject('cancelled'));
+  assert.ok(produced<32*1024*1024,'timer must interrupt before the entire attachment is read');
+ }finally{clearTimeout(timer);}
+});
+
+test('long unbroken MIME body preserves every byte across bounded scanning yields',async()=>{
+ const body='x'.repeat(256*1024),raw=text(['Content-Type: text/plain; charset=utf-8','',body]);
+ function* chunks(){for(let i=0;i<raw.length;i+=65536)yield raw.subarray(i,i+65536);}
+ const result=await parse(raw,{source:chunks(),limits:{maxBodyBytes:512*1024}});
+ assert.equal(result.bodies[0].text,body+'\r\n');
 });
