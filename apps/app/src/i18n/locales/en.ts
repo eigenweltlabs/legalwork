@@ -2837,6 +2837,12 @@ export default {
   "docx.editor_not_ready": "The document editor is not ready.",
   "docx.unknown_change_ids": "None of those tracked-change IDs exist in the open document.",
   "docx.recovery_unavailable": "Draft recovery is unavailable on this device. Save frequently.",
+  "docx.font_missing_title": "This document uses a font you do not have",
+  "docx.font_missing_body": "{fonts} is not installed on this computer and is not built into LegalWork. The text is readable either way, but line and page breaks may not match the original.",
+  "docx.font_missing_privacy": "LegalWork can download it from Google Fonts. Google would see the font name and your IP address. Your document is never sent. This choice is remembered for this font.",
+  "docx.font_missing_confirm": "Download the font",
+  "docx.font_missing_cancel": "Use a substitute",
+  "docx.font_download_failed": "The font could not be downloaded. A substitute is being used.",
   "docx.checking_draft": "Checking for an unsaved draft…",
   "docx.recover_prompt": "Recover your unsaved draft?",
   "docx.recover_body":

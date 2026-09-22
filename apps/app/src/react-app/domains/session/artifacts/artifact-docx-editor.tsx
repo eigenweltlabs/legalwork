@@ -12,6 +12,8 @@ import "./office-fonts.css";
 import { getInitialThemeMode, subscribeToTheme, type ThemeMode } from "@/app/theme";
 import { Button } from "@/components/ui/button";
 import { toast } from "@/components/ui/sonner";
+import { ConfirmModal } from "../../../design-system/modals/confirm-modal";
+import { loadFontsFromGoogle, rememberFontDecision, unresolvedDocumentFonts } from "./docx-font-consent";
 import { keepDocxVersion, readDocxRecovery, removeDocxRecovery, writeDocxRecovery, type DocxRecovery } from "./docx-recovery";
 import { useDocxPageFit } from "./use-docx-page-fit";
 import { useDocxReviewCard } from "./use-docx-review-card";
@@ -168,6 +170,7 @@ function LiveDocxEditor({ name, content, author, readOnly = false, onSave, onDir
   const editorRef = useRef<DocxEditorRef>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const [commentsOpen, setCommentsOpen] = useState(false);
+  const [missingFonts, setMissingFonts] = useState<string[]>([]);
   const fitPage = useDocxPageFit(containerRef, editorRef, commentsOpen);
   const onReviewClick = useDocxReviewCard(containerRef, editorRef);
   const recoveryFailed = useRef(false);
@@ -188,6 +191,25 @@ function LiveDocxEditor({ name, content, author, readOnly = false, onSave, onDir
       checkpointTimer.current = setTimeout(() => { void checkpoint.current(); }, 1000);
     }
   }, [readOnly, onDirtyChange, recoveryKey]);
+
+  // Ask before fetching a font the document needs and this machine lacks — the
+  // one case office-fonts.css cannot cover locally. Runs once the editor has
+  // rendered, so canRenderFont() sees the faces the document embedded.
+  const askAboutFonts = useCallback(() => {
+    void unresolvedDocumentFonts(documentBuffer)
+      .then((families) => { if (families.length > 0) setMissingFonts(families); })
+      .catch(() => {});
+  }, [documentBuffer]);
+
+  const resolveFonts = useCallback((allowed: boolean) => {
+    const families = missingFonts;
+    setMissingFonts([]);
+    rememberFontDecision(families, allowed);
+    if (!allowed) return;
+    void loadFontsFromGoogle(families)
+      .then(fitPage)
+      .catch(() => toast.error(t("docx.font_download_failed")));
+  }, [missingFonts, fitPage]);
 
   const checkDocument = useCallback(() => {
     const document = editorRef.current?.getDocument();
@@ -373,6 +395,7 @@ function LiveDocxEditor({ name, content, author, readOnly = false, onSave, onDir
               if (ready.current) return;
               lastDocument.current = editorRef.current?.getDocument() ?? null;
               ready.current = true;
+              askAboutFonts();
               if (recovered) { dirty.current = true; onDirtyChange?.(true); }
             });
           }}
@@ -384,6 +407,23 @@ function LiveDocxEditor({ name, content, author, readOnly = false, onSave, onDir
           onError={(error) => toast.error(error.message)}
         />
       </div>
+      <ConfirmModal
+        open={missingFonts.length > 0}
+        title={t("docx.font_missing_title")}
+        message={
+          <>
+            {t("docx.font_missing_body", { fonts: missingFonts.join(", ") })}
+            <br />
+            <br />
+            {t("docx.font_missing_privacy")}
+          </>
+        }
+        confirmLabel={t("docx.font_missing_confirm")}
+        cancelLabel={t("docx.font_missing_cancel")}
+        confirmButtonVariant="secondary"
+        onConfirm={() => resolveFonts(true)}
+        onCancel={() => resolveFonts(false)}
+      />
     </div>
   );
 }
