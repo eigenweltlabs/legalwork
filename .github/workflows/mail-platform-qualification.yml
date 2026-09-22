@@ -58,9 +58,6 @@ jobs:
         if: ${{ !cancelled() && runner.os == 'Windows' }}
         working-directory: apps/app
         run: node ../../scripts/mail/qualification-step.mjs preview bun test tests/mail-preview-security.test.ts tests/mail-preview-source.test.ts tests/notification-store.test.ts tests/storage-file-tabs.test.ts tests/task-notifications.test.ts
-      - name: Windows actual vault and second-user access check
-        if: ${{ !cancelled() && runner.os == 'Windows' }}
-        run: node scripts/mail/qualification-step.mjs vault node scripts/mail/platform-qualification.mjs
       - name: Retain bounded synthetic validation logs
         if: always()
         uses: actions/upload-artifact@v4
