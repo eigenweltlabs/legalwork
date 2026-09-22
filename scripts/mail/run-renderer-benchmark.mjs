@@ -18,11 +18,11 @@ const env={};for(const name of ['PATH','SystemRoot','WINDIR','TMP','TEMP','TMPDI
 Object.assign(env,{LEGALWORK_ELECTRON_USERDATA:profile,LEGALWORK_DATA_DIR:join(profile,'runtime'),LEGALWORK_SERVER_CONFIG:join(profile,'runtime/server.json'),LEGALWORK_RUNTIME_DB:join(profile,'runtime/runtime.sqlite'),LEGALWORK_ENV_STORE:join(profile,'runtime/env.json'),LEGALWORK_TOKEN_STORE:join(profile,'runtime/tokens.json'),LEGALWORK_DESKTOP_DISABLE_WORKSPACE_RECOVERY:'1',LEGALWORK_DESKTOP_BOOTSTRAP_PATH:join(profile,'runtime/desktop-bootstrap.json'),XDG_CONFIG_HOME:join(profile,'xdg/config'),XDG_DATA_HOME:join(profile,'xdg/data'),XDG_CACHE_HOME:join(profile,'xdg/cache'),XDG_STATE_HOME:join(profile,'xdg/state'),OPENCODE_CONFIG_DIR:join(profile,'xdg/config/opencode'),APPDATA:join(profile,'os-roaming'),LOCALAPPDATA:join(profile,'os-local')});
 try{
  const electron=createRequire(join(repository,'apps/desktop/package.json'))('electron');
- const launch=async script=>new Promise((done,reject)=>{
+ const launch=async (script,timeoutMs)=>new Promise((done,reject)=>{
   const child=spawn(electron,[join(repository,'scripts/mail',script),config],{env,stdio:'inherit'});
-  let timedOut=false;const timer=setTimeout(()=>{timedOut=true;if(process.platform==='win32')spawn('taskkill',['/PID',String(child.pid),'/T','/F'],{stdio:'ignore'}).on('error',()=>child.kill('SIGKILL'));else child.kill('SIGKILL');},20*60000);
+  let timedOut=false;const timer=setTimeout(()=>{timedOut=true;if(process.platform==='win32')spawn('taskkill',['/PID',String(child.pid),'/T','/F'],{stdio:'ignore'}).on('error',()=>child.kill('SIGKILL'));else child.kill('SIGKILL');},timeoutMs);
   child.once('error',error=>{clearTimeout(timer);reject(error);});child.once('close',code=>{clearTimeout(timer);code===0&&!timedOut?done():reject(Error(`renderer exit ${code}; deadline=${timedOut}`));});
  });
- await launch('prepare-renderer-profile.cjs');
- await launch('renderer-benchmark.mjs');
+ await launch('prepare-renderer-profile.cjs',60000);
+ await launch('renderer-benchmark.mjs',20*60000);
 }finally{await removeTestTree(scratch);}

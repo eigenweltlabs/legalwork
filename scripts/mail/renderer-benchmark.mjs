@@ -11,7 +11,7 @@ const config=JSON.parse(readFileSync(process.argv[2],'utf8'));app.setPath('userD
 assert.equal(app.isReady(),false,'ESM entry must import actual main before ready');
 app.once('ready',()=>session.defaultSession.webRequest.onBeforeRequest((details,done)=>{const url=new URL(details.url);done({cancel:['http:','https:'].includes(url.protocol)&&!['127.0.0.1','localhost','[::1]'].includes(url.hostname)});}));
 const originalFetch=globalThis.fetch;globalThis.fetch=(input,init)=>{const url=new URL(typeof input==='string'?input:input instanceof URL?input.href:input.url);if(!['127.0.0.1','localhost','[::1]'].includes(url.hostname))return Promise.reject(Error('Synthetic desktop benchmark forbids external network'));return originalFetch(input,init);};
-await import(pathToFileURL(join(config.repository,'apps/desktop/electron/main.mjs')).href);
+try{await import(pathToFileURL(join(config.repository,'apps/desktop/electron/main.mjs')).href);}catch(error){console.error(error);app.exit(1);}
 // Leave the entry module free to finish: awaiting ready at top level would delay ready itself.
 (async()=>{
  // performance.now() includes this measured process's module/startup work; key preparation is separate.

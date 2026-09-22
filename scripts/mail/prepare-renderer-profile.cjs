@@ -1,11 +1,12 @@
 // Separate OS-vault preparation; the measured app keeps its normal ESM startup.
 const {app,safeStorage}=require('electron');
 const {readFile,writeFile,mkdir}=require('node:fs/promises');
+const {readFileSync}=require('node:fs');
 const {join}=require('node:path');
 const {pathToFileURL}=require('node:url');
 const assert=require('node:assert/strict');
+const config=JSON.parse(readFileSync(process.argv[2],'utf8'));app.setPath('userData',config.profile);
 (async()=>{
- const config=JSON.parse(await readFile(process.argv[2],'utf8'));app.setPath('userData',config.profile);
  await app.whenReady();assert.equal(safeStorage.isEncryptionAvailable(),true,'real OS vault required');
  const metadata=JSON.parse(await readFile(join(config.profile,'benchmark-profile.json'),'utf8'));
  assert.equal(metadata.kind,'legalwork-synthetic-benchmark');assert.equal(metadata.ownerId,'desktop-local');
