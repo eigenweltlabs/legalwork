@@ -1,4 +1,4 @@
-import {linkTestModules} from '../../../../scripts/mail/link-test-modules.mjs';
+import {linkTestModules,unlinkTestModules} from '../../../../scripts/mail/link-test-modules.mjs';
 import { createRequire } from 'node:module';
 import {setTimeout as delay} from 'node:timers/promises';
 import {test,expect} from 'bun:test';
@@ -59,5 +59,5 @@ test('actual HTTP drafts, immutable submission replay, events and encrypted work
   const attached={draftId:randomUUID(),expected:null,content:{...input.content,from:'sender@example.test',bcc:['hidden@example.test'],inReplyTo:'<original@example.test>',references:['<original@example.test>'],attachments:[{locator:null,partId:uploadId,referenceId,filename:'秘密.txt',contentType:'text/plain'}]}};
   const uploadedResponse=await post(drafts+'save',attached);expect(uploadedResponse.status).toBe(200);const uploaded=await uploadedResponse.json();await service.lock();await service.unlock();const part=await post(drafts+'attachment',{draftId:uploaded.id,version:uploaded.version,ordinal:0,referenceId,offset:16380,limit:30});expect(part.status).toBe(200);expect(Buffer.from((await part.json()).chunk.data,'base64')).toEqual(bytes.subarray(16380,16410));
   const routes:Route[]=[];registerMailRoutes(routes,'0.0.0.0',service);expect(routes).toHaveLength(0);
- }finally{await server?.stop();await service?.stop();key.fill(0);for(const name of envNames){const old=originalEnv.get(name);if(old===undefined)delete process.env[name];else process.env[name]=old;}await rm(root,{recursive:true,force:true,maxRetries:5,retryDelay:200});}
+ }finally{await server?.stop();await service?.stop();key.fill(0);for(const name of envNames){const old=originalEnv.get(name);if(old===undefined)delete process.env[name];else process.env[name]=old;}await unlinkTestModules(join(root,'node_modules'));await rm(root,{recursive:true,force:true});}
 },60000);

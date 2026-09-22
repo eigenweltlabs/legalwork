@@ -1,12 +1,12 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {mkdtemp,mkdir,writeFile,symlink,realpath,readlink,rm} from 'node:fs/promises';
+import {mkdtemp,mkdir,writeFile,symlink,realpath,readlink,rm,readFile} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join,relative,isAbsolute} from 'node:path';
 import {spawnSync} from 'node:child_process';
-import {linkTestModules} from './link-test-modules.mjs';
+import {linkTestModules,unlinkTestModules} from './link-test-modules.mjs';
 
-test('temporary module links preserve resolved pnpm and scoped package parents',async()=>{
+for(const cleanup of ['recursive control','explicit unlink'])test(`temporary module links preserve targets after ${cleanup}`,async()=>{
   const root=await mkdtemp(join(tmpdir(),'mail-module-links-'));
   try{
     const source=join(root,'workspace/apps/server/node_modules');await mkdir(join(source,'@fixture'),{recursive:true});
@@ -23,5 +23,9 @@ test('temporary module links preserve resolved pnpm and scoped package parents',
     }
     await writeFile(join(temporary,'probe.mjs'),"import a from 'plain';import b from '@fixture/scoped';if(a+b!==34)throw Error('bad module');");
     const result=spawnSync(process.execPath,[join(temporary,'probe.mjs')],{encoding:'utf8',timeout:5000});assert.equal(result.status,0,result.stderr);
+    if(cleanup==='explicit unlink')await unlinkTestModules(destination);
+    await rm(temporary,{recursive:true});
+    for(const name of ['plain','@fixture/scoped'])assert.equal(await readFile(join(source,name,'index.js'),'utf8'),'export default 17;');
+    await unlinkTestModules(destination); // Missing fixture links are harmless during failed setup cleanup.
   }finally{await rm(root,{recursive:true,force:true});}
 });
