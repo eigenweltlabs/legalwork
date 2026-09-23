@@ -1378,7 +1378,35 @@ const DEFAULT_LEGALWORK_SERVER_TIMEOUT_MS = 10_000;
 
 type FetchLike = (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
 
+// The desktop app keeps this window's console warnings in main.log, which
+// support collects. A timeout or an unreachable server never reaches the
+// server's own log, so every failed request is reported here.
 async function fetchWithTimeout(
+  fetchImpl: FetchLike,
+  url: string,
+  init: RequestInit,
+  timeoutMs: number,
+) {
+  const startedAt = Date.now();
+  const describe = () => `[legalwork-server] ${init.method ?? "GET"} ${url.split("?")[0]} failed after ${Date.now() - startedAt}ms:`;
+  try {
+    const response = await fetchWithDeadline(fetchImpl, url, init, timeoutMs);
+    if (!response.ok) {
+      const label = describe();
+      void response.clone().text().then(
+        (body) => console.warn(label, response.status, body.slice(0, 1000)),
+        () => console.warn(label, response.status),
+      );
+    }
+    return response;
+  } catch (error) {
+    // A caller that cancels on purpose (init.signal) is not a failure.
+    if (!init.signal?.aborted) console.warn(describe(), error instanceof Error ? error.message : error);
+    throw error;
+  }
+}
+
+async function fetchWithDeadline(
   fetchImpl: FetchLike,
   url: string,
   init: RequestInit,
@@ -1548,6 +1576,8 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
     workspaceExport: 30_000,
     // A dragged folder is many downloads behind one call.
     legalMemoryFolderExport: 300_000,
+    // A big repo is many GitHub downloads behind one call.
+    githubSkills: 300_000,
     workspaceImport: 30_000,
     binary: 60_000,
     benchmark: 15_000,
@@ -2571,7 +2601,7 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
       requestJson<{ ref: string; skills: Array<{ dir: string; name: string; description: string }> }>(
         baseUrl,
         `/workspace/${workspaceId}/github-skills/scan`,
-        { token, hostToken, method: "POST", body: payload },
+        { token, hostToken, method: "POST", body: payload, timeoutMs: timeouts.githubSkills },
       ),
     installGithubSkills: (
       workspaceId: string,
@@ -2585,6 +2615,7 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
         hostToken,
         method: "POST",
         body: payload,
+        timeoutMs: timeouts.githubSkills,
       }),
     promoteSkillToWorkflow: (workspaceId: string, name: string) =>
       requestJson<{ ok: boolean; name: string; path: string; alreadyWorkflow: boolean }>(

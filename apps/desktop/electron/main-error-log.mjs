@@ -64,3 +64,20 @@ export function installMainErrorLog(getLogsDir) {
     originalWarn.apply(console, args);
   };
 }
+
+/**
+ * Keeps an app window's console warnings and errors (uncaught exceptions,
+ * failed server requests such as a timeout the server never sees) and renderer
+ * crashes in main.log. Only for the app's own windows: the browser panel shows
+ * third-party pages.
+ */
+export function logWindowErrors(webContents) {
+  webContents.on("console-message", ({ level, message, lineNumber, sourceId }) => {
+    if (level !== "warning" && level !== "error") return;
+    const log = level === "error" ? console.error : console.warn;
+    log(`[window] ${message}${sourceId ? ` (${sourceId}:${lineNumber})` : ""}`);
+  });
+  webContents.on("render-process-gone", (_event, details) => {
+    console.error("[window] Renderer process gone:", details);
+  });
+}

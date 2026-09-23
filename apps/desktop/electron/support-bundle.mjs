@@ -4,6 +4,7 @@
 //
 // Contents are text-only and deliberately token-free:
 //   - app/OS/arch metadata
+//   - how GitHub is reached: the system proxy and proxy env vars
 //   - runtimeManager.collectRuntimeDiagnostics() (already redacts secrets)
 //   - runtime-boot-failure.log written by describeRuntimeBootFailure()
 //   - any other *.log files in the app logs directory, e.g. main.log with
@@ -57,9 +58,10 @@ export function defaultSupportBundleFileName() {
 /**
  * Build the bundle contents as one scrubbed plain-text string. Writing it to
  * disk is the caller's job (main.mjs shows a save dialog first, so the user
- * picks where the file goes).
+ * picks where the file goes). `network` is how this machine reaches GitHub,
+ * which main.mjs looks up asynchronously.
  */
-export function buildSupportBundleText({ app, runtimeManager }) {
+export function buildSupportBundleText({ app, runtimeManager, network = null }) {
   const parts = [];
 
   const meta = {
@@ -75,6 +77,7 @@ export function buildSupportBundleText({ app, runtimeManager }) {
     collectedAt: new Date().toISOString(),
   };
   parts.push(section("App / system", JSON.stringify(meta, null, 2)));
+  if (network) parts.push(section("Network", JSON.stringify(network, null, 2)));
 
   try {
     const diagnostics = runtimeManager.collectRuntimeDiagnostics();

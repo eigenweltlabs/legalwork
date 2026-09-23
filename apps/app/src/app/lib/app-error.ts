@@ -179,6 +179,18 @@ export function captureRelayedAppError(fields: {
   }
 }
 
+// The desktop app keeps this window's console errors in main.log for support,
+// but Chromium's own "Uncaught …" line there carries no stack.
+function describeForLog(value: unknown): string {
+  if (value instanceof Error) return value.stack ?? `${value.name}: ${value.message}`;
+  if (typeof value === "string") return value;
+  try {
+    return JSON.stringify(value);
+  } catch {
+    return String(value);
+  }
+}
+
 let installed = false;
 /** Install global renderer error hooks. Idempotent; safe to call from any root. */
 export function initErrorAnalytics(): void {
@@ -187,9 +199,11 @@ export function initErrorAnalytics(): void {
   window.addEventListener("error", (event) => {
     // Resource-load failures fire "error" with no `error` object — skip them.
     if (!(event instanceof ErrorEvent) || !event.error) return;
+    console.error("Uncaught error:", describeForLog(event.error));
     captureAppError("uncaught", event.error);
   });
   window.addEventListener("unhandledrejection", (event) => {
+    console.error("Unhandled rejection:", describeForLog(event.reason));
     captureAppError("unhandledrejection", event.reason);
   });
 }

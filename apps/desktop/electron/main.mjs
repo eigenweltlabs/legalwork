@@ -37,7 +37,7 @@ import { registerMigrationIpc } from "./migration.mjs";
 import { createRuntimeManager, resolveLegalworkServerConfigPath } from "./runtime.mjs";
 import { createMcpOAuthCallbackBroker, watchMcpOAuthOwner } from "./mcp-oauth-callback.mjs";
 import { buildSupportBundleText, defaultSupportBundleFileName } from "./support-bundle.mjs";
-import { installMainErrorLog } from "./main-error-log.mjs";
+import { installMainErrorLog, logWindowErrors } from "./main-error-log.mjs";
 import {
   ELECTRON_UPDATER_FALLBACK_FEEDS,
   ELECTRON_UPDATER_FEEDS,
@@ -350,8 +350,21 @@ async function collectSupportLogsAndReveal() {
     // Give the progress window one paint before the synchronous diagnostics
     // snapshot starts probing binaries and reading log tails.
     await new Promise((resolve) => setTimeout(resolve, 80));
+    // The embedded server's own requests (e.g. to GitHub) ignore the system
+    // proxy that the app window uses, so record it to tell a proxy network
+    // from a flaky connection.
+    const network = {
+      systemProxyForGithub: await session.defaultSession
+        .resolveProxy("https://api.github.com")
+        .catch((error) => `unknown (${error.message})`),
+      proxyEnv: Object.fromEntries(
+        Object.entries(process.env)
+          .filter(([name]) => /^(https?|all|no)_proxy$/i.test(name))
+          .map(([name, value]) => [name, String(value).replace(/\/\/[^/@]*@/, "//<redacted>@")]),
+      ),
+    };
     // Build after the dialog so the diagnostics snapshot is as fresh as possible.
-    writeFileSync(filePath, buildSupportBundleText({ app, runtimeManager }), "utf8");
+    writeFileSync(filePath, buildSupportBundleText({ app, runtimeManager, network }), "utf8");
   } finally {
     if (!progressWindow.isDestroyed()) progressWindow.close();
   }
@@ -1686,6 +1699,7 @@ async function openDetachedSessionWindow(event, input = {}) {
   detachedSessionWindows.set(key, sessionWindow);
   applicationMenu.applyVisibility(sessionWindow);
   recorderServiceInstance?.subscribe(sessionWindow.webContents);
+  logWindowErrors(sessionWindow.webContents);
 
   sessionWindow.on("page-title-updated", (pageTitleEvent, title) => {
     pageTitleEvent.preventDefault();
@@ -2822,6 +2836,8 @@ async function createMainWindow() {
     browserPanel.destroy();
     mainWindow = null;
   });
+
+  logWindowErrors(mainWindow.webContents);
 
   // A crashed renderer takes the dictation capture pipeline with it; reload
   // so the hotkey keeps working. Repeated crashes stop the loop.
