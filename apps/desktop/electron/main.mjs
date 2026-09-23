@@ -57,6 +57,7 @@ import { createSafeOpen } from "./safe-open.mjs";
 import { createWorkspaceStore } from "./workspace-store.mjs";
 import { exportSkillFolder, readSkillArchive } from "./workspace-archive.mjs";
 import { extractDescription } from "./skill-description.mjs";
+import { normalizeImportedSkill } from "./skill-import.mjs";
 
 const mcpOAuthCallbacks = createMcpOAuthCallbackBroker();
 const mcpOAuthOwners = new WeakSet();
@@ -1133,24 +1134,6 @@ function fitSkillName(raw) {
   return candidate.replace(/-+$/g, "") || null;
 }
 
-// When we shorten a folder name to fit, keep the SKILL.md frontmatter `name` in
-// sync so the engine loads the skill under the same (valid) name it now lives
-// in. Only the leading frontmatter block is touched, never a `name:` in the
-// body. Best-effort: a copied folder that imported is not un-imported on error.
-async function syncSkillFrontmatterName(skillMdPath, name) {
-  try {
-    const raw = await readFile(skillMdPath, "utf8");
-    if (!raw.startsWith("---")) return;
-    const end = raw.indexOf("\n---", 3);
-    if (end === -1) return;
-    const header = raw.slice(0, end).replace(/^name:[ \t]*.*$/m, `name: ${name}`);
-    const patched = header + raw.slice(end);
-    if (patched !== raw) await writeFile(skillMdPath, patched, "utf8");
-  } catch {
-    // Non-fatal — the folder still imported.
-  }
-}
-
 const runtimeManager = createRuntimeManager({
   app,
   getApprovalWindow: () => mainWindow,
@@ -2001,9 +1984,19 @@ const desktopCommandHandlers = {
         if (!overwrite) {
           return execResult(false, "", `Skill already exists at ${destination}`);
         }
+      }
+      const content = normalizeImportedSkill(await readFile(path.join(sourceDir, "SKILL.md"), "utf8"), name);
+      if (overwrite) {
         await rm(destination, { recursive: true, force: true });
       }
-      await cp(sourceDir, destination, { recursive: true });
+      try {
+        await cp(sourceDir, destination, { recursive: true });
+        await rm(path.join(destination, "SKILL.md"), { force: true });
+        await writeFile(path.join(destination, "SKILL.md"), content, "utf8");
+      } catch (error) {
+        await rm(destination, { recursive: true, force: true });
+        throw error;
+      }
       return execResult(true, `Imported skill to ${destination}`);
   },
   "installSkillTemplate": async (event, ...args) => {
@@ -2078,8 +2071,7 @@ const desktopCommandHandlers = {
         const from = path.join(sourceDir, name);
         if (!(await pathExists(path.join(from, "SKILL.md")))) continue;
         try {
-          // Coerce (don't reject) an over-long or lightly-malformed name into a
-          // valid <=200-char slug; keep the SKILL.md name in sync if we changed it.
+          // Coerce an over-long folder name, then make SKILL.md loadable under it.
           const targetName = fitSkillName(name);
           if (!targetName) throw new Error("skill name is empty or has no usable characters");
           const destination = path.join(root, targetName);
@@ -2087,9 +2079,14 @@ const desktopCommandHandlers = {
             skipped.push(targetName);
             continue;
           }
-          await cp(from, destination, { recursive: true });
-          if (targetName !== name) {
-            await syncSkillFrontmatterName(path.join(destination, "SKILL.md"), targetName);
+          const content = normalizeImportedSkill(await readFile(path.join(from, "SKILL.md"), "utf8"), targetName);
+          try {
+            await cp(from, destination, { recursive: true });
+            await rm(path.join(destination, "SKILL.md"), { force: true });
+            await writeFile(path.join(destination, "SKILL.md"), content, "utf8");
+          } catch (error) {
+            await rm(destination, { recursive: true, force: true });
+            throw error;
           }
           imported.push(targetName);
         } catch (error) {
@@ -2127,29 +2124,30 @@ const desktopCommandHandlers = {
         if (!overwrite) {
           return execResult(false, "", `Skill already exists at ${destination}`);
         }
+      }
+      const sourceSkill = archive.files.find((file) => file.rel.replace(/\\/g, "/") === "SKILL.md");
+      if (!sourceSkill) throw new Error("Archive has no SKILL.md");
+      const content = normalizeImportedSkill(sourceSkill.data.toString("utf8"), name);
+      if (overwrite) {
         await rm(destination, { recursive: true, force: true });
       }
-      await mkdir(destination, { recursive: true });
-      const destRoot = path.resolve(destination);
       let written = 0;
-      for (const file of archive.files) {
-        const rel = file.rel.replace(/\\/g, "/").replace(/^\/+/, "");
-        if (!rel || rel.split("/").includes("..")) continue; // never escape the skill dir
-        const dest = path.join(destination, rel);
-        if (!path.resolve(dest).startsWith(destRoot + path.sep)) continue;
-        await mkdir(path.dirname(dest), { recursive: true });
-        let data = file.data;
-        // Installed under a different name (slugified/workflow-prefixed) — keep
-        // the SKILL.md frontmatter name in sync so the engine loads it.
-        if (rel === "SKILL.md" && name !== rawName) {
-          const content = data.toString("utf8");
-          const tagged = /(^|\n)name:\s*.*$/m.test(content)
-            ? content.replace(/(^|\n)name:\s*.*$/m, `$1name: ${name}`)
-            : content;
-          data = Buffer.from(tagged, "utf8");
+      try {
+        await mkdir(destination, { recursive: true });
+        const destRoot = path.resolve(destination);
+        for (const file of archive.files) {
+          const rel = file.rel.replace(/\\/g, "/").replace(/^\/+/, "");
+          if (!rel || rel.split("/").includes("..")) continue; // never escape the skill dir
+          const dest = path.join(destination, rel);
+          if (!path.resolve(dest).startsWith(destRoot + path.sep)) continue;
+          await mkdir(path.dirname(dest), { recursive: true });
+          const data = rel === "SKILL.md" ? Buffer.from(content, "utf8") : file.data;
+          await writeFile(dest, data);
+          written += 1;
         }
-        await writeFile(dest, data);
-        written += 1;
+      } catch (error) {
+        await rm(destination, { recursive: true, force: true });
+        throw error;
       }
       return execResult(true, `Imported ${name} (${written} file${written === 1 ? "" : "s"})`);
   },

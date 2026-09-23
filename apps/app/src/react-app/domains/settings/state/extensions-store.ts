@@ -1493,8 +1493,8 @@ export function createExtensionsStore(options: {
       // Desktop skills are GLOBAL — copy into the shared skills dir ("" projectDir),
       // the same place the list reads, so the import shows up immediately. The whole
       // folder is copied recursively, so supporting files come along. For a workflow
-      // import, copy straight under the `workflow-` prefix the Workflows view detects
-      // (so siblings are preserved) and rewrite only the SKILL.md name to match.
+      // import, copy straight under the `workflow-` prefix the Workflows view detects.
+      // The desktop import normalizes SKILL.md to the destination name.
       const prefixed =
         opts?.asWorkflow && inferredName && !inferredName.startsWith("workflow-")
           ? `workflow-assistant-${inferredName}`
@@ -1513,19 +1513,6 @@ export function createExtensionsStore(options: {
       if (!result.ok) {
         setStateField("skillsStatus", result.stderr || result.stdout || t("skills.import_failed").replace("{status}", String(result.status)));
       } else {
-        if (renamed && targetName) {
-          try {
-            const read = await readLocalSkill("", targetName);
-            const content = read?.content ?? "";
-            const tagged = /(^|\n)name:\s*.*$/m.test(content)
-              ? content.replace(/(^|\n)name:\s*.*$/m, `$1name: ${targetName}`)
-              : content.replace(/^---\n/, `---\nname: ${targetName}\n`);
-            if (tagged !== content) await writeLocalSkill("", targetName, tagged);
-          } catch {
-            // best-effort: the folder is already named as a workflow even if the
-            // SKILL.md name rewrite fails (parseSkillEntry falls back to the folder).
-          }
-        }
         setStateField("skillsStatus", result.stdout || t("skills.imported"));
         options.markReloadRequired?.("skills", { type: "skill", name: targetName, action: "added" });
       }
