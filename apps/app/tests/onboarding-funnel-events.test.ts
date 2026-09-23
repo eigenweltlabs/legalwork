@@ -4,7 +4,7 @@
  * `onboarding_started` marks INTENT (the user committed to creating a
  * workspace), not success — success is `workspace_created`. Nothing from the
  * welcome screen is sent before the consent choice commits at the end of
- * workspace creation: staying opted in then sends the whole funnel, while an
+ * workspace creation: leaving the toggle on then sends the whole funnel, while an
  * opt-out sends nothing.
  */
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
@@ -106,7 +106,7 @@ describe("onboarding funnel events", () => {
     expect(sentEvents()).toEqual([]);
   });
 
-  test("staying opted in sends the whole funnel once the choice commits", async () => {
+  test("leaving the toggle on sends the whole funnel once the choice commits", async () => {
     setConsent(null);
     await runWelcomeUpToConsentCommit();
     expect(sentEvents()).toEqual([]);

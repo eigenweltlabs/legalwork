@@ -108,7 +108,7 @@ export function WelcomeRoute() {
   // Pending usage-analytics choice; committed when the user leaves the welcome
   // screen (see handleCreateWorkspace). Seeded from any previously recorded
   // choice so re-entering the screen never overrides an opt-out.
-  const [analyticsOptIn, setAnalyticsOptIn] = useState(() => getStoredAnalyticsConsent() ?? true);
+  const [analyticsEnabled, setAnalyticsEnabled] = useState(() => getStoredAnalyticsConsent() ?? true);
 
   // If the user already completed the welcome step, redirect away immediately;
   // the in-session covers (onboardingStage) carry the rest of onboarding.
@@ -128,17 +128,17 @@ export function WelcomeRoute() {
   }, []);
 
   const markOnboardingComplete = useCallback(() => {
-    if (!analyticsOptIn) discardPendingAnalytics();
+    if (!analyticsEnabled) discardPendingAnalytics();
     local.setPrefs((prev) => ({
       ...prev,
-      analyticsEnabled: analyticsOptIn,
+      analyticsEnabled,
       hasCompletedOnboarding: true,
       onboardingStage: isDesktopRuntime() ? "office" : "permissions",
     }));
     // New users see these steps in onboarding instead of post-update prompts.
     markAllWhatsNewSeen();
     markTranscriptionIntroSeen();
-  }, [analyticsOptIn, local]);
+  }, [analyticsEnabled, local]);
 
   // Which creation phase the loading overlay shows (null = not creating).
   const [createPhase, setCreatePhase] = useState<"workspace" | "engine" | "session" | null>(null);
@@ -337,8 +337,8 @@ export function WelcomeRoute() {
           onManualFolderChange={setManualFolder}
           onUseManualFolder={handleUseManualFolder}
           showManualFolder={import.meta.env.DEV && isDesktopRuntime()}
-          analyticsEnabled={analyticsOptIn}
-          onAnalyticsChange={setAnalyticsOptIn}
+          analyticsEnabled={analyticsEnabled}
+          onAnalyticsChange={setAnalyticsEnabled}
         />
       <CreateWorkspaceModal
         open={state.modalOpen}

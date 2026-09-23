@@ -206,8 +206,8 @@ export function LocalProvider({ children }: LocalProviderProps) {
     writePersisted(PREFS_STORAGE_KEY, prefs);
   }, [prefs]);
 
-  // The preference has been persisted, so a first-run opt-in can release the
-  // events held while the welcome toggle was pending.
+  // The preference has been persisted, so leaving the welcome toggle on can
+  // release events held while the choice was pending.
   useEffect(() => {
     if (prefs.analyticsEnabled === true) void flushAnalytics();
   }, [prefs.analyticsEnabled]);

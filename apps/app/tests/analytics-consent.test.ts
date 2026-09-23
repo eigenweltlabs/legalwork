@@ -3,7 +3,7 @@
  * - pending choice (null, the welcome screen with the toggle showing on):
  *   events queue but are held — nothing is sent until the choice commits on;
  * - explicit opt-out: later captures are discarded and the queue is purged;
- * - explicit opt-in: business as usual.
+ * - toggle left on: queued events are sent once the choice is saved.
  */
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
@@ -114,7 +114,7 @@ describe("analytics consent gating", () => {
     await flushAnalytics();
     expect(sentEvents()).toEqual([]);
 
-    // A later opt-in must not resurrect what was purged under refusal.
+    // Turning analytics back on must not resurrect events purged under refusal.
     setConsent(true);
     await flushAnalytics();
     expect(sentEvents()).toEqual([]);
@@ -129,13 +129,13 @@ describe("analytics consent gating", () => {
     await flushAnalytics();
     expect(sentEvents()).toEqual([]);
 
-    // A later opt-in must not resurrect events from before the opt-out.
+    // Turning analytics back on must not resurrect events from before the opt-out.
     setConsent(true);
     await flushAnalytics();
     expect(sentEvents()).toEqual([]);
   });
 
-  test("opt-in sends captures on flush", async () => {
+  test("enabled analytics sends captures on flush", async () => {
     setConsent(true);
     captureAnalyticsEvent("normal_event");
     await flushAnalytics();
