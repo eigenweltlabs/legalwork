@@ -141,9 +141,9 @@ export function opencodeHomeEnvFromRoot(root) {
 }
 
 export function alignWindowsOpencodeConfigEnv(env, platform = process.platform) {
-  if (platform !== "win32" || String(env.XDG_CONFIG_HOME ?? "").trim()) return env;
+  if (platform !== "win32" || String(env.XDG_CONFIG_HOME ?? "").trim() || String(env.OPENCODE_CONFIG_DIR ?? "").trim()) return env;
   const appData = String(env.APPDATA ?? "").trim();
-  if (appData) env.XDG_CONFIG_HOME = appData;
+  if (appData) env.OPENCODE_CONFIG_DIR = path.join(appData, "opencode");
   return env;
 }
 
@@ -912,9 +912,8 @@ export function createRuntimeManager({ app, desktopRoot, listLocalWorkspacePaths
       BUN_CONFIG_DNS_RESULT_ORDER: "verbatim",
       ...extra,
     };
-    // OpenCode's xdg-basedir defaults to ~/.config even on Windows. LegalWork's
-    // shared library lives in %APPDATA%\opencode, so point the engine and the
-    // embedded server at that same root without changing an explicit override.
+    // OpenCode's xdg-basedir defaults to ~/.config even on Windows. Add the
+    // LegalWork library in %APPDATA% without hiding that existing config root.
     alignWindowsOpencodeConfigEnv(env);
     const pathKey =
       Object.prototype.hasOwnProperty.call(env, "PATH") ||

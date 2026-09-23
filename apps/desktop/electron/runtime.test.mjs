@@ -22,17 +22,24 @@ import {
 describe("alignWindowsOpencodeConfigEnv", () => {
   it("makes the engine use the Windows library already used by LegalWork", () => {
     const env = { APPDATA: "C:\\Users\\lawyer\\AppData\\Roaming" };
-    assert.equal(alignWindowsOpencodeConfigEnv(env, "win32").XDG_CONFIG_HOME, env.APPDATA);
+    assert.equal(alignWindowsOpencodeConfigEnv(env, "win32").OPENCODE_CONFIG_DIR, path.join(env.APPDATA, "opencode"));
+    assert.equal(env.XDG_CONFIG_HOME, undefined);
   });
 
   it("preserves an explicit XDG config home", () => {
     const env = { APPDATA: "C:\\Users\\lawyer\\AppData\\Roaming", XDG_CONFIG_HOME: "D:\\opencode" };
     assert.equal(alignWindowsOpencodeConfigEnv(env, "win32").XDG_CONFIG_HOME, "D:\\opencode");
+    assert.equal(env.OPENCODE_CONFIG_DIR, undefined);
+  });
+
+  it("preserves an explicit OpenCode config directory", () => {
+    const env = { APPDATA: "C:\\Users\\lawyer\\AppData\\Roaming", OPENCODE_CONFIG_DIR: "D:\\opencode" };
+    assert.equal(alignWindowsOpencodeConfigEnv(env, "win32").OPENCODE_CONFIG_DIR, "D:\\opencode");
   });
 
   it("does not change Unix config paths", () => {
     const env = { APPDATA: "/other" };
-    assert.equal(alignWindowsOpencodeConfigEnv(env, "darwin").XDG_CONFIG_HOME, undefined);
+    assert.equal(alignWindowsOpencodeConfigEnv(env, "darwin").OPENCODE_CONFIG_DIR, undefined);
   });
 });
 
