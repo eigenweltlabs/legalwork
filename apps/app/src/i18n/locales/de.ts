@@ -3477,6 +3477,11 @@ const de = {
     "Gebündelte Fähigkeiten aus Skill, Agent und Command, sofort im Chat einsetzbar.",
   "updates.current_version": "Aktuelle Version",
   "updates.release_channel": "Release-Kanal",
+  "updates.support_logs_title": "Support-Protokolle",
+  "updates.support_logs_desc":
+    "Wenn etwas nicht funktioniert, speichern Sie diese Datei und senden Sie sie an unseren Support. Sie enthält technische Details zu den letzten Fehlern.",
+  "updates.support_logs_saved": "Gespeichert unter {path}. Bitte senden Sie diese Datei an unseren Support.",
+  "updates.support_logs_failed": "Die Support-Protokolle konnten nicht gespeichert werden.",
   "add_mcp.name_label": "Name des Connectors",
   "add_mcp.name_placeholder": "Interne Wissensdatenbank",
   "add_mcp.name_hint": "Wird in der Connector-Liste angezeigt.",
