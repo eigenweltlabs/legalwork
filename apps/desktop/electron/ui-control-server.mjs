@@ -5,7 +5,7 @@
 // (createRuntimeManager pattern).
 import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 import { createServer } from "node:http";
-import { chmod, rm, writeFile } from "node:fs/promises";
+import { rename, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 
 export function createUiControlServer({ appName, appIdentifier, getWindow, getUserDataDir }) {
@@ -143,15 +143,25 @@ export function createUiControlServer({ appName, appIdentifier, getWindow, getUs
     const address = uiControlServer.address();
     const port = typeof address === "object" && address ? address.port : null;
     if (!port) throw new Error("Could not start LegalWork UI control bridge.");
-    uiControlDiscoveryPath = path.join(getUserDataDir(), "legalwork-ui-control.json");
-    // The file carries the bearer token, so keep it readable only by this user
-    // (chmod as well, in case an earlier run left a wider-permission file).
-    await writeFile(
-      uiControlDiscoveryPath,
-      `${JSON.stringify({ version: 1, app: appName, identifier: appIdentifier, platform: process.platform, baseUrl: `http://127.0.0.1:${port}`, token: uiControlToken }, null, 2)}\n`,
-      { encoding: "utf8", mode: 0o600 },
-    );
-    await chmod(uiControlDiscoveryPath, 0o600).catch(() => undefined);
+    const discoveryPath = path.join(getUserDataDir(), "legalwork-ui-control.json");
+    const temporaryPath = `${discoveryPath}.${randomBytes(16).toString("hex")}.tmp`;
+    // Never put a fresh token in an existing inode: older releases created this
+    // file with wider permissions. Publish a new owner-only file atomically.
+    try {
+      await writeFile(
+        temporaryPath,
+        `${JSON.stringify({ version: 1, app: appName, identifier: appIdentifier, platform: process.platform, baseUrl: `http://127.0.0.1:${port}`, token: uiControlToken }, null, 2)}\n`,
+        { encoding: "utf8", mode: 0o600, flag: "wx" },
+      );
+      await rename(temporaryPath, discoveryPath);
+      uiControlDiscoveryPath = discoveryPath;
+    } catch (error) {
+      await new Promise((resolve) => uiControlServer.close(() => resolve(undefined)));
+      uiControlServer = null;
+      throw error;
+    } finally {
+      await rm(temporaryPath, { force: true });
+    }
     // Make the discovery path available to child processes (server → managed OpenCode → plugin).
     process.env.LEGALWORK_UI_CONTROL_DISCOVERY = uiControlDiscoveryPath;
   }

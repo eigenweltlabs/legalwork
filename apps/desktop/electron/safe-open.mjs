@@ -10,7 +10,7 @@ const WEB_SCHEMES = new Set(["http:", "https:", "mailto:"]);
 // rest are ways to pull in local or scripted content.
 const REFUSED_SCHEMES = new Set(["file:", "javascript:", "data:", "blob:", "vbscript:", "about:", "chrome:", "devtools:"]);
 
-// Opened without asking: formats whose default app only views or edits them.
+// Only recognised document formats are handed to their default application.
 const DOCUMENT_EXTENSIONS = new Set([
   ".pdf", ".txt", ".md", ".markdown", ".rtf", ".csv", ".tsv", ".log",
   ".doc", ".docx", ".odt", ".xls", ".xlsx", ".ods", ".ppt", ".pptx", ".odp", ".pages", ".numbers", ".key",
@@ -18,18 +18,6 @@ const DOCUMENT_EXTENSIONS = new Set([
   ".mp3", ".m4a", ".wav", ".aac", ".flac", ".ogg", ".opus",
   ".mp4", ".mov", ".m4v", ".webm", ".avi", ".mkv",
   ".eml", ".msg", ".ics", ".vcf",
-]);
-
-// Never opened, only revealed in the file manager: these run code. Office
-// macro formats are here too — opening one can prompt to enable macros.
-const EXECUTABLE_EXTENSIONS = new Set([
-  ".app", ".command", ".workflow", ".action", ".scpt", ".applescript", ".osascript", ".terminal", ".dmg", ".pkg", ".mpkg",
-  ".exe", ".msi", ".msp", ".msc", ".bat", ".cmd", ".com", ".scr", ".pif", ".cpl", ".hta", ".gadget", ".lnk", ".url", ".reg", ".inf",
-  ".vbs", ".vbe", ".js", ".jse", ".mjs", ".cjs", ".wsf", ".wsh", ".ps1", ".psm1", ".ps1xml",
-  ".sh", ".bash", ".zsh", ".csh", ".ksh", ".fish", ".py", ".rb", ".pl", ".php", ".jar", ".class",
-  ".deb", ".rpm", ".appimage", ".run", ".bin", ".apk", ".ipa",
-  ".webloc", ".inetloc", ".desktop", ".so", ".dylib", ".dll",
-  ".docm", ".dotm", ".xlsm", ".xltm", ".xlam", ".pptm", ".potm", ".ppam", ".sldm",
 ]);
 
 /**
@@ -57,7 +45,7 @@ export function classifyExternalUrl(url) {
 
 /**
  * @param {string | null | undefined} filePath
- * @returns {{ action: "open" } | { action: "confirm", extension: string } | { action: "reveal", reason: string }}
+ * @returns {{ action: "open" } | { action: "reveal", reason: string }}
  */
 export function classifyFileOpen(filePath) {
   const value = String(filePath ?? "").trim();
@@ -66,9 +54,8 @@ export function classifyFileOpen(filePath) {
   const extension = path.extname(value).toLowerCase();
   // No extension: the OS decides by file mode, which may mean "execute".
   if (!extension) return { action: "reveal", reason: "no extension" };
-  if (EXECUTABLE_EXTENSIONS.has(extension)) return { action: "reveal", reason: extension };
   if (DOCUMENT_EXTENSIONS.has(extension)) return { action: "open" };
-  return { action: "confirm", extension };
+  return { action: "reveal", reason: extension };
 }
 
 /**
@@ -110,16 +97,6 @@ export function createSafeOpen({ shell, confirm, log = console.warn }) {
         log(`[security] showing ${target} in the file manager instead of opening it (${verdict.reason})`);
         if (target && !target.includes("\0")) shell.showItemInFolder(target);
         return "";
-      }
-      if (verdict.action === "confirm") {
-        const allowed = await confirm({
-          message: `Open ${path.basename(target)}?`,
-          detail: `LegalWork does not recognise "${verdict.extension}" files and will open this one with whichever app your computer has registered for it.`,
-        });
-        if (!allowed) {
-          shell.showItemInFolder(target);
-          return "";
-        }
       }
       return shell.openPath(target);
     },

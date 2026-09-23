@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtemp, readFile, rm, stat } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, open, readFile, readdir, rm, stat, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -12,7 +12,7 @@ function stubWindow() {
   };
 }
 
-test("the discovery file holding the token is readable only by its owner", async (t) => {
+test("the discovery file holding the token has owner-only POSIX permissions", { skip: process.platform === "win32" }, async (t) => {
   const root = await mkdtemp(path.join(tmpdir(), "legalwork-ui-perm-"));
   const bridge = createUiControlServer({
     appName: "test", appIdentifier: "test", getUserDataDir: () => root, getWindow: async () => stubWindow(),
@@ -51,6 +51,65 @@ test("only the exact bearer token is accepted", async (t) => {
   assert.equal(await status(`Bearer ${token.slice(0, -1)}`), 401);
   assert.equal(await status(`Bearer ${token}x`), 401);
   assert.equal(await status(token), 401);
+});
+
+test("migration replaces a legacy discovery file without exposing the new token", async (t) => {
+  const root = await mkdtemp(path.join(tmpdir(), "legalwork-ui-migration-"));
+  const discoveryPath = path.join(root, "legalwork-ui-control.json");
+  const legacyContent = JSON.stringify({ token: "legacy-token", baseUrl: "http://127.0.0.1:1" });
+  await writeFile(discoveryPath, legacyContent);
+  await chmod(discoveryPath, 0o644);
+  // Keep the old inode open, as another local user could before the upgrade.
+  const legacyReader = await open(discoveryPath, "r");
+  const bridge = createUiControlServer({
+    appName: "test", appIdentifier: "test", getUserDataDir: () => root, getWindow: async () => stubWindow(),
+  });
+  t.after(async () => {
+    await legacyReader.close();
+    await bridge.stop();
+    await rm(root, { recursive: true, force: true });
+  });
+
+  await bridge.start();
+  const current = await stat(discoveryPath);
+  if (process.platform !== "win32") assert.equal(current.mode & 0o777, 0o600);
+  assert.notEqual(current.ino, (await legacyReader.stat()).ino);
+  assert.equal(await legacyReader.readFile("utf8"), legacyContent, "the readable old inode never receives the new token");
+  const { token, baseUrl } = JSON.parse(await readFile(discoveryPath, "utf8"));
+  assert.notEqual(token, "legacy-token");
+  assert.equal((await fetch(`${baseUrl}/actions`, { headers: { authorization: `Bearer ${token}` } })).status, 200);
+  assert.equal((await fetch(`${baseUrl}/actions`, { headers: { authorization: "Bearer legacy-token" } })).status, 401);
+  assert.deepEqual(await readdir(root), ["legalwork-ui-control.json"]);
+});
+
+test("publishing discovery replaces a legacy symlink without writing its target", { skip: process.platform === "win32" }, async (t) => {
+  const root = await mkdtemp(path.join(tmpdir(), "legalwork-ui-symlink-"));
+  const target = path.join(root, "old-token.json");
+  await writeFile(target, "old-token");
+  await symlink(target, path.join(root, "legalwork-ui-control.json"));
+  const bridge = createUiControlServer({
+    appName: "test", appIdentifier: "test", getUserDataDir: () => root, getWindow: async () => stubWindow(),
+  });
+  t.after(async () => { await bridge.stop(); await rm(root, { recursive: true, force: true }); });
+  await bridge.start();
+  assert.equal(await readFile(target, "utf8"), "old-token");
+  assert.equal((await stat(path.join(root, "legalwork-ui-control.json"))).mode & 0o777, 0o600);
+});
+
+test("a failed discovery migration cleans up and can be retried", async (t) => {
+  const root = await mkdtemp(path.join(tmpdir(), "legalwork-ui-failure-"));
+  const discoveryPath = path.join(root, "legalwork-ui-control.json");
+  await mkdir(discoveryPath);
+  const bridge = createUiControlServer({
+    appName: "test", appIdentifier: "test", getUserDataDir: () => root, getWindow: async () => stubWindow(),
+  });
+  t.after(async () => { await bridge.stop(); await rm(root, { recursive: true, force: true }); });
+  await assert.rejects(bridge.start());
+  assert.deepEqual(await readdir(root), ["legalwork-ui-control.json"]);
+  await rm(discoveryPath, { recursive: true });
+  await bridge.start();
+  const { token, baseUrl } = JSON.parse(await readFile(discoveryPath, "utf8"));
+  assert.equal((await fetch(`${baseUrl}/actions`, { headers: { authorization: `Bearer ${token}` } })).status, 200);
 });
 
 test("agent commands execute in a minimized window without stealing focus", async () => {

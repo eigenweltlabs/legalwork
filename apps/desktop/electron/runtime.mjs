@@ -445,11 +445,18 @@ function enrichedPath(sidecarDirs, currentPath, fallbackDirs = []) {
   return deduped.length > 0 ? deduped.join(path.delimiter) : null;
 }
 
+export function bundledNodeDirectory(resourcesRoot, platform = process.platform) {
+  const directory = path.join(resourcesRoot, "node");
+  const executable = path.join(directory, platform === "win32" ? "node.exe" : "node");
+  if (!existsSync(executable)) throw new Error(`Bundled Node runtime is missing: ${executable}`);
+  return directory;
+}
+
 export function nodeShimFileName(platform = process.platform) {
   return platform === "win32" ? "node.cmd" : "node";
 }
 
-// A `node` that re-execs this app's own binary in Node mode. Electron ships a
+// Development-only fallback that re-execs Electron in Node mode. Electron ships a
 // full Node runtime, so machines without a system Node.js can still run the
 // bundled workspace skills (docx-edit, pdf-tools, tabular-review), which shell
 // out to `node`. The shim directory is appended LAST to the child PATH, so any
@@ -871,6 +878,9 @@ export function createRuntimeManager({ app, desktopRoot, listLocalWorkspacePaths
   // fall back to whatever `node` the PATH provides.
   let nodeShimDirPromise = null;
   function ensureNodeShimDir() {
+    // Packaged Electron has RunAsNode fused off. Append our standalone Node
+    // directory so document tools also work without a system Node installation.
+    if (app.isPackaged) return bundledNodeDirectory(process.resourcesPath);
     nodeShimDirPromise ??= (async () => {
       const shimDir = path.join(userDataDir, "node-shim");
       const shimPath = path.join(shimDir, nodeShimFileName());

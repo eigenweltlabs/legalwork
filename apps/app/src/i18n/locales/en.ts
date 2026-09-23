@@ -3930,6 +3930,9 @@ export default {
   "artifact.restore_panel": "Restore document panel",
   "artifact.expand_document": "Expand document",
   "artifact.exit_fullscreen": "Exit fullscreen",
+  "artifact.preview_pdf_access": "Allow this preview to read this source PDF?",
+  "artifact.preview_pdf_allow": "Allow PDF access",
+  "artifact.preview_pdf_deny": "Decline",
   "artifact.opening_preview": "Opening preview…",
   "artifact.editor_failed":
     "This file could not be displayed in the editor. You can still open the original file externally.",

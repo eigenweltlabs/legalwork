@@ -105,6 +105,21 @@ describe("ensureWorkspaceFiles", () => {
     });
   });
 
+  test("upgrades the offline Word parser in already-stamped workspaces", async () => {
+    await withWorkspace(async (root) => {
+      const engine = join(root, ".opencode", "skills", "docx-edit", "assets", "vendor", "docx-engine.mjs");
+      await mkdir(dirname(engine), { recursive: true });
+      await writeFile(engine, "// old @xmldom/xmldom@0.9.10 engine", "utf8");
+      await writeFile(join(root, ".opencode", ".legalwork-core"), "previous-release-bundle", "utf8");
+      const result = await ensureWorkspaceFiles(root, "starter");
+      const updated = await readFile(engine, "utf8");
+      expect(updated).toContain("@xmldom+xmldom@0.9.12/");
+      expect(updated).not.toContain("@xmldom+xmldom@0.9.10/");
+      expect(result.reloadReasons).toContain("skills");
+      expect(await ensureWorkspaceFiles(root, "starter")).toEqual({ changed: false, reloadReasons: [] });
+    });
+  });
+
   test("does not rewrite an existing valid opencode config", async () => {
     await withWorkspace(async (root) => {
       const configPath = join(root, "opencode.jsonc");

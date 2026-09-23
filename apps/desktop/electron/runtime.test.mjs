@@ -3,11 +3,12 @@ import assert from "node:assert/strict";
 
 import path from "node:path";
 import os from "node:os";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 
 import {
   commandMatchesPackagedSidecar,
   mergeRuntimeMcpConfig,
+  bundledNodeDirectory,
   nodeShimFileName,
   nodeShimScriptContent,
   opencodeHomeEnvFromRoot,
@@ -115,6 +116,23 @@ describe("resolveLegalworkServerConfigPath", () => {
       resolveLegalworkServerConfigPath({ XDG_CONFIG_HOME: "/tmp/xdg" }),
       "/tmp/xdg/legalwork/server.json",
     );
+  });
+});
+
+describe("packaged Node runtime", () => {
+  it("requires the bundled executable on every platform", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "legalwork-node-runtime-"));
+    try {
+      assert.throws(() => bundledNodeDirectory(root), /Bundled Node runtime is missing/);
+      await mkdir(path.join(root, "node"));
+      await writeFile(path.join(root, "node", "node"), "fixture");
+      await writeFile(path.join(root, "node", "node.exe"), "fixture");
+      /** @type {NodeJS.Platform[]} */
+      const platforms = ["darwin", "linux", "win32"];
+      for (const platform of platforms) assert.equal(bundledNodeDirectory(root, platform), path.join(root, "node"));
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
   });
 });
 

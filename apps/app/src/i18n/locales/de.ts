@@ -4315,6 +4315,9 @@ const de = {
   "artifact.restore_panel": "Dokumentbereich wiederherstellen",
   "artifact.expand_document": "Dokument vergrößern",
   "artifact.exit_fullscreen": "Vollbild verlassen",
+  "artifact.preview_pdf_access": "Darf diese Vorschau diese Quell-PDF lesen?",
+  "artifact.preview_pdf_allow": "PDF-Zugriff erlauben",
+  "artifact.preview_pdf_deny": "Ablehnen",
   "artifact.opening_preview": "Vorschau wird geöffnet…",
   "artifact.editor_failed":
     "Diese Datei konnte im Editor nicht angezeigt werden. Sie können die Originaldatei weiterhin extern öffnen.",

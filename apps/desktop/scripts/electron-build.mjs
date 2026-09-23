@@ -30,6 +30,7 @@ function run(command, args, cwd, env) {
   }
 }
 
+run(nodeCmd, [resolve(__dirname, "prepare-node-runtime.mjs")], desktopRoot);
 run(nodeCmd, [resolve(__dirname, "prepare-sidecar.mjs"), "--force", "--outdir", electronSidecarDir], desktopRoot);
 run(nodeCmd, [resolve(__dirname, "prepare-computer-use-helper.mjs"), "--force", "--outdir", electronHelperDir], desktopRoot);
 run(nodeCmd, [resolve(__dirname, "build-key-monitor.mjs")], desktopRoot);
@@ -79,6 +80,8 @@ for (const fileName of readdirSync(electronRoot).filter((name) => /\.(mjs|cjs)$/
 run(nodeCmd, [resolve(__dirname, "check-electron-bridge.mjs")], repoRoot);
 run(nodeCmd, [resolve(__dirname, "check-server-deps.mjs")], repoRoot);
 run(nodeCmd, [resolve(__dirname, "check-plugin-bundles.mjs")], repoRoot);
+// pnpm installs for host Node; packaging needs the Electron native ABI.
+run(pnpmCmd, ["exec", "electron-builder", "install-app-deps"], desktopRoot);
 
 process.stdout.write(
   `${JSON.stringify(

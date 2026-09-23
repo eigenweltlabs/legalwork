@@ -30,14 +30,14 @@ test("malformed input is refused", () => {
   assert.deepEqual(classifyExternalUrl("https://example.com/\0.exe"), { action: "refuse", reason: "null byte" });
 });
 
-test("documents open, programs are only revealed, unknown types ask", () => {
+test("documents open, programs are only revealed, unknown types are revealed", () => {
   for (const file of ["/w/Vertrag.pdf", "/w/Schriftsatz.docx", "/w/Tabelle.xlsx", "/w/foto.HEIC", "/w/notiz.md"]) {
     assert.deepEqual(classifyFileOpen(file), { action: "open" }, file);
   }
   for (const file of ["/w/run.command", "/w/Tool.app", "/w/setup.exe", "/w/script.sh", "/w/macro.docm", "/w/link.webloc", "/w/noext"]) {
     assert.equal(classifyFileOpen(file).action, "reveal", file);
   }
-  assert.deepEqual(classifyFileOpen("/w/zeichnung.dwg"), { action: "confirm", extension: ".dwg" });
+  assert.deepEqual(classifyFileOpen("/w/zeichnung.dwg"), { action: "reveal", reason: ".dwg" });
   assert.deepEqual(classifyFileOpen("/w/payload.exe\0.pdf"), { action: "reveal", reason: "null byte" });
 });
 
@@ -94,9 +94,9 @@ test("openPath never launches a program, and reveals it instead", async () => {
   ]);
 });
 
-test("declining an unknown file type reveals it instead of opening", async () => {
+test("unknown file types are revealed without offering to launch them", async () => {
   const shell = fakeShell();
-  const safeOpen = createSafeOpen({ shell, confirm: async () => false, log: () => {} });
+  const safeOpen = createSafeOpen({ shell, confirm: async () => { assert.fail("Unknown files must not offer a launch confirmation"); }, log: () => {} });
 
   await safeOpen.openPath("/w/zeichnung.dwg");
   assert.deepEqual(shell.calls, [["showItemInFolder", "/w/zeichnung.dwg"]]);

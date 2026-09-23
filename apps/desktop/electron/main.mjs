@@ -52,7 +52,7 @@ import {
 import { createUiControlServer } from "./ui-control-server.mjs";
 import { createApplicationMenu } from "./app-menu.mjs";
 import { createBrowserPanel } from "./browser-panel.mjs";
-import { createAppUrlMatcher, guardIpcMain } from "./app-url.mjs";
+import { createAppUrlMatcher, guardIpcMain, guardPreviewNavigation } from "./app-url.mjs";
 import { createSafeOpen } from "./safe-open.mjs";
 import { createWorkspaceStore } from "./workspace-store.mjs";
 import { exportSkillFolder, readSkillArchive } from "./workspace-archive.mjs";
@@ -69,7 +69,7 @@ const RECORDING_AUDIO_SCHEME = "lw-recording";
 protocol.registerSchemesAsPrivileged([
   {
     scheme: RECORDING_AUDIO_SCHEME,
-    privileges: { standard: true, secure: true, supportFetchAPI: true, stream: true, bypassCSP: true },
+    privileges: { standard: true, secure: true, supportFetchAPI: true, stream: true },
   },
 ]);
 
@@ -135,7 +135,7 @@ function openWindowDecision(url) {
 }
 
 // Every hand-off to the OS goes through here: web links open directly, app
-// links and unknown file types ask first, and programs are only revealed.
+// links ask first; files outside the document allowlist are only revealed.
 const safeOpen = createSafeOpen({
   shell,
   confirm: async ({ message, detail }) => {
@@ -444,10 +444,11 @@ app.setAppUserModelId(APP_IDENTIFIER);
 if (process.platform === "darwin") {
   app.setActivationPolicy("regular");
 }
-if (app.isPackaged) {
+const userDataOverride = process.env.LEGALWORK_ELECTRON_USERDATA?.trim();
+// Isolated test profiles must not take over the installed app's deep links.
+if (app.isPackaged && !userDataOverride) {
   app.setAsDefaultProtocolClient(DESKTOP_PROTOCOL_SCHEME);
 }
-const userDataOverride = process.env.LEGALWORK_ELECTRON_USERDATA?.trim();
 if (userDataOverride) {
   app.setPath("userData", userDataOverride);
 } else {
@@ -1718,6 +1719,7 @@ async function openDetachedSessionWindow(event, input = {}) {
     }
   });
 
+  guardPreviewNavigation(sessionWindow.webContents);
   sessionWindow.webContents.setWindowOpenHandler(({ url }) => openWindowDecision(url));
   sessionWindow.webContents.on("will-navigate", (navigationEvent, url) => {
     if (browserPanel.isMainWindowAllowedNavigation(url)) return;
@@ -2855,6 +2857,7 @@ async function createMainWindow() {
     }, 1_000);
   });
 
+  guardPreviewNavigation(mainWindow.webContents);
   mainWindow.webContents.setWindowOpenHandler(({ url }) => openWindowDecision(url));
 
   mainWindow.webContents.on("will-navigate", (event, url) => {

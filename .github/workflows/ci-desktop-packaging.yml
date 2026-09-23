@@ -1,0 +1,73 @@
+name: Desktop Package Smoke Tests
+
+on:
+  pull_request:
+    branches: [dev]
+  push:
+    branches: [dev]
+
+permissions:
+  contents: read
+
+jobs:
+  package-smoke:
+    name: Package and launch (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            platform: linux
+            executable: linux-unpacked/@legalworkdesktop
+          - os: windows-2022
+            target: x86_64-pc-windows-msvc
+            platform: win
+            executable: win-unpacked/LegalWork.exe
+    defaults:
+      run:
+        shell: bash
+    env:
+      TARGET: ${{ matrix.target }}
+      NODE_OPTIONS: --max-old-space-size=6144
+      CSC_IDENTITY_AUTO_DISCOVERY: "false"
+    steps:
+      - uses: actions/checkout@v6
+      - name: Enable Windows long paths
+        if: runner.os == 'Windows'
+        run: git config --global core.longpaths true
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.4.0
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.2
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Test token-file migration and link policy
+        run: node --test apps/desktop/electron/ui-control-server.test.mjs apps/desktop/electron/safe-open.test.mjs
+      - name: Build desktop app and native dependencies
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: pnpm --filter @legalwork/desktop build:electron
+      - name: Package desktop app
+        run: pnpm --dir apps/desktop exec electron-builder --config electron-builder.yml --${{ matrix.platform }} --x64 --dir --publish never
+      - name: Verify shipped fuses, Node and document tools
+        run: pnpm --dir apps/desktop check:packaged-security "dist-electron/${{ matrix.executable }}"
+      - name: Verify Windows native modules, preview isolation and packaged startup
+        if: runner.os == 'Windows'
+        run: |
+          pnpm --dir apps/desktop test:native
+          pnpm --dir apps/desktop test:preview-security
+          node apps/desktop/scripts/packaged-startup-regression.mjs "apps/desktop/dist-electron/${{ matrix.executable }}"
+      - name: Verify Linux native modules, preview isolation and packaged startup
+        if: runner.os == 'Linux'
+        run: |
+          xvfb-run -a pnpm --dir apps/desktop exec electron --no-sandbox scripts/native-modules-regression.mjs
+          xvfb-run -a pnpm --dir apps/desktop exec electron --no-sandbox scripts/preview-security-regression.mjs
+          xvfb-run -a node apps/desktop/scripts/packaged-startup-regression.mjs "apps/desktop/dist-electron/${{ matrix.executable }}"

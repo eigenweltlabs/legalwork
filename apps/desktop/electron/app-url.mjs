@@ -72,3 +72,17 @@ export function guardIpcMain(ipcMain, { isTrustedUrl, openChannels = [], onRejec
     },
   };
 }
+
+/**
+ * App-owned previews use srcdoc/blob URLs. Keep their own navigation offline too:
+ * CSP blocks subresources, but does not stop a frame navigating itself to a URL.
+ * Browser-panel webContents are deliberately separate and do not use this guard.
+ * @param {import("electron").WebContents} contents
+ */
+export function guardPreviewNavigation(contents) {
+  contents.on("will-frame-navigate", (event) => {
+    if (event.isMainFrame) return;
+    if (event.url === "about:blank" || event.url === "about:srcdoc" || event.url.startsWith("blob:")) return;
+    event.preventDefault();
+  });
+}
