@@ -203,6 +203,10 @@ if (process.env.LEGALWORK_ELECTRON_SKIP_SHARED_PREPARE !== "1") {
   runSync(nodeCmd, [resolve(__dirname, "build-key-monitor.mjs")], { cwd: desktopRoot });
 }
 
+// pnpm installs native modules for the host Node.js version. Rebuild them for
+// Electron before the embedded server opens SQLite or the renderer uses a PTY.
+runSync(pnpmCmd, ["exec", "electron-builder", "install-app-deps"], { cwd: desktopRoot });
+
 // Build the server TS → JS so Electron can import it in-process
 console.log("[electron-dev] Building legalwork-server (tsc)...");
 runSync(pnpmCmd, ["--filter", "legalwork-server", "build"], { cwd: repoRoot });

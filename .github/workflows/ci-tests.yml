@@ -128,6 +128,10 @@ jobs:
       - name: Run desktop unit tests
         run: pnpm --filter @legalwork/desktop test
 
+      - name: Verify HTML preview isolation in Electron
+        if: runner.os == 'macOS'
+        run: pnpm --filter @legalwork/desktop test:preview-security
+
       - name: Run release tooling tests
         run: node --test scripts/release/*.test.mjs
 

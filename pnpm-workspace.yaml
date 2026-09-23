@@ -1,6 +1,8 @@
 minimumReleaseAge: 4320
 minimumReleaseAgeExclude:
   - "@opencode-ai/sdk"
+  # Explicitly allow the reviewed Electron security update.
+  - "electron@43.7.5"
 
 packages:
   - "apps/*"
@@ -34,6 +36,12 @@ allowBuilds:
   node-pty: true
   protobufjs: true
   sharp: true
+  # Windows releases use NSIS, not the optional Squirrel installer.
+  electron-winstaller: false
+# Keep document parsers patched even when a transitive dependency pins an older patch.
+overrides:
+  '@xmldom/xmldom@>=0.9.0 <0.9.12': 0.9.12
+  '@xmldom/xmldom@>=0.8.0 <0.8.15': 0.8.15
 patchedDependencies:
   '@eigenpal/docx-editor-core@1.8.3': patches/@eigenpal__docx-editor-core@1.8.3.patch
   '@eigenpal/docx-editor-react@1.8.3': patches/@eigenpal__docx-editor-react@1.8.3.patch

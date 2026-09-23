@@ -37,7 +37,7 @@ var __toESM = (mod, isNodeMode, target) => (target = mod != null ? __create(__ge
   mod
 ));
 
-// node_modules/.pnpm/@eigenpal+docx-editor-agents@1.8.3_ai@6.0.146_zod@4.3.6__react@19.2.4/node_modules/@eigenpal/docx-editor-agents/dist/chunk-2WFD55YM.mjs
+// node_modules/.pnpm/@eigenpal+docx-editor-agents@1.8.3_ai@6.0.146_zod@4.5.4__react@19.2.4/node_modules/@eigenpal/docx-editor-agents/dist/chunk-2WFD55YM.mjs
 function te(a, e2) {
   return a.map((t) => S.register(t, e2));
 }
@@ -425,7 +425,7 @@ function Ve(a, e2) {
 }
 var D, S, Q, C, E;
 var init_chunk_2WFD55YM = __esm({
-  "node_modules/.pnpm/@eigenpal+docx-editor-agents@1.8.3_ai@6.0.146_zod@4.3.6__react@19.2.4/node_modules/@eigenpal/docx-editor-agents/dist/chunk-2WFD55YM.mjs"() {
+  "node_modules/.pnpm/@eigenpal+docx-editor-agents@1.8.3_ai@6.0.146_zod@4.5.4__react@19.2.4/node_modules/@eigenpal/docx-editor-agents/dist/chunk-2WFD55YM.mjs"() {
     D = class {
       constructor() {
         this.plugins = /* @__PURE__ */ new Map();
@@ -15899,9 +15899,9 @@ var require_js = __commonJS({
   }
 });
 
-// node_modules/.pnpm/@xmldom+xmldom@0.9.10/node_modules/@xmldom/xmldom/lib/conventions.js
+// node_modules/.pnpm/@xmldom+xmldom@0.9.12/node_modules/@xmldom/xmldom/lib/conventions.js
 var require_conventions = __commonJS({
-  "node_modules/.pnpm/@xmldom+xmldom@0.9.10/node_modules/@xmldom/xmldom/lib/conventions.js"(exports) {
+  "node_modules/.pnpm/@xmldom+xmldom@0.9.12/node_modules/@xmldom/xmldom/lib/conventions.js"(exports) {
     "use strict";
     function find(list, predicate, ac2) {
       if (ac2 === void 0) {
@@ -16108,9 +16108,9 @@ var require_conventions = __commonJS({
   }
 });
 
-// node_modules/.pnpm/@xmldom+xmldom@0.9.10/node_modules/@xmldom/xmldom/lib/errors.js
+// node_modules/.pnpm/@xmldom+xmldom@0.9.12/node_modules/@xmldom/xmldom/lib/errors.js
 var require_errors = __commonJS({
-  "node_modules/.pnpm/@xmldom+xmldom@0.9.10/node_modules/@xmldom/xmldom/lib/errors.js"(exports) {
+  "node_modules/.pnpm/@xmldom+xmldom@0.9.12/node_modules/@xmldom/xmldom/lib/errors.js"(exports) {
     "use strict";
     var conventions = require_conventions();
     function extendError(constructor, writableName) {
@@ -16253,9 +16253,10 @@ var require_errors = __commonJS({
     }
     var key;
     var i2;
-    function ParseError(message, locator) {
+    function ParseError(message, locator, cause) {
       this.message = message;
       this.locator = locator;
+      this.cause = cause;
       if (Error.captureStackTrace) Error.captureStackTrace(this, ParseError);
     }
     extendError(ParseError);
@@ -16266,9 +16267,9 @@ var require_errors = __commonJS({
   }
 });
 
-// node_modules/.pnpm/@xmldom+xmldom@0.9.10/node_modules/@xmldom/xmldom/lib/grammar.js
+// node_modules/.pnpm/@xmldom+xmldom@0.9.12/node_modules/@xmldom/xmldom/lib/grammar.js
 var require_grammar = __commonJS({
-  "node_modules/.pnpm/@xmldom+xmldom@0.9.10/node_modules/@xmldom/xmldom/lib/grammar.js"(exports) {
+  "node_modules/.pnpm/@xmldom+xmldom@0.9.12/node_modules/@xmldom/xmldom/lib/grammar.js"(exports) {
     "use strict";
     function detectUnicodeSupport(RegExpImpl) {
       try {
@@ -16313,7 +16314,7 @@ var require_grammar = __commonJS({
           }
           return isStr ? part : part.source;
         }).join(""),
-        UNICODE_SUPPORT ? "mu" : "m"
+        UNICODE_SUPPORT ? "u" : ""
       );
     }
     function regg(args) {
@@ -16339,6 +16340,7 @@ var require_grammar = __commonJS({
     var NameStartChar_s = chars(NameStartChar);
     var NameChar = reg("[", NameStartChar_s, chars(/[-.0-9\xB7]/), chars(/[\u0300-\u036F\u203F-\u2040]/), "]");
     var Name = reg(NameStartChar, NameChar, "*");
+    var Name_exact = reg("^", Name, "$");
     var Nmtoken = reg(NameChar, "+");
     var EntityRef = reg("&", Name, ";");
     var CharRef = regg(/&#[0-9]+;|&#x[0-9a-fA-F]+;/);
@@ -16353,11 +16355,12 @@ var require_grammar = __commonJS({
     var NCNameStartChar = chars_without(NameStartChar, ":");
     var NCNameChar = chars_without(NameChar, ":");
     var NCName = reg(NCNameStartChar, NCNameChar, "*");
+    var NCName_exact = reg("^", NCName, "$");
     var QName = reg(NCName, regg(":", NCName), "?");
     var QName_exact = reg("^", QName, "$");
     var QName_group = reg("(", QName, ")");
     var SystemLiteral = regg(/"[^"]*"|'[^']*'/);
-    var PI = reg(/^<\?/, "(", Name, ")", regg(S4, "(", Char, "*?)"), "?", /\?>/);
+    var PI = reg(/^<\?/, "(", Name, ")", regg(S4, "(?!", _SChar, ")(", Char, "*?)"), "?", /\?>/);
     var PubidChar = /[\x20\x0D\x0Aa-zA-Z0-9-'()+,./:=?;!*#@$_%]/;
     var PubidLiteral = regg('"', PubidChar, '*"', "|", "'", chars_without(PubidChar, "'"), "*'");
     var COMMENT_START = "<!--";
@@ -16446,6 +16449,8 @@ var require_grammar = __commonJS({
     exports.ExternalID = ExternalID;
     exports.ExternalID_match = ExternalID_match;
     exports.Name = Name;
+    exports.Name_exact = Name_exact;
+    exports.NCName_exact = NCName_exact;
     exports.NotationDecl = NotationDecl;
     exports.Reference = Reference;
     exports.PEReference = PEReference;
@@ -16469,9 +16474,9 @@ var require_grammar = __commonJS({
   }
 });
 
-// node_modules/.pnpm/@xmldom+xmldom@0.9.10/node_modules/@xmldom/xmldom/lib/dom.js
+// node_modules/.pnpm/@xmldom+xmldom@0.9.12/node_modules/@xmldom/xmldom/lib/dom.js
 var require_dom = __commonJS({
-  "node_modules/.pnpm/@xmldom+xmldom@0.9.10/node_modules/@xmldom/xmldom/lib/dom.js"(exports) {
+  "node_modules/.pnpm/@xmldom+xmldom@0.9.12/node_modules/@xmldom/xmldom/lib/dom.js"(exports) {
     "use strict";
     var conventions = require_conventions();
     var find = conventions.find;
@@ -16737,6 +16742,8 @@ var require_dom = __commonJS({
     };
     _extends(LiveNodeList, NodeList);
     function NamedNodeMap() {
+      this._nsIndex = /* @__PURE__ */ Object.create(null);
+      this._noNsIndex = /* @__PURE__ */ Object.create(null);
     }
     function _findNodeIndex(list, node) {
       var i2 = 0;
@@ -16747,6 +16754,30 @@ var require_dom = __commonJS({
         i2++;
       }
     }
+    function _nnmBucket(map, namespaceURI, create) {
+      if (!namespaceURI) {
+        return map._noNsIndex;
+      }
+      var bucket = map._nsIndex[namespaceURI];
+      if (!bucket && create) {
+        bucket = map._nsIndex[namespaceURI] = /* @__PURE__ */ Object.create(null);
+      }
+      return bucket;
+    }
+    function _nnmIndexFind(map, namespaceURI, localName) {
+      var bucket = _nnmBucket(map, namespaceURI, false);
+      var found = bucket && bucket[localName];
+      return found ? found : null;
+    }
+    function _nnmIndexAdd(map, attr) {
+      _nnmBucket(map, attr.namespaceURI, true)[attr.localName] = attr;
+    }
+    function _nnmIndexRemove(map, attr) {
+      var bucket = _nnmBucket(map, attr.namespaceURI, false);
+      if (bucket) {
+        delete bucket[attr.localName];
+      }
+    }
     function _addNamedNode(el2, list, newAttr, oldAttr) {
       if (oldAttr) {
         list[_findNodeIndex(list, oldAttr)] = newAttr;
@@ -16754,6 +16785,7 @@ var require_dom = __commonJS({
         list[list.length] = newAttr;
         list.length++;
       }
+      _nnmIndexAdd(list, newAttr);
       if (el2) {
         newAttr.ownerElement = el2;
         var doc = el2.ownerDocument;
@@ -16771,6 +16803,7 @@ var require_dom = __commonJS({
           list[i2] = list[++i2];
         }
         list.length = lastIndex;
+        _nnmIndexRemove(list, attr);
         if (el2) {
           var doc = el2.ownerDocument;
           if (doc) {
@@ -16826,7 +16859,7 @@ var require_dom = __commonJS({
         if (el2 && el2 !== this._ownerElement) {
           throw new DOMException(DOMException.INUSE_ATTRIBUTE_ERR);
         }
-        var oldAttr = this.getNamedItemNS(attr.namespaceURI, attr.localName);
+        var oldAttr = _nnmIndexFind(this, attr.namespaceURI, attr.localName);
         if (oldAttr === attr) {
           return attr;
         }
@@ -17488,8 +17521,29 @@ var require_dom = __commonJS({
             while (child) {
               var next = child.nextSibling;
               if (next !== null && next.nodeType === TEXT_NODE && child.nodeType === TEXT_NODE) {
-                node.removeChild(next);
-                child.appendData(next.data);
+                var tail = [];
+                var sibling = next;
+                while (sibling !== null && sibling.nodeType === TEXT_NODE) {
+                  tail.push(sibling.data);
+                  sibling = sibling.nextSibling;
+                }
+                var removed = child.nextSibling;
+                while (removed !== sibling) {
+                  var following = removed.nextSibling;
+                  removed.parentNode = null;
+                  removed.previousSibling = null;
+                  removed.nextSibling = null;
+                  removed = following;
+                }
+                child.nextSibling = sibling;
+                if (sibling !== null) {
+                  sibling.previousSibling = child;
+                } else {
+                  node.lastChild = child;
+                }
+                child.appendData(tail.join(""));
+                _onUpdateChild(node.ownerDocument, node);
+                child = sibling;
               } else {
                 child = next;
               }
@@ -18127,10 +18181,10 @@ var require_dom = __commonJS({
        * "InvalidCharacterError".
        *
        * Note: When the resulting document is serialized with `requireWellFormed: true`, the
-       * serializer throws `InvalidStateError` if `.target` contains `:` or is an ASCII
-       * case-insensitive match for `"xml"`, or if `.data` contains `?>` or characters outside the
-       * XML Char production (W3C DOM Parsing §3.2.1.7). Without that option the data is emitted
-       * verbatim.
+       * serializer throws `InvalidStateError` if `.target` is not a valid XML `NCName` (a `Name`
+       * with no colon) or is an ASCII case-insensitive match for `"xml"`, or if `.data` contains
+       * `?>` or characters outside the XML Char production (W3C DOM Parsing §3.2.1.7). Without that
+       * option the target and data are emitted verbatim.
        *
        * @param {string} target
        * @param {string} data
@@ -18185,19 +18239,29 @@ var require_dom = __commonJS({
        * The current implementation does not fill the `childNodes` with those of the corresponding
        * `Entity`
        *
+       * The `name` is validated against the XML `Name` production at creation time; an invalid name
+       * throws `InvalidCharacterError`. When the resulting node is serialized with
+       * `requireWellFormed: true`, the serializer re-validates `nodeName` against the XML `Name`
+       * production and throws `InvalidStateError` if a later `nodeName` mutation made it invalid;
+       * without that option the name is emitted verbatim.
+       *
+       * __This implementation differs from the specification:__ xmldom does not expand entities —
+       * the parser resolves entity references inline and never constructs `EntityReference` nodes,
+       * so this method is the only producer.
+       *
        * @deprecated
        * In DOM Level 4.
        * @param {string} name
        * The name of the entity to reference. No namespace well-formedness checks are performed.
        * @returns {EntityReference}
        * @throws {DOMException}
-       * With code `INVALID_CHARACTER_ERR` when `name` is not valid.
+       * With code `INVALID_CHARACTER_ERR` when `name` is not a valid XML `Name`.
        * @throws {DOMException}
        * with code `NOT_SUPPORTED_ERR` when the document is of type `html`
        * @see https://www.w3.org/TR/DOM-Level-3-Core/core.html#ID-392B75AE
        */
       createEntityReference: function(name) {
-        if (!g3.Name.test(name)) {
+        if (!g3.Name_exact.test(name)) {
           throw new DOMException(DOMException.INVALID_CHARACTER_ERR, 'not a valid xml name "' + name + '"');
         }
         if (this.type === "html") {
@@ -18635,7 +18699,13 @@ var require_dom = __commonJS({
       }
       return true;
     }
-    function addSerializedAttribute(buf, qualifiedName, value) {
+    function addSerializedAttribute(buf, qualifiedName, value, requireWellFormed) {
+      if (requireWellFormed && !g3.QName_exact.test(qualifiedName)) {
+        throw new DOMException(
+          'The attribute name "' + qualifiedName + '" is not a valid XML QName',
+          DOMExceptionName.InvalidStateError
+        );
+      }
       buf.push(" ", qualifiedName, '="', value.replace(/[<>&"\t\n\r]/g, _xmlEncoder), '"');
     }
     function serializeToString(node, buf, visibleNamespaces, opts) {
@@ -18699,6 +18769,12 @@ var require_dom = __commonJS({
                     }
                   }
                 }
+                if (requireWellFormed && !g3.QName_exact.test(prefixedNodeName)) {
+                  throw new DOMException(
+                    'The element name "' + prefixedNodeName + '" is not a valid XML QName',
+                    DOMExceptionName.InvalidStateError
+                  );
+                }
                 buf.push("<", prefixedNodeName);
                 var childNamespaces = namespaces.slice();
                 for (var i2 = 0; i2 < len; i2++) {
@@ -18717,7 +18793,7 @@ var require_dom = __commonJS({
                   if (needNamespaceDefine(attr, isHTML, childNamespaces)) {
                     var attrPrefix = attr.prefix || "";
                     var uri = attr.namespaceURI;
-                    addSerializedAttribute(buf, attrPrefix ? "xmlns:" + attrPrefix : "xmlns", uri);
+                    addSerializedAttribute(buf, attrPrefix ? "xmlns:" + attrPrefix : "xmlns", uri, requireWellFormed);
                     childNamespaces.push({ prefix: attrPrefix, namespace: uri });
                   }
                   var filteredAttr = nodeFilter ? nodeFilter(attr) : attr;
@@ -18725,14 +18801,14 @@ var require_dom = __commonJS({
                     if (typeof filteredAttr === "string") {
                       buf.push(filteredAttr);
                     } else {
-                      addSerializedAttribute(buf, filteredAttr.name, filteredAttr.value);
+                      addSerializedAttribute(buf, filteredAttr.name, filteredAttr.value, requireWellFormed);
                     }
                   }
                 }
                 if (nodeName === prefixedNodeName && needNamespaceDefine(n, isHTML, childNamespaces)) {
                   var nodePrefix = n.prefix || "";
                   var uri = n.namespaceURI;
-                  addSerializedAttribute(buf, nodePrefix ? "xmlns:" + nodePrefix : "xmlns", uri);
+                  addSerializedAttribute(buf, nodePrefix ? "xmlns:" + nodePrefix : "xmlns", uri, requireWellFormed);
                   childNamespaces.push({ prefix: nodePrefix, namespace: uri });
                 }
                 var canCloseTag = !n.firstChild;
@@ -18765,7 +18841,7 @@ var require_dom = __commonJS({
                 }
                 return { ns: namespaces };
               case ATTRIBUTE_NODE:
-                addSerializedAttribute(buf, n.name, n.value);
+                addSerializedAttribute(buf, n.name, n.value, requireWellFormed);
                 return null;
               case TEXT_NODE:
                 if (requireWellFormed && g3.InvalidChar.test(n.data)) {
@@ -18807,6 +18883,12 @@ var require_dom = __commonJS({
                 var pubid = n.publicId;
                 var sysid = n.systemId;
                 if (requireWellFormed) {
+                  if (!g3.Name_exact.test(n.name)) {
+                    throw new DOMException(
+                      'The doctype name "' + n.name + '" is not a valid XML Name',
+                      DOMExceptionName.InvalidStateError
+                    );
+                  }
                   if (pubid && !g3.PubidLiteral_match.test(pubid)) {
                     throw new DOMException("DocumentType publicId is not a valid PubidLiteral", DOMExceptionName.InvalidStateError);
                   }
@@ -18833,8 +18915,11 @@ var require_dom = __commonJS({
                 return null;
               case PROCESSING_INSTRUCTION_NODE:
                 if (requireWellFormed) {
-                  if (n.target.indexOf(":") !== -1 || n.target.toLowerCase() === "xml") {
-                    throw new DOMException("The ProcessingInstruction target is not well-formed", DOMExceptionName.InvalidStateError);
+                  if (!g3.NCName_exact.test(n.target) || n.target.toLowerCase() === "xml") {
+                    throw new DOMException(
+                      'The processing instruction target "' + n.target + '" is not a valid XML NCName or is reserved',
+                      DOMExceptionName.InvalidStateError
+                    );
                   }
                   if (g3.InvalidChar.test(n.data)) {
                     throw new DOMException(
@@ -18849,6 +18934,12 @@ var require_dom = __commonJS({
                 buf.push("<?", n.target, " ", n.data, "?>");
                 return null;
               case ENTITY_REFERENCE_NODE:
+                if (requireWellFormed && !g3.Name_exact.test(n.nodeName)) {
+                  throw new DOMException(
+                    'The entity reference name "' + n.nodeName + '" is not a valid XML Name',
+                    DOMExceptionName.InvalidStateError
+                  );
+                }
                 buf.push("&", n.nodeName, ";");
                 return null;
               //case ENTITY_NODE:
@@ -18986,6 +19077,25 @@ var require_dom = __commonJS({
             }
           }
         });
+        Object.defineProperty(CharacterData.prototype, "data", {
+          get: function() {
+            return this._data != null ? this._data : "";
+          },
+          set: function(v3) {
+            this._data = v3;
+            this.length = typeof v3 === "string" ? v3.length : 0;
+          }
+        });
+        Object.defineProperty(CharacterData.prototype, "nodeValue", {
+          get: function() {
+            return this.data;
+          },
+          set: function(v3) {
+            this.data = v3;
+          },
+          enumerable: true,
+          configurable: true
+        });
         Object.defineProperty(Element.prototype, "children", {
           get: function() {
             return new LiveNodeList(this, childrenRefresh);
@@ -19031,9 +19141,9 @@ var require_dom = __commonJS({
   }
 });
 
-// node_modules/.pnpm/@xmldom+xmldom@0.9.10/node_modules/@xmldom/xmldom/lib/entities.js
+// node_modules/.pnpm/@xmldom+xmldom@0.9.12/node_modules/@xmldom/xmldom/lib/entities.js
 var require_entities = __commonJS({
-  "node_modules/.pnpm/@xmldom+xmldom@0.9.10/node_modules/@xmldom/xmldom/lib/entities.js"(exports) {
+  "node_modules/.pnpm/@xmldom+xmldom@0.9.12/node_modules/@xmldom/xmldom/lib/entities.js"(exports) {
     "use strict";
     var freeze = require_conventions().freeze;
     exports.XML_ENTITIES = freeze({
@@ -21174,9 +21284,9 @@ var require_entities = __commonJS({
   }
 });
 
-// node_modules/.pnpm/@xmldom+xmldom@0.9.10/node_modules/@xmldom/xmldom/lib/sax.js
+// node_modules/.pnpm/@xmldom+xmldom@0.9.12/node_modules/@xmldom/xmldom/lib/sax.js
 var require_sax2 = __commonJS({
-  "node_modules/.pnpm/@xmldom+xmldom@0.9.10/node_modules/@xmldom/xmldom/lib/sax.js"(exports) {
+  "node_modules/.pnpm/@xmldom+xmldom@0.9.12/node_modules/@xmldom/xmldom/lib/sax.js"(exports) {
     "use strict";
     var conventions = require_conventions();
     var g3 = require_grammar();
@@ -21299,9 +21409,26 @@ var require_sax2 = __commonJS({
               if (!tagNameRaw) {
                 return errorHandler.fatalError("end tag name missing");
               }
-              var tagNameMatch = end > 0 && g3.reg("^", g3.QName_group, g3.S_OPT, "$").exec(tagNameRaw);
+              var endTagNameStrict = g3.reg("^", g3.QName_group, g3.S_OPT, "$");
+              var tagNameMatch = end > 0 && endTagNameStrict.exec(tagNameRaw);
               if (!tagNameMatch) {
-                return errorHandler.fatalError('end tag name contains invalid characters: "' + tagNameRaw + '"');
+                var leadingTagNameMatch = end > 0 && g3.reg("^", g3.QName_group).exec(tagNameRaw);
+                if (isHTML && leadingTagNameMatch) {
+                  errorHandler.warning('end tag name contains invalid trailing characters: "' + tagNameRaw + '"');
+                  tagNameMatch = leadingTagNameMatch;
+                } else if (
+                  // Backward compatibility, remove this whole `else if` arm in the next breaking release
+                  // (XML then falls through to the `fatalError` below, for a clean mode split: XML fatal,
+                  // HTML warning). A valid end-tag name followed by a line break and trailing content was
+                  // silently accepted while `reg` still used the `m` flag; re-adding `m` here matches exactly
+                  // those inputs, kept recoverable and reported.
+                  leadingTagNameMatch && new RegExp(endTagNameStrict.source, endTagNameStrict.flags + "m").test(tagNameRaw)
+                ) {
+                  errorHandler.error('end tag name is followed by a line break and trailing content: "' + tagNameRaw + '"');
+                  tagNameMatch = leadingTagNameMatch;
+                } else {
+                  return errorHandler.fatalError('end tag name contains invalid characters: "' + tagNameRaw + '"');
+                }
               }
               if (!domBuilder.currentElement && !domBuilder.doc.documentElement) {
                 return;
@@ -21375,7 +21502,7 @@ var require_sax2 = __commonJS({
           if (e2 instanceof ParseError) {
             throw e2;
           } else if (e2 instanceof DOMException) {
-            throw new ParseError(e2.name + ": " + e2.message, domBuilder.locator, e2);
+            return errorHandler.fatalError("Error constructing the DOM: " + e2.name + ": " + e2.message, e2);
           }
           errorHandler.error("element parse error: " + e2);
           end = -1;
@@ -21416,6 +21543,9 @@ var require_sax2 = __commonJS({
       var s = S_TAG;
       while (true) {
         var c3 = source.charAt(p3);
+        if (s === S_TAG && c3 === "<") {
+          throw new Error("unexpected < in tag name: " + source.slice(start, p3));
+        }
         switch (c3) {
           case "=":
             if (s === S_ATTR) {
@@ -21591,7 +21721,7 @@ var require_sax2 = __commonJS({
         if (nsPrefix !== false) {
           if (localNSMap == null) {
             localNSMap = /* @__PURE__ */ Object.create(null);
-            _copy(currentNSMap, currentNSMap = /* @__PURE__ */ Object.create(null));
+            currentNSMap = Object.create(currentNSMap);
           }
           currentNSMap[nsPrefix] = localNSMap[nsPrefix] = value;
           a.uri = NAMESPACE.XMLNS;
@@ -21638,7 +21768,13 @@ var require_sax2 = __commonJS({
     function parseHtmlSpecialContent(source, elStartEnd, tagName, entityReplacer, domBuilder) {
       var isEscapableRaw = isHTMLEscapableRawTextElement(tagName);
       if (isEscapableRaw || isHTMLRawTextElement(tagName)) {
-        var elEndStart = source.indexOf("</" + tagName + ">", elStartEnd);
+        var closeTag = new RegExp("</" + tagName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + ">", "ig");
+        closeTag.lastIndex = elStartEnd;
+        var match = closeTag.exec(source);
+        var elEndStart = match ? match.index : -1;
+        if (elEndStart < 0) {
+          return elStartEnd + 1;
+        }
         var text = source.substring(elStartEnd + 1, elEndStart);
         if (isEscapableRaw) {
           text = text.replace(ENTITY_REG, entityReplacer);
@@ -21930,9 +22066,9 @@ var require_sax2 = __commonJS({
   }
 });
 
-// node_modules/.pnpm/@xmldom+xmldom@0.9.10/node_modules/@xmldom/xmldom/lib/dom-parser.js
+// node_modules/.pnpm/@xmldom+xmldom@0.9.12/node_modules/@xmldom/xmldom/lib/dom-parser.js
 var require_dom_parser = __commonJS({
-  "node_modules/.pnpm/@xmldom+xmldom@0.9.10/node_modules/@xmldom/xmldom/lib/dom-parser.js"(exports) {
+  "node_modules/.pnpm/@xmldom+xmldom@0.9.12/node_modules/@xmldom/xmldom/lib/dom-parser.js"(exports) {
     "use strict";
     var conventions = require_conventions();
     var dom = require_dom();
@@ -22142,14 +22278,16 @@ var require_dom_parser = __commonJS({
        *
        * @param {string} message
        * - The message to be used for reporting and throwing the error.
+       * @param {Error} [cause]
+       * The error that caused this fatal error, preserved as the thrown `ParseError`'s `cause`.
        * @returns {never}
        * This function always throws an error and never returns a value.
        * @throws {ParseError}
        * Always throws a ParseError with the provided message.
        */
-      fatalError: function(message) {
+      fatalError: function(message, cause) {
         this.reportError("fatalError", message);
-        throw new ParseError(message, this.locator);
+        throw new ParseError(message, this.locator, cause);
       }
     };
     function _locator(l3) {
@@ -22196,9 +22334,9 @@ var require_dom_parser = __commonJS({
   }
 });
 
-// node_modules/.pnpm/@xmldom+xmldom@0.9.10/node_modules/@xmldom/xmldom/lib/index.js
+// node_modules/.pnpm/@xmldom+xmldom@0.9.12/node_modules/@xmldom/xmldom/lib/index.js
 var require_lib5 = __commonJS({
-  "node_modules/.pnpm/@xmldom+xmldom@0.9.10/node_modules/@xmldom/xmldom/lib/index.js"(exports) {
+  "node_modules/.pnpm/@xmldom+xmldom@0.9.12/node_modules/@xmldom/xmldom/lib/index.js"(exports) {
     "use strict";
     var conventions = require_conventions();
     exports.assign = conventions.assign;
@@ -28675,7 +28813,7 @@ var require_docxtemplater = __commonJS({
   }
 });
 
-// node_modules/.pnpm/@eigenpal+docx-editor-agents@1.8.3_ai@6.0.146_zod@4.3.6__react@19.2.4/node_modules/@eigenpal/docx-editor-agents/dist/chunk-UILTIEBD.mjs
+// node_modules/.pnpm/@eigenpal+docx-editor-agents@1.8.3_ai@6.0.146_zod@4.5.4__react@19.2.4/node_modules/@eigenpal/docx-editor-agents/dist/chunk-UILTIEBD.mjs
 function T2(e2, r, t = {}) {
   return b(e2, r, t).buffer;
 }
@@ -28781,14 +28919,14 @@ function U2(e2 = {}) {
 }
 var import_pizzip, import_docxtemplater, z2;
 var init_chunk_UILTIEBD = __esm({
-  "node_modules/.pnpm/@eigenpal+docx-editor-agents@1.8.3_ai@6.0.146_zod@4.3.6__react@19.2.4/node_modules/@eigenpal/docx-editor-agents/dist/chunk-UILTIEBD.mjs"() {
+  "node_modules/.pnpm/@eigenpal+docx-editor-agents@1.8.3_ai@6.0.146_zod@4.5.4__react@19.2.4/node_modules/@eigenpal/docx-editor-agents/dist/chunk-UILTIEBD.mjs"() {
     import_pizzip = __toESM(require_js(), 1);
     import_docxtemplater = __toESM(require_docxtemplater(), 1);
     z2 = T2;
   }
 });
 
-// node_modules/.pnpm/@eigenpal+docx-editor-agents@1.8.3_ai@6.0.146_zod@4.3.6__react@19.2.4/node_modules/@eigenpal/docx-editor-agents/dist/processTemplate-DEFHEMLN.mjs
+// node_modules/.pnpm/@eigenpal+docx-editor-agents@1.8.3_ai@6.0.146_zod@4.5.4__react@19.2.4/node_modules/@eigenpal/docx-editor-agents/dist/processTemplate-DEFHEMLN.mjs
 var processTemplate_DEFHEMLN_exports = {};
 __export(processTemplate_DEFHEMLN_exports, {
   createTemplateProcessor: () => U2,
@@ -28804,12 +28942,12 @@ __export(processTemplate_DEFHEMLN_exports, {
   validateTemplate: () => D2
 });
 var init_processTemplate_DEFHEMLN = __esm({
-  "node_modules/.pnpm/@eigenpal+docx-editor-agents@1.8.3_ai@6.0.146_zod@4.3.6__react@19.2.4/node_modules/@eigenpal/docx-editor-agents/dist/processTemplate-DEFHEMLN.mjs"() {
+  "node_modules/.pnpm/@eigenpal+docx-editor-agents@1.8.3_ai@6.0.146_zod@4.5.4__react@19.2.4/node_modules/@eigenpal/docx-editor-agents/dist/processTemplate-DEFHEMLN.mjs"() {
     init_chunk_UILTIEBD();
   }
 });
 
-// node_modules/.pnpm/@eigenpal+docx-editor-agents@1.8.3_ai@6.0.146_zod@4.3.6__react@19.2.4/node_modules/@eigenpal/docx-editor-agents/dist/chunk-LPCN5G3A.mjs
+// node_modules/.pnpm/@eigenpal+docx-editor-agents@1.8.3_ai@6.0.146_zod@4.5.4__react@19.2.4/node_modules/@eigenpal/docx-editor-agents/dist/chunk-LPCN5G3A.mjs
 function A2(e2) {
   return e2.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&apos;");
 }
@@ -35202,7 +35340,7 @@ function Bp() {
 }
 var import_jszip, import_xml_js, ce2, ue2, Zn, Bs, sa, V2, Aa, H2, Ba, $a, Oa, za, Hr, Ua, qa, Gr, Za, Ka, Qa, gt, ht, wt, xt, el, wo, xo, So, Ct, gn, yl, Al, Ll, Xl, Hl, ec, Ho, En, Zo, Jo, wc, xc, zi, _e, et, Qi, ze, iu, Zi, Bn, An, Qe, Ki, fu, mu, gu, hu, yu, Su, Pu, tt, ae, ye, Wt, Ve2, Af, le2, ws, Me, ip, Ps, ap, Gn, Ap, Gw;
 var init_chunk_LPCN5G3A = __esm({
-  "node_modules/.pnpm/@eigenpal+docx-editor-agents@1.8.3_ai@6.0.146_zod@4.3.6__react@19.2.4/node_modules/@eigenpal/docx-editor-agents/dist/chunk-LPCN5G3A.mjs"() {
+  "node_modules/.pnpm/@eigenpal+docx-editor-agents@1.8.3_ai@6.0.146_zod@4.5.4__react@19.2.4/node_modules/@eigenpal/docx-editor-agents/dist/chunk-LPCN5G3A.mjs"() {
     init_chunk_2WFD55YM();
     import_jszip = __toESM(require_lib3(), 1);
     import_xml_js = __toESM(require_lib4(), 1);
@@ -35515,7 +35653,7 @@ var init_chunk_LPCN5G3A = __esm({
   }
 });
 
-// node_modules/.pnpm/@eigenpal+docx-editor-agents@1.8.3_ai@6.0.146_zod@4.3.6__react@19.2.4/node_modules/@eigenpal/docx-editor-agents/dist/headless-HLWBVNLB.mjs
+// node_modules/.pnpm/@eigenpal+docx-editor-agents@1.8.3_ai@6.0.146_zod@4.5.4__react@19.2.4/node_modules/@eigenpal/docx-editor-agents/dist/headless-HLWBVNLB.mjs
 var headless_HLWBVNLB_exports = {};
 __export(headless_HLWBVNLB_exports, {
   ContentControlBoundError: () => Ve2,
@@ -35644,14 +35782,14 @@ __export(headless_HLWBVNLB_exports, {
   validateTemplate: () => D2
 });
 var init_headless_HLWBVNLB = __esm({
-  "node_modules/.pnpm/@eigenpal+docx-editor-agents@1.8.3_ai@6.0.146_zod@4.3.6__react@19.2.4/node_modules/@eigenpal/docx-editor-agents/dist/headless-HLWBVNLB.mjs"() {
+  "node_modules/.pnpm/@eigenpal+docx-editor-agents@1.8.3_ai@6.0.146_zod@4.5.4__react@19.2.4/node_modules/@eigenpal/docx-editor-agents/dist/headless-HLWBVNLB.mjs"() {
     init_chunk_LPCN5G3A();
     init_chunk_UILTIEBD();
     init_chunk_2WFD55YM();
   }
 });
 
-// node_modules/.pnpm/@eigenpal+docx-editor-agents@1.8.3_ai@6.0.146_zod@4.3.6__react@19.2.4/node_modules/@eigenpal/docx-editor-agents/dist/chunk-CTF74DCM.mjs
+// node_modules/.pnpm/@eigenpal+docx-editor-agents@1.8.3_ai@6.0.146_zod@4.5.4__react@19.2.4/node_modules/@eigenpal/docx-editor-agents/dist/chunk-CTF74DCM.mjs
 init_chunk_LPCN5G3A();
 init_chunk_2WFD55YM();
 function h2(o3) {
@@ -36171,7 +36309,7 @@ function ke2(o3) {
   } };
 }
 
-// node_modules/.pnpm/@eigenpal+docx-editor-agents@1.8.3_ai@6.0.146_zod@4.3.6__react@19.2.4/node_modules/@eigenpal/docx-editor-agents/dist/chunk-52DPIL2H.mjs
+// node_modules/.pnpm/@eigenpal+docx-editor-agents@1.8.3_ai@6.0.146_zod@4.5.4__react@19.2.4/node_modules/@eigenpal/docx-editor-agents/dist/chunk-52DPIL2H.mjs
 init_chunk_LPCN5G3A();
 function R4(o3, e2) {
   let { paragraphIndex: t, author: n = "AI", text: r, search: a } = e2, s = R3(o3, t), i2 = (o3.comments ?? []).map((m4) => m4.id), p3 = i2.length > 0 ? Math.max(...i2) + 1 : 1, u3 = { id: p3, author: n, date: (/* @__PURE__ */ new Date()).toISOString(), content: [{ type: "paragraph", content: [{ type: "run", content: [{ type: "text", text: r }] }], formatting: {} }] };
@@ -36397,7 +36535,7 @@ var X4 = class o {
   }
 };
 
-// node_modules/.pnpm/@eigenpal+docx-editor-agents@1.8.3_ai@6.0.146_zod@4.3.6__react@19.2.4/node_modules/@eigenpal/docx-editor-agents/dist/chunk-MSKW7E36.mjs
+// node_modules/.pnpm/@eigenpal+docx-editor-agents@1.8.3_ai@6.0.146_zod@4.5.4__react@19.2.4/node_modules/@eigenpal/docx-editor-agents/dist/chunk-MSKW7E36.mjs
 var c2 = ["single", "words", "double", "thick", "dotted", "dottedHeavy", "dash", "dashedHeavy", "dashLong", "dashLongHeavy", "dotDash", "dashDotHeavy", "dotDotDash", "dashDotDotHeavy", "wave", "wavyHeavy", "wavyDouble", "none"];
 var o2 = ["black", "blue", "cyan", "darkBlue", "darkCyan", "darkGray", "darkGreen", "darkMagenta", "darkRed", "darkYellow", "green", "lightGray", "magenta", "red", "white", "yellow", "none"];
 var p2 = { name: "apply_formatting", displayName: "Applying formatting", description: 'Apply character formatting (bold, italic, underline, strike, color, highlight, font size, font family) to a paragraph or to a unique phrase within it. Pass `search` to scope the change to part of the paragraph; omit it to format the whole paragraph. Direct edit \u2014 does not create a tracked change. Pass `false` to clear a mark; omit a key to leave it untouched. Color uses `{rgb: "FF0000"}` (no hash) or `{themeColor: "accent1"}`. Font size is in points. Font family takes `{ascii, hAnsi}`.', inputSchema: { type: "object", properties: { paraId: { type: "string", description: "Paragraph id from read_document / find_text." }, search: { type: "string", description: "Optional: format only this exact phrase within the paragraph (must be unique)." }, marks: { type: "object", description: "Marks to set or clear. Omit a key to leave it untouched.", properties: { bold: { type: "boolean" }, italic: { type: "boolean" }, underline: { description: 'true \u2192 single underline; false \u2192 clear; or { style: "single"|"double"|"thick"|"dotted"|"dottedHeavy"|"dash"|"dashedHeavy"|"dashLong"|"dashLongHeavy"|"dotDash"|"dashDotHeavy"|"dotDotDash"|"dashDotDotHeavy"|"wave"|"wavyHeavy"|"wavyDouble"|"words"|"none" }. Other values are rejected.' }, strike: { type: "boolean" }, color: { type: "object", description: 'Either {rgb: "RRGGBB"} (no hash) or {themeColor: "accent1"|"text1"|...}.', properties: { rgb: { type: "string" }, themeColor: { type: "string" } } }, highlight: { type: "string", enum: [...o2], description: "Highlight color \u2014 must be one of the Word-supported names: " + o2.join(", ") + '. Pass "none" to clear. Hex values are rejected (Word does not accept hex for <w:highlight>).' }, fontSize: { type: "number", description: "Size in points (e.g. 12, 14, 24)." }, fontFamily: { type: "object", properties: { ascii: { type: "string" }, hAnsi: { type: "string" } } } } } }, required: ["paraId", "marks"] }, handler: (e2, r) => {

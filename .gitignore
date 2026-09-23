@@ -64,3 +64,6 @@ apps/app/dist-docx-performance/
 # Browser verification artifacts
 /.playwright-cli/
 /output/playwright/
+
+# Checksum-pinned runtime downloaded during desktop builds.
+apps/desktop/resources/node/

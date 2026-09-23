@@ -18,7 +18,7 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { app, BrowserWindow, clipboard, desktopCapturer, dialog, globalShortcut, ipcMain, nativeImage, nativeTheme, Notification, powerMonitor, powerSaveBlocker, protocol, session, shell, systemPreferences } from "electron";
+import { app, BrowserWindow, clipboard, desktopCapturer, dialog, globalShortcut, ipcMain as electronIpcMain, nativeImage, nativeTheme, Notification, powerMonitor, powerSaveBlocker, protocol, session, shell, systemPreferences } from "electron";
 import { configureRemoteDebugging } from "./remote-debugging.mjs";
 import { configureFakeMediaForTests, installMediaPermissionHandlers } from "./media-permissions.mjs";
 import { appendLoopbackFeatureFlags, disableLoopbackAudio, enableLoopbackAudio, isLoopbackCaptureArmed } from "./audio/loopback.mjs";
@@ -52,6 +52,8 @@ import {
 import { createUiControlServer } from "./ui-control-server.mjs";
 import { createApplicationMenu } from "./app-menu.mjs";
 import { createBrowserPanel } from "./browser-panel.mjs";
+import { createAppUrlMatcher, guardIpcMain, guardPreviewNavigation } from "./app-url.mjs";
+import { createSafeOpen } from "./safe-open.mjs";
 import { createWorkspaceStore } from "./workspace-store.mjs";
 import { exportSkillFolder, readSkillArchive } from "./workspace-archive.mjs";
 import { extractDescription } from "./skill-description.mjs";
@@ -67,7 +69,7 @@ const RECORDING_AUDIO_SCHEME = "lw-recording";
 protocol.registerSchemesAsPrivileged([
   {
     scheme: RECORDING_AUDIO_SCHEME,
-    privileges: { standard: true, secure: true, supportFetchAPI: true, stream: true, bypassCSP: true },
+    privileges: { standard: true, secure: true, supportFetchAPI: true, stream: true },
   },
 ]);
 
@@ -97,6 +99,44 @@ function recordingAudioContentType(filePath) {
 }
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
+
+// Where the app UI is served from: the dev server, or the built app folder.
+const APP_START_URL = process.env.LEGALWORK_ELECTRON_START_URL?.trim() || process.env.ELECTRON_START_URL?.trim();
+const APP_ROOT = app.isPackaged ? path.join(process.resourcesPath, "app-dist") : path.resolve(__dirname, "../../app/dist");
+const isAppUrl = createAppUrlMatcher({ devServerUrl: APP_START_URL, appRoot: APP_ROOT });
+
+// Only LegalWork's own pages may use the desktop bridge. Browser tabs send
+// menu-overlay:dismiss so a click in a web page closes an open menu.
+const ipcMain = guardIpcMain(electronIpcMain, {
+  isTrustedUrl: isAppUrl,
+  openChannels: ["legalwork:menu-overlay:dismiss"],
+  onRejected: (channel, event) => console.warn(`[security] refused ${channel} from ${event?.senderFrame?.url ?? "an unknown page"}`),
+});
+
+/**
+ * What an app window does with `window.open(url)`. Only LegalWork's own pages
+ * may open as a window (they carry the desktop bridge); a local file goes to
+ * its default app, and anything else to the safe external opener.
+ * @param {string} url
+ * @returns {import("electron").WindowOpenHandlerResponse}
+ */
+function openWindowDecision(url) {
+  if (isAppUrl(url)) return { action: "allow" };
+  if (String(url).startsWith("file://")) {
+    try {
+      void safeOpen.openPath(fileURLToPath(url));
+    } catch {
+      // Not a usable file URL (e.g. a host component) — nothing to open.
+    }
+    return { action: "deny" };
+  }
+  void safeOpen.openExternal(url);
+  return { action: "deny" };
+}
+
+// Untrusted links may open only web/mail URLs. Files outside the document
+// allowlist are revealed without launching their associated application.
+const safeOpen = createSafeOpen({ shell });
 const require = createRequire(import.meta.url);
 const pty = require(["node", "pty"].join("-"));
 const NATIVE_DEEP_LINK_EVENT = "legalwork:deep-link-native";
@@ -399,10 +439,11 @@ app.setAppUserModelId(APP_IDENTIFIER);
 if (process.platform === "darwin") {
   app.setActivationPolicy("regular");
 }
-if (app.isPackaged) {
+const userDataOverride = process.env.LEGALWORK_ELECTRON_USERDATA?.trim();
+// Isolated test profiles must not take over the installed app's deep links.
+if (app.isPackaged && !userDataOverride) {
   app.setAsDefaultProtocolClient(DESKTOP_PROTOCOL_SCHEME);
 }
-const userDataOverride = process.env.LEGALWORK_ELECTRON_USERDATA?.trim();
 if (userDataOverride) {
   app.setPath("userData", userDataOverride);
 } else {
@@ -750,6 +791,8 @@ process.on("unhandledRejection", (reason) => {
 const browserPanel = createBrowserPanel({
   getWindow: () => mainWindow,
   getWindowForEvent: (event) => BrowserWindow.fromWebContents(event?.sender) ?? null,
+  isAllowedAppNavigation: (url) => isAppUrl(url) || url === SHUTDOWN_SCREEN_URL,
+  safeOpen,
 });
 
 const workspaceStore = createWorkspaceStore({
@@ -1127,12 +1170,9 @@ let runtimeDisposedForQuit = false;
 let runtimeDisposeInProgress = false;
 let runtimeBootstrapPromise = null;
 
-function showShutdownScreen() {
-  const win = mainWindow;
-  if (!win || win.isDestroyed()) return;
-  try {
-    win.show();
-    win.webContents.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(`<!doctype html>
+// The only non-app page the main window may show (allowed by name in the
+// navigation guard).
+const SHUTDOWN_SCREEN_URL = `data:text/html;charset=utf-8,${encodeURIComponent(`<!doctype html>
 <html>
   <head>
     <meta charset="utf-8" />
@@ -1153,7 +1193,14 @@ function showShutdownScreen() {
       <div class="body">Closing local workers and background services...</div>
     </main>
   </body>
-</html>`)}`);
+</html>`)}`;
+
+function showShutdownScreen() {
+  const win = mainWindow;
+  if (!win || win.isDestroyed()) return;
+  try {
+    win.show();
+    win.webContents.loadURL(SHUTDOWN_SCREEN_URL);
   } catch {
     // Ignore renderer teardown races during quit.
   }
@@ -1668,22 +1715,8 @@ async function openDetachedSessionWindow(event, input = {}) {
     }
   });
 
-  sessionWindow.webContents.setWindowOpenHandler(({ url }) => {
-    if (url.startsWith("file://")) {
-      try {
-        void shell.openPath(fileURLToPath(url));
-      } catch {
-        void shell.openExternal(url);
-      }
-      return { action: "deny" };
-    }
-    const local = url.startsWith("http://127.0.0.1") || url.startsWith("http://localhost");
-    if (!local) {
-      void shell.openExternal(url);
-      return { action: "deny" };
-    }
-    return { action: "allow" };
-  });
+  guardPreviewNavigation(sessionWindow.webContents);
+  sessionWindow.webContents.setWindowOpenHandler(({ url }) => openWindowDecision(url));
   sessionWindow.webContents.on("will-navigate", (navigationEvent, url) => {
     if (browserPanel.isMainWindowAllowedNavigation(url)) return;
     navigationEvent.preventDefault();
@@ -2550,12 +2583,12 @@ const desktopCommandHandlers = {
   "__openPath": async (event, ...args) => {
       const target = String(args[0] ?? "").trim();
       if (!target) return "Path is required.";
-      return shell.openPath(target);
+      return safeOpen.openPath(target);
   },
   "__revealItemInDir": async (event, ...args) => {
       const target = String(args[0] ?? "").trim();
       if (!target) return undefined;
-      shell.showItemInFolder(target);
+      safeOpen.showItemInFolder(target);
       return undefined;
   },
   "__getFileIcon": async (event, ...args) => {
@@ -2822,26 +2855,8 @@ async function createMainWindow() {
     }, 1_000);
   });
 
-  mainWindow.webContents.setWindowOpenHandler(({ url }) => {
-    if (url.startsWith("file://")) {
-      try {
-        void shell.openPath(fileURLToPath(url));
-      } catch {
-        void shell.openExternal(url);
-      }
-
-      return { action: "deny" };
-    }
-
-    const local =
-      url.startsWith("http://127.0.0.1") ||
-      url.startsWith("http://localhost");
-    if (!local) {
-      void shell.openExternal(url);
-      return { action: "deny" };
-    }
-    return { action: "allow" };
-  });
+  guardPreviewNavigation(mainWindow.webContents);
+  mainWindow.webContents.setWindowOpenHandler(({ url }) => openWindowDecision(url));
 
   mainWindow.webContents.on("will-navigate", (event, url) => {
     if (browserPanel.isMainWindowAllowedNavigation(url)) return;
@@ -2866,13 +2881,10 @@ async function createMainWindow() {
     browserPanel.routeBlockedMainWindowNavigation(url);
   });
 
-  const startUrl = process.env.LEGALWORK_ELECTRON_START_URL?.trim() || process.env.ELECTRON_START_URL?.trim();
-  if (startUrl) {
-    await mainWindow.loadURL(startUrl);
+  if (APP_START_URL) {
+    await mainWindow.loadURL(APP_START_URL);
   } else {
-    const packagedIndexPath = path.join(process.resourcesPath, "app-dist", "index.html");
-    const devIndexPath = path.resolve(__dirname, "../../app/dist/index.html");
-    await mainWindow.loadFile(app.isPackaged ? packagedIndexPath : devIndexPath);
+    await mainWindow.loadFile(path.join(APP_ROOT, "index.html"));
   }
 
   return mainWindow;
@@ -2881,7 +2893,7 @@ async function createMainWindow() {
 ipcMain.handle("legalwork:desktop", handleDesktopInvoke);
 ipcMain.handle("legalwork:shell:openExternal", async (_event, url) => {
   if (typeof url === "string" && url.trim().length > 0) {
-    await shell.openExternal(url);
+    await safeOpen.openExternal(url);
   }
 });
 ipcMain.handle("legalwork:shell:relaunch", async () => {

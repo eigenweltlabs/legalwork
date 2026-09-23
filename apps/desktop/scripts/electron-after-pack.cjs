@@ -87,6 +87,10 @@ function copyExecutableTargetToAlias(sidecarsDir, targetName, aliasName) {
 }
 
 async function afterPack(context) {
+  const appPath = resolveMacAppPath(context);
+  const resources = appPath ? path.join(appPath, "Contents", "Resources") : path.join(context.appOutDir, "resources");
+  const nodePath = path.join(resources, "node", context.electronPlatformName === "win32" ? "node.exe" : "node");
+  if (!fs.existsSync(nodePath)) throw new Error(`Missing packaged Node runtime: ${nodePath}`);
   const triple = targetTriple(context.electronPlatformName, context.arch);
   if (!triple) return;
 

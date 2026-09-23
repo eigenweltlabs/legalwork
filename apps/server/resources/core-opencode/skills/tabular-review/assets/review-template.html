@@ -170,15 +170,19 @@
   let reqSeq = 0;
   const pending = new Map();
   window.addEventListener("message", (e) => {
+    if (e.source !== window.parent) return;
     const d = e.data; if (!d || d.type !== "legalwork:pdf-response") return;
-    const p = pending.get(d.id); if (!p) return; pending.delete(d.id);
+    const p = pending.get(d.id); if (!p) return;
+    if (d.pending) { clearTimeout(p.timeout); return; }
+    clearTimeout(p.timeout); pending.delete(d.id);
     d.ok ? p.resolve(d.data) : p.reject(new Error(d.error || "Could not load file"));
   });
   function requestBytes(path) {
     return new Promise((resolve, reject) => {
-      const id = "r" + reqSeq++; pending.set(id, { resolve, reject });
-      window.parent.postMessage({ type: "legalwork:pdf-request", id, path }, "*");
-      setTimeout(() => { if (pending.has(id)) { pending.delete(id); reject(new Error("The app did not return the file (timed out).")); } }, 20000);
+      const id = "r" + reqSeq++;
+      const timeout = setTimeout(() => { if (pending.has(id)) { pending.delete(id); reject(new Error("The app did not return the file (timed out).")); } }, 20000);
+      pending.set(id, { resolve, reject, timeout });
+      window.parent.postMessage({ type: "legalwork:pdf-request", id, path, waitForAccess: true }, "*");
     });
   }
   const pdfCache = new Map();
@@ -194,6 +198,7 @@
       return await PDFJS.getDocument(src).promise;
     })();
     pdfCache.set(key, promise);
+    promise.catch(() => { pdfCache.delete(key); });
     return promise;
   }
 

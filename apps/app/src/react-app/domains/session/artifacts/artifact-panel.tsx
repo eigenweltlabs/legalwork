@@ -260,39 +260,6 @@ export function ArtifactPanelView({ localReadOnly = false, saveActions, sessionI
     return () => URL.revokeObjectURL(url);
   }, [data, target.preview]);
 
-  // Bridge for sandboxed HTML artifacts (e.g. the tabular-review PDF viewer): the iframe
-  // cannot read local files, so it postMessages a request and we return the bytes.
-  useEffect(() => {
-    const onMessage = (event: MessageEvent) => {
-      const request = event.data as { type?: unknown; path?: unknown; id?: unknown } | null;
-      if (!request || request.type !== "legalwork:pdf-request" || typeof request.path !== "string") {
-        return;
-      }
-      const source = event.source as Window | null;
-      if (!source) {
-        return;
-      }
-      const path = request.path;
-      const id = typeof request.id === "string" ? request.id : path;
-      void (async () => {
-        try {
-          const result = await client.downloadWorkspaceFile(workspaceId, path);
-          source.postMessage(
-            { type: "legalwork:pdf-response", id, path, ok: true, contentType: result.contentType, data: result.data },
-            "*",
-          );
-        } catch (cause) {
-          source.postMessage(
-            { type: "legalwork:pdf-response", id, path, ok: false, error: cause instanceof Error ? cause.message : t("artifact.load_file_failed") },
-            "*",
-          );
-        }
-      })();
-    };
-    window.addEventListener("message", onMessage);
-    return () => window.removeEventListener("message", onMessage);
-  }, [client, workspaceId]);
-
   useEffect(() => {
     setEditing(false);
     setDraft("");
@@ -700,7 +667,7 @@ export function ArtifactPanelView({ localReadOnly = false, saveActions, sessionI
             }}
           />
         ) : target.preview === "html" && data?.kind === "text" ? (
-          <HTMLPreview type="text" title={target.name} content={data.data} />
+          <HTMLPreview key={`${target.id}:${data.updatedAt}`} type="text" title={target.name} content={data.data} readPdf={(path) => client.downloadWorkspaceFile(workspaceId, path)} />
         ) : (target.preview === "audio" || target.preview === "video") && data?.kind === "binary" && binaryObjectUrl ? (
           <MediaPreview key={binaryObjectUrl} kind={target.preview} src={binaryObjectUrl} title={target.name} />
         ) : target.preview === "image" && data?.kind === "binary" && binaryObjectUrl ? (
