@@ -1,9 +1,7 @@
 import assert from "node:assert/strict";
 import { createServer } from "node:http";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { readFile } from "node:fs/promises";
 import { stripTypeScriptTypes } from "node:module";
-import { tmpdir } from "node:os";
-import path from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { app, BrowserWindow, protocol } from "electron";
 import { guardPreviewNavigation } from "../electron/app-url.mjs";
@@ -11,7 +9,8 @@ import { PDFDocument } from "../../server/resources/core-opencode/skills/pdf-too
 
 const securitySource = await readFile(new URL("../../app/src/react-app/domains/session/artifacts/html-preview-security.ts", import.meta.url), "utf8");
 const { offlinePreviewDocument } = await import(`data:text/javascript;base64,${Buffer.from(stripTypeScriptTypes(securitySource)).toString("base64")}`);
-const userData = await mkdtemp(path.join(tmpdir(), "legalwork-preview-security-"));
+const userData = process.env.LEGALWORK_PREVIEW_TEST_USERDATA;
+if (!userData) throw new Error("Run this test through run-preview-security.mjs");
 app.setPath("userData", userData);
 app.on("window-all-closed", () => {});
 let window;
@@ -75,7 +74,6 @@ app.whenReady().then(async () => {
   } finally {
     window?.destroy();
     await new Promise((resolve) => server.close(resolve));
-    await rm(userData, { recursive: true, force: true });
     app.exit(exitCode);
   }
 });

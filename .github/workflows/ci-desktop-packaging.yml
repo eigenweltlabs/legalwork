@@ -59,15 +59,27 @@ jobs:
         run: pnpm --dir apps/desktop exec electron-builder --config electron-builder.yml --${{ matrix.platform }} --x64 --dir --publish never
       - name: Verify shipped fuses, Node and document tools
         run: pnpm --dir apps/desktop check:packaged-security "dist-electron/${{ matrix.executable }}"
-      - name: Verify Windows native modules, preview isolation and packaged startup
+      - name: Verify Windows native modules
         if: runner.os == 'Windows'
-        run: |
-          pnpm --dir apps/desktop test:native
-          pnpm --dir apps/desktop test:preview-security
-          node apps/desktop/scripts/packaged-startup-regression.mjs "apps/desktop/dist-electron/${{ matrix.executable }}"
-      - name: Verify Linux native modules, preview isolation and packaged startup
+        timeout-minutes: 2
+        run: pnpm --dir apps/desktop test:native
+      - name: Verify Windows preview isolation
+        if: runner.os == 'Windows'
+        timeout-minutes: 2
+        run: pnpm --dir apps/desktop test:preview-security
+      - name: Verify Windows packaged startup
+        if: runner.os == 'Windows'
+        timeout-minutes: 3
+        run: node apps/desktop/scripts/packaged-startup-regression.mjs "apps/desktop/dist-electron/${{ matrix.executable }}"
+      - name: Verify Linux native modules
         if: runner.os == 'Linux'
-        run: |
-          xvfb-run -a pnpm --dir apps/desktop exec electron --no-sandbox scripts/native-modules-regression.mjs
-          xvfb-run -a pnpm --dir apps/desktop exec electron --no-sandbox scripts/preview-security-regression.mjs
-          xvfb-run -a node apps/desktop/scripts/packaged-startup-regression.mjs "apps/desktop/dist-electron/${{ matrix.executable }}"
+        timeout-minutes: 2
+        run: xvfb-run -a pnpm --dir apps/desktop exec electron --no-sandbox scripts/native-modules-regression.mjs
+      - name: Verify Linux preview isolation
+        if: runner.os == 'Linux'
+        timeout-minutes: 2
+        run: xvfb-run -a pnpm --dir apps/desktop test:preview-security --no-sandbox
+      - name: Verify Linux packaged startup
+        if: runner.os == 'Linux'
+        timeout-minutes: 3
+        run: xvfb-run -a node apps/desktop/scripts/packaged-startup-regression.mjs "apps/desktop/dist-electron/${{ matrix.executable }}"
