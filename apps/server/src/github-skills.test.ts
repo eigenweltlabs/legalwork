@@ -55,3 +55,52 @@ test("shortens a name over 200 chars by dropping whole trailing words", async ()
     fetchSpy.mockRestore();
   }
 });
+
+// A big repo: every SKILL.md takes a while, and each call honors its signal.
+function stubSlowGithub(paths: string[], respond: (url: string) => Response) {
+  const fetches: string[] = [];
+  const fakeGithub = (input: string | URL | Request, init?: RequestInit) => {
+    const url = String(input);
+    if (url.includes("/git/trees/main")) return Promise.resolve(Response.json({ tree: paths.map((path) => ({ type: "blob", mode: "100644", path })) }));
+    fetches.push(url);
+    return new Promise<Response>((resolve, reject) => {
+      const timer = setTimeout(() => resolve(respond(url)), 20);
+      init?.signal?.addEventListener("abort", () => {
+        clearTimeout(timer);
+        reject(init.signal?.reason);
+      });
+    });
+  };
+  const fetchSpy = spyOn(globalThis, "fetch").mockImplementation(Object.assign(fakeGithub, { preconnect: fetch.preconnect }));
+  return { fetchSpy, fetches };
+}
+
+test("stops scanning once the app stops waiting", async () => {
+  const paths = Array.from({ length: 40 }, (_, index) => `skills/skill-${index}/SKILL.md`);
+  const { fetchSpy, fetches } = stubSlowGithub(paths, () => new Response(SKILL_MD));
+  const app = new AbortController();
+  setTimeout(() => app.abort(), 5);
+  try {
+    await expect(scanGithubSkills({ url: repoUrl("skills"), signal: app.signal })).rejects.toMatchObject({ status: 499, code: "request_cancelled" });
+    expect(fetches.length).toBe(8);
+  } finally {
+    fetchSpy.mockRestore();
+  }
+});
+
+test("logs the SKILL.md files a scan could not read", async () => {
+  const paths = ["skills/good/SKILL.md", "skills/broken/SKILL.md"];
+  const { fetchSpy } = stubSlowGithub(paths, (url) => (url.includes("/broken/") ? new Response("rate limited", { status: 429 }) : new Response(SKILL_MD)));
+  const warn = spyOn(console, "warn").mockImplementation(() => {});
+  try {
+    const scan = await scanGithubSkills({ url: repoUrl("skills") });
+    expect(scan.skills).toHaveLength(2);
+    expect(warn).toHaveBeenCalledWith(
+      `[github-skills] Could not read 1 of 2 SKILL.md files in ${repoUrl("skills")}:`,
+      ["skills/broken/SKILL.md: Failed to read from GitHub (429): rate limited"],
+    );
+  } finally {
+    fetchSpy.mockRestore();
+    warn.mockRestore();
+  }
+});

@@ -37,7 +37,7 @@ import { registerMigrationIpc } from "./migration.mjs";
 import { createRuntimeManager, resolveLegalworkServerConfigPath } from "./runtime.mjs";
 import { createMcpOAuthCallbackBroker, watchMcpOAuthOwner } from "./mcp-oauth-callback.mjs";
 import { buildSupportBundleText, defaultSupportBundleFileName } from "./support-bundle.mjs";
-import { installMainErrorLog } from "./main-error-log.mjs";
+import { installMainErrorLog, logWindowErrors } from "./main-error-log.mjs";
 import {
   ELECTRON_UPDATER_FALLBACK_FEEDS,
   ELECTRON_UPDATER_FEEDS,
@@ -1639,6 +1639,7 @@ async function openDetachedSessionWindow(event, input = {}) {
   detachedSessionWindows.set(key, sessionWindow);
   applicationMenu.applyVisibility(sessionWindow);
   recorderServiceInstance?.subscribe(sessionWindow.webContents);
+  logWindowErrors(sessionWindow.webContents);
 
   sessionWindow.on("page-title-updated", (pageTitleEvent, title) => {
     pageTitleEvent.preventDefault();
@@ -2789,6 +2790,8 @@ async function createMainWindow() {
     browserPanel.destroy();
     mainWindow = null;
   });
+
+  logWindowErrors(mainWindow.webContents);
 
   // A crashed renderer takes the dictation capture pipeline with it; reload
   // so the hotkey keeps working. Repeated crashes stop the loop.
