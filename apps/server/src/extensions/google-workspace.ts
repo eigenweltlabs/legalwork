@@ -1228,3 +1228,49 @@ export function createGoogleWorkspaceConnectFlowManager(config: ServerConfig) {
 
   return { start, status };
 }
+
+/** Server-only access for invitation responses; never returned by an API route. */
+export async function googleWorkspaceInvitationAccess(config: ServerConfig) {
+  const record = googleWorkspacePrimaryRecord(
+    await readGoogleWorkspaceVault(config),
+  );
+  if (!record)
+    throw new ApiError(
+      409,
+      "calendar_not_connected",
+      "Connect Google Workspace in Settings to respond from its primary calendar.",
+    );
+  const identity = googleWorkspaceSafeAccount(record.account);
+  if (!identity?.email || !identity.accountId)
+    throw new ApiError(
+      409,
+      "calendar_identity_unavailable",
+      "Reconnect Google Workspace to verify your calendar identity.",
+    );
+  requireCalendarWriteScope(record);
+  const refreshed = await refreshGoogleWorkspaceVault(record);
+  const current = googleWorkspacePrimaryRecord(
+    await readGoogleWorkspaceVault(config),
+  );
+  if (
+    !current ||
+    googleWorkspaceAccountId(current) !== googleWorkspaceAccountId(record)
+  )
+    throw new ApiError(
+      409,
+      "calendar_account_changed",
+      "The selected calendar account changed. Review the invitation again.",
+    );
+  const token = isRecord(refreshed.token) ? refreshed.token : null;
+  if (typeof token?.accessToken !== "string")
+    throw new ApiError(
+      503,
+      "calendar_unavailable",
+      "Calendar access is unavailable.",
+    );
+  return {
+    accountId: identity.accountId,
+    email: identity.email,
+    accessToken: token.accessToken,
+  };
+}
