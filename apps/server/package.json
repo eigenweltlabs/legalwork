@@ -51,7 +51,7 @@
     "@google-cloud/storage": "^8.0.1",
     "@opencode-ai/sdk": "^1.18.29",
     "basic-ftp": "^6.2.1",
-    "better-sqlite3": "^11.10.0",
+    "better-sqlite3": "^12.11.1",
     "drizzle-orm": "^0.45.1",
     "fflate": "^0.8.3",
     "jsonc-parser": "^3.2.1",
