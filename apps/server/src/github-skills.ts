@@ -48,24 +48,42 @@ function throwIfCancelled(signal?: AbortSignal): void {
   if (signal?.aborted) throw new ApiError(499, "request_cancelled", "The app stopped waiting for GitHub");
 }
 
-// Each GitHub call gets 20 s of its own.
+// No answer from GitHub (connect timeout, dropped connection) as a clear error.
+// Node only says "fetch failed" and keeps the reason in `cause`.
+function unreachable(url: string, error: unknown): ApiError {
+  const cause = error instanceof Error && error.cause instanceof Error ? error.cause : error;
+  const reason = cause instanceof Error ? (cause.name === "TimeoutError" ? "no answer within 20 s" : cause.message) : String(cause);
+  return new ApiError(502, "github_unreachable", `Couldn't reach GitHub (${new URL(url).host}): ${reason}. Check the connection and try again.`);
+}
+
+const GH_ATTEMPTS = 3;
+
+// Each GitHub call gets 20 s per attempt. No answer or a 5xx is tried again:
+// on a flaky connection most calls get through on a later attempt (EIG-200).
 async function ghRequest<T>(
   url: string,
   headers: Record<string, string>,
   signal: AbortSignal | undefined,
   read: (res: Response) => Promise<T>,
 ): Promise<T> {
-  const timeout = AbortSignal.timeout(20_000);
-  try {
-    const res = await fetch(url, { headers, signal: signal ? AbortSignal.any([timeout, signal]) : timeout });
-    if (!res.ok) {
+  for (let attempt = 1; ; attempt += 1) {
+    let failure: ApiError;
+    try {
+      const timeout = AbortSignal.timeout(20_000);
+      const res = await fetch(url, { headers, signal: signal ? AbortSignal.any([timeout, signal]) : timeout });
+      if (res.ok) return await read(res);
       const text = await res.text().catch(() => "");
-      throw new ApiError(502, "github_fetch_failed", `Failed to read from GitHub (${res.status}): ${text || url}`);
+      failure = new ApiError(502, "github_fetch_failed", `Failed to read from GitHub (${res.status}): ${text || url}`);
+      if (res.status < 500) throw failure;
+    } catch (error) {
+      throwIfCancelled(signal);
+      if (error instanceof ApiError) throw error;
+      failure = unreachable(url, error);
     }
-    return await read(res);
-  } catch (error) {
+    if (attempt === GH_ATTEMPTS) throw failure;
+    console.warn(`[github-skills] ${url} failed (attempt ${attempt} of ${GH_ATTEMPTS}), retrying: ${failure.message}`);
+    await new Promise((resolve) => setTimeout(resolve, attempt * 500));
     throwIfCancelled(signal);
-    throw error;
   }
 }
 
@@ -79,6 +97,20 @@ async function ghText(url: string, signal?: AbortSignal): Promise<string> {
 
 async function ghBuffer(url: string, signal?: AbortSignal): Promise<Buffer> {
   return ghRequest(url, { "User-Agent": "legalwork-server" }, signal, async (res) => Buffer.from(await res.arrayBuffer()));
+}
+
+// The import that follows a scan needs the same file list. Reusing it spares
+// the import an api.github.com call, the one that failed twice on a flaky
+// connection in EIG-200 although the scan had just fetched the list.
+const SCAN_REUSE_MS = 10 * 60_000;
+let lastScan: { key: string; tree: TreeBlob[]; at: number } | null = null;
+
+const treeKey = (source: ClaudePluginSource, ref: string) => `${source.owner}/${source.repo}@${ref}`;
+
+function scannedTree(source: ClaudePluginSource, ref: string, skillDirs: string[]): TreeBlob[] | null {
+  if (!lastScan || lastScan.key !== treeKey(source, ref) || Date.now() - lastScan.at > SCAN_REUSE_MS) return null;
+  const { tree } = lastScan;
+  return skillDirs.every((dir) => tree.some((entry) => entry.path === `${dir}/SKILL.md`)) ? tree : null;
 }
 
 async function fetchRepoTree(source: ClaudePluginSource, ref: string, signal?: AbortSignal): Promise<TreeBlob[]> {
@@ -199,6 +231,7 @@ export async function scanGithubSkills(input: {
 }): Promise<{ ref: string; skills: GithubSkillItem[] }> {
   const source = parseClaudePluginSource(input.url);
   const { ref, dir, tree } = await resolveRefAndTree(source, input.ref, input.signal);
+  lastScan = { key: treeKey(source, ref), tree, at: Date.now() };
   const prefix = dir ? `${dir.replace(/\/+$/, "")}/` : "";
   const skillMdPaths = tree
     .filter((entry) => entry.path.endsWith(SKILL_MD_SUFFIX) && entry.path.startsWith(prefix))
@@ -240,7 +273,8 @@ export async function installGithubSkills(input: {
 }): Promise<InstallGithubResult> {
   const source = parseClaudePluginSource(input.url);
   const ref = input.ref?.trim() || (await resolveDefaultBranch(source, input.signal));
-  const tree = await fetchRepoTree(source, ref, input.signal);
+  const skillDirs = input.paths.map((path) => path.replace(/^\/+|\/+$/g, ""));
+  const tree = scannedTree(source, ref, skillDirs) ?? (await fetchRepoTree(source, ref, input.signal));
 
   const skills: ResolvedGithubSkill[] = [];
   const failed: InstallGithubResult["failed"] = [];
