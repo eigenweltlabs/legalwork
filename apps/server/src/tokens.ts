@@ -3,7 +3,7 @@ import { dirname, join, resolve } from "node:path";
 import { readFile, writeFile } from "node:fs/promises";
 
 import type { ServerConfig, TokenScope } from "./types.js";
-import { ensureDir, exists, hashToken, shortId } from "./utils.js";
+import { ensureDir, exists, hashToken, shortId, tokensMatch } from "./utils.js";
 
 export type TokenRecord = {
   id: string;
@@ -141,7 +141,7 @@ export class TokenService {
   async scopeForToken(token: string): Promise<TokenScope | null> {
     const trimmed = token.trim();
     if (!trimmed) return null;
-    if (trimmed === this.config.token) return "collaborator";
+    if (tokensMatch(trimmed, this.config.token)) return "collaborator";
     await this.ensureLoaded();
     const found = this.byHash.get(hashToken(trimmed));
     return found?.scope ?? null;

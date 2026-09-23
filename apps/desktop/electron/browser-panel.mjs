@@ -4,7 +4,7 @@
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { app, WebContentsView, clipboard, session, shell } from "electron";
+import { app, WebContentsView, clipboard, session } from "electron";
 import { createBrowserAutomationBroker } from "./browser-automation-broker.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -18,7 +18,7 @@ const MENU_OVERLAY_WIDTH = 196;
 const MENU_OVERLAY_HEIGHT = 176;
 const MENU_OVERLAY_READY_TIMEOUT_MS = 2000;
 
-export function createBrowserPanel({ getWindow, getWindowForEvent }) {
+export function createBrowserPanel({ getWindow, getWindowForEvent, isAllowedAppNavigation, safeOpen }) {
   const browserTabs = new Map();
   const automationBroker = createBrowserAutomationBroker();
   app.once("will-quit", () => { void automationBroker.close(); });
@@ -120,19 +120,10 @@ export function createBrowserPanel({ getWindow, getWindowForEvent }) {
     return /^https?:\/\//i.test(target) ? target : `https://${target}`;
   }
 
+  // App windows carry the desktop bridge, so they may only show LegalWork's
+  // own pages. Everything else is blocked (web links open in a browser tab).
   function isMainWindowAllowedNavigation(url) {
-    if (!url) return true;
-    if (url.startsWith("file://") || url.startsWith("data:")) return true;
-    try {
-      const target = new URL(url);
-      if (target.hostname === "127.0.0.1" || target.hostname === "localhost") return true;
-      const currentUrl = window()?.webContents.getURL();
-      if (!currentUrl || currentUrl === "about:blank") return true;
-      const current = new URL(currentUrl);
-      return target.origin === current.origin;
-    } catch {
-      return true;
-    }
+    return !url || url === "about:blank" || isAllowedAppNavigation(url);
   }
 
   function routeBlockedMainWindowNavigation(url) {
@@ -392,7 +383,7 @@ export function createBrowserPanel({ getWindow, getWindowForEvent }) {
         if (request.url) clipboard.writeText(request.url);
         break;
       case "open-external":
-        if (request.url && isHttpUrl(request.url)) void shell.openExternal(request.url);
+        if (request.url && isHttpUrl(request.url)) void safeOpen.openExternal(request.url);
         break;
       case "close-tab":
         if (tab) closeBrowserTab(tab.tabId);
@@ -480,8 +471,10 @@ export function createBrowserPanel({ getWindow, getWindowForEvent }) {
     // Load about:blank immediately to preempt persistent-session restore.
     // Cookies live on the session object, not the document — they survive this.
     view.webContents.loadURL("about:blank");
+    // A web page asking for a new window. It cannot open one here, and the
+    // safe opener decides whether the OS ever sees the link.
     view.webContents.setWindowOpenHandler(({ url: targetUrl }) => {
-      void shell.openExternal(targetUrl);
+      void safeOpen.openExternal(targetUrl);
       return { action: "deny" };
     });
     view.webContents.on("did-start-navigation", (_event, targetUrl, isInPlace, isMainFrame) => {

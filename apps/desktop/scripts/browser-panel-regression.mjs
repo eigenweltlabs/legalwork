@@ -13,6 +13,8 @@ app.whenReady().then(() => {
   const panel = createBrowserPanel({
     getWindow: () => main,
     getWindowForEvent: (event) => BrowserWindow.fromWebContents(event.sender),
+    isAllowedAppNavigation: () => false,
+    safeOpen: { openExternal: async () => false, openPath: async () => "", showItemInFolder: () => {} },
   });
   const handlers = new Map();
   panel.registerIpc({

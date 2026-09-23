@@ -3,9 +3,9 @@
 // surface via executeJavaScript. Consumed over HTTP by legalwork-ui-mcp.
 // Extracted from main.mjs; state and lifecycle live in this factory
 // (createRuntimeManager pattern).
-import { randomBytes } from "node:crypto";
+import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 import { createServer } from "node:http";
-import { rm, writeFile } from "node:fs/promises";
+import { chmod, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 
 export function createUiControlServer({ appName, appIdentifier, getWindow, getUserDataDir }) {
@@ -47,9 +47,15 @@ export function createUiControlServer({ appName, appIdentifier, getWindow, getUs
     });
   }
 
+  // Hashed before comparing so the check takes the same time whatever the
+  // caller sends, and so mismatched lengths do not throw.
   function authorizedUiControlRequest(request) {
-    const auth = request.headers.authorization ?? "";
-    return auth === `Bearer ${uiControlToken}`;
+    const auth = String(request.headers.authorization ?? "");
+    if (!auth) return false;
+    return timingSafeEqual(
+      createHash("sha256").update(auth).digest(),
+      createHash("sha256").update(`Bearer ${uiControlToken}`).digest(),
+    );
   }
 
   function jsonForJavaScript(value) {
@@ -138,11 +144,14 @@ export function createUiControlServer({ appName, appIdentifier, getWindow, getUs
     const port = typeof address === "object" && address ? address.port : null;
     if (!port) throw new Error("Could not start LegalWork UI control bridge.");
     uiControlDiscoveryPath = path.join(getUserDataDir(), "legalwork-ui-control.json");
+    // The file carries the bearer token, so keep it readable only by this user
+    // (chmod as well, in case an earlier run left a wider-permission file).
     await writeFile(
       uiControlDiscoveryPath,
       `${JSON.stringify({ version: 1, app: appName, identifier: appIdentifier, platform: process.platform, baseUrl: `http://127.0.0.1:${port}`, token: uiControlToken }, null, 2)}\n`,
-      "utf8",
+      { encoding: "utf8", mode: 0o600 },
     );
+    await chmod(uiControlDiscoveryPath, 0o600).catch(() => undefined);
     // Make the discovery path available to child processes (server → managed OpenCode → plugin).
     process.env.LEGALWORK_UI_CONTROL_DISCOVERY = uiControlDiscoveryPath;
   }
