@@ -11,3 +11,53 @@ test('actual worker saves and binds atomically, denies foreign-grant edits and r
  assert.equal((await service.agentControl({action:'decide',id:proposal.id,approve:false,actionId:null})).proposal.state,'rejected');await service.agentControl({action:'revoke',id:created.grant.id});const fresh=randomUUID();await assert.rejects(service.agentControl({action:'save-draft',grantId:created.grant.id,revision:created.grant.revision,source:null,sourceVersion:null,input:{draftId:fresh,expected:null,content:draft.content}}));await assert.rejects(service.readDraft('a',{draftId:fresh}));assert.equal((await service.listDrafts('a',{})).items.length,1);
 }));
 test('account disconnect invalidates agent capability and pending approval without sending',()=>fixture(async({service,created,proposal})=>{await service.disconnectAccount('a');await assert.rejects(service.agentControl({action:'resolve',token:created.token}));await assert.rejects(service.agentControl({action:'approve',id:proposal.id}));assert.equal((await service.outbox('a')).length,0);}));
+
+import {MailAccountAgent} from '../account-agent.js';
+import {defaultMailAccountActions} from '../account-policy.js';
+const pendingReview=async(agent,session='first')=>{for(let i=0;i<100;i++){const pending=agent.list(session)[0];if(pending)return pending;await new Promise(resolve=>setTimeout(resolve,5));}throw Error('Missing review');};
+async function accountAgentFixture(value,run){
+ const {service,draft}=value;
+ await service.agentControl({action:'set-account-policy',accountId:'a',expectedRevision:0,actions:defaultMailAccountActions});
+ const agent=new MailAccountAgent(service,async input=>{if(!['first','second'].includes(input.sessionId))throw Error('foreign');return'local';});
+ const invoke=(request,sessionId='first',signal)=>agent.invoke({directory:'/local',sessionId,messageId:'assistant-message',accountId:'a',request},signal);
+ const created=await invoke({tool:'draft',source:null,input:{draftId:randomUUID(),expected:null,content:draft.content}});
+ const accountDraft=created.value.draft;
+ await run({...value,agent,invoke,accountDraft});
+}
+test('all-chat account send waits for exact visible review, queues once, and never exposes internal grants',()=>fixture(value=>accountAgentFixture(value,async({service,agent,invoke,accountDraft})=>{
+ await service.agentControl({action:'set-account-policy',accountId:'a',expectedRevision:1,actions:{...defaultMailAccountActions,draft:'deny'}});
+ const waiting=invoke({tool:'propose_send',draftId:accountDraft.id},'second');const review=await pendingReview(agent,'second');
+ assert.equal((await service.outbox('a')).length,0);assert.equal(agent.list('first').length,0);
+ for(const detail of ['Account: Synthetic','From: self@example.com','To: recipient@example.com','Cc: None','Bcc: None','Subject: Review me','Attachments: None','Pinned body'])assert(review.description.includes(detail),detail);
+ assert(!review.description.includes('grantRevision'));assert(!review.description.includes('contentHash'));
+ assert.throws(()=>agent.respond(review.id,'first',true));agent.respond(review.id,'second',true);await waiting;
+ const first=(await service.outbox('a'))[0];assert.equal(first.state,'queued');assert.throws(()=>agent.respond(review.id,'second',true));
+ const again=invoke({tool:'propose_send',draftId:accountDraft.id});const duplicate=await pendingReview(agent);agent.respond(duplicate.id,'first',true);await again;
+ assert.equal((await service.outbox('a')).length,1);assert.equal((await service.outbox('a'))[0].id,first.id);
+ const scopes=await invoke({tool:'scope'});assert.equal(scopes.senders.length,0);assert(!JSON.stringify(scopes).includes('__account__'));
+})));
+test('account chat approval rejects edited content, changed policy, denial and lock cancellation before outbox writes',()=>fixture(value=>accountAgentFixture(value,async({service,agent,invoke,accountDraft})=>{
+ const changed=invoke({tool:'propose_send',draftId:accountDraft.id});const observed=changed.catch(error=>error);const review=await pendingReview(agent);
+ await service.saveDraft('a',{draftId:accountDraft.id,expected:accountDraft.version,content:{...accountDraft.content,bcc:['hidden@example.com']}});
+ agent.respond(review.id,'first',true);assert(await observed instanceof Error);assert.equal((await service.outbox('a')).length,0);
+ const revised=invoke({tool:'propose_send',draftId:accountDraft.id});const revisedResult=revised.catch(error=>error);const next=await pendingReview(agent);
+ await service.agentControl({action:'set-account-policy',accountId:'a',expectedRevision:1,actions:{...defaultMailAccountActions,propose_send:'deny'}});
+ agent.respond(next.id,'first',true);assert(await revisedResult instanceof Error);assert.equal((await service.outbox('a')).length,0);
+ await service.agentControl({action:'set-account-policy',accountId:'a',expectedRevision:2,actions:defaultMailAccountActions});
+ const denied=invoke({tool:'propose_send',draftId:accountDraft.id});const deniedResult=denied.catch(error=>error);const deniedReview=await pendingReview(agent);agent.respond(deniedReview.id,'first',false);assert(await deniedResult instanceof Error);
+ const locked=invoke({tool:'propose_send',draftId:accountDraft.id});const lockedResult=locked.catch(error=>error);await pendingReview(agent);await service.lock();assert(await lockedResult instanceof Error);assert.equal(agent.list('first').length,0);
+ await service.unlock();assert.equal((await service.outbox('a')).length,0);
+})));
+
+test('Trash asks in the requesting chat and rechecks changed provider preconditions before queuing',()=>fixture(value=>accountAgentFixture(value,async({service,agent,invoke,path,key})=>{
+ const locator={provider:'gmail',messageId:'trash-me'};
+ const seed=await openEncryptedMailDatabase({path,key});
+ try{const repo=new MailRepository(seed,'owner');const messageKey=repo.ingestMessage('a',{locator,subject:'Trash only this message',rfcMessageId:'<trash@example.test>',memberships:[]});seed.run('INSERT INTO mail_gmail_metadata VALUES(?,?,?,?,?)',['a',messageKey,Date.now(),'thread','[]']);}finally{seed.close();}
+ const changed=invoke({tool:'propose_delete',locator});const changedResult=changed.catch(error=>error);const review=await pendingReview(agent);
+ assert(review.description.includes('Subject: Trash only this message'));assert(review.description.includes('From: Unknown sender'));assert(review.description.includes('will not be permanently deleted'));
+ const edit=await openEncryptedMailDatabase({path,key});try{new MailRepository(edit,'owner').putFolder('a',{id:'STARRED',name:'Starred',kind:'label',parentId:null});new MailRepository(edit,'owner').ingestMessage('a',{locator,subject:'Trash only this message',rfcMessageId:'<trash@example.test>',memberships:['STARRED']});}finally{edit.close();}
+ agent.respond(review.id,'first',true);assert(await changedResult instanceof Error);
+ assert.equal((await service.listActions('a',{limit:20})).items.length,0);
+ const valid=invoke({tool:'propose_delete',locator},'second');const exact=await pendingReview(agent,'second');assert.equal((await service.listActions('a',{limit:20})).items.length,0);agent.respond(exact.id,'second',true);await valid;
+ const actions=(await service.listActions('a',{limit:20})).items;assert.equal(actions.length,1);assert.equal(actions[0].kind,'mutation');assert.equal(actions[0].state,'queued');
+})));

@@ -18,6 +18,7 @@ import { canPreviewAssistantSend, assistantOutgoingIsQueued, addAssistantOutgoin
 import { AssistantOnboardingConversation, type AssistantOnboardingControls } from "./assistant-onboarding-conversation";
 import { useSearchNavigation } from "@/react-app/shell/search-navigation";
 import { SessionSandbox } from "./session-sandbox";
+import {MailApprovalPanel,useMailApprovals} from '../chat/mail-approval-panel';
 import {MailChatSourceNotice} from '../../mail/mail-chat-source-notice';
 /** @jsxImportSource react */
 import { ProviderLimitMessage } from "@/react-app/domains/connections/usage-control/provider-limit-message";
@@ -635,6 +636,7 @@ export function SessionSurface(props: SessionSurfaceProps) {
   const sessionActivityError = useSessionActivityStore(
     (state) => state.recordsByWorkspaceId[props.workspaceId]?.[props.sessionId]?.errorMessage ?? null,
   );
+  const mailApprovals=useMailApprovals(props.sessionId,!props.isRemoteWorkspace&&!props.isSandboxWorkspace);
   const draft = useComposerStateStore((state) => getComposerDraft(state, props.sessionId));
   const attachments = useComposerStateStore((state) => getComposerAttachments(state, props.sessionId));
   const mentions = useComposerStateStore((state) => getComposerMentions(state, props.sessionId));
@@ -2227,9 +2229,9 @@ export function SessionSurface(props: SessionSurfaceProps) {
           queueAccessory={queuePaused || queuedDrafts.length > 0 || editingQueuedDraftId ? (
             <QueuedMessagesPanel messages={queuedDrafts} onRemove={removeQueuedDraft} onEdit={editQueuedDraft} onSteer={steerQueuedDraft} onReorder={reorderQueuedDrafts} editingId={editingQueuedDraftId} onCancelEdit={cancelQueuedEdit} paused={queuePaused} onResume={resumeQueue} disabled={sendBlocked || queueSaving} />
           ) : null}
-          compactTopSpacing={Boolean(subscriptionEndedAccessoryVisible || trialEndedNoticeVisible || connectNoticeVisible || composerQuestion || hasActivePlan || props.activePermission || queuedDrafts.length > 0)}
+          compactTopSpacing={Boolean(subscriptionEndedAccessoryVisible || trialEndedNoticeVisible || connectNoticeVisible || composerQuestion || hasActivePlan || mailApprovals.request || mailApprovals.error || props.activePermission || queuedDrafts.length > 0)}
           topAccessory={
-            subscriptionEndedAccessoryVisible || trialEndedNoticeVisible || connectNoticeVisible || composerQuestion || hasActivePlan || props.activePermission ? (
+            subscriptionEndedAccessoryVisible || trialEndedNoticeVisible || connectNoticeVisible || composerQuestion || hasActivePlan || mailApprovals.request || mailApprovals.error || props.activePermission ? (
               <div className={props.activePermission || composerQuestion ? "max-h-[50vh] overflow-y-auto" : undefined}>
                 {subscriptionEndedAccessoryVisible ? (
                   <SubscriptionEndedMessage client={props.client} workspaceId={props.workspaceId} onChoosePlan={props.onChooseAiPlan} />
@@ -2258,6 +2260,7 @@ export function SessionSurface(props: SessionSurfaceProps) {
                   />
 )
                 ) : null}
+                <MailApprovalPanel state={mailApprovals} />
                 {hasActivePlan ? (
                   <TodoPanel key={`${props.workspaceId}:${props.sessionId}`} todos={props.todos ?? []} />
                 ) : null}

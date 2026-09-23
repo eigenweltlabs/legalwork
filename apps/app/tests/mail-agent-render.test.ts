@@ -2,7 +2,7 @@ import {buildBrowserFixture,electronDisplayEnvironment} from './fixtures/build-b
 import {test,expect} from 'bun:test';
 import {mkdtemp,writeFile,rm} from 'node:fs/promises';
 import {tmpdir} from 'node:os';import {join,resolve} from 'node:path';import {createRequire} from 'node:module';import {spawn} from 'node:child_process';
-test('agent Settings requires deliberate scope confirmation and separate exact send review',async()=>{
+test('account policy and visible chat review reject stale replies across session switches',async()=>{
  const directory=await mkdtemp(join(tmpdir(),'mail-agent-ui-')),appRoot=resolve(import.meta.dir,'..'),fixtures=join(import.meta.dir,'fixtures/mail-agent');
  try{
   await buildBrowserFixture({entrypoints:[join(fixtures,'entry.tsx')],outdir:directory,alias:{'@':join(appRoot,'src'),'react/jsx-dev-runtime':join(appRoot,'node_modules/react/jsx-dev-runtime.js'),'react/jsx-runtime':join(appRoot,'node_modules/react/jsx-runtime.js')},minify:true});await writeFile(join(directory,'index.html'),'<div id="root"></div><script src="entry.js"></script>');

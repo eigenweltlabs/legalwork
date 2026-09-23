@@ -1,7 +1,23 @@
-const {app,BrowserWindow}=require('electron');const assert=require('node:assert/strict');app.setPath('userData',process.argv[2]);
-app.whenReady().then(async()=>{const win=new BrowserWindow({show:false,webPreferences:{sandbox:true,contextIsolation:true,nodeIntegration:false}});await win.loadFile(process.argv[3]);const run=s=>win.webContents.executeJavaScript(s),until=async s=>{for(let i=0;i<150;i++){if(await run(s))return;await new Promise(r=>setTimeout(r,20));}throw Error('UI timeout '+s+' BODY '+await run('document.body.innerHTML'));},click=label=>run(`[...document.querySelectorAll('button')].find(b=>b.textContent===${JSON.stringify(label)}).click()`);
-await until("document.body.textContent.includes('Chosen workspace')");assert.equal(await run("[...document.querySelectorAll('button')].find(b=>b.textContent==='Grant access').disabled"),true);assert.equal(await run("window.calls.some(v=>v.action==='create'||v.action==='decide')"),false);
-for(const [label,text] of [['Agent mail account','Personal account'],['Agent workspace','Chosen workspace']]){await run(`document.querySelector('[aria-label="${label}"]').click()`);await until("!!document.querySelector('[role=option]')");await run(`[...document.querySelectorAll('[role=option]')].find(e=>e.textContent===${JSON.stringify(text)}).dispatchEvent(new PointerEvent('pointerdown',{bubbles:true,pointerType:'touch'}))`);await run(`[...document.querySelectorAll('[role=option]')].find(e=>e.textContent===${JSON.stringify(text)}).click()`);await until(`document.querySelector('[aria-label="${label}"]').textContent.includes(${JSON.stringify(text)})`);}
-await until("document.querySelector('[aria-label=\"Agent workspace\"]').textContent.includes('Chosen workspace')");assert.equal(await run("[...document.querySelectorAll('button')].find(b=>b.textContent==='Grant access').disabled"),true);await run("[...document.querySelectorAll('label')].find(e=>e.textContent.includes('I authorize this workspace')).querySelector('[role=checkbox]').click()");await until("[...document.querySelectorAll('button')].find(b=>b.textContent==='Grant access').disabled===false");await click('Grant access');await until("window.calls.some(v=>v.action==='create')");
-await click('Review request');await until("document.body.textContent.includes('Exact reviewed body')");assert.equal(await run("document.body.textContent.includes('hidden@example.com')"),true);assert.equal(await run("[...document.querySelectorAll('button')].find(b=>b.textContent==='Approve send').disabled"),true);assert.equal(await run("window.calls.some(v=>v.action==='decide')"),false);
-await run("[...document.querySelectorAll('label')].find(e=>e.textContent.includes('I reviewed the exact contents')).querySelector('[role=checkbox]').click()");await until("[...document.querySelectorAll('button')].find(b=>b.textContent==='Approve send').disabled===false");await click('Approve send');await until("window.calls.some(v=>v.action==='decide'&&v.approve===true)");assert.equal(await run("window.calls.filter(v=>v.action==='decide').length"),1);await run("document.querySelector('[aria-label=\"Reject request from stale-task\"]').click()");await until("window.calls.some(v=>v.action==='decide'&&v.id==='55555555-5555-4555-8555-555555555555'&&v.approve===false)");assert.equal(await run("window.calls.some(v=>v.action==='review'&&v.id==='55555555-5555-4555-8555-555555555555')"),false);console.log('AGENT_UI_PASS');win.destroy();app.quit();}).catch(error=>{console.error(error);app.exit(1);});
+const {app,BrowserWindow}=require('electron');
+app.setPath('userData',process.argv[2]);
+app.whenReady().then(async()=>{
+ const window=new BrowserWindow({show:false,webPreferences:{contextIsolation:true,nodeIntegration:false}});
+ try{
+  await window.loadFile(process.argv[3]);
+  const result=await window.webContents.executeJavaScript(`(async()=>{
+   const wait=async condition=>{for(let i=0;i<100;i++){if(condition())return;await new Promise(r=>setTimeout(r,20));}throw Error('Timed out: '+document.body.innerText);};
+   const click=text=>{const button=[...document.querySelectorAll('button')].find(item=>item.textContent.trim()===text);if(!button)throw Error('Missing '+text);button.click();};
+   await wait(()=>document.body.innerText.includes('Bcc: hidden@example.com'));
+   if(document.body.innerText.includes('Grant access')||document.body.innerText.includes('Choose workspace')||document.body.innerText.includes('Allow for session'))throw Error('Retired scope/session controls');
+   if(!document.body.innerText.includes('Exact reviewed body'))throw Error('Hidden exact review');
+   click('Save account permissions');await wait(()=>window.calls.some(call=>call.action==='set'&&call.accountId==='a'));
+   click('Delay next reply');click('Allow once');click('Second chat');
+   await wait(()=>document.body.innerText.includes('Exact synthetic subject (second)'));
+   click('Release old reply');await new Promise(r=>setTimeout(r,50));
+   if(document.body.innerText.includes('Exact synthetic subject (first)'))throw Error('Stale reply crossed chats');
+   click('Toggle remote chat');await wait(()=>!document.body.innerText.includes('Exact reviewed body'));
+   return 'AGENT_UI_PASS';
+  })()`);
+  console.log(result);app.exit(0);
+ }catch(error){console.error(error);app.exit(1);}
+});
