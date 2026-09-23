@@ -61,20 +61,31 @@ test("migration replaces a legacy discovery file without exposing the new token"
   await chmod(discoveryPath, 0o644);
   // Keep the old inode open, as another local user could before the upgrade.
   const legacyReader = await open(discoveryPath, "r");
+  const legacyStat = await legacyReader.stat();
+  let readerClosed = false;
   const bridge = createUiControlServer({
     appName: "test", appIdentifier: "test", getUserDataDir: () => root, getWindow: async () => stubWindow(),
   });
   t.after(async () => {
-    await legacyReader.close();
+    if (!readerClosed) await legacyReader.close();
     await bridge.stop();
     await rm(root, { recursive: true, force: true });
   });
 
+  if (process.platform === "win32") {
+    // Windows refuses to replace a file held open by a reader. Fail closed:
+    // leave the old token untouched, clean up, and allow a retry after release.
+    await assert.rejects(bridge.start(), { code: "EPERM" });
+    assert.equal(await legacyReader.readFile("utf8"), legacyContent);
+    assert.deepEqual(await readdir(root), ["legalwork-ui-control.json"]);
+    await legacyReader.close();
+    readerClosed = true;
+  }
   await bridge.start();
   const current = await stat(discoveryPath);
   if (process.platform !== "win32") assert.equal(current.mode & 0o777, 0o600);
-  assert.notEqual(current.ino, (await legacyReader.stat()).ino);
-  assert.equal(await legacyReader.readFile("utf8"), legacyContent, "the readable old inode never receives the new token");
+  assert.notEqual(current.ino, legacyStat.ino);
+  if (!readerClosed) assert.equal(await legacyReader.readFile("utf8"), legacyContent, "the readable old inode never receives the new token");
   const { token, baseUrl } = JSON.parse(await readFile(discoveryPath, "utf8"));
   assert.notEqual(token, "legacy-token");
   assert.equal((await fetch(`${baseUrl}/actions`, { headers: { authorization: `Bearer ${token}` } })).status, 200);

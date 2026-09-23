@@ -48,18 +48,21 @@ try {
     try {
       const discovery = JSON.parse(await readFile(discoveryPath, "utf8"));
       if (discovery.baseUrl && discovery.token !== "legacy-test-token") {
-        const health = await fetch(`${discovery.baseUrl}/health`, { signal: AbortSignal.timeout(5000) });
-        if (health.ok && (await health.json()).ok) { ready = true; break; }
+        const actions = await fetch(`${discovery.baseUrl}/actions`, {
+          headers: { authorization: `Bearer ${discovery.token}` }, signal: AbortSignal.timeout(5000),
+        });
+        const result = await actions.json();
+        if (actions.ok && result.ok && Array.isArray(result.actions)) { ready = true; break; }
       }
     } catch { /* Main process has not published its health endpoint yet. */ }
     await setTimeout(500);
   }
-  assert.ok(ready, "Packaged main process did not become healthy");
+  assert.ok(ready, "Packaged renderer did not register its app controls");
   await setTimeout(3000);
   assert.equal(child.exitCode, null, "Packaged app must remain running");
   assert.equal(child.signalCode, null);
   if (process.platform !== "win32") assert.equal((await stat(discoveryPath)).mode & 0o777, 0o600);
-  console.log("PASS: packaged app starts and replaces the legacy token file");
+  console.log("PASS: packaged app and renderer start and replace the legacy token file");
 } catch (error) {
   console.error(output);
   throw error;
