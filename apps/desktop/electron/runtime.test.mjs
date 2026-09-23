@@ -6,6 +6,7 @@ import os from "node:os";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 
 import {
+  alignWindowsOpencodeConfigEnv,
   commandMatchesPackagedSidecar,
   mergeRuntimeMcpConfig,
   bundledNodeDirectory,
@@ -17,6 +18,23 @@ import {
   seedWorkspacePathsForEmbeddedServer,
   selectStickyLegalworkPortWorkspace,
 } from "./runtime.mjs";
+
+describe("alignWindowsOpencodeConfigEnv", () => {
+  it("makes the engine use the Windows library already used by LegalWork", () => {
+    const env = { APPDATA: "C:\\Users\\lawyer\\AppData\\Roaming" };
+    assert.equal(alignWindowsOpencodeConfigEnv(env, "win32").XDG_CONFIG_HOME, env.APPDATA);
+  });
+
+  it("preserves an explicit XDG config home", () => {
+    const env = { APPDATA: "C:\\Users\\lawyer\\AppData\\Roaming", XDG_CONFIG_HOME: "D:\\opencode" };
+    assert.equal(alignWindowsOpencodeConfigEnv(env, "win32").XDG_CONFIG_HOME, "D:\\opencode");
+  });
+
+  it("does not change Unix config paths", () => {
+    const env = { APPDATA: "/other" };
+    assert.equal(alignWindowsOpencodeConfigEnv(env, "darwin").XDG_CONFIG_HOME, undefined);
+  });
+});
 
 describe("opencodeHomeEnvFromRoot", () => {
   it("points every OpenCode dir under the app-owned root", () => {
@@ -106,7 +124,7 @@ describe("resolveLegalworkServerConfigPath", () => {
   it("respects explicit server config path", () => {
     assert.equal(
       resolveLegalworkServerConfigPath({ LEGALWORK_SERVER_CONFIG: "/tmp/legalwork/server.json" }),
-      "/tmp/legalwork/server.json",
+      path.resolve("/tmp/legalwork/server.json"),
     );
   });
 
