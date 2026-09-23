@@ -3127,6 +3127,11 @@ export default {
     "Bundled capabilities that pair a skill, an agent, and a command, ready to use in chat.",
   "updates.current_version": "Current version",
   "updates.release_channel": "Release channel",
+  "updates.support_logs_title": "Support logs",
+  "updates.support_logs_desc":
+    "If something doesn't work, save this file and send it to our support team. It contains technical details about recent errors.",
+  "updates.support_logs_saved": "Saved to {path}. Please send this file to our support team.",
+  "updates.support_logs_failed": "The support logs could not be saved.",
   "add_mcp.name_label": "Connector name",
   "add_mcp.name_placeholder": "Internal knowledge base",
   "add_mcp.name_hint": "Shown in the connectors list.",

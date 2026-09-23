@@ -15,7 +15,8 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
-import { formatBytes, formatRelativeTime } from "../../../../app/utils";
+import { supportBundleCollect } from "../../../../app/lib/desktop";
+import { formatBytes, formatRelativeTime, isDesktopRuntime } from "../../../../app/utils";
 import { t } from "../../../../i18n";
 import type { ReleaseChannel } from "../../../../app/types";
 import type { SettingsUpdateStatus } from "../state/electron-updater-state";
@@ -56,6 +57,56 @@ function UpdateDownloadProgress(props: UpdateDownloadProgressProps) {
       <ProgressLabel className="text-sm text-muted-foreground font-normal">{progressLabel}</ProgressLabel>
       <ProgressValue className="text-sm" />
     </Progress>
+  );
+}
+
+/**
+ * Saves the support bundle (same as Help > Collect Support Logs...). Lives in
+ * Settings because the native menu bar is hidden on Windows.
+ */
+function SupportLogsSection() {
+  const [state, setState] = useState<
+    { status: "idle" | "collecting" | "failed" } | { status: "saved"; path: string }
+  >({ status: "idle" });
+
+  const collect = async () => {
+    setState({ status: "collecting" });
+    try {
+      const { path } = await supportBundleCollect();
+      // No path: the save dialog was canceled.
+      setState(path ? { status: "saved", path } : { status: "idle" });
+    } catch {
+      setState({ status: "failed" });
+    }
+  };
+
+  return (
+    <LayoutSection>
+      <LayoutSectionItem>
+        <LayoutSectionItemHeader>
+          <LayoutSectionItemTitle>{t("updates.support_logs_title")}</LayoutSectionItemTitle>
+          <LayoutSectionItemDescription>{t("updates.support_logs_desc")}</LayoutSectionItemDescription>
+          <LayoutSectionItemHeaderActions>
+            <Button variant="outline" onClick={() => void collect()} disabled={state.status === "collecting"}>
+              {state.status === "collecting" ? <Spinner className="size-4" /> : null}
+              {t("boot.collect_logs")}
+            </Button>
+          </LayoutSectionItemHeaderActions>
+        </LayoutSectionItemHeader>
+        {state.status === "saved" ? (
+          <Alert>
+            <Info />
+            <AlertDescription>{t("updates.support_logs_saved", undefined, { path: state.path })}</AlertDescription>
+          </Alert>
+        ) : null}
+        {state.status === "failed" ? (
+          <Alert variant="destructive">
+            <CircleAlert />
+            <AlertDescription>{t("updates.support_logs_failed")}</AlertDescription>
+          </Alert>
+        ) : null}
+      </LayoutSectionItem>
+    </LayoutSection>
   );
 }
 
@@ -294,6 +345,8 @@ export function UpdatesView(props: UpdatesViewProps) {
             </LayoutSectionItem>
         </LayoutSection>
       )}
+
+      {isDesktopRuntime() ? <SupportLogsSection /> : null}
     </LayoutStack>
   );
 }

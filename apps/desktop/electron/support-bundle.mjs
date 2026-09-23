@@ -1,14 +1,13 @@
 // Support-log bundle: gathers everything we know about the local runtime into
 // one plain-text file the user can send to support. Used by the Help menu
-// ("Collect Support Logs...") and by the boot error screen, i.e. exactly the
-// situations where the embedded server never came up and the generic error
-// message hides the cause.
+// ("Collect Support Logs..."), Settings > Updates and the boot error screen.
 //
 // Contents are text-only and deliberately token-free:
 //   - app/OS/arch metadata
 //   - runtimeManager.collectRuntimeDiagnostics() (already redacts secrets)
 //   - runtime-boot-failure.log written by describeRuntimeBootFailure()
-//   - tails of any other *.log files in the app logs directory
+//   - any other *.log files in the app logs directory, e.g. main.log with
+//     every main-process error (main-error-log.mjs)
 //   - the packaged sidecar versions.json
 // A final scrub pass redacts anything that still looks like a secret
 // assignment, as a safety net for stderr passthrough from child processes.
@@ -16,7 +15,8 @@ import { readFileSync, readdirSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
-const LOG_TAIL_LIMIT = 64_000;
+// main.log rotates at 1 MB, so this keeps every log file whole.
+const LOG_TAIL_LIMIT = 2_000_000;
 
 function tail(text, limit = LOG_TAIL_LIMIT) {
   const value = String(text ?? "");

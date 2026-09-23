@@ -83,10 +83,14 @@ async function parseSkillEntry(
   try {
     validateSkillName(name);
     validateDescription(description);
-  } catch {
+  } catch (error) {
+    console.warn("[skills] Skipped invalid skill:", skillPath, error instanceof Error ? error.message : error);
     return null;
   }
-  if (name !== entryName) return null;
+  if (name !== entryName) {
+    console.warn(`[skills] Skipped ${skillPath}: its name "${name}" does not match the folder "${entryName}"`);
+    return null;
+  }
   return {
     name,
     description,
@@ -118,7 +122,8 @@ async function listSkillsInDir(dir: string, scope: "project" | "global"): Promis
       let subEntries: Dirent[];
       try {
         subEntries = await readdir(domainDir, { withFileTypes: true });
-      } catch {
+      } catch (error) {
+        console.warn("[skills] Could not read skill folder:", domainDir, error);
         continue;
       }
       for (const subEntry of subEntries) {

@@ -645,6 +645,9 @@ function logRequest(input: {
     attributes.error = error;
   }
   logger.log(level, message, attributes);
+  // The logger writes to stdout without the reason. Failures also go to the
+  // console, which the desktop app keeps in main.log for support.
+  if (error) console.warn(`[legalwork-server] ${message}: ${error}`);
 }
 
 function parseWorkspaceMount(pathname: string): { workspaceId: string; restPath: string } | null {
@@ -786,6 +789,9 @@ export async function startServer(config: ServerConfig): Promise<StartedServer> 
           const response = await proxyOpencodeRequest({ config, request, url, workspace, proxyPath: mount.restPath });
           return finalize(response);
         } catch (error) {
+          if (!(error instanceof ApiError)) {
+            console.error("[legalwork-server] Unhandled error:", request.method, url.pathname, error);
+          }
           const apiError = error instanceof ApiError
             ? error
             : new ApiError(500, "internal_error", "Unexpected server error");
@@ -853,6 +859,9 @@ export async function startServer(config: ServerConfig): Promise<StartedServer> 
           const response = await proxyOpencodeRequest({ config, request, url, workspace: config.workspaces[0] });
           return finalize(response);
         } catch (error) {
+          if (!(error instanceof ApiError)) {
+            console.error("[legalwork-server] Unhandled error:", request.method, url.pathname, error);
+          }
           const apiError = error instanceof ApiError
             ? error
             : new ApiError(500, "internal_error", "Unexpected server error");
@@ -890,7 +899,7 @@ export async function startServer(config: ServerConfig): Promise<StartedServer> 
         return finalize(response);
       } catch (error) {
         if (!(error instanceof ApiError)) {
-          console.error("[legalwork-server] Unhandled error:", error);
+          console.error("[legalwork-server] Unhandled error:", request.method, url.pathname, error);
         }
         const apiError = error instanceof ApiError
           ? error

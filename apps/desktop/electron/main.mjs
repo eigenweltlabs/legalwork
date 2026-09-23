@@ -37,6 +37,7 @@ import { registerMigrationIpc } from "./migration.mjs";
 import { createRuntimeManager, resolveLegalworkServerConfigPath } from "./runtime.mjs";
 import { createMcpOAuthCallbackBroker, watchMcpOAuthOwner } from "./mcp-oauth-callback.mjs";
 import { buildSupportBundleText, defaultSupportBundleFileName } from "./support-bundle.mjs";
+import { installMainErrorLog } from "./main-error-log.mjs";
 import {
   ELECTRON_UPDATER_FALLBACK_FEEDS,
   ELECTRON_UPDATER_FEEDS,
@@ -397,6 +398,9 @@ if (userDataOverride) {
     path.join(app.getPath("appData"), APP_IDENTIFIER),
   );
 }
+// After setName/setPath: the logs folder derives from the app name (macOS)
+// or userData (Windows/Linux).
+installMainErrorLog(() => app.getPath("logs"));
 
 // Resolve and cache the app icon (reused for BrowserWindow + mac dock).
 // Packaged builds ship icons via electron-builder config, but for `dev:electron`
@@ -721,8 +725,14 @@ function relayAppError(source, error, service, exitCode = null) {
 }
 // `uncaughtExceptionMonitor` reports without suppressing Electron's default
 // crash behavior (unlike `uncaughtException`).
-process.on("uncaughtExceptionMonitor", (error) => relayAppError("main_uncaught", error, "server"));
-process.on("unhandledRejection", (reason) => relayAppError("main_unhandledrejection", reason, "server"));
+process.on("uncaughtExceptionMonitor", (error) => {
+  console.error("[main] Uncaught exception:", error);
+  relayAppError("main_uncaught", error, "server");
+});
+process.on("unhandledRejection", (reason) => {
+  console.error("[main] Unhandled rejection:", reason);
+  relayAppError("main_unhandledrejection", reason, "server");
+});
 
 const browserPanel = createBrowserPanel({
   getWindow: () => mainWindow,
@@ -1437,7 +1447,10 @@ async function findSkillDirsInRoot(root) {
       continue;
     }
 
-    const nestedEntries = await readdir(direct, { withFileTypes: true }).catch(() => []);
+    const nestedEntries = await readdir(direct, { withFileTypes: true }).catch((error) => {
+      console.warn("[skills] Could not read skill folder:", direct, error);
+      return [];
+    });
     for (const nested of nestedEntries) {
       if (!nested.isDirectory()) continue;
       const nestedDir = path.join(direct, nested.name);
@@ -1481,7 +1494,8 @@ async function listLocalSkills(projectDir) {
       let raw = "";
       try {
         raw = await readFile(path.join(skillDir, "SKILL.md"), "utf8");
-      } catch {
+      } catch (error) {
+        console.warn("[skills] Could not read SKILL.md:", skillDir, error);
         raw = "";
       }
       out.push({
@@ -1503,7 +1517,10 @@ async function findSkillFile(projectDir, name) {
     const direct = path.join(root, safeName, "SKILL.md");
     if (await pathExists(direct)) return direct;
 
-    const entries = await readdir(root, { withFileTypes: true }).catch(() => []);
+    const entries = await readdir(root, { withFileTypes: true }).catch((error) => {
+      console.warn("[skills] Could not read skill folder:", root, error);
+      return [];
+    });
     for (const entry of entries) {
       if (!entry.isDirectory()) continue;
       const nested = path.join(root, entry.name, safeName, "SKILL.md");
@@ -2004,7 +2021,10 @@ const desktopCommandHandlers = {
         return { imported, skipped, failed };
       }
       const root = await ensureGlobalSkillRoot();
-      const entries = await readdir(sourceDir, { withFileTypes: true }).catch(() => []);
+      const entries = await readdir(sourceDir, { withFileTypes: true }).catch((error) => {
+        console.warn("[skills] Could not read import folder:", sourceDir, error);
+        return [];
+      });
       for (const entry of entries) {
         if (!entry.isDirectory()) continue;
         const name = entry.name;
@@ -2026,6 +2046,7 @@ const desktopCommandHandlers = {
           }
           imported.push(targetName);
         } catch (error) {
+          console.warn("[skills] Folder import failed:", from, error);
           failed.push({ name, error: error?.message ?? String(error) });
         }
       }
@@ -2665,7 +2686,12 @@ async function handleDesktopInvoke(event, command, ...args) {
   if (!handler) {
     throw new Error(`Electron desktop bridge method is not implemented yet: ${command}`);
   }
-  return handler(event, ...args);
+  const result = await handler(event, ...args);
+  // Electron logs a handler that throws; a failure returned as { ok: false }
+  // with a reason (e.g. "Skill already exists") would otherwise leave no trace
+  // in main.log. Status results such as missing permissions carry no reason.
+  if (result?.ok === false && (result.stderr || result.error)) console.warn(`[desktop] ${command} failed:`, result);
+  return result;
 }
 
 
