@@ -45,6 +45,7 @@ function mockService() {
   let calls = 0;
   let stops = 0;
   const service: MailService = {
+    async contacts(){throw new MailServiceError("unsupported");},
     async agentControl(){throw new MailServiceError("unsupported");},
     async filing(){throw new MailServiceError("unsupported");},
     async storageSave(){throw new MailServiceError("unsupported");},

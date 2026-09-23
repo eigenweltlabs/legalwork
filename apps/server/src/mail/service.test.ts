@@ -275,7 +275,7 @@ test("contacts consent is optional and a disconnected legacy account can reconne
   try {
     await expect(service.beginConnection("gmail", "disconnected")).resolves.toHaveProperty("connectionId", "synthetic");
     await service.beginConnection("gmail", "disconnected", false, true);
-    expect(captured[0]).toEqual(GMAIL_MAIL_SCOPES);
+    expect(captured[0]).toEqual([...GMAIL_MAIL_SCOPES]);
     expect(captured[1]).toContain("https://www.googleapis.com/auth/contacts.readonly");
     expect(googleSettings.scopes).toEqual(GMAIL_MAIL_SCOPES);
   } finally { request.mockRestore(); }
