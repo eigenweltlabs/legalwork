@@ -284,12 +284,12 @@ jobs:
             artifact: electron-macos-x64
             electron_args: "--mac --x64"
             target_triple: x86_64-apple-darwin
-          - platform: ubuntu-22.04
+          - platform: ubuntu-24.04
             os_type: linux
             artifact: electron-linux-x64
             electron_args: "--linux --x64"
             target_triple: x86_64-unknown-linux-gnu
-          - platform: ubuntu-22.04-arm
+          - platform: ubuntu-24.04-arm
             os_type: linux
             artifact: electron-linux-arm64
             electron_args: "--linux --arm64"
