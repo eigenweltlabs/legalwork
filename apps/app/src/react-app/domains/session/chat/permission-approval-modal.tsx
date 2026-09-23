@@ -38,6 +38,8 @@ type PermissionApprovalModalProps = {
   onOpenSession?: (sessionId: string) => void;
   busy?: boolean;
   onRetryInput?: () => void;
+  allowForSession?: boolean;
+  reviewDetails?: string;
   respondPermission?: (requestID: string, reply: "once" | "always" | "reject") => void;
   safeStringify?: (value: unknown) => string;
 };
@@ -345,6 +347,7 @@ export function PermissionApprovalModal(props: PermissionApprovalModalProps) {
             </div>
           ) : null}
 
+          {props.reviewDetails ? <pre className="mt-3 max-h-80 overflow-auto whitespace-pre-wrap break-words rounded-xl border border-dls-border bg-dls-surface p-3 text-sm leading-6 text-dls-text">{props.reviewDetails}</pre> : null}
           {projectInstructions ? <ProjectInstructionsReview metadata={metadata} /> : null}
           {hasMetadata && !projectInstructions ? (
             <details className="group rounded-[18px] border border-dls-border bg-dls-surface px-4 py-3">
@@ -449,7 +452,7 @@ export function PermissionApprovalPanel(props: PermissionApprovalModalProps) {
               <Clock3 data-icon="inline-start" />
               {t("session.allow_once")}
             </Button>
-            {!projectInstructions && (!host || host.canRemember) ? <Button
+            {props.allowForSession !== false && !projectInstructions && (!host || host.canRemember) ? <Button
               type="button"
               variant="outline"
               size="sm"
@@ -528,6 +531,7 @@ export function PermissionApprovalPanel(props: PermissionApprovalModalProps) {
             </div>
           </div>}
 
+          {props.reviewDetails ? <pre className="mt-3 max-h-80 overflow-auto whitespace-pre-wrap break-words rounded-xl border border-dls-border bg-dls-surface p-3 text-sm leading-6 text-dls-text">{props.reviewDetails}</pre> : null}
           {projectInstructions ? <div className="mt-3"><ProjectInstructionsReview metadata={metadata} /></div> : null}
           {hasMetadata && !projectInstructions ? (
             <details className="group mt-3 rounded-xl border border-dls-border bg-dls-surface px-3 py-2">

@@ -1,3 +1,4 @@
+import {mailAccountPolicySchema,defaultMailAccountActions,deniedMailAccountActions} from '../account-policy.js';
 import {MailContentStore} from './content-store.js';
 import {MimeProjectionStore} from './mime-projection-store.js';
 import {mailHtmlText} from './search.js';
@@ -19,7 +20,31 @@ export class MailAgentGrants {
   if(grant.state!=='active'||grant.expiresAt<=this.now()||revision!==undefined&&revision!==grant.revision||permission&&!grant.permissions.includes(permission)||status.generation!==grant.credentialGeneration)throw new MailAgentDenied();return grant;
  }
  private proposal(id:string){const row=this.db.get('SELECT p.* FROM mail_agent_proposals p JOIN mail_accounts a ON a.id=p.account_id WHERE p.id=? AND a.owner_id=?',[id,this.ownerId]);if(!row)throw new MailAgentDenied();return agentProposalSchema.parse({id:row.id,accountId:row.account_id,grantId:row.grant_id,grantRevision:row.grant_revision,payload:JSON.parse(z.string().parse(row.payload_json)),sessionId:row.session_id,messageId:row.message_id,createdAt:row.created_at,expiresAt:row.expires_at,state:row.state,actionId:row.action_id});}
+ private policy(accountId:string){
+  if(!this.db.get('SELECT id FROM mail_accounts WHERE id=? AND owner_id=?',[accountId,this.ownerId]))throw new MailAgentDenied();
+  const row=this.db.get('SELECT * FROM mail_agent_account_policies WHERE account_id=?',[accountId]);
+  const legacy=!!this.db.get("SELECT id FROM mail_agent_grants WHERE account_id=? AND workspace_id!='__account__' LIMIT 1",[accountId]);
+  return mailAccountPolicySchema.parse({accountId,revision:row?.revision??0,migrationRequired:!row&&legacy,actions:row?JSON.parse(z.string().parse(row.actions_json)):legacy?deniedMailAccountActions:defaultMailAccountActions});
+ }
  execute(supplied:AgentControl):AgentControlResult{const input=agentControlSchema.parse(supplied);return this.db.transaction(()=>{switch(input.action){
+ case 'account-policy':return{policy:this.policy(input.accountId)};
+ case 'set-account-policy':{
+  const old=this.policy(input.accountId);if(old.revision!==input.expectedRevision)throw new MailAgentDenied();
+  this.db.run('INSERT INTO mail_agent_account_policies VALUES(?,?,?) ON CONFLICT(account_id) DO UPDATE SET actions_json=excluded.actions_json,revision=excluded.revision',[input.accountId,JSON.stringify(input.actions),old.revision+1]);
+  this.db.run("UPDATE mail_agent_grants SET state='revoked',revision=revision+1 WHERE account_id=?",[input.accountId]);
+  this.db.run("UPDATE mail_agent_proposals SET state='revoked' WHERE account_id=? AND state='pending'",[input.accountId]);
+  return{policy:this.policy(input.accountId)};
+ }
+ case 'account-scope':{
+  const policy=this.policy(input.accountId),status=this.custody(input.accountId);
+  const permissions=agentPermissionSchema.options.filter(permission=>policy.actions[permission]!=='deny'&&(!status.archive||['search','read','attachments','export'].includes(permission)));
+  // One internal binding per account preserves draft provenance across all tasks.
+  const row=this.db.get("SELECT id FROM mail_agent_grants WHERE account_id=? AND workspace_id='__account__' LIMIT 1",[input.accountId]);
+  const id=row?z.string().parse(row.id):randomUUID();
+  if(!row)this.db.run('INSERT INTO mail_agent_grants VALUES(?,?,?,?,?,?,?,?,?,?,?,1)',[id,input.accountId,agentHash(randomBytes(32).toString('hex')),'__account__','*',null,JSON.stringify(permissions),status.generation,'active',this.now(),Number.MAX_SAFE_INTEGER]);
+  else{const grant=this.owned(id);if(grant.state!=='active'||grant.credentialGeneration!==status.generation||JSON.stringify(grant.permissions)!==JSON.stringify(permissions))this.db.run("UPDATE mail_agent_grants SET state='active',credential_generation=?,permissions_json=?,revision=revision+1 WHERE id=?",[status.generation,JSON.stringify(permissions),id]);}
+  return{grant:this.owned(id),policy};
+ }
  case 'body':{const grant=this.check(input.grantId,input.revision,'read');if(grant.matterId){if(!input.sourceVersion)throw new MailAgentDenied();new MailFilingStore(this.db,this.ownerId).execute({action:'source-version',accountId:grant.accountId,locator:input.locator,expected:input.sourceVersion});}
   const projection=new MimeProjectionStore(this.db,this.ownerId).read(grant.accountId,input.locator);if(!projection||!('metadata' in projection)||projection.body.bytes>2*1024*1024)return{body:{text:'',offset:input.offset,nextOffset:null,totalCharacters:0,complete:false,notice:'Readable body unavailable or exceeds 2 MiB. Original export requires a separate export permission.'}};
   const bytes=Buffer.concat([...new MailContentStore(this.db,this.ownerId).read(grant.accountId,projection.body.id)]),parsed=z.object({bodies:z.array(z.object({contentType:z.enum(['text/plain','text/html']),text:z.string(),presentation:z.boolean().optional()})).max(1000)}).parse(JSON.parse(bytes.toString('utf8'))),selected=parsed.bodies.filter(part=>part.presentation!==false),text=selected.map(part=>part.contentType==='text/plain'?part.text:mailHtmlText(part.text)).join('\n');
@@ -32,7 +57,7 @@ export class MailAgentGrants {
  case 'resolve':{const row=this.db.get('SELECT id FROM mail_agent_grants WHERE token_hash=?',[agentHash(input.token)]);if(!row)throw new MailAgentDenied();return{grant:this.check(z.string().parse(row.id),undefined,input.permission)};}
  case 'check':return{grant:this.check(input.id,input.revision,input.permission)};
  case 'draft-bind':{const grant=this.check(input.grantId,undefined,'draft');if(grant.matterId&&(!input.source||!input.sourceVersion))throw new MailAgentDenied();this.db.run('INSERT INTO mail_agent_drafts VALUES(?,?,?,?,?)',[grant.accountId,grant.id,input.draftId,input.source?JSON.stringify(input.source):null,input.sourceVersion]);return{ok:true};}
- case 'draft-source':{this.check(input.grantId,undefined,'draft');const row=this.db.get('SELECT source_json,source_version FROM mail_agent_drafts WHERE grant_id=? AND draft_id=?',[input.grantId,input.draftId]);if(!row)throw new MailAgentDenied();return{sourceVersion:row.source_version===null?null:z.string().parse(row.source_version),source:row.source_json===null?null:providerMessageLocatorSchema.parse(JSON.parse(z.string().parse(row.source_json)))};}
+ case 'draft-source':{this.check(input.grantId,undefined,input.permission);const row=this.db.get('SELECT source_json,source_version FROM mail_agent_drafts WHERE grant_id=? AND draft_id=?',[input.grantId,input.draftId]);if(!row)throw new MailAgentDenied();return{sourceVersion:row.source_version===null?null:z.string().parse(row.source_version),source:row.source_json===null?null:providerMessageLocatorSchema.parse(JSON.parse(z.string().parse(row.source_json)))};}
  case 'propose':{const grant=this.check(input.grantId,input.revision,input.payload.kind==='send'?'propose_send':'propose_delete'),id=randomUUID();if(grant.matterId){const locator=input.payload.kind==='send'?input.payload.source:input.payload.locator;if(!locator||!input.payload.sourceVersion)throw new MailAgentDenied();new MailFilingStore(this.db,this.ownerId).execute({action:'source-version',accountId:grant.accountId,locator,expected:input.payload.sourceVersion});}if(input.payload.kind==='send'){const bound=this.db.get('SELECT source_json,source_version FROM mail_agent_drafts WHERE grant_id=? AND draft_id=?',[grant.id,input.payload.draftId]);if(!bound||bound.source_json!==(input.payload.source?JSON.stringify(input.payload.source):null)||bound.source_version!==input.payload.sourceVersion)throw new MailAgentDenied();}this.db.run('INSERT INTO mail_agent_proposals VALUES(?,?,?,?,?,?,?,?,?,?,?,NULL)',[id,grant.accountId,grant.id,grant.revision,input.payload.kind,JSON.stringify(input.payload),input.sessionId,input.messageId,this.now(),Math.min(grant.expiresAt,this.now()+15*60000),'pending']);return{proposal:this.proposal(id)};}
  case 'proposals':return{proposals:this.db.all('SELECT p.id FROM mail_agent_proposals p JOIN mail_accounts a ON a.id=p.account_id WHERE a.owner_id=? ORDER BY created_at DESC LIMIT 100',[this.ownerId]).map(row=>this.proposal(z.string().parse(row.id)))};
  case 'proposal':return{proposal:this.proposal(input.id)};

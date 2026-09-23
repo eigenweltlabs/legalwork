@@ -1,8 +1,11 @@
+import {deniedMailAccountActions} from '../account-policy.js';
 import {randomUUID} from 'node:crypto';
 import type {MailDatabase} from './database-interface.js';
 /** Trusted offline restore fence. Evidence remains immutable; old work never gains fresh authority. */
 export function quarantineRestoredMail(db:MailDatabase){
  const at=Date.now();
+ // Restoring mail must not revive all-chat access, including an archive account.
+ db.run("INSERT INTO mail_agent_account_policies(account_id,actions_json,revision) SELECT id,?,1 FROM mail_accounts WHERE true ON CONFLICT(account_id) DO UPDATE SET actions_json=excluded.actions_json,revision=mail_agent_account_policies.revision+1",[JSON.stringify(deniedMailAccountActions)]);
  db.run("UPDATE mail_agent_grants SET state='revoked',revision=revision+1");
  db.run("UPDATE mail_agent_proposals SET state='revoked' WHERE state='pending'");
  db.run("INSERT OR IGNORE INTO mail_recovery_quarantine SELECT account_id,'submission',id,? FROM mail_action_jobs WHERE kind='submission'",[at]);
