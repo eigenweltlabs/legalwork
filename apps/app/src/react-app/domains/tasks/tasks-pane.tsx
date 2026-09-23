@@ -344,7 +344,7 @@ export function TasksPane(props: TasksPaneProps) {
   const showingDetail = selectedTask !== null;
 
   return (
-    // The list has the whole pane until a task is opened. Then the pane splits
+    // Center the list at a readable width until a task is opened. Then the pane splits
     // at 880 px of its own width (a container query, not the window: side
     // panels can take the rest) — list beside detail — and below that the
     // detail takes over. task-detail.tsx uses the same breakpoint to swap its
@@ -356,7 +356,7 @@ export function TasksPane(props: TasksPaneProps) {
           "min-h-0 w-full flex-col",
           showingDetail
             ? "hidden @min-[880px]/tasks:flex @min-[880px]/tasks:w-[340px] @min-[880px]/tasks:shrink-0 @min-[880px]/tasks:border-e @min-[880px]/tasks:border-border @min-[1200px]/tasks:w-[380px]"
-            : "flex",
+            : "mx-auto flex max-w-4xl",
         )}
       >
         <header className="flex shrink-0 flex-col gap-3 border-b border-border px-4 pb-3 pt-4">
