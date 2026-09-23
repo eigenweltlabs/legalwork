@@ -1019,6 +1019,7 @@ export default {
   "mcp.quick_connect_sharepoint_title": "Microsoft SharePoint",
   "mcp.quick_connect_taxgraph_desc": "Search a daily-updated German tax-law knowledge graph — statutes, BFH case law, and BMF guidance with citations.",
   "mcp.quick_connect_taxgraph_title": "TaxGraph",
+  "mcp.quick_connect_vaquill_desc": "Search and cite US federal and state statutes, regulations, and court rules from Vaquill, with amendment history and 50-state comparisons. One-click sign-in with your Vaquill account; lookups use your Vaquill credits.",
   "mcp.remote_workspace_url_hint": "Remote workers connect fastest with URL-based MCP servers.",
   "mcp.remove_app": "Remove",
   "mcp.remove_failed": "Couldn't remove the app.",

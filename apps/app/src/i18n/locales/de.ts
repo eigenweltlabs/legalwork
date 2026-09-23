@@ -1159,6 +1159,8 @@ const de = {
   "mcp.quick_connect_taxgraph_desc":
     "Durchsuchen Sie einen täglich aktualisierten Wissensgraphen zum deutschen Steuerrecht: Gesetze, BFH-Rechtsprechung und BMF-Schreiben mit Fundstellen.",
   "mcp.quick_connect_taxgraph_title": "TaxGraph",
+  "mcp.quick_connect_vaquill_desc":
+    "Recherchieren und zitieren Sie US-Bundes- und Landesgesetze, Verordnungen und Verfahrensordnungen von Vaquill, mit Änderungshistorie und Vergleich aller 50 Bundesstaaten. Anmeldung mit einem Klick über Ihr Vaquill-Konto; Abfragen verbrauchen Ihr Vaquill-Guthaben.",
   "mcp.remote_workspace_url_hint":
     "Remote-Worker verbinden sich am schnellsten mit URL-basierten MCP-Servern.",
   "mcp.remove_app": "Entfernen",
