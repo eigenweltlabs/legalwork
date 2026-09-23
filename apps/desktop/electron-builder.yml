@@ -105,6 +105,9 @@ mac:
     - dmg
     - zip
 linux:
+  # The scoped package name otherwise becomes @legalworkdesktop, which
+  # AppImage rejects as an executable filename.
+  executableName: legalwork
   icon: resources/icons/icon.png
   extraResources:
     - from: resources/sidecars
