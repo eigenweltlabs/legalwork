@@ -1,8 +1,9 @@
-// A skill tool name must fit the provider limit.
-const MAX_SKILL_NAME_LENGTH = 64;
+// Same cap as validateSkillName. The engine passes a skill's name to its single
+// `skill` tool as an argument, so the providers' 64-char tool-name cap doesn't apply.
+const MAX_SKILL_NAME_LENGTH = 200;
 
 /**
- * Coerce a free-text name into a valid kebab-case slug of at most 64 chars,
+ * Coerce a free-text name into a valid kebab-case slug of at most 200 chars,
  * dropping whole trailing words rather than cutting mid-word (same rule the
  * desktop import uses, so a name behaves identically whichever path created it).
  */

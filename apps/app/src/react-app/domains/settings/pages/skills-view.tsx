@@ -59,6 +59,7 @@ import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import { ConfirmModal } from "@/react-app/design-system/modals/confirm-modal";
 import { Spinner } from "../settings-section";
+import { fitSkillNameLength } from "@/app/utils";
 import { syncAttachedFilesSection } from "@/app/utils/skill-resources";
 import {
   dismissTemplateWorkflowRun,
@@ -1247,7 +1248,7 @@ function SkillCreatorButton(props: {
   const [saving, setSaving] = useState(false);
 
   const slug = name.trim().toLowerCase();
-  const nameValid = /^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(slug) && slug.length <= 64;
+  const nameValid = /^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(slug) && slug.length <= 200;
   const nameTaken = nameValid && props.existingNames.has(slug);
   const canSubmit = nameValid && !nameTaken && description.trim().length > 0 && body.trim().length > 0 && !saving;
 
@@ -1531,7 +1532,7 @@ function WorkflowCreatorButton(props: {
   // standard skills (frontmatter stays just name + description). The UI recognizes them by
   // this prefix — see isWorkflowCard / cardWorkflowType / workflowDisplayName.
   const fullName = type ? `workflow-${type}-${slug}` : slug;
-  const nameValid = /^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(slug) && fullName.length <= 64;
+  const nameValid = /^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(slug) && fullName.length <= 200;
   const nameTaken = nameValid && props.existingNames.has(fullName);
   const canSubmit =
     !!type &&
@@ -1770,7 +1771,7 @@ function ImportSkillsButton(props: {
   const finalNameFor = (item: GithubSkillItem) => {
     const folder = item.dir.split("/").filter(Boolean).pop() ?? "";
     const base = folder.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
-    return asWorkflow ? `workflow-assistant-${base}` : base;
+    return fitSkillNameLength(asWorkflow ? `workflow-assistant-${base}` : base);
   };
 
   const runScan = async (sourceUrl = url, sourceRef = ref) => {

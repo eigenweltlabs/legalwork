@@ -17,6 +17,7 @@ import { exists } from "./utils.js";
 import { validateDescription, validateSkillName } from "./validators.js";
 import { projectSkillsDir } from "./workspace-files.js";
 import { parseClaudePluginSource, type ClaudePluginSource } from "./claude-plugin-bundle.js";
+import { fitSkillName } from "./skill-tool-content.js";
 
 const GH_API = (process.env.LEGALWORK_GITHUB_API_BASE?.trim() || "https://api.github.com").replace(/\/+$/, "");
 const GH_RAW = (process.env.LEGALWORK_GITHUB_RAW_BASE?.trim() || "https://raw.githubusercontent.com").replace(/\/+$/, "");
@@ -149,16 +150,31 @@ async function mapWithConcurrency<T, R>(items: T[], limit: number, fn: (item: T)
 function deriveSkillName(skillDir: string, asWorkflow: boolean): string {
   const folder = skillDir.split("/").filter(Boolean).pop() ?? "";
   const base = folder.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
-  const name = asWorkflow ? `workflow-assistant-${base}` : base;
+  // Shorten rather than reject a name over the 200-char cap, dropping whole
+  // trailing words like the desktop folder import.
+  const name = fitSkillName(asWorkflow ? `workflow-assistant-${base}` : base);
   validateSkillName(name);
   return name;
+}
+
+// Some repos ship a SKILL.md without frontmatter, and the engine skips a skill
+// with no description, so fall back to the first line of prose in the body
+// (the rule the desktop skill list uses, see skill-description.mjs).
+function skillDescription(data: Record<string, unknown>, body: string): string {
+  if (typeof data.description === "string" && data.description.trim()) return data.description.trim();
+  const line = body
+    .replace(/<!--[\s\S]*?-->/g, "")
+    .split("\n")
+    .map((text) => text.trim())
+    .find((text) => text && !text.startsWith("#") && text !== "---");
+  return (line ?? "").slice(0, 1024);
 }
 
 // `kind`/`workflow_type` frontmatter keys make opencode skip a skill, so strip
 // them on import; workflow-ness is carried by the `workflow-` folder/name prefix.
 function rewriteSkillFrontmatter(md: string, finalName: string): string {
   const { data, body } = parseFrontmatter(md);
-  const description = typeof data.description === "string" ? data.description.trim() : "";
+  const description = skillDescription(data, body);
   validateDescription(description);
   const { kind: _kind, workflow_type: _workflowType, name: _name, ...rest } = data as Record<string, unknown>;
   const content = buildFrontmatter({ ...rest, name: finalName, description }) +
@@ -180,9 +196,9 @@ export async function scanGithubSkills(input: { url: string; ref?: string }): Pr
     const folder = skillDir.split("/").filter(Boolean).pop() ?? skillDir;
     try {
       const md = await ghText(rawUrl(source, ref, path));
-      const { data } = parseFrontmatter(md);
+      const { data, body } = parseFrontmatter(md);
       const name = typeof data.name === "string" && data.name.trim() ? data.name.trim() : folder;
-      const description = (typeof data.description === "string" ? data.description : "").replace(/\s+/g, " ").trim();
+      const description = skillDescription(data, body).replace(/\s+/g, " ");
       return { dir: skillDir, name, description };
     } catch {
       return { dir: skillDir, name: folder, description: "" };
@@ -259,7 +275,7 @@ export async function promoteSkillToWorkflow(
   if (name.startsWith("workflow-")) {
     return { name, path: fromDir, alreadyWorkflow: true };
   }
-  const toName = `workflow-assistant-${name}`;
+  const toName = fitSkillName(`workflow-assistant-${name}`);
   validateSkillName(toName);
   const toDir = join(base, toName);
   if (await exists(toDir)) {

@@ -13,7 +13,8 @@ import type {
   SkillCard,
   SkillResourceCard,
 } from "../../../../app/types";
-import { addOpencodeCacheHint, isDesktopRuntime, normalizeDirectoryPath } from "../../../../app/utils";
+import { addOpencodeCacheHint, fitSkillNameLength, isDesktopRuntime, normalizeDirectoryPath } from "../../../../app/utils";
+import { describeImportFailures, type ImportFailure } from "./import-failures";
 import skillCreatorTemplate from "../../../../app/data/skill-creator.md?raw";
 import {
   isPluginInstalled,
@@ -649,7 +650,7 @@ export function createExtensionsStore(options: {
       const desktop = isDesktopRuntime();
       let installed = 0;
       let skipped = 0;
-      const writeFailed: string[] = [];
+      const writeFailed: ImportFailure[] = [];
       for (const skill of resolved.skills) {
         try {
           if (desktop) {
@@ -671,22 +672,25 @@ export function createExtensionsStore(options: {
               await legalworkClient.upsertSkill(legalworkWorkspaceId, { name: skill.name, content });
               installed += 1;
             } else {
-              writeFailed.push(skill.name);
+              writeFailed.push({ name: skill.name, reason: "No SKILL.md in that folder" });
             }
           }
-        } catch {
-          writeFailed.push(skill.name);
+        } catch (error) {
+          writeFailed.push({ name: skill.name, reason: error instanceof Error ? error.message : t("skills.unknown_error") });
         }
       }
       if (installed > 0) {
         options.markReloadRequired?.("skills", { type: "skill", name: resolved.skills[0]!.name, action: "added" });
         await refreshSkills({ force: true });
       }
-      const failedCount = resolved.failed.length + writeFailed.length;
+      const failed = describeImportFailures([
+        ...resolved.failed.map((item) => ({ name: item.path, reason: item.error })),
+        ...writeFailed,
+      ]);
       const parts: string[] = [];
       if (installed) parts.push(`Imported ${installed}`);
       if (skipped) parts.push(`${skipped} already installed`);
-      if (failedCount) parts.push(`${failedCount} failed`);
+      if (failed) parts.push(failed);
       return {
         ok: installed > 0,
         message: parts.length ? `${parts.join(", ")}.` : t("extensions.nothing_to_import"),
@@ -1477,10 +1481,11 @@ export function createExtensionsStore(options: {
       // folder is copied recursively, so supporting files come along. For a workflow
       // import, copy straight under the `workflow-` prefix the Workflows view detects
       // (so siblings are preserved) and rewrite only the SKILL.md name to match.
-      const targetName =
+      const prefixed =
         opts?.asWorkflow && inferredName && !inferredName.startsWith("workflow-")
           ? `workflow-assistant-${inferredName}`
           : inferredName;
+      const targetName = prefixed && fitSkillNameLength(prefixed);
       const renamed = Boolean(targetName && targetName !== inferredName);
       const result = (await importSkill("", sourceDir, {
         overwrite: false,

@@ -5,8 +5,8 @@ const COMMAND_NAME_REGEX = /^[A-Za-z0-9_-]+$/;
 const MCP_NAME_REGEX = /^[A-Za-z0-9_-]+$/;
 
 export function validateSkillName(name: string): void {
-  if (!name || name.length < 1 || name.length > 64 || !SKILL_NAME_REGEX.test(name)) {
-    throw new ApiError(400, "invalid_skill_name", "Skill name must be kebab-case (1-64 chars)");
+  if (!name || name.length < 1 || name.length > 200 || !SKILL_NAME_REGEX.test(name)) {
+    throw new ApiError(400, "invalid_skill_name", "Skill name must be kebab-case (1-200 chars)");
   }
 }
 
