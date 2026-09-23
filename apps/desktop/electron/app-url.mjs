@@ -81,8 +81,16 @@ export function guardIpcMain(ipcMain, { isTrustedUrl, openChannels = [], onRejec
  */
 export function guardPreviewNavigation(contents) {
   contents.on("will-frame-navigate", (event) => {
-    if (event.isMainFrame) return;
-    if (event.url === "about:blank" || event.url === "about:srcdoc" || event.url.startsWith("blob:")) return;
-    event.preventDefault();
+    if (!isAllowedPreviewNavigation(event)) event.preventDefault();
   });
+}
+
+/** @param {{url: string, isMainFrame?: boolean, frame?: {parent?: {url: string}}}} event */
+export function isAllowedPreviewNavigation(event) {
+  if (event.isMainFrame) return true;
+  if (event.url === "about:blank" || event.url === "about:srcdoc" || event.url.startsWith("blob:")) return true;
+  // PDFium loads its internal stream in a child of Chromium's trusted PDF
+  // viewer. Permit only that parent and destination, not arbitrary extensions.
+  const pdfViewer = "chrome-extension://mhjfbmdgcfjbbpaeojofohoefgiehjai/";
+  return event.frame?.parent?.url === `${pdfViewer}index.html` && event.url.startsWith(pdfViewer);
 }

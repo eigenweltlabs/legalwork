@@ -2,9 +2,19 @@ import assert from "node:assert/strict";
 import path from "node:path";
 import test from "node:test";
 
-import { createAppUrlMatcher, guardIpcMain } from "./app-url.mjs";
+import { createAppUrlMatcher, guardIpcMain, isAllowedPreviewNavigation } from "./app-url.mjs";
 
 const macRoot = "/Applications/LegalWork.app/Contents/Resources/app-dist";
+
+test("preview navigation stays offline while PDFium can load its own internal stream", () => {
+  const viewer = "chrome-extension://mhjfbmdgcfjbbpaeojofohoefgiehjai/";
+  const blocked = (url, parent = "about:srcdoc") => !isAllowedPreviewNavigation({ url, frame: { parent: { url: parent } } });
+  assert.equal(blocked("https://example.com/"), true);
+  assert.equal(blocked(`${viewer}stream`), true);
+  assert.equal(blocked(`${viewer}stream`, `${viewer}index.html`), false);
+  assert.equal(blocked("https://example.com/", `${viewer}index.html`), true);
+  assert.equal(blocked("blob:null/preview"), false);
+});
 
 test("packaged app matches only files inside app-dist", () => {
   const isAppUrl = createAppUrlMatcher({ appRoot: macRoot });

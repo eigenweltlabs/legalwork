@@ -4,14 +4,18 @@ import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { stripTypeScriptTypes } from "node:module";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { setTimeout as delay } from "node:timers/promises";
 import { app, BrowserWindow, protocol } from "electron";
 import { guardPreviewNavigation } from "../electron/app-url.mjs";
+import { PDFDocument } from "../../server/resources/core-opencode/skills/pdf-tools/assets/vendor/pdf-lib.mjs";
 
 const securitySource = await readFile(new URL("../../app/src/react-app/domains/session/artifacts/html-preview-security.ts", import.meta.url), "utf8");
 const { offlinePreviewDocument } = await import(`data:text/javascript;base64,${Buffer.from(stripTypeScriptTypes(securitySource)).toString("base64")}`);
 const userData = await mkdtemp(path.join(tmpdir(), "legalwork-preview-security-"));
 app.setPath("userData", userData);
+app.on("window-all-closed", () => {});
 let window;
+let exitCode = 0;
 // Match the recording scheme's privileges in main.mjs: it must obey preview CSP.
 protocol.registerSchemesAsPrivileged([{ scheme: "lw-recording", privileges: { standard: true, secure: true, supportFetchAPI: true, stream: true } }]);
 const requests = [];
@@ -51,13 +55,27 @@ app.whenReady().then(async () => {
     assert.deepEqual(result, { bridge: "undefined", clicked: "yes", isolated: true });
     assert.deepEqual(requests, [], "previews must not make network requests, including self-navigation");
     console.log("PASS: interactive scripts and blob workers run without desktop access or outbound requests");
+    const pdf = await PDFDocument.create();
+    pdf.addPage().drawText("PDF viewer regression");
+    const bytes = Buffer.from(await pdf.save()).toString("base64");
+    await window.webContents.executeJavaScript(`{
+      const data = Uint8Array.from(atob(${JSON.stringify(bytes)}), c => c.charCodeAt(0));
+      const frame = document.createElement('iframe');
+      frame.src = URL.createObjectURL(new Blob([data], {type:'application/pdf'}));
+      document.body.append(frame);
+    }`);
+    const pdfStream = () => window.webContents.mainFrame.framesInSubtree.some((frame) =>
+      frame.parent?.url === "chrome-extension://mhjfbmdgcfjbbpaeojofohoefgiehjai/index.html" && frame.url.startsWith("blob:"));
+    for (let attempt = 0; attempt < 50 && !pdfStream(); attempt++) await delay(100);
+    assert.ok(pdfStream(), "The built-in PDF viewer must load its internal stream");
+    console.log("PASS: the normal PDF viewer remains functional under the navigation guard");
   } catch (error) {
     console.error(error);
-    process.exitCode = 1;
+    exitCode = 1;
   } finally {
     window?.destroy();
     await new Promise((resolve) => server.close(resolve));
     await rm(userData, { recursive: true, force: true });
-    app.exit(process.exitCode ?? 0);
+    app.exit(exitCode);
   }
 });
