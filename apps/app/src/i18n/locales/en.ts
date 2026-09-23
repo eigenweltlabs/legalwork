@@ -3675,6 +3675,10 @@ export default {
   "side_panel.open_in_viewer": "Open files in viewer",
   "side_panel.new_tab": "New tab",
   "side_panel.close_preview": "Close preview panel",
+  "side_panel.open_to_side": "Open to the side",
+  "side_panel.move_to_main": "Move to the main pane",
+  "side_panel.drop_to_open_beside": "Drop to open beside",
+  "side_panel.drop_to_move_here": "Drop to move here",
   "side_panel.empty_title": "A closer look at your work",
   "side_panel.empty_body":
     "Drop files here to open working copies, or open a browser tab alongside your conversation.",

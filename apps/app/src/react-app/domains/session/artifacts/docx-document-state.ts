@@ -39,7 +39,26 @@ export function registerUnsavedDocument(key: string, name: string, isDirty: () =
 }
 
 export function confirmDiscardDocuments(key?: string, confirm?: (message: string) => boolean, switching = false) {
-  const entries = [...unsavedDocuments.entries()].filter(([id, entry]) => (!key || id === key) && !(switching && entry.retainOnSwitch) && entry.isDirty());
+  return confirmDiscard((id) => !key || id === key, confirm, switching);
+}
+
+/** Guard only the documents shown in one pane, named by session and target id.
+ * With two panes open, switching a tab in one must not discard the other's draft. */
+export function confirmDiscardSessionDocuments(
+  sessionId: string,
+  targetIds: Array<string | null>,
+  confirm?: (message: string) => boolean,
+  switching = false,
+) {
+  // artifactDocumentKey is a JSON array, so the last two elements form a
+  // suffix no workspace id can imitate. Workflow editors register under
+  // their bare tab id.
+  const suffixes = targetIds.flatMap((targetId) => targetId ? [JSON.stringify([sessionId, targetId]).slice(1)] : []);
+  return confirmDiscard((id) => targetIds.includes(id) || suffixes.some((suffix) => id.endsWith(suffix)), confirm, switching);
+}
+
+function confirmDiscard(matches: (key: string) => boolean, confirm?: (message: string) => boolean, switching = false) {
+  const entries = [...unsavedDocuments.entries()].filter(([id, entry]) => matches(id) && !(switching && entry.retainOnSwitch) && entry.isDirty());
   const names = entries.map(([, entry]) => entry.name);
   if (!names.length) return true;
   const ask = confirm ?? ((message: string) => window.confirm(message));

@@ -1,7 +1,7 @@
 import type { SearchSourceReference } from "@legalwork/types/search";
 import { create } from "zustand";
 import type { ReviewSourceReference } from "@legalwork/types/reviews";
-import { confirmDiscardDocuments } from "../artifacts/docx-document-state";
+import { confirmDiscardDocuments, confirmDiscardSessionDocuments } from "../artifacts/docx-document-state";
 import { createJSONStorage, persist } from "zustand/middleware";
 
 import { isCollectibleArtifactTarget, type OpenTarget, type OpenTargetPreview } from "../artifacts/open-target";
@@ -56,6 +56,10 @@ export type PanelTab = BrowserPanelTab | ArtifactPanelTab | TaskPanelTab | Workf
 export type SessionPanelState = {
   tabs: PanelTab[];
   activeTabId: string | null;
+  // Document tabs shown in a second pane beside the main one. A tab sits in
+  // one pane only, so no document is ever mounted twice.
+  sideTabIds: string[];
+  sideActiveTabId: string | null;
 };
 
 type PersistedPanelTabRef = {
@@ -79,6 +83,9 @@ export type PanelTabStore = {
   setStorageWorkingPath: (sessionId: string, tabId: string, path: string) => void;
   closeTab: (sessionId: string, tabId: string) => void;
   selectTab: (sessionId: string, tabId: string) => void;
+  moveTabToSide: (sessionId: string, tabId: string) => void;
+  moveTabToMain: (sessionId: string, tabId: string) => void;
+  // Accepts the order of one pane; tabs of the other pane keep their places.
   reorderTabs: (sessionId: string, tabIds: string[]) => void;
   syncBrowserTabs: (sessionId: string, browserTabs: BrowserPanelTab[], activeBrowserTabId: string | null) => void;
   syncArtifactTargets: (
@@ -92,6 +99,8 @@ export type PanelTabStore = {
 const EMPTY_SESSION: SessionPanelState = {
   tabs: [],
   activeTabId: null,
+  sideTabIds: [],
+  sideActiveTabId: null,
 };
 
 function getWritableSession(state: PanelTabStore, sessionId: string): SessionPanelState {
@@ -139,10 +148,71 @@ function reconcileOpenArtifactTabs(
     })
     .filter((tab): tab is PanelTab => tab !== null);
 
+  return normalizeSession(tabs, session.activeTabId, session.sideTabIds, session.sideActiveTabId);
+}
+
+/** Every write goes through here so both panes always point at tabs that exist:
+ * only document tabs may sit in the side pane, each active id resolves within
+ * its own pane, and the side pane closes rather than outlive an empty main pane. */
+function normalizeSession(
+  tabs: PanelTab[],
+  activeTabId: string | null,
+  sideTabIds: string[],
+  sideActiveTabId: string | null,
+): SessionPanelState {
+  const documentIds = new Set(tabs.flatMap((tab) => tab.type === "artifact" ? [tab.id] : []));
+  const sideIds = sideTabIds.filter((id, index) => documentIds.has(id) && sideTabIds.indexOf(id) === index);
+  const sideSet = new Set(sideIds);
+  const mainTabs = tabs.filter((tab) => !sideSet.has(tab.id));
+  if (!mainTabs.length && sideIds.length) {
+    return normalizeSession(tabs, sideActiveTabId, [], null);
+  }
+  const sideTabs = tabs.filter((tab) => sideSet.has(tab.id));
+
   return {
     tabs,
-    activeTabId: resolveActiveTabId(tabs, session.activeTabId),
+    activeTabId: resolveActiveTabId(mainTabs, activeTabId),
+    sideTabIds: sideIds,
+    sideActiveTabId: resolveActiveTabId(sideTabs, sideActiveTabId),
   };
+}
+
+/** The tab that takes over when a tab leaves its pane: the one after it, else
+ * the one before it, within that pane only, so focus never jumps the split. */
+function neighbourInPane(session: SessionPanelState, tabId: string) {
+  const sideSet = new Set(session.sideTabIds);
+  const inSide = sideSet.has(tabId);
+  const pane = session.tabs.filter((tab) => sideSet.has(tab.id) === inSide);
+  const index = pane.findIndex((tab) => tab.id === tabId);
+  const remaining = pane.filter((tab) => tab.id !== tabId);
+  return remaining[index]?.id ?? remaining[index - 1]?.id ?? null;
+}
+
+function moveTab(state: PanelTabStore, sessionId: string, tabId: string, to: "main" | "side") {
+  const session = getWritableSession(state, sessionId);
+  const tab = session.tabs.find((entry) => entry.id === tabId);
+  const inSide = session.sideTabIds.includes(tabId);
+  if (tab?.type !== "artifact" || inSide === (to === "side")) {
+    return state;
+  }
+
+  // The moved tab remounts in its new pane and takes over as that pane's
+  // active document, so both may lose unsaved changes.
+  const replaced = to === "side" ? session.sideActiveTabId : session.activeTabId;
+  if (!confirmDiscardSessionDocuments(sessionId, [tabId, replaced], undefined, true)) return state;
+
+  const sideTabIds = to === "side"
+    ? [...session.sideTabIds, tabId]
+    : session.sideTabIds.filter((id) => id !== tabId);
+  const wasActive = (inSide ? session.sideActiveTabId : session.activeTabId) === tabId;
+  const left = wasActive ? neighbourInPane(session, tabId) : null;
+
+  return updateSession(state, sessionId, normalizeSession(
+    session.tabs,
+    to === "main" ? tabId : wasActive ? left : session.activeTabId,
+    sideTabIds,
+    to === "side" ? tabId : wasActive ? left : session.sideActiveTabId,
+  ));
 }
 
 function isSameTranscriptArtifactTargets(left: OpenTarget[], right: OpenTarget[]) {
@@ -198,15 +268,14 @@ function isSameTab(left: PanelTab, right: PanelTab) {
   return false;
 }
 
-function isSameSessionPanelState(
-  session: SessionPanelState,
-  tabs: PanelTab[],
-  activeTabId: string | null,
-) {
+function isSameSessionPanelState(session: SessionPanelState, next: SessionPanelState) {
   return (
-    session.tabs.length === tabs.length &&
-    session.activeTabId === activeTabId &&
-    session.tabs.every((tab, index) => isSameTab(tab, tabs[index]))
+    session.tabs.length === next.tabs.length &&
+    session.activeTabId === next.activeTabId &&
+    session.sideActiveTabId === next.sideActiveTabId &&
+    session.sideTabIds.length === next.sideTabIds.length &&
+    session.sideTabIds.every((id, index) => id === next.sideTabIds[index]) &&
+    session.tabs.every((tab, index) => isSameTab(tab, next.tabs[index]))
   );
 }
 
@@ -236,10 +305,7 @@ function mergePersistedSessions(
         canGoForward: false,
       }));
 
-    sessions[sessionId] = {
-      tabs,
-      activeTabId: resolveActiveTabId(tabs, session.activeTabId),
-    };
+    sessions[sessionId] = normalizeSession(tabs, session.activeTabId, [], null);
   }
 
   return {
@@ -261,41 +327,43 @@ export const usePanelTabStore = create<PanelTabStore>()(
       }),
       openTab: (sessionId, tab) => set((state) => {
         const session = getWritableSession(state, sessionId);
-        if (session.activeTabId !== tab.id && !confirmDiscardDocuments(undefined, undefined, true)) return state;
+        // A tab already beside the main pane is shown there again rather than
+        // pulled back, so a document keeps the pane the user gave it.
+        const inSide = session.sideTabIds.includes(tab.id);
+        const replaced = inSide ? session.sideActiveTabId : session.activeTabId;
+        if (replaced !== tab.id && !confirmDiscardSessionDocuments(sessionId, [replaced], undefined, true)) return state;
         const existingIndex = session.tabs.findIndex((entry) => entry.id === tab.id);
+        const tabs = existingIndex >= 0
+          ? session.tabs.map((entry, index) => index === existingIndex ? tab : entry)
+          : [...session.tabs, tab];
 
-        if (existingIndex >= 0) {
-          const tabs = [...session.tabs];
-          tabs[existingIndex] = tab;
-
-          return updateSession(state, sessionId, {
-            tabs,
-            activeTabId: tab.id,
-          });
-        }
-
-        return updateSession(state, sessionId, {
-          tabs: [...session.tabs, tab],
-          activeTabId: tab.id,
-        });
+        return updateSession(state, sessionId, normalizeSession(
+          tabs,
+          inSide ? session.activeTabId : tab.id,
+          session.sideTabIds,
+          inSide ? tab.id : session.sideActiveTabId,
+        ));
       }),
       closeTab: (sessionId, tabId) => set((state) => {
         const session = getWritableSession(state, sessionId);
-        const index = session.tabs.findIndex((tab) => tab.id === tabId);
-        if (index < 0) {
+        const closing = session.tabs.find((tab) => tab.id === tabId);
+        if (!closing) {
           return state;
         }
 
-        const closing = session.tabs[index];
+        const inSide = session.sideTabIds.includes(tabId);
+        const wasActive = (inSide ? session.sideActiveTabId : session.activeTabId) === tabId;
         if (closing.type === "workflow" || closing.type === "workflow-resource") {
           if (!confirmDiscardDocuments(tabId)) return state;
-        } else if (session.activeTabId === tabId && !confirmDiscardDocuments(undefined, undefined, true)) return state;
-        const tabs = session.tabs.filter((tab) => tab.id !== tabId);
-        const activeTabId = session.activeTabId === tabId
-          ? resolveActiveTabId(tabs, tabs[index]?.id ?? tabs[index - 1]?.id ?? null)
-          : session.activeTabId;
+        } else if (wasActive && !confirmDiscardSessionDocuments(sessionId, [tabId], undefined, true)) return state;
+        const nextActiveId = wasActive ? neighbourInPane(session, tabId) : null;
 
-        return updateSession(state, sessionId, { tabs, activeTabId });
+        return updateSession(state, sessionId, normalizeSession(
+          session.tabs.filter((tab) => tab.id !== tabId),
+          !inSide && wasActive ? nextActiveId : session.activeTabId,
+          session.sideTabIds.filter((id) => id !== tabId),
+          inSide && wasActive ? nextActiveId : session.sideActiveTabId,
+        ));
       }),
       selectTab: (sessionId, tabId) => set((state) => {
         const session = getWritableSession(state, sessionId);
@@ -303,24 +371,30 @@ export const usePanelTabStore = create<PanelTabStore>()(
           return state;
         }
 
-        if (session.activeTabId === tabId) {
+        const inSide = session.sideTabIds.includes(tabId);
+        const current = inSide ? session.sideActiveTabId : session.activeTabId;
+        if (current === tabId) {
           return state;
         }
 
-        if (!confirmDiscardDocuments(undefined, undefined, true)) return state;
+        if (!confirmDiscardSessionDocuments(sessionId, [current], undefined, true)) return state;
         return updateSession(state, sessionId, {
           ...session,
-          activeTabId: tabId,
+          activeTabId: inSide ? session.activeTabId : tabId,
+          sideActiveTabId: inSide ? tabId : session.sideActiveTabId,
         });
       }),
+      moveTabToSide: (sessionId, tabId) => set((state) => moveTab(state, sessionId, tabId, "side")),
+      moveTabToMain: (sessionId, tabId) => set((state) => moveTab(state, sessionId, tabId, "main")),
       reorderTabs: (sessionId, tabIds) => set((state) => {
         const session = getWritableSession(state, sessionId);
         const tabsById = new Map(session.tabs.map((tab) => [tab.id, tab]));
-        const reorderedTabs = tabIds
-          .map((tabId) => tabsById.get(tabId))
-          .filter((tab): tab is PanelTab => Boolean(tab));
+        const order = tabIds.filter((tabId, index) => tabsById.has(tabId) && tabIds.indexOf(tabId) === index);
+        const reordered = new Set(order);
+        let next = 0;
+        const reorderedTabs = session.tabs.map((tab) => reordered.has(tab.id) ? tabsById.get(order[next++]) ?? tab : tab);
 
-        if (reorderedTabs.length !== session.tabs.length) {
+        if (next !== order.length) {
           return state;
         }
 
@@ -356,24 +430,24 @@ export const usePanelTabStore = create<PanelTabStore>()(
         const shouldSyncActiveFromElectron =
           !session.activeTabId || currentActiveTab?.type === "browser";
 
-        const activeTabId = shouldSyncActiveFromElectron
-          ? resolveActiveTabId(mergedTabs, activeBrowserTabId)
-          : resolveActiveTabId(mergedTabs, session.activeTabId);
+        const nextSession = normalizeSession(
+          mergedTabs,
+          shouldSyncActiveFromElectron ? activeBrowserTabId : session.activeTabId,
+          session.sideTabIds,
+          session.sideActiveTabId,
+        );
 
-        if (isSameSessionPanelState(session, mergedTabs, activeTabId)) {
+        if (isSameSessionPanelState(session, nextSession)) {
           return state;
         }
 
-        return updateSession(state, sessionId, {
-          tabs: mergedTabs,
-          activeTabId,
-        });
+        return updateSession(state, sessionId, nextSession);
       }),
       syncArtifactTargets: (sessionId, targets) => set((state) => {
         const session = getWritableSession(state, sessionId);
         const nextSession = reconcileOpenArtifactTabs(session, targets);
 
-        if (isSameSessionPanelState(session, nextSession.tabs, nextSession.activeTabId)) {
+        if (isSameSessionPanelState(session, nextSession)) {
           return state;
         }
 
@@ -391,7 +465,7 @@ export const usePanelTabStore = create<PanelTabStore>()(
           }));
         const nextSession = reconcileOpenArtifactTabs(session, collectibleTargets);
         const transcriptChanged = !isSameTranscriptArtifactTargets(currentTranscript, targets);
-        const sessionChanged = !isSameSessionPanelState(session, nextSession.tabs, nextSession.activeTabId);
+        const sessionChanged = !isSameSessionPanelState(session, nextSession);
 
         if (!transcriptChanged && !sessionChanged) {
           return state;

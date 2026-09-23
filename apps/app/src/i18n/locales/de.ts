@@ -3974,6 +3974,10 @@ const de = {
   "side_panel.open_in_viewer": "Dateien im Viewer öffnen",
   "side_panel.new_tab": "Neuer Tab",
   "side_panel.close_preview": "Vorschau schließen",
+  "side_panel.open_to_side": "Daneben öffnen",
+  "side_panel.move_to_main": "In den Hauptbereich verschieben",
+  "side_panel.drop_to_open_beside": "Zum Öffnen daneben ablegen",
+  "side_panel.drop_to_move_here": "Zum Verschieben hier ablegen",
   "side_panel.empty_title": "Ihre Arbeit aus der Nähe",
   "side_panel.empty_body":
     "Legen Sie Dateien hier ab, um Arbeitskopien zu öffnen, oder öffnen Sie einen Browser-Tab neben Ihrer Konversation.",
