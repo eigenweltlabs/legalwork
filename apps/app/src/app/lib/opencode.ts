@@ -74,12 +74,14 @@ function getRequestUrl(input: RequestInfo | URL): string {
   return String(input);
 }
 
-function resolveRequestTimeoutMs(input: RequestInfo | URL, fallbackMs: number): number {
+export function resolveRequestTimeoutMs(input: RequestInfo | URL, fallbackMs: number): number {
   const url = getRequestUrl(input);
   if (SESSION_LONG_RUNNING_URL_RE.test(url)) {
     return 0;
   }
-  if (/\/provider\/oauth\//.test(url) || /\/mcp\/auth\/callback\b/.test(url)) {
+  // The OAuth callback long-polls until the user finishes signing in. Cut
+  // short, the app reloads the engine, which drops the pending sign-in.
+  if (/\/provider\/[^/]+\/oauth\//.test(url) || /\/mcp\/auth\/callback\b/.test(url)) {
     return Math.max(fallbackMs, OAUTH_OPENCODE_REQUEST_TIMEOUT_MS);
   }
   if (/\/mcp\/.*auth\b/.test(url)) {

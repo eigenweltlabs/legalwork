@@ -28,7 +28,6 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { openDesktopUrl } from "@/app/lib/desktop";
-import { isDesktopRuntime } from "@/app/utils";
 import { compareProviders } from "@/app/utils/providers";
 import { Button } from "@/components/ui/button";
 import { ProviderIcon } from "../../../design-system/provider-icon";
@@ -395,15 +394,6 @@ export default function ProviderAuthModal(props: ProviderAuthModalProps) {
 
   const OPENCODE_ZEN_KEY_URL = "https://opencode.ai/auth";
 
-  const openExternalUrl = async (url: string) => {
-    if (!url) return;
-    if (isDesktopRuntime()) {
-      await openDesktopUrl(url);
-      return;
-    }
-    window.open(url, "_blank", "noopener,noreferrer");
-  };
-
   // The "Claude Pro/Max" method signs in with a consumer Claude subscription
   // rather than a Console API key. Anthropic's Consumer Terms restrict that
   // OAuth to Claude Code / claude.ai, so we surface a warning before use.
@@ -753,12 +743,7 @@ export default function ProviderAuthModal(props: ProviderAuthModalProps) {
 
   const openOauthUrl = async (url: string) => {
     if (!url) return;
-    if (isDesktopRuntime()) {
-      await openDesktopUrl(url);
-      setOauthBrowserOpened(true);
-      return;
-    }
-    window.open(url, "_blank", "noopener,noreferrer");
+    await openDesktopUrl(url);
     setOauthBrowserOpened(true);
   };
 
@@ -1511,7 +1496,7 @@ export default function ProviderAuthModal(props: ProviderAuthModalProps) {
                       <button
                         type="button"
                         className="font-medium text-dls-accent underline underline-offset-2 hover:opacity-80"
-                        onClick={() => void openExternalUrl(OPENCODE_ZEN_KEY_URL)}
+                        onClick={() => void openDesktopUrl(OPENCODE_ZEN_KEY_URL)}
                       >
                         {t("providers.get_api_key")}
                       </button>
