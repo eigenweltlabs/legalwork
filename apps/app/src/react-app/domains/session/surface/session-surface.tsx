@@ -8,7 +8,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "@/components/ui/sonner";
 import { cn } from "@/lib/utils";
 
-import { analyticsSurface, captureAnalyticsEvent } from "@/app/lib/analytics";
+import { analyticsSurface, captureAnalyticsEvent, takeTaskRunStart } from "@/app/lib/analytics";
 import { analyticsErrorService, analyticsErrorStatus } from "@/app/lib/analytics-error";
 import {
   EIGENWELT_BUDGET_EXCEEDED_ERROR_TEXT,
@@ -104,6 +104,7 @@ import { usePanelTabStore } from "@/react-app/domains/session/panel/panel-tab-st
 import {
   injectSessionErrorMessage,
   seedSessionState,
+  captureRunOutcome,
   snapshotKey as reactSnapshotKey,
   statusKey as reactStatusKey,
   transcriptKey as reactTranscriptKey,
@@ -1326,12 +1327,31 @@ export function SessionSurface(props: SessionSurfaceProps) {
       setError({ message: t("session.stop_failed") });
       return;
     }
-    captureAnalyticsEvent("task_run_stopped", {
-      session_id: props.sessionId,
-      surface: analyticsSurface(),
-    });
-    await snapshotQuery.refetch();
-  }, [chatStreaming, clearQueuedDrafts, opencodeClient, props.sessionId, props.workspaceRoot, snapshotQuery.refetch]);
+    // Take the run-start marker here so this stop is the run's single
+    // terminal event. The engine may or may not follow an abort with
+    // `session.idle` / `session.error` — on most stops it emitted neither,
+    // which left the run with no stats-bearing event at all; on the rest it
+    // would now emit a second one and double-count the tokens. It also keeps
+    // `task_run_errored` meaning a genuine failure rather than "failed, or
+    // the user pressed stop".
+    const runStartedAt = takeTaskRunStart(props.sessionId);
+    // Refresh first: the stats must cover the work done up to the abort, and
+    // the cached snapshot still predates it. `captureRunOutcome` then reads
+    // this result instead of refetching again.
+    try {
+      await snapshotQuery.refetch();
+    } catch {
+      // Stale stats beat no event: the marker is already spent, so bailing
+      // here would lose this run's accounting entirely.
+    }
+    captureRunOutcome(
+      props.workspaceId,
+      props.sessionId,
+      "task_run_stopped",
+      { duration_ms: runStartedAt === null ? null : Date.now() - runStartedAt },
+      { refresh: false },
+    );
+  }, [chatStreaming, clearQueuedDrafts, opencodeClient, props.sessionId, props.workspaceId, props.workspaceRoot, snapshotQuery.refetch]);
 
   const startVoiceJob = useCallback(async (request: string) => {
     const text = request.trim();
