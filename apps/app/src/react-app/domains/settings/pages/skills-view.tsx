@@ -1421,7 +1421,7 @@ function buildWorkflowContent(input: {
 // the agent's session in the normal chat view so the user can watch (and answer
 // any permission prompts); done/error states carry a dismiss control, and a
 // failed import can be retried in place (the staged workflows survive it).
-function TemplateGenerationRow(props: {
+export function TemplateGenerationRow(props: {
   status: "running" | "done" | "error";
   templatesDir: string;
   error?: string;
@@ -1733,7 +1733,9 @@ function WorkflowCreatorButton(props: {
   );
 }
 
-function ImportSkillsButton(props: {
+export function ImportSkillsButton(props: {
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
   asWorkflow: boolean;
   busy: boolean;
   canUseDesktopTools: boolean;
@@ -1742,7 +1744,9 @@ function ImportSkillsButton(props: {
 }) {
   const { extensions, asWorkflow } = props;
   const noun = asWorkflow ? "workflow" : "skill";
-  const [open, setOpen] = useState(false);
+  const [internalOpen, setInternalOpen] = useState(false);
+  const open = props.open ?? internalOpen;
+  const setOpen = props.onOpenChange ?? setInternalOpen;
   const [url, setUrl] = useState("");
   const [ref, setRef] = useState("");
   const [scanning, setScanning] = useState(false);
@@ -1868,7 +1872,7 @@ function ImportSkillsButton(props: {
 
   return (
     <>
-      <button type="button" onClick={() => setOpen(true)} disabled={props.busy} className={ghostActionClass}>
+      <button hidden={props.open !== undefined} type="button" onClick={() => setOpen(true)} disabled={props.busy} className={ghostActionClass}>
         <Download size={14} />
         {t("skills.import")}
       </button>

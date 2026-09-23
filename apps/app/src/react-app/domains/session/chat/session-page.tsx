@@ -24,6 +24,7 @@ import type {
   WorkspaceSessionGroup,
 } from "../../../../app/types";
 import { Button } from "@/components/ui/button";
+import { useIsMobile } from "@/hooks/use-mobile";
 import { toast } from "@/components/ui/sonner";
 import {
   Dialog,
@@ -319,6 +320,8 @@ export function SessionPage(props: SessionPageProps) {
   // is null and the panel can never open (regressed as "opens only on the 2nd
   // click, and only after having visited a chat session first").
   const panelStateSessionId = props.mainView ? EVALS_PANEL_SESSION_ID : props.selectedSessionId ?? EVALS_PANEL_SESSION_ID;
+  const workflowsPage = props.sidebar.activeNav === "workflows";
+  const mobile = useIsMobile();
   const sessionSidePanel = useUiStateStore((state) => (
     panelStateSessionId ? state.sidePanelState[panelStateSessionId] ?? null : null
   ));
@@ -346,6 +349,7 @@ export function SessionPage(props: SessionPageProps) {
   const activeSidePanel = sessionSidePanel === "extensions" ? null : sessionSidePanel;
   const driveOpen = fileSidebar === "memory";
   const sidePanelOpen = activeSidePanel === "panel";
+  const workflowFocusMode = workflowsPage && mobile && sidePanelOpen;
   const panelRailActive = activeSidePanel === "panel";
   const filesRailActive = fileSidebar === "files";
   const openAiProviderConnected = props.providerConnectedIds.includes("openai");
@@ -1052,8 +1056,8 @@ export function SessionPage(props: SessionPageProps) {
           // settings gear) — and swap only the center content.
           <SidebarInset className="min-h-0 overflow-hidden bg-background mac:bg-background/80 mac:[&_.lw-session-header]:transition-[padding-left] mac:[&_.lw-session-header]:duration-200 mac:[&_.lw-session-header]:ease-linear mac:peer-data-[state=collapsed]:[&_.lw-session-header]:pl-28 mac:max-md:[&_.lw-session-header]:pl-28">
             <div className="flex min-h-0 flex-1">
-            <ResizablePanelGroup orientation="horizontal" className="min-h-0 flex-1">
-              <ResizablePanel id="session-content" minSize="360px" className="min-w-0">
+            <ResizablePanelGroup orientation="horizontal" className={cn("min-h-0 flex-1", workflowFocusMode && "!grid !grid-cols-1")}>
+              <ResizablePanel id="session-content" minSize={workflowFocusMode ? "0px" : workflowsPage ? "280px" : "360px"} className={cn("min-w-0", workflowFocusMode && "hidden")}>
             <main className="flex h-full min-w-0 flex-1 flex-col overflow-hidden">
               <header className="lw-session-header z-10 flex h-11 shrink-0 items-center justify-between border-b border-border px-4 md:px-6 mac:titlebar-drag mac:backdrop-blur-2xl mac:backdrop-saturate-150">
                 <div className="flex min-w-0 items-center gap-3">
@@ -1090,19 +1094,20 @@ export function SessionPage(props: SessionPageProps) {
                   <ResizableHandle withHandle className="hidden lg:flex" />
                   <ResizablePanel
                     id="document-viewer"
-                    defaultSize="480px"
-                    minSize="320px"
-                    maxSize="70%"
-                    className="min-h-0 overflow-hidden lg:flex lg:flex-col"
+                    defaultSize={workflowFocusMode ? "100%" : workflowsPage ? "60%" : "480px"}
+                    minSize={workflowFocusMode ? "0px" : "320px"}
+                    maxSize={workflowFocusMode ? "100%" : "70%"}
+                    className="flex min-h-0 flex-col overflow-hidden"
                   >
-                    <SidePanel
+                    {workflowFocusMode ? <div className="shrink-0 border-b border-border px-3 py-2"><Button variant="ghost" size="sm" onClick={() => setSidePanelState(panelStateSessionId, null)}>{t("workflows.back_to_library")}</Button></div> : null}
+                    <div className="min-h-0 flex-1"><SidePanel
                       sessionId={EVALS_PANEL_SESSION_ID}
                       client={props.legalworkServerClient}
                       workspaceId={props.runtimeWorkspaceId}
                       workspaceRoot={props.selectedWorkspaceRoot}
                       isRemoteWorkspace={props.selectedWorkspaceDisplay.workspaceType === "remote"}
                       onClose={closeRightPane}
-                    />
+                    /></div>
                   </ResizablePanel>
                 </>
               ) : null}

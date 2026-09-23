@@ -16,7 +16,7 @@ export const EVALS_PANEL_SESSION_ID = "__evals__";
 // Asking for a tab lives in its own module, so asking does not create this store.
 export { PANEL_OPEN_TAB_EVENT, requestPanelTab } from "./panel-tab-request";
 
-export type PanelTabType = "artifact" | "browser" | "task";
+export type PanelTabType = "artifact" | "browser" | "task" | "workflow" | "workflow-resource";
 
 export type { BrowserPanelTab } from "../../../../app/lib/desktop-types";
 import type { BrowserPanelTab } from "../../../../app/lib/desktop-types";
@@ -41,7 +41,10 @@ export type TaskPanelTab = {
   label: string;
 };
 
-export type PanelTab = BrowserPanelTab | ArtifactPanelTab | TaskPanelTab;
+export type WorkflowPanelTab = { id: string; type: "workflow"; label: string };
+export type WorkflowResourcePanelTab = { id: string; type: "workflow-resource"; label: string };
+
+export type PanelTab = BrowserPanelTab | ArtifactPanelTab | TaskPanelTab | WorkflowPanelTab | WorkflowResourcePanelTab;
 
 export type SessionPanelState = {
   tabs: PanelTab[];
@@ -182,6 +185,9 @@ function isSameTab(left: PanelTab, right: PanelTab) {
     return left.label === right.label && left.taskId === right.taskId;
   }
 
+  if (left.type === "workflow" && right.type === "workflow") return left.label === right.label;
+  if (left.type === "workflow-resource" && right.type === "workflow-resource") return left.label === right.label;
+
   return false;
 }
 
@@ -248,7 +254,7 @@ export const usePanelTabStore = create<PanelTabStore>()(
       }),
       openTab: (sessionId, tab) => set((state) => {
         const session = getWritableSession(state, sessionId);
-        if (session.activeTabId !== tab.id && !confirmDiscardDocuments()) return state;
+        if (session.activeTabId !== tab.id && !confirmDiscardDocuments(undefined, undefined, true)) return state;
         const existingIndex = session.tabs.findIndex((entry) => entry.id === tab.id);
 
         if (existingIndex >= 0) {
@@ -273,7 +279,10 @@ export const usePanelTabStore = create<PanelTabStore>()(
           return state;
         }
 
-        if (session.activeTabId === tabId && !confirmDiscardDocuments()) return state;
+        const closing = session.tabs[index];
+        if (closing.type === "workflow" || closing.type === "workflow-resource") {
+          if (!confirmDiscardDocuments(tabId)) return state;
+        } else if (session.activeTabId === tabId && !confirmDiscardDocuments(undefined, undefined, true)) return state;
         const tabs = session.tabs.filter((tab) => tab.id !== tabId);
         const activeTabId = session.activeTabId === tabId
           ? resolveActiveTabId(tabs, tabs[index]?.id ?? tabs[index - 1]?.id ?? null)
@@ -291,7 +300,7 @@ export const usePanelTabStore = create<PanelTabStore>()(
           return state;
         }
 
-        if (!confirmDiscardDocuments()) return state;
+        if (!confirmDiscardDocuments(undefined, undefined, true)) return state;
         return updateSession(state, sessionId, {
           ...session,
           activeTabId: tabId,

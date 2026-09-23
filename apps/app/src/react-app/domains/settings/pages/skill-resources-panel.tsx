@@ -1,6 +1,6 @@
 /** @jsxImportSource react */
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Edit2, FilePlus, FileText, Loader2, Plus, Trash2 } from "lucide-react";
+import { Edit2, Eye, FilePlus, FileText, Loader2, Plus, Trash2 } from "lucide-react";
 import { toast } from "@/components/ui/sonner";
 
 import {
@@ -16,6 +16,7 @@ import { Button } from "@/components/ui/button";
 import { ConfirmModal } from "@/react-app/design-system/modals/confirm-modal";
 import { t } from "@/i18n";
 import type { SkillResourceCard } from "@/app/types";
+import { isEditableWorkflowResource } from "../state/workflow-resource-type";
 
 // The slice of the extensions store the attached-files panel needs. Implemented
 // by createExtensionsStore alongside the skill methods (same server wiring).
@@ -23,7 +24,7 @@ export type SkillResourcesStore = {
   skillResources: () => SkillResourceCard[];
   skillResourcesStatus: () => string | null;
   refreshSkillResources: (skillName: string) => void | Promise<void>;
-  readSkillResource: (skillName: string, fileName: string) => Promise<{ name: string; path: string; content: string } | null>;
+  readSkillResource: (skillName: string, fileName: string, encoding?: "utf8" | "base64") => Promise<{ name: string; path: string; content: string } | null>;
   saveSkillResource: (
     skillName: string,
     input: { name: string; content?: string; contentBase64?: string },
@@ -141,7 +142,6 @@ export function StagedResourcesField(props: {
         <input
           ref={fileInputRef}
           type="file"
-          accept=".md,.markdown,.txt,.csv,.docx,.pdf"
           className="hidden"
           onChange={(event) => {
             const file = event.currentTarget.files?.[0];
@@ -198,10 +198,12 @@ export function StagedResourcesField(props: {
  * and `onChanged` lets the editor pick up that regenerated section.
  */
 export function SkillResourcesPanel(props: {
+  embedded?: boolean;
   skillName: string;
   busy: boolean;
   extensions: SkillResourcesStore;
   onChanged: () => void;
+  onEditResource?: (resource: SkillResourceCard) => void;
 }) {
   const { extensions, skillName } = props;
   const [addOpen, setAddOpen] = useState(false);
@@ -242,17 +244,16 @@ export function SkillResourcesPanel(props: {
   };
 
   return (
-    <div className="mt-4 rounded-xl border border-dls-border bg-dls-hover/40 px-4 py-3">
+    <div className={props.embedded ? "py-1" : "mt-4 rounded-xl border border-dls-border bg-dls-hover/40 px-4 py-3"}>
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div>
           <div className="text-xs font-medium text-dls-text">{t("skill_resources.title")}</div>
-          <p className="mt-1 text-[11px] text-dls-secondary">{t("skill_resources.description")}</p>
+          <p className="mt-1 text-[11px] text-dls-secondary">{t(props.embedded ? "workflows.files_hint" : "skill_resources.description")}</p>
         </div>
         <div className="flex shrink-0 items-center gap-1.5">
           <input
             ref={fileInputRef}
             type="file"
-            accept=".md,.markdown,.txt,.csv,.docx,.pdf"
             className="hidden"
             onChange={(event) => {
               const file = event.currentTarget.files?.[0];
@@ -290,21 +291,23 @@ export function SkillResourcesPanel(props: {
           {resources.map((resource) => (
             <div key={resource.path} className="group flex items-center gap-2.5 py-2">
               <FileText size={14} className="shrink-0 text-dls-secondary" />
-              <span className="min-w-0 flex-1 truncate text-[12px] text-dls-text">{resource.name}</span>
+              {props.onEditResource
+                ? <button type="button" className="min-w-0 flex-1 truncate text-left text-[12px] text-dls-text hover:underline" onClick={() => props.onEditResource?.(resource)}>{resource.name}</button>
+                : <span className="min-w-0 flex-1 truncate text-[12px] text-dls-text">{resource.name}</span>}
               <span className="shrink-0 font-mono text-[10px] tabular-nums text-dls-secondary/70">
                 {formatResourceSize(resource.size)}
               </span>
-              <div className="flex shrink-0 items-center gap-0.5 opacity-0 transition-opacity focus-within:opacity-100 group-hover:opacity-100">
-                {isTextResourceName(resource.name) ? (
+              <div className="flex shrink-0 items-center gap-0.5">
+                {isTextResourceName(resource.name) || props.onEditResource ? (
                   <button
                     type="button"
                     className={rowIconBtnClass}
-                    onClick={() => setEditTarget(resource)}
+                    onClick={() => props.onEditResource ? props.onEditResource(resource) : setEditTarget(resource)}
                     disabled={props.busy}
-                    title={t("common.edit")}
-                    aria-label={t("common.edit")}
+                    title={t(props.onEditResource && !isEditableWorkflowResource(resource.name) ? "session.open" : "common.edit")}
+                    aria-label={t(props.onEditResource && !isEditableWorkflowResource(resource.name) ? "session.open" : "common.edit")}
                   >
-                    <Edit2 size={13} />
+                    {props.onEditResource && !isEditableWorkflowResource(resource.name) ? <Eye size={13} /> : <Edit2 size={13} />}
                   </button>
                 ) : null}
                 <button

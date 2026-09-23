@@ -5,12 +5,14 @@ import {
   ArrowRight,
   Globe,
   FolderInput,
+  FileText,
   ListTodo,
   Loader2,
   Plus,
   PanelsTopLeft,
   RotateCw,
   X,
+  Workflow,
 } from "lucide-react";
 import { AnimatePresence, motion, useDragControls } from "motion/react";
 
@@ -46,6 +48,8 @@ import type { OpenTarget } from "../artifacts/open-target";
 import { useSidePanelTabs } from "./use-side-panel-tabs";
 import { t } from "@/i18n";
 import { TaskPanel } from "@/react-app/domains/tasks/task-panel";
+import { WorkflowEditorPanel } from "@/react-app/domains/settings/pages/workflow-editor-panel";
+import { WorkflowResourceEditorPanel } from "@/react-app/domains/settings/pages/workflow-resource-editor-panel";
 import {
   computeBounds,
   getElectronBrowser,
@@ -138,6 +142,10 @@ function SidePanelTab({ tab, active, onSelect, onClose }: SidePanelTabProps) {
             )
           ) : tab.type === "task" ? (
             <ListTodo />
+          ) : tab.type === "workflow" ? (
+            <Workflow />
+          ) : tab.type === "workflow-resource" ? (
+            <FileText />
           ) : (
             <ArtifactIcon type={tab.preview} />
           )}
@@ -713,6 +721,14 @@ export function SidePanel({
               workspaceId={workspaceId}
               onClose={() => closeTab(activeTab)}
             />
+          </div>
+        ) : activeTab?.type === "workflow" ? (
+          <div className="min-h-0 flex-1 overflow-hidden">
+            <WorkflowEditorPanel key={activeTab.id} id={activeTab.id} onClose={() => closeTab(activeTab)} />
+          </div>
+        ) : activeTab?.type === "workflow-resource" ? (
+          <div className="min-h-0 flex-1 overflow-hidden">
+            <WorkflowResourceEditorPanel key={activeTab.id} id={activeTab.id} onClose={() => closeTab(activeTab)} />
           </div>
         ) : null}
       </div>

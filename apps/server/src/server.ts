@@ -3647,6 +3647,7 @@ function createRoutes(
       workspace.path,
       String(ctx.params.skill ?? ""),
       String(ctx.params.name ?? "").trim(),
+      ctx.url.searchParams.get("encoding") === "base64" ? "base64" : "utf8",
     );
     return jsonResponse(result);
   });
