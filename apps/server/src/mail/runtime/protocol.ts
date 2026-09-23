@@ -1,3 +1,4 @@
+import {contactsInputSchema,contactsResultSchema,type ContactsInput,type ContactsResult} from '../contacts-view.js';
 import {qualificationInputSchema,qualificationReportSchema,type QualificationInput,type QualificationReport} from '../qualification-view.js';
 import {agentControlResultMatches,agentControlSchema,agentControlResultSchema,type AgentControl,type AgentControlResult} from '../agent-view.js';
 import {storageSaveResultMatches,storageSaveInputSchema,storageSaveResultSchema,type StorageSaveInput,type StorageSaveResult} from '../storage-save-view.js';
@@ -48,6 +49,7 @@ export type WorkerCommand = {operation:"mail.qualification";input:QualificationI
   | RetentionCommand
   | OutboxCommand
   | PortabilityCommand
+  | {operation:'mail.contacts';accountId:string;input:ContactsInput;settings?:MailOAuthSettings}
   | DraftSyncCommand
   | {operation:"mail.senders.list";accountId:string}
   | {operation:"mail.senders.refresh";accountId:string;settings?:MailOAuthSettings}
@@ -86,6 +88,7 @@ export type WorkerFolder = { id: string; name: string; kind: "folder" | "label";
 export type WorkerResult = {qualification:QualificationReport} | {agent:AgentControlResult}| {storageSave:StorageSaveResult}|{filing:FilingResult}| {notifications:MailNotificationBatch}|{lifecycle:{state:"running"|"suspended"}}
   | {retention:RetentionPreview|z.infer<typeof retentionResultSchema>|z.infer<typeof retentionSettingsSchema>} | {retentionFailure:'conflict'|'locked'|'not_found'|'invalid_input'}
   | {portability:PortabilityStatus[]}
+  | {contacts:ContactsResult}
   | {draftSync:DraftSyncStatus}
   | {outboxDetail:OutboxDetail} | {outbox:OutboxItem[]} | {outboxItem:OutboxItem} | {smtp:SmtpStatus} | {outboxFailure:OutboxErrorCode}
   | {senders:SenderIdentity[]}
@@ -215,6 +218,7 @@ function result(value: unknown): value is WorkerResult {
     || (exact(value, ["messages"]) && mailMessageListSchema.safeParse(value.messages).success)
     || (exact(value,["notifications"])&&mailNotificationBatchSchema.safeParse(value.notifications).success)
     || (exact(value,["lifecycle"])&&mailLifecycleStatusSchema.safeParse(value.lifecycle).success)
+    || (exact(value,["contacts"]) && contactsResultSchema.safeParse(value.contacts).success)
     || (exact(value, ["draftSync"]) && draftSyncStatusSchema.safeParse(value.draftSync).success)
     || (exact(value, ["message"]) && mailMessageViewSchema.safeParse(value.message).success)
     || (exact(value, ["parts"]) && mailPartListSchema.safeParse(value.parts).success)
@@ -259,6 +263,7 @@ export function resultMatchesCommand(command: WorkerCommand, value: WorkerResult
     case "mail.agent.control":return "agent" in value&&agentControlResultMatches(command.input,value.agent);
     case "mail.storage.save":return "storageSave" in value&&storageSaveResultMatches(command.input,value.storageSave);
     case "mail.filing":return "filing" in value&&filingResultMatches(command.input,value.filing);
+    case "mail.contacts":return "contacts" in value&&value.contacts.accountId===command.accountId;
     case "mail.draft.sync.read":case "mail.draft.sync.request":return "draftSync" in value&&value.draftSync.accountId===command.accountId&&value.draftSync.draftId===command.input.draftId;
     case "mail.graph.mailbox.configure": return "graphMailbox" in value && value.graphMailbox.identity.credentialAccountId === command.input.credentialAccountId && value.graphMailbox.identity.address === command.input.address.toLowerCase();
     case "mail.senders.list": case "mail.senders.refresh": case "mail.senders.settings": case "mail.senders.configure": return "senders" in value && value.senders.every(sender=>sender.accountId===command.accountId);
@@ -310,6 +315,7 @@ export function resultMatchesCommand(command: WorkerCommand, value: WorkerResult
 }
 export function validWorkerCommand(value: unknown): value is WorkerCommand {
   if (!record(value)) return false;
+  if(value.operation==='mail.contacts')return exact(value,['operation','accountId','input',...(value.settings===undefined?[]:['settings'])])&&id(value.accountId)&&contactsInputSchema.safeParse(value.input).success&&(value.settings===undefined||settings(value.settings));
   if(value.operation==="mail.qualification")return exact(value,["operation","input"])&&qualificationInputSchema.safeParse(value.input).success;
   if(value.operation==="mail.agent.control")return exact(value,["operation","input"])&&agentControlSchema.safeParse(value.input).success;
   if(value.operation==="mail.storage.save")return exact(value,["operation","input"])&&storageSaveInputSchema.safeParse(value.input).success;

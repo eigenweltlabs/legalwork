@@ -1,3 +1,4 @@
+import {contactsInputSchema} from '../mail/contacts-view.js';
 import {qualificationInputSchema} from '../mail/qualification-view.js';
 import {mailMaintenanceReportSchema} from '../mail/maintenance-view.js';
 import {retentionScopeSchema,retentionApplySchema,retentionSettingsSchema,MailRetentionError} from '../mail/retention-view.js';
@@ -178,7 +179,7 @@ export function registerMailRoutes(routes: Route[], host: string, service?: Mail
   });
   route('POST','/imap/connections/:connectionId/cancel',false,async ctx=>{if(!z.uuid().safeParse(ctx.params.connectionId).success)throw new ApiError(400,'mail_invalid_request','Invalid mail request');await service.cancelImapConnection(ctx.params.connectionId);return {cancelled:true};});
   route('GET','/accounts/:accountId/imap',true,(ctx,page)=>service.imapDiscovery(ctx.params.accountId,page.after));
-  const connectionInput = z.object({ provider: z.enum(["gmail", "graph"]), personal: z.boolean().optional(), reconnectAccountId: z.string().min(1).max(4096).optional() }).strict();
+  const connectionInput = z.object({ provider: z.enum(["gmail", "graph"]), personal: z.boolean().optional(), contacts: z.boolean().optional(), reconnectAccountId: z.string().min(1).max(4096).optional() }).strict();
   addRoute(routes, "POST", "/mail/v1/connections", "host-token", async ctx => {
     if (ctx.actor?.type !== "host") throw new ApiError(401, "unauthorized", "Invalid host token");
     pageInput(ctx, false);
@@ -189,7 +190,7 @@ export function registerMailRoutes(routes: Route[], host: string, service?: Mail
     const parsed = connectionInput.safeParse(value);
     if (!parsed.success || (parsed.data.provider !== "graph" && parsed.data.personal !== undefined)) throw new ApiError(400, "mail_invalid_request", "Invalid mail request");
     try {
-      const result = await service.beginConnection(parsed.data.provider, parsed.data.reconnectAccountId, parsed.data.personal);
+      const result = await service.beginConnection(parsed.data.provider, parsed.data.reconnectAccountId, parsed.data.personal, parsed.data.contacts);
       return Response.json(result, { headers: { "Cache-Control": "no-store" } });
     } catch (error) { throw safeError(error); }
   });
@@ -220,6 +221,7 @@ export function registerMailRoutes(routes: Route[], host: string, service?: Mail
   query("messages/read", z.object({ locator: providerMessageLocatorSchema }).strict(), (accountId, input) => service.readMessage(accountId, input.locator));
   query("messages/parts", z.object({ locator: providerMessageLocatorSchema, page: mailPartPageSchema.default({ limit: 50 }) }).strict(), (accountId, input) => service.listParts(accountId, input.locator, input.page));
   query("messages/content", z.object({ locator: providerMessageLocatorSchema, request: mailContentReadSchema }).strict(), (accountId, input) => service.readContent(accountId, input.locator, input.request));
+  query("contacts",contactsInputSchema,(accountId,input)=>service.contacts(accountId,input));
   query("drafts/sync/status",draftSyncReadSchema,(accountId,input)=>service.draftSyncStatus(accountId,input.draftId));
   query("drafts/sync/request",draftSyncRequestSchema,(accountId,input)=>service.requestDraftSync(accountId,input));
   query("drafts/upload",mailUploadSchema,(accountId,input)=>service.uploadDraft(accountId,input));

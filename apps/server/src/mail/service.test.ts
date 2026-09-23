@@ -259,3 +259,24 @@ test("maintenance stops the real worker, denies unlock and stop cancels late pro
   expect(service.status().state).toBe("locked");await expect(service.unlock()).rejects.toThrow("mail_locked");await expect(service.listAccounts({})).rejects.toThrow("mail_locked");
   const stopped=service.stop();release();await expect(maintenance).rejects.toThrow("mail_unavailable");await stopped;expect(promoted).toBe(false);expect(service.status().state).toBe("stopped");
 });
+
+test("contacts consent is optional and a disconnected legacy account can reconnect", async () => {
+  const {service} = await setup(undefined, async () => googleSettings);
+  await service.unlock();
+  const captured: string[][] = [];
+  const request = spyOn(MailWorkerClient.prototype, "request").mockImplementation(async command => {
+    if (command.operation === "mail.sync.provider") return {syncProvider:"gmail", connected:false};
+    if (command.operation === "mail.connection.begin") {
+      captured.push([...command.settings.scopes]);
+      return {connectionStarted:{connectionId:"synthetic",authorizationUrl:"https://accounts.google.com/o/oauth2/v2/auth",expiresAt:Date.now()+1000}};
+    }
+    throw Error("Unexpected command: " + command.operation);
+  });
+  try {
+    await expect(service.beginConnection("gmail", "disconnected")).resolves.toHaveProperty("connectionId", "synthetic");
+    await service.beginConnection("gmail", "disconnected", false, true);
+    expect(captured[0]).toEqual(GMAIL_MAIL_SCOPES);
+    expect(captured[1]).toContain("https://www.googleapis.com/auth/contacts.readonly");
+    expect(googleSettings.scopes).toEqual(GMAIL_MAIL_SCOPES);
+  } finally { request.mockRestore(); }
+});

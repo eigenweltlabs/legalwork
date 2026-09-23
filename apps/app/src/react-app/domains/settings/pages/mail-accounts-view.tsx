@@ -1,3 +1,4 @@
+import {MailContactsView} from './mail-contacts-view';
 import {MailAgentAccessView} from './mail-agent-access-view';
 import {MailRetentionView} from './mail-retention-view';
 import {MailDesktopPreferences} from '../../mail/mail-desktop';
@@ -58,6 +59,7 @@ export function MailAccountsView() {
 }
 
 export function MailAccountControls({ client }: { client: MailClient }) {
+  const [contactRequest,setContactRequest]=useState<{account:MailAccountView;key:number}>();
   const [accounts, setAccounts] = useState<MailAccountView[]>([]);
   const [revision, setRevision] = useState(0);
   const [error, setError] = useState('');
@@ -82,7 +84,8 @@ export function MailAccountControls({ client }: { client: MailClient }) {
     <TabsList variant="line" aria-label="Mail settings sections"><TabsTrigger value="accounts">Accounts</TabsTrigger><TabsTrigger value="notifications">Notifications</TabsTrigger><TabsTrigger value="sending">Sending</TabsTrigger><TabsTrigger value="data">Data & access</TabsTrigger></TabsList>
     {error && <SettingsNotice tone="error"><span role="alert">{error}</span><Button size="sm" variant="ghost" onClick={()=>setRevision(value=>value+1)}>Retry</Button></SettingsNotice>}
     <TabsContent value="accounts" keepMounted className="space-y-6">
-      <MailOnboarding client={client} accounts={accounts.filter(account=>account.provider!=='archive')} onChanged={() => setRevision(value => value + 1)} />
+      <MailOnboarding client={client} contactRequest={contactRequest} accounts={accounts.filter(account=>account.provider!=='archive')} onChanged={() => setRevision(value => value + 1)} />
+      <MailContactsView client={client} accounts={accounts} onAuthorize={account=>setContactRequest({account,key:Date.now()})}/>
       <GraphMailboxesView client={client} accounts={accounts} onChanged={() => setRevision(value => value + 1)} />
     </TabsContent>
     <TabsContent value="notifications" keepMounted className="space-y-6"><MailSettingsSection title="App icon" description="Keep your unread count in view."><MailBadgePreference /></MailSettingsSection><MailDesktopPreferences /></TabsContent>

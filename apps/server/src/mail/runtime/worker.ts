@@ -1,3 +1,4 @@
+import {MailContacts} from './contacts.js';
 import {MailQualification} from './qualification.js';
 import {agentControlSchema} from '../agent-view.js';
 import {agentHash,MailAgentGrants} from '../storage/agent-grants.js';
@@ -50,6 +51,8 @@ let outboxStore:OutboxStore|undefined,outboxRunner:OutboxRunner|undefined;
 let closingOutbox:Promise<void>|undefined,closingDraftSync:Promise<void>|undefined;
 let draftSyncStore:DraftSyncStore|undefined,draftSyncRunner:DraftSyncRunner|undefined;
 let ownerId='';
+let contacts:MailContacts|undefined,contactsTimer:ReturnType<typeof setInterval>|undefined;
+let closingContacts:Promise<void>|undefined;
 let qualification:MailQualification|undefined;
 let retention:MailRetentionStore|undefined;
 let portability:MailPortabilityStore|undefined;
@@ -98,6 +101,7 @@ function write(message: WorkerMessage): boolean {
 }
 async function finish(): Promise<void> {
   await qualification?.close();
+  await closingContacts;
   try{await(closingOutbox??outboxRunner?.close());}catch{exitCode=1;}
   try{await(closingDraftSync??draftSyncRunner?.close());}catch{exitCode=1;}
   try{await(closingExtraction??extractionRunner?.close());}catch{exitCode=1;}
@@ -126,6 +130,7 @@ function shutdown(code = 0): void {
   phase = "closing";
   qualification?.cancel();
   // Stop every network runner before awaiting any individual teardown.
+  clearInterval(contactsTimer);closingContacts=contacts?.close();
   closingOutbox=outboxRunner?.close();
   closingDraftSync=draftSyncRunner?.close();
   // close() marks the controller closed synchronously, before any queued continuation.
@@ -183,6 +188,9 @@ async function initialize(value: WorkerInitialization): Promise<void> {
       if (!selected) throw new Error("mail_configuration_unavailable");
       return selected;
     } });
+    contacts=new MailContacts(database,value.ownerId,access);
+    contactsTimer=setInterval(()=>contacts?.refreshDue(),60000);
+    if(value.lifecycleSuspended)await contacts.suspend();
     syncLifecycle = new MailSyncLifecycle(database, value.ownerId, access);
     lifecycleSuspended=value.lifecycleSuspended===true;if(lifecycleSuspended)await syncLifecycle.suspendAll();
     imap=new ImapBackfill({database,ownerId:value.ownerId});
@@ -257,7 +265,7 @@ async function request(message: Extract<ParentMessage, { kind: "request" }>): Pr
       case 'mail.lifecycle.set':{
         lifecycleSuspended=command.input.suspended;
         const suspended=command.input.suspended;
-        lifecycleChange=lifecycleChange.catch(()=>{}).then(async()=>{if(phase==='closing')return;if(suspended){qualification?.cancel();await Promise.all([syncLifecycle?.suspendAll(),draftSyncRunner?.suspend(),outboxRunner?.suspend()]);}else{syncLifecycle?.resumeAll();draftSyncRunner?.resume();outboxRunner?.resume();}});
+        lifecycleChange=lifecycleChange.catch(()=>{}).then(async()=>{if(phase==='closing')return;if(suspended){qualification?.cancel();await Promise.all([contacts?.suspend(),syncLifecycle?.suspendAll(),draftSyncRunner?.suspend(),outboxRunner?.suspend()]);}else{contacts?.resume();syncLifecycle?.resumeAll();draftSyncRunner?.resume();outboxRunner?.resume();}});
         await lifecycleChange;result={lifecycle:{state:lifecycleSuspended?'suspended':'running'}};break;
       }
       case 'mail.smtp.status':result={smtp:new SmtpCustody(database,ownerId).status(command.accountId)};break;
@@ -278,6 +286,11 @@ async function request(message: Extract<ParentMessage, { kind: "request" }>): Pr
       case 'mail.portability.resume':if(!portability)throw locked;result={portability:portability.resume(command.id)};break;
       case 'mail.portability.abandon':if(!portability)throw locked;result={portability:portability.abandon(command.id)};break;
       case 'mail.portability.pause':if(!portability)throw locked;result={portability:portability.pause(command.id)};break;
+      case 'mail.contacts': {
+        if(!contacts)throw locked;
+        if(command.settings){const binding=credentials.getBinding(command.accountId);if(command.settings.provider!==binding.provider||binding.clientId!==command.settings.clientId||binding.authority!==(command.settings.provider==='gmail'?'https://accounts.google.com':`https://login.microsoftonline.com/${command.settings.tenantId}/v2.0`))throw unsupported;providerSettings.set(`${binding.provider}:${binding.clientId}:${binding.authority}`,command.settings);}
+        result={contacts:contacts.execute(command.accountId,command.input)};break;
+      }
       case 'mail.senders.list': result={senders:new SenderIdentityRepository(database,ownerId).list(command.accountId)};break;
       case 'mail.senders.configure': result={senders:new SenderIdentityRepository(database,ownerId).configure(command.accountId,command.input)};break;
       case 'mail.senders.settings': result={senders:new SenderIdentityRepository(database,ownerId).settings(command.accountId,command.input)};break;
@@ -361,7 +374,7 @@ async function request(message: Extract<ParentMessage, { kind: "request" }>): Pr
       case "mail.connection.poll": result = { connection: controller.poll(command.connectionId) }; break;
       case "mail.connection.cancel": await controller.cancel(command.connectionId); result = { cancelled: true }; break;
       case "mail.account.disconnect": {
-        qualification?.cancel(command.accountId);
+        qualification?.cancel(command.accountId);contacts?.cancel(command.accountId);
         const current = credentials.status(command.accountId); // Owner gate before provider lookup or cancellation.
         extractionRunner?.cancelAccount(command.accountId);
         // close() fences callbacks synchronously; revoke credentials before awaiting I/O cleanup.
@@ -412,6 +425,7 @@ async function request(message: Extract<ParentMessage, { kind: "request" }>): Pr
           if (command.settings.provider !== provider || binding.clientId !== command.settings.clientId
             || binding.authority !== (command.settings.provider === "gmail" ? "https://accounts.google.com" : `https://login.microsoftonline.com/${command.settings.tenantId}/v2.0`)) throw new Error("mail_configuration_mismatch");
           providerSettings.set(`${provider}:${binding.clientId}:${binding.authority}`, command.settings);
+          contacts?.refreshDue();
           result = { sync: command.operation === "mail.sync.resume" ? syncLifecycle.resume(command.accountId) : engine.start(command.accountId) };
         } else result = { sync: command.operation === "mail.sync.stop" ? engine.pause(command.accountId) : engine.status(command.accountId) };
         break;
