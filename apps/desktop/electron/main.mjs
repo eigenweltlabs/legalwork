@@ -58,6 +58,7 @@ import { createWorkspaceStore } from "./workspace-store.mjs";
 import { exportSkillFolder, readSkillArchive } from "./workspace-archive.mjs";
 import { extractDescription } from "./skill-description.mjs";
 import { normalizeImportedSkill } from "./skill-import.mjs";
+import { migrateInstalledWorkflows } from "./skill-migration.mjs";
 
 const mcpOAuthCallbacks = createMcpOAuthCallbackBroker();
 const mcpOAuthOwners = new WeakSet();
@@ -3101,6 +3102,18 @@ if (!app.requestSingleInstanceLock()) {
     // Electron see the same workspace list. Import the short-lived
     // Electron-only filename only when the shared file is missing.
     await workspaceStore.migrateLegacyElectronWorkspaceStateIfNeeded();
+
+    // Repair workflows imported by older builds before OpenCode discovers its
+    // global skill library. Leave files we cannot safely normalize untouched.
+    try {
+      const result = await migrateInstalledWorkflows(path.join(globalOpencodeRoot(), "skills"));
+      if (result.migrated) console.info(`[skills] Repaired ${result.migrated} installed workflow(s)`);
+      for (const failure of result.failed) {
+        console.warn(`[skills] Could not repair ${failure.file}: ${failure.reason}`);
+      }
+    } catch (error) {
+      console.warn("[skills] Could not scan installed workflows for repair", error);
+    }
 
     // Remove the analytics identity file persisted by earlier builds (the
     // identity is now in-memory only).
