@@ -9,6 +9,7 @@ import { I18nextProvider } from "react-i18next";
 import { toast } from "@/components/ui/sonner";
 import { useOfficeEditor, type OfficeEditorProps } from "./office-editor-state";
 import viewerStyles from "pptx-react-viewer/styles.css?inline";
+import "./office-fonts.css";
 import "./office-editor.css";
 import { t } from "@/i18n";
 

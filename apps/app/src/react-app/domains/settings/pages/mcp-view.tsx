@@ -27,7 +27,7 @@ import { evaluateEnablement } from "../../../../app/enablement";
 import type { EnablementResult } from "../../../../app/extensions";
 import type { ImportedPlugin } from "../../../../app/lib/extension-imports";
 import { ExtensionDetailModal } from "../../../design-system/extension-detail-modal";
-import { resolveExtensionIconSrc } from "../../../design-system/extension-icon-src";
+import { resolveBrandIconSrc } from "../../../design-system/extension-icon-src";
 import { ExtensionMeshAvatar } from "../../../design-system/extension-mesh-avatar";
 import {
   openDesktopPath,
@@ -244,7 +244,7 @@ const serviceIconBg = (name: string) => {
 };
 
 // Inline brand icon for ledger rows — reproduces ExtensionCard's icon resolution
-// (direct iconSrc → Simple Icons CDN slug → MarbleAvatar fallback) without
+// (direct iconSrc → bundled Simple Icons slug → MarbleAvatar fallback) without
 // importing the card component itself.
 function LedgerBrandIcon(props: {
   name: string;
@@ -253,7 +253,7 @@ function LedgerBrandIcon(props: {
   kind: ExtensionKind;
   connecting?: boolean;
 }) {
-  const resolvedIconSrc = props.iconSrc ? resolveExtensionIconSrc(props.iconSrc) : undefined;
+  const resolvedIconSrc = resolveBrandIconSrc(props.iconSrc, props.iconSlug);
   return (
     <div className="flex size-9 shrink-0 items-center justify-center rounded-lg border border-dls-border bg-dls-hover">
       {props.connecting ? (
@@ -261,10 +261,6 @@ function LedgerBrandIcon(props: {
       ) : resolvedIconSrc ? (
         <div className="flex size-6 items-center justify-center rounded-md bg-white">
           <img src={resolvedIconSrc} alt="" width={16} height={16} loading="lazy" style={{ display: "block" }} />
-        </div>
-      ) : props.iconSlug ? (
-        <div className="flex size-6 items-center justify-center rounded-md bg-white">
-          <img src={`https://cdn.simpleicons.org/${props.iconSlug}`} alt="" width={16} height={16} loading="lazy" style={{ display: "block" }} />
         </div>
       ) : (
         <ExtensionMeshAvatar name={props.name} category={props.kind} className="size-6 rounded-md shadow-inner" />

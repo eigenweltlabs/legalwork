@@ -3,14 +3,14 @@ import { AlertCircle, CheckCircle2, Loader2 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import type { ExtensionKind } from "../../app/constants";
 import type { EnablementResult } from "../../app/extensions";
-import { resolveExtensionIconSrc } from "./extension-icon-src";
+import { resolveBrandIconSrc } from "./extension-icon-src";
 import { ExtensionMeshAvatar } from "./extension-mesh-avatar";
 import { t } from "@/i18n";
 
 export type ExtensionCardProps = {
   name: string;
   description: string;
-  /** Simple Icons slug for brand icon. When set, loads from CDN. */
+  /** Simple Icons slug for brand icon. Resolved against the bundled marks. */
   iconSlug?: string;
   /** Direct icon URL (e.g. local SVG). Takes priority over iconSlug. */
   iconSrc?: string;
@@ -58,7 +58,7 @@ const kindStyle: Record<ExtensionKind, string> = {
 
 /**
  * A reusable card for displaying an extension (MCP server, plugin, or skill)
- * in the extensions directory. Supports brand icons from Simple Icons CDN,
+ * in the extensions directory. Supports bundled Simple Icons brand marks,
  * Lucide icon fallbacks, kind badges, and connected/connecting states.
  */
 export function ExtensionCard(props: ExtensionCardProps) {
@@ -84,7 +84,7 @@ export function ExtensionCard(props: ExtensionCardProps) {
   const allMet = enablement ? enablement.every((r) => r.met) : connectedProp;
   const someMet = enablement ? enablement.some((r) => r.met) && !allMet : false;
   const connected = allMet;
-  const resolvedIconSrc = iconSrc ? resolveExtensionIconSrc(iconSrc) : undefined;
+  const resolvedIconSrc = resolveBrandIconSrc(iconSrc, iconSlug);
 
   return (
     <button
@@ -112,10 +112,6 @@ export function ExtensionCard(props: ExtensionCardProps) {
             ) : resolvedIconSrc ? (
               <div className="flex size-6 items-center justify-center rounded-md bg-white">
                 <img src={resolvedIconSrc} alt="" width={16} height={16} loading="lazy" style={{ display: "block" }} />
-              </div>
-            ) : iconSlug ? (
-              <div className="flex size-6 items-center justify-center rounded-md bg-white">
-                <img src={`https://cdn.simpleicons.org/${iconSlug}`} alt="" width={16} height={16} loading="lazy" style={{ display: "block" }} />
               </div>
             ) : (
               <ExtensionMeshAvatar

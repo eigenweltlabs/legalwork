@@ -16,7 +16,7 @@ catalogs:
 patchedDependencies:
   '@eigenpal/docx-editor-core@1.8.3': a852dfc46ccb55254be612de43b0993f2bb75043a7164a1221d6904f45f5c87a
   '@eigenpal/docx-editor-react@1.8.3': 0d08ecc710bd4527a6d0c3627ff58df001629bdd3a64408dc1b956a7ef4d1457
-  pptx-react-viewer@3.5.4: 20b354d293c6d6a9e93e8210d1d7798e269979150b9bad56607c7077173994ae
+  pptx-react-viewer@3.5.4: ae71f58f97e49015c0b4704b0cc5e00a5f8c955a5005b6858407adee07e9e70b
   smb3-client@0.2.0: 6750c79b7b43bafb5401de9ce8b3aaddd1332b0bc77dccc00e118c2e1d064a9d
 
 importers:
@@ -64,6 +64,48 @@ importers:
       '@fontsource-variable/inter':
         specifier: ^5.2.8
         version: 5.2.8
+      '@fontsource/anton':
+        specifier: 5.3.0
+        version: 5.3.0
+      '@fontsource/arimo':
+        specifier: 5.3.0
+        version: 5.3.0
+      '@fontsource/caladea':
+        specifier: 5.3.0
+        version: 5.3.0
+      '@fontsource/carlito':
+        specifier: 5.3.0
+        version: 5.3.0
+      '@fontsource/comic-neue':
+        specifier: 5.3.0
+        version: 5.3.0
+      '@fontsource/cousine':
+        specifier: 5.3.0
+        version: 5.3.0
+      '@fontsource/eb-garamond':
+        specifier: 5.3.0
+        version: 5.3.0
+      '@fontsource/fira-code':
+        specifier: 5.3.0
+        version: 5.3.0
+      '@fontsource/inconsolata':
+        specifier: 5.3.0
+        version: 5.3.0
+      '@fontsource/libre-franklin':
+        specifier: 5.3.0
+        version: 5.3.0
+      '@fontsource/open-sans':
+        specifier: 5.3.0
+        version: 5.3.0
+      '@fontsource/poppins':
+        specifier: 5.3.0
+        version: 5.3.0
+      '@fontsource/source-sans-pro':
+        specifier: 5.3.0
+        version: 5.3.0
+      '@fontsource/tinos':
+        specifier: 5.3.0
+        version: 5.3.0
       '@heroicons/react':
         specifier: ^2.2.0
         version: 2.2.0(react@19.2.4)
@@ -171,7 +213,7 @@ importers:
         version: 12.38.0(react-dom@19.2.4(react@19.2.4))(react@19.2.4)
       pptx-react-viewer:
         specifier: 3.5.4
-        version: 3.5.4(patch_hash=20b354d293c6d6a9e93e8210d1d7798e269979150b9bad56607c7077173994ae)(@ai-sdk/react@3.0.148(react@19.2.4)(zod@4.5.4))(@xmldom/xmldom@0.9.12)(ai@6.0.146(zod@4.5.4))(fast-xml-parser@5.11.1)(framer-motion@12.38.0(react-dom@19.2.4(react@19.2.4))(react@19.2.4))(i18next@26.4.2(typescript@5.9.3))(jspdf@4.2.1)(jszip@3.10.1)(lucide-react@0.577.0(react@19.2.4))(react-dom@19.2.4(react@19.2.4))(react-i18next@17.0.13(i18next@26.4.2(typescript@5.9.3))(react-dom@19.2.4(react@19.2.4))(react@19.2.4)(typescript@5.9.3))(react-icons@5.7.0(react@19.2.4))(react@19.2.4)
+        version: 3.5.4(patch_hash=ae71f58f97e49015c0b4704b0cc5e00a5f8c955a5005b6858407adee07e9e70b)(@ai-sdk/react@3.0.148(react@19.2.4)(zod@4.5.4))(@xmldom/xmldom@0.9.12)(ai@6.0.146(zod@4.5.4))(fast-xml-parser@5.11.1)(framer-motion@12.38.0(react-dom@19.2.4(react@19.2.4))(react@19.2.4))(i18next@26.4.2(typescript@5.9.3))(jspdf@4.2.1)(jszip@3.10.1)(lucide-react@0.577.0(react@19.2.4))(react-dom@19.2.4(react@19.2.4))(react-i18next@17.0.13(i18next@26.4.2(typescript@5.9.3))(react-dom@19.2.4(react@19.2.4))(react@19.2.4)(typescript@5.9.3))(react-icons@5.7.0(react@19.2.4))(react@19.2.4)
       prosemirror-commands:
         specifier: ^1.7.1
         version: 1.7.1
@@ -1522,6 +1564,48 @@ packages:
 
   '@fontsource-variable/inter@5.2.8':
     resolution: {integrity: sha512-kOfP2D+ykbcX/P3IFnokOhVRNoTozo5/JxhAIVYLpea/UBmCQ/YWPBfWIDuBImXX/15KH+eKh4xpEUyS2sQQGQ==}
+
+  '@fontsource/anton@5.3.0':
+    resolution: {integrity: sha512-OR1D5n124n2XRs66SbX7IjcOSptljEJE8FcDNnlni2y1/M6KpTx7cU2PIWzTSsBj4WFkHPw24On8qw3qkQZuTw==}
+
+  '@fontsource/arimo@5.3.0':
+    resolution: {integrity: sha512-nhxZ2sTVZYX8DJBgLuyX360B5vE4mxqpmjlKTRfucIqfcWRVx9vOYzWBc1IgEX0ist48VMC10PRKbFyH+4QFvQ==}
+
+  '@fontsource/caladea@5.3.0':
+    resolution: {integrity: sha512-ErBJWj9Gp/tTS33h0SUHmU3MCHzQa3RJS405ccznE8xxVK41J+mrKhjjcf3oIrnQTCgICMbl9nAH3XMXN9ANUg==}
+
+  '@fontsource/carlito@5.3.0':
+    resolution: {integrity: sha512-oPqvLGK/dtVzC4KjdDcV/YzQq37sZdMXxD58ADvguPo3dm6yzbBKs40ADmevJF0wLvyvJY7/fPl5YkCQ1njWUw==}
+
+  '@fontsource/comic-neue@5.3.0':
+    resolution: {integrity: sha512-uZsyUTExw8tCySNhL65dN6rEUhASMPGintSS5Kw/ZkrQTK1vcAgramzOLT/mZKtZ+EXr03MHj0s5osVVJITCow==}
+
+  '@fontsource/cousine@5.3.0':
+    resolution: {integrity: sha512-EhVes1KpHrmPwGVCoVxYpdiIi/L2LRGxbAuv07m3TdY76f9Vmwyhd/TNqi2RC0NOvMCNt2FtYPJcAfFfkK9DoQ==}
+
+  '@fontsource/eb-garamond@5.3.0':
+    resolution: {integrity: sha512-VplwHpB8FLuzl+4G5LDci1b3Z4SghiuXH8XEgaxjnOb5aue5mEt1njmDKeO6iyLeGa73LffU7PC7hzncLRx0ZA==}
+
+  '@fontsource/fira-code@5.3.0':
+    resolution: {integrity: sha512-EJL968RJRkakubAj/coU8pSUaeTE5UNoRjtzAr6kGiSZ3jWuN8/AKWHwym/PFUaQL1q7IL/H+EXs4358YhrTBQ==}
+
+  '@fontsource/inconsolata@5.3.0':
+    resolution: {integrity: sha512-12UZvQzR9rcgFv1Wb2vy9NvMqleh4fVZ9W5Ww/S3CamaRLeUfCkfXersbiqcyCkH82etGTTRyHd5cJYDJ2W27w==}
+
+  '@fontsource/libre-franklin@5.3.0':
+    resolution: {integrity: sha512-owd+HDvD4hnGHG1jO3rHtg0BiNT0DJbZMaSqJ7g4r0646G5Q91MjTFWxZbpwg8njLu4BSH3EBqwkVSMLud6brg==}
+
+  '@fontsource/open-sans@5.3.0':
+    resolution: {integrity: sha512-V1bdMlGNyZrJwzrdusshMOw2YR0aqYDL7kOo9dkxUEKl8dFv66A9HLckOOXl572sG/7ohhDQrCrTFGSn9LZcSw==}
+
+  '@fontsource/poppins@5.3.0':
+    resolution: {integrity: sha512-cms1nM7U6SN8epIV1WMVOV8VsA645aSm3wHfzIQnkk188U341ThbJGSl2Sv54V29gnDbT2arMPfLzvVIIVCceQ==}
+
+  '@fontsource/source-sans-pro@5.3.0':
+    resolution: {integrity: sha512-nd96qXI4stbyRPNEygS2cNhMkAc1kkW9+ORmIOK0oelPTyiitRPk/+9+HUuUYuEjwRRkK/+Gat2J9/NMJest/A==}
+
+  '@fontsource/tinos@5.3.0':
+    resolution: {integrity: sha512-VVDyyZdbcsLKxo/W7rClAvacD/7DsGc7J5xzzp51Tndib8kDkEe/0bqbb3Xb3iH6+IUjt07aRsvtQ9MGeGGi4w==}
 
   '@gar/promisify@1.1.3':
     resolution: {integrity: sha512-k2Ty1JcVojjJFwrg/ThKi2ujJ7XNLYaFGNB/bWT9wGR+oSMJHMa5w+CUq6p/pVrKeNNgA7pCqEcjSnHVoqJQFw==}
@@ -9798,6 +9882,34 @@ snapshots:
 
   '@fontsource-variable/inter@5.2.8': {}
 
+  '@fontsource/anton@5.3.0': {}
+
+  '@fontsource/arimo@5.3.0': {}
+
+  '@fontsource/caladea@5.3.0': {}
+
+  '@fontsource/carlito@5.3.0': {}
+
+  '@fontsource/comic-neue@5.3.0': {}
+
+  '@fontsource/cousine@5.3.0': {}
+
+  '@fontsource/eb-garamond@5.3.0': {}
+
+  '@fontsource/fira-code@5.3.0': {}
+
+  '@fontsource/inconsolata@5.3.0': {}
+
+  '@fontsource/libre-franklin@5.3.0': {}
+
+  '@fontsource/open-sans@5.3.0': {}
+
+  '@fontsource/poppins@5.3.0': {}
+
+  '@fontsource/source-sans-pro@5.3.0': {}
+
+  '@fontsource/tinos@5.3.0': {}
+
   '@gar/promisify@1.1.3': {}
 
   '@google-cloud/paginator@7.0.1':
@@ -16187,7 +16299,7 @@ snapshots:
 
   powershell-utils@0.1.0: {}
 
-  pptx-react-viewer@3.5.4(patch_hash=20b354d293c6d6a9e93e8210d1d7798e269979150b9bad56607c7077173994ae)(@ai-sdk/react@3.0.148(react@19.2.4)(zod@4.5.4))(@xmldom/xmldom@0.9.12)(ai@6.0.146(zod@4.5.4))(fast-xml-parser@5.11.1)(framer-motion@12.38.0(react-dom@19.2.4(react@19.2.4))(react@19.2.4))(i18next@26.4.2(typescript@5.9.3))(jspdf@4.2.1)(jszip@3.10.1)(lucide-react@0.577.0(react@19.2.4))(react-dom@19.2.4(react@19.2.4))(react-i18next@17.0.13(i18next@26.4.2(typescript@5.9.3))(react-dom@19.2.4(react@19.2.4))(react@19.2.4)(typescript@5.9.3))(react-icons@5.7.0(react@19.2.4))(react@19.2.4):
+  pptx-react-viewer@3.5.4(patch_hash=ae71f58f97e49015c0b4704b0cc5e00a5f8c955a5005b6858407adee07e9e70b)(@ai-sdk/react@3.0.148(react@19.2.4)(zod@4.5.4))(@xmldom/xmldom@0.9.12)(ai@6.0.146(zod@4.5.4))(fast-xml-parser@5.11.1)(framer-motion@12.38.0(react-dom@19.2.4(react@19.2.4))(react@19.2.4))(i18next@26.4.2(typescript@5.9.3))(jspdf@4.2.1)(jszip@3.10.1)(lucide-react@0.577.0(react@19.2.4))(react-dom@19.2.4(react@19.2.4))(react-i18next@17.0.13(i18next@26.4.2(typescript@5.9.3))(react-dom@19.2.4(react@19.2.4))(react@19.2.4)(typescript@5.9.3))(react-icons@5.7.0(react@19.2.4))(react@19.2.4):
     dependencies:
       clsx: 2.1.1
       dompurify: 3.4.14

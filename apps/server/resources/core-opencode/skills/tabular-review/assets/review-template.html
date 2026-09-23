@@ -22,13 +22,15 @@
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>Document Review</title>
 <style>
-  @import url('https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=Geist+Mono:wght@400;500&display=swap');
   :root {
     --ink:#0E0A07; --paper:#FEFEFE; --sunken:#F3F5F8;
     --blue:#18498B; --blue-2:#2352DE; --violet:#8669B9; --live:#4BA884; --gold:#B9892F; --brick:#A3472F; --navy:#072049;
     --line:rgba(22,34,56,.10); --line-soft:rgba(22,34,56,.06); --muted:rgba(14,10,7,.56); --faint:rgba(14,10,7,.38);
     --radius:14px; --soft:cubic-bezier(0.22,0.61,0.36,1);
     --shadow-soft:0 1px 2px rgba(7,16,40,.04),0 8px 24px rgba(7,16,40,.05);
+    /* System stack only: the artifact holds matter content, so it must render
+       fully offline and never fetch a webfont. "Geist" is kept first so a
+       machine that has it installed still matches the app UI. */
     --sans:"Geist",ui-sans-serif,-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
     --mono:"Geist Mono",ui-monospace,"SF Mono",Menlo,Consolas,monospace;
     font-synthesis:none;

@@ -75,6 +75,50 @@ index 857570a31ed47ac16e7cddb39dfd47f3d577a8c3..f9e2ab37e71b3a9b77a91be1d1b91884
        async getContent() {
          const data = await serializeSlides();
          if (data && onContentChange) {
+diff --git a/dist/chunk-NM652EZS.mjs b/dist/chunk-NM652EZS.mjs
+index db1d5ca7c953aaec71a87186fba1509aedb2e098..a5bb2347978c2c5d95aaca4d57ab0764843bb155 100644
+--- a/dist/chunk-NM652EZS.mjs
++++ b/dist/chunk-NM652EZS.mjs
+@@ -143832,11 +143832,12 @@ function buildGoogleFontsFragment(family) {
+   return `${family}:${GOOGLE_WEBFONT_AXIS}`;
+ }
+ function buildGoogleFontsHref(fragments) {
+-  if (fragments.length === 0) {
+-    return null;
+-  }
+-  const query = fragments.map((fragment) => `family=${encodeURIComponent(fragment)}`).join("&");
+-  return `${GOOGLE_FONTS_CSS2_BASE}?${query}&${DISPLAY_PARAM}`;
++  // Legalwork: never resolve a deck's fonts against fonts.googleapis.com.
++  // A presentation is client matter, and the injected stylesheet would tell
++  // Google which typefaces it uses. Returning null makes the viewer skip the
++  // <link> entirely; embedded and locally-installed faces still resolve, and
++  // anything else renders through its CSS fallback stack.
++  return null;
+ }
+ var catalogueIndex;
+ function findGoogleFontsFamily(family) {
+diff --git a/dist/chunk-YQOK4E2A.js b/dist/chunk-YQOK4E2A.js
+index 199cbb881d7d43c2d4a74b1b30fee25400ddf048..89f13f66289419a15d487603e8359a47656ba953 100644
+--- a/dist/chunk-YQOK4E2A.js
++++ b/dist/chunk-YQOK4E2A.js
+@@ -143839,11 +143839,12 @@ function buildGoogleFontsFragment(family) {
+   return `${family}:${GOOGLE_WEBFONT_AXIS}`;
+ }
+ function buildGoogleFontsHref(fragments) {
+-  if (fragments.length === 0) {
+-    return null;
+-  }
+-  const query = fragments.map((fragment) => `family=${encodeURIComponent(fragment)}`).join("&");
+-  return `${GOOGLE_FONTS_CSS2_BASE}?${query}&${DISPLAY_PARAM}`;
++  // Legalwork: never resolve a deck's fonts against fonts.googleapis.com.
++  // A presentation is client matter, and the injected stylesheet would tell
++  // Google which typefaces it uses. Returning null makes the viewer skip the
++  // <link> entirely; embedded and locally-installed faces still resolve, and
++  // anything else renders through its CSS fallback stack.
++  return null;
+ }
+ var catalogueIndex;
+ function findGoogleFontsFamily(family) {
 diff --git a/dist/index.d.ts b/dist/index.d.ts
 index a8b465cdd265e265c8cab7fc304c614fef67d087..c7462c809d02edcbc7cfeaafa7078d75b754b1e1 100644
 --- a/dist/index.d.ts

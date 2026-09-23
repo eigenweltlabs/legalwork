@@ -550,7 +550,12 @@ async function resolveArchitectureInfo() {
   const version = app.getVersion();
   const targetArch = systemArch === "arm64" || systemArch === "x64" ? systemArch : appArch;
   const assetName = `legalwork-${platformDownloadSlug()}-${downloadAssetArch(targetArch)}-${version}.${downloadAssetExtension()}`;
-  const latestDownloadUrl = await resolveCorrectArchitectureDownloadUrl(targetArch);
+  // Only the mismatch gate consumes this, and resolving it hits the release
+  // feed. Skip the request outright when the arches already agree, so a
+  // correctly-installed app never touches the update feed on launch — that
+  // ping is not covered by the "check for updates automatically" setting.
+  const latestDownloadUrl =
+    appArch === systemArch ? null : await resolveCorrectArchitectureDownloadUrl(targetArch);
   const hasCorrectArchitectureDownload = Boolean(latestDownloadUrl);
   return {
     appArch,

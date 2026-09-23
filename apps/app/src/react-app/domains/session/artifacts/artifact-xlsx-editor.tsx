@@ -9,6 +9,7 @@ import { openWorkbook } from "./office-workbook";
 import { useOfficeEditor, type OfficeEditorProps } from "./office-editor-state";
 import { PreviewError, PreviewLoading } from "./preview";
 import "@univerjs/preset-sheets-core/lib/index.css";
+import "./office-fonts.css";
 import "./office-editor.css";
 import { t } from "@/i18n";
 
