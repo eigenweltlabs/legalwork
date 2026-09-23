@@ -37,6 +37,10 @@ const ALLOWED_ERROR_NAMES = new Set([
   // App / server error classes.
   "LegalworkServerError", "ApiError",
   // opencode agent / run-failure reasons (the "why a run failed" types).
+  // "APIError" is the engine's own spelling of its wire type and is the one
+  // that actually arrives over SSE; "ApiError" above only ever matched a
+  // thrown client class, so provider failures were all bucketed to "other".
+  "APIError", "UnknownError",
   "ProviderAuthError", "ProviderModelNotFoundError", "ContextOverflowError",
   "MessageOutputLengthError", "StructuredOutputError", "MessageAbortedError",
 ]);
@@ -78,6 +82,31 @@ function errorFingerprint(name: string, error: unknown): string {
     .filter(Boolean)
     .join("|");
   return hashString(`${name}#${normalized}`);
+}
+
+/**
+ * Grouping key for an engine session error, which arrives over SSE as a plain
+ * `{ name, data }` object rather than a thrown Error and so carries no stack
+ * for `errorFingerprint` to hash.
+ *
+ * Hashes the error's SHAPE — its raw class name plus the KEYS of its data bag,
+ * never the values. A `message`, `responseBody` or `providerID` value can hold
+ * document or user content; the key names are constants from the engine's own
+ * schema. Keeps the module guarantee: allowlist + hash + enums + numbers.
+ */
+export function sessionErrorFingerprint(error: unknown): string | null {
+  try {
+    if (error instanceof Error) return errorFingerprint(allowlistedErrorName(error), error);
+    if (!error || typeof error !== "object") return null;
+    const record = error as { name?: unknown; data?: unknown };
+    const name = typeof record.name === "string" ? record.name : "";
+    const data = record.data && typeof record.data === "object" ? record.data : null;
+    const shape = data ? Object.keys(data).sort().join(",") : "";
+    if (!name && !shape) return null;
+    return hashString(`session:${name}#${shape}`);
+  } catch {
+    return null;
+  }
 }
 
 // Throttle: send each distinct fingerprint at most once per session, and cap

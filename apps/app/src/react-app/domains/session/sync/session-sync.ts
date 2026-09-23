@@ -4,7 +4,7 @@ import type { FilePart, Part, PermissionRequest, PermissionV2Request, QuestionRe
 import { getReactQueryClient } from "../../../infra/query-client";
 import { analyticsSurface, captureAnalyticsEvent, isAnalyticsSending, takeTaskRunStart } from "@/app/lib/analytics";
 import { analyticsErrorService, analyticsErrorStatus } from "@/app/lib/analytics-error";
-import { allowlistedErrorName } from "@/app/lib/app-error";
+import { allowlistedErrorName, sessionErrorFingerprint } from "@/app/lib/app-error";
 import { createClient } from "@/app/lib/opencode";
 import { normalizeEvent } from "@/app/utils";
 import { SYNTHETIC_SESSION_ERROR_MESSAGE_PREFIX, type OpencodeEvent, type PendingPermission, type PendingQuestion } from "@/app/types";
@@ -89,33 +89,136 @@ function getErrorStatus(error: unknown) {
   return typeof status === "number" ? status : null;
 }
 
+/** Bump when the shape or meaning of `RunStats` changes, so analysis can tell
+ * eras apart instead of averaging them. v1 measured only the run's final
+ * assistant message and is off by ~100x on input; discard it rather than
+ * chart it next to v2. */
+const RUN_STATS_VERSION = 2;
+
+/** The engine's five token buckets do not overlap — `input` excludes cache
+ * reads, `output` excludes reasoning — and providers bill each at its own
+ * rate, so a cost estimate needs the whole set, not just input/output. */
+type RunStats = {
+  tokens_input: number;
+  tokens_output: number;
+  tokens_reasoning: number;
+  tokens_cache_read: number;
+  tokens_cache_write: number;
+  cost_usd: number;
+  tool_call_count: number;
+  turn_count: number;
+  message_count: number;
+};
+
+/** The engine is an external process: its payloads are typed but not
+ * guaranteed, and analytics must never throw inside the idle handler. */
+const finiteOrZero = (value: unknown) => (typeof value === "number" && Number.isFinite(value) ? value : 0);
+
 /**
- * Per-run stats straight from opencode's own data on the completed run: the
- * last assistant message's token totals, plus counts of its tool and
- * step-finish parts. Content-free (numbers only).
+ * Per-run stats straight from opencode's own data on the completed run: token
+ * totals, cost and part counts summed over every assistant message the run
+ * produced, which is one message per engine step.
+ *
+ * The run is delimited by the latest user message rather than by
+ * `markTaskRunStart`'s wall clock, so skew between the app and the engine
+ * cannot slice a turn in half. A session with no user message at all (a
+ * shell-only run) has no earlier turn to absorb, so summing from the top is
+ * still this run.
+ *
+ * Content-free (numbers only).
  */
-function runStatsFromSnapshot(
-  snapshot: LegalworkSessionSnapshot | undefined,
-): { tokens_input: number; tokens_output: number; tool_call_count: number; turn_count: number } | null {
+function runStatsFromSnapshot(snapshot: LegalworkSessionSnapshot | undefined): RunStats | null {
   const messages = snapshot?.messages ?? [];
-  let last: LegalworkSessionSnapshot["messages"][number] | undefined;
-  for (const message of messages) {
-    if (message.info.role === "assistant") last = message;
+  let start = 0;
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    if (messages[index]?.info.role === "user") {
+      start = index + 1;
+      break;
+    }
   }
-  if (!last) return null;
-  const tokens = (last.info as { tokens?: { input?: number; output?: number } }).tokens ?? {};
-  let toolCalls = 0;
-  let turns = 0;
-  for (const part of last.parts) {
-    if (part.type === "tool") toolCalls += 1;
-    else if (part.type === "step-finish") turns += 1;
-  }
-  return {
-    tokens_input: typeof tokens.input === "number" ? tokens.input : 0,
-    tokens_output: typeof tokens.output === "number" ? tokens.output : 0,
-    tool_call_count: toolCalls,
-    turn_count: turns,
+
+  const stats: RunStats = {
+    tokens_input: 0,
+    tokens_output: 0,
+    tokens_reasoning: 0,
+    tokens_cache_read: 0,
+    tokens_cache_write: 0,
+    cost_usd: 0,
+    tool_call_count: 0,
+    turn_count: 0,
+    message_count: 0,
   };
+
+  for (let index = start; index < messages.length; index += 1) {
+    const message = messages[index];
+    if (!message || message.info.role !== "assistant") continue;
+    stats.message_count += 1;
+    const { cost, tokens } = message.info;
+    stats.tokens_input += finiteOrZero(tokens?.input);
+    stats.tokens_output += finiteOrZero(tokens?.output);
+    stats.tokens_reasoning += finiteOrZero(tokens?.reasoning);
+    stats.tokens_cache_read += finiteOrZero(tokens?.cache?.read);
+    stats.tokens_cache_write += finiteOrZero(tokens?.cache?.write);
+    stats.cost_usd += finiteOrZero(cost);
+    for (const part of message.parts) {
+      if (part.type === "tool") stats.tool_call_count += 1;
+      else if (part.type === "step-finish") stats.turn_count += 1;
+    }
+  }
+
+  if (stats.message_count === 0) return null;
+  // Float noise across many per-message costs; a run never bills to less than
+  // a millionth of a cent, so round rather than ship 0.30000000000000004.
+  stats.cost_usd = Math.round(stats.cost_usd * 1e8) / 1e8;
+  return stats;
+}
+
+export const __runStatsFromSnapshotForTest = runStatsFromSnapshot;
+export const __RUN_STATS_VERSION_FOR_TEST = RUN_STATS_VERSION;
+
+/**
+ * Emit a run-terminal event with the run's token stats attached.
+ *
+ * Refreshing the snapshot first is what makes the stats cover the run rather
+ * than whatever the cache held when the run ended; it is skipped when nothing
+ * would be sent (the inspector mirror then uses the cached snapshot). Detached
+ * on purpose: the caller's UI work must not wait on a round-trip, and an
+ * errored run in particular has a transcript message to render first.
+ *
+ * A run that failed or was stopped still billed for every call it made before
+ * it ended, so all three outcomes carry the same stats — leaving them off
+ * understated spend by however much work the run did before dying.
+ */
+export function captureRunOutcome(
+  workspaceId: string,
+  sessionId: string,
+  event: "task_run_completed" | "task_run_errored" | "task_run_stopped",
+  properties: Record<string, unknown>,
+  options: { refresh?: boolean } = {},
+) {
+  const queryClient = getReactQueryClient();
+  void (async () => {
+    // `refresh: false` is for a caller that just awaited its own refetch of
+    // this same key (the stop button), so the run is accounted once without
+    // paying for a second round-trip.
+    if (options.refresh !== false && isAnalyticsSending()) {
+      try {
+        await queryClient.refetchQueries({ queryKey: snapshotKey(workspaceId, sessionId), exact: true });
+      } catch {
+        // Best-effort: fall back to whatever is cached.
+      }
+    }
+    const snapshot = queryClient.getQueryData<LegalworkSessionSnapshot>(snapshotKey(workspaceId, sessionId));
+    captureAnalyticsEvent(event, {
+      session_id: sessionId,
+      surface: analyticsSurface(),
+      // Tags the event even when no stats resolved, so v1's undercounted rows
+      // stay separable from v2's in analysis.
+      stats_version: RUN_STATS_VERSION,
+      ...properties,
+      ...(runStatsFromSnapshot(snapshot) ?? {}),
+    });
+  })();
 }
 
 function shouldRetrySyncSubscribe(error: unknown) {
@@ -664,13 +767,15 @@ function applyEvent(entry: SyncEntry, workspaceId: string, event: OpencodeEvent)
         : describeOpencodeSessionError(sessionError);
       const runStartedAt = takeTaskRunStart(sessionId);
       if (runStartedAt !== null) {
-        captureAnalyticsEvent("task_run_errored", {
-          session_id: sessionId,
+        captureRunOutcome(workspaceId, sessionId, "task_run_errored", {
           duration_ms: Date.now() - runStartedAt,
           error_name: allowlistedErrorName(sessionError),
+          // Groups the failures that land outside the allowlist: without it
+          // an "other" bucket cannot say whether it is one bug many times or
+          // many bugs once. Opaque hash of the error's shape, never content.
+          error_fingerprint: sessionErrorFingerprint(sessionError),
           service: analyticsErrorService(sessionError),
           status_code: analyticsErrorStatus(sessionError),
-          surface: analyticsSurface(),
         });
       }
       useSessionActivityStore.getState().setError(workspaceId, sessionId, errorText);
@@ -948,29 +1053,9 @@ function applyEvent(entry: SyncEntry, workspaceId: string, event: OpencodeEvent)
     // send path); also dedupes idle events from multiple workspace syncs.
     const runStartedAt = takeTaskRunStart(props.sessionID);
     if (runStartedAt !== null) {
-      const durationMs = Date.now() - runStartedAt;
-      const sessionId = props.sessionID;
-      // Refresh the snapshot first so the run stats cover the completed
-      // assistant message; skip the round-trip when nothing would be sent
-      // (the inspector mirror then uses whatever is cached).
-      void (async () => {
-        if (isAnalyticsSending()) {
-          try {
-            await queryClient.refetchQueries({ queryKey: snapshotKey(workspaceId, sessionId), exact: true });
-          } catch {
-            // Best-effort: fall back to whatever is cached.
-          }
-        }
-        const snapshot = queryClient.getQueryData<LegalworkSessionSnapshot>(
-          snapshotKey(workspaceId, sessionId),
-        );
-        captureAnalyticsEvent("task_run_completed", {
-          session_id: sessionId,
-          duration_ms: durationMs,
-          surface: analyticsSurface(),
-          ...(runStatsFromSnapshot(snapshot) ?? {}),
-        });
-      })();
+      captureRunOutcome(workspaceId, props.sessionID, "task_run_completed", {
+        duration_ms: Date.now() - runStartedAt,
+      });
     }
     useSessionActivityStore.getState().setRunStatus(workspaceId, props.sessionID, idleStatus);
     const tracked = isTrackedSession(entry, props.sessionID);
