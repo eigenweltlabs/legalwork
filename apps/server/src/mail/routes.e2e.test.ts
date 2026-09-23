@@ -48,7 +48,7 @@ function mockService() {
     async agentControl(){throw new MailServiceError("unsupported");},
     async filing(){throw new MailServiceError("unsupported");},
     async storageSave(){throw new MailServiceError("unsupported");},
-    async outbox(){return [];}, async queueOutbox(){throw new MailServiceError("unsupported");}, async outboxAction(){throw new MailServiceError("unsupported");}, async smtpStatus(){return {configured:false,current:false,settings:null};}, async configureSmtp(){throw new MailServiceError("unsupported");}, async removeSmtp(){return {configured:false,current:false,settings:null};},
+    async outbox(){return [];}, async outboxRead(){throw new MailServiceError("unsupported");}, async queueOutbox(){throw new MailServiceError("unsupported");}, async outboxAction(){throw new MailServiceError("unsupported");}, async smtpStatus(){return {configured:false,current:false,settings:null};}, async configureSmtp(){throw new MailServiceError("unsupported");}, async removeSmtp(){return {configured:false,current:false,settings:null};},
     async senders(){return [];},async refreshSenders(){return [];},async configureSender(){throw new MailServiceError("unsupported");},async senderSettings(){throw new MailServiceError("not_found");},
     async pollNotifications(){return{items:[],suppressed:0};},async setLifecycleSuspended(suspended){return{state:suspended?'suspended':'running'};},async lifecycleStatus(){return{state:'running'};},
     async configureGraphMailbox(){throw new MailServiceError("unsupported");},
