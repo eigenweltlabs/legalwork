@@ -21,7 +21,7 @@ jobs:
           - os: ubuntu-latest
             target: x86_64-unknown-linux-gnu
             platform: linux
-            executable: linux-unpacked/@legalworkdesktop
+            executable: linux-unpacked/legalwork
           - os: windows-2022
             target: x86_64-pc-windows-msvc
             platform: win
@@ -57,6 +57,9 @@ jobs:
         run: pnpm --filter @legalwork/desktop build:electron
       - name: Package desktop app
         run: pnpm --dir apps/desktop exec electron-builder --config electron-builder.yml --${{ matrix.platform }} --x64 --dir --publish never
+      - name: Verify Linux AppImage packaging
+        if: runner.os == 'Linux'
+        run: pnpm --dir apps/desktop exec electron-builder --config electron-builder.yml --linux AppImage --x64 --publish never
       - name: Verify shipped fuses, Node and document tools
         run: pnpm --dir apps/desktop check:packaged-security "dist-electron/${{ matrix.executable }}"
       - name: Verify Windows native modules
