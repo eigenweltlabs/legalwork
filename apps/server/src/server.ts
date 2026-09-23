@@ -613,6 +613,8 @@ export function createServerLogger(config: ServerConfig): ServerLogger {
   return { log: emit };
 }
 
+const SLOW_REQUEST_MS = 10_000;
+
 function logRequest(input: {
   logger: ServerLogger;
   request: Request;
@@ -648,6 +650,9 @@ function logRequest(input: {
   // The logger writes to stdout without the reason. Failures also go to the
   // console, which the desktop app keeps in main.log for support.
   if (error) console.warn(`[legalwork-server] ${message}: ${error}`);
+  // A slow success explains a client that gave up waiting (the app window's
+  // default is 10 s). Model calls through the OpenCode proxy are slow by nature.
+  else if (durationMs >= SLOW_REQUEST_MS && !proxyService) console.warn(`[legalwork-server] Slow request: ${message}`);
 }
 
 function parseWorkspaceMount(pathname: string): { workspaceId: string; restPath: string } | null {
@@ -3502,7 +3507,7 @@ function createRoutes(
     const url = String(body?.url ?? "").trim();
     if (!url) throw new ApiError(400, "invalid_github_url", "A GitHub repo URL is required");
     const ref = body?.ref ? String(body.ref).trim() : undefined;
-    const result = await scanGithubSkills({ url, ref });
+    const result = await scanGithubSkills({ url, ref, signal: ctx.request.signal });
     return jsonResponse(result);
   });
 
@@ -3520,7 +3525,7 @@ function createRoutes(
       ? (body.paths as unknown[]).filter((p): p is string => typeof p === "string" && p.trim().length > 0)
       : [];
     if (!paths.length) throw new ApiError(400, "no_skills_selected", "Select at least one skill to import");
-    const result = await installGithubSkills({ url, ref, paths, asWorkflow });
+    const result = await installGithubSkills({ url, ref, paths, asWorkflow, signal: ctx.request.signal });
     return jsonResponse(result);
   });
 
