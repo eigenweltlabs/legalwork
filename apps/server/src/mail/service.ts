@@ -1,3 +1,4 @@
+import {CONTACT_SCOPES,type ContactsInput} from './contacts-view.js';
 import type {QualificationInput} from './qualification-view.js';
 import type {AgentControl,AgentControlResult} from './agent-view.js';
 import type {StorageSaveInput,StorageSaveResult} from './storage-save-view.js';
@@ -75,6 +76,11 @@ export class LocalMailService implements MailService {
         } finally { if (key instanceof Uint8Array) key.fill(0); }
       },
     });
+  }
+  async contacts(accountId:string,input:ContactsInput){
+    let settings:MailOAuthSettings|undefined;
+    if(input.action==='sync'){const epoch=this.epoch,provider=await this.request({operation:'mail.sync.provider',accountId});if(!('syncProvider' in provider))throw new MailServiceError('unavailable');if(provider.syncProvider!=='imap')settings=await this.loadProviderSettings?.(provider.syncProvider,provider.personal);if(epoch!==this.epoch)throw new MailServiceError('locked');}
+    const result=await this.request({operation:'mail.contacts',accountId,input,...(settings?{settings}:{})});if(!('contacts' in result))throw new MailServiceError('unavailable');return result.contacts;
   }
   async outboxRead(accountId:string,input:{actionId:string}){const result=await this.request({operation:'mail.outbox.read',accountId,input});if('outboxFailure' in result)throw new OutboxError(result.outboxFailure);if(!('outboxDetail' in result))throw new MailServiceError('unavailable');return result.outboxDetail;}
   async outbox(accountId:string){const result=await this.request({operation:'mail.outbox.list',accountId});if('outboxFailure' in result)throw new OutboxError(result.outboxFailure);if(!('outbox' in result))throw new MailServiceError('unavailable');return result.outbox;}
@@ -253,7 +259,7 @@ export class LocalMailService implements MailService {
     if (!("folders" in result)) throw new MailServiceError("unavailable");
     return { items: result.folders, nextCursor: result.nextCursor };
   }
-  async beginConnection(provider: "gmail" | "graph", reconnectAccountId?: string, personal = false) {
+  async beginConnection(provider: "gmail" | "graph", reconnectAccountId?: string, personal = false, contacts = false) {
     if (this.stopped || !this.loadProviderSettings) throw new MailServiceError("unavailable");
     if (this.phase !== "open") throw new MailServiceError("locked");
     const epoch = this.epoch;
@@ -265,6 +271,7 @@ export class LocalMailService implements MailService {
         personal = stored.personal === true;
       }
       settings = await this.loadProviderSettings(provider, personal);
+      if(contacts)settings={...settings,scopes:[...new Set([...settings.scopes,CONTACT_SCOPES[provider]])]};
     }
     catch { throw new MailServiceError("unavailable"); }
     if (epoch !== this.epoch) throw new MailServiceError("locked");

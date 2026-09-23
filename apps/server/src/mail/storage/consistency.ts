@@ -26,6 +26,8 @@ const size = z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER);
 const hash = z.string().regex(/^[0-9a-f]{64}$/);
 // Static identifiers only. Never interpolate provider values or schema-discovered names into SQL.
 const requiredColumns: Record<string, string[]> = {
+  mail_contact_books:['account_id','cursor','last_sync_at','attempt_at','error'],
+  mail_contact_entries:['account_id','provider_id','name','addresses_json'],
   mail_agent_account_policies:['account_id','actions_json','revision'],
   mail_agent_grants:['id','account_id','token_hash','workspace_id','directory','matter_id','permissions_json','credential_generation','state','created_at','expires_at','revision'],
   mail_agent_drafts:['account_id','grant_id','draft_id','source_json','source_version'],

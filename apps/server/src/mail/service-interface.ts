@@ -1,3 +1,4 @@
+import {type ContactsInput,type ContactsResult} from './contacts-view.js';
 import type {QualificationInput,QualificationReport} from './qualification-view.js';
 import type {AgentControl,AgentControlResult} from './agent-view.js';
 import type {StorageSaveInput,StorageSaveResult} from './storage-save-view.js';
@@ -30,6 +31,7 @@ export class MailServiceError extends Error {
 
 /** Bound to one trusted owner at construction; no request supplies an owner ID. */
 export interface MailService {
+  contacts(accountId:string,input:ContactsInput):Promise<ContactsResult>;
   /** Synchronous cancellation fence before custody closes. */
   onLock?(listener:()=>void):()=>void;
   agentControl(input:AgentControl):Promise<AgentControlResult>;
@@ -85,7 +87,7 @@ export interface MailService {
   readMessage(accountId: string, locator: ProviderMessageLocator): Promise<MailMessageView>;
   listParts(accountId: string, locator: ProviderMessageLocator, page: MailPartPageInput): Promise<MailPage<MailPartView>>;
   readContent(accountId: string, locator: ProviderMessageLocator, request: MailContentReadInput): Promise<MailContentChunk>;
-  beginConnection(provider: "gmail" | "graph", reconnectAccountId?: string, personal?: boolean): Promise<MailConnectionStarted>;
+  beginConnection(provider: "gmail" | "graph", reconnectAccountId?: string, personal?: boolean, contacts?: boolean): Promise<MailConnectionStarted>;
   connectionStatus(connectionId: string): Promise<MailConnectionStatus>;
   cancelConnection(connectionId: string): Promise<void>;
   disconnectAccount(accountId: string): Promise<void>;
