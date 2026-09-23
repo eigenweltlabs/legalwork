@@ -167,7 +167,10 @@ export function WorkflowsView(props: WorkflowsViewProps) {
     </ContextMenu>;
   };
 
-  const library = <section aria-label={t("skills.workflows_title")} className="@container/workflows flex h-full min-h-0 w-full flex-1 flex-col bg-background">
+  const library = <section aria-label={t("skills.workflows_title")} className={cn(
+    "@container/workflows flex h-full min-h-0 w-full flex-1 flex-col bg-background",
+    !(props.inlineEditor ? inlineId !== null : panelOpen) && "mx-auto max-w-4xl pt-4",
+  )}>
     <header className="flex h-11 shrink-0 items-center gap-2 border-b border-border px-3">
       <h1 className="sr-only text-[13px] font-semibold @min-[360px]/workflows:not-sr-only">{t("skills.workflows_title")}</h1><span className="hidden text-[11px] tabular-nums text-muted-foreground @min-[480px]/workflows:inline">{workflowSkills.length}</span>
       <div className="flex shrink-0 items-center gap-3 @min-[360px]/workflows:ml-2 @min-[360px]/workflows:border-l @min-[360px]/workflows:border-border @min-[360px]/workflows:pl-3">
