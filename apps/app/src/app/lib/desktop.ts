@@ -1,3 +1,4 @@
+import { openOfficeBrowserWindow } from "@/word-addin/office";
 import { nativeDeepLinkEvent } from "./deep-link-bridge";
 
 export type * from "./desktop-types";
@@ -343,6 +344,8 @@ export async function openDesktopUrl(url: string): Promise<void> {
     await openExternal(url);
     return;
   }
+  // The Office task pane: its webview blocks window.open.
+  if (openOfficeBrowserWindow(url)) return;
   if (typeof window !== "undefined") {
     window.open(url, "_blank", "noopener,noreferrer");
   }

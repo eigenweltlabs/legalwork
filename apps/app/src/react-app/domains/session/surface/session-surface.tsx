@@ -385,7 +385,7 @@ export type ConnectAiAction = "trial" | "login" | "byo" | "upgrade";
  * On the desktop and the web the plan screen covers every state without a
  * usable model, so there the notice only asks to pick a model ("pick-model":
  * a provider is connected, nothing is selected) or offers that upgrade. The
- * Office task pane keeps the full notice.
+ * Office task pane keeps the full notice while nothing is connected.
  */
 function NoModelNotice(props: {
   /** "pick-model": a provider is connected, nothing is selected yet. */
@@ -637,11 +637,12 @@ export function SessionSurface(props: SessionSurfaceProps) {
     planWithoutModels &&
     !trialEndedNoticeVisible &&
     (noModelNoticeVisible || lockedOutCandidate || props.selectedModel.providerID === "eigenwelt");
-  // Under the plan screen, "no model" only needs a notice when a provider is
-  // connected and nothing is picked yet; every state without a usable model
-  // is the plan screen's.
-  const pickModelNoticeVisible =
-    Boolean(props.aiPlansGate) && noModelNoticeVisible && (props.providerConnectedCount ?? 0) > 0;
+  // A provider is connected and nothing is picked yet: ask for a pick, not a
+  // connection. Under the plan screen this is the only "no model" notice
+  // (every other state without a usable model is the plan screen's). The
+  // Office task pane lands here on first open: its model choice is stored per
+  // origin, apart from the app's.
+  const pickModelNoticeVisible = noModelNoticeVisible && (props.providerConnectedCount ?? 0) > 0;
   const connectNoticeVisible = props.aiPlansGate
     ? noAiPlanNoticeVisible || pickModelNoticeVisible
     : noModelNoticeVisible || lockedOutNoticeVisible || noAiPlanNoticeVisible;
@@ -660,7 +661,7 @@ export function SessionSurface(props: SessionSurfaceProps) {
     noAiPlanNoticeVisible;
   const connectNoticeVariant = noAiPlanNoticeVisible
     ? "no-ai-plan"
-    : props.aiPlansGate
+    : props.aiPlansGate || pickModelNoticeVisible
       ? "pick-model"
       : lockedOutNoticeVisible && props.selectedModel.providerID === "eigenwelt"
         ? "signed-out"

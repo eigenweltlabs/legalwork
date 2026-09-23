@@ -116,21 +116,29 @@ export function officeHostName(): string | null {
 }
 
 /**
+ * Open a URL in the default browser through Office. Office webviews block
+ * plain window.open for external URLs. False outside Office (or when the
+ * host refuses), so the caller can fall back.
+ */
+export function openOfficeBrowserWindow(url: string): boolean {
+  const ui = officeGlobals().office?.context?.ui;
+  if (typeof ui?.openBrowserWindow !== "function") return false;
+  try {
+    ui.openBrowserWindow(url);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
  * Launch (or foreground) the LegalWork desktop app via its registered
- * legalwork:// URL scheme. Office webviews block plain window.open for
- * external URLs, so prefer the Office API and fall back to navigation.
+ * legalwork:// URL scheme. Prefers the Office API and falls back to
+ * navigation.
  */
 export function openLegalworkApp(): void {
   const url = "legalwork://open";
-  const ui = officeGlobals().office?.context?.ui;
-  if (typeof ui?.openBrowserWindow === "function") {
-    try {
-      ui.openBrowserWindow(url);
-      return;
-    } catch {
-      // fall through
-    }
-  }
+  if (openOfficeBrowserWindow(url)) return;
   try {
     const opened = window.open(url, "_blank");
     if (opened) return;
