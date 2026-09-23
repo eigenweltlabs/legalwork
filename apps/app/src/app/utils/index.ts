@@ -383,6 +383,15 @@ export function addOpencodeCacheHint(message: string) {
   return message;
 }
 
+// Skill names are capped at 200 chars (the server's validateSkillName). Shortens
+// an over-long kebab-case name by dropping whole trailing words, the same rule
+// the server and desktop imports apply.
+export function fitSkillNameLength(name: string): string {
+  let fitted = name;
+  while (fitted.length > 200 && fitted.includes("-")) fitted = fitted.slice(0, fitted.lastIndexOf("-"));
+  return fitted;
+}
+
 const SANDBOX_DOCKER_OFFLINE_HINTS = [
   "cannot connect to the docker daemon",
   "is the docker daemon running",

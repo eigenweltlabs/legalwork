@@ -90,8 +90,9 @@ describe("validateSkillName", () => {
     expect(() => validateSkillName("my_skill")).toThrow();
   });
 
-  test("rejects names over 64 chars", () => {
-    expect(() => validateSkillName("a".repeat(65))).toThrow();
+  test("caps names at 200 chars", () => {
+    expect(() => validateSkillName("a".repeat(200))).not.toThrow();
+    expect(() => validateSkillName("a".repeat(201))).toThrow();
   });
 });
 

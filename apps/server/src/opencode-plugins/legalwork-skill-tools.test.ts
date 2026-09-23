@@ -75,9 +75,9 @@ describe("skill naming", () => {
     expect(fitSkillName("Antrag Baugenehmigung (Bayern)")).toBe("antrag-baugenehmigung-bayern");
   });
 
-  test("drops whole trailing words to fit the 64-char tool-name cap", () => {
-    const fitted = fitSkillName("workflow assistant a very long german sounding workflow name that keeps going forever");
-    expect(fitted.length).toBeLessThanOrEqual(64);
+  test("drops whole trailing words to fit the 200-char name cap", () => {
+    const fitted = fitSkillName(`workflow assistant a very long ${"german sounding workflow name that keeps going ".repeat(5)}`);
+    expect(fitted.length).toBeLessThanOrEqual(200);
     expect(fitted.endsWith("-")).toBe(false);
     expect(fitted.startsWith("workflow-assistant-a-very-long")).toBe(true);
   });

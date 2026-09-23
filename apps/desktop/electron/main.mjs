@@ -1045,13 +1045,11 @@ function validateSkillName(raw) {
   return trimmed;
 }
 
-// The 64-char cap is not ours to relax: a skill is exposed to the model as a
-// tool, and the LLM providers reject tool names longer than 64 chars
-// (Anthropic: `^[a-zA-Z0-9_-]{1,64}$`). Rather than fail an over-long import,
-// coerce the name into a valid, <=64-char kebab-case slug by dropping whole
-// trailing words — so a too-long workflow still lands (and stays meaningful)
-// instead of being rejected. Returns null only when nothing valid remains.
-const MAX_SKILL_NAME_LENGTH = 64;
+// Same 200-char cap as the server's validateSkillName. Rather than fail an
+// over-long import, coerce the name into a valid, <=200-char kebab-case slug by
+// dropping whole trailing words — so a too-long workflow still lands (and stays
+// meaningful) instead of being rejected. Returns null only when nothing valid remains.
+const MAX_SKILL_NAME_LENGTH = 200;
 function fitSkillName(raw) {
   const cleaned = String(raw ?? "")
     .toLowerCase()
@@ -2014,7 +2012,7 @@ const desktopCommandHandlers = {
         if (!(await pathExists(path.join(from, "SKILL.md")))) continue;
         try {
           // Coerce (don't reject) an over-long or lightly-malformed name into a
-          // valid <=64-char slug; keep the SKILL.md name in sync if we changed it.
+          // valid <=200-char slug; keep the SKILL.md name in sync if we changed it.
           const targetName = fitSkillName(name);
           if (!targetName) throw new Error("skill name is empty or has no usable characters");
           const destination = path.join(root, targetName);
@@ -2051,9 +2049,9 @@ const desktopCommandHandlers = {
       // zip's own file name. Slugified so hand-named zips still validate.
       const rawName = archive.folderName ?? path.basename(archivePath).replace(/\.zip$/i, "");
       const slug = rawName.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
-      let name = validateSkillName(slug);
+      let name = validateSkillName(fitSkillName(slug));
       if (asWorkflow && !name.startsWith("workflow-")) {
-        name = validateSkillName(`workflow-assistant-${name}`);
+        name = validateSkillName(fitSkillName(`workflow-assistant-${name}`));
       }
       const skillRoot = projectDir ? await ensureProjectSkillRoot(projectDir) : await ensureGlobalSkillRoot();
       const destination = path.join(skillRoot, name);
