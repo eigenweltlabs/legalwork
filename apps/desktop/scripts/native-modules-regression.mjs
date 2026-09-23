@@ -18,7 +18,9 @@ app.whenReady().then(async () => {
 
   const pty = require("node-pty");
   await new Promise((resolve, reject) => {
-    const terminal = pty.spawn(process.execPath, ["-e", "process.stdout.write('native-pty-ok')"], {
+    const windows = process.platform === "win32";
+    const terminal = pty.spawn(windows ? (process.env.ComSpec || "cmd.exe") : process.execPath,
+      windows ? ["/d", "/s", "/c", "echo native-pty-ok & pause >nul"] : ["-e", "process.stdout.write('native-pty-ok')"], {
       env: { ...process.env, ELECTRON_RUN_AS_NODE: "1" },
     });
     let output = "";
@@ -26,7 +28,16 @@ app.whenReady().then(async () => {
       terminal.kill();
       reject(new Error("Native PTY did not exit within 10 seconds"));
     }, 10_000);
-    terminal.onData((data) => { output += data; });
+    let released = false;
+    terminal.onData((data) => {
+      output += data;
+      // Electron.exe is a GUI-subsystem executable on Windows, so test the
+      // actual console shell there and wait for output before asking it to exit.
+      if (windows && !released && output.includes("native-pty-ok")) {
+        released = true;
+        terminal.write("\r");
+      }
+    });
     terminal.onExit(({ exitCode }) => {
       clearTimeout(timeout);
       try {

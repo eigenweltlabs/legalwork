@@ -3,12 +3,8 @@
 // The classifiers are pure; createSafeOpen() wires them to Electron.
 import path from "node:path";
 
-// Opened without asking: ordinary web and mail links.
+// Only ordinary web and mail links may be handed off by untrusted content.
 const WEB_SCHEMES = new Set(["http:", "https:", "mailto:"]);
-
-// Never handed to the OS. `file:` has its own path-based rules below, and the
-// rest are ways to pull in local or scripted content.
-const REFUSED_SCHEMES = new Set(["file:", "javascript:", "data:", "blob:", "vbscript:", "about:", "chrome:", "devtools:"]);
 
 // Only recognised document formats are handed to their default application.
 const DOCUMENT_EXTENSIONS = new Set([
@@ -22,7 +18,7 @@ const DOCUMENT_EXTENSIONS = new Set([
 
 /**
  * @param {string | null | undefined} url
- * @returns {{ action: "open" } | { action: "confirm", scheme: string } | { action: "refuse", reason: string }}
+ * @returns {{ action: "open" } | { action: "refuse", reason: string }}
  */
 export function classifyExternalUrl(url) {
   const value = String(url ?? "").trim();
@@ -37,10 +33,7 @@ export function classifyExternalUrl(url) {
   }
   const scheme = parsed.protocol.toLowerCase();
   if (WEB_SCHEMES.has(scheme)) return { action: "open" };
-  if (REFUSED_SCHEMES.has(scheme)) return { action: "refuse", reason: scheme };
-  // Anything else is an app link (ms-word:, zoommtg:, slack:, tel:, …): useful,
-  // but it starts another program, so the user confirms it.
-  return { action: "confirm", scheme };
+  return { action: "refuse", reason: scheme };
 }
 
 /**
@@ -65,25 +58,17 @@ export function classifyFileOpen(filePath) {
  *     openPath: (path: string) => Promise<string> | Promise<unknown>,
  *     showItemInFolder: (path: string) => unknown,
  *   },
- *   confirm: (options: { message: string, detail: string }) => Promise<boolean>,
  *   log?: (message: string) => void,
  * }} deps
  */
-export function createSafeOpen({ shell, confirm, log = console.warn }) {
+export function createSafeOpen({ shell, log = console.warn }) {
   return {
-    /** Open a link with the OS, asking first for anything that is not http/https/mailto. */
+    /** Open only http/https/mailto links with the OS. */
     async openExternal(url) {
       const verdict = classifyExternalUrl(url);
       if (verdict.action === "refuse") {
         log(`[security] refused to open a link (${verdict.reason})`);
         return false;
-      }
-      if (verdict.action === "confirm") {
-        const allowed = await confirm({
-          message: `Open this link in another app?`,
-          detail: `LegalWork wants to hand a "${verdict.scheme.replace(/:$/, "")}" link to another application on your computer.\n\n${String(url).slice(0, 300)}`,
-        });
-        if (!allowed) return false;
       }
       await shell.openExternal(String(url));
       return true;

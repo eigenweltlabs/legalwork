@@ -134,27 +134,9 @@ function openWindowDecision(url) {
   return { action: "deny" };
 }
 
-// Every hand-off to the OS goes through here: web links open directly, app
-// links ask first; files outside the document allowlist are only revealed.
-const safeOpen = createSafeOpen({
-  shell,
-  confirm: async ({ message, detail }) => {
-    const parent = BrowserWindow.getFocusedWindow() ?? mainWindow;
-    /** @type {import("electron").MessageBoxOptions} */
-    const options = {
-      type: "question",
-      buttons: ["Open", "Cancel"],
-      defaultId: 0,
-      cancelId: 1,
-      message,
-      detail,
-    };
-    const { response } = parent && !parent.isDestroyed()
-      ? await dialog.showMessageBox(parent, options)
-      : await dialog.showMessageBox(options);
-    return response === 0;
-  },
-});
+// Untrusted links may open only web/mail URLs. Files outside the document
+// allowlist are revealed without launching their associated application.
+const safeOpen = createSafeOpen({ shell });
 const require = createRequire(import.meta.url);
 const pty = require(["node", "pty"].join("-"));
 const NATIVE_DEEP_LINK_EVENT = "legalwork:deep-link-native";

@@ -9,17 +9,17 @@ test("web and mail links open without asking", () => {
   }
 });
 
-test("app links ask first", () => {
-  assert.deepEqual(classifyExternalUrl("ms-word:ofe|u|C:/akte.docx"), { action: "confirm", scheme: "ms-word:" });
-  assert.deepEqual(classifyExternalUrl("zoommtg://zoom.us/join?confno=1"), { action: "confirm", scheme: "zoommtg:" });
-  assert.deepEqual(classifyExternalUrl("tel:+4930123456"), { action: "confirm", scheme: "tel:" });
+test("custom application protocols are refused", () => {
+  assert.deepEqual(classifyExternalUrl("ms-word:ofe|u|C:/akte.docx"), { action: "refuse", reason: "ms-word:" });
+  assert.deepEqual(classifyExternalUrl("zoommtg://zoom.us/join?confno=1"), { action: "refuse", reason: "zoommtg:" });
+  assert.deepEqual(classifyExternalUrl("tel:+4930123456"), { action: "refuse", reason: "tel:" });
 });
 
 test("local and scripted schemes are refused outright", () => {
   assert.equal(classifyExternalUrl("file:///Users/anwalt/run.command").action, "refuse");
   assert.equal(classifyExternalUrl("javascript:alert(1)").action, "refuse");
   assert.equal(classifyExternalUrl("data:text/html,<h1>hi").action, "refuse");
-  assert.equal(classifyExternalUrl("smb://server/share").action, "confirm");
+  assert.equal(classifyExternalUrl("smb://server/share").action, "refuse");
 });
 
 test("malformed input is refused", () => {
@@ -54,34 +54,19 @@ function fakeShell() {
   };
 }
 
-test("openExternal asks only for app links and respects the answer", async () => {
+test("openExternal never hands custom protocols to the OS", async () => {
   const shell = fakeShell();
-  const asked = [];
-  const safeOpen = createSafeOpen({
-    shell,
-    confirm: async (options) => {
-      asked.push(options.message);
-      return options.detail.includes("zoommtg");
-    },
-    log: () => {},
-  });
-
+  const safeOpen = createSafeOpen({ shell, log: () => {} });
   assert.equal(await safeOpen.openExternal("https://example.com/"), true);
-  assert.equal(asked.length, 0);
-  assert.equal(await safeOpen.openExternal("zoommtg://zoom.us/join"), true);
-  assert.equal(await safeOpen.openExternal("ms-word:ofe|u|C:/a.docx"), false);
-  assert.equal(await safeOpen.openExternal("file:///Users/anwalt/run.command"), false);
-
-  assert.deepEqual(shell.calls, [
-    ["openExternal", "https://example.com/"],
-    ["openExternal", "zoommtg://zoom.us/join"],
-  ]);
-  assert.equal(asked.length, 2);
+  for (const url of ["zoommtg://zoom.us/join", "ms-word:ofe|u|C:/a.docx", "file:///Users/anwalt/run.command", "tel:+4930123456", "smb://server/share", "unknown-app:payload"]) {
+    assert.equal(await safeOpen.openExternal(url), false, url);
+  }
+  assert.deepEqual(shell.calls, [["openExternal", "https://example.com/"]]);
 });
 
 test("openPath never launches a program, and reveals it instead", async () => {
   const shell = fakeShell();
-  const safeOpen = createSafeOpen({ shell, confirm: async () => true, log: () => {} });
+  const safeOpen = createSafeOpen({ shell, log: () => {} });
 
   await safeOpen.openPath("/w/Vertrag.pdf");
   await safeOpen.openPath("/w/run.command");
@@ -96,7 +81,7 @@ test("openPath never launches a program, and reveals it instead", async () => {
 
 test("unknown file types are revealed without offering to launch them", async () => {
   const shell = fakeShell();
-  const safeOpen = createSafeOpen({ shell, confirm: async () => { assert.fail("Unknown files must not offer a launch confirmation"); }, log: () => {} });
+  const safeOpen = createSafeOpen({ shell, log: () => {} });
 
   await safeOpen.openPath("/w/zeichnung.dwg");
   assert.deepEqual(shell.calls, [["showItemInFolder", "/w/zeichnung.dwg"]]);
