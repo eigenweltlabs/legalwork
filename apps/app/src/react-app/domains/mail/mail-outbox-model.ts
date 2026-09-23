@@ -1,0 +1,7 @@
+import type {OutboxItem} from '../../../../../server/src/mail/outbox-view';
+export function outboxPresentation(item:OutboxItem){
+ const labels={queued:'Queued',sending:'Sending',accepted:item.result?.rejected.length?'Partially accepted':'Accepted by server',failed:'Needs attention',uncertain:'Outcome unknown',cancelled:'Cancelled'};
+ const descriptions={queued:'This message will send while LegalWork is running.',sending:'Submission is in progress. The outgoing server may already have received it.',accepted:'The outgoing server accepted submission. Delivery and later bounces are not confirmed here.',failed:'Submission did not complete. Review the reason before retrying or editing.',uncertain:'The server may have accepted this message. LegalWork will not resend automatically. Check Sent before taking another action.',cancelled:'Further sending attempts are stopped. You can continue editing the saved draft.'};
+ const safe=!item.restored&&item.error!=='preparation_unknown';
+ return{label:labels[item.state],description:descriptions[item.state],tone:['failed','uncertain'].includes(item.state)?'attention':item.state==='accepted'?'success':'',canRetry:safe&&item.state==='failed',canEdit:safe&&(item.state==='failed'||item.state==='cancelled'||item.state==='queued'&&item.cancellationGuaranteed),canCancel:!item.restored&&['queued','sending','uncertain'].includes(item.state),canReconcile:!item.restored&&item.state==='uncertain'};
+}

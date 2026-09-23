@@ -263,6 +263,7 @@ async function request(message: Extract<ParentMessage, { kind: "request" }>): Pr
       case 'mail.smtp.status':result={smtp:new SmtpCustody(database,ownerId).status(command.accountId)};break;
       case 'mail.smtp.configure':new SmtpCustody(database,ownerId).configure(command.accountId,command.input);result={smtp:new SmtpCustody(database,ownerId).status(command.accountId)};break;
       case 'mail.smtp.remove':new SmtpCustody(database,ownerId).remove(command.accountId);result={smtp:new SmtpCustody(database,ownerId).status(command.accountId)};break;
+      case 'mail.outbox.read':if(!outboxStore)throw locked;result={outboxDetail:outboxStore.read(command.accountId,command.input.actionId)};break;
       case 'mail.outbox.list':if(!outboxStore)throw locked;result={outbox:outboxStore.list(command.accountId)};break;
       case 'mail.outbox.queue':if(!outboxStore)throw locked;result={outboxItem:await outboxStore.queue(command.accountId,command.input)};if(!lifecycleSuspended)void outboxRunner?.run().catch(()=>{});break;
       case 'mail.qualification':if(!qualification||command.input.action==='start'&&lifecycleSuspended)throw locked;result={qualification:qualification.execute(command.input)};break;

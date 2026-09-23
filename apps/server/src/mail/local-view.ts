@@ -19,7 +19,9 @@ export const mailDraftDeleteSchema=z.object({draftId:uuid,expected:mailLocalVers
 export const mailLocalPageSchema=z.object({after:id.optional(),limit:z.number().int().min(1).max(25).default(20)}).strict();
 export const mailActionPageInputSchema=mailLocalPageSchema.extend({pendingOnly:z.boolean().default(false)});
 export type MailActionPageInput=z.input<typeof mailActionPageInputSchema>;
-export const mailDraftSummarySchema=z.object({id:uuid,version:mailLocalVersionSchema,updatedAt:integer,deleted:z.boolean(),subject:header}).strict();
+export const mailDraftPreviewSchema=z.object({to:z.array(mailAddressSchema).max(1),recipientCount:z.number().int().min(0).max(150).optional(),preview:z.string().max(160),attachmentCount:z.number().int().min(0).max(20)}).strict();
+export function mailDraftPreview(content:z.infer<typeof mailDraftContentSchema>){return{to:content.to.slice(0,1),recipientCount:content.to.length+content.cc.length+content.bcc.length,preview:content.text.replace(/\s+/g,' ').trim().slice(0,160),attachmentCount:content.attachments.length};}
+export const mailDraftSummarySchema=z.object({id:uuid,version:mailLocalVersionSchema,updatedAt:integer,deleted:z.boolean(),subject:header,summary:mailDraftPreviewSchema.optional()}).strict();
 export const mailDraftViewSchema=mailDraftSummarySchema.extend({content:mailDraftContentSchema}).strict();
 export const mailDraftPageSchema=z.object({accountId:id,items:z.array(mailDraftSummarySchema).max(25),nextCursor:id.nullable()}).strict();
 const replay=z.string().regex(/^[\x21-\x7e]{1,256}$/);

@@ -5,7 +5,7 @@ import type {FilingInput,FilingResult} from './filing-view.js';
 import type {MailMaintenanceReport} from './maintenance-view.js';
 import type {RetentionCommand,RetentionPreview} from './retention-view.js';
 import type {MailNotificationPoll,MailNotificationBatch} from './notification-view.js';
-import type {OutboxItem,SmtpStatus,SmtpConfigure} from './outbox-view.js';
+import type {OutboxDetail,OutboxItem,SmtpStatus,SmtpConfigure} from './outbox-view.js';
 import type {SenderIdentity,SenderSettings,SenderConfigure} from './sender-view.js';
 import type {DraftSyncRequest,DraftSyncStatus} from "./draft-sync-view.js";
 import type {MailUpload,MailUploadView} from "./local-view.js";
@@ -41,6 +41,7 @@ export interface MailService {
   retention?(command:RetentionCommand):Promise<RetentionPreview|{removedDays:number|null}|{accountId:string;removedAccount:boolean;messages:number;references:number;bytes:number;protectedReferences:number}>;
   outbox(accountId:string):Promise<OutboxItem[]>;
   queueOutbox(accountId:string,input:MailSubmission):Promise<OutboxItem>;
+  outboxRead(accountId:string,input:{actionId:string}):Promise<OutboxDetail>;
   outboxAction(accountId:string,input:{actionId:string;action:'cancel'|'retry'|'reconcile'}):Promise<OutboxItem>;
   smtpStatus(accountId:string):Promise<SmtpStatus>;
   configureSmtp(accountId:string,input:SmtpConfigure):Promise<SmtpStatus>;
