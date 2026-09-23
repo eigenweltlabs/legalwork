@@ -1,7 +1,7 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {randomBytes} from 'node:crypto';
-import {mkdtemp,rm} from 'node:fs/promises';
+import {mkdtemp,rm,writeFile} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {openEncryptedMailDatabase} from './database.js';
@@ -21,7 +21,7 @@ import {OutboxStore} from './outbox.js';
 import {OutboxRunner} from '../runtime/outbox-runner.js';
 import {SubmissionFailure} from '../providers/smtp-submit.js';
 import {SmtpCustody} from './smtp-custody.js';
-async function outboxFixture(body){const dir=await mkdtemp(join(tmpdir(),'mail-outbox-')),key=randomBytes(32),db=await openEncryptedMailDatabase({path:join(dir,'mail.sqlite'),key});try{migrateMailSchema(db);const accounts=new MailRepository(db,'owner');accounts.createAccount({id:'gmail',provider:'gmail',displayName:'Synthetic'});const credentials=new MailCredentialRepository(db,'owner');credentials.connect('gmail',{provider:'gmail',clientId:'synthetic.apps.googleusercontent.com',authority:'https://accounts.google.com',providerSubject:'subject'},null,{accessToken:'synthetic',expiresAt:Date.now()+3600000,grantedScopes:['openid','email','https://www.googleapis.com/auth/gmail.modify'],refreshToken:{action:'replace',value:'synthetic'}});const senders=new SenderIdentityRepository(db,'owner'),identity=senders.replace('gmail',credentials.status('gmail').version.generation,[{address:'self@example.com',displayName:'Self',primary:true,default:true}])[0],store=new OutboxStore(db,'owner');const draft=store.local.saveDraft('gmail',{draftId:randomUUID(),expected:null,content:{senderIdentityId:identity.id,from:identity.address,to:['recipient@example.com'],bcc:['hidden@example.com'],subject:'Synthetic',text:'Immutable body'}});await body({db,accounts,credentials,senders,identity,store,draft,input:{draftId:draft.id,version:draft.version,replayKey:randomUUID()}});}finally{db.close();key.fill(0);await rm(dir,{recursive:true,force:true});}}
+async function outboxFixture(body){const dir=await mkdtemp(join(tmpdir(),'mail-outbox-')),key=randomBytes(32),db=await openEncryptedMailDatabase({path:join(dir,'mail.sqlite'),key});try{migrateMailSchema(db);const accounts=new MailRepository(db,'owner');accounts.createAccount({id:'gmail',provider:'gmail',displayName:'Synthetic'});const credentials=new MailCredentialRepository(db,'owner');credentials.connect('gmail',{provider:'gmail',clientId:'synthetic.apps.googleusercontent.com',authority:'https://accounts.google.com',providerSubject:'subject'},null,{accessToken:'synthetic',expiresAt:Date.now()+3600000,grantedScopes:['openid','email','https://www.googleapis.com/auth/gmail.modify'],refreshToken:{action:'replace',value:'synthetic'}});const senders=new SenderIdentityRepository(db,'owner'),identity=senders.replace('gmail',credentials.status('gmail').version.generation,[{address:'self@example.com',displayName:'Self',primary:true,default:true}])[0],store=new OutboxStore(db,'owner');const draft=store.local.saveDraft('gmail',{draftId:randomUUID(),expected:null,content:{senderIdentityId:identity.id,from:identity.address,to:['recipient@example.com'],bcc:['hidden@example.com'],subject:'Synthetic',text:'Immutable body'}});await body({db,dir,key,path:join(dir,'mail.sqlite'),accounts,credentials,senders,identity,store,draft,input:{draftId:draft.id,version:draft.version,replayKey:randomUUID()}});}finally{db.close();key.fill(0);await rm(dir,{recursive:true,force:true});}}
 const accepted={accepted:['recipient@example.com','hidden@example.com'],rejected:[],providerId:'accepted-id',sentCopy:'provider',delivery:'unknown',reconciled:false};
 const runner=(db,send,extras={})=>new OutboxRunner({database:db,ownerId:'owner',access:{},connection:async()=>({prepare:async()=>null,send,reconcile:async()=>null,close(){},...extras})});
 test('immutable MIME, pinned draft and repeated clicks survive accepted restart without resending',async()=>outboxFixture(async({db,store,draft,input})=>{
@@ -54,4 +54,40 @@ test('suspension aborts crossed dispatch into uncertainty and resume never resen
 
 test('suspension before dispatch keeps safe queued work and sends once after resume',async()=>outboxFixture(async({db,store,input})=>{
  const item=await store.queue('gmail',input);let entered,calls=0,preparations=0;const boundary=new Promise(resolve=>entered=resolve);const active=new OutboxRunner({database:db,ownerId:'owner',access:{},connection:async(row,signal)=>({prepare:async()=>{preparations++;if(preparations===1){entered();await new Promise((resolve,reject)=>signal.addEventListener('abort',()=>reject(Error('synthetic pre-dispatch suspend')),{once:true}));}return null;},send:async()=>{calls++;return accepted;},reconcile:async()=>null,close(){}})});const run=active.run();await boundary;await active.suspend();await run;assert.equal(calls,0);assert.equal(store.item('gmail',item.id).state,'queued');db.run('UPDATE mail_action_jobs SET available_at=? WHERE account_id=? AND id=?',[Date.now()-1,'gmail',item.id]);active.resume();await active.run();assert.equal(calls,1);assert.equal(store.item('gmail',item.id).state,'accepted');await active.close();
+}));
+
+test('draft edit → queue → failure → retry → cancel → unchanged edit creates a fresh send and keeps the immutable message',async()=>outboxFixture(async({db,store,draft,input})=>{
+ const edited=store.local.saveDraft('gmail',{draftId:draft.id,expected:draft.version,content:{...draft.content,subject:'Edited draft',text:'Complete queued text '+ 'review '.repeat(80)}});
+ const queued=await store.queue('gmail',{...input,version:edited.version});
+ assert.equal(queued.summary.to[0],'recipient@example.com');assert.equal(queued.summary.attachmentCount,0);
+ let sends=0;const active=runner(db,async()=>{sends++;throw new SubmissionFailure('rejected',true);});
+ await active.turn('gmail');assert.equal(store.item('gmail',queued.id).state,'failed');store.retry('gmail',queued.id);await active.turn('gmail');assert.equal(sends,2);
+ assert.equal(store.cancel('gmail',queued.id).state,'cancelled');assert.throws(()=>store.retry('gmail',queued.id));
+ const current=store.local.readDraft('gmail',{draftId:draft.id}),reopened=store.local.saveDraft('gmail',{draftId:draft.id,expected:current.version,content:current.content});
+ const fresh=await store.queue('gmail',{...input,version:reopened.version,replayKey:'edit-without-typing'});assert.notEqual(fresh.id,queued.id);assert.equal(fresh.state,'queued');
+ store.local.saveDraft('gmail',{draftId:draft.id,expected:reopened.version,content:{...reopened.content,text:'Changed after queue'}});
+ assert.equal(store.read('gmail',fresh.id).content.text,edited.content.text);assert.ok(store.read('gmail',fresh.id).content.text.length>240);assert.equal(store.read('gmail',queued.id).content.text,edited.content.text);
+ store.cancel('gmail',fresh.id);await active.turn('gmail');assert.equal(sends,2);await active.close();
+}));
+
+test('draft pagination uses edited time and a stable cursor, without repeating the first page',async()=>outboxFixture(async({db,store})=>{
+ for(let index=0;index<58;index++){const draft=store.local.saveDraft('gmail',{draftId:randomUUID(),expected:null,content:{from:'self@example.com',to:['recipient@example.com'],subject:'Draft '+index,text:'Preview '+index}});db.run('UPDATE mail_local_drafts SET updated_at=? WHERE account_id=? AND id=?',[1000+index,'gmail',draft.id]);db.run('UPDATE mail_local_draft_versions SET updated_at=? WHERE account_id=? AND draft_id=?',[1000+index,'gmail',draft.id]);}
+ const first=store.local.listDrafts('gmail',{limit:25}),second=store.local.listDrafts('gmail',{limit:25,after:first.nextCursor}),third=store.local.listDrafts('gmail',{limit:25,after:second.nextCursor});const all=[...first.items,...second.items,...third.items];assert.equal(all.length,59);assert.equal(new Set(all.map(item=>item.id)).size,59);assert.ok(all.every((item,index)=>index===0||item.updatedAt<=all[index-1].updatedAt));assert.equal(third.nextCursor,null);
+}));
+
+
+test('draft cursors handle equal timestamps, deleted boundary drafts, legacy ids and invalid input',async()=>outboxFixture(async({db,store})=>{
+ const ids=['33333333-3333-4333-8333-333333333333','44444444-4444-4444-8444-444444444444','55555555-5555-4555-8555-555555555555'];
+ for(const id of ids){store.local.saveDraft('gmail',{draftId:id,expected:null,content:{subject:id,to:[],text:'Cursor test'}});db.run('UPDATE mail_local_drafts SET updated_at=? WHERE account_id=? AND id=?',[9999999999999,'gmail',id]);db.run('UPDATE mail_local_draft_versions SET updated_at=? WHERE account_id=? AND draft_id=?',[9999999999999,'gmail',id]);}
+ const first=store.local.listDrafts('gmail',{limit:1});assert.equal(first.items[0].id,ids[2]);store.local.deleteDraft('gmail',{draftId:ids[2],expected:first.items[0].version});
+ assert.equal(store.local.listDrafts('gmail',{limit:1,after:first.nextCursor}).items[0].id,ids[1]);assert.equal(store.local.listDrafts('gmail',{limit:1,after:ids[1]}).items[0].id,ids[0]);
+ for(const after of ['not-json','{}','[]','{"time":-1,"id":"wrong"}'])assert.throws(()=>store.local.listDrafts('gmail',{after}),{code:'invalid_input'});
+}));
+
+
+test('selected outbox content crosses the real service/worker boundary and remains owner scoped',async()=>outboxFixture(async({dir,key,path,store,input,draft})=>{
+ const queued=await store.queue('gmail',input);store.local.saveDraft('gmail',{draftId:draft.id,expected:draft.version,content:{...draft.content,text:'Newer local content'}});
+ const {LocalMailService}=await import('../service.js'),entry=join(dir,'read-worker.mjs');await writeFile(entry,`globalThis.fetch=async()=>{throw Error('No network allowed in selected outbox test');};await import(${JSON.stringify(new URL('../runtime/worker.js',import.meta.url).href)});`);
+ const service=new LocalMailService({ownerId:'owner',databasePath:path,loadKey:async()=>Buffer.from(key),entryPoint:entry,executable:{kind:'node',path:process.execPath}});
+ try{await service.setLifecycleSuspended(true);await service.unlock();const detail=await service.outboxRead('gmail',{actionId:queued.id});assert.equal(detail.actionId,queued.id);assert.equal(detail.content.text,'Immutable body');assert.deepEqual(detail.content.to,['recipient@example.com']);await assert.rejects(service.outboxRead('foreign',{actionId:queued.id}));}finally{await service.stop();}
 }));

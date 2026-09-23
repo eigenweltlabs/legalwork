@@ -1,3 +1,4 @@
+import {mailDraftContentSchema} from '../local-view.js';
 import {test,expect} from 'bun:test';
 import {parseParentMessage,parseWorkerMessage,resultMatchesCommand} from './protocol.js';
 const parent=(command:unknown)=>parseParentMessage(JSON.stringify({kind:'request',id:'1:1',command}));
@@ -7,4 +8,11 @@ test('outbox and SMTP protocol reject injected credentials and bind account/acti
  expect(parent({operation:'mail.smtp.configure',accountId:'a',input})).toBeDefined();expect(parent({operation:'mail.smtp.configure',accountId:'a',input:{...input,rejectUnauthorized:false}})).toBeUndefined();expect(parent({operation:'mail.smtp.configure',accountId:'a',input:{...input,security:'plain'}})).toBeUndefined();
  expect(response({smtp:{configured:true,current:true,settings:{host:input.host,port:465,username:'self',security:'tls',sentCopy:'append'}}})).toBeDefined();expect(response({smtp:{configured:true,current:true,settings:input}})).toBeUndefined();expect(response({outboxFailure:'smtp_unconfigured'})).toBeDefined();expect(response({outboxFailure:'synthetic-password'})).toBeUndefined();
  expect(parent({operation:'mail.outbox.action',accountId:'a',input:{actionId:'id',action:'reconcile'}})).toBeDefined();expect(parent({operation:'mail.outbox.action',accountId:'a',input:{actionId:'id',action:'resend'}})).toBeUndefined();expect(resultMatchesCommand({operation:'mail.outbox.list',accountId:'a'},{outbox:[]})).toBe(true);
+});
+
+test('bounded outbox detail accepts only matching account/action identities through the worker protocol',()=>{
+ const content=mailDraftContentSchema.parse({to:['client@example.test'],subject:'Full queued message',text:'Full content '.repeat(100)}),command={operation:'mail.outbox.read',accountId:'firm',input:{actionId:'submission'}};
+ expect(parent(command)).toBeDefined();expect(response({outboxDetail:{accountId:'firm',actionId:'submission',content}})).toBeDefined();
+ expect(resultMatchesCommand({operation:'mail.outbox.read',accountId:'firm',input:{actionId:'submission'}},{outboxDetail:{accountId:'other',actionId:'submission',content}})).toBe(false);
+ expect(resultMatchesCommand({operation:'mail.outbox.read',accountId:'firm',input:{actionId:'submission'}},{outboxDetail:{accountId:'firm',actionId:'different',content}})).toBe(false);
 });

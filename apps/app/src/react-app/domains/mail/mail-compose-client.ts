@@ -1,8 +1,9 @@
+import {outboxItemSchema,type OutboxItem} from '../../../../../server/src/mail/outbox-view';
 import {DraftRecoveryJournal,type DraftRecovery} from './mail-draft-recovery';
 import { mailDraftViewSchema, mailDraftPageSchema, mailDraftAttachmentViewSchema, mailUploadViewSchema, type MailDraftView, type MailDraftSave } from '../../../../../server/src/mail/local-view';
 import { MailClient } from './mail-client';
 export const draftRead=(client:MailClient,account:string,id:string,signal:AbortSignal=new AbortController().signal)=>client.request(`/accounts/${encodeURIComponent(account)}/drafts/read`,mailDraftViewSchema,signal,{draftId:id});
-export const draftPage=(client:MailClient,account:string,after?:string)=>client.request(`/accounts/${encodeURIComponent(account)}/drafts/query`,mailDraftPageSchema,new AbortController().signal,{limit:25,...(after?{after}:{})});
+export const draftPage=(client:MailClient,account:string,after?:string,signal:AbortSignal=new AbortController().signal)=>client.request(`/accounts/${encodeURIComponent(account)}/drafts/query`,mailDraftPageSchema,signal,{limit:25,...(after?{after}:{})});
 /** Serial CAS queue survives component navigation; never writes plaintext browser storage. */
 export class ComposeSaveQueue {
  recoveryError=''; recovered=false; private journal:DraftRecoveryJournal;private journalWrite:ReturnType<DraftRecoveryJournal['write']>|undefined;
@@ -30,4 +31,23 @@ export async function composeAttachmentBytes(client:MailClient,account:string,dr
   if(!output){output=new Uint8Array(chunk.totalBytes);hash=chunk.sha256;}if(chunk.totalBytes!==output.length||chunk.sha256!==hash)throw Error('Draft attachment changed.');const bytes=Uint8Array.from(atob(chunk.data),char=>char.charCodeAt(0));output.set(bytes,offset);offset+=bytes.length;if(chunk.nextOffset===null)break;
  }while(true);
  if(!output||offset!==output.length||Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',output)),byte=>byte.toString(16).padStart(2,'0')).join('')!==hash)throw Error('Draft attachment integrity check failed.');return output;
+}
+
+/** Retire the old send before advancing the draft CAS version, even when content is unchanged. */
+export async function prepareOutboxEdit(client:MailClient,item:OutboxItem,signal:AbortSignal){
+ const stopped=item.state==='cancelled'?item:await client.request(`/accounts/${encodeURIComponent(item.accountId)}/outbox/action`,outboxItemSchema,signal,{actionId:item.id,action:'cancel'});
+ if(stopped.state!=='cancelled')throw Error('Submission may already have started. Check Sent before creating another message.');
+ const draft=await draftRead(client,item.accountId,item.draftId,signal);
+ return client.request(`/accounts/${encodeURIComponent(item.accountId)}/drafts/save`,mailDraftViewSchema,signal,{draftId:draft.id,expected:draft.version,content:draft.content});
+}
+
+/** Account-scoped blobs must be copied and verified before a composer can switch accounts. */
+export async function copyComposeAttachments(client:MailClient,source:{account:string;id:string;version:MailDraftView['version']},destination:string,parts:MailDraftView['content']['attachments']){
+ const copied:MailDraftView['content']['attachments']=[];
+ for(const [index,part] of parts.entries()){
+  const bytes=await composeAttachmentBytes(client,source.account,source.id,source.version,index,part.referenceId);
+  const uploaded=await uploadComposeFile(client,destination,new File([bytes],part.filename,{type:part.contentType}));
+  copied.push({...uploaded,disposition:part.disposition,contentId:part.contentId});
+ }
+ return copied;
 }
