@@ -1,3 +1,4 @@
+import {MailApprovalPanel,useMailApprovals} from '../chat/mail-approval-panel';
 import {MailChatSourceNotice} from '../../mail/mail-chat-source-notice';
 /** @jsxImportSource react */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -681,6 +682,7 @@ export function SessionSurface(props: SessionSurfaceProps) {
   const sessionActivityError = useSessionActivityStore(
     (state) => state.recordsByWorkspaceId[props.workspaceId]?.[props.sessionId]?.errorMessage ?? null,
   );
+  const mailApprovals=useMailApprovals(props.sessionId,!props.isRemoteWorkspace&&!props.isSandboxWorkspace);
   const draft = useComposerStateStore((state) => getComposerDraft(state, props.sessionId));
   const attachments = useComposerStateStore((state) => getComposerAttachments(state, props.sessionId));
   const mentions = useComposerStateStore((state) => getComposerMentions(state, props.sessionId));
@@ -2201,9 +2203,9 @@ export function SessionSurface(props: SessionSurfaceProps) {
           realtimeVoiceActive={props.realtimeVoiceActive}
           onToggleRealtimeVoice={() => props.onRealtimeVoiceActiveChange?.(!props.realtimeVoiceActive)}
           onUploadInboxFiles={props.onUploadInboxFiles ?? handleUploadInboxFiles}
-          compactTopSpacing={Boolean(trialEndedNoticeVisible || connectNoticeVisible || props.activeQuestion || (props.todos ?? []).some((todo) => todo.content.trim()) || props.activePermission || queuedMessages.length > 0)}
+          compactTopSpacing={Boolean(trialEndedNoticeVisible || connectNoticeVisible || props.activeQuestion || (props.todos ?? []).some((todo) => todo.content.trim()) || props.activePermission || mailApprovals.request || mailApprovals.error || queuedMessages.length > 0)}
           topAccessory={
-            trialEndedNoticeVisible || connectNoticeVisible || props.activeQuestion || (props.todos ?? []).some((todo) => todo.content.trim()) || props.activePermission || queuedMessages.length > 0 ? (
+            trialEndedNoticeVisible || connectNoticeVisible || props.activeQuestion || (props.todos ?? []).some((todo) => todo.content.trim()) || props.activePermission || mailApprovals.request || mailApprovals.error || queuedMessages.length > 0 ? (
               <div>
                 {trialEndedNoticeVisible ? <TrialEndedNotice billingUrl={trialBillingUrl} /> : null}
                 {connectNoticeVisible ? (
@@ -2229,6 +2231,7 @@ export function SessionSurface(props: SessionSurfaceProps) {
                 ) : (props.todos ?? []).some((todo) => todo.content.trim()) ? (
                   <TodoPanel todos={props.todos ?? []} />
                 ) : null}
+                <MailApprovalPanel state={mailApprovals} />
                 {props.activePermission ? (
                   <PermissionApprovalPanel
                     permission={props.activePermission}

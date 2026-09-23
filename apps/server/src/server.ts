@@ -1,8 +1,7 @@
+import {mailAgentEngineToken} from './mail/agent-auth.js';
 import {z} from 'zod';
 import {registerMailAgentRoutes} from './routes/mail-agent.js';
 import {realpath as mailAgentRealpath} from 'node:fs/promises';
-import {join as mailAgentJoin} from 'node:path';
-import {runtimeStorageDir as mailAgentStorageDir} from './runtime-opencode-config-store.js';
 import {registerMailStorageSaveRoutes} from './routes/mail-storage-save.js';
 import {registerMailFilingRoutes} from './routes/mail-filing.js';
 import { existsSync } from "node:fs";
@@ -760,17 +759,19 @@ export async function startServer(config: ServerConfig, dependencies: { mail?: M
     return fetch(origin+path,{...options,redirect:'error'});
   }});
 
-  registerMailAgentRoutes({routes,host:config.host,mail:dependencies.mail,capabilityRoot:mailAgentJoin(mailAgentStorageDir(config),'private-mail-capabilities'),workspaces:()=>config.workspaces.flatMap(workspace=>workspace.id?[{id:workspace.id,name:workspace.name||workspace.id}]:[]),directory:async id=>(await resolveWorkspace(config,id)).path,binding:async id=>{
-    const workspace=await resolveWorkspace(config,id),server=resolveLegalMemoryServer(await listMcp(config,workspace.id,workspace.path));if(!server)throw new ApiError(403,'mail_agent_denied','Matter access is unavailable');return{server,bearer:await engineAccessToken(server.name)};
-  },session:async(grant,id,messageId)=>{
-    const workspace=await resolveWorkspace(config,grant.workspaceId);
-    if(await mailAgentRealpath(workspace.path)!==grant.directory)throw new ApiError(403,'mail_agent_denied','Workspace changed');
-    const client=createWorkspaceOpencodeClient(config,workspace),response=await client.session.get({sessionID:id});
+  registerMailAgentRoutes({routes,host:config.host,agentToken:mailAgentEngineToken,mail:dependencies.mail,session:async input=>{
+    const directory=await mailAgentRealpath(input.directory);
+    const candidates=await Promise.all(config.workspaces.filter(workspace=>workspace.id&&workspace.workspaceType!=='remote'&&!workspace.sandboxBackend).map(async workspace=>({workspace,directory:await mailAgentRealpath(workspace.path).catch(()=>null)})));
+    const matched=candidates.find(candidate=>candidate.directory===directory);
+    if(!matched?.workspace.id)throw new ApiError(403,'mail_agent_denied','Local task workspace unavailable');
+    const workspace=await resolveWorkspace(config,matched.workspace.id);
+    const client=createWorkspaceOpencodeClient(config,workspace),response=await client.session.get({sessionID:input.sessionId});
     const session=z.object({id:z.string(),directory:z.string()}).parse(response.data);
-    if(session.id!==id||await mailAgentRealpath(session.directory)!==grant.directory)throw new ApiError(403,'mail_agent_denied','Task scope changed');
-    const responseMessage=await client.session.message({sessionID:id,messageID:messageId});
-    const message=z.object({info:z.object({id:z.string(),sessionID:z.string()})}).parse(responseMessage.data);
-    if(message.info.id!==messageId||message.info.sessionID!==id)throw new ApiError(403,'mail_agent_denied','Task provenance unavailable');
+    if(session.id!==input.sessionId||await mailAgentRealpath(session.directory)!==directory)throw new ApiError(403,'mail_agent_denied','Task scope changed');
+    const responseMessage=await client.session.message({sessionID:input.sessionId,messageID:input.messageId});
+    const message=z.object({info:z.object({id:z.string(),sessionID:z.string(),role:z.literal('assistant')})}).parse(responseMessage.data);
+    if(message.info.id!==input.messageId||message.info.sessionID!==input.sessionId)throw new ApiError(403,'mail_agent_denied','Task provenance unavailable');
+    return workspace.id;
   }});
 
   registerMailFilingRoutes(routes,config.host,dependencies.mail,()=>config.workspaces.flatMap(workspace=>workspace.id?[{id:workspace.id,name:workspace.name||workspace.id}]:[]),async workspaceId=>{

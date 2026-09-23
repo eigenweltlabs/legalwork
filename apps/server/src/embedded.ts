@@ -1,5 +1,4 @@
-import {runtimeStorageDir as mailAgentStorageDir} from './runtime-opencode-config-store.js';
-import {join as mailAgentJoin} from 'node:path';
+import {mailAgentEngineToken} from './mail/agent-auth.js';
 /**
  * Single entry point for embedding the LegalWork server in-process.
  *
@@ -140,7 +139,7 @@ export async function startEmbeddedServer(options: EmbeddedServerOptions): Promi
           ...(process.env.LEGALWORK_UI_CONTROL_DISCOVERY ? { LEGALWORK_UI_CONTROL_DISCOVERY: process.env.LEGALWORK_UI_CONTROL_DISCOVERY } : {}),
           LEGALWORK_SERVER_URL: serverUrl,
           LEGALWORK_SERVER_TOKEN: config.token,
-          LEGALWORK_MAIL_CAPABILITY_SECRET_DIR: mailAgentJoin(mailAgentStorageDir(config),'private-mail-capabilities'),
+          LEGALWORK_MAIL_AGENT_TOKEN: mailAgentEngineToken,
           OPENCODE_CONFIG: runtimeConfigPath,
           OPENCODE_MODELS_URL: opencodeModelsUrl,
           ...(managedDb ? { OPENCODE_DB: managedDb.path } : {}),

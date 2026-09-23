@@ -34,6 +34,8 @@ type PermissionDetail = {
 type PermissionApprovalModalProps = {
   permission: PendingPermission;
   busy?: boolean;
+  allowForSession?: boolean;
+  reviewDetails?: string;
   respondPermission?: (requestID: string, reply: "once" | "always" | "reject") => void;
   safeStringify?: (value: unknown) => string;
 };
@@ -320,6 +322,7 @@ export function PermissionApprovalModal(props: PermissionApprovalModalProps) {
             </div>
           ) : null}
 
+          {props.reviewDetails ? <pre className="mt-3 max-h-80 overflow-auto whitespace-pre-wrap break-words rounded-xl border border-dls-border bg-dls-surface p-3 text-sm leading-6 text-dls-text">{props.reviewDetails}</pre> : null}
           {hasMetadata ? (
             <details className="group rounded-[18px] border border-dls-border bg-dls-surface px-4 py-3">
               <summary className="flex cursor-pointer list-none items-center justify-between gap-3 text-[13px] font-medium text-dls-text">
@@ -415,7 +418,7 @@ export function PermissionApprovalPanel(props: PermissionApprovalModalProps) {
               <Clock3 data-icon="inline-start" />
               {t("session.allow_once")}
             </Button>
-            <Button
+            {props.allowForSession !== false && <Button
               type="button"
               variant="outline"
               size="sm"
@@ -424,7 +427,7 @@ export function PermissionApprovalPanel(props: PermissionApprovalModalProps) {
             >
               <Check data-icon="inline-start" />
               {t("session.allow_for_session")}
-            </Button>
+            </Button>}
           </div>
         </div>
 
@@ -448,6 +451,7 @@ export function PermissionApprovalPanel(props: PermissionApprovalModalProps) {
             </div>
           </div>
 
+          {props.reviewDetails ? <pre className="mt-3 max-h-80 overflow-auto whitespace-pre-wrap break-words rounded-xl border border-dls-border bg-dls-surface p-3 text-sm leading-6 text-dls-text">{props.reviewDetails}</pre> : null}
           {hasMetadata ? (
             <details className="group mt-3 rounded-xl border border-dls-border bg-dls-surface px-3 py-2">
               <summary className="flex cursor-pointer list-none items-center justify-between gap-3 text-[12px] font-medium text-dls-text">
