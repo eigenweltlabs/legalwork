@@ -1,3 +1,4 @@
+import {mergeDraftEntries} from '../src/react-app/domains/mail/mail-draft-list';
 import {test,expect} from 'bun:test';
 import {mailDraftAttachmentSchema,mailUploadSchema,mailDraftContentSchema,mailDraftPreview,mailDraftSaveSchema,mailDraftViewSchema,mailSubmissionSchema} from '../../server/src/mail/local-view';
 import {outboxItemSchema} from '../../server/src/mail/outbox-view';
@@ -28,4 +29,11 @@ test('changing accounts verifies attachment bytes and preserves inline content I
  const upload=mailUploadSchema.parse(body);expect(upload.sha256).toBe(sha);expect(atob(upload.data)).toBe('Synthetic attachment contents');return Response.json({uploadId:upload.uploadId,nextOffset:bytes.length,bytes:bytes.length,referenceId:part.referenceId});});
  const copied=await copyComposeAttachments(client,{account:'firm',id:item.draftId,version:item.version},'litigation',parts);
  expect(copied[0].contentId).toBe('signature@legalwork');expect(copied[0].disposition).toBe('inline');expect(copied[0].filename).toBe(part.filename);expect(copied[0].partId).not.toBe(part.partId);expect(parts[0].partId).toBe(part.partId);expect(paths).toEqual(['/mail/v1/accounts/firm/drafts/attachment','/mail/v1/accounts/litigation/drafts/upload']);
+});
+
+test('draft page merge stays chronological across overlapping account pages and deduplicates identities',()=>{
+ const entry=(key:string,updatedAt:number)=>({key,draft:{updatedAt}}),previous=[entry('firm:new',100),entry('litigation:new',70),entry('litigation:older',30)],incoming=[entry('firm:second',90),entry('firm:third',70),entry('firm:new',80),entry('litigation:older',30)];
+ const merged=mergeDraftEntries(previous,incoming);expect(merged.map(item=>item.key)).toEqual(['firm:new','firm:second','firm:third','litigation:new','litigation:older']);expect(merged[0].draft.updatedAt).toBe(100);expect(merged).toHaveLength(5);
+ // Selection is an account-scoped identity, retained even when it moves between page positions.
+ const selected=previous[1];expect(merged.find(item=>item.key===selected.key)).toBe(selected);expect(mergeDraftEntries(merged,incoming)).toEqual(merged);
 });
