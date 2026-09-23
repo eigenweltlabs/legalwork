@@ -21,8 +21,7 @@ import { resolveLegalworkConnection } from "./legalwork-connection";
 import {
   analyticsSurface,
   captureAnalyticsEvent,
-  captureAnalyticsOptOut,
-  flushAnalytics,
+  discardPendingAnalytics,
   getStoredAnalyticsConsent,
 } from "../../app/lib/analytics";
 import { captureAppError } from "../../app/lib/app-error";
@@ -119,22 +118,27 @@ export function WelcomeRoute() {
     }
   }, [local.prefs.hasCompletedOnboarding, navigate]);
 
-  // Funnel entry: the welcome screen was actually seen. Sent under the
-  // default-on model (the toggle shows on), and flushed eagerly so even a
-  // quick opt-out or quit is counted — the opt-out itself then reports as a
-  // single analytics_opted_out marker, making the rate
-  // opted_out / welcome_viewed.
+  // Funnel entry: the welcome screen was actually seen. Held, like every event
+  // before the consent choice commits, and sent only if the toggle stays on.
   useEffect(() => {
     if (local.prefs.hasCompletedOnboarding) return;
     captureAnalyticsEvent("onboarding_welcome_viewed", { surface: analyticsSurface() });
-    void flushAnalytics();
     // Mount-only by design: one view event per visit to the screen.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const markOnboardingComplete = useCallback(() => {
-    local.setPrefs((prev) => ({ ...prev, hasCompletedOnboarding: true }));
-  }, [local]);
+    if (!analyticsOptIn) discardPendingAnalytics();
+    local.setPrefs((prev) => ({
+      ...prev,
+      analyticsEnabled: analyticsOptIn,
+      hasCompletedOnboarding: true,
+      onboardingStage: isDesktopRuntime() ? "office" : "permissions",
+    }));
+    // New users see these steps in onboarding instead of post-update prompts.
+    markAllWhatsNewSeen();
+    markTranscriptionIntroSeen();
+  }, [analyticsOptIn, local]);
 
   // Which creation phase the loading overlay shows (null = not creating).
   const [createPhase, setCreatePhase] = useState<"workspace" | "engine" | "session" | null>(null);
@@ -145,11 +149,8 @@ export function WelcomeRoute() {
       // Funnel intent: the user committed to creating a workspace. Fired here
       // rather than after creation succeeds, so a failed create (reported as
       // app_error{source:"workspace_create"}) stays distinguishable from a
-      // user who simply never started. Flushed eagerly for the same reason
-      // onboarding_welcome_viewed is: the consent choice commits below, and
-      // an opt-out there purges whatever is still queued.
+      // user who simply never started.
       captureAnalyticsEvent("onboarding_started", { surface: analyticsSurface() });
-      void flushAnalytics();
       setCreatePhase("workspace");
       try {
         const workspaceName = folderNameFromPath(folder);
@@ -219,26 +220,10 @@ export function WelcomeRoute() {
           if (targetSessionId) writeLastSessionFor(targetWorkspaceId, targetSessionId);
         }
         dispatch({ type: "close" });
-        // Leaving the welcome screen — commit the analytics choice and start
-        // the PERSISTED in-session onboarding (quick setup → "Your AI"). The
-        // stage survives reloads; hasCompletedOnboarding only gates /welcome.
-        // Office add-ins and audio need the desktop, so the web starts at the
-        // permissions step.
-        local.setPrefs((prev) => ({
-          ...prev,
-          analyticsEnabled: analyticsOptIn,
-          hasCompletedOnboarding: true,
-          onboardingStage: isDesktopRuntime() ? "office" : "permissions",
-        }));
-        // A new user never gets the post-update announcements: the covers
-        // already walk them through Office and transcription.
-        markAllWhatsNewSeen();
-        markTranscriptionIntroSeen();
         captureAnalyticsEvent("workspace_created", { source: "onboarding", surface: analyticsSurface() });
-        // The consent choice just persisted: an opt-out sends its single
-        // anonymous marker (and purges everything queued, including the
-        // events captured above); staying opted in leaves the queue to flush.
-        if (!analyticsOptIn) captureAnalyticsOptOut("onboarding");
+        // Commit the choice before leaving welcome. The persisted in-session
+        // onboarding stage survives reloads after this screen.
+        markOnboardingComplete();
         const target = targetWorkspaceId
           ? workspaceSessionRoute(targetWorkspaceId, targetSessionId)
           : "/session";
@@ -254,7 +239,7 @@ export function WelcomeRoute() {
         setCreatePhase(null);
       }
     },
-    [navigate, local, analyticsOptIn],
+    [navigate, markOnboardingComplete],
   );
 
   const handleCreateRemote = useCallback(
@@ -267,6 +252,7 @@ export function WelcomeRoute() {
       const baseUrlValue = input.legalworkHostUrl?.trim() ?? "";
       if (!baseUrlValue) return false;
       dispatch({ type: "remote:start" });
+      captureAnalyticsEvent("onboarding_started", { surface: analyticsSurface() });
       try {
         const remoteType: "legalwork" = "legalwork";
         const payload = {
@@ -303,6 +289,7 @@ export function WelcomeRoute() {
           await workspaceSetRuntimeActive(createdId).catch(() => undefined);
           writeActiveWorkspaceId(createdId);
         }
+        captureAnalyticsEvent("workspace_created", { source: "onboarding", surface: analyticsSurface() });
         markOnboardingComplete();
         dispatch({ type: "close" });
         navigate(createdId ? workspaceSessionRoute(createdId) : "/session", { replace: true });

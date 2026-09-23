@@ -1,10 +1,8 @@
 /**
  * Consent gating for the analytics send queue — opt-OUT model:
  * - pending choice (null, the welcome screen with the toggle showing on):
- *   events queue and send normally (default-on);
- * - explicit opt-out: later captures are discarded, the queue is purged, and
- *   exactly one anonymous `analytics_opted_out` marker goes out so opt-out
- *   rates stay measurable — nothing else is ever sent afterwards;
+ *   events queue but are held — nothing is sent until the choice commits on;
+ * - explicit opt-out: later captures are discarded and the queue is purged;
  * - explicit opt-in: business as usual.
  */
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
@@ -12,7 +10,7 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 // The module gates every capture on a configured key — inject one before import.
 process.env.VITE_LEGALWORK_POSTHOG_KEY = "phc_test_dummy_key";
 
-const { captureAnalyticsEvent, captureAnalyticsOptOut, flushAnalytics } = await import(
+const { captureAnalyticsEvent, discardPendingAnalytics, disposeAnalytics, flushAnalytics } = await import(
   "../src/app/lib/analytics"
 );
 
@@ -56,6 +54,8 @@ function sentEvents(): string[] {
 
 describe("analytics consent gating", () => {
   beforeEach(() => {
+    // Test files share this module: drop whatever earlier files left queued.
+    disposeAnalytics();
     sentBatches.length = 0;
     Object.defineProperty(globalThis, "window", {
       configurable: true,
@@ -81,11 +81,27 @@ describe("analytics consent gating", () => {
     globalThis.fetch = originalFetch;
   });
 
-  test("pending choice sends under the default-on model", async () => {
+  test("pending choice holds the queue until the choice commits on", async () => {
     setConsent(null);
     captureAnalyticsEvent("welcome_window_event");
     await flushAnalytics();
-    expect(sentEvents()).toContain("welcome_window_event");
+    expect(sentEvents()).toEqual([]);
+
+    setConsent(true);
+    await flushAnalytics();
+    expect(sentEvents()).toEqual(["welcome_window_event"]);
+  });
+
+  test("pending choice holds at most one batch, keeping the earliest events", async () => {
+    setConsent(null);
+    for (let index = 0; index < 60; index += 1) captureAnalyticsEvent(`held_${index}`);
+    expect(sentEvents()).toEqual([]);
+
+    setConsent(true);
+    await flushAnalytics();
+    await flushAnalytics();
+    expect(sentEvents()).toHaveLength(50);
+    expect(sentEvents()[0]).toBe("held_0");
   });
 
   test("opt-out purges the queue and silences later captures", async () => {
@@ -104,19 +120,19 @@ describe("analytics consent gating", () => {
     expect(sentEvents()).toEqual([]);
   });
 
-  test("the opt-out marker is the single send after refusal, and drops the queue", async () => {
+  test("committing opt-out discards pending events without sending anything", async () => {
     setConsent(null);
     captureAnalyticsEvent("captured_but_unsent");
 
+    discardPendingAnalytics();
     setConsent(false);
-    captureAnalyticsOptOut("onboarding");
-    await Promise.resolve(); // let the fire-and-forget fetch settle
-    expect(sentEvents()).toEqual(["analytics_opted_out"]);
+    await flushAnalytics();
+    expect(sentEvents()).toEqual([]);
 
-    // The queue was purged and later flushes stay silent.
+    // A later opt-in must not resurrect events from before the opt-out.
     setConsent(true);
     await flushAnalytics();
-    expect(sentEvents()).toEqual(["analytics_opted_out"]);
+    expect(sentEvents()).toEqual([]);
   });
 
   test("opt-in sends captures on flush", async () => {

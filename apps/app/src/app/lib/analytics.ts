@@ -14,10 +14,11 @@
  *   events are anonymous ($process_person_profile: false).
  * - Fire-and-forget: analytics must never break or slow the app.
  * - Opt-OUT model: analytics is on by default (the welcome toggle shows the
- *   default). Opting out (welcome toggle or Settings -> Privacy) takes effect
- *   immediately: captures stop, the send queue is purged, and exactly one
- *   anonymous `analytics_opted_out` marker is sent so opt-out rates are
- *   measurable. After that marker, nothing is ever sent again.
+ *   default), but nothing is sent until the welcome screen has committed the
+ *   choice: events captured while it is pending are held in memory and only
+ *   flushed if the user left the toggle on. Opting out (welcome toggle or
+ *   Settings -> Privacy) takes effect immediately: captures stop and the send
+ *   queue is purged. Nothing is sent after opt-out.
  * - Every capture is mirrored into the local app inspector
  *   (`window.__legalwork.record("analytics.<event>")`) so coded evals can
  *   assert instrumentation without any analytics backend.
@@ -97,9 +98,9 @@ export function isAnalyticsEnabled(): boolean {
 
 /**
  * Explicit opt-out. Distinct from "not enabled": a pending choice (null —
- * the welcome screen, where the toggle shows on) counts as the default-on
- * state, so events captured there are sent. Only a stored "no" silences —
- * from that moment captures are discarded and the queue is purged.
+ * the welcome screen, where the toggle shows on) still queues, but the queue
+ * is held until the choice commits (see flushAnalytics). Only a stored "no"
+ * silences — from that moment captures are discarded and the queue is purged.
  */
 function isAnalyticsRefused(): boolean {
   if (consentOverride !== null) return !consentOverride;
@@ -161,10 +162,12 @@ export function captureAnalyticsEvent(event: string, properties: AnalyticsProper
     // Inspector unavailable (non-browser context).
   }
 
-  // Refused = silence. A pending choice (welcome screen) queues and sends
-  // under the default-on model; the onboarding events fired before the
-  // choice persists would otherwise be lost.
+  // Refused = silence. A pending choice (welcome screen) queues, so the
+  // onboarding events fired before the choice persists are not lost, but
+  // flushAnalytics holds them until it does. Held events are capped at one
+  // batch: the choice may never come (no welcome screen shown this launch).
   if (!POSTHOG_KEY || isAnalyticsRefused()) return;
+  if (queue.length >= MAX_BATCH && !isAnalyticsEnabled()) return;
 
   queue.push({
     event,
@@ -176,41 +179,9 @@ export function captureAnalyticsEvent(event: string, properties: AnalyticsProper
   }
 }
 
-/**
- * The single sanctioned send AFTER refusal: an anonymous `analytics_opted_out`
- * marker fired at the moment the user opts out, so opt-out rates can be
- * measured against `onboarding_welcome_viewed`. It bypasses the queue (which
- * is purged here — nothing captured earlier rides along) and carries only the
- * stage it happened at. Nothing else is ever sent afterwards.
- */
-export function captureAnalyticsOptOut(stage: "onboarding" | "settings"): void {
-  try {
-    recordInspectorEvent("analytics.analytics_opted_out", { stage });
-  } catch {
-    // Inspector unavailable (non-browser context).
-  }
-
+/** Drop events captured before a newly committed opt-out. */
+export function discardPendingAnalytics(): void {
   queue = [];
-  if (!POSTHOG_KEY) return;
-
-  void fetch(`${POSTHOG_HOST}/batch/`, {
-    method: "POST",
-    keepalive: true,
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      api_key: POSTHOG_KEY,
-      batch: [
-        {
-          event: "analytics_opted_out",
-          distinct_id: getAnalyticsDistinctId(),
-          timestamp: new Date().toISOString(),
-          properties: { ...baseProperties(), stage, $process_person_profile: false },
-        },
-      ],
-    }),
-  }).catch(() => {
-    // Fire-and-forget, like every other send.
-  });
 }
 
 export async function flushAnalytics(): Promise<void> {
@@ -220,7 +191,9 @@ export async function flushAnalytics(): Promise<void> {
     queue = [];
     return;
   }
-  if (queue.length === 0) return;
+  // Choice still pending: hold the queue. Nothing leaves the machine before
+  // the user could turn analytics off on the welcome screen.
+  if (!isAnalyticsEnabled() || queue.length === 0) return;
   const batch = queue.splice(0, MAX_BATCH);
   const distinctId = getAnalyticsDistinctId();
 
