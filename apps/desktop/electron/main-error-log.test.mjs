@@ -87,6 +87,19 @@ describe("installMainErrorLog", () => {
   });
 });
 
+describe("buildSupportBundleText", () => {
+  it("says how this machine reaches GitHub", () => {
+    withMainErrorLog((logsDir) => {
+      const bundle = buildSupportBundleText({
+        app: { getName: () => "LegalWork", getVersion: () => "0.0.0", isPackaged: true, getPath: () => logsDir },
+        runtimeManager: { collectRuntimeDiagnostics: () => ({}) },
+        network: { systemProxyForGithub: "PROXY proxy.firm.local:8080", proxyEnv: {} },
+      });
+      assert.match(bundle, /========== Network ==========\n\{\n {2}"systemProxyForGithub": "PROXY proxy\.firm\.local:8080"/);
+    });
+  });
+});
+
 describe("logWindowErrors", () => {
   it("keeps an app window's console warnings, errors and crashes", () => {
     withMainErrorLog((logsDir) => {
