@@ -2,19 +2,17 @@
  * Onboarding funnel events on the welcome screen.
  *
  * `onboarding_started` marks INTENT (the user committed to creating a
- * workspace), not success — success is `workspace_created`. Intent is flushed
- * eagerly, like `onboarding_welcome_viewed`, because the consent choice
- * commits at the end of workspace creation and an opt-out there purges
- * whatever is still queued. Without the eager flush an opted-out user reports
- * as a welcome view with no start, which reads as a drop-off that never
- * happened.
+ * workspace), not success — success is `workspace_created`. Nothing from the
+ * welcome screen is sent before the consent choice commits at the end of
+ * workspace creation: leaving the toggle on then sends the whole funnel, while an
+ * opt-out sends nothing.
  */
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
 // The module gates every capture on a configured key — inject one before import.
 process.env.VITE_LEGALWORK_POSTHOG_KEY = "phc_test_dummy_key";
 
-const { captureAnalyticsEvent, captureAnalyticsOptOut, flushAnalytics } = await import(
+const { captureAnalyticsEvent, discardPendingAnalytics, disposeAnalytics, flushAnalytics } = await import(
   "../src/app/lib/analytics"
 );
 
@@ -56,7 +54,10 @@ function sentEvents(): string[] {
   return sentBatches.flat().map((entry) => entry.event);
 }
 
-/** The welcome screen up to the moment the consent choice commits. */
+/**
+ * The welcome screen up to the moment the consent choice commits. The flush
+ * timer (or the window hiding) may fire at any point in between.
+ */
 async function runWelcomeUpToConsentCommit() {
   captureAnalyticsEvent("onboarding_welcome_viewed", { surface: "desktop" });
   await flushAnalytics();
@@ -68,6 +69,8 @@ async function runWelcomeUpToConsentCommit() {
 
 describe("onboarding funnel events", () => {
   beforeEach(() => {
+    // Test files share this module: drop whatever earlier files left queued.
+    disposeAnalytics();
     sentBatches.length = 0;
     Object.defineProperty(globalThis, "window", {
       configurable: true,
@@ -93,36 +96,23 @@ describe("onboarding funnel events", () => {
     globalThis.fetch = originalFetch;
   });
 
-  test("opting out at the end still reports the start, so the funnel is measurable", async () => {
+  test("opting out on the welcome screen sends nothing", async () => {
     setConsent(null);
     await runWelcomeUpToConsentCommit();
+    discardPendingAnalytics();
     setConsent(false);
-    captureAnalyticsOptOut("onboarding");
-
-    expect(sentEvents()).toContain("onboarding_welcome_viewed");
-    // The regression this pins: queued-only, `onboarding_started` was purged
-    // by the opt-out and the user looked like a welcome-screen drop-off.
-    expect(sentEvents()).toContain("onboarding_started");
-    expect(sentEvents()).toContain("analytics_opted_out");
-  });
-
-  test("the opt-out still purges anything not yet flushed", async () => {
-    setConsent(null);
-    await runWelcomeUpToConsentCommit();
-    setConsent(false);
-    captureAnalyticsOptOut("onboarding");
-
-    expect(sentEvents()).not.toContain("workspace_created");
-  });
-
-  test("staying opted in reports intent and success separately", async () => {
-    setConsent(null);
-    await runWelcomeUpToConsentCommit();
-    setConsent(true);
     await flushAnalytics();
 
-    expect(sentEvents()).toContain("onboarding_started");
-    expect(sentEvents()).toContain("workspace_created");
-    expect(sentEvents()).not.toContain("analytics_opted_out");
+    expect(sentEvents()).toEqual([]);
+  });
+
+  test("leaving the toggle on sends the whole funnel once the choice commits", async () => {
+    setConsent(null);
+    await runWelcomeUpToConsentCommit();
+    expect(sentEvents()).toEqual([]);
+
+    setConsent(true);
+    await flushAnalytics();
+    expect(sentEvents()).toEqual(["onboarding_welcome_viewed", "onboarding_started", "workspace_created"]);
   });
 });
