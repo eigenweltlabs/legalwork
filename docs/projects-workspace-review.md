@@ -46,6 +46,7 @@ Screenshots are local review artifacts under `output/playwright/`, excluded from
 
 ## Afternoon review refinements
 
+- The project identity header follows the supplied reference: a folder badge and name above a rounded New Chat button and matching note/task icon buttons. Note creation reuses the existing note dialog/editor. Task creation reuses the standard task dialog, assigns the current project automatically and opens the existing task viewer. English/German layout, all three actions, task linkage, app type check and production build verified with isolated fixture data.
 - Sessions is a full table with search, group filtering and the same session menus/group creation as the sidebar. Files is only in the nested project sidebar, opening the existing right panel; no home Files tab. Project/session names remain consistent after renaming.
 - A note's entire row opens its Markdown editor, including the date. The viewer close control is always present with open tabs and supports reopening the same note.
 - Note tabs and editor headers show the same clean title as the Notes list, hiding the storage filename's unique suffix and Markdown extension. File paths and save/download targets are retained. Browser close/reopen, app type check and build verified.

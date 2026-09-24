@@ -12,6 +12,7 @@ import {
   Settings2,
   Folder,
   StickyNote,
+  SquareCheck,
 } from "lucide-react";
 import type {
   LegalworkServerClient,
@@ -19,6 +20,7 @@ import type {
 } from "@/app/lib/legalwork-server";
 import type { WorkspaceSessionGroup } from "@/app/types";
 import { Button } from "@/components/ui/button";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import {
   Dialog,
   DialogContent,
@@ -44,6 +46,7 @@ import { formatTaskDueDate } from "../tasks/task-format";
 import { ProjectProperties } from "./project-properties";
 import { ProjectMetadata } from "./project-metadata";
 import { ProjectNoteDialog } from "./project-note-dialog";
+import { ProjectTaskDialog } from "./project-task-dialog";
 import { noteTitle } from "./project-note-title";
 import { currentLocale, t } from "@/i18n";
 
@@ -75,6 +78,7 @@ export function ProjectHome(props: {
       return next;
     });
   const [noteOpen, setNoteOpen] = useState(false);
+  const [taskOpen, setTaskOpen] = useState(false);
   const [editMetadata, setEditMetadata] = useState(false);
   const details = useQuery({
     queryKey: ["project", workspaceId],
@@ -179,12 +183,16 @@ export function ProjectHome(props: {
             tab !== "overview" && "hidden @min-[760px]/project:block",
           )}
         >
-          <div className="px-5 pt-5 pb-4">
-            <div className="flex items-start gap-2.5">
-              <Folder className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
-              <h1 className="min-w-0 flex-1 break-words text-[15px] font-medium leading-5 tracking-tight">{props.name}</h1>
+          <div className="px-4 pt-4 pb-4">
+            <div className="flex items-center gap-2">
+              <span className="flex size-9 shrink-0 items-center justify-center rounded-xl border border-border/60 bg-background shadow-xs"><Folder className="size-4.5 text-muted-foreground" /></span>
+              <h1 title={props.name} className="min-w-0 truncate rounded-lg bg-muted/70 px-2 py-1.5 text-base font-semibold tracking-tight">{props.name}</h1>
             </div>
-            <Button variant="ghost" size="xs" className="mt-3 -ml-2 font-normal" onClick={props.onNewSession}><MessageSquare className="size-3.5" />{t("projects.new_chat")}</Button>
+            <div className="mt-3 flex items-center gap-2">
+              <Button variant="outline" className="min-w-0 flex-1 rounded-xl px-2.5 shadow-xs" onClick={props.onNewSession}><MessageSquare />{t("projects.new_chat")}</Button>
+              <Tooltip><TooltipTrigger render={<Button variant="outline" size="icon" className="rounded-xl shadow-xs" aria-label={t("projects.add_note")} onClick={() => setNoteOpen(true)}><StickyNote /></Button>} /><TooltipContent>{t("projects.add_note")}</TooltipContent></Tooltip>
+              <Tooltip><TooltipTrigger render={<Button variant="outline" size="icon" className="rounded-xl shadow-xs" aria-label={t("tasks.new_task")} onClick={() => setTaskOpen(true)}><SquareCheck /></Button>} /><TooltipContent>{t("tasks.new_task")}</TooltipContent></Tooltip>
+            </div>
           </div>
           <div className="mx-5 border-t border-border/60" />
           <div className="px-4 py-3">
@@ -484,6 +492,7 @@ export function ProjectHome(props: {
           }}
         />
       ) : null}
+      {taskOpen ? <ProjectTaskDialog client={client} workspaceId={workspaceId} onClose={() => setTaskOpen(false)} /> : null}
       <Dialog open={editMetadata} onOpenChange={setEditMetadata}>
         <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-2xl">
           <DialogHeader>
