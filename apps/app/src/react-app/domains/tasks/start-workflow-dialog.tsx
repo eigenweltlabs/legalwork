@@ -67,6 +67,7 @@ export type StartWorkflowDialogProps = {
   workspaces: RouteWorkspace[];
   /** Folder pre-selected when the dialog opens (the one the app is already on). */
   defaultWorkspaceId: string;
+  linkedProjectId?: string;
   baseUrl: string;
   token: string;
   busy: boolean;
@@ -95,8 +96,10 @@ export function StartWorkflowDialog(props: StartWorkflowDialogProps) {
   }, [open, props.defaultWorkspaceId]);
 
   const workspace = useMemo(
-    () => props.workspaces.find((entry) => entry.id === workspaceId) ?? props.workspaces[0] ?? null,
-    [props.workspaces, workspaceId],
+    () => props.linkedProjectId
+      ? props.workspaces.find((entry) => entry.id === props.linkedProjectId) ?? null
+      : props.workspaces.find((entry) => entry.id === workspaceId) ?? props.workspaces[0] ?? null,
+    [props.workspaces, workspaceId, props.linkedProjectId],
   );
   const globalLibrary = isDesktopRuntime() && workspace?.workspaceType !== "remote";
 
@@ -145,7 +148,7 @@ export function StartWorkflowDialog(props: StartWorkflowDialogProps) {
         <DialogHeader className="shrink-0 px-6 pt-6 pr-12">
           <DialogTitle>{t(withWorkflow ? "tasks.start_workflow" : "tasks.start_session")}</DialogTitle>
           <DialogDescription>
-            {t(withWorkflow ? "tasks.start_workflow_desc" : "tasks.start_session_desc")}
+            {t(props.linkedProjectId ? "tasks.linked_workflow_desc" : withWorkflow ? "tasks.start_workflow_desc" : "tasks.start_session_desc")}
           </DialogDescription>
         </DialogHeader>
 
@@ -156,7 +159,7 @@ export function StartWorkflowDialog(props: StartWorkflowDialogProps) {
           </div>
 
           <div className="flex flex-col gap-5">
-            <div className="flex flex-col gap-1.5">
+            {props.linkedProjectId ? <p className="flex items-center gap-2 text-sm text-muted-foreground">{workspace ? <><WorkspaceIcon workspaceId={workspace.id} sizeClass="size-4" />{workspaceLabel(workspace)}</> : t("tasks.linked_project_unavailable")}</p> : <div className="flex flex-col gap-1.5">
               <Label htmlFor={folderId} className="text-xs">
                 {t("tasks.run_folder_label")}
               </Label>
@@ -189,7 +192,7 @@ export function StartWorkflowDialog(props: StartWorkflowDialogProps) {
                 </DropdownMenuContent>
               </DropdownMenu>
               <p className="text-xs leading-relaxed text-muted-foreground">{t("tasks.run_folder_hint")}</p>
-            </div>
+            </div>}
 
             {withWorkflow ? (
               <div className="flex flex-col gap-1.5">

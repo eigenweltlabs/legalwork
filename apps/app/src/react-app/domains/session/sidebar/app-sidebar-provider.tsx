@@ -40,3 +40,18 @@ export function useSidebarContext() {
   if (!context) throw new Error("useSidebarContext must be used within SidebarProvider");
   return context;
 }
+
+export type SessionListContextValue = Pick<SidebarContextValue,
+  "selectedWorkspaceId" | "selectedSessionId" | "sessionStatusById" |
+  "onOpenSession" | "onOpenSessionWindow" | "onPrefetchSession" |
+  "onOpenRenameSession" | "onOpenDeleteSession" | "onArchiveSession" |
+  "onOpenCreateGroupModal" | "expandedSessionIds" | "toggleSessionExpanded"
+>;
+export const SessionListContext = React.createContext<SessionListContextValue | null>(null);
+export function useSessionListContext() {
+  const override = React.use(SessionListContext);
+  const sidebar = React.use(SidebarContext);
+  const context = override ?? sidebar;
+  if (!context) throw new Error("Session list needs a context");
+  return context;
+}

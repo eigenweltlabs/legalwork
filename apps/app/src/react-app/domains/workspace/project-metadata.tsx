@@ -11,12 +11,18 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { t } from "@/i18n";
+import { toast } from "sonner";
+import { defaultAkteFields, useProjectDefaultsStore } from "./project-defaults-store";
 
 export function ProjectMetadata(props: {
-  details: ProjectDetails;
+  details: Pick<ProjectDetails, "fields">;
+  definitionsOnly?: boolean;
   onSave: (fields: ProjectField[]) => Promise<void>;
   onCancel: () => void;
 }) {
+  const savedDefaults = useProjectDefaultsStore((state) => state.fields);
+  const saveFieldToDefaults = useProjectDefaultsStore((state) => state.addField);
+  const defaults = savedDefaults ?? defaultAkteFields();
   const [fields, setFields] = useState(props.details.fields);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -134,7 +140,7 @@ export function ProjectMetadata(props: {
                     });
                   }}
                 />
-                <Select
+                {!props.definitionsOnly ? <Select
                   value={String(field.value ?? "")}
                   onValueChange={(value) =>
                     change(field.id, { value: value || null })
@@ -156,9 +162,9 @@ export function ProjectMetadata(props: {
                       </SelectItem>
                     ))}
                   </SelectContent>
-                </Select>
+                </Select> : null}
               </div>
-            ) : (
+            ) : !props.definitionsOnly ? (
               <Input
                 className="sm:col-span-3"
                 aria-label={field.label || t("projects.value")}
@@ -184,7 +190,15 @@ export function ProjectMetadata(props: {
                   })
                 }
               />
-            )}
+            ) : null}
+            {!props.definitionsOnly && !defaults.some((entry) => entry.id === field.id) ? (
+              <div className="flex justify-end sm:col-span-3">
+                <Button type="button" variant="ghost" size="xs" disabled={!field.label.trim() || defaults.length >= 50} onClick={() => {
+                  saveFieldToDefaults(field);
+                  toast.success(t("projects.saved_to_defaults", { name: field.label.trim() }));
+                }}>{t("projects.save_to_defaults")}</Button>
+              </div>
+            ) : null}
           </div>
         ))}
         <Button

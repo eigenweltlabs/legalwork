@@ -39,7 +39,7 @@ import { Input } from "@/components/ui/input";
 import { ConfirmModal } from "../../../design-system/modals/confirm-modal";
 import ProviderAuthModal, { type ProviderAuthModalProps } from "../../connections/provider-auth/provider-auth-modal";
 import { RenameSessionModal } from "../modals/rename-session-modal";
-import { AppSidebar } from "../sidebar/app-sidebar";
+import { AppSidebar, ProjectSessionsView } from "../sidebar/app-sidebar";
 import { useSessionManagementStore } from "../sidebar/session-management-store";
 import { SessionSurface, type SessionSurfaceProps } from "../surface/session-surface";
 import {
@@ -982,15 +982,28 @@ export function SessionPage(props: SessionPageProps) {
       onClose={closeFileSidebar}
     />
   );
+  const projectGroup = props.sidebar.workspaceSessionGroups.find((group) => group.workspace.id === props.selectedWorkspaceId);
+  const sessionListActions = {
+    selectedWorkspaceId: props.selectedWorkspaceId,
+    selectedSessionId: null,
+    sessionStatusById: props.sidebar.sessionStatusById,
+    onOpenSession: openSessionTab,
+    onOpenSessionWindow: isElectronRuntime() ? openSessionWindow : undefined,
+    onPrefetchSession: props.sidebar.onPrefetchSession,
+    onOpenRenameSession: props.onRenameSession ? openRenameModal : undefined,
+    onOpenDeleteSession: props.onDeleteSession ? (sessionId: string) => { setSessionActionId(sessionId); setDeleteOpen(true); } : undefined,
+    onArchiveSession: props.onArchiveSession ? (sessionId: string, archived: boolean) => { void props.onArchiveSession?.(sessionId, archived); } : undefined,
+    onOpenCreateGroupModal: (workspaceId: string) => { setCreateGroupWorkspaceId(workspaceId); setCreateGroupLabel(""); setCreateGroupOpen(true); },
+  };
   const mainView = props.projectHome ? (
     props.legalworkServerClient && props.runtimeWorkspaceId ? <ProjectHome
       key={props.selectedWorkspaceId}
       client={props.legalworkServerClient}
       workspaceId={props.runtimeWorkspaceId}
       tasksView={props.projectTasksView}
-      filesView={<WorkspaceFilesPanel client={props.legalworkServerClient} workspaceId={props.runtimeWorkspaceId} workspaceRoot={props.selectedWorkspaceRoot} onOpenFile={openWorkspaceFileEntry} />}
+      sessionsView={projectGroup ? <ProjectSessionsView key={projectGroup.workspace.id} group={projectGroup} actions={sessionListActions} /> : null}
       name={props.selectedWorkspaceDisplay.displayName || props.selectedWorkspaceDisplay.name || props.selectedWorkspaceId}
-      group={props.sidebar.workspaceSessionGroups.find((group) => group.workspace.id === props.selectedWorkspaceId)}
+      group={projectGroup}
       onOpenFile={openWorkspaceFileEntry}
       onSession={(id) => props.sidebar.onOpenSession(props.selectedWorkspaceId, id)}
       onNewSession={() => props.sidebar.onCreateChatInWorkspace(props.selectedWorkspaceId)}

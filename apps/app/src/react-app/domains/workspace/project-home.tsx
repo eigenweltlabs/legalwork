@@ -9,7 +9,8 @@ import {
   ListTodo,
   MessageSquare,
   Plus,
-  RefreshCw,
+  Settings2,
+  Folder,
   StickyNote,
 } from "lucide-react";
 import type {
@@ -36,14 +37,14 @@ import {
 } from "@/components/ui/table";
 import { PanelEmptyState } from "@/react-app/design-system/panel-chrome";
 import { SectionHeading, Surface } from "@/react-app/design-system/surface";
-import { FolderIcon } from "@/react-app/design-system/folder-icon";
 import { cn } from "@/lib/utils";
 import { requestOpenTask } from "../tasks/task-reference";
 import { useTasks } from "../tasks/tasks-queries";
 import { formatTaskDueDate } from "../tasks/task-format";
+import { ProjectProperties } from "./project-properties";
 import { ProjectMetadata } from "./project-metadata";
 import { ProjectNoteDialog } from "./project-note-dialog";
-import { t } from "@/i18n";
+import { currentLocale, t } from "@/i18n";
 
 export function ProjectHome(props: {
   client: LegalworkServerClient;
@@ -51,7 +52,7 @@ export function ProjectHome(props: {
   name: string;
   group?: WorkspaceSessionGroup;
   tasksView?: ReactNode;
-  filesView: ReactNode;
+  sessionsView: ReactNode;
   onOpenFile: (entry: LegalworkWorkspaceDirectoryEntry) => void;
   onSession: (id: string) => void;
   onNewSession: () => void;
@@ -62,7 +63,7 @@ export function ProjectHome(props: {
   const requestedTab = searchParams.get("tab");
   const tab =
     requestedTab &&
-    ["files", "tasks", "notes", "activity"].includes(requestedTab)
+    ["tasks", "notes", "sessions", "activity"].includes(requestedTab)
       ? requestedTab
       : "overview";
   const setTab = (value: string) =>
@@ -119,12 +120,6 @@ export function ProjectHome(props: {
       (entry) => entry.kind === "file" && /\.md$/i.test(entry.name),
     ) ?? []
   ).sort((a, b) => (b.updatedAt ?? 0) - (a.updatedAt ?? 0));
-  const refresh = () => {
-    void rootFiles.refetch();
-    void tasks.refetch();
-    void details.refetch();
-    if (hasNotes) void notes.refetch();
-  };
   const recent = [
     ...taskRows.map((task) => ({
       id: `task:${task.id}`,
@@ -164,7 +159,7 @@ export function ProjectHome(props: {
     .sort((a, b) => b.at - a.at);
   const tabs = [
     { id: "overview", label: t("projects.overview"), icon: LayoutDashboard },
-    { id: "files", label: t("projects.files"), icon: FileText },
+    { id: "sessions", label: t("projects.sessions"), icon: MessageSquare },
     { id: "tasks", label: t("projects.tasks"), icon: ListTodo },
     { id: "notes", label: t("projects.notes"), icon: StickyNote },
     { id: "activity", label: t("projects.activity"), icon: Activity },
@@ -179,75 +174,35 @@ export function ProjectHome(props: {
         <aside
           aria-label={t("projects.metadata")}
           className={cn(
-            "shrink-0 border-b border-border/70 @min-[760px]/project:w-60 @min-[760px]/project:overflow-y-auto @min-[760px]/project:border-r @min-[760px]/project:border-b-0",
+            "shrink-0 border-b border-border/60 bg-muted/15 @min-[760px]/project:w-64 @min-[760px]/project:overflow-y-auto @min-[760px]/project:border-r @min-[760px]/project:border-b-0",
             tab !== "overview" && "hidden @min-[760px]/project:block",
           )}
         >
-          <div className="space-y-4 border-b border-border/70 px-4 py-5">
+          <div className="px-5 pt-5 pb-4">
             <div className="flex items-start gap-2.5">
-              <FolderIcon className="mt-0.5 size-6 shrink-0" />
-              <h1 className="min-w-0 flex-1 break-words text-base font-medium leading-6 tracking-tight">
-                {props.name}
-              </h1>
-              <Button
-                size="icon-sm"
-                variant="ghost"
-                aria-label={t("projects.refresh")}
-                onClick={refresh}
-              >
-                <RefreshCw className="size-3.5" />
-              </Button>
+              <Folder className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
+              <h1 className="min-w-0 flex-1 break-words text-[15px] font-medium leading-5 tracking-tight">{props.name}</h1>
             </div>
-            <Button
-              variant="outline"
-              size="sm"
-              className="w-full"
-              onClick={props.onNewSession}
-            >
-              <MessageSquare />
-              {t("projects.new_chat")}
-            </Button>
+            <Button variant="ghost" size="xs" className="mt-3 -ml-2 font-normal" onClick={props.onNewSession}><MessageSquare className="size-3.5" />{t("projects.new_chat")}</Button>
           </div>
-          <div className="px-4 py-4">
-            <SectionHeading
-              title={t("projects.metadata")}
-              size="sidebar"
-              action={
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  disabled={!details.data}
-                  onClick={() => setEditMetadata(true)}
-                >
-                  {t("projects.edit")}
-                </Button>
-              }
-            />
-            {details.isPending ? (
-              <Notice>{t("projects.loading")}</Notice>
-            ) : details.error ? (
-              <Notice error>{t("projects.failed")}</Notice>
-            ) : details.data?.fields.length ? (
-              <dl className="mt-4 space-y-3.5">
-                {details.data.fields.map((field) => (
-                  <div
-                    key={field.id}
-                    className="grid grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)] gap-3 text-xs leading-5"
-                  >
-                    <dt className="break-words text-muted-foreground">
-                      {field.label}
-                    </dt>
-                    <dd className="break-words">
-                      {field.value === null || field.value === ""
-                        ? t("projects.empty_value")
-                        : String(field.value)}
-                    </dd>
-                  </div>
-                ))}
-              </dl>
-            ) : (
-              <Notice>{t("projects.no_metadata")}</Notice>
-            )}
+          <div className="mx-5 border-t border-border/60" />
+          <div className="px-4 py-3">
+            <div className="mb-2 flex items-center justify-between px-1">
+              <h2 className="text-xs font-medium text-muted-foreground">{t("projects.metadata")}</h2>
+              <Button size="icon-xs" variant="ghost" disabled={!details.data} aria-label={t("projects.configure_fields")} title={t("projects.configure_fields")} onClick={() => setEditMetadata(true)}><Settings2 className="size-3.5" /></Button>
+            </div>
+            {details.isPending ? <Notice>{t("projects.loading")}</Notice> : details.error ? <Notice error>{t("projects.failed")}</Notice> : details.data?.fields.length ? (
+              <ProjectProperties fields={details.data.fields} onSave={async (id, value) => {
+                if (!details.data) return;
+                try {
+                  const data = await client.updateProjectDetails(workspaceId, { revision: details.data.revision, fields: details.data.fields.map((field) => field.id === id ? { ...field, value } : field) });
+                  queryClient.setQueryData(["project", workspaceId], data);
+                } catch (error) {
+                  void details.refetch();
+                  throw error;
+                }
+              }} />
+            ) : <Notice>{t("projects.no_metadata")}</Notice>}
           </div>
         </aside>
         <Tabs
@@ -300,7 +255,7 @@ export function ProjectHome(props: {
                   {
                     label: t("projects.sessions"),
                     value: sessions.length,
-                    target: "activity",
+                    target: "sessions",
                   },
                 ].map((item) => (
                   <Button
@@ -380,10 +335,10 @@ export function ProjectHome(props: {
             </div>
           </TabsContent>
           <TabsContent
-            value="files"
+            value="sessions"
             className="flex min-h-0 flex-1 flex-col overflow-hidden"
           >
-            {props.filesView}
+            {props.sessionsView}
           </TabsContent>
           <TabsContent
             value="tasks"
@@ -426,12 +381,12 @@ export function ProjectHome(props: {
                 </TableHeader>
                 <TableBody>
                   {noteEntries.map((entry) => (
-                    <TableRow key={entry.path}>
+                    <TableRow key={entry.path} className="cursor-pointer" onClick={() => props.onOpenFile(entry)}>
                       <TableCell className="pl-4">
                         <Button
                           variant="ghost"
-                          className="h-auto max-w-full justify-start gap-2 px-0 font-normal hover:bg-transparent"
-                          onClick={() => props.onOpenFile(entry)}
+                          className="h-auto w-full justify-start gap-2 px-0 font-normal hover:bg-transparent"
+                          onClick={(event) => { event.stopPropagation(); props.onOpenFile(entry); }}
                         >
                           <StickyNote className="size-4 shrink-0 text-muted-foreground" />
                           <span className="truncate">
@@ -441,7 +396,7 @@ export function ProjectHome(props: {
                       </TableCell>
                       <TableCell className="pr-4 text-right text-xs text-muted-foreground">
                         {entry.updatedAt
-                          ? new Date(entry.updatedAt).toLocaleDateString()
+                          ? new Date(entry.updatedAt).toLocaleDateString(currentLocale())
                           : "–"}
                       </TableCell>
                     </TableRow>
@@ -496,7 +451,7 @@ export function ProjectHome(props: {
                         </Button>
                       </TableCell>
                       <TableCell className="text-right text-xs text-muted-foreground">
-                        {new Date(item.at).toLocaleDateString()}
+                        {new Date(item.at).toLocaleDateString(currentLocale())}
                       </TableCell>
                     </TableRow>
                   ))}

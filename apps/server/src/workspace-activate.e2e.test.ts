@@ -537,13 +537,15 @@ test("new default projects use the native host root without relocating existing 
   const projectsDirectory = join(root, "Redirected Documents", "LegalWork", "Projects");
   const legalwork = await startLegalworkServerWithWorkspaces({ configPath: join(root, "server.json"), workspaces: [], authorizedRoots: [], projectsDirectory });
   const base = `http://127.0.0.1:${legalwork.server.port}`;
-  const headers = { ...hostAuth(legalwork.hostToken), "Content-Type": "application/json" };
+  const headers = { ...hostAuth(legalwork.hostToken), Authorization: "Bearer owt_test_token", "Content-Type": "application/json" };
   expect(await (await fetch(`${base}/workspaces/project-defaults`, { headers })).json()).toEqual({ folderPath: projectsDirectory });
   for (const expected of ["Matter", "Matter (2)"]) {
-    const response = await fetch(`${base}/workspaces/local`, { method: "POST", headers, body: JSON.stringify({ folderMode: "default", name: "Matter" }) });
+    const response = await fetch(`${base}/workspaces/local`, { method: "POST", headers, body: JSON.stringify({ folderMode: "default", name: "Matter", projectFields: [{ id: "client", label: "Mandant", type: "text", value: null }] }) });
     expect(response.status).toBe(201);
     const list = await response.json();
     expect(list.workspaces[0].path).toBe(join(projectsDirectory, expected));
+    const details = await (await fetch(`${base}/workspace/${list.workspaces[0].id}/project`, { headers })).json();
+    expect(details.fields).toEqual([{ id: "client", label: "Mandant", type: "text", value: null }]);
   }
   const persisted = await readPersistedConfig(join(root, "server.json"));
   expect(workspacesFromConfig(persisted).map((workspace) => workspace.path)).toEqual([join(projectsDirectory, "Matter (2)"), join(projectsDirectory, "Matter")]);

@@ -68,6 +68,19 @@ const fieldsSchema = z
     (fields) => new Set(fields.map((field) => field.id)).size === fields.length,
     "Field IDs must be unique.",
   );
+export function parseProjectFieldDefaults(input: unknown) {
+  const parsed = fieldsSchema.safeParse(input);
+  if (!parsed.success) throw new ApiError(400, "invalid_project_metadata", parsed.error.issues[0]?.message ?? "Invalid project fields.");
+  return parsed.data.map((field) => ({ ...field, value: null }));
+}
+
+export async function initializeProjectFields(root: string, fields: ReturnType<typeof parseProjectFieldDefaults>) {
+  const current = await readProjectDetails(root);
+  // Reattaching a folder must preserve its existing schema and values, even if empty.
+  if (current.revision > 0 || !fields.length) return current;
+  return updateProjectDetails(root, { revision: 0, fields });
+}
+
 const detailsSchema = z.object({
   version: z.literal(1),
   revision: z.number().int().nonnegative(),

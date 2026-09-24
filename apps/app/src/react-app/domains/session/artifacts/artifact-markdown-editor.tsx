@@ -49,6 +49,11 @@ export function ArtifactMarkdownEditor({ value, baseline, readOnly = false, onCh
 
   return <MDXEditor
     ref={editor}
+    translation={(key, defaultValue, interpolations) => {
+      const translationKey = `markdown.${key}`;
+      const translated = t(translationKey, Object.fromEntries(Object.entries(interpolations ?? {}).map(([name, value]) => [name, String(value)])));
+      return translated === translationKey ? defaultValue : translated;
+    }}
     className="lw-markdown-editor"
     contentEditableClassName="lw-markdown-page"
     markdown={initial.current}

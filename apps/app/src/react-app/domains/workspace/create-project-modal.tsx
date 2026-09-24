@@ -1,9 +1,11 @@
 import { useEffect, useState } from "react";
 import { isDesktopRuntime } from "@/app/lib/runtime-env";
 import { folderNameFromPath } from "@/react-app/shell/route-workspaces";
-import { FolderOpen } from "lucide-react";
+import { Folder, FolderOpen, FolderPlus, ChevronDown, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { InputGroup, InputGroupAddon, InputGroupInput } from "@/components/ui/input-group";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import {
   Dialog,
   DialogContent,
@@ -48,7 +50,7 @@ export function CreateProjectModal(props: {
     setPickError(null);
     try {
       const path = await props.onPickFolder();
-      if (path) setFolder(path);
+      if (path) { setFolder(path); setMode("selected"); }
     } catch (error) {
       setPickError(
         error instanceof Error ? error.message : t("projects.failed"),
@@ -65,12 +67,12 @@ export function CreateProjectModal(props: {
       }}
     >
       <DialogContent
-        className="sm:max-w-lg"
+        className="gap-6 rounded-3xl p-7 sm:max-w-xl sm:p-8"
         showCloseButton={!props.submitting}
       >
         <DialogHeader>
-          <DialogTitle>{t("projects.create")}</DialogTitle>
-          <DialogDescription>
+          <DialogTitle className="text-2xl font-semibold tracking-tight">{t("projects.create")}</DialogTitle>
+          <DialogDescription className="sr-only">
             {t("projects.create_description")}
           </DialogDescription>
         </DialogHeader>
@@ -85,83 +87,36 @@ export function CreateProjectModal(props: {
             });
           }}
         >
-          <label className="grid gap-2 text-sm">
-            {t("projects.name")}
-            <Input
-              autoFocus
-              required
-              maxLength={120}
-              value={name}
-              disabled={props.submitting}
-              onChange={(event) => setName(event.target.value)}
-            />
-          </label>
-          <fieldset disabled={props.submitting} className="space-y-3">
-            <legend className="mb-2 text-sm font-medium">
-              {t("projects.location")}
-            </legend>
-            <label className="flex cursor-pointer items-start gap-3 rounded-xl border border-border p-4">
-              <input
-                type="radio"
-                name="storage"
-                className="mt-1 accent-primary"
-                checked={mode === "default"}
-                onChange={() => setMode("default")}
-              />
-              <span className="grid min-w-0 gap-1 text-sm">
-                <span className="font-medium">
-                  {t("projects.default_folder")}
-                </span>
-                <span className="text-xs text-muted-foreground">
-                  {t("projects.default_hint")}
-                </span>
-              </span>
-            </label>
-            <label className="flex cursor-pointer items-start gap-3 rounded-xl border border-border p-4">
-              <input
-                type="radio"
-                name="storage"
-                className="mt-1 accent-primary"
-                checked={mode === "selected"}
-                onChange={() => setMode("selected")}
-              />
-              <span className="grid gap-1 text-sm">
-                <span className="font-medium">
-                  {t("projects.selected_folder")}
-                </span>
-                <span className="text-xs text-muted-foreground">
-                  {t("projects.selected_hint")}
-                </span>
-              </span>
-            </label>
-            {mode === "selected" ? (
-              <div className="flex gap-2">
-                {isDesktopRuntime() ? (
-                  <div className="flex min-w-0 flex-1 items-center gap-2 rounded-md border border-input px-3 text-sm">
-                    <FolderOpen className="size-4 shrink-0 text-muted-foreground" />
-                    <span className="truncate">{folder ? folderNameFromPath(folder) : t("projects.choose_folder")}</span>
-                  </div>
-                ) : (
-                  <Input required aria-label={t("projects.location")} value={folder} onChange={(event) => setFolder(event.target.value)} />
-                )}
-                <Button
-                  type="button"
-                  variant="outline"
-                  disabled={picking}
-                  onClick={() => void pick()}
-                >
-                  <FolderOpen className="size-4" />
-                  {t("projects.browse")}
-                </Button>
-              </div>
-            ) : null}
+          <InputGroup className="h-12 rounded-xl bg-background">
+            <InputGroupAddon className="h-full border-r border-border px-4 text-foreground"><Folder className="size-5" /></InputGroupAddon>
+            <InputGroupInput autoFocus required maxLength={120} aria-label={t("projects.name")} placeholder={t("projects.name")} value={name} disabled={props.submitting} className="h-full px-4 text-base" onChange={(event) => setName(event.target.value)} />
+          </InputGroup>
+          <fieldset disabled={props.submitting || picking} className="space-y-3">
+            <legend className="mb-3 text-sm font-medium">{t("projects.source_folders")}</legend>
+            <div className="flex min-h-36 flex-col items-center justify-center gap-4 rounded-xl border border-border px-5 py-6">
+              {folder && isDesktopRuntime() ? <div className="flex w-full items-center gap-3">
+                <FolderOpen className="size-5 shrink-0 text-muted-foreground" />
+                <span className="min-w-0 flex-1 truncate text-sm">{folderNameFromPath(folder)}</span>
+                <Button type="button" variant="ghost" size="icon-sm" aria-label={t("projects.remove_source")} onClick={() => { setFolder(""); setMode("default"); }}><X /></Button>
+              </div> : <>
+                <DropdownMenu>
+                  <DropdownMenuTrigger render={<Button type="button" variant="ghost" className="h-auto gap-2 px-2 font-normal text-muted-foreground">{t("projects.add_local_folder")}<ChevronDown className="size-4" /></Button>} />
+                  <DropdownMenuContent align="center">
+                    <DropdownMenuItem onClick={() => { if (isDesktopRuntime()) void pick(); else setMode("selected"); }}><FolderOpen />{t("projects.selected_folder")}</DropdownMenuItem>
+                    <DropdownMenuItem onClick={() => { setFolder(""); setMode("default"); }}><Folder />{t("projects.default_folder")}</DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
+                {mode === "selected" && !isDesktopRuntime() ? <Input aria-label={t("projects.location")} placeholder={t("projects.location")} value={folder} onChange={(event) => setFolder(event.target.value)} /> : <Button type="button" variant="secondary" size="sm" className="rounded-full" onClick={() => { if (isDesktopRuntime()) void pick(); else setMode("selected"); }}><FolderPlus />{t("projects.add_source")}</Button>}
+              </>}
+            </div>
+            <p className="text-xs text-muted-foreground">{t(folder ? "projects.selected_hint" : "projects.source_default_hint")}</p>
           </fieldset>
           {props.error || pickError ? (
             <p role="alert" className="text-sm text-destructive">
               {props.error || pickError || t("projects.failed")}
             </p>
           ) : null}
-          <DialogFooter>
+          <DialogFooter className="mx-0 mb-0 mt-7 gap-3 border-0 bg-transparent p-0">
             <Button
               type="button"
               variant="ghost"
@@ -173,7 +128,7 @@ export function CreateProjectModal(props: {
             <Button
               type="submit"
               disabled={
-                props.submitting ||
+                props.submitting || picking ||
                 !name.trim() ||
                 (mode === "selected" && !folder.trim()) ||
                 !props.client

@@ -690,11 +690,9 @@ export function SidePanel({
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
-            {!activeTab ? (
-              <Button variant="ghost" size="icon-sm" className="ml-auto" onClick={onClose} aria-label={t("side_panel.close_preview")}>
-                <X />
-              </Button>
-            ) : null}
+            <Button variant="ghost" size="icon-sm" className="ml-auto shrink-0" onClick={onClose} aria-label={t("side_panel.close_preview")} title={t("side_panel.close_preview")}>
+              <X />
+            </Button>
           </div>
         </div>
         {!activeTab ? (

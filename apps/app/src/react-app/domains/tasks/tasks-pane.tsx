@@ -351,6 +351,16 @@ export function TasksPane(props: TasksPaneProps) {
       ? t("tasks.count_more", { count: tasks.length })
       : t("tasks.count", { count: tasks.length })
     : null;
+  const requestRun = (task: LegalworkTask, mode: StartTaskMode) => {
+    setSelectedTaskId(task.id);
+    const project = task.projectId ? props.workspaces.find((workspace) => workspace.id === task.projectId) : null;
+    if (task.projectId && !project) {
+      toast.error(t("tasks.linked_project_unavailable"));
+      return;
+    }
+    if (project && mode === "session") { void startRun(task, { workspace: project, workflowName: null }); return; }
+    setStartMode(mode);
+  };
   const showingDetail = selectedTask !== null && props.detailMode !== "panel";
   const selectTask = (id: string) => {
     setSelectedTaskId(id);
@@ -517,14 +527,8 @@ export function TasksPane(props: TasksPaneProps) {
             hasNextPage={Boolean(tasksQuery.hasNextPage)}
             fetchingNextPage={tasksQuery.isFetchingNextPage}
             onSelect={selectTask}
-            onStartSession={(task) => {
-              setSelectedTaskId(task.id);
-              setStartMode("session");
-            }}
-            onStartWorkflow={(task) => {
-              setSelectedTaskId(task.id);
-              setStartMode("workflow");
-            }}
+            onStartSession={(task) => requestRun(task, "session")}
+            onStartWorkflow={(task) => requestRun(task, "workflow")}
             members={members}
             tagSuggestions={tags}
             onPatch={(task, patch) => {
@@ -560,8 +564,8 @@ export function TasksPane(props: TasksPaneProps) {
             onPatch={(patch) => updateTask.mutateAsync({ taskId: selectedTask.id, patch })}
             onDelete={() => remove(selectedTask)}
             onRestore={() => restore(selectedTask)}
-            onStartWorkflow={() => setStartMode("workflow")}
-            onStartSession={() => setStartMode("session")}
+            onStartWorkflow={() => requestRun(selectedTask, "workflow")}
+            onStartSession={() => requestRun(selectedTask, "session")}
             onOpenSession={(link) => props.onOpenSession(link.workspaceId, link.sessionId)}
             onDownloadAttachment={(attachment) => downloadAttachment(selectedTask, attachment)}
             onOpenAttachment={(attachment) => openAttachment(selectedTask, attachment)}
@@ -582,7 +586,8 @@ export function TasksPane(props: TasksPaneProps) {
           taskTitle={selectedTask.title}
           onClose={() => setStartMode(null)}
           workspaces={props.workspaces}
-          defaultWorkspaceId={props.workspaceId}
+          defaultWorkspaceId={selectedTask.projectId ?? props.workspaceId}
+          linkedProjectId={selectedTask.projectId ?? undefined}
           baseUrl={props.baseUrl}
           token={props.token}
           busy={starting}

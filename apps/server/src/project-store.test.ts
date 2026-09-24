@@ -132,3 +132,23 @@ test("default folders use portable names on Windows and macOS", async () => {
     expect(basename(created)).not.toMatch(/[<>:"/\\|?*]|[. ]$/);
   }
 });
+
+test("new-project field defaults are optional and never replace a folder's existing metadata", async () => {
+  const { parseProjectFieldDefaults, initializeProjectFields } = await import("./project-store.js");
+  const root = await folder();
+  const fields = parseProjectFieldDefaults([
+    { id: "client", label: "Client", type: "text", value: "must not become a default" },
+    { id: "status", label: "Status", type: "select", options: ["Open", "Closed"], value: null },
+    { id: "opened", label: "Opened on", type: "date", value: null },
+  ]);
+  expect(fields.every((field) => field.value === null)).toBe(true);
+  const created = await initializeProjectFields(root, fields);
+  expect(created.fields).toEqual(fields);
+  const edited = await updateProjectDetails(root, {
+    revision: created.revision, fields: [{ id: "existing", label: "Existing", type: "text", value: "Keep me" }],
+  });
+  expect(await initializeProjectFields(root, fields)).toEqual(edited);
+  const cleared = await updateProjectDetails(root, { revision: edited.revision, fields: [] });
+  expect(await initializeProjectFields(root, fields)).toEqual(cleared);
+  expect(() => parseProjectFieldDefaults([{ id: "x", label: "", type: "text", value: null }])).toThrow();
+});

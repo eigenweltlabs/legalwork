@@ -120,6 +120,7 @@ import { runFusionSend } from "@/react-app/domains/session/fusion/fusion-control
 import { getFusionSelectedModels, isFusionEnabled } from "@/react-app/domains/session/fusion/fusion-store";
 import { useModelPicker } from "@/react-app/domains/session/modals/use-model-picker";
 import { appMentionInstruction } from "@/react-app/domains/session/surface/composer/app-mentions";
+import { newProjectFields } from "@/react-app/domains/workspace/project-defaults-store";
 import { CreateProjectModal, type CreateProjectInput } from "@/react-app/domains/workspace/create-project-modal";
 import { useSessionProviderAuth } from "@/react-app/domains/connections/provider-auth/use-session-provider-auth";
 import { AiPlansOverlay } from "@/react-app/domains/onboarding/ai-plans-overlay";
@@ -1571,6 +1572,9 @@ export function SessionRoute() {
         return;
       }
       await client.updateWorkspaceDisplayName(renameWorkspaceId, trimmed);
+      setWorkspaces((current) => current.map((workspace) => workspace.id === renameWorkspaceId
+        ? { ...workspace, displayName: trimmed, displayNameResolved: trimmed, name: trimmed }
+        : workspace));
       setRenameWorkspaceId(null);
       setRenameWorkspaceTitle("");
       await refreshRouteState();
@@ -1581,7 +1585,7 @@ export function SessionRoute() {
     } finally {
       setRenameWorkspaceBusy(false);
     }
-  }, [client, refreshRouteState, renameWorkspaceId, renameWorkspaceTitle]);
+  }, [client, refreshRouteState, renameWorkspaceId, renameWorkspaceTitle, setWorkspaces]);
 
   const handleRevealWorkspace = useCallback(async (workspaceId: string) => {
     const workspace = workspaces.find((item) => item.id === workspaceId);
@@ -2074,7 +2078,7 @@ export function SessionRoute() {
     setCreateWorkspaceBusy(true);
     setCreateWorkspaceError(null);
     try {
-      const list = await client.createLocalWorkspace({ ...input, preset: "starter" });
+      const list = await client.createLocalWorkspace({ ...input, preset: "starter", projectFields: newProjectFields() });
       const id = resolveWorkspaceListSelectedId(list);
       if (!id) throw new Error(t("session_route.create_server_unavailable"));
       setLegacySelectedWorkspaceId(id);
@@ -2234,7 +2238,7 @@ export function SessionRoute() {
       selectedWorkspaceDisplay={selectedWorkspace ? {
         id: selectedWorkspace.id,
         name: selectedWorkspace.name ?? undefined,
-        displayName: selectedWorkspace.displayNameResolved,
+        displayName: workspaceLabel(selectedWorkspace),
         workspaceType: selectedWorkspace.workspaceType,
       } : { workspaceType: "local" }}
       selectedWorkspaceRoot={selectedWorkspaceRoot}

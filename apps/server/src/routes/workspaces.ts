@@ -8,7 +8,7 @@ import { ensureDir, exists, shortId } from "../utils.js";
 import { ensureWorkspaceFiles } from "../workspace-init.js";
 import { workspaceIdForPath, workspaceIdForRemote } from "../workspaces.js";
 import { addRoute, type RequestContext, type Route } from "./registry.js";
-import { createDefaultProjectFolder, defaultProjectRoot, readProjectDetails, updateProjectDetails } from "../project-store.js";
+import { initializeProjectFields, parseProjectFieldDefaults, createDefaultProjectFolder, defaultProjectRoot, readProjectDetails, updateProjectDetails } from "../project-store.js";
 
 type JsonResponse = (data: unknown, status?: number) => Response;
 type ReadJsonBody = (request: Request) => Promise<Record<string, unknown>>;
@@ -303,6 +303,7 @@ export function registerWorkspaceRoutes(options: RegisterWorkspaceRoutesOptions)
   addRoute(routes, "POST", "/workspaces/local", "host", async (ctx) => {
     ensureWritable(config);
     const body = await readJsonBody(ctx.request);
+    const projectFields = body.projectFields === undefined ? null : parseProjectFieldDefaults(body.projectFields);
     let folderPath = typeof body.folderPath === "string" ? body.folderPath.trim() : "";
     const name = typeof body.name === "string" && body.name.trim() ? body.name.trim() : basename(folderPath || "Workspace");
     const preset = typeof body.preset === "string" && body.preset.trim() ? body.preset.trim() : "starter";
@@ -323,6 +324,7 @@ export function registerWorkspaceRoutes(options: RegisterWorkspaceRoutesOptions)
     const workspacePath = resolve(folderPath);
     await ensureDir(workspacePath);
     await ensureWorkspaceFiles(workspacePath, preset);
+    if (projectFields) await initializeProjectFields(workspacePath, projectFields);
 
     const workspace: WorkspaceInfo = {
       id: workspaceIdForPath(workspacePath),

@@ -22,6 +22,7 @@ import {
   LayoutSectionTitle,
   LayoutStack,
 } from "../settings-layout";
+import { ProjectDefaultsSection } from "./project-defaults-section";
 import { LanguageSection } from "../appearance/language-section";
 import { useShellConfig, DEFAULT_SHELL_CONFIG } from "../../../shell/shell-config";
 import { useLocal } from "@/react-app/kernel/local-provider";
@@ -120,6 +121,7 @@ export function ShellCustomizationView() {
       </LayoutSection>
       {/* ---- Language ---- carries its own section header and card. */}
       <LanguageSection />
+      <ProjectDefaultsSection />
 
       {/* ---- Branding ---- */}
       <LayoutSection>
