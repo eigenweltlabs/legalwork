@@ -1568,7 +1568,6 @@ async function listLocalSkills(projectDir) {
           throw new Error("Skill name must be kebab-case (1-200 chars)");
         }
         if (!description || description.length > 1024) throw new Error("Description must be 1-1024 characters");
-        if (declaredName !== name) throw new Error(`Name "${declaredName}" does not match folder "${name}"`);
       } catch (error) {
         const reason = error instanceof Error ? error.message.split("\n")[0] : "Could not read or parse SKILL.md";
         console.warn("[skills] Skipped unreadable or malformed skill:", skillPath, error);
