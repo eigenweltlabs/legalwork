@@ -84,6 +84,65 @@ test("preserves working native config and imports non-conflicting settings and s
   });
 });
 
+test("combines installed plugins, instructions, and custom skill sources from both config roots", async () => {
+  await fixture(async ({ source, target }) => {
+    await file(source, "plugins/legacy.ts", "export default async () => ({});\n");
+    await file(source, "instructions/legacy.md", "Legacy instructions.\n");
+    await file(target, "plugins/native.ts", "export default async () => ({});\n");
+    await file(target, "instructions/native.md", "Native instructions.\n");
+    await file(source, "opencode.json", JSON.stringify({
+      plugin: ["./plugins/legacy.ts"],
+      instructions: ["instructions/legacy.md"],
+      skills: { paths: ["skills/legacy"], urls: ["https://legacy.test/skills"] },
+    }));
+    await file(source, "opencode.jsonc", JSON.stringify({
+      plugin: ["./plugins/legacy.ts", ["legacy-package", { mode: "test" }]],
+      instructions: ["instructions/legacy.md"],
+      skills: { paths: ["skills/other"] },
+    }));
+    await file(target, "opencode.jsonc", JSON.stringify({
+      plugin: ["./plugins/native.ts"],
+      instructions: ["instructions/native.md"],
+      skills: { paths: ["skills/native"], urls: ["https://native.test/skills"] },
+    }));
+
+    const result = await migrateLegacyWindowsOpenCodeConfig(source, target);
+    assert.equal(result.failed.length, 0);
+    assert.equal(result.conflicts.length, 0);
+    const config = parse(await readFile(path.join(target, "opencode.jsonc"), "utf8"));
+    assert.deepEqual(config.plugin, ["./plugins/native.ts", "./plugins/legacy.ts", ["legacy-package", { mode: "test" }]]);
+    assert.deepEqual(config.instructions, ["instructions/native.md", "instructions/legacy.md"]);
+    assert.deepEqual(config.skills.paths, ["skills/native", "skills/legacy", "skills/other"]);
+    assert.deepEqual(config.skills.urls, ["https://native.test/skills", "https://legacy.test/skills"]);
+    assert.equal(await readFile(path.join(target, "plugins/legacy.ts"), "utf8"), "export default async () => ({});\n");
+    assert.equal(await readFile(path.join(target, "instructions/legacy.md"), "utf8"), "Legacy instructions.\n");
+  });
+});
+
+test("upgrades a completed first-version migration without duplicating config entries", async () => {
+  await fixture(async ({ source, target }) => {
+    await file(source, "opencode.jsonc", '{"plugin":["./plugins/legacy.ts"],"instructions":["instructions/legacy.md"]}\n');
+    await file(target, "opencode.jsonc", '{"plugin":["./plugins/native.ts"],"instructions":["instructions/native.md"]}\n');
+    await file(source, "plugins/legacy.ts", "Legacy plugin.\n");
+    await file(target, "plugins/legacy.ts", "Legacy plugin.\n");
+    await file(source, "skills/legacy/SKILL.md", "Legacy skill.\n");
+    await file(target, "skills/legacy/SKILL.md", "Legacy skill.\n");
+    await file(source, "skills/legacy/references/guide.md", "Read this.\n");
+    await file(target, "skills/legacy/references/guide.md", "Read this.\n");
+    await file(target, ".legalwork-windows-config-migration.json", JSON.stringify({ source, target, copied: 0, merged: 0, conflicts: [] }));
+
+    const result = await migrateLegacyWindowsOpenCodeConfig(source, target);
+    assert.equal(result.failed.length, 0);
+    assert.deepEqual(result.conflicts, []);
+    const config = parse(await readFile(path.join(target, "opencode.jsonc"), "utf8"));
+    assert.deepEqual(config.plugin, ["./plugins/native.ts", "./plugins/legacy.ts"]);
+    assert.deepEqual(config.instructions, ["instructions/native.md", "instructions/legacy.md"]);
+    const marker = JSON.parse(await readFile(path.join(target, ".legalwork-windows-config-migration.json"), "utf8"));
+    assert.equal(marker.version, 2);
+    assert.deepEqual(await migrateLegacyWindowsOpenCodeConfig(source, target), { copied: 0, merged: 0, conflicts: [], skipped: [], failed: [] });
+  });
+});
+
 test("leaves old SQLite data in AppData while copying other config assets", async () => {
   await fixture(async ({ source, target }) => {
     const database = await file(source, "opencode.db", "SQLite database bytes");

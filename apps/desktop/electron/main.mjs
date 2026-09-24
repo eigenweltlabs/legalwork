@@ -1042,8 +1042,10 @@ function configHomePath() {
   return path.join(os.homedir(), ".config");
 }
 
+let preparedOpencodeConfigRoot = null;
+
 function globalOpencodeRoot() {
-  return path.join(configHomePath(), "opencode");
+  return preparedOpencodeConfigRoot ?? path.join(configHomePath(), "opencode");
 }
 
 function execResult(ok, stdout = "", stderr = "", status = ok ? 0 : 1) {
@@ -3139,6 +3141,7 @@ if (!app.requestSingleInstanceLock()) {
     try {
       const prepared = await runtimeManager.prepareOpencodeConfig();
       if (prepared) {
+        preparedOpencodeConfigRoot = prepared.target;
         installedWorkflowRoot = path.join(prepared.target, "skills");
         if (prepared.result && (prepared.result.copied || prepared.result.merged)) {
           console.info(`[skills] Migrated ${prepared.result.copied} Windows config file(s) and ${prepared.result.merged} setting(s)`);

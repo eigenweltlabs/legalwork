@@ -1,5 +1,5 @@
-import { randomUUID } from "node:crypto";
-import { constants } from "node:fs";
+import { createHash, randomUUID } from "node:crypto";
+import { constants, createReadStream } from "node:fs";
 import { copyFile, link, lstat, mkdir, readFile, readlink, readdir, rename, rm, stat, symlink, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { applyEdits, modify, parse } from "jsonc-parser";
@@ -11,6 +11,8 @@ const CONFIG_GROUPS = [
 ];
 const CONFIG_FILES = new Set(CONFIG_GROUPS.flat());
 const DATABASE_ARTIFACT = /\.(?:db|sqlite|sqlite3)(?:-(?:wal|shm|journal))?$/i;
+const MIGRATION_VERSION = 2;
+const ADDITIVE_ARRAYS = new Set(["plugin", "instructions", "skills.paths", "skills.urls"]);
 
 function isSkillDirectory(pathname, root) {
   const parts = path.relative(root, pathname).split(path.sep);
@@ -21,12 +23,25 @@ function isObject(value) {
   return value !== null && typeof value === "object" && !Array.isArray(value);
 }
 
-function mergeValues(previous, next) {
+function mergeUniqueArray(previous, next) {
+  const seen = new Set(previous.map((value) => JSON.stringify(value)));
+  return [...previous, ...next.filter((value) => {
+    const serialized = JSON.stringify(value);
+    if (seen.has(serialized)) return false;
+    seen.add(serialized);
+    return true;
+  })];
+}
+
+function mergeValues(previous, next, keys = []) {
+  if (Array.isArray(previous) && Array.isArray(next) && ADDITIVE_ARRAYS.has(keys.join("."))) {
+    return mergeUniqueArray(previous, next);
+  }
   if (!isObject(previous) || !isObject(next)) return next;
   const result = Object.assign(Object.create(null), previous);
   for (const [key, value] of Object.entries(next)) {
     Object.defineProperty(result, key, {
-      value: Object.hasOwn(result, key) ? mergeValues(result[key], value) : value,
+      value: Object.hasOwn(result, key) ? mergeValues(result[key], value, [...keys, key]) : value,
       enumerable: true,
       configurable: true,
       writable: true,
@@ -42,6 +57,9 @@ function missingValues(source, target, prefix = [], additions = [], conflicts = 
       additions.push({ keys, value });
     } else if (isObject(value) && isObject(target[key])) {
       missingValues(value, target[key], keys, additions, conflicts);
+    } else if (Array.isArray(value) && Array.isArray(target[key]) && ADDITIVE_ARRAYS.has(keys.join("."))) {
+      const merged = mergeUniqueArray(target[key], value);
+      if (merged.length !== target[key].length) additions.push({ keys, value: merged });
     } else if (JSON.stringify(value) !== JSON.stringify(target[key])) {
       conflicts.push(keys.join("."));
     }
@@ -56,6 +74,17 @@ async function existing(pathname) {
     if (error.code === "ENOENT") return null;
     throw error;
   }
+}
+
+async function sameFileContents(first, second) {
+  const [firstStat, secondStat] = await Promise.all([stat(first), stat(second)]);
+  if (!firstStat.isFile() || !secondStat.isFile() || firstStat.size !== secondStat.size) return false;
+  const digest = async (pathname) => {
+    const hash = createHash("sha256");
+    for await (const chunk of createReadStream(pathname)) hash.update(chunk);
+    return hash.digest("hex");
+  };
+  return await digest(first) === await digest(second);
 }
 
 async function copyFileAtomically(source, target) {
@@ -195,14 +224,17 @@ async function copyMissingTree(source, target, result, sourceRoot = source, targ
         // files from two different installs with the same name can break both.
         if (targetStat && isSkillDirectory(from, sourceRoot)
           && await existing(path.join(from, "SKILL.md"))
-          && await existing(path.join(to, "SKILL.md"))) {
+          && await existing(path.join(to, "SKILL.md"))
+          && !(await sameFileContents(path.join(from, "SKILL.md"), path.join(to, "SKILL.md")))) {
           result.conflicts.push(from);
           continue;
         }
         await mkdir(to, { recursive: true });
         await copyMissingTree(from, to, result, sourceRoot, targetRoot);
       } else if (targetStat) {
-        result.conflicts.push(from);
+        if (!sourceStat.isFile() || !targetStat.isFile() || !(await sameFileContents(from, to))) {
+          result.conflicts.push(from);
+        }
       } else if (sourceStat.isSymbolicLink()) {
         const original = path.resolve(path.dirname(from), await readlink(from));
         const relative = path.relative(sourceRoot, original);
@@ -231,7 +263,7 @@ export async function migrateLegacyWindowsOpenCodeConfig(source, target) {
   if (await existing(marker)) {
     try {
       const previous = JSON.parse(await readFile(marker, "utf8"));
-      if (previous.source === source && previous.target === target) return result;
+      if (previous.version === MIGRATION_VERSION && previous.source === source && previous.target === target) return result;
     } catch {
       // A truncated marker from a cancelled migration must not hide old files.
     }
@@ -243,7 +275,7 @@ export async function migrateLegacyWindowsOpenCodeConfig(source, target) {
   if (!result.failed.length) {
     const temporary = `${marker}.${randomUUID()}.tmp`;
     try {
-      await writeFile(temporary, `${JSON.stringify({ source, target, copied: result.copied, merged: result.merged, conflicts: result.conflicts, skipped: result.skipped }, null, 2)}\n`);
+      await writeFile(temporary, `${JSON.stringify({ version: MIGRATION_VERSION, source, target, copied: result.copied, merged: result.merged, conflicts: result.conflicts, skipped: result.skipped }, null, 2)}\n`);
       await rename(temporary, marker);
     } finally {
       await rm(temporary, { force: true }).catch(() => undefined);
