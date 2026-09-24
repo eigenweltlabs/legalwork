@@ -31,6 +31,7 @@ export type ExtensionItem = {
 
 export type ExtensionItemBuildInput = {
   quickConnect: McpDirectoryInfo[];
+  platform: "darwin" | "linux" | "windows" | "web";
   mcpServers: McpServerEntry[];
   installedSkills: Array<{ name: string; description?: string; path: string }>;
   enablementContext: EnablementContext;
@@ -48,7 +49,10 @@ function setupStateFromEnablement(enablement: { active: boolean; results: Enable
 }
 
 export function buildExtensionItems(input: ExtensionItemBuildInput) {
-  const builtInItems = input.quickConnect.filter(isBuiltInLegalWorkExtension).map((entry): ExtensionItem => {
+  const quickConnect = input.quickConnect.filter((entry) =>
+    !entry.extensionManifest?.platform || entry.extensionManifest.platform.includes(input.platform),
+  );
+  const builtInItems = quickConnect.filter(isBuiltInLegalWorkExtension).map((entry): ExtensionItem => {
     const enablement = entry.extensionManifest?.enablement
       ? evaluateEnablement(entry.extensionManifest.enablement, input.enablementContext)
       : null;
@@ -72,7 +76,7 @@ export function buildExtensionItems(input: ExtensionItemBuildInput) {
     };
   });
 
-  const standaloneMcpEntries = input.quickConnect.filter((entry) => {
+  const standaloneMcpEntries = quickConnect.filter((entry) => {
     if (isBuiltInLegalWorkExtension(entry)) return false;
     const serverName = getMcpServerName(entry);
     return input.mcpServers.some((server) => server.name === serverName);
@@ -120,7 +124,7 @@ export function buildExtensionItems(input: ExtensionItemBuildInput) {
       // once connected.
       ...builtInItems.flatMap((item) => item.builtInEntry ? [item.builtInEntry] : []),
       ...standaloneMcpEntries,
-      ...input.quickConnect.filter((entry) => {
+      ...quickConnect.filter((entry) => {
         if (isBuiltInLegalWorkExtension(entry)) return false;
         const serverName = getMcpServerName(entry);
         return !input.mcpServers.some((server) => server.name === serverName);

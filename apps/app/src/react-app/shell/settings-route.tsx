@@ -1691,6 +1691,7 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
   const extensionItems = useMemo(
     () => buildExtensionItems({
       quickConnect: connectionsStore.quickConnect,
+      platform: window.__LEGALWORK_ELECTRON__?.meta?.platform ?? "web",
       mcpServers: connectionsSnapshot.mcpServers,
       installedSkills: extensionsStore.skills(),
       enablementContext,
