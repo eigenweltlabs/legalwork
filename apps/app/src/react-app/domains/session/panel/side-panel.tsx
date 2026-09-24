@@ -23,6 +23,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { importViewerFile } from "./import-viewer-file";
 import { type LegalMemoryFileDragItem, hasLegalMemoryFileDrag, readLegalMemoryFileDrag, materializeLegalMemoryFile } from "@/app/lib/legalmemory-file";
 import { classifyOpenTarget } from "../artifacts/open-target";
+import { projectFileDisplayName } from "../../workspace/project-note-title";
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem } from "@/components/ui/dropdown-menu";
 import { Button } from "@/components/ui/button";
 import {
@@ -86,6 +87,8 @@ type SidePanelTabProps = {
 function SidePanelTab({ tab, active, onSelect, onClose }: SidePanelTabProps) {
   const dragControls = useDragControls();
   const tabRef = React.useRef<HTMLDivElement>(null);
+  const label = tab.type === "artifact" && tab.value && !tab.storage
+    ? projectFileDisplayName(tab.value, tab.label) : tab.label;
 
   React.useEffect(() => {
     if (active) {
@@ -130,8 +133,8 @@ function SidePanelTab({ tab, active, onSelect, onClose }: SidePanelTabProps) {
             event.preventDefault();
             showBrowserTabContextMenu();
           } : undefined}
-          title={tab.label}
-          aria-label={t("side_panel.select_tab", { label: tab.label })}
+          title={label}
+          aria-label={t("side_panel.select_tab", { label })}
         >
           {tab.type === "browser" ? (
             tab.favicon ? (
@@ -150,11 +153,11 @@ function SidePanelTab({ tab, active, onSelect, onClose }: SidePanelTabProps) {
           ) : (
             <ArtifactIcon type={tab.preview} />
           )}
-          <span className="min-w-0 flex-1 truncate text-left">{tab.label}</span>
+          <span className="min-w-0 flex-1 truncate text-left">{label}</span>
         </PanelTab>
         <PanelTabClose
           active={active}
-          label={tab.label}
+          label={label}
           onClose={() => onClose(tab)}
         />
       </div>

@@ -48,6 +48,7 @@ Screenshots are local review artifacts under `output/playwright/`, excluded from
 
 - Sessions is a full table with search, group filtering and the same session menus/group creation as the sidebar. Files is only in the nested project sidebar, opening the existing right panel; no home Files tab. Project/session names remain consistent after renaming.
 - A note's entire row opens its Markdown editor, including the date. The viewer close control is always present with open tabs and supports reopening the same note.
+- Note tabs and editor headers show the same clean title as the Notes list, hiding the storage filename's unique suffix and Markdown extension. File paths and save/download targets are retained. Browser close/reopen, app type check and build verified.
 - Creation follows the supplied name/source-folders modal reference. Leaving the source blank uses the application default; selecting a native folder shows its name only.
 - The details column uses compact identity/actions and inline property rows. Long German labels wrap. Empty values are quiet placeholders; all remain optional.
 - Linked tasks start sessions directly in their project. Workflow start only asks for a workflow. An unavailable linked project produces an error rather than choosing a different project.

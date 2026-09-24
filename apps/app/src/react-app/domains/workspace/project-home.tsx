@@ -44,6 +44,7 @@ import { formatTaskDueDate } from "../tasks/task-format";
 import { ProjectProperties } from "./project-properties";
 import { ProjectMetadata } from "./project-metadata";
 import { ProjectNoteDialog } from "./project-note-dialog";
+import { noteTitle } from "./project-note-title";
 import { currentLocale, t } from "@/i18n";
 
 export function ProjectHome(props: {
@@ -510,9 +511,6 @@ export function ProjectHome(props: {
   );
 }
 
-function noteTitle(name: string) {
-  return name.replace(/-[a-f0-9]{8}\.md$/i, "").replace(/\.md$/i, "");
-}
 function Notice(props: { children: ReactNode; error?: boolean }) {
   return (
     <p
