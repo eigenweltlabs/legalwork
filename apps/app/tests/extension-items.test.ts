@@ -34,6 +34,7 @@ const availableBuiltIn: McpDirectoryInfo = {
     description: "Marketplace-only until installed.",
     source: { format: "legalwork-builtin", origin: "builtin", trusted: true },
     resources: [],
+    platform: ["darwin"],
   },
 };
 
@@ -41,15 +42,29 @@ describe("extension item projection", () => {
   test("keeps unconnected built-ins out of My Extensions quick connect", () => {
     const result = buildExtensionItems({
       quickConnect: [connectedBuiltIn, availableBuiltIn],
+      platform: "darwin",
       mcpServers: [],
       installedSkills: [],
-      importedCloudPlugins: {},
-      cloudMarketplaces: [],
       enablementContext: {},
       isBuiltInConnected: (entry) => entry.id === connectedBuiltIn.id,
     });
 
     expect(result.installedMcpEntries.map((entry) => entry.name)).toEqual(["LegalWork Browser"]);
     expect(result.builtInItems.map((item) => item.name)).toEqual(["LegalWork Browser", "Computer Use"]);
+    expect(result.quickConnectEntries.map((entry) => entry.name)).toEqual(["LegalWork Browser", "Computer Use"]);
+  });
+
+  test("omits macOS-only extensions from the Windows catalog", () => {
+    const result = buildExtensionItems({
+      quickConnect: [connectedBuiltIn, availableBuiltIn],
+      platform: "windows",
+      mcpServers: [],
+      installedSkills: [],
+      enablementContext: {},
+      isBuiltInConnected: () => false,
+    });
+
+    expect(result.builtInItems.map((item) => item.name)).toEqual(["LegalWork Browser"]);
+    expect(result.quickConnectEntries.map((entry) => entry.name)).toEqual(["LegalWork Browser"]);
   });
 });
