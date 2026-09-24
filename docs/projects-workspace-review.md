@@ -55,3 +55,8 @@ Screenshots are local review artifacts under `output/playwright/`, excluded from
 - English and German include the shared Markdown editor toolbar and dialogs. Dates follow the chosen app language; user-authored content and field definitions are preserved.
 
 Validation of this refinement: 634 app tests and 18 targeted project storage/API tests passed; app type check, 4,201 keys in each language and production build passed. Build retains the existing dependency/bundle-size warnings. Browser checks covered 12 sessions, Show more, group creation/assignment/filtering, project rename, note date-row opening and close/reopen in both languages, automatic linked-task project selection, inline metadata persistence, and a custom field copied to a new project without its populated value. The actual macOS Electron app also opened an existing saved note from its date cell. The isolated browser engine is a stub, so routing checks do not claim model inference or full workflow execution.
+
+
+## Project sidebar hierarchy
+
+All expanded project content shares one inset, with a quiet vertical rule linking it to the project heading. Home / Tabular Review / Tasks / Files sit together on a subtle themed background; the active feature has its own surface. Sessions starts beneath that group with a small section label and a create-group icon. Session groups, rows, archives and Show more stay inside the same project inset. Long feature labels wrap in narrow sidebars. English/German visual checks and the existing group/show-more interactions passed.

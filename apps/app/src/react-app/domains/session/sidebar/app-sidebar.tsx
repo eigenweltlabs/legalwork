@@ -933,6 +933,8 @@ function WorkspaceHeader({
   );
 }
 
+const PROJECT_FEATURE_CLASS = "min-h-8 h-auto gap-2 rounded-md px-2.5 ps-2.5 py-1.5 text-[13px] data-active:bg-background data-active:shadow-xs data-active:ring-1 data-active:ring-border/50 [&>span:last-child]:whitespace-normal [&>span:last-child]:text-clip";
+
 type WorkspaceSidebarGroupProps = {
   className: string;
   group: WorkspaceSessionGroup;
@@ -1023,35 +1025,42 @@ function WorkspaceSidebarGroup({
               </Button>
             </div>
 
-            <CollapsibleContent className="pt-px">
-              <SidebarMenuSub className="gap-0.5">
-                <SidebarMenuSubItem>
-                  <SidebarMenuSubButton className="h-8 gap-2 ps-3 text-[13px]" isActive={isSelected && ctx.activeProjectFeature === "home"} onClick={() => void ctx.onOpenProjectTab(workspace.id, "home")}>
-                    <House className="size-4" strokeWidth={1.5} />
-                    <span>{t("projects.home")}</span>
-                  </SidebarMenuSubButton>
-                </SidebarMenuSubItem>
-                <SidebarMenuSubItem title={t("projects.tab_review_pending")}>
-                  <SidebarMenuSubButton className="h-8 gap-2 ps-3 text-[13px]" disabled>
-                    <Table2 className="size-4" strokeWidth={1.5} />
-                    <span>{t("projects.tab_review")}</span>
-                  </SidebarMenuSubButton>
-                </SidebarMenuSubItem>
-                <SidebarMenuSubItem>
-                  <SidebarMenuSubButton className="h-8 gap-2 ps-3 text-[13px]" isActive={isSelected && ctx.activeProjectFeature === "tasks"} onClick={() => void ctx.onOpenProjectTab(workspace.id, "tasks")}>
-                    <ListTodo className="size-4" strokeWidth={1.5} />
-                    <span>{t("projects.tasks")}</span>
-                  </SidebarMenuSubButton>
-                </SidebarMenuSubItem>
-                <SidebarMenuSubItem>
-                  <SidebarMenuSubButton className="h-8 gap-2 ps-3 text-[13px]" isActive={isSelected && ctx.activeProjectFeature === "files"} onClick={() => ctx.onOpenProjectFiles(workspace.id)}>
-                    <Files className="size-4" strokeWidth={1.5} />
-                    <span>{t("projects.files")}</span>
-                  </SidebarMenuSubButton>
-                </SidebarMenuSubItem>
-              </SidebarMenuSub>
-              <div role="separator" className="my-2 mx-3 border-t border-sidebar-border/60" />
-              <WorkspaceSessions group={group} loading={showInitialLoading} />
+            <CollapsibleContent className="pt-1 pb-3">
+              <div className="ml-5 mr-1 border-l border-sidebar-border/70 pl-2">
+                <SidebarMenuSub className="gap-0.5 rounded-xl bg-sidebar-accent/65 p-1">
+                  <SidebarMenuSubItem>
+                    <SidebarMenuSubButton className={PROJECT_FEATURE_CLASS} isActive={isSelected && ctx.activeProjectFeature === "home"} onClick={() => void ctx.onOpenProjectTab(workspace.id, "home")}>
+                      <House className="size-4" strokeWidth={1.5} />
+                      <span>{t("projects.home")}</span>
+                    </SidebarMenuSubButton>
+                  </SidebarMenuSubItem>
+                  <SidebarMenuSubItem title={t("projects.tab_review_pending")}>
+                    <SidebarMenuSubButton className={PROJECT_FEATURE_CLASS} disabled>
+                      <Table2 className="size-4" strokeWidth={1.5} />
+                      <span>{t("projects.tab_review")}</span>
+                    </SidebarMenuSubButton>
+                  </SidebarMenuSubItem>
+                  <SidebarMenuSubItem>
+                    <SidebarMenuSubButton className={PROJECT_FEATURE_CLASS} isActive={isSelected && ctx.activeProjectFeature === "tasks"} onClick={() => void ctx.onOpenProjectTab(workspace.id, "tasks")}>
+                      <ListTodo className="size-4" strokeWidth={1.5} />
+                      <span>{t("projects.tasks")}</span>
+                    </SidebarMenuSubButton>
+                  </SidebarMenuSubItem>
+                  <SidebarMenuSubItem>
+                    <SidebarMenuSubButton className={PROJECT_FEATURE_CLASS} isActive={isSelected && ctx.activeProjectFeature === "files"} onClick={() => ctx.onOpenProjectFiles(workspace.id)}>
+                      <Files className="size-4" strokeWidth={1.5} />
+                      <span>{t("projects.files")}</span>
+                    </SidebarMenuSubButton>
+                  </SidebarMenuSubItem>
+                </SidebarMenuSub>
+                <div className="mt-3">
+                  <div className="flex h-7 items-center justify-between pl-3 pr-1">
+                    <span className="text-[11px] font-medium text-muted-foreground">{t("projects.sessions")}</span>
+                    <Button variant="ghost" size="icon-xs" className="size-6 text-muted-foreground" aria-label={t("session_management.create_group")} title={t("session_management.create_group")} onClick={() => ctx.onOpenCreateGroupModal?.(workspace.id)}><FolderPlus className="size-3.5" /></Button>
+                  </div>
+                  <WorkspaceSessions group={group} loading={showInitialLoading} />
+                </div>
+              </div>
             </CollapsibleContent>
           </Collapsible>
         </SidebarMenu>
@@ -1298,7 +1307,7 @@ function GroupedSessionList({ sessionRows, groups, assignments, pinnedIds, tree,
               {ungroupedRemaining > 0 ? (
                 <SidebarMenuSubItem>
                   <SidebarMenuSubButton
-                    className="text-muted-foreground text-xs"
+                    className="ps-3 text-muted-foreground text-xs"
                     onClick={() => showMoreInGroup(UNGROUPED_GROUP_ID, ungroupedRows.length)}
                   >
                     <span className="truncate">
@@ -1362,7 +1371,7 @@ function SessionGroupSection({ group, rows, expanded, workspaceId, store, render
                   {remaining > 0 ? (
                     <SidebarMenuSubItem>
                       <SidebarMenuSubButton
-                        className="text-muted-foreground text-xs"
+                        className="ps-3 text-muted-foreground text-xs"
                         onClick={onShowMore}
                       >
                         <span className="truncate">
@@ -1638,9 +1647,8 @@ function WorkspaceSessions({ group, loading = false, showAll = false }: {
           {!rows.length ? <li className="px-3 py-2 text-xs text-muted-foreground">{group.status === "error" ? getWorkspaceTaskLoadErrorDisplay(group.workspace, group.error).message : t("projects.no_sessions")}</li> : null}
         </Reorder.Group>
       )}
-      {!showAll ? <li className="flex items-center gap-2 px-3 py-2 text-xs text-muted-foreground">
-        {!groups.length && remaining > 0 ? <><button type="button" className="hover:text-foreground" onClick={() => setLimit((value) => value + MAX_SESSIONS_PREVIEW)}>{t("workspace_list.show_more", { count: Math.min(MAX_SESSIONS_PREVIEW, remaining) })}</button><span aria-hidden>·</span></> : null}
-        <button type="button" className="hover:text-foreground" onClick={() => ctx.onOpenCreateGroupModal?.(workspaceId)}>{t("session_management.create_group")}</button>
+      {!showAll && !groups.length && remaining > 0 ? <li className="px-3 pt-1 pb-2">
+        <button type="button" className="text-xs text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sidebar-ring" onClick={() => setLimit((value) => value + MAX_SESSIONS_PREVIEW)}>{t("workspace_list.show_more", { count: Math.min(MAX_SESSIONS_PREVIEW, remaining) })}</button>
       </li> : null}
       {archived.length ? <ArchivedSessionsSection sessions={archived} tree={tree} workspaceId={workspaceId} forcedExpandedSessionIds={forcedExpandedSessionIds} expanded={archivedOpen} onToggle={() => setArchivedOpen((value) => !value)} /> : null}
     </SidebarMenuSub>
