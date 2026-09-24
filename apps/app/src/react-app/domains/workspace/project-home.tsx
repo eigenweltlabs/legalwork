@@ -195,7 +195,7 @@ export function ProjectHome(props: {
         >
           <div className="px-4 pt-4 pb-4">
             <div className="flex items-center gap-2">
-              <h1 title={props.name} className="min-w-0 truncate rounded-lg bg-muted/70 px-2 py-1.5 text-base font-semibold tracking-tight">{props.name}</h1>
+              <h1 title={props.name} className="min-w-0 truncate px-2 py-1.5 text-base font-semibold tracking-tight">{props.name}</h1>
               <Tooltip><TooltipTrigger render={<Button variant="ghost" size="icon-xs" className="ml-auto shrink-0" aria-label={t("workspace.rename_title")} onClick={props.onRename}><Pencil className="size-3.5" /></Button>} /><TooltipContent>{t("workspace.rename_title")}</TooltipContent></Tooltip>
               <Tooltip><TooltipTrigger render={<Button variant="ghost" size="icon-xs" className="shrink-0" aria-label={favoriteLabel} aria-pressed={isFavorite} onClick={() => toggleFavorite(workspaceId)}><Star className={cn("size-3.5", isFavorite && "fill-current text-foreground")} /></Button>} /><TooltipContent>{favoriteLabel}</TooltipContent></Tooltip>
             </div>
