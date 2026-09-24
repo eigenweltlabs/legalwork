@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -203,6 +204,79 @@ describe("workspace activation", () => {
     expect(reloadRequest?.search).toContain(
       `directory=${encodeURIComponent(workspaceRoot)}`,
     );
+  });
+
+  test("retries activation while the engine listener is starting", async () => {
+    const workspaceRoot = await createWorkspaceRoot();
+    const probe = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: () => new Response("ok") });
+    const port = probe.port;
+    await probe.stop(true);
+    const legalwork = await startLegalworkServer({
+      workspaceRoot,
+      opencodeBaseUrl: `http://127.0.0.1:${port}`,
+    });
+    const mockReady = new Promise<void>((resolve) => {
+      setTimeout(() => {
+        const engine = Bun.serve({
+          hostname: "127.0.0.1",
+          port,
+          fetch: () => Response.json({ disposed: true }),
+        });
+        stops.push(() => engine.stop(true));
+        resolve();
+      }, 250);
+    });
+
+    const response = await fetch(`http://127.0.0.1:${legalwork.server.port}/workspaces/ws_1/activate`, {
+      method: "POST",
+      headers: hostAuth(legalwork.hostToken),
+    });
+    await mockReady;
+    expect(response.status).toBe(200);
+  });
+
+  test("reports an engine that stays unreachable as unavailable", async () => {
+    const workspaceRoot = await createWorkspaceRoot();
+    const probe = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: () => new Response("ok") });
+    const port = probe.port;
+    await probe.stop(true);
+    const legalwork = await startLegalworkServer({
+      workspaceRoot,
+      opencodeBaseUrl: `http://127.0.0.1:${port}`,
+    });
+
+    const response = await fetch(`http://127.0.0.1:${legalwork.server.port}/workspaces/ws_1/activate`, {
+      method: "POST",
+      headers: hostAuth(legalwork.hostToken),
+    });
+    expect(response.status).toBe(503);
+    await expect(response.json()).resolves.toMatchObject({ code: "opencode_unavailable" });
+  });
+
+  test("does not repeat a reload after the engine accepts and drops the connection", async () => {
+    const workspaceRoot = await createWorkspaceRoot();
+    let attempts = 0;
+    const engine = createServer((request) => {
+      attempts += 1;
+      request.socket.destroy();
+    });
+    await new Promise<void>((resolve) => engine.listen(0, "127.0.0.1", resolve));
+    stops.push(() => new Promise<void>((resolve, reject) => {
+      engine.close((error) => error ? reject(error) : resolve());
+    }));
+    const address = engine.address();
+    if (!address || typeof address === "string") throw new Error("Missing engine port");
+    const legalwork = await startLegalworkServer({
+      workspaceRoot,
+      opencodeBaseUrl: `http://127.0.0.1:${address.port}`,
+    });
+
+    const response = await fetch(`http://127.0.0.1:${legalwork.server.port}/workspaces/ws_1/activate`, {
+      method: "POST",
+      headers: hostAuth(legalwork.hostToken),
+    });
+    expect(response.status).toBe(503);
+    expect(attempts).toBe(1);
   });
 
   test("persists activation order only when requested", async () => {

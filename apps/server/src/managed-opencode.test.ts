@@ -11,6 +11,7 @@ import { createManagedOpencodeServer } from "./managed-opencode.js";
 // is tracked in a file so the test can assert how many attempts happened.
 const FAKE_OPENCODE = `#!/usr/bin/env node
 const fs = require("node:fs");
+const http = require("node:http");
 const counter = process.env.FAKE_OPENCODE_COUNTER;
 const failUntil = Number(process.env.FAKE_OPENCODE_FAIL_UNTIL || "0");
 let n = 0;
@@ -24,6 +25,9 @@ if (n <= failUntil) {
   process.exit(1);
 }
 process.stdout.write("opencode server listening on http://127.0.0.1:" + port + "\\n");
+setTimeout(() => http.createServer((request, response) => {
+  response.writeHead(200).end("ok");
+}).listen(Number(port), "127.0.0.1"), Number(process.env.FAKE_OPENCODE_LISTEN_DELAY_MS || "0"));
 process.on("SIGTERM", () => process.exit(0));
 setInterval(() => {}, 1 << 30);
 `;
@@ -53,7 +57,25 @@ test("retries the engine spawn while the DB is locked, then succeeds", async () 
   });
   try {
     expect(server.url).toContain("http://127.0.0.1:");
+    expect(server.running()).toBe(true);
     expect(Number(readFileSync(counter, "utf8"))).toBe(3); // 2 locked + 1 healthy
+  } finally {
+    await server.close();
+  }
+  expect(server.running()).toBe(false);
+}, 20000);
+
+test("waits for the HTTP listener even when the child announces readiness early", async () => {
+  const { bin, counter } = fakeBin(0);
+  const startedAt = Date.now();
+  const server = await createManagedOpencodeServer({
+    bin,
+    cwd: dir!,
+    env: { FAKE_OPENCODE_COUNTER: counter, FAKE_OPENCODE_LISTEN_DELAY_MS: "300" },
+  });
+  try {
+    expect(Date.now() - startedAt).toBeGreaterThanOrEqual(250);
+    expect((await fetch(`${server.url}/health`)).status).toBe(200);
   } finally {
     await server.close();
   }

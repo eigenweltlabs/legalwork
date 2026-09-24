@@ -373,4 +373,24 @@ describe("workspace session read APIs", () => {
     });
 
   });
+
+  test("reports an unreachable OpenCode engine as unavailable", async () => {
+    const workspaceRoot = await createWorkspaceRoot();
+    const probe = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: () => new Response("ok") });
+    const port = probe.port;
+    await probe.stop(true);
+    const legalwork = await startLegalworkServer({
+      workspaceRoot,
+      opencodeBaseUrl: `http://127.0.0.1:${port}`,
+    });
+
+    const response = await fetch(`http://127.0.0.1:${legalwork.server.port}/workspace/ws_1/sessions`, {
+      headers: auth(legalwork.token),
+    });
+    expect(response.status).toBe(503);
+    await expect(response.json()).resolves.toMatchObject({
+      code: "opencode_unavailable",
+      message: "OpenCode engine is not ready",
+    });
+  });
 });
