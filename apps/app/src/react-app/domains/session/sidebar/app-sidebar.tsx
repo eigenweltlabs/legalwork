@@ -1005,8 +1005,9 @@ function WorkspaceSidebarGroup({
                   }}
                   disabled={ctx.newChatDisabled}
                   aria-label={t("session.new_task")}
+                  title={t("session.new_task")}
                 >
-                  <Plus className="size-4" />
+                  <MessageSquare className="size-4" strokeWidth={1.5} />
                 </Button>
                 <WorkspaceActionsMenu
                   workspace={workspace}
@@ -1057,15 +1058,16 @@ function WorkspaceSidebarGroup({
                   </SidebarMenuSubItem>
                   <li>
                     <div className="group/project-sessions-heading relative">
-                      <SidebarMenuSubButton className={cn(PROJECT_FEATURE_CLASS, "pe-14")} isActive={isSelected && ctx.activeProjectFeature === "sessions"} aria-expanded={showSessions} onClick={() => {
+                      <SidebarMenuSubButton className={cn(PROJECT_FEATURE_CLASS, "pe-18")} isActive={isSelected && ctx.activeProjectFeature === "sessions"} aria-expanded={showSessions} onClick={() => {
                         setSessionsOpen(!showSessions);
                         void ctx.onOpenProjectTab(workspace.id, "sessions");
                       }}>
                         <MessageSquare className="size-4" strokeWidth={1.5} />
-                        <span>{t("projects.sessions")}</span>
+                        <span className="min-w-0 truncate">{t("projects.sessions")}</span>
                         <ChevronRight className={cn("absolute right-2.5 size-3.5 text-muted-foreground transition-transform", showSessions && "rotate-90")} />
                       </SidebarMenuSubButton>
-                      <Button variant="ghost" size="icon-xs" className="absolute right-8 top-1/2 size-6 -translate-y-1/2 text-muted-foreground opacity-0 group-hover/project-sessions-heading:opacity-100 group-focus-within/project-sessions-heading:opacity-100 [@media(hover:none)]:opacity-100" aria-label={t("session_management.create_group")} title={t("session_management.create_group")} onClick={() => ctx.onOpenCreateGroupModal?.(workspace.id)}><FolderPlus className="size-3.5" /></Button>
+                      <Button variant="ghost" size="icon-xs" className="absolute right-12 top-1/2 size-6 -translate-y-1/2 text-muted-foreground opacity-0 group-hover/project-sessions-heading:opacity-100 group-focus-within/project-sessions-heading:opacity-100 [@media(hover:none)]:opacity-100" disabled={ctx.newChatDisabled} aria-label={t("session.new_task")} title={t("session.new_task")} onClick={() => ctx.onCreateChatInWorkspace(workspace.id)}><MessageSquare className="size-3.5" strokeWidth={1.5} /></Button>
+                      <Button variant="ghost" size="icon-xs" className="absolute right-6 top-1/2 size-6 -translate-y-1/2 text-muted-foreground opacity-0 group-hover/project-sessions-heading:opacity-100 group-focus-within/project-sessions-heading:opacity-100 [@media(hover:none)]:opacity-100" aria-label={t("session_management.create_group")} title={t("session_management.create_group")} onClick={() => ctx.onOpenCreateGroupModal?.(workspace.id)}><FolderPlus className="size-3.5" /></Button>
                     </div>
                     <Collapsible open={showSessions}><CollapsibleContent>
                       <div className="mb-1 ml-[18px] mt-1.5 border-l border-sidebar-border pl-1">
