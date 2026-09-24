@@ -11,6 +11,7 @@ import {
   Plus,
   Settings2,
   Pencil,
+  Star,
   StickyNote,
   SquareCheck,
 } from "lucide-react";
@@ -48,6 +49,7 @@ import { ProjectMetadata } from "./project-metadata";
 import { ProjectNoteDialog } from "./project-note-dialog";
 import { ProjectTaskDialog } from "./project-task-dialog";
 import { noteTitle } from "./project-note-title";
+import { useProjectFavoritesStore } from "./project-favorites-store";
 import { currentLocale, t } from "@/i18n";
 
 export function ProjectHome(props: {
@@ -63,6 +65,9 @@ export function ProjectHome(props: {
   onRename: () => void;
 }) {
   const { client, workspaceId } = props;
+  const isFavorite = useProjectFavoritesStore((state) => state.favoriteIds.includes(workspaceId));
+  const toggleFavorite = useProjectFavoritesStore((state) => state.toggleFavorite);
+  const favoriteLabel = t(isFavorite ? "projects.remove_favorite" : "projects.add_favorite");
   const queryClient = useQueryClient();
   const [searchParams, setSearchParams] = useSearchParams();
   const requestedTab = searchParams.get("tab");
@@ -188,6 +193,7 @@ export function ProjectHome(props: {
             <div className="flex items-center gap-2">
               <h1 title={props.name} className="min-w-0 truncate rounded-lg bg-muted/70 px-2 py-1.5 text-base font-semibold tracking-tight">{props.name}</h1>
               <Tooltip><TooltipTrigger render={<Button variant="ghost" size="icon-xs" className="ml-auto shrink-0" aria-label={t("workspace.rename_title")} onClick={props.onRename}><Pencil className="size-3.5" /></Button>} /><TooltipContent>{t("workspace.rename_title")}</TooltipContent></Tooltip>
+              <Tooltip><TooltipTrigger render={<Button variant="ghost" size="icon-xs" className="shrink-0" aria-label={favoriteLabel} aria-pressed={isFavorite} onClick={() => toggleFavorite(workspaceId)}><Star className={cn("size-3.5", isFavorite && "fill-current text-foreground")} /></Button>} /><TooltipContent>{favoriteLabel}</TooltipContent></Tooltip>
             </div>
             <div className="mt-3 flex items-center gap-2">
               <Button variant="outline" className="min-w-0 flex-1 rounded-xl px-2.5 shadow-xs" onClick={props.onNewSession}><MessageSquare />{t("projects.new_chat")}</Button>

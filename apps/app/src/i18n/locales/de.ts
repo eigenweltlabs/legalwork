@@ -14,6 +14,8 @@
  */
 
 const de = {
+  "projects.add_favorite": "Projekt zu Favoriten hinzufügen",
+  "projects.remove_favorite": "Projekt aus Favoriten entfernen",
   "projects.configure_fields": "Felder konfigurieren",
   "projects.edit_value": "{name} bearbeiten",
   "projects.save_to_defaults": "Als Standard speichern",

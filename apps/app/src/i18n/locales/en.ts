@@ -4,6 +4,8 @@
  */
 
 export default {
+  "projects.add_favorite": "Add project to favorites",
+  "projects.remove_favorite": "Remove project from favorites",
   "projects.configure_fields": "Configure fields",
   "projects.edit_value": "Edit {name}",
   "projects.save_to_defaults": "Save to defaults",
