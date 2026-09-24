@@ -1,11 +1,10 @@
 import { useEffect, useState } from "react";
 import { isDesktopRuntime } from "@/app/lib/runtime-env";
 import { folderNameFromPath } from "@/react-app/shell/route-workspaces";
-import { Folder, FolderOpen, FolderPlus, ChevronDown, X } from "lucide-react";
+import { Folder, FolderOpen, FolderPlus, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { InputGroup, InputGroupAddon, InputGroupInput } from "@/components/ui/input-group";
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import {
   Dialog,
   DialogContent,
@@ -33,14 +32,14 @@ export function CreateProjectModal(props: {
   onConfirm: (input: CreateProjectInput) => Promise<void>;
 }) {
   const [name, setName] = useState("");
-  const [mode, setMode] = useState<"default" | "selected">("default");
+  const [showFolderInput, setShowFolderInput] = useState(false);
   const [folder, setFolder] = useState("");
   const [picking, setPicking] = useState(false);
   const [pickError, setPickError] = useState<string | null>(null);
   useEffect(() => {
     if (props.open) {
       setName("");
-      setMode("default");
+      setShowFolderInput(false);
       setFolder("");
       setPickError(null);
     }
@@ -50,7 +49,7 @@ export function CreateProjectModal(props: {
     setPickError(null);
     try {
       const path = await props.onPickFolder();
-      if (path) { setFolder(path); setMode("selected"); }
+      if (path) setFolder(path);
     } catch (error) {
       setPickError(
         error instanceof Error ? error.message : t("projects.failed"),
@@ -82,8 +81,8 @@ export function CreateProjectModal(props: {
             event.preventDefault();
             void props.onConfirm({
               name: name.trim(),
-              folderMode: mode,
-              ...(mode === "selected" ? { folderPath: folder.trim() } : {}),
+              folderMode: folder.trim() ? "selected" : "default",
+              ...(folder.trim() ? { folderPath: folder.trim() } : {}),
             });
           }}
         >
@@ -97,16 +96,13 @@ export function CreateProjectModal(props: {
               {folder && isDesktopRuntime() ? <div className="flex w-full items-center gap-3">
                 <FolderOpen className="size-5 shrink-0 text-muted-foreground" />
                 <span className="min-w-0 flex-1 truncate text-sm">{folderNameFromPath(folder)}</span>
-                <Button type="button" variant="ghost" size="icon-sm" aria-label={t("projects.remove_source")} onClick={() => { setFolder(""); setMode("default"); }}><X /></Button>
+                <Button type="button" variant="ghost" size="icon-sm" aria-label={t("projects.remove_source")} onClick={() => setFolder("")}><X /></Button>
               </div> : <>
-                <DropdownMenu>
-                  <DropdownMenuTrigger render={<Button type="button" variant="ghost" className="h-auto gap-2 px-2 font-normal text-muted-foreground">{t("projects.add_local_folder")}<ChevronDown className="size-4" /></Button>} />
-                  <DropdownMenuContent align="center">
-                    <DropdownMenuItem onClick={() => { if (isDesktopRuntime()) void pick(); else setMode("selected"); }}><FolderOpen />{t("projects.selected_folder")}</DropdownMenuItem>
-                    <DropdownMenuItem onClick={() => { setFolder(""); setMode("default"); }}><Folder />{t("projects.default_folder")}</DropdownMenuItem>
-                  </DropdownMenuContent>
-                </DropdownMenu>
-                {mode === "selected" && !isDesktopRuntime() ? <Input aria-label={t("projects.location")} placeholder={t("projects.location")} value={folder} onChange={(event) => setFolder(event.target.value)} /> : <Button type="button" variant="secondary" size="sm" className="rounded-full" onClick={() => { if (isDesktopRuntime()) void pick(); else setMode("selected"); }}><FolderPlus />{t("projects.add_source")}</Button>}
+                <p className="text-sm text-muted-foreground">{t("projects.add_local_folder")}</p>
+                {showFolderInput && !isDesktopRuntime() ? <div className="flex w-full items-center gap-2">
+                  <Input aria-label={t("projects.location")} placeholder={t("projects.location")} value={folder} onChange={(event) => setFolder(event.target.value)} />
+                  <Button type="button" variant="ghost" size="icon-sm" aria-label={t("projects.remove_source")} onClick={() => { setFolder(""); setShowFolderInput(false); }}><X /></Button>
+                </div> : <Button type="button" variant="secondary" size="sm" className="rounded-full" onClick={() => { if (isDesktopRuntime()) void pick(); else setShowFolderInput(true); }}><FolderPlus />{t("projects.add_source")}</Button>}
               </>}
             </div>
             <p className="text-xs text-muted-foreground">{t(folder ? "projects.selected_hint" : "projects.source_default_hint")}</p>
@@ -130,7 +126,6 @@ export function CreateProjectModal(props: {
               disabled={
                 props.submitting || picking ||
                 !name.trim() ||
-                (mode === "selected" && !folder.trim()) ||
                 !props.client
               }
             >

@@ -117,7 +117,7 @@ const de = {
   "projects.add_local_folder": "Ordner auf diesem Computer hinzufügen",
   "projects.add_source": "Hinzufügen",
   "projects.remove_source": "Ordner entfernen",
-  "projects.source_default_hint": "Ohne Quellordner wird ein neuer Ordner am Standardspeicherort der Anwendung erstellt.",
+  "projects.source_default_hint": "Optional. Sie können nach dem Erstellen Dateien hinzufügen.",
   "tasks.linked_project_unavailable": "Das verknüpfte Projekt ist nicht verfügbar. Verbinden Sie es erneut oder ändern Sie das Projekt der Aufgabe.",
   "tasks.linked_workflow_desc": "Wählen Sie einen Workflow für das Projekt dieser Aufgabe.",
   "projects.search_sessions": "Sessions durchsuchen",

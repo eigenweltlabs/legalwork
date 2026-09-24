@@ -107,7 +107,7 @@ export default {
   "projects.add_local_folder": "Add a folder on this computer",
   "projects.add_source": "Add",
   "projects.remove_source": "Remove folder",
-  "projects.source_default_hint": "Without a source folder, a new folder is created in the application default location.",
+  "projects.source_default_hint": "Optional. You can add files after creating the project.",
   "tasks.linked_project_unavailable": "The linked project is unavailable. Reconnect it or update the task’s project before starting.",
   "tasks.linked_workflow_desc": "Choose a workflow to run in this task’s project.",
   "projects.search_sessions": "Search sessions",
