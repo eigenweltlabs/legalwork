@@ -47,6 +47,7 @@ Verified in Electron:
 - Note creation while Files is open, clean titles, editor opening/closing/reopening, saved content previews and horizontal access to older notes.
 - Home tasks through all 55 fixture rows across the server cursor boundary, list-only creation, context actions, shared detail viewer and workflow selection retaining its project.
 - Recording on Home without navigation, Stop recording, red-dot New Chat, default live context and dropdown opt-out; capture finalized and linked. Empty transcript setup is not rendered as an empty user message.
+- Session right-click actions, group creation and moving a session into a group through the native context menu.
 - English and German layouts, native folder chooser, inline customization with correct checks and existing brand positions. Original language and navigation preferences were restored.
 
 Native drag automation could start a drag but did not complete the operating-system drop gesture. File-reference logic and existing session drag/context-menu wiring were inspected, and reference encoding is covered automatically; a physical mouse pass for Files → chat and session regrouping remains a reviewer check. A real Windows desktop run also remains a release check. These are explicit verification limits, not claims of native end-to-end success.
@@ -66,7 +67,7 @@ pnpm --filter @legalwork/desktop test
 pnpm --filter @legalwork/desktop check:electron
 ```
 
-Regression coverage includes selected/default folder persistence, missing-folder recovery, metadata revisions and malformed metadata preservation, task associations, recording links/finalization, file collisions and cross-volume failure safety, trusted project lookup and encoded file references. Test totals and CI results are recorded in the PR. Existing dependency-annotation and large-bundle build warnings remain. On this Mac the native build uses `SDKROOT=/Library/Developer/CommandLineTools/SDKs/MacOSX15.5.sdk`; no system SDK setting was changed.
+Regression coverage includes selected/default folder persistence, missing-folder recovery, metadata revisions and malformed metadata preservation, task associations, recording links/finalization, file collisions and cross-volume failure safety, trusted project lookup and encoded file references. Final local results: 643 app tests passed; 910 server tests passed with 11 optional-service skips; 180 desktop tests passed with 1 platform skip. All type checks, both builds, 110-method IPC coverage and 4,254 English/German translation keys passed. The initial server run timed out during existing OAuth test setup; that test passed in isolation and the entire suite passed on rerun. CI results are recorded in the PR. Existing dependency-annotation and large-bundle build warnings remain. On this Mac the native build uses `SDKROOT=/Library/Developer/CommandLineTools/SDKs/MacOSX15.5.sdk`; no system SDK setting was changed.
 
 ### Native evidence
 
