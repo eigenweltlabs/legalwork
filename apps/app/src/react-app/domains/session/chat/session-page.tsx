@@ -4,7 +4,6 @@ import type { CSSProperties } from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
-import { workspaceTasksRoute } from "@/react-app/shell/workspace-routes";
 import { AppWindowMac, Columns2, Folder, PanelsTopLeft, Settings2, X, Zap } from "lucide-react";
 
 import { t } from "../../../../i18n";
@@ -996,7 +995,7 @@ export function SessionPage(props: SessionPageProps) {
       name={props.selectedWorkspaceDisplay.displayName || props.selectedWorkspaceDisplay.name || props.selectedWorkspaceId}
       onOpenFile={openWorkspaceFileEntry}
       onNewSession={() => props.sidebar.onCreateChatInWorkspace(props.selectedWorkspaceId)}
-      onOpenTasks={() => navigate(workspaceTasksRoute(props.selectedWorkspaceId))}
+      tasksView={props.projectTasksView}
       onRename={() => props.sidebar.onOpenRenameWorkspace(props.selectedWorkspaceId)}
     /> : <p className="p-8 text-muted-foreground">{t("projects.connecting")}</p>
   ) : props.mainView;

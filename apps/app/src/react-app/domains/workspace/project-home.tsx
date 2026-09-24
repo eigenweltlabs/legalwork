@@ -1,24 +1,26 @@
 import { useState, type ReactNode } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowUpRight, ChevronRight, ListTodo, MessageSquare, Mic, Plus, Settings2, Pencil, Star, StickyNote, SquareCheck } from "lucide-react";
+import { ChevronRight, MessageSquare, Mic, Plus, Settings2, Pencil, Star, StickyNote, SquareCheck } from "lucide-react";
 import type { LegalworkServerClient, LegalworkWorkspaceDirectoryEntry } from "@/app/lib/legalwork-server";
 import { Button } from "@/components/ui/button";
+import { ListPagination } from "@/components/list-pagination";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { SectionHeading, Surface } from "@/react-app/design-system/surface";
 import { cn } from "@/lib/utils";
-import { useTasks } from "../tasks/tasks-queries";
 import { ProjectProperties } from "./project-properties";
 import { ProjectMetadata } from "./project-metadata";
 import { ProjectNoteDialog } from "./project-note-dialog";
 import { ProjectTaskDialog } from "./project-task-dialog";
 import { ProjectRecordings } from "./project-recordings";
 import { useRecorderStore } from "../recorder/recorder-store";
-import { noteTitle } from "./project-note-title";
+import { ProjectNoteTile } from "./project-note-tile";
 import { useProjectFavoritesStore } from "./project-favorites-store";
 import { defaultAkteFields, useProjectDefaultsStore, withInitialProjectFields } from "./project-defaults-store";
-import { currentLocale, t } from "@/i18n";
+import { t } from "@/i18n";
+
+const NOTES_PER_PAGE = 6;
 
 export function ProjectHome(props: {
   client: LegalworkServerClient;
@@ -28,7 +30,7 @@ export function ProjectHome(props: {
   name: string;
   onOpenFile: (entry: LegalworkWorkspaceDirectoryEntry) => void;
   onNewSession: () => void;
-  onOpenTasks: () => void;
+  tasksView: ReactNode;
   onRename: () => void;
 }) {
   const { client, workspaceId } = props;
@@ -41,6 +43,7 @@ export function ProjectHome(props: {
   const savedDefaults = useProjectDefaultsStore((state) => state.fields);
   const queryClient = useQueryClient();
   const [noteOpen, setNoteOpen] = useState(false);
+  const [notePage, setNotePage] = useState(0);
   const [taskOpen, setTaskOpen] = useState(false);
   const [detailsOpen, setDetailsOpen] = useState(false);
   const [editMetadata, setEditMetadata] = useState(false);
@@ -59,10 +62,10 @@ export function ProjectHome(props: {
     queryFn: () => client.listWorkspaceDirectory(workspaceId, "Notes"),
     enabled: hasNotes,
   });
-  const tasks = useTasks({ client, workspaceId }, { projectId: workspaceId, sort: "updated" });
-  const openTasks = (tasks.data?.pages.flatMap((page) => page.tasks) ?? []).filter((task) => task.status !== "done" && task.status !== "cancelled");
   const noteEntries = (notes.data?.entries.filter((entry) => entry.kind === "file" && /\.md$/i.test(entry.name)) ?? [])
     .sort((a, b) => (b.updatedAt ?? 0) - (a.updatedAt ?? 0));
+  const currentNotePage = Math.min(notePage, Math.max(0, Math.ceil(noteEntries.length / NOTES_PER_PAGE) - 1));
+  const visibleNotes = noteEntries.slice(currentNotePage * NOTES_PER_PAGE, (currentNotePage + 1) * NOTES_PER_PAGE);
 
   return (
     <div className="@container/project min-h-0 flex-1 overflow-y-auto" data-testid="project-home">
@@ -109,43 +112,37 @@ export function ProjectHome(props: {
 
         <section aria-label={t("projects.notes")}>
           <SectionHeading title={t("projects.notes")} action={<Button variant="ghost" size="icon-sm" aria-label={t("projects.add_note")} title={t("projects.add_note")} onClick={() => setNoteOpen(true)}><Plus className="size-4" /></Button>} />
-          <Surface className="mt-3 overflow-hidden rounded-xl">
-            {rootFiles.isPending || (hasNotes && notes.isPending) ? <div className="px-5"><Notice>{t("projects.loading")}</Notice></div>
-              : notes.error || rootFiles.error ? <div className="px-5"><Notice error>{t("projects.failed")}</Notice></div>
+          <div className="mt-3">
+            {rootFiles.isPending || (hasNotes && notes.isPending) ? <Surface className="rounded-xl px-5"><Notice>{t("projects.loading")}</Notice></Surface>
+              : notes.error || rootFiles.error ? <Surface className="rounded-xl px-5"><Notice error>{t("projects.failed")}</Notice></Surface>
               : noteEntries.length ? (
-                <ul className="divide-y divide-border/60">
-                  {noteEntries.map((entry) => (
-                    <li key={entry.path}>
-                      <Button variant="ghost" className="group/note h-auto w-full justify-start gap-3 rounded-none px-4 py-4 text-left font-normal text-foreground" aria-label={noteTitle(entry.name)} onClick={() => props.onOpenFile(entry)}>
-                        <StickyNote className="size-4 shrink-0 text-muted-foreground" />
-                        <span className="min-w-0 flex-1 truncate text-sm">{noteTitle(entry.name)}</span>
-                        {entry.updatedAt ? <time dateTime={new Date(entry.updatedAt).toISOString()} className="shrink-0 text-xs text-muted-foreground">{new Date(entry.updatedAt).toLocaleDateString(currentLocale())}</time> : null}
-                        <ArrowUpRight className="size-3.5 shrink-0 text-muted-foreground opacity-0 group-hover/note:opacity-100 group-focus-visible/note:opacity-100" />
-                      </Button>
-                    </li>
-                  ))}
-                </ul>
+                <>
+                  <ul className="grid grid-cols-1 gap-3 @min-[400px]/project:grid-cols-2 @min-[720px]/project:grid-cols-3">
+                    {visibleNotes.map((entry) => (
+                      <li key={entry.path} className="min-w-0">
+                        <ProjectNoteTile client={client} workspaceId={workspaceId} entry={entry} onOpen={() => props.onOpenFile(entry)} />
+                      </li>
+                    ))}
+                  </ul>
+                  <ListPagination label={t("projects.notes_pagination")} page={currentNotePage} pageSize={NOTES_PER_PAGE} total={noteEntries.length} onPageChange={setNotePage} className="mt-1 px-0" />
+                </>
               ) : (
-                <div className="flex flex-col items-center px-6 py-10 text-center">
+                <Surface className="flex flex-col items-center rounded-xl px-6 py-10 text-center">
                   <StickyNote className="mb-3 size-5 text-muted-foreground/70" />
                   <p className="max-w-sm text-sm leading-relaxed text-muted-foreground">{t("projects.no_notes")}</p>
                   <Button variant="outline" size="sm" className="mt-4" onClick={() => setNoteOpen(true)}><Plus className="size-4" />{t("projects.add_note")}</Button>
-                </div>
+                </Surface>
               )}
-          </Surface>
+          </div>
         </section>
 
         <ProjectRecordings projectId={props.recordingProjectId} onRecord={props.onStartRecording} />
 
-        <Button variant="ghost" className="mt-6 h-auto w-full justify-start gap-3 rounded-xl border border-border/70 px-4 py-4 text-left font-normal text-foreground" onClick={props.onOpenTasks}>
-          <ListTodo className="size-4 shrink-0 text-muted-foreground" />
-          <span className="flex-1 text-sm font-medium">{t("projects.tasks")}</span>
-          <span className="text-xs text-muted-foreground">{t("projects.open_tasks")}{!tasks.isPending && !tasks.error ? ` · ${openTasks.length}${tasks.hasNextPage ? "+" : ""}` : ""}</span>
-          <ChevronRight className="size-4 shrink-0 text-muted-foreground" />
-        </Button>
+        <div className="mt-8">{props.tasksView}</div>
       </div>
 
       {noteOpen ? <ProjectNoteDialog client={client} workspaceId={workspaceId} onClose={() => setNoteOpen(false)} onSaved={() => {
+        setNotePage(0);
         void queryClient.invalidateQueries({ queryKey: ["project-files", workspaceId] });
         void queryClient.invalidateQueries({ queryKey: ["project-notes", workspaceId] });
       }} /> : null}

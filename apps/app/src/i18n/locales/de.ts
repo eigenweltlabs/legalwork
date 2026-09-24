@@ -3655,6 +3655,12 @@ const de = {
   "sources.pagination": "Seitennavigation der Quellen",
   "sources.previous_page": "Vorherige Quellenseite",
   "sources.next_page": "Nächste Quellenseite",
+  "common.page_range": "{from}–{to} von {total}",
+  "tasks.pagination": "Aufgabenseiten",
+  "projects.view_all": "Alle anzeigen",
+  "projects.note_empty": "Noch kein Inhalt",
+  "projects.note_preview_failed": "Vorschau nicht verfügbar",
+  "projects.notes_pagination": "Notizseiten",
   "common.previous_page": "Vorherige Seite",
   "common.next_page": "Nächste Seite",
   "recorder.stop_session_first":
