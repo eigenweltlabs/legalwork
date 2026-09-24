@@ -2,7 +2,6 @@ import type { LegalworkServerClient } from "@/app/lib/legalwork-server";
 import { toast } from "@/components/ui/sonner";
 import { t } from "@/i18n";
 import { NewTaskDialog } from "../tasks/new-task-dialog";
-import { requestOpenTask } from "../tasks/task-reference";
 import { useCreateTask, useTaskAccess, useTaskMembers, useTaskSyncStatus, useTaskTags } from "../tasks/tasks-queries";
 
 export function ProjectTaskDialog(props: {
@@ -24,10 +23,7 @@ export function ProjectTaskDialog(props: {
     tagSuggestions={tags.data ?? []}
     onClose={() => { if (!createTask.isPending) props.onClose(); }}
     onCreate={(input) => createTask.mutate({ ...input, projectId: props.workspaceId }, {
-      onSuccess: (task) => {
-        props.onClose();
-        requestOpenTask(task.id, task.title);
-      },
+      onSuccess: props.onClose,
       onError: (error) => toast.error(t("tasks.create_failed"), { description: error instanceof Error ? error.message : undefined }),
     })}
   />;

@@ -257,11 +257,9 @@ export function TasksPane(props: TasksPaneProps) {
 
   const create = (input: Parameters<typeof createTask.mutate>[0]) => {
     createTask.mutate({ ...input, ...(props.projectId ? { projectId: props.projectId } : {}) }, {
-      onSuccess: (task) => {
+      onSuccess: () => {
         setCreating(false);
         if (inTrash) switchView("tasks");
-        setSelectedTaskId(task.id);
-        if (props.detailMode === "panel") requestOpenTask(task.id, task.title);
       },
       onError: (error) => toast.error(t("tasks.create_failed"), { description: error instanceof Error ? error.message : undefined }),
     });
