@@ -1028,6 +1028,21 @@ export function SessionPage(props: SessionPageProps) {
     />
   );
 
+  const workspaceFilesRailButton = (
+    <Button
+      variant="ghost"
+      size="icon-sm"
+      className={cn("lw-session-rail-button hover:bg-muted hover:text-foreground", filesRailActive && "text-foreground")}
+      onClick={openFilesRailPane}
+      title={t("session.workspace_files")}
+      aria-label={t("session.workspace_files")}
+      aria-pressed={filesRailActive}
+      disabled={!props.legalworkServerClient || !props.runtimeWorkspaceId}
+    >
+      <Folder size={17} />
+    </Button>
+  );
+
   return (
     <div className="flex h-full min-h-0 flex-col bg-[var(--lw-canvas)] text-dls-text mac:bg-transparent">
       <SidebarProvider
@@ -1169,6 +1184,8 @@ export function SessionPage(props: SessionPageProps) {
               >
                 <PanelsTopLeft size={17} />
               </Button>
+
+              {workspaceFilesRailButton}
 
               <Button
                 variant="ghost"
@@ -1541,21 +1558,7 @@ export function SessionPage(props: SessionPageProps) {
               >
                 <PanelsTopLeft size={17} />
               </Button>
-            <Button
-              variant="ghost"
-              size="icon-sm"
-              className={cn(
-                "lw-session-rail-button hover:bg-muted hover:text-foreground",
-                filesRailActive && "text-foreground",
-              )}
-              onClick={openFilesRailPane}
-              title={t("session.workspace_files")}
-              aria-label={t("session.workspace_files")}
-              aria-pressed={filesRailActive}
-              disabled={!props.selectedSessionId || !props.legalworkServerClient || !props.runtimeWorkspaceId}
-            >
-              <Folder size={17} />
-            </Button>
+              {workspaceFilesRailButton}
 
               <Button
                 variant="ghost"
