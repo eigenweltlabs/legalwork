@@ -7,6 +7,7 @@ export type ManagedOpencodeServer = {
   username: string;
   password: string;
   pid: number | null;
+  running: () => boolean;
   execution: OpencodeExecutionSnapshot;
   close: () => Promise<void>;
 };
@@ -82,20 +83,28 @@ async function findFreePort(hostname: string, excludedPorts: number[] = []): Pro
  * transient "database is locked" start failure. */
 function waitForServerReady(child: ChildProcess, timeoutMs: number): Promise<string> {
   return new Promise<string>((resolve, reject) => {
-    const timeout = setTimeout(
-      () => reject(new Error(`Timeout waiting for OpenCode server after ${timeoutMs}ms`)),
-      timeoutMs,
-    );
     let output = "";
-    const done = (value: string) => {
+    let settled = false;
+    const cleanup = () => {
       clearTimeout(timeout);
+      child.stdout?.off("data", onStdout);
+      child.stderr?.off("data", onStderr);
+      child.off("error", fail);
+      child.off("exit", onExit);
+    };
+    const done = (value: string) => {
+      if (settled) return;
+      settled = true;
+      cleanup();
       resolve(value);
     };
     const fail = (error: Error) => {
-      clearTimeout(timeout);
+      if (settled) return;
+      settled = true;
+      cleanup();
       reject(error);
     };
-    child.stdout?.on("data", (chunk) => {
+    const onStdout = (chunk: Buffer) => {
       output += chunk.toString();
       for (const line of output.split("\n")) {
         if (!line.startsWith("opencode server listening")) continue;
@@ -103,15 +112,42 @@ function waitForServerReady(child: ChildProcess, timeoutMs: number): Promise<str
         if (!match?.[1]) return fail(new Error(`Failed to parse OpenCode server URL from: ${line}`));
         done(match[1]);
       }
-    });
-    child.stderr?.on("data", (chunk) => {
+    };
+    const onStderr = (chunk: Buffer) => {
       output += chunk.toString();
-    });
-    child.once("error", fail);
-    child.once("exit", (code) =>
-      fail(new Error(`OpenCode server exited with code ${code}${output.trim() ? `\n${output}` : ""}`)),
+    };
+    const onExit = (code: number | null) =>
+      fail(new Error(`OpenCode server exited with code ${code}${output.trim() ? `\n${output}` : ""}`));
+    const timeout = setTimeout(
+      () => fail(new Error(`Timeout waiting for OpenCode server after ${timeoutMs}ms`)),
+      timeoutMs,
     );
+    child.stdout?.on("data", onStdout);
+    child.stderr?.on("data", onStderr);
+    child.once("error", fail);
+    child.once("exit", onExit);
   });
+}
+
+async function waitForHttpReady(child: ChildProcess, url: string, username: string, password: string, timeoutMs: number): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  const authorization = `Basic ${Buffer.from(`${username}:${password}`).toString("base64")}`;
+  while (Date.now() < deadline) {
+    if (child.exitCode !== null || child.signalCode !== null) {
+      throw new Error("OpenCode server exited before its HTTP listener was ready");
+    }
+    try {
+      const response = await fetch(new URL("/health", url), {
+        headers: { Authorization: authorization },
+        signal: AbortSignal.timeout(1000),
+      });
+      await response.body?.cancel();
+      return;
+    } catch {
+      await delay(100);
+    }
+  }
+  throw new Error(`Timeout waiting for OpenCode HTTP listener after ${timeoutMs}ms`);
 }
 
 /** A terminate function scoped to one child: SIGTERM, wait for the process to
@@ -190,16 +226,33 @@ export async function createManagedOpencodeServer(options: {
       child.once("exit", () => resolve());
     });
     const terminate = makeTerminator(child, exited);
+    let closing = false;
+    let lastStderr = "";
+    child.stderr?.on("data", (chunk) => {
+      lastStderr = (lastStderr + chunk.toString()).slice(-2000);
+    });
 
     try {
-      const url = await waitForServerReady(child, options.timeoutMs ?? 15000);
+      const startedAt = Date.now();
+      const timeoutMs = options.timeoutMs ?? 15000;
+      const url = await waitForServerReady(child, timeoutMs);
+      await waitForHttpReady(child, url, username, password, Math.max(1, timeoutMs - (Date.now() - startedAt)));
+      child.once("exit", (code, signal) => {
+        if (!closing) {
+          console.error(`[managed-opencode] engine exited after startup (code ${code}, signal ${signal})${lastStderr.trim() ? `: ${lastStderr.trim()}` : ""}`);
+        }
+      });
       return {
         url,
         username,
         password,
         pid: child.pid ?? null,
+        running: () => child.exitCode === null && child.signalCode === null,
         execution: { command, args, cwd: options.cwd, env: injectedEnv },
-        close: terminate,
+        close: () => {
+          closing = true;
+          return terminate();
+        },
       };
     } catch (error) {
       lastError = error;

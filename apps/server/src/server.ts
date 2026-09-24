@@ -998,7 +998,7 @@ function createOpencodeDirectoryFetch(directory: string): typeof fetch {
 
 type OpencodeClientResult<T, E> =
   | { data: T | undefined; error: undefined; response: Response }
-  | { data: undefined; error: E; response: Response };
+  | { data: undefined; error: E; response: Response | undefined };
 
 function createWorkspaceOpencodeClient(config: ServerConfig, workspace: WorkspaceInfo) {
   const connection = resolveWorkspaceOpencodeConnection(config, workspace);
@@ -1034,6 +1034,12 @@ function unwrapOpencodeResult<T, E>(result: OpencodeClientResult<T, E>, path: st
   }
   if (result.error === undefined) {
     throw new ApiError(502, "opencode_empty_response", "OpenCode returned an empty response", { path });
+  }
+  if (!result.response) {
+    throw new ApiError(503, "opencode_unavailable", "OpenCode engine is not ready", {
+      path,
+      reason: result.error instanceof Error ? result.error.message : String(result.error),
+    });
   }
   throw new ApiError(502, "opencode_request_failed", "OpenCode request failed", {
     status: result.response.status,
@@ -4441,7 +4447,28 @@ async function reloadOpencodeEngine(config: ServerConfig, workspace: WorkspaceIn
   const auth = connection.authHeader ?? null;
   if (auth) headers.Authorization = auth;
 
-  const response = await fetch(targetUrl, { method: "POST", headers });
+  let response: Response | undefined;
+  for (const delayMs of [0, 150, 300, 600]) {
+    if (delayMs) await new Promise((resolve) => setTimeout(resolve, delayMs));
+    try {
+      response = await fetch(targetUrl, { method: "POST", headers });
+      break;
+    } catch (error) {
+      // A refused connection cannot have reached the engine. Other transport
+      // failures may happen after dispose ran, so repeating the POST could
+      // interrupt a newly started task.
+      const cause = error instanceof Error ? error.cause : undefined;
+      const refused =
+        (error instanceof Error && "code" in error && (error.code === "ECONNREFUSED" || error.code === "ConnectionRefused")) ||
+        (cause instanceof Error && "code" in cause && (cause.code === "ECONNREFUSED" || cause.code === "ConnectionRefused"));
+      if (delayMs === 600 || !refused) {
+        throw new ApiError(503, "opencode_unavailable", "OpenCode engine is not ready", {
+          reason: error instanceof Error ? error.message : String(error),
+        });
+      }
+    }
+  }
+  if (!response) throw new ApiError(503, "opencode_unavailable", "OpenCode engine is not ready");
   if (!response.ok) {
     const body = parseOpencodeErrorBody(await response.text());
     throw new ApiError(502, "opencode_reload_failed", "OpenCode reload failed", {

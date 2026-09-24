@@ -173,10 +173,10 @@ function createEngineState() {
   };
 }
 
-function snapshotEngineState(state) {
+function snapshotEngineState(state, managedStatus = null) {
   const child = state.childExited ? null : state.child;
   return {
-    running: Boolean(child && child.exitCode === null && !child.killed),
+    running: managedStatus?.running ?? Boolean(child && child.exitCode === null && !child.killed),
     runtime: state.runtime,
     baseUrl: state.baseUrl,
     projectDir: state.projectDir,
@@ -186,7 +186,7 @@ function snapshotEngineState(state) {
     opencodePassword: state.opencodePassword,
     opencodeBinPath: state.opencodeBinPath,
     opencodeBinSource: state.opencodeBinSource,
-    pid: child?.pid ?? null,
+    pid: managedStatus ? managedStatus.pid : child?.pid ?? null,
     lastStdout: state.lastStdout,
     lastStderr: state.lastStderr,
     execution: state.execution,
@@ -1321,6 +1321,10 @@ export function createRuntimeManager({ app, desktopRoot, listLocalWorkspacePaths
   // In-process server handle. Kept alive across restarts so we can stop it.
   let inProcessServer = null;
 
+  function engineSnapshot() {
+    return snapshotEngineState(engineState, inProcessServer?.managedOpencodeStatus?.() ?? null);
+  }
+
   async function startLegalworkServer(options) {
     const currentPort = legalworkServerState.port;
     // Stop any previously running in-process server
@@ -1573,7 +1577,7 @@ export function createRuntimeManager({ app, desktopRoot, listLocalWorkspacePaths
     engineState.opencodeBinPath = opencodeBinary.path;
     engineState.opencodeBinSource = opencodeBinary.source;
 
-    return snapshotEngineState(engineState);
+    return engineSnapshot();
   }
 
   async function startDirectRuntime(projectDir, options = {}) {
@@ -1617,7 +1621,7 @@ export function createRuntimeManager({ app, desktopRoot, listLocalWorkspacePaths
     engineState.opencodeBinSource = opencodeBinary.source;
 
     await waitForHttpOk(`${engineState.baseUrl}/health`, 10_000).catch(() => undefined);
-    return snapshotEngineState(engineState);
+    return engineSnapshot();
   }
 
   async function stopAllRuntimeChildren() {
@@ -1686,8 +1690,9 @@ export function createRuntimeManager({ app, desktopRoot, listLocalWorkspacePaths
       legalworkServerState.remoteAccessEnabled === requestedRemoteAccess
     ) {
       const existing = snapshotLegalworkServerState(legalworkServerState);
-      if (existing.running && existing.baseUrl && (existing.ownerToken || existing.clientToken)) {
-        return snapshotEngineState(engineState);
+      const managedEngine = inProcessServer?.managedOpencodeStatus?.();
+      if (existing.running && existing.baseUrl && (existing.ownerToken || existing.clientToken) && managedEngine?.running !== false) {
+        return engineSnapshot();
       }
     }
 
@@ -1716,7 +1721,7 @@ export function createRuntimeManager({ app, desktopRoot, listLocalWorkspacePaths
       });
 
       lifecycleState = "healthy";
-      return snapshotEngineState(engineState);
+      return engineSnapshot();
     } catch (error) {
       lifecycleState = "error";
       // Surface the *real* reason to the main-process log before the generic
@@ -1739,7 +1744,7 @@ export function createRuntimeManager({ app, desktopRoot, listLocalWorkspacePaths
     lifecycleState = "stopping";
     await stopAllRuntimeChildren();
     lifecycleState = "idle";
-    return snapshotEngineState(engineState);
+    return engineSnapshot();
   }
 
   async function engineRestart(options = {}) {
@@ -1756,7 +1761,7 @@ export function createRuntimeManager({ app, desktopRoot, listLocalWorkspacePaths
   }
 
   async function engineInfo() {
-    return { ...snapshotEngineState(engineState), lifecycleState };
+    return { ...engineSnapshot(), lifecycleState };
   }
 
   async function runtimeStatus() {
@@ -1779,7 +1784,7 @@ export function createRuntimeManager({ app, desktopRoot, listLocalWorkspacePaths
       if (!text) return null;
       return text.length <= limit ? text : text.slice(text.length - limit);
     };
-    const engine = snapshotEngineState(engineState);
+    const engine = engineSnapshot();
     const server = snapshotLegalworkServerState(legalworkServerState);
     let opencode = null;
     try {
@@ -1851,7 +1856,7 @@ export function createRuntimeManager({ app, desktopRoot, listLocalWorkspacePaths
   }
 
   async function orchestratorStatus() {
-    const engine = snapshotEngineState(engineState);
+    const engine = engineSnapshot();
     const legalworkServer = snapshotLegalworkServerState(legalworkServerState);
     const workspaces = engine.projectDir
       ? [{ id: normalizeWorkspaceKey(engine.projectDir), path: engine.projectDir, name: path.basename(engine.projectDir) || "Workspace" }]
