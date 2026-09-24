@@ -1007,6 +1007,7 @@ export function SessionPage(props: SessionPageProps) {
       onOpenFile={openWorkspaceFileEntry}
       onSession={(id) => props.sidebar.onOpenSession(props.selectedWorkspaceId, id)}
       onNewSession={() => props.sidebar.onCreateChatInWorkspace(props.selectedWorkspaceId)}
+      onRename={() => props.sidebar.onOpenRenameWorkspace(props.selectedWorkspaceId)}
     /> : <p className="p-8 text-muted-foreground">{t("projects.connecting")}</p>
   ) : props.mainView;
 

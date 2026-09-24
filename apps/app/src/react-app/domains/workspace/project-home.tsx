@@ -10,7 +10,7 @@ import {
   MessageSquare,
   Plus,
   Settings2,
-  Folder,
+  Pencil,
   StickyNote,
   SquareCheck,
 } from "lucide-react";
@@ -60,6 +60,7 @@ export function ProjectHome(props: {
   onOpenFile: (entry: LegalworkWorkspaceDirectoryEntry) => void;
   onSession: (id: string) => void;
   onNewSession: () => void;
+  onRename: () => void;
 }) {
   const { client, workspaceId } = props;
   const queryClient = useQueryClient();
@@ -185,8 +186,8 @@ export function ProjectHome(props: {
         >
           <div className="px-4 pt-4 pb-4">
             <div className="flex items-center gap-2">
-              <span className="flex size-9 shrink-0 items-center justify-center rounded-xl border border-border/60 bg-background shadow-xs"><Folder className="size-4.5 text-muted-foreground" /></span>
               <h1 title={props.name} className="min-w-0 truncate rounded-lg bg-muted/70 px-2 py-1.5 text-base font-semibold tracking-tight">{props.name}</h1>
+              <Tooltip><TooltipTrigger render={<Button variant="ghost" size="icon-xs" className="ml-auto shrink-0" aria-label={t("workspace.rename_title")} onClick={props.onRename}><Pencil className="size-3.5" /></Button>} /><TooltipContent>{t("workspace.rename_title")}</TooltipContent></Tooltip>
             </div>
             <div className="mt-3 flex items-center gap-2">
               <Button variant="outline" className="min-w-0 flex-1 rounded-xl px-2.5 shadow-xs" onClick={props.onNewSession}><MessageSquare />{t("projects.new_chat")}</Button>
