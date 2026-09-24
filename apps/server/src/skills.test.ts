@@ -127,6 +127,25 @@ describe("listSkills", () => {
     expect(skipped[0]?.reason).not.toContain("description: [unterminated");
   });
 
+  test("lists a Claude skill when its frontmatter name differs from its folder", async () => {
+    const dir = join(workspace, ".claude", "skills", "vendor-caption-templates");
+    await mkdir(dir, { recursive: true });
+    await writeFile(
+      join(dir, "SKILL.md"),
+      "---\nname: caption-templates\ndescription: Caption presets\n---\n\nBody\n",
+      "utf8",
+    );
+
+    const skipped: Array<{ path: string; reason: string }> = [];
+    const listed = await listSkills(workspace, false, skipped);
+
+    expect(listed.find((skill) => skill.name === "caption-templates")).toMatchObject({
+      description: "Caption presets",
+      path: join(dir, "SKILL.md"),
+    });
+    expect(skipped).toEqual([]);
+  });
+
   test("preserves workflow metadata used by firm Hub sharing", async () => {
     await writeSkill(
       join(workspace, ".opencode", "skills", "asset-review"),

@@ -16,6 +16,7 @@ import type {
 } from "../../../../app/types";
 import { addOpencodeCacheHint, fitSkillNameLength, isDesktopRuntime, normalizeDirectoryPath } from "../../../../app/utils";
 import { describeImportFailures, type ImportFailure } from "./import-failures";
+import { createSkippedSkillsTracker } from "./skipped-skills-tracker";
 import skillCreatorTemplate from "../../../../app/data/skill-creator.md?raw";
 import {
   isPluginInstalled,
@@ -59,6 +60,7 @@ const OPENCODE_MCP_NAME_RE = /^[A-Za-z0-9_][A-Za-z0-9_-]*$/;
 const OPENCODE_MCP_IMPORT_PATH_PREFIX = "opencode.jsonc#mcp.";
 const DEFAULT_HUB_REF = "main";
 const HUB_REPOS_STORAGE_KEY = "legalwork.skills.hubRepos.v1";
+const newlySkippedSkills = createSkippedSkillsTracker();
 
 type SetStateAction<T> = T | ((current: T) => T);
 
@@ -119,12 +121,13 @@ export type ExtensionsStore = ReturnType<typeof createExtensionsStore>;
 
 export type GithubSkillItem = { dir: string; name: string; description: string };
 
-function notifySkippedSkills(skipped: Array<{ path: string; reason: string }>) {
-  if (!skipped.length) return;
-  const first = skipped[0]!;
+function notifySkippedSkills(source: string, skipped: Array<{ path: string; reason: string }>) {
+  const newErrors = newlySkippedSkills(source, skipped);
+  if (!newErrors.length) return;
+  const first = newErrors[0]!;
   const skill = first.path.split(/[\\/]/).slice(-2).join("/");
-  const description = `${skill}: ${first.reason}${skipped.length > 1 ? ` ${t("skills.skipped_toast_more", { count: skipped.length - 1 })}` : ""}`;
-  toast.error(t("skills.skipped_toast_title", { count: skipped.length }), {
+  const description = `${skill}: ${first.reason}${newErrors.length > 1 ? ` ${t("skills.skipped_toast_more", { count: newErrors.length - 1 })}` : ""}`;
+  toast.error(t("skills.skipped_toast_title", { count: newErrors.length }), {
     id: "skills-skipped",
     description,
     duration: 10_000,
@@ -760,7 +763,7 @@ export function createExtensionsStore(options: {
         setStateField("skillsStatus", null);
         const local = await listLocalSkills("");
         if (refreshSkillsAborted) return;
-        notifySkippedSkills(local.skipped);
+        notifySkippedSkills("desktop-global", local.skipped);
         const next: SkillCard[] = Array.isArray(local.items)
           ? local.items.map((entry) => ({
               name: entry.name,
@@ -813,7 +816,7 @@ export function createExtensionsStore(options: {
         setStateField("skillsStatus", null);
         const response = await legalworkClient.listSkills(legalworkWorkspaceId, { includeGlobal: isLocalWorkspace });
         if (refreshSkillsAborted) return;
-        notifySkippedSkills(response.skipped ?? []);
+        notifySkippedSkills(`server:${skillCacheKey}`, response.skipped ?? []);
         let next: SkillCard[] = Array.isArray(response.items)
           ? response.items.map((entry) => ({
               name: entry.name,
@@ -882,7 +885,7 @@ export function createExtensionsStore(options: {
         setStateField("skillsStatus", null);
         const local = await listLocalSkills(root);
         if (refreshSkillsAborted) return;
-        notifySkippedSkills(local.skipped);
+        notifySkippedSkills(`desktop:${root}`, local.skipped);
         const next: SkillCard[] = Array.isArray(local.items)
           ? local.items.map((entry) => ({
               name: entry.name,

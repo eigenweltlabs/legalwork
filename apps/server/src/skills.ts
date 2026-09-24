@@ -98,11 +98,6 @@ async function parseSkillEntry(
     skipped?.push({ path: skillPath, reason: error instanceof Error ? error.message : "Invalid skill metadata" });
     return null;
   }
-  if (name !== entryName) {
-    console.warn(`[skills] Skipped ${skillPath}: its name "${name}" does not match the folder "${entryName}"`);
-    skipped?.push({ path: skillPath, reason: `Name "${name}" does not match folder "${entryName}"` });
-    return null;
-  }
   return {
     name,
     description,

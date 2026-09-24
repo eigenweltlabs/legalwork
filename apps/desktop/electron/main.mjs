@@ -59,6 +59,7 @@ import { createWorkspaceStore } from "./workspace-store.mjs";
 import { moveFilesIntoProject, resolveProjectFolder } from "./project-file-move.mjs";
 import { exportSkillFolder, readSkillArchive } from "./workspace-archive.mjs";
 import { extractDescription } from "./skill-description.mjs";
+import { parseSkillFrontmatter } from "./skill-frontmatter.mjs";
 import { normalizeImportedSkill } from "./skill-import.mjs";
 import { migrateInstalledWorkflows } from "./skill-migration.mjs";
 
@@ -1526,24 +1527,6 @@ function extractTrigger(raw) {
   return extractFrontmatterValue(raw, ["trigger", "when"]);
 }
 
-function parseYamlWithOpenCodeFallback(raw) {
-  try {
-    return parseYaml(raw);
-  } catch {
-    // OpenCode retries unquoted colons as YAML block scalars for Claude skills.
-    const sanitized = raw.split(/\r?\n/).flatMap((line) => {
-      if (line.trim().startsWith("#") || line.trim() === "" || /^\s+/.test(line)) return [line];
-      const entry = line.match(/^([a-zA-Z_][a-zA-Z0-9_]*)\s*:\s*(.*)$/);
-      if (!entry) return [line];
-      const value = entry[2].trim();
-      if (value === "" || value === ">" || value === "|" || value.startsWith('"') || value.startsWith("'")) return [line];
-      if (!value.includes(":")) return [line];
-      return [`${entry[1]}: |-`, `  ${value}`];
-    }).join("\n");
-    return parseYaml(sanitized);
-  }
-}
-
 async function listLocalSkills(projectDir) {
   // Empty projectDir → global skills only (workspace-independent). With a projectDir,
   // includes both project and global roots (collectSkillRoots handles the empty case).
@@ -1559,9 +1542,9 @@ async function listLocalSkills(projectDir) {
       let description = "";
       try {
         raw = await readFile(skillPath, "utf8");
-        const frontmatter = raw.match(/^---\r?\n([\s\S]*?)\r?\n---\r?\n?/);
-        if (!frontmatter) throw new Error("Missing YAML frontmatter");
-        const data = parseYamlWithOpenCodeFallback(frontmatter[1]);
+        if (!/^---\r?\n[\s\S]*?\r?\n---/.test(raw)) throw new Error("Missing YAML frontmatter");
+        const parsed = parseSkillFrontmatter(raw);
+        const data = parsed.data;
         if (!data || typeof data !== "object" || Array.isArray(data)) throw new Error("Invalid skill frontmatter");
         const declaredName = typeof data.name === "string" ? data.name : name;
         description = typeof data.description === "string" ? data.description : "";
@@ -1569,7 +1552,6 @@ async function listLocalSkills(projectDir) {
           throw new Error("Skill name must be kebab-case (1-200 chars)");
         }
         if (!description || description.length > 1024) throw new Error("Description must be 1-1024 characters");
-        if (declaredName !== name) throw new Error(`Name "${declaredName}" does not match folder "${name}"`);
       } catch (error) {
         const reason = error instanceof Error ? error.message.split("\n")[0] : "Could not read or parse SKILL.md";
         console.warn("[skills] Skipped unreadable or malformed skill:", skillPath, error);
