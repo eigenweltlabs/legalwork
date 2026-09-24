@@ -1007,7 +1007,7 @@ function WorkspaceSidebarGroup({
                   aria-label={t("session.new_task")}
                   title={t("session.new_task")}
                 >
-                  <MessageSquare className="size-4" strokeWidth={1.5} />
+                  <MessageSquare className="size-3.5" strokeWidth={1.5} />
                 </Button>
                 <WorkspaceActionsMenu
                   workspace={workspace}
