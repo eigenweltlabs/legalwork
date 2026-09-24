@@ -1,53 +1,79 @@
 # Project workspace review
 
-Branch: `codex/projects-akte-workspace`, based on `origin/dev` at `97eb4e9`.
-Linear: EIG-206 and EIG-207 in [the sprint project](https://linear.app/eigenweltlabs/project/projects-tabular-review-and-jev-sprint-1-213c308658fb).
+[EIG-206](https://linear.app/eigenweltlabs/issue/EIG-206) and [EIG-207](https://linear.app/eigenweltlabs/issue/EIG-207) deliver the local Projects foundation and workspace. Branch: `codex/projects-akte-workspace`, targeting `dev`. This guide describes the final implementation; earlier ticket updates record superseded design iterations.
 
-## Current layout
+## Product behavior
 
-Home is a single centered page with the project name, pencil and favorite-star actions, a New Chat button and note/task creation buttons. It has no tab bar or left overview column. The name has no background badge. A compact Project details disclosure retains optional inline metadata and field configuration. Notes use a responsive tile grid with at most six per page. Each tile shows its title and a short plain-text content preview instead of a date. Older notes remain accessible with previous/next controls. Home also embeds the shared project task list, six tasks per page, with its normal context menus and task viewer; View all opens the separate Tasks page.
+Home is one centered page with inline project-name editing, a favorite star and labelled New Chat, Add note, New task and Record actions. There is no top tab bar, left overview column, Activity page or Sessions page. Optional project details expand below the header without a filled background.
 
-Home also has a Record quick action and a Recordings section. Starting there opens the existing Recorder and starts capture with the current project association when the recorder is ready. First-time model/permission setup retains that project context. Link recording opens a searchable picker for existing recordings. Linked recordings reuse the Recorder's playback, rename and transcript viewer; Remove from project only removes the association, never the recording. The main Recorder page's Record action remains immediate and unassigned unless entered through a project's explicit recording action; clicking global Recorder clears that optional project context. Existing recording rows also offer an optional project-link menu after recording.
+Notes occupy one horizontally scrollable row of compact cards with content previews. Older cards load their previews as they enter view. Clicking any card opens the existing Markdown editor in the right viewer; saving updates its preview. Home, editor, tabs and Project Files show the note title without the unique storage suffix. Markdown remains in the project's `Notes/` folder, with its original path used for reading and saving.
 
-Tasks has its own `/workspace/:workspaceId/tasks` route and uses the existing TasksPane and TaskList filtered by project. Opening a task uses the existing TaskPanel/TaskDetail in the right viewer while retaining this route. Creating a task only refreshes the list; it does not select the task or open a viewer tab.
+Home embeds the shared Tasks list, six tasks per page, including server pagination beyond 50 tasks. It retains task context menus and the existing detail viewer without leaving Home. View all and the sidebar open a separate project Tasks page. Creating a task adds it to the list without opening it. Tasks can be linked, reassigned and unlinked; starting a linked task's session uses its project directly, and starting a workflow asks only for the workflow.
 
-The Sessions page has been removed. Sessions remain accessible from the project's sidebar expander, including groups, Show more, archives, drag-and-drop and right-click actions. The former Activity, Notes and Overview tabs are gone. Old `?tab=tasks` links redirect to Tasks; other old project-tab links resolve to Home.
+Record starts capture on Home and associates it with that project. While capture is active the action reads Stop recording, and New Chat uses a red dot as its icon. New Chat enables live recording context by default; its adjacent dropdown offers a chat without that context while capture continues. Synthetic transcript setup does not produce an Empty message row. Missing recording setup offers an explicit route to Recorder. The global Recorder action remains immediate and does not require a project. Below Tasks, Recordings supports linking existing recordings, playback and transcript viewing through existing components. Unlinking never deletes audio, and recordings may belong to multiple projects.
 
-## Review the product
+## Navigation and files
 
-1. Open Home from an expanded project. Review the title, spacing, quick actions and note tiles with the right viewer both closed and open. Expand Project details to edit optional fields. Text, numeric, date and selection fields retain their existing inline editing and save behavior. The cog opens field configuration.
-2. Create a note and write in the existing ArtifactMarkdownPanel/ArtifactMarkdownEditor with its toolbar, Save action and unsaved-change handling. Click anywhere on a note tile to read it. Saved editor changes immediately update its preview. Page through more than six notes to check that every note stays accessible. Notes are Markdown files under the project's `Notes/` folder. Tabs and editor headers show clean titles; the unique storage suffix is hidden without changing file paths or save targets.
-3. Page through the embedded Home Tasks component, including beyond 50 tasks (the server cursor boundary). Click a row to open the existing task viewer without leaving Home; right-click retains the standard task actions. Open the full Tasks page from the sidebar or View all. Check the standard filters and actions, project assignment, task detail viewer, and reload behavior. Create from either the Home task icon or Tasks list: the dialog closes and the task is added to the list. Linked tasks start sessions directly in their project; workflow start asks only for a workflow. An unavailable linked project produces an error rather than choosing a different project.
-4. Expand Sessions in the sidebar. This only toggles its list; it does not navigate away from Home or Tasks. Open a session, use its right-click actions and groups, then return to Home. The shared route shell preserves the sidebar DOM and scroll state. No project topbar is added to chat sessions.
-5. Open Files from the nested project menu or the right-side Workspace files icon. Both use the existing file browser. The active project feature follows the main view, not whether Files is open. The viewer always offers a close control.
-6. Create a named project with or without adding a source folder. The modal has one optional Add action and no storage-mode dropdown. Leaving the source empty, cancelling the picker, or removing a selection uses the default location automatically. A selected folder is used directly, preserving its existing documents. The UI shows a selected folder's name, never the application's internal path.
-7. Check English and German. Dates use the chosen app language; user-authored content and custom field definitions retain their values. Test narrower windows with the note or task viewer open.
+The main sidebar keeps app features above Projects. Each expanded project's inset contains Home, Tabular Review, Tasks, Files and Sessions. Tabular Review is reserved for milestone 2. Sessions expands a nested list with groups, Show more, drag ordering and existing right-click actions. Group children have a small additional indent. Project name and chevron both toggle expansion; Home and Tasks handle navigation. Opening a chat expands its session list. New projects appear first, preserving the order of older projects. Files opens a right panel without taking the active highlight from the main page.
 
-## Sidebar and metadata
+The hover/focus cog replaces only the main feature section with an inline customization card. Projects and the lower sidebar stay visible. Current enabled items have filled blue checks; visibility and order persist. Drag handles also accept keyboard up/down. Done or Escape closes customization. Logo upload/reset and name editing occupy their existing header positions. Optional metadata defaults remain in Settings → Customization → Projects.
 
-Clicking a project's name, folder icon or chevron toggles expansion without navigating away. Enter/Space also work. Expanded contents share one inset and a quiet vertical rule. Home / Tabular Review / Tasks / Files / Sessions sit together on a subtle background; Tabular Review remains reserved for milestone 2. Switching to Home or Tasks closes the expanded session list. Sessions is labelled “Sessions” in both languages. Small New Chat and Create Group actions appear on hover or keyboard focus.
+The right-hand local browser is named Project Files in English and Projektdateien in German, including its rail button on Home. It always has a close control. Its root breadcrumb follows the project display name; creating notes refreshes a mounted file list. Local file rows carry a same-project file reference into the composer using the existing attachment pipeline. References retain their original paths, including spaces and non-ASCII characters.
 
-Projects has a + opening the creation modal. The navigation cog appears only while hovering or focusing the sidebar and opens Settings → Customization. Navigation visibility preferences persist across reloads. Emails is absent.
+Home's native drop zone and Choose files move regular files into the registered project root. Collisions receive numbered names; existing files are never overwritten. Same-volume moves use exclusive links, and cross-volume moves copy successfully before removing the source. Partial failures are reported per file. The desktop handler resolves only registered local destinations, including projects created through the server after desktop startup; the renderer cannot supply a destination path.
 
-Settings → Customization → Projects edits the optional default metadata fields. New projects and untouched older projects receive blank defaults. Previously configured schemas, values and deliberately cleared fields are preserved. Custom field rows offer Save to defaults, copying definitions and choices without copying values. See [the researched schema](project-metadata-schema.md).
+## Storage and metadata
 
-## Storage and delivery boundaries
+Create Project has a name and an optional source folder. Leaving the folder empty automatically creates a native default folder. Selecting a folder uses it directly and preserves its documents. The UI shows folder names rather than internal application paths.
 
-- Existing workspace identities, folder registry, sessions, file APIs and task storage are reused.
-- Desktop defaults use the OS-resolved Documents folder: `LegalWork/Projects/<project name>`. Development uses `LegalWork Dev/Projects`. Electron resolves the native Documents location before any engine HOME override, including Windows redirected/OneDrive/UNC locations. `LEGALWORK_PROJECTS_DIR` can override the root with an absolute path; headless servers retain their home-based default. Same-named projects receive separate folders. Existing registered paths remain authoritative; documents are never automatically moved.
-- Metadata uses a versioned `.legalwork/project.json` sidecar with atomic writes and revision conflict detection. Task project links are local SQLite associations. EIG-208 must synchronize project identity, metadata, documents and these links; the existing task cloud protocol is unchanged.
-- Recording links are optional project-ID associations stored in each local recording's metadata. A recording can belong to multiple projects. Existing recordings without links remain valid, and no audio is copied or moved when linking. Cross-device recording/link synchronization is not implemented by this change.
-- Home task pagination reuses the existing task query and fetches another server page when needed. The displayed total carries a plus marker while more server pages exist. Home ignores filters chosen on the full Tasks page so project tasks are not silently hidden. Home has no activity timeline or session summary.
-- Johann owns JEV/provider and OCR work. Full search, sync, Tabular Review and email remain in their planned tickets.
+Desktop defaults use the OS-resolved Documents folder: `LegalWork/Projects/<name>` in production and `LegalWork Dev/Projects/<name>` in development. Electron resolves Documents before the embedded engine's HOME override. Windows redirected, OneDrive and UNC Documents paths are covered by path-policy tests. `LEGALWORK_PROJECTS_DIR` can override the root with an absolute path. Headless servers retain their home-based default. Existing registered paths remain authoritative; this change does not relocate existing documents.
 
-## Validation
+Projects retain stable IDs, folder registrations, session associations and local task links. Metadata is stored in versioned `.legalwork/project.json` with atomic writes and revision checks. Optional fields support text, number, date and selection. Untouched projects inherit blank defaults; saved schemas and deliberately cleared schemas are preserved. Save to defaults copies a custom field's definition and choices, never its matter-specific value. See [the researched default schema](project-metadata-schema.md).
 
-The current Home redesign passes the app type check and production build, and all 638 app tests pass. Home tile/pagination browser checks cover eight notes, all 55 tasks across the server cursor boundary without duplicates, previous/next boundaries, task context menus and detail in Home, the separate Tasks route, saved note preview updates, formatted Markdown previews, and German layout with the viewer open. English/German translation completeness passes (4,220 keys). Existing dependency annotation and bundle-size warnings remain. Browser checks use an isolated real LegalWork server with temporary files and a stub session engine; they do not modify the user's project data or exercise model inference.
+Field type changes convert compatible values and reject conversions that would discard data. Removing an in-use selection option is rejected. Latest option edits are included when submitting with Enter. A concurrent write shows a conflict and Load latest fields rather than repeatedly submitting a stale revision.
 
-Recording integration: all 20 desktop recorder tests pass, including persistence through finalization/reopening, linking legacy recordings, multiple project links, unlinking without audio loss, unassigned global recordings and dictation exclusion. App/Electron type checks, IPC bridge check, 638 app tests, English/German translation completeness and production build pass. Browser checks use stub capture/IPC (no microphone access) to verify Home auto-linking, the global button starting without a picker or inherited project, existing-recording linking/reading/unlinking/relinking, and German layout after reload. The actual Electron app was restarted after confirming no recording was active and shows the new Home controls. Physical capture/transcription was not re-tested in this change.
+Disconnected project folders stay registered and are not recreated by bootstrap, activation or background engine/MCP startup. Home and Files explain that the user must reconnect the drive or restore the original folder, with retry actions. Restoring it retains the same project ID, files and metadata. Selecting a different replacement root is not part of this delivery.
 
-Earlier storage and interaction checks covered default/selected-folder creation, preserving existing documents, notes saved to disk, metadata defaults and persistence, task project assignment, linked-session routing, sidebar drag-and-drop and context actions, and navigation preferences. Server project/task tests passed (70 tests); desktop runtime tests passed (25 tests), including Windows path handling. English and German translation completeness and app/server/Electron type checks passed during those changes.
+## Verification
 
-The macOS Electron development app remains available for interactive review. A real Windows desktop run, remote-worker release review, JEV/OCR and cloud sync are still outstanding. On this Mac the native-module build needs `SDKROOT=/Library/Developer/CommandLineTools/SDKs/MacOSX15.5.sdk`; no system SDK setting was changed.
+Current UI checks use the actual macOS Electron development app through native controls. No browser substitute is used for final UI verification. Temporary QA projects and documents were used; no model prompt or workflow was submitted.
 
-Screenshots are local review artifacts under `output/playwright/`, excluded from source control.
+Verified in Electron:
+
+- Native default-folder and selected-folder creation, preserving an existing document; new project ordering; inline rename across Home/sidebar/Files; route persistence after reload.
+- Native Choose files moves a fixture into a server-created project's real folder; the source is removed and the destination bytes are unchanged.
+- Missing-folder startup and Home error, followed by restoring the original folder and retrying successfully.
+- Optional metadata, incompatible type conversion protection, Enter-to-save selection options and concurrent-edit recovery.
+- Note creation while Files is open, clean titles, editor opening/closing/reopening, saved content previews and horizontal access to older notes.
+- Home tasks through all 55 fixture rows across the server cursor boundary, list-only creation, context actions, shared detail viewer and workflow selection retaining its project.
+- Recording on Home without navigation, Stop recording, red-dot New Chat, default live context and dropdown opt-out; capture finalized and linked. Empty transcript setup is not rendered as an empty user message.
+- English and German layouts, native folder chooser, inline customization with correct checks and existing brand positions. Original language and navigation preferences were restored.
+
+Native drag automation could start a drag but did not complete the operating-system drop gesture. File-reference logic and existing session drag/context-menu wiring were inspected, and reference encoding is covered automatically; a physical mouse pass for Files → chat and session regrouping remains a reviewer check. A real Windows desktop run also remains a release check. These are explicit verification limits, not claims of native end-to-end success.
+
+Automated checks (run again after integrating the latest `dev`):
+
+```sh
+pnpm --filter @legalwork/app typecheck
+pnpm --filter @legalwork/app test
+pnpm --filter @legalwork/app test:i18n
+pnpm --filter @legalwork/app build
+pnpm --filter legalwork-server typecheck
+pnpm --filter legalwork-server test
+pnpm --filter legalwork-server build
+pnpm --filter @legalwork/desktop typecheck:electron
+pnpm --filter @legalwork/desktop test
+pnpm --filter @legalwork/desktop check:electron
+```
+
+Regression coverage includes selected/default folder persistence, missing-folder recovery, metadata revisions and malformed metadata preservation, task associations, recording links/finalization, file collisions and cross-volume failure safety, trusted project lookup and encoded file references. Test totals and CI results are recorded in the PR. Existing dependency-annotation and large-bundle build warnings remain. On this Mac the native build uses `SDKROOT=/Library/Developer/CommandLineTools/SDKs/MacOSX15.5.sdk`; no system SDK setting was changed.
+
+### Native evidence
+
+![Project Home with an active recording](evidence/projects/electron-home-recording.png)
+
+![German inline sidebar customization](evidence/projects/electron-customization-de.png)
+
+## Delivery boundaries
+
+Eigenwelt Sync (EIG-208), JEV/provider setup (EIG-209), Tabular Review/OCR (EIG-210), unified search and metadata filters (EIG-211), and full email remain separate deliveries. Task/project and recording/project links are currently local; synchronization must explicitly include them. Sessions must not sync unless individually shared. The final integrated sprint UX/UI pass remains EIG-214. Release is planned after milestone 2; email follows in its own sprint.

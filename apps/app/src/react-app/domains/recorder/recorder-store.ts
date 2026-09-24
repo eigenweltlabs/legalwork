@@ -222,7 +222,7 @@ type RecorderActions = {
    * no-reply message) that a growing transcript file exists to check. Returns
    * true when armed. Stops automatically when the recording ends.
    */
-  startLiveTranscriptShare: (sessionId: string, workspacePath: string, directory?: string) => Promise<boolean>;
+  startLiveTranscriptShare: (sessionId: string, workspacePath: string, directory?: string, sessionClient?: Client) => Promise<boolean>;
   stopLiveTranscriptShare: () => Promise<void>;
   setOverlayVisible: (visible: boolean) => Promise<void>;
   ask: (question: string) => Promise<void>;
@@ -1319,7 +1319,7 @@ export const useRecorderStore = create<RecorderState & RecorderActions>((set, ge
       return transcriptText(source, 100_000).trim();
     },
 
-    startLiveTranscriptShare: async (sessionId, workspacePath, directory) => {
+    startLiveTranscriptShare: async (sessionId, workspacePath, directory, sessionClient) => {
       const root = workspacePath?.trim();
       if (!root) {
         set({ error: t("recorder.context_inject_no_session") });
@@ -1340,7 +1340,7 @@ export const useRecorderStore = create<RecorderState & RecorderActions>((set, ge
 
       // Tell the agent — once, invisibly (synthetic + noReply) — that a growing
       // transcript file exists to read on demand. No repeated pasting.
-      const client = copilotContext?.getClient();
+      const client = sessionClient ?? copilotContext?.getClient();
       if (client) {
         const body = t("recorder.live_share_notice").replace("{file}", fileName);
         try {

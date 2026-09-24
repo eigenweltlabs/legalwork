@@ -13,12 +13,16 @@ import {
 import { t } from "@/i18n";
 import { toast } from "sonner";
 import { defaultAkteFields, useProjectDefaultsStore } from "./project-defaults-store";
+import { LegalworkServerError } from "@/app/lib/legalwork-server";
+import { projectErrorMessage } from "./project-errors";
+import { changeProjectFieldType, parseProjectOptions } from "./project-field-editing";
 
 export function ProjectMetadata(props: {
   details: Pick<ProjectDetails, "fields">;
   definitionsOnly?: boolean;
   onSave: (fields: ProjectField[]) => Promise<void>;
   onCancel: () => void;
+  onReload?: () => Promise<Pick<ProjectDetails, "fields">>;
 }) {
   const savedDefaults = useProjectDefaultsStore((state) => state.fields);
   const saveFieldToDefaults = useProjectDefaultsStore((state) => state.addField);
@@ -26,6 +30,8 @@ export function ProjectMetadata(props: {
   const [fields, setFields] = useState(props.details.fields);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [conflict, setConflict] = useState(false);
+  const [optionDrafts, setOptionDrafts] = useState<Record<string, string>>({});
   const change = (id: string, patch: Partial<ProjectField>) =>
     setFields((current) =>
       current.map((field) =>
@@ -33,12 +39,18 @@ export function ProjectMetadata(props: {
       ),
     );
   const save = async () => {
+    if (busy || conflict) return;
+    if (fields.some((field) => field.type === "select" && field.value !== null && field.value !== "" && !field.options?.includes(String(field.value)))) {
+      setError(t("projects.options_value_missing"));
+      return;
+    }
     setBusy(true);
     setError(null);
     try {
       await props.onSave(fields);
     } catch (error) {
-      setError(error instanceof Error ? error.message : t("projects.failed"));
+      setConflict(error instanceof LegalworkServerError && error.code === "project_changed");
+      setError(projectErrorMessage(error));
     } finally {
       setBusy(false);
     }
@@ -75,12 +87,13 @@ export function ProjectMetadata(props: {
                   value === "number" ||
                   value === "date" ||
                   value === "select"
-                )
-                  change(field.id, {
-                    type: value,
-                    value: null,
-                    options: value === "select" ? [] : undefined,
-                  });
+                ) {
+                  const next = changeProjectFieldType(field, value);
+                  if (!next) { setError(t("projects.type_preserve_value")); return; }
+                  change(field.id, next);
+                  setOptionDrafts((current) => ({ ...current, [field.id]: next.options?.join(", ") ?? "" }));
+                  setError(null);
+                }
               }}
             >
               <SelectTrigger
@@ -122,22 +135,11 @@ export function ProjectMetadata(props: {
                 <Input
                   aria-label={t("projects.options")}
                   placeholder={t("projects.options")}
-                  defaultValue={field.options?.join(", ") ?? ""}
-                  onBlur={(event) => {
-                    const options = [
-                      ...new Set(
-                        event.target.value
-                          .split(",")
-                          .map((s) => s.trim())
-                          .filter(Boolean),
-                      ),
-                    ];
-                    change(field.id, {
-                      options,
-                      value: options.includes(String(field.value))
-                        ? field.value
-                        : null,
-                    });
+                  value={optionDrafts[field.id] ?? field.options?.join(", ") ?? ""}
+                  onChange={(event) => {
+                    const draft = event.target.value;
+                    setOptionDrafts((current) => ({ ...current, [field.id]: draft }));
+                    change(field.id, { options: parseProjectOptions(draft) });
                   }}
                 />
                 {!props.definitionsOnly ? <Select
@@ -221,6 +223,21 @@ export function ProjectMetadata(props: {
           {error}
         </p>
       ) : null}
+      {conflict && props.onReload ? <div className="space-y-2">
+        <p className="text-sm text-muted-foreground">{t("projects.reload_fields_hint")}</p>
+        <Button type="button" variant="outline" disabled={busy} onClick={async () => {
+          if (!props.onReload) return;
+          setBusy(true);
+          try {
+            const latest = await props.onReload();
+            setFields(latest.fields);
+            setOptionDrafts({});
+            setConflict(false);
+            setError(null);
+          } catch (error) { setError(projectErrorMessage(error)); }
+          finally { setBusy(false); }
+        }}>{t("projects.reload_fields")}</Button>
+      </div> : null}
       <div className="flex justify-end gap-2">
         <Button
           type="button"
@@ -230,7 +247,7 @@ export function ProjectMetadata(props: {
         >
           {t("projects.cancel")}
         </Button>
-        <Button type="submit" disabled={busy}>
+        <Button type="submit" disabled={busy || conflict}>
           {busy ? t("projects.saving") : t("projects.save")}
         </Button>
       </div>

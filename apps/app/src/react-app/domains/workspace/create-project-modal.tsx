@@ -1,3 +1,4 @@
+import { projectErrorMessage } from "./project-errors";
 import { useEffect, useState } from "react";
 import { isDesktopRuntime } from "@/app/lib/runtime-env";
 import { folderNameFromPath } from "@/react-app/shell/route-workspaces";
@@ -52,7 +53,7 @@ export function CreateProjectModal(props: {
       if (path) setFolder(path);
     } catch (error) {
       setPickError(
-        error instanceof Error ? error.message : t("projects.failed"),
+        projectErrorMessage(error),
       );
     } finally {
       setPicking(false);

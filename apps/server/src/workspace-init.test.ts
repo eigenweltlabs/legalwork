@@ -16,6 +16,13 @@ async function withWorkspace(fn: (root: string) => Promise<void>) {
 }
 
 describe("ensureWorkspaceFiles", () => {
+  test("startup leaves a disconnected project folder missing", async () => {
+    await withWorkspace(async (root) => {
+      const disconnected = join(root, "Disconnected project");
+      expect(await ensureWorkspaceFiles(disconnected, "starter")).toEqual({ changed: false, reloadReasons: [] });
+      expect(await stat(disconnected).catch(() => null)).toBeNull();
+    });
+  });
   test("creates LegalWork workspace config and seeds bundled-core skills", async () => {
     await withWorkspace(async (root) => {
       const result = await ensureWorkspaceFiles(root, "starter");

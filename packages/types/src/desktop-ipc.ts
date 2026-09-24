@@ -111,6 +111,15 @@ export type WorkspaceList = {
   workspaces: WorkspaceWire[];
 };
 
+export type WorkspaceMoveFilesResult = {
+  files: Array<{
+    name: string;
+    path?: string;
+    status: "moved" | "already_here" | "failed";
+    error?: "file_only" | "changed" | "unavailable" | "failed";
+  }>;
+};
+
 export type WorkspaceExportSummary = {
   outputPath: string;
   included: number;
@@ -385,6 +394,10 @@ export type DesktopCommandMap = {
   workspaceSetSelected: { args: [workspaceId: string]; result: WorkspaceList };
   workspaceSetRuntimeActive: { args: [workspaceId: string | null]; result: WorkspaceList };
   workspaceCreate: { args: [input: WorkspaceCreateInput]; result: WorkspaceList };
+  workspaceMoveFiles: {
+    args: [input: { workspaceId: string; paths: string[] }];
+    result: WorkspaceMoveFilesResult;
+  };
   workspaceCreateRemote: { args: [input: WorkspaceCreateRemoteInput]; result: WorkspaceList };
   workspaceUpdateRemote: { args: [input: WorkspaceUpdateRemoteInput]; result: WorkspaceList };
   workspaceUpdateDisplayName: {

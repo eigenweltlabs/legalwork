@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
 import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -549,4 +549,31 @@ test("new default projects use the native host root without relocating existing 
   }
   const persisted = await readPersistedConfig(join(root, "server.json"));
   expect(workspacesFromConfig(persisted).map((workspace) => workspace.path)).toEqual([join(projectsDirectory, "Matter (2)"), join(projectsDirectory, "Matter")]);
+});
+
+
+test("missing project folders are never recreated and recover with the same identity and values", async () => {
+  const root = await createWorkspaceRoot();
+  const selected = join(root, "Selected");
+  const moved = join(root, "Disconnected");
+  await mkdir(selected);
+  const legalwork = await startLegalworkServerWithWorkspaces({ configPath: join(root, "server.json"), workspaces: [], authorizedRoots: [] });
+  const base = `http://127.0.0.1:${legalwork.server.port}`;
+  const headers = { ...hostAuth(legalwork.hostToken), Authorization: "Bearer owt_test_token", "Content-Type": "application/json" };
+  const created = await fetch(`${base}/workspaces/local`, { method: "POST", headers, body: JSON.stringify({ folderPath: selected, name: "Matter", projectFields: [{ id: "client", label: "Client", type: "text", value: null }] }) });
+  const { activeId } = await created.json();
+  const endpoint = `${base}/workspace/${activeId}/project`;
+  await rename(selected, moved);
+  const activation = await fetch(`${base}/workspaces/${activeId}/activate`, { method: "POST", headers });
+  expect(activation.status).toBe(404);
+  expect((await activation.json()).code).toBe("project_folder_unavailable");
+  const unavailable = await fetch(endpoint, { headers });
+  expect(unavailable.status).toBe(404);
+  expect((await unavailable.json()).code).toBe("project_folder_unavailable");
+  expect(await stat(selected).catch(() => null)).toBeNull();
+  await rename(moved, selected);
+  const restored = await fetch(endpoint, { headers });
+  expect(restored.status).toBe(200);
+  expect((await restored.json()).fields[0].id).toBe("client");
+  expect(await readPersistedWorkspaceIds(join(root, "server.json"))).toEqual([activeId]);
 });

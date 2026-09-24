@@ -1,3 +1,4 @@
+import { projectErrorMessage } from "./project-errors";
 import { useRef, useState } from "react";
 import { CalendarDays, Hash, ListFilter, Type } from "lucide-react";
 import type { ProjectField } from "@legalwork/types/workspace";
@@ -33,7 +34,7 @@ export function ProjectProperties({ fields, onSave, className }: {
     saving.current = true;
     setBusy(true);
     try { await onSave(field.id, value); setEditing(null); }
-    catch { toast.error(t("projects.failed")); }
+    catch (error) { toast.error(projectErrorMessage(error)); }
     finally { saving.current = false; setBusy(false); }
   };
   return <dl className={cn("space-y-1", className)}>

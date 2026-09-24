@@ -216,8 +216,10 @@ export type SessionPageProps = {
   /** When set, replaces the session main pane (keeps the sidebar). Used for the Evals screen. */
   mainView?: React.ReactNode;
   projectPage?: "home" | "tasks";
+  onRenameProject?: (name: string) => Promise<boolean>;
   projectTasksView?: React.ReactNode;
   onStartProjectRecording: () => void;
+  onCreateProjectSession?: (shareRecording: boolean) => void | Promise<void>;
   terminalOpen?: boolean;
   onTerminalOpenChange?: (open: boolean) => void;
   onSessionTabsChange?: (tabs: OpenSessionTab[]) => void;
@@ -990,13 +992,16 @@ export function SessionPage(props: SessionPageProps) {
       key={props.selectedWorkspaceId}
       client={props.legalworkServerClient}
       workspaceId={props.runtimeWorkspaceId}
-      recordingProjectId={props.selectedWorkspaceId}
+      projectId={props.selectedWorkspaceId}
+      isRemoteWorkspace={props.selectedWorkspaceDisplay.workspaceType === "remote"}
       onStartRecording={props.onStartProjectRecording}
       name={props.selectedWorkspaceDisplay.displayName || props.selectedWorkspaceDisplay.name || props.selectedWorkspaceId}
       onOpenFile={openWorkspaceFileEntry}
-      onNewSession={() => props.sidebar.onCreateChatInWorkspace(props.selectedWorkspaceId)}
+      onNewSession={(shareRecording) => props.onCreateProjectSession
+        ? props.onCreateProjectSession(shareRecording)
+        : props.sidebar.onCreateChatInWorkspace(props.selectedWorkspaceId)}
       tasksView={props.projectTasksView}
-      onRename={() => props.sidebar.onOpenRenameWorkspace(props.selectedWorkspaceId)}
+      onRename={props.onRenameProject}
     /> : <p className="p-8 text-muted-foreground">{t("projects.connecting")}</p>
   ) : props.mainView;
 
@@ -1010,6 +1015,7 @@ export function SessionPage(props: SessionPageProps) {
           client={props.legalworkServerClient}
           workspaceId={props.runtimeWorkspaceId}
           workspaceRoot={props.selectedWorkspaceRoot}
+          projectName={props.selectedWorkspaceDisplay.displayName || props.selectedWorkspaceDisplay.name}
           onOpenFile={openWorkspaceFileEntry}
           onClose={closeFileSidebar}
         />

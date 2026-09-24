@@ -25,25 +25,9 @@ import {
 import { ProjectDefaultsSection } from "./project-defaults-section";
 import { LanguageSection } from "../appearance/language-section";
 import { useShellConfig, DEFAULT_SHELL_CONFIG } from "../../../shell/shell-config";
+import { readSidebarBrandLogo } from "../../../shell/sidebar-branding";
 import { useLocal } from "@/react-app/kernel/local-provider";
 import { t } from "@/i18n";
-
-const SIDEBAR_BRAND_LOGO_MAX_BYTES = 512 * 1024;
-
-function readFileAsDataUrl(file: File): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onerror = () => reject(new Error(t("settings.customization.logo_error_read")));
-    reader.onload = () => {
-      if (typeof reader.result !== "string" || !reader.result.trim()) {
-        reject(new Error(t("settings.customization.logo_error_read")));
-        return;
-      }
-      resolve(reader.result);
-    };
-    reader.readAsDataURL(file);
-  });
-}
 
 /* ------------------------------------------------------------------ */
 /*  Main view                                                          */
@@ -60,19 +44,10 @@ export function ShellCustomizationView() {
     const file = event.currentTarget.files?.[0] ?? null;
     event.currentTarget.value = "";
     if (!file) return;
-    const mime = file.type.trim().toLowerCase();
-    if (!mime.startsWith("image/")) {
-      setBrandLogoError(t("settings.customization.logo_error_not_image"));
-      return;
-    }
-    if (file.size > SIDEBAR_BRAND_LOGO_MAX_BYTES) {
-      setBrandLogoError(t("settings.customization.logo_error_too_large"));
-      return;
-    }
     setBrandLogoError(null);
     void (async () => {
       try {
-        const dataUrl = await readFileAsDataUrl(file);
+        const dataUrl = await readSidebarBrandLogo(file);
         update({ sidebarBrandLogoDataUrl: dataUrl });
         captureAnalyticsEvent("branding_customized", {
           has_custom_name: config.sidebarBrandName.trim().length > 0,

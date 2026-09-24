@@ -82,6 +82,7 @@ export function useWorkspaceRouteState(input: UseWorkspaceRouteStateInput) {
   const [baseUrl, setBaseUrl] = useState("");
   const [token, setToken] = useState("");
   const [workspaces, setWorkspaces] = useState<RouteWorkspace[]>([]);
+  const [hasLoadedServerWorkspaces, setHasLoadedServerWorkspaces] = useState(false);
   const [workspaceOrderIds, setWorkspaceOrderIds] = useState<string[]>(() => readWorkspaceOrderIds());
   const [sessionsByWorkspaceId, setSessionsByWorkspaceId] = useState<Record<string, RouteSession[]>>({});
   const [errorsByWorkspaceId, setErrorsByWorkspaceId] = useState<Record<string, string | null>>({});
@@ -115,12 +116,12 @@ export function useWorkspaceRouteState(input: UseWorkspaceRouteStateInput) {
   const workspacesRef = useRef<RouteWorkspace[]>([]);
   const workspaceOrderIdsRef = useRef(workspaceOrderIds);
   // Remember the first-seen order too, so desktop/server refreshes cannot
-  // reshuffle folders before the user has ever dragged one. New folders append.
+  // reshuffle projects before the user has ever dragged one. New projects go first.
   useEffect(() => {
     const knownIds = new Set(workspaceOrderIdsRef.current);
     const addedIds = workspaces.map((workspace) => workspace.id).filter((id) => !knownIds.has(id));
     if (addedIds.length === 0) return;
-    const nextOrder = [...workspaceOrderIdsRef.current, ...addedIds];
+    const nextOrder = [...addedIds, ...workspaceOrderIdsRef.current];
     workspaceOrderIdsRef.current = nextOrder;
     setWorkspaceOrderIds(nextOrder);
     writeWorkspaceOrderIds(nextOrder);
@@ -340,6 +341,7 @@ export function useWorkspaceRouteState(input: UseWorkspaceRouteStateInput) {
       const { normalizedBaseUrl, resolvedToken, resolvedHostToken, hostInfo } = await resolveLegalworkConnection();
       onHostInfo(hostInfo);
       if (!normalizedBaseUrl || !resolvedToken) {
+        setHasLoadedServerWorkspaces(false);
         // Keep `localServerRef` in lockstep with the disconnected state.
         // Otherwise a previously-cached baseUrl/token would still resolve a
         // (now invalid) endpoint for any callback that consults the ref.
@@ -372,6 +374,7 @@ export function useWorkspaceRouteState(input: UseWorkspaceRouteStateInput) {
         hostToken: resolvedHostToken || undefined,
       });
       const list = await legalworkClient.listWorkspaces();
+      setHasLoadedServerWorkspaces(true);
       const nextWorkspaces = orderRouteWorkspaces(
         mergeRouteWorkspaces(list.items, desktopWorkspaces),
         workspaceOrderIdsRef.current,
@@ -463,6 +466,7 @@ export function useWorkspaceRouteState(input: UseWorkspaceRouteStateInput) {
         void loadWorkspaceSessionsInBackground(orderedWorkspaces);
       }
     } catch (error) {
+      setHasLoadedServerWorkspaces(false);
       const message = describeRouteError(error);
       console.error("[session-route] refreshRouteState failed", error);
       recordInspectorEvent("route.refresh.error", {
@@ -649,7 +653,10 @@ export function useWorkspaceRouteState(input: UseWorkspaceRouteStateInput) {
   // restore the last session the user opened in the active workspace.
   useEffect(() => {
     if (loading) return;
-    if (routeWorkspaceId && workspaces.length > 0 && !workspaces.some((workspace) => workspace.id === routeWorkspaceId)) {
+    // The desktop registry can omit projects created through the server. Do not
+    // replace a valid deep link while booting or using a stale offline list.
+    if (routeWorkspaceId && !workspaces.some((workspace) => workspace.id === routeWorkspaceId)) {
+      if (!hasLoadedServerWorkspaces) return;
       const fallbackWorkspaceId = workspaces.some((workspace) => workspace.id === legacySelectedWorkspaceId)
         ? legacySelectedWorkspaceId
         : workspaces[0]?.id || "";
@@ -671,6 +678,7 @@ export function useWorkspaceRouteState(input: UseWorkspaceRouteStateInput) {
     navigateToWorkspaceSession(selectedWorkspaceId, remembered, { replace: true });
   }, [
     loading,
+    hasLoadedServerWorkspaces,
     legacySelectedWorkspaceId,
     navigateToWorkspaceSession,
     routeWorkspaceId,

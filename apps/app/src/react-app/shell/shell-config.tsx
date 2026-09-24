@@ -5,7 +5,12 @@ import { createContext, useCallback, use, useMemo, useState, type ReactNode } fr
 /*  Types                                                              */
 /* ------------------------------------------------------------------ */
 
+export type ShellNavKey = "navNewChat" | "navTasks" | "navWorkflows" | "navRecorder" | "navEvaluations";
+
+const DEFAULT_NAV_ORDER: ShellNavKey[] = ["navNewChat", "navTasks", "navWorkflows", "navRecorder", "navEvaluations"];
+
 export type ShellConfig = {
+  navOrder: ShellNavKey[];
   navNewChat: boolean;
   navTasks: boolean;
   navWorkflows: boolean;
@@ -44,6 +49,7 @@ export type ShellConfig = {
 /* ------------------------------------------------------------------ */
 
 export const DEFAULT_SHELL_CONFIG: ShellConfig = {
+  navOrder: DEFAULT_NAV_ORDER,
   navNewChat: true,
   navTasks: true,
   navWorkflows: true,
@@ -71,6 +77,13 @@ export const DEFAULT_SHELL_CONFIG: ShellConfig = {
 export const SHELL_CONFIG_STORAGE_KEY = "legalwork.shell-config";
 const STORAGE_KEY = SHELL_CONFIG_STORAGE_KEY;
 
+function readNavOrder(value: unknown): ShellNavKey[] {
+  const saved = Array.isArray(value)
+    ? value.filter((key): key is ShellNavKey => DEFAULT_NAV_ORDER.some((item) => item === key))
+    : [];
+  return [...new Set([...saved, ...DEFAULT_NAV_ORDER])];
+}
+
 function readShellConfig(): ShellConfig {
   if (typeof window === "undefined") return DEFAULT_SHELL_CONFIG;
   try {
@@ -80,6 +93,7 @@ function readShellConfig(): ShellConfig {
     const next = { ...DEFAULT_SHELL_CONFIG, ...parsed };
     return {
       ...next,
+      navOrder: readNavOrder(next.navOrder),
       // The notifications bell has no UI toggle anymore, so force it off even if
       // an older persisted config had it enabled.
       notifications: false,

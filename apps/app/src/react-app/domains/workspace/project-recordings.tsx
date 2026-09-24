@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { FileAudio, Link2, Loader2 } from "lucide-react";
+import { FileAudio, Link2, Loader2, Square } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -10,9 +10,10 @@ import { currentLocale, t } from "@/i18n";
 import { RecordingDetailDialog, RecordingRow } from "../recorder/recorder-pane";
 import { useRecorderStore } from "../recorder/recorder-store";
 
-export function ProjectRecordings(props: { projectId: string; onRecord: () => void }) {
+export function ProjectRecordings(props: { projectId: string }) {
   const recordings = useRecorderStore((state) => state.recordings);
   const active = useRecorderStore((state) => state.recording);
+  const finalizing = useRecorderStore((state) => state.finalizing);
   const [linkOpen, setLinkOpen] = useState(false);
   const [search, setSearch] = useState("");
   const [loading, setLoading] = useState(true);
@@ -23,7 +24,7 @@ export function ProjectRecordings(props: { projectId: string; onRecord: () => vo
 
   useEffect(() => {
     if (!desktop) { setLoading(false); return; }
-    void useRecorderStore.getState().refreshRecordings().finally(() => setLoading(false));
+    void useRecorderStore.getState().refreshRecordings().catch(() => toast.error(t("projects.failed"))).finally(() => setLoading(false));
   }, [desktop]);
 
   const setLink = async (id: string, value: boolean) => {
@@ -31,8 +32,8 @@ export function ProjectRecordings(props: { projectId: string; onRecord: () => vo
     try {
       await useRecorderStore.getState().setRecordingProject(id, props.projectId, value);
       if (value) setLinkOpen(false);
-    } catch (error) {
-      toast.error(t("recorder.link_failed"), { description: error instanceof Error ? error.message : undefined });
+    } catch {
+      toast.error(t("recorder.link_failed"));
     } finally {
       setPendingId(null);
     }
@@ -43,7 +44,11 @@ export function ProjectRecordings(props: { projectId: string; onRecord: () => vo
       <Button variant="ghost" size="icon-sm" disabled={!desktop} aria-label={t("recorder.link_existing")} title={t("recorder.link_existing")} onClick={() => { setSearch(""); setLinkOpen(true); }}><Link2 className="size-4" /></Button>
     } />
     <div className="mt-3 space-y-2">
-      {active?.projectIds?.includes(props.projectId) ? <Button variant="outline" className="h-auto w-full justify-start gap-3 rounded-xl px-4 py-3" onClick={props.onRecord}><span className="size-2 rounded-full bg-destructive" /><span className="min-w-0 flex-1 truncate text-left">{active.title}</span><span className="text-xs text-muted-foreground">{t("stealth.recording_locally")}</span></Button> : null}
+      {active?.projectIds?.includes(props.projectId) ? <Surface className="flex flex-wrap items-center gap-3 rounded-xl px-4 py-3">
+        <span className="size-2 rounded-full bg-red-9" />
+        <span className="min-w-0 flex-1 truncate text-sm">{active.title}</span>
+        <Button variant="outline" size="sm" disabled={finalizing} onClick={() => { void useRecorderStore.getState().stopRecording().catch(() => toast.error(t("projects.failed"))); }}><Square className="size-3 text-red-9" fill="currentColor" />{t(finalizing ? "recorder.finishing" : "recorder.stop_recording")}</Button>
+      </Surface> : null}
       {linked.map((recording) => <RecordingRow key={recording.id} recording={recording} workspaceTargets={[]} busy={pendingId !== null} onUnlink={() => { void setLink(recording.id, false); }} onOpen={() => {
         void useRecorderStore.getState().openRecording(recording.id).catch(() => toast.error(t("projects.failed")));
       }} />)}

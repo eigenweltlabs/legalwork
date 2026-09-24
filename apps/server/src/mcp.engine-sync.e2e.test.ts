@@ -451,6 +451,7 @@ describe("runtime MCP engine sync", () => {
         workspaces: [
           { id: "ws_1", name: "A", path: rootA, preset: "starter", workspaceType: "local", baseUrl },
           { id: "ws_2", name: "B", path: rootB, preset: "starter", workspaceType: "local", baseUrl },
+          { id: "ws_offline", name: "Disconnected", path: join(rootB, "missing"), preset: "starter", workspaceType: "local", baseUrl },
         ],
         authorizedRoots: [rootA, rootB],
         readOnly: false,
@@ -463,6 +464,7 @@ describe("runtime MCP engine sync", () => {
 
       await writeRuntimeOpencodeConfig(config, "ws_1", (current) => ({ ...current, mcp: { posthog: POSTHOG_CONFIG } }));
       await writeRuntimeOpencodeConfig(config, "ws_2", (current) => ({ ...current, mcp: { stripe: POSTHOG_CONFIG } }));
+      await writeRuntimeOpencodeConfig(config, "ws_offline", (current) => ({ ...current, mcp: { offline: POSTHOG_CONFIG } }));
 
       await syncAllWorkspacesRuntimeMcpToEngine(config);
 
@@ -470,6 +472,7 @@ describe("runtime MCP engine sync", () => {
       const byName = new Map(syncs.map((entry) => [(entry.body as { name?: string } | null)?.name, entry.search]));
       expect(byName.get("posthog")).toContain(`directory=${encodeURIComponent(rootA)}`);
       expect(byName.get("stripe")).toContain(`directory=${encodeURIComponent(rootB)}`);
+      expect(mock.requests.some((entry) => entry.search.includes(encodeURIComponent(join(rootB, "missing"))))).toBe(false);
     } finally {
       if (previousDb === undefined) delete process.env.LEGALWORK_RUNTIME_DB;
       else process.env.LEGALWORK_RUNTIME_DB = previousDb;

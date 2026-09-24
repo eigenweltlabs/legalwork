@@ -1,4 +1,4 @@
-const { contextBridge, ipcRenderer } = require("electron");
+const { contextBridge, ipcRenderer, webUtils } = require("electron");
 
 const NATIVE_DEEP_LINK_EVENT = "legalwork:deep-link-native";
 const NATIVE_MENU_OPEN_SETTINGS_EVENT = "legalwork:native-menu:open-settings";
@@ -53,6 +53,13 @@ function installMenuOverlayDismissListeners() {
 contextBridge.exposeInMainWorld("__LEGALWORK_ELECTRON__", {
   invokeDesktop(command, ...args) {
     return ipcRenderer.invoke("legalwork:desktop", command, ...args);
+  },
+  files: {
+    moveIntoProject(workspaceId, files) {
+      const paths = files.map((file) => webUtils.getPathForFile(file));
+      if (paths.some((filePath) => !filePath)) return Promise.reject(new Error("Native files are required"));
+      return ipcRenderer.invoke("legalwork:desktop", "workspaceMoveFiles", { workspaceId, paths });
+    },
   },
   /** Subscribe to content-free error signals relayed from the main process. */
   onAppError(callback) {

@@ -491,6 +491,9 @@ export function registerWorkspaceRoutes(options: RegisterWorkspaceRoutesOptions)
 
   addRoute(routes, "POST", "/workspaces/:id/activate", "host", async (ctx) => {
     const workspace = await resolveWorkspaceForRegistry(ctx.params.id);
+    // Engine activation can create its state directory. Validate the original
+    // local folder first, so a disconnected project is not replaced by an empty one.
+    if (workspace.workspaceType === "local") await resolveWorkspace(config, workspace.id);
     const queryPersist = parseOptionalBoolean(ctx.url.searchParams.get("persist"), "persist");
     const body = queryPersist === undefined ? await readOptionalJsonBody(ctx.request) : {};
     const persist = queryPersist ?? (body.persist === true);

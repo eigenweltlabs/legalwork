@@ -1,3 +1,4 @@
+import { projectErrorMessage } from "../domains/workspace/project-errors";
 /** @jsxImportSource react */
 import {
   useCallback,
@@ -356,6 +357,7 @@ export function SessionRoute() {
   const [showExtensions, setShowExtensions] = useState(false);
   const [showRecorder, setShowRecorder] = useState(false);
   const [recorderProject, setRecorderProject] = useState<{ id: string; name: string } | null>(null);
+  const recordingSessionStarting = useRef(false);
   const [showTasks, setShowTasks] = useState(false);
   // A task a notification asked to show: the pane opens on it (see
   // TASKS_PANE_OPEN_EVENT); a null id opens the task list. Chat chips open
@@ -1572,31 +1574,40 @@ export function SessionRoute() {
     );
   }, [workspaces]);
 
-  const handleSaveRenameWorkspace = useCallback(async () => {
-    if (!renameWorkspaceId) return;
-    const trimmed = renameWorkspaceTitle.trim();
-    if (!trimmed) return;
-    setRenameWorkspaceBusy(true);
+  const handleRenameWorkspace = useCallback(async (workspaceId: string, title: string) => {
+    const trimmed = title.trim();
+    if (!trimmed) return false;
     try {
       if (!client) {
         toast.error(t("session_route.rename_server_unavailable"));
-        return;
+        return false;
       }
-      await client.updateWorkspaceDisplayName(renameWorkspaceId, trimmed);
-      setWorkspaces((current) => current.map((workspace) => workspace.id === renameWorkspaceId
+      await client.updateWorkspaceDisplayName(workspaceId, trimmed);
+      setWorkspaces((current) => current.map((workspace) => workspace.id === workspaceId
         ? { ...workspace, displayName: trimmed, displayNameResolved: trimmed, name: trimmed }
         : workspace));
-      setRenameWorkspaceId(null);
-      setRenameWorkspaceTitle("");
       await refreshRouteState();
+      return true;
     } catch (error) {
       toast.error(t("session_route.rename_failed"), {
         description: describeRouteError(error),
       });
+      return false;
+    }
+  }, [client, refreshRouteState, setWorkspaces]);
+
+  const handleSaveRenameWorkspace = useCallback(async () => {
+    if (!renameWorkspaceId || !renameWorkspaceTitle.trim()) return;
+    setRenameWorkspaceBusy(true);
+    try {
+      if (await handleRenameWorkspace(renameWorkspaceId, renameWorkspaceTitle)) {
+        setRenameWorkspaceId(null);
+        setRenameWorkspaceTitle("");
+      }
     } finally {
       setRenameWorkspaceBusy(false);
     }
-  }, [client, refreshRouteState, renameWorkspaceId, renameWorkspaceTitle, setWorkspaces]);
+  }, [handleRenameWorkspace, renameWorkspaceId, renameWorkspaceTitle]);
 
   const handleRevealWorkspace = useCallback(async (workspaceId: string) => {
     const workspace = workspaces.find((item) => item.id === workspaceId);
@@ -1638,7 +1649,7 @@ export function SessionRoute() {
   );
 
 
-  const handleCreateChatInWorkspace = useCallback(async (workspaceId: string) => {
+  const handleCreateChatInWorkspace = useCallback(async (workspaceId: string, options?: { shareRecordingId: string }) => {
     const workspace = workspaces.find((item) => item.id === workspaceId);
     if (
       !workspace ||
@@ -1681,6 +1692,16 @@ export function SessionRoute() {
         sessionsByWorkspaceIdRef.current = next;
         return next;
       });
+      const recorder = useRecorderStore.getState();
+      if (options?.shareRecordingId && recorder.recording?.id === options.shareRecordingId) {
+        const shared = await recorder.startLiveTranscriptShare(
+          session.id,
+          workspace.path?.trim() || "",
+          workspace.path?.trim() || undefined,
+          workspaceClient,
+        );
+        if (!shared) toast.error(useRecorderStore.getState().error || t("recorder.live_transcript_failed"));
+      }
       navigateToWorkspaceSession(workspaceId, session.id);
       focusPromptSoon();
       void refreshRouteState();
@@ -1692,7 +1713,7 @@ export function SessionRoute() {
         description: message,
         action: {
           label: "Retry",
-          onClick: () => void handleCreateChatInWorkspace(workspaceId),
+          onClick: () => void handleCreateChatInWorkspace(workspaceId, options),
         },
         duration: Infinity,
       });
@@ -2104,7 +2125,7 @@ export function SessionRoute() {
       navigate(workspaceProjectRoute(id));
       captureAnalyticsEvent("workspace_created", { surface: analyticsSurface() });
     } catch (error) {
-      setCreateWorkspaceError(describeWorkspaceCreateError(error));
+      setCreateWorkspaceError(projectErrorMessage(error, true));
     } finally { setCreateWorkspaceBusy(false); }
   };
 
@@ -2302,21 +2323,60 @@ export function SessionRoute() {
         onClose: () => sessionProviderAuthStore.closeProviderAuthModal(),
       } : null}
       projectPage={(location.pathname.endsWith("/project") || location.pathname.endsWith("/tasks")) && !showWorkflows && !showExtensions && !showEvals && !showTasks && !showRecorder ? location.pathname.endsWith("/tasks") ? "tasks" : "home" : undefined}
+      onRenameProject={(name) => handleRenameWorkspace(selectedWorkspaceId, name)}
+      onCreateProjectSession={async (shareRecording) => {
+        if (recordingSessionStarting.current) return;
+        recordingSessionStarting.current = true;
+        const recorder = useRecorderStore.getState();
+        const recording = recorder.recording;
+        try {
+          await handleCreateChatInWorkspace(selectedWorkspaceId,
+            shareRecording && recording && recording.id !== recorder.dictationRecordingId && !recorder.finalizing
+              ? { shareRecordingId: recording.id }
+              : undefined,
+          );
+        } finally { recordingSessionStarting.current = false; }
+      }}
       projectTasksView={
         <TasksPane embedded={location.pathname.endsWith("/project")} onViewAll={() => navigate(workspaceTasksRoute(selectedWorkspaceId))} client={selectedWorkspaceEndpoint?.client ?? client} workspaceId={selectedWorkspaceEndpoint?.workspaceId ?? selectedWorkspaceId} projectId={selectedWorkspaceEndpoint?.workspaceId ?? selectedWorkspaceId} detailMode="panel" baseUrl={baseUrl} token={token} workspaces={sidebarWorkspaces} defaultModel={local.prefs.defaultModel} onOpenSession={(workspaceId, sessionId) => navigateToWorkspaceSession(workspaceId, sessionId)} />
       }
       onStartProjectRecording={() => {
-        showRecorderPane();
         const recorder = useRecorderStore.getState();
-        if (recorder.recording || recorder.starting) return;
+        if (recorder.recording) {
+          void recorder.stopRecording().then(() => {
+            const error = useRecorderStore.getState().error;
+            if (error) toast.error(error);
+          });
+          return;
+        }
+        if (recorder.starting || recorder.importing) return;
         const project = { id: selectedWorkspaceId, name: selectedWorkspace?.displayNameResolved || selectedWorkspaceId };
-        setRecorderProject(project);
-        if (!isElectronRuntime()) return;
-        void recorder.init().then(() => {
+        const setupAction = {
+          label: t("recorder.open"),
+          onClick: () => {
+            showRecorderPane();
+            setRecorderProject(project);
+          },
+        };
+        if (!isElectronRuntime()) {
+          toast.info(t("recorder.desktop_required_body"));
+          return;
+        }
+        void recorder.init().then(async () => {
           const ready = useRecorderStore.getState();
-          if (ready.bootstrap?.models.some((model) => model.id === ready.modelId && model.state === "installed")) {
-            void ready.startRecording(undefined, { projectId: project.id });
+          if (!ready.bootstrap?.models.some((model) => model.id === ready.modelId && model.state === "installed")) {
+            toast.info(t("recorder.install_model_first"), { action: setupAction });
+            return;
           }
+          await ready.startRecording(undefined, { projectId: project.id });
+          const started = useRecorderStore.getState();
+          if (started.permissionsNeeded.length) {
+            toast.info(t("recorder.setup_subtitle_flow"), { action: setupAction });
+          } else if (started.error) {
+            toast.error(started.error);
+          }
+        }).catch(() => {
+          toast.error(t("recorder.transcriber_start_failed"));
         });
       }}
       mainView={

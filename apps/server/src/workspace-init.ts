@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { basename, dirname, join } from "node:path";
-import { readFile, writeFile } from "node:fs/promises";
+import { readFile, stat, writeFile } from "node:fs/promises";
 
 import { ensureDir, exists } from "./utils.js";
 import { ApiError } from "./errors.js";
@@ -107,7 +107,12 @@ export async function ensureWorkspaceFiles(workspaceRoot: string, presetInput: s
   if (!workspaceRoot.trim()) {
     throw new ApiError(400, "invalid_workspace_path", "workspace path is required");
   }
-  await ensureDir(workspaceRoot);
+  // Creation explicitly creates the root before calling us. At startup an
+  // existing registered folder may be disconnected: keep its registration,
+  // but never recreate it and make missing documents look like an empty project.
+  if (!(await stat(workspaceRoot).catch(() => null))?.isDirectory()) {
+    return { changed: false, reloadReasons: [] };
+  }
   // Before anything writes into .opencode: a stray file of that name makes the
   // engine's instance bootstrap throw EEXIST, which 500s every route for this
   // workspace (issue #62).

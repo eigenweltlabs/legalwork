@@ -1,3 +1,4 @@
+import { projectErrorMessage } from "./project-errors";
 import { useState } from "react";
 import type { LegalworkServerClient } from "@/app/lib/legalwork-server";
 import { Button } from "@/components/ui/button";
@@ -48,7 +49,7 @@ export function ProjectNoteDialog(props: {
       props.onSaved();
       props.onClose();
     } catch (error) {
-      setError(error instanceof Error ? error.message : t("projects.failed"));
+      setError(projectErrorMessage(error));
     } finally {
       setBusy(false);
     }

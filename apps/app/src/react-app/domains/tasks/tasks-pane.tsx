@@ -17,9 +17,8 @@
  * Deliberately small otherwise: no sub-tasks, labels, cycles, saved views or
  * drag ordering; this is a queue to work through, not a project tracker.
  *
- * The surface is global (there is no workspace-scoped route) because tasks
- * are the machine's while workspaces are folders on it. A folder only enters
- * the picture when a task is actually run locally.
+ * The shared surface also renders a project's filtered list, either on its
+ * Tasks page or embedded in Home. Project links do not duplicate task data.
  */
 import { useEffect, useMemo, useState } from "react";
 import {
@@ -66,6 +65,7 @@ import type {
 import type { ModelRef } from "@/app/types";
 import { t } from "@/i18n";
 import { cn } from "@/lib/utils";
+import { projectErrorMessage } from "../workspace/project-errors";
 import type { RouteWorkspace } from "@/react-app/shell/route-workspaces";
 import {
   StartWorkflowDialog,
@@ -542,7 +542,7 @@ export function TasksPane(props: TasksPaneProps) {
             loading={tasksQuery.isLoading}
             error={
               tasksQuery.error && (!props.embedded || !tasksQuery.data)
-                ? tasksQuery.error instanceof Error
+                ? props.projectId ? projectErrorMessage(tasksQuery.error) : tasksQuery.error instanceof Error
                   ? tasksQuery.error.message
                   : t("tasks.load_failed")
                 : null

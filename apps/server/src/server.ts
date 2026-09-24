@@ -1,5 +1,5 @@
 import { existsSync } from "node:fs";
-import { lstat, mkdir, readFile, writeFile, rm } from "node:fs/promises";
+import { lstat, mkdir, readFile, writeFile, rm, stat } from "node:fs/promises";
 import { homedir, hostname } from "node:os";
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { LEGALMEMORY_EXPORT_DIR, safeExportFilename, safeExportRelativePath } from "./legalmemory-export.js";
@@ -4156,6 +4156,12 @@ async function resolveWorkspace(config: ServerConfig, id: string): Promise<Works
     throw new ApiError(404, "workspace_not_found", "Workspace not found");
   }
   const resolvedWorkspace = resolve(workspace.path);
+  // A disconnected/moved project must not be silently recreated by bootstrap.
+  try {
+    if (!(await stat(resolvedWorkspace)).isDirectory()) throw new Error("Not a directory");
+  } catch {
+    throw new ApiError(404, "project_folder_unavailable", "Reconnect the project drive or restore its folder to its original location, then retry.");
+  }
   const authorized = await isAuthorizedRoot(resolvedWorkspace, config.authorizedRoots);
   if (!authorized) {
     throw new ApiError(403, "workspace_unauthorized", "Workspace is not authorized");
@@ -4575,6 +4581,7 @@ async function syncRuntimeMcpToOpencodeEngine(
   workspace: WorkspaceInfo,
   onlyNames?: string[],
 ): Promise<void> {
+  if (await localWorkspaceUnavailable(workspace)) return;
   const connection = resolveWorkspaceOpencodeConnection(config, workspace);
   const baseUrl = connection.baseUrl?.trim() ?? "";
   if (!baseUrl) return;
@@ -4692,6 +4699,9 @@ export function engineMcpSyncState(workspaceId: string): EngineMcpSyncState | nu
 // something re-syncs them. Best-effort.
 export async function syncAllWorkspacesRuntimeMcpToEngine(config: ServerConfig): Promise<void> {
   for (const workspace of config.workspaces) {
+    // Constructing an engine instance runs plugins that create .opencode.
+    // A disconnected folder must stay missing until the user restores it.
+    if (await localWorkspaceUnavailable(workspace)) continue;
     // Right after start the engine is still building instances; registering
     // into a half-built one is recorded as a failure the UI then shows.
     const connection = resolveWorkspaceOpencodeConnection(config, workspace);
@@ -4700,6 +4710,10 @@ export async function syncAllWorkspacesRuntimeMcpToEngine(config: ServerConfig):
     }
     await syncRuntimeMcpToOpencodeEngine(config, workspace).catch(() => undefined);
   }
+}
+
+async function localWorkspaceUnavailable(workspace: WorkspaceInfo): Promise<boolean> {
+  return workspace.workspaceType !== "remote" && !(await stat(workspace.path).catch(() => null))?.isDirectory();
 }
 
 function parseMcpScope(value: unknown): McpScope {
@@ -4754,6 +4768,7 @@ async function disconnectMcpFromOpencodeEngine(
   workspace: WorkspaceInfo,
   name: string,
 ): Promise<void> {
+  if (await localWorkspaceUnavailable(workspace)) return;
   const connection = resolveWorkspaceOpencodeConnection(config, workspace);
   const baseUrl = connection.baseUrl?.trim() ?? "";
   if (!baseUrl) return;
