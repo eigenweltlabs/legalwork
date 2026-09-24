@@ -5,8 +5,8 @@ import type { WorkspaceConnectionState } from "../../../../app/types";
 export type SidebarContextValue = {
   selectedWorkspaceId: string;
   selectedSessionId: string | null;
-  activeProjectFeature: "home" | "tasks" | "files" | null;
-  onOpenProjectTab: (workspaceId: string, tab: "home" | "tasks") => Promise<void>;
+  activeProjectFeature: "home" | "tasks" | "sessions" | null;
+  onOpenProjectTab: (workspaceId: string, tab: "home" | "tasks" | "sessions") => Promise<void>;
   onOpenProjectFiles: (workspaceId: string) => void;
   developerMode: boolean;
   showSessionActions?: boolean;

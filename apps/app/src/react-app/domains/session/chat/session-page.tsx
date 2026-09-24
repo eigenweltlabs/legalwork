@@ -1045,7 +1045,6 @@ export function SessionPage(props: SessionPageProps) {
           selectedWorkspaceId={props.sidebar.selectedWorkspaceId}
           developerMode={props.sidebar.developerMode}
           selectedSessionId={props.sidebar.selectedSessionId}
-          projectFilesOpen={filesRailActive && !props.sidebar.activeNav}
           onOpenProjectFiles={(workspaceId) => {
             if (workspaceId === props.selectedWorkspaceId && !props.mainView) {
               setFileSidebarState(panelStateSessionId, "files");

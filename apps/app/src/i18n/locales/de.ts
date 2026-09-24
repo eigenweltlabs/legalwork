@@ -216,7 +216,7 @@ const de = {
   "projects.edit": "Bearbeiten",
   "projects.no_metadata": "Fügen Sie eigene Felder hinzu, etwa Aktenzeichen, Mandant oder Frist.",
   "projects.metadata_hint": "Konfigurieren Sie Felder für dieses Projekt: Freitext, Zahl, Datum oder Auswahl.",
-  "projects.sessions": "Agenten-Sessions",
+  "projects.sessions": "Sessions",
   "projects.new_chat": "Neuer Chat",
   "projects.no_sessions": "Starten Sie einen Chat, um mit einem Agenten an diesem Projekt zu arbeiten.",
   "projects.link_task_hint": "Wählen Sie eine unverknüpfte Aufgabe. Ändern Sie für einen Projektwechsel die Zuordnung unter Aufgaben.",

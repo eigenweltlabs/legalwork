@@ -59,4 +59,10 @@ Validation of this refinement: 634 app tests and 18 targeted project storage/API
 
 ## Project sidebar hierarchy
 
-All expanded project content shares one inset, with a quiet vertical rule linking it to the project heading. Home / Tabular Review / Tasks / Files sit together on a subtle themed background; the active feature has its own surface. Sessions starts beneath that group with a small section label and a create-group icon. Session groups, rows, archives and Show more stay inside the same project inset. Long feature labels wrap in narrow sidebars. English/German visual checks and the existing group/show-more interactions passed.
+All expanded project content shares one inset, with a quiet vertical rule linking it to the project heading. Home / Tabular Review / Tasks / Files / Sessions sit together on a subtle themed background; the active feature follows the main view. Opening the Files panel does not change that highlight. Clicking Sessions opens its page and expands a compact list inside the same shaded menu, with a nested guide line; clicking it again collapses the list. Switching to Home or Tasks hides the list. Create Group is a small icon beside Sessions, visible on hover or keyboard focus. Session groups, rows, archives and Show more remain available. Long feature labels wrap in narrow sidebars. The label is “Sessions” in both English and German.
+
+## Session interaction restoration
+
+The Sessions table reuses the sidebar's right-click menu, including pinning, renaming, moving to groups, archiving and deletion. Root sessions support native drag reordering with an insertion indicator. Group filter buttons accept drops to move sessions into a group or back to No group. Dropping beside another row adopts its group. The persisted order retains sessions hidden by search/group filters; children stay with their root and pinned sessions remain first. Dragging between projects is rejected.
+
+Validation: 637 app tests, app type check and production build passed (existing dependency/bundle-size warnings remain). Browser checks cover actual mouse reordering, grouping/ungrouping, order after reload, right-click opening Rename, sidebar expansion/collapse and active Home/Tasks/Sessions while Files is open. Tests use the isolated fixture, with no edits to the user's real sessions.

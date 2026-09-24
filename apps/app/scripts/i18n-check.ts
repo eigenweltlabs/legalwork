@@ -51,6 +51,7 @@ const GERMAN_KEEPS_ENGLISH = new Set<string>([
   "recorder.tier_premium_name", "recorder.tier_premium_locked", "recorder.tier_max_name",
   "skills.cloud_org_fallback", "mcp.quick_connect_featured",
   // Professional terms LegalWork deliberately leaves untranslated
+  "projects.sessions",
   "composer.agent_label", "composer.agents_label", "composer.mcps_label", "composer.skill_source",
   "composer.app_kind", "session.permission_detail_agent", "session.permission_detail_tool",
   "session.permission_detail_diff", "session.permission_detail_url", "session.doom_loop_tool_label",
