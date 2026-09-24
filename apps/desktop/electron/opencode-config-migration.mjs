@@ -33,15 +33,12 @@ function mergeUniqueArray(previous, next) {
   })];
 }
 
-function mergeValues(previous, next, keys = []) {
-  if (Array.isArray(previous) && Array.isArray(next) && ADDITIVE_ARRAYS.has(keys.join("."))) {
-    return mergeUniqueArray(previous, next);
-  }
+function mergeValues(previous, next) {
   if (!isObject(previous) || !isObject(next)) return next;
   const result = Object.assign(Object.create(null), previous);
   for (const [key, value] of Object.entries(next)) {
     Object.defineProperty(result, key, {
-      value: Object.hasOwn(result, key) ? mergeValues(result[key], value, [...keys, key]) : value,
+      value: Object.hasOwn(result, key) ? mergeValues(result[key], value) : value,
       enumerable: true,
       configurable: true,
       writable: true,

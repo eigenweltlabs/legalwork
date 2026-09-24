@@ -84,21 +84,26 @@ test("preserves working native config and imports non-conflicting settings and s
   });
 });
 
-test("combines installed plugins, instructions, and custom skill sources from both config roots", async () => {
+test("combines effective arrays across roots without reactivating overridden entries within a root", async () => {
   await fixture(async ({ source, target }) => {
     await file(source, "plugins/legacy.ts", "export default async () => ({});\n");
     await file(source, "instructions/legacy.md", "Legacy instructions.\n");
     await file(target, "plugins/native.ts", "export default async () => ({});\n");
     await file(target, "instructions/native.md", "Native instructions.\n");
     await file(source, "opencode.json", JSON.stringify({
-      plugin: ["./plugins/legacy.ts"],
-      instructions: ["instructions/legacy.md"],
-      skills: { paths: ["skills/legacy"], urls: ["https://legacy.test/skills"] },
+      plugin: ["overridden-legacy-plugin"],
+      instructions: ["overridden-legacy.md"],
+      skills: { paths: ["skills/overridden-legacy"], urls: ["https://overridden-legacy.test/skills"] },
     }));
     await file(source, "opencode.jsonc", JSON.stringify({
       plugin: ["./plugins/legacy.ts", ["legacy-package", { mode: "test" }]],
       instructions: ["instructions/legacy.md"],
-      skills: { paths: ["skills/other"] },
+      skills: { paths: ["skills/legacy"], urls: ["https://legacy.test/skills"] },
+    }));
+    await file(target, "opencode.json", JSON.stringify({
+      plugin: ["overridden-native-plugin"],
+      instructions: ["overridden-native.md"],
+      skills: { paths: ["skills/overridden-native"], urls: ["https://overridden-native.test/skills"] },
     }));
     await file(target, "opencode.jsonc", JSON.stringify({
       plugin: ["./plugins/native.ts"],
@@ -112,8 +117,9 @@ test("combines installed plugins, instructions, and custom skill sources from bo
     const config = parse(await readFile(path.join(target, "opencode.jsonc"), "utf8"));
     assert.deepEqual(config.plugin, ["./plugins/native.ts", "./plugins/legacy.ts", ["legacy-package", { mode: "test" }]]);
     assert.deepEqual(config.instructions, ["instructions/native.md", "instructions/legacy.md"]);
-    assert.deepEqual(config.skills.paths, ["skills/native", "skills/legacy", "skills/other"]);
+    assert.deepEqual(config.skills.paths, ["skills/native", "skills/legacy"]);
     assert.deepEqual(config.skills.urls, ["https://native.test/skills", "https://legacy.test/skills"]);
+    assert.deepEqual(parse(await readFile(path.join(target, "opencode.json"), "utf8")).plugin, ["overridden-native-plugin"]);
     assert.equal(await readFile(path.join(target, "plugins/legacy.ts"), "utf8"), "export default async () => ({});\n");
     assert.equal(await readFile(path.join(target, "instructions/legacy.md"), "utf8"), "Legacy instructions.\n");
   });
@@ -162,14 +168,17 @@ test("leaves old SQLite data in AppData while copying other config assets", asyn
 
 test("combines multiple legacy config files when the native root has none", async () => {
   await fixture(async ({ source, target }) => {
-    await file(source, "opencode.json", '{"mcp":{"firm":{"type":"remote","url":"https://firm.test"}},"model":"provider/old"}\n');
-    await file(source, "opencode.jsonc", '{\n  // Higher-priority legacy setting\n  "model": "provider/new",\n  "instructions": ["AGENTS.md"]\n}\n');
+    await file(source, "opencode.json", '{"mcp":{"firm":{"type":"remote","url":"https://firm.test"}},"model":"provider/old","plugin":["overridden-plugin"],"instructions":["overridden.md"],"skills":{"paths":["skills/overridden"],"urls":["https://overridden.test/skills"]}}\n');
+    await file(source, "opencode.jsonc", '{\n  // Higher-priority legacy setting\n  "model": "provider/new",\n  "plugin": ["active-plugin"],\n  "instructions": ["AGENTS.md"],\n  "skills": {"paths": ["skills/active"], "urls": ["https://active.test/skills"]}\n}\n');
 
     const result = await migrateLegacyWindowsOpenCodeConfig(source, target);
     assert.equal(result.failed.length, 0);
     const config = parse(await readFile(path.join(target, "opencode.jsonc"), "utf8"));
     assert.equal(config.model, "provider/new");
+    assert.deepEqual(config.plugin, ["active-plugin"]);
     assert.deepEqual(config.instructions, ["AGENTS.md"]);
+    assert.deepEqual(config.skills.paths, ["skills/active"]);
+    assert.deepEqual(config.skills.urls, ["https://active.test/skills"]);
     assert.ok(config.mcp.firm);
     assert.deepEqual((await readdir(target)).filter((name) => name === "opencode.json"), []);
   });
