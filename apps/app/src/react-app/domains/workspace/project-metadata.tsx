@@ -27,6 +27,12 @@ export function ProjectMetadata(props: {
   const savedDefaults = useProjectDefaultsStore((state) => state.fields);
   const saveFieldToDefaults = useProjectDefaultsStore((state) => state.addField);
   const defaults = savedDefaults ?? defaultAkteFields();
+  const typeLabels = {
+    text: t("projects.type_text"),
+    number: t("projects.type_number"),
+    date: t("projects.type_date"),
+    select: t("projects.type_select"),
+  };
   const [fields, setFields] = useState(props.details.fields);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -100,7 +106,7 @@ export function ProjectMetadata(props: {
                 aria-label={t("projects.field_type")}
                 className="w-full"
               >
-                <SelectValue>{t(`projects.type_${field.type}`)}</SelectValue>
+                <SelectValue>{typeLabels[field.type]}</SelectValue>
               </SelectTrigger>
               <SelectContent>
                 {(
@@ -112,7 +118,7 @@ export function ProjectMetadata(props: {
                   ] satisfies ProjectField["type"][]
                 ).map((type) => (
                   <SelectItem key={type} value={type}>
-                    {t(`projects.type_${type}`)}
+                    {typeLabels[type]}
                   </SelectItem>
                 ))}
               </SelectContent>

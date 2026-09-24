@@ -55,6 +55,7 @@ Native drag automation could start a drag but did not complete the operating-sys
 Automated checks (run again after integrating the latest `dev`):
 
 ```sh
+node scripts/i18n-audit.mjs --ci
 pnpm --filter @legalwork/app typecheck
 pnpm --filter @legalwork/app test
 pnpm --filter @legalwork/app test:i18n
@@ -67,7 +68,7 @@ pnpm --filter @legalwork/desktop test
 pnpm --filter @legalwork/desktop check:electron
 ```
 
-Regression coverage includes selected/default folder persistence, missing-folder recovery, metadata revisions and malformed metadata preservation, task associations, recording links/finalization, file collisions and cross-volume failure safety, trusted project lookup and encoded file references. Final local results: 643 app tests passed; 910 server tests passed with 11 optional-service skips; 180 desktop tests passed with 1 platform skip. All type checks, both builds, 110-method IPC coverage and 4,254 English/German translation keys passed. The initial server run timed out during existing OAuth test setup; that test passed in isolation and the entire suite passed on rerun. CI results are recorded in the PR. Existing dependency-annotation and large-bundle build warnings remain. On this Mac the native build uses `SDKROOT=/Library/Developer/CommandLineTools/SDKs/MacOSX15.5.sdk`; no system SDK setting was changed.
+Regression coverage includes selected/default folder persistence, missing-folder recovery, metadata revisions and malformed metadata preservation, task associations, recording links/finalization, file collisions and cross-volume failure safety, trusted project lookup and encoded file references. Final local results: 643 app tests passed; 910 server tests passed with 11 optional-service skips; 180 desktop tests passed with 1 platform skip. The repository i18n audit, all type checks, both builds, 110-method IPC coverage and 4,254 English/German translation keys passed. The initial server run timed out during existing OAuth test setup; that test passed in isolation and the entire suite passed on rerun. CI results are recorded in the PR. Existing dependency-annotation and large-bundle build warnings remain. On this Mac the native build uses `SDKROOT=/Library/Developer/CommandLineTools/SDKs/MacOSX15.5.sdk`; no system SDK setting was changed.
 
 ### Native evidence
 
