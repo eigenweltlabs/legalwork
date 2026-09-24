@@ -20,6 +20,7 @@ import type {
   LegalworkWorkspaceDirectoryEntry,
 } from "@/app/lib/legalwork-server";
 import type { WorkspaceSessionGroup } from "@/app/types";
+import { getDisplaySessionTitle } from "@/app/lib/session-title";
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import {
@@ -159,7 +160,7 @@ export function ProjectHome(props: {
       })),
     ...sessions.map((session) => ({
       id: `session:${session.id}`,
-      title: session.title,
+      title: getDisplaySessionTitle(session.title),
       type: t("projects.session_updated"),
       at: session.time?.updated ?? session.time?.created ?? 0,
       icon: MessageSquare,
@@ -331,7 +332,7 @@ export function ProjectHome(props: {
                       onClick={() => props.onSession(sessions[0].id)}
                     >
                       <span className="truncate text-sm font-medium">
-                        {sessions[0].title}
+                        {getDisplaySessionTitle(sessions[0].title)}
                       </span>
                       <ArrowUpRight className="size-4 shrink-0" />
                     </Button>
