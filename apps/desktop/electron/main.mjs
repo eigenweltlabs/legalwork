@@ -3149,6 +3149,9 @@ if (!app.requestSingleInstanceLock()) {
         if ((prepared.result?.conflicts.length ?? 0) > 10) {
           console.warn(`[skills] ${prepared.result.conflicts.length - 10} more config conflicts are recorded in the migration report`);
         }
+        if (prepared.result?.skipped.length) {
+          console.info(`[skills] Left ${prepared.result.skipped.length} OpenCode database file(s) in the old AppData location`);
+        }
         for (const failure of prepared.result?.failed.slice(0, 10) ?? []) {
           console.warn(`[skills] Could not migrate ${failure.path}: ${failure.reason}`);
         }

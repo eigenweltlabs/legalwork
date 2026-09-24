@@ -25,13 +25,14 @@ async function file(root, relative, content) {
   return pathname;
 }
 
-test("copies the whole legacy library into OpenCode's native root before discovery", async () => {
+test("copies the legacy config library into OpenCode's native root before discovery", async () => {
   await fixture(async ({ source, target }) => {
     await file(source, "skills/workflow-review/SKILL.md", "---\nname: workflow-review\ndescription: Review a matter.\n---\nReview it.\n");
     await file(source, "skills/workflow-review/references/checklist.md", "Check sources.\n");
     await file(source, "agents/reviewer.md", "Review documents.\n");
     await file(source, "commands/review.md", "Review the current matter.\n");
     await file(source, "plugins/helper.ts", "export default {};\n");
+    await file(source, "instructions/firm.md", "Follow firm guidance.\n");
     await file(source, "AGENTS.md", "Firm instructions.\n");
     await file(source, "opencode.jsonc", '{\n  // Preserved when no native file exists\n  "model": "provider/legalwork"\n}\n');
     await file(source, "tui.json", '{"theme":"legacy"}\n');
@@ -44,10 +45,11 @@ test("copies the whole legacy library into OpenCode's native root before discove
     assert.equal(await readFile(path.join(target, "agents/reviewer.md"), "utf8"), "Review documents.\n");
     assert.equal(await readFile(path.join(target, "commands/review.md"), "utf8"), "Review the current matter.\n");
     assert.equal(await readFile(path.join(target, "plugins/helper.ts"), "utf8"), "export default {};\n");
+    assert.equal(await readFile(path.join(target, "instructions/firm.md"), "utf8"), "Follow firm guidance.\n");
     assert.match(await readFile(path.join(target, "opencode.jsonc"), "utf8"), /Preserved when no native file exists/);
     assert.equal(await readFile(path.join(target, "tui.json"), "utf8"), '{"theme":"legacy"}\n');
     assert.equal(await readFile(path.join(source, "AGENTS.md"), "utf8"), "Firm instructions.\n");
-    assert.deepEqual(await migrateLegacyWindowsOpenCodeConfig(source, target), { copied: 0, merged: 0, conflicts: [], failed: [] });
+    assert.deepEqual(await migrateLegacyWindowsOpenCodeConfig(source, target), { copied: 0, merged: 0, conflicts: [], skipped: [], failed: [] });
   });
 });
 
@@ -57,6 +59,7 @@ test("preserves working native config and imports non-conflicting settings and s
     await file(source, "AGENTS.md", "Legacy LegalWork instructions.\n");
     await file(target, "skills/shared/SKILL.md", "Native skill.\n");
     await file(source, "skills/shared/SKILL.md", "Legacy skill.\n");
+    await file(source, "skills/shared/references/legacy.md", "Legacy-only resource.\n");
     await file(source, "skills/new/SKILL.md", "New skill.\n");
     await file(target, "opencode.json", '{"model":"provider/native","mcp":{"existing":{"type":"remote","url":"https://example.test"}}}\n');
     await file(source, "opencode.jsonc", '{\n  "model": "provider/legacy",\n  "mcp": {"added": {"type":"remote","url":"https://legacy.test"}}\n}\n');
@@ -64,10 +67,11 @@ test("preserves working native config and imports non-conflicting settings and s
     const result = await migrateLegacyWindowsOpenCodeConfig(source, target);
     assert.equal(result.failed.length, 0);
     assert.ok(result.conflicts.some((item) => item.endsWith("AGENTS.md")));
-    assert.ok(result.conflicts.some((item) => item.endsWith(path.join("skills", "shared", "SKILL.md"))));
+    assert.ok(result.conflicts.some((item) => item.endsWith(path.join("skills", "shared"))));
     assert.ok(result.conflicts.some((item) => item.includes(": model")));
     assert.equal(await readFile(path.join(target, "AGENTS.md"), "utf8"), "Existing OpenCode instructions.\n");
     assert.equal(await readFile(path.join(target, "skills/shared/SKILL.md"), "utf8"), "Native skill.\n");
+    assert.deepEqual(await readdir(path.join(target, "skills", "shared")), ["SKILL.md"]);
     assert.equal(await readFile(path.join(target, "skills/new/SKILL.md"), "utf8"), "New skill.\n");
     const config = parse(await readFile(path.join(target, "opencode.json"), "utf8"));
     assert.equal(config.model, "provider/native");
@@ -77,6 +81,23 @@ test("preserves working native config and imports non-conflicting settings and s
     assert.equal(backups.length, 1);
     assert.equal(parse(await readFile(path.join(target, ".legalwork-migration-backup", backups[0]), "utf8")).mcp.added, undefined);
     assert.equal(await readFile(path.join(source, "skills/shared/SKILL.md"), "utf8"), "Legacy skill.\n");
+  });
+});
+
+test("leaves old SQLite data in AppData while copying other config assets", async () => {
+  await fixture(async ({ source, target }) => {
+    const database = await file(source, "opencode.db", "SQLite database bytes");
+    const wal = await file(source, "opencode.db-wal", "SQLite WAL bytes");
+    await file(source, "opencode-local.db", "Older channel database bytes");
+    await file(source, "instructions/custom.md", "Custom instructions.\n");
+    const result = await migrateLegacyWindowsOpenCodeConfig(source, target);
+    assert.equal(result.failed.length, 0);
+    assert.deepEqual(result.skipped.sort(), [database, wal, path.join(source, "opencode-local.db")].sort());
+    assert.equal(await readFile(database, "utf8"), "SQLite database bytes");
+    assert.equal(await readFile(path.join(target, "instructions", "custom.md"), "utf8"), "Custom instructions.\n");
+    assert.deepEqual((await readdir(target)).filter((name) => name.endsWith(".db") || name.endsWith(".db-wal")), []);
+    const marker = JSON.parse(await readFile(path.join(target, ".legalwork-windows-config-migration.json"), "utf8"));
+    assert.deepEqual(marker.skipped.sort(), result.skipped);
   });
 });
 

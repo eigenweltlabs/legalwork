@@ -10,6 +10,12 @@ const CONFIG_GROUPS = [
   ["tui.json", "tui.jsonc"],
 ];
 const CONFIG_FILES = new Set(CONFIG_GROUPS.flat());
+const DATABASE_ARTIFACT = /\.(?:db|sqlite|sqlite3)(?:-(?:wal|shm|journal))?$/i;
+
+function isSkillDirectory(pathname, root) {
+  const parts = path.relative(root, pathname).split(path.sep);
+  return parts.length > 1 && (parts[0] === "skills" || parts[0] === "skill");
+}
 
 function isObject(value) {
   return value !== null && typeof value === "object" && !Array.isArray(value);
@@ -170,11 +176,26 @@ async function copyMissingTree(source, target, result, sourceRoot = source, targ
     if (source === sourceRoot && (CONFIG_FILES.has(entry.name) || entry.name === MARKER)) continue;
     const from = path.join(source, entry.name);
     const to = path.join(target, entry.name);
+    // OpenCode's older data location can overlap this AppData directory.
+    // A SQLite DB (including its WAL/journal) is runtime data, not config;
+    // keep it where the existing database migration can still find it.
+    if (source === sourceRoot && (entry.isFile() || entry.isSymbolicLink()) && DATABASE_ARTIFACT.test(entry.name)) {
+      result.skipped.push(from);
+      continue;
+    }
     try {
       const sourceStat = await lstat(from);
       const targetStat = await existing(to);
       if (sourceStat.isDirectory()) {
         if (targetStat && !targetStat.isDirectory()) {
+          result.conflicts.push(from);
+          continue;
+        }
+        // A skill's SKILL.md and supporting files form one install. Mixing
+        // files from two different installs with the same name can break both.
+        if (targetStat && isSkillDirectory(from, sourceRoot)
+          && await existing(path.join(from, "SKILL.md"))
+          && await existing(path.join(to, "SKILL.md"))) {
           result.conflicts.push(from);
           continue;
         }
@@ -204,7 +225,7 @@ async function copyMissingTree(source, target, result, sourceRoot = source, targ
 
 /** Keep OpenCode's already-active XDG files, and import LegalWork's old AppData files. */
 export async function migrateLegacyWindowsOpenCodeConfig(source, target) {
-  const result = { copied: 0, merged: 0, conflicts: [], failed: [] };
+  const result = { copied: 0, merged: 0, conflicts: [], skipped: [], failed: [] };
   if (path.resolve(source).toLowerCase() === path.resolve(target).toLowerCase() || !(await existing(source))) return result;
   const marker = path.join(target, MARKER);
   if (await existing(marker)) {
@@ -222,7 +243,7 @@ export async function migrateLegacyWindowsOpenCodeConfig(source, target) {
   if (!result.failed.length) {
     const temporary = `${marker}.${randomUUID()}.tmp`;
     try {
-      await writeFile(temporary, `${JSON.stringify({ source, target, copied: result.copied, merged: result.merged, conflicts: result.conflicts }, null, 2)}\n`);
+      await writeFile(temporary, `${JSON.stringify({ source, target, copied: result.copied, merged: result.merged, conflicts: result.conflicts, skipped: result.skipped }, null, 2)}\n`);
       await rename(temporary, marker);
     } finally {
       await rm(temporary, { force: true }).catch(() => undefined);
