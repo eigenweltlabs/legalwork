@@ -6,7 +6,7 @@ export type SidebarContextValue = {
   selectedWorkspaceId: string;
   selectedSessionId: string | null;
   activeProjectFeature: "home" | "tasks" | "sessions" | null;
-  onOpenProjectTab: (workspaceId: string, tab: "home" | "tasks" | "sessions") => Promise<void>;
+  onOpenProjectPage: (workspaceId: string, page: "home" | "tasks") => Promise<void>;
   onOpenProjectFiles: (workspaceId: string) => void;
   developerMode: boolean;
   showSessionActions?: boolean;
@@ -38,20 +38,5 @@ export const SidebarContext = React.createContext<SidebarContextValue | null>(nu
 export function useSidebarContext() {
   const context = React.use(SidebarContext);
   if (!context) throw new Error("useSidebarContext must be used within SidebarProvider");
-  return context;
-}
-
-export type SessionListContextValue = Pick<SidebarContextValue,
-  "selectedWorkspaceId" | "selectedSessionId" | "sessionStatusById" |
-  "onOpenSession" | "onOpenSessionWindow" | "onPrefetchSession" |
-  "onOpenRenameSession" | "onOpenDeleteSession" | "onArchiveSession" |
-  "onOpenCreateGroupModal" | "expandedSessionIds" | "toggleSessionExpanded"
->;
-export const SessionListContext = React.createContext<SessionListContextValue | null>(null);
-export function useSessionListContext() {
-  const override = React.use(SessionListContext);
-  const sidebar = React.use(SidebarContext);
-  const context = override ?? sidebar;
-  if (!context) throw new Error("Session list needs a context");
   return context;
 }

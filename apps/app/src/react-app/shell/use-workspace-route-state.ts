@@ -662,7 +662,7 @@ export function useWorkspaceRouteState(input: UseWorkspaceRouteStateInput) {
       navigateToWorkspaceSession(selectedWorkspaceId, selectedSessionId, { replace: true });
       return;
     }
-    if (selectedSessionId || pathname.endsWith("/project")) return;
+    if (selectedSessionId || pathname.endsWith("/project") || pathname.endsWith("/tasks")) return;
     if (!selectedWorkspaceId) return;
     const remembered = readLastSessionFor(selectedWorkspaceId);
     if (!remembered) return;

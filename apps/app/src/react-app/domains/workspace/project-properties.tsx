@@ -17,8 +17,9 @@ function displayValue(field: ProjectField) {
   return String(field.value);
 }
 
-export function ProjectProperties({ fields, onSave }: {
+export function ProjectProperties({ fields, onSave, className }: {
   fields: ProjectField[];
+  className?: string;
   onSave: (id: string, value: ProjectField["value"]) => Promise<void>;
 }) {
   const [editing, setEditing] = useState<{ id: string; draft: string } | null>(null);
@@ -35,7 +36,7 @@ export function ProjectProperties({ fields, onSave }: {
     catch { toast.error(t("projects.failed")); }
     finally { saving.current = false; setBusy(false); }
   };
-  return <dl className="space-y-1">
+  return <dl className={cn("space-y-1", className)}>
     {fields.map((field) => {
       const Icon = fieldIcons[field.type];
       const empty = field.value === null || field.value === "";

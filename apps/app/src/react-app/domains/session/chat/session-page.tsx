@@ -3,6 +3,8 @@ import { ProjectHome } from "../../workspace/project-home";
 import type { CSSProperties } from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useNavigate } from "react-router-dom";
+import { workspaceTasksRoute } from "@/react-app/shell/workspace-routes";
 import { AppWindowMac, Columns2, Folder, PanelsTopLeft, Settings2, X, Zap } from "lucide-react";
 
 import { t } from "../../../../i18n";
@@ -39,7 +41,7 @@ import { Input } from "@/components/ui/input";
 import { ConfirmModal } from "../../../design-system/modals/confirm-modal";
 import ProviderAuthModal, { type ProviderAuthModalProps } from "../../connections/provider-auth/provider-auth-modal";
 import { RenameSessionModal } from "../modals/rename-session-modal";
-import { AppSidebar, ProjectSessionsView } from "../sidebar/app-sidebar";
+import { AppSidebar } from "../sidebar/app-sidebar";
 import { useSessionManagementStore } from "../sidebar/session-management-store";
 import { SessionSurface, type SessionSurfaceProps } from "../surface/session-surface";
 import {
@@ -214,7 +216,7 @@ export type SessionPageProps = {
   onAccessibleTargetsChange?: (targets: OpenTarget[]) => void;
   /** When set, replaces the session main pane (keeps the sidebar). Used for the Evals screen. */
   mainView?: React.ReactNode;
-  projectHome?: boolean;
+  projectPage?: "home" | "tasks";
   projectTasksView?: React.ReactNode;
   terminalOpen?: boolean;
   onTerminalOpenChange?: (open: boolean) => void;
@@ -313,7 +315,8 @@ function controlStringArg(args: unknown, key: string) {
 }
 
 export function SessionPage(props: SessionPageProps) {
-  const hasMainView = Boolean(props.mainView || props.projectHome);
+  const navigate = useNavigate();
+  const hasMainView = Boolean(props.mainView || props.projectPage);
   const { config: shellConfig } = useShellConfig();
   const queryClient = useQueryClient();
   const sidebarOpen = useUiStateStore((state) => state.sidebarOpen);
@@ -324,7 +327,7 @@ export function SessionPage(props: SessionPageProps) {
   // separate keys so documents cannot carry over to another project. Without this the key
   // is null and the panel can never open (regressed as "opens only on the 2nd
   // click, and only after having visited a chat session first").
-  const panelStateSessionId = props.projectHome ? `project:${props.selectedWorkspaceId}` : hasMainView ? EVALS_PANEL_SESSION_ID : props.selectedSessionId ?? EVALS_PANEL_SESSION_ID;
+  const panelStateSessionId = props.projectPage ? `project:${props.selectedWorkspaceId}` : hasMainView ? EVALS_PANEL_SESSION_ID : props.selectedSessionId ?? EVALS_PANEL_SESSION_ID;
   const workflowsPage = props.sidebar.activeNav === "workflows";
   const mobile = useIsMobile();
   const sessionSidePanel = useUiStateStore((state) => (
@@ -982,31 +985,15 @@ export function SessionPage(props: SessionPageProps) {
       onClose={closeFileSidebar}
     />
   );
-  const projectGroup = props.sidebar.workspaceSessionGroups.find((group) => group.workspace.id === props.selectedWorkspaceId);
-  const sessionListActions = {
-    selectedWorkspaceId: props.selectedWorkspaceId,
-    selectedSessionId: null,
-    sessionStatusById: props.sidebar.sessionStatusById,
-    onOpenSession: openSessionTab,
-    onOpenSessionWindow: isElectronRuntime() ? openSessionWindow : undefined,
-    onPrefetchSession: props.sidebar.onPrefetchSession,
-    onOpenRenameSession: props.onRenameSession ? openRenameModal : undefined,
-    onOpenDeleteSession: props.onDeleteSession ? (sessionId: string) => { setSessionActionId(sessionId); setDeleteOpen(true); } : undefined,
-    onArchiveSession: props.onArchiveSession ? (sessionId: string, archived: boolean) => { void props.onArchiveSession?.(sessionId, archived); } : undefined,
-    onOpenCreateGroupModal: (workspaceId: string) => { setCreateGroupWorkspaceId(workspaceId); setCreateGroupLabel(""); setCreateGroupOpen(true); },
-  };
-  const mainView = props.projectHome ? (
+  const mainView = props.projectPage === "tasks" ? props.projectTasksView : props.projectPage === "home" ? (
     props.legalworkServerClient && props.runtimeWorkspaceId ? <ProjectHome
       key={props.selectedWorkspaceId}
       client={props.legalworkServerClient}
       workspaceId={props.runtimeWorkspaceId}
-      tasksView={props.projectTasksView}
-      sessionsView={projectGroup ? <ProjectSessionsView key={projectGroup.workspace.id} group={projectGroup} actions={sessionListActions} /> : null}
       name={props.selectedWorkspaceDisplay.displayName || props.selectedWorkspaceDisplay.name || props.selectedWorkspaceId}
-      group={projectGroup}
       onOpenFile={openWorkspaceFileEntry}
-      onSession={(id) => props.sidebar.onOpenSession(props.selectedWorkspaceId, id)}
       onNewSession={() => props.sidebar.onCreateChatInWorkspace(props.selectedWorkspaceId)}
+      onOpenTasks={() => navigate(workspaceTasksRoute(props.selectedWorkspaceId))}
       onRename={() => props.sidebar.onOpenRenameWorkspace(props.selectedWorkspaceId)}
     /> : <p className="p-8 text-muted-foreground">{t("projects.connecting")}</p>
   ) : props.mainView;

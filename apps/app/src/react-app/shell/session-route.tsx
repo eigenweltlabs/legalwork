@@ -185,7 +185,7 @@ import { useSessionGroupSync } from "./use-session-group-sync";
 import { useWorkspaceRouteState } from "./use-workspace-route-state";
 import { getReactQueryClient } from "@/react-app/infra/query-client";
 import { useSessionControlActions } from "@/react-app/domains/session/control/session-control-actions";
-import { legacySessionRoute, workspaceProjectRoute, workspaceSessionRoute, workspaceSettingsRoute } from "./workspace-routes";
+import { legacySessionRoute, workspaceProjectRoute, workspaceSessionRoute, workspaceSettingsRoute, workspaceTasksRoute } from "./workspace-routes";
 import { SettingsSurface } from "./settings-route";
 import { WorkspaceProvider } from "./workspace-provider";
 import type { OpenTarget } from "@/react-app/domains/session/artifacts/open-target";
@@ -487,6 +487,14 @@ export function SessionRoute() {
     onServerSettingsChanged: () => setLegalworkServerSettingsVersion((value) => value + 1),
     onHostInfo: setLegalworkServerHostInfoState,
   });
+  useEffect(() => {
+    if (!routeWorkspaceId || !location.pathname.endsWith("/project")) return;
+    const search = new URLSearchParams(location.search);
+    const oldTab = search.get("tab");
+    if (!oldTab) return;
+    search.delete("tab");
+    navigate({ pathname: oldTab === "tasks" ? workspaceTasksRoute(routeWorkspaceId) : location.pathname, search: search.toString(), hash: location.hash }, { replace: true });
+  }, [location.pathname, location.search, location.hash, routeWorkspaceId, navigate]);
   // Agent selection is persisted in local prefs (like the model variant) so
   // it survives reloads instead of silently falling back to "build" (#2101).
   const selectedAgent = local.prefs.selectedAgent;
@@ -996,7 +1004,7 @@ export function SessionRoute() {
   // Organizing local project files, notes and tasks does not need an AI model.
   const aiPlansGateVisible =
     aiPlansGateEnabled && onboardingStage === "done" && aiPlansVariant !== null &&
-    !location.pathname.endsWith("/project") && !createWorkspaceOpen;
+    !location.pathname.endsWith("/project") && !location.pathname.endsWith("/tasks") && !createWorkspaceOpen;
   const aiPlansScreenVisible = onboardingStage === "ai" || aiPlansGateVisible;
   // Announcements wait until it is clear whether the plan screen shows, and
   // until it is gone: they never stack on top of it.
@@ -2290,7 +2298,7 @@ export function SessionRoute() {
         onRefreshProviders: sessionProviderAuthStore.refreshProviders,
         onClose: () => sessionProviderAuthStore.closeProviderAuthModal(),
       } : null}
-      projectHome={location.pathname.endsWith("/project") && !showWorkflows && !showExtensions && !showEvals && !showTasks && !showRecorder}
+      projectPage={(location.pathname.endsWith("/project") || location.pathname.endsWith("/tasks")) && !showWorkflows && !showExtensions && !showEvals && !showTasks && !showRecorder ? location.pathname.endsWith("/tasks") ? "tasks" : "home" : undefined}
       projectTasksView={
         <TasksPane client={selectedWorkspaceEndpoint?.client ?? client} workspaceId={selectedWorkspaceEndpoint?.workspaceId ?? selectedWorkspaceId} projectId={selectedWorkspaceEndpoint?.workspaceId ?? selectedWorkspaceId} detailMode="panel" baseUrl={baseUrl} token={token} workspaces={sidebarWorkspaces} defaultModel={local.prefs.defaultModel} onOpenSession={(workspaceId, sessionId) => navigateToWorkspaceSession(workspaceId, sessionId)} />
       }

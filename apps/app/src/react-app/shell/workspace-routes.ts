@@ -27,3 +27,7 @@ export function legacySessionRoute(sessionId?: string | null) {
 export function workspaceProjectRoute(workspaceId: string) {
   return `/workspace/${encodeURIComponent(workspaceId.trim())}/project`;
 }
+
+export function workspaceTasksRoute(workspaceId: string) {
+  return `/workspace/${encodeURIComponent(workspaceId.trim())}/tasks`;
+}
