@@ -897,20 +897,17 @@ function WorkspaceHeader({
 }: WorkspaceHeaderProps) {
   const ctx = useSidebarContext();
 
-  const handleSelectWorkspace = () => {
-    void Promise.resolve(ctx.onSelectWorkspace(workspace.id));
-  };
-
   return (
     <SidebarMenuButton
       {...props}
+      aria-expanded={ctx.expandedWorkspaceIds.has(workspace.id)}
       className={cn(
         "[&_.lw-folder-icon]:size-5 group-hover/workspace-header:bg-sidebar-accent group-hover/workspace-header:text-sidebar-accent-foreground mac:group-hover/workspace-header:bg-black/5 dark:mac:group-hover/workspace-header:bg-white/10",
         statusLabel && "h-10",
       )}
       onClick={(event) => {
         onClick?.(event);
-        handleSelectWorkspace();
+        if (!event.defaultPrevented) ctx.toggleWorkspaceExpanded(workspace.id);
       }}
     >
       <WorkspaceIcon workspaceId={workspace.id} sizeClass="size-5" open={ctx.expandedWorkspaceIds.has(workspace.id)} />

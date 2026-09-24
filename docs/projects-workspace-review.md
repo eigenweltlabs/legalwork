@@ -60,6 +60,8 @@ Validation of this refinement: 634 app tests and 18 targeted project storage/API
 
 ## Project sidebar hierarchy
 
+Clicking a project's name or folder icon toggles expansion using the same action as its chevron, without navigating away from the current view. Enter/Space also toggle it. Repeated clicks across selected/unselected projects and title dragging were verified; dragging still reorders projects without toggling them.
+
 All expanded project content shares one inset, with a quiet vertical rule linking it to the project heading. Home / Tabular Review / Tasks / Files / Sessions sit together on a subtle themed background; the active feature follows the main view. Opening the Files panel does not change that highlight. Clicking Sessions opens its page and expands a compact list inside the same shaded menu, with a nested guide line; clicking it again collapses the list. Switching to Home or Tasks hides the list. Create Group is a small icon beside Sessions, visible on hover or keyboard focus. Session groups, rows, archives and Show more remain available. Long feature labels wrap in narrow sidebars. The label is “Sessions” in both English and German.
 
 ## Session interaction restoration
