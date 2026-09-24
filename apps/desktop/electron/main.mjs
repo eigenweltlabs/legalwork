@@ -2448,6 +2448,9 @@ const desktopCommandHandlers = {
   "audioRecordingRename": async (event, ...args) => {
       return recorderService().renameRecording(String(args[0] ?? ""), String(args[1] ?? ""));
   },
+  "audioRecordingSetProject": async (event, ...args) => {
+      return recorderService().setRecordingProject(String(args[0] ?? ""), String(args[1] ?? ""), args[2] === true);
+  },
   "audioRecordingRetain": async (event, ...args) => {
       return recorderService().retainRecording(String(args[0] ?? ""));
   },

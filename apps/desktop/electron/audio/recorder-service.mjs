@@ -559,6 +559,7 @@ export class RecorderService {
       status: "recording",
       error: null,
       ephemeral: input?.ephemeral === true,
+      projectIds: input?.ephemeral !== true && typeof input?.projectId === "string" && input.projectId.trim() ? [input.projectId.trim()] : [],
     };
 
     // Diarization is opt-in, needs the models, and only makes sense for a
@@ -951,6 +952,21 @@ export class RecorderService {
     if (this.worker && !this.workerReady) return this.transcriberStatus; // load in flight
     this.loadedModel = null;
     return this.startTranscriber({ modelId: loaded.modelId, language: loaded.language });
+  }
+
+  async setRecordingProject(recordingId, projectId, linked) {
+    if (!/^[a-zA-Z0-9_-]+$/.test(recordingId) || !projectId.trim()) {
+      throw new Error("Invalid recording or project.");
+    }
+    const folder = path.join(this.recordingsDir, recordingId);
+    const meta = this.activeRecordings.get(recordingId)?.meta ?? await readMeta(folder);
+    if (!meta || meta.ephemeral) throw new Error("Recording not found.");
+    const ids = new Set(meta.projectIds ?? []);
+    if (linked) ids.add(projectId.trim());
+    else ids.delete(projectId.trim());
+    meta.projectIds = [...ids];
+    await writeMeta(folder, meta);
+    return this.listRecordings();
   }
 
   async renameRecording(recordingId, title) {

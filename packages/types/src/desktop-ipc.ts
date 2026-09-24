@@ -647,6 +647,7 @@ export type DesktopCommandMap = {
   audioRecordingDelete: { args: [recordingId: string]; result: AudioRecordingMeta[] };
   /** Rename a recording (active or on disk); returns the refreshed list. */
   audioRecordingRename: { args: [recordingId: string, title: string]; result: AudioRecordingMeta[] };
+  audioRecordingSetProject: { args: [recordingId: string, projectId: string, linked: boolean]; result: AudioRecordingMeta[] };
   /**
    * Flip an ephemeral recording (system dictation) to retained. Used when the
    * paste failed so the spoken text stays recoverable in Recorder history.

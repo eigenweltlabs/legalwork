@@ -218,6 +218,7 @@ export type SessionPageProps = {
   mainView?: React.ReactNode;
   projectPage?: "home" | "tasks";
   projectTasksView?: React.ReactNode;
+  onStartProjectRecording: () => void;
   terminalOpen?: boolean;
   onTerminalOpenChange?: (open: boolean) => void;
   onSessionTabsChange?: (tabs: OpenSessionTab[]) => void;
@@ -990,6 +991,8 @@ export function SessionPage(props: SessionPageProps) {
       key={props.selectedWorkspaceId}
       client={props.legalworkServerClient}
       workspaceId={props.runtimeWorkspaceId}
+      recordingProjectId={props.selectedWorkspaceId}
+      onStartRecording={props.onStartProjectRecording}
       name={props.selectedWorkspaceDisplay.displayName || props.selectedWorkspaceDisplay.name || props.selectedWorkspaceId}
       onOpenFile={openWorkspaceFileEntry}
       onNewSession={() => props.sidebar.onCreateChatInWorkspace(props.selectedWorkspaceId)}

@@ -285,6 +285,55 @@ test("imported files resolve for playback under their original extension", async
   await fsp.rm(userDataDir, { recursive: true, force: true });
 });
 
+test("project recording links persist through finalization and reopening without moving audio", async () => {
+  const userDataDir = await tempDir("lw-project-recordings-");
+  const service = new RecorderService({ userDataDir, forkWorker: () => new FakeWorker() });
+  service.broadcast = () => {};
+  try {
+    const meta = await service.startRecording({ title: "Client call", sources: ["microphone"], projectId: "matter-1" });
+    assert.deepEqual((await service.getRecording(meta.id)).meta.projectIds, ["matter-1"]);
+    service.appendMediaChunk(meta.id, new TextEncoder().encode("audio-bytes").buffer);
+    await service.setRecordingProject(meta.id, "matter-2", true);
+    await service.stopRecording(meta.id);
+    const reopened = new RecorderService({ userDataDir, forkWorker: () => new FakeWorker() });
+    reopened.broadcast = () => {};
+    try {
+      assert.deepEqual((await reopened.getRecording(meta.id)).meta.projectIds, ["matter-1", "matter-2"]);
+      await reopened.setRecordingProject(meta.id, "matter-2", true);
+      await reopened.setRecordingProject(meta.id, "matter-1", false);
+      const detail = await reopened.getRecording(meta.id);
+      assert.deepEqual(detail.meta.projectIds, ["matter-2"]);
+      assert.equal(detail.meta.folderPath, meta.folderPath);
+      assert.equal(await fsp.readFile(meta.audioPath, "utf8"), "audio-bytes");
+      await reopened.setRecordingProject(meta.id, "matter-2", false);
+      assert.deepEqual((await reopened.getRecording(meta.id)).meta.projectIds, []);
+      assert.equal((await reopened.listRecordings()).length, 1);
+    } finally { reopened.dispose(); }
+  } finally { service.dispose(); await fsp.rm(userDataDir, { recursive: true, force: true }); }
+});
+
+test("global and legacy recordings need no project; existing recordings can be linked later", async () => {
+  const userDataDir = await tempDir("lw-project-recordings-");
+  const service = new RecorderService({ userDataDir, forkWorker: () => new FakeWorker() });
+  service.broadcast = () => {};
+  try {
+    const meta = await service.startRecording({ title: "Urgent call", sources: ["microphone"] });
+    assert.deepEqual(meta.projectIds, []);
+    await service.stopRecording(meta.id);
+    const legacy = JSON.parse(await fsp.readFile(path.join(meta.folderPath, "meta.json"), "utf8"));
+    delete legacy.projectIds;
+    await fsp.writeFile(path.join(meta.folderPath, "meta.json"), JSON.stringify(legacy));
+    await service.setRecordingProject(meta.id, "matter-1", true);
+    assert.deepEqual((await service.getRecording(meta.id)).meta.projectIds, ["matter-1"]);
+    await assert.rejects(service.setRecordingProject("../escape", "matter-1", true));
+    await assert.rejects(service.setRecordingProject("missing", "matter-1", true));
+    const dictation = await service.startRecording({ ephemeral: true, projectId: "matter-1", sources: ["microphone"] });
+    assert.deepEqual(dictation.projectIds, []);
+    await assert.rejects(service.setRecordingProject(dictation.id, "matter-1", true));
+    await service.cancelRecording(dictation.id);
+  } finally { service.dispose(); await fsp.rm(userDataDir, { recursive: true, force: true }); }
+});
+
 test("device profile exposes the fast-device flag that gates the heaviest model", async () => {
   const userDataDir = await tempDir("lw-recorder-");
   const service = new RecorderService({ userDataDir, forkWorker: () => new FakeWorker() });

@@ -1,6 +1,6 @@
 import { useState, type ReactNode } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowUpRight, ChevronRight, ListTodo, MessageSquare, Plus, Settings2, Pencil, Star, StickyNote, SquareCheck } from "lucide-react";
+import { ArrowUpRight, ChevronRight, ListTodo, MessageSquare, Mic, Plus, Settings2, Pencil, Star, StickyNote, SquareCheck } from "lucide-react";
 import type { LegalworkServerClient, LegalworkWorkspaceDirectoryEntry } from "@/app/lib/legalwork-server";
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
@@ -13,6 +13,8 @@ import { ProjectProperties } from "./project-properties";
 import { ProjectMetadata } from "./project-metadata";
 import { ProjectNoteDialog } from "./project-note-dialog";
 import { ProjectTaskDialog } from "./project-task-dialog";
+import { ProjectRecordings } from "./project-recordings";
+import { useRecorderStore } from "../recorder/recorder-store";
 import { noteTitle } from "./project-note-title";
 import { useProjectFavoritesStore } from "./project-favorites-store";
 import { defaultAkteFields, useProjectDefaultsStore, withInitialProjectFields } from "./project-defaults-store";
@@ -21,6 +23,8 @@ import { currentLocale, t } from "@/i18n";
 export function ProjectHome(props: {
   client: LegalworkServerClient;
   workspaceId: string;
+  recordingProjectId: string;
+  onStartRecording: () => void;
   name: string;
   onOpenFile: (entry: LegalworkWorkspaceDirectoryEntry) => void;
   onNewSession: () => void;
@@ -28,6 +32,9 @@ export function ProjectHome(props: {
   onRename: () => void;
 }) {
   const { client, workspaceId } = props;
+  const recordingActive = useRecorderStore((state) => Boolean(state.recording));
+  const recordingStarting = useRecorderStore((state) => state.starting || Boolean(state.importing));
+  const recordLabel = t(recordingActive ? "recorder.open" : "recorder.record");
   const isFavorite = useProjectFavoritesStore((state) => state.favoriteIds.includes(workspaceId));
   const toggleFavorite = useProjectFavoritesStore((state) => state.toggleFavorite);
   const favoriteLabel = t(isFavorite ? "projects.remove_favorite" : "projects.add_favorite");
@@ -70,6 +77,7 @@ export function ProjectHome(props: {
             <Button variant="outline" className="rounded-xl shadow-xs" onClick={props.onNewSession}><MessageSquare />{t("projects.new_chat")}</Button>
             <Tooltip><TooltipTrigger render={<Button variant="outline" size="icon" className="rounded-xl shadow-xs" aria-label={t("projects.add_note")} onClick={() => setNoteOpen(true)}><StickyNote /></Button>} /><TooltipContent>{t("projects.add_note")}</TooltipContent></Tooltip>
             <Tooltip><TooltipTrigger render={<Button variant="outline" size="icon" className="rounded-xl shadow-xs" aria-label={t("tasks.new_task")} onClick={() => setTaskOpen(true)}><SquareCheck /></Button>} /><TooltipContent>{t("tasks.new_task")}</TooltipContent></Tooltip>
+            <Tooltip><TooltipTrigger render={<Button variant="outline" size="icon" className="rounded-xl shadow-xs" disabled={recordingStarting} aria-label={recordLabel} onClick={props.onStartRecording}><Mic /></Button>} /><TooltipContent>{recordLabel}</TooltipContent></Tooltip>
           </div>
         </header>
 
@@ -126,6 +134,8 @@ export function ProjectHome(props: {
               )}
           </Surface>
         </section>
+
+        <ProjectRecordings projectId={props.recordingProjectId} onRecord={props.onStartRecording} />
 
         <Button variant="ghost" className="mt-6 h-auto w-full justify-start gap-3 rounded-xl border border-border/70 px-4 py-4 text-left font-normal text-foreground" onClick={props.onOpenTasks}>
           <ListTodo className="size-4 shrink-0 text-muted-foreground" />

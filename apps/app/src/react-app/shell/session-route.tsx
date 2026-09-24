@@ -77,6 +77,7 @@ import type {
 import {
   getWorkspaceTaskLoadErrorDisplay,
   isDesktopRuntime,
+  isElectronRuntime,
   isOfficeAddinRuntime,
   isSandboxWorkspace,
   normalizeDirectoryPath,
@@ -354,6 +355,7 @@ export function SessionRoute() {
   const [showWorkflows, setShowWorkflows] = useState(false);
   const [showExtensions, setShowExtensions] = useState(false);
   const [showRecorder, setShowRecorder] = useState(false);
+  const [recorderProject, setRecorderProject] = useState<{ id: string; name: string } | null>(null);
   const [showTasks, setShowTasks] = useState(false);
   // A task a notification asked to show: the pane opens on it (see
   // TASKS_PANE_OPEN_EVENT); a null id opens the task list. Chat chips open
@@ -378,6 +380,7 @@ export function SessionRoute() {
     setShowTasks(false);
   }, []);
   const showRecorderPane = useCallback(() => {
+    setRecorderProject(null);
     setShowRecorder(true);
     setShowEvals(false);
     setShowWorkflows(false);
@@ -2302,6 +2305,20 @@ export function SessionRoute() {
       projectTasksView={
         <TasksPane client={selectedWorkspaceEndpoint?.client ?? client} workspaceId={selectedWorkspaceEndpoint?.workspaceId ?? selectedWorkspaceId} projectId={selectedWorkspaceEndpoint?.workspaceId ?? selectedWorkspaceId} detailMode="panel" baseUrl={baseUrl} token={token} workspaces={sidebarWorkspaces} defaultModel={local.prefs.defaultModel} onOpenSession={(workspaceId, sessionId) => navigateToWorkspaceSession(workspaceId, sessionId)} />
       }
+      onStartProjectRecording={() => {
+        showRecorderPane();
+        const recorder = useRecorderStore.getState();
+        if (recorder.recording || recorder.starting) return;
+        const project = { id: selectedWorkspaceId, name: selectedWorkspace?.displayNameResolved || selectedWorkspaceId };
+        setRecorderProject(project);
+        if (!isElectronRuntime()) return;
+        void recorder.init().then(() => {
+          const ready = useRecorderStore.getState();
+          if (ready.bootstrap?.models.some((model) => model.id === ready.modelId && model.state === "installed")) {
+            void ready.startRecording(undefined, { projectId: project.id });
+          }
+        });
+      }}
       mainView={
         // One reused SettingsSurface instance across the pages — it follows `initialPath`
         // via an effect, so switching Workflows <-> Integrations is instant and doesn't
@@ -2340,6 +2357,7 @@ export function SessionRoute() {
           />
         ) : showRecorder ? (
           <RecorderPane
+            project={recorderProject}
             workspacePath={selectedWorkspaceRoot ?? null}
             workspaceTargets={workspaces
               .filter((workspace) => workspace.workspaceType !== "remote" && workspace.path?.trim())
