@@ -9,6 +9,8 @@ import { validateDescription, validateSkillName } from "./validators.js";
 import { ApiError } from "./errors.js";
 import { globalSkillsDir, projectSkillsDir } from "./workspace-files.js";
 
+export type SkippedSkill = { path: string; reason: string };
+
 async function findWorkspaceRoots(workspaceRoot: string): Promise<string[]> {
   const roots: string[] = [];
   let current = resolve(workspaceRoot);
@@ -65,9 +67,17 @@ async function parseSkillEntry(
   skillPath: string,
   entryName: string,
   scope: "project" | "global",
+  skipped?: SkippedSkill[],
 ): Promise<SkillItem | null> {
-  const content = await readFile(skillPath, "utf8");
-  const { data, body } = parseFrontmatter(content);
+  let parsed: ReturnType<typeof parseFrontmatter>;
+  try {
+    parsed = parseFrontmatter(await readFile(skillPath, "utf8"));
+  } catch (error) {
+    console.warn("[skills] Skipped unreadable or malformed skill:", skillPath, error);
+    skipped?.push({ path: skillPath, reason: error instanceof Error ? error.message.split("\n")[0]! : "Could not read or parse SKILL.md" });
+    return null;
+  }
+  const { data, body } = parsed;
   const name = typeof data.name === "string" ? data.name : entryName;
   const description = typeof data.description === "string" ? data.description : "";
   const kind = data.kind === "workflow" ? "workflow" : undefined;
@@ -85,10 +95,12 @@ async function parseSkillEntry(
     validateDescription(description);
   } catch (error) {
     console.warn("[skills] Skipped invalid skill:", skillPath, error instanceof Error ? error.message : error);
+    skipped?.push({ path: skillPath, reason: error instanceof Error ? error.message : "Invalid skill metadata" });
     return null;
   }
   if (name !== entryName) {
     console.warn(`[skills] Skipped ${skillPath}: its name "${name}" does not match the folder "${entryName}"`);
+    skipped?.push({ path: skillPath, reason: `Name "${name}" does not match folder "${entryName}"` });
     return null;
   }
   return {
@@ -102,7 +114,7 @@ async function parseSkillEntry(
   };
 }
 
-async function listSkillsInDir(dir: string, scope: "project" | "global"): Promise<SkillItem[]> {
+async function listSkillsInDir(dir: string, scope: "project" | "global", skipped?: SkippedSkill[]): Promise<SkillItem[]> {
   if (!(await exists(dir))) return [];
   const entries = await readdir(dir, { withFileTypes: true });
   const items: SkillItem[] = [];
@@ -111,7 +123,7 @@ async function listSkillsInDir(dir: string, scope: "project" | "global"): Promis
     const skillPath = join(dir, entry.name, "SKILL.md");
     if (await exists(skillPath)) {
       // Direct skill: <dir>/<name>/SKILL.md
-      const item = await parseSkillEntry(skillPath, entry.name, scope);
+      const item = await parseSkillEntry(skillPath, entry.name, scope, skipped);
       if (item) items.push(item);
     } else {
       // Domain/category folder: <dir>/<domain>/<name>/SKILL.md – scan one level deeper.
@@ -130,7 +142,7 @@ async function listSkillsInDir(dir: string, scope: "project" | "global"): Promis
         if (!subEntry.isDirectory()) continue;
         const subSkillPath = join(domainDir, subEntry.name, "SKILL.md");
         if (!(await exists(subSkillPath))) continue;
-        const item = await parseSkillEntry(subSkillPath, subEntry.name, scope);
+        const item = await parseSkillEntry(subSkillPath, subEntry.name, scope, skipped);
         if (item) items.push(item);
       }
     }
@@ -138,14 +150,14 @@ async function listSkillsInDir(dir: string, scope: "project" | "global"): Promis
   return items;
 }
 
-export async function listSkills(workspaceRoot: string, includeGlobal: boolean): Promise<SkillItem[]> {
+export async function listSkills(workspaceRoot: string, includeGlobal: boolean, skipped?: SkippedSkill[]): Promise<SkillItem[]> {
   const roots = await findWorkspaceRoots(workspaceRoot);
   const items: SkillItem[] = [];
   for (const root of roots) {
     const opencodeDir = join(root, ".opencode", "skills");
     const claudeDir = join(root, ".claude", "skills");
-    items.push(...(await listSkillsInDir(opencodeDir, "project")));
-    items.push(...(await listSkillsInDir(claudeDir, "project")));
+    items.push(...(await listSkillsInDir(opencodeDir, "project", skipped)));
+    items.push(...(await listSkillsInDir(claudeDir, "project", skipped)));
   }
 
   if (includeGlobal) {
@@ -153,10 +165,10 @@ export async function listSkills(workspaceRoot: string, includeGlobal: boolean):
     const globalClaude = join(homedir(), ".claude", "skills");
     const globalAgents = join(homedir(), ".agents", "skills");
     const globalAgentLegacy = join(homedir(), ".agent", "skills");
-    items.push(...(await listSkillsInDir(globalLegalWork, "global")));
-    items.push(...(await listSkillsInDir(globalClaude, "global")));
-    items.push(...(await listSkillsInDir(globalAgents, "global")));
-    items.push(...(await listSkillsInDir(globalAgentLegacy, "global")));
+    items.push(...(await listSkillsInDir(globalLegalWork, "global", skipped)));
+    items.push(...(await listSkillsInDir(globalClaude, "global", skipped)));
+    items.push(...(await listSkillsInDir(globalAgents, "global", skipped)));
+    items.push(...(await listSkillsInDir(globalAgentLegacy, "global", skipped)));
   }
 
   const seen = new Set<string>();

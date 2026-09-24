@@ -529,7 +529,7 @@ export type DesktopCommandMap = {
     ];
     result: ExecResult;
   };
-  listLocalSkills: { args: [projectDir: string]; result: LocalSkillCard[] };
+  listLocalSkills: { args: [projectDir: string]; result: { items: LocalSkillCard[]; skipped: Array<{ path: string; reason: string }> } };
   // Import every <dir>/SKILL.md skill folder found directly inside sourceDir into
   // the global skills dir, skipping names that already exist. Used to move
   // agent-staged workflows (generated inside a workspace, where the agent needs

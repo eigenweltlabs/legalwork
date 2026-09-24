@@ -2,6 +2,7 @@ import * as React from "react";
 
 import { applyEdits, modify } from "jsonc-parser";
 
+import { toast } from "@/components/ui/sonner";
 import { t } from "../../../../i18n";
 import type {
   Client,
@@ -117,6 +118,18 @@ type MutableState = {
 export type ExtensionsStore = ReturnType<typeof createExtensionsStore>;
 
 export type GithubSkillItem = { dir: string; name: string; description: string };
+
+function notifySkippedSkills(skipped: Array<{ path: string; reason: string }>) {
+  if (!skipped.length) return;
+  const first = skipped[0]!;
+  const skill = first.path.split(/[\\/]/).slice(-2).join("/");
+  const description = `${skill}: ${first.reason}${skipped.length > 1 ? ` ${t("skills.skipped_toast_more", { count: skipped.length - 1 })}` : ""}`;
+  toast.error(t("skills.skipped_toast_title", { count: skipped.length }), {
+    id: "skills-skipped",
+    description,
+    duration: 10_000,
+  });
+}
 
 // Decode base64 (from the GitHub-skills server payload) into a UTF-8 string.
 function base64ToUtf8(b64: string): string {
@@ -747,8 +760,9 @@ export function createExtensionsStore(options: {
         setStateField("skillsStatus", null);
         const local = await listLocalSkills("");
         if (refreshSkillsAborted) return;
-        const next: SkillCard[] = Array.isArray(local)
-          ? local.map((entry) => ({
+        notifySkippedSkills(local.skipped);
+        const next: SkillCard[] = Array.isArray(local.items)
+          ? local.items.map((entry) => ({
               name: entry.name,
               description: entry.description,
               path: entry.path,
@@ -799,6 +813,7 @@ export function createExtensionsStore(options: {
         setStateField("skillsStatus", null);
         const response = await legalworkClient.listSkills(legalworkWorkspaceId, { includeGlobal: isLocalWorkspace });
         if (refreshSkillsAborted) return;
+        notifySkippedSkills(response.skipped ?? []);
         let next: SkillCard[] = Array.isArray(response.items)
           ? response.items.map((entry) => ({
               name: entry.name,
@@ -815,8 +830,8 @@ export function createExtensionsStore(options: {
         if (isDesktopRuntime() && root) {
           try {
             const localMeta = await listLocalSkills(root);
-            if (!refreshSkillsAborted && Array.isArray(localMeta)) {
-              const byName = new Map(localMeta.map((s) => [s.name, s as { kind?: string; workflowType?: string }]));
+            if (!refreshSkillsAborted && Array.isArray(localMeta.items)) {
+              const byName = new Map(localMeta.items.map((s) => [s.name, s as { kind?: string; workflowType?: string }]));
               next = next.map((card) => {
                 const meta = byName.get(card.name);
                 return meta ? { ...card, kind: meta.kind ?? card.kind, workflowType: meta.workflowType ?? card.workflowType } : card;
@@ -867,8 +882,9 @@ export function createExtensionsStore(options: {
         setStateField("skillsStatus", null);
         const local = await listLocalSkills(root);
         if (refreshSkillsAborted) return;
-        const next: SkillCard[] = Array.isArray(local)
-          ? local.map((entry) => ({
+        notifySkippedSkills(local.skipped);
+        const next: SkillCard[] = Array.isArray(local.items)
+          ? local.items.map((entry) => ({
               name: entry.name,
               description: entry.description,
               path: entry.path,

@@ -2036,6 +2036,8 @@ export default {
   "skills.save_and_load": "Save and load",
   "skills.select_skill_folder": "Select skill folder",
   "skills.select_skill_zip": "Select a skill zip",
+  "skills.skipped_toast_title": "Skipped skills ({count})",
+  "skills.skipped_toast_more": "…and {count} more skipped skills.",
   "skills.shown_count": "{count} shown",
   "skills.skill_creator_already_installed": "Skill creator is already installed.",
   "skills.skill_creator_installed": "Skill creator installed.",

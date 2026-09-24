@@ -243,7 +243,7 @@ export async function startTemplateWorkflowGeneration(
   try {
     // Workflows the firm already has — injected into the prompt as the skip list,
     // and enforced again at import time (existing names are never overwritten).
-    const existingNames = (await listLocalSkills(""))
+    const existingNames = (await listLocalSkills("")).items
       .map((skill) => skill.name)
       .filter((name) => name.startsWith("workflow-"));
 

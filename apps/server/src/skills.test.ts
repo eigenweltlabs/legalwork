@@ -103,6 +103,30 @@ describe("upsertSkill", () => {
 });
 
 describe("listSkills", () => {
+  test("accepts OpenCode-style colons and skips other malformed Claude skills", async () => {
+    const claudeSkills = join(workspace, ".claude", "skills");
+    const compatible = join(claudeSkills, "compatible-skill");
+    await mkdir(compatible, { recursive: true });
+    await writeFile(
+      join(compatible, "SKILL.md"),
+      "---\nname: compatible-skill\ndescription: Review: client documents\n---\n\nBody\n",
+      "utf8",
+    );
+    const malformed = join(claudeSkills, "broken-skill");
+    await mkdir(malformed, { recursive: true });
+    await writeFile(join(malformed, "SKILL.md"), "---\nname: broken-skill\ndescription: [unterminated\n---\n\nBody\n", "utf8");
+    await writeSkill(join(claudeSkills, "valid-skill"), "valid-skill");
+    await writeSkill(join(workspace, ".opencode", "skills", "valid-workflow"), "valid-workflow");
+
+    const skipped: Array<{ path: string; reason: string }> = [];
+    const listed = await listSkills(workspace, false, skipped);
+
+    expect(listed.map((skill) => skill.name).sort()).toEqual(["compatible-skill", "valid-skill", "valid-workflow"]);
+    expect(listed.find((skill) => skill.name === "compatible-skill")?.description).toBe("Review: client documents");
+    expect(skipped).toEqual([{ path: join(malformed, "SKILL.md"), reason: expect.any(String) }]);
+    expect(skipped[0]?.reason).not.toContain("description: [unterminated");
+  });
+
   test("preserves workflow metadata used by firm Hub sharing", async () => {
     await writeSkill(
       join(workspace, ".opencode", "skills", "asset-review"),
