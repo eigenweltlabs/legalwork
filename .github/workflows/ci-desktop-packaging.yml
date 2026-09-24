@@ -49,8 +49,8 @@ jobs:
           bun-version: 1.4.2
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
-      - name: Test token-file migration and link policy
-        run: node --test apps/desktop/electron/ui-control-server.test.mjs apps/desktop/electron/safe-open.test.mjs
+      - name: Test config migration, token-file migration and link policy
+        run: node --test apps/desktop/electron/opencode-config-migration.test.mjs apps/desktop/electron/runtime.test.mjs apps/desktop/electron/ui-control-server.test.mjs apps/desktop/electron/safe-open.test.mjs
       - name: Build desktop app and native dependencies
         env:
           GITHUB_TOKEN: ${{ github.token }}

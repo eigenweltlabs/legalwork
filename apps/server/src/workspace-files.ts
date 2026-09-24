@@ -2,14 +2,22 @@ import { existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
+export function globalOpencodeConfigDir(): string {
+  return join(process.env.XDG_CONFIG_HOME?.trim() || join(homedir(), ".config"), "opencode");
+}
+
 /**
  * Global library shared with desktop import/listing and available in every workspace.
- * XDG_CONFIG_HOME takes precedence; Windows defaults to APPDATA, others to ~/.config.
+ * The desktop passes XDG_CONFIG_HOME after migrating its former Windows
+ * APPDATA library. Standalone Windows servers retain their existing library
+ * until they can run that migration too.
  */
 export function globalSkillsDir(): string {
-  const windowsConfigHome = process.platform === "win32" ? process.env.APPDATA?.trim() : undefined;
-  const configHome = process.env.XDG_CONFIG_HOME?.trim() || windowsConfigHome || join(homedir(), ".config");
-  return join(configHome, "opencode", "skills");
+  if (process.env.XDG_CONFIG_HOME?.trim() || process.platform !== "win32") {
+    return join(globalOpencodeConfigDir(), "skills");
+  }
+  const appData = process.env.APPDATA?.trim();
+  return appData ? join(appData, "opencode", "skills") : join(globalOpencodeConfigDir(), "skills");
 }
 
 export function opencodeConfigPath(workspaceRoot: string): string {

@@ -11,6 +11,7 @@ import { pathToFileURL } from "node:url";
 import { createOfficeAddinManager } from "./office-addin-manager.mjs";
 import { ensureOpencodeStateDir } from "./opencode-state-dir.mjs";
 import { createHostApprovalHandler } from "./host-approvals.mjs";
+import { migrateLegacyWindowsOpenCodeConfig } from "./opencode-config-migration.mjs";
 
 const __runtimeDir = path.dirname(fileURLToPath(import.meta.url));
 
@@ -138,6 +139,13 @@ export function opencodeHomeEnvFromRoot(root) {
     XDG_STATE_HOME: path.join(root, "state"),
     OPENCODE_CONFIG_DIR: path.join(root, "config", "opencode"),
   };
+}
+
+export function alignWindowsOpencodeConfigEnv(env, platform = process.platform, home = os.homedir()) {
+  if (platform === "win32" && !String(env.XDG_CONFIG_HOME ?? "").trim()) {
+    env.XDG_CONFIG_HOME = path.join(home, ".config");
+  }
+  return env;
 }
 
 export function commandMatchesPackagedSidecar(command, sidecarDirs = []) {
@@ -894,6 +902,28 @@ export function createRuntimeManager({ app, desktopRoot, listLocalWorkspacePaths
     return nodeShimDirPromise;
   }
 
+  const windowsConfigMigrations = new Map();
+  async function prepareOpencodeConfig(env) {
+    if (process.env.LEGALWORK_DEV_MODE === "1") {
+      const devPaths = await ensureDevModePaths();
+      return { target: path.join(devPaths.xdgConfigHome, "opencode"), result: null };
+    }
+    if (process.platform !== "win32") return null;
+    alignWindowsOpencodeConfigEnv(env);
+    const appData = String(env.APPDATA ?? "").trim() || app.getPath("appData");
+    const source = path.join(appData, "opencode");
+    const target = path.join(env.XDG_CONFIG_HOME, "opencode");
+    const key = `${source}\0${target}`;
+    if (!windowsConfigMigrations.has(key)) {
+      const migration = migrateLegacyWindowsOpenCodeConfig(source, target).catch((error) => {
+        windowsConfigMigrations.delete(key);
+        throw error;
+      });
+      windowsConfigMigrations.set(key, migration);
+    }
+    return { target, result: await windowsConfigMigrations.get(key) };
+  }
+
   async function buildChildEnv(extra = {}) {
     /** @type {NodeJS.ProcessEnv} */
     // User env is layered first so process.env + any caller overrides always
@@ -927,12 +957,21 @@ export function createRuntimeManager({ app, desktopRoot, listLocalWorkspacePaths
       env.OPENCODE_CONFIG_DIR = devPaths.opencodeConfigDir;
       env.OPENCODE_TEST_HOME = devPaths.homeDir;
     } else {
-      // Production uses opencode's standard per-platform config/data locations
-      // (unix: $XDG_DATA_HOME|~/.local/share/opencode + ~/.config/opencode;
-      // Windows: %LOCALAPPDATA%\opencode) rather than a LegalWork-specific dir.
-      // The one exception: if those locations aren't writable (e.g. ~/.config
-      // owned by root), opencode fails to start with EACCES, so transparently
-      // redirect it to an app-owned dir. No-op on healthy machines and Windows.
+      // Use OpenCode's native config root as the only global config root.
+      // Import the previous LegalWork AppData library before any child starts.
+      try {
+        const prepared = await prepareOpencodeConfig(env);
+        if (prepared?.result?.failed.length) {
+          console.warn("[runtime] Some Windows OpenCode config files could not be migrated", prepared.result.failed);
+        }
+      } catch (error) {
+        // The native OpenCode config remains usable if importing the old
+        // LegalWork library fails. The untouched AppData copy can be retried.
+        console.warn("[runtime] Windows OpenCode config migration will retry on the next launch", error);
+      }
+      // Production keeps OpenCode's native data paths and uses its XDG config
+      // root. On Windows we pin that root to ~/.config/opencode after migration.
+      // On Unix only, an unwritable standard location redirects to app data.
       const opencodeHomeOverride = await ensureWritableOpencodeHome();
       if (opencodeHomeOverride) Object.assign(env, opencodeHomeOverride);
     }
@@ -2256,6 +2295,7 @@ export function createRuntimeManager({ app, desktopRoot, listLocalWorkspacePaths
     engineStop: () => withRuntimeLifecycle(() => engineStop()),
     engineRestart: (options) => withRuntimeLifecycle(() => engineRestart(options)),
     prepareFreshRuntime: () => withRuntimeLifecycle(() => prepareFreshRuntime()),
+    prepareOpencodeConfig: async () => prepareOpencodeConfig({ ...loadUserEnvFile(), ...process.env }),
     dispose: () => withRuntimeLifecycle(() => stopAllRuntimeChildren()),
     runtimeStatus,
     collectRuntimeDiagnostics,

@@ -43,7 +43,7 @@ afterEach(async () => {
 });
 
 async function importWorkflow(configHome = appData) {
-  // Desktop import writes to this folder independently of the server resolver.
+  // Standalone servers retain their original library without a desktop migration.
   const folder = join(configHome, "opencode", "skills", name);
   await mkdir(join(folder, "resources"), { recursive: true });
   await writeFile(join(folder, "SKILL.md"), `---\nname: ${name}\ndescription: Verify supplied citations.\n---\n\n# Cite check\nCheck every citation.\n`);
@@ -51,8 +51,13 @@ async function importWorkflow(configHome = appData) {
   return folder;
 }
 
-test("Windows uses the desktop's global APPDATA skills folder", () => {
+test("standalone Windows keeps its APPDATA library without a desktop migration", () => {
   expect(globalSkillsDir()).toBe(join(appData, "opencode", "skills"));
+});
+
+test("desktop Windows uses OpenCode's XDG folder after migration", () => {
+  process.env.XDG_CONFIG_HOME = join(home, ".config");
+  expect(globalSkillsDir()).toBe(join(home, ".config", "opencode", "skills"));
 });
 
 test("an imported global workflow can be read from every workspace", async () => {

@@ -6,6 +6,7 @@ import os from "node:os";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 
 import {
+  alignWindowsOpencodeConfigEnv,
   commandMatchesPackagedSidecar,
   mergeRuntimeMcpConfig,
   bundledNodeDirectory,
@@ -17,6 +18,31 @@ import {
   seedWorkspacePathsForEmbeddedServer,
   selectStickyLegalworkPortWorkspace,
 } from "./runtime.mjs";
+
+describe("alignWindowsOpencodeConfigEnv", () => {
+  it("keeps the engine and LegalWork on OpenCode's existing Windows config root", () => {
+    const env = { APPDATA: "C:\\Users\\lawyer\\AppData\\Roaming" };
+    assert.equal(alignWindowsOpencodeConfigEnv(env, "win32", "C:\\Users\\lawyer").XDG_CONFIG_HOME, path.join("C:\\Users\\lawyer", ".config"));
+    assert.equal(env.OPENCODE_CONFIG_DIR, undefined);
+  });
+
+  it("preserves an explicit XDG config home", () => {
+    const env = { APPDATA: "C:\\Users\\lawyer\\AppData\\Roaming", XDG_CONFIG_HOME: "D:\\opencode" };
+    assert.equal(alignWindowsOpencodeConfigEnv(env, "win32").XDG_CONFIG_HOME, "D:\\opencode");
+    assert.equal(env.OPENCODE_CONFIG_DIR, undefined);
+  });
+
+  it("preserves an explicit OpenCode config directory", () => {
+    const env = { APPDATA: "C:\\Users\\lawyer\\AppData\\Roaming", OPENCODE_CONFIG_DIR: "D:\\opencode" };
+    assert.equal(alignWindowsOpencodeConfigEnv(env, "win32").OPENCODE_CONFIG_DIR, "D:\\opencode");
+    assert.equal(env.XDG_CONFIG_HOME, path.join(os.homedir(), ".config"));
+  });
+
+  it("does not change Unix config paths", () => {
+    const env = { APPDATA: "/other" };
+    assert.equal(alignWindowsOpencodeConfigEnv(env, "darwin").XDG_CONFIG_HOME, undefined);
+  });
+});
 
 describe("opencodeHomeEnvFromRoot", () => {
   it("points every OpenCode dir under the app-owned root", () => {
@@ -106,7 +132,7 @@ describe("resolveLegalworkServerConfigPath", () => {
   it("respects explicit server config path", () => {
     assert.equal(
       resolveLegalworkServerConfigPath({ LEGALWORK_SERVER_CONFIG: "/tmp/legalwork/server.json" }),
-      "/tmp/legalwork/server.json",
+      path.resolve("/tmp/legalwork/server.json"),
     );
   });
 

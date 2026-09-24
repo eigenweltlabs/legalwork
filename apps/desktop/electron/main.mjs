@@ -1039,14 +1039,13 @@ function configHomePath() {
   if (process.env.XDG_CONFIG_HOME?.trim()) {
     return process.env.XDG_CONFIG_HOME.trim();
   }
-  if (process.platform === "win32" && process.env.APPDATA?.trim()) {
-    return process.env.APPDATA.trim();
-  }
   return path.join(os.homedir(), ".config");
 }
 
+let preparedOpencodeConfigRoot = null;
+
 function globalOpencodeRoot() {
-  return path.join(configHomePath(), "opencode");
+  return preparedOpencodeConfigRoot ?? path.join(configHomePath(), "opencode");
 }
 
 function execResult(ok, stdout = "", stderr = "", status = ok ? 0 : 1) {
@@ -3138,10 +3137,39 @@ if (!app.requestSingleInstanceLock()) {
     // Electron-only filename only when the shared file is missing.
     await workspaceStore.migrateLegacyElectronWorkspaceStateIfNeeded();
 
+    let installedWorkflowRoot = path.join(globalOpencodeRoot(), "skills");
+    try {
+      const prepared = await runtimeManager.prepareOpencodeConfig();
+      if (prepared) {
+        preparedOpencodeConfigRoot = prepared.target;
+        installedWorkflowRoot = path.join(prepared.target, "skills");
+        if (prepared.result && (prepared.result.copied || prepared.result.merged)) {
+          console.info(`[skills] Migrated ${prepared.result.copied} Windows config file(s) and ${prepared.result.merged} setting(s)`);
+        }
+        for (const conflict of prepared.result?.conflicts.slice(0, 10) ?? []) {
+          console.warn(`[skills] Kept existing OpenCode config; legacy AppData copy remains at ${conflict}`);
+        }
+        if ((prepared.result?.conflicts.length ?? 0) > 10) {
+          console.warn(`[skills] ${prepared.result.conflicts.length - 10} more config conflicts are recorded in the migration report`);
+        }
+        if (prepared.result?.skipped.length) {
+          console.info(`[skills] Left ${prepared.result.skipped.length} OpenCode database file(s) in the old AppData location`);
+        }
+        for (const failure of prepared.result?.failed.slice(0, 10) ?? []) {
+          console.warn(`[skills] Could not migrate ${failure.path}: ${failure.reason}`);
+        }
+        if ((prepared.result?.failed.length ?? 0) > 10) {
+          console.warn(`[skills] ${prepared.result.failed.length - 10} more config files could not be migrated`);
+        }
+      }
+    } catch (error) {
+      console.warn("[skills] Could not migrate the Windows OpenCode config", error);
+    }
+
     // Repair workflows imported by older builds before OpenCode discovers its
     // global skill library. Leave files we cannot safely normalize untouched.
     try {
-      const result = await migrateInstalledWorkflows(path.join(globalOpencodeRoot(), "skills"));
+      const result = await migrateInstalledWorkflows(installedWorkflowRoot);
       if (result.migrated) console.info(`[skills] Repaired ${result.migrated} installed workflow(s)`);
       for (const failure of result.failed) {
         console.warn(`[skills] Could not repair ${failure.file}: ${failure.reason}`);
