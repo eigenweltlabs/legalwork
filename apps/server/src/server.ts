@@ -24,7 +24,7 @@ import { addPlugin, listPlugins, normalizePluginSpec, removePlugin } from "./plu
 import { sanitizePortableOpencodeConfig } from "./portable-opencode.js";
 import { addMcp, listMcp, removeMcp, runtimeMcpMapForWorkspace, setMcpEnabled, type McpScope } from "./mcp.js";
 import { probeMcpServer, registerMcpClient } from "./mcp-probe.js";
-import { deleteSkill, listSkills, resolveHubSkillKind, skillsDirForScope, upsertSkill } from "./skills.js";
+import { deleteSkill, listSkills, resolveHubSkillKind, skillsDirForScope, upsertSkill, type SkippedSkill } from "./skills.js";
 import {
   deleteSkillResource,
   listSkillResources,
@@ -3457,8 +3457,9 @@ function createRoutes(
   addRoute(routes, "GET", "/workspace/:id/skills", "client", async (ctx) => {
     const workspace = await resolveWorkspace(config, ctx.params.id);
     const includeGlobal = ctx.url.searchParams.get("includeGlobal") === "true";
-    const items = await listSkills(workspace.path, includeGlobal);
-    return jsonResponse({ items });
+    const skipped: SkippedSkill[] = [];
+    const items = await listSkills(workspace.path, includeGlobal, skipped);
+    return jsonResponse({ items, skipped });
   });
 
   addRoute(routes, "POST", "/workspace/:id/skills/hub/:name", "client", async (ctx) => {

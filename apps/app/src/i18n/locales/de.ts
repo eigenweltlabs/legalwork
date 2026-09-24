@@ -2300,6 +2300,8 @@ const de = {
   "skills.save_and_load": "Speichern und laden",
   "skills.select_skill_folder": "Skill-Ordner auswählen",
   "skills.select_skill_zip": "Skill-ZIP auswählen",
+  "skills.skipped_toast_title": "Skills übersprungen ({count})",
+  "skills.skipped_toast_more": "…und {count} weitere übersprungene Skills.",
   "skills.shown_count": "{count} angezeigt",
   "skills.skill_creator_already_installed": "Der Skill-Creator ist bereits installiert.",
   "skills.skill_creator_installed": "Skill-Creator installiert.",

@@ -113,7 +113,7 @@ export function StartWorkflowDialog(props: StartWorkflowDialogProps) {
     enabled: withWorkflow && (globalLibrary || Boolean(endpoint)),
     queryFn: async (): Promise<WorkflowOption[]> => {
       if (globalLibrary) {
-        const local = await listLocalSkills("");
+        const { items: local } = await listLocalSkills("");
         return toWorkflowOptions(
           local.map((entry) => ({ name: entry.name, kind: (entry as { kind?: string }).kind })),
         );

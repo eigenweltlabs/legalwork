@@ -17,6 +17,7 @@ import { createRequire } from "node:module";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { parse as parseYaml } from "yaml";
 
 import { app, BrowserWindow, clipboard, desktopCapturer, dialog, globalShortcut, ipcMain as electronIpcMain, nativeImage, nativeTheme, Notification, powerMonitor, powerSaveBlocker, protocol, session, shell, systemPreferences } from "electron";
 import { configureRemoteDebugging } from "./remote-debugging.mjs";
@@ -1525,34 +1526,68 @@ function extractTrigger(raw) {
   return extractFrontmatterValue(raw, ["trigger", "when"]);
 }
 
+function parseYamlWithOpenCodeFallback(raw) {
+  try {
+    return parseYaml(raw);
+  } catch {
+    // OpenCode retries unquoted colons as YAML block scalars for Claude skills.
+    const sanitized = raw.split(/\r?\n/).flatMap((line) => {
+      if (line.trim().startsWith("#") || line.trim() === "" || /^\s+/.test(line)) return [line];
+      const entry = line.match(/^([a-zA-Z_][a-zA-Z0-9_]*)\s*:\s*(.*)$/);
+      if (!entry) return [line];
+      const value = entry[2].trim();
+      if (value === "" || value === ">" || value === "|" || value.startsWith('"') || value.startsWith("'")) return [line];
+      if (!value.includes(":")) return [line];
+      return [`${entry[1]}: |-`, `  ${value}`];
+    }).join("\n");
+    return parseYaml(sanitized);
+  }
+}
+
 async function listLocalSkills(projectDir) {
   // Empty projectDir → global skills only (workspace-independent). With a projectDir,
   // includes both project and global roots (collectSkillRoots handles the empty case).
   const seen = new Set();
   const out = [];
+  const skipped = [];
   for (const root of await collectSkillRoots(projectDir)) {
     for (const skillDir of await findSkillDirsInRoot(root)) {
       const name = path.basename(skillDir);
       if (seen.has(name)) continue;
-      seen.add(name);
+      const skillPath = path.join(skillDir, "SKILL.md");
       let raw = "";
+      let description = "";
       try {
-        raw = await readFile(path.join(skillDir, "SKILL.md"), "utf8");
+        raw = await readFile(skillPath, "utf8");
+        const frontmatter = raw.match(/^---\r?\n([\s\S]*?)\r?\n---\r?\n?/);
+        if (!frontmatter) throw new Error("Missing YAML frontmatter");
+        const data = parseYamlWithOpenCodeFallback(frontmatter[1]);
+        if (!data || typeof data !== "object" || Array.isArray(data)) throw new Error("Invalid skill frontmatter");
+        const declaredName = typeof data.name === "string" ? data.name : name;
+        description = typeof data.description === "string" ? data.description : "";
+        if (!/^[a-z0-9]+(-[a-z0-9]+)*$/.test(declaredName) || declaredName.length > 200) {
+          throw new Error("Skill name must be kebab-case (1-200 chars)");
+        }
+        if (!description || description.length > 1024) throw new Error("Description must be 1-1024 characters");
+        if (declaredName !== name) throw new Error(`Name "${declaredName}" does not match folder "${name}"`);
       } catch (error) {
-        console.warn("[skills] Could not read SKILL.md:", skillDir, error);
-        raw = "";
+        const reason = error instanceof Error ? error.message.split("\n")[0] : "Could not read or parse SKILL.md";
+        console.warn("[skills] Skipped unreadable or malformed skill:", skillPath, error);
+        skipped.push({ path: skillPath, reason });
+        continue;
       }
+      seen.add(name);
       out.push({
         name,
         path: skillDir,
-        description: extractDescription(raw) ?? undefined,
+        description,
         trigger: extractTrigger(raw) ?? undefined,
         kind: extractFrontmatterValue(raw, ["kind"]) ?? undefined,
         workflowType: extractFrontmatterValue(raw, ["workflow_type", "workflow-type", "workflowtype"]) ?? undefined,
       });
     }
   }
-  return out.sort((a, b) => a.name.localeCompare(b.name));
+  return { items: out.sort((a, b) => a.name.localeCompare(b.name)), skipped };
 }
 
 async function findSkillFile(projectDir, name) {

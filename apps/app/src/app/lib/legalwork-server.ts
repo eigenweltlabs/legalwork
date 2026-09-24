@@ -2559,7 +2559,7 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
       ),
     listSkills: (workspaceId: string, options?: { includeGlobal?: boolean }) => {
       const query = options?.includeGlobal ? "?includeGlobal=true" : "";
-      return requestJson<{ items: LegalworkSkillItem[] }>(
+      return requestJson<{ items: LegalworkSkillItem[]; skipped: Array<{ path: string; reason: string }> }>(
         baseUrl,
         `/workspace/${workspaceId}/skills${query}`,
         { token, hostToken },
