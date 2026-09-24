@@ -121,3 +121,14 @@ test("metadata never follows a linked metadata directory outside the project", a
   ).rejects.toThrow();
   expect(await readdir(outside)).toEqual([]);
 });
+
+
+test("default folders use portable names on Windows and macOS", async () => {
+  const root = await folder();
+  for (const name of ["CON", "aux.txt", "LPT1", "COM9", "..", "Matter:Alpha?", "Trailing...  "]) {
+    const created = await createDefaultProjectFolder(name, root);
+    expect(dirname(created)).toBe(root);
+    expect(basename(created)).not.toMatch(/^(con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\.|$)/i);
+    expect(basename(created)).not.toMatch(/[<>:"/\\|?*]|[. ]$/);
+  }
+});

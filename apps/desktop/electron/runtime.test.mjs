@@ -7,6 +7,7 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 
 import {
   alignWindowsOpencodeConfigEnv,
+  desktopProjectsDirectory,
   commandMatchesPackagedSidecar,
   mergeRuntimeMcpConfig,
   bundledNodeDirectory,
@@ -217,4 +218,18 @@ describe("runtime MCP config removal", () => {
       }
     });
   }
+});
+
+
+describe("desktop project storage", () => {
+  it("keeps macOS projects in Documents outside the app installation and engine home", () => {
+    assert.equal(desktopProjectsDirectory("/Users/chris/Documents", false, "darwin"), "/Users/chris/Documents/LegalWork/Projects");
+  });
+  it("uses the exact Windows known-folder location, including redirected Documents", () => {
+    assert.equal(desktopProjectsDirectory("D:\\OneDrive - Firm\\Documents", false, "win32"), "D:\\OneDrive - Firm\\Documents\\LegalWork\\Projects");
+    assert.equal(desktopProjectsDirectory("\\\\fileserver\\users\\chris\\Documents", false, "win32"), "\\\\fileserver\\users\\chris\\Documents\\LegalWork\\Projects");
+  });
+  it("keeps development-created projects separate from released app projects", () => {
+    assert.equal(desktopProjectsDirectory("/Users/chris/Documents", true, "darwin"), "/Users/chris/Documents/LegalWork Dev/Projects");
+  });
 });

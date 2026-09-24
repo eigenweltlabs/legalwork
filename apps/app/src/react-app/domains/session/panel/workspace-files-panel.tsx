@@ -24,7 +24,7 @@ type WorkspaceFilesPanelProps = {
   workspaceId: string | null;
   workspaceRoot: string;
   onOpenFile: (entry: LegalworkWorkspaceDirectoryEntry) => void;
-  onClose: () => void;
+  onClose?: () => void;
 };
 
 const SKELETON_ROW_WIDTHS = ["56%", "72%", "44%", "64%", "38%", "52%"];
@@ -133,7 +133,7 @@ export function WorkspaceFilesPanel({
             />
             <TooltipContent>Refresh</TooltipContent>
           </Tooltip>
-          <Tooltip>
+          {onClose ? <Tooltip>
             <TooltipTrigger
               render={(
                 <Button variant="ghost" size="icon-sm" onClick={onClose} aria-label={t("workspace_files.close_panel")}>
@@ -142,7 +142,7 @@ export function WorkspaceFilesPanel({
               )}
             />
             <TooltipContent>Close</TooltipContent>
-          </Tooltip>
+          </Tooltip> : null}
         </PanelHeader>
 
         <nav

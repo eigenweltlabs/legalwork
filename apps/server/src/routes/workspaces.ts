@@ -285,7 +285,7 @@ export function registerWorkspaceRoutes(options: RegisterWorkspaceRoutesOptions)
   });
 
   addRoute(routes, "GET", "/workspaces/project-defaults", "host", async () => {
-    return jsonResponse({ folderPath: defaultProjectRoot() });
+    return jsonResponse({ folderPath: defaultProjectRoot(config.projectsDirectory) });
   });
 
   addRoute(routes, "GET", "/workspace/:id/project", "client", async (ctx) => {
@@ -309,7 +309,12 @@ export function registerWorkspaceRoutes(options: RegisterWorkspaceRoutesOptions)
 
     if (body.folderMode === "default") {
       if (folderPath || !readStringField(body, "name")) throw new ApiError(400, "invalid_payload", "A default-folder project needs a name and no selected path.");
-      folderPath = await createDefaultProjectFolder(name);
+      try {
+        folderPath = await createDefaultProjectFolder(name, defaultProjectRoot(config.projectsDirectory));
+      } catch (error) {
+        if (error instanceof ApiError) throw error;
+        throw new ApiError(422, "project_folder_unavailable", "The project folder could not be created. Check folder access or choose your own folder.");
+      }
     }
     if (!folderPath) {
       throw new ApiError(400, "invalid_payload", "folderPath is required");

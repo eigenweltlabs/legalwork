@@ -9,7 +9,7 @@ import {
   writeFile,
 } from "node:fs/promises";
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { isAbsolute, join } from "node:path";
 import { z } from "zod";
 import type { ProjectDetails } from "@legalwork/types/workspace";
 import { ApiError } from "./errors.js";
@@ -187,11 +187,10 @@ export async function updateProjectDetails(
   }
 }
 
-export function defaultProjectRoot() {
-  return (
-    process.env.LEGALWORK_PROJECTS_DIR?.trim() ||
-    join(homedir(), "LegalWork", "Projects")
-  );
+export function defaultProjectRoot(nativeDirectory?: string) {
+  const root = process.env.LEGALWORK_PROJECTS_DIR?.trim() || nativeDirectory || join(homedir(), "LegalWork", "Projects");
+  if (!isAbsolute(root)) throw new ApiError(400, "invalid_project_location", "The default project location must be an absolute folder. Choose your own folder or update the server setting.");
+  return root;
 }
 
 /** Reserve a new visible folder; never reuse/overwrite a same-named project. */
@@ -202,8 +201,8 @@ export async function createDefaultProjectFolder(
   const cleaned = name
     .trim()
     .replace(/[<>:"/\\|?*\x00-\x1f]/g, "-")
-    .replace(/[. ]+$/g, "")
-    .slice(0, 100);
+    .slice(0, 100)
+    .replace(/[. ]+$/g, "");
   const stem =
     !cleaned || /^(con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\.|$)/i.test(cleaned)
       ? `Project-${cleaned || "new"}`

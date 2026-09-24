@@ -35,6 +35,8 @@ export type EmbeddedServerOptions = CliArgs & {
   opencodeBin?: string;
   /** Working directory for the managed OpenCode process. */
   opencodeCwd?: string;
+  /** OS-resolved Documents project root provided by the desktop host. */
+  projectsDirectory?: string;
   /** Native folder-picker hook, forwarded to ServerConfig.pickDirectory. */
   pickDirectory?: ServerConfig["pickDirectory"];
   /** Desktop recorder hook, forwarded to Office add-in API routes. */
@@ -59,6 +61,7 @@ export async function startEmbeddedServer(options: EmbeddedServerOptions): Promi
   const config = await resolveServerConfig(options, { approvalMode: options.defaultApprovalMode });
   config.requestHostApproval = options.requestHostApproval;
   config.pickDirectory = options.pickDirectory ?? null;
+  config.projectsDirectory = options.projectsDirectory;
   config.recorder = options.recorder ?? null;
   const serverUrl = `http://${config.host === "0.0.0.0" ? "127.0.0.1" : config.host}:${config.port}`;
   // No trailing slash: the engine appends "/api.json" to this value, so a

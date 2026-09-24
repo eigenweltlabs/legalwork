@@ -2,7 +2,7 @@ import { useState } from "react";
 import type { LegalworkServerClient } from "@/app/lib/legalwork-server";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
+import { requestPanelTab } from "../session/panel/panel-tab-request";
 import {
   Dialog,
   DialogContent,
@@ -20,11 +20,10 @@ export function ProjectNoteDialog(props: {
   onSaved: () => void;
 }) {
   const [title, setTitle] = useState("");
-  const [body, setBody] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const save = async () => {
-    if (!title.trim() || !body.trim() || busy) return;
+    if (!title.trim() || busy) return;
     setBusy(true);
     setError(null);
     try {
@@ -34,9 +33,17 @@ export function ProjectNoteDialog(props: {
           .replace(/[<>:"/\\|?*\x00-\x1f]/g, "-")
           .slice(0, 80)
           .replace(/[. ]+$/g, "") || "Note";
+      const path = `Notes/${name}-${crypto.randomUUID().slice(0, 8)}.md`;
       await props.client.writeWorkspaceFile(props.workspaceId, {
-        path: `Notes/${name}-${crypto.randomUUID().slice(0, 8)}.md`,
-        content: `# ${title.trim()}\n\n${body.trim()}\n`,
+        path,
+        content: `# ${title.trim()}\n\n`,
+      });
+      requestPanelTab({
+        id: `file:${path.toLowerCase()}`,
+        type: "artifact",
+        label: `${name}.md`,
+        preview: "markdown",
+        value: path,
       });
       props.onSaved();
       props.onClose();
@@ -56,7 +63,9 @@ export function ProjectNoteDialog(props: {
       <DialogContent className="sm:max-w-xl" showCloseButton={!busy}>
         <DialogHeader>
           <DialogTitle>{t("projects.add_note")}</DialogTitle>
-          <DialogDescription>{t("projects.notes_hint")}</DialogDescription>
+          <DialogDescription>
+            {t("projects.note_editor_hint")}
+          </DialogDescription>
         </DialogHeader>
         <form
           className="space-y-4"
@@ -75,16 +84,6 @@ export function ProjectNoteDialog(props: {
             onChange={(event) => setTitle(event.target.value)}
             disabled={busy}
           />
-          <Textarea
-            required
-            rows={8}
-            maxLength={100000}
-            aria-label={t("projects.note_body")}
-            placeholder={t("projects.note_body")}
-            value={body}
-            onChange={(event) => setBody(event.target.value)}
-            disabled={busy}
-          />
           {error ? (
             <p role="alert" className="text-sm text-destructive">
               {error}
@@ -99,11 +98,8 @@ export function ProjectNoteDialog(props: {
             >
               {t("projects.cancel")}
             </Button>
-            <Button
-              type="submit"
-              disabled={busy || !title.trim() || !body.trim()}
-            >
-              {busy ? t("projects.saving") : t("projects.save_note")}
+            <Button type="submit" disabled={busy || !title.trim()}>
+              {busy ? t("projects.saving") : t("projects.add_note")}
             </Button>
           </DialogFooter>
         </form>

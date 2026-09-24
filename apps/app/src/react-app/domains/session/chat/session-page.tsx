@@ -1,5 +1,4 @@
 import { ProjectHome } from "../../workspace/project-home";
-import { ProjectNavigation } from "../../workspace/project-navigation";
 /** @jsxImportSource react */
 import type { CSSProperties } from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -216,7 +215,7 @@ export type SessionPageProps = {
   /** When set, replaces the session main pane (keeps the sidebar). Used for the Evals screen. */
   mainView?: React.ReactNode;
   projectHome?: boolean;
-  onProjectAgents?: () => void;
+  projectTasksView?: React.ReactNode;
   terminalOpen?: boolean;
   onTerminalOpenChange?: (open: boolean) => void;
   onSessionTabsChange?: (tabs: OpenSessionTab[]) => void;
@@ -983,21 +982,15 @@ export function SessionPage(props: SessionPageProps) {
       onClose={closeFileSidebar}
     />
   );
-  const projectNavigation = props.selectedWorkspaceId && (!props.mainView || props.projectHome) ? (
-    <ProjectNavigation home={Boolean(props.projectHome)} files={filesRailActive}
-      onHome={() => void props.sidebar.onSelectWorkspace(props.selectedWorkspaceId)}
-      onAgents={() => props.onProjectAgents?.()}
-      onFiles={openFilesRailPane} />
-  ) : null;
   const mainView = props.projectHome ? (
     props.legalworkServerClient && props.runtimeWorkspaceId ? <ProjectHome
       key={props.selectedWorkspaceId}
       client={props.legalworkServerClient}
       workspaceId={props.runtimeWorkspaceId}
+      tasksView={props.projectTasksView}
+      filesView={<WorkspaceFilesPanel client={props.legalworkServerClient} workspaceId={props.runtimeWorkspaceId} workspaceRoot={props.selectedWorkspaceRoot} onOpenFile={openWorkspaceFileEntry} />}
       name={props.selectedWorkspaceDisplay.displayName || props.selectedWorkspaceDisplay.name || props.selectedWorkspaceId}
-      folder={props.selectedWorkspaceRoot}
       group={props.sidebar.workspaceSessionGroups.find((group) => group.workspace.id === props.selectedWorkspaceId)}
-      onFiles={openFilesRailPane}
       onOpenFile={openWorkspaceFileEntry}
       onSession={(id) => props.sidebar.onOpenSession(props.selectedWorkspaceId, id)}
       onNewSession={() => props.sidebar.onCreateChatInWorkspace(props.selectedWorkspaceId)}
@@ -1039,6 +1032,15 @@ export function SessionPage(props: SessionPageProps) {
           selectedWorkspaceId={props.sidebar.selectedWorkspaceId}
           developerMode={props.sidebar.developerMode}
           selectedSessionId={props.sidebar.selectedSessionId}
+          projectFilesOpen={filesRailActive && !props.sidebar.activeNav}
+          onOpenProjectFiles={(workspaceId) => {
+            if (workspaceId === props.selectedWorkspaceId && !props.mainView) {
+              setFileSidebarState(panelStateSessionId, "files");
+            } else {
+              setFileSidebarState(`project:${workspaceId}`, "files");
+              void props.sidebar.onSelectWorkspace(workspaceId);
+            }
+          }}
           showInitialLoading={sidebarInitialLoading}
           showSessionActions={Boolean(props.onRenameSession || props.onDeleteSession || props.onArchiveSession)}
           sessionStatusById={props.sidebar.sessionStatusById}
@@ -1100,7 +1102,6 @@ export function SessionPage(props: SessionPageProps) {
                   <NotificationBell />
                 </div>
               </header>
-              {!props.projectHome ? projectNavigation : null}
               <div className="flex min-h-0 flex-1 flex-col overflow-hidden">{mainView}</div>
               {shellConfig.statusBar ? (
                 <StatusBar
@@ -1133,6 +1134,7 @@ export function SessionPage(props: SessionPageProps) {
                       client={props.legalworkServerClient}
                       workspaceId={props.runtimeWorkspaceId}
                       workspaceRoot={props.selectedWorkspaceRoot}
+                      projects={props.workspaces.filter((workspace) => workspace.workspaceType !== "remote").map((workspace) => ({ id: workspace.id, name: workspace.displayName || workspace.name || workspace.id }))}
                       isRemoteWorkspace={props.selectedWorkspaceDisplay.workspaceType === "remote"}
                       onClose={closeRightPane}
                     /></div>
@@ -1238,7 +1240,6 @@ export function SessionPage(props: SessionPageProps) {
               ) : null}
             </div>
           </header>
-          {!props.detached ? projectNavigation : null}
 
           <ResizablePanelGroup orientation="vertical" className="min-h-0 flex-1 overflow-hidden">
             <ResizablePanel minSize="180px" className="min-h-0">
@@ -1506,6 +1507,7 @@ export function SessionPage(props: SessionPageProps) {
                     workspaceId={props.runtimeWorkspaceId}
                     workspaceRoot={props.selectedWorkspaceRoot}
                     isRemoteWorkspace={props.surface?.isRemoteWorkspace ?? false}
+                    projects={props.workspaces.filter((workspace) => workspace.workspaceType !== "remote").map((workspace) => ({ id: workspace.id, name: workspace.displayName || workspace.name || workspace.id }))}
                     onClose={closeRightPane}
                   />
                 </ResizablePanel>

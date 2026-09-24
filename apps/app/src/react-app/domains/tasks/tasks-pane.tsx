@@ -28,6 +28,7 @@ import {
   ChevronDown,
   CloudOff,
   ListFilter,
+  Link2,
   Loader2,
   Plus,
   RefreshCw,
@@ -74,6 +75,8 @@ import { requestPanelTab } from "@/react-app/domains/session/panel/panel-tab-sto
 import { NewTaskDialog } from "./new-task-dialog";
 import { startTaskWorkflow } from "./start-workflow";
 import { TaskDetail } from "./task-detail";
+import { requestOpenTask } from "./task-reference";
+import { LinkProjectTaskDialog } from "./link-project-task-dialog";
 import { TASK_STATUSES, taskMemberOptions, taskStatusLabel } from "./task-format";
 import { OptionText } from "./task-glyphs";
 import { TaskList, type TaskListGroup } from "./task-list";
@@ -104,6 +107,10 @@ import {
 } from "./tasks-queries";
 
 export type TasksPaneProps = {
+  /** Restricts the shared list and new tasks to one project. */
+  projectId?: string;
+  /** Project views open the existing task viewer without leaving the project. */
+  detailMode?: "inline" | "panel";
   /** The local LegalWork server, which holds the task store (and the firm connection). */
   client: LegalworkServerClient | null;
   /** Transport only: which server instance the call goes to. */
@@ -146,6 +153,7 @@ export function TasksPane(props: TasksPaneProps) {
   const [startMode, setStartMode] = useState<StartTaskMode | null>(null);
   const [starting, setStarting] = useState(false);
   const [creating, setCreating] = useState(false);
+  const [linking, setLinking] = useState(false);
   const inTrash = view === "trash";
 
   const openTask = props.openTask;
@@ -160,6 +168,7 @@ export function TasksPane(props: TasksPaneProps) {
       .map((assignee) => assignee === ASSIGNEE_ME ? access.accountUserId : assignee)
       .filter((assignee): assignee is string => Boolean(assignee)))];
     return {
+      ...(props.projectId ? { projectId: props.projectId } : {}),
       ...(resolvedAssignees.length ? { assignees: resolvedAssignees } : {}),
       ...(statuses.length && !inTrash ? { statuses } : {}),
       ...(endpointIds.length ? { endpointIds } : {}),
@@ -170,7 +179,7 @@ export function TasksPane(props: TasksPaneProps) {
       // and priority carries its own documented order in the store.
       ...((sort === "priority" || sort === "due") && !inTrash ? {} : { order: "desc" as const }),
     };
-  }, [access.accountUserId, assignees, endpointIds, inTrash, selectedTags, sort, statuses]);
+  }, [access.accountUserId, assignees, endpointIds, inTrash, selectedTags, sort, statuses, props.projectId]);
 
   const tasksQuery = useTasks(context, query);
   const membersQuery = useTaskMembers(context);
@@ -247,11 +256,12 @@ export function TasksPane(props: TasksPaneProps) {
   };
 
   const create = (input: Parameters<typeof createTask.mutate>[0]) => {
-    createTask.mutate(input, {
+    createTask.mutate({ ...input, ...(props.projectId ? { projectId: props.projectId } : {}) }, {
       onSuccess: (task) => {
         setCreating(false);
         if (inTrash) switchView("tasks");
         setSelectedTaskId(task.id);
+        if (props.detailMode === "panel") requestOpenTask(task.id, task.title);
       },
       onError: (error) => toast.error(t("tasks.create_failed"), { description: error instanceof Error ? error.message : undefined }),
     });
@@ -341,7 +351,11 @@ export function TasksPane(props: TasksPaneProps) {
       ? t("tasks.count_more", { count: tasks.length })
       : t("tasks.count", { count: tasks.length })
     : null;
-  const showingDetail = selectedTask !== null;
+  const showingDetail = selectedTask !== null && props.detailMode !== "panel";
+  const selectTask = (id: string) => {
+    setSelectedTaskId(id);
+    if (props.detailMode === "panel") requestOpenTask(id, tasks.find((task) => task.id === id)?.title ?? t("tasks.title"));
+  };
 
   return (
     // Center the list at a readable width until a task is opened. Then the pane splits
@@ -364,6 +378,7 @@ export function TasksPane(props: TasksPaneProps) {
             <h1 className="text-[15px] font-medium leading-6 tracking-[-0.02em] text-foreground">{t(inTrash ? "tasks.trash" : "tasks.title")}</h1>
             {countLabel ? <span className="text-xs tabular-nums text-muted-foreground">{countLabel}</span> : null}
             <div className="ms-auto flex items-center gap-0.5">
+              {props.projectId ? <Button variant="ghost" size="icon-sm" aria-label={t("projects.link_task")} title={t("projects.link_task")} onClick={() => setLinking(true)}><Link2 /></Button> : null}
               <Tooltip>
                 <TooltipTrigger
                   render={
@@ -501,7 +516,7 @@ export function TasksPane(props: TasksPaneProps) {
             emptyHint={emptyHint}
             hasNextPage={Boolean(tasksQuery.hasNextPage)}
             fetchingNextPage={tasksQuery.isFetchingNextPage}
-            onSelect={setSelectedTaskId}
+            onSelect={selectTask}
             onStartSession={(task) => {
               setSelectedTaskId(task.id);
               setStartMode("session");
@@ -528,7 +543,7 @@ export function TasksPane(props: TasksPaneProps) {
         </div>
       </section>
 
-      {selectedTask ? (
+      {selectedTask && props.detailMode !== "panel" ? (
         <section className="flex min-h-0 min-w-0 flex-1 flex-col">
           <TaskDetail
             key={selectedTask.id}
@@ -575,6 +590,7 @@ export function TasksPane(props: TasksPaneProps) {
         />
       ) : null}
 
+      {linking && props.projectId && props.client ? <LinkProjectTaskDialog client={props.client} workspaceId={props.workspaceId} projectId={props.projectId} onClose={() => setLinking(false)} /> : null}
       {creating ? (
         <NewTaskDialog
           open

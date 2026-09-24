@@ -149,6 +149,7 @@ async function startLegalworkServerWithWorkspaces(input: {
   configPath: string;
   workspaces: ServerConfig["workspaces"];
   authorizedRoots: string[];
+  projectsDirectory?: string;
   opencodeBaseUrl?: string;
   opencodeUsername?: string;
   opencodePassword?: string;
@@ -159,6 +160,7 @@ async function startLegalworkServerWithWorkspaces(input: {
     token: "owt_test_token",
     hostToken: "owt_host_token",
     configPath: input.configPath,
+    projectsDirectory: input.projectsDirectory,
     approval: { mode: "auto", timeoutMs: 1000 },
     corsOrigins: ["*"],
     workspaces: input.workspaces,
@@ -527,4 +529,22 @@ test("selected-folder project preserves files, persists metadata and rejects sta
   expect(stale.status).toBe(409);
   expect(await readFile(join(selected, "contract.txt"), "utf8")).toBe("Original terms");
   expect(await readPersistedWorkspaceIds(join(root, "server.json"))).toEqual([id]);
+});
+
+
+test("new default projects use the native host root without relocating existing projects", async () => {
+  const root = await createWorkspaceRoot();
+  const projectsDirectory = join(root, "Redirected Documents", "LegalWork", "Projects");
+  const legalwork = await startLegalworkServerWithWorkspaces({ configPath: join(root, "server.json"), workspaces: [], authorizedRoots: [], projectsDirectory });
+  const base = `http://127.0.0.1:${legalwork.server.port}`;
+  const headers = { ...hostAuth(legalwork.hostToken), "Content-Type": "application/json" };
+  expect(await (await fetch(`${base}/workspaces/project-defaults`, { headers })).json()).toEqual({ folderPath: projectsDirectory });
+  for (const expected of ["Matter", "Matter (2)"]) {
+    const response = await fetch(`${base}/workspaces/local`, { method: "POST", headers, body: JSON.stringify({ folderMode: "default", name: "Matter" }) });
+    expect(response.status).toBe(201);
+    const list = await response.json();
+    expect(list.workspaces[0].path).toBe(join(projectsDirectory, expected));
+  }
+  const persisted = await readPersistedConfig(join(root, "server.json"));
+  expect(workspacesFromConfig(persisted).map((workspace) => workspace.path)).toEqual([join(projectsDirectory, "Matter (2)"), join(projectsDirectory, "Matter")]);
 });

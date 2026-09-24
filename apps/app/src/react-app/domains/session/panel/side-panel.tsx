@@ -59,6 +59,7 @@ import {
 } from "./utils";
 
 type SidePanelProps = {
+  projects?: { id: string; name: string }[];
   sessionId: string;
   client: LegalworkServerClient | null;
   workspaceId: string | null;
@@ -416,6 +417,7 @@ function BrowserPanelContent({
 }
 
 export function SidePanel({
+  projects,
   sessionId,
   client,
   workspaceId,
@@ -715,6 +717,7 @@ export function SidePanel({
         ) : activeTab?.type === "task" ? (
           <div className="min-h-0 flex-1 overflow-hidden">
             <TaskPanel
+              projects={projects}
               sessionId={sessionId}
               tab={activeTab}
               client={client}

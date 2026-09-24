@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { isDesktopRuntime } from "@/app/lib/runtime-env";
+import { folderNameFromPath } from "@/react-app/shell/route-workspaces";
 import { FolderOpen } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -34,11 +35,6 @@ export function CreateProjectModal(props: {
   const [folder, setFolder] = useState("");
   const [picking, setPicking] = useState(false);
   const [pickError, setPickError] = useState<string | null>(null);
-  const defaults = useQuery({
-    queryKey: ["project-defaults"],
-    queryFn: () => props.client!.getProjectDefaults(),
-    enabled: props.open && Boolean(props.client),
-  });
   useEffect(() => {
     if (props.open) {
       setName("");
@@ -116,9 +112,6 @@ export function CreateProjectModal(props: {
                 <span className="font-medium">
                   {t("projects.default_folder")}
                 </span>
-                <span className="break-all text-xs text-muted-foreground">
-                  {defaults.data?.folderPath ?? t("projects.loading")}
-                </span>
                 <span className="text-xs text-muted-foreground">
                   {t("projects.default_hint")}
                 </span>
@@ -143,12 +136,14 @@ export function CreateProjectModal(props: {
             </label>
             {mode === "selected" ? (
               <div className="flex gap-2">
-                <Input
-                  required
-                  aria-label={t("projects.location")}
-                  value={folder}
-                  onChange={(event) => setFolder(event.target.value)}
-                />
+                {isDesktopRuntime() ? (
+                  <div className="flex min-w-0 flex-1 items-center gap-2 rounded-md border border-input px-3 text-sm">
+                    <FolderOpen className="size-4 shrink-0 text-muted-foreground" />
+                    <span className="truncate">{folder ? folderNameFromPath(folder) : t("projects.choose_folder")}</span>
+                  </div>
+                ) : (
+                  <Input required aria-label={t("projects.location")} value={folder} onChange={(event) => setFolder(event.target.value)} />
+                )}
                 <Button
                   type="button"
                   variant="outline"
@@ -161,7 +156,7 @@ export function CreateProjectModal(props: {
               </div>
             ) : null}
           </fieldset>
-          {props.error || pickError || defaults.error ? (
+          {props.error || pickError ? (
             <p role="alert" className="text-sm text-destructive">
               {props.error || pickError || t("projects.failed")}
             </p>

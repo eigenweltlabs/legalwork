@@ -14,6 +14,12 @@
  */
 
 const de = {
+  "projects.overview_hint": "Ein kurzer Überblick über nächste Schritte und Ihre letzte Arbeit.",
+  "projects.next_due_task": "Nächste fällige Aufgabe",
+  "projects.no_due_task": "Keine anstehende Aufgabenfrist.",
+  "projects.continue_session": "Weiterarbeiten",
+  "projects.last_updated": "Zuletzt aktualisiert",
+  "projects.note_editor_hint": "Wählen Sie einen Titel und schreiben Sie Ihre Notiz im Dokumenteditor.",
   "projects.overview": "Überblick",
   "projects.emails": "E-Mails",
   "projects.emails_pending": "E-Mails folgen im E-Mail-Sprint.",
@@ -42,6 +48,7 @@ const de = {
   "projects.default_hint": "Für dieses Projekt wird ein neuer Ordner erstellt.",
   "projects.selected_folder": "Eigenen Ordner wählen",
   "projects.selected_hint": "Diesen Ordner direkt verwenden. Die Dokumente bleiben dort.",
+  "projects.choose_folder": "Kein Ordner ausgewählt",
   "projects.browse": "Auswählen",
   "projects.cancel": "Abbrechen",
   "projects.creating": "Wird erstellt…",
@@ -96,6 +103,10 @@ const de = {
   "projects.project": "Projekt",
   "projects.no_project": "Kein Projekt",
   "projects.plural": "Projekte",
+  "projects.customize_nav_description": "Wählen Sie, welche Hauptfunktionen oben in der Seitenleiste erscheinen.",
+  "projects.recent_sessions": "Letzte Sitzungen",
+  "projects.count_one": "{count} Projekt",
+  "projects.count_other": "{count} Projekte",
   "projects.customize_nav": "Navigation anpassen",
 
   "storage.oauth_provider": "Cloud-Speicher",

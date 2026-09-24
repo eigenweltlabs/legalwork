@@ -1,31 +1,23 @@
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
+import { useSearchParams } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Activity,
-  LayoutDashboard,
-  Mail,
-  StickyNote,
-  Table2,
-  ListTodo,
-  ArrowLeft,
-  CheckCircle2,
-  Circle,
+  ArrowUpRight,
   FileText,
+  LayoutDashboard,
+  ListTodo,
   MessageSquare,
   Plus,
   RefreshCw,
-  Unlink,
+  StickyNote,
 } from "lucide-react";
 import type {
   LegalworkServerClient,
-  LegalworkTaskPatch,
   LegalworkWorkspaceDirectoryEntry,
 } from "@/app/lib/legalwork-server";
 import type { WorkspaceSessionGroup } from "@/app/types";
 import { Button } from "@/components/ui/button";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { ProjectNoteDialog } from "./project-note-dialog";
-import { Input } from "@/components/ui/input";
 import {
   Dialog,
   DialogContent,
@@ -33,42 +25,58 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { toast } from "@/components/ui/sonner";
-import { SectionHeading, Surface } from "../../design-system/surface";
-import { FolderIcon } from "../../design-system/folder-icon";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
+import { PanelEmptyState } from "@/react-app/design-system/panel-chrome";
+import { SectionHeading, Surface } from "@/react-app/design-system/surface";
+import { FolderIcon } from "@/react-app/design-system/folder-icon";
+import { cn } from "@/lib/utils";
+import { requestOpenTask } from "../tasks/task-reference";
 import { useTasks } from "../tasks/tasks-queries";
-import { useShowTasksPane } from "../../shell/show-tasks-pane";
+import { formatTaskDueDate } from "../tasks/task-format";
 import { ProjectMetadata } from "./project-metadata";
+import { ProjectNoteDialog } from "./project-note-dialog";
 import { t } from "@/i18n";
 
 export function ProjectHome(props: {
   client: LegalworkServerClient;
   workspaceId: string;
   name: string;
-  folder: string;
   group?: WorkspaceSessionGroup;
-  onFiles: () => void;
+  tasksView?: ReactNode;
+  filesView: ReactNode;
   onOpenFile: (entry: LegalworkWorkspaceDirectoryEntry) => void;
   onSession: (id: string) => void;
   onNewSession: () => void;
 }) {
   const { client, workspaceId } = props;
   const queryClient = useQueryClient();
-  const showTask = useShowTasksPane();
-  const [directory, setDirectory] = useState("");
-  const [tab, setTab] = useState("overview");
+  const [searchParams, setSearchParams] = useSearchParams();
+  const requestedTab = searchParams.get("tab");
+  const tab =
+    requestedTab &&
+    ["files", "tasks", "notes", "activity"].includes(requestedTab)
+      ? requestedTab
+      : "overview";
+  const setTab = (value: string) =>
+    setSearchParams((previous) => {
+      const next = new URLSearchParams(previous);
+      if (value === "overview") next.delete("tab");
+      else next.set("tab", value);
+      return next;
+    });
   const [noteOpen, setNoteOpen] = useState(false);
   const [editMetadata, setEditMetadata] = useState(false);
-  const [linkOpen, setLinkOpen] = useState(false);
-  const [taskTitle, setTaskTitle] = useState("");
-  const [busy, setBusy] = useState(false);
   const details = useQuery({
     queryKey: ["project", workspaceId],
     queryFn: () => client.getProjectDetails(workspaceId),
-  });
-  const files = useQuery({
-    queryKey: ["project-files", workspaceId, directory],
-    queryFn: () => client.listWorkspaceDirectory(workspaceId, directory),
   });
   const rootFiles = useQuery({
     queryKey: ["project-files", workspaceId, ""],
@@ -88,58 +96,35 @@ export function ProjectHome(props: {
     { client, workspaceId },
     { projectId: workspaceId, sort: "updated" },
   );
-  const invalidateTasks = () =>
-    queryClient.invalidateQueries({ queryKey: ["tasks"] });
-  const mutateTask = async (id: string, patch: LegalworkTaskPatch) => {
-    setBusy(true);
-    try {
-      await client.patchTask(workspaceId, id, patch);
-      await invalidateTasks();
-      await queryClient.invalidateQueries({ queryKey: ["task"] });
-    } catch (error) {
-      toast.error(
-        error instanceof Error ? error.message : t("projects.failed"),
-      );
-    } finally {
-      setBusy(false);
-    }
-  };
-  const createTask = async () => {
-    if (!taskTitle.trim()) return;
-    setBusy(true);
-    try {
-      await client.createTask(workspaceId, {
-        title: taskTitle.trim(),
-        projectId: workspaceId,
-      });
-      setTaskTitle("");
-      await invalidateTasks();
-    } catch (error) {
-      toast.error(
-        error instanceof Error ? error.message : t("projects.failed"),
-      );
-    } finally {
-      setBusy(false);
-    }
-  };
   const taskRows = tasks.data?.pages.flatMap((page) => page.tasks) ?? [];
-  const sessions =
+  const openTasks = taskRows.filter(
+    (task) => task.status !== "done" && task.status !== "cancelled",
+  );
+  const nextTask = [...openTasks]
+    .filter((task) => task.dueDate)
+    .sort(
+      (a, b) => Date.parse(a.dueDate ?? "") - Date.parse(b.dueDate ?? ""),
+    )[0];
+  const sessions = (
     props.group?.sessions.filter(
       (session) => !session.time?.archived && !session.parentID,
-    ) ?? [];
-  const entries =
-    files.data?.entries.filter((entry) => !entry.name.startsWith(".")) ?? [];
+    ) ?? []
+  ).sort(
+    (a, b) =>
+      (b.time?.updated ?? b.time?.created ?? 0) -
+      (a.time?.updated ?? a.time?.created ?? 0),
+  );
+  const noteEntries = (
+    notes.data?.entries.filter(
+      (entry) => entry.kind === "file" && /\.md$/i.test(entry.name),
+    ) ?? []
+  ).sort((a, b) => (b.updatedAt ?? 0) - (a.updatedAt ?? 0));
   const refresh = () => {
-    void files.refetch();
+    void rootFiles.refetch();
     void tasks.refetch();
     void details.refetch();
-    void rootFiles.refetch();
     if (hasNotes) void notes.refetch();
   };
-  const noteEntries =
-    notes.data?.entries.filter(
-      (entry) => entry.kind === "file" && entry.name.endsWith(".md"),
-    ) ?? [];
   const recent = [
     ...taskRows.map((task) => ({
       id: `task:${task.id}`,
@@ -147,17 +132,21 @@ export function ProjectHome(props: {
       type: t("projects.task_updated"),
       at: Date.parse(task.updatedAt),
       icon: ListTodo,
-      open: () => showTask(task.id),
+      open: () => requestOpenTask(task.id, task.title),
     })),
     ...(rootFiles.data?.entries ?? [])
       .filter((entry) => entry.kind === "file" && !entry.name.startsWith("."))
       .concat(noteEntries)
       .map((entry) => ({
         id: `file:${entry.path}`,
-        title: entry.name,
-        type: entry.path.startsWith("Notes/")
-          ? t("projects.note_updated")
-          : t("projects.file_updated"),
+        title: entry.path.startsWith("Notes/")
+          ? noteTitle(entry.name)
+          : entry.name,
+        type: t(
+          entry.path.startsWith("Notes/")
+            ? "projects.note_updated"
+            : "projects.file_updated",
+        ),
         at: entry.updatedAt ?? 0,
         icon: FileText,
         open: () => props.onOpenFile(entry),
@@ -173,330 +162,56 @@ export function ProjectHome(props: {
   ]
     .filter((item) => item.at > 0)
     .sort((a, b) => b.at - a.at);
-  const taskSection = (
-    <section>
-      <SectionHeading
-        title={t("projects.tasks")}
-        description={t("projects.tasks_hint")}
-        action={
-          <Button variant="ghost" size="sm" onClick={() => setLinkOpen(true)}>
-            {t("projects.link_task")}
-          </Button>
-        }
-      />
-      <form
-        className="mt-4 flex gap-2"
-        onSubmit={(event) => {
-          event.preventDefault();
-          void createTask();
-        }}
-      >
-        <Input
-          aria-label={t("projects.new_task")}
-          placeholder={t("projects.new_task")}
-          maxLength={500}
-          value={taskTitle}
-          disabled={busy}
-          onChange={(event) => setTaskTitle(event.target.value)}
-        />
-        <Button
-          type="submit"
-          size="icon"
-          aria-label={t("projects.add_task")}
-          disabled={busy || !taskTitle.trim()}
-        >
-          <Plus className="size-4" />
-        </Button>
-      </form>
-      {tasks.isPending ? (
-        <Notice>{t("projects.loading")}</Notice>
-      ) : tasks.error ? (
-        <Notice error>{t("projects.failed")}</Notice>
-      ) : taskRows.length ? (
-        <ul className="mt-3 divide-y divide-border">
-          {taskRows.map((task) => (
-            <li key={task.id} className="flex items-center gap-2 py-2">
-              <Button
-                variant="ghost"
-                size="icon"
-                disabled={busy}
-                aria-label={
-                  task.status === "done"
-                    ? t("projects.reopen_task")
-                    : t("projects.complete_task")
-                }
-                onClick={() =>
-                  void mutateTask(task.id, {
-                    status: task.status === "done" ? "open" : "done",
-                  })
-                }
-              >
-                {task.status === "done" ? (
-                  <CheckCircle2 className="size-4 text-muted-foreground" />
-                ) : (
-                  <Circle className="size-4 text-muted-foreground" />
-                )}
-              </Button>
-              <button
-                className="min-w-0 flex-1 text-left text-sm hover:underline"
-                onClick={() => showTask(task.id)}
-              >
-                <span
-                  className={
-                    task.status === "done"
-                      ? "text-muted-foreground line-through"
-                      : ""
-                  }
-                >
-                  {task.title}
-                </span>
-              </button>
-              <Button
-                variant="ghost"
-                size="icon"
-                aria-label={t("projects.unlink_task", {
-                  name: task.title,
-                })}
-                disabled={busy}
-                onClick={() => void mutateTask(task.id, { projectId: null })}
-              >
-                <Unlink className="size-3.5 text-muted-foreground" />
-              </Button>
-            </li>
-          ))}
-        </ul>
-      ) : (
-        <Notice>{t("projects.no_tasks")}</Notice>
-      )}
-      {tasks.hasNextPage ? (
-        <Button
-          variant="ghost"
-          disabled={tasks.isFetchingNextPage}
-          onClick={() => void tasks.fetchNextPage()}
-        >
-          {t("projects.more")}
-        </Button>
-      ) : null}
-    </section>
-  );
-  const fileSection = (
-    <section>
-      <SectionHeading
-        title={t("projects.files")}
-        description={t("projects.documents_hint")}
-        action={
-          <Button variant="ghost" size="sm" onClick={props.onFiles}>
-            {t("projects.all_files")}
-          </Button>
-        }
-      />
-      {directory ? (
-        <Button
-          variant="ghost"
-          size="sm"
-          className="mt-3 max-w-full"
-          onClick={() =>
-            setDirectory(directory.split("/").slice(0, -1).join("/"))
-          }
-        >
-          <ArrowLeft className="size-4" />
-          <span className="truncate">{directory}</span>
-        </Button>
-      ) : null}
-      {files.isPending ? (
-        <Notice>{t("projects.loading")}</Notice>
-      ) : files.error ? (
-        <Notice error>{t("projects.failed")}</Notice>
-      ) : entries.length ? (
-        <ul className="mt-3 divide-y divide-border">
-          {entries.map((entry) => (
-            <li key={entry.path}>
-              <button
-                className="flex w-full items-center gap-3 rounded-lg px-1 py-3 text-left text-sm hover:bg-muted/50"
-                onClick={() =>
-                  entry.kind === "dir"
-                    ? setDirectory(entry.path)
-                    : props.onOpenFile(entry)
-                }
-              >
-                {entry.kind === "dir" ? (
-                  <FolderIcon className="size-5" />
-                ) : (
-                  <FileText className="size-5 shrink-0 text-muted-foreground" />
-                )}
-                <span className="truncate">{entry.name}</span>
-              </button>
-            </li>
-          ))}
-        </ul>
-      ) : (
-        <Notice>{t("projects.no_documents")}</Notice>
-      )}
-      {files.data?.truncated ? (
-        <Notice>{t("projects.files_truncated")}</Notice>
-      ) : null}
-    </section>
-  );
-  const sessionSection = (
-    <section>
-      <SectionHeading
-        title={t("projects.sessions")}
-        action={
-          <Button size="sm" variant="ghost" onClick={props.onNewSession}>
-            <Plus className="size-4" />
-            {t("projects.new_chat")}
-          </Button>
-        }
-      />
-      {props.group?.status === "error" ? (
-        <Notice error>{t("projects.failed")}</Notice>
-      ) : props.group?.status === "loading" ||
-        props.group?.status === "idle" ? (
-        <Notice>{t("projects.loading")}</Notice>
-      ) : sessions.length ? (
-        <ul className="mt-3 divide-y divide-border">
-          {sessions.map((session) => (
-            <li key={session.id}>
-              <button
-                className="flex w-full items-start gap-3 rounded-lg py-3 text-left text-sm hover:bg-muted/50"
-                onClick={() => props.onSession(session.id)}
-              >
-                <MessageSquare className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
-                <span className="break-words">{session.title}</span>
-              </button>
-            </li>
-          ))}
-        </ul>
-      ) : (
-        <Notice>{t("projects.no_sessions")}</Notice>
-      )}
-    </section>
-  );
-  const activitySection = (
-    <section>
-      <SectionHeading
-        title={t("projects.activity")}
-        description={t("projects.activity_hint")}
-      />
-      {recent.length ? (
-        <div className="mt-4 divide-y divide-border rounded-xl border border-border">
-          {recent.slice(0, tab === "overview" ? 5 : 30).map((item) => (
-            <button
-              key={item.id}
-              className="flex w-full items-center gap-3 px-4 py-3 text-left hover:bg-muted/40"
-              onClick={item.open}
-            >
-              <item.icon className="size-4 shrink-0 text-muted-foreground" />
-              <span className="min-w-0 flex-1">
-                <span className="block truncate text-sm">{item.title}</span>
-                <span className="text-xs text-muted-foreground">
-                  {item.type}
-                </span>
-              </span>
-              <time
-                className="shrink-0 text-xs text-muted-foreground"
-                dateTime={new Date(item.at).toISOString()}
-              >
-                {new Date(item.at).toLocaleDateString()}
-              </time>
-            </button>
-          ))}
-        </div>
-      ) : (
-        <Notice>{t("projects.no_activity")}</Notice>
-      )}
-    </section>
-  );
-  const notesSection = (
-    <section>
-      <SectionHeading
-        title={t("projects.notes")}
-        description={t("projects.notes_hint")}
-        action={
-          <Button size="sm" variant="ghost" onClick={() => setNoteOpen(true)}>
-            <Plus className="size-4" />
-            {t("projects.add_note")}
-          </Button>
-        }
-      />
-      {hasNotes && notes.isPending ? (
-        <Notice>{t("projects.loading")}</Notice>
-      ) : notes.error ? (
-        <Notice error>{t("projects.failed")}</Notice>
-      ) : noteEntries.length ? (
-        <ul className="mt-4 divide-y divide-border rounded-xl border border-border">
-          {noteEntries.map((entry) => (
-            <li key={entry.path}>
-              <button
-                className="flex w-full items-center gap-3 px-4 py-3 text-left hover:bg-muted/40"
-                onClick={() => props.onOpenFile(entry)}
-              >
-                <StickyNote className="size-4 shrink-0 text-muted-foreground" />
-                <span className="truncate text-sm">
-                  {entry.name
-                    .replace(/-[a-f0-9]{8}\.md$/, "")
-                    .replace(/\.md$/, "")}
-                </span>
-              </button>
-            </li>
-          ))}
-        </ul>
-      ) : (
-        <Notice>{t("projects.no_notes")}</Notice>
-      )}
-    </section>
-  );
   const tabs = [
     { id: "overview", label: t("projects.overview"), icon: LayoutDashboard },
     { id: "files", label: t("projects.files"), icon: FileText },
-    { id: "emails", label: t("projects.emails"), icon: Mail, disabled: true },
     { id: "tasks", label: t("projects.tasks"), icon: ListTodo },
     { id: "notes", label: t("projects.notes"), icon: StickyNote },
     { id: "activity", label: t("projects.activity"), icon: Activity },
   ];
+
   return (
     <div
-      className="@container min-h-0 flex-1 overflow-y-auto"
+      className="@container/project flex min-h-0 flex-1 overflow-hidden"
       data-testid="project-home"
     >
-      <div className="flex min-h-full flex-col @min-[850px]:h-full @min-[850px]:flex-row @min-[850px]:overflow-hidden">
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-y-auto @min-[760px]/project:flex-row @min-[760px]/project:overflow-hidden">
         <aside
           aria-label={t("projects.metadata")}
-          className="w-full shrink-0 border-b border-border @min-[850px]:w-72 @min-[850px]:overflow-y-auto @min-[850px]:border-r @min-[850px]:border-b-0"
+          className={cn(
+            "shrink-0 border-b border-border/70 @min-[760px]/project:w-60 @min-[760px]/project:overflow-y-auto @min-[760px]/project:border-r @min-[760px]/project:border-b-0",
+            tab !== "overview" && "hidden @min-[760px]/project:block",
+          )}
         >
-          <div className="space-y-4 border-b border-border p-5">
-            <div className="flex items-start gap-3">
-              <FolderIcon className="mt-1 size-8" />
-              <h1 className="min-w-0 flex-1 break-words text-lg font-semibold tracking-tight">
+          <div className="space-y-4 border-b border-border/70 px-4 py-5">
+            <div className="flex items-start gap-2.5">
+              <FolderIcon className="mt-0.5 size-6 shrink-0" />
+              <h1 className="min-w-0 flex-1 break-words text-base font-medium leading-6 tracking-tight">
                 {props.name}
               </h1>
               <Button
-                size="icon"
+                size="icon-sm"
                 variant="ghost"
                 aria-label={t("projects.refresh")}
                 onClick={refresh}
               >
-                <RefreshCw className="size-4" />
+                <RefreshCw className="size-3.5" />
               </Button>
             </div>
-            <div className="flex flex-wrap gap-2">
-              <Button variant="outline" size="sm" onClick={props.onNewSession}>
-                <MessageSquare className="size-4" />
-                {t("projects.new_chat")}
-              </Button>
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() => setNoteOpen(true)}
-              >
-                <StickyNote className="size-4" />
-                {t("projects.add_note")}
-              </Button>
-            </div>
+            <Button
+              variant="outline"
+              size="sm"
+              className="w-full"
+              onClick={props.onNewSession}
+            >
+              <MessageSquare />
+              {t("projects.new_chat")}
+            </Button>
           </div>
-          <div className="p-5">
+          <div className="px-4 py-4">
             <SectionHeading
               title={t("projects.metadata")}
+              size="sidebar"
               action={
                 <Button
                   size="sm"
@@ -513,11 +228,11 @@ export function ProjectHome(props: {
             ) : details.error ? (
               <Notice error>{t("projects.failed")}</Notice>
             ) : details.data?.fields.length ? (
-              <dl className="mt-4 space-y-3">
+              <dl className="mt-4 space-y-3.5">
                 {details.data.fields.map((field) => (
                   <div
                     key={field.id}
-                    className="grid grid-cols-2 gap-3 text-sm"
+                    className="grid grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)] gap-3 text-xs leading-5"
                   >
                     <dt className="break-words text-muted-foreground">
                       {field.label}
@@ -534,149 +249,266 @@ export function ProjectHome(props: {
               <Notice>{t("projects.no_metadata")}</Notice>
             )}
           </div>
-          <div className="space-y-3 border-t border-border p-5">
-            <p className="text-xs font-medium text-muted-foreground">
-              {t("projects.location")}
-            </p>
-            <button
-              className="w-full break-all text-left text-xs leading-relaxed hover:underline"
-              onClick={props.onFiles}
-            >
-              {props.folder}
-            </button>
-            <Button
-              variant="outline"
-              size="sm"
-              className="w-full"
-              onClick={props.onFiles}
-            >
-              <FileText className="size-4" />
-              {t("projects.all_files")}
-            </Button>
-          </div>
-          <div className="space-y-1 border-t border-border p-3">
-            <Button
-              className="w-full justify-start"
-              variant="ghost"
-              onClick={() => setTab("agents")}
-            >
-              <MessageSquare className="size-4" />
-              {t("projects.agents")}
-            </Button>
-            <span className="block" title={t("projects.tab_review_pending")}>
-              <Button className="w-full justify-start" variant="ghost" disabled>
-                <Table2 className="size-4" />
-                {t("projects.tab_review")}
-              </Button>
-            </span>
-          </div>
         </aside>
         <Tabs
           value={tab}
           onValueChange={(value) => {
-            if (typeof value === "string") {
-              setTab(value);
-              if (value === "overview") setDirectory("");
-            }
+            if (typeof value === "string") setTab(value);
           }}
-          className="min-h-0 min-w-0 flex-1 gap-0"
+          className="min-h-96 min-w-0 flex-1 gap-0 @min-[760px]/project:min-h-0"
         >
-          <div className="shrink-0 overflow-x-auto border-b border-border px-4">
+          <div className="shrink-0 overflow-x-auto border-b border-border/70 px-4">
             <TabsList
               variant="line"
               aria-label={t("projects.navigation")}
-              className="h-13 gap-2 py-2"
+              className="h-11 gap-1"
             >
               {tabs.map((item) => (
-                <TabsTrigger
-                  key={item.id}
-                  value={item.id}
-                  disabled={item.disabled}
-                  title={
-                    item.disabled ? t("projects.emails_pending") : undefined
-                  }
-                >
-                  <item.icon className="size-4" />
+                <TabsTrigger key={item.id} value={item.id}>
+                  <item.icon className="size-3.5" />
                   {item.label}
                 </TabsTrigger>
               ))}
-              <TabsTrigger
-                value="agents"
-                className={tab === "agents" ? "" : "hidden"}
-              >
-                {t("projects.agents")}
-              </TabsTrigger>
             </TabsList>
           </div>
           <TabsContent
             value="overview"
-            className="min-h-0 overflow-y-auto p-6 @min-[1100px]:p-8"
+            className="min-h-0 overflow-y-auto px-6 py-6"
           >
-            <div className="mx-auto max-w-5xl space-y-8">
-              <section>
-                <SectionHeading title={t("projects.highlights")} />
-                <div className="mt-4 grid gap-3 sm:grid-cols-3">
-                  {[
-                    {
-                      label: t("projects.open_tasks"),
-                      value: `${taskRows.filter((task) => task.status !== "done" && task.status !== "cancelled").length}${tasks.hasNextPage ? "+" : ""}`,
-                      icon: ListTodo,
-                      target: "tasks",
-                    },
-                    {
-                      label: t("projects.documents"),
-                      value: `${rootFiles.data?.entries.filter((entry) => entry.kind === "file" && !entry.name.startsWith(".")).length ?? 0}${rootFiles.data?.truncated ? "+" : ""}`,
-                      icon: FileText,
-                      target: "files",
-                    },
-                    {
-                      label: t("projects.sessions"),
-                      value: String(sessions.length),
-                      icon: MessageSquare,
-                      target: "agents",
-                    },
-                  ].map((item) => (
-                    <Surface
-                      key={item.target}
-                      className="overflow-hidden rounded-xl"
+            <div className="mx-auto max-w-3xl space-y-7">
+              <SectionHeading
+                title={t("projects.overview")}
+                description={t("projects.overview_hint")}
+              />
+              <div className="grid grid-cols-3 divide-x divide-border rounded-lg border border-border">
+                {[
+                  {
+                    label: t("projects.open_tasks"),
+                    value: tasks.isPending
+                      ? "–"
+                      : `${openTasks.length}${tasks.hasNextPage ? "+" : ""}`,
+                    target: "tasks",
+                  },
+                  {
+                    label: t("projects.notes"),
+                    value:
+                      rootFiles.isPending || (hasNotes && notes.isPending)
+                        ? "–"
+                        : noteEntries.length,
+                    target: "notes",
+                  },
+                  {
+                    label: t("projects.sessions"),
+                    value: sessions.length,
+                    target: "activity",
+                  },
+                ].map((item) => (
+                  <Button
+                    key={item.label}
+                    variant="ghost"
+                    className="h-auto flex-col items-start gap-2 rounded-none px-4 py-4"
+                    onClick={() => setTab(item.target)}
+                  >
+                    <span className="text-xs font-normal text-muted-foreground">
+                      {item.label}
+                    </span>
+                    <span className="text-xl font-medium tabular-nums">
+                      {item.value}
+                    </span>
+                  </Button>
+                ))}
+              </div>
+              <div className="grid gap-4 @min-[1000px]/project:grid-cols-2">
+                <Surface className="rounded-lg p-4">
+                  <SectionHeading
+                    size="sidebar"
+                    title={t("projects.next_due_task")}
+                  />
+                  {nextTask ? (
+                    <Button
+                      variant="ghost"
+                      className="mt-3 h-auto w-full justify-between gap-3 p-0 text-left hover:bg-transparent"
+                      onClick={() =>
+                        requestOpenTask(nextTask.id, nextTask.title)
+                      }
                     >
-                      <button
-                        className="w-full space-y-4 p-4 text-left hover:bg-muted/30"
-                        onClick={() => setTab(item.target)}
-                      >
-                        <span className="flex items-center justify-between gap-2 text-xs text-muted-foreground">
-                          {item.label}
-                          <item.icon className="size-4" />
+                      <span className="min-w-0">
+                        <span className="block truncate text-sm font-medium">
+                          {nextTask.title}
                         </span>
-                        <span className="block text-xl font-medium">
-                          {item.value}
+                        <span className="mt-1 block text-xs font-normal text-muted-foreground">
+                          {formatTaskDueDate(nextTask.dueDate)}
                         </span>
-                      </button>
-                    </Surface>
-                  ))}
-                </div>
-              </section>
-              {activitySection}
-              {notesSection}
-              {taskSection}
-              {fileSection}
-              {sessionSection}
+                      </span>
+                      <ArrowUpRight className="size-4 shrink-0" />
+                    </Button>
+                  ) : (
+                    <p className="mt-3 text-sm text-muted-foreground">
+                      {t("projects.no_due_task")}
+                    </p>
+                  )}
+                </Surface>
+                <Surface className="rounded-lg p-4">
+                  <SectionHeading
+                    size="sidebar"
+                    title={t("projects.continue_session")}
+                  />
+                  {sessions[0] ? (
+                    <Button
+                      variant="ghost"
+                      className="mt-3 h-auto w-full justify-between gap-3 p-0 text-left hover:bg-transparent"
+                      onClick={() => props.onSession(sessions[0].id)}
+                    >
+                      <span className="truncate text-sm font-medium">
+                        {sessions[0].title}
+                      </span>
+                      <ArrowUpRight className="size-4 shrink-0" />
+                    </Button>
+                  ) : (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="mt-2 -ml-2"
+                      onClick={props.onNewSession}
+                    >
+                      <Plus />
+                      {t("projects.new_chat")}
+                    </Button>
+                  )}
+                </Surface>
+              </div>
             </div>
           </TabsContent>
-          <TabsContent value="files" className="min-h-0 overflow-y-auto p-6">
-            {fileSection}
+          <TabsContent
+            value="files"
+            className="flex min-h-0 flex-1 flex-col overflow-hidden"
+          >
+            {props.filesView}
           </TabsContent>
-          <TabsContent value="tasks" className="min-h-0 overflow-y-auto p-6">
-            {taskSection}
+          <TabsContent
+            value="tasks"
+            className="flex min-h-0 flex-1 flex-col overflow-hidden"
+          >
+            {props.tasksView}
           </TabsContent>
-          <TabsContent value="notes" className="min-h-0 overflow-y-auto p-6">
-            {notesSection}
+          <TabsContent value="notes" className="min-h-0 overflow-y-auto">
+            <div className="flex h-14 items-center justify-between border-b border-border/70 px-4">
+              <h2 className="text-[15px] font-medium">{t("projects.notes")}</h2>
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                aria-label={t("projects.add_note")}
+                title={t("projects.add_note")}
+                onClick={() => setNoteOpen(true)}
+              >
+                <Plus />
+              </Button>
+            </div>
+            {rootFiles.isPending || (hasNotes && notes.isPending) ? (
+              <div className="px-4">
+                <Notice>{t("projects.loading")}</Notice>
+              </div>
+            ) : notes.error || rootFiles.error ? (
+              <div className="px-4">
+                <Notice error>{t("projects.failed")}</Notice>
+              </div>
+            ) : noteEntries.length ? (
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead className="pl-4">
+                      {t("projects.note_title")}
+                    </TableHead>
+                    <TableHead className="text-right pr-4">
+                      {t("projects.last_updated")}
+                    </TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {noteEntries.map((entry) => (
+                    <TableRow key={entry.path}>
+                      <TableCell className="pl-4">
+                        <Button
+                          variant="ghost"
+                          className="h-auto max-w-full justify-start gap-2 px-0 font-normal hover:bg-transparent"
+                          onClick={() => props.onOpenFile(entry)}
+                        >
+                          <StickyNote className="size-4 shrink-0 text-muted-foreground" />
+                          <span className="truncate">
+                            {noteTitle(entry.name)}
+                          </span>
+                        </Button>
+                      </TableCell>
+                      <TableCell className="pr-4 text-right text-xs text-muted-foreground">
+                        {entry.updatedAt
+                          ? new Date(entry.updatedAt).toLocaleDateString()
+                          : "–"}
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            ) : (
+              <PanelEmptyState
+                icon={<StickyNote />}
+                title={t("projects.notes")}
+                description={t("projects.no_notes")}
+              >
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setNoteOpen(true)}
+                >
+                  <Plus />
+                  {t("projects.add_note")}
+                </Button>
+              </PanelEmptyState>
+            )}
           </TabsContent>
-          <TabsContent value="activity" className="min-h-0 overflow-y-auto p-6">
-            {activitySection}
-          </TabsContent>
-          <TabsContent value="agents" className="min-h-0 overflow-y-auto p-6">
-            {sessionSection}
+          <TabsContent
+            value="activity"
+            className="min-h-0 overflow-y-auto px-5 py-5"
+          >
+            <SectionHeading
+              title={t("projects.activity")}
+              description={t("projects.activity_hint")}
+            />
+            {recent.length ? (
+              <Table className="mt-4">
+                <TableBody>
+                  {recent.map((item) => (
+                    <TableRow key={item.id}>
+                      <TableCell>
+                        <Button
+                          variant="ghost"
+                          className="h-auto w-full justify-start gap-3 px-0 text-left font-normal hover:bg-transparent"
+                          onClick={item.open}
+                        >
+                          <item.icon className="size-4 shrink-0 text-muted-foreground" />
+                          <span className="min-w-0">
+                            <span className="block truncate text-sm">
+                              {item.title}
+                            </span>
+                            <span className="block text-xs text-muted-foreground">
+                              {item.type}
+                            </span>
+                          </span>
+                        </Button>
+                      </TableCell>
+                      <TableCell className="text-right text-xs text-muted-foreground">
+                        {new Date(item.at).toLocaleDateString()}
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            ) : (
+              <PanelEmptyState
+                icon={<Activity />}
+                title={t("projects.activity")}
+                description={t("projects.no_activity")}
+              />
+            )}
           </TabsContent>
         </Tabs>
       </div>
@@ -692,6 +524,7 @@ export function ProjectHome(props: {
             void queryClient.invalidateQueries({
               queryKey: ["project-notes", workspaceId],
             });
+            setTab("notes");
           }}
         />
       ) : null}
@@ -706,8 +539,9 @@ export function ProjectHome(props: {
               details={details.data}
               onCancel={() => setEditMetadata(false)}
               onSave={async (fields) => {
+                if (!details.data) return;
                 const data = await client.updateProjectDetails(workspaceId, {
-                  revision: details.data!.revision,
+                  revision: details.data.revision,
                   fields,
                 });
                 queryClient.setQueryData(["project", workspaceId], data);
@@ -717,113 +551,20 @@ export function ProjectHome(props: {
           ) : null}
         </DialogContent>
       </Dialog>
-      {linkOpen ? (
-        <LinkTask
-          client={client}
-          workspaceId={workspaceId}
-          onClose={() => setLinkOpen(false)}
-          onLink={async (id) => {
-            await client.patchTask(workspaceId, id, { projectId: workspaceId });
-            await invalidateTasks();
-            setLinkOpen(false);
-          }}
-        />
-      ) : null}
     </div>
   );
 }
 
-function Notice(props: { children: React.ReactNode; error?: boolean }) {
+function noteTitle(name: string) {
+  return name.replace(/-[a-f0-9]{8}\.md$/i, "").replace(/\.md$/i, "");
+}
+function Notice(props: { children: ReactNode; error?: boolean }) {
   return (
     <p
       role={props.error ? "alert" : undefined}
-      className={`py-5 text-sm ${props.error ? "text-destructive" : "text-muted-foreground"}`}
+      className={`py-4 text-xs leading-5 ${props.error ? "text-destructive" : "text-muted-foreground"}`}
     >
       {props.children}
     </p>
-  );
-}
-
-function LinkTask(props: {
-  client: LegalworkServerClient;
-  workspaceId: string;
-  onClose: () => void;
-  onLink: (id: string) => Promise<void>;
-}) {
-  const tasks = useTasks(props, { sort: "updated" });
-  const [query, setQuery] = useState("");
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const rows =
-    tasks.data?.pages
-      .flatMap((page) => page.tasks)
-      .filter(
-        (task) =>
-          !task.projectId &&
-          task.title.toLocaleLowerCase().includes(query.toLocaleLowerCase()),
-      ) ?? [];
-  return (
-    <Dialog
-      open
-      onOpenChange={(open) => {
-        if (!open && !busy) props.onClose();
-      }}
-    >
-      <DialogContent>
-        <DialogHeader>
-          <DialogTitle>{t("projects.link_task")}</DialogTitle>
-          <DialogDescription>{t("projects.link_task_hint")}</DialogDescription>
-        </DialogHeader>
-        <Input
-          aria-label={t("projects.filter_tasks")}
-          placeholder={t("projects.filter_tasks")}
-          value={query}
-          onChange={(event) => setQuery(event.target.value)}
-        />
-        <div className="max-h-72 overflow-auto">
-          {rows.map((task) => (
-            <Button
-              key={task.id}
-              variant="ghost"
-              className="h-auto w-full justify-start whitespace-normal text-left"
-              disabled={busy}
-              onClick={async () => {
-                setBusy(true);
-                try {
-                  await props.onLink(task.id);
-                } catch (error) {
-                  setError(
-                    error instanceof Error
-                      ? error.message
-                      : t("projects.failed"),
-                  );
-                } finally {
-                  setBusy(false);
-                }
-              }}
-            >
-              {task.title}
-            </Button>
-          ))}
-          {tasks.isPending ? (
-            <Notice>{t("projects.loading")}</Notice>
-          ) : !rows.length ? (
-            <Notice>{t("projects.no_unlinked_tasks")}</Notice>
-          ) : null}
-          {tasks.hasNextPage ? (
-            <Button
-              variant="outline"
-              disabled={tasks.isFetchingNextPage}
-              onClick={() => void tasks.fetchNextPage()}
-            >
-              {t("projects.more")}
-            </Button>
-          ) : null}
-        </div>
-        {error || tasks.error ? (
-          <Notice error>{error || t("projects.failed")}</Notice>
-        ) : null}
-      </DialogContent>
-    </Dialog>
   );
 }

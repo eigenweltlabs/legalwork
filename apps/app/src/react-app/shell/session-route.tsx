@@ -2287,7 +2287,9 @@ export function SessionRoute() {
         onClose: () => sessionProviderAuthStore.closeProviderAuthModal(),
       } : null}
       projectHome={location.pathname.endsWith("/project") && !showWorkflows && !showExtensions && !showEvals && !showTasks && !showRecorder}
-      onProjectAgents={() => navigateToWorkspaceSession(selectedWorkspaceId, readLastSessionFor(selectedWorkspaceId))}
+      projectTasksView={
+        <TasksPane client={selectedWorkspaceEndpoint?.client ?? client} workspaceId={selectedWorkspaceEndpoint?.workspaceId ?? selectedWorkspaceId} projectId={selectedWorkspaceEndpoint?.workspaceId ?? selectedWorkspaceId} detailMode="panel" baseUrl={baseUrl} token={token} workspaces={sidebarWorkspaces} defaultModel={local.prefs.defaultModel} onOpenSession={(workspaceId, sessionId) => navigateToWorkspaceSession(workspaceId, sessionId)} />
+      }
       mainView={
         // One reused SettingsSurface instance across the pages — it follows `initialPath`
         // via an effect, so switching Workflows <-> Integrations is instant and doesn't

@@ -117,6 +117,8 @@ export interface ServerConfig {
   hostToken: string;
   configPath?: string;
   wordAddin?: WordAddinConfig;
+  /** Native host default for new project folders; existing workspace paths stay authoritative. */
+  projectsDirectory?: string;
   /**
    * Host-app hook that opens a native "choose folder" dialog. Set by the
    * desktop app (which owns OS dialogs); null when the server runs

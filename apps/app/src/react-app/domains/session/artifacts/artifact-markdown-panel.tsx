@@ -77,6 +77,7 @@ export function ArtifactMarkdownPanel({ sessionId, client, workspaceId, workspac
       update((current) => current ? savedMarkdownDraft(current, snapshot.content, result.updatedAt ?? null) : current);
       queryClient.setQueryData(["markdown-editor", workspaceId, target.value], { ...result, content: snapshot.content });
       void queryClient.invalidateQueries({ queryKey: ["artifact-panel", workspaceId, target.id] });
+      void queryClient.invalidateQueries({ queryKey: ["project-notes", workspaceId] });
       setSaveError(null);
       return true;
     } catch (error) {

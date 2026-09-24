@@ -96,6 +96,28 @@ export function ShellCustomizationView() {
 
   return (
     <LayoutStack>
+      <LayoutSection>
+        <LayoutSectionHeader>
+          <LayoutSectionTitle>{t("projects.customize_nav")}</LayoutSectionTitle>
+          <LayoutSectionDescription>{t("projects.customize_nav_description")}</LayoutSectionDescription>
+        </LayoutSectionHeader>
+        {([
+          { key: "navNewChat", label: t("projects.new_chat") },
+          { key: "navTasks", label: t("sidebar.tasks") },
+          { key: "navWorkflows", label: t("sidebar.workflows") },
+          { key: "navRecorder", label: t("recorder.nav_label") },
+          { key: "navEvaluations", label: t("sidebar.evals") },
+        ] satisfies { key: "navNewChat" | "navTasks" | "navWorkflows" | "navRecorder" | "navEvaluations"; label: string }[]).map(({ key, label }) => (
+          <LayoutSectionItem key={key}>
+            <LayoutSectionItemHeader>
+              <LayoutSectionItemTitle>{label}</LayoutSectionItemTitle>
+              <LayoutSectionItemHeaderActions>
+                <Switch aria-label={label} checked={config[key]} onCheckedChange={(checked) => update({ [key]: checked })} />
+              </LayoutSectionItemHeaderActions>
+            </LayoutSectionItemHeader>
+          </LayoutSectionItem>
+        ))}
+      </LayoutSection>
       {/* ---- Language ---- carries its own section header and card. */}
       <LanguageSection />
 

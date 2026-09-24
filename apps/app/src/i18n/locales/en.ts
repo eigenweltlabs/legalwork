@@ -4,6 +4,12 @@
  */
 
 export default {
+  "projects.overview_hint": "A quick view of what needs attention and where you left off.",
+  "projects.next_due_task": "Next due task",
+  "projects.no_due_task": "No upcoming task deadline.",
+  "projects.continue_session": "Continue working",
+  "projects.last_updated": "Last updated",
+  "projects.note_editor_hint": "Choose a title, then write your note in the document editor.",
   "projects.overview": "Overview",
   "projects.emails": "Emails",
   "projects.emails_pending": "Emails will be available in the email sprint.",
@@ -32,6 +38,7 @@ export default {
   "projects.default_hint": "A new folder will be created for this project.",
   "projects.selected_folder": "Choose your own folder",
   "projects.selected_hint": "Use this folder directly. Its documents stay in place.",
+  "projects.choose_folder": "No folder selected",
   "projects.browse": "Browse",
   "projects.cancel": "Cancel",
   "projects.creating": "Creating…",
@@ -86,6 +93,10 @@ export default {
   "projects.project": "Project",
   "projects.no_project": "No project",
   "projects.plural": "Projects",
+  "projects.customize_nav_description": "Choose which main features appear at the top of your sidebar.",
+  "projects.recent_sessions": "Recent sessions",
+  "projects.count_one": "{count} project",
+  "projects.count_other": "{count} projects",
   "projects.customize_nav": "Customize navigation",
 
   "storage.oauth_provider": "Cloud storage",
