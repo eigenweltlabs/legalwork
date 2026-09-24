@@ -1,11 +1,17 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
-import type { ProjectField } from "@legalwork/types/workspace";
+import type { ProjectDetails, ProjectField } from "@legalwork/types/workspace";
 import { t } from "@/i18n";
 
 /** A template defines fields only. Every project starts with empty, optional values. */
 export function emptyProjectFields(fields: ProjectField[]): ProjectField[] {
   return fields.map((field) => ({ ...field, value: null, ...(field.options ? { options: [...field.options] } : {}) }));
+}
+
+/** Older projects inherit defaults until their first save, including an explicitly empty save. */
+export function withInitialProjectFields(details: ProjectDetails, defaults: ProjectField[]): ProjectDetails {
+  if (details.revision > 0 || details.fields.length > 0) return details;
+  return { ...details, fields: emptyProjectFields(defaults) };
 }
 
 export function defaultAkteFields(): ProjectField[] {

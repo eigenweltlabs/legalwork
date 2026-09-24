@@ -128,7 +128,7 @@ const de = {
   "projects.no_matching_sessions": "Keine Sessions entsprechen diesen Filtern.",
   "projects.defaults_title": "Projekte",
   "projects.defaults_fields": "Standard-Metadatenfelder",
-  "projects.defaults_hint": "Alle Felder sind optional und zunächst leer. Änderungen gelten nur für neue Projekte. Bestehende Felder und Werte bleiben erhalten.",
+  "projects.defaults_hint": "Alle Felder sind optional und zunächst leer. Die Standardfelder gelten für neue Projekte und Projekte ohne gespeicherte Metadaten. Gespeicherte Felder und Werte bleiben erhalten.",
   "projects.defaults_reset": "Aktenschema zurücksetzen",
   "projects.schema.matter_number": "Aktenzeichen",
   "projects.schema.client": "Mandant",

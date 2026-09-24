@@ -24,7 +24,7 @@ Text fields permit firms' existing conventions without imposing a reference-numb
 ## Behavior
 
 - Settings → Customization → Projects configures the template. The supplied preset follows the app language until customized. User-authored field names and choices are preserved when switching language.
-- Each project owns its schema and values. Changing defaults affects new projects only. Reconnecting an existing folder preserves its metadata, even when its schema was intentionally cleared.
+- Each project owns its schema and values. New projects receive the current defaults at creation. Older projects without saved metadata show the current defaults with empty values in the home view and field editor; the first metadata save stores the schema with the project. Saved schemas and values are preserved, including deliberately removed fields and an explicitly empty default schema.
 - Project values edit inline: Enter or leaving the input saves; Escape cancels. Selection fields save when selected. Dates and numbers display in the app language.
 - The field-settings icon opens schema editing. A custom field not already in the template has **Save to defaults** on its row. This appends its definition and choices with a null value, avoiding duplicate IDs. It does not copy client data into future projects.
 - Defaults currently persist per app/device. Per-project schemas and values remain in the existing versioned `.legalwork/project.json` sidecar; documents stay in their selected/default project folder. Cross-device synchronization remains EIG-208.

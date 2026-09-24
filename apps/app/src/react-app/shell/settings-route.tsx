@@ -140,6 +140,7 @@ import {
 } from "@/app/utils";
 import { CreateWorkspaceModal } from "@/react-app/domains/workspace/create-workspace-modal";
 import { RenameWorkspaceModal } from "@/react-app/domains/workspace/rename-workspace-modal";
+import { newProjectFields } from "@/react-app/domains/workspace/project-defaults-store";
 import {
   diagnoseRemoteWorkspaceTaskLoadFailure,
   getRemoteWorkspaceConnectionKey,
@@ -1845,7 +1846,7 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
       let list: WorkspaceList | null = null;
       if (legalworkClient) {
         list = await legalworkClient
-          .createLocalWorkspace({ folderPath: folder, name: workspaceName, preset })
+          .createLocalWorkspace({ folderPath: folder, name: workspaceName, preset, projectFields: newProjectFields() })
           .catch(() => null);
       }
       if (!list) {

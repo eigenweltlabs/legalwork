@@ -2014,7 +2014,7 @@ export function SessionRoute() {
       let createdOnServer = false;
       if (client) {
         list = await client
-          .createLocalWorkspace({ folderPath: folder, name: workspaceName, preset })
+          .createLocalWorkspace({ folderPath: folder, name: workspaceName, preset, projectFields: newProjectFields() })
           .then((serverList) => {
             createdOnServer = true;
             return serverList;

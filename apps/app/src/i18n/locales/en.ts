@@ -118,7 +118,7 @@ export default {
   "projects.no_matching_sessions": "No sessions match these filters.",
   "projects.defaults_title": "Projects",
   "projects.defaults_fields": "Default metadata fields",
-  "projects.defaults_hint": "All fields are optional and start empty. Changes apply to new projects only; existing project fields and values stay as they are.",
+  "projects.defaults_hint": "All fields are optional and start empty. Defaults apply to new projects and projects without saved metadata. Saved fields and values stay as they are.",
   "projects.defaults_reset": "Reset Akte schema",
   "projects.schema.matter_number": "Matter reference",
   "projects.schema.client": "Client",

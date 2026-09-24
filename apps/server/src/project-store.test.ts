@@ -152,3 +152,13 @@ test("new-project field defaults are optional and never replace a folder's exist
   expect(await initializeProjectFields(root, fields)).toEqual(cleared);
   expect(() => parseProjectFieldDefaults([{ id: "x", label: "", type: "text", value: null }])).toThrow();
 });
+
+test("an explicitly empty default schema is saved and stays empty when defaults change", async () => {
+  const { initializeProjectFields, parseProjectFieldDefaults } = await import("./project-store.js");
+  const root = await folder();
+  const created = await initializeProjectFields(root, []);
+  expect(created).toEqual({ version: 1, revision: 1, fields: [] });
+  const laterDefaults = parseProjectFieldDefaults([{ id: "client", label: "Client", type: "text", value: null }]);
+  expect(await initializeProjectFields(root, laterDefaults)).toEqual(created);
+  expect(await readProjectDetails(root)).toEqual(created);
+});

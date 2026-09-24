@@ -51,6 +51,7 @@ import { ProjectNoteDialog } from "./project-note-dialog";
 import { ProjectTaskDialog } from "./project-task-dialog";
 import { noteTitle } from "./project-note-title";
 import { useProjectFavoritesStore } from "./project-favorites-store";
+import { defaultAkteFields, useProjectDefaultsStore, withInitialProjectFields } from "./project-defaults-store";
 import { currentLocale, t } from "@/i18n";
 
 export function ProjectHome(props: {
@@ -69,6 +70,7 @@ export function ProjectHome(props: {
   const isFavorite = useProjectFavoritesStore((state) => state.favoriteIds.includes(workspaceId));
   const toggleFavorite = useProjectFavoritesStore((state) => state.toggleFavorite);
   const favoriteLabel = t(isFavorite ? "projects.remove_favorite" : "projects.add_favorite");
+  const savedDefaults = useProjectDefaultsStore((state) => state.fields);
   const queryClient = useQueryClient();
   const [searchParams, setSearchParams] = useSearchParams();
   const requestedTab = searchParams.get("tab");
@@ -90,6 +92,7 @@ export function ProjectHome(props: {
   const details = useQuery({
     queryKey: ["project", workspaceId],
     queryFn: () => client.getProjectDetails(workspaceId),
+    select: (data) => withInitialProjectFields(data, savedDefaults ?? defaultAkteFields()),
   });
   const rootFiles = useQuery({
     queryKey: ["project-files", workspaceId, ""],

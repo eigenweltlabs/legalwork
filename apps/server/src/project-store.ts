@@ -77,7 +77,7 @@ export function parseProjectFieldDefaults(input: unknown) {
 export async function initializeProjectFields(root: string, fields: ReturnType<typeof parseProjectFieldDefaults>) {
   const current = await readProjectDetails(root);
   // Reattaching a folder must preserve its existing schema and values, even if empty.
-  if (current.revision > 0 || !fields.length) return current;
+  if (current.revision > 0) return current;
   return updateProjectDetails(root, { revision: 0, fields });
 }
 

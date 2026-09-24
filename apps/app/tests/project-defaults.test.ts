@@ -1,5 +1,22 @@
 import { expect, test } from "bun:test";
-import { defaultAkteFields, emptyProjectFields, useProjectDefaultsStore } from "../src/react-app/domains/workspace/project-defaults-store";
+import type { ProjectDetails, ProjectField } from "@legalwork/types/workspace";
+import { defaultAkteFields, emptyProjectFields, useProjectDefaultsStore, withInitialProjectFields } from "../src/react-app/domains/workspace/project-defaults-store";
+
+test("untouched projects inherit optional defaults while saved schemas, values and removals are preserved", () => {
+  const defaults: ProjectField[] = [{ id: "client", label: "Client", type: "text", value: "Never copy a value" }];
+  const untouched: ProjectDetails = { version: 1, revision: 0, fields: [] };
+  expect(withInitialProjectFields(untouched, defaults)).toEqual({
+    ...untouched, fields: [{ ...defaults[0], value: null }],
+  });
+  expect(untouched.fields).toEqual([]);
+  expect(withInitialProjectFields(untouched, []).fields).toEqual([]);
+  const configured: ProjectDetails = { version: 1, revision: 2, fields: [{ ...defaults[0], label: "My client", value: "Acme" }] };
+  expect(withInitialProjectFields(configured, defaults)).toBe(configured);
+  const cleared: ProjectDetails = { version: 1, revision: 3, fields: [] };
+  expect(withInitialProjectFields(cleared, defaults)).toBe(cleared);
+  const existing: ProjectDetails = { ...configured, revision: 0 };
+  expect(withInitialProjectFields(existing, defaults)).toBe(existing);
+});
 
 test("Akte defaults start empty and every new project's values and options are independent", () => {
   const template = defaultAkteFields();
