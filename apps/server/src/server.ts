@@ -42,7 +42,7 @@ import { recordAudit, readAuditEntries, readLastAudit } from "./audit.js";
 import { ReloadEventStore } from "./events.js";
 import { computeReloadFingerprint } from "./reload-fingerprint.js";
 import { startReloadWatchers } from "./reload-watcher.js";
-import { globalSkillsDir, opencodeConfigPath, legalworkConfigPath, projectCommandsDir, projectPluginsDir, projectSkillsDir } from "./workspace-files.js";
+import { globalOpencodeConfigDir, globalSkillsDir, opencodeConfigPath, legalworkConfigPath, projectCommandsDir, projectPluginsDir, projectSkillsDir } from "./workspace-files.js";
 import { ensureDir, exists, hashToken, shortId, tokensMatch } from "./utils.js";
 import { ensureWorkspaceFiles, readRawOpencodeConfig } from "./workspace-init.js";
 import { sanitizeCommandName, validateMcpConfig, validateMcpName } from "./validators.js";
@@ -4325,7 +4325,7 @@ function normalizeOpencodeScope(value: string | null | undefined): "project" | "
 
 function resolveOpencodeConfigFilePath(scope: "project" | "global", workspaceRoot: string): string {
   if (scope === "global") {
-    const base = join(homedir(), ".config", "opencode");
+    const base = globalOpencodeConfigDir();
     const jsoncPath = join(base, "opencode.jsonc");
     const jsonPath = join(base, "opencode.json");
     if (existsSync(jsoncPath)) return jsoncPath;

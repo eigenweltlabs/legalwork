@@ -1,10 +1,9 @@
 import { minimatch } from "minimatch";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
-import { homedir } from "node:os";
 import type { McpItem, ServerConfig } from "./types.js";
 import { readJsoncFile, updateJsoncPath } from "./jsonc.js";
-import { opencodeConfigPath, opencodeConfigPaths } from "./workspace-files.js";
+import { globalOpencodeConfigDir, opencodeConfigPath, opencodeConfigPaths } from "./workspace-files.js";
 import { validateMcpConfig, validateMcpName } from "./validators.js";
 import {
   GLOBAL_MCP_ID,
@@ -28,8 +27,7 @@ export function globalOpenCodeConfigPath(): string {
   // ~/.config here made the server read a different file than the engine, so global
   // MCPs silently disappeared (the sync clobbered them). Matches the precedent in
   // opencode-plugins/legalwork-extensions-preview.ts.
-  const configHome = process.env.XDG_CONFIG_HOME?.trim() || join(homedir(), ".config");
-  const base = join(configHome, "opencode");
+  const base = globalOpencodeConfigDir();
   const jsonc = join(base, "opencode.jsonc");
   const json = join(base, "opencode.json");
   if (existsSync(jsonc)) return jsonc;
@@ -174,7 +172,6 @@ export async function addMcp(
  */
 export async function removeMcp(serverConfig: ServerConfig, workspaceId: string, name: string): Promise<McpScope[]> {
   validateMcpName(name);
-  const configHome = process.env.XDG_CONFIG_HOME?.trim() || join(homedir(), ".config");
   const files: string[] = [];
   // OpenCode can merge several config files. Remove every copy of this entry,
   // including a lower-priority file that would become visible after removal.
@@ -185,7 +182,7 @@ export async function removeMcp(serverConfig: ServerConfig, workspaceId: string,
     }
   }
   for (const filename of ["opencode.json", "opencode.jsonc"]) {
-    files.push(join(configHome, "opencode", filename));
+    files.push(join(globalOpencodeConfigDir(), filename));
   }
   let removedFile = false;
   for (const path of new Set(files)) {

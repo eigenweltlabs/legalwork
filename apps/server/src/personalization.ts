@@ -1,9 +1,9 @@
 import { rm } from "node:fs/promises";
-import { homedir } from "node:os";
 import { join } from "node:path";
 
 import type { PersonalizationSettings, Personality } from "./runtime-opencode-config-store.js";
 import type { ServerConfig } from "./types.js";
+import { globalOpencodeConfigDir } from "./workspace-files.js";
 
 /** Pinned because OpenCode otherwise re-downloads unpinned plugins on every start. */
 export const AGENT_MEMORY_PLUGIN_SPEC = "opencode-agent-memory@0.2.0";
@@ -52,7 +52,7 @@ export function buildPersonalizedAgentPrompt(
  */
 export function localMemoryDirectories(
   config: ServerConfig,
-  globalMemoryDirectory = join(homedir(), ".config", "opencode", "memory"),
+  globalMemoryDirectory = join(globalOpencodeConfigDir(), "memory"),
 ): string[] {
   const directories = [
     globalMemoryDirectory,
