@@ -184,7 +184,7 @@ export function useTaskSyncStatus(context: TaskQueryContext) {
 function useInvalidateTasks(context: TaskQueryContext) {
   const queryClient = useQueryClient();
   return (taskId?: string) => {
-    void queryClient.invalidateQueries({ queryKey: [TASKS_ROOT, context.workspaceId] });
+    void queryClient.invalidateQueries({ queryKey: [TASKS_ROOT] });
     void queryClient.invalidateQueries({ queryKey: [SYNC_ROOT, context.workspaceId] });
     void queryClient.invalidateQueries({ queryKey: [TAGS_ROOT, context.workspaceId] });
     void queryClient.invalidateQueries({ queryKey: [ENDPOINTS_ROOT, context.workspaceId] });

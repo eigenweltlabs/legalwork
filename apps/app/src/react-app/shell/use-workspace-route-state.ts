@@ -6,7 +6,7 @@
 // session-route.tsx as the final step of its decomposition; the route keeps
 // composition, handlers, and JSX.
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useNavigate, useParams } from "react-router-dom";
+import { useLocation, useNavigate, useParams } from "react-router-dom";
 
 import { publishInspectorSlice, recordInspectorEvent } from "@/app/lib/app-inspector";
 import {
@@ -62,6 +62,7 @@ export type UseWorkspaceRouteStateInput = {
 export function useWorkspaceRouteState(input: UseWorkspaceRouteStateInput) {
   const { onServerSettingsChanged, onHostInfo } = input;
   const navigate = useNavigate();
+  const { pathname } = useLocation();
   const local = useLocal();
   const params = useParams<{ workspaceId?: string; sessionId?: string }>();
   const routeWorkspaceId = params.workspaceId?.trim() || "";
@@ -661,7 +662,7 @@ export function useWorkspaceRouteState(input: UseWorkspaceRouteStateInput) {
       navigateToWorkspaceSession(selectedWorkspaceId, selectedSessionId, { replace: true });
       return;
     }
-    if (selectedSessionId) return;
+    if (selectedSessionId || pathname.endsWith("/project")) return;
     if (!selectedWorkspaceId) return;
     const remembered = readLastSessionFor(selectedWorkspaceId);
     if (!remembered) return;
@@ -677,6 +678,7 @@ export function useWorkspaceRouteState(input: UseWorkspaceRouteStateInput) {
     selectedWorkspaceId,
     sessionsByWorkspaceId,
     workspaces,
+    pathname,
   ]);
 
   // Redirect to /welcome when no workspaces exist and the user hasn't

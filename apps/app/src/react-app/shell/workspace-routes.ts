@@ -23,3 +23,7 @@ export function legacySessionRoute(sessionId?: string | null) {
   const session = sessionId?.trim();
   return session ? `/session/${encodeURIComponent(session)}` : "/session";
 }
+
+export function workspaceProjectRoute(workspaceId: string) {
+  return `/workspace/${encodeURIComponent(workspaceId.trim())}/project`;
+}

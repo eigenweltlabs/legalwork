@@ -1,3 +1,5 @@
+import { ProjectHome } from "../../workspace/project-home";
+import { ProjectNavigation } from "../../workspace/project-navigation";
 /** @jsxImportSource react */
 import type { CSSProperties } from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -213,6 +215,8 @@ export type SessionPageProps = {
   onAccessibleTargetsChange?: (targets: OpenTarget[]) => void;
   /** When set, replaces the session main pane (keeps the sidebar). Used for the Evals screen. */
   mainView?: React.ReactNode;
+  projectHome?: boolean;
+  onProjectAgents?: () => void;
   terminalOpen?: boolean;
   onTerminalOpenChange?: (open: boolean) => void;
   onSessionTabsChange?: (tabs: OpenSessionTab[]) => void;
@@ -310,16 +314,18 @@ function controlStringArg(args: unknown, key: string) {
 }
 
 export function SessionPage(props: SessionPageProps) {
+  const hasMainView = Boolean(props.mainView || props.projectHome);
   const { config: shellConfig } = useShellConfig();
   const queryClient = useQueryClient();
   const sidebarOpen = useUiStateStore((state) => state.sidebarOpen);
   const setSidebarOpen = useUiStateStore((state) => state.setSidebarOpen);
   // The side panel's open/close state is keyed per chat session. Top-level
   // mainView pages (Evals / Benchmark) have no selected session, so they key
-  // it on the synthetic EVALS_PANEL_SESSION_ID instead. Without this the key
+  // it on the synthetic EVALS_PANEL_SESSION_ID instead. Project homes keep
+  // separate keys so documents cannot carry over to another project. Without this the key
   // is null and the panel can never open (regressed as "opens only on the 2nd
   // click, and only after having visited a chat session first").
-  const panelStateSessionId = props.mainView ? EVALS_PANEL_SESSION_ID : props.selectedSessionId ?? EVALS_PANEL_SESSION_ID;
+  const panelStateSessionId = props.projectHome ? `project:${props.selectedWorkspaceId}` : hasMainView ? EVALS_PANEL_SESSION_ID : props.selectedSessionId ?? EVALS_PANEL_SESSION_ID;
   const workflowsPage = props.sidebar.activeNav === "workflows";
   const mobile = useIsMobile();
   const sessionSidePanel = useUiStateStore((state) => (
@@ -700,14 +706,14 @@ export function SessionPage(props: SessionPageProps) {
       const target = resolvePathOpenTarget(result.path, accessibleTargets, "legalmemory");
       if (!target) throw new Error(t("session.legalmemory_unusable_path"));
       queryClient.removeQueries({ queryKey: ["artifact-panel", workspaceId, target.id] });
-      openTarget(target, undefined, props.mainView ? EVALS_PANEL_SESSION_ID : undefined);
+      openTarget(target, undefined, hasMainView ? panelStateSessionId : undefined);
     } catch (error) {
       toast.error(t("session.open_failed", { name: file.name }), {
         description: error instanceof Error ? error.message : t("session.legalmemory_download_failed"),
       });
       throw error;
     }
-  }, [accessibleTargets, openTarget, props.legalworkServerClient, props.mainView, props.runtimeWorkspaceId, queryClient]);
+  }, [accessibleTargets, openTarget, props.legalworkServerClient, hasMainView, panelStateSessionId, props.runtimeWorkspaceId, queryClient]);
   const removeAccessibleTarget = useCallback((target: OpenTarget) => {
     const nextHiddenIds = new Set(hiddenAccessibleTargetIds);
     nextHiddenIds.add(target.id);
@@ -725,7 +731,7 @@ export function SessionPage(props: SessionPageProps) {
       );
       // On mainView pages (Evals / Benchmark) tabs live under the synthetic
       // panel session so the side panel can render without a chat session.
-      if (target) openTarget(target, undefined, props.mainView ? EVALS_PANEL_SESSION_ID : undefined);
+      if (target) openTarget(target, undefined, hasMainView ? panelStateSessionId : undefined);
     };
     const hide = (event: Event) => {
       const requested = (event as CustomEvent<OpenTarget>).detail;
@@ -738,7 +744,7 @@ export function SessionPage(props: SessionPageProps) {
       window.removeEventListener("legalwork-open-accessible-target", open);
       window.removeEventListener("legalwork-hide-accessible-target", hide);
     };
-  }, [accessibleTargets, openTarget, removeAccessibleTarget]);
+  }, [accessibleTargets, openTarget, removeAccessibleTarget, hasMainView, panelStateSessionId]);
   useEffect(() => {
     const handler = () => setCurrentSidePanel(null);
     window.addEventListener("legalwork-close-right-pane", handler);
@@ -977,6 +983,27 @@ export function SessionPage(props: SessionPageProps) {
       onClose={closeFileSidebar}
     />
   );
+  const projectNavigation = props.selectedWorkspaceId && (!props.mainView || props.projectHome) ? (
+    <ProjectNavigation home={Boolean(props.projectHome)} files={filesRailActive}
+      onHome={() => void props.sidebar.onSelectWorkspace(props.selectedWorkspaceId)}
+      onAgents={() => props.onProjectAgents?.()}
+      onFiles={openFilesRailPane} />
+  ) : null;
+  const mainView = props.projectHome ? (
+    props.legalworkServerClient && props.runtimeWorkspaceId ? <ProjectHome
+      key={props.selectedWorkspaceId}
+      client={props.legalworkServerClient}
+      workspaceId={props.runtimeWorkspaceId}
+      name={props.selectedWorkspaceDisplay.displayName || props.selectedWorkspaceDisplay.name || props.selectedWorkspaceId}
+      folder={props.selectedWorkspaceRoot}
+      group={props.sidebar.workspaceSessionGroups.find((group) => group.workspace.id === props.selectedWorkspaceId)}
+      onFiles={openFilesRailPane}
+      onOpenFile={openWorkspaceFileEntry}
+      onSession={(id) => props.sidebar.onOpenSession(props.selectedWorkspaceId, id)}
+      onNewSession={() => props.sidebar.onCreateChatInWorkspace(props.selectedWorkspaceId)}
+    /> : <p className="p-8 text-muted-foreground">{t("projects.connecting")}</p>
+  ) : props.mainView;
+
   const fileSidebars = (
     <FileSidebars
       key={props.runtimeWorkspaceId ?? "__no_workspace__"}
@@ -1050,7 +1077,7 @@ export function SessionPage(props: SessionPageProps) {
           onReorderWorkspaces={props.sidebar.onReorderWorkspaces}
           onStartResize={startLeftSidebarResize}
         /> : null}
-        {props.mainView ? (
+        {hasMainView ? (
           // Top-level pages (Evals / Skills / Integrations): keep the app chrome the
           // chat has — the draggable top header and the bottom StatusBar (with the
           // settings gear) — and swap only the center content.
@@ -1073,7 +1100,8 @@ export function SessionPage(props: SessionPageProps) {
                   <NotificationBell />
                 </div>
               </header>
-              <div className="flex min-h-0 flex-1 flex-col overflow-hidden">{props.mainView}</div>
+              {!props.projectHome ? projectNavigation : null}
+              <div className="flex min-h-0 flex-1 flex-col overflow-hidden">{mainView}</div>
               {shellConfig.statusBar ? (
                 <StatusBar
                   clientConnected={props.clientConnected}
@@ -1101,7 +1129,7 @@ export function SessionPage(props: SessionPageProps) {
                   >
                     {workflowFocusMode ? <div className="shrink-0 border-b border-border px-3 py-2"><Button variant="ghost" size="sm" onClick={() => setSidePanelState(panelStateSessionId, null)}>{t("workflows.back_to_library")}</Button></div> : null}
                     <div className="min-h-0 flex-1"><SidePanel
-                      sessionId={EVALS_PANEL_SESSION_ID}
+                      sessionId={panelStateSessionId}
                       client={props.legalworkServerClient}
                       workspaceId={props.runtimeWorkspaceId}
                       workspaceRoot={props.selectedWorkspaceRoot}
@@ -1210,6 +1238,7 @@ export function SessionPage(props: SessionPageProps) {
               ) : null}
             </div>
           </header>
+          {!props.detached ? projectNavigation : null}
 
           <ResizablePanelGroup orientation="vertical" className="min-h-0 flex-1 overflow-hidden">
             <ResizablePanel minSize="180px" className="min-h-0">

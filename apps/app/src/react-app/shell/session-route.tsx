@@ -120,7 +120,7 @@ import { runFusionSend } from "@/react-app/domains/session/fusion/fusion-control
 import { getFusionSelectedModels, isFusionEnabled } from "@/react-app/domains/session/fusion/fusion-store";
 import { useModelPicker } from "@/react-app/domains/session/modals/use-model-picker";
 import { appMentionInstruction } from "@/react-app/domains/session/surface/composer/app-mentions";
-import { CreateWorkspaceModal } from "@/react-app/domains/workspace/create-workspace-modal";
+import { CreateProjectModal, type CreateProjectInput } from "@/react-app/domains/workspace/create-project-modal";
 import { useSessionProviderAuth } from "@/react-app/domains/connections/provider-auth/use-session-provider-auth";
 import { AiPlansOverlay } from "@/react-app/domains/onboarding/ai-plans-overlay";
 import { AudioStep } from "@/react-app/domains/onboarding/audio-step";
@@ -184,7 +184,7 @@ import { useSessionGroupSync } from "./use-session-group-sync";
 import { useWorkspaceRouteState } from "./use-workspace-route-state";
 import { getReactQueryClient } from "@/react-app/infra/query-client";
 import { useSessionControlActions } from "@/react-app/domains/session/control/session-control-actions";
-import { legacySessionRoute, workspaceSessionRoute, workspaceSettingsRoute } from "./workspace-routes";
+import { legacySessionRoute, workspaceProjectRoute, workspaceSessionRoute, workspaceSettingsRoute } from "./workspace-routes";
 import { SettingsSurface } from "./settings-route";
 import { WorkspaceProvider } from "./workspace-provider";
 import type { OpenTarget } from "@/react-app/domains/session/artifacts/open-target";
@@ -992,8 +992,10 @@ export function SessionRoute() {
   // Not in the Office task pane: it shares this computer's connection, and
   // its composer notice keeps the ways out in the space it has.
   const aiPlansGateEnabled = !isOfficeAddinRuntime();
+  // Organizing local project files, notes and tasks does not need an AI model.
   const aiPlansGateVisible =
-    aiPlansGateEnabled && onboardingStage === "done" && aiPlansVariant !== null;
+    aiPlansGateEnabled && onboardingStage === "done" && aiPlansVariant !== null &&
+    !location.pathname.endsWith("/project") && !createWorkspaceOpen;
   const aiPlansScreenVisible = onboardingStage === "ai" || aiPlansGateVisible;
   // Announcements wait until it is clear whether the plan screen shows, and
   // until it is gone: they never stack on top of it.
@@ -2067,6 +2069,30 @@ export function SessionRoute() {
     }
   }, [baseUrl, client, local, navigateToWorkspaceSession, refreshRouteState, rememberPendingCreatedSession, token]);
 
+  const handleCreateProject = async (input: CreateProjectInput) => {
+    if (!client || createWorkspaceBusy) return;
+    setCreateWorkspaceBusy(true);
+    setCreateWorkspaceError(null);
+    try {
+      const list = await client.createLocalWorkspace({ ...input, preset: "starter" });
+      const id = resolveWorkspaceListSelectedId(list);
+      if (!id) throw new Error(t("session_route.create_server_unavailable"));
+      setLegacySelectedWorkspaceId(id);
+      writeActiveWorkspaceId(id);
+      if (isDesktopRuntime()) {
+        await workspaceSetSelected(id).catch(() => undefined);
+        await workspaceSetRuntimeActive(id).catch(() => undefined);
+      }
+      local.setPrefs((prev) => ({ ...prev, hasCompletedOnboarding: true }));
+      await refreshRouteState();
+      setCreateWorkspaceOpen(false);
+      navigate(workspaceProjectRoute(id));
+      captureAnalyticsEvent("workspace_created", { surface: analyticsSurface() });
+    } catch (error) {
+      setCreateWorkspaceError(describeWorkspaceCreateError(error));
+    } finally { setCreateWorkspaceBusy(false); }
+  };
+
   const handleCreateChatInNewWorkspace = useCallback(async () => {
     if (createWorkspaceBusy) return;
     const folder = (await pickDirectory({ title: t("onboarding.authorize_folder") })) as string | null;
@@ -2260,6 +2286,8 @@ export function SessionRoute() {
         onRefreshProviders: sessionProviderAuthStore.refreshProviders,
         onClose: () => sessionProviderAuthStore.closeProviderAuthModal(),
       } : null}
+      projectHome={location.pathname.endsWith("/project") && !showWorkflows && !showExtensions && !showEvals && !showTasks && !showRecorder}
+      onProjectAgents={() => navigateToWorkspaceSession(selectedWorkspaceId, readLastSessionFor(selectedWorkspaceId))}
       mainView={
         // One reused SettingsSurface instance across the pages — it follows `initialPath`
         // via an effect, so switching Workflows <-> Integrations is instant and doesn't
@@ -2346,7 +2374,12 @@ export function SessionRoute() {
         sidebarHydratedFromCache: Object.values(sessionsByWorkspaceId).some((list) => list.length > 0),
         startupPhase: effectiveLoading ? "nativeInit" : "ready",
         onSelectWorkspace: async (workspaceId) => {
-          if (workspaceId === selectedWorkspaceId) return true;
+          setShowEvals(false);
+          setShowWorkflows(false);
+          setShowExtensions(false);
+          setShowRecorder(false);
+          setShowTasks(false);
+          if (workspaceId === selectedWorkspaceId) { navigate(workspaceProjectRoute(workspaceId)); return true; }
           setLegacySelectedWorkspaceId(workspaceId);
           writeActiveWorkspaceId(workspaceId || null);
           const workspace = workspaces.find((item) => item.id === workspaceId);
@@ -2373,19 +2406,7 @@ export function SessionRoute() {
               void endpoint.client.activateWorkspace(endpoint.workspaceId, { persist: true }).catch(() => undefined);
             }
           }
-          // If we remember what the user last opened here and that session
-          // still exists in our local list, navigate. Otherwise stay put.
-          const remembered = readLastSessionFor(workspaceId);
-          if (remembered && remembered !== selectedSessionId) {
-            const known = sessionsByWorkspaceId[workspaceId];
-            if (known?.some((session) => session?.id === remembered)) {
-              navigateToWorkspaceSession(workspaceId, remembered);
-            } else {
-              navigateToWorkspaceSession(workspaceId);
-            }
-          } else {
-            navigateToWorkspaceSession(workspaceId);
-          }
+          navigate(workspaceProjectRoute(workspaceId));
           return true;
         },
         onOpenSession: (workspaceId, sessionId) => {
@@ -2503,16 +2524,20 @@ export function SessionRoute() {
       notFoundMessage={routeNotFoundMessage}
       onAccessibleTargetsChange={setPaletteAccessibleTargets}
     />
-    <CreateWorkspaceModal
+    <CreateProjectModal
+      client={client}
       open={createWorkspaceOpen}
       onClose={() => {
         setCreateWorkspaceOpen(false);
         setCreateWorkspaceError(null);
       }}
-      onConfirm={handleCreateWorkspace}
-      onPickFolder={() => pickDirectory({ title: t("onboarding.authorize_folder") }) as Promise<string | null>}
+      onConfirm={handleCreateProject}
+      onPickFolder={async () => {
+        const result = await pickDirectory({ title: t("onboarding.authorize_folder") });
+        return typeof result === "string" ? result : null;
+      }}
       submitting={createWorkspaceBusy}
-      localError={createWorkspaceError}
+      error={createWorkspaceError}
     />
     <RenameWorkspaceModal
       open={renameWorkspaceId !== null}

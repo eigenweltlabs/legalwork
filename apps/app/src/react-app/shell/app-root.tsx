@@ -108,6 +108,7 @@ export function AppRoot() {
                   </DevProfiler>
                 }
               />
+              <Route path="/workspace/:workspaceId/project" element={<SessionRoute />} />
               <Route
                 path="/workspace/:workspaceId/session"
                 element={

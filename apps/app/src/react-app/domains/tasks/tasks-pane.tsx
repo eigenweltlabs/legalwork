@@ -533,6 +533,7 @@ export function TasksPane(props: TasksPaneProps) {
           <TaskDetail
             key={selectedTask.id}
             task={selectedTask}
+            projects={props.workspaces.filter((workspace) => workspace.workspaceType !== "remote").map((workspace) => ({ id: workspace.id, name: workspace.displayNameResolved }))}
             submission={detailQuery.data?.submission}
             notes={detailQuery.data?.notes ?? []}
             submissionPending={detailQuery.isLoading}

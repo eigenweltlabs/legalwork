@@ -503,3 +503,28 @@ describe("workspace lifecycle registry", () => {
     expect(authorizedRootsFromConfig(persisted)).toEqual([]);
   });
 });
+
+test("selected-folder project preserves files, persists metadata and rejects stale writes", async () => {
+  const root = await createWorkspaceRoot();
+  const selected = join(root, "client-selected");
+  await mkdir(selected);
+  await writeFile(join(selected, "contract.txt"), "Original terms");
+  const legalwork = await startLegalworkServerWithWorkspaces({ configPath: join(root, "server.json"), workspaces: [], authorizedRoots: [] });
+  const base = `http://127.0.0.1:${legalwork.server.port}`;
+  const headers = { ...hostAuth(legalwork.hostToken), Authorization: "Bearer owt_test_token", "Content-Type": "application/json" };
+  const created = await fetch(`${base}/workspaces/local`, { method: "POST", headers, body: JSON.stringify({ folderPath: selected, folderMode: "selected", name: "Matter Alpha" }) });
+  expect(created.status).toBe(201);
+  const list = await created.json();
+  const id = list.activeId;
+  expect(list.workspaces[0].path).toBe(selected);
+  const endpoint = `${base}/workspace/${id}/project`;
+  expect(await (await fetch(endpoint, { headers })).json()).toEqual({ version: 1, revision: 0, fields: [] });
+  const payload = { revision: 0, fields: [{ id: "client", label: "Client", type: "text", value: "Acme" }] };
+  const saved = await fetch(endpoint, { method: "PATCH", headers: { Authorization: "Bearer owt_test_token", "Content-Type": "application/json" }, body: JSON.stringify(payload) });
+  expect(saved.status).toBe(200);
+  expect((await (await fetch(endpoint, { headers })).json()).fields[0].value).toBe("Acme");
+  const stale = await fetch(endpoint, { method: "PATCH", headers, body: JSON.stringify(payload) });
+  expect(stale.status).toBe(409);
+  expect(await readFile(join(selected, "contract.txt"), "utf8")).toBe("Original terms");
+  expect(await readPersistedWorkspaceIds(join(root, "server.json"))).toEqual([id]);
+});

@@ -69,7 +69,7 @@ import {
 } from "@/components/ui/context-menu";
 import {
   DropdownMenu,
-  DropdownMenuContent,
+  DropdownMenuCheckboxItem,  DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuSeparator,
   DropdownMenuSub,
@@ -519,7 +519,7 @@ const NAV_ITEM_CLASS =
   "gap-3 text-sidebar-foreground/80 data-active:text-sidebar-accent-foreground";
 
 export function AppSidebar(props: AppSidebarProps) {
-  const { config: shellConfig } = useShellConfig();
+  const { config: shellConfig, update: updateShellConfig } = useShellConfig();
   const navigate = useNavigate();
   const unreadTasks = useUnreadTaskCount();
   const showUnreadTasks = unreadTasks > 0 && props.activeNav !== "tasks";
@@ -689,13 +689,13 @@ export function AppSidebar(props: AppSidebarProps) {
           </div>
         </div>
         <SidebarMenu className={cn("gap-1 px-2.5 mac:titlebar-no-drag", showSidebarBrandName ? "pt-3" : "pt-2")}>
-          <SidebarMenuItem>
+          {shellConfig.navNewChat ? <SidebarMenuItem>
             <DropdownMenu>
               <DropdownMenuTrigger
                 render={
                   <SidebarMenuButton className="lw-sidebar-new-chat mb-1 gap-3 font-medium text-foreground [&_svg]:size-[18px]">
                     <PenLine className="size-[18px]" strokeWidth={1.5} />
-                    <span>{t("sidebar.new_task")}</span>
+                    <span>{t("projects.new_chat")}</span>
                   </SidebarMenuButton>
                 }
               />
@@ -717,8 +717,8 @@ export function AppSidebar(props: AppSidebarProps) {
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
-          </SidebarMenuItem>
-          {props.onShowTasks ? (
+          </SidebarMenuItem> : null}
+          {shellConfig.navTasks && props.onShowTasks ? (
             <SidebarMenuItem>
               <SidebarMenuButton
                 className={cn(NAV_ITEM_CLASS, "[&_svg]:size-[18px]")}
@@ -741,7 +741,7 @@ export function AppSidebar(props: AppSidebarProps) {
               ) : null}
             </SidebarMenuItem>
           ) : null}
-          <SidebarMenuItem>
+          {shellConfig.navWorkflows ? <SidebarMenuItem>
             <SidebarMenuButton
               className={cn(NAV_ITEM_CLASS, "[&_svg]:size-[18px]")}
               isActive={props.activeNav === "workflows"}
@@ -750,8 +750,8 @@ export function AppSidebar(props: AppSidebarProps) {
               <Workflow className="size-[18px]" strokeWidth={1.5} />
               <span>{t("sidebar.workflows")}</span>
             </SidebarMenuButton>
-          </SidebarMenuItem>
-          <SidebarMenuItem>
+          </SidebarMenuItem> : null}
+          {shellConfig.navRecorder ? <SidebarMenuItem>
             <SidebarMenuButton
               className={cn(NAV_ITEM_CLASS, "[&_svg]:size-[18px]")}
               isActive={props.activeNav === "recorder"}
@@ -760,8 +760,8 @@ export function AppSidebar(props: AppSidebarProps) {
               <Mic className="size-[18px]" strokeWidth={1.5} />
               <span>{t("recorder.nav_label")}</span>
             </SidebarMenuButton>
-          </SidebarMenuItem>
-          <SidebarMenuItem>
+          </SidebarMenuItem> : null}
+          {shellConfig.navEvaluations ? <SidebarMenuItem>
             <SidebarMenuButton
               className={cn(NAV_ITEM_CLASS, "[&_svg]:size-[19px]")}
               isActive={props.activeNav === "evals"}
@@ -770,6 +770,17 @@ export function AppSidebar(props: AppSidebarProps) {
               <FlaskConical className="size-[19px]" strokeWidth={1.5} />
               <span>{t("sidebar.evals")}</span>
             </SidebarMenuButton>
+          </SidebarMenuItem> : null}
+                  <SidebarMenuItem>
+            <DropdownMenu><DropdownMenuTrigger render={<SidebarMenuButton className="text-muted-foreground"><MoreHorizontal className="size-4" /><span>{t("projects.customize_nav")}</span></SidebarMenuButton>} />
+              <DropdownMenuContent align="start">
+                <DropdownMenuCheckboxItem checked={shellConfig.navNewChat} onCheckedChange={(checked) => updateShellConfig({ navNewChat: checked })}>{t("projects.new_chat")}</DropdownMenuCheckboxItem>
+                <DropdownMenuCheckboxItem checked={shellConfig.navTasks} onCheckedChange={(checked) => updateShellConfig({ navTasks: checked })}>{t("sidebar.tasks")}</DropdownMenuCheckboxItem>
+                <DropdownMenuCheckboxItem checked={shellConfig.navWorkflows} onCheckedChange={(checked) => updateShellConfig({ navWorkflows: checked })}>{t("sidebar.workflows")}</DropdownMenuCheckboxItem>
+                <DropdownMenuCheckboxItem checked={shellConfig.navRecorder} onCheckedChange={(checked) => updateShellConfig({ navRecorder: checked })}>{t("recorder.nav_label")}</DropdownMenuCheckboxItem>
+                <DropdownMenuCheckboxItem checked={shellConfig.navEvaluations} onCheckedChange={(checked) => updateShellConfig({ navEvaluations: checked })}>{t("sidebar.evals")}</DropdownMenuCheckboxItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
           </SidebarMenuItem>
         </SidebarMenu>
         {/* Flows directly under the last nav item, with a little breathing room. */}
@@ -782,10 +793,11 @@ export function AppSidebar(props: AppSidebarProps) {
 
         <div className="flex min-h-0 flex-1 flex-col border-t border-sidebar-border/70 pt-1">
           <div className="lw-sidebar-folders-header flex h-10 shrink-0 items-center gap-2 px-5 mac:titlebar-no-drag">
-            <span className="lw-section-eyebrow">{t("sidebar.folders")}</span>
+            <span className="lw-section-eyebrow">{t("projects.plural")}</span>
             <span className="ml-auto text-[11px] tabular-nums text-muted-foreground" aria-label={t("sidebar.folder_count", { count: props.workspaceSessionGroups.length })}>
               {props.workspaceSessionGroups.length}
             </span>
+            {shellConfig.addWorkspace ? <Button variant="ghost" size="icon" className="size-6" aria-label={t("projects.create")} onClick={props.onOpenCreateWorkspace}><Plus className="size-3.5" /></Button> : null}
           </div>
           <LazyMotion features={domMax}>
             <m.div

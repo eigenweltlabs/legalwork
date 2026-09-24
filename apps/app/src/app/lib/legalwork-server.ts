@@ -1,3 +1,4 @@
+import type { ProjectDetails, ProjectField } from "@legalwork/types/workspace";
 import type { StorageOAuthProvider, StorageOAuthStatus } from "@legalwork/types/file-storage";
 import type { StorageInput, StorageTeamStatus, StorageWorkingCopy, StorageConnection, StorageRoot, StoragePage, StorageFilenameSearch, StorageFilenameSearchPage, StorageFile } from "@legalwork/types/file-storage";
 import type { Message, Part, Session, Todo } from "@opencode-ai/sdk/v2/client";
@@ -330,6 +331,7 @@ export type LegalworkTaskSync = {
 };
 
 export type LegalworkTask = {
+  projectId?: string | null;
   id: string;
   origin: LegalworkTaskOrigin;
   title: string;
@@ -384,6 +386,7 @@ export type LegalworkTaskMember = {
 export type LegalworkTaskEndpoint = { id: string; name: string };
 
 export type LegalworkTaskListParams = {
+  projectId?: string;
   assignee?: string;
   assignees?: string[];
   status?: LegalworkTaskStatus;
@@ -401,6 +404,7 @@ export type LegalworkTaskListParams = {
 };
 
 export type LegalworkTaskCreate = {
+  projectId?: string | null;
   title: string;
   description?: string;
   priority?: LegalworkTaskPriority;
@@ -411,6 +415,7 @@ export type LegalworkTaskCreate = {
 };
 
 export type LegalworkTaskPatch = {
+  projectId?: string | null;
   title?: string;
   description?: string;
   status?: LegalworkTaskStatus;
@@ -1653,7 +1658,11 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
         `/workspace/${encodeURIComponent(workspaceId)}/recorder/live-transcript`,
         { token, hostToken, method: "POST", body: { enabled }, timeoutMs: timeouts.status },
       ),
-    createLocalWorkspace: (payload: { folderPath: string; name: string; preset: string }) =>
+    getProjectDefaults: () => requestJson<{ folderPath: string }>(baseUrl, "/workspaces/project-defaults", { token, hostToken }),
+    getProjectDetails: (workspaceId: string) => requestJson<ProjectDetails>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/project`, { token, hostToken }),
+    updateProjectDetails: (workspaceId: string, payload: { revision: number; fields: ProjectField[] }) =>
+      requestJson<ProjectDetails>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/project`, { token, hostToken, method: "PATCH", body: payload }),
+    createLocalWorkspace: (payload: { folderPath?: string; folderMode?: "default" | "selected"; name: string; preset: string }) =>
       requestJson<WorkspaceList>(baseUrl, "/workspaces/local", {
         token,
         hostToken,
@@ -2385,6 +2394,7 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
     // workspace in the path only scopes the request — tasks are the machine's.
     listTasks: (workspaceId: string, params?: LegalworkTaskListParams) => {
       const query = new URLSearchParams();
+      if (params?.projectId) query.set("projectId", params.projectId);
       if (params?.assignee) query.set("assignee", params.assignee);
       for (const assignee of params?.assignees ?? []) query.append("assignee", assignee);
       if (params?.status) query.set("status", params.status);

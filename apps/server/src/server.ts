@@ -1502,6 +1502,8 @@ function createRoutes(
     onWorkspacesChanged,
     jsonResponse,
     readJsonBody,
+    readJsonBodyLimited,
+    requireClientScope,
     readOptionalJsonBody,
     parseOptionalBoolean,
     ensureWritable,
@@ -3000,7 +3002,9 @@ function createRoutes(
     const { actor } = await localTaskConnection();
     const body = await readJsonBodyLimited(ctx.request, 512 * 1024);
     // An agent filing from a session names it; that link stays on this machine.
-    const task = store.createTask(parseTaskCreate(body, workspace.id), actor);
+    const input = parseTaskCreate(body, workspace.id);
+    if (input.projectId) await resolveWorkspace(config, input.projectId);
+    const task = store.createTask(input, actor);
     scheduleTaskSync(config);
     return jsonResponse({ ok: true, task }, 201);
   });
@@ -3018,7 +3022,9 @@ function createRoutes(
     const store = await taskStore(config);
     const { actor } = await localTaskConnection();
     const body = await readJsonBodyLimited(ctx.request, 512 * 1024);
-    const task = store.patchTask(ctx.params.taskId, parseTaskPatch(body), actor);
+    const patch = parseTaskPatch(body);
+    if (patch.projectId) await resolveWorkspace(config, patch.projectId);
+    const task = store.patchTask(ctx.params.taskId, patch, actor);
     scheduleTaskSync(config);
     return jsonResponse({ ok: true, task });
   });

@@ -516,3 +516,25 @@ describe("task-store: signing out of a firm", () => {
     expect(store.signedOutBefore()).toBe(false);
   });
 });
+
+describe("task-store: project links", () => {
+  test("creates, reassigns and unlinks tasks; links survive reopening and pagination filters correctly", async () => {
+    const { store, dir } = await makeStore();
+    const first = store.createTask({ title: "First", projectId: "project-a" }, ANON, 1000);
+    const second = store.createTask({ title: "Second", projectId: "project-a" }, ANON, 2000);
+    const other = store.createTask({ title: "Other", projectId: "project-b" }, ANON, 3000);
+    const page = store.listTasks({ projectId: "project-a", limit: 1 });
+    expect(page.tasks.map((task) => task.id)).toEqual([second.id]);
+    expect(store.listTasks({ projectId: "project-a", cursor: page.nextCursor!, limit: 1 }).tasks.map((task) => task.id)).toEqual([first.id]);
+    store.patchTask(first.id, { projectId: "project-b" }, ANON, 4000);
+    expect(store.listTasks({ projectId: "project-a" }).tasks.map((task) => task.id)).toEqual([second.id]);
+    expect(store.listTasks({ projectId: "project-b" }).tasks.map((task) => task.id)).toEqual([other.id, first.id]);
+    const reopened = await TaskStore.open(join(dir, "runtime.sqlite"), join(dir, "task-attachments"));
+    expect(reopened.getTask(first.id)?.projectId).toBe("project-b");
+    reopened.patchTask(first.id, { projectId: null }, ANON, 5000);
+    expect(reopened.getTask(first.id)?.projectId).toBeNull();
+    expect(reopened.listTasks().tasks).toHaveLength(3);
+    // The existing cloud task protocol is unaffected; project sync is separate.
+    expect(store.listOutbox().map((item) => item.op.kind)).toEqual(["create", "create", "create"]);
+  });
+});

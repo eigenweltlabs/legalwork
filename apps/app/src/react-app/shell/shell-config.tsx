@@ -6,6 +6,11 @@ import { createContext, useCallback, use, useMemo, useState, type ReactNode } fr
 /* ------------------------------------------------------------------ */
 
 export type ShellConfig = {
+  navNewChat: boolean;
+  navTasks: boolean;
+  navWorkflows: boolean;
+  navRecorder: boolean;
+  navEvaluations: boolean;
   /** Display name shown in the title bar, sidebar, and welcome page. */
   appName: string;
   /** Brand name shown at the top of the left sidebar. */
@@ -39,6 +44,11 @@ export type ShellConfig = {
 /* ------------------------------------------------------------------ */
 
 export const DEFAULT_SHELL_CONFIG: ShellConfig = {
+  navNewChat: true,
+  navTasks: true,
+  navWorkflows: true,
+  navRecorder: true,
+  navEvaluations: true,
   appName: "LegalWork",
   sidebarBrandName: "LegalWork",
   sidebarBrandLogoDataUrl: "",

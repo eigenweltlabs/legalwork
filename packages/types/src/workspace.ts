@@ -16,6 +16,21 @@ export type WorkspaceKind = "local" | "remote";
 
 export type WorkspaceRemoteKind = "opencode" | "legalwork";
 
+/** Project information travels with the folder; documents remain ordinary files. */
+export type ProjectField = {
+  id: string;
+  label: string;
+  type: "text" | "number" | "date" | "select";
+  value: string | number | null;
+  options?: string[];
+};
+
+export type ProjectDetails = {
+  version: 1;
+  revision: number;
+  fields: ProjectField[];
+};
+
 export type WorkspaceWire = {
   id: string;
   name: string;

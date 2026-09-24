@@ -294,6 +294,7 @@ function Fact(props: { label: string; children: ReactNode }) {
 }
 
 export type TaskDetailProps = {
+  projects?: { id: string; name: string }[];
   task: LegalworkTask;
   /** Raw `submission` half of the detail; shape is not pinned by the contract. */
   submission: unknown;
@@ -673,6 +674,9 @@ export function TaskDetail(props: TaskDetailProps) {
                       if (next !== undefined && next !== task.priority) void patch({ priority: next }, t("tasks.update_failed"));
                     }}
                   />
+                  {props.projects ? <PropertyChip label={t("projects.project")} value={task.projectId ?? "__none__"}
+                    items={[{ value: "__none__", label: t("projects.no_project"), leading: null }, ...props.projects.map((project) => ({ value: project.id, label: project.name, leading: null }))]}
+                    disabled={locked} onChange={(value) => void patch({ projectId: value === "__none__" ? null : value }, t("tasks.update_failed"))} /> : null}
                   <DueDateChip
                     value={task.dueDate}
                     disabled={locked}
