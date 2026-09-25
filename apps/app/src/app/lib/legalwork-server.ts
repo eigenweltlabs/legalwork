@@ -1,4 +1,6 @@
 import type { ProjectContents, ProjectContentKind, ProjectDetails, ProjectField } from "@legalwork/types/workspace";
+import type { SystemOneConfiguration, SystemOneOptions, SystemOneProviderInput, SystemOneQuestions, SystemOneRequest, SystemOneResult, SystemOneSelection, SystemOneSettings } from "@legalwork/types/systemone";
+import type { OcrServerInput, OcrSettingsView } from "@legalwork/types/ocr";
 import type { StorageOAuthProvider, StorageOAuthStatus } from "@legalwork/types/file-storage";
 import type { StorageInput, StorageTeamStatus, StorageWorkingCopy, StorageConnection, StorageRoot, StoragePage, StorageFilenameSearch, StorageFilenameSearchPage, StorageFile } from "@legalwork/types/file-storage";
 import type { Message, Part, Session, Todo } from "@opencode-ai/sdk/v2/client";
@@ -223,6 +225,7 @@ export type EigenweltEntitlementsView = {
 
 /** Payload delivered once "Sign in with Eigenwelt" completes in the browser. */
 export type EigenweltSignInPayload = {
+  systemOne?: SystemOneConfiguration;
   apiKey: string;
   baseURL: string;
   orgId?: string;
@@ -243,6 +246,7 @@ export type EigenweltSignInPayload = {
 export type EigenweltSignInWaitResult = EigenweltSignInPayload | { pending: true };
 
 export type EigenweltManifest = {
+  systemOne?: SystemOneConfiguration;
   baseURL: string;
   models: EigenweltManifestModel[];
 };
@@ -1613,6 +1617,13 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
         hostToken,
         timeoutMs: timeouts.config,
       }),
+    getOcrSettings: () => requestJson<OcrSettingsView>(baseUrl, "/ocr/settings", { token, hostToken, timeoutMs: timeouts.config }),
+    setDefaultOcrEngine: (engineId: string) => requestJson<OcrSettingsView>(baseUrl, "/ocr/default", { token, hostToken, method: "PUT", body: { engineId }, timeoutMs: timeouts.config }),
+    saveOcrServer: (input: OcrServerInput, id?: string) => requestJson<OcrSettingsView>(baseUrl, id ? `/ocr/servers/${encodeURIComponent(id)}` : "/ocr/servers", { token, hostToken, method: id ? "PUT" : "POST", body: input, timeoutMs: timeouts.config }),
+    removeOcrServer: (id: string) => requestJson<OcrSettingsView>(baseUrl, `/ocr/servers/${encodeURIComponent(id)}`, { token, hostToken, method: "DELETE", timeoutMs: timeouts.config }),
+    installOcrEngine: (id: string) => requestJson<OcrSettingsView>(baseUrl, `/ocr/engines/${encodeURIComponent(id)}/install`, { token, hostToken, method: "POST", timeoutMs: timeouts.config }),
+    cancelOcrInstall: () => requestJson<OcrSettingsView>(baseUrl, "/ocr/install", { token, hostToken, method: "DELETE", timeoutMs: timeouts.config }),
+    testOcrEngine: (id: string) => requestJson<{ ok: boolean }>(baseUrl, `/ocr/engines/${encodeURIComponent(id)}/test`, { token, hostToken, method: "POST", timeoutMs: 130_000 }),
     setPersonalization: (settings: LegalworkPersonalizationSettings) =>
       requestJson<{ settings: LegalworkPersonalizationSettings; updatedAt: number }>(baseUrl, "/personalization", {
         token,
@@ -2148,6 +2159,13 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
         `/api/eigenwelt/oauth/wait/${encodeURIComponent(sessionId)}`,
         { token, hostToken, timeoutMs: 130_000 },
       ),
+    systemOneSettings: () => requestJson<SystemOneSettings>(baseUrl, "/systemone/settings", { token, hostToken, timeoutMs: 30_000 }),
+    systemOneSaveProvider: (provider: SystemOneProviderInput) => requestJson<{ ok: true }>(baseUrl, "/systemone/providers", { token, hostToken, method: "PUT", body: provider }),
+    systemOneDeleteProvider: (providerId: string) => requestJson<{ ok: true }>(baseUrl, `/systemone/providers/${encodeURIComponent(providerId)}`, { token, hostToken, method: "DELETE" }),
+    systemOneSelect: (selection: SystemOneSelection) => requestJson<{ ok: true }>(baseUrl, "/systemone/selection", { token, hostToken, method: "PUT", body: selection, timeoutMs: 30_000 }),
+    systemOneTest: (selection: SystemOneSelection, signal?: AbortSignal) => requestJson<{ ok: true }>(baseUrl, "/systemone/test", { token, hostToken, method: "POST", body: selection, signal, timeoutMs: 150_000 }),
+    systemOne: <const Q extends SystemOneQuestions>(request: Omit<SystemOneRequest, "questions"> & { questions: Q }, options: SystemOneOptions = {}) =>
+      requestJson<SystemOneResult<Q>>(baseUrl, "/systemone", { token, hostToken, method: "POST", body: { request, providerId: options.providerId }, signal: options.signal, timeoutMs: 150_000 }),
     eigenweltModels: () =>
       requestJson<EigenweltManifest>(baseUrl, "/api/eigenwelt/models", {
         token,
@@ -2171,6 +2189,7 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
         baseURL?: string;
         apiKey?: string;
         models?: EigenweltManifestModel[];
+        systemOne?: SystemOneConfiguration;
         // Sign-out: clears the connection + the global manifest, and removes
         // the firm's tasks from this machine after a last push. Answers 409
         // `tasks_pending` (details.pending) while changes could not be

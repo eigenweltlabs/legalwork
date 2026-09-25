@@ -1,3 +1,4 @@
+import { SystemOneConfigurationSchema, type SystemOneConfiguration } from "./systemone-schema.js";
 /**
  * Server-side "Sign in with Eigenwelt" + platform model manifest.
  *
@@ -175,6 +176,7 @@ export function eigenweltHasPremiumModels(
 }
 
 export type EigenweltSignInPayload = {
+  systemOne?: SystemOneConfiguration;
   apiKey: string;
   baseURL: string;
   orgId?: string;
@@ -194,6 +196,7 @@ export type EigenweltSignInPayload = {
 };
 
 export type EigenweltManifest = {
+  systemOne?: SystemOneConfiguration;
   baseURL: string;
   models: EigenweltManifestModel[];
 };
@@ -470,6 +473,8 @@ export async function startEigenweltSignIn(opts?: {
         ...(payload.orgId ? { orgId: payload.orgId } : {}),
         ...(payload.orgName ? { orgName: payload.orgName } : {}),
       };
+      const systemOne = SystemOneConfigurationSchema.safeParse(payload.systemOne);
+      if (systemOne.success) delivered.systemOne = systemOne.data;
       const entitlements = parseEigenweltEntitlements(payload.entitlements);
       if (entitlements) delivered.entitlements = entitlements;
       const account = parseEigenweltAccountIdentity(payload.account);
@@ -633,12 +638,13 @@ export async function fetchEigenweltManifest(options?: {
     throw new Error(`Could not reach the Eigenwelt platform (HTTP ${response.status}).`);
   }
   const payload = (await response.json().catch(() => null)) as
-    | { baseURL?: unknown; models?: unknown }
+    | { baseURL?: unknown; models?: unknown; systemOne?: unknown }
     | null;
   if (!payload || typeof payload.baseURL !== "string" || !payload.baseURL || !Array.isArray(payload.models)) {
     throw new Error("The Eigenwelt platform returned an invalid models manifest.");
   }
-  return { baseURL: payload.baseURL, models: payload.models as EigenweltManifestModel[] };
+  const systemOne = SystemOneConfigurationSchema.safeParse(payload.systemOne);
+  return { baseURL: payload.baseURL, models: payload.models as EigenweltManifestModel[], ...(systemOne.success ? { systemOne: systemOne.data } : {}) };
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
