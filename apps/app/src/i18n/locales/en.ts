@@ -487,7 +487,7 @@ export default {
   "ocr.cancel": "Cancel",
   "ocr.remove_title": "Remove custom model?",
   "ocr.remove_description": "The saved API key will be deleted. If this is your default, the small local model becomes the default.",
-  "ocr.installer_missing": "Local downloads require uv on the computer running this LegalWork server. Custom models remain available.",
+  "ocr.installer_missing": "Automatic local model setup is unavailable on this computer. Custom models remain available.",
   "ocr.install_runtime": "Preparing the local Python runtime…",
   "ocr.install_dependencies": "Installing OCR dependencies…",
   "ocr.install_models": "Downloading model files…",

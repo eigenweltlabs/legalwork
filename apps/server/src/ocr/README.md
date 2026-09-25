@@ -76,15 +76,31 @@ Cancellation terminates the local worker or aborts the HTTP request. Custom adap
 must honor their `AbortSignal`. A failure rejects the job; completed pages have already
 been emitted through progress. There are no automatic retries or paid API retries.
 
-## Provision local models explicitly
+## Provision local models
 
-Python/model downloads are **not** part of extraction or application startup. The
-settings UI provides explicit Download model, cancellation, progress and Test sample
-controls. The host needs `uv` on PATH (or an absolute `LEGALWORK_OCR_UV_BIN` override).
-The installer creates a managed Python 3.12 environment, installs pinned direct
-dependencies, downloads pinned models and checks a built-in sample before reporting
-Ready. uv itself is not bundled. The UI explains when it is missing. Only Apple
-Silicon currently supports the higher-quality MLX runtime.
+On startup, a writable server automatically prepares the small model in the
+background when `local-fast` is the saved default and its installation is missing.
+This includes the first launch after an application update. Startup does not wait
+for downloads; Settings shows progress, cancellation and the existing Download model
+retry control. Ready installations are reused. Selecting a custom or higher-quality
+default skips automatic setup; the larger model remains an explicit download.
+
+The installer reuses `uv` on PATH, or downloads a pinned official release into the
+application's OCR directory and verifies its SHA-256 before execution. Bootstrap
+assets cover macOS, Windows and glibc Linux on x64/ARM64. No global install or
+administrator rights are needed. `LEGALWORK_OCR_UV_BIN` can explicitly override the
+installer; an invalid override fails instead of downloading another installer.
+Setup creates a managed Python 3.12 environment, installs pinned direct dependencies,
+downloads pinned models and checks a built-in sample before reporting Ready.
+Only Apple Silicon currently supports the higher-quality MLX runtime.
+
+Cancelling small-model setup is remembered across restarts; Download model clears
+that cancellation and retries. Failed setup retries on the next launch, or manually
+from Settings. Closing the application cancels running setup without disabling the
+next startup attempt. To disable automatic setup for a deployment, set
+`LEGALWORK_OCR_AUTO_DOWNLOAD=0` or `"autoDownloadOcr": false` in the server config.
+Read-only servers never start automatic downloads. Extraction itself never installs
+models; callers still need to wait for the selected model to become ready.
 
 `apps/server/resources/ocr/` is included in server package files and Electron's
 external resources, so Python scripts remain outside ASAR. The manual setup below

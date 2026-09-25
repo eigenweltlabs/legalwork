@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { join } from "node:path";
+import { access, mkdir, rm, writeFile } from "node:fs/promises";
 import { z } from "zod";
 import type { OcrSettingsView } from "@legalwork/types/ocr";
 import { ApiError } from "../errors.js";
@@ -23,6 +24,10 @@ export class OcrManager {
   readonly runtime: OcrRuntime;
   private testing = false;
   private startingInstall = false;
+  private automaticAttempted = false;
+  private automaticPending = false;
+  private automaticCancelled = false;
+  private stopped = false;
   constructor(root: string) {
     this.store = new OcrSettingsStore(join(root, "settings.json"));
     this.vault = new OcrVault(join(root, "keys.vault"));
@@ -40,7 +45,7 @@ export class OcrManager {
     }).listEngines();
     return {
       defaultEngineId: settings.defaultEngineId, readOnly,
-      installerAvailable: await this.runtime.available(), installation: this.runtime.installation,
+      installerAvailable: await this.runtime.available(), installation: this.runtime.installation ?? (this.automaticPending ? { engineId: "local-fast", stage: "runtime" } : null),
       engines: await Promise.all(settings.engines.map(async (engine) => {
         const keyConfigured = engine.kind !== "local" && engine.apiKeyRef !== null && Boolean(await this.vault.get(engine.apiKeyRef));
         return {
@@ -104,13 +109,43 @@ export class OcrManager {
       if (engine.apiKeyRef) await this.vault.set(engine.apiKeyRef);
     });
   }
-  async install(id: string) {
-    if (this.testing || this.startingInstall) throw new ApiError(409, "ocr_busy", "Wait for the current OCR operation to finish.");
+  /** Once per launch, without blocking server startup or changing the selected provider. */
+  async downloadDefaultIfNeeded() {
+    if (this.automaticAttempted || this.stopped) return;
+    this.automaticAttempted = true; this.automaticPending = true;
+    try {
+      const settings = await this.store.read();
+      if (settings.defaultEngineId !== "local-fast") return;
+      if (await access(join(this.runtime.root, "auto-download-cancelled")).then(() => true, () => false)) return;
+      if (await this.runtime.ready("pp-ocrv6-small")) return;
+      if (this.stopped || this.automaticCancelled || this.testing || this.startingInstall || this.runtime.busy) return;
+      await this.install("local-fast", true);
+    } catch {
+      if (!this.stopped && !this.runtime.busy) this.runtime.installation = { engineId: "local-fast", stage: "failed" };
+    } finally { this.automaticPending = false; }
+  }
+  async cancelInstall() {
+    this.automaticCancelled = true;
+    if (this.automaticPending && !this.runtime.busy) this.runtime.installation = { engineId: "local-fast", stage: "cancelled" };
+    if (this.automaticPending || (this.runtime.busy && this.runtime.installation?.engineId === "local-fast")) {
+      await mkdir(this.runtime.root, { recursive: true, mode: 0o700 });
+      await writeFile(join(this.runtime.root, "auto-download-cancelled"), "1\n", { mode: 0o600 });
+    }
+    this.runtime.cancel();
+  }
+  stop() { this.stopped = true; this.runtime.cancel(); }
+  async install(id: string, automatic = false) {
+    if (this.stopped || this.testing || this.startingInstall) throw new ApiError(409, "ocr_busy", "Wait for the current OCR operation to finish.");
     this.startingInstall = true;
     try {
       const engine = (await this.store.read()).engines.find((item) => item.id === id);
       if (!engine || engine.kind !== "local") throw new ApiError(404, "ocr_not_found", "Local OCR model not found.");
-      await this.runtime.install(engine);
+      if (this.stopped || (automatic && this.automaticCancelled)) return;
+      if (id === "local-fast" && !automatic) {
+        await rm(join(this.runtime.root, "auto-download-cancelled"), { force: true });
+        this.automaticCancelled = false;
+      }
+      if (!this.stopped && !(automatic && this.automaticCancelled)) await this.runtime.install(engine);
     } finally { this.startingInstall = false; }
   }
   async test(id: string) {

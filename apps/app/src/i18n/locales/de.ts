@@ -497,7 +497,7 @@ const de = {
   "ocr.cancel": "Abbrechen",
   "ocr.remove_title": "Benutzerdefiniertes Modell entfernen?",
   "ocr.remove_description": "Der gespeicherte API-Schlüssel wird gelöscht. Falls dies Ihr Standardmodell ist, wird das kleine lokale Modell zum Standard.",
-  "ocr.installer_missing": "Lokale Downloads benötigen uv auf dem Computer, auf dem dieser LegalWork-Server läuft. Benutzerdefinierte Modelle bleiben verfügbar.",
+  "ocr.installer_missing": "Die automatische Einrichtung lokaler Modelle ist auf diesem Computer nicht verfügbar. Benutzerdefinierte Modelle bleiben verfügbar.",
   "ocr.install_runtime": "Lokale Python-Laufzeit wird vorbereitet…",
   "ocr.install_dependencies": "OCR-Abhängigkeiten werden installiert…",
   "ocr.install_models": "Modelldateien werden heruntergeladen…",
