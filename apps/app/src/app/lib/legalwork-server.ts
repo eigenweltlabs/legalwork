@@ -1,3 +1,4 @@
+import type { CreateReview, EditReview, RunReview, SavedReview, ReviewSummary, ReviewSettings, ReviewCapabilities, ReviewLibraryEntry, SaveReviewLibrary, ReviewSourceReference, ReviewSourcePage } from "@legalwork/types/reviews";
 import type { ProjectContents, ProjectContentKind, ProjectDetails, ProjectField } from "@legalwork/types/workspace";
 import type { SystemOneConfiguration, SystemOneOptions, SystemOneProviderInput, SystemOneQuestions, SystemOneRequest, SystemOneResult, SystemOneSelection, SystemOneSettings } from "@legalwork/types/systemone";
 import type { OcrServerInput, OcrSettingsView } from "@legalwork/types/ocr";
@@ -1675,6 +1676,19 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
       for (const [key, value] of Object.entries(input)) if (value !== undefined) query.set(key, String(value));
       return requestJson<ProjectContents>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/project/contents?${query}`, { token, hostToken });
     },
+    listReviews: (workspaceId: string) => requestJson<{ reviews: ReviewSummary[] }>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/reviews`, { token, hostToken }),
+    getReview: (workspaceId: string, reviewId: string) => requestJson<SavedReview>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/reviews/${encodeURIComponent(reviewId)}`, { token, hostToken }),
+    createReview: (workspaceId: string, input: CreateReview) => requestJson<SavedReview>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/reviews`, { token, hostToken, method: "POST", body: input }),
+    editReview: (workspaceId: string, reviewId: string, input: EditReview) => requestJson<SavedReview>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/reviews/${encodeURIComponent(reviewId)}`, { token, hostToken, method: "PATCH", body: input }),
+    startReview: (workspaceId: string, reviewId: string, input: RunReview) => requestJson<SavedReview>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/reviews/${encodeURIComponent(reviewId)}/start`, { token, hostToken, method: "POST", body: input }),
+    cancelReview: (workspaceId: string, reviewId: string) => requestJson<SavedReview>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/reviews/${encodeURIComponent(reviewId)}/cancel`, { token, hostToken, method: "POST" }),
+    reviewCapabilities: (workspaceId: string, reviewId?: string) => requestJson<ReviewCapabilities>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/reviews${reviewId ? `/${encodeURIComponent(reviewId)}` : ""}/settings`, { token, hostToken }),
+    saveReviewSettings: (workspaceId: string, settings: ReviewSettings, review?: Pick<SavedReview, "id" | "revision">) => requestJson<ReviewSettings | SavedReview>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/reviews${review ? `/${encodeURIComponent(review.id)}` : ""}/settings`, { token, hostToken, method: "PUT", body: review ? { settings, revision: review.revision } : settings }),
+    reviewLibrary: (workspaceId: string, language: "en" | "de") => requestJson<{ entries: ReviewLibraryEntry[] }>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/reviews/library?language=${language}`, { token, hostToken }),
+    saveReviewLibrary: (workspaceId: string, input: SaveReviewLibrary) => requestJson<ReviewLibraryEntry>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/reviews/library`, { token, hostToken, method: "POST", body: input }),
+    removeReviewLibrary: (workspaceId: string, id: string) => requestJson<{ ok: boolean }>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/reviews/library/${encodeURIComponent(id)}`, { token, hostToken, method: "DELETE" }),
+    reviewCitationPage: (workspaceId: string, citation: ReviewSourceReference) => requestJson<ReviewSourcePage>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/reviews/${encodeURIComponent(citation.reviewId)}/source/${encodeURIComponent(citation.documentId)}/${encodeURIComponent(citation.columnKey)}/${citation.citationIndex}?completedAt=${citation.completedAt}`, { token, hostToken }),
+    reviewSource: (workspaceId: string, reviewId: string, documentId: string, sourceHash?: string) => requestJson<{ path: string; sourceHash: string }>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/reviews/${encodeURIComponent(reviewId)}/source/${encodeURIComponent(documentId)}${sourceHash ? `?sourceHash=${encodeURIComponent(sourceHash)}` : ""}`, { token, hostToken }),
     getProjectDetails: (workspaceId: string) => requestJson<ProjectDetails>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/project`, { token, hostToken }),
     updateProjectDetails: (workspaceId: string, payload: { revision: number; fields: ProjectField[] }) =>
       requestJson<ProjectDetails>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/project`, { token, hostToken, method: "PATCH", body: payload }),

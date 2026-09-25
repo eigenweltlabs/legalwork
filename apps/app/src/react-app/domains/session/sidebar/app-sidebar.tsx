@@ -89,7 +89,7 @@ import { SidebarContext, useSidebarContext } from "./app-sidebar-provider";
 import type { SidebarContextValue } from "./app-sidebar-provider";
 import { SidebarUpdateBadge } from "./sidebar-update-badge";
 import { SidebarWorkflowGenerationBadge } from "./sidebar-workflow-generation-badge";
-import { workspaceProjectRoute, workspaceSessionRoute, workspaceTasksRoute } from "@/react-app/shell/workspace-routes";
+import { workspaceProjectRoute, workspaceSessionRoute, workspaceTasksRoute, workspaceReviewsRoute } from "@/react-app/shell/workspace-routes";
 import {
   MAX_SESSIONS_PREVIEW,
   flattenSessionRows,
@@ -722,12 +722,12 @@ export function AppSidebar(props: AppSidebarProps) {
 
   const contextValue: SidebarContextValue = {
     selectedWorkspaceId: props.selectedWorkspaceId,
-    selectedSessionId: props.activeNav || location.pathname.endsWith("/project") || location.pathname.endsWith("/tasks") ? null : props.selectedSessionId,
-    activeProjectFeature: props.activeNav ? null : location.pathname.endsWith("/tasks") ? "tasks"
+    selectedSessionId: props.activeNav || location.pathname.endsWith("/project") || location.pathname.endsWith("/tasks") || location.pathname.endsWith("/reviews") ? null : props.selectedSessionId,
+    activeProjectFeature: props.activeNav ? null : location.pathname.endsWith("/reviews") ? "reviews" : location.pathname.endsWith("/tasks") ? "tasks"
       : location.pathname.endsWith("/project") ? "home" : props.selectedSessionId ? "sessions" : null,
     onOpenProjectPage: async (workspaceId, page) => {
       if (await props.onSelectWorkspace(workspaceId) === false) return;
-      navigate(page === "tasks" ? workspaceTasksRoute(workspaceId) : workspaceProjectRoute(workspaceId));
+      navigate(page === "reviews" ? workspaceReviewsRoute(workspaceId) : page === "tasks" ? workspaceTasksRoute(workspaceId) : workspaceProjectRoute(workspaceId));
     },
     onOpenProjectFiles: props.onOpenProjectFiles,
     developerMode: props.developerMode,
@@ -1054,8 +1054,8 @@ function WorkspaceSidebarGroup({
                       <span>{t("projects.home")}</span>
                     </SidebarMenuSubButton>
                   </SidebarMenuSubItem>
-                  <SidebarMenuSubItem title={t("projects.tab_review_pending")}>
-                    <SidebarMenuSubButton className={PROJECT_FEATURE_CLASS} disabled>
+                  <SidebarMenuSubItem>
+                    <SidebarMenuSubButton className={PROJECT_FEATURE_CLASS} isActive={isSelected && ctx.activeProjectFeature === "reviews"} onClick={() => { setSessionsOpen(false); void ctx.onOpenProjectPage(workspace.id, "reviews"); }}>
                       <Table2 className="size-4" strokeWidth={1.5} />
                       <span>{t("projects.tab_review")}</span>
                     </SidebarMenuSubButton>

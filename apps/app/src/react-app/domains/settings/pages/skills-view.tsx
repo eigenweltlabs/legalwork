@@ -1384,7 +1384,7 @@ function SkillCreatorButton(props: {
 }
 
 // Builds the SKILL.md for a workflow. Both types carry `kind: workflow` + `workflow_type`
-// frontmatter; tabular workflows embed the instruction to run via the tabular-review skill
+// frontmatter; tabular workflows use the native saved-review tools
 // plus the free-text list of fields the creator typed.
 function buildWorkflowContent(input: {
   type: WorkflowType;
@@ -1404,15 +1404,16 @@ function buildWorkflowContent(input: {
   const md = [
     `# ${input.title}`,
     ``,
-    "This is a **tabular review workflow**. To run it, load the **`tabular-review`** skill",
-    "and build a review grid over the user's documents — one row per document.",
-    "Discover available models with tabular_review_models; choose LLM for cited extraction or SystemOne for typed, explicitly uncited decisions.",
+    "This is a **tabular review workflow**. Run it as a saved project review using legalwork_review_create and legalwork_review_start.",
+    "First read legalwork_review_settings. Its mode is mandatory: Only JEV accepts yes/no or fixed-choice classification; mixed mode routes decisions to JEV and text to LLM; Only LLM never uses JEV inference.",
+    "Use legalwork_review_library to reuse exact column definitions and sets. Do not silently rewrite or drop incompatible questions; ask the user to choose compatible questions or change settings.",
+    "Create one row per project document and the columns defined below. The live review card shows progress and opens the saved grid. Do not build an HTML artifact or run separate extraction agents.",
     ``,
     `## What to extract`,
     ``,
     input.body.trim(),
     ``,
-    `When the user asks to run "${input.title}", use the \`tabular-review\` skill.`,
+    `When the user asks to run "${input.title}", use the saved-review tools above.`,
   ].join("\n");
   return `${frontmatter}\n${md}\n`;
 }
@@ -1605,7 +1606,7 @@ function WorkflowCreatorButton(props: {
                 : t("skills.new_workflow")}</DialogTitle>
             <DialogDescription>
               {type === "tabular"
-                ? "A tabular workflow runs a review grid: it tells the agent to use the tabular-review skill with the columns you define."
+                ? "A tabular workflow creates a saved project review with the columns you define and the selected review mode."
                 : type === "assistant"
                   ? t("skills.assistant_hint")
                   : t("skills.choose_run_hint")}

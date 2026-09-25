@@ -1,3 +1,4 @@
+import { ReviewToolCard } from "./review/review-card";
 "use memo";
 
 import { ProjectContentsTool } from "./project/project-contents-card";
@@ -424,6 +425,8 @@ const AssistantMessage = React.memo(
                 </MessageContent>
               )
             }
+
+            if (group.kind === "review") return <ReviewToolCard key={group.part.toolCallId} part={group.part} />;
 
             if (group.kind === "project") return <ProjectContentsTool key={group.part.toolCallId} part={group.part} />;
 

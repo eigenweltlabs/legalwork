@@ -137,33 +137,36 @@ The managed model is displayed as **EigenJev Europe**. Request identifiers remai
 
 ## Tabular Review
 
-The bundled `tabular-review` skill calls `tabular_review_models` to discover connected
-chat models and ready SystemOne provider/model pairs. Discovery returns only public model IDs,
-names and capabilities, with per-backend errors if discovery fails. It does not expose
-keys or provider endpoints. Selection is per call, not a change to the user's default.
+Tabular Review is a native project page backed by saved reviews. The agent uses
+`legalwork_review_settings`, `legalwork_review_library`, `legalwork_review_create`
+and `legalwork_review_start`; its chat card opens the same review and tracks live
+progress. The old `tabular_review_row` and `tabular_review_models` tools and bundled
+artifact-generating skill have been retired. Workspace upgrades preserve the old
+skill/command files in `.opencode/legalwork/retired-reviews`, outside skill discovery.
+Existing exported review artifacts remain intact. PDF tools own their PDF.js files.
 
-`tabular_review_row` accepts `backend: "llm" | "systemone"`, `providerId`, `model`,
-`file`, `title`, `docType`, and either a `preparationPath` for PDF/images or full
-source `pages: [{page: number | null, text}]` for DOCX/text, plus
-`columns: [{key, label, question, hint?, decision?}]`. SystemOne requires `decision`
-using the existing typed question schema for every column. Free-text/cited review
-uses LLM. The agent first prepares PDF/images with `legalwork_document_prepare`,
-which pins the selected OCR engine for the run. The review tool verifies the source
-hash and workspace paths, then loads native/OCR text and regions without discarding
-page identity. DOCX/text keep their existing readers. No truncation or model fallback
-occurs. Incomplete or uncertain OCR blocks SystemOne inference; LLMs can return cited
-findings but cannot turn uncertain extraction into a clean "Not found" result.
+The user selects a mode and models in review settings. The server enforces the mode
+for UI and tool requests, edits, restarts and reruns:
 
-LLM review runs in an isolated child session with tools disabled and validates exact
-column IDs and verbatim citations against the supplied page text, including OCR
-source/region references and multiple citations. The artifact builder resolves
-coordinates from the prepared evidence and preserves uncited SystemOne decisions. This validates
-citation occurrence, not the legal correctness of an answer. SystemOne uses the same
-server relay and subscription key as other calls. Availability and capabilities are
-rechecked before inference. Explicit failures remain errors, never synthetic answers.
+- **Only JEV:** yes/no and fixed-choice classification. No text, arbitrary numbers,
+  rubric scoring, LLM inference or fallback.
+- **JEV + LLM:** JEV for decisions; the selected LLM for text and explanations.
+- **Only LLM:** no JEV inference, including relevance selection.
 
-Results are `{ok:true,row}` with artifact-compatible cells and `review` provenance
-(backend, provider, requested and actual model; SystemOne usage/revision when supplied).
-SystemOne preserves raw distributions and scores, labels cells as uncited decisions,
-and leaves extraction confidence/citations empty. It never fabricates source evidence.
-`{ok:false,error}` must be retained as a visible error row by the orchestrator.
+Columns and sets in the prompt library are copied with a version into each review.
+Saved results retain their prompt, source hash, model and answer provenance. Changing
+columns or models marks affected answers stale. Existing tabular workflows use these
+same tools and mandatory settings, rather than generating a separate HTML table.
+
+The server prepares PDF/images with the configured OCR engine. Native text, OCR,
+page identity and source region indices remain separate. Context splitting follows
+the JEV demo's boundary/overlap strategy; multiple relevant passages are combined
+within the model budget. An overflow or insufficient evidence remains visible as
+Needs review. Incomplete recognition blocks JEV and cannot become a clean LLM absence.
+
+JEV results preserve probabilities, without fabricated quotes or explanations. LLM
+review runs in an isolated temporary session with tools disabled and validates
+verbatim citations against the supplied evidence. Citation validation establishes
+source occurrence, not legal correctness. Source links recheck the hash before
+opening the existing document viewer. Cancellation preserves completed cells;
+interrupted runs can resume. Inference failures remain visible, never synthetic answers.

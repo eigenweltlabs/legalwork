@@ -113,7 +113,7 @@ describe("SKILL.md content", () => {
     expect(md).toContain("Do the review.");
   });
 
-  test("routes a tabular workflow through the tabular-review skill", () => {
+  test("routes a tabular workflow through the mode-enforced saved review tools", () => {
     const md = buildSkillMarkdown({
       fullName: "workflow-tabular-lease-terms",
       description: "Use when comparing lease terms.",
@@ -122,7 +122,9 @@ describe("SKILL.md content", () => {
       workflowType: "tabular",
     });
     expect(md).toContain("# Lease Terms");
-    expect(md).toContain("`tabular-review`");
+    expect(md).toContain("legalwork_review_settings");
+    expect(md).toContain("legalwork_review_start");
+    expect(md).not.toContain("`tabular-review`");
     expect(md).toContain("Rent, term, break clause");
   });
 });

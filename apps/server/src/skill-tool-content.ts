@@ -52,7 +52,7 @@ function titleFromName(name: string): string {
 /**
  * Build the SKILL.md. Frontmatter stays standard (name + description only) so
  * the engine loads it as an ordinary skill; a tabular workflow's body carries
- * the instruction to run through the bundled `tabular-review` skill.
+ * the instruction to use saved project review tools.
  */
 export function buildSkillMarkdown(input: {
   fullName: string;
@@ -70,14 +70,15 @@ export function buildSkillMarkdown(input: {
   return `${frontmatter}\n${[
     `# ${title}`,
     ``,
-    "This is a **tabular review workflow**. To run it, load the **`tabular-review`** skill",
-    "and build a review grid over the user's documents — one row per document.",
-    "Discover available models with tabular_review_models; choose LLM for cited extraction or SystemOne for typed, explicitly uncited decisions.",
+    "This is a **tabular review workflow**. Run it as a saved project review using legalwork_review_create and legalwork_review_start.",
+    "First read legalwork_review_settings. Its mode is mandatory: Only JEV accepts yes/no or fixed-choice classification; mixed mode routes decisions to JEV and text to LLM; Only LLM never uses JEV inference.",
+    "Use legalwork_review_library to reuse exact column definitions and sets. Do not silently rewrite or drop incompatible questions; ask the user to choose compatible questions or change settings.",
+    "Create one row per project document and the columns defined below. The live review card shows progress and opens the saved grid. Do not build an HTML artifact or run separate extraction agents.",
     ``,
     `## What to extract`,
     ``,
     body,
     ``,
-    `When the user asks to run "${title}", use the \`tabular-review\` skill.`,
+    `When the user asks to run "${title}", use the saved-review tools above.`,
   ].join("\n")}\n`;
 }

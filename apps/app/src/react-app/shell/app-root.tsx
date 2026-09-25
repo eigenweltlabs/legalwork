@@ -109,6 +109,7 @@ export function AppRoot() {
                 }
               />
               <Route path="/workspace/:workspaceId/project" element={<DevProfiler id="SessionRoute"><SessionRoute /></DevProfiler>} />
+              <Route path="/workspace/:workspaceId/reviews" element={<DevProfiler id="SessionRoute"><SessionRoute /></DevProfiler>} />
               <Route path="/workspace/:workspaceId/tasks" element={<DevProfiler id="SessionRoute"><SessionRoute /></DevProfiler>} />
               <Route
                 path="/workspace/:workspaceId/session"

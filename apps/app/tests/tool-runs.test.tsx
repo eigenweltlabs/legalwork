@@ -75,3 +75,21 @@ test("project widgets remain visible outside collapsed tool activity, also after
     expect(groups[1]).toEqual({ kind: "project", part: project });
   }
 });
+
+test("review creation and start share one visible card while unrelated commands stay collapsed", () => {
+  const output = { ok: true, workspaceId: "project-1", review: { id: "101ec043-4ef0-4df7-88b6-4690869e8830", name: "NDA review", status: "draft", completed: 0, total: 2, documents: 2, columns: 1 } };
+  const created: DynamicToolUIPart = { ...bash, toolName: "legalwork_review_create", toolCallId: "review-create", output };
+  const started: DynamicToolUIPart = { ...created, toolName: "legalwork_review_start", toolCallId: "review-start", output: JSON.stringify({ ...output, review: { ...output.review, status: "running" } }) };
+  for (const thinking of [false, true]) {
+    const runs = groupAssistantToolRuns(messages([[bash, created], [reasoning, started], [appTool]]), thinking);
+    const groups = runs.flatMap(run => getAssistantRenderGroups(run.message.parts, thinking));
+    expect(groups.filter(group => group.kind === "review")).toEqual([{ kind: "review", part: started }]);
+    expect(groups.filter(group => group.kind === "tools").flatMap(group => group.parts).filter(part => part.type !== "reasoning")).toEqual([bash, appTool]);
+  }
+});
+
+test("a pending or failed review action remains visible instead of disappearing into command activity", () => {
+  const pending: DynamicToolUIPart = { type: "dynamic-tool", toolName: "legalwork_review_create", toolCallId: "review-create", state: "input-available", input: {} };
+  const failed: DynamicToolUIPart = { ...pending, state: "output-error", errorText: "Choose compatible columns." };
+  for (const part of [pending, failed]) expect(getAssistantRenderGroups([bash, part], false).at(-1)).toEqual({ kind: "review", part });
+});

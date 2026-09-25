@@ -1,3 +1,4 @@
+import { ProjectReviews } from "../../reviews/project-reviews";
 import { ProjectHome } from "../../workspace/project-home";
 /** @jsxImportSource react */
 import type { CSSProperties } from "react";
@@ -215,7 +216,7 @@ export type SessionPageProps = {
   onAccessibleTargetsChange?: (targets: OpenTarget[]) => void;
   /** When set, replaces the session main pane (keeps the sidebar). Used for the Evals screen. */
   mainView?: React.ReactNode;
-  projectPage?: "home" | "tasks";
+  projectPage?: "home" | "tasks" | "reviews";
   onRenameProject?: (name: string) => Promise<boolean>;
   projectTasksView?: React.ReactNode;
   onStartProjectRecording: () => void;
@@ -987,7 +988,9 @@ export function SessionPage(props: SessionPageProps) {
       onClose={closeFileSidebar}
     />
   );
-  const mainView = props.projectPage === "tasks" ? props.projectTasksView : props.projectPage === "home" ? (
+  const mainView = props.projectPage === "reviews" ? (
+    props.legalworkServerClient && props.runtimeWorkspaceId ? <ProjectReviews key={props.selectedWorkspaceId} client={props.legalworkServerClient} workspaceId={props.runtimeWorkspaceId} projectName={props.selectedWorkspaceDisplay.displayName || props.selectedWorkspaceDisplay.name || props.selectedWorkspaceId} /> : <p className="p-8 text-muted-foreground">{t("projects.connecting")}</p>
+  ) : props.projectPage === "tasks" ? props.projectTasksView : props.projectPage === "home" ? (
     props.legalworkServerClient && props.runtimeWorkspaceId ? <ProjectHome
       key={props.selectedWorkspaceId}
       client={props.legalworkServerClient}

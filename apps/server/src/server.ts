@@ -86,6 +86,9 @@ import { openBenchmarkStore } from "./benchmarks/store.js";
 import { registerBenchmarkRoutes } from "./routes/benchmarks.js";
 import { registerStorageRoutes } from "./routes/file-storage.js";
 import { DocumentPreparation } from "./document-preparation/service.js";
+import { ReviewService } from "./reviews/service.js";
+import { ReviewExecutor } from "./reviews/executor.js";
+import { registerReviewRoutes } from "./routes/reviews.js";
 import { registerDocumentPreparationRoutes } from "./routes/document-preparation.js";
 import { registerOcrRoutes } from "./routes/ocr.js";
 import { OcrManager } from "./ocr/manager.js";
@@ -758,7 +761,8 @@ export async function startServer(config: ServerConfig): Promise<StartedServer> 
   });
   const ocr = new OcrManager(join(config.configPath ? dirname(resolve(config.configPath)) : join(homedir(), ".config", "legalwork"), "ocr"));
   const preparation = new DocumentPreparation(ocr);
-  const routes = createRoutes(config, approvals, tokens, env, officeTools, restartReloadWatchers, benchmarkRunner, ocr, preparation);
+  const reviews = new ReviewService(new ReviewExecutor(config), preparation);
+  const routes = createRoutes(config, approvals, tokens, env, officeTools, restartReloadWatchers, benchmarkRunner, ocr, preparation, reviews);
 
   const serverOptions: {
     hostname: string;
@@ -969,6 +973,7 @@ export async function startServer(config: ServerConfig): Promise<StartedServer> 
     wordAddinPort: wordAddinServer?.port ?? null,
     stop: async () => {
       approvals.dispose();
+      reviews.stop();
       preparation.stop();
       ocr.runtime.cancel();
       stopTaskSync();
@@ -1483,9 +1488,11 @@ function createRoutes(
   benchmarkRunner: BenchmarkRunner,
   ocr: OcrManager,
   preparation: DocumentPreparation,
+  reviews: ReviewService,
 ): Route[] {
   const routes: Route[] = [];
   registerSystemOneRoutes({ routes, config, jsonResponse, readJsonBody, ensureWritable, requireClientScope });
+  registerReviewRoutes({ routes, config, reviews, jsonResponse, readJsonBodyLimited, ensureWritable, requireClientScope, resolveWorkspace });
   registerDocumentPreparationRoutes({ routes, config, preparation, jsonResponse, readJsonBodyLimited, ensureWritable, requireClientScope, resolveWorkspace });
   registerOcrRoutes({ routes, config, ocr, jsonResponse, readJsonBodyLimited, ensureWritable });
   registerStorageRoutes({ routes, config, jsonResponse, readJsonBodyLimited, ensureWritable, requireApproval, requireClientScope, resolveWorkspace });

@@ -29,9 +29,9 @@ describe("workflow document preservation", () => {
   test("new tabular workflows retain their executable skill instruction", () => {
     const name = workflowName('Prüfung Verträge', 'tabular');
     assert.equal(name, 'workflow-tabular-prufung-vertrage');
-    const content = newWorkflowContent(name, 'Review the documents', '# Review\n\nUse the `tabular-review` skill.');
+    const content = newWorkflowContent(name, 'Review the documents', '# Review\n\nUse legalwork_review_settings and legalwork_review_start.');
     assert.ok(content.includes('name: workflow-tabular-prufung-vertrage'));
-    assert.ok(content.includes('`tabular-review`'));
+    assert.ok(content.includes('legalwork_review_start'));
     assert.ok(!content.includes('workflow_type:'));
   });
 });
@@ -263,7 +263,7 @@ describe("workflow setup dialog creation", () => {
     const fixture = setup();
     const created = await createWorkflow(fixture.draft.workspaceId, "tabular", { title: "Contract comparison", description: "Compare contracts" });
     assert.equal(created.name, "workflow-tabular-contract-comparison");
-    assert.ok(created.body.includes("`tabular-review`"));
+    assert.ok(created.body.includes("legalwork_review_start"));
     assert.equal(workflowDirty(created), false);
   });
 });

@@ -43,7 +43,8 @@
     "./file-storage": "./src/file-storage.ts",
     "./model-limits": "./src/model-limits.ts",
     "./systemone": "./src/systemone.ts",
-    "./ocr": "./src/ocr.ts"
+    "./ocr": "./src/ocr.ts",
+    "./reviews": "./src/reviews.ts"
   },
   "files": [
     "src",

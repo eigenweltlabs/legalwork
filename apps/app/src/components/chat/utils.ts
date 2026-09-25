@@ -1,3 +1,4 @@
+import { isReviewCardTool, parseReviewCard } from "./review/review-tool";
 import { isProjectListTool } from "./project/project-tool";
 import { isReasoningUIPart, isToolUIPart, type DynamicToolUIPart, type FileUIPart, type ReasoningUIPart, type ToolUIPart, type UIMessage } from "ai"
 import type { ThreadStatus } from "@/lib/messages"
@@ -115,6 +116,7 @@ type AssistantRenderGroup =
   | { kind: "text"; text: string }
   | { kind: "reasoning"; text: string; isStreaming: boolean }
   | { kind: "file"; part: FileUIPart }
+  | { kind: "review"; part: ToolUIPart | DynamicToolUIPart }
   | { kind: "project"; part: ToolUIPart | DynamicToolUIPart }
   | { kind: "tools"; parts: Array<ToolUIPart | DynamicToolUIPart | ReasoningUIPart> }
 
@@ -223,6 +225,12 @@ export function getAssistantRenderGroups(
     }
 
     if (isToolUIPart(part)) {
+      if (isReviewCardTool(part)) {
+        const id = part.state === "output-available" ? parseReviewCard(part.output)?.review.id : null;
+        const existing = id ? groups.findIndex(group => group.kind === "review" && group.part.state === "output-available" && parseReviewCard(group.part.output)?.review.id === id) : -1;
+        if (existing >= 0) groups.splice(existing, 1);
+        groups.push({ kind: "review", part }); continue;
+      }
       if (isProjectListTool(part)) { groups.push({ kind: "project", part }); continue; }
       const previous = groups.at(-1)
       if (previous?.kind === "tools") previous.parts.push(part)

@@ -37,6 +37,7 @@ const placeholders = (value: string): string[] =>
  * Everything else matching English is an untranslated string.
  */
 const GERMAN_KEEPS_ENGLISH = new Set<string>([
+  "review.mixed", // Product model names: JEV + LLM.
   "systemone.typesafe",
   // Storage protocol names and the shared technical term "Port".
   "storage.provider_webdav", "storage.provider_sftp", "storage.provider_ftp", "storage.field_port",

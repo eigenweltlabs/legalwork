@@ -105,16 +105,16 @@ Do not start a second stack on occupied ports or delete another development stac
 
 ## Review and OCR
 
-`tabular_review_models` exposes the connected chat and SystemOne models so the
-agent can select `backend`, `providerId` and `model` explicitly. Project context
-and document-preparation tools remain registered alongside the review tools.
+Open a project's **Tabular Review** page and choose the execution mode/models in
+Review settings. Agents first call `legalwork_review_settings`, then reuse library
+prompts with `legalwork_review_library`, create a saved review and start it. The
+server enforces the selected mode and retains the same results for UI and agent use.
 
-For PDF/image review, first install a local OCR model or configure an OCR endpoint
-in AI Providers. `legalwork_document_prepare` pins that OCR engine for the run;
-`tabular_review_row` consumes its `preparationPath`. DOCX/text can supply complete
-text directly. SystemOne decisions remain uncited; LLM citations are checked
-against prepared evidence. Incomplete OCR blocks SystemOne and cannot become a
-clean LLM "Not found" result.
+For PDF/image review, install a local OCR model or configure an OCR endpoint in AI
+Providers. The review runner uses `DocumentPreparation`, which pins that engine.
+DOCX/text are read completely with explicit size limits. SystemOne decisions remain
+uncited; LLM citations are verified against source evidence. Incomplete OCR blocks
+JEV and cannot become a clean LLM "Not found" result.
 
 See [SystemOne contract](systemone.md) and [OCR documentation](../apps/server/src/ocr/README.md).
 These steps are for local development. Pushing either branch does not deploy the

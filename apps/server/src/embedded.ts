@@ -10,6 +10,8 @@ import { resolveServerConfig, type CliArgs } from "./config.js";
 import { createManagedOpencodeServer, type ManagedOpencodeServer, type OpencodeExecutionSnapshot } from "./managed-opencode.js";
 import { startServer, syncAllWorkspacesRuntimeMcpToEngine } from "./server.js";
 import { ensureWorkspaceFiles } from "./workspace-init.js";
+import { globalSkillsDir } from "./workspace-files.js";
+import { retireSharedLegacyReview } from "./reviews/retire-legacy.js";
 import {
   keepLegalworkRuntimeConfigFileFresh,
   legalworkRuntimeConfigFilePath,
@@ -75,6 +77,7 @@ export async function startEmbeddedServer(options: EmbeddedServerOptions): Promi
   let managedOpencode: ManagedOpencodeServer | null = null;
 
   if (!config.readOnly) {
+    await retireSharedLegacyReview(globalSkillsDir());
     for (const workspace of config.workspaces) {
       await ensureWorkspaceFiles(workspace.path, workspace.preset ?? "starter");
     }

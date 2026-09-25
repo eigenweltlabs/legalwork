@@ -31,3 +31,7 @@ export function workspaceProjectRoute(workspaceId: string) {
 export function workspaceTasksRoute(workspaceId: string) {
   return `/workspace/${encodeURIComponent(workspaceId.trim())}/tasks`;
 }
+
+export function workspaceReviewsRoute(workspaceId: string, reviewId?: string) {
+  return `/workspace/${encodeURIComponent(workspaceId.trim())}/reviews${reviewId ? `?review=${encodeURIComponent(reviewId)}` : ""}`;
+}

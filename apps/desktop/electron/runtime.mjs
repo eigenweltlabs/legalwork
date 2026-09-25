@@ -473,7 +473,7 @@ export function nodeShimFileName(platform = process.platform) {
 
 // Development-only fallback that re-execs Electron in Node mode. Electron ships a
 // full Node runtime, so machines without a system Node.js can still run the
-// bundled workspace skills (docx-edit, pdf-tools, tabular-review), which shell
+// bundled workspace skills (docx-edit, pdf-tools), which shell
 // out to `node`. The shim directory is appended LAST to the child PATH, so any
 // real Node installation always wins.
 export function nodeShimScriptContent(execPath, platform = process.platform) {

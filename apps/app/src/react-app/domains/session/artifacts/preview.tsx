@@ -149,9 +149,13 @@ export function PdfPreview({ url, title, className }: PdfPreviewProps) {
 interface ImagePreviewProps extends React.ComponentProps<"div"> {
   src: string;
   alt: string;
+  regions?: Array<{ x: number; y: number; width: number; height: number }>;
 }
 
-export function ImagePreview({ src, alt, className, ...props }: ImagePreviewProps) {
+export function ImagePreview({ src, alt, regions, className, ...props }: ImagePreviewProps) {
+  if (regions) return <div className={cn("min-h-0 flex-1 overflow-auto bg-muted/30 p-3", className)} {...props}>
+    <div className="relative mx-auto w-full"><img src={src} alt={alt} className="block h-auto w-full" />{regions.map((region, index) => <div key={index} className="pointer-events-none absolute border border-warning/80 bg-warning/20" style={{ left: `${region.x * 100}%`, top: `${region.y * 100}%`, width: `${region.width * 100}%`, height: `${region.height * 100}%` }} />)}</div>
+  </div>;
   return (
     <div className={cn("flex h-full items-center justify-center overflow-auto bg-muted/30 p-3", className)} {...props}>
       <img src={src} alt={alt} className="max-h-full max-w-full object-contain" />
