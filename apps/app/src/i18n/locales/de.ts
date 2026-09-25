@@ -498,7 +498,7 @@ const de = {
   "ocr.remove_title": "Benutzerdefiniertes Modell entfernen?",
   "ocr.remove_description": "Der gespeicherte API-Schlüssel wird gelöscht. Falls dies Ihr Standardmodell ist, wird das kleine lokale Modell zum Standard.",
   "ocr.installer_missing": "Die automatische Einrichtung lokaler Modelle ist auf diesem Computer nicht verfügbar. Benutzerdefinierte Modelle bleiben verfügbar.",
-  "ocr.install_runtime": "Lokale Python-Laufzeit wird vorbereitet…",
+  "ocr.install_runtime": "Lokale Texterkennung wird vorbereitet…",
   "ocr.install_dependencies": "OCR-Abhängigkeiten werden installiert…",
   "ocr.install_models": "Modelldateien werden heruntergeladen…",
   "ocr.install_checking": "Heruntergeladenes Modell wird mit einem Beispiel geprüft…",
