@@ -767,7 +767,7 @@ export function AppSidebar(props: AppSidebarProps) {
         <div className="flex shrink-0 flex-col pb-4">
         <div className="shrink-0 px-2 pb-1 mac:titlebar-no-drag">
           <div className={cn("lw-sidebar-brand flex gap-2.5 px-3", (showSidebarBrandName || customizingNavigation) ? "items-center py-2" : "items-center py-0") }>
-            {customizingNavigation ? <SidebarBrandEditor /> : <>
+            {customizingNavigation ? <SidebarBrandEditor onDone={finishCustomizingNavigation} /> : <>
             <img
               src={sidebarBrandLogoSrc}
               alt={`${sidebarBrandAlt} logo`}

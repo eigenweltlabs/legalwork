@@ -53,7 +53,7 @@ export function SidebarCustomization({ onDone }: { onDone: () => void }) {
   );
 }
 
-export function SidebarBrandEditor() {
+export function SidebarBrandEditor({ onDone }: { onDone: () => void }) {
   const { config, update } = useShellConfig();
   const logoInput = useRef<HTMLInputElement>(null);
   const [uploading, setUploading] = useState(false);
@@ -84,7 +84,12 @@ export function SidebarBrandEditor() {
         {config.sidebarBrandLogoDataUrl ? <Button variant="outline" size="icon-xs" className="absolute -right-1 -top-1 size-3.5 rounded-full opacity-0 group-hover/brand-logo:opacity-100 group-focus-within/brand-logo:opacity-100" disabled={uploading} aria-label={t("settings.customization.use_default")} title={t("settings.customization.use_default")} onClick={() => update({ sidebarBrandLogoDataUrl: "" })}><X className="size-2.5" /></Button> : null}
         <input ref={logoInput} type="file" accept="image/*" className="hidden" onChange={uploadLogo} />
       </div>
-      <Input aria-label={t("settings.customization.sidebar_name_label")} className="h-8 min-w-0 flex-1 rounded-md px-1.5 text-[15px] font-semibold tracking-[-0.02em] md:text-[15px]" value={config.sidebarBrandName} placeholder={DEFAULT_SHELL_CONFIG.sidebarBrandName} onChange={(event) => update({ sidebarBrandName: event.currentTarget.value })} />
+      <Input aria-label={t("settings.customization.sidebar_name_label")} className="h-8 min-w-0 flex-1 rounded-md px-1.5 text-[15px] font-semibold tracking-[-0.02em] md:text-[15px]" value={config.sidebarBrandName} placeholder={DEFAULT_SHELL_CONFIG.sidebarBrandName} onChange={(event) => update({ sidebarBrandName: event.currentTarget.value })} onKeyDown={(event) => {
+        if (event.key !== "Enter" || event.nativeEvent.isComposing) return;
+        event.preventDefault();
+        event.stopPropagation();
+        onDone();
+      }} />
     </>
   );
 }
