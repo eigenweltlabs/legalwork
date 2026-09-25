@@ -84,12 +84,12 @@ export function ProjectHome(props: {
           </div>
           <div className="mt-5 flex flex-wrap items-center gap-2">
             <div className="inline-flex rounded-xl shadow-xs">
-              <Button variant="outline" className={cn("rounded-xl shadow-none", recordingActive && "rounded-r-none")} disabled={sessionStarting || recordingFinalizing} title={recordingActive ? t("projects.new_chat_recording_on") : undefined} onClick={() => { void newSession(recordingActive); }}>
+              <Button size="lg" className={cn("rounded-xl shadow-none", recordingActive && "rounded-r-none")} disabled={sessionStarting || recordingFinalizing} title={recordingActive ? t("projects.new_chat_recording_on") : undefined} onClick={() => { void newSession(recordingActive); }}>
                 {recordingActive ? <span aria-hidden="true" className="flex size-4 items-center justify-center"><span className="size-2.5 rounded-full bg-red-9" /></span> : <MessageSquare />}{t("projects.new_chat")}
                 {recordingActive ? <span className="sr-only">{t("projects.new_chat_recording_on")}</span> : null}
               </Button>
               {recordingActive ? <DropdownMenu>
-                <DropdownMenuTrigger render={<Button variant="outline" className="rounded-l-none rounded-r-xl border-l-0 px-2 shadow-none" disabled={sessionStarting || recordingFinalizing} aria-label={t("projects.new_chat_options")}><ChevronDown className="size-3.5" /></Button>} />
+                <DropdownMenuTrigger render={<Button size="lg" className="rounded-l-none rounded-r-xl border-l-background/20 px-2.5 shadow-none" disabled={sessionStarting || recordingFinalizing} aria-label={t("projects.new_chat_options")}><ChevronDown className="size-3.5" /></Button>} />
                 <DropdownMenuContent align="end" className="w-auto">
                   <DropdownMenuItem onClick={() => { void newSession(false); }}><MessageSquare />{t("projects.new_chat_recording_off")}</DropdownMenuItem>
                 </DropdownMenuContent>
