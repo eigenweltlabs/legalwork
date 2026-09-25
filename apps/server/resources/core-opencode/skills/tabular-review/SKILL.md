@@ -34,8 +34,8 @@ into one HTML artifact.
 
 Each cell = a short `value` (what shows in the grid) plus, behind a click, a longer
 `reason`, one verbatim `quote` sentence, and the cited PDF `page` rendered with that
-sentence highlighted. Every value is grounded in a quote from that document or it is
-"Not found". No hallucinated cells.
+sentence highlighted. Every value is grounded in source evidence. Use "Not found" only after complete
+extraction; incomplete or unreadable evidence is "Needs review". No hallucinated cells.
 
 ---
 
@@ -80,7 +80,29 @@ Normalize the final columns into objects you'll pass down and render:
 the header (`Governing law`), `question` is the precise instruction the extractor
 answers, `hint` is optional (format/where to look).
 
-### 3. Fan out — one subagent per document, in parallel
+### 3. Prepare PDFs and images, then fan out
+
+Before starting document extractors, call **`legalwork_document_prepare` once with
+all PDF, PNG, JPEG and WebP paths for this run**. This freezes the OCR model selected
+in Settings → AI Providers across the review. Omit language hints unless known;
+never assume that documents are English or German. DOCX/text use their existing readers.
+
+Poll `legalwork_document_preparation_status` with the returned ID while preparation
+is queued/running. Tell the user the selected model and actual document/page progress;
+space status checks several seconds apart. On cancellation, call
+`legalwork_document_preparation_cancel`. A later prepare call reuses completed pages;
+`force: true` explicitly repeats OCR, including previously cached uncertain pages.
+
+Every PDF page is rendered and OCRed, including pages with native text. Native text
+and OCR stay separate; the presence of a text layer does not rule out handwriting.
+The tool returns one workspace-relative **`preparationPath`** per prepared document.
+Pass it as `PREPARATION` to that document's extractor. Keep that path on its output row.
+If preparation cannot start (e.g. model not installed), report the actionable tool
+error. If it fails for a file, retain the row as **Needs review**, with
+`preparationError` containing the failure. Do not silently use only native text or
+switch models. Never interpret a failed/unreadable page as proof a clause is absent.
+
+### 4. Fan out — one subagent per document, in parallel
 
 For each document, spawn the **`document-extractor`** subagent with the **Task tool**.
 Issue the calls **in parallel** (multiple Task calls in a single turn) so the grid fills
@@ -96,6 +118,7 @@ Give each extractor exactly this:
 
 ```
 FILE: <path to the one document>
+PREPARATION: <preparationPath returned by the tool, for PDFs/images>
 DOC_TYPE: <NDA | Commercial Lease | ... | unknown>
 COLUMNS:
   1. key: parties
@@ -108,12 +131,19 @@ COLUMNS:
 Return ONLY the strict JSON object defined in your instructions.
 ```
 
+Cells may include `citations: [{page, quote, source: "native"|"ocr", regionIds?: [0, 1]}]`.
+Preserve ALL citations, including those on different pages; region IDs are zero-based
+indexes into that page's OCR regions. Do not invent rectangles. The builder reads the
+preparation file, checks source hashes and quotes, and resolves region coordinates.
+A model without regions still gets a page-level citation. Incomplete extraction or
+unverifiable quotes must not become a clean "Not found" result.
+
 Each extractor returns a JSON object: `{ file, title, docType, summary, cells: [ {key,
-value, reason, quote, page, location, confidence} ] }`. Remember: `value` is short (it's
+value, reason, quote, page, location, confidence, citations} ] }`. Remember: `value` is short (it's
 a table cell), `reason` is the longer sidebar explanation, `quote` is one verbatim
 sentence, and `page` is the 1-based page that sentence is on.
 
-### 4. Collect and assemble the data file
+### 5. Collect and assemble the data file
 
 Parse each extractor's JSON (read the last ```json block). If one fails to parse or the
 subagent errored, keep the row with that file's cells set to `value: "Error"`,
@@ -129,22 +159,24 @@ Give each row BOTH paths so the viewer works in the app and when opened from dis
 
 ```json
 {
+  "preparationRequired": true,
   "matter": "<short matter/review name>",
   "generatedAt": "<current ISO 8601 timestamp>",
   "columns": [ { "key": "...", "label": "...", "question": "..." } ],
   "rows": [
     {
       "file": "ndas/acme.pdf", "fileAbs": "/abs/path/to/ndas/acme.pdf",
+      "preparationPath": ".opencode/legalwork/prepared-documents/<key>.json",
       "title": "...", "docType": "...", "summary": "...",
       "cells": {
-        "<key>": { "value": "<short>", "reason": "<longer>", "quote": "<one sentence>", "page": 3, "location": "§7.2", "confidence": "high" }
+        "<key>": { "value": "<short>", "reason": "<longer>", "quote": "<one sentence>", "page": 3, "location": "§7.2", "confidence": "high", "citations": [{ "page": 3, "quote": "<one sentence>", "source": "native" }] }
       }
     }
   ]
 }
 ```
 
-### 5. Build the artifact (run the builder — do NOT hand-write the HTML)
+### 6. Build the artifact (run the builder — do NOT hand-write the HTML)
 
 Run the bundled builder. It injects a pdf.js viewer + the Eigenwelt theme + your JSON and
 writes a `.html` artifact. **No PDF is embedded** — the artifact loads each source PDF
@@ -174,7 +206,7 @@ How the viewer reads the local PDF (no embedding):
   the highlighting viewer. This is why `fileAbs` matters — without it that link is dead.
 - No poppler or other system tools are required — pdf.js renders in the browser.
 
-### 6. Summarize in chat
+### 7. Summarize in chat
 
 After building the artifact, give a short readout: how many documents × columns, the name
 of the artifact file, and — most useful to a lawyer — the **exceptions**: cells that came

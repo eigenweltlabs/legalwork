@@ -18,6 +18,7 @@
 import { readFileSync, writeFileSync, existsSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { prepareCitations } from "./prepare-citations.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 
@@ -43,7 +44,7 @@ function main() {
   if (!dataPath) { console.error("usage: build-review.mjs <data.json> [--out file.html]"); process.exit(2); }
 
   const dataAbs = resolve(dataPath);
-  const data = JSON.parse(readFileSync(dataAbs, "utf8"));
+  const data = prepareCitations(JSON.parse(readFileSync(dataAbs, "utf8")));
 
   const templatePath = args.template ? resolve(args.template) : join(HERE, "review-template.html");
   const vendorDir = args.vendor ? resolve(args.vendor) : join(HERE, "vendor");
@@ -60,7 +61,7 @@ function main() {
   const html = template
     .replace("/*__PDFJS__*/", () => scriptSafe(pdfjs))
     .replace("/*__PDF_WORKER__*/", () => scriptSafe(worker))
-    .replace("/*__REVIEW_DATA__*/", () => JSON.stringify(data));
+    .replace("/*__REVIEW_DATA__*/", () => JSON.stringify(data).replace(/</g, "\\u003c"));
 
   const out = args.out ? resolve(args.out) : dataAbs.replace(/\.data\.json$/i, ".html").replace(/\.json$/i, ".html");
   writeFileSync(out, html, "utf8");

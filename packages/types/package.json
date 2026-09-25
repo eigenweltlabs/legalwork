@@ -41,7 +41,8 @@
     },
     "./office-editor": "./src/office-editor.ts",
     "./file-storage": "./src/file-storage.ts",
-    "./model-limits": "./src/model-limits.ts"
+    "./model-limits": "./src/model-limits.ts",
+    "./ocr": "./src/ocr.ts"
   },
   "files": [
     "src",

@@ -15,6 +15,7 @@ const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
 const sourceRoot = "apps/server/resources/core-opencode";
 
 const FILES = [
+  { source: "skills/tabular-review/assets/prepare-citations.mjs", path: ".opencode/skills/tabular-review/assets/prepare-citations.mjs" },
   { source: "skills/tabular-review/SKILL.md", path: ".opencode/skills/tabular-review/SKILL.md" },
   { source: "skills/tabular-review/assets/review-template.html", path: ".opencode/skills/tabular-review/assets/review-template.html" },
   { source: "skills/tabular-review/assets/build-review.mjs", path: ".opencode/skills/tabular-review/assets/build-review.mjs" },

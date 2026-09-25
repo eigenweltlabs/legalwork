@@ -49,6 +49,7 @@ export type AiSettingsViewProps = {
   /** Set of local provider IDs that were imported from cloud. */
   cloudProviderIds?: Set<string>;
   cloudProvidersView?: ReactNode;
+  ocrView?: ReactNode;
   /** Fusion mode configuration section (candidate models + fusion model). */
   fusionView?: ReactNode;
   /** Firm Hub: "share current settings as preset" section (shown only when entitled). */
@@ -201,6 +202,8 @@ export function AiSettingsView(props: AiSettingsViewProps) {
       </LayoutSection>
 
       {props.cloudProvidersView}
+
+      {props.ocrView}
 
       {props.fusionView}
 

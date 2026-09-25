@@ -162,7 +162,7 @@
   const state = { filter: "" };
 
   const getCell = (row, key) => { const c = row.cells; return !c ? null : Array.isArray(c) ? (c.find((x) => x && x.key === key) || null) : (c[key] || null); };
-  const isNA = (cell) => { if (!cell) return true; const v = String(cell.value ?? "").trim().toLowerCase(); return v === "" || v === "not found" || v === "n/a" || v === "na" || v === "unreadable"; };
+  const isNA = (cell) => { if (!cell) return true; const v = String(cell.value ?? "").trim().toLowerCase(); return v === "" || v === "not found" || v === "n/a" || v === "na"; };
 
   /* ---------- PDF bridge + cache ---------- */
   let reqSeq = 0;
@@ -213,10 +213,14 @@
   /* ---------- render one page with highlight ---------- */
   async function renderPage(view, pageNum) {
     const { pdf, query, stage } = view;
+    if (!stage.isConnected) return;
+    const version = view.renderVersion = (view.renderVersion || 0) + 1;
+    const current = () => stage.isConnected && version === view.renderVersion;
     view.page = Math.min(pdf.numPages, Math.max(1, pageNum));
     $("pvPageNo").textContent = `Page ${view.page} / ${pdf.numPages}`;
     $("pvPrev").disabled = view.page <= 1; $("pvNext").disabled = view.page >= pdf.numPages;
     const page = await pdf.getPage(view.page);
+    if (!current()) return;
     const stageW = stage.clientWidth - 24 || 460;
     const unit = page.getViewport({ scale: 1 });
     const scale = Math.max(0.5, Math.min(2.2, stageW / unit.width));
@@ -230,22 +234,27 @@
     const textLayer = document.createElement("div"); textLayer.className = "textLayer"; textLayer.style.width = viewport.width + "px"; textLayer.style.height = viewport.height + "px"; textLayer.style.setProperty("--scale-factor", String(scale)); wrap.appendChild(textLayer);
     stage.innerHTML = ""; stage.appendChild(wrap);
     await page.render({ canvasContext: ctx, viewport }).promise;
+    if (!current()) return;
     const content = await page.getTextContent();
+    if (!current()) return;
     const textDivs = [];
     await PDFJS.renderTextLayer({ textContent: content, container: textLayer, viewport, textDivs }).promise;
-    const hit = matchItems(query, content.items);
+    if (!current()) return;
+    const hit = view.page === view.referencePage ? matchItems(query, content.items) : new Set();
+    if (view.page === view.referencePage) drawRegions(wrap, view.regions);
     let first = null;
     hit.forEach((i) => { const el = textDivs[i]; if (el) { el.classList.add("hl"); if (!first) first = el; } });
     if (first) first.scrollIntoView({ block: "center", behavior: "smooth" });
   }
 
   async function showPdf(pdf, cell, mount) {
+    if (!mount.isConnected) return;
     mount.innerHTML =
       '<div class="pv"><div class="pv-bar"><span class="mono pv-pageno" id="pvPageNo"></span>' +
       '<span class="nav"><button class="pv-ibtn" id="pvPrev" aria-label="Previous page"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="m15 18-6-6 6-6"/></svg></button>' +
       '<button class="pv-ibtn" id="pvNext" aria-label="Next page"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg></button></span></div>' +
       '<div class="pv-stage" id="pvStage"></div></div>';
-    const view = { pdf, query: cell.quote || "", page: cell.page || 1, stage: $("pvStage") };
+    const view = { pdf, query: cell.quote || "", page: cell.page || 1, referencePage: cell.page || 1, regions: cell.regions || [], stage: $("pvStage") };
     $("pvPrev").addEventListener("click", () => renderPage(view, view.page - 1));
     $("pvNext").addEventListener("click", () => renderPage(view, view.page + 1));
     await renderPage(view, view.page);
@@ -262,6 +271,7 @@
   }
 
   function showFallback(row, cell, mount, msg) {
+    if (!mount.isConnected) return;
     const href = pdfHref(row, cell);
     mount.innerHTML = '<div class="pv"><div class="pv-status">' + esc(msg || "This PDF can’t be loaded automatically here.") +
       (href ? '<div style="margin-top:12px"><a class="btn" href="' + esc(href) + '" target="_blank" rel="noopener">Open' + (cell.page ? " page " + cell.page : "") + ' in the PDF</a></div>' : "") +
@@ -286,6 +296,37 @@
     catch (err) { showFallback(row, cell, mount, "Couldn’t auto-load the PDF (" + String(err && err.message || err) + "). Open it directly, or pick the file:"); }
   }
 
+  function drawRegions(mount, regions) {
+    for (const box of regions || []) {
+      if (![box.x, box.y, box.width, box.height].every(Number.isFinite) || box.x < 0 || box.y < 0 || box.width <= 0 || box.height <= 0 || box.x + box.width > 1.000001 || box.y + box.height > 1.000001) continue;
+      const highlight = document.createElement("div");
+      highlight.className = "ocr-region";
+      Object.assign(highlight.style, { position: "absolute", pointerEvents: "none", left: box.x * 100 + "%", top: box.y * 100 + "%", width: box.width * 100 + "%", height: box.height * 100 + "%", background: "rgba(255,210,70,.28)", border: "1px solid rgba(190,135,0,.65)", boxSizing: "border-box", zIndex: "2" });
+      mount.appendChild(highlight);
+    }
+  }
+
+  async function mountImage(row, citation, mount) {
+    mount.innerHTML = '<div class="pv-status">Loading source image…</div>';
+    const display = bytes => {
+      if (!mount.isConnected) return;
+      const url = URL.createObjectURL(new Blob([bytes]));
+      const image = document.createElement("img"); image.alt = "Source document";
+      image.style.cssText = "display:block;width:100%;height:auto";
+      const wrap = document.createElement("div"); wrap.style.cssText = "position:relative;width:100%";
+      image.onload = () => { URL.revokeObjectURL(url); drawRegions(wrap, citation.regions); };
+      image.onerror = () => { URL.revokeObjectURL(url); mount.textContent = "Could not load source image."; };
+      wrap.appendChild(image); mount.replaceChildren(wrap); image.src = url;
+    };
+    try {
+      if (window.parent && window.parent !== window) display(await requestBytes(row.file));
+      else throw new Error("Choose the source image to display it.");
+    } catch {
+      mount.innerHTML = '<label class="btn">Choose source image<input type="file" accept="image/png,image/jpeg,image/webp" hidden></label>';
+      mount.querySelector("input").addEventListener("change", async event => { const file = event.target.files[0]; if (file) display(await file.arrayBuffer()); });
+    }
+  }
+
   /* ---------- grid ---------- */
   function render() {
     const empty = $("empty");
@@ -303,6 +344,11 @@
       const tdDoc = document.createElement("td"); tdDoc.className = "doccol";
       const baseName = row.file ? (row.file.split(/[\\/]/).pop() || row.file) : "";
       tdDoc.innerHTML = `<div class="doc-title">${esc(row.title || row.file || "Document " + (ri + 1))}</div>` + (baseName ? `<div class="doc-file" title="${esc(row.file)}">${esc(baseName)}</div>` : "") + (row.docType ? `<span class="chip">${esc(row.docType)}</span>` : "");
+      if (row.preparation) {
+        const status = document.createElement("div"); status.className = "doc-file";
+        status.textContent = row.preparation.status === "complete" ? "OCR · " + row.preparation.engine : "Extraction needs review";
+        tdDoc.appendChild(status);
+      }
       tr.appendChild(tdDoc);
       data.columns.forEach((col) => {
         const cell = getCell(row, col.key); const na = isNA(cell);
@@ -325,16 +371,27 @@
     if (col.question) parts.push(`<div class="sec"><span class="eyebrow">Question</span><div class="reason" style="margin-top:8px">${esc(col.question)}</div></div>`);
     parts.push(`<div class="sec"><span class="eyebrow">Answer</span><div class="answer ${na ? "na" : ""}" style="margin-top:8px">${esc(na ? "Not found" : cell.value)}</div><div><span class="pill ${conf}"><i class="sq ${conf}"></i>${esc(na ? "Not found" : (cell.confidence || "—"))} confidence</span></div></div>`);
     if (cell && cell.reason) parts.push(`<div class="sec"><span class="eyebrow">Reason</span><div class="reason" style="margin-top:8px">${esc(cell.reason)}</div></div>`);
-    if (cell && cell.quote) parts.push(`<div class="sec"><span class="eyebrow-row"><span class="eyebrow">Source${cell.page ? " · page " + cell.page : ""}</span></span><blockquote>${esc(cell.quote)}</blockquote><div id="pvMount"></div></div>`);
+    const citations = cell && cell.citations && cell.citations.length ? cell.citations : cell && cell.quote ? [cell] : [];
+    if (citations.length) parts.push(`<div class="sec"><span class="eyebrow">Sources</span><div id="citationChoices" style="display:flex;gap:6px;flex-wrap:wrap;margin-top:8px">${citations.map((citation, index) => `<button class="btn" data-citation="${index}">Source ${index + 1}${citation.page ? " · page " + citation.page : ""}</button>`).join("")}</div><blockquote id="citationQuote"></blockquote><div id="citationPrecision" class="doc-file"></div><div id="pvMount"></div></div>`);
+    if (row.preparation && row.preparation.status !== "complete") parts.push(`<div class="sec"><span class="eyebrow">Extraction needs review</span><div class="reason">${esc(row.preparation.error || "Check source pages " + (row.preparation.pagesNeedingReview || []).join(", ") + ". Retry document preparation to rerun failed pages.")}</div></div>`);
     if (row.summary) parts.push(`<div class="sec"><span class="eyebrow">Document</span><div class="reason" style="margin-top:8px">${esc(row.summary)}</div></div>`);
     $("dBody").innerHTML = parts.join("");
     $("drawer").classList.add("open"); $("drawer").setAttribute("aria-hidden", "false"); $("scrim").classList.add("open");
-    const mount = $("pvMount");
-    if (mount && cell && cell.quote) {
+    const chooseCitation = index => {
+      const citation = citations[index];
+      $("citationQuote").textContent = citation.quote;
+      $("citationPrecision").textContent = citation.source === "ocr" && !(citation.regions || []).length ? "Page reference · precise position unavailable" : "";
+      // Replace the node so an older asynchronous viewer cannot overwrite the next source.
+      const mount = document.createElement("div"); mount.id = "pvMount"; $("pvMount").replaceWith(mount);
       const isPdf = /\.pdf$/i.test(row.file || "") || Boolean(row.fileUrl);
-      if (isPdf && PDFJS) mountViewer(row, cell, mount);
-      else if (isPdf) mount.innerHTML = '<div class="nopage">PDF viewer unavailable in this build.</div>';
-      else mount.innerHTML = '<div class="nopage">No PDF preview for this document — see the source sentence above.</div>';
+      if (isPdf && PDFJS) mountViewer(row, citation, mount);
+      else if (/\.(png|jpe?g|webp)$/i.test(row.file || "")) mountImage(row, citation, mount);
+      else mount.innerHTML = '<div class="nopage">See the source sentence above.</div>';
+      document.querySelectorAll("[data-citation]").forEach(button => button.setAttribute("aria-pressed", String(Number(button.dataset.citation) === index)));
+    };
+    if (citations.length) {
+      $("citationChoices").querySelectorAll("button").forEach(button => button.addEventListener("click", () => chooseCitation(Number(button.dataset.citation))));
+      chooseCitation(0);
     }
   }
   function closeDrawer() { $("drawer").classList.remove("open"); $("drawer").setAttribute("aria-hidden", "true"); $("scrim").classList.remove("open"); }
@@ -343,7 +400,7 @@
     const cols = data.columns || []; const head = ["Document", "File", "Doc type"];
     cols.forEach((c) => { const L = c.label || c.key; head.push(L, `${L} — confidence`, `${L} — page`, `${L} — reason`); });
     const lines = [head];
-    (data.rows || []).forEach((row) => { const line = [row.title || "", row.file || "", row.docType || ""]; cols.forEach((c) => { const cell = getCell(row, c.key); const na = isNA(cell); line.push(na ? "Not found" : cell.value, na ? "" : (cell.confidence || ""), cell && cell.page ? cell.page : "", (cell && cell.reason) || ""); }); lines.push(line); });
+    (data.rows || []).forEach((row) => { const line = [row.title || "", row.file || "", row.docType || ""]; cols.forEach((c) => { const cell = getCell(row, c.key); const na = isNA(cell); line.push(na ? "Not found" : cell.value, na ? "" : (cell.confidence || ""), cell && cell.citations?.length ? cell.citations.map(citation => citation.page).join("; ") : cell && cell.page ? cell.page : "", (cell && cell.reason) || ""); }); lines.push(line); });
     const csv = lines.map((r) => r.map((v) => { v = String(v ?? ""); return /[",\n]/.test(v) ? `"${v.replace(/"/g, '""')}"` : v; }).join(",")).join("\n");
     const a = document.createElement("a"); a.href = URL.createObjectURL(new Blob([csv], { type: "text/csv" })); a.download = `${(data.matter || "review").replace(/[^\w.-]+/g, "_")}.csv`;
     document.body.appendChild(a); a.click(); a.remove();

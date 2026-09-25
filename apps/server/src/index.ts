@@ -22,3 +22,4 @@ export { startEmbeddedServer, type EmbeddedServerHandle, type EmbeddedServerOpti
 export { startServer } from "./server.js";
 export { resolveServerConfig } from "./config.js";
 export type { ServeResult } from "./serve-node.js";
+export * from "./ocr/index.js";
