@@ -303,6 +303,19 @@ export const MCP_QUICK_CONNECT: McpDirectoryInfo[] = [
     preview: true,
   },
   {
+    name: "Vaquill",
+    serverName: "vaquill",
+    get description() { return t("mcp.quick_connect_vaquill_desc") },
+    // Hosted US statute server (github.com/Vaquill-AI/vaquill-mcp). One-click:
+    // /mcp is OAuth 2.1 + PKCE with dynamic client registration, and accepts
+    // the engine's loopback redirect. Not /s/_, the same server for API keys
+    // (vq_key_…), which lists tools without auth and so never offers sign-in.
+    url: "https://mcp.vaquill.ai/mcp",
+    type: "remote",
+    oauth: true,
+    kind: "mcp",
+  },
+  {
     name: "Verisk",
     serverName: "verisk",
     get description() { return t("mcp.desc_verisk") },

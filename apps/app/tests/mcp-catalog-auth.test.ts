@@ -19,8 +19,8 @@ describe("MCP catalog authentication", () => {
     expect(dropbox?.description).not.toContain("One-click");
   });
 
-  test("interactive CourtListener and Everlaw connectors use OAuth rather than token-only setup", () => {
-    for (const name of ["courtlistener", "everlaw"]) {
+  test("interactive CourtListener, Everlaw, and Vaquill connectors use OAuth rather than token-only setup", () => {
+    for (const name of ["courtlistener", "everlaw", "vaquill"]) {
       const entry = MCP_QUICK_CONNECT.find((entry) => entry.serverName === name);
       expect(entry?.oauth).toBe(true);
       expect(entry?.requiresToken).not.toBe(true);
