@@ -36,6 +36,8 @@ allowBuilds:
   node-pty: true
   protobufjs: true
   sharp: true
+  # CPU binaries already ship in the package; do not download optional CUDA libraries.
+  onnxruntime-node: false
   # Windows releases use NSIS, not the optional Squirrel installer.
   electron-winstaller: false
 # Keep document parsers patched even when a transitive dependency pins an older patch.

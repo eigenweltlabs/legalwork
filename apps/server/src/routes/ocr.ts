@@ -34,6 +34,6 @@ export function registerOcrRoutes(options: {
   route("PUT", "/ocr/servers/:id", async (ctx) => { await ocr.saveServer(await body(ctx), ctx.params.id); return ocr.view(config.readOnly); });
   route("DELETE", "/ocr/servers/:id", async (ctx) => { await ocr.removeServer(ctx.params.id); return ocr.view(config.readOnly); });
   route("POST", "/ocr/engines/:id/install", async (ctx) => { await ocr.install(ctx.params.id); return ocr.view(config.readOnly); });
-  route("DELETE", "/ocr/install", async () => { ocr.runtime.cancel(); return ocr.view(config.readOnly); });
+  route("DELETE", "/ocr/install", async () => { await ocr.cancelInstall(); return ocr.view(config.readOnly); });
   route("POST", "/ocr/engines/:id/test", (ctx) => ocr.test(ctx.params.id));
 }
