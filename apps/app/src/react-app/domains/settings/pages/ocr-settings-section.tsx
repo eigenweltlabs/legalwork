@@ -42,13 +42,24 @@ export function OcrSettingsSection({ client }: { client: Pick<LegalworkServerCli
   const [draft, setDraft] = useState<Draft | null>(null);
   const [formError, setFormError] = useState<string | null>(null);
   const [removing, setRemoving] = useState<Engine | null>(null);
+  const [showInstallSuccess, setShowInstallSuccess] = useState(false);
   const installing = activeInstall(settings);
+  const installStage = settings?.installation?.stage;
   const apiTypes = [
     { value: "paddleocr", label: t("ocr.api_paddle") },
     { value: "mistral-ocr", label: t("ocr.api_mistral") },
     { value: "chat-completions", label: t("ocr.api_chat") },
   ];
   const authenticationItems = [{ value: "api-key", label: t("ocr.api_key") }, { value: "none", label: t("ocr.auth_none") }];
+
+  useEffect(() => {
+    if (installing) { setShowInstallSuccess(true); return; }
+    if (installStage !== "complete") { setShowInstallSuccess(false); return; }
+    // Only show success after an observed download; reopening Settings must not
+    // replay the server's retained completion status.
+    const timer = setTimeout(() => setShowInstallSuccess(false), 5000);
+    return () => clearTimeout(timer);
+  }, [client, installing, installStage]);
 
   useEffect(() => {
     let disposed = false;
@@ -172,7 +183,7 @@ export function OcrSettingsSection({ client }: { client: Pick<LegalworkServerCli
         <div className="mt-3 w-full border-t border-dls-border">{engineRow(engine)}</div>
       </LayoutSectionItem>)}
       {settings && !settings.installerAvailable ? <SettingsNotice tone="warning">{t("ocr.installer_missing")}</SettingsNotice> : null}
-      {settings?.installation ? <SettingsNotice tone={settings.installation.stage === "failed" ? "error" : "neutral"}>
+      {settings?.installation && (installStage !== "complete" || showInstallSuccess) ? <SettingsNotice tone={settings.installation.stage === "failed" ? "error" : "neutral"}>
         <div role="status" className="flex items-center justify-between gap-3">
           <span>{t(`ocr.install_${settings.installation.stage}`)}</span>
           {installing ? <Button variant="outline" disabled={disabled} onClick={() => client && void update(() => client.cancelOcrInstall())}>{t("ocr.cancel")}</Button> : null}
